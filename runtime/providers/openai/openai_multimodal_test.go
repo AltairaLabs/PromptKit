@@ -1255,10 +1255,10 @@ func TestOpenAIProvider_APIMode_Configuration(t *testing.T) {
 		expectedAPIMode  string
 	}{
 		{
-			name:             "default is legacy completions when undeclared",
+			name:             "OpenAI's own API defaults to responses when undeclared",
 			model:            "gpt-4o",
 			additionalConfig: nil,
-			expectedAPIMode:  "completions",
+			expectedAPIMode:  "responses",
 		},
 		{
 			name:             "explicit completions",

@@ -88,9 +88,11 @@ func TestVADProviderConfig_StaysStreaming(t *testing.T) {
 
 // Scalar settings still reach the stage.
 func TestVADProviderConfig_CarriesModelSettings(t *testing.T) {
-	got := vadProviderConfig(&Config{MaxTokens: 1234, Temperature: 0.25})
+	topK := 12
+	got := vadProviderConfig(&Config{MaxTokens: 1234, Temperature: 0.25, TopK: &topK})
 	assert.Equal(t, 1234, got.MaxTokens)
 	assert.InDelta(t, 0.25, got.Temperature, 0.0001)
+	assert.Equal(t, &topK, got.TopK)
 }
 
 // Skill tool grants must reach VAD mode's provider stage.

@@ -8,6 +8,82 @@ changes that need you to do something, with what to change and why.
 
 ## Unreleased
 
+### Realtime sessions use the prompt's parameters and the configured model
+
+An `OpenDuplex` session in ASM mode ignored the prompt's `parameters`, so the
+same prompt ran at the realtime API's defaults. The session now carries them:
+Gemini Live sends `temperature`, `top_p`, `top_k` and `max_tokens`, and OpenAI
+Realtime sends `max_tokens` (its session takes no other sampling parameter).
+The rest are logged as not sent. Gemini Live does not answer below a
+temperature of 0.5, so a lower one is not sent, with a warning.
+
+An OpenAI realtime session also ran a built-in model whenever the configured
+one lacked "realtime" in its name, and that model has been retired. It now
+runs the configured model. A Gemini Live provider with no model uses
+`gemini-3.8-live`.
+
+| If you | You will see | Change |
+|---|---|---|
+| Open a duplex session on a prompt that sets `parameters` | the session uses them | check the values, which were never sent before |
+| Set a temperature below 0.5 on a Gemini Live prompt | a warning, and the model's default temperature | raise it to 0.5 or more |
+
+### OpenAI uses the Responses API by default
+
+An OpenAI provider with no `api_mode` used Chat Completions unless its model
+name ended in `-pro`. Current OpenAI models refuse function tools on Chat
+Completions, so every tool call on them failed. Against OpenAI's own API (no
+`base_url`, or `api.openai.com`) the default is now the Responses API. A
+provider with any other `base_url`, which is usually an OpenAI-compatible
+server, still defaults to Chat Completions, as do Azure and Bedrock.
+
+The Responses path now loads images and rejects parts the same way as Chat
+Completions. Before, it read only an image's URL or inline data and dropped
+an image held in media storage or a local file, and any audio or video part,
+without an error.
+
+| If you | You will see | Change |
+|---|---|---|
+| Use OpenAI without `api_mode` | requests to `/v1/responses` | nothing, or set `api_mode: completions` to keep Chat Completions |
+| Send audio input to an audio model (`gpt-audio`) without `api_mode` | an error that audio needs Chat Completions | set `api_mode: completions` |
+| Point `base_url` at an OpenAI-compatible server | nothing | nothing |
+
+### Providers stop sending sampling parameters the model rejects
+
+Current OpenAI models (`gpt-5.5`, `gpt-6`) and Claude 5.x models answer
+`temperature`, `top_p`, `top_k` or a penalty with a 400, and Gemini models
+answer penalties with one. Unless the provider config listed the parameter
+in `unsupported_params`, a prompt that set it failed every call. The OpenAI,
+Claude and Gemini providers now read the rejection, stop sending that
+parameter for the rest of the provider's life, log a warning naming it, and
+retry the call, which then succeeds with the model's own default.
+
+| If you | You will see | Change |
+|---|---|---|
+| Set a sampling parameter a model rejects | the call succeeds after one retry, and a warning | remove the parameter, or list it in `unsupported_params` to skip the retry |
+| List parameters in `unsupported_params` | nothing | nothing |
+
+### A prompt's `top_k` reaches the provider
+
+A prompt's `parameters.top_k`, and a `model_overrides` entry's, was read from
+the pack and then dropped before the call. It now reaches Claude (including
+Bedrock and Vertex), Gemini and vLLM, whose APIs take it, on an opened prompt,
+a composition step and a mid-turn workflow handoff. Claude omits it when
+extended thinking is on, since the API rejects the two together. OpenAI and
+Ollama's OpenAI-compatible endpoint have no top-k parameter, so they drop it
+and log a warning once per provider. A model that rejects it is configured
+with `unsupported_params: [top_k]`, which Claude and Gemini honor.
+
+`PredictionRequest` and `prompt.CallParams` gain `TopK *int`, where nil sends
+nothing. `providers.WarnUnsentParams` logs, once per provider and parameter,
+a `top_k` or penalty a provider does not send. Claude, Gemini and the OpenAI
+Responses API now log it for penalties too, which they drop.
+
+| If you | You will see | Change |
+|---|---|---|
+| Set `top_k` on a prompt served by Claude, Gemini or vLLM | it on the request | check the value, which was never sent before |
+| Set `top_k` on a prompt served by OpenAI or Ollama | a warning that it is not sent | remove it, or set it through `extra_body` for a compatible backend that takes it |
+| Write a custom provider | `PredictionRequest.TopK` set when the prompt asks for it | send it, or call `providers.WarnUnsentParams` |
+
 ### Context compaction leaves room for the system prompt and tools, and keeps the message log whole
 
 The tool-loop compactor measured only the transcript against its budget, so a
@@ -32,16 +108,17 @@ a temperature of `0` as unset and replaced it with its own default, so
 `temperature: 0` never took effect, and `top_p`, `frequency_penalty` and
 `presence_penalty` were never sent at all. They now apply to an opened prompt,
 a composition step and a mid-turn workflow handoff, and a `model_overrides`
-entry can set them too. A realtime duplex session (ASM) does not take them yet.
+entry can set them too. A realtime duplex session (ASM) takes them as well; see
+the realtime section above.
 
 `PredictionRequest` gains `TemperatureSet`, `FrequencyPenalty` and
 `PresencePenalty`. A zero `Temperature` with `TemperatureSet` is sent as zero;
 `providers.ResolveTemperature` applies the rule for custom providers.
-Penalties are sent to OpenAI Chat Completions, vLLM, Ollama and Gemini, whose
-APIs take them, and not to the OpenAI Responses API or Claude, whose APIs do not.
+Penalties are sent to OpenAI Chat Completions, vLLM and Ollama, whose APIs
+take them. They are not sent to the OpenAI Responses API or Claude, whose APIs
+do not, nor to Gemini, whose current models answer them with a 400.
 `top_p` is not sent to Claude, which rejects it alongside a temperature. A model
-that rejects a parameter is configured with `unsupported_params`, which Gemini
-now honors for the penalties. OpenAI o-series models withhold the penalties by
+that rejects a parameter is configured with `unsupported_params`. OpenAI o-series models withhold the penalties by
 default, as they already did temperature and `top_p`.
 
 | If you | You will see | Change |

@@ -8,22 +8,20 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
-// A model configured with unsupported_params for the penalties is not sent
-// them; one without is.
-func TestApplyPenalties_HonorsUnsupportedParams(t *testing.T) {
-	freq, pres := float32(0.3), float32(0.4)
-	req := &providers.PredictionRequest{FrequencyPenalty: &freq, PresencePenalty: &pres}
+// A model configured with unsupported_params: [top_k] is not sent it; one
+// without is.
+func TestApplyOptionalSampling_HonorsUnsupportedParams(t *testing.T) {
+	topK := 40
+	req := &providers.PredictionRequest{TopK: &topK}
 
 	open := &Provider{}
 	var cfg geminiGenConfig
-	cfg.applyPenalties(open, req)
-	assert.Equal(t, &freq, cfg.FrequencyPenalty)
-	assert.Equal(t, &pres, cfg.PresencePenalty)
+	cfg.applyOptionalSampling(open, req)
+	assert.Equal(t, &topK, cfg.TopK)
 
 	closed := &Provider{}
-	closed.setUnsupportedParams([]string{"presence_penalty", "frequency_penalty"})
+	closed.SetUnsupportedParams([]string{"top_k"})
 	cfg = geminiGenConfig{}
-	cfg.applyPenalties(closed, req)
-	assert.Nil(t, cfg.FrequencyPenalty)
-	assert.Nil(t, cfg.PresencePenalty)
+	cfg.applyOptionalSampling(closed, req)
+	assert.Nil(t, cfg.TopK)
 }

@@ -182,10 +182,21 @@ func (p *ToolProvider) useStrictTools() bool {
 	return true
 }
 
-// PredictWithTools performs a prediction request with tool support
+// PredictWithTools runs predictWithToolsOnce, retrying without any sampling
+// parameter the API rejects for this model.
+func (p *ToolProvider) PredictWithTools(
+	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools, toolChoice string,
+) (providers.PredictionResponse, []types.MessageToolCall, error) {
+	return providers.RetryToolCall(&p.BaseProvider, req,
+		func(r providers.PredictionRequest) (providers.PredictionResponse, []types.MessageToolCall, error) {
+			return p.predictWithToolsOnce(ctx, r, tools, toolChoice)
+		})
+}
+
+// predictWithToolsOnce performs a prediction request with tool support
 //
 //nolint:gocritic // hugeParam: interface signature requires value receiver
-func (p *ToolProvider) PredictWithTools(
+func (p *ToolProvider) predictWithToolsOnce(
 	ctx context.Context,
 	req providers.PredictionRequest,
 	tools providers.ProviderTools,
@@ -560,12 +571,23 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]
 	return p.MakeJSONRequest(ctx, url, request, headers, "OpenAI")
 }
 
-// PredictStreamWithTools performs a streaming predict request with tool support.
+// PredictStreamWithTools runs predictStreamWithToolsOnce, retrying without
+// any sampling parameter the API rejects for this model.
+func (p *ToolProvider) PredictStreamWithTools(
+	ctx context.Context, req providers.PredictionRequest, tools any, toolChoice string,
+) (<-chan providers.StreamChunk, error) {
+	return providers.RetryCall(&p.BaseProvider, req,
+		func(r providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+			return p.predictStreamWithToolsOnce(ctx, r, tools, toolChoice)
+		})
+}
+
+// predictStreamWithToolsOnce performs a streaming predict request with tool support.
 //
 // Bedrock note: same fallback as PredictStream — Bedrock's streaming
 // endpoint uses binary event-stream framing distinct from SSE; we run a
 // single non-streaming call and surface it as one terminal chunk.
-func (p *ToolProvider) PredictStreamWithTools(
+func (p *ToolProvider) predictStreamWithToolsOnce(
 	ctx context.Context,
 	req providers.PredictionRequest,
 	tools interface{},

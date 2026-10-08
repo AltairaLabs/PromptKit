@@ -133,6 +133,10 @@ type StreamSessionConfig struct {
 	// responses. Note: conversation context may be lost on reconnection.
 	AutoReconnect     bool
 	MaxReconnectTries int // Maximum reconnection attempts (default: 3)
+
+	// Sampling is the prompt's sampling parameters, sent in the setup
+	// message's generationConfig (except the penalties, which Gemini rejects).
+	Sampling *providers.StreamingSampling
 }
 
 // NewStreamSession creates a new streaming session

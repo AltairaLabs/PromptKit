@@ -1,6 +1,7 @@
 package conformance_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"testing"
@@ -8,14 +9,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // An explicitly set temperature of 0 reaches the wire as 0, even over a
 // provider's non-zero default, and frequency/presence penalties reach every
-// provider whose API takes them (#2212). Before, every provider replaced a zero
-// temperature with its default, and nothing carried the penalties.
+// provider whose API takes them (#2212), as does top_k (#2220). Before, every
+// provider replaced a zero temperature with its default, and nothing carried the
+// penalties or top_k.
 func TestProviders_SamplingParamsReachWireOnAllPaths(t *testing.T) {
 	const openAIReply = `{"id":"c","object":"chat.completion","model":"m","choices":` +
 		`[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],` +
@@ -32,6 +35,7 @@ func TestProviders_SamplingParamsReachWireOnAllPaths(t *testing.T) {
 		config    string // the object holding the sampling keys: "" for the body, else a field of it
 		temp      string
 		penalties [2]string // frequency, presence wire keys; "" where the API takes none
+		topK      string    // top_k's wire key; "" where the API takes none
 	}{
 		{name: "openai_chat_completions", spec: providers.ProviderSpec{Type: "openai", Model: "gpt-4o-mini",
 			AdditionalConfig: map[string]any{"api_mode": "completions"}}, reply: openAIReply,
@@ -40,17 +44,16 @@ func TestProviders_SamplingParamsReachWireOnAllPaths(t *testing.T) {
 			AdditionalConfig: map[string]any{"api_mode": "responses"}}, reply: `{"id":"r","object":"response","output":[]}`,
 			temp: "temperature"},
 		{name: "claude", spec: providers.ProviderSpec{Type: "claude", Model: "claude-3-5-sonnet-20241022"},
-			reply: claudeReply, temp: "temperature"},
+			reply: claudeReply, temp: "temperature", topK: "top_k"},
 		{name: "gemini", spec: providers.ProviderSpec{Type: "gemini", Model: "gemini-2.5-flash"},
-			reply: geminiReply, config: "generationConfig", temp: "temperature",
-			penalties: [2]string{"frequencyPenalty", "presencePenalty"}},
+			reply: geminiReply, config: "generationConfig", temp: "temperature", topK: "topK"},
 		{name: "vllm", spec: providers.ProviderSpec{Type: "vllm", Model: "qwen3"}, reply: openAIReply,
-			temp: "temperature", penalties: [2]string{"frequency_penalty", "presence_penalty"}},
+			temp: "temperature", penalties: [2]string{"frequency_penalty", "presence_penalty"}, topK: "top_k"},
 		{name: "ollama", spec: providers.ProviderSpec{Type: "ollama", Model: "llama3"}, reply: openAIReply,
 			temp: "temperature", penalties: [2]string{"frequency_penalty", "presence_penalty"}},
 	}
 	paths := []string{"predict", "predict_stream", "predict_with_tools", "predict_stream_with_tools"}
-	freq, pres := float32(0.3), float32(0.4)
+	freq, pres, topK := float32(0.3), float32(0.4), 40
 
 	for _, tc := range cases {
 		for _, path := range paths {
@@ -60,13 +63,16 @@ func TestProviders_SamplingParamsReachWireOnAllPaths(t *testing.T) {
 				t.Setenv("GEMINI_API_KEY", "test-key")
 				cs := newCaptureServer(t, tc.reply)
 				spec := tc.spec
-				spec.ID = tc.name + "-sampling"
+				spec.ID = tc.name + "-" + path + "-sampling" // WarnUnsentParams warns once per ID
 				spec.BaseURL = cs.srv.URL
 				spec.Defaults = providers.ProviderDefaults{MaxTokens: 256, Temperature: 0.7}
 				p, err := providers.CreateProviderFromSpec(spec)
 				require.NoError(t, err)
 				defer func() { _ = p.Close() }()
 
+				var logs bytes.Buffer
+				logger.SetOutput(&logs)
+				t.Cleanup(func() { logger.SetOutput(nil) })
 				runSamplingPath(t, p, path, providers.PredictionRequest{
 					Messages:         []types.Message{{Role: "user", Content: "hello"}},
 					MaxTokens:        256,
@@ -74,6 +80,7 @@ func TestProviders_SamplingParamsReachWireOnAllPaths(t *testing.T) {
 					TemperatureSet:   true,
 					FrequencyPenalty: &freq,
 					PresencePenalty:  &pres,
+					TopK:             &topK,
 				})
 
 				body := cs.lastBody()
@@ -98,7 +105,15 @@ func TestProviders_SamplingParamsReachWireOnAllPaths(t *testing.T) {
 					assert.InDelta(t, want, got, 1e-6)
 				}
 				if tc.penalties[0] == "" {
-					assert.NotContains(t, body, "penalty", "%s takes no penalties; sending them would be rejected", tc.name)
+					assert.NotContains(t, body, "enalty", "%s takes no penalties; sending them would be rejected", tc.name)
+					assert.Contains(t, logs.String(), "param="+providers.ParamFrequencyPenalty,
+						"%s must not drop penalties silently", tc.name)
+				}
+				if tc.topK == "" {
+					assert.NotContains(t, body, "top_k", "%s takes no top_k; sending it would be rejected", tc.name)
+					assert.Contains(t, logs.String(), "param="+providers.ParamTopK, "%s must not drop top_k silently", tc.name)
+				} else {
+					assert.Equalf(t, float64(40), cfg[tc.topK], "%s dropped %s on %s\nrequest=%s", tc.name, tc.topK, path, body)
 				}
 			})
 		}

@@ -55,6 +55,9 @@ func (p *Provider) CreateStreamSession(
 	}
 
 	config := p.buildStreamSessionConfig(req)
+	config.Sampling = liveSampling(p.ID(), req.Sampling)
+	providers.WarnUnsentParams(p.ID(), req.Sampling.Request(),
+		providers.ParamFrequencyPenalty, providers.ParamPresencePenalty)
 	p.applyMetadataConfig(req.Metadata, &config)
 	p.applyToolsConfig(req.Tools, &config)
 
@@ -73,6 +76,24 @@ func (p *Provider) CreateStreamSession(
 	}
 
 	return session, nil
+}
+
+// liveMinTemperature is the lowest temperature at which Gemini Live answers.
+// Measured on gemini-3.8-live: a session at 0, 0.1 or 0.3 opens and never
+// replies, with no error, while 0.5 and above reply normally.
+const liveMinTemperature = 0.5
+
+// liveSampling returns s without a temperature below liveMinTemperature,
+// warning that it is not sent: the session would otherwise hang.
+func liveSampling(providerID string, s *providers.StreamingSampling) *providers.StreamingSampling {
+	if s == nil || (!s.TemperatureSet && s.Temperature == 0) || s.Temperature >= liveMinTemperature {
+		return s
+	}
+	logger.Warn("Gemini Live does not answer below this temperature; it is not sent",
+		"provider", providerID, "temperature", s.Temperature, "minimum", liveMinTemperature)
+	out := *s
+	out.Temperature, out.TemperatureSet = 0, false
+	return &out
 }
 
 // validateStreamRequest validates the streaming input configuration

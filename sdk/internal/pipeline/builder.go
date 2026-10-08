@@ -101,12 +101,14 @@ type Config struct {
 	// Temperature for LLM response
 	Temperature float32
 
-	// TemperatureSet, TopP, FrequencyPenalty and PresencePenalty are the
-	// prompt's other sampling parameters, with stage.ProviderConfig's meaning.
+	// TemperatureSet, TopP, FrequencyPenalty, PresencePenalty and TopK are
+	// the prompt's other sampling parameters, with stage.ProviderConfig's
+	// meaning.
 	TemperatureSet   bool
 	TopP             float32
 	FrequencyPenalty *float32
 	PresencePenalty  *float32
+	TopK             *int
 
 	// ResponseFormat for JSON mode output (optional)
 	ResponseFormat *providers.ResponseFormat
@@ -659,7 +661,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 		// ASM mode: Direct audio streaming to LLM
 		logger.Debug("Using DuplexProviderStage for ASM mode")
 		return []stage.Stage{stage.NewDuplexProviderStageWithTurnState(
-			cfg.StreamInputProvider, cfg.StreamInputConfig, nil, turnState,
+			cfg.StreamInputProvider, cfg.streamSessionConfig(), nil, turnState,
 		)}, nil
 	}
 	if cfg.VADConfig != nil && cfg.STTService != nil && cfg.TTSService != nil {
@@ -683,6 +685,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			TopP:             cfg.TopP,
 			FrequencyPenalty: cfg.FrequencyPenalty,
 			PresencePenalty:  cfg.PresencePenalty,
+			TopK:             cfg.TopK,
 			ResponseFormat:   cfg.ResponseFormat,
 			MessageLog:       cfg.MessageLog,
 			MessageLogConvID: cfg.ConversationID,
@@ -795,6 +798,22 @@ func buildCompactionStrategy(cfg *Config) stage.CompactionStrategy {
 	return compactor
 }
 
+// streamSessionConfig returns a copy of StreamInputConfig carrying the
+// prompt's sampling parameters, so a realtime session runs with them as
+// ProviderStage calls do. A copy, because the stage writes the session's
+// system instruction into it and the caller's config is shared.
+func (c *Config) streamSessionConfig() *providers.StreamingInputConfig {
+	var out providers.StreamingInputConfig
+	if c.StreamInputConfig != nil {
+		out = *c.StreamInputConfig
+	}
+	out.Sampling = &providers.StreamingSampling{
+		MaxTokens: c.MaxTokens, Temperature: c.Temperature, TemperatureSet: c.TemperatureSet,
+		TopP: c.TopP, TopK: c.TopK, FrequencyPenalty: c.FrequencyPenalty, PresencePenalty: c.PresencePenalty,
+	}
+	return &out
+}
+
 // SetCallParams sets the sampling fields from a prompt's resolved parameters
 // (prompt.Registry.CallParameters).
 func (c *Config) SetCallParams(p prompt.CallParams) {
@@ -804,6 +823,7 @@ func (c *Config) SetCallParams(p prompt.CallParams) {
 	c.TopP = p.TopP
 	c.FrequencyPenalty = p.FrequencyPenalty
 	c.PresencePenalty = p.PresencePenalty
+	c.TopK = p.TopK
 }
 
 // providerModel returns p's model, or "" for no provider.

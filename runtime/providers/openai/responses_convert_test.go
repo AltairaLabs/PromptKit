@@ -45,27 +45,37 @@ func TestTransformToResponsesCallID(t *testing.T) {
 }
 
 func TestGetAPIMode_ConfigVsHeuristic(t *testing.T) {
+	const compat = "http://localhost:8000/v1" // an OpenAI-compatible server
 	tests := []struct {
-		name   string
-		model  string
-		config map[string]any
-		want   APIMode
+		name    string
+		model   string
+		baseURL string
+		config  map[string]any
+		want    APIMode
 	}{
-		{"nil config, non-pro model defaults to completions", "gpt-4o", nil, APIModeCompletions},
-		{"nil config, pro model heuristic → responses", "gpt-5-pro", nil, APIModeResponses},
-		{"explicit responses wins", "gpt-4o", map[string]any{"api_mode": "responses"}, APIModeResponses},
-		{"explicit completions overrides pro heuristic", "gpt-5-pro", map[string]any{"api_mode": "completions"}, APIModeCompletions},
-		{"chat_completions alias", "gpt-4o", map[string]any{"api_mode": "chat_completions"}, APIModeCompletions},
-		{"legacy alias", "gpt-4o", map[string]any{"api_mode": "legacy"}, APIModeCompletions},
-		{"case-insensitive", "gpt-4o", map[string]any{"api_mode": "RESPONSES"}, APIModeResponses},
-		{"unknown api_mode falls through to heuristic (pro)", "gpt-5-pro", map[string]any{"api_mode": "banana"}, APIModeResponses},
-		{"unknown api_mode falls through to heuristic (default)", "gpt-4o", map[string]any{"api_mode": "banana"}, APIModeCompletions},
-		{"non-string api_mode ignored", "gpt-4o", map[string]any{"api_mode": 42}, APIModeCompletions},
+		{"OpenAI's own host defaults to responses", "gpt-6-luna", "https://api.openai.com/v1", nil, APIModeResponses},
+		{"the default base URL is OpenAI's own", "gpt-6-luna", "", nil, APIModeResponses},
+		{"a compatible server defaults to completions", "qwen3", compat, nil, APIModeCompletions},
+		{"a pro model needs responses even there", "gpt-5-pro", compat, nil, APIModeResponses},
+		{"explicit responses wins", "qwen3", compat, map[string]any{"api_mode": "responses"}, APIModeResponses},
+		{"explicit completions wins on OpenAI", "gpt-6-luna", "", map[string]any{"api_mode": "completions"},
+			APIModeCompletions},
+		{"explicit completions overrides pro heuristic", "gpt-5-pro", "", map[string]any{"api_mode": "completions"},
+			APIModeCompletions},
+		{"chat_completions alias", "gpt-4o", "", map[string]any{"api_mode": "chat_completions"}, APIModeCompletions},
+		{"legacy alias", "gpt-4o", "", map[string]any{"api_mode": "legacy"}, APIModeCompletions},
+		{"case-insensitive", "qwen3", compat, map[string]any{"api_mode": "RESPONSES"}, APIModeResponses},
+		{"unknown api_mode falls through to heuristic (pro)", "gpt-5-pro", compat, map[string]any{"api_mode": "banana"},
+			APIModeResponses},
+		{"unknown api_mode falls through to the host default", "qwen3", compat, map[string]any{"api_mode": "banana"},
+			APIModeCompletions},
+		{"non-string api_mode ignored", "qwen3", compat, map[string]any{"api_mode": 42}, APIModeCompletions},
+		{"a lookalike host is not OpenAI's", "m", "https://api.openai.com.example.net/v1", nil, APIModeCompletions},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := getAPIMode(tt.model, tt.config); got != tt.want {
-				t.Errorf("getAPIMode(%q, %v) = %q, want %q", tt.model, tt.config, got, tt.want)
+			if got := getAPIMode(tt.model, tt.baseURL, tt.config); got != tt.want {
+				t.Errorf("getAPIMode(%q, %q, %v) = %q, want %q", tt.model, tt.baseURL, tt.config, got, tt.want)
 			}
 		})
 	}

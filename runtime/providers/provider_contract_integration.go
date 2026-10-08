@@ -7,6 +7,8 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -17,10 +19,15 @@ import (
 // Default values for contract test requests.
 const (
 	contractTestTemperature = 0.7
-	contractTestMaxTokens   = 100
-	contractToolMaxTokens   = 200
-	contractSmallMaxTokens  = 50
+	// contractMaxTokens leaves a thinking model room to answer: reasoning
+	// counts toward the limit, and at 50-200 current models spend it all
+	// before any output (MAX_TOKENS, or "max_tokens reached" on a tool round).
+	contractMaxTokens       = 1000
 	contractZeroTemperature = 0.0
+	contractSamplingTopP    = 0.9
+	contractSamplingPenalty = 0.1
+	contractSamplingTopK    = 20
+	contractHelloPrompt     = "Say 'hello'"
 )
 
 // ProviderContractTests defines a comprehensive test suite that validates
@@ -85,6 +92,10 @@ func RunProviderContractTests(t *testing.T, config ProviderContractTests) {
 		})
 	}
 
+	t.Run("Contract_SamplingParams_Accepted", func(t *testing.T) {
+		ValidateSamplingParamsAccepted(t, config.Provider)
+	})
+
 	t.Run("Contract_Predict_ReturnsCostInfo", func(t *testing.T) {
 		testPredictReturnsCostInfo(t, config.Provider)
 	})
@@ -129,7 +140,7 @@ func ValidatePredictReturnsLatency(t *testing.T, provider Provider) {
 		Messages: []types.Message{
 			{Role: "user", Content: "Say 'test'"},
 		},
-		MaxTokens:   50,
+		MaxTokens:   contractMaxTokens,
 		Temperature: 0.7,
 	}
 
@@ -138,7 +149,7 @@ func ValidatePredictReturnsLatency(t *testing.T, provider Provider) {
 	elapsed := time.Since(start)
 
 	if err != nil {
-		t.Skipf("Skipping latency test due to API error (may need credentials): %v", err)
+		t.Fatalf("latency test: API error: %v", err)
 		return
 	}
 
@@ -176,7 +187,7 @@ func ValidatePredictWithToolsReturnsLatency(t *testing.T, provider Provider) {
 		Messages: []types.Message{
 			{Role: "user", Content: "What's the weather like in San Francisco?"},
 		},
-		MaxTokens:   100,
+		MaxTokens:   contractMaxTokens,
 		Temperature: 0.7,
 	}
 
@@ -209,7 +220,7 @@ func ValidatePredictWithToolsReturnsLatency(t *testing.T, provider Provider) {
 	elapsed := time.Since(start)
 
 	if err != nil {
-		t.Skipf("Skipping PredictWithTools latency test due to API error: %v", err)
+		t.Fatalf("PredictWithTools latency test: API error: %v", err)
 		return
 	}
 
@@ -233,6 +244,53 @@ func ValidatePredictWithToolsReturnsLatency(t *testing.T, provider Provider) {
 	}
 }
 
+// ValidateSamplingParamsAccepted sends every sampling parameter a prompt can
+// set (an explicit temperature of 0, top_p, both penalties and top_k) down each
+// request path, and fails on any API error. Unlike the other contract checks
+// it does not skip on an error: a 400 here means the provider sends a
+// parameter its API rejects, which is what this guards. Exported so a provider
+// can run it against extra configurations (another API mode, a thinking model).
+func ValidateSamplingParamsAccepted(t *testing.T, provider Provider) {
+	t.Helper()
+	pen, topK := float32(contractSamplingPenalty), contractSamplingTopK
+	req := PredictionRequest{
+		Messages:         []types.Message{{Role: "user", Content: contractHelloPrompt}},
+		MaxTokens:        contractMaxTokens,
+		Temperature:      contractZeroTemperature,
+		TemperatureSet:   true,
+		TopP:             contractSamplingTopP,
+		FrequencyPenalty: &pen,
+		PresencePenalty:  &pen,
+		TopK:             &topK,
+	}
+	ctx := context.Background()
+
+	// Only acceptance is checked: a reasoning model can spend a small token
+	// limit before it writes any content.
+	if _, err := provider.Predict(ctx, req); err != nil {
+		t.Fatalf("Predict rejected the sampling parameters: %v", err)
+	}
+
+	if provider.SupportsStreaming() {
+		chunks, err := provider.PredictStream(ctx, req)
+		if err != nil {
+			t.Fatalf("PredictStream rejected the sampling parameters: %v", err)
+		}
+		for chunk := range chunks {
+			if chunk.Error != nil {
+				t.Fatalf("PredictStream rejected the sampling parameters: %v", chunk.Error)
+			}
+		}
+	}
+
+	if ts, ok := provider.(ToolSupport); ok {
+		tools := buildWeatherTools(t, ts)
+		if _, _, err := ts.PredictWithTools(ctx, req, tools, "auto"); err != nil {
+			t.Fatalf("PredictWithTools rejected the sampling parameters: %v", err)
+		}
+	}
+}
+
 // testPredictReturnsCostInfo verifies that Predict() returns cost information
 func testPredictReturnsCostInfo(t *testing.T, provider Provider) {
 	ctx := context.Background()
@@ -240,13 +298,13 @@ func testPredictReturnsCostInfo(t *testing.T, provider Provider) {
 		Messages: []types.Message{
 			{Role: "user", Content: "Say 'test'"},
 		},
-		MaxTokens:   50,
+		MaxTokens:   contractMaxTokens,
 		Temperature: 0.7,
 	}
 
 	resp, err := provider.Predict(ctx, req)
 	if err != nil {
-		t.Skipf("Skipping cost test due to API error (may need credentials): %v", err)
+		t.Fatalf("cost test: API error: %v", err)
 		return
 	}
 
@@ -276,15 +334,15 @@ func testPredictNonEmptyResponse(t *testing.T, provider Provider) {
 	ctx := context.Background()
 	req := PredictionRequest{
 		Messages: []types.Message{
-			{Role: "user", Content: "Say 'hello'"},
+			{Role: "user", Content: contractHelloPrompt},
 		},
-		MaxTokens:   50,
+		MaxTokens:   contractMaxTokens,
 		Temperature: 0.7,
 	}
 
 	resp, err := provider.Predict(ctx, req)
 	if err != nil {
-		t.Skipf("Skipping response test due to API error (may need credentials): %v", err)
+		t.Fatalf("response test: API error: %v", err)
 		return
 	}
 
@@ -348,14 +406,14 @@ func testPredictStreamReturnsLatency(t *testing.T, provider Provider) {
 		Messages: []types.Message{
 			{Role: "user", Content: "Count to 3"},
 		},
-		MaxTokens:   50,
+		MaxTokens:   contractMaxTokens,
 		Temperature: 0.7,
 	}
 
 	start := time.Now()
 	chunks, err := provider.PredictStream(ctx, req)
 	if err != nil {
-		t.Skipf("Skipping stream latency test due to API error: %v", err)
+		t.Fatalf("stream latency test: API error: %v", err)
 		return
 	}
 
@@ -364,7 +422,7 @@ func testPredictStreamReturnsLatency(t *testing.T, provider Provider) {
 	for chunk := range chunks {
 		chunkCount++
 		if chunk.Error != nil {
-			t.Skipf("Skipping stream latency test due to chunk error: %v", chunk.Error)
+			t.Fatalf("stream latency test: chunk error: %v", chunk.Error)
 			return
 		}
 		finalChunk = &chunk
@@ -421,83 +479,45 @@ func buildWeatherTools(t *testing.T, toolSupport ToolSupport) ProviderTools {
 	return tools
 }
 
-// testPredictWithToolsProducesToolCalls verifies that PredictWithTools actually
-// returns tool calls when given a clear tool-calling prompt with required tool choice.
-func testPredictWithToolsProducesToolCalls(t *testing.T, provider Provider) {
+// requiredToolCalls asks provider about the weather in city with
+// tool_choice=required and returns the tool calls, from whichever of the
+// returned slice and the response carries them. It skips a provider without
+// tool support and fails on an API error.
+func requiredToolCalls(t *testing.T, provider Provider, city string) []types.MessageToolCall {
+	t.Helper()
 	toolSupport, ok := provider.(ToolSupport)
 	if !ok {
 		t.Skip("Provider doesn't implement ToolSupport")
-		return
 	}
-
-	tools := buildWeatherTools(t, toolSupport)
-
-	ctx := context.Background()
 	req := PredictionRequest{
-		Messages: []types.Message{
-			{Role: "user", Content: "What is the weather in Tokyo?"},
-		},
-		MaxTokens:   contractToolMaxTokens,
+		Messages:    []types.Message{{Role: "user", Content: "What is the weather in " + city + "?"}},
+		MaxTokens:   contractMaxTokens,
 		Temperature: contractZeroTemperature,
 	}
-
-	resp, toolCalls, err := toolSupport.PredictWithTools(ctx, req, tools, "required")
+	resp, toolCalls, err := toolSupport.PredictWithTools(
+		context.Background(), req, buildWeatherTools(t, toolSupport), "required")
 	if err != nil {
-		t.Skipf("Skipping tool call test due to API error: %v", err)
-		return
+		t.Fatalf("PredictWithTools: API error: %v", err)
 	}
+	if len(toolCalls) == 0 {
+		toolCalls = resp.ToolCalls
+	}
+	if len(toolCalls) == 0 {
+		t.Fatalf("no tool call, though tool_choice was required (content %q)", resp.Content)
+	}
+	return toolCalls
+}
 
-	if len(toolCalls) == 0 && len(resp.ToolCalls) == 0 {
-		t.Error("PredictWithTools() with toolChoice=required returned no tool calls")
-		t.Logf("Response content: %q", resp.Content)
-	}
-
-	// At least one source of tool calls should be populated
-	calls := toolCalls
-	if len(calls) == 0 {
-		calls = resp.ToolCalls
-	}
-
-	if len(calls) > 0 {
-		t.Logf("Got %d tool call(s), first: %s(%s)", len(calls), calls[0].Name, string(calls[0].Args))
-	}
+// testPredictWithToolsProducesToolCalls verifies that PredictWithTools actually
+// returns tool calls when given a clear tool-calling prompt with required tool choice.
+func testPredictWithToolsProducesToolCalls(t *testing.T, provider Provider) {
+	calls := requiredToolCalls(t, provider, "Tokyo")
+	t.Logf("Got %d tool call(s), first: %s(%s)", len(calls), calls[0].Name, string(calls[0].Args))
 }
 
 // testPredictWithToolsToolCallFormat validates the structure of returned tool calls.
 func testPredictWithToolsToolCallFormat(t *testing.T, provider Provider) {
-	toolSupport, ok := provider.(ToolSupport)
-	if !ok {
-		t.Skip("Provider doesn't implement ToolSupport")
-		return
-	}
-
-	tools := buildWeatherTools(t, toolSupport)
-
-	ctx := context.Background()
-	req := PredictionRequest{
-		Messages: []types.Message{
-			{Role: "user", Content: "What is the weather in Paris?"},
-		},
-		MaxTokens:   contractToolMaxTokens,
-		Temperature: contractZeroTemperature,
-	}
-
-	resp, toolCalls, err := toolSupport.PredictWithTools(ctx, req, tools, "required")
-	if err != nil {
-		t.Skipf("Skipping tool format test due to API error: %v", err)
-		return
-	}
-
-	calls := toolCalls
-	if len(calls) == 0 {
-		calls = resp.ToolCalls
-	}
-	if len(calls) == 0 {
-		t.Skip("No tool calls returned — cannot validate format")
-		return
-	}
-
-	for i, tc := range calls {
+	for i, tc := range requiredToolCalls(t, provider, "Paris") {
 		if tc.Name == "" {
 			t.Errorf("ToolCall[%d].Name is empty", i)
 		}
@@ -535,7 +555,7 @@ func testPredictWithToolsSystemMessage(t *testing.T, provider Provider) {
 			{Role: "system", Content: "Additional system context: respond concisely."},
 			{Role: "user", Content: "What is the weather in London?"},
 		},
-		MaxTokens:   contractToolMaxTokens,
+		MaxTokens:   contractMaxTokens,
 		Temperature: contractZeroTemperature,
 	}
 
@@ -568,13 +588,13 @@ func testPredictWithToolsReturnsCostInfo(t *testing.T, provider Provider) {
 		Messages: []types.Message{
 			{Role: "user", Content: "What is the weather in Berlin?"},
 		},
-		MaxTokens:   contractToolMaxTokens,
+		MaxTokens:   contractMaxTokens,
 		Temperature: contractTestTemperature,
 	}
 
 	resp, _, err := toolSupport.PredictWithTools(ctx, req, tools, "auto")
 	if err != nil {
-		t.Skipf("Skipping cost test due to API error: %v", err)
+		t.Fatalf("cost test: API error: %v", err)
 		return
 	}
 
@@ -608,13 +628,13 @@ func testPredictWithToolsMultiTurn(t *testing.T, provider Provider) {
 		Messages: []types.Message{
 			{Role: "user", Content: "What is the weather in Sydney?"},
 		},
-		MaxTokens:   contractToolMaxTokens,
+		MaxTokens:   contractMaxTokens,
 		Temperature: contractZeroTemperature,
 	}
 
 	resp1, toolCalls1, err := toolSupport.PredictWithTools(ctx, req1, tools, "required")
 	if err != nil {
-		t.Skipf("Skipping multi-turn test due to API error on turn 1: %v", err)
+		t.Fatalf("multi-turn test: API error: %v", err)
 		return
 	}
 
@@ -623,7 +643,7 @@ func testPredictWithToolsMultiTurn(t *testing.T, provider Provider) {
 		calls = resp1.ToolCalls
 	}
 	if len(calls) == 0 {
-		t.Skip("No tool calls on turn 1 — cannot test multi-turn")
+		t.Fatal("no tool call on turn 1, though tool_choice was required")
 		return
 	}
 
@@ -634,9 +654,9 @@ func testPredictWithToolsMultiTurn(t *testing.T, provider Provider) {
 			{
 				Role:    "assistant",
 				Content: resp1.Content,
-				ToolCalls: []types.MessageToolCall{
-					{ID: calls[0].ID, Name: calls[0].Name, Args: calls[0].Args},
-				},
+				// The whole call, as the pipeline replays it: ProviderMetadata
+				// carries Gemini's thought signature, which the API requires.
+				ToolCalls: calls[:1],
 			},
 			{
 				Role: "tool",
@@ -649,7 +669,7 @@ func testPredictWithToolsMultiTurn(t *testing.T, provider Provider) {
 				},
 			},
 		},
-		MaxTokens:   contractToolMaxTokens,
+		MaxTokens:   contractMaxTokens,
 		Temperature: contractTestTemperature,
 	}
 
@@ -681,13 +701,13 @@ func testPredictWithSystemMessage(t *testing.T, provider Provider) {
 		Messages: []types.Message{
 			{Role: "user", Content: "Hello"},
 		},
-		MaxTokens:   contractSmallMaxTokens,
+		MaxTokens:   contractMaxTokens,
 		Temperature: contractTestTemperature,
 	}
 
 	resp, err := provider.Predict(ctx, req)
 	if err != nil {
-		t.Skipf("Skipping system message test due to API error: %v", err)
+		t.Fatalf("system message test: API error: %v", err)
 		return
 	}
 
@@ -696,7 +716,8 @@ func testPredictWithSystemMessage(t *testing.T, provider Provider) {
 	}
 }
 
-// SkipIfNoCredentials skips the test if API credentials are not available.
+// SkipIfNoCredentials skips the test if the API refuses the credentials. Any
+// other error is left for the test to fail on: skipping it hid a retired model.
 // This is a helper for integration tests that need real API access.
 func SkipIfNoCredentials(t *testing.T, provider Provider) {
 	// Try a simple call to see if credentials work
@@ -708,8 +729,10 @@ func SkipIfNoCredentials(t *testing.T, provider Provider) {
 	}
 
 	_, err := provider.Predict(ctx, req)
-	if err != nil {
-		t.Skipf("Skipping test - API credentials not available or provider not accessible: %v", err)
+	var httpErr *ProviderHTTPError
+	if errors.As(err, &httpErr) && (httpErr.StatusCode == http.StatusUnauthorized ||
+		httpErr.StatusCode == http.StatusForbidden) {
+		t.Skipf("Skipping test - API credentials not accepted: %v", err)
 	}
 }
 
@@ -731,20 +754,20 @@ func testPredictStreamWithToolsProducesToolCalls(t *testing.T, provider Provider
 		Messages: []types.Message{
 			{Role: "user", Content: "What is the weather in Tokyo?"},
 		},
-		MaxTokens:   contractToolMaxTokens,
+		MaxTokens:   contractMaxTokens,
 		Temperature: contractZeroTemperature,
 	}
 
 	stream, err := toolSupport.PredictStreamWithTools(ctx, req, tools, "required")
 	if err != nil {
-		t.Skipf("Skipping streaming tool test due to API error: %v", err)
+		t.Fatalf("streaming tool test: API error: %v", err)
 		return
 	}
 
 	var lastChunk *StreamChunk
 	for chunk := range stream {
 		if chunk.Error != nil {
-			t.Skipf("Skipping streaming tool test due to chunk error: %v", chunk.Error)
+			t.Fatalf("streaming tool test: chunk error: %v", chunk.Error)
 			return
 		}
 		lastChunk = &chunk

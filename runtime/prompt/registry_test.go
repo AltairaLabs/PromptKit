@@ -791,12 +791,13 @@ func TestRegistry_MergeVars(t *testing.T) {
 
 func TestRegistry_CallParameters(t *testing.T) {
 	maxTokens, temp, overrideTemp, topP, freq := 300, 0.8, 0.0, 0.9, 0.3
+	topK, overrideTopK := 40, 5
 	repo := newMockRepository()
 	require.NoError(t, repo.SavePrompt(&Config{Spec: Spec{
 		TaskType: "p", SystemTemplate: "x",
-		Parameters: &ParametersPack{MaxTokens: &maxTokens, Temperature: &temp, TopP: &topP},
+		Parameters: &ParametersPack{MaxTokens: &maxTokens, Temperature: &temp, TopP: &topP, TopK: &topK},
 		ModelOverrides: map[string]ModelOverride{
-			"m1": {Parameters: &ParametersPack{Temperature: &overrideTemp, FrequencyPenalty: &freq}},
+			"m1": {Parameters: &ParametersPack{Temperature: &overrideTemp, FrequencyPenalty: &freq, TopK: &overrideTopK}},
 		},
 	}}))
 	reg := NewRegistryWithRepository(repo)
@@ -809,11 +810,15 @@ func TestRegistry_CallParameters(t *testing.T) {
 	require.NotNil(t, got.FrequencyPenalty)
 	assert.InDelta(t, 0.3, *got.FrequencyPenalty, 1e-6)
 	assert.Nil(t, got.PresencePenalty)
+	require.NotNil(t, got.TopK)
+	assert.Equal(t, 5, *got.TopK, "the override's top_k")
 
 	got = reg.CallParameters("p", "other")
 	assert.Equal(t, 300, got.MaxTokens)
 	assert.InDelta(t, 0.8, got.Temperature, 1e-6)
 	assert.Nil(t, got.FrequencyPenalty)
+	require.NotNil(t, got.TopK)
+	assert.Equal(t, 40, *got.TopK, "the prompt's top_k")
 
 	assert.Equal(t, CallParams{}, reg.CallParameters("missing", "m1"))
 	assert.Equal(t, CallParams{}, reg.CallParameters("", "m1"))

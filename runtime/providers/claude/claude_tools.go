@@ -145,10 +145,21 @@ func (p *ToolProvider) useStrictTools() bool {
 	return *p.strictTools
 }
 
-// PredictWithTools performs a predict request with tool support
+// PredictWithTools runs predictWithToolsOnce, retrying without any sampling
+// parameter the API rejects for this model.
+func (p *ToolProvider) PredictWithTools(
+	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools, toolChoice string,
+) (providers.PredictionResponse, []types.MessageToolCall, error) {
+	return providers.RetryToolCall(&p.BaseProvider, req,
+		func(r providers.PredictionRequest) (providers.PredictionResponse, []types.MessageToolCall, error) {
+			return p.predictWithToolsOnce(ctx, r, tools, toolChoice)
+		})
+}
+
+// predictWithToolsOnce performs a predict request with tool support
 //
 //nolint:gocritic // hugeParam: interface signature requires value receiver
-func (p *ToolProvider) PredictWithTools(
+func (p *ToolProvider) predictWithToolsOnce(
 	ctx context.Context,
 	req providers.PredictionRequest,
 	tools providers.ProviderTools,
@@ -716,8 +727,19 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request *claudeRequest) 
 	return respBody, nil
 }
 
-// PredictStreamWithTools performs a streaming predict request with tool support.
+// PredictStreamWithTools runs predictStreamWithToolsOnce, retrying without
+// any sampling parameter the API rejects for this model.
 func (p *ToolProvider) PredictStreamWithTools(
+	ctx context.Context, req providers.PredictionRequest, tools any, toolChoice string,
+) (<-chan providers.StreamChunk, error) {
+	return providers.RetryCall(&p.BaseProvider, req,
+		func(r providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+			return p.predictStreamWithToolsOnce(ctx, r, tools, toolChoice)
+		})
+}
+
+// predictStreamWithToolsOnce performs a streaming predict request with tool support.
+func (p *ToolProvider) predictStreamWithToolsOnce(
 	ctx context.Context,
 	req providers.PredictionRequest,
 	tools interface{},
@@ -915,7 +937,7 @@ func init() {
 				spec.IncludeRawOutput, spec.Credential,
 				spec.Platform, spec.PlatformConfig,
 			)
-			tp.setUnsupportedParams(spec.UnsupportedParams)
+			tp.SetUnsupportedParams(spec.UnsupportedParams)
 			tp.setCapabilities(spec.Capabilities)
 			applyThinkingConfig(tp.Provider, spec)
 			applyStrictToolsConfig(tp, spec)
@@ -925,7 +947,7 @@ func init() {
 			tp := NewToolProvider(
 				spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput,
 			)
-			tp.setUnsupportedParams(spec.UnsupportedParams)
+			tp.SetUnsupportedParams(spec.UnsupportedParams)
 			tp.setCapabilities(spec.Capabilities)
 			applyThinkingConfig(tp.Provider, spec)
 			applyStrictToolsConfig(tp, spec)

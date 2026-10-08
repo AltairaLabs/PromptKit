@@ -226,6 +226,7 @@ func TestPredictionRequestFieldCoverageIsExhaustive(t *testing.T) {
 	// Fields that legitimately have no place in a request body.
 	notApplicable := map[string]string{
 		"Metadata": "provider-side routing context; never serialized to the API",
+		"TopK":     "neither OpenAI API takes top_k; it is dropped with a warning (providers.WarnUnsentParams)",
 	}
 
 	rt := reflect.TypeOf(providers.PredictionRequest{})

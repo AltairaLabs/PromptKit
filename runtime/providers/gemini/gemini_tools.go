@@ -131,10 +131,21 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (pr
 	}, nil
 }
 
-// PredictWithTools performs a predict request with tool support
+// PredictWithTools runs predictWithToolsOnce, retrying without any sampling
+// parameter the API rejects for this model.
+func (p *ToolProvider) PredictWithTools(
+	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools, toolChoice string,
+) (providers.PredictionResponse, []types.MessageToolCall, error) {
+	return providers.RetryToolCall(&p.BaseProvider, req,
+		func(r providers.PredictionRequest) (providers.PredictionResponse, []types.MessageToolCall, error) {
+			return p.predictWithToolsOnce(ctx, r, tools, toolChoice)
+		})
+}
+
+// predictWithToolsOnce performs a predict request with tool support
 //
 //nolint:gocritic // hugeParam: interface signature requires value receiver
-func (p *ToolProvider) PredictWithTools(
+func (p *ToolProvider) predictWithToolsOnce(
 	ctx context.Context,
 	req providers.PredictionRequest,
 	tools providers.ProviderTools,
@@ -461,12 +472,10 @@ func (p *ToolProvider) buildToolRequest(
 		"temperature": temperature,
 		"topP":        topP,
 	}
-	if req.PresencePenalty != nil && p.paramSupported("presence_penalty") {
-		genConfig["presencePenalty"] = *req.PresencePenalty
+	if req.TopK != nil && p.ParamSupported(providers.ParamTopK) {
+		genConfig["topK"] = *req.TopK
 	}
-	if req.FrequencyPenalty != nil && p.paramSupported("frequency_penalty") {
-		genConfig["frequencyPenalty"] = *req.FrequencyPenalty
-	}
+	p.warnUnsentPenalties(&req)
 	if maxTokens > 0 {
 		genConfig["maxOutputTokens"] = maxTokens
 	}
@@ -722,8 +731,19 @@ func (p *ToolProvider) postJSON(ctx context.Context, url string, requestBytes []
 	return respBytes, nil
 }
 
-// PredictStreamWithTools performs a streaming predict request with tool support
+// PredictStreamWithTools runs predictStreamWithToolsOnce, retrying without
+// any sampling parameter the API rejects for this model.
 func (p *ToolProvider) PredictStreamWithTools(
+	ctx context.Context, req providers.PredictionRequest, tools any, toolChoice string,
+) (<-chan providers.StreamChunk, error) {
+	return providers.RetryCall(&p.BaseProvider, req,
+		func(r providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+			return p.predictStreamWithToolsOnce(ctx, r, tools, toolChoice)
+		})
+}
+
+// predictStreamWithToolsOnce performs a streaming predict request with tool support
+func (p *ToolProvider) predictStreamWithToolsOnce(
 	ctx context.Context,
 	req providers.PredictionRequest,
 	tools any,
@@ -810,7 +830,7 @@ func init() {
 					spec.Platform, spec.PlatformConfig,
 				)
 				tp.setCapabilities(spec.Capabilities)
-				tp.setUnsupportedParams(spec.UnsupportedParams)
+				tp.SetUnsupportedParams(spec.UnsupportedParams)
 				applyExplicitCachingConfig(tp.Provider, spec)
 				applyThinkingConfig(tp.Provider, spec)
 				applyAPIModeConfig(tp.Provider, spec)
@@ -822,7 +842,7 @@ func init() {
 					spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput,
 				)
 				tp.setCapabilities(spec.Capabilities)
-				tp.setUnsupportedParams(spec.UnsupportedParams)
+				tp.SetUnsupportedParams(spec.UnsupportedParams)
 				applyExplicitCachingConfig(tp.Provider, spec)
 				applyThinkingConfig(tp.Provider, spec)
 				applyAPIModeConfig(tp.Provider, spec)

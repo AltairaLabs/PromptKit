@@ -28,7 +28,7 @@ const (
 
 // RealtimeSessionConfig configures a new OpenAI Realtime streaming session.
 type RealtimeSessionConfig struct {
-	// Model specifies the model to use (e.g., "gpt-4o-realtime-preview").
+	// Model specifies the model to use (e.g., "gpt-realtime-2.1").
 	Model string
 
 	// Modalities specifies the input/output modalities.
@@ -125,7 +125,7 @@ type RealtimeToolDefinition struct {
 // DefaultRealtimeSessionConfig returns sensible defaults for a Realtime session.
 func DefaultRealtimeSessionConfig() RealtimeSessionConfig {
 	return RealtimeSessionConfig{
-		Model:             "gpt-4o-realtime-preview",
+		Model:             "gpt-realtime-2.1",
 		Modalities:        []string{"text", "audio"},
 		Voice:             "alloy",
 		InputAudioFormat:  "pcm16",

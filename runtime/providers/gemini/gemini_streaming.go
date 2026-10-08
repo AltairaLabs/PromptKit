@@ -9,29 +9,36 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-// PredictStream performs a streaming prediction request to Gemini
-//
-//nolint:gocritic // hugeParam: interface signature requires value receiver
+// PredictStream runs predictStreamOnce, retrying without any sampling
+// parameter the API rejects for this model.
 func (p *Provider) PredictStream(
 	ctx context.Context, req providers.PredictionRequest,
 ) (<-chan providers.StreamChunk, error) {
+	return providers.RetryCall(&p.BaseProvider, req,
+		func(r providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+			return p.predictStreamOnce(ctx, r)
+		})
+}
+
+// predictStreamOnce performs a streaming prediction request to Gemini
+//
+//nolint:gocritic // hugeParam: interface signature requires value receiver
+func (p *Provider) predictStreamOnce(
+	ctx context.Context, req providers.PredictionRequest,
+) (<-chan providers.StreamChunk, error) {
 	// Enrich context with provider and model info for logging
-	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
-		Provider: p.ID(),
-		Model:    p.model,
-	})
+	ctx = p.LoggingContext(ctx, p.model)
 
 	// Convert messages to Gemini format and apply defaults
 	contents, systemInstruction, temperature, topP, maxTokens := p.prepareGeminiRequest(ctx, req)
 
 	// Create streaming request
 	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
-	geminiReq.GenerationConfig.applyPenalties(p, &req)
+	geminiReq.GenerationConfig.applyOptionalSampling(p, &req)
 
 	// Explicit context caching: reference the cached system prefix and drop the
 	// inline systemInstruction (the API rejects sending both).

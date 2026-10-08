@@ -150,4 +150,3 @@ func (t *PackTemplate) openConversation(
 	}
 	return completeOpen(conv, prov, duplex)
 }
-

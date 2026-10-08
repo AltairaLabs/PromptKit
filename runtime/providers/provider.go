@@ -16,8 +16,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -63,11 +65,15 @@ type PredictionRequest struct {
 	MaxTokens      int     `json:"max_tokens"`
 	// FrequencyPenalty and PresencePenalty are sent by providers whose API
 	// takes them; nil sends nothing.
-	FrequencyPenalty *float32        `json:"frequency_penalty,omitempty"`
-	PresencePenalty  *float32        `json:"presence_penalty,omitempty"`
-	Seed             *int            `json:"seed,omitempty"`
-	ResponseFormat   *ResponseFormat `json:"response_format,omitempty"` // Optional response format (JSON mode)
-	Metadata         map[string]any  `json:"metadata,omitempty"`        // Provider-specific context
+	FrequencyPenalty *float32 `json:"frequency_penalty,omitempty"`
+	PresencePenalty  *float32 `json:"presence_penalty,omitempty"`
+	// TopK limits sampling to the K most likely tokens; nil sends nothing.
+	// A provider whose API takes no top_k, or no penalties, drops them and
+	// says so with WarnUnsentParams.
+	TopK           *int            `json:"top_k,omitempty"`
+	Seed           *int            `json:"seed,omitempty"`
+	ResponseFormat *ResponseFormat `json:"response_format,omitempty"` // Optional response format (JSON mode)
+	Metadata       map[string]any  `json:"metadata,omitempty"`        // Provider-specific context
 }
 
 // ResolveTemperature returns the temperature req sends: its own when it set
@@ -79,6 +85,51 @@ func ResolveTemperature(req *PredictionRequest, def float32) float32 {
 		return req.Temperature
 	}
 	return def
+}
+
+// Wire names of the optional sampling parameters WarnUnsentParams reports.
+const (
+	ParamTopK             = "top_k"
+	ParamFrequencyPenalty = "frequency_penalty"
+	ParamPresencePenalty  = "presence_penalty"
+)
+
+// unsentParamOnce keys the provider|param pairs WarnUnsentParams has warned for.
+var unsentParamOnce sync.Map
+
+// WarnUnsentParams logs, once per provider and parameter, each of params
+// (ParamTemperature, ParamTopP, ParamTopK, ParamFrequencyPenalty,
+// ParamPresencePenalty) that req sets but
+// providerID does not send, because its API rejects or has no such parameter.
+// A parameter req leaves unset logs nothing.
+func WarnUnsentParams(providerID string, req *PredictionRequest, params ...string) {
+	for _, param := range params {
+		if !req.setsParam(param) {
+			continue
+		}
+		if _, loaded := unsentParamOnce.LoadOrStore(providerID+"|"+param, struct{}{}); loaded {
+			continue
+		}
+		logger.Warn("a prompt parameter is not sent: the provider's API does not take it",
+			"provider", providerID, "param", param)
+	}
+}
+
+// setsParam reports whether r sets the optional sampling parameter param.
+func (r *PredictionRequest) setsParam(param string) bool {
+	switch param {
+	case ParamTemperature:
+		return r.TemperatureSet || r.Temperature != 0
+	case ParamTopP:
+		return r.TopP != 0
+	case ParamTopK:
+		return r.TopK != nil
+	case ParamFrequencyPenalty:
+		return r.FrequencyPenalty != nil
+	case ParamPresencePenalty:
+		return r.PresencePenalty != nil
+	}
+	return false
 }
 
 // NormalizeMessages extracts system-role messages from Messages, merges their

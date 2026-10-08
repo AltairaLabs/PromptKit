@@ -166,7 +166,8 @@ const samplingParamsPack = `{
 	"template_engine": {"version": "v1", "syntax": "{{variable}}"},
 	"prompts": {
 		"exact": {"id": "exact", "name": "exact", "version": "1.0.0", "system_template": "exact",
-			"parameters": {"temperature": 0, "top_p": 0.5, "frequency_penalty": 0.2, "presence_penalty": 0.1}}
+			"parameters": {"temperature": 0, "top_p": 0.5, "frequency_penalty": 0.2, "presence_penalty": 0.1,
+				"top_k": 40}}
 	},
 	"workflow": {"version": 1, "entry": "compose",
 		"states": {"compose": {"orchestration": "composition", "composition": "flow", "terminal": true}}},
@@ -175,7 +176,8 @@ const samplingParamsPack = `{
 }`
 
 // A prompt's parameters reach the request whole: an explicit temperature of 0
-// is marked set, and top_p and both penalties are carried (#2212). Opened
+// is marked set, and top_p, both penalties (#2212) and top_k (#2220) are
+// carried. Opened
 // directly or as a composition step, the request is the same.
 func TestPromptParameters_ReachTheRequest(t *testing.T) {
 	packPath := createTestPackFile(t, samplingParamsPack)
@@ -190,6 +192,8 @@ func TestPromptParameters_ReachTheRequest(t *testing.T) {
 		assert.InDelta(t, 0.2, *req.FrequencyPenalty, 1e-6)
 		require.NotNil(t, req.PresencePenalty)
 		assert.InDelta(t, 0.1, *req.PresencePenalty, 1e-6)
+		require.NotNil(t, req.TopK)
+		assert.Equal(t, 40, *req.TopK)
 	}
 
 	t.Run("opened prompt", func(t *testing.T) {

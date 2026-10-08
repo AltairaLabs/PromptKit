@@ -139,7 +139,7 @@ func TestUnifiedBuilder_OmitsZeroTemperature(t *testing.T) {
 		t.Fatalf("CreateProviderFromSpec: %v", err)
 	}
 	tp := provider.(*ToolProvider)
-	if !tp.paramSupported("temperature") {
+	if !tp.ParamSupported("temperature") {
 		t.Fatal("precondition: claude-3-opus should support temperature")
 	}
 	req := providers.PredictionRequest{

@@ -53,7 +53,7 @@ func TestGetModelPath(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"empty -> default", "", "models/gemini-2.0-flash-exp"},
+		{"empty -> default", "", "models/gemini-3.8-live"},
 		{"bare name gets prefixed", "gemini-2.0-flash", "models/gemini-2.0-flash"},
 		{"already prefixed unchanged", "models/gemini-2.0-flash", "models/gemini-2.0-flash"},
 		{"short name gets prefixed", "abc", "models/abc"},

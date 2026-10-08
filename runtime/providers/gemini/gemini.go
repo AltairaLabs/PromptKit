@@ -52,9 +52,6 @@ type streamSessionFactory func(
 // Provider implements the Provider interface for Google Gemini
 type Provider struct {
 	providers.BaseProvider
-	// unsupportedParams lists request parameters this model rejects
-	// (ProviderSpec.UnsupportedParams); nil supports all.
-	unsupportedParams  map[string]bool
 	model              string
 	baseURL            string
 	apiKey             string
@@ -277,9 +274,8 @@ type geminiInlineData struct {
 type geminiGenConfig struct {
 	Temperature      float32               `json:"temperature"`
 	TopP             float32               `json:"topP"`
-	MaxOutputTokens  int                   `json:"maxOutputTokens,omitempty"` // 0 = no limit
-	PresencePenalty  *float32              `json:"presencePenalty,omitempty"`
-	FrequencyPenalty *float32              `json:"frequencyPenalty,omitempty"`
+	TopK             *int                  `json:"topK,omitempty"`
+	MaxOutputTokens  int                   `json:"maxOutputTokens,omitempty"`  // 0 = no limit
 	ResponseMimeType string                `json:"responseMimeType,omitempty"` // "text/plain" or "application/json"
 	ResponseSchema   interface{}           `json:"responseSchema,omitempty"`   // JSON Schema for structured output
 	ThinkingConfig   *geminiThinkingConfig `json:"thinkingConfig,omitempty"`
@@ -455,33 +451,22 @@ func (p *Provider) prepareGeminiRequest(ctx context.Context, req providers.Predi
 	return contents, systemInstruction, temperature, topP, maxTokens
 }
 
-// applyPenalties sets the request's presence and frequency penalties, which
-// Gemini's generationConfig takes; nil sends neither. A model that rejects
-// them is configured with unsupported_params (presence_penalty,
-// frequency_penalty), which drops them here.
-func (g *geminiGenConfig) applyPenalties(p *Provider, req *providers.PredictionRequest) {
-	if p.paramSupported("presence_penalty") {
-		g.PresencePenalty = req.PresencePenalty
+// applyOptionalSampling sets the request's top_k, which Gemini's
+// generationConfig takes; nil sends nothing. A model that rejects it is
+// configured with unsupported_params: [top_k], which drops it here.
+func (g *geminiGenConfig) applyOptionalSampling(p *Provider, req *providers.PredictionRequest) {
+	if p.ParamSupported(providers.ParamTopK) {
+		g.TopK = req.TopK
 	}
-	if p.paramSupported("frequency_penalty") {
-		g.FrequencyPenalty = req.FrequencyPenalty
-	}
+	p.warnUnsentPenalties(req)
 }
 
-// setUnsupportedParams records the request parameters this model rejects.
-func (p *Provider) setUnsupportedParams(params []string) {
-	if len(params) == 0 {
-		return
-	}
-	p.unsupportedParams = make(map[string]bool, len(params))
-	for _, name := range params {
-		p.unsupportedParams[name] = true
-	}
-}
-
-// paramSupported reports whether the named request parameter may be sent.
-func (p *Provider) paramSupported(name string) bool {
-	return !p.unsupportedParams[name]
+// warnUnsentPenalties reports the request's penalties as not sent. The
+// generationConfig schema has presencePenalty and frequencyPenalty, but every
+// current model answers them with 400 "Penalty is not enabled", so they are
+// never sent.
+func (p *Provider) warnUnsentPenalties(req *providers.PredictionRequest) {
+	providers.WarnUnsentParams(p.ID(), req, providers.ParamFrequencyPenalty, providers.ParamPresencePenalty)
 }
 
 // buildGeminiRequest creates a Gemini API request with standard safety settings
@@ -765,13 +750,12 @@ func (p *Provider) parseAndValidateGeminiResponse(respBody []byte, predictResp p
 	return geminiResp, candidate, predictResp, nil
 }
 
-// Predict sends a predict request to Gemini
-func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+// predictOnce sends a predict request to Gemini
+func (p *Provider) predictOnce(
+	ctx context.Context, req providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
 	// Enrich context with provider and model info for logging
-	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
-		Provider: p.ID(),
-		Model:    p.model,
-	})
+	ctx = p.LoggingContext(ctx, p.model)
 
 	start := time.Now()
 
@@ -780,7 +764,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 
 	// Create request
 	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
-	geminiReq.GenerationConfig.applyPenalties(p, &req)
+	geminiReq.GenerationConfig.applyOptionalSampling(p, &req)
 
 	// Explicit context caching: move the stable system prefix into a
 	// CachedContent resource and reference it (no tools on this path). The API
@@ -878,6 +862,15 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 		"video_parts", countPartsByType(contentParts, types.ContentTypeVideo))
 
 	return predictResp, nil
+}
+
+// Predict runs predictOnce, retrying without any sampling parameter the API
+// rejects for this model (providers.BaseProvider.RetryRejectedParams).
+func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	return providers.RetryCall(&p.BaseProvider, req,
+		func(r providers.PredictionRequest) (providers.PredictionResponse, error) {
+			return p.predictOnce(ctx, r)
+		})
 }
 
 // countPartsByType counts how many parts match a given type

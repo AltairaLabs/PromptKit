@@ -178,6 +178,9 @@ type BaseProvider struct {
 	customHeaders         map[string]string
 	mediaStorage          storage.MediaStorageService
 	allowPrivateMediaURLs bool
+	// rejected holds the sampling parameters the API rejected for this
+	// model (RetryRejectedParams); shared by copies of the provider.
+	rejected *rejectedParams
 }
 
 // NewBaseProvider creates a new BaseProvider with common fields. A companion
@@ -193,6 +196,7 @@ func NewBaseProvider(id string, includeRawOutput bool, client *http.Client) Base
 		streamingClient:       newStreamingClient(client),
 		retryPolicy:           DefaultRetryPolicy(),
 		maxRequestPayloadSize: DefaultMaxPayloadSize,
+		rejected:              &rejectedParams{set: map[string]bool{}},
 	}
 }
 
@@ -392,6 +396,12 @@ func (b *BaseProvider) SetAllowPrivateNetworkMedia(allow bool) {
 	mediaSettingsMu.Lock()
 	defer mediaSettingsMu.Unlock()
 	b.allowPrivateMediaURLs = allow
+}
+
+// LoggingContext returns ctx carrying this provider's ID and model for the
+// logs written during a call.
+func (b *BaseProvider) LoggingContext(ctx context.Context, model string) context.Context {
+	return logger.WithLoggingContext(ctx, &logger.LoggingFields{Provider: b.id, Model: model})
 }
 
 // MediaLoader returns a per-call MediaLoader configured with this provider's

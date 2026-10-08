@@ -117,9 +117,6 @@ type Provider struct {
 	defaults       providers.ProviderDefaults
 	platform       string
 	platformConfig *providers.PlatformConfig
-	// unsupportedParams holds model parameters the configured model rejects
-	// (e.g. Claude 4.7+ deprecated "temperature"). Populated from the spec.
-	unsupportedParams map[string]bool
 	// capabilities holds the declared capability set from the provider config.
 	// When non-nil it is authoritative for multimodal support; nil falls back
 	// to Claude's built-in defaults (images + documents, no audio/video).
@@ -132,24 +129,6 @@ type Provider struct {
 // setCapabilities records the declared capability set on the provider.
 func (p *Provider) setCapabilities(capabilities []string) {
 	p.capabilities = providers.CapabilitySet(capabilities)
-}
-
-// setUnsupportedParams records the model parameters that must be omitted from
-// requests. A no-op for an empty list so the common case stays nil.
-func (p *Provider) setUnsupportedParams(params []string) {
-	if len(params) == 0 {
-		return
-	}
-	p.unsupportedParams = make(map[string]bool, len(params))
-	for _, name := range params {
-		p.unsupportedParams[name] = true
-	}
-}
-
-// paramSupported reports whether the named request parameter may be sent to the
-// model. Parameters listed in the provider's UnsupportedParams are not.
-func (p *Provider) paramSupported(name string) bool {
-	return !p.unsupportedParams[name]
 }
 
 // NewProvider creates a new Claude provider
@@ -404,6 +383,7 @@ type claudeRequest struct {
 	System       []claudeContentBlock `json:"system,omitempty"`
 	Temperature  *float32             `json:"temperature,omitempty"`
 	TopP         float32              `json:"top_p,omitempty"`
+	TopK         *int                 `json:"top_k,omitempty"`
 	OutputConfig *claudeOutputConfig  `json:"output_config,omitempty"`
 	Thinking     *claudeThinking      `json:"thinking,omitempty"`
 	Stream       bool                 `json:"stream,omitempty"`
@@ -516,6 +496,8 @@ func (p *Provider) buildBaseRequest(req providers.PredictionRequest, messages an
 		Messages:  messages,
 		System:    p.createSystemBlocks(req.System),
 	}
+	// The Messages API takes no penalties.
+	providers.WarnUnsentParams(p.ID(), &req, providers.ParamFrequencyPenalty, providers.ParamPresencePenalty)
 	if thinking := p.claudeThinkingFor(); thinking != nil {
 		// Extended thinking: reasoning tokens count toward max_tokens, so ensure
 		// headroom for an answer; and the API rejects a custom temperature, so we
@@ -524,10 +506,17 @@ func (p *Provider) buildBaseRequest(req providers.PredictionRequest, messages an
 		if cr.MaxTokens <= thinking.BudgetTokens {
 			cr.MaxTokens = thinking.BudgetTokens + thinkingAnswerHeadroom
 		}
-	} else if p.paramSupported("temperature") && (temperature != 0 || req.TemperatureSet) {
+	} else {
 		// Claude 4.7+ models reject temperature; only send it when supported.
 		// A zero is sent only when asked for: unset leaves the API's default.
-		cr.Temperature = &temperature
+		if p.ParamSupported("temperature") && (temperature != 0 || req.TemperatureSet) {
+			cr.Temperature = &temperature
+		}
+		// top_k is likewise incompatible with extended thinking, so it is
+		// sent only on this branch.
+		if p.ParamSupported("top_k") {
+			cr.TopK = req.TopK
+		}
 	}
 	return cr
 }
@@ -906,13 +895,12 @@ func (p *Provider) parseAndValidateClaudeResponse(respBody []byte, predictResp p
 	return claudeResp, responseText, predictResp, nil
 }
 
-// Predict sends a predict request to Claude
-func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+// predictOnce sends a predict request to Claude
+func (p *Provider) predictOnce(
+	ctx context.Context, req providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
 	// Enrich context with provider and model info for logging
-	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
-		Provider: p.ID(),
-		Model:    p.model,
-	})
+	ctx = p.LoggingContext(ctx, p.model)
 
 	start := time.Now()
 
@@ -957,6 +945,15 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	predictResp.FinishReason = normalizeFinishReason(claudeResp.StopReason)
 
 	return predictResp, nil
+}
+
+// Predict runs predictOnce, retrying without any sampling parameter the API
+// rejects for this model (providers.BaseProvider.RetryRejectedParams).
+func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	return providers.RetryCall(&p.BaseProvider, req,
+		func(r providers.PredictionRequest) (providers.PredictionResponse, error) {
+			return p.predictOnce(ctx, r)
+		})
 }
 
 // claudePricing returns pricing for Claude models (input, output, cached per 1K tokens)

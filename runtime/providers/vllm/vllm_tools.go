@@ -306,6 +306,9 @@ func (p *Provider) buildToolRequest(
 	if vllmReq.PresencePenalty != nil {
 		reqMap["presence_penalty"] = *vllmReq.PresencePenalty
 	}
+	if vllmReq.TopK != nil {
+		reqMap["top_k"] = *vllmReq.TopK
+	}
 	if vllmReq.MaxTokens > 0 {
 		reqMap["max_tokens"] = vllmReq.MaxTokens
 	}

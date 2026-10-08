@@ -162,8 +162,10 @@ func (p *Provider) prepareMessages(
 }
 
 // addOllamaPenalties sets the request's frequency and presence penalties on a
-// map-built request; nil sends neither.
-func addOllamaPenalties(body map[string]any, req *providers.PredictionRequest) {
+// map-built request; nil sends neither. Ollama's OpenAI-compatible endpoint
+// has no top_k, so a request's top_k is dropped with a warning.
+func addOllamaPenalties(providerID string, body map[string]any, req *providers.PredictionRequest) {
+	providers.WarnUnsentParams(providerID, req, providers.ParamTopK)
 	if req.FrequencyPenalty != nil {
 		body["frequency_penalty"] = *req.FrequencyPenalty
 	}
@@ -555,10 +557,7 @@ func (p *Provider) predictWithMessages(
 	messages []ollamaMessage,
 ) (providers.PredictionResponse, error) {
 	// Enrich context with provider and model info for logging
-	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
-		Provider: p.ID(),
-		Model:    p.model,
-	})
+	ctx = p.LoggingContext(ctx, p.model)
 
 	start := time.Now()
 
@@ -579,6 +578,7 @@ func (p *Provider) predictWithMessages(
 		FrequencyPenalty: req.FrequencyPenalty,
 		PresencePenalty:  req.PresencePenalty,
 	}
+	providers.WarnUnsentParams(p.ID(), &req, providers.ParamTopK) // the endpoint has no top_k
 
 	reqBody, err := providers.MarshalWithExtraBody(p.ID(), ollamaReq, p.extraBody)
 	if err != nil {
@@ -670,10 +670,7 @@ func (p *Provider) predictStreamWithMessages(
 	messages []ollamaMessage,
 ) (<-chan providers.StreamChunk, error) {
 	// Enrich context with provider and model info for logging
-	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
-		Provider: p.ID(),
-		Model:    p.model,
-	})
+	ctx = p.LoggingContext(ctx, p.model)
 
 	// Apply provider defaults for zero values
 	temperature, topP, maxTokens := p.applyRequestDefaults(req)
@@ -693,7 +690,7 @@ func (p *Provider) predictStreamWithMessages(
 	if req.Seed != nil {
 		ollamaReq["seed"] = *req.Seed
 	}
-	addOllamaPenalties(ollamaReq, &req)
+	addOllamaPenalties(p.ID(), ollamaReq, &req)
 	if p.keepAlive != "" {
 		ollamaReq["keep_alive"] = p.keepAlive
 	}

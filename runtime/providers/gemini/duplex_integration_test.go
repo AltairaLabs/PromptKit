@@ -434,5 +434,51 @@ func duplexTestModel() string {
 	if m := os.Getenv("GEMINI_DUPLEX_MODEL"); m != "" {
 		return m
 	}
-	return "gemini-2.5-flash-native-audio-preview-12-2025"
+	return "gemini-3.8-live"
+}
+
+// TestDuplexIntegration_SamplingParams opens a Live session carrying every
+// sampling parameter a prompt can set. The session must open and answer:
+// temperature, topP, topK and maxOutputTokens go in the setup's
+// generationConfig, and the penalties, which Gemini rejects, are held back.
+func TestDuplexIntegration_SamplingParams(t *testing.T) {
+	if os.Getenv("GEMINI_API_KEY") == "" {
+		t.Skip("GEMINI_API_KEY not set")
+	}
+	provider := NewProvider("gemini-sampling", duplexTestModel(),
+		"https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	topK, pen := 20, float32(0.1)
+	session, err := provider.CreateStreamSession(ctx, &providers.StreamingInputConfig{
+		Config: types.StreamingMediaConfig{Type: types.ContentTypeAudio, ChunkSize: 3200,
+			SampleRate: 16000, Channels: 1, BitDepth: 16, Encoding: "pcm_linear16"},
+		Metadata: map[string]interface{}{"response_modalities": []string{"AUDIO"}},
+		Sampling: &providers.StreamingSampling{MaxTokens: 400, Temperature: 0, TemperatureSet: true,
+			TopP: 0.9, TopK: &topK, FrequencyPenalty: &pen, PresencePenalty: &pen},
+	})
+	if err != nil {
+		t.Fatalf("session with sampling parameters refused: %v", err)
+	}
+	defer session.Close()
+	if err := session.SendText(ctx, "Say hello."); err != nil {
+		t.Fatalf("SendText: %v", err)
+	}
+	for {
+		select {
+		case chunk, ok := <-session.Response():
+			if !ok {
+				t.Fatalf("session closed before a reply: %v", session.Error())
+			}
+			if chunk.Error != nil {
+				t.Fatalf("session rejected the sampling parameters: %v", chunk.Error)
+			}
+			if chunk.FinishReason != nil {
+				return
+			}
+		case <-ctx.Done():
+			t.Fatalf("no reply: %v (session error: %v)", ctx.Err(), session.Error())
+		}
+	}
 }

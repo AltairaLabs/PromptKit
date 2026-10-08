@@ -28,7 +28,7 @@ func TestStreamingIntegration_EndToEnd(t *testing.T) {
 	}
 
 	// Create provider
-	provider := NewProvider("gemini", "gemini-2.5-flash-native-audio-preview-12-2025", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{
+	provider := NewProvider("gemini", "gemini-3.8-live", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{
 		Temperature: 0.7,
 	}, false)
 
@@ -158,7 +158,7 @@ func TestStreamingIntegration_AudioRoundTrip(t *testing.T) {
 		t.Skip("Skipping integration test: GEMINI_API_KEY not set")
 	}
 
-	provider := NewProvider("gemini", "gemini-2.5-flash-native-audio-preview-12-2025", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
+	provider := NewProvider("gemini", "gemini-3.8-live", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -242,7 +242,7 @@ func TestStreamingIntegration_ErrorHandling(t *testing.T) {
 			// Create provider with test API key
 			provider := &Provider{
 				BaseProvider: providers.BaseProvider{},
-				model:        "gemini-2.5-flash-native-audio-preview-12-2025",
+				model:        "gemini-3.8-live",
 				baseURL:      "https://generativelanguage.googleapis.com/v1beta",
 				apiKey:       tt.apiKey,
 			}
@@ -283,7 +283,7 @@ func TestStreamingIntegration_Performance(t *testing.T) {
 		t.Skip("Skipping integration test: GEMINI_API_KEY not set")
 	}
 
-	provider := NewProvider("gemini", "gemini-2.5-flash-native-audio-preview-12-2025", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
+	provider := NewProvider("gemini", "gemini-3.8-live", "https://generativelanguage.googleapis.com/v1beta", providers.ProviderDefaults{}, false)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -335,22 +335,37 @@ func TestStreamingIntegration_Performance(t *testing.T) {
 		}
 	}
 
-	// Send text to trigger response
+	// With VAD disabled the turn is manual: activityStart went out with the
+	// first chunk, and EndInput's activityEnd closes it. Without that the
+	// model waits for the turn to end (the text alone does not end it).
+	if ender, ok := session.(interface{ EndInput() }); ok {
+		ender.EndInput()
+	}
 	if err := session.SendText(ctx, "Respond with OK"); err != nil {
 		t.Fatalf("send text error: %v", err)
 	}
 
-	// Wait for first response
-	select {
-	case <-session.Response():
-		firstResponseTime := time.Since(sendStart)
-		t.Logf("First response time: %v", firstResponseTime)
-
-		// Check if within acceptable latency
-		if firstResponseTime > 5*time.Second {
-			t.Logf("WARNING: High latency detected: %v (target: <5s)", firstResponseTime)
+	// Wait for the first content chunk: an empty acknowledgement is not a
+	// response, which is how this passed in 35ms on a model that never answered.
+	waitFor := time.After(10 * time.Second)
+	for {
+		var chunk providers.StreamChunk
+		select {
+		case chunk = <-session.Response():
+		case <-waitFor:
+			t.Fatal("timeout waiting for first response")
 		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("timeout waiting for first response")
+		if chunk.Error != nil {
+			t.Fatalf("response error: %v", chunk.Error)
+		}
+		if chunk.Delta == "" && chunk.Content == "" && chunk.MediaData == nil && chunk.FinishReason == nil {
+			continue
+		}
+		break
+	}
+	firstResponseTime := time.Since(sendStart)
+	t.Logf("First response time: %v", firstResponseTime)
+	if firstResponseTime > 5*time.Second {
+		t.Logf("WARNING: High latency detected: %v (target: <5s)", firstResponseTime)
 	}
 }

@@ -105,3 +105,25 @@ func TestBuildBaseRequest_AdaptiveDoesNotInflateMaxTokens(t *testing.T) {
 	assert.Greater(t, legacyReq.MaxTokens, budget,
 		"reasoning tokens count toward max_tokens, so the answer needs headroom")
 }
+
+// top_k reaches the wire on a plain request but not alongside extended
+// thinking, which the API rejects it with; unsupported_params drops it too.
+func TestBuildBaseRequest_TopKOmittedWithThinking(t *testing.T) {
+	topK, budget := 40, 2048
+	req := providers.PredictionRequest{MaxTokens: 512, TopK: &topK}
+
+	plain, err := json.Marshal((&Provider{model: "claude-sonnet-5"}).buildBaseRequest(req, nil))
+	require.NoError(t, err)
+	assert.Contains(t, string(plain), `"top_k":40`)
+
+	thinking, err := json.Marshal(
+		(&Provider{model: "claude-sonnet-5", thinkingBudget: &budget}).buildBaseRequest(req, nil))
+	require.NoError(t, err)
+	assert.NotContains(t, string(thinking), "top_k")
+
+	closed := &Provider{model: "claude-sonnet-5"}
+	closed.SetUnsupportedParams([]string{"top_k"})
+	unsupported, err := json.Marshal(closed.buildBaseRequest(req, nil))
+	require.NoError(t, err)
+	assert.NotContains(t, string(unsupported), "top_k")
+}

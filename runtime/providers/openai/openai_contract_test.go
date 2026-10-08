@@ -59,7 +59,7 @@ func TestOpenAIProvider_Contract(t *testing.T) {
 
 	provider := NewProvider(
 		"openai-test",
-		"gpt-4o-mini",
+		"gpt-6-luna",
 		"https://api.openai.com/v1",
 		providers.ProviderDefaults{
 			Temperature: 0.7,
@@ -88,7 +88,7 @@ func TestToolProvider_Contract(t *testing.T) {
 
 	provider := NewToolProvider(
 		"openai-tool-test",
-		"gpt-4o-mini",
+		"gpt-6-luna",
 		"https://api.openai.com/v1",
 		providers.ProviderDefaults{
 			Temperature: 0.7,
@@ -105,6 +105,44 @@ func TestToolProvider_Contract(t *testing.T) {
 		SupportsToolsExpected:     true,
 		SupportsStreamingExpected: true,
 	})
+}
+
+// TestSamplingParams_Contract sends every sampling parameter a prompt can set
+// to the current models, which reject all of them: the provider must learn that
+// from the 400s and still complete the call. Built from a spec, as a pack's
+// provider is; an undeclared api_mode takes the Responses API, where current
+// models accept function tools (Chat Completions refuses them).
+func TestSamplingParams_Contract(t *testing.T) {
+	if os.Getenv("OPENAI_API_KEY") == "" {
+		t.Skip("OPENAI_API_KEY not set")
+	}
+	for _, tc := range []struct{ name, model, mode string }{
+		{"default_mode", "gpt-6.1-sol", ""},
+		{"responses", "gpt-6.1-sol", "responses"},
+		{"luna_default_mode", "gpt-6-luna", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+				ID: "openai-sampling-" + tc.name, Type: "openai", Model: tc.model,
+				BaseURL:          "https://api.openai.com/v1",
+				Defaults:         providers.ProviderDefaults{MaxTokens: 100},
+				AdditionalConfig: apiModeConfig(tc.mode),
+			})
+			if err != nil {
+				t.Fatalf("CreateProviderFromSpec: %v", err)
+			}
+			defer p.Close()
+			providers.ValidateSamplingParamsAccepted(t, p)
+		})
+	}
+}
+
+// apiModeConfig returns additional_config declaring mode, or nil for "".
+func apiModeConfig(mode string) map[string]any {
+	if mode == "" {
+		return nil
+	}
+	return map[string]any{"api_mode": mode}
 }
 
 // TestAudioModel_Predict_TextResponse verifies that sending audio input to an

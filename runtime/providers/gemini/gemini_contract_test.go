@@ -20,7 +20,7 @@ func TestGeminiProvider_Contract(t *testing.T) {
 
 	provider := NewProvider(
 		"gemini-test",
-		"gemini-2.0-flash",
+		"gemini-3.8-flash",
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{
 			Temperature: 0.7,
@@ -49,7 +49,7 @@ func TestToolProvider_Contract(t *testing.T) {
 
 	provider := NewToolProvider(
 		"gemini-tool-test",
-		"gemini-2.0-flash",
+		"gemini-3.8-flash",
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{
 			Temperature: 0.7,

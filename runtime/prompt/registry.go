@@ -663,7 +663,7 @@ func (r *Registry) assembleFragmentVars(config *Config, finalVars map[string]str
 }
 
 // CallParams are the sampling parameters a call to a prompt requests. Zero
-// MaxTokens and TopP, and nil penalties, mean unset; Temperature is meaningful
+// MaxTokens and TopP, and nil penalties and TopK, mean unset; Temperature is meaningful
 // only with TemperatureSet, so a prompt can ask for a temperature of 0.
 type CallParams struct {
 	MaxTokens        int
@@ -672,6 +672,7 @@ type CallParams struct {
 	TopP             float32
 	FrequencyPenalty *float32
 	PresencePenalty  *float32
+	TopK             *int
 }
 
 // CallParameters returns the sampling parameters a call to activity's prompt
@@ -718,6 +719,10 @@ func (c *CallParams) apply(params *ParametersPack) {
 	if params.PresencePenalty != nil {
 		v := float32(*params.PresencePenalty)
 		c.PresencePenalty = &v
+	}
+	if params.TopK != nil {
+		v := *params.TopK
+		c.TopK = &v
 	}
 }
 

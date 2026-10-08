@@ -37,8 +37,10 @@ func (p *Provider) validateStreamRequest(req *providers.StreamingInputConfig) er
 func (p *Provider) buildRealtimeSessionConfig(req *providers.StreamingInputConfig) RealtimeSessionConfig {
 	config := DefaultRealtimeSessionConfig()
 
-	// Use provider model if it's a realtime model
-	if strings.Contains(p.model, "realtime") {
+	// The session runs the configured model. A fallback default here used to
+	// swap any model without "realtime" in its name for a retired preview
+	// model, so the API's refusal named a model nobody had configured.
+	if p.model != "" {
 		config.Model = p.model
 	}
 
@@ -100,6 +102,20 @@ func (p *Provider) applyStreamMetadata(metadata map[string]interface{}, config *
 	if temp, ok := metadata["temperature"].(float64); ok {
 		config.Temperature = temp
 	}
+}
+
+// applyStreamSampling applies the prompt's sampling parameters to a realtime
+// session. The GA session takes max_output_tokens and no sampling parameter,
+// so the rest are reported as not sent.
+func (p *Provider) applyStreamSampling(s *providers.StreamingSampling, config *RealtimeSessionConfig) {
+	if s == nil {
+		return
+	}
+	if s.MaxTokens > 0 {
+		config.MaxResponseOutputTokens = s.MaxTokens
+	}
+	providers.WarnUnsentParams(p.ID(), s.Request(), providers.ParamTemperature, providers.ParamTopP,
+		providers.ParamTopK, providers.ParamFrequencyPenalty, providers.ParamPresencePenalty)
 }
 
 // applyStreamTools converts and applies tools configuration.
