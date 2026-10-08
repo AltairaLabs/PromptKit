@@ -510,6 +510,17 @@ func TestInMemoryTaskStore_Query(t *testing.T) {
 	}
 	assert.ElementsMatch(t, []string{"t2", "t3", "t4"}, ids, "t2 was just updated")
 
+	// The 1.0 proto keeps tasks whose status timestamp is "greater than or
+	// equal to" status_timestamp_after.
+	exact := base.Add(2 * time.Second)
+	page, err = store.Query(TaskQuery{ContextID: "ctx", StatusAfter: &exact})
+	require.NoError(t, err)
+	ids = ids[:0]
+	for _, task := range page.Tasks {
+		ids = append(ids, task.ID)
+	}
+	assert.ElementsMatch(t, []string{"t2", "t3", "t4"}, ids, "t3's timestamp equals the cutoff")
+
 	page, err = store.Query(TaskQuery{ContextID: "ctx", Offset: 10})
 	require.NoError(t, err)
 	assert.Empty(t, page.Tasks)

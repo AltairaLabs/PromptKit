@@ -982,10 +982,28 @@ func (c *Client) CancelTask(ctx context.Context, taskID string) error {
 	return err
 }
 
-// ListTasks lists tasks (ListTasks, which A2A 1.0 added; to a 0.3 agent the
-// client sends the legacy PromptKit tasks/list, which only PromptKit servers
-// answer).
+// ListTasks lists one page of tasks (ListTasks, which A2A 1.0 added; to a 0.3
+// agent the client sends the legacy PromptKit tasks/list, which only PromptKit
+// servers answer). The server returns at most params.PageSize tasks, 50 when
+// unset; use ListTasksPage to read the next-page token and page through the
+// rest.
 func (c *Client) ListTasks(ctx context.Context, params *ListTasksRequest) ([]*Task, error) {
+	resp, err := c.ListTasksPage(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	tasks := make([]*Task, len(resp.Tasks))
+	for i := range resp.Tasks {
+		tasks[i] = &resp.Tasks[i]
+	}
+	return tasks, nil
+}
+
+// ListTasksPage lists one page of tasks, like ListTasks, and returns the whole
+// response: NextPageToken (empty on the last page), PageSize and TotalSize. To
+// read the next page, send the same params with PageToken set to
+// NextPageToken.
+func (c *Client) ListTasksPage(ctx context.Context, params *ListTasksRequest) (*ListTasksResponse, error) {
 	raw, err := c.rpcCall(ctx, OpListTasks, sameParams(params))
 	if err != nil {
 		return nil, err
@@ -994,11 +1012,7 @@ func (c *Client) ListTasks(ctx context.Context, params *ListTasksRequest) ([]*Ta
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		return nil, fmt.Errorf("a2a: %s: decode result: %w", MethodV1ListTasks, err)
 	}
-	tasks := make([]*Task, len(resp.Tasks))
-	for i := range resp.Tasks {
-		tasks[i] = &resp.Tasks[i]
-	}
-	return tasks, nil
+	return &resp, nil
 }
 
 // ReadSSE reads SSE events from r and sends parsed StreamEvents to ch.

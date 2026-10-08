@@ -46,6 +46,7 @@ Types are derived from the A2A protocol specification \(a2a.proto\) and use came
   - [func \(c \*Client\) Discover\(ctx context.Context\) \(\*AgentCard, error\)](<#Client.Discover>)
   - [func \(c \*Client\) GetTask\(ctx context.Context, taskID string\) \(\*Task, error\)](<#Client.GetTask>)
   - [func \(c \*Client\) ListTasks\(ctx context.Context, params \*ListTasksRequest\) \(\[\]\*Task, error\)](<#Client.ListTasks>)
+  - [func \(c \*Client\) ListTasksPage\(ctx context.Context, params \*ListTasksRequest\) \(\*ListTasksResponse, error\)](<#Client.ListTasksPage>)
   - [func \(c \*Client\) ProtocolVersion\(\) ProtocolVersion](<#Client.ProtocolVersion>)
   - [func \(c \*Client\) SendMessage\(ctx context.Context, params \*SendMessageRequest\) \(\*Task, error\)](<#Client.SendMessage>)
   - [func \(c \*Client\) SendMessageStream\(ctx context.Context, params \*SendMessageRequest\) \(\<\-chan StreamEvent, error\)](<#Client.SendMessageStream>)
@@ -389,7 +390,7 @@ func PartToContentPart(part *Part) (types.ContentPart, error)
 PartToContentPart converts an A2A Part to a PromptKit ContentPart.
 
 <a name="ReadSSE"></a>
-## func [ReadSSE](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L1006>)
+## func [ReadSSE](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L1020>)
 
 ```go
 func ReadSSE(ctx context.Context, r io.Reader, ch chan<- StreamEvent)
@@ -398,7 +399,7 @@ func ReadSSE(ctx context.Context, r io.Reader, ch chan<- StreamEvent)
 ReadSSE reads SSE events from r and sends parsed StreamEvents to ch. It has no idle timeout; use [ReadSSEWithIdleTimeout](<#ReadSSEWithIdleTimeout>) for timeout support.
 
 <a name="ReadSSEWithIdleTimeout"></a>
-## func [ReadSSEWithIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L1092>)
+## func [ReadSSEWithIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L1106>)
 
 ```go
 func ReadSSEWithIdleTimeout(ctx context.Context, r io.Reader, ch chan<- StreamEvent, idleTimeout time.Duration)
@@ -626,13 +627,22 @@ func (c *Client) GetTask(ctx context.Context, taskID string) (*Task, error)
 GetTask retrieves a task by ID \(GetTask; 0.3: tasks/get\).
 
 <a name="Client.ListTasks"></a>
-### func \(\*Client\) [ListTasks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L988>)
+### func \(\*Client\) [ListTasks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L990>)
 
 ```go
 func (c *Client) ListTasks(ctx context.Context, params *ListTasksRequest) ([]*Task, error)
 ```
 
-ListTasks lists tasks \(ListTasks, which A2A 1.0 added; to a 0.3 agent the client sends the legacy PromptKit tasks/list, which only PromptKit servers answer\).
+ListTasks lists one page of tasks \(ListTasks, which A2A 1.0 added; to a 0.3 agent the client sends the legacy PromptKit tasks/list, which only PromptKit servers answer\). The server returns at most params.PageSize tasks, 50 when unset; use ListTasksPage to read the next\-page token and page through the rest.
+
+<a name="Client.ListTasksPage"></a>
+### func \(\*Client\) [ListTasksPage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L1006>)
+
+```go
+func (c *Client) ListTasksPage(ctx context.Context, params *ListTasksRequest) (*ListTasksResponse, error)
+```
+
+ListTasksPage lists one page of tasks, like ListTasks, and returns the whole response: NextPageToken \(empty on the last page\), PageSize and TotalSize. To read the next page, send the same params with PageToken set to NextPageToken.
 
 <a name="Client.ProtocolVersion"></a>
 ### func \(\*Client\) [ProtocolVersion](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L416>)

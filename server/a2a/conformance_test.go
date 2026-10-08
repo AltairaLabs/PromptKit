@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -470,6 +471,70 @@ func TestConformance_ListTasksPaging(t *testing.T) {
 	e = rawError(t, rawRPC(t, ts, "1.0", a2a.MethodV1ListTasks,
 		a2a.ListTasksRequest{ContextID: "ctx-page", PageToken: "garbage!"}))
 	assert.Equal(t, a2a.ErrCodeInvalidParams, e.Code)
+}
+
+// newListTasksServer serves n submitted tasks in one context, put straight into
+// the store so a test can hold more than a page of them cheaply.
+func newListTasksServer(t *testing.T, contextID string, n int) *httptest.Server {
+	t.Helper()
+	store := NewInMemoryTaskStore()
+	for i := range n {
+		_, err := store.Create(fmt.Sprintf("task-%03d", i), contextID)
+		require.NoError(t, err)
+	}
+	_, ts := newTestServer(nopOpener, WithTaskStore(store))
+	t.Cleanup(ts.Close)
+	return ts
+}
+
+// The 1.0 proto: "If unspecified, at most 50 tasks will be returned ... The
+// maximum value is 100."
+func TestConformance_ListTasksPageSizeDefaultAndMax(t *testing.T) {
+	ts := newListTasksServer(t, "ctx-many", 120)
+
+	unset := rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodV1ListTasks, a2a.ListTasksRequest{ContextID: "ctx-many"}))
+	assert.Len(t, unset["tasks"], 50)
+	assert.Equal(t, float64(50), unset["pageSize"])
+	assert.Equal(t, float64(120), unset["totalSize"])
+
+	tooBig := rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodV1ListTasks,
+		a2a.ListTasksRequest{ContextID: "ctx-many", PageSize: 500}))
+	assert.Len(t, tooBig["tasks"], 100)
+	assert.Equal(t, float64(100), tooBig["pageSize"])
+}
+
+// TASK_STATE_UNSPECIFIED is the proto's zero value for status, so it means no
+// filter rather than "tasks in no state", which would match nothing.
+func TestConformance_ListTasksUnspecifiedStatusIsNoFilter(t *testing.T) {
+	ts := newListTasksServer(t, "ctx-unspecified", 3)
+
+	result := rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodV1ListTasks,
+		map[string]any{"contextId": "ctx-unspecified", "status": "TASK_STATE_UNSPECIFIED"}))
+	assert.Len(t, result["tasks"], 3)
+	assert.Equal(t, float64(3), result["totalSize"])
+}
+
+// The client pages through every task with ListTasksPage's NextPageToken.
+func TestConformance_ClientPagesThroughListTasks(t *testing.T) {
+	ts := newListTasksServer(t, "ctx-client-page", 7)
+	client := a2a.NewClient(ts.URL, a2a.WithProtocolVersion(a2a.ProtocolVersion10))
+
+	seen := map[string]bool{}
+	params := &a2a.ListTasksRequest{ContextID: "ctx-client-page", PageSize: 3}
+	for page := 0; ; page++ {
+		require.Less(t, page, 4, "paging did not terminate")
+		resp, err := client.ListTasksPage(context.Background(), params)
+		require.NoError(t, err)
+		assert.Equal(t, 7, resp.TotalSize)
+		for i := range resp.Tasks {
+			seen[resp.Tasks[i].ID] = true
+		}
+		if resp.NextPageToken == "" {
+			break
+		}
+		params.PageToken = resp.NextPageToken
+	}
+	assert.Len(t, seen, 7)
 }
 
 func TestConformance_SubscribeOpensWithTheTask(t *testing.T) {
