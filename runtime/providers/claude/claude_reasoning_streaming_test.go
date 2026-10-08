@@ -92,8 +92,8 @@ func TestBuildBaseRequest_ExtendedThinking(t *testing.T) {
 	if cr.MaxTokens <= cr.Thinking.BudgetTokens {
 		t.Fatalf("max_tokens (%d) must exceed budget (%d) for answer headroom", cr.MaxTokens, cr.Thinking.BudgetTokens)
 	}
-	if cr.Temperature != 0 {
-		t.Fatalf("temperature must be omitted with thinking, got %v", cr.Temperature)
+	if cr.Temperature != nil {
+		t.Fatalf("temperature must be omitted with thinking, got %v", *cr.Temperature)
 	}
 }
 

@@ -461,6 +461,12 @@ func (p *ToolProvider) buildToolRequest(
 		"temperature": temperature,
 		"topP":        topP,
 	}
+	if req.PresencePenalty != nil {
+		genConfig["presencePenalty"] = *req.PresencePenalty
+	}
+	if req.FrequencyPenalty != nil {
+		genConfig["frequencyPenalty"] = *req.FrequencyPenalty
+	}
 	if maxTokens > 0 {
 		genConfig["maxOutputTokens"] = maxTokens
 	}

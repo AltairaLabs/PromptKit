@@ -662,37 +662,63 @@ func (r *Registry) assembleFragmentVars(config *Config, finalVars map[string]str
 	return fragmentVars, nil
 }
 
-// CallParameters returns the max_tokens and temperature a call to activity's
-// prompt on model requests: the prompt's parameters, then those of its
-// model_overrides entry for model. Zero means unset, leaving the provider's
-// default, as do an unknown activity and a prompt that sets neither.
-func (r *Registry) CallParameters(activity, model string) (maxTokens int, temperature float32) {
+// CallParams are the sampling parameters a call to a prompt requests. Zero
+// MaxTokens and TopP, and nil penalties, mean unset; Temperature is meaningful
+// only with TemperatureSet, so a prompt can ask for a temperature of 0.
+type CallParams struct {
+	MaxTokens        int
+	Temperature      float32
+	TemperatureSet   bool
+	TopP             float32
+	FrequencyPenalty *float32
+	PresencePenalty  *float32
+}
+
+// CallParameters returns the sampling parameters a call to activity's prompt
+// on model requests: the prompt's parameters, then those of its
+// model_overrides entry for model. An unknown activity, or a prompt that sets
+// none, returns the zero CallParams, leaving the provider's defaults.
+func (r *Registry) CallParameters(activity, model string) CallParams {
+	var out CallParams
 	if activity == "" {
-		return 0, 0 // a composition state's conversation runs no prompt of its own
+		return out // a composition state's conversation runs no prompt of its own
 	}
 	config, err := r.loadConfig(activity)
 	if err != nil {
 		// Not silent: the call goes out with the provider's defaults.
 		logger.Warn("prompt parameters unavailable; the call uses the provider's defaults",
 			"task_type", activity, "error", err)
-		return 0, 0
+		return out
 	}
-	apply := func(params *ParametersPack) {
-		if params == nil {
-			return
-		}
-		if params.MaxTokens != nil {
-			maxTokens = *params.MaxTokens
-		}
-		if params.Temperature != nil {
-			temperature = float32(*params.Temperature)
-		}
-	}
-	apply(config.Spec.Parameters)
+	out.apply(config.Spec.Parameters)
 	if override, ok := config.Spec.ModelOverrides[model]; ok && model != "" {
-		apply(override.Parameters)
+		out.apply(override.Parameters)
 	}
-	return maxTokens, temperature
+	return out
+}
+
+// apply overlays the fields params sets.
+func (c *CallParams) apply(params *ParametersPack) {
+	if params == nil {
+		return
+	}
+	if params.MaxTokens != nil {
+		c.MaxTokens = *params.MaxTokens
+	}
+	if params.Temperature != nil {
+		c.Temperature, c.TemperatureSet = float32(*params.Temperature), true
+	}
+	if params.TopP != nil {
+		c.TopP = float32(*params.TopP)
+	}
+	if params.FrequencyPenalty != nil {
+		v := float32(*params.FrequencyPenalty)
+		c.FrequencyPenalty = &v
+	}
+	if params.PresencePenalty != nil {
+		v := float32(*params.PresencePenalty)
+		c.PresencePenalty = &v
+	}
 }
 
 // applyModelOverrides applies model-specific template overrides

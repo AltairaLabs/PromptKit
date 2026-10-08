@@ -52,14 +52,33 @@ type ResponseFormat struct {
 
 // PredictionRequest represents a request to a predict provider
 type PredictionRequest struct {
-	System         string          `json:"system"`
-	Messages       []types.Message `json:"messages"`
-	Temperature    float32         `json:"temperature"`
-	TopP           float32         `json:"top_p"`
-	MaxTokens      int             `json:"max_tokens"`
-	Seed           *int            `json:"seed,omitempty"`
-	ResponseFormat *ResponseFormat `json:"response_format,omitempty"` // Optional response format (JSON mode)
-	Metadata       map[string]any  `json:"metadata,omitempty"`        // Provider-specific context
+	System      string          `json:"system"`
+	Messages    []types.Message `json:"messages"`
+	Temperature float32         `json:"temperature"`
+	// TemperatureSet marks Temperature as set explicitly, so a zero is sent
+	// as zero instead of being replaced by the provider's default temperature
+	// (see ResolveTemperature).
+	TemperatureSet bool    `json:"temperature_set,omitempty"`
+	TopP           float32 `json:"top_p"`
+	MaxTokens      int     `json:"max_tokens"`
+	// FrequencyPenalty and PresencePenalty are sent by providers whose API
+	// takes them; nil sends nothing.
+	FrequencyPenalty *float32        `json:"frequency_penalty,omitempty"`
+	PresencePenalty  *float32        `json:"presence_penalty,omitempty"`
+	Seed             *int            `json:"seed,omitempty"`
+	ResponseFormat   *ResponseFormat `json:"response_format,omitempty"` // Optional response format (JSON mode)
+	Metadata         map[string]any  `json:"metadata,omitempty"`        // Provider-specific context
+}
+
+// ResolveTemperature returns the temperature req sends: its own when it set
+// one (explicitly, or any non-zero value), otherwise the provider's default
+// def. A zero without TemperatureSet is "unset", which is what every caller
+// that predates TemperatureSet means by it.
+func ResolveTemperature(req *PredictionRequest, def float32) float32 {
+	if req.TemperatureSet || req.Temperature != 0 {
+		return req.Temperature
+	}
+	return def
 }
 
 // NormalizeMessages extracts system-role messages from Messages, merges their

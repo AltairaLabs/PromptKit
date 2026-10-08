@@ -84,8 +84,12 @@ type vllmRequest struct {
 	Temperature float32       `json:"temperature"`
 	TopP        float32       `json:"top_p"`
 	MaxTokens   int           `json:"max_tokens,omitempty"` // 0 = no limit
-	Seed        *int          `json:"seed,omitempty"`
-	Stream      bool          `json:"stream"`
+	// FrequencyPenalty and PresencePenalty: vLLM's OpenAI-compatible server
+	// takes both; nil sends neither.
+	FrequencyPenalty *float32 `json:"frequency_penalty,omitempty"`
+	PresencePenalty  *float32 `json:"presence_penalty,omitempty"`
+	Seed             *int     `json:"seed,omitempty"`
+	Stream           bool     `json:"stream"`
 	// StreamOptions carries streaming-only parameters. Set only when Stream is
 	// true, so vLLM knows to emit a terminal usage-bearing chunk before [DONE].
 	StreamOptions *vllmStreamOptions `json:"stream_options,omitempty"`
@@ -253,10 +257,7 @@ func newVLLMMessage(msg types.Message, content any) vllmMessage {
 func (p *Provider) applyRequestDefaults(
 	req *providers.PredictionRequest,
 ) (temperature, topP float32, maxTokens int) {
-	temperature = req.Temperature
-	if temperature == 0 {
-		temperature = p.defaults.Temperature
-	}
+	temperature = providers.ResolveTemperature(req, p.defaults.Temperature)
 
 	topP = req.TopP
 	if topP == 0 {
@@ -335,6 +336,8 @@ func (p *Provider) buildRequest( // NOSONAR
 		Seed:        req.Seed,
 		Stream:      stream,
 	}
+	vllmReq.FrequencyPenalty = req.FrequencyPenalty
+	vllmReq.PresencePenalty = req.PresencePenalty
 	if stream {
 		// Request the terminal usage chunk so streamed responses carry cost.
 		vllmReq.StreamOptions = &vllmStreamOptions{IncludeUsage: true}

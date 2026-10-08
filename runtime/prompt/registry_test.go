@@ -790,30 +790,31 @@ func TestRegistry_MergeVars(t *testing.T) {
 }
 
 func TestRegistry_CallParameters(t *testing.T) {
-	maxTokens, temp, overrideTemp := 300, 0.8, 0.2
+	maxTokens, temp, overrideTemp, topP, freq := 300, 0.8, 0.0, 0.9, 0.3
 	repo := newMockRepository()
 	require.NoError(t, repo.SavePrompt(&Config{Spec: Spec{
 		TaskType: "p", SystemTemplate: "x",
-		Parameters: &ParametersPack{MaxTokens: &maxTokens, Temperature: &temp},
+		Parameters: &ParametersPack{MaxTokens: &maxTokens, Temperature: &temp, TopP: &topP},
 		ModelOverrides: map[string]ModelOverride{
-			"m1": {Parameters: &ParametersPack{Temperature: &overrideTemp}},
+			"m1": {Parameters: &ParametersPack{Temperature: &overrideTemp, FrequencyPenalty: &freq}},
 		},
 	}}))
 	reg := NewRegistryWithRepository(repo)
 
-	gotMax, gotTemp := reg.CallParameters("p", "m1")
-	assert.Equal(t, 300, gotMax, "the prompt's, where the override sets none")
-	assert.InDelta(t, 0.2, gotTemp, 1e-6, "the override's")
+	got := reg.CallParameters("p", "m1")
+	assert.Equal(t, 300, got.MaxTokens, "the prompt's, where the override sets none")
+	assert.Zero(t, got.Temperature, "the override's explicit zero")
+	assert.True(t, got.TemperatureSet, "a zero the override set is set, not unset")
+	assert.InDelta(t, 0.9, got.TopP, 1e-6)
+	require.NotNil(t, got.FrequencyPenalty)
+	assert.InDelta(t, 0.3, *got.FrequencyPenalty, 1e-6)
+	assert.Nil(t, got.PresencePenalty)
 
-	gotMax, gotTemp = reg.CallParameters("p", "other")
-	assert.Equal(t, 300, gotMax)
-	assert.InDelta(t, 0.8, gotTemp, 1e-6)
+	got = reg.CallParameters("p", "other")
+	assert.Equal(t, 300, got.MaxTokens)
+	assert.InDelta(t, 0.8, got.Temperature, 1e-6)
+	assert.Nil(t, got.FrequencyPenalty)
 
-	gotMax, gotTemp = reg.CallParameters("missing", "m1")
-	assert.Zero(t, gotMax)
-	assert.Zero(t, gotTemp)
-
-	gotMax, gotTemp = reg.CallParameters("", "m1")
-	assert.Zero(t, gotMax)
-	assert.Zero(t, gotTemp)
+	assert.Equal(t, CallParams{}, reg.CallParameters("missing", "m1"))
+	assert.Equal(t, CallParams{}, reg.CallParameters("", "m1"))
 }

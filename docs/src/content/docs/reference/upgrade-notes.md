@@ -8,6 +8,28 @@ changes that need you to do something, with what to change and why.
 
 ## Unreleased
 
+### A prompt's `temperature: 0`, `top_p` and penalties reach the provider
+
+A prompt's `parameters` reached the provider only partly. Every provider read
+a temperature of `0` as unset and replaced it with its own default, so
+`temperature: 0` never took effect, and `top_p`, `frequency_penalty` and
+`presence_penalty` were never sent at all. They now apply to an opened prompt,
+a composition step and a mid-turn workflow handoff, and a `model_overrides`
+entry can set them too.
+
+`PredictionRequest` gains `TemperatureSet`, `FrequencyPenalty` and
+`PresencePenalty`. A zero `Temperature` with `TemperatureSet` is sent as zero;
+`providers.ResolveTemperature` applies the rule for custom providers.
+Penalties are sent to OpenAI Chat Completions, vLLM, Ollama and Gemini, whose
+APIs take them, and not to the OpenAI Responses API or Claude, whose APIs do not.
+
+| If you | You will see | Change |
+|---|---|---|
+| Set `temperature: 0` in a prompt's `parameters` | temperature 0 on the request, not your provider's default | nothing; this is what the prompt asked for |
+| Set `top_p`, `frequency_penalty` or `presence_penalty` | them on the request, where the API takes them | check the values, which were never sent before |
+| Build `PredictionRequest` yourself | nothing: a zero `Temperature` without `TemperatureSet` is still unset | set `TemperatureSet` to send an explicit zero |
+| Read `prompt.Registry.CallParameters` | it returns a `prompt.CallParams` struct | read the fields from it |
+
 ### `PackTemplate.Open` honors every option `sdk.Open` does
 
 A conversation opened from a `PackTemplate` was built by a separate copy of

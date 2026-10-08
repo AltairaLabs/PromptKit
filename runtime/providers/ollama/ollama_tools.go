@@ -148,6 +148,7 @@ func (p *ToolProvider) buildToolRequest(
 		ollamaReq["max_tokens"] = maxTokens
 	}
 
+	addOllamaPenalties(ollamaReq, &req)
 	if req.Seed != nil {
 		ollamaReq["seed"] = *req.Seed
 	}

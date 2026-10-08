@@ -40,13 +40,18 @@ type Handoff struct {
 	Call *HandoffCall
 }
 
-// HandoffCall is what the current state's prompt runs on. MaxTokens and
-// Temperature are the values the request carries, zero meaning the provider's
-// default, exactly as ProviderConfig's.
+// HandoffCall is what the current state's prompt runs on. The sampling fields
+// are the values the request carries, with ProviderConfig's meaning: zero
+// MaxTokens and TopP, and nil penalties, are the provider's defaults, and
+// Temperature counts as zero only with TemperatureSet.
 type HandoffCall struct {
-	Provider    providers.Provider
-	MaxTokens   int
-	Temperature float32
+	Provider         providers.Provider
+	MaxTokens        int
+	Temperature      float32
+	TemperatureSet   bool
+	TopP             float32
+	FrequencyPenalty *float32
+	PresencePenalty  *float32
 }
 
 // WorkflowStateResolver lets a workflow consumer keep a turn aligned with the

@@ -67,10 +67,10 @@ type CompositionExecutorDeps struct {
 	// (RFC 0017: the step's provider key, else its prompt's, else the default).
 	// Optional; without it every step runs on Provider.
 	ResolveProvider func(step *composition.Step) (providers.Provider, error)
-	ToolRegistry   *tools.Registry
-	Emitter        *events.Emitter
-	HookRegistry   *hooks.Registry
-	BaseVariables  map[string]string
+	ToolRegistry    *tools.Registry
+	Emitter         *events.Emitter
+	HookRegistry    *hooks.Registry
+	BaseVariables   map[string]string
 	// PromptDeclarations maps prompt tasks to their pack declarations, for
 	// provider hooks inside each step (see ProviderConfig.PromptDeclarations).
 	PromptDeclarations map[string]*packspec.Prompt
@@ -165,7 +165,7 @@ func (deps CompositionExecutorDeps) execLLM(
 	cfg := &ProviderConfig{Source: "agent", PromptDeclarations: deps.PromptDeclarations}
 	// The step's prompt parameters, with its model_overrides entry for the
 	// provider that runs the step, as an opened prompt gets them.
-	cfg.MaxTokens, cfg.Temperature = deps.PromptRegistry.CallParameters(step.PromptTask, provider.Model())
+	cfg.ApplyCallParams(deps.PromptRegistry.CallParameters(step.PromptTask, provider.Model()))
 	rf, err := deps.responseFormat(step)
 	if err != nil {
 		return nil, fmt.Errorf("step %q: %w", step.ID, err)

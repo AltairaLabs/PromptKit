@@ -274,7 +274,9 @@ type geminiInlineData struct {
 type geminiGenConfig struct {
 	Temperature      float32               `json:"temperature"`
 	TopP             float32               `json:"topP"`
-	MaxOutputTokens  int                   `json:"maxOutputTokens,omitempty"`  // 0 = no limit
+	MaxOutputTokens  int                   `json:"maxOutputTokens,omitempty"` // 0 = no limit
+	PresencePenalty  *float32              `json:"presencePenalty,omitempty"`
+	FrequencyPenalty *float32              `json:"frequencyPenalty,omitempty"`
 	ResponseMimeType string                `json:"responseMimeType,omitempty"` // "text/plain" or "application/json"
 	ResponseSchema   interface{}           `json:"responseSchema,omitempty"`   // JSON Schema for structured output
 	ThinkingConfig   *geminiThinkingConfig `json:"thinkingConfig,omitempty"`
@@ -415,10 +417,7 @@ func (p *Provider) geminiContentForMessage(ctx context.Context, msg *types.Messa
 
 // applyRequestDefaults applies provider defaults to zero-valued request parameters
 func (p *Provider) applyRequestDefaults(req providers.PredictionRequest) (temperature, topP float32, maxTokens int) {
-	temperature = req.Temperature
-	if temperature == 0 {
-		temperature = p.defaults.Temperature
-	}
+	temperature = providers.ResolveTemperature(&req, p.defaults.Temperature)
 
 	topP = req.TopP
 	if topP == 0 {
@@ -451,6 +450,13 @@ func (p *Provider) prepareGeminiRequest(ctx context.Context, req providers.Predi
 	temperature, topP, maxTokens = p.applyRequestDefaults(req)
 
 	return contents, systemInstruction, temperature, topP, maxTokens
+}
+
+// applyPenalties sets the request's presence and frequency penalties, which
+// Gemini's generationConfig takes; nil sends neither.
+func (g *geminiGenConfig) applyPenalties(req *providers.PredictionRequest) {
+	g.PresencePenalty = req.PresencePenalty
+	g.FrequencyPenalty = req.FrequencyPenalty
 }
 
 // buildGeminiRequest creates a Gemini API request with standard safety settings
@@ -749,6 +755,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 
 	// Create request
 	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
+	geminiReq.GenerationConfig.applyPenalties(&req)
 
 	// Explicit context caching: move the stable system prefix into a
 	// CachedContent resource and reference it (no tools on this path). The API

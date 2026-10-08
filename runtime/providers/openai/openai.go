@@ -119,6 +119,18 @@ func addMaxTokensToRequest(req map[string]interface{}, unsupportedParams []strin
 // silently promote deliberate-zero callers to the API default — a quieter bug
 // than the one being fixed. Models that reject a temperature are handled by
 // unsupportedParams instead.
+// addPenaltiesToRequest sets frequency_penalty and presence_penalty when the
+// request carries them; Chat Completions takes both. Models that reject them
+// are handled by unsupportedParams.
+func addPenaltiesToRequest(req map[string]interface{}, unsupportedParams []string, r *providers.PredictionRequest) {
+	if r.FrequencyPenalty != nil && !hasUnsupportedParam(unsupportedParams, "frequency_penalty") {
+		req["frequency_penalty"] = *r.FrequencyPenalty
+	}
+	if r.PresencePenalty != nil && !hasUnsupportedParam(unsupportedParams, "presence_penalty") {
+		req["presence_penalty"] = *r.PresencePenalty
+	}
+}
+
 func addSamplingParamsToRequest(req map[string]interface{}, unsupportedParams []string, temperature, topP float32) {
 	if !hasUnsupportedParam(unsupportedParams, "temperature") {
 		req["temperature"] = temperature
@@ -493,6 +505,7 @@ func (p *Provider) enrichRequest(
 	temperature, topP, maxTokens := p.applyRequestDefaults(*req)
 	addMaxTokensToRequest(openAIReq, p.unsupportedParams, maxTokens)
 	addSamplingParamsToRequest(openAIReq, p.unsupportedParams, temperature, topP)
+	addPenaltiesToRequest(openAIReq, p.unsupportedParams, req)
 	if req.Seed != nil {
 		openAIReq["seed"] = *req.Seed
 	}
@@ -689,10 +702,7 @@ func (p *Provider) prepareOpenAIMessages(
 
 // applyRequestDefaults applies provider defaults to zero-valued request parameters
 func (p *Provider) applyRequestDefaults(req providers.PredictionRequest) (temperature, topP float32, maxTokens int) {
-	temperature = req.Temperature
-	if temperature == 0 {
-		temperature = p.defaults.Temperature
-	}
+	temperature = providers.ResolveTemperature(&req, p.defaults.Temperature)
 
 	topP = req.TopP
 	if topP == 0 {

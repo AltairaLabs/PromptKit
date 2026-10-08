@@ -195,12 +195,11 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 	req := providers.PredictionRequest{
 		System:         tl.acc.systemPrompt,
 		Messages:       prior,
-		MaxTokens:      s.callMaxTokens(),
-		Temperature:    s.callTemperature(),
 		Seed:           s.config.Seed,
 		ResponseFormat: s.config.ResponseFormat,
 		Metadata:       tl.acc.metadata,
 	}
+	s.applySampling(&req)
 	req.NormalizeMessages()
 
 	// Reset the idle watchdog, exactly as executeRound does at the top of every

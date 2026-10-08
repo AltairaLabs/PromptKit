@@ -300,6 +300,12 @@ func (p *Provider) buildToolRequest(
 	reqMap["messages"] = vllmReq.Messages
 	reqMap["temperature"] = vllmReq.Temperature
 	reqMap["top_p"] = vllmReq.TopP
+	if vllmReq.FrequencyPenalty != nil {
+		reqMap["frequency_penalty"] = *vllmReq.FrequencyPenalty
+	}
+	if vllmReq.PresencePenalty != nil {
+		reqMap["presence_penalty"] = *vllmReq.PresencePenalty
+	}
 	if vllmReq.MaxTokens > 0 {
 		reqMap["max_tokens"] = vllmReq.MaxTokens
 	}
