@@ -8,6 +8,24 @@ changes that need you to do something, with what to change and why.
 
 ## Unreleased
 
+### Media options stay with the conversation that set them
+
+`WithMediaStorage` and `WithUnsafePrivateNetworkMedia` were written onto the
+provider, so conversations sharing one provider shared them: media resolved
+through whichever store was set last, and one conversation that allowed
+private-network URLs allowed them for all. Each conversation now runs on its
+own view of the provider carrying its own settings. A provider of your own
+that does not implement `providers.MediaScoped` is still configured in place.
+
+Claude and Gemini also sent a message as text alone when one of its media
+parts could not be loaded, so the model answered about media it never saw.
+They now return the error, as OpenAI and Ollama do.
+
+| If you | You will see | Change |
+|---|---|---|
+| Share one provider across conversations with different media options | each conversation uses its own | nothing |
+| Send media that cannot be loaded (a refused private-network URL, a missing storage reference) to Claude or Gemini | an error from `Send` | fix the media, or allow the network with `WithUnsafePrivateNetworkMedia` |
+
 ### Realtime sessions use the prompt's parameters and the configured model
 
 An `OpenDuplex` session in ASM mode ignored the prompt's `parameters`, so the
