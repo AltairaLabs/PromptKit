@@ -770,6 +770,9 @@ func (p *Provider) convertResponseFormat(rf *providers.ResponseFormat) *openAIRe
 // Predict runs predictOnce, retrying without any sampling parameter the API
 // rejects for this model (providers.BaseProvider.RetryRejectedParams).
 func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	// A system-role message goes to the system field: the APIs reject it
+	// as a message role on some paths (#2222).
+	req.NormalizeMessages()
 	var resp providers.PredictionResponse
 	err := p.RetryRejectedParams(func() (err error) {
 		resp, err = p.predictOnce(ctx, req)
@@ -859,6 +862,9 @@ func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.Co
 func (p *Provider) PredictStream(
 	ctx context.Context, req providers.PredictionRequest,
 ) (<-chan providers.StreamChunk, error) {
+	// A system-role message goes to the system field: the APIs reject it
+	// as a message role on some paths (#2222).
+	req.NormalizeMessages()
 	var ch <-chan providers.StreamChunk
 	err := p.RetryRejectedParams(func() (err error) {
 		ch, err = p.predictStreamOnce(ctx, req)

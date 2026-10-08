@@ -1048,13 +1048,13 @@ func SetErrorResponse(predictResp *PredictionResponse, respBody []byte, start ti
 SetErrorResponse sets latency and raw body on error responses
 
 <a name="SkipIfNoCredentials"></a>
-## func [SkipIfNoCredentials](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider_contract_integration.go#L759>)
+## func [SkipIfNoCredentials](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider_contract_integration.go#L760>)
 
 ```go
 func SkipIfNoCredentials(t *testing.T, provider Provider)
 ```
 
-SkipIfNoCredentials skips the test if API credentials are not available. This is a helper for integration tests that need real API access.
+SkipIfNoCredentials skips the test if the API refuses the credentials. Any other error is left for the test to fail on: skipping it hid a retired model. This is a helper for integration tests that need real API access.
 
 <a name="StringPtr"></a>
 ## func [StringPtr](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/utils.go#L11>)

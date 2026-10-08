@@ -136,6 +136,9 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (pr
 func (p *ToolProvider) PredictWithTools(
 	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools, toolChoice string,
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
+	// A system-role message goes to the system field: the APIs reject it
+	// as a message role on some paths (#2222).
+	req.NormalizeMessages()
 	var resp providers.PredictionResponse
 	var calls []types.MessageToolCall
 	err := p.RetryRejectedParams(func() (err error) {
@@ -739,6 +742,9 @@ func (p *ToolProvider) postJSON(ctx context.Context, url string, requestBytes []
 func (p *ToolProvider) PredictStreamWithTools(
 	ctx context.Context, req providers.PredictionRequest, tools any, toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
+	// A system-role message goes to the system field: the APIs reject it
+	// as a message role on some paths (#2222).
+	req.NormalizeMessages()
 	var ch <-chan providers.StreamChunk
 	err := p.RetryRejectedParams(func() (err error) {
 		ch, err = p.predictStreamWithToolsOnce(ctx, req, tools, toolChoice)
