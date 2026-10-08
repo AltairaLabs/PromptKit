@@ -86,6 +86,31 @@ type callSiteRef struct {
 //   - the host bound something that cannot serve the call — also the host's:
 //     an inference provider anywhere, or a provider without tool support on an
 //     agent step.
+// checkLoadGates runs every load-time provider gate, in one order for both
+// sdk.Open and PackTemplate.Open so the two paths cannot drift:
+//
+//  1. checks' provider keys (checkProviderKeys) — first, because when a gate
+//     below fails on the same missing provider, this one says more: which
+//     check wanted it, and whether what the host bound is missing or merely
+//     unsuitable;
+//  2. RFC 0017 call sites, across the whole pack — before the requirements
+//     gate, which only warns about an unbound optional requirement that a
+//     call site cannot run without. A workflow transition re-opens the pack
+//     with the bindings its first Open checked, and skips it;
+//  3. RFC 0012 requirements (checkProviderRequirements) — what nothing above
+//     references.
+func checkLoadGates(p *pack.Pack, prompt *pack.Prompt, cfg *config, calls *callProviderCheck) error {
+	if err := checkProviderKeys(p, prompt, cfg); err != nil {
+		return err
+	}
+	if !cfg.callProvidersChecked {
+		if err := calls.run(cfg); err != nil {
+			return err
+		}
+	}
+	return checkProviderRequirements(p, cfg)
+}
+
 func checkCallProviders(p *pack.Pack, cfg *config) error {
 	return newCallProviderCheck(p).run(cfg)
 }

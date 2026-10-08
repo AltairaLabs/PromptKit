@@ -147,10 +147,10 @@ func (t *PackTemplate) openConversation(
 
 	conv := t.newConversation(promptName, packPrompt, cfg)
 
-	// RFC 0017: validate every call site's provider key, then run the opened
-	// prompt on the provider its key is bound to.
-	if refErr := t.callCheck.run(cfg); refErr != nil {
-		return nil, refErr
+	// The same load-time gates as sdk.Open, then run the opened prompt on the
+	// provider its key is bound to.
+	if gateErr := checkLoadGates(t.pack, packPrompt, cfg, t.callCheck); gateErr != nil {
+		return nil, gateErr
 	}
 	prov, err := conv.resolvePromptProvider()
 	if err != nil {
