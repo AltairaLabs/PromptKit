@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -40,10 +39,7 @@ func (p *Provider) predictStreamOnce(
 	ctx context.Context, req providers.PredictionRequest,
 ) (<-chan providers.StreamChunk, error) {
 	// Enrich context with provider and model info for logging
-	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
-		Provider: p.ID(),
-		Model:    p.model,
-	})
+	ctx = p.LoggingContext(ctx, p.model)
 
 	// Build the canonical request via the shared base builder, then layer on the
 	// streaming deltas. PredictStream is the no-tools path; the tool paths

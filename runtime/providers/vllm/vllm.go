@@ -450,10 +450,7 @@ func (p *Provider) predictWithMessages(
 	messages []vllmMessage,
 ) (providers.PredictionResponse, error) {
 	// Enrich context with provider and model info for logging
-	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
-		Provider: p.ID(),
-		Model:    p.model,
-	})
+	ctx = p.LoggingContext(ctx, p.model)
 
 	start := time.Now()
 
@@ -565,10 +562,7 @@ func (p *Provider) predictStreamWithMessages(
 	messages []vllmMessage,
 ) (<-chan providers.StreamChunk, error) {
 	// Enrich context with provider and model info for logging
-	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
-		Provider: p.ID(),
-		Model:    p.model,
-	})
+	ctx = p.LoggingContext(ctx, p.model)
 
 	// Apply provider defaults for zero values
 	temperature, topP, maxTokens := p.applyRequestDefaults(&req)

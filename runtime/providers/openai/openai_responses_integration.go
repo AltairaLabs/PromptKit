@@ -298,10 +298,7 @@ func (p *Provider) predictWithResponses(
 	tools any,
 	toolChoice string,
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
-	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
-		Provider: p.ID(),
-		Model:    p.model,
-	})
+	ctx = p.LoggingContext(ctx, p.model)
 
 	start := time.Now()
 
@@ -451,10 +448,7 @@ func (p *Provider) predictStreamWithResponses(
 	tools any,
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
-	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
-		Provider: p.ID(),
-		Model:    p.model,
-	})
+	ctx = p.LoggingContext(ctx, p.model)
 
 	req, err := p.prepareResponsesMessages(ctx, req)
 	if err != nil {

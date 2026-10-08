@@ -1268,10 +1268,7 @@ func convertOpenAIPart(part interface{}) *types.ContentPart {
 // predictWithMessages is a refactored version of Predict that accepts pre-converted messages
 func (p *Provider) predictWithMessages(ctx context.Context, req providers.PredictionRequest, messages []openAIMessage) (providers.PredictionResponse, error) {
 	// Enrich context with provider and model info for logging
-	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
-		Provider: p.ID(),
-		Model:    p.model,
-	})
+	ctx = p.LoggingContext(ctx, p.model)
 
 	start := time.Now()
 
@@ -1396,10 +1393,7 @@ func reasoningFromContent(text string) *types.ReasoningTrace {
 // predictStreamWithMessages is a refactored version of PredictStream that accepts pre-converted messages
 func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.PredictionRequest, messages []openAIMessage) (<-chan providers.StreamChunk, error) {
 	// Enrich context with provider and model info for logging
-	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
-		Provider: p.ID(),
-		Model:    p.model,
-	})
+	ctx = p.LoggingContext(ctx, p.model)
 
 	openAIReq := map[string]interface{}{
 		"model":    p.model,

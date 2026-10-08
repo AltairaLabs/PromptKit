@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -347,10 +346,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
 	// Enrich context with provider and model info for logging
-	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
-		Provider: p.ID(),
-		Model:    p.model,
-	})
+	ctx = p.LoggingContext(ctx, p.model)
 
 	// Build Ollama request with tools (same as non-streaming)
 	ollamaReq := p.buildToolRequest(ctx, req, tools, toolChoice)

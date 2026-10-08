@@ -764,10 +764,7 @@ func (p *Provider) predictOnce(
 	ctx context.Context, req providers.PredictionRequest,
 ) (providers.PredictionResponse, error) {
 	// Enrich context with provider and model info for logging
-	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
-		Provider: p.ID(),
-		Model:    p.model,
-	})
+	ctx = p.LoggingContext(ctx, p.model)
 
 	start := time.Now()
 

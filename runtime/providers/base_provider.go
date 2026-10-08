@@ -398,6 +398,12 @@ func (b *BaseProvider) SetAllowPrivateNetworkMedia(allow bool) {
 	b.allowPrivateMediaURLs = allow
 }
 
+// LoggingContext returns ctx carrying this provider's ID and model for the
+// logs written during a call.
+func (b *BaseProvider) LoggingContext(ctx context.Context, model string) context.Context {
+	return logger.WithLoggingContext(ctx, &logger.LoggingFields{Provider: b.id, Model: model})
+}
+
 // MediaLoader returns a per-call MediaLoader configured with this provider's
 // injected storage service (if any). Providers use it to resolve media parts
 // (ResolveURL for URL-first providers, GetBase64Data for byte-based ones).
