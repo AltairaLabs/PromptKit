@@ -298,6 +298,14 @@ type MediaStorageConfigurable interface {
 	SetMediaStorageService(storage.MediaStorageService)
 }
 
+// PrivateNetworkMediaConfigurable is implemented by any provider embedding
+// *BaseProvider. It lets a host that trusts every media URL it passes allow
+// fetching them from non-public addresses; see
+// MediaLoaderConfig.AllowPrivateNetworks.
+type PrivateNetworkMediaConfigurable interface {
+	SetAllowPrivateNetworkMedia(allow bool)
+}
+
 // openAIBuildsPlatformBaseURL reports whether the openai factory derives the
 // base URL itself from PlatformConfig — Azure's deployment URL, Bedrock's
 // regional invoke URL, Vertex's Model Garden endpoint.

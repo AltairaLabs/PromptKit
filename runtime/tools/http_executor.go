@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -285,6 +286,32 @@ func buildMappedBody(mapper RequestMapper, bodyArgs map[string]any, bodyExpr str
 	return bytes.NewReader(bodyJSON)
 }
 
+// ErrTemplatedURLHost is returned for an HTTP tool whose URL template puts an
+// argument in the scheme or host.
+var ErrTemplatedURLHost = errors.New(
+	"http tool URL templates may use arguments in the path and query, not the scheme or host")
+
+// urlAuthorityIsTemplated reports whether a URL template lets an argument choose
+// where the request goes. Arguments come from the model, so one in the host is
+// a model-chosen destination: the host's cloud metadata service, or anywhere
+// else on its network. The static part must run from the scheme to the first
+// "/", "?" or "#" after the host.
+func urlAuthorityIsTemplated(tmpl string) bool {
+	if !strings.Contains(tmpl, "{{") {
+		return false
+	}
+	i := strings.Index(tmpl, "://")
+	if i < 0 {
+		return true
+	}
+	rest := tmpl[i+len("://"):]
+	end := strings.IndexAny(rest, "/?#")
+	if end < 0 {
+		end = len(rest)
+	}
+	return strings.Contains(tmpl[:i+len("://")+end], "{{")
+}
+
 // buildMappedRequest uses the RequestMapper pipeline to build a request
 // with URL templating, argument partitioning, body shaping, and header rendering.
 func (e *HTTPExecutor) buildMappedRequest(
@@ -300,6 +327,9 @@ func (e *HTTPExecutor) buildMappedRequest(
 		return nil, fmt.Errorf("failed to parse args: %w", err)
 	}
 
+	if urlAuthorityIsTemplated(cfg.URL) {
+		return nil, fmt.Errorf("%w: %s", ErrTemplatedURLHost, cfg.URL)
+	}
 	targetURL, err := mapper.RenderURL(cfg.URL, argsMap)
 	if err != nil {
 		return nil, fmt.Errorf("URL template rendering failed: %w", err)

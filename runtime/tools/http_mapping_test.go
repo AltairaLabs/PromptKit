@@ -2,6 +2,7 @@ package tools
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 )
 
@@ -407,5 +408,61 @@ func TestBuildMappedRequest_StaticBody(t *testing.T) {
 	}
 	if body["format"] != "json" {
 		t.Errorf("expected format=json, got %v", body["format"])
+	}
+}
+
+func TestURLAuthorityIsTemplated(t *testing.T) {
+	for _, tc := range []struct {
+		tmpl string
+		want bool
+	}{
+		{"https://api.example.com/v1/items", false},
+		{"https://api.example.com/users/{{.user_id}}", false},
+		{"https://api.example.com?q={{.q}}", false},
+		{"https://api.example.com#{{.frag}}", false},
+		{"{{.url}}", true},
+		{"https://{{.region}}.api.example.com/v1", true},
+		{"https://api.example.com:{{.port}}/v1", true},
+		{"https://api.example.com{{.path}}", true},
+		{"{{.scheme}}://api.example.com/v1", true},
+		{"/relative/{{.id}}", true},
+	} {
+		if got := urlAuthorityIsTemplated(tc.tmpl); got != tc.want {
+			t.Errorf("urlAuthorityIsTemplated(%q) = %v, want %v", tc.tmpl, got, tc.want)
+		}
+	}
+}
+
+// A model-supplied argument in the host is a model-chosen destination, such as
+// the host's cloud metadata service. The tool must refuse to build the request.
+func TestBuildMappedRequest_RefusesATemplatedHost(t *testing.T) {
+	exec := NewHTTPExecutor()
+	cfg := &HTTPConfig{
+		URL:     "https://{{.region}}.api.example.com/v1",
+		Method:  "GET",
+		Request: &RequestMapping{},
+	}
+	args := json.RawMessage(`{"region": "169.254.169.254/latest/meta-data?"}`)
+	_, err := exec.buildMappedRequest(t.Context(), cfg, "GET", args)
+	if !errors.Is(err, ErrTemplatedURLHost) {
+		t.Fatalf("err = %v, want ErrTemplatedURLHost", err)
+	}
+}
+
+// A path argument cannot move the request off the declared host.
+func TestBuildMappedRequest_PathArgumentKeepsTheDeclaredHost(t *testing.T) {
+	exec := NewHTTPExecutor()
+	cfg := &HTTPConfig{
+		URL:     "https://api.example.com/users/{{.user_id}}",
+		Method:  "GET",
+		Request: &RequestMapping{},
+	}
+	args := json.RawMessage(`{"user_id": "@169.254.169.254/latest"}`)
+	req, err := exec.buildMappedRequest(t.Context(), cfg, "GET", args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.URL.Host != "api.example.com" {
+		t.Errorf("host = %q, want api.example.com", req.URL.Host)
 	}
 }

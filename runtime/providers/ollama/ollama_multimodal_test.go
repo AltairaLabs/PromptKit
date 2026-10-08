@@ -2,8 +2,13 @@ package ollama
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/httputil"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -78,7 +83,8 @@ func TestProvider_ConvertMessageToOllama_Multimodal(t *testing.T) {
 		providers.ProviderDefaults{}, false, nil)
 
 	text := "What's in this image?"
-	imageURL := "https://example.com/image.jpg"
+	imageURL := localImageURL(t)
+	provider.SetAllowPrivateNetworkMedia(true)
 
 	msg := &types.Message{
 		Role: "user",
@@ -160,7 +166,8 @@ func TestProvider_ConvertImagePartToOllama_URL(t *testing.T) {
 	provider := NewProvider("test", "llava:13b", "http://localhost:11434",
 		providers.ProviderDefaults{}, false, nil)
 
-	imageURL := "https://example.com/image.jpg"
+	imageURL := localImageURL(t)
+	provider.SetAllowPrivateNetworkMedia(true)
 	detail := "high"
 
 	part := types.ContentPart{
@@ -187,8 +194,10 @@ func TestProvider_ConvertImagePartToOllama_URL(t *testing.T) {
 		t.Fatal("Expected image_url to be map")
 	}
 
-	if imageURLMap["url"] != imageURL {
-		t.Errorf("Expected URL '%s', got '%v'", imageURL, imageURLMap["url"])
+	// A message's URL is fetched here and inlined, never handed to Ollama.
+	want := "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(localImageBytes)
+	if imageURLMap["url"] != want {
+		t.Errorf("Expected URL '%s', got '%v'", want, imageURLMap["url"])
 	}
 
 	if imageURLMap["detail"] != "high" {
@@ -292,7 +301,8 @@ func TestProvider_ConvertMessageToOllama_EmptyTextPart(t *testing.T) {
 		providers.ProviderDefaults{}, false, nil)
 
 	emptyText := ""
-	imageURL := "https://example.com/image.jpg"
+	imageURL := localImageURL(t)
+	provider.SetAllowPrivateNetworkMedia(true)
 
 	msg := &types.Message{
 		Role: "user",
@@ -372,5 +382,36 @@ func TestProvider_ConvertImagePartToOllama_MissingURLAndData(t *testing.T) {
 
 	if err == nil {
 		t.Error("Expected error for missing URL and data")
+	}
+}
+
+var localImageBytes = []byte("\xff\xd8\xffjpeg")
+
+// localImageURL serves localImageBytes from a loopback server, which a provider
+// fetches only after SetAllowPrivateNetworkMedia(true).
+func localImageURL(t *testing.T) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(localImageBytes)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL + "/image.jpg"
+}
+
+// An Ollama server usually sits inside the host's network. A message's URL must
+// not be passed to it to fetch, and the provider's own fetch refuses
+// non-public addresses.
+func TestProvider_ConvertImagePartToOllama_RefusesANonPublicURL(t *testing.T) {
+	provider := NewProvider("test", "llava:13b", "http://localhost:11434",
+		providers.ProviderDefaults{}, false, nil)
+	imageURL := localImageURL(t)
+	part := types.ContentPart{
+		Type:  types.ContentTypeImage,
+		Media: &types.MediaContent{URL: &imageURL, MIMEType: types.MIMETypeImageJPEG},
+	}
+
+	_, err := provider.convertImagePartToOllama(context.Background(), part)
+	if !errors.Is(err, httputil.ErrNonPublicDestination) {
+		t.Fatalf("err = %v, want ErrNonPublicDestination", err)
 	}
 }

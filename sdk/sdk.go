@@ -243,6 +243,7 @@ func initConversation(
 	// first provider call (the pipeline is built per-Send). Providers that
 	// don't implement MediaStorageConfigurable are skipped.
 	applyMediaStorageToPool(cfg)
+	applyPrivateNetworkMediaToPool(cfg)
 
 	// Every conversation gets its OWN registry. When the host supplied one
 	// (WithToolRegistry), take a child of it: the child inherits the host's tool
@@ -499,6 +500,22 @@ func applyMediaStorageToPool(c *config) {
 		if p, ok := c.providers.Get(id); ok {
 			if mc, ok := p.(providers.MediaStorageConfigurable); ok {
 				mc.SetMediaStorageService(c.mediaStorage)
+			}
+		}
+	}
+}
+
+// applyPrivateNetworkMediaToPool passes WithUnsafePrivateNetworkMedia to every
+// pooled provider that fetches media. No-op unless the option was given, so
+// providers keep their safe default.
+func applyPrivateNetworkMediaToPool(c *config) {
+	if !c.allowPrivateNetworkMedia || c.providers == nil {
+		return
+	}
+	for _, id := range c.providers.List() {
+		if p, ok := c.providers.Get(id); ok {
+			if pc, ok := p.(providers.PrivateNetworkMediaConfigurable); ok {
+				pc.SetAllowPrivateNetworkMedia(true)
 			}
 		}
 	}
