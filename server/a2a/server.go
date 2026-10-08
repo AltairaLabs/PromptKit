@@ -45,8 +45,10 @@ const (
 	// defaultMaxBodySize is the maximum allowed size of a request body (10 MB).
 	defaultMaxBodySize int64 = 10 << 20
 
-	// defaultPageSize is used when ListTasksRequest.PageSize is unset, and
-	// maxPageSize caps it, both as the A2A 1.0 proto specifies.
+	// defaultPageSize is used when a 1.0 ListTasksRequest.PageSize is unset,
+	// and maxPageSize caps it, both as the A2A 1.0 proto specifies. The legacy
+	// 0.3 tasks/list, which only PromptKit answers, keeps its default of
+	// maxPageSize.
 	defaultPageSize = 50
 	maxPageSize     = 100
 
@@ -1156,14 +1158,17 @@ func (s *Server) handleListTasks(call *rpcCall) {
 
 	limit := params.PageSize
 	switch {
+	case limit <= 0 && call.v == a2a.ProtocolVersion03:
+		limit = maxPageSize
 	case limit <= 0:
 		limit = defaultPageSize
 	case limit > maxPageSize:
 		limit = maxPageSize
 	}
-	// TASK_STATE_UNSPECIFIED is the proto's zero value: no status filter.
+	// In 1.0, TASK_STATE_UNSPECIFIED is the proto's zero value: no status
+	// filter. In 0.3 the same TaskState is the real "unknown" state.
 	status := params.Status
-	if status != nil && *status == a2a.TaskStateUnknown {
+	if status != nil && *status == a2a.TaskStateUnknown && call.v != a2a.ProtocolVersion03 {
 		status = nil
 	}
 	offset, err := decodePageToken(params.PageToken)

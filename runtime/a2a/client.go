@@ -984,9 +984,9 @@ func (c *Client) CancelTask(ctx context.Context, taskID string) error {
 
 // ListTasks lists one page of tasks (ListTasks, which A2A 1.0 added; to a 0.3
 // agent the client sends the legacy PromptKit tasks/list, which only PromptKit
-// servers answer). The server returns at most params.PageSize tasks, 50 when
-// unset; use ListTasksPage to read the next-page token and page through the
-// rest.
+// servers answer). The server returns at most params.PageSize tasks, or its
+// default page size when that is unset (50 on a 1.0 server); use
+// ListTasksPage to read the next-page token and page through the rest.
 func (c *Client) ListTasks(ctx context.Context, params *ListTasksRequest) ([]*Task, error) {
 	resp, err := c.ListTasksPage(ctx, params)
 	if err != nil {

@@ -514,6 +514,20 @@ func TestConformance_ListTasksUnspecifiedStatusIsNoFilter(t *testing.T) {
 	assert.Equal(t, float64(3), result["totalSize"])
 }
 
+// The 1.0 proto does not govern PromptKit's legacy 0.3 tasks/list: it keeps
+// its default page of 100, and "unknown" is a real 0.3 state that filters.
+func TestConformance_LegacyListTasksKeepsItsBehavior(t *testing.T) {
+	ts := newListTasksServer(t, "ctx-legacy", 120)
+
+	unset := rawResult(t, rawRPC(t, ts, "", a2a.MethodLegacyListTasks, a2a.ListTasksRequest{ContextID: "ctx-legacy"}))
+	assert.Len(t, unset["tasks"], 100)
+
+	unknown := rawResult(t, rawRPC(t, ts, "", a2a.MethodLegacyListTasks,
+		map[string]any{"contextId": "ctx-legacy", "status": "unknown"}))
+	assert.Empty(t, unknown["tasks"])
+	assert.Equal(t, float64(0), unknown["totalSize"])
+}
+
 // The client pages through every task with ListTasksPage's NextPageToken.
 func TestConformance_ClientPagesThroughListTasks(t *testing.T) {
 	ts := newListTasksServer(t, "ctx-client-page", 7)
