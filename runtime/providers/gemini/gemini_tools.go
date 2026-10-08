@@ -467,6 +467,9 @@ func (p *ToolProvider) buildToolRequest(
 	if req.FrequencyPenalty != nil && p.paramSupported("frequency_penalty") {
 		genConfig["frequencyPenalty"] = *req.FrequencyPenalty
 	}
+	if req.TopK != nil && p.paramSupported("top_k") {
+		genConfig["topK"] = *req.TopK
+	}
 	if maxTokens > 0 {
 		genConfig["maxOutputTokens"] = maxTokens
 	}

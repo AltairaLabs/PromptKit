@@ -146,6 +146,7 @@ func vadProviderConfig(cfg *Config) *stage.ProviderConfig {
 		TopP:             cfg.TopP,
 		FrequencyPenalty: cfg.FrequencyPenalty,
 		PresencePenalty:  cfg.PresencePenalty,
+		TopK:             cfg.TopK,
 		// The message log is what persists a turn as it happens, rather than
 		// at session close, which is all IncrementalSaveStage can do for a
 		// long-running session: it drains its input channel before writing.

@@ -16,8 +16,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -63,11 +65,14 @@ type PredictionRequest struct {
 	MaxTokens      int     `json:"max_tokens"`
 	// FrequencyPenalty and PresencePenalty are sent by providers whose API
 	// takes them; nil sends nothing.
-	FrequencyPenalty *float32        `json:"frequency_penalty,omitempty"`
-	PresencePenalty  *float32        `json:"presence_penalty,omitempty"`
-	Seed             *int            `json:"seed,omitempty"`
-	ResponseFormat   *ResponseFormat `json:"response_format,omitempty"` // Optional response format (JSON mode)
-	Metadata         map[string]any  `json:"metadata,omitempty"`        // Provider-specific context
+	FrequencyPenalty *float32 `json:"frequency_penalty,omitempty"`
+	PresencePenalty  *float32 `json:"presence_penalty,omitempty"`
+	// TopK limits sampling to the K most likely tokens; nil sends nothing.
+	// Providers whose API has no top-k drop it with WarnTopKDropped.
+	TopK           *int            `json:"top_k,omitempty"`
+	Seed           *int            `json:"seed,omitempty"`
+	ResponseFormat *ResponseFormat `json:"response_format,omitempty"` // Optional response format (JSON mode)
+	Metadata       map[string]any  `json:"metadata,omitempty"`        // Provider-specific context
 }
 
 // ResolveTemperature returns the temperature req sends: its own when it set
@@ -79,6 +84,22 @@ func ResolveTemperature(req *PredictionRequest, def float32) float32 {
 		return req.Temperature
 	}
 	return def
+}
+
+// topKDroppedOnce keys the providers WarnTopKDropped has already warned for.
+var topKDroppedOnce sync.Map
+
+// WarnTopKDropped logs, once per provider, that req's top_k is not sent
+// because providerID's API has no top-k parameter. A nil TopK logs nothing.
+func WarnTopKDropped(providerID string, req *PredictionRequest) {
+	if req.TopK == nil {
+		return
+	}
+	if _, loaded := topKDroppedOnce.LoadOrStore(providerID, struct{}{}); loaded {
+		return
+	}
+	logger.Warn("top_k is not sent: the provider's API has no top-k parameter",
+		"provider", providerID, "top_k", *req.TopK)
 }
 
 // NormalizeMessages extracts system-role messages from Messages, merges their

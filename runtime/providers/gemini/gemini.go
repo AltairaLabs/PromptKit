@@ -277,6 +277,7 @@ type geminiInlineData struct {
 type geminiGenConfig struct {
 	Temperature      float32               `json:"temperature"`
 	TopP             float32               `json:"topP"`
+	TopK             *int                  `json:"topK,omitempty"`
 	MaxOutputTokens  int                   `json:"maxOutputTokens,omitempty"` // 0 = no limit
 	PresencePenalty  *float32              `json:"presencePenalty,omitempty"`
 	FrequencyPenalty *float32              `json:"frequencyPenalty,omitempty"`
@@ -455,11 +456,14 @@ func (p *Provider) prepareGeminiRequest(ctx context.Context, req providers.Predi
 	return contents, systemInstruction, temperature, topP, maxTokens
 }
 
-// applyPenalties sets the request's presence and frequency penalties, which
-// Gemini's generationConfig takes; nil sends neither. A model that rejects
-// them is configured with unsupported_params (presence_penalty,
-// frequency_penalty), which drops them here.
-func (g *geminiGenConfig) applyPenalties(p *Provider, req *providers.PredictionRequest) {
+// applyOptionalSampling sets the request's presence and frequency penalties
+// and top_k, which Gemini's generationConfig takes; nil sends nothing. A model
+// that rejects one is configured with unsupported_params (presence_penalty,
+// frequency_penalty, top_k), which drops it here.
+func (g *geminiGenConfig) applyOptionalSampling(p *Provider, req *providers.PredictionRequest) {
+	if p.paramSupported("top_k") {
+		g.TopK = req.TopK
+	}
 	if p.paramSupported("presence_penalty") {
 		g.PresencePenalty = req.PresencePenalty
 	}
@@ -780,7 +784,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 
 	// Create request
 	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
-	geminiReq.GenerationConfig.applyPenalties(p, &req)
+	geminiReq.GenerationConfig.applyOptionalSampling(p, &req)
 
 	// Explicit context caching: move the stable system prefix into a
 	// CachedContent resource and reference it (no tools on this path). The API

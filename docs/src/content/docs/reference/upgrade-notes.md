@@ -8,6 +8,26 @@ changes that need you to do something, with what to change and why.
 
 ## Unreleased
 
+### A prompt's `top_k` reaches the provider
+
+A prompt's `parameters.top_k`, and a `model_overrides` entry's, was read from
+the pack and then dropped before the call. It now reaches Claude (including
+Bedrock and Vertex), Gemini and vLLM, whose APIs take it, on an opened prompt,
+a composition step and a mid-turn workflow handoff. Claude omits it when
+extended thinking is on, since the API rejects the two together. OpenAI and
+Ollama's OpenAI-compatible endpoint have no top-k parameter, so they drop it
+and log a warning once per provider. A model that rejects it is configured
+with `unsupported_params: [top_k]`, which Claude and Gemini honor.
+
+`PredictionRequest` and `prompt.CallParams` gain `TopK *int`, where nil sends
+nothing.
+
+| If you | You will see | Change |
+|---|---|---|
+| Set `top_k` on a prompt served by Claude, Gemini or vLLM | it on the request | check the value, which was never sent before |
+| Set `top_k` on a prompt served by OpenAI or Ollama | a warning that it is not sent | remove it, or set it through `extra_body` for a compatible backend that takes it |
+| Write a custom provider | `PredictionRequest.TopK` set when the prompt asks for it | send it, or call `providers.WarnTopKDropped` |
+
 ### Context compaction leaves room for the system prompt and tools, and keeps the message log whole
 
 The tool-loop compactor measured only the transcript against its budget, so a

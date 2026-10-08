@@ -185,3 +185,18 @@ func TestProviderStage_HandoffToNonStreamingProviderInStreamingTurn(t *testing.T
 	require.Len(t, dest.rounds, 1, "the destination is called whole, not via PredictStream")
 	assert.Equal(t, callRound{"SAME PROMPT", 64, 0.3, "tools-of-dest"}, dest.rounds[0])
 }
+
+// A handoff that keeps the provider but changes only top_k still applies it:
+// the next round requests the destination prompt's top_k, not the origin's.
+func TestApplyHandoffCall_SameProviderNewTopK(t *testing.T) {
+	prov := mock.NewProvider("p", "p-model", false)
+	origin, dest := 40, 5
+	s := NewProviderStage(prov, nil, nil, &ProviderConfig{TopK: &origin})
+
+	s.applyHandoffCall(&HandoffCall{Provider: prov, Params: prompt.CallParams{TopK: &dest}})
+
+	var req providers.PredictionRequest
+	s.applySampling(&req)
+	require.NotNil(t, req.TopK)
+	assert.Equal(t, 5, *req.TopK)
+}

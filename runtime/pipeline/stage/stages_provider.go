@@ -119,6 +119,7 @@ func (c *ProviderConfig) CallParams() prompt.CallParams {
 	return prompt.CallParams{
 		MaxTokens: c.MaxTokens, Temperature: c.Temperature, TemperatureSet: c.TemperatureSet,
 		TopP: c.TopP, FrequencyPenalty: c.FrequencyPenalty, PresencePenalty: c.PresencePenalty,
+		TopK: c.TopK,
 	}
 }
 
@@ -131,6 +132,7 @@ func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams) {
 	c.TopP = p.TopP
 	c.FrequencyPenalty = p.FrequencyPenalty
 	c.PresencePenalty = p.PresencePenalty
+	c.TopK = p.TopK
 }
 
 // ProviderConfig contains configuration for the provider stage.
@@ -140,11 +142,12 @@ type ProviderConfig struct {
 	// TemperatureSet marks Temperature as set, so a zero is requested rather
 	// than the provider's default (providers.ResolveTemperature).
 	TemperatureSet bool
-	// TopP, FrequencyPenalty and PresencePenalty are the prompt's other
-	// sampling parameters; zero TopP and nil penalties are unset.
+	// TopP, FrequencyPenalty, PresencePenalty and TopK are the prompt's
+	// other sampling parameters; zero TopP and nil pointers are unset.
 	TopP             float32
 	FrequencyPenalty *float32
 	PresencePenalty  *float32
+	TopK             *int
 	Seed             *int
 	ResponseFormat   *providers.ResponseFormat // Optional response format (JSON mode)
 
@@ -359,16 +362,18 @@ func applyCallParams(req *providers.PredictionRequest, p *prompt.CallParams) {
 	req.TopP = p.TopP
 	req.FrequencyPenalty = p.FrequencyPenalty
 	req.PresencePenalty = p.PresencePenalty
+	req.TopK = p.TopK
 }
 
-// sameCallParams compares by value: the penalties are pointers.
+// sameCallParams compares by value: the penalties and TopK are pointers.
 func sameCallParams(a, b *prompt.CallParams) bool {
 	return a.MaxTokens == b.MaxTokens && a.Temperature == b.Temperature &&
 		a.TemperatureSet == b.TemperatureSet && a.TopP == b.TopP &&
-		equalF32(a.FrequencyPenalty, b.FrequencyPenalty) && equalF32(a.PresencePenalty, b.PresencePenalty)
+		equalPtr(a.FrequencyPenalty, b.FrequencyPenalty) && equalPtr(a.PresencePenalty, b.PresencePenalty) &&
+		equalPtr(a.TopK, b.TopK)
 }
 
-func equalF32(a, b *float32) bool {
+func equalPtr[T comparable](a, b *T) bool {
 	if a == nil || b == nil {
 		return a == b
 	}

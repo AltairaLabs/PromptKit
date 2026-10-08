@@ -93,6 +93,7 @@ This file contains exported test helpers that can be used by provider implementa
 - [func ValidateMultimodalRequest\(p Provider, req \*PredictionRequest\) error](<#ValidateMultimodalRequest>)
 - [func ValidatePredictReturnsLatency\(t \*testing.T, provider Provider\)](<#ValidatePredictReturnsLatency>)
 - [func ValidatePredictWithToolsReturnsLatency\(t \*testing.T, provider Provider\)](<#ValidatePredictWithToolsReturnsLatency>)
+- [func WarnTopKDropped\(providerID string, req \*PredictionRequest\)](<#WarnTopKDropped>)
 - [type AudioStreamingCapabilities](<#AudioStreamingCapabilities>)
 - [type BargeInSignal](<#BargeInSignal>)
   - [func NewBargeInSignal\(\) BargeInSignal](<#NewBargeInSignal>)
@@ -969,7 +970,7 @@ func ResolveEmbeddingCredential(ctx context.Context, providerType string, cfgDir
 ResolveEmbeddingCredential resolves an embedding provider's credential block into a concrete Credential, applying the same fallback chain as chat providers \(api\_key → file → env → default env vars\). When platform is non\-empty, the platform branch produces a platform credential \(e.g. AzureCredential\) instead of an API key. Exposed as a helper for the SDK runtime\-config layer.
 
 <a name="ResolveMaxTokens"></a>
-## func [ResolveMaxTokens](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L178>)
+## func [ResolveMaxTokens](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L199>)
 
 ```go
 func ResolveMaxTokens(requested int, defaults ProviderDefaults) int
@@ -987,7 +988,7 @@ func ResolveRerankCredential(ctx context.Context, providerType string, cfgDir st
 ResolveRerankCredential resolves a rerank provider's credential block into a concrete Credential, applying the same fallback chain as the embedding and chat paths \(api\_key → file → env → default env vars\).
 
 <a name="ResolveTemperature"></a>
-## func [ResolveTemperature](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L77>)
+## func [ResolveTemperature](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L82>)
 
 ```go
 func ResolveTemperature(req *PredictionRequest, def float32) float32
@@ -1093,6 +1094,15 @@ func ValidatePredictWithToolsReturnsLatency(t *testing.T, provider Provider)
 ```
 
 ValidatePredictWithToolsReturnsLatency verifies that PredictWithTools\(\) returns latency. This test is CRITICAL \- it would have caught the production bug where PredictWithTools didn't set latency\! Exported for use in provider\-specific regression tests.
+
+<a name="WarnTopKDropped"></a>
+## func [WarnTopKDropped](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L94>)
+
+```go
+func WarnTopKDropped(providerID string, req *PredictionRequest)
+```
+
+WarnTopKDropped logs, once per provider, that req's top\_k is not sent because providerID's API has no top\-k parameter. A nil TopK logs nothing.
 
 <a name="AudioStreamingCapabilities"></a>
 ## type [AudioStreamingCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L220-L242>)
@@ -1862,7 +1872,7 @@ func (BedrockEventStreamFrameDetector) PeekFirstFrame(r io.Reader) ([]byte, erro
 PeekFirstFrame reads one complete event\-stream message from r and returns the raw bytes. The reader must be positioned at the start of a message boundary.
 
 <a name="ContextWindowProvider"></a>
-## type [ContextWindowProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L229-L231>)
+## type [ContextWindowProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L250-L252>)
 
 ContextWindowProvider is an optional interface for providers that can report their context window size. The compactor budget is auto\-configured from it.
 
@@ -2240,7 +2250,7 @@ const (
 ```
 
 <a name="InferenceProvider"></a>
-## type [InferenceProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L215>)
+## type [InferenceProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L236>)
 
 InferenceProvider is the unified name for predict\-based LLM providers. Provider remains as a deprecated alias for back\-compat with existing call sites.
 
@@ -2249,7 +2259,7 @@ type InferenceProvider = Provider
 ```
 
 <a name="AssertInferenceProvider"></a>
-### func [AssertInferenceProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L219>)
+### func [AssertInferenceProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L240>)
 
 ```go
 func AssertInferenceProvider(p base.Provider) (InferenceProvider, error)
@@ -2641,7 +2651,7 @@ type PlatformEmbeddingSpec struct {
 ```
 
 <a name="PredictionRequest"></a>
-## type [PredictionRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L54-L71>)
+## type [PredictionRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L56-L76>)
 
 PredictionRequest represents a request to a predict provider
 
@@ -2658,16 +2668,19 @@ type PredictionRequest struct {
     MaxTokens      int     `json:"max_tokens"`
     // FrequencyPenalty and PresencePenalty are sent by providers whose API
     // takes them; nil sends nothing.
-    FrequencyPenalty *float32        `json:"frequency_penalty,omitempty"`
-    PresencePenalty  *float32        `json:"presence_penalty,omitempty"`
-    Seed             *int            `json:"seed,omitempty"`
-    ResponseFormat   *ResponseFormat `json:"response_format,omitempty"` // Optional response format (JSON mode)
-    Metadata         map[string]any  `json:"metadata,omitempty"`        // Provider-specific context
+    FrequencyPenalty *float32 `json:"frequency_penalty,omitempty"`
+    PresencePenalty  *float32 `json:"presence_penalty,omitempty"`
+    // TopK limits sampling to the K most likely tokens; nil sends nothing.
+    // Providers whose API has no top-k drop it with WarnTopKDropped.
+    TopK           *int            `json:"top_k,omitempty"`
+    Seed           *int            `json:"seed,omitempty"`
+    ResponseFormat *ResponseFormat `json:"response_format,omitempty"` // Optional response format (JSON mode)
+    Metadata       map[string]any  `json:"metadata,omitempty"`        // Provider-specific context
 }
 ```
 
 <a name="PredictionRequest.NormalizeMessages"></a>
-### func \(\*PredictionRequest\) [NormalizeMessages](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L94>)
+### func \(\*PredictionRequest\) [NormalizeMessages](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L115>)
 
 ```go
 func (r *PredictionRequest) NormalizeMessages()
@@ -2680,7 +2693,7 @@ Ordering: existing System content first, then system\-role message content in or
 This method is idempotent — calling it on an already\-normalized request \(no system\-role messages in Messages\) is a no\-op.
 
 <a name="PredictionResponse"></a>
-## type [PredictionResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L130-L145>)
+## type [PredictionResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L151-L166>)
 
 PredictionResponse represents a response from a predict provider
 
@@ -2704,7 +2717,7 @@ type PredictionResponse struct {
 ```
 
 <a name="Pricing"></a>
-## type [Pricing](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L148-L151>)
+## type [Pricing](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L169-L172>)
 
 Pricing defines cost per 1K tokens for input and output
 
@@ -2727,7 +2740,7 @@ type PrivateNetworkMediaConfigurable interface {
 ```
 
 <a name="Provider"></a>
-## type [Provider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L191-L211>)
+## type [Provider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L212-L232>)
 
 Provider interface defines the contract for predict providers. It embeds base.Provider for cross\-cutting concerns \(identity, lifecycle, pricing\) and adds inference\-specific operations.
 
@@ -2792,7 +2805,7 @@ type ProviderContractTests struct {
 ```
 
 <a name="ProviderDefaults"></a>
-## type [ProviderDefaults](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L163-L171>)
+## type [ProviderDefaults](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L184-L192>)
 
 ProviderDefaults holds default parameters for providers.
 
@@ -3014,7 +3027,7 @@ func (s *ProviderSpec) HasCredential() bool
 HasCredential returns true if the spec has a real \(non\-empty, non\-"none"\) credential. Use this in factory functions to decide between credential\-based and env\-var\-based constructors.
 
 <a name="ProviderTools"></a>
-## type [ProviderTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L255>)
+## type [ProviderTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L276>)
 
 ProviderTools represents provider\-specific tool configuration. Each provider returns its own native format:
 
@@ -3382,7 +3395,7 @@ type RerankUsage struct {
 ```
 
 <a name="ResponseFormat"></a>
-## type [ResponseFormat](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L41-L51>)
+## type [ResponseFormat](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L43-L53>)
 
 ResponseFormat specifies the format of the model's response
 
@@ -3401,7 +3414,7 @@ type ResponseFormat struct {
 ```
 
 <a name="ResponseFormatType"></a>
-## type [ResponseFormatType](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L29>)
+## type [ResponseFormatType](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L31>)
 
 ResponseFormatType defines the type of response format
 
@@ -4559,7 +4572,7 @@ type StreamingToolDefinition struct {
 ```
 
 <a name="ToolDescriptor"></a>
-## type [ToolDescriptor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L234-L239>)
+## type [ToolDescriptor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L255-L260>)
 
 ToolDescriptor represents a tool that can be used by providers
 
@@ -4614,7 +4627,7 @@ type ToolResponseSupport interface {
 ```
 
 <a name="ToolResult"></a>
-## type [ToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L243>)
+## type [ToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L264>)
 
 ToolResult represents the result of a tool execution This is an alias to types.MessageToolResult for provider\-specific context
 
@@ -4623,7 +4636,7 @@ type ToolResult = types.MessageToolResult
 ```
 
 <a name="ToolSupport"></a>
-## type [ToolSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L258-L282>)
+## type [ToolSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L279-L303>)
 
 ToolSupport interface for providers that support tool/function calling
 

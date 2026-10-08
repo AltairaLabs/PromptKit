@@ -404,6 +404,7 @@ type claudeRequest struct {
 	System       []claudeContentBlock `json:"system,omitempty"`
 	Temperature  *float32             `json:"temperature,omitempty"`
 	TopP         float32              `json:"top_p,omitempty"`
+	TopK         *int                 `json:"top_k,omitempty"`
 	OutputConfig *claudeOutputConfig  `json:"output_config,omitempty"`
 	Thinking     *claudeThinking      `json:"thinking,omitempty"`
 	Stream       bool                 `json:"stream,omitempty"`
@@ -524,10 +525,17 @@ func (p *Provider) buildBaseRequest(req providers.PredictionRequest, messages an
 		if cr.MaxTokens <= thinking.BudgetTokens {
 			cr.MaxTokens = thinking.BudgetTokens + thinkingAnswerHeadroom
 		}
-	} else if p.paramSupported("temperature") && (temperature != 0 || req.TemperatureSet) {
+	} else {
 		// Claude 4.7+ models reject temperature; only send it when supported.
 		// A zero is sent only when asked for: unset leaves the API's default.
-		cr.Temperature = &temperature
+		if p.paramSupported("temperature") && (temperature != 0 || req.TemperatureSet) {
+			cr.Temperature = &temperature
+		}
+		// top_k is likewise incompatible with extended thinking, so it is
+		// sent only on this branch.
+		if p.paramSupported("top_k") {
+			cr.TopK = req.TopK
+		}
 	}
 	return cr
 }

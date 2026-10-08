@@ -88,8 +88,10 @@ type vllmRequest struct {
 	// takes both; nil sends neither.
 	FrequencyPenalty *float32 `json:"frequency_penalty,omitempty"`
 	PresencePenalty  *float32 `json:"presence_penalty,omitempty"`
-	Seed             *int     `json:"seed,omitempty"`
-	Stream           bool     `json:"stream"`
+	// TopK is one of vLLM's extra sampling parameters; nil sends nothing.
+	TopK   *int `json:"top_k,omitempty"`
+	Seed   *int `json:"seed,omitempty"`
+	Stream bool `json:"stream"`
 	// StreamOptions carries streaming-only parameters. Set only when Stream is
 	// true, so vLLM knows to emit a terminal usage-bearing chunk before [DONE].
 	StreamOptions *vllmStreamOptions `json:"stream_options,omitempty"`
@@ -338,6 +340,7 @@ func (p *Provider) buildRequest( // NOSONAR
 	}
 	vllmReq.FrequencyPenalty = req.FrequencyPenalty
 	vllmReq.PresencePenalty = req.PresencePenalty
+	vllmReq.TopK = req.TopK
 	if stream {
 		// Request the terminal usage chunk so streamed responses carry cost.
 		vllmReq.StreamOptions = &vllmStreamOptions{IncludeUsage: true}

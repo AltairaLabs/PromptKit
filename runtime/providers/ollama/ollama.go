@@ -162,8 +162,10 @@ func (p *Provider) prepareMessages(
 }
 
 // addOllamaPenalties sets the request's frequency and presence penalties on a
-// map-built request; nil sends neither.
-func addOllamaPenalties(body map[string]any, req *providers.PredictionRequest) {
+// map-built request; nil sends neither. Ollama's OpenAI-compatible endpoint
+// has no top_k, so a request's top_k is dropped with a warning.
+func addOllamaPenalties(providerID string, body map[string]any, req *providers.PredictionRequest) {
+	providers.WarnTopKDropped(providerID, req)
 	if req.FrequencyPenalty != nil {
 		body["frequency_penalty"] = *req.FrequencyPenalty
 	}
@@ -579,6 +581,7 @@ func (p *Provider) predictWithMessages(
 		FrequencyPenalty: req.FrequencyPenalty,
 		PresencePenalty:  req.PresencePenalty,
 	}
+	providers.WarnTopKDropped(p.ID(), &req) // the endpoint has no top_k
 
 	reqBody, err := providers.MarshalWithExtraBody(p.ID(), ollamaReq, p.extraBody)
 	if err != nil {
@@ -693,7 +696,7 @@ func (p *Provider) predictStreamWithMessages(
 	if req.Seed != nil {
 		ollamaReq["seed"] = *req.Seed
 	}
-	addOllamaPenalties(ollamaReq, &req)
+	addOllamaPenalties(p.ID(), ollamaReq, &req)
 	if p.keepAlive != "" {
 		ollamaReq["keep_alive"] = p.keepAlive
 	}
