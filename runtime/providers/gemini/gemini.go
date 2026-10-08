@@ -484,8 +484,9 @@ func (p *Provider) setUnsupportedParams(params []string) {
 }
 
 // paramSupported reports whether the named request parameter may be sent.
+// One the API has rejected for this model (RetryRejectedParams) may not be.
 func (p *Provider) paramSupported(name string) bool {
-	return !p.unsupportedParams[name]
+	return !p.unsupportedParams[name] && !p.ParamRejected(name)
 }
 
 // buildGeminiRequest creates a Gemini API request with standard safety settings
@@ -769,8 +770,21 @@ func (p *Provider) parseAndValidateGeminiResponse(respBody []byte, predictResp p
 	return geminiResp, candidate, predictResp, nil
 }
 
-// Predict sends a predict request to Gemini
+// Predict runs predictOnce, retrying without any sampling parameter the API
+// rejects for this model (providers.BaseProvider.RetryRejectedParams).
 func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	var resp providers.PredictionResponse
+	err := p.RetryRejectedParams(func() (err error) {
+		resp, err = p.predictOnce(ctx, req)
+		return err
+	})
+	return resp, err
+}
+
+// predictOnce sends a predict request to Gemini
+func (p *Provider) predictOnce(
+	ctx context.Context, req providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
 	// Enrich context with provider and model info for logging
 	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
 		Provider: p.ID(),

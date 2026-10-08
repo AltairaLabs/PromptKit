@@ -3,6 +3,7 @@ package openai
 
 import (
 	"encoding/json"
+	"net/url"
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -64,11 +65,14 @@ func transformToResponsesCallID(callID string) string {
 //  1. Explicit config (additional_config.api_mode) — data-driven, always wins.
 //  2. requiresResponsesAPI fallback — for Responses-only models when the
 //     config doesn't declare a mode.
-//  3. Default to the legacy Chat Completions API.
+//  3. The Responses API against OpenAI itself (an empty baseURL or
+//     api.openai.com): current models refuse function tools on Chat
+//     Completions. Chat Completions against any other host, since
+//     OpenAI-compatible servers seldom implement Responses.
 //
 // Config-first ordering means a provider config is the source of truth; the
 // model-name heuristic is only a best-effort default for undeclared configs.
-func getAPIMode(model string, additionalConfig map[string]any) APIMode {
+func getAPIMode(model, baseURL string, additionalConfig map[string]any) APIMode {
 	if additionalConfig != nil {
 		if mode, ok := additionalConfig["api_mode"].(string); ok {
 			switch strings.ToLower(mode) {
@@ -80,11 +84,24 @@ func getAPIMode(model string, additionalConfig map[string]any) APIMode {
 		}
 	}
 
-	if requiresResponsesAPI(model) {
+	if requiresResponsesAPI(model) || isOpenAIHost(baseURL) {
 		return APIModeResponses
 	}
 
 	return APIModeCompletions
+}
+
+// openAIHost is the host of OpenAI's own API.
+const openAIHost = "api.openai.com"
+
+// isOpenAIHost reports whether baseURL is OpenAI's own API; empty means the
+// default, which is.
+func isOpenAIHost(baseURL string) bool {
+	if baseURL == "" {
+		return true
+	}
+	u, err := url.Parse(baseURL)
+	return err == nil && u.Hostname() == openAIHost
 }
 
 // convertMessagesToResponsesInput converts messages to Responses API input format
@@ -208,10 +225,14 @@ func imageResponsesPart(media *types.MediaContent) map[string]any {
 		return nil
 	}
 	// Responses API expects image_url as a string (the URL directly).
-	return map[string]any{
+	out := map[string]any{
 		keyType:     "input_image",
 		keyImageURL: imageURL,
 	}
+	if media.Detail != nil {
+		out["detail"] = *media.Detail
+	}
+	return out
 }
 
 // imageURLFromMedia resolves an image URL from media, preferring an explicit URL

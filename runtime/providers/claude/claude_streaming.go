@@ -20,12 +20,25 @@ const (
 	finishReasonStop = "stop"
 )
 
-// PredictStream performs a streaming prediction request to Claude.
+// PredictStream runs predictStreamOnce, retrying without any sampling
+// parameter the API rejects for this model.
+func (p *Provider) PredictStream(
+	ctx context.Context, req providers.PredictionRequest,
+) (<-chan providers.StreamChunk, error) {
+	var ch <-chan providers.StreamChunk
+	err := p.RetryRejectedParams(func() (err error) {
+		ch, err = p.predictStreamOnce(ctx, req)
+		return err
+	})
+	return ch, err
+}
+
+// predictStreamOnce performs a streaming prediction request to Claude.
 // On Bedrock, falls back to non-streaming Predict since Bedrock uses
 // binary event-stream encoding that requires AWS-specific parsing.
 //
 //nolint:gocritic // hugeParam: interface signature requires value receiver
-func (p *Provider) PredictStream(
+func (p *Provider) predictStreamOnce(
 	ctx context.Context, req providers.PredictionRequest,
 ) (<-chan providers.StreamChunk, error) {
 	// Enrich context with provider and model info for logging
@@ -43,83 +56,21 @@ func (p *Provider) PredictStream(
 	claudeReq.OutputConfig = outputConfigFor(req.ResponseFormat)
 	claudeReq.Stream = true
 
-	// Bedrock: use binary event-stream format, wired through the same
-	// RunStreamingRequest path as the direct API so Bedrock gets retry,
-	// budget, semaphore, and metrics for free.
+	// Bedrock: binary event-stream, wired through the same RunStreamingRequest
+	// path as the direct API so Bedrock gets retry, budget, semaphore, and
+	// metrics for free.
 	if p.isBedrock() {
-		reqBody, err := p.marshalPartnerRequest(&claudeReq)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal request: %w", err)
-		}
-		url := p.messagesStreamURL()
-		requestFn := func(ctx context.Context) (*http.Request, error) {
-			httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
-			if reqErr != nil {
-				return nil, fmt.Errorf("failed to create request: %w", reqErr)
-			}
-			httpReq.Header.Set(contentTypeHeader, applicationJSON)
-			httpReq.Header.Set("Accept", "application/vnd.amazon.eventstream")
-			if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
-				return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
-			}
-			if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
-				return nil, hdrErr
-			}
-			return httpReq, nil
-		}
-		return p.RunStreamingRequest(ctx, &providers.StreamRetryRequest{
-			Policy:        p.StreamRetryPolicy(),
-			Budget:        p.StreamRetryBudget(),
-			ProviderName:  p.ID(),
-			Host:          providers.HostFromURL(url),
-			IdleTimeout:   p.StreamIdleTimeout(),
-			RequestFn:     requestFn,
-			Client:        p.GetStreamingHTTPClient(),
-			FrameDetector: providers.BedrockEventStreamFrameDetector{},
-		}, func(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
-			idleBody := providers.NewIdleTimeoutReader(body, p.StreamIdleTimeout())
-			scanner := providers.NewBedrockEventScanner(idleBody)
-			p.streamResponse(ctx, idleBody, scanner, outChan)
-		})
+		return p.streamPartnerRequest(ctx, &claudeReq, "application/vnd.amazon.eventstream",
+			providers.BedrockEventStreamFrameDetector{},
+			func(r io.Reader) providers.StreamScanner { return providers.NewBedrockEventScanner(r) })
 	}
 
 	// Vertex: SSE via :streamRawPredict. Body uses the partner shape (no
 	// model, no stream flag, anthropic_version=vertex-2023-10-16); auth via
 	// GCP credential Bearer token; no anthropic-version header (in body).
 	if p.isVertex() {
-		reqBody, err := p.marshalPartnerRequest(&claudeReq)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal request: %w", err)
-		}
-		url := p.messagesStreamURL()
-		requestFn := func(ctx context.Context) (*http.Request, error) {
-			httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
-			if reqErr != nil {
-				return nil, fmt.Errorf("failed to create request: %w", reqErr)
-			}
-			httpReq.Header.Set(contentTypeHeader, applicationJSON)
-			httpReq.Header.Set("Accept", "text/event-stream")
-			if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
-				return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
-			}
-			if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
-				return nil, hdrErr
-			}
-			return httpReq, nil
-		}
-		return p.RunStreamingRequest(ctx, &providers.StreamRetryRequest{
-			Policy:       p.StreamRetryPolicy(),
-			Budget:       p.StreamRetryBudget(),
-			ProviderName: p.ID(),
-			Host:         providers.HostFromURL(url),
-			IdleTimeout:  p.StreamIdleTimeout(),
-			RequestFn:    requestFn,
-			Client:       p.GetStreamingHTTPClient(),
-		}, func(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
-			idleBody := providers.NewIdleTimeoutReader(body, p.StreamIdleTimeout())
-			scanner := providers.NewSSEScanner(idleBody)
-			p.streamResponse(ctx, idleBody, scanner, outChan)
-		})
+		return p.streamPartnerRequest(ctx, &claudeReq, "text/event-stream", nil,
+			func(r io.Reader) providers.StreamScanner { return providers.NewSSEScanner(r) })
 	}
 
 	// Direct Anthropic API path. Azure shares this path because its body
@@ -305,6 +256,48 @@ func parseClaudeStreamError(data []byte) error {
 		return fmt.Errorf("%w: %s", ErrClaudeStreamError, data)
 	}
 	return fmt.Errorf("%w (%s): %s", ErrClaudeStreamError, ev.Error.Type, ev.Error.Message)
+}
+
+// streamPartnerRequest streams claudeReq to a partner platform (Bedrock or
+// Vertex) in its body shape, accepting accept and reading the response with
+// newScanner. A nil detector uses the driver's default.
+func (p *Provider) streamPartnerRequest(
+	ctx context.Context, claudeReq *claudeRequest, accept string,
+	detector providers.FrameDetector, newScanner func(io.Reader) providers.StreamScanner,
+) (<-chan providers.StreamChunk, error) {
+	reqBody, err := p.marshalPartnerRequest(claudeReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	url := p.messagesStreamURL()
+	requestFn := func(ctx context.Context) (*http.Request, error) {
+		httpReq, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
+		if reqErr != nil {
+			return nil, fmt.Errorf("failed to create request: %w", reqErr)
+		}
+		httpReq.Header.Set(contentTypeHeader, applicationJSON)
+		httpReq.Header.Set("Accept", accept)
+		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+		}
+		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
+			return nil, hdrErr
+		}
+		return httpReq, nil
+	}
+	return p.RunStreamingRequest(ctx, &providers.StreamRetryRequest{
+		Policy:        p.StreamRetryPolicy(),
+		Budget:        p.StreamRetryBudget(),
+		ProviderName:  p.ID(),
+		Host:          providers.HostFromURL(url),
+		IdleTimeout:   p.StreamIdleTimeout(),
+		RequestFn:     requestFn,
+		Client:        p.GetStreamingHTTPClient(),
+		FrameDetector: detector,
+	}, func(ctx context.Context, body io.ReadCloser, outChan chan<- providers.StreamChunk) {
+		idleBody := providers.NewIdleTimeoutReader(body, p.StreamIdleTimeout())
+		p.streamResponse(ctx, idleBody, newScanner(idleBody), outChan)
+	})
 }
 
 // streamResponse reads a stream from Claude and sends chunks.

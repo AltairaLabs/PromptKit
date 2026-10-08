@@ -145,6 +145,48 @@ type responsesStreamEvent struct {
 
 // buildResponsesRequest constructs a Responses API request from a PredictionRequest
 //
+// prepareResponsesMessages checks req's content parts and loads each image
+// the way the Chat Completions path does (convertContentPartToOpenAI): a part
+// the API cannot take is an error rather than silently dropped, and an image
+// held in media storage or a local file is resolved to a URL or data URL. It
+// returns req with resolved copies of the messages it changed.
+func (p *Provider) prepareResponsesMessages(
+	ctx context.Context, req providers.PredictionRequest,
+) (providers.PredictionRequest, error) {
+	msgs := make([]types.Message, len(req.Messages))
+	for i := range req.Messages {
+		msgs[i] = req.Messages[i]
+		if len(msgs[i].Parts) == 0 {
+			continue
+		}
+		parts := make([]types.ContentPart, len(msgs[i].Parts))
+		for j, part := range msgs[i].Parts {
+			converted, err := p.convertContentPartToOpenAI(ctx, part)
+			if err != nil {
+				return req, err
+			}
+			if part.Type == types.ContentTypeImage {
+				part.Media = resolvedImageMedia(part.Media, converted)
+			}
+			parts[j] = part
+		}
+		msgs[i].Parts = parts
+	}
+	req.Messages = msgs
+	return req, nil
+}
+
+// resolvedImageMedia returns a copy of media whose URL is the one
+// convertImagePartToOpenAI resolved, so the Responses builder needs no loader.
+func resolvedImageMedia(media *types.MediaContent, converted any) *types.MediaContent {
+	part, _ := converted.(map[string]any)
+	image, _ := part["image_url"].(map[string]any)
+	url, _ := image["url"].(string)
+	resolved := *media
+	resolved.URL = &url
+	return &resolved
+}
+
 //nolint:gocritic // hugeParam: interface requires value receiver for compatibility
 func (p *Provider) buildResponsesRequest(req providers.PredictionRequest, tools any, toolChoice string) map[string]any {
 	// Convert messages to Responses API input format
@@ -172,10 +214,11 @@ func (p *Provider) buildResponsesRequest(req providers.PredictionRequest, tools 
 	// Add sampling parameters (some models, e.g. o-series, don't support these)
 	// A zero is sent only when asked for (TemperatureSet). The Responses API
 	// takes no frequency_penalty or presence_penalty, so those are not sent.
-	if !hasUnsupportedParam(p.unsupportedParams, "temperature") && (temperature > 0 || req.TemperatureSet) {
+	unsupported := p.unsupported()
+	if !hasUnsupportedParam(unsupported, "temperature") && (temperature > 0 || req.TemperatureSet) {
 		responsesReq["temperature"] = temperature
 	}
-	if !hasUnsupportedParam(p.unsupportedParams, "top_p") && topP > 0 {
+	if !hasUnsupportedParam(unsupported, "top_p") && topP > 0 {
 		responsesReq["top_p"] = topP
 	}
 	providers.WarnUnsentParams(p.ID(), &req,
@@ -261,6 +304,11 @@ func (p *Provider) predictWithResponses(
 	})
 
 	start := time.Now()
+
+	req, err := p.prepareResponsesMessages(ctx, req)
+	if err != nil {
+		return providers.PredictionResponse{}, nil, err
+	}
 
 	// Build request
 	responsesReq := p.buildResponsesRequest(req, tools, toolChoice)
@@ -407,6 +455,11 @@ func (p *Provider) predictStreamWithResponses(
 		Provider: p.ID(),
 		Model:    p.model,
 	})
+
+	req, err := p.prepareResponsesMessages(ctx, req)
+	if err != nil {
+		return nil, err
+	}
 
 	// Build request with streaming enabled
 	responsesReq := p.buildResponsesRequest(req, tools, toolChoice)

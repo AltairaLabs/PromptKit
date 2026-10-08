@@ -14,10 +14,23 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-// PredictStream performs a streaming prediction request to Gemini
+// PredictStream runs predictStreamOnce, retrying without any sampling
+// parameter the API rejects for this model.
+func (p *Provider) PredictStream(
+	ctx context.Context, req providers.PredictionRequest,
+) (<-chan providers.StreamChunk, error) {
+	var ch <-chan providers.StreamChunk
+	err := p.RetryRejectedParams(func() (err error) {
+		ch, err = p.predictStreamOnce(ctx, req)
+		return err
+	})
+	return ch, err
+}
+
+// predictStreamOnce performs a streaming prediction request to Gemini
 //
 //nolint:gocritic // hugeParam: interface signature requires value receiver
-func (p *Provider) PredictStream(
+func (p *Provider) predictStreamOnce(
 	ctx context.Context, req providers.PredictionRequest,
 ) (<-chan providers.StreamChunk, error) {
 	// Enrich context with provider and model info for logging

@@ -20,7 +20,7 @@ func TestClaudeProvider_Contract(t *testing.T) {
 
 	provider := NewProvider(
 		"claude-test",
-		"claude-haiku-4-5-20251001",
+		"claude-haiku-5-5",
 		"https://api.anthropic.com/v1",
 		providers.ProviderDefaults{
 			Temperature: 0.7,
@@ -49,7 +49,7 @@ func TestToolProvider_Contract(t *testing.T) {
 
 	provider := NewToolProvider(
 		"claude-tool-test",
-		"claude-haiku-4-5-20251001",
+		"claude-haiku-5-5",
 		"https://api.anthropic.com/v1",
 		providers.ProviderDefaults{
 			Temperature: 0.7,
@@ -74,7 +74,7 @@ func TestSamplingParams_ThinkingContract(t *testing.T) {
 		t.Skip("ANTHROPIC_API_KEY not set")
 	}
 	budget := 1024
-	provider := NewToolProvider("claude-thinking-sampling", "claude-haiku-4-5-20251001",
+	provider := NewToolProvider("claude-thinking-sampling", "claude-haiku-5-5",
 		"https://api.anthropic.com/v1", providers.ProviderDefaults{MaxTokens: 100}, false)
 	provider.thinkingBudget = &budget
 	defer provider.Close()

@@ -131,10 +131,24 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (pr
 	}, nil
 }
 
-// PredictWithTools performs a predict request with tool support
+// PredictWithTools runs predictWithToolsOnce, retrying without any sampling
+// parameter the API rejects for this model.
+func (p *ToolProvider) PredictWithTools(
+	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools, toolChoice string,
+) (providers.PredictionResponse, []types.MessageToolCall, error) {
+	var resp providers.PredictionResponse
+	var calls []types.MessageToolCall
+	err := p.RetryRejectedParams(func() (err error) {
+		resp, calls, err = p.predictWithToolsOnce(ctx, req, tools, toolChoice)
+		return err
+	})
+	return resp, calls, err
+}
+
+// predictWithToolsOnce performs a predict request with tool support
 //
 //nolint:gocritic // hugeParam: interface signature requires value receiver
-func (p *ToolProvider) PredictWithTools(
+func (p *ToolProvider) predictWithToolsOnce(
 	ctx context.Context,
 	req providers.PredictionRequest,
 	tools providers.ProviderTools,
@@ -720,8 +734,21 @@ func (p *ToolProvider) postJSON(ctx context.Context, url string, requestBytes []
 	return respBytes, nil
 }
 
-// PredictStreamWithTools performs a streaming predict request with tool support
+// PredictStreamWithTools runs predictStreamWithToolsOnce, retrying without
+// any sampling parameter the API rejects for this model.
 func (p *ToolProvider) PredictStreamWithTools(
+	ctx context.Context, req providers.PredictionRequest, tools any, toolChoice string,
+) (<-chan providers.StreamChunk, error) {
+	var ch <-chan providers.StreamChunk
+	err := p.RetryRejectedParams(func() (err error) {
+		ch, err = p.predictStreamWithToolsOnce(ctx, req, tools, toolChoice)
+		return err
+	})
+	return ch, err
+}
+
+// predictStreamWithToolsOnce performs a streaming predict request with tool support
+func (p *ToolProvider) predictStreamWithToolsOnce(
 	ctx context.Context,
 	req providers.PredictionRequest,
 	tools any,

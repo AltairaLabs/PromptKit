@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -99,6 +100,16 @@ func addMaxTokensToRequest(req map[string]interface{}, unsupportedParams []strin
 	} else {
 		req["max_completion_tokens"] = maxTokens
 	}
+}
+
+// unsupported returns the parameters not to send: those configured with
+// unsupported_params, and those the API has rejected for this model.
+func (p *Provider) unsupported() []string {
+	rejected := p.RejectedParamNames()
+	if len(rejected) == 0 {
+		return p.unsupportedParams
+	}
+	return append(slices.Clone(p.unsupportedParams), rejected...)
 }
 
 // paramTemperature is the temperature request parameter's name, as
@@ -309,7 +320,7 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 		apiKey:            apiKey,
 		credential:        cfg.Credential,
 		defaults:          cfg.Defaults,
-		apiMode:           getAPIMode(cfg.Model, cfg.AdditionalConfig),
+		apiMode:           getAPIMode(cfg.Model, baseURL, cfg.AdditionalConfig),
 		additionalConfig:  cfg.AdditionalConfig,
 		extraBody:         providers.ExtraBody(cfg.ID, cfg.AdditionalConfig),
 		platform:          cfg.Platform,
@@ -508,9 +519,10 @@ func (p *Provider) enrichRequest(
 		applyAudioModalities(openAIReq, p.additionalConfig, audioFmtFallback)
 	}
 	temperature, topP, maxTokens := p.applyRequestDefaults(*req)
-	addMaxTokensToRequest(openAIReq, p.unsupportedParams, maxTokens)
-	addSamplingParamsToRequest(openAIReq, p.unsupportedParams, temperature, topP)
-	addPenaltiesToRequest(openAIReq, p.unsupportedParams, req)
+	unsupported := p.unsupported()
+	addMaxTokensToRequest(openAIReq, unsupported, maxTokens)
+	addSamplingParamsToRequest(openAIReq, unsupported, temperature, topP)
+	addPenaltiesToRequest(openAIReq, unsupported, req)
 	// Chat Completions has no top-k parameter.
 	providers.WarnUnsentParams(p.ID(), req, providers.ParamTopK)
 	if req.Seed != nil {
@@ -755,8 +767,21 @@ func (p *Provider) convertResponseFormat(rf *providers.ResponseFormat) *openAIRe
 	return result
 }
 
-// Predict sends a predict request to OpenAI
+// Predict runs predictOnce, retrying without any sampling parameter the API
+// rejects for this model (providers.BaseProvider.RetryRejectedParams).
 func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	var resp providers.PredictionResponse
+	err := p.RetryRejectedParams(func() (err error) {
+		resp, err = p.predictOnce(ctx, req)
+		return err
+	})
+	return resp, err
+}
+
+// predictOnce sends a predict request to OpenAI
+func (p *Provider) predictOnce(
+	ctx context.Context, req providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
 	// Route to the Responses API when selected (config or the requiresResponsesAPI
 	// fallback, via getAPIMode), mirroring PredictWithTools. Responses-only
 	// models (gpt-5-pro, o1-pro, ...) 404 on chat/completions.
@@ -829,7 +854,20 @@ func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.Co
 	})
 }
 
-// PredictStream streams a predict response from OpenAI.
+// PredictStream runs predictStreamOnce, retrying without any sampling
+// parameter the API rejects for this model.
+func (p *Provider) PredictStream(
+	ctx context.Context, req providers.PredictionRequest,
+) (<-chan providers.StreamChunk, error) {
+	var ch <-chan providers.StreamChunk
+	err := p.RetryRejectedParams(func() (err error) {
+		ch, err = p.predictStreamOnce(ctx, req)
+		return err
+	})
+	return ch, err
+}
+
+// predictStreamOnce streams a predict response from OpenAI.
 //
 // Bedrock note: AWS Bedrock's `invoke-with-response-stream` returns a
 // binary event-stream protocol with OpenAI-format chunks inside —
@@ -838,7 +876,9 @@ func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.Co
 // falls back to a single non-streaming Predict response surfaced as one
 // terminal chunk on the channel. Callers that need real per-token
 // streaming for openai+bedrock should track that follow-up.
-func (p *Provider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+func (p *Provider) predictStreamOnce(
+	ctx context.Context, req providers.PredictionRequest,
+) (<-chan providers.StreamChunk, error) {
 	if p.isBedrock() {
 		return p.predictStreamBedrockFallback(ctx, req)
 	}

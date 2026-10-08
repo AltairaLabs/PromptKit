@@ -148,8 +148,9 @@ func (p *Provider) setUnsupportedParams(params []string) {
 
 // paramSupported reports whether the named request parameter may be sent to the
 // model. Parameters listed in the provider's UnsupportedParams are not.
+// Nor are parameters the API has rejected for this model (RetryRejectedParams).
 func (p *Provider) paramSupported(name string) bool {
-	return !p.unsupportedParams[name]
+	return !p.unsupportedParams[name] && !p.ParamRejected(name)
 }
 
 // NewProvider creates a new Claude provider
@@ -916,8 +917,21 @@ func (p *Provider) parseAndValidateClaudeResponse(respBody []byte, predictResp p
 	return claudeResp, responseText, predictResp, nil
 }
 
-// Predict sends a predict request to Claude
+// Predict runs predictOnce, retrying without any sampling parameter the API
+// rejects for this model (providers.BaseProvider.RetryRejectedParams).
 func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+	var resp providers.PredictionResponse
+	err := p.RetryRejectedParams(func() (err error) {
+		resp, err = p.predictOnce(ctx, req)
+		return err
+	})
+	return resp, err
+}
+
+// predictOnce sends a predict request to Claude
+func (p *Provider) predictOnce(
+	ctx context.Context, req providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
 	// Enrich context with provider and model info for logging
 	ctx = logger.WithLoggingContext(ctx, &logger.LoggingFields{
 		Provider: p.ID(),

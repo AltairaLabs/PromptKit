@@ -8,6 +8,41 @@ changes that need you to do something, with what to change and why.
 
 ## Unreleased
 
+### OpenAI uses the Responses API by default
+
+An OpenAI provider with no `api_mode` used Chat Completions unless its model
+name ended in `-pro`. Current OpenAI models refuse function tools on Chat
+Completions, so every tool call on them failed. Against OpenAI's own API (no
+`base_url`, or `api.openai.com`) the default is now the Responses API. A
+provider with any other `base_url`, which is usually an OpenAI-compatible
+server, still defaults to Chat Completions, as do Azure and Bedrock.
+
+The Responses path now loads images and rejects parts the same way as Chat
+Completions. Before, it read only an image's URL or inline data and dropped
+an image held in media storage or a local file, and any audio or video part,
+without an error.
+
+| If you | You will see | Change |
+|---|---|---|
+| Use OpenAI without `api_mode` | requests to `/v1/responses` | nothing, or set `api_mode: completions` to keep Chat Completions |
+| Send audio input to an audio model (`gpt-audio`) without `api_mode` | an error that audio needs Chat Completions | set `api_mode: completions` |
+| Point `base_url` at an OpenAI-compatible server | nothing | nothing |
+
+### Providers stop sending sampling parameters the model rejects
+
+Current OpenAI models (`gpt-5.5`, `gpt-6`) and Claude 5.x models answer
+`temperature`, `top_p`, `top_k` or a penalty with a 400, and Gemini models
+answer penalties with one. Unless the provider config listed the parameter
+in `unsupported_params`, a prompt that set it failed every call. The OpenAI,
+Claude and Gemini providers now read the rejection, stop sending that
+parameter for the rest of the provider's life, log a warning naming it, and
+retry the call, which then succeeds with the model's own default.
+
+| If you | You will see | Change |
+|---|---|---|
+| Set a sampling parameter a model rejects | the call succeeds after one retry, and a warning | remove the parameter, or list it in `unsupported_params` to skip the retry |
+| List parameters in `unsupported_params` | nothing | nothing |
+
 ### A prompt's `top_k` reaches the provider
 
 A prompt's `parameters.top_k`, and a `model_overrides` entry's, was read from
