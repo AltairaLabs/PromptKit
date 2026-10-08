@@ -331,7 +331,11 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request any) ([]byte, er
 	headers := providers.RequestHeaders{
 		contentTypeHeader: applicationJSON,
 	}
-	return p.MakeJSONRequest(ctx, url, request, headers, "Ollama")
+	body, err := providers.MarshalWithExtraBody(p.ID(), request, p.extraBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	return p.MakeRawRequest(ctx, url, body, headers, "Ollama")
 }
 
 // PredictStreamWithTools performs a streaming predict request with tool support
@@ -354,7 +358,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 	ollamaReq["stream"] = true
 	ollamaReq["stream_options"] = map[string]any{"include_usage": true}
 
-	reqBody, err := json.Marshal(ollamaReq)
+	reqBody, err := providers.MarshalWithExtraBody(p.ID(), ollamaReq, p.extraBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}

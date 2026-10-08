@@ -452,7 +452,8 @@ docker run --rm --gpus all \
 #### vLLM `additional_config` keys
 
 Everything vLLM-specific rides in `additional_config`. These are the keys the
-provider reads; anything else is passed over in silence.
+provider reads; any other key is ignored. To send a server parameter that has
+no key here, put it in `extra_body`.
 
 | Key | Type | Effect |
 |-----|------|--------|
@@ -465,6 +466,7 @@ provider reads; anything else is passed over in silence.
 | `guided_regex` | string | Regex the output must match. |
 | `guided_grammar` | string | GBNF grammar the output must follow. |
 | `guided_choice` | string[] | Closed set of permitted answers. |
+| `extra_body` | object | Extra request fields, merged into every request. See [Send server parameters with `extra_body`](#send-server-parameters-with-extra_body). |
 
 The four `guided_*` keys are mutually exclusive — vLLM applies one decoding
 constraint per request. Guided decoding is enforced by the server, so unlike a
@@ -489,6 +491,29 @@ fractional one, and `guided_choice` accepts the untyped sequence both YAML and
 JSON produce. A `guided_choice` list containing a non-string is refused whole
 rather than partially applied — a silently shortened choice list changes what
 the model is allowed to answer.
+
+### Send server parameters with `extra_body`
+
+The `openai`, `vllm` and `ollama` providers merge `additional_config.extra_body`
+into the body of every chat request, on the streaming and tool-calling paths
+too. Use it for a request parameter the server accepts but PromptKit has no key
+for. To turn off Qwen3's reasoning on vLLM, for example:
+
+```yaml
+id: qwen3
+type: vllm
+model: Qwen/Qwen3-8B
+base_url: http://localhost:8000
+additional_config:
+  extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+```
+
+A field the provider sets itself, such as `model`, `messages`, `tools` or
+`stream`, always wins. The provider drops the colliding `extra_body` field and
+logs a warning naming it. An `extra_body` that is not a map is ignored with a
+warning.
 
 ## Next Steps
 

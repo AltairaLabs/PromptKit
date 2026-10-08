@@ -31,6 +31,7 @@ type Provider struct {
 	baseURL   string
 	keepAlive string // Ollama-specific: how long to keep model loaded (e.g., "5m")
 	defaults  providers.ProviderDefaults
+	extraBody map[string]any // additional_config.extra_body, merged into every request
 }
 
 // Default timeout for Ollama requests (longer for local inference)
@@ -64,6 +65,7 @@ func NewProvider(
 		baseURL:      baseURL,
 		keepAlive:    keepAlive,
 		defaults:     defaults,
+		extraBody:    providers.ExtraBody(id, additionalConfig),
 	}
 }
 
@@ -563,7 +565,7 @@ func (p *Provider) predictWithMessages(
 		KeepAlive:   p.keepAlive,
 	}
 
-	reqBody, err := json.Marshal(ollamaReq)
+	reqBody, err := providers.MarshalWithExtraBody(p.ID(), ollamaReq, p.extraBody)
 	if err != nil {
 		return providers.PredictionResponse{}, fmt.Errorf("failed to marshal request: %w", err)
 	}
@@ -680,7 +682,7 @@ func (p *Provider) predictStreamWithMessages(
 		ollamaReq["keep_alive"] = p.keepAlive
 	}
 
-	reqBody, err := json.Marshal(ollamaReq)
+	reqBody, err := providers.MarshalWithExtraBody(p.ID(), ollamaReq, p.extraBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}

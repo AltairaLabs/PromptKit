@@ -260,6 +260,7 @@ func (p *Provider) predictWithResponses(
 
 	// Build request
 	responsesReq := p.buildResponsesRequest(req, tools, toolChoice)
+	providers.ApplyExtraBody(p.ID(), responsesReq, p.extraBody)
 
 	// Prepare response with raw request if configured
 	predictResp := providers.PredictionResponse{}
@@ -406,6 +407,7 @@ func (p *Provider) predictStreamWithResponses(
 	// Build request with streaming enabled
 	responsesReq := p.buildResponsesRequest(req, tools, toolChoice)
 	responsesReq["stream"] = true
+	providers.ApplyExtraBody(p.ID(), responsesReq, p.extraBody)
 
 	reqBody, err := json.Marshal(responsesReq)
 	if err != nil {

@@ -138,6 +138,7 @@ type Provider struct {
 	defaults          providers.ProviderDefaults
 	apiMode           APIMode
 	additionalConfig  map[string]any
+	extraBody         map[string]any // additional_config.extra_body, merged into every request
 	platform          string
 	platformConfig    *providers.PlatformConfig
 	unsupportedParams []string
@@ -293,6 +294,7 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 		defaults:          cfg.Defaults,
 		apiMode:           getAPIMode(cfg.Model, cfg.AdditionalConfig),
 		additionalConfig:  cfg.AdditionalConfig,
+		extraBody:         providers.ExtraBody(cfg.ID, cfg.AdditionalConfig),
 		platform:          cfg.Platform,
 		platformConfig:    cfg.PlatformConfig,
 		unsupportedParams: unsupported,
@@ -1225,6 +1227,7 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 		"messages": messages,
 	}
 	p.enrichRequest(openAIReq, &req, "wav")
+	providers.ApplyExtraBody(p.ID(), openAIReq, p.extraBody)
 
 	reqBody, err := json.Marshal(openAIReq)
 	if err != nil {
@@ -1355,6 +1358,7 @@ func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.
 	}
 	// When stream=true, OpenAI only supports "pcm16" for audio.format.
 	p.enrichRequest(openAIReq, &req, "pcm16")
+	providers.ApplyExtraBody(p.ID(), openAIReq, p.extraBody)
 
 	reqBody, err := json.Marshal(openAIReq)
 	if err != nil {

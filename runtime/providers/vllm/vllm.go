@@ -33,6 +33,7 @@ type Provider struct {
 	apiKey           string // Optional - vLLM supports both auth and no-auth
 	defaults         providers.ProviderDefaults
 	additionalConfig map[string]any
+	extraBody        map[string]any // additional_config.extra_body, merged into every request
 }
 
 // Default timeout for vLLM requests (configurable via additional_config)
@@ -67,6 +68,7 @@ func NewProvider(
 		apiKey:           apiKey,
 		defaults:         defaults,
 		additionalConfig: additionalConfig,
+		extraBody:        providers.ExtraBody(id, additionalConfig),
 	}
 }
 
@@ -455,7 +457,7 @@ func (p *Provider) predictWithMessages(
 	// Build request with vLLM-specific parameters
 	vllmReq := p.buildRequest(&req, messages, temperature, topP, maxTokens, false)
 
-	reqBody, err := json.Marshal(vllmReq)
+	reqBody, err := providers.MarshalWithExtraBody(p.ID(), vllmReq, p.extraBody)
 	if err != nil {
 		return providers.PredictionResponse{}, fmt.Errorf("failed to marshal request: %w", err)
 	}
@@ -568,7 +570,7 @@ func (p *Provider) predictStreamWithMessages(
 	// Build request with vLLM-specific parameters
 	vllmReq := p.buildRequest(&req, messages, temperature, topP, maxTokens, true)
 
-	reqBody, err := json.Marshal(vllmReq)
+	reqBody, err := providers.MarshalWithExtraBody(p.ID(), vllmReq, p.extraBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
