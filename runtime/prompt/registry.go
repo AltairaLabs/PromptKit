@@ -120,8 +120,7 @@ type Spec struct {
 
 // ModelTestResultRef is a simplified reference to model test results
 // The full ModelTestResult type is in pkg/engine for tracking test execution
-// ModelTestResultRef is the Go form of the spec's $defs/TestedModel. It is
-// pinned to that def by TestedModelStructMatchesPromptPackSpec.
+// ModelTestResultRef is the Go form of the spec's $defs/TestedModel.
 //
 // provider, model and date are required by the spec, so they carry no omitempty
 // — a required field that vanishes on serialize produces a pack that fails its

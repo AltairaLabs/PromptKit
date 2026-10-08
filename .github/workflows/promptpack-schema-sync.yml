@@ -89,13 +89,18 @@ jobs:
 
     # Run the guards here as well as on the PR, so the PR body can say up front
     # whether this is a clean pickup or needs a decision.
+    #
+    # Whole packages, no -run filter: the spec guards live in runtime/prompt
+    # (pack struct coverage and pinned-struct parity, emitted packs validating
+    # against the schema) and runtime/packspec. A name filter here once matched
+    # no test at all, so every sync PR reported "clean" without running one.
     - name: Check spec-parity guards against the new schema
       if: steps.detect.outputs.changed == 'true'
       id: guards
       continue-on-error: true
       run: |
         set +e
-        OUT=$(go -C runtime test ./prompt/... -count=1 -run 'MatchesPromptPackSpec' 2>&1)
+        OUT=$(go -C runtime test ./prompt/... ./packspec/... -count=1 2>&1)
         RUNTIME_RC=$?
         SDK_OUT=$(go -C sdk test ./internal/pack/... -count=1 2>&1)
         SDK_RC=$?
