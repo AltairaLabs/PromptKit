@@ -1273,7 +1273,7 @@ type Conversation struct {
 ```
 
 <a name="Open"></a>
-### func [Open](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L83>)
+### func [Open](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L84>)
 
 ```go
 func Open(packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1320,7 +1320,7 @@ The packPath can be:
 The promptName must match a prompt ID defined in the pack's "prompts" section.
 
 <a name="OpenComposition"></a>
-### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1273>)
+### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1291>)
 
 ```go
 func OpenComposition(packPath, name string, opts ...Option) (*Conversation, error)
@@ -1348,7 +1348,7 @@ fmt.Println(string(resp.CompositionOutput()))
 ```
 
 <a name="OpenDuplex"></a>
-### func [OpenDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L155>)
+### func [OpenDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L132>)
 
 ```go
 func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1407,7 +1407,7 @@ _ = conv.Start(ctx) // blocks: mic → LLM → speaker, until ctx is canceled
 ```
 
 <a name="Resume"></a>
-### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1172>)
+### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1190>)
 
 ```go
 func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1434,7 +1434,7 @@ if errors.Is(err, sdk.ErrConversationNotFound) {
 Resume requires a state store to be configured. If no state store is provided, it returns [ErrNoStateStore](<#ErrConversationClosed>).
 
 <a name="ResumeDuplex"></a>
-### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1247>)
+### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1265>)
 
 ```go
 func ResumeDuplex(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -5054,7 +5054,7 @@ func (p PackIssue) String() string
 String formats a PackIssue for logging or CLI output.
 
 <a name="PackTemplate"></a>
-## type [PackTemplate](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/template.go#L40-L56>)
+## type [PackTemplate](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/template.go#L36-L52>)
 
 PackTemplate is a pre\-loaded, immutable representation of a pack file.
 
@@ -5088,7 +5088,7 @@ type PackTemplate struct {
 ```
 
 <a name="LoadTemplate"></a>
-### func [LoadTemplate](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/template.go#L71>)
+### func [LoadTemplate](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/template.go#L67>)
 
 ```go
 func LoadTemplate(packPath string, opts ...Option) (*PackTemplate, error)
@@ -5109,7 +5109,7 @@ Options that affect pack loading can be passed:
 - WithSkipSchemaValidation\(\) to skip JSON schema validation
 
 <a name="PackTemplate.Open"></a>
-### func \(\*PackTemplate\) [Open](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/template.go#L112>)
+### func \(\*PackTemplate\) [Open](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/template.go#L108>)
 
 ```go
 func (t *PackTemplate) Open(promptName string, opts ...Option) (*Conversation, error)
@@ -5127,7 +5127,7 @@ Per\-conversation resources are still created fresh:
 - Event bus and hooks
 
 <a name="PackTemplate.OpenDuplex"></a>
-### func \(\*PackTemplate\) [OpenDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/template.go#L119>)
+### func \(\*PackTemplate\) [OpenDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/template.go#L115>)
 
 ```go
 func (t *PackTemplate) OpenDuplex(promptName string, opts ...Option) (*Conversation, error)
@@ -5138,7 +5138,7 @@ OpenDuplex creates a new duplex streaming conversation from this template.
 This is equivalent to [sdk.OpenDuplex](<#OpenDuplex>) but reuses pre\-loaded pack resources.
 
 <a name="PackTemplate.Pack"></a>
-### func \(\*PackTemplate\) [Pack](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/template.go#L124>)
+### func \(\*PackTemplate\) [Pack](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/template.go#L120>)
 
 ```go
 func (t *PackTemplate) Pack() *pack.Pack

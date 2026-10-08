@@ -20,6 +20,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/persistence/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	rtprompt "github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -81,39 +82,15 @@ func setLoggerOnce(l *slog.Logger) {
 //
 // The promptName must match a prompt ID defined in the pack's "prompts" section.
 func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
-	conv, _, err := initConversation(packPath, promptName, opts)
+	conv, prov, err := initConversation(packPath, promptName, opts)
 	if err != nil {
 		logger.Error("conversation open failed",
 			"pack", packPath, "prompt", promptName, "error", err)
 		return nil, err
 	}
-
-	// Initialize the MCP registry BEFORE the pipeline is built. The pipeline
-	// build path calls registerMCPExecutors, which queries the MCP registry
-	// to surface tool descriptors; if the registry is still nil at that
-	// point the conversation ends up with zero MCP tools regardless of how
-	// servers were declared.
-	if err := initMCPRegistry(conv, conv.config); err != nil {
-		return conv.failOpen(err)
+	if conv, err = completeOpen(conv, prov, false); err != nil {
+		return nil, err
 	}
-
-	// Initialize internal memory store for conversation history
-	// This is used by StateStoreLoad/Save middleware in the pipeline
-	if err := initInternalStateStore(conv, conv.config); err != nil {
-		return conv.failOpen(err)
-	}
-
-	// Finalize conversation (eval middleware, session start hooks)
-	finalizeConversation(conv)
-
-	// Register with shutdown manager if configured
-	if conv.config.shutdownManager != nil {
-		if err := conv.config.shutdownManager.Register(conv.ID(), conv); err != nil {
-			_ = conv.Close()
-			return nil, fmt.Errorf("failed to register with shutdown manager: %w", err)
-		}
-	}
-
 	logger.Info("conversation opened",
 		"id", conv.ID(), "pack", packPath, "prompt", promptName)
 	return conv, nil
@@ -157,53 +134,7 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 	if err != nil {
 		return nil, err
 	}
-
-	// Initialize the MCP registry BEFORE the streaming-support check so
-	// the same surface validates both Open() and OpenDuplex() consistently —
-	// a misconfigured MCP entry surfaces with the same error in either
-	// flavor, regardless of which provider was wired. (See note in Open().)
-	if err := initMCPRegistry(conv, conv.config); err != nil {
-		return conv.failOpen(err)
-	}
-
-	// Verify provider supports streaming input. Only ASM mode — where audio
-	// goes to the model itself — needs StreamInputSupport. Two duplex modes
-	// author the input side themselves and drive the standard agent chain (the
-	// streaming text ProviderStage, not the ASM DuplexProviderStage), never
-	// calling CreateStreamSession, so neither needs the interface:
-	//
-	//   - WithIngestion: a custom upstream sub-graph.
-	//   - WithVADMode:   AudioTurn → STT → LLM → TTS, where the model only ever
-	//     sees text. Requiring the ASM interface here would exclude exactly the
-	//     text-only providers VAD mode exists to serve (#1637).
-	//
-	// NewDuplexSession re-derives the streaming provider from the base provider
-	// itself for ASM mode, so the gate here is purely a fail-fast check.
-	if _, ok := prov.(providers.StreamInputSupport); !ok &&
-		conv.config.ingestion == nil && conv.config.vadModeConfig == nil {
-		return conv.failOpen(fmt.Errorf(
-			"provider %T does not support duplex streaming (must implement providers.StreamInputSupport)",
-			prov,
-		))
-	}
-
-	// Initialize duplex session
-	if err := initDuplexSession(conv, conv.config); err != nil {
-		return conv.failOpen(err)
-	}
-
-	// Finalize conversation (eval middleware, session start hooks)
-	finalizeConversation(conv)
-
-	// Register with shutdown manager if configured
-	if conv.config.shutdownManager != nil {
-		if err := conv.config.shutdownManager.Register(conv.ID(), conv); err != nil {
-			_ = conv.Close()
-			return nil, fmt.Errorf("failed to register with shutdown manager: %w", err)
-		}
-	}
-
-	return conv, nil
+	return completeOpen(conv, prov, true)
 }
 
 // initConversation performs the common initialization shared by Open and OpenDuplex.
@@ -213,16 +144,9 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 func initConversation(
 	packPath, promptName string, opts []Option,
 ) (*Conversation, providers.Provider, error) {
-	// Apply options to build configuration
-	cfg, err := applyOptions(promptName, opts)
+	cfg, err := applyOpenOptions(promptName, opts)
 	if err != nil {
 		return nil, nil, err
-	}
-
-	// Set custom logger before any logging occurs — only once to avoid
-	// data races when multiple goroutines call Open() concurrently.
-	if cfg.logger != nil {
-		setLoggerOnce(cfg.logger)
 	}
 
 	// Load and validate pack
@@ -231,6 +155,44 @@ func initConversation(
 		return nil, nil, err
 	}
 
+	return prepareConversation(p, prompt, promptName, cfg, conversationSources{
+		prompts: pack.ToPromptRegistry(p),
+		tools:   pack.ToToolRepository(p),
+	})
+}
+
+// applyOpenOptions applies opts and installs a custom logger, the first step
+// of every open path.
+func applyOpenOptions(promptName string, opts []Option) (*config, error) {
+	cfg, err := applyOptions(promptName, opts)
+	if err != nil {
+		return nil, err
+	}
+	// Set custom logger before any logging occurs — only once to avoid
+	// data races when multiple goroutines call Open() concurrently.
+	if cfg.logger != nil {
+		setLoggerOnce(cfg.logger)
+	}
+	return cfg, nil
+}
+
+// conversationSources are what a conversation is built from that a
+// PackTemplate builds once per pack and sdk.Open builds per call: the prompt
+// registry, the tool repository, and the pack-only half of the RFC 0017
+// call-site check (nil to build it when it runs).
+type conversationSources struct {
+	prompts   *rtprompt.Registry
+	tools     *memory.ToolRepository
+	callCheck *callProviderCheck
+}
+
+// prepareConversation is everything sdk.Open and PackTemplate.Open do between
+// finding the prompt and opening a session, shared so the two paths cannot
+// drift (#2202, #2211): providers, gates, the conversation itself, its
+// executors, capabilities, event bus and hooks.
+func prepareConversation(
+	p *pack.Pack, prompt *pack.Prompt, promptName string, cfg *config, src conversationSources,
+) (*Conversation, providers.Provider, error) {
 	// Resolve the agent provider (when a call can use it) and store it in config
 	if agentErr := resolveAgentProvider(cfg, p); agentErr != nil {
 		return nil, nil, agentErr
@@ -254,7 +216,7 @@ func initConversation(
 	if cfg.toolRegistry != nil {
 		toolReg = cfg.toolRegistry.Child()
 	} else {
-		toolReg = tools.NewRegistryWithRepository(pack.ToToolRepository(p))
+		toolReg = tools.NewRegistryWithRepository(src.tools)
 	}
 
 	// Everything that can refuse the pack runs before the conversation exists:
@@ -265,7 +227,7 @@ func initConversation(
 	if convErr := convertPackValidatorsToHooks(prompt, cfg); convErr != nil {
 		return nil, nil, convErr
 	}
-	if gateErr := checkLoadGates(p, prompt, cfg, nil); gateErr != nil {
+	if gateErr := checkLoadGates(p, prompt, cfg, src.callCheck); gateErr != nil {
 		return nil, nil, gateErr
 	}
 	// The opened prompt runs on the provider its key is bound to.
@@ -281,7 +243,7 @@ func initConversation(
 		pack:             p,
 		prompt:           prompt,
 		promptName:       promptName,
-		promptRegistry:   pack.ToPromptRegistry(p), // Create registry for PromptAssemblyMiddleware
+		promptRegistry:   src.prompts, // Registry for PromptAssemblyMiddleware
 		toolRegistry:     toolReg,
 		workflowResolver: &workflowResolverHolder{},
 		config:           cfg,
@@ -303,7 +265,6 @@ func initConversation(
 	for name, executor := range cfg.toolExecutors {
 		conv.OnToolExecutor(name, executor)
 	}
-
 
 	// Initialize capabilities (auto-inferred + explicit)
 	allCaps := mergeCapabilities(cfg.capabilities, inferCapabilities(p))
@@ -339,6 +300,63 @@ func initConversation(
 	conv.sessionHooks = newSessionHookDispatcher(conv.hookRegistry, conv.sessionInfo)
 
 	return conv, callProv, nil
+}
+
+// completeOpen is the rest of every open path once the conversation is
+// prepared: MCP, the unary state store or duplex session, eval middleware and
+// session-start hooks, and shutdown registration. A failure releases what the
+// conversation holds.
+func completeOpen(conv *Conversation, prov providers.Provider, duplex bool) (*Conversation, error) {
+	// Initialize the MCP registry BEFORE the pipeline is built. The pipeline
+	// build path calls registerMCPExecutors, which queries the MCP registry
+	// to surface tool descriptors; if the registry is still nil at that
+	// point the conversation ends up with zero MCP tools regardless of how
+	// servers were declared.
+	if err := initMCPRegistry(conv, conv.config); err != nil {
+		return conv.failOpen(err)
+	}
+
+	if duplex {
+		// Verify provider supports streaming input. Only ASM mode — where audio
+		// goes to the model itself — needs StreamInputSupport. Two duplex modes
+		// author the input side themselves and drive the standard agent chain (the
+		// streaming text ProviderStage, not the ASM DuplexProviderStage), never
+		// calling CreateStreamSession, so neither needs the interface:
+		//
+		//   - WithIngestion: a custom upstream sub-graph.
+		//   - WithVADMode:   AudioTurn → STT → LLM → TTS, where the model only ever
+		//     sees text. Requiring the ASM interface here would exclude exactly the
+		//     text-only providers VAD mode exists to serve (#1637).
+		//
+		// NewDuplexSession re-derives the streaming provider from the base provider
+		// itself for ASM mode, so the gate here is purely a fail-fast check.
+		if _, ok := prov.(providers.StreamInputSupport); !ok &&
+			conv.config.ingestion == nil && conv.config.vadModeConfig == nil {
+			return conv.failOpen(fmt.Errorf(
+				"provider %T does not support duplex streaming (must implement providers.StreamInputSupport)",
+				prov,
+			))
+		}
+		if err := initDuplexSession(conv, conv.config); err != nil {
+			return conv.failOpen(err)
+		}
+	} else if err := initInternalStateStore(conv, conv.config); err != nil {
+		// The internal memory store holds conversation history for the
+		// StateStoreLoad/Save middleware in the pipeline.
+		return conv.failOpen(err)
+	}
+
+	// Finalize conversation (eval middleware, session start hooks)
+	finalizeConversation(conv)
+
+	// Register with shutdown manager if configured
+	if conv.config.shutdownManager != nil {
+		if err := conv.config.shutdownManager.Register(conv.ID(), conv); err != nil {
+			_ = conv.Close()
+			return nil, fmt.Errorf("failed to register with shutdown manager: %w", err)
+		}
+	}
+	return conv, nil
 }
 
 // finalizeConversation completes the conversation setup after the MCP

@@ -8,6 +8,19 @@ changes that need you to do something, with what to change and why.
 
 ## Unreleased
 
+### `PackTemplate.Open` honors every option `sdk.Open` does
+
+A conversation opened from a `PackTemplate` was built by a separate copy of
+`sdk.Open`'s setup, and the copy had drifted. `WithMediaStorage`,
+`WithUnsafePrivateNetworkMedia`, `WithToolExecutor`, `WithToolRegistry`,
+`WithShutdownManager` and a custom logger did nothing on it, and its
+`OpenDuplex` refused `WithVADMode` with a provider that does not stream. Both
+paths now run the same code once the prompt is found.
+
+| If you | You will see | Change |
+|---|---|---|
+| Open conversations from a `PackTemplate` with any of those options | they take effect | remove any workaround that wired them by hand |
+
 ### Composition steps run with their prompt's `parameters`
 
 A composition `prompt` or `agent` step sent no `max_tokens` or `temperature`,
