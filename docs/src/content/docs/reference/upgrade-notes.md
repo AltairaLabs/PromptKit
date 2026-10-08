@@ -13,10 +13,13 @@ changes that need you to do something, with what to change and why.
 A prompt's `model_overrides` entry for a model never applied: the runtime loaded
 every template without a model, and the SDK dropped the overrides when it built
 its prompt registry. The entry for the model of the provider that runs the call
-now applies: its `system_template`, `system_template_prefix` and
-`system_template_suffix` shape the system prompt, and its `parameters` replace
-the prompt's `max_tokens` and `temperature`. The model is the bound provider's
-when the prompt or step names a `provider` key.
+now applies. Its `system_template`, `system_template_prefix` and
+`system_template_suffix` shape the system prompt of an opened prompt, a
+composition step and a mid-turn workflow handoff. Its `parameters` replace the
+prompt's `max_tokens` and `temperature` for an opened prompt; composition steps
+apply no prompt parameters yet. The model is the bound provider's when the
+prompt or step names a `provider` key, and an override key must match it
+exactly.
 
 | If you | You will see | Change |
 |---|---|---|

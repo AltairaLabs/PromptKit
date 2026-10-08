@@ -2,7 +2,6 @@ package sdk
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"testing"
 
@@ -114,7 +113,7 @@ func TestModelOverrides_ApplyForTheRunningProvidersModel(t *testing.T) {
 
 		req, n := agent.lastRequest()
 		require.Equal(t, 1, n)
-		assert.True(t, strings.HasPrefix(req.System, "AGENT-PREFIX chat base AGENT-SUFFIX"), req.System)
+		assert.Equal(t, "AGENT-PREFIX chat base AGENT-SUFFIX", req.System)
 		assert.Equal(t, 77, req.MaxTokens, "the override's parameters replace the prompt's")
 		assert.InDelta(t, 0.1, req.Temperature, 1e-6)
 	})
@@ -128,8 +127,7 @@ func TestModelOverrides_ApplyForTheRunningProvidersModel(t *testing.T) {
 		require.NoError(t, err)
 
 		req, _ := agent.lastRequest()
-		assert.True(t, strings.HasPrefix(req.System, "chat base"), req.System)
-		assert.NotContains(t, req.System, "AGENT-")
+		assert.Equal(t, "chat base", req.System)
 		assert.Equal(t, 500, req.MaxTokens)
 	})
 	t.Run("a prompt run on a bound provider uses that provider's model", func(t *testing.T) {
@@ -142,7 +140,7 @@ func TestModelOverrides_ApplyForTheRunningProvidersModel(t *testing.T) {
 		require.NoError(t, err)
 
 		req, _ := drafter.lastRequest()
-		assert.True(t, strings.HasPrefix(req.System, "drafter override"), req.System)
+		assert.Equal(t, "drafter override", req.System, "not the agent's override")
 	})
 	t.Run("a composition step uses its own provider's model", func(t *testing.T) {
 		drafter := newOverrideProvider("drafter", "drafter-model")
@@ -155,6 +153,6 @@ func TestModelOverrides_ApplyForTheRunningProvidersModel(t *testing.T) {
 
 		req, n := drafter.lastRequest()
 		require.Equal(t, 1, n)
-		assert.True(t, strings.HasPrefix(req.System, "drafter override"), req.System)
+		assert.Equal(t, "drafter override", req.System, "not the agent's override")
 	})
 }

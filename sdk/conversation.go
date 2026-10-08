@@ -748,10 +748,8 @@ func (c *Conversation) buildPipelineConfig(
 	// Apply parameters from the prompt, then from its model_overrides entry
 	// for the model this conversation runs on.
 	applyPromptParameters(pipelineCfg, c.prompt.Parameters)
-	if prov := c.callProvider(); prov != nil {
-		if override := c.prompt.ModelOverrides[prov.Model()]; override != nil {
-			applyPromptParameters(pipelineCfg, override.Parameters)
-		}
+	if override := c.prompt.ModelOverrides[c.callModel()]; override != nil {
+		applyPromptParameters(pipelineCfg, override.Parameters)
 	}
 
 	// RFC 0010 — composition execution. When the active config carries a

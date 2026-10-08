@@ -276,6 +276,15 @@ func (c *Conversation) callProvider() providers.Provider {
 	return c.config.getAgentProvider()
 }
 
+// callModel returns the model of the provider that runs this conversation's
+// prompt, which selects its model_overrides entry; "" when there is none.
+func (c *Conversation) callModel() string {
+	if prov := c.callProvider(); prov != nil {
+		return prov.Model()
+	}
+	return ""
+}
+
 // resolvePromptProvider resolves the provider for an opened prompt and records
 // it on the conversation. checkCallProviders has already validated the key.
 func (c *Conversation) resolvePromptProvider() (providers.Provider, error) {
