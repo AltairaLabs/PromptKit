@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://promptpack.org/schema/latest/promptpack.schema.json",
   "title": "PromptPack Specification",
-  "description": "Schema for packaging, testing, and running multi-prompt conversational systems with multimodal, workflow, agent, agent-loop, skills, and composition support. Agents may be backed by a workflow state (AgentDef.state) to expose stateful, looping behavior. Workflow states may use 'composition' orchestration to run a declarative step graph (RFC 0010). A pack may declare the model providers it needs to run via the optional 'requires.providers' block (RFC 0012). Packs may declare governance facts (metadata.governance) and per-tool action scope (Tool.action_scope) so consequence is recorded alongside capability. Workflow states may declare who holds the next turn via 'control' (RFC 0014). Validator.fail_on_violation is deprecated — validators always enforce (RFC 0015). Governance may record the obligations a declaration triggers and the controls that discharge them, recurring reviews, and independence requirements; policy decision points carry an opaque 'extensions' slot (RFC 0016).",
-  "version": "1.8.1",
+  "description": "Schema for packaging, testing, and running multi-prompt conversational systems with multimodal, workflow, agent, agent-loop, skills, and composition support. Agents may be backed by a workflow state (AgentDef.state) to expose stateful, looping behavior. Workflow states may use 'composition' orchestration to run a declarative step graph (RFC 0010). A pack may declare the model providers it needs to run via the optional 'requires.providers' block (RFC 0012). Packs may declare governance facts (metadata.governance) and per-tool action scope (Tool.action_scope) so consequence is recorded alongside capability. Workflow states may declare who holds the next turn via 'control' (RFC 0014). Validator.fail_on_violation is deprecated — validators always enforce (RFC 0015). Governance may record the obligations a declaration triggers and the controls that discharge them, recurring reviews, and independence requirements; policy decision points carry an opaque 'extensions' slot (RFC 0016). Prompts and composition prompt/agent steps may name the provider requirement that runs them via 'provider' (RFC 0017).",
+  "version": "1.9.0",
   "type": "object",
   "required": ["id", "name", "version", "template_engine", "prompts"],
   "additionalProperties": false,
@@ -398,6 +398,12 @@
           "items": {
             "$ref": "#/$defs/Eval"
           }
+        },
+
+        "provider": {
+          "type": "string",
+          "description": "Key of the provider requirement (requires.providers[].key, RFC 0012) that runs this prompt. Absent means 'default'. The host binds the key to a concrete provider (RFC 0017).",
+          "examples": ["default", "triage", "drafter"]
         },
 
         "tested_models": {
@@ -2075,12 +2081,16 @@
     },
 
     "PromptStep": {
-      "description": "Step kind 'prompt': a one-shot LLM invocation against a declared prompt task with an optional output schema. No tool calls.",
+      "description": "Step kind 'prompt': a one-shot model invocation against a declared prompt task with an optional output schema. No tool calls.",
       "properties": {
         "kind": { "const": "prompt" },
         "prompt_task": {
           "type": "string",
           "description": "Reference to a prompt key defined in the pack's prompts object."
+        },
+        "provider": {
+          "type": "string",
+          "description": "Key of the provider requirement that runs this step, overriding the provider of the step's prompt_task. Absent means the prompt's provider (RFC 0017)."
         },
         "input": {
           "$ref": "#/$defs/StepInput",
@@ -2099,6 +2109,10 @@
       "properties": {
         "kind": { "const": "agent" },
         "prompt_task": { "type": "string" },
+        "provider": {
+          "type": "string",
+          "description": "Key of the provider requirement that runs this step, overriding the provider of the step's prompt_task. Absent means the prompt's provider (RFC 0017)."
+        },
         "input": { "$ref": "#/$defs/StepInput" },
         "tools": {
           "type": "array",
