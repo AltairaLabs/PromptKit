@@ -12,12 +12,12 @@ changes that need you to do something, with what to change and why.
 
 A composition `prompt` or `agent` step sent no `max_tokens` or `temperature`,
 whatever its prompt set, so the provider's defaults applied. A step now sends
-its prompt's `parameters`, and those of the prompt's `model_overrides` entry for
-the step provider's model, as an opened prompt does.
+its prompt's `max_tokens` and `temperature`, and those of the prompt's
+`model_overrides` entry for the step provider's model, as an opened prompt does.
 
 | If you | You will see | Change |
 |---|---|---|
-| Run a composition whose step prompts set `parameters` | those values on each step's request | check them, since steps used the provider's defaults before |
+| Run a composition whose step prompts set `max_tokens` or `temperature` | those values on each step's request | check them, since steps used the provider's defaults before |
 
 ### `PackTemplate.Open` runs the same provider checks as `sdk.Open`
 

@@ -667,8 +667,14 @@ func (r *Registry) assembleFragmentVars(config *Config, finalVars map[string]str
 // model_overrides entry for model. Zero means unset, leaving the provider's
 // default, as do an unknown activity and a prompt that sets neither.
 func (r *Registry) CallParameters(activity, model string) (maxTokens int, temperature float32) {
+	if activity == "" {
+		return 0, 0 // a composition state's conversation runs no prompt of its own
+	}
 	config, err := r.loadConfig(activity)
 	if err != nil {
+		// Not silent: the call goes out with the provider's defaults.
+		logger.Warn("prompt parameters unavailable; the call uses the provider's defaults",
+			"task_type", activity, "error", err)
 		return 0, 0
 	}
 	apply := func(params *ParametersPack) {

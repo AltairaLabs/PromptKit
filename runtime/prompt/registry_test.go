@@ -812,4 +812,8 @@ func TestRegistry_CallParameters(t *testing.T) {
 	gotMax, gotTemp = reg.CallParameters("missing", "m1")
 	assert.Zero(t, gotMax)
 	assert.Zero(t, gotTemp)
+
+	gotMax, gotTemp = reg.CallParameters("", "m1")
+	assert.Zero(t, gotMax)
+	assert.Zero(t, gotTemp)
 }
