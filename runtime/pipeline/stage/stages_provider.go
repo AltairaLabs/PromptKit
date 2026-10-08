@@ -782,6 +782,7 @@ func (s *ProviderStage) executeMultiRound(
 		return loop.messages, nil
 	}
 	for round := 1; round <= loop.maxRounds; round++ {
+		loop.compactBeforeRound(round)
 		rr := roundRef{round: round, providerCallID: newProviderCallID()}
 		response, hasToolCalls, err := s.executeRound(
 			ctx, loop.messages, acc.systemPrompt, loop.providerTools, loop.toolChoice, rr, acc.metadata)
@@ -898,6 +899,32 @@ func (s *ProviderStage) applyStateHandoff(
 		s.turnState.AllowedTools = handoff.AllowedTools
 	}
 	return false, nil
+}
+
+// compactBeforeRound folds stale tool results to the budget of the provider
+// round runs on, once, just before it: after the previous round's results
+// were appended and after any workflow handoff switched the provider, which
+// may have a smaller context window. The first round of an execution is
+// compacted only when a handoff already moved it off the stage's own
+// provider (a resumed turn); otherwise compaction stays between rounds.
+func (tl *toolLoop) compactBeforeRound(round int) {
+	if tl.stage.config == nil || tl.stage.config.Compactor == nil {
+		return
+	}
+	if round == 1 && sameProvider(tl.stage.callProvider(), tl.stage.provider) {
+		return
+	}
+	compactor := tl.stage.config.Compactor
+	if pb, ok := compactor.(ProviderBudgetedCompaction); ok {
+		compactor = pb.ForProvider(tl.stage.callProvider())
+	}
+	cr := compactor.Compact(tl.messages, 0)
+	tl.messages = cr.Messages
+	if cr.MessagesFolded > 0 && tl.stage.emitter != nil {
+		// Reported against the round whose results were compacted.
+		tl.stage.emitter.ContextCompacted(round-1, cr.OriginalTokens, cr.CompactedTokens,
+			cr.MessagesFolded, compactor.TokenBudget())
+	}
 }
 
 // applyHandoffCall switches the next round to call's provider and parameters.
@@ -1152,6 +1179,7 @@ func (s *ProviderStage) executeStreamingMultiRound(
 		return loop.messages, nil
 	}
 	for round := 1; round <= loop.maxRounds; round++ {
+		loop.compactBeforeRound(round)
 		rr := roundRef{round: round, providerCallID: newProviderCallID()}
 		params := &streamingRoundParams{
 			messages:       loop.messages,
@@ -1432,18 +1460,6 @@ func (tl *toolLoop) afterRound(
 		}
 	}
 
-	// Compact stale tool results before next round's provider call.
-	// Pass 0 for lastInputTokens: the provider's InputTokens reflects what it
-	// saw on the last call, but we've since appended the assistant response and
-	// tool results — using the stale count would under-compact.
-	if tl.stage.config != nil && tl.stage.config.Compactor != nil {
-		cr := tl.stage.config.Compactor.Compact(tl.messages, 0)
-		tl.messages = cr.Messages
-		if cr.MessagesFolded > 0 && tl.stage.emitter != nil {
-			tl.stage.emitter.ContextCompacted(round, cr.OriginalTokens, cr.CompactedTokens,
-				cr.MessagesFolded, tl.stage.config.Compactor.TokenBudget())
-		}
-	}
 
 	if round == tl.maxRounds {
 		return true, tl.messages, fmt.Errorf("provider stage: max rounds (%d) exceeded", tl.maxRounds)
@@ -1518,6 +1534,13 @@ func (tl *toolLoop) preSeedLog(ctx context.Context) {
 func (tl *toolLoop) persistMessages(ctx context.Context, round int) {
 	cfg := tl.stage.config
 	if cfg == nil || cfg.MessageLog == nil {
+		return
+	}
+	if tl.lastPersistedSeq > len(tl.messages) {
+		// A compaction rule that removes messages (CollapsePairs) shrank the
+		// transcript below what was persisted; nothing here is new.
+		logger.Warn("message log: transcript shorter than persisted after compaction; skipping append",
+			"round", round, "persisted", tl.lastPersistedSeq, "messages", len(tl.messages))
 		return
 	}
 	newMsgs := tl.messages[tl.lastPersistedSeq:]

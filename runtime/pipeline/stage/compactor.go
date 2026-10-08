@@ -2,6 +2,7 @@ package stage
 
 import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tokenizer"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -71,6 +72,46 @@ type ContextCompactor struct {
 	// Rules are applied in order; first match wins. When nil/empty,
 	// defaults to [FoldToolResults()].
 	Rules []CompactionRule
+
+	// BudgetFromProvider marks BudgetTokens as the context window of the
+	// provider the turn runs on, rather than a fixed number: ForProvider then
+	// re-budgets for whichever provider a round runs on after a workflow
+	// handoff switches it (RFC 0017).
+	BudgetFromProvider bool
+}
+
+// ProviderBudgetedCompaction is a CompactionStrategy whose budget follows the
+// provider a round runs on. ForProvider returns the strategy for p.
+type ProviderBudgetedCompaction interface {
+	CompactionStrategy
+	ForProvider(p providers.Provider) CompactionStrategy
+}
+
+// BudgetTokensFor returns p's context window, or DefaultBudgetTokens when it
+// reports none.
+func BudgetTokensFor(p providers.Provider) int {
+	if cwp, ok := p.(providers.ContextWindowProvider); ok {
+		if v := cwp.MaxContextTokens(); v > 0 {
+			return v
+		}
+	}
+	return DefaultBudgetTokens
+}
+
+// ForProvider implements ProviderBudgetedCompaction. With BudgetFromProvider
+// it returns a copy budgeted for p's context window; otherwise c itself.
+func (c *ContextCompactor) ForProvider(p providers.Provider) CompactionStrategy {
+	// A zero budget means compaction is off, and stays off.
+	if c == nil || !c.BudgetFromProvider || p == nil || c.BudgetTokens <= 0 {
+		return c
+	}
+	budget := BudgetTokensFor(p)
+	if budget == c.BudgetTokens {
+		return c
+	}
+	cp := *c
+	cp.BudgetTokens = budget
+	return &cp
 }
 
 // TokenBudget implements CompactionStrategy.

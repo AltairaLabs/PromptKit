@@ -2942,7 +2942,7 @@ func TestNewToolLoop_CostBudgetIsPerRun(t *testing.T) {
 	assert.NotEmpty(t, msgs, "should return messages even on budget exceeded")
 }
 
-func TestAfterRound_CompactionEmitsEvent(t *testing.T) {
+func TestCompactBeforeRound_EmitsEvent(t *testing.T) {
 	provider := mock.NewToolProvider("test", "model", false, nil)
 	registry := tools.NewRegistry()
 	err := registry.Register(&tools.ToolDescriptor{
@@ -2987,7 +2987,8 @@ func TestAfterRound_CompactionEmitsEvent(t *testing.T) {
 		wg.Done()
 	})
 
-	// afterRound with tool calls triggers compaction
+	// Round 1's tool calls append their results; compaction runs once, just
+	// before round 2, and reports the round whose results it compacted.
 	response := types.Message{
 		Role: "assistant",
 		ToolCalls: []types.MessageToolCall{
@@ -2997,6 +2998,7 @@ func TestAfterRound_CompactionEmitsEvent(t *testing.T) {
 	done, _, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response, true, roundRef{round: 1})
 	assert.False(t, done)
 	require.NoError(t, err)
+	loop.compactBeforeRound(2)
 
 	// Wait for event delivery
 	wg.Wait()
