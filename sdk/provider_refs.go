@@ -3,7 +3,8 @@ package sdk
 import (
 	"errors"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
@@ -109,9 +110,14 @@ func checkCallProviders(p *pack.Pack, cfg *config) error {
 }
 
 func checkCallSiteRef(ref callSiteRef, declared map[string]rtprompt.ResolvedRequirement, cfg *config) string {
-	if _, ok := declared[ref.key]; !ok {
+	req, ok := declared[ref.key]
+	if !ok {
 		return fmt.Sprintf("%s names provider %q, which the pack does not declare in requires "+
 			"(declared: %s)", ref.site, ref.key, describeKeys(declared))
+	}
+	if req.Role != rtprompt.RequirementRoleLLM {
+		return fmt.Sprintf("%s names provider %q, which the pack declares with role %q; "+
+			"a prompt or step runs on an llm provider", ref.site, ref.key, req.Role)
 	}
 	prov, err := resolveCallProvider(cfg, ref.key)
 	switch {
@@ -124,7 +130,7 @@ func checkCallSiteRef(ref callSiteRef, declared map[string]rtprompt.ResolvedRequ
 	}
 	if ref.needTools {
 		if _, ok := prov.(providers.ToolSupport); !ok {
-			return fmt.Sprintf("%s is an agent step and names provider %q, which the host bound to %T, "+
+			return fmt.Sprintf("%s uses tools and names provider %q, which the host bound to %T, "+
 				"a provider without tool support", ref.site, ref.key, prov)
 		}
 	}
@@ -141,7 +147,9 @@ func collectCallSiteRefs(p *pack.Pack) []callSiteRef {
 	var refs []callSiteRef
 	for _, name := range sortedKeys(p.Prompts) {
 		if pr := p.Prompts[name]; pr != nil && isNamedKey(pr.Provider) {
-			refs = append(refs, callSiteRef{site: fmt.Sprintf("prompt %q", name), key: pr.Provider})
+			refs = append(refs, callSiteRef{
+				site: fmt.Sprintf("prompt %q", name), key: pr.Provider, needTools: len(pr.Tools) > 0,
+			})
 		}
 	}
 	for _, name := range sortedKeys(p.Compositions) {
@@ -184,12 +192,7 @@ func isNamedKey(key string) bool {
 }
 
 func sortedKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
+	return slices.Sorted(maps.Keys(m))
 }
 
 // callProvider returns the provider that runs this conversation's prompt.

@@ -263,7 +263,26 @@ func TestProviderRefs_OpenRejectsBadReferences(t *testing.T) {
 				return []Option{WithProvider(newRefProvider("agent")),
 					withPooledProvider(noToolsProvider{newRefProvider("drafter")})}
 			},
-			wantMsg: `composition "flow" step "ag" is an agent step and names provider "drafter"`,
+			wantMsg: `composition "flow" step "ag" uses tools and names provider "drafter"`,
+		},
+		{
+			name: "prompt with tools bound to a provider without tool support",
+			pack: providerRefsBrokenPack(`{"key": "drafter", "role": "llm", "required": true}`, `,
+		"draft": {"id": "draft", "name": "draft", "version": "1.0.0", "system_template": "d",
+			"provider": "drafter", "tools": ["lookup"]}`, `,
+	"tools": {"lookup": {"name": "lookup", "description": "look up", "parameters": {"type": "object", "properties": {}}}}`),
+			opts: func() []Option {
+				return []Option{WithProvider(newRefProvider("agent")),
+					withPooledProvider(noToolsProvider{newRefProvider("drafter")})}
+			},
+			wantMsg: `prompt "draft" uses tools and names provider "drafter"`,
+		},
+		{
+			name: "key declared for another role",
+			pack: providerRefsBrokenPack(`{"key": "drafter", "role": "embedding", "required": true}`,
+				draftNamesDrafter, ""),
+			opts:    func() []Option { return []Option{WithProvider(newRefProvider("agent"))} },
+			wantMsg: `prompt "draft" names provider "drafter", which the pack declares with role "embedding"`,
 		},
 		{
 			name:    "optional requirement a call site names is unbound",
@@ -349,4 +368,20 @@ func TestProviderRefs_OpenDuplexUsesThePromptsProvider(t *testing.T) {
 		assert.Contains(t, err.Error(), "does not support duplex streaming")
 		assert.Contains(t, err.Error(), "refProvider")
 	})
+}
+
+// A fork runs on the same provider as the conversation it was forked from.
+func TestProviderRefs_ForkKeepsThePromptsProvider(t *testing.T) {
+	packPath := createTestPackFile(t, providerRefsPack)
+	r := newRefProviders()
+	conv, err := Open(packPath, "draft", r.options()...)
+	require.NoError(t, err)
+	defer conv.Close()
+
+	fork, err := conv.Fork()
+	require.NoError(t, err)
+	defer fork.Close()
+	resp, err := fork.Send(context.Background(), "hello")
+	require.NoError(t, err)
+	assert.Equal(t, "answer from drafter", resp.Text())
 }

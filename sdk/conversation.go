@@ -1384,6 +1384,7 @@ func (c *Conversation) Fork() (*Conversation, error) {
 		// A fork gets its own holder: workflow state is not shared across forks.
 		workflowResolver: &workflowResolverHolder{},
 		config:           c.config,
+		provider:         c.provider, // the prompt's RFC 0017 provider, not the agent
 		mode:             c.mode,
 		handlers:         handlers,
 		clientHandlers:   clientHandlers,
