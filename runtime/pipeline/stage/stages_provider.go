@@ -782,6 +782,7 @@ func (s *ProviderStage) executeMultiRound(
 		return loop.messages, nil
 	}
 	for round := 1; round <= loop.maxRounds; round++ {
+		loop.compactBeforeRound(round)
 		rr := roundRef{round: round, providerCallID: newProviderCallID()}
 		response, hasToolCalls, err := s.executeRound(
 			ctx, loop.messages, acc.systemPrompt, loop.providerTools, loop.toolChoice, rr, acc.metadata)
@@ -887,7 +888,6 @@ func (s *ProviderStage) applyStateHandoff(
 	loop.providerTools = rebuilt
 	if providerChanged {
 		loop.cachingSupported = supportsPromptCaching(s.callProvider())
-		loop.compact()
 	}
 
 	// Write through to TurnState so anything else reading it this execution
@@ -901,12 +901,17 @@ func (s *ProviderStage) applyStateHandoff(
 	return false, nil
 }
 
-// compact folds stale tool results to the budget of the provider the next
-// round runs on. It runs after every round, and again when a workflow handoff
-// switches the provider, since the new one may have a smaller context window
-// than the budget the round was compacted to.
-func (tl *toolLoop) compact() {
+// compactBeforeRound folds stale tool results to the budget of the provider
+// round runs on, once, just before it: after the previous round's results
+// were appended and after any workflow handoff switched the provider, which
+// may have a smaller context window. The first round of an execution is
+// compacted only when a handoff already moved it off the stage's own
+// provider (a resumed turn); otherwise compaction stays between rounds.
+func (tl *toolLoop) compactBeforeRound(round int) {
 	if tl.stage.config == nil || tl.stage.config.Compactor == nil {
+		return
+	}
+	if round == 1 && sameProvider(tl.stage.callProvider(), tl.stage.provider) {
 		return
 	}
 	compactor := tl.stage.config.Compactor
@@ -916,7 +921,8 @@ func (tl *toolLoop) compact() {
 	cr := compactor.Compact(tl.messages, 0)
 	tl.messages = cr.Messages
 	if cr.MessagesFolded > 0 && tl.stage.emitter != nil {
-		tl.stage.emitter.ContextCompacted(tl.lastRound, cr.OriginalTokens, cr.CompactedTokens,
+		// Reported against the round whose results were compacted.
+		tl.stage.emitter.ContextCompacted(round-1, cr.OriginalTokens, cr.CompactedTokens,
 			cr.MessagesFolded, compactor.TokenBudget())
 	}
 }
@@ -1173,6 +1179,7 @@ func (s *ProviderStage) executeStreamingMultiRound(
 		return loop.messages, nil
 	}
 	for round := 1; round <= loop.maxRounds; round++ {
+		loop.compactBeforeRound(round)
 		rr := roundRef{round: round, providerCallID: newProviderCallID()}
 		params := &streamingRoundParams{
 			messages:       loop.messages,
@@ -1228,7 +1235,6 @@ type toolLoop struct {
 	cachingSupported    bool           // provider advertises prompt caching (gates the stall warning)
 	warnedNoCaching     bool           // one-time guard for the caching-stalled warning
 	nudgedLoop          bool           // already fed an identical-loop back to the model once
-	lastRound           int            // the round compaction last ran after, for its event
 	toolCallsExecuted   int            // tool calls let through this turn, for max_tool_calls_per_turn
 
 	// acc is the live turn input. Held as a pointer rather than copied because
@@ -1454,12 +1460,6 @@ func (tl *toolLoop) afterRound(
 		}
 	}
 
-	// Compact stale tool results before next round's provider call.
-	// Pass 0 for lastInputTokens: the provider's InputTokens reflects what it
-	// saw on the last call, but we've since appended the assistant response and
-	// tool results — using the stale count would under-compact.
-	tl.lastRound = round
-	tl.compact()
 
 	if round == tl.maxRounds {
 		return true, tl.messages, fmt.Errorf("provider stage: max rounds (%d) exceeded", tl.maxRounds)
@@ -1534,6 +1534,13 @@ func (tl *toolLoop) preSeedLog(ctx context.Context) {
 func (tl *toolLoop) persistMessages(ctx context.Context, round int) {
 	cfg := tl.stage.config
 	if cfg == nil || cfg.MessageLog == nil {
+		return
+	}
+	if tl.lastPersistedSeq > len(tl.messages) {
+		// A compaction rule that removes messages (CollapsePairs) shrank the
+		// transcript below what was persisted; nothing here is new.
+		logger.Warn("message log: transcript shorter than persisted after compaction; skipping append",
+			"round", round, "persisted", tl.lastPersistedSeq, "messages", len(tl.messages))
 		return
 	}
 	newMsgs := tl.messages[tl.lastPersistedSeq:]

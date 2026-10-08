@@ -101,7 +101,8 @@ func BudgetTokensFor(p providers.Provider) int {
 // ForProvider implements ProviderBudgetedCompaction. With BudgetFromProvider
 // it returns a copy budgeted for p's context window; otherwise c itself.
 func (c *ContextCompactor) ForProvider(p providers.Provider) CompactionStrategy {
-	if c == nil || !c.BudgetFromProvider || p == nil {
+	// A zero budget means compaction is off, and stays off.
+	if c == nil || !c.BudgetFromProvider || p == nil || c.BudgetTokens <= 0 {
 		return c
 	}
 	budget := BudgetTokensFor(p)

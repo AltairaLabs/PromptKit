@@ -1830,7 +1830,7 @@ type ContextCompactor struct {
 ```
 
 <a name="ContextCompactor.Compact"></a>
-### func \(\*ContextCompactor\) [Compact](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L126>)
+### func \(\*ContextCompactor\) [Compact](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L127>)
 
 ```go
 func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int) CompactResult
@@ -1848,7 +1848,7 @@ func (c *ContextCompactor) ForProvider(p providers.Provider) CompactionStrategy
 ForProvider implements ProviderBudgetedCompaction. With BudgetFromProvider it returns a copy budgeted for p's context window; otherwise c itself.
 
 <a name="ContextCompactor.TokenBudget"></a>
-### func \(\*ContextCompactor\) [TokenBudget](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L117>)
+### func \(\*ContextCompactor\) [TokenBudget](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L118>)
 
 ```go
 func (c *ContextCompactor) TokenBudget() int
@@ -5239,7 +5239,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2364>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2371>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement
