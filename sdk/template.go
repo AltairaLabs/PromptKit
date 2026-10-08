@@ -1,15 +1,11 @@
 package sdk
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/persistence/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
-	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 )
 
 // PackTemplate is a pre-loaded, immutable representation of a pack file.
@@ -125,145 +121,33 @@ func (t *PackTemplate) Pack() *pack.Pack {
 	return t.pack
 }
 
-// openConversation is the shared implementation for Open and OpenDuplex on templates.
+// openConversation is the shared implementation for Open and OpenDuplex on
+// templates. Everything after finding the prompt is sdk.Open's own code
+// (prepareConversation, completeOpen); the template only supplies what it
+// built once for the pack.
 func (t *PackTemplate) openConversation(
 	promptName string,
 	duplex bool,
 	opts ...Option,
 ) (*Conversation, error) {
-	cfg, err := applyOptions(promptName, opts)
+	cfg, err := applyOpenOptions(promptName, opts)
 	if err != nil {
 		return nil, err
 	}
 
-	packPrompt, err := t.validatePrompt(promptName)
+	packPrompt, err := findPrompt(t.pack, promptName, cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	if agentErr := resolveAgentProvider(cfg, t.pack); agentErr != nil {
-		return nil, agentErr
-	}
-
-	// The same checks as sdk.Open, in the same order, before the conversation
-	// exists: creating it starts a pending store a refused Open would leak.
-	if convErr := convertPackValidatorsToHooks(packPrompt, cfg); convErr != nil {
-		return nil, convErr
-	}
-	if gateErr := checkLoadGates(t.pack, packPrompt, cfg, t.callCheck); gateErr != nil {
-		return nil, gateErr
-	}
-	// The opened prompt runs on the provider its key is bound to.
-	prov, err := resolvePromptCallProvider(t.pack, cfg, promptName)
+	conv, prov, err := prepareConversation(t.pack, packPrompt, promptName, cfg, conversationSources{
+		prompts:   t.promptRegistry,
+		tools:     t.toolRepository,
+		callCheck: t.callCheck,
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	conv := t.newConversation(promptName, packPrompt, cfg)
-	conv.provider = prov
-
-	if err := t.initConversation(conv, packPrompt, cfg); err != nil {
-		return nil, err
-	}
-
-	// MCP registry must be initialized BEFORE the session/pipeline so the
-	// pipeline build can surface MCP tool descriptors. See sdk.go:Open for
-	// the same ordering invariant.
-	if err := initMCPRegistry(conv, cfg); err != nil {
-		return conv.failOpen(err)
-	}
-
-	if err := t.initSession(conv, cfg, prov, duplex); err != nil {
-		return conv.failOpen(err)
-	}
-
-	conv.evalMW = newEvalMiddleware(conv)
-
-	conv.sessionHooks.SessionStart(context.Background())
-	return conv, nil
+	return completeOpen(conv, prov, duplex)
 }
 
-// validatePrompt checks that the named prompt exists in the cached pack.
-func (t *PackTemplate) validatePrompt(promptName string) (*pack.Prompt, error) {
-	packPrompt, ok := t.pack.Prompts[promptName]
-	if !ok {
-		available := make([]string, 0, len(t.pack.Prompts))
-		for name := range t.pack.Prompts {
-			available = append(available, name)
-		}
-		return nil, fmt.Errorf("prompt %q not found in pack (available: %v)", promptName, available)
-	}
-	return packPrompt, nil
-}
-
-// newConversation creates a Conversation struct with shared and per-conversation resources.
-func (t *PackTemplate) newConversation(
-	promptName string,
-	packPrompt *pack.Prompt,
-	cfg *config,
-) *Conversation {
-	pendingStore, ownsPending := newPendingStore(cfg)
-	return &Conversation{
-		pack:             t.pack,
-		prompt:           packPrompt,
-		promptName:       promptName,
-		promptRegistry:   t.promptRegistry,
-		toolRegistry:     tools.NewRegistryWithRepository(t.toolRepository),
-		config:           cfg,
-		handlers:         make(map[string]ToolHandler),
-		ctxHandlers:      make(map[string]ToolHandlerCtx),
-		asyncHandlers:    make(map[string]sdktools.AsyncToolHandler),
-		pendingStore:     pendingStore,
-		ownsPendingStore: ownsPending,
-		resolvedStore:    sdktools.NewResolvedStore(),
-	}
-}
-
-// initConversation sets up capabilities, hooks, and event bus on the conversation.
-func (t *PackTemplate) initConversation(conv *Conversation, packPrompt *pack.Prompt, cfg *config) error {
-	applyDefaultVariables(conv, packPrompt)
-
-	allCaps := mergeCapabilities(cfg.capabilities, inferCapabilities(t.pack))
-	allCaps = ensureA2ACapability(allCaps, cfg)
-	allCaps = ensureSkillsCapability(allCaps, cfg)
-	wireA2AConfig(allCaps, cfg)
-	wireSkillsConfig(allCaps, cfg)
-	capCtx := newCapabilityContext(t.pack, conv.promptName, cfg)
-	for _, cap := range allCaps {
-		if err := cap.Init(capCtx); err != nil {
-			return fmt.Errorf("capability %q init failed: %w", cap.Name(), err)
-		}
-	}
-	conv.capabilities = allCaps
-	// Each conversation opened from a template owns its share of capability
-	// state, exactly as one opened through Open does (#2011).
-	conv.initConversationState()
-
-	initEventBus(cfg)
-	conv.busRef = cfg.ownedEventBus
-	conv.hookRegistry = cfg.buildHookRegistry()
-	conv.sessionHooks = newSessionHookDispatcher(conv.hookRegistry, conv.sessionInfo)
-	return nil
-}
-
-// initSession initializes the appropriate session type (unary or duplex).
-func (t *PackTemplate) initSession(
-	conv *Conversation,
-	cfg *config,
-	prov providers.Provider,
-	duplex bool,
-) error {
-	if duplex {
-		// A custom ingestion sub-graph drives the standard agent chain rather
-		// than the ASM DuplexProviderStage, so it does not require the provider
-		// to implement StreamInputSupport (see OpenDuplex for the full rationale).
-		if _, ok := prov.(providers.StreamInputSupport); !ok && cfg.ingestion == nil {
-			return fmt.Errorf(
-				"provider %T does not support duplex streaming (must implement providers.StreamInputSupport)",
-				prov,
-			)
-		}
-		return initDuplexSession(conv, cfg)
-	}
-	return initInternalStateStore(conv, cfg)
-}

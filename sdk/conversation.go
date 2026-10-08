@@ -1510,10 +1510,40 @@ func (c *Conversation) takeBusRef() *sharedEventBus {
 // never runs, and without this a failed Open leaked the bus's workers (started
 // as soon as anything subscribed). No pipeline has executed yet, so there is
 // nothing to wait for.
+// releaseOpenResources releases what an Open that is being refused created
+// for this conversation: its capabilities, MCP connections, server executor
+// and its own pending store. It leaves the provider pool alone — those
+// providers may be the caller's, shared with other conversations — and runs no
+// session hooks, since no session started.
+func (c *Conversation) releaseOpenResources() {
+	for _, cap := range c.capabilities {
+		if err := cap.Close(); err != nil {
+			logger.Warn("closing capability of a refused open", "capability", cap.Name(), "error", err)
+		}
+	}
+	if c.mcpTools != nil {
+		c.mcpTools.untrack(c.toolRegistry)
+		c.mcpTools.close()
+	}
+	if c.mcpRegistry != nil {
+		_ = c.mcpRegistry.Close()
+	}
+	if c.serverExecutor != nil {
+		_ = c.serverExecutor.Close()
+	}
+	if c.ownsPendingStore {
+		if closer, ok := c.pendingStore.(sdktools.Closer); ok {
+			_ = closer.Close()
+		}
+	}
+}
+
 func (c *Conversation) failOpen(err error) (*Conversation, error) {
 	c.mu.Lock()
+	c.closed = true
 	busRef := c.takeBusRef()
 	c.mu.Unlock()
+	c.releaseOpenResources()
 	if busRef != nil {
 		busRef.release()
 	}

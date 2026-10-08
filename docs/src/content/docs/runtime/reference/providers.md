@@ -552,7 +552,7 @@ func CapabilitySet(capabilities []string) map[string]bool
 CapabilitySet converts a declared capability list into a membership set for O\(1\) lookup. It returns nil for an empty list so callers can distinguish "not declared" \(nil → fall back to built\-in defaults\) from a non\-empty declaration that is authoritative.
 
 <a name="CheckHTTPError"></a>
-## func [CheckHTTPError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L850>)
+## func [CheckHTTPError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L865>)
 
 ```go
 func CheckHTTPError(resp *http.Response, url string) error
@@ -608,7 +608,7 @@ func ExtraBody(providerID string, additional map[string]any) map[string]any
 ExtraBody returns the extra\_body map from a provider's additional\_config, or nil when there is none. A value that is not a JSON\-encodable map is ignored with a warning naming the provider, so a mistyped extra\_body is visible rather than silently doing nothing.
 
 <a name="ExtractAPIKey"></a>
-## func [ExtractAPIKey](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L240>)
+## func [ExtractAPIKey](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L241>)
 
 ```go
 func ExtractAPIKey(cred Credential) string
@@ -794,7 +794,7 @@ func MarshalWithExtraBody(providerID string, req any, extra map[string]any) ([]b
 MarshalWithExtraBody marshals req, a JSON object, and merges extra into it as ApplyExtraBody does. With no extra fields it is json.Marshal.
 
 <a name="NewInstrumentedTransport"></a>
-## func [NewInstrumentedTransport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L134>)
+## func [NewInstrumentedTransport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L135>)
 
 ```go
 func NewInstrumentedTransport(base http.RoundTripper) http.RoundTripper
@@ -803,7 +803,7 @@ func NewInstrumentedTransport(base http.RoundTripper) http.RoundTripper
 NewInstrumentedTransport wraps an http.RoundTripper with OpenTelemetry instrumentation. This propagates trace context \(W3C traceparent header\) on outgoing requests and creates client\-side HTTP spans. When no TracerProvider is configured, the wrapper is a near\-zero\-cost passthrough.
 
 <a name="NewPooledTransport"></a>
-## func [NewPooledTransport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L93>)
+## func [NewPooledTransport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L94>)
 
 ```go
 func NewPooledTransport() *http.Transport
@@ -812,7 +812,7 @@ func NewPooledTransport() *http.Transport
 NewPooledTransport creates an \*http.Transport configured with default connection pooling settings suitable for high\-throughput provider communication. Equivalent to NewPooledTransportWithOptions\(HTTPTransportOptions\{\}\).
 
 <a name="NewPooledTransportWithOptions"></a>
-## func [NewPooledTransportWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L102>)
+## func [NewPooledTransportWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L103>)
 
 ```go
 func NewPooledTransportWithOptions(opts HTTPTransportOptions) *http.Transport
@@ -821,7 +821,7 @@ func NewPooledTransportWithOptions(opts HTTPTransportOptions) *http.Transport
 NewPooledTransportWithOptions creates an \*http.Transport with the given pool configuration. Zero\-valued fields in opts fall back to the package\-level defaults. The resulting transport is otherwise identical to NewPooledTransport \(same TLS minimum version, same dial timeouts, same HTTP/2 upgrade policy\).
 
 <a name="NewProviderTransport"></a>
-## func [NewProviderTransport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L149>)
+## func [NewProviderTransport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L150>)
 
 ```go
 func NewProviderTransport(opts HTTPTransportOptions) http.RoundTripper
@@ -850,7 +850,7 @@ func ParsePlatformHTTPError(platform string, statusCode int, body []byte) error
 ParsePlatformHTTPError extracts a human\-readable error from platform\-specific HTTP error responses \(Bedrock, Vertex, Azure\). These platforms return JSON like \{"message":"..."\} on HTTP 4xx/5xx. Falls back to raw body if parsing fails. When platform is empty, returns a generic error with the raw body.
 
 <a name="ReadErrorBody"></a>
-## func [ReadErrorBody](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L821>)
+## func [ReadErrorBody](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L836>)
 
 ```go
 func ReadErrorBody(body io.Reader) []byte
@@ -859,7 +859,7 @@ func ReadErrorBody(body io.Reader) []byte
 ReadErrorBody reads and returns an error response body, limiting the size to MaxErrorResponseSize. Error responses should be small; this is a safety net.
 
 <a name="ReadResponseBody"></a>
-## func [ReadResponseBody](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L815>)
+## func [ReadResponseBody](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L830>)
 
 ```go
 func ReadResponseBody(body io.Reader) ([]byte, error)
@@ -995,7 +995,7 @@ func RunProviderContractTests(t *testing.T, config ProviderContractTests)
 RunProviderContractTests executes all contract tests against a provider. This should be called from each provider's test file.
 
 <a name="SetErrorResponse"></a>
-## func [SetErrorResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L874>)
+## func [SetErrorResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L889>)
 
 ```go
 func SetErrorResponse(predictResp *PredictionResponse, respBody []byte, start time.Time)
@@ -1031,7 +1031,7 @@ func SupportsMultimodal(p Provider) bool
 SupportsMultimodal checks if a provider implements multimodal support
 
 <a name="UnmarshalJSON"></a>
-## func [UnmarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L864>)
+## func [UnmarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L879>)
 
 ```go
 func UnmarshalJSON(respBody []byte, v any, predictResp *PredictionResponse, start time.Time) error
@@ -1297,7 +1297,7 @@ func (b *BaseEmbeddingProvider) ResolveModel(reqModel string) string
 ResolveModel returns the model to use, preferring the request model over the default.
 
 <a name="BaseProvider"></a>
-## type [BaseProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L164-L180>)
+## type [BaseProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L165-L181>)
 
 BaseProvider provides common functionality shared across all provider implementations. It should be embedded in concrete provider structs to avoid code duplication.
 
@@ -1311,7 +1311,7 @@ type BaseProvider struct {
 ```
 
 <a name="NewBaseProvider"></a>
-### func [NewBaseProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L186>)
+### func [NewBaseProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L187>)
 
 ```go
 func NewBaseProvider(id string, includeRawOutput bool, client *http.Client) BaseProvider
@@ -1320,7 +1320,7 @@ func NewBaseProvider(id string, includeRawOutput bool, client *http.Client) Base
 NewBaseProvider creates a new BaseProvider with common fields. A companion streaming client is auto\-derived from the given client's transport with Timeout=0 so SSE call sites can use GetStreamingHTTPClient\(\) without any extra wiring.
 
 <a name="NewBaseProviderWithAPIKey"></a>
-### func [NewBaseProviderWithAPIKey](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L224>)
+### func [NewBaseProviderWithAPIKey](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L225>)
 
 ```go
 func NewBaseProviderWithAPIKey(id string, includeRawOutput bool, primaryKey, fallbackKey string) (provider BaseProvider, apiKey string)
@@ -1329,7 +1329,7 @@ func NewBaseProviderWithAPIKey(id string, includeRawOutput bool, primaryKey, fal
 NewBaseProviderWithAPIKey creates a BaseProvider and retrieves API key from environment It tries the primary key first, then falls back to the secondary key if primary is empty.
 
 <a name="NewBaseProviderWithCredential"></a>
-### func [NewBaseProviderWithCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L254-L256>)
+### func [NewBaseProviderWithCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L255-L257>)
 
 ```go
 func NewBaseProviderWithCredential(id string, includeRawOutput bool, timeout time.Duration, cred Credential) (base BaseProvider, apiKey string)
@@ -1338,7 +1338,7 @@ func NewBaseProviderWithCredential(id string, includeRawOutput bool, timeout tim
 NewBaseProviderWithCredential creates a BaseProvider with an explicit credential. It creates an HTTP client with the given timeout, builds the BaseProvider, and extracts the API key from the credential \(if it is an api\_key credential\). This eliminates the duplicated credential\-setup boilerplate across providers.
 
 <a name="BaseProvider.AcquireStreamSlot"></a>
-### func \(\*BaseProvider\) [AcquireStreamSlot](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L476>)
+### func \(\*BaseProvider\) [AcquireStreamSlot](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L491>)
 
 ```go
 func (b *BaseProvider) AcquireStreamSlot(ctx context.Context) error
@@ -1349,7 +1349,7 @@ AcquireStreamSlot blocks on the configured concurrent\-stream semaphore until a 
 Nil semaphore is a no\-op — returns nil without blocking or emitting metrics, so callers can invoke this unconditionally.
 
 <a name="BaseProvider.ApplyCustomHeaders"></a>
-### func \(\*BaseProvider\) [ApplyCustomHeaders](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L399>)
+### func \(\*BaseProvider\) [ApplyCustomHeaders](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L414>)
 
 ```go
 func (b *BaseProvider) ApplyCustomHeaders(req *http.Request) error
@@ -1358,7 +1358,7 @@ func (b *BaseProvider) ApplyCustomHeaders(req *http.Request) error
 ApplyCustomHeaders applies stored custom headers to the HTTP request. Must be called AFTER the provider sets its own built\-in headers \(Authorization, Content\-Type, etc.\). Returns an error if any custom header collides with a header already set on the request \(case\-insensitive per HTTP spec\).
 
 <a name="BaseProvider.Close"></a>
-### func \(\*BaseProvider\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L277>)
+### func \(\*BaseProvider\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L278>)
 
 ```go
 func (b *BaseProvider) Close() error
@@ -1367,7 +1367,7 @@ func (b *BaseProvider) Close() error
 Close closes the HTTP client's idle connections
 
 <a name="BaseProvider.DoAndReadResponse"></a>
-### func \(\*BaseProvider\) [DoAndReadResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L829-L831>)
+### func \(\*BaseProvider\) [DoAndReadResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L844-L846>)
 
 ```go
 func (b *BaseProvider) DoAndReadResponse(req *http.Request, predictResp *PredictionResponse, start time.Time, providerName string) (body []byte, statusCode int, err error)
@@ -1376,7 +1376,7 @@ func (b *BaseProvider) DoAndReadResponse(req *http.Request, predictResp *Predict
 DoAndReadResponse executes an HTTP request using the provider's client, reads the response body \(with size limiting\), and logs the response. On read error it sets predictResp.Latency. Returns the body bytes and HTTP status code.
 
 <a name="BaseProvider.GetHTTPClient"></a>
-### func \(\*BaseProvider\) [GetHTTPClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L292>)
+### func \(\*BaseProvider\) [GetHTTPClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L293>)
 
 ```go
 func (b *BaseProvider) GetHTTPClient() *http.Client
@@ -1385,7 +1385,7 @@ func (b *BaseProvider) GetHTTPClient() *http.Client
 GetHTTPClient returns the underlying HTTP client for request/response calls. This client has a finite Timeout \(the request\_timeout\) and MUST NOT be used for SSE streaming — use GetStreamingHTTPClient for that.
 
 <a name="BaseProvider.GetRetryPolicy"></a>
-### func \(\*BaseProvider\) [GetRetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L218>)
+### func \(\*BaseProvider\) [GetRetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L219>)
 
 ```go
 func (b *BaseProvider) GetRetryPolicy() pipeline.RetryPolicy
@@ -1394,7 +1394,7 @@ func (b *BaseProvider) GetRetryPolicy() pipeline.RetryPolicy
 GetRetryPolicy returns the current retry policy.
 
 <a name="BaseProvider.GetStreamingHTTPClient"></a>
-### func \(\*BaseProvider\) [GetStreamingHTTPClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L301>)
+### func \(\*BaseProvider\) [GetStreamingHTTPClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L302>)
 
 ```go
 func (b *BaseProvider) GetStreamingHTTPClient() *http.Client
@@ -1403,7 +1403,7 @@ func (b *BaseProvider) GetStreamingHTTPClient() *http.Client
 GetStreamingHTTPClient returns a dedicated HTTP client for SSE streaming calls. It shares the non\-streaming client's transport but has Timeout=0 so long\-lived streams are not killed by a wall\-clock cap. When no dedicated streaming client is configured it falls back to the regular client so callers never receive nil.
 
 <a name="BaseProvider.HTTPTimeout"></a>
-### func \(\*BaseProvider\) [HTTPTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L766>)
+### func \(\*BaseProvider\) [HTTPTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L781>)
 
 ```go
 func (b *BaseProvider) HTTPTimeout() time.Duration
@@ -1412,7 +1412,7 @@ func (b *BaseProvider) HTTPTimeout() time.Duration
 HTTPTimeout returns the current HTTP client timeout, or 0 if no client is set.
 
 <a name="BaseProvider.ID"></a>
-### func \(\*BaseProvider\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L267>)
+### func \(\*BaseProvider\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L268>)
 
 ```go
 func (b *BaseProvider) ID() string
@@ -1421,7 +1421,7 @@ func (b *BaseProvider) ID() string
 ID returns the provider ID
 
 <a name="BaseProvider.MakeJSONRequest"></a>
-### func \(\*BaseProvider\) [MakeJSONRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L905-L911>)
+### func \(\*BaseProvider\) [MakeJSONRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L920-L926>)
 
 ```go
 func (b *BaseProvider) MakeJSONRequest(ctx context.Context, url string, request any, headers RequestHeaders, providerName string) ([]byte, error)
@@ -1430,7 +1430,7 @@ func (b *BaseProvider) MakeJSONRequest(ctx context.Context, url string, request 
 MakeJSONRequest performs a JSON HTTP POST request with common error handling. This reduces duplication across provider implementations. providerName is used for logging purposes.
 
 <a name="BaseProvider.MakeRawRequest"></a>
-### func \(\*BaseProvider\) [MakeRawRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L930-L936>)
+### func \(\*BaseProvider\) [MakeRawRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L945-L951>)
 
 ```go
 func (b *BaseProvider) MakeRawRequest(ctx context.Context, url string, body []byte, headers RequestHeaders, providerName string) ([]byte, error)
@@ -1441,7 +1441,7 @@ MakeRawRequest performs an HTTP POST request with pre\-marshaled body. It automa
 Any provider\-level custom headers configured via SetCustomHeaders are merged into the outgoing request headers up front, with a case\-insensitive collision check against the built\-in headers the caller passed. Collisions are deterministic client\-side errors so they fail fast before the retry loop runs — a misconfigured gateway header should not burn retry budget.
 
 <a name="BaseProvider.MaxPayloadSize"></a>
-### func \(\*BaseProvider\) [MaxPayloadSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L792>)
+### func \(\*BaseProvider\) [MaxPayloadSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L807>)
 
 ```go
 func (b *BaseProvider) MaxPayloadSize() int64
@@ -1450,7 +1450,7 @@ func (b *BaseProvider) MaxPayloadSize() int64
 MaxPayloadSize returns the current maximum request payload size in bytes.
 
 <a name="BaseProvider.MediaLoader"></a>
-### func \(\*BaseProvider\) [MediaLoader](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L387>)
+### func \(\*BaseProvider\) [MediaLoader](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L400>)
 
 ```go
 func (b *BaseProvider) MediaLoader() *MediaLoader
@@ -1459,7 +1459,7 @@ func (b *BaseProvider) MediaLoader() *MediaLoader
 MediaLoader returns a per\-call MediaLoader configured with this provider's injected storage service \(if any\). Providers use it to resolve media parts \(ResolveURL for URL\-first providers, GetBase64Data for byte\-based ones\).
 
 <a name="BaseProvider.RateLimiter"></a>
-### func \(\*BaseProvider\) [RateLimiter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L798>)
+### func \(\*BaseProvider\) [RateLimiter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L813>)
 
 ```go
 func (b *BaseProvider) RateLimiter() *rate.Limiter
@@ -1468,7 +1468,7 @@ func (b *BaseProvider) RateLimiter() *rate.Limiter
 RateLimiter returns the current rate limiter, or nil if rate limiting is not configured. This is useful for inspecting or sharing limiters.
 
 <a name="BaseProvider.ReleaseStreamSlot"></a>
-### func \(\*BaseProvider\) [ReleaseStreamSlot](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L493>)
+### func \(\*BaseProvider\) [ReleaseStreamSlot](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L508>)
 
 ```go
 func (b *BaseProvider) ReleaseStreamSlot()
@@ -1477,7 +1477,7 @@ func (b *BaseProvider) ReleaseStreamSlot()
 ReleaseStreamSlot returns a slot to the concurrent\-stream semaphore. Nil\-safe; must be paired with a successful AcquireStreamSlot.
 
 <a name="BaseProvider.RunStreamingRequest"></a>
-### func \(\*BaseProvider\) [RunStreamingRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L529-L533>)
+### func \(\*BaseProvider\) [RunStreamingRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L544-L548>)
 
 ```go
 func (b *BaseProvider) RunStreamingRequest(ctx context.Context, req *StreamRetryRequest, consumer StreamConsumer) (<-chan StreamChunk, error)
@@ -1497,7 +1497,7 @@ On any error path before the goroutine is spawned, all acquired resources are re
 Callers must set req.ProviderName to b.ID\(\) — this is not done automatically to avoid hiding the coupling.
 
 <a name="BaseProvider.SetAllowPrivateNetworkMedia"></a>
-### func \(\*BaseProvider\) [SetAllowPrivateNetworkMedia](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L380>)
+### func \(\*BaseProvider\) [SetAllowPrivateNetworkMedia](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L391>)
 
 ```go
 func (b *BaseProvider) SetAllowPrivateNetworkMedia(allow bool)
@@ -1506,7 +1506,7 @@ func (b *BaseProvider) SetAllowPrivateNetworkMedia(allow bool)
 SetAllowPrivateNetworkMedia lets this provider fetch URL media from non\-public addresses. See MediaLoaderConfig.AllowPrivateNetworks for why it is off by default.
 
 <a name="BaseProvider.SetCustomHeaders"></a>
-### func \(\*BaseProvider\) [SetCustomHeaders](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L366>)
+### func \(\*BaseProvider\) [SetCustomHeaders](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L367>)
 
 ```go
 func (b *BaseProvider) SetCustomHeaders(headers map[string]string)
@@ -1515,7 +1515,7 @@ func (b *BaseProvider) SetCustomHeaders(headers map[string]string)
 SetCustomHeaders stores custom HTTP headers that will be applied to every outgoing request via ApplyCustomHeaders. Intended for OpenAI\-compatible gateway headers \(e.g. OpenRouter's HTTP\-Referer, X\-Title\). Called by CreateProviderFromSpec after factory construction.
 
 <a name="BaseProvider.SetHTTPTimeout"></a>
-### func \(\*BaseProvider\) [SetHTTPTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L312>)
+### func \(\*BaseProvider\) [SetHTTPTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L313>)
 
 ```go
 func (b *BaseProvider) SetHTTPTimeout(timeout time.Duration)
@@ -1524,7 +1524,7 @@ func (b *BaseProvider) SetHTTPTimeout(timeout time.Duration)
 SetHTTPTimeout replaces the request/response HTTP client with a new one that uses the given timeout while preserving the existing transport configuration. Does not affect the streaming client, which remains at Timeout=0.
 
 <a name="BaseProvider.SetHTTPTransport"></a>
-### func \(\*BaseProvider\) [SetHTTPTransport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L348>)
+### func \(\*BaseProvider\) [SetHTTPTransport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L349>)
 
 ```go
 func (b *BaseProvider) SetHTTPTransport(rt http.RoundTripper)
@@ -1537,7 +1537,7 @@ This is the hook CreateProviderFromSpec uses to apply per\-provider connection p
 A nil transport resets both clients to Go's http.DefaultTransport via the http.Client zero\-value behavior. Passing nil is not the typical use case; callers should build a transport via NewPooledTransportWithOptions and wrap it with NewInstrumentedTransport so the OpenTelemetry span wiring is preserved.
 
 <a name="BaseProvider.SetMaxPayloadSize"></a>
-### func \(\*BaseProvider\) [SetMaxPayloadSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L787>)
+### func \(\*BaseProvider\) [SetMaxPayloadSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L802>)
 
 ```go
 func (b *BaseProvider) SetMaxPayloadSize(size int64)
@@ -1546,7 +1546,7 @@ func (b *BaseProvider) SetMaxPayloadSize(size int64)
 SetMaxPayloadSize configures the maximum allowed request payload size in bytes. A zero or negative value disables payload size checking.
 
 <a name="BaseProvider.SetMediaStorageService"></a>
-### func \(\*BaseProvider\) [SetMediaStorageService](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L373>)
+### func \(\*BaseProvider\) [SetMediaStorageService](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L374>)
 
 ```go
 func (b *BaseProvider) SetMediaStorageService(store storage.MediaStorageService)
@@ -1555,7 +1555,7 @@ func (b *BaseProvider) SetMediaStorageService(store storage.MediaStorageService)
 SetMediaStorageService injects the media storage service that resolves MediaContent.StorageReference values at request\-build time. Nil \(the default\) disables storage\-reference resolution. See MediaStorageConfigurable in registry.go.
 
 <a name="BaseProvider.SetRateLimit"></a>
-### func \(\*BaseProvider\) [SetRateLimit](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L777>)
+### func \(\*BaseProvider\) [SetRateLimit](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L792>)
 
 ```go
 func (b *BaseProvider) SetRateLimit(requestsPerSecond float64, burst int)
@@ -1564,7 +1564,7 @@ func (b *BaseProvider) SetRateLimit(requestsPerSecond float64, burst int)
 SetRateLimit configures per\-provider rate limiting. requestsPerSecond controls the sustained rate, and burst controls how many requests can be made simultaneously before throttling kicks in. A zero or negative requestsPerSecond disables rate limiting \(the default\).
 
 <a name="BaseProvider.SetRetryPolicy"></a>
-### func \(\*BaseProvider\) [SetRetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L213>)
+### func \(\*BaseProvider\) [SetRetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L214>)
 
 ```go
 func (b *BaseProvider) SetRetryPolicy(policy pipeline.RetryPolicy)
@@ -1573,7 +1573,7 @@ func (b *BaseProvider) SetRetryPolicy(policy pipeline.RetryPolicy)
 SetRetryPolicy configures the retry policy for this provider.
 
 <a name="BaseProvider.SetStreamIdleTimeout"></a>
-### func \(\*BaseProvider\) [SetStreamIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L420>)
+### func \(\*BaseProvider\) [SetStreamIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L435>)
 
 ```go
 func (b *BaseProvider) SetStreamIdleTimeout(d time.Duration)
@@ -1582,7 +1582,7 @@ func (b *BaseProvider) SetStreamIdleTimeout(d time.Duration)
 SetStreamIdleTimeout configures the SSE body idle timeout. A zero or negative value resets to DefaultStreamIdleTimeout.
 
 <a name="BaseProvider.SetStreamRetryBudget"></a>
-### func \(\*BaseProvider\) [SetStreamRetryBudget](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L449>)
+### func \(\*BaseProvider\) [SetStreamRetryBudget](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L464>)
 
 ```go
 func (b *BaseProvider) SetStreamRetryBudget(budget *RetryBudget)
@@ -1591,7 +1591,7 @@ func (b *BaseProvider) SetStreamRetryBudget(budget *RetryBudget)
 SetStreamRetryBudget installs a token bucket that rate\-limits retry attempts across all in\-flight requests on this provider. Passing nil restores unbounded\-retry behavior.
 
 <a name="BaseProvider.SetStreamRetryPolicy"></a>
-### func \(\*BaseProvider\) [SetStreamRetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L436>)
+### func \(\*BaseProvider\) [SetStreamRetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L451>)
 
 ```go
 func (b *BaseProvider) SetStreamRetryPolicy(policy StreamRetryPolicy)
@@ -1600,7 +1600,7 @@ func (b *BaseProvider) SetStreamRetryPolicy(policy StreamRetryPolicy)
 SetStreamRetryPolicy configures bounded retry behavior for the pre\-first\-chunk streaming window. See StreamRetryPolicy for details.
 
 <a name="BaseProvider.SetStreamSemaphore"></a>
-### func \(\*BaseProvider\) [SetStreamSemaphore](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L462>)
+### func \(\*BaseProvider\) [SetStreamSemaphore](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L477>)
 
 ```go
 func (b *BaseProvider) SetStreamSemaphore(sem *StreamSemaphore)
@@ -1609,7 +1609,7 @@ func (b *BaseProvider) SetStreamSemaphore(sem *StreamSemaphore)
 SetStreamSemaphore installs a semaphore that caps concurrent streaming requests. Passing nil \(or a zero\-limit semaphore\) restores unlimited concurrency.
 
 <a name="BaseProvider.ShouldIncludeRawOutput"></a>
-### func \(\*BaseProvider\) [ShouldIncludeRawOutput](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L272>)
+### func \(\*BaseProvider\) [ShouldIncludeRawOutput](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L273>)
 
 ```go
 func (b *BaseProvider) ShouldIncludeRawOutput() bool
@@ -1618,7 +1618,7 @@ func (b *BaseProvider) ShouldIncludeRawOutput() bool
 ShouldIncludeRawOutput returns whether to include raw API responses in output
 
 <a name="BaseProvider.StreamIdleTimeout"></a>
-### func \(\*BaseProvider\) [StreamIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L411>)
+### func \(\*BaseProvider\) [StreamIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L426>)
 
 ```go
 func (b *BaseProvider) StreamIdleTimeout() time.Duration
@@ -1627,7 +1627,7 @@ func (b *BaseProvider) StreamIdleTimeout() time.Duration
 StreamIdleTimeout returns the configured SSE body idle timeout or the package default \(DefaultStreamIdleTimeout\) when none is set.
 
 <a name="BaseProvider.StreamRetryBudget"></a>
-### func \(\*BaseProvider\) [StreamRetryBudget](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L442>)
+### func \(\*BaseProvider\) [StreamRetryBudget](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L457>)
 
 ```go
 func (b *BaseProvider) StreamRetryBudget() *RetryBudget
@@ -1636,7 +1636,7 @@ func (b *BaseProvider) StreamRetryBudget() *RetryBudget
 StreamRetryBudget returns the per\-provider retry budget. A nil return means retries are unbounded \(only MaxAttempts caps them\).
 
 <a name="BaseProvider.StreamRetryPolicy"></a>
-### func \(\*BaseProvider\) [StreamRetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L430>)
+### func \(\*BaseProvider\) [StreamRetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L445>)
 
 ```go
 func (b *BaseProvider) StreamRetryPolicy() StreamRetryPolicy
@@ -1645,7 +1645,7 @@ func (b *BaseProvider) StreamRetryPolicy() StreamRetryPolicy
 StreamRetryPolicy returns the configured streaming\-retry policy. The zero value \(retry disabled\) is the default — callers must opt in via config.
 
 <a name="BaseProvider.StreamSemaphore"></a>
-### func \(\*BaseProvider\) [StreamSemaphore](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L455>)
+### func \(\*BaseProvider\) [StreamSemaphore](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L470>)
 
 ```go
 func (b *BaseProvider) StreamSemaphore() *StreamSemaphore
@@ -1654,7 +1654,7 @@ func (b *BaseProvider) StreamSemaphore() *StreamSemaphore
 StreamSemaphore returns the concurrent\-stream semaphore. A nil return means unlimited concurrency \(backwards\-compatible default\).
 
 <a name="BaseProvider.SupportsStreaming"></a>
-### func \(\*BaseProvider\) [SupportsStreaming](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L285>)
+### func \(\*BaseProvider\) [SupportsStreaming](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L286>)
 
 ```go
 func (b *BaseProvider) SupportsStreaming() bool
@@ -1663,7 +1663,7 @@ func (b *BaseProvider) SupportsStreaming() bool
 SupportsStreaming returns true by default \(can be overridden by providers that don't support streaming\)
 
 <a name="BaseProvider.WaitForRateLimit"></a>
-### func \(\*BaseProvider\) [WaitForRateLimit](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L806>)
+### func \(\*BaseProvider\) [WaitForRateLimit](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L821>)
 
 ```go
 func (b *BaseProvider) WaitForRateLimit(ctx context.Context) error
@@ -2146,7 +2146,7 @@ type HTTPRequestConfig struct {
 ```
 
 <a name="HTTPTransportOptions"></a>
-## type [HTTPTransportOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L72-L88>)
+## type [HTTPTransportOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L73-L89>)
 
 HTTPTransportOptions configures the connection pool for a pooled HTTP transport. Zero values mean unlimited for connection counts \(matching Go's http.Transport\) and fall back to DefaultIdleConnTimeout for the timeout. Negative values fall back to package\-level defaults.
 
@@ -3184,7 +3184,7 @@ func (r *Registry) Register(provider Provider)
 Register adds a provider to the registry, keyed by provider.ID\(\) for back\-compat. It also registers into the typed base.Registry \(keyed by provider.Name\(\) \+ provider.Type\(\)\); duplicate base registrations are silently accepted — the base entry is replaced to match the legacy overwrite semantics.
 
 <a name="RequestHeaders"></a>
-## type [RequestHeaders](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L900>)
+## type [RequestHeaders](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L915>)
 
 RequestHeaders is a map of HTTP header key\-value pairs
 
@@ -3665,7 +3665,7 @@ func BargeMarker() StreamChunk
 BargeMarker returns the chunk a session sends on the pump's input channel right after Barge\(\). When the pump reaches it, it drops the audio queued before it and keeps everything after it; the marker itself is not forwarded.
 
 <a name="StreamConsumer"></a>
-## type [StreamConsumer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L503>)
+## type [StreamConsumer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L518>)
 
 StreamConsumer is called on the success path of RunStreamingRequest inside a dedicated goroutine. It receives the \(possibly retry\-replayed\) response body and the output channel; it must fully drain the body and close outChan when done. Typical implementations wrap body in an IdleTimeoutReader \+ SSEScanner \(or equivalent\) and run the provider's existing stream parser.
 
