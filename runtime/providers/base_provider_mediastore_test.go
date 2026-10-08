@@ -23,3 +23,31 @@ func TestBaseProvider_MediaLoaderUsesInjectedStore(t *testing.T) {
 		t.Fatalf("got (%q,%v,%v) after injecting store", url, ok, err)
 	}
 }
+
+// namedMediaStore is a store told apart by name.
+type namedMediaStore struct {
+	nilMediaStore
+	name string
+}
+
+// WithMedia copies the provider with the conversation's settings, keeping its
+// own where a setting is zero, and leaves the original untouched.
+func TestBaseProvider_WithMediaCopiesAndKeepsZeroFields(t *testing.T) {
+	own := namedMediaStore{name: "own"}
+	conv := namedMediaStore{name: "conversation"}
+	b := NewBaseProvider("p", false, nil)
+	b.SetMediaStorageService(own)
+
+	view := b.WithMedia(MediaSettings{Storage: conv, AllowPrivateNetworks: true})
+	if view.mediaStorage != conv || !view.allowPrivateMediaURLs {
+		t.Fatalf("view = %v/%v, want the conversation's store and private networks allowed",
+			view.mediaStorage, view.allowPrivateMediaURLs)
+	}
+	if b.mediaStorage != own || b.allowPrivateMediaURLs {
+		t.Fatal("WithMedia changed the original provider")
+	}
+	kept := b.WithMedia(MediaSettings{})
+	if kept.mediaStorage != own || kept.allowPrivateMediaURLs {
+		t.Fatal("zero settings must keep the provider's own")
+	}
+}
