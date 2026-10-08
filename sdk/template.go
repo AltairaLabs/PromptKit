@@ -145,17 +145,22 @@ func (t *PackTemplate) openConversation(
 		return nil, agentErr
 	}
 
-	conv := t.newConversation(promptName, packPrompt, cfg)
-
-	// The same load-time gates as sdk.Open, then run the opened prompt on the
-	// provider its key is bound to.
+	// The same checks as sdk.Open, in the same order, before the conversation
+	// exists: creating it starts a pending store a refused Open would leak.
+	if convErr := convertPackValidatorsToHooks(packPrompt, cfg); convErr != nil {
+		return nil, convErr
+	}
 	if gateErr := checkLoadGates(t.pack, packPrompt, cfg, t.callCheck); gateErr != nil {
 		return nil, gateErr
 	}
-	prov, err := conv.resolvePromptProvider()
+	// The opened prompt runs on the provider its key is bound to.
+	prov, err := resolvePromptCallProvider(t.pack, cfg, promptName)
 	if err != nil {
 		return nil, err
 	}
+
+	conv := t.newConversation(promptName, packPrompt, cfg)
+	conv.provider = prov
 
 	if err := t.initConversation(conv, packPrompt, cfg); err != nil {
 		return nil, err
@@ -217,9 +222,6 @@ func (t *PackTemplate) newConversation(
 // initConversation sets up capabilities, hooks, and event bus on the conversation.
 func (t *PackTemplate) initConversation(conv *Conversation, packPrompt *pack.Prompt, cfg *config) error {
 	applyDefaultVariables(conv, packPrompt)
-	if err := convertPackValidatorsToHooks(packPrompt, cfg); err != nil {
-		return err
-	}
 
 	allCaps := mergeCapabilities(cfg.capabilities, inferCapabilities(t.pack))
 	allCaps = ensureA2ACapability(allCaps, cfg)

@@ -257,9 +257,27 @@ func initConversation(
 		toolReg = tools.NewRegistryWithRepository(pack.ToToolRepository(p))
 	}
 
+	// Everything that can refuse the pack runs before the conversation exists:
+	// creating it starts a pending store, and a refused Open would otherwise
+	// leave it running.
+	//
+	// Auto-convert pack validators to provider hooks (before building hook registry)
+	if convErr := convertPackValidatorsToHooks(prompt, cfg); convErr != nil {
+		return nil, nil, convErr
+	}
+	if gateErr := checkLoadGates(p, prompt, cfg, nil); gateErr != nil {
+		return nil, nil, gateErr
+	}
+	// The opened prompt runs on the provider its key is bound to.
+	callProv, err := resolvePromptCallProvider(p, cfg, promptName)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	// Create conversation
 	pendingStore, ownsPending := newPendingStore(cfg)
 	conv := &Conversation{
+		provider:         callProv,
 		pack:             p,
 		prompt:           prompt,
 		promptName:       promptName,
@@ -286,19 +304,6 @@ func initConversation(
 		conv.OnToolExecutor(name, executor)
 	}
 
-	// Auto-convert pack validators to provider hooks (before building hook registry)
-	if err := convertPackValidatorsToHooks(prompt, cfg); err != nil {
-		return nil, nil, err
-	}
-
-	if gateErr := checkLoadGates(p, prompt, cfg, newCallProviderCheck(p)); gateErr != nil {
-		return nil, nil, gateErr
-	}
-	// The opened prompt runs on the provider its key is bound to.
-	prov, err := conv.resolvePromptProvider()
-	if err != nil {
-		return nil, nil, err
-	}
 
 	// Initialize capabilities (auto-inferred + explicit)
 	allCaps := mergeCapabilities(cfg.capabilities, inferCapabilities(p))
@@ -333,7 +338,7 @@ func initConversation(
 	conv.hookRegistry = cfg.buildHookRegistry()
 	conv.sessionHooks = newSessionHookDispatcher(conv.hookRegistry, conv.sessionInfo)
 
-	return conv, prov, nil
+	return conv, callProv, nil
 }
 
 // finalizeConversation completes the conversation setup after the MCP
