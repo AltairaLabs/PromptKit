@@ -163,6 +163,9 @@ func (deps CompositionExecutorDeps) execLLM(
 	templateStage := NewTemplateStageWithTurnState(deps.Emitter, turnState)
 
 	cfg := &ProviderConfig{Source: "agent", PromptDeclarations: deps.PromptDeclarations}
+	// The step's prompt parameters, with its model_overrides entry for the
+	// provider that runs the step, as an opened prompt gets them.
+	cfg.MaxTokens, cfg.Temperature = deps.PromptRegistry.CallParameters(step.PromptTask, provider.Model())
 	rf, err := deps.responseFormat(step)
 	if err != nil {
 		return nil, fmt.Errorf("step %q: %w", step.ID, err)

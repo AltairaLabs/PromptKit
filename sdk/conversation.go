@@ -747,7 +747,9 @@ func (c *Conversation) buildPipelineConfig(
 
 	// Parameters from the prompt, then from its model_overrides entry for the
 	// model this conversation runs on.
-	pipelineCfg.MaxTokens, pipelineCfg.Temperature = promptParameters(c.prompt, c.callModel())
+	if c.promptRegistry != nil {
+		pipelineCfg.MaxTokens, pipelineCfg.Temperature = c.promptRegistry.CallParameters(c.promptName, c.callModel())
+	}
 
 	// RFC 0010 — composition execution. When the active config carries a
 	// resolved composition (set by withResolvedComposition in workflow.go),
@@ -1784,29 +1786,4 @@ func promptDeclarations(p *pack.Pack) map[string]*packspec.Prompt {
 		out[task] = packspec.Clone(pr)
 	}
 	return out
-}
-
-// promptParameters returns the max_tokens and temperature a call to pr on
-// model requests: the prompt's parameters, then those of its model_overrides
-// entry for model. Zero means unset, leaving the provider's default.
-func promptParameters(pr *pack.Prompt, model string) (maxTokens int, temperature float32) {
-	if pr == nil {
-		return 0, 0
-	}
-	apply := func(params *pack.Parameters) {
-		if params == nil {
-			return
-		}
-		if params.MaxTokens != nil {
-			maxTokens = *params.MaxTokens
-		}
-		if params.Temperature != nil {
-			temperature = float32(*params.Temperature)
-		}
-	}
-	apply(pr.Parameters)
-	if override := pr.ModelOverrides[model]; override != nil {
-		apply(override.Parameters)
-	}
-	return maxTokens, temperature
 }

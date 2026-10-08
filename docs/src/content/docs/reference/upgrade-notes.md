@@ -8,6 +8,17 @@ changes that need you to do something, with what to change and why.
 
 ## Unreleased
 
+### Composition steps run with their prompt's `parameters`
+
+A composition `prompt` or `agent` step sent no `max_tokens` or `temperature`,
+whatever its prompt set, so the provider's defaults applied. A step now sends
+its prompt's `parameters`, and those of the prompt's `model_overrides` entry for
+the step provider's model, as an opened prompt does.
+
+| If you | You will see | Change |
+|---|---|---|
+| Run a composition whose step prompts set `parameters` | those values on each step's request | check them, since steps used the provider's defaults before |
+
 ### `PackTemplate.Open` runs the same provider checks as `sdk.Open`
 
 A conversation opened from a `PackTemplate` skipped two load-time gates that
@@ -43,8 +54,7 @@ its prompt registry. The entry for the model of the provider that runs the call
 now applies. Its `system_template`, `system_template_prefix` and
 `system_template_suffix` shape the system prompt of an opened prompt, a
 composition step and a mid-turn workflow handoff. Its `parameters` replace the
-prompt's `max_tokens` and `temperature` for an opened prompt; composition steps
-apply no prompt parameters yet. The model is the bound provider's when the
+prompt's `max_tokens` and `temperature` in all three. The model is the bound provider's when the
 prompt or step names a `provider` key, and an override key must match it
 exactly.
 

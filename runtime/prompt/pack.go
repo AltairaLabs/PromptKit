@@ -932,6 +932,7 @@ func ToConfig(pr *PackPrompt, taskType string) *Config {
 			ToolPolicy:     pr.ToolPolicy,
 			Variables:      vars,
 			ModelOverrides: valueMap(pr.ModelOverrides),
+			Parameters:     pr.Parameters,
 		},
 	}
 }
