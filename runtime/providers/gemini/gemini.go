@@ -52,9 +52,6 @@ type streamSessionFactory func(
 // Provider implements the Provider interface for Google Gemini
 type Provider struct {
 	providers.BaseProvider
-	// unsupportedParams lists request parameters this model rejects
-	// (ProviderSpec.UnsupportedParams); nil supports all.
-	unsupportedParams  map[string]bool
 	model              string
 	baseURL            string
 	apiKey             string
@@ -458,7 +455,7 @@ func (p *Provider) prepareGeminiRequest(ctx context.Context, req providers.Predi
 // generationConfig takes; nil sends nothing. A model that rejects it is
 // configured with unsupported_params: [top_k], which drops it here.
 func (g *geminiGenConfig) applyOptionalSampling(p *Provider, req *providers.PredictionRequest) {
-	if p.paramSupported(providers.ParamTopK) {
+	if p.ParamSupported(providers.ParamTopK) {
 		g.TopK = req.TopK
 	}
 	p.warnUnsentPenalties(req)
@@ -470,23 +467,6 @@ func (g *geminiGenConfig) applyOptionalSampling(p *Provider, req *providers.Pred
 // never sent.
 func (p *Provider) warnUnsentPenalties(req *providers.PredictionRequest) {
 	providers.WarnUnsentParams(p.ID(), req, providers.ParamFrequencyPenalty, providers.ParamPresencePenalty)
-}
-
-// setUnsupportedParams records the request parameters this model rejects.
-func (p *Provider) setUnsupportedParams(params []string) {
-	if len(params) == 0 {
-		return
-	}
-	p.unsupportedParams = make(map[string]bool, len(params))
-	for _, name := range params {
-		p.unsupportedParams[name] = true
-	}
-}
-
-// paramSupported reports whether the named request parameter may be sent.
-// One the API has rejected for this model (RetryRejectedParams) may not be.
-func (p *Provider) paramSupported(name string) bool {
-	return !p.unsupportedParams[name] && !p.ParamRejected(name)
 }
 
 // buildGeminiRequest creates a Gemini API request with standard safety settings

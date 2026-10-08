@@ -122,7 +122,7 @@ func TestBuildBaseRequest_TopKOmittedWithThinking(t *testing.T) {
 	assert.NotContains(t, string(thinking), "top_k")
 
 	closed := &Provider{model: "claude-sonnet-5"}
-	closed.setUnsupportedParams([]string{"top_k"})
+	closed.SetUnsupportedParams([]string{"top_k"})
 	unsupported, err := json.Marshal(closed.buildBaseRequest(req, nil))
 	require.NoError(t, err)
 	assert.NotContains(t, string(unsupported), "top_k")

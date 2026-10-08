@@ -134,6 +134,7 @@ This file contains exported test helpers that can be used by provider implementa
   - [func \(b \*BaseProvider\) MaxPayloadSize\(\) int64](<#BaseProvider.MaxPayloadSize>)
   - [func \(b \*BaseProvider\) MediaLoader\(\) \*MediaLoader](<#BaseProvider.MediaLoader>)
   - [func \(b \*BaseProvider\) ParamRejected\(param string\) bool](<#BaseProvider.ParamRejected>)
+  - [func \(b \*BaseProvider\) ParamSupported\(param string\) bool](<#BaseProvider.ParamSupported>)
   - [func \(b \*BaseProvider\) RateLimiter\(\) \*rate.Limiter](<#BaseProvider.RateLimiter>)
   - [func \(b \*BaseProvider\) RejectedParamNames\(\) \[\]string](<#BaseProvider.RejectedParamNames>)
   - [func \(b \*BaseProvider\) ReleaseStreamSlot\(\)](<#BaseProvider.ReleaseStreamSlot>)
@@ -151,6 +152,7 @@ This file contains exported test helpers that can be used by provider implementa
   - [func \(b \*BaseProvider\) SetStreamRetryBudget\(budget \*RetryBudget\)](<#BaseProvider.SetStreamRetryBudget>)
   - [func \(b \*BaseProvider\) SetStreamRetryPolicy\(policy StreamRetryPolicy\)](<#BaseProvider.SetStreamRetryPolicy>)
   - [func \(b \*BaseProvider\) SetStreamSemaphore\(sem \*StreamSemaphore\)](<#BaseProvider.SetStreamSemaphore>)
+  - [func \(b \*BaseProvider\) SetUnsupportedParams\(params \[\]string\)](<#BaseProvider.SetUnsupportedParams>)
   - [func \(b \*BaseProvider\) ShouldIncludeRawOutput\(\) bool](<#BaseProvider.ShouldIncludeRawOutput>)
   - [func \(b \*BaseProvider\) StreamIdleTimeout\(\) time.Duration](<#BaseProvider.StreamIdleTimeout>)
   - [func \(b \*BaseProvider\) StreamRetryBudget\(\) \*RetryBudget](<#BaseProvider.StreamRetryBudget>)
@@ -1034,7 +1036,7 @@ func ResolveTemperature(req *PredictionRequest, def float32) float32
 ResolveTemperature returns the temperature req sends: its own when it set one \(explicitly, or any non\-zero value\), otherwise the provider's default def. A zero without TemperatureSet is "unset", which is what every caller that predates TemperatureSet means by it.
 
 <a name="RetryCall"></a>
-## func [RetryCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rejected_params.go#L115>)
+## func [RetryCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rejected_params.go#L144>)
 
 ```go
 func RetryCall[T any](b *BaseProvider, req PredictionRequest, call func(PredictionRequest) (T, error)) (T, error)
@@ -1534,13 +1536,22 @@ func (b *BaseProvider) MediaLoader() *MediaLoader
 MediaLoader returns a per\-call MediaLoader configured with this provider's injected storage service \(if any\). Providers use it to resolve media parts \(ResolveURL for URL\-first providers, GetBase64Data for byte\-based ones\).
 
 <a name="BaseProvider.ParamRejected"></a>
-### func \(\*BaseProvider\) [ParamRejected](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rejected_params.go#L72>)
+### func \(\*BaseProvider\) [ParamRejected](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rejected_params.go#L101>)
 
 ```go
 func (b *BaseProvider) ParamRejected(param string) bool
 ```
 
 ParamRejected reports whether the API has rejected param for this provider's model. A rejected parameter is not sent.
+
+<a name="BaseProvider.ParamSupported"></a>
+### func \(\*BaseProvider\) [ParamSupported](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rejected_params.go#L92>)
+
+```go
+func (b *BaseProvider) ParamSupported(param string) bool
+```
+
+ParamSupported reports whether param may be sent: the config does not list it in unsupported\_params, and the API has not rejected it for this model.
 
 <a name="BaseProvider.RateLimiter"></a>
 ### func \(\*BaseProvider\) [RateLimiter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L817>)
@@ -1552,7 +1563,7 @@ func (b *BaseProvider) RateLimiter() *rate.Limiter
 RateLimiter returns the current rate limiter, or nil if rate limiting is not configured. This is useful for inspecting or sharing limiters.
 
 <a name="BaseProvider.RejectedParamNames"></a>
-### func \(\*BaseProvider\) [RejectedParamNames](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rejected_params.go#L82>)
+### func \(\*BaseProvider\) [RejectedParamNames](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rejected_params.go#L111>)
 
 ```go
 func (b *BaseProvider) RejectedParamNames() []string
@@ -1570,7 +1581,7 @@ func (b *BaseProvider) ReleaseStreamSlot()
 ReleaseStreamSlot returns a slot to the concurrent\-stream semaphore. Nil\-safe; must be paired with a successful AcquireStreamSlot.
 
 <a name="BaseProvider.RetryRejectedParams"></a>
-### func \(\*BaseProvider\) [RetryRejectedParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rejected_params.go#L101>)
+### func \(\*BaseProvider\) [RetryRejectedParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rejected_params.go#L130>)
 
 ```go
 func (b *BaseProvider) RetryRejectedParams(call func() error) error
@@ -1709,6 +1720,15 @@ func (b *BaseProvider) SetStreamSemaphore(sem *StreamSemaphore)
 ```
 
 SetStreamSemaphore installs a semaphore that caps concurrent streaming requests. Passing nil \(or a zero\-limit semaphore\) restores unlimited concurrency.
+
+<a name="BaseProvider.SetUnsupportedParams"></a>
+### func \(\*BaseProvider\) [SetUnsupportedParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rejected_params.go#L77>)
+
+```go
+func (b *BaseProvider) SetUnsupportedParams(params []string)
+```
+
+SetUnsupportedParams records the parameters the provider config says the model does not take \(unsupported\_params\). Call it while building the provider, before it serves a request.
 
 <a name="BaseProvider.ShouldIncludeRawOutput"></a>
 ### func \(\*BaseProvider\) [ShouldIncludeRawOutput](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L277>)
@@ -2800,7 +2820,7 @@ type PredictionResponse struct {
 ```
 
 <a name="RetryToolCall"></a>
-### func [RetryToolCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rejected_params.go#L127-L130>)
+### func [RetryToolCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rejected_params.go#L156-L159>)
 
 ```go
 func RetryToolCall(b *BaseProvider, req PredictionRequest, call func(PredictionRequest) (PredictionResponse, []types.MessageToolCall, error)) (PredictionResponse, []types.MessageToolCall, error)

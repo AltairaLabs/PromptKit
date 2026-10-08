@@ -117,9 +117,6 @@ type Provider struct {
 	defaults       providers.ProviderDefaults
 	platform       string
 	platformConfig *providers.PlatformConfig
-	// unsupportedParams holds model parameters the configured model rejects
-	// (e.g. Claude 4.7+ deprecated "temperature"). Populated from the spec.
-	unsupportedParams map[string]bool
 	// capabilities holds the declared capability set from the provider config.
 	// When non-nil it is authoritative for multimodal support; nil falls back
 	// to Claude's built-in defaults (images + documents, no audio/video).
@@ -132,25 +129,6 @@ type Provider struct {
 // setCapabilities records the declared capability set on the provider.
 func (p *Provider) setCapabilities(capabilities []string) {
 	p.capabilities = providers.CapabilitySet(capabilities)
-}
-
-// setUnsupportedParams records the model parameters that must be omitted from
-// requests. A no-op for an empty list so the common case stays nil.
-func (p *Provider) setUnsupportedParams(params []string) {
-	if len(params) == 0 {
-		return
-	}
-	p.unsupportedParams = make(map[string]bool, len(params))
-	for _, name := range params {
-		p.unsupportedParams[name] = true
-	}
-}
-
-// paramSupported reports whether the named request parameter may be sent to the
-// model. Parameters listed in the provider's UnsupportedParams are not.
-// Nor are parameters the API has rejected for this model (RetryRejectedParams).
-func (p *Provider) paramSupported(name string) bool {
-	return !p.unsupportedParams[name] && !p.ParamRejected(name)
 }
 
 // NewProvider creates a new Claude provider
@@ -531,12 +509,12 @@ func (p *Provider) buildBaseRequest(req providers.PredictionRequest, messages an
 	} else {
 		// Claude 4.7+ models reject temperature; only send it when supported.
 		// A zero is sent only when asked for: unset leaves the API's default.
-		if p.paramSupported("temperature") && (temperature != 0 || req.TemperatureSet) {
+		if p.ParamSupported("temperature") && (temperature != 0 || req.TemperatureSet) {
 			cr.Temperature = &temperature
 		}
 		// top_k is likewise incompatible with extended thinking, so it is
 		// sent only on this branch.
-		if p.paramSupported("top_k") {
+		if p.ParamSupported("top_k") {
 			cr.TopK = req.TopK
 		}
 	}

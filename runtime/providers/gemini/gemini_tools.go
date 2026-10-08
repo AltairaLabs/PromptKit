@@ -472,7 +472,7 @@ func (p *ToolProvider) buildToolRequest(
 		"temperature": temperature,
 		"topP":        topP,
 	}
-	if req.TopK != nil && p.paramSupported(providers.ParamTopK) {
+	if req.TopK != nil && p.ParamSupported(providers.ParamTopK) {
 		genConfig["topK"] = *req.TopK
 	}
 	p.warnUnsentPenalties(&req)
@@ -830,7 +830,7 @@ func init() {
 					spec.Platform, spec.PlatformConfig,
 				)
 				tp.setCapabilities(spec.Capabilities)
-				tp.setUnsupportedParams(spec.UnsupportedParams)
+				tp.SetUnsupportedParams(spec.UnsupportedParams)
 				applyExplicitCachingConfig(tp.Provider, spec)
 				applyThinkingConfig(tp.Provider, spec)
 				applyAPIModeConfig(tp.Provider, spec)
@@ -842,7 +842,7 @@ func init() {
 					spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput,
 				)
 				tp.setCapabilities(spec.Capabilities)
-				tp.setUnsupportedParams(spec.UnsupportedParams)
+				tp.SetUnsupportedParams(spec.UnsupportedParams)
 				applyExplicitCachingConfig(tp.Provider, spec)
 				applyThinkingConfig(tp.Provider, spec)
 				applyAPIModeConfig(tp.Provider, spec)

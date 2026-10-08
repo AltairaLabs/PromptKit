@@ -20,7 +20,7 @@ func TestApplyOptionalSampling_HonorsUnsupportedParams(t *testing.T) {
 	assert.Equal(t, &topK, cfg.TopK)
 
 	closed := &Provider{}
-	closed.setUnsupportedParams([]string{"top_k"})
+	closed.SetUnsupportedParams([]string{"top_k"})
 	cfg = geminiGenConfig{}
 	cfg.applyOptionalSampling(closed, req)
 	assert.Nil(t, cfg.TopK)

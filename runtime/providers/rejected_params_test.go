@@ -76,3 +76,28 @@ func TestRetryRejectedParams_EndsOnceNothingNewIsLearned(t *testing.T) {
 	assert.Equal(t, 1, calls, "no retry when nothing new was learned")
 	assert.ErrorContains(t, err, "top_p")
 }
+
+// A parameter is supported until the config lists it or the API rejects it,
+// including on a zero BaseProvider (a provider built without the constructor).
+func TestParamSupported_ConfiguredAndRejected(t *testing.T) {
+	var zero BaseProvider
+	assert.True(t, zero.ParamSupported(ParamTopK))
+	assert.Nil(t, zero.RejectedParamNames())
+	zero.SetUnsupportedParams(nil)
+	assert.True(t, zero.ParamSupported(ParamTopK), "an empty list declares nothing")
+	zero.SetUnsupportedParams([]string{ParamTopK})
+	assert.False(t, zero.ParamSupported(ParamTopK))
+	assert.True(t, zero.ParamSupported(ParamTopP))
+
+	b := NewBaseProvider("supported", false, http.DefaultClient)
+	err := b.RetryRejectedParams(func() error {
+		if b.ParamRejected(ParamTopP) {
+			return nil
+		}
+		return &ProviderHTTPError{StatusCode: http.StatusBadRequest,
+			Body: "Unsupported parameter: 'top_p' is not supported with this model."}
+	})
+	assert.NoError(t, err)
+	assert.False(t, b.ParamSupported(ParamTopP), "rejected by the API")
+	assert.Equal(t, []string{ParamTopP}, b.RejectedParamNames())
+}

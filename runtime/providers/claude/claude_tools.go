@@ -937,7 +937,7 @@ func init() {
 				spec.IncludeRawOutput, spec.Credential,
 				spec.Platform, spec.PlatformConfig,
 			)
-			tp.setUnsupportedParams(spec.UnsupportedParams)
+			tp.SetUnsupportedParams(spec.UnsupportedParams)
 			tp.setCapabilities(spec.Capabilities)
 			applyThinkingConfig(tp.Provider, spec)
 			applyStrictToolsConfig(tp, spec)
@@ -947,7 +947,7 @@ func init() {
 			tp := NewToolProvider(
 				spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput,
 			)
-			tp.setUnsupportedParams(spec.UnsupportedParams)
+			tp.SetUnsupportedParams(spec.UnsupportedParams)
 			tp.setCapabilities(spec.Capabilities)
 			applyThinkingConfig(tp.Provider, spec)
 			applyStrictToolsConfig(tp, spec)

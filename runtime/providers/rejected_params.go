@@ -61,10 +61,39 @@ func RejectedParams(err error) []string {
 	return out
 }
 
-// rejectedParams is the set of parameters a provider's API has rejected.
+// rejectedParams is the set of parameters a provider's API has rejected, and
+// those its config declares unsupported.
 type rejectedParams struct {
 	mu  sync.RWMutex
 	set map[string]bool
+	// configured is the provider config's unsupported_params, fixed once the
+	// provider is built.
+	configured map[string]bool
+}
+
+// SetUnsupportedParams records the parameters the provider config says the
+// model does not take (unsupported_params). Call it while building the
+// provider, before it serves a request.
+func (b *BaseProvider) SetUnsupportedParams(params []string) {
+	if len(params) == 0 {
+		return
+	}
+	if b.rejected == nil {
+		b.rejected = &rejectedParams{set: map[string]bool{}}
+	}
+	b.rejected.configured = make(map[string]bool, len(params))
+	for _, name := range params {
+		b.rejected.configured[name] = true
+	}
+}
+
+// ParamSupported reports whether param may be sent: the config does not list
+// it in unsupported_params, and the API has not rejected it for this model.
+func (b *BaseProvider) ParamSupported(param string) bool {
+	if b.rejected == nil {
+		return true
+	}
+	return !b.rejected.configured[param] && !b.ParamRejected(param)
 }
 
 // ParamRejected reports whether the API has rejected param for this
