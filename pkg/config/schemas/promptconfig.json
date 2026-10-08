@@ -1,0 +1,811 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://promptkit.altairalabs.ai/schemas/v1alpha1/promptconfig.json",
+  "$defs": {
+    "AudioConfig": {
+      "properties": {
+        "allowed_formats": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "max_duration_sec": {
+          "type": "integer"
+        },
+        "max_size_mb": {
+          "type": "integer"
+        },
+        "require_metadata": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ContentPart": {
+      "properties": {
+        "media": {
+          "$ref": "#/$defs/MediaReference"
+        },
+        "text": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "DocumentConfig": {
+      "properties": {
+        "allowed_formats": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "extraction_mode": {
+          "type": "string"
+        },
+        "max_pages": {
+          "type": "integer"
+        },
+        "max_size_mb": {
+          "type": "integer"
+        },
+        "require_metadata": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Eval": {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "groups": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "metric": {
+          "$ref": "#/$defs/MetricDef"
+        },
+        "params": {
+          "type": "object"
+        },
+        "sample_percentage": {
+          "type": "number"
+        },
+        "threshold": {
+          "$ref": "#/$defs/EvalThreshold"
+        },
+        "trigger": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "when": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "trigger",
+        "type"
+      ]
+    },
+    "EvalThreshold": {
+      "properties": {
+        "operator": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "FragmentRef": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "required"
+      ]
+    },
+    "Governance": {
+      "properties": {
+        "accountable_owner": {
+          "type": "string"
+        },
+        "approved_environments": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "autonomy_level": {
+          "type": "string"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "foreseeable_misuse": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "intended_deployment_contexts": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "intended_purpose": {
+          "type": "string"
+        },
+        "operator_role": {
+          "type": "string"
+        },
+        "requires_ai_disclosure": {
+          "type": "boolean"
+        },
+        "risk_classification": {
+          "type": "string"
+        },
+        "vocabularies": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ImageConfig": {
+      "properties": {
+        "allowed_formats": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "default_detail": {
+          "type": "string"
+        },
+        "max_images_per_msg": {
+          "type": "integer"
+        },
+        "max_size_mb": {
+          "type": "integer"
+        },
+        "require_caption": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "MediaConfig": {
+      "properties": {
+        "audio": {
+          "$ref": "#/$defs/AudioConfig"
+        },
+        "document": {
+          "$ref": "#/$defs/DocumentConfig"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "examples": {
+          "items": {
+            "$ref": "#/$defs/MultimodalExample"
+          },
+          "type": "array"
+        },
+        "image": {
+          "$ref": "#/$defs/ImageConfig"
+        },
+        "supported_types": {
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "type": "array"
+        },
+        "video": {
+          "$ref": "#/$defs/VideoConfig"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "enabled"
+      ]
+    },
+    "MediaReference": {
+      "properties": {
+        "base64": {
+          "type": "string"
+        },
+        "caption": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "file_path": {
+          "type": "string"
+        },
+        "mime_type": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "mime_type"
+      ]
+    },
+    "MetricDef": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-zA-Z_:][a-zA-Z0-9_:]*$"
+        },
+        "range": {
+          "$ref": "#/$defs/MetricDefRange"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true,
+      "type": "object",
+      "required": [
+        "name",
+        "type"
+      ]
+    },
+    "MetricDefRange": {
+      "properties": {
+        "max": {
+          "type": "number"
+        },
+        "min": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ModelOverride": {
+      "properties": {
+        "parameters": {
+          "$ref": "#/$defs/Parameters"
+        },
+        "system_template": {
+          "type": "string"
+        },
+        "system_template_prefix": {
+          "type": "string"
+        },
+        "system_template_suffix": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "MultimodalExample": {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "parts": {
+          "items": {
+            "$ref": "#/$defs/ContentPart"
+          },
+          "type": "array"
+        },
+        "role": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "parts",
+        "role"
+      ]
+    },
+    "ObjectMeta": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "title": "Name",
+          "description": "Name of the resource"
+        },
+        "namespace": {
+          "type": "string",
+          "title": "Namespace",
+          "description": "Namespace for the resource"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Labels",
+          "description": "Key-value pairs for organizing resources"
+        },
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "title": "Annotations",
+          "description": "Additional metadata"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "PackCompilation": {
+      "properties": {
+        "compiled_with": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "schema": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "compiled_with",
+        "created_at",
+        "schema"
+      ]
+    },
+    "PackMetadata": {
+      "properties": {
+        "cost_estimate": {
+          "$ref": "#/$defs/PackMetadataCostEstimate"
+        },
+        "domain": {
+          "type": "string"
+        },
+        "governance": {
+          "$ref": "#/$defs/Governance"
+        },
+        "language": {
+          "type": "string",
+          "pattern": "^[a-z]{2}$"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": true,
+      "type": "object"
+    },
+    "PackMetadataCostEstimate": {
+      "properties": {
+        "avg_cost_usd": {
+          "type": "number"
+        },
+        "max_cost_usd": {
+          "type": "number"
+        },
+        "min_cost_usd": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "PackTemplateEngine": {
+      "properties": {
+        "features": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "syntax": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "syntax",
+        "version"
+      ]
+    },
+    "Parameters": {
+      "properties": {
+        "frequency_penalty": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "integer"
+        },
+        "presence_penalty": {
+          "type": "number"
+        },
+        "temperature": {
+          "type": "number"
+        },
+        "top_k": {
+          "type": "integer"
+        },
+        "top_p": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "Spec": {
+      "properties": {
+        "task_type": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^v?(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+        },
+        "description": {
+          "type": "string"
+        },
+        "template_engine": {
+          "$ref": "#/$defs/PackTemplateEngine"
+        },
+        "fragments": {
+          "items": {
+            "$ref": "#/$defs/FragmentRef"
+          },
+          "type": "array"
+        },
+        "system_template": {
+          "type": "string"
+        },
+        "variables": {
+          "items": {
+            "$ref": "#/$defs/VariableMetadata"
+          },
+          "type": "array"
+        },
+        "model_overrides": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ModelOverride"
+          },
+          "type": "object"
+        },
+        "allowed_tools": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "media": {
+          "$ref": "#/$defs/MediaConfig"
+        },
+        "validators": {
+          "items": {
+            "$ref": "#/$defs/ValidatorConfig"
+          },
+          "type": "array"
+        },
+        "tested_models": {
+          "items": {
+            "$ref": "#/$defs/TestedModel"
+          },
+          "type": "array"
+        },
+        "tool_policy": {
+          "$ref": "#/$defs/ToolPolicy"
+        },
+        "parameters": {
+          "$ref": "#/$defs/Parameters"
+        },
+        "evals": {
+          "items": {
+            "$ref": "#/$defs/Eval"
+          },
+          "type": "array"
+        },
+        "metadata": {
+          "$ref": "#/$defs/PackMetadata"
+        },
+        "compilation": {
+          "$ref": "#/$defs/PackCompilation"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "task_type",
+        "version",
+        "description",
+        "system_template"
+      ]
+    },
+    "TestedModel": {
+      "properties": {
+        "avg_cost": {
+          "type": "number"
+        },
+        "avg_latency_ms": {
+          "type": "number"
+        },
+        "avg_tokens": {
+          "type": "number"
+        },
+        "date": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "success_rate": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "date",
+        "model",
+        "provider"
+      ]
+    },
+    "ToolPolicy": {
+      "properties": {
+        "blocklist": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "max_rounds": {
+          "type": "integer"
+        },
+        "max_tool_calls_per_turn": {
+          "type": "integer"
+        },
+        "tool_choice": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ValidatorConfig": {
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "fail_on_violation": {
+          "type": "boolean"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "params"
+      ]
+    },
+    "VariableBinding": {
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "field": {
+          "type": "string"
+        },
+        "autoPopulate": {
+          "type": "boolean"
+        },
+        "filter": {
+          "$ref": "#/$defs/VariableBindingFilter"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind"
+      ]
+    },
+    "VariableBindingFilter": {
+      "properties": {
+        "capability": {
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "VariableMetadata": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
+        },
+        "type": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "default": true,
+        "description": {
+          "type": "string"
+        },
+        "example": true,
+        "validation": {
+          "type": "object"
+        },
+        "binding": {
+          "$ref": "#/$defs/VariableBinding"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "required"
+      ]
+    },
+    "VideoConfig": {
+      "properties": {
+        "allowed_formats": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "max_duration_sec": {
+          "type": "integer"
+        },
+        "max_size_mb": {
+          "type": "integer"
+        },
+        "require_metadata": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    }
+  },
+  "properties": {
+    "apiVersion": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/ObjectMeta"
+    },
+    "spec": {
+      "$ref": "#/$defs/Spec"
+    },
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "description": "JSON Schema reference URL"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "apiVersion",
+    "kind",
+    "spec"
+  ],
+  "title": "PromptKit Prompt Configuration",
+  "description": "Prompt configuration for PromptKit",
+  "examples": [
+    {
+      "apiVersion": "promptkit.altairalabs.ai/v1alpha1",
+      "kind": "PromptConfig",
+      "metadata": {
+        "name": "customer-support"
+      },
+      "spec": {
+        "description": "Customer support assistant",
+        "system_template": "You are a helpful customer support assistant.",
+        "task_type": "support",
+        "version": "1.0.0"
+      }
+    }
+  ]
+}

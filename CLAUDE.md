@@ -77,17 +77,19 @@ go -C runtime test ./evals/... -count=1
 
 | Target | Regenerates | Check target |
 |---|---|---|
-| `make schemas` | `schemas/v1alpha1/` from promptarena | `make schemas-check` |
+| `make schemas` | `schemas/v1alpha1/` from promptarena, plus its `pkg/config/schemas/` mirror | `make schemas-check` |
 | `make packspec` | `runtime/packspec` pack types from the embedded schema | `make packspec-check` |
 | `make promptpack-schema` | the embedded PromptPack schema from its release | `make promptpack-schema-check` |
 | `make docs-reference` / `make docs-sdk-reference` | generated API reference pages | `…-check` variants |
 
 ### Two things the targets don't cover
 
-- **Schema-validating tests need `PROMPTKIT_SCHEMA_SOURCE=local`.** Unset, `pkg/config`
-  validates against the *hosted* schemas, so edits to `schemas/v1alpha1/` are invisible and
-  the suite passes regardless of whether the change is correct. CI sets it; local runs must
-  too: `env PROMPTKIT_SCHEMA_SOURCE=local go -C pkg test ./config/... -count=1`
+- **`pkg/config` validates against its embedded mirror, `pkg/config/schemas/`.** go:embed
+  can't reach `schemas/v1alpha1/`, so `make schemas` refreshes both and
+  `TestEmbeddedSchemas_MatchCommittedCopy` fails when they differ. To test edits to
+  `schemas/v1alpha1/` before mirroring them, set `PROMPTKIT_SCHEMA_SOURCE=local` (CI does):
+  `env PROMPTKIT_SCHEMA_SOURCE=local go -C pkg test ./config/... -count=1`. `=remote` fetches
+  the hosted copy.
 - **Nested example modules have their own `go.mod`.** `make build` covers the four
   published modules; it does not compile `sdk/examples/*`, and neither does
   `go -C sdk build ./...`. CI catches breakage there, so check them before claiming green.
@@ -119,7 +121,7 @@ host: it keeps a committed copy under `schemas/v1alpha1/` (loaded by
 `pkg/config`'s validator and used by promptarena/packc via the hosted URL) and
 serves it at `https://promptkit.altairalabs.ai/schemas/{v1alpha1,latest}/`.
 
-- Refresh the committed copy from promptarena: `make schemas` (fetches via `scripts/fetch-schemas.sh`), then commit.
+- Refresh the committed copy from promptarena: `make schemas` (fetches via `scripts/fetch-schemas.sh` and mirrors into `pkg/config/schemas/`), then commit both.
 - CI (`schemas.yml`) runs `make schemas-check` — fails if the committed copy drifts from promptarena's generated schemas.
 - `PROMPTKIT_SCHEMA_SOURCE=local` validates against in-repo `schemas/v1alpha1/`; a development-only tool that must not appear in shipped docs or example READMEs.
 
@@ -131,7 +133,7 @@ regeneration and fails that check.
 
 | Artifact | Source of truth | Regenerate |
 |---|---|---|
-| `schemas/v1alpha1/*.json` | promptarena's `tools/schema-gen` | fix promptarena, then `make schemas` |
+| `schemas/v1alpha1/*.json`, `pkg/config/schemas/*.json` | promptarena's `tools/schema-gen` | fix promptarena, then `make schemas` |
 | `runtime/prompt/schema/promptpack.schema.json` | the PromptPack spec release — a **verbatim mirror**; runtime divergence belongs in `deliberateOmission`, never in the file | `make promptpack-schema` |
 | `runtime/packspec/*.go` | the embedded schema above | `make packspec` |
 | `runtime/mcp/testdata/spec/<rev>/schema.json` | the official MCP schemas for `mcp.ProtocolVersion` and `mcp.LegacyProtocolVersion` — **verbatim mirrors**; a field the client doesn't carry is a `specOmission` in `runtime/mcp/spec_parity_test.go` | `make mcp-schema` |

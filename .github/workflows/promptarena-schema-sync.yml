@@ -55,8 +55,10 @@ jobs:
       with:
         go-version: '1.26.0'
 
+    # make schemas, not the bare script: it also refreshes pkg/config/schemas,
+    # the copy pkg/config embeds and validates against by default.
     - name: Fetch the generated schemas
-      run: ./scripts/fetch-schemas.sh
+      run: make schemas
 
     # git status, not git diff: a schema file that is NEW upstream lands here
     # untracked, and `git diff` does not list untracked files — so a new schema
@@ -65,7 +67,7 @@ jobs:
     - name: Detect change
       id: detect
       run: |
-        CHANGES=$(git status --porcelain --untracked-files=all -- schemas/v1alpha1)
+        CHANGES=$(git status --porcelain --untracked-files=all -- schemas/v1alpha1 pkg/config/schemas)
         if [ -z "$CHANGES" ]; then
           echo "changed=false" >> "$GITHUB_OUTPUT"
           echo "✓ Committed schemas already match promptarena"
@@ -81,10 +83,10 @@ jobs:
         fi
 
     # The guard that matters for THIS mirror. pkg/config validates against the
-    # committed copy, but only when PROMPTKIT_SCHEMA_SOURCE=local — unset, it
-    # validates against the HOSTED schemas and passes regardless of what this PR
-    # changed. Running it here lets the PR body say up front whether the new
-    # schemas still accept the configs this repo ships.
+    # embedded mirror by default and against schemas/v1alpha1 with
+    # PROMPTKIT_SCHEMA_SOURCE=local; make schemas refreshed both. Running it here
+    # lets the PR body say up front whether the new schemas still accept the
+    # configs this repo ships.
     - name: Check pkg/config against the new schemas
       if: steps.detect.outputs.changed == 'true'
       id: guards
@@ -126,7 +128,7 @@ jobs:
         git config user.name "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
         git checkout -B "$BRANCH"
-        git add schemas/v1alpha1
+        git add schemas/v1alpha1 pkg/config/schemas
         git commit -s -m "chore(schema): sync committed schemas with promptarena
 
         Fetched by scripts/fetch-schemas.sh from the schemas promptarena
