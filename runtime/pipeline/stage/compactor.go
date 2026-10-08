@@ -21,6 +21,11 @@ type CompactResult struct {
 	OriginalTokens  int
 	CompactedTokens int
 	MessagesFolded  int
+	// RemovedIndices are the positions, in the messages Compact was given,
+	// of the messages it removed (in ascending order); nil when it removed
+	// none or does not report them. The provider stage uses them to keep its
+	// message-log bookkeeping in step.
+	RemovedIndices []int
 }
 
 // CompactionStrategy is the top-level interface for context compaction.
@@ -123,6 +128,8 @@ func (c *ContextCompactor) TokenBudget() int {
 }
 
 // Compact applies rules to fold stale messages until under budget.
+// lastInputTokens is the round's whole input (messages, system prompt and
+// tool definitions) when known; 0 counts the messages alone.
 // Safe to call on a nil receiver (returns messages unchanged).
 func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int) CompactResult {
 	noOp := CompactResult{Messages: messages}
@@ -211,12 +218,15 @@ func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int
 	}
 
 	// Build final message slice, excluding removed indices
+	var removedIndices []int
 	if len(removed) > 0 {
 		final := make([]types.Message, 0, len(compacted)-len(removed))
 		for i := range compacted {
-			if !removed[i] {
-				final = append(final, compacted[i])
+			if removed[i] {
+				removedIndices = append(removedIndices, i)
+				continue
 			}
+			final = append(final, compacted[i])
 		}
 		compacted = final
 	}
@@ -234,6 +244,7 @@ func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int
 		OriginalTokens:  originalTokens,
 		CompactedTokens: totalTokens,
 		MessagesFolded:  messagesFolded,
+		RemovedIndices:  removedIndices,
 	}
 }
 

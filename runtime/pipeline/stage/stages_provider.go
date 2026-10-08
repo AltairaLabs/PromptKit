@@ -24,6 +24,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tokenizer"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -934,6 +935,7 @@ func (s *ProviderStage) applyStateHandoff(
 	acc.systemPrompt = handoff.SystemPrompt
 	acc.allowedTools = handoff.AllowedTools
 	loop.providerTools = rebuilt
+	loop.invalidateReserve()
 	if providerChanged {
 		loop.cachingSupported = supportsPromptCaching(s.callProvider())
 	}
@@ -947,6 +949,54 @@ func (s *ProviderStage) applyStateHandoff(
 		s.turnState.AllowedTools = handoff.AllowedTools
 	}
 	return false, nil
+}
+
+// reservedTokens estimates what the next round sends besides its messages —
+// the system prompt and the tool definitions — computed once and again only
+// after a handoff or a tool rebuild changes them (invalidateReserve).
+func (tl *toolLoop) reservedTokens() int {
+	if tl.reserveValid {
+		return tl.reserve
+	}
+	tokens := 0
+	if tl.acc != nil {
+		tokens = tokenizer.CountTokens(tl.acc.systemPrompt)
+	}
+	if tl.providerTools != nil {
+		raw, err := json.Marshal(tl.providerTools)
+		if err != nil {
+			logger.Debug("tool definitions not counted toward the compaction reserve", "error", err)
+		} else {
+			tokens += tokenizer.CountTokens(string(raw))
+		}
+	}
+	tl.reserve, tl.reserveValid = tokens, true
+	return tokens
+}
+
+// invalidateReserve marks the reserve stale after the system prompt or the
+// tool definitions changed.
+func (tl *toolLoop) invalidateReserve() { tl.reserveValid = false }
+
+// movePersistedBoundary keeps persistedIdx pointing past the messages already
+// in the log after a compaction removed some: only removals before the
+// boundary move it. A strategy that does not report which it removed is
+// taken to have removed persisted ones, the usual case since persistence
+// follows every round.
+func (tl *toolLoop) movePersistedBoundary(before int, cr *CompactResult) {
+	removed := before - len(cr.Messages)
+	if removed <= 0 {
+		return
+	}
+	if cr.RemovedIndices != nil {
+		removed = 0
+		for _, i := range cr.RemovedIndices {
+			if i < tl.persistedIdx {
+				removed++
+			}
+		}
+	}
+	tl.persistedIdx = max(0, tl.persistedIdx-removed)
 }
 
 // compactBeforeRound folds stale tool results to the budget of the provider
@@ -966,8 +1016,25 @@ func (tl *toolLoop) compactBeforeRound(round int) {
 	if pb, ok := compactor.(ProviderBudgetedCompaction); ok {
 		compactor = pb.ForProvider(tl.stage.callProvider())
 	}
-	cr := compactor.Compact(tl.messages, 0)
+	// Compact against the round's whole input: the messages plus what else it
+	// sends, so a large system prompt or many tools leave the messages less
+	// room. Passed as lastInputTokens, which every strategy, a wrapper
+	// included, already compares against its budget.
+	input := 0
+	if budget := compactor.TokenBudget(); budget > 0 {
+		reserved := tl.reservedTokens()
+		if reserved >= budget && !tl.warnedReserve {
+			tl.warnedReserve = true
+			logger.Warn("the system prompt and tool definitions alone fill the context window; "+
+				"compacting the messages cannot make the request fit",
+				"reserved_tokens", reserved, "budget_tokens", budget)
+		}
+		input = tokenizer.CountMessageTokensDefault(tl.messages) + reserved
+	}
+	before := len(tl.messages)
+	cr := compactor.Compact(tl.messages, input)
 	tl.messages = cr.Messages
+	tl.movePersistedBoundary(before, &cr)
 	if cr.MessagesFolded > 0 && tl.stage.emitter != nil {
 		// Reported against the round whose results were compacted.
 		tl.stage.emitter.ContextCompacted(round-1, cr.OriginalTokens, cr.CompactedTokens,
@@ -1276,7 +1343,11 @@ type toolLoop struct {
 	excluded            map[string]bool
 	rejectionCounts     map[string]int
 	identicalCallCounts map[string]int // keyed by "toolName\x00<canonical-args>"
-	lastPersistedSeq    int            // messages persisted so far via MessageLog
+	lastPersistedSeq    int            // messages in the MessageLog: LogAppend's next start seq
+	persistedIdx        int            // tl.messages[:persistedIdx] are already in the log
+	reserve             int            // tokens the system prompt and tools take (reservedTokens)
+	reserveValid        bool           // reserve is current
+	warnedReserve       bool           // one-time warning that the reserve fills the window
 	cumulativeCost      float64        // accumulated cost across rounds
 	cumulativeInput     int            // accumulated input tokens across this loop's rounds
 	cumulativeCached    int            // accumulated cache-read tokens across this loop's rounds
@@ -1363,6 +1434,7 @@ func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
 		identicalCallCounts: map[string]int{},
 		cachingSupported:    cachingSupported,
 		lastPersistedSeq:    len(acc.messages), // history already in store
+		persistedIdx:        len(acc.messages),
 		// Seed with the cost already incurred in this conversation (prior
 		// turns), so MaxCostUSD bounds the whole RUN, not just this turn's
 		// loop. Arena builds a fresh pipeline (and toolLoop) per turn, so
@@ -1486,6 +1558,7 @@ func (tl *toolLoop) afterRound(
 			return true, tl.messages, fmt.Errorf("provider stage: rebuild tools: %w", rebuildErr)
 		}
 		tl.providerTools = rebuilt
+		tl.invalidateReserve()
 	}
 
 	tl.toolChoice = toolChoiceAuto
@@ -1494,6 +1567,7 @@ func (tl *toolLoop) afterRound(
 	// round is the model's answer rather than more calls to reject.
 	if limit := tl.stage.getMaxToolCallsPerTurn(); limit > 0 && tl.toolCallsExecuted >= limit {
 		tl.providerTools = nil
+		tl.invalidateReserve()
 		tl.toolChoice = ""
 	}
 
@@ -1554,10 +1628,10 @@ func overBudgetResults(calls []types.MessageToolCall) []types.Message {
 // turns, so this is safe to call on every turn start.
 func (tl *toolLoop) preSeedLog(ctx context.Context) {
 	cfg := tl.stage.config
-	if cfg == nil || cfg.MessageLog == nil || tl.lastPersistedSeq == 0 {
+	if cfg == nil || cfg.MessageLog == nil || tl.persistedIdx == 0 {
 		return
 	}
-	history := tl.messages[:tl.lastPersistedSeq]
+	history := tl.messages[:tl.persistedIdx]
 	if len(history) == 0 {
 		return
 	}
@@ -1583,14 +1657,11 @@ func (tl *toolLoop) persistMessages(ctx context.Context, round int) {
 	if cfg == nil || cfg.MessageLog == nil {
 		return
 	}
-	if tl.lastPersistedSeq > len(tl.messages) {
-		// A compaction rule that removes messages (CollapsePairs) shrank the
-		// transcript below what was persisted; nothing here is new.
-		logger.Warn("message log: transcript shorter than persisted after compaction; skipping append",
-			"round", round, "persisted", tl.lastPersistedSeq, "messages", len(tl.messages))
-		return
-	}
-	newMsgs := tl.messages[tl.lastPersistedSeq:]
+	// The log's count and the transcript's persisted boundary are separate
+	// numbers: the log can hold more history than this turn loaded, and a
+	// compaction rule that removes messages (CollapsePairs) moves the boundary
+	// back without changing the log.
+	newMsgs := tl.messages[min(tl.persistedIdx, len(tl.messages)):]
 	if len(newMsgs) == 0 {
 		return
 	}
@@ -1600,6 +1671,7 @@ func (tl *toolLoop) persistMessages(ctx context.Context, round int) {
 		return
 	}
 	tl.lastPersistedSeq = newTotal
+	tl.persistedIdx = len(tl.messages)
 }
 
 func (s *ProviderStage) executeRound(
