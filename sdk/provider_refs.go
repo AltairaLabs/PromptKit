@@ -164,10 +164,15 @@ func collectCallSiteRefs(p *pack.Pack) []callSiteRef {
 		return nil
 	}
 	var refs []callSiteRef
+	stateTasks := workflowStateTasks(p)
 	for _, name := range sortedKeys(p.Prompts) {
 		if pr := p.Prompts[name]; pr != nil && isNamedKey(pr.Provider) {
+			// A workflow state's prompt needs tools even when it declares
+			// none: the transition tool is offered to it, and a mid-turn
+			// handoff reaches it with the transition call in the history.
 			refs = append(refs, callSiteRef{
-				site: fmt.Sprintf("prompt %q", name), key: pr.Provider, needTools: len(pr.Tools) > 0,
+				site: fmt.Sprintf("prompt %q", name), key: pr.Provider,
+				needTools: len(pr.Tools) > 0 || stateTasks[name],
 			})
 		}
 	}
@@ -260,6 +265,20 @@ func resolveAgentProvider(cfg *config, p *pack.Pack) error {
 	return err
 }
 
+// workflowStateTasks returns the prompt tasks the pack's workflow states run.
+func workflowStateTasks(p *pack.Pack) map[string]bool {
+	tasks := map[string]bool{}
+	if p.Workflow == nil {
+		return tasks
+	}
+	for _, st := range p.Workflow.States {
+		if st != nil && st.PromptTask != "" {
+			tasks[st.PromptTask] = true
+		}
+	}
+	return tasks
+}
+
 func isNamedKey(key string) bool {
 	return key != "" && key != rtprompt.RequirementKeyDefault
 }
@@ -288,12 +307,23 @@ func (c *Conversation) callModel() string {
 // resolvePromptProvider resolves the provider for an opened prompt and records
 // it on the conversation. checkCallProviders has already validated the key.
 func (c *Conversation) resolvePromptProvider() (providers.Provider, error) {
-	key := callProviderKey(c.pack, c.promptName, "")
-	prov, err := resolveCallProvider(c.config, key)
+	prov, err := resolvePromptCallProvider(c.pack, c.config, c.promptName)
 	if err != nil {
-		return nil, fmt.Errorf("prompt %q: provider %q: %w", c.promptName, key, err)
+		return nil, err
 	}
 	c.provider = prov
+	return prov, nil
+}
+
+// resolvePromptCallProvider returns the provider a call to task's prompt runs
+// on, outside any composition step: the one place Open and a workflow handoff
+// both pick it.
+func resolvePromptCallProvider(p *pack.Pack, cfg *config, task string) (providers.Provider, error) {
+	key := callProviderKey(p, task, "")
+	prov, err := resolveCallProvider(cfg, key)
+	if err != nil {
+		return nil, fmt.Errorf("prompt %q: provider %q: %w", task, key, err)
+	}
 	return prov, nil
 }
 

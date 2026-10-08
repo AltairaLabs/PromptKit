@@ -922,8 +922,13 @@ func sameProvider(a, b providers.Provider) bool {
 		return a == nil && b == nil
 	}
 	ta := reflect.TypeOf(a)
-	if ta != reflect.TypeOf(b) || !ta.Comparable() {
+	if ta != reflect.TypeOf(b) {
 		return false
+	}
+	if !ta.Comparable() {
+		// A value-type provider holding a map or slice: identity is out of
+		// reach, so the same type and id stands for the same provider.
+		return a.ID() == b.ID()
 	}
 	return a == b
 }
@@ -1268,8 +1273,7 @@ func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
 	if err != nil {
 		return nil, fmt.Errorf("provider stage: %w", err)
 	}
-	cachingSupported := false
-	cachingSupported = supportsPromptCaching(s.callProvider())
+	cachingSupported := supportsPromptCaching(s.callProvider())
 	return &toolLoop{
 		stage:               s,
 		acc:                 acc,
@@ -1538,6 +1542,7 @@ func (s *ProviderStage) executeRound(
 	metadata map[string]interface{},
 ) (types.Message, bool, error) {
 	round := rr.round
+	prov := s.callProvider() // one read per round: events, call and cost agree
 	ResetIdleFromContext(ctx)
 	// Interrupted replies stay in the transcript but never go back to the
 	// model, its guardrails, or the tool-path decision.
@@ -1580,8 +1585,8 @@ func (s *ProviderStage) executeRound(
 	// Emit provider call started event
 	if s.emitter != nil {
 		s.emitter.ProviderCallStartedCtx(ctx, &events.ProviderCallStartedData{
-			Provider:     s.callProvider().ID(),
-			Model:        s.callProvider().Model(),
+			Provider:     prov.ID(),
+			Model:        prov.Model(),
 			MessageCount: len(messages),
 			ToolCount:    toolCount,
 			Labels:       s.config.Labels,
@@ -1596,7 +1601,7 @@ func (s *ProviderStage) executeRound(
 	var toolCalls []types.MessageToolCall
 	var err error
 
-	toolProvider, supportsTools := s.callProvider().(providers.ToolSupport)
+	toolProvider, supportsTools := prov.(providers.ToolSupport)
 	if s.useToolPath(providerTools, req.Messages, supportsTools) {
 		// Use tool-aware provider interface
 		if !supportsTools {
@@ -1605,7 +1610,7 @@ func (s *ProviderStage) executeRound(
 		resp, toolCalls, err = toolProvider.PredictWithTools(ctx, req, providerTools, toolChoice)
 	} else {
 		// Regular prediction
-		resp, err = s.callProvider().Predict(ctx, req)
+		resp, err = prov.Predict(ctx, req)
 		toolCalls = resp.ToolCalls
 	}
 
@@ -1616,8 +1621,8 @@ func (s *ProviderStage) executeRound(
 		// Emit provider call failed event
 		if s.emitter != nil {
 			s.emitter.ProviderCallFailedCtx(ctx, &events.ProviderCallFailedData{
-				Provider: s.callProvider().ID(),
-				Model:    s.callProvider().Model(),
+				Provider: prov.ID(),
+				Model:    prov.Model(),
 				Error:    err,
 				Duration: duration,
 				Source:   s.config.Source,
@@ -1632,8 +1637,8 @@ func (s *ProviderStage) executeRound(
 	// Emit provider call completed event
 	if s.emitter != nil {
 		completedData := &events.ProviderCallCompletedData{
-			Provider:      s.callProvider().ID(),
-			Model:         s.callProvider().Model(),
+			Provider:      prov.ID(),
+			Model:         prov.Model(),
 			Duration:      duration,
 			ToolCallCount: len(toolCalls),
 			FinishReason:  resp.FinishReason,
@@ -1659,10 +1664,10 @@ func (s *ProviderStage) executeRound(
 	// and capability discriminator the breakdown / aggregation paths expect.
 	if resp.CostInfo != nil {
 		if resp.CostInfo.ProviderName == "" {
-			resp.CostInfo.ProviderName = s.callProvider().Name()
+			resp.CostInfo.ProviderName = prov.Name()
 		}
 		if resp.CostInfo.Capability == "" {
-			resp.CostInfo.Capability = string(s.callProvider().Type())
+			resp.CostInfo.Capability = string(prov.Type())
 		}
 		if resp.CostInfo.Latency == 0 {
 			resp.CostInfo.Latency = duration
@@ -1715,6 +1720,7 @@ func (s *ProviderStage) executeStreamingRound(
 	output chan<- StreamElement,
 ) (types.Message, bool, error) {
 	ResetIdleFromContext(ctx)
+	prov := s.callProvider() // one read per round: events, call and cost agree
 	// Interrupted replies stay in the transcript but never go back to the
 	// model, its guardrails, or the tool-path decision.
 	params.messages = types.ExcludeInterrupted(params.messages)
@@ -1761,8 +1767,8 @@ func (s *ProviderStage) executeStreamingRound(
 	// Emit provider call started event
 	if s.emitter != nil {
 		s.emitter.ProviderCallStartedCtx(ctx, &events.ProviderCallStartedData{
-			Provider:     s.callProvider().ID(),
-			Model:        s.callProvider().Model(),
+			Provider:     prov.ID(),
+			Model:        prov.Model(),
 			MessageCount: len(params.messages),
 			ToolCount:    toolCount,
 			Labels:       s.config.Labels,
@@ -1780,8 +1786,8 @@ func (s *ProviderStage) executeStreamingRound(
 		// Emit provider call failed event
 		if s.emitter != nil {
 			s.emitter.ProviderCallFailedCtx(ctx, &events.ProviderCallFailedData{
-				Provider: s.callProvider().ID(),
-				Model:    s.callProvider().Model(),
+				Provider: prov.ID(),
+				Model:    prov.Model(),
 				Error:    err,
 				Duration: duration,
 				Source:   s.config.Source,
@@ -1805,8 +1811,8 @@ func (s *ProviderStage) executeStreamingRound(
 		// Emit provider call failed event
 		if s.emitter != nil {
 			s.emitter.ProviderCallFailedCtx(ctx, &events.ProviderCallFailedData{
-				Provider: s.callProvider().ID(),
-				Model:    s.callProvider().Model(),
+				Provider: prov.ID(),
+				Model:    prov.Model(),
 				Error:    err,
 				Duration: duration,
 				Source:   s.config.Source,
@@ -1821,8 +1827,8 @@ func (s *ProviderStage) executeStreamingRound(
 	// Emit provider call completed event with cost info from streaming response
 	if s.emitter != nil {
 		completedData := &events.ProviderCallCompletedData{
-			Provider:      s.callProvider().ID(),
-			Model:         s.callProvider().Model(),
+			Provider:      prov.ID(),
+			Model:         prov.Model(),
 			Duration:      duration,
 			ToolCallCount: len(toolCalls),
 			FinishReason:  finishReason,
@@ -1846,10 +1852,10 @@ func (s *ProviderStage) executeStreamingRound(
 	// provider/capability stamp.
 	if costInfo != nil {
 		if costInfo.ProviderName == "" {
-			costInfo.ProviderName = s.callProvider().Name()
+			costInfo.ProviderName = prov.Name()
 		}
 		if costInfo.Capability == "" {
-			costInfo.Capability = string(s.callProvider().Type())
+			costInfo.Capability = string(prov.Type())
 		}
 		if costInfo.Latency == 0 {
 			costInfo.Latency = duration
@@ -1941,11 +1947,19 @@ func (s *ProviderStage) startStreamingRequest(
 	providerTools interface{},
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
-	toolProvider, supportsTools := s.callProvider().(providers.ToolSupport)
-	if s.useToolPath(providerTools, req.Messages, supportsTools) {
-		if !supportsTools {
-			return nil, errors.New("provider does not support tools")
-		}
+	prov := s.callProvider()
+	toolProvider, supportsTools := prov.(providers.ToolSupport)
+	useTools := s.useToolPath(providerTools, req.Messages, supportsTools)
+	if useTools && !supportsTools {
+		return nil, errors.New("provider does not support tools")
+	}
+	// A workflow handoff can switch a streaming turn to a provider that does
+	// not stream. Call it whole and present the reply as one final chunk, so
+	// the rest of the streaming loop is unchanged.
+	if !prov.SupportsStreaming() {
+		return s.predictAsStream(ctx, prov, toolProvider, useTools, req, providerTools, toolChoice)
+	}
+	if useTools {
 		streamChan, err := toolProvider.PredictStreamWithTools(ctx, req, providerTools, toolChoice)
 		if err != nil {
 			logger.Error("Provider stream failed", "error", err)
@@ -1954,12 +1968,60 @@ func (s *ProviderStage) startStreamingRequest(
 		return streamChan, nil
 	}
 
-	streamChan, err := s.callProvider().PredictStream(ctx, req)
+	streamChan, err := prov.PredictStream(ctx, req)
 	if err != nil {
 		logger.Error("Provider stream failed", "error", err)
 		return nil, fmt.Errorf("provider stream failed: %w", err)
 	}
 	return streamChan, nil
+}
+
+// Finish reasons predictAsStream stamps when the provider reports none.
+const (
+	finishReasonStop      = "stop"
+	finishReasonToolCalls = "tool_calls"
+)
+
+// predictAsStream runs a non-streaming call and returns its reply as a single
+// final stream chunk.
+func (s *ProviderStage) predictAsStream(
+	ctx context.Context,
+	prov providers.Provider,
+	toolProvider providers.ToolSupport,
+	useTools bool,
+	req providers.PredictionRequest,
+	providerTools interface{},
+	toolChoice string,
+) (<-chan providers.StreamChunk, error) {
+	var (
+		resp providers.PredictionResponse
+		err  error
+	)
+	if useTools {
+		resp, _, err = toolProvider.PredictWithTools(ctx, req, providerTools, toolChoice)
+	} else {
+		resp, err = prov.Predict(ctx, req)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("provider call failed: %w", err)
+	}
+	finish := resp.FinishReason
+	if finish == "" {
+		finish = finishReasonStop
+		if len(resp.ToolCalls) > 0 {
+			finish = finishReasonToolCalls
+		}
+	}
+	out := make(chan providers.StreamChunk, 1)
+	out <- providers.StreamChunk{
+		Content:      resp.Content,
+		Delta:        resp.Content,
+		ToolCalls:    resp.ToolCalls,
+		CostInfo:     resp.CostInfo,
+		FinishReason: &finish,
+	}
+	close(out)
+	return out, nil
 }
 
 // streamedRound is what one streamed provider call produced. On error it holds

@@ -185,6 +185,7 @@ func (tl *toolLoop) reaskPredict(
 // smaller one than losing a completed tool loop's work outright.
 func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 	s := tl.stage
+	prov := s.callProvider() // one read: events and cost name the provider that served the call
 	if len(tl.messages) == 0 {
 		return
 	}
@@ -218,8 +219,8 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 	callID := newProviderCallID()
 	if tl.stage.emitter != nil {
 		tl.stage.emitter.ProviderCallStartedCtx(ctx, &events.ProviderCallStartedData{
-			Provider: s.callProvider().ID(),
-			Model:    s.callProvider().Model(),
+			Provider: prov.ID(),
+			Model:    prov.Model(),
 			Source:   s.config.Source,
 			Labels:   s.config.Labels,
 			Round:    rr.round,
@@ -232,8 +233,8 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 	if err != nil {
 		if tl.stage.emitter != nil {
 			tl.stage.emitter.ProviderCallFailedCtx(ctx, &events.ProviderCallFailedData{
-				Provider: s.callProvider().ID(),
-				Model:    s.callProvider().Model(),
+				Provider: prov.ID(),
+				Model:    prov.Model(),
 				Error:    err,
 				Duration: timeNow().Sub(started),
 				Source:   s.config.Source,
@@ -259,10 +260,10 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 
 	if resp.CostInfo != nil {
 		if resp.CostInfo.ProviderName == "" {
-			resp.CostInfo.ProviderName = s.callProvider().Name()
+			resp.CostInfo.ProviderName = prov.Name()
 		}
 		if resp.CostInfo.Capability == "" {
-			resp.CostInfo.Capability = string(s.callProvider().Type())
+			resp.CostInfo.Capability = string(prov.Type())
 		}
 		if resp.CostInfo.Latency == 0 {
 			resp.CostInfo.Latency = duration
@@ -271,8 +272,8 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 
 	if tl.stage.emitter != nil {
 		completed := &events.ProviderCallCompletedData{
-			Provider:     s.callProvider().ID(),
-			Model:        s.callProvider().Model(),
+			Provider:     prov.ID(),
+			Model:        prov.Model(),
 			Duration:     duration,
 			FinishReason: resp.FinishReason,
 			Source:       s.config.Source,

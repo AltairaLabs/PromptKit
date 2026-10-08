@@ -127,12 +127,6 @@ func newWorkflowStateResolver(
 	}
 }
 
-// withModel sets the model of the provider the turn runs on. Returns r.
-func (r *workflowStateResolver) withModel(model string) *workflowStateResolver {
-	r.model = model
-	return r
-}
-
 // withConversation lets the resolver resolve each state's provider and
 // parameters from conv's pack and bindings. Returns r.
 func (r *workflowStateResolver) withConversation(conv *Conversation) *workflowStateResolver {
@@ -149,10 +143,9 @@ func (r *workflowStateResolver) callFor(task string) (*stage.HandoffCall, error)
 	if r.pack == nil || r.cfg == nil {
 		return nil, nil
 	}
-	key := callProviderKey(r.pack, task, "")
-	prov, err := resolveCallProvider(r.cfg, key)
+	prov, err := resolvePromptCallProvider(r.pack, r.cfg, task)
 	if err != nil {
-		return nil, fmt.Errorf("prompt %q: provider %q: %w", task, key, err)
+		return nil, err
 	}
 	if prov == nil {
 		return nil, nil

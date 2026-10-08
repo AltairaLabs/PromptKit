@@ -21,6 +21,7 @@ its prompt's `provider` key is bound to (RFC 0017), its `parameters`, and the
 |---|---|---|
 | Run a workflow whose states' prompts name different `provider` keys or set different `parameters` | the destination's provider and parameters from the round after the transition | nothing |
 | Implement `stage.WorkflowStateResolver` | nothing: `Handoff.Call` is optional, and nil keeps the turn's provider and parameters | set `Call` to switch them |
+| Bind a key that a workflow state's prompt names to a provider without tool support | `Open` fails: the transition tool is offered to every state's prompt | bind a provider that implements `providers.ToolSupport` |
 
 ### A prompt's `model_overrides` apply
 

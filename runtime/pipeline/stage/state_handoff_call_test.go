@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -64,6 +65,9 @@ func (p *callRecordingProvider) PredictWithTools(
 func (p *callRecordingProvider) PredictStreamWithTools(
 	_ context.Context, req providers.PredictionRequest, tools providers.ProviderTools, _ string,
 ) (<-chan providers.StreamChunk, error) {
+	if !p.streaming {
+		return nil, errors.New(p.ID() + " does not stream")
+	}
 	transition := p.next(req, tools)
 	out := make(chan providers.StreamChunk, 1)
 	go func() {
@@ -152,5 +156,23 @@ func TestSameProvider(t *testing.T) {
 		m map[string]int
 	}
 	u := uncomparable{Provider: a}
-	assert.NotPanics(t, func() { assert.False(t, sameProvider(u, u)) })
+	assert.NotPanics(t, func() {
+		assert.True(t, sameProvider(u, u), "the same id stands for the same provider")
+		assert.False(t, sameProvider(u, uncomparable{Provider: b}))
+	})
+}
+
+// A streaming turn that hands off to a provider that does not stream calls it
+// whole, and the reply still completes the turn.
+func TestProviderStage_HandoffToNonStreamingProviderInStreamingTurn(t *testing.T) {
+	origin := newCallRecordingProvider("origin", true)
+	origin.streaming = true
+	dest := newCallRecordingProvider("dest", false) // does not stream
+	stage := newCallHandoffStage(t, origin, &fakeResolver{sequence: originToDestinationCall(dest)})
+
+	runHandoffTurn(t, stage)
+
+	require.Len(t, origin.rounds, 1)
+	require.Len(t, dest.rounds, 1, "the destination is called whole, not via PredictStream")
+	assert.Equal(t, callRound{"SAME PROMPT", 64, 0.3, "tools-of-dest"}, dest.rounds[0])
 }

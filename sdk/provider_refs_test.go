@@ -49,6 +49,25 @@ func (p *refProvider) PredictStream(
 	return p.Provider.PredictStream(ctx, req)
 }
 
+// refProvider supports tools, as a workflow state's provider must: the
+// transition tool is offered to every state's prompt.
+func (p *refProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (providers.ProviderTools, error) {
+	return descriptors, nil
+}
+
+func (p *refProvider) PredictWithTools(
+	ctx context.Context, req providers.PredictionRequest, _ providers.ProviderTools, _ string,
+) (providers.PredictionResponse, []types.MessageToolCall, error) {
+	resp, err := p.Predict(ctx, req)
+	return resp, nil, err
+}
+
+func (p *refProvider) PredictStreamWithTools(
+	ctx context.Context, req providers.PredictionRequest, _ providers.ProviderTools, _ string,
+) (<-chan providers.StreamChunk, error) {
+	return p.PredictStream(ctx, req)
+}
+
 func (p *refProvider) callCount() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -348,7 +367,11 @@ func TestProviderRefs_TemplateOpen(t *testing.T) {
 // OpenDuplex streams on the opened prompt's provider: it is the one that must
 // support duplex streaming, and the one the session runs on.
 func TestProviderRefs_OpenDuplexUsesThePromptsProvider(t *testing.T) {
-	packPath := createTestPackFile(t, providerRefsPack)
+	// Without the workflow: a state's prompt would need tool support, which the
+	// streaming mock does not have.
+	noWorkflow := providerRefsPack[:strings.Index(providerRefsPack, `"workflow"`)] +
+		providerRefsPack[strings.Index(providerRefsPack, `"compositions"`):]
+	packPath := createTestPackFile(t, noWorkflow)
 
 	t.Run("a streaming drafter serves a prompt naming it, under a non-streaming agent", func(t *testing.T) {
 		// ASM mode: the session itself needs a StreamInputSupport provider, so it
@@ -517,4 +540,16 @@ func TestCallProviderCheck_MalformedRequires(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pack requires")
 	assert.Equal(t, err, check.run(&config{}))
+}
+
+// A workflow state's prompt that names a key needs a provider with tool
+// support even when it declares no tools: the transition tool is offered to
+// it, and a mid-turn handoff reaches it with the transition call in history.
+func TestProviderRefs_WorkflowStatePromptNeedsToolSupport(t *testing.T) {
+	packPath := createTestPackFile(t, providerRefsPack)
+	_, err := OpenWorkflow(packPath, WithProvider(newRefProvider("agent")),
+		withPooledProvider(noToolsProvider{newRefProvider("drafter")}),
+		withPooledProvider(newRefProvider("reviewer")))
+	require.ErrorIs(t, err, errProviderKeys)
+	assert.Contains(t, err.Error(), `prompt "draft" uses tools and names provider "drafter"`)
 }
