@@ -2704,9 +2704,11 @@ func (s ProviderSpec) capabilityTuning(role string) (base.HTTPTuning, error) {
 // name, WITHOUT making it the conversation's agent.
 //
 // This is how a host answers a pack's `requires` entry for an ancillary model —
-// the judge a toxicity guardrail grades with, say. [WithLLMProvider] would also
-// register it, but it sets the agent as a side effect, so binding a grader with
-// it silently replaces the model the conversation talks to.
+// the judge a toxicity guardrail grades with, say, or the model a prompt or
+// composition step names in its `provider` (RFC 0017), which then runs on it.
+// [WithLLMProvider] would also register it, but it sets the agent as a side
+// effect, so binding a grader with it silently replaces the model the
+// conversation talks to.
 //
 //	conv, _ := sdk.Open(pack, "chat",
 //	    sdk.WithProvider(agent),

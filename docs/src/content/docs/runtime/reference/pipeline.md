@@ -692,7 +692,7 @@ func DescribeCapabilities(stage Stage) string
 DescribeCapabilities returns a human\-readable description of a stage's capabilities. Useful for debugging and logging.
 
 <a name="NewCompositionStepExecutor"></a>
-## func [NewCompositionStepExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L92>)
+## func [NewCompositionStepExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L97>)
 
 ```go
 func NewCompositionStepExecutor(deps CompositionExecutorDeps) engine.StepExecutor
@@ -1314,18 +1314,23 @@ type CompactionStrategy interface {
 ```
 
 <a name="CompositionExecutorDeps"></a>
-## type [CompositionExecutorDeps](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L62-L88>)
+## type [CompositionExecutorDeps](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L62-L93>)
 
 CompositionExecutorDeps carries the runtime collaborators a composition step needs to execute. Injected once; reused for every step of every Execute call.
 
 ```go
 type CompositionExecutorDeps struct {
     PromptRegistry *prompt.Registry
-    Provider       providers.Provider
-    ToolRegistry   *tools.Registry
-    Emitter        *events.Emitter
-    HookRegistry   *hooks.Registry
-    BaseVariables  map[string]string
+    // Provider runs every prompt/agent step, unless ResolveProvider is set.
+    Provider providers.Provider
+    // ResolveProvider, when set, picks the provider for each prompt/agent step
+    // (RFC 0017: the step's provider key, else its prompt's, else the default).
+    // Optional; without it every step runs on Provider.
+    ResolveProvider func(step *composition.Step) (providers.Provider, error)
+    ToolRegistry    *tools.Registry
+    Emitter         *events.Emitter
+    HookRegistry    *hooks.Registry
+    BaseVariables   map[string]string
     // PromptDeclarations maps prompt tasks to their pack declarations, for
     // provider hooks inside each step (see ProviderConfig.PromptDeclarations).
     PromptDeclarations map[string]*packspec.Prompt
