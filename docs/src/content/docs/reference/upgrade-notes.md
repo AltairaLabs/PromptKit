@@ -12,8 +12,9 @@ changes that need you to do something, with what to change and why.
 
 The tool-loop compactor measured only the transcript against its budget, so a
 large system prompt or many tool definitions could still overflow the window
-after compaction. It now reserves room for the round's system prompt and tool
-definitions. Separately, a compaction rule that removes messages
+after compaction. It now compacts against the round's whole input, so the
+system prompt and tool definitions are counted, and warns when they alone fill
+the window. Separately, a compaction rule that removes messages
 (`CollapsePairs`), or a store holding more history than the turn loaded, could
 make the message log skip new messages; the log now records every new message
 in order.
@@ -21,7 +22,7 @@ in order.
 | If you | You will see | Change |
 |---|---|---|
 | Use the default compactor with a large system prompt or many tools | compaction starts earlier, so the request fits | nothing |
-| Supply your own `CompactionStrategy` | nothing; it can implement `stage.ReservingCompaction` to be told the reserve | optional |
+| Supply your own `CompactionStrategy` | `Compact` receives the round's whole input — messages, system prompt and tool definitions — as `lastInputTokens` | compare that, not just the messages, to your budget |
 | Use `CompactionRules` with `CollapsePairs` and a `MessageLog` | new messages reach the log after a compaction removes old ones | nothing |
 
 ### A prompt's `temperature: 0`, `top_p` and penalties reach the provider

@@ -177,38 +177,61 @@ func toolHistory() []types.Message {
 	return append(history, types.Message{Role: "user", Content: "next"})
 }
 
-// The messages leave room for what else the round sends: a transcript that
-// fits the budget on its own is compacted once the system prompt and tools
-// are reserved (#2214).
-func TestContextCompactor_ReservedTokensShrinkTheMessageBudget(t *testing.T) {
-	history := toolHistory()
-	c := &ContextCompactor{BudgetTokens: 4000}
 
-	assert.Zero(t, c.Compact(history, 0).MessagesFolded, "fits 70% of 4000 on its own")
+// passThroughCompaction wraps a strategy without implementing any optional
+// interface, as a host's logging wrapper does.
+type passThroughCompaction struct{ inner CompactionStrategy }
 
-	reserved, ok := c.WithReserved(2500).(*ContextCompactor)
-	require.True(t, ok)
-	assert.Positive(t, reserved.Compact(history, 0).MessagesFolded, "does not fit once 2500 are reserved")
-	assert.Zero(t, c.ReservedTokens, "WithReserved leaves the original alone")
-	assert.Same(t, c, c.WithReserved(0), "an unchanged reserve is the same strategy")
-}
+func (w passThroughCompaction) Compact(m []types.Message, n int) CompactResult { return w.inner.Compact(m, n) }
+func (w passThroughCompaction) TokenBudget() int                               { return w.inner.TokenBudget() }
 
-// The provider stage reserves the round's system prompt: a large one forces
-// compaction of a transcript that would otherwise be sent as is.
-func TestCompactBeforeRound_ReservesTheSystemPrompt(t *testing.T) {
-	run := func(systemPrompt string) int {
+// The provider stage compacts against the round's whole input, so a large
+// system prompt or many tool definitions force compaction of a transcript that
+// fits on its own — through any strategy, a wrapper included (#2214).
+func TestCompactBeforeRound_ReservesTheSystemPromptAndTools(t *testing.T) {
+	bigTools := []map[string]string{{"name": "t", "description": strings.Repeat("describes ", 2500)}}
+	folded := func(strategy CompactionStrategy, systemPrompt string, tools any) int {
 		stage := newCallHandoffStage(t, newCallRecordingProvider("p", false), nil)
-		stage.config.Compactor = &ContextCompactor{BudgetTokens: 4000}
-		loop := &toolLoop{stage: stage, acc: &providerInput{systemPrompt: systemPrompt}, messages: toolHistory()}
+		stage.config.Compactor = strategy
+		loop := &toolLoop{stage: stage, acc: &providerInput{systemPrompt: systemPrompt}, messages: toolHistory(),
+			providerTools: tools}
 		loop.compactBeforeRound(2)
-		folded := 0
+		n := 0
 		for i := range loop.messages {
 			if strings.Contains(loop.messages[i].GetContent(), compactedMarker) {
-				folded++
+				n++
 			}
 		}
-		return folded
+		return n
 	}
-	assert.Zero(t, run("short"))
-	assert.Positive(t, run(strings.Repeat("instructions ", 2500)))
+	compactor := func() *ContextCompactor { return &ContextCompactor{BudgetTokens: 4000} }
+
+	assert.Zero(t, folded(compactor(), "short", nil), "the transcript fits on its own")
+	assert.Positive(t, folded(compactor(), strings.Repeat("instructions ", 2500), nil), "a large system prompt")
+	assert.Positive(t, folded(compactor(), "short", bigTools), "many tool definitions")
+	assert.Positive(t, folded(passThroughCompaction{compactor()}, strings.Repeat("instructions ", 2500), nil),
+		"a wrapper gets the reserve through lastInputTokens")
+}
+
+// Only removals before the persisted boundary move it: a message removed
+// after it was never in the log (#2214).
+func TestToolLoop_MovePersistedBoundaryCountsOnlyPersistedRemovals(t *testing.T) {
+	loop := &toolLoop{persistedIdx: 4}
+	loop.movePersistedBoundary(6, &CompactResult{Messages: textMsgs("a", "b", "c", "d"), RemovedIndices: []int{1, 5}})
+	assert.Equal(t, 3, loop.persistedIdx, "index 1 was persisted; index 5 was not")
+
+	loop = &toolLoop{persistedIdx: 4}
+	loop.movePersistedBoundary(6, &CompactResult{Messages: textMsgs("a", "b", "c", "d")})
+	assert.Equal(t, 2, loop.persistedIdx, "a strategy that does not report is taken to remove persisted ones")
+}
+
+// ContextCompactor reports the positions of the messages it removed.
+func TestContextCompactor_ReportsRemovedIndices(t *testing.T) {
+	c := &ContextCompactor{BudgetTokens: 100, Rules: []CompactionRule{CollapsePairs()}}
+	cr := c.Compact(toolHistory(), 0)
+	require.NotEmpty(t, cr.RemovedIndices)
+	assert.Len(t, cr.Messages, len(toolHistory())-len(cr.RemovedIndices))
+	for _, i := range cr.RemovedIndices {
+		assert.Equal(t, "assistant", toolHistory()[i].Role, "CollapsePairs removes the assistant half of a pair")
+	}
 }

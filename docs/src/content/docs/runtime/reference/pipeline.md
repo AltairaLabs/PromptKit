@@ -147,7 +147,6 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
   - [func \(c \*ContextCompactor\) Compact\(messages \[\]types.Message, lastInputTokens int\) CompactResult](<#ContextCompactor.Compact>)
   - [func \(c \*ContextCompactor\) ForProvider\(p providers.Provider\) CompactionStrategy](<#ContextCompactor.ForProvider>)
   - [func \(c \*ContextCompactor\) TokenBudget\(\) int](<#ContextCompactor.TokenBudget>)
-  - [func \(c \*ContextCompactor\) WithReserved\(tokens int\) CompactionStrategy](<#ContextCompactor.WithReserved>)
 - [type DebugStage](<#DebugStage>)
   - [func NewDebugStage\(stageName string\) \*DebugStage](<#NewDebugStage>)
   - [func \(s \*DebugStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#DebugStage.Process>)
@@ -320,7 +319,6 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
 - [type RecordingStageConfig](<#RecordingStageConfig>)
   - [func DefaultRecordingStageConfig\(\) RecordingStageConfig](<#DefaultRecordingStageConfig>)
 - [type RelevanceConfig](<#RelevanceConfig>)
-- [type ReservingCompaction](<#ReservingCompaction>)
 - [type Response](<#Response>)
 - [type ResponseVADConfig](<#ResponseVADConfig>)
   - [func DefaultResponseVADConfig\(\) ResponseVADConfig](<#DefaultResponseVADConfig>)
@@ -673,7 +671,7 @@ func BatchEmbeddingTexts(texts []string, batchSize int) [][]string
 BatchEmbeddingTexts splits texts into batches of the given size. Useful for respecting embedding provider batch limits.
 
 <a name="BudgetTokensFor"></a>
-## func [BudgetTokensFor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L116>)
+## func [BudgetTokensFor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L97>)
 
 ```go
 func BudgetTokensFor(p providers.Provider) int
@@ -1254,7 +1252,7 @@ func (c *Capabilities) AcceptsElement(elem *StreamElement) bool
 AcceptsElement returns true if this capability accepts the given stream element.
 
 <a name="CompactResult"></a>
-## type [CompactResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L19-L24>)
+## type [CompactResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L19-L29>)
 
 CompactResult contains the output of a compaction pass.
 
@@ -1264,11 +1262,16 @@ type CompactResult struct {
     OriginalTokens  int
     CompactedTokens int
     MessagesFolded  int
+    // RemovedIndices are the positions, in the messages Compact was given,
+    // of the messages it removed (in ascending order); nil when it removed
+    // none or does not report them. The provider stage uses them to keep its
+    // message-log bookkeeping in step.
+    RemovedIndices []int
 }
 ```
 
 <a name="CompactionContext"></a>
-## type [CompactionContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L50-L55>)
+## type [CompactionContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L55-L60>)
 
 CompactionContext provides read\-only context to rules.
 
@@ -1282,7 +1285,7 @@ type CompactionContext struct {
 ```
 
 <a name="CompactionRule"></a>
-## type [CompactionRule](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L39-L47>)
+## type [CompactionRule](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L44-L52>)
 
 CompactionRule transforms individual messages during compaction. Rules are applied in order to each compactable message outside the pinned window. The first rule whose CanFold returns true wins.
 
@@ -1317,7 +1320,7 @@ func FoldToolResults() CompactionRule
 FoldToolResults returns the default compaction rule that folds large tool result messages into compact summaries.
 
 <a name="CompactionStrategy"></a>
-## type [CompactionStrategy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L30-L34>)
+## type [CompactionStrategy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L35-L39>)
 
 CompactionStrategy is the top\-level interface for context compaction. Called by ProviderStage between tool loop rounds. Implementations must be safe for concurrent use if the provider stage is used concurrently across conversations \(each conversation has its own message slice\).
 
@@ -1802,7 +1805,7 @@ func (s *ContextBuilderStage) Process(ctx context.Context, input <-chan StreamEl
 Process enforces token budget and truncates messages if needed.
 
 <a name="ContextCompactor"></a>
-## type [ContextCompactor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L60-L86>)
+## type [ContextCompactor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L65-L86>)
 
 ContextCompactor is the default CompactionStrategy. It applies rules in order to fold stale messages until context is under the token budget. Deterministic, zero LLM calls.
 
@@ -1823,11 +1826,6 @@ type ContextCompactor struct {
     // defaults to [FoldToolResults()].
     Rules []CompactionRule
 
-    // ReservedTokens is the part of the budget the round's system prompt and
-    // tool definitions take, which the messages must leave room for. The
-    // provider stage sets it per round through WithReserved.
-    ReservedTokens int
-
     // BudgetFromProvider marks BudgetTokens as the context window of the
     // provider the turn runs on, rather than a fixed number: ForProvider then
     // re-budgets for whichever provider a round runs on after a workflow
@@ -1837,16 +1835,16 @@ type ContextCompactor struct {
 ```
 
 <a name="ContextCompactor.Compact"></a>
-### func \(\*ContextCompactor\) [Compact](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L151>)
+### func \(\*ContextCompactor\) [Compact](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L134>)
 
 ```go
 func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int) CompactResult
 ```
 
-Compact applies rules to fold stale messages until under budget. Safe to call on a nil receiver \(returns messages unchanged\).
+Compact applies rules to fold stale messages until under budget. lastInputTokens is the round's whole input — messages, system prompt and tool definitions — when known; 0 counts the messages alone. Safe to call on a nil receiver \(returns messages unchanged\).
 
 <a name="ContextCompactor.ForProvider"></a>
-### func \(\*ContextCompactor\) [ForProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L127>)
+### func \(\*ContextCompactor\) [ForProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L108>)
 
 ```go
 func (c *ContextCompactor) ForProvider(p providers.Provider) CompactionStrategy
@@ -1855,22 +1853,13 @@ func (c *ContextCompactor) ForProvider(p providers.Provider) CompactionStrategy
 ForProvider implements ProviderBudgetedCompaction. With BudgetFromProvider it returns a copy budgeted for p's context window; otherwise c itself.
 
 <a name="ContextCompactor.TokenBudget"></a>
-### func \(\*ContextCompactor\) [TokenBudget](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L142>)
+### func \(\*ContextCompactor\) [TokenBudget](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L123>)
 
 ```go
 func (c *ContextCompactor) TokenBudget() int
 ```
 
 TokenBudget implements CompactionStrategy.
-
-<a name="ContextCompactor.WithReserved"></a>
-### func \(\*ContextCompactor\) [WithReserved](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L105>)
-
-```go
-func (c *ContextCompactor) WithReserved(tokens int) CompactionStrategy
-```
-
-WithReserved implements ReservingCompaction: a copy of c whose messages leave tokens free for the system prompt and tool definitions.
 
 <a name="DebugStage"></a>
 ## type [DebugStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L26-L29>)
@@ -4372,18 +4361,6 @@ type RelevanceConfig struct {
 }
 ```
 
-<a name="ReservingCompaction"></a>
-## type [ReservingCompaction](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L98-L101>)
-
-ReservingCompaction is a CompactionStrategy that leaves room for what a round sends besides its messages. WithReserved returns the strategy for a round whose system prompt and tools take tokens.
-
-```go
-type ReservingCompaction interface {
-    CompactionStrategy
-    WithReserved(tokens int) CompactionStrategy
-}
-```
-
 <a name="Response"></a>
 ## type [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L572-L578>)
 
@@ -5267,7 +5244,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2393>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2442>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement
