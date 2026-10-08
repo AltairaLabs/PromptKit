@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -371,13 +372,25 @@ func (b *BaseProvider) SetCustomHeaders(headers map[string]string) {
 // MediaContent.StorageReference values at request-build time. Nil (the default)
 // disables storage-reference resolution. See MediaStorageConfigurable in registry.go.
 func (b *BaseProvider) SetMediaStorageService(store storage.MediaStorageService) {
+	mediaSettingsMu.Lock()
+	defer mediaSettingsMu.Unlock()
 	b.mediaStorage = store
 }
+
+// mediaSettingsMu guards every provider's media settings. A host can share
+// one provider across conversations opened concurrently (a PackTemplate
+// serving requests), and each Open applies these settings to the pool, so the
+// writes race with each other and with MediaLoader's reads. One package lock,
+// rather than a field, keeps BaseProvider copyable by value; the settings
+// change only at Open.
+var mediaSettingsMu sync.RWMutex
 
 // SetAllowPrivateNetworkMedia lets this provider fetch URL media from
 // non-public addresses. See MediaLoaderConfig.AllowPrivateNetworks for why it
 // is off by default.
 func (b *BaseProvider) SetAllowPrivateNetworkMedia(allow bool) {
+	mediaSettingsMu.Lock()
+	defer mediaSettingsMu.Unlock()
 	b.allowPrivateMediaURLs = allow
 }
 
@@ -385,6 +398,8 @@ func (b *BaseProvider) SetAllowPrivateNetworkMedia(allow bool) {
 // injected storage service (if any). Providers use it to resolve media parts
 // (ResolveURL for URL-first providers, GetBase64Data for byte-based ones).
 func (b *BaseProvider) MediaLoader() *MediaLoader {
+	mediaSettingsMu.RLock()
+	defer mediaSettingsMu.RUnlock()
 	return NewMediaLoader(MediaLoaderConfig{
 		StorageService:       b.mediaStorage,
 		AllowPrivateNetworks: b.allowPrivateMediaURLs,

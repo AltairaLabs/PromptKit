@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"runtime"
 	"sync/atomic"
 	"testing"
 
@@ -88,4 +89,74 @@ func TestOpenParity_TemplateWiresWhatOpenWires(t *testing.T) {
 			})
 		})
 	}
+}
+
+// An Open refused after the conversation exists, or a duplex Open refused for
+// a provider that cannot stream, leaves nothing running, through either path.
+func TestOpenParity_RefusedOpenLeaksNothing(t *testing.T) {
+	packPath := createTestPackFile(t, openParityPack)
+	fromTemplate := func(open func(*PackTemplate) error) func() error {
+		return func() error {
+			tmpl, err := LoadTemplate(packPath)
+			if err != nil {
+				return err
+			}
+			return open(tmpl)
+		}
+	}
+
+	cases := []struct {
+		name    string
+		refuse  func() error
+		wantMsg string
+	}{
+		{"template capability init", fromTemplate(func(tmpl *PackTemplate) error {
+			_, err := tmpl.Open("chat", WithProvider(newRefProvider("agent")), WithCapability(&failingCapability{}))
+			return err
+		}), `capability "failing" init failed`},
+		{"sdk.Open capability init", func() error {
+			_, err := Open(packPath, "chat", WithProvider(newRefProvider("agent")), WithCapability(&failingCapability{}))
+			return err
+		}, `capability "failing" init failed`},
+		{"template duplex without streaming", fromTemplate(func(tmpl *PackTemplate) error {
+			_, err := tmpl.OpenDuplex("chat", WithProvider(newRefProvider("agent")))
+			return err
+		}), "does not support duplex streaming"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			before := runtime.NumGoroutine()
+			const attempts = 40
+			for range attempts {
+				require.ErrorContains(t, tc.refuse(), tc.wantMsg)
+			}
+			assert.Less(t, runtime.NumGoroutine()-before, attempts, "a goroutine per refused Open leaked")
+		})
+	}
+}
+
+// A capability that failed is not closed; the ones initialized before it are.
+func TestOpenParity_RefusedOpenClosesInitializedCapabilities(t *testing.T) {
+	packPath := createTestPackFile(t, openParityPack)
+	ok := &closeTrackingCapability{}
+	_, err := Open(packPath, "chat", WithProvider(newRefProvider("agent")),
+		WithCapability(ok), WithCapability(&failingCapability{}))
+	require.ErrorContains(t, err, `capability "failing" init failed`)
+	assert.True(t, ok.closed.Load(), "a capability initialized before the failure is closed")
+}
+
+type closeTrackingCapability struct{ closed atomic.Bool }
+
+func (c *closeTrackingCapability) Name() string                  { return "tracking" }
+func (c *closeTrackingCapability) Init(CapabilityContext) error  { return nil }
+func (c *closeTrackingCapability) RegisterTools(*tools.Registry) {}
+func (c *closeTrackingCapability) Close() error                  { c.closed.Store(true); return nil }
+
+// The duplex gate is one function for every path: VAD and ingestion modes
+// drive a text provider, so only ASM mode needs one that streams input.
+func TestCheckDuplexProvider(t *testing.T) {
+	text := newRefProvider("text")
+	require.ErrorContains(t, checkDuplexProvider(text, &config{}), "does not support duplex streaming")
+	assert.NoError(t, checkDuplexProvider(text, &config{vadModeConfig: &VADModeConfig{}}))
+	assert.NoError(t, checkDuplexProvider(mock.NewStreamingProvider("s", "m", false), &config{}))
 }

@@ -273,10 +273,14 @@ func prepareConversation(
 	wireA2AConfig(allCaps, cfg)
 	wireSkillsConfig(allCaps, cfg)
 	capCtx := newCapabilityContext(p, promptName, cfg)
-	for _, cap := range allCaps {
-		logger.Info("initializing capability", "capability", cap.Name())
+	for i, cap := range allCaps {
+		logger.Debug("initializing capability", "capability", cap.Name())
 		if err := cap.Init(capCtx); err != nil {
-			return nil, nil, fmt.Errorf("capability %q init failed: %w", cap.Name(), err)
+			// Release the capabilities already initialized, and the rest of
+			// what the conversation holds.
+			conv.capabilities = allCaps[:i]
+			_, openErr := conv.failOpen(fmt.Errorf("capability %q init failed: %w", cap.Name(), err))
+			return nil, nil, openErr
 		}
 	}
 	if len(allCaps) > 0 {
@@ -284,7 +288,7 @@ func prepareConversation(
 		for i, c := range allCaps {
 			names[i] = c.Name()
 		}
-		logger.Info("capabilities initialized", "capabilities", names, "count", len(allCaps))
+		logger.Debug("capabilities initialized", "capabilities", names, "count", len(allCaps))
 	}
 	conv.capabilities = allCaps
 	// Each conversation owns its share of capability state: its own active
@@ -302,6 +306,28 @@ func prepareConversation(
 	return conv, callProv, nil
 }
 
+// checkDuplexProvider refuses a duplex open whose provider cannot stream
+// input. Only ASM mode —
+// where audio goes to the model itself — needs StreamInputSupport. Two duplex modes
+// author the input side themselves and drive the standard agent chain (the
+// streaming text ProviderStage, not the ASM DuplexProviderStage), never
+// calling CreateStreamSession, so neither needs the interface:
+//
+//   - WithIngestion: a custom upstream sub-graph.
+//   - WithVADMode:   AudioTurn → STT → LLM → TTS, where the model only ever
+//     sees text. Requiring the ASM interface here would exclude exactly the
+//     text-only providers VAD mode exists to serve (#1637).
+//
+// NewDuplexSession re-derives the streaming provider from the base provider
+// itself for ASM mode, so the gate here is purely a fail-fast check.
+func checkDuplexProvider(prov providers.Provider, cfg *config) error {
+	if _, ok := prov.(providers.StreamInputSupport); !ok && cfg.ingestion == nil && cfg.vadModeConfig == nil {
+		return fmt.Errorf(
+			"provider %T does not support duplex streaming (must implement providers.StreamInputSupport)", prov)
+	}
+	return nil
+}
+
 // completeOpen is the rest of every open path once the conversation is
 // prepared: MCP, the unary state store or duplex session, eval middleware and
 // session-start hooks, and shutdown registration. A failure releases what the
@@ -317,25 +343,11 @@ func completeOpen(conv *Conversation, prov providers.Provider, duplex bool) (*Co
 	}
 
 	if duplex {
-		// Verify provider supports streaming input. Only ASM mode — where audio
-		// goes to the model itself — needs StreamInputSupport. Two duplex modes
-		// author the input side themselves and drive the standard agent chain (the
-		// streaming text ProviderStage, not the ASM DuplexProviderStage), never
-		// calling CreateStreamSession, so neither needs the interface:
-		//
-		//   - WithIngestion: a custom upstream sub-graph.
-		//   - WithVADMode:   AudioTurn → STT → LLM → TTS, where the model only ever
-		//     sees text. Requiring the ASM interface here would exclude exactly the
-		//     text-only providers VAD mode exists to serve (#1637).
-		//
-		// NewDuplexSession re-derives the streaming provider from the base provider
-		// itself for ASM mode, so the gate here is purely a fail-fast check.
-		if _, ok := prov.(providers.StreamInputSupport); !ok &&
-			conv.config.ingestion == nil && conv.config.vadModeConfig == nil {
-			return conv.failOpen(fmt.Errorf(
-				"provider %T does not support duplex streaming (must implement providers.StreamInputSupport)",
-				prov,
-			))
+		// After MCP init, deliberately: a misconfigured MCP entry surfaces
+		// with the same error through Open and OpenDuplex. A refusal here
+		// releases what the conversation holds (failOpen).
+		if streamErr := checkDuplexProvider(prov, conv.config); streamErr != nil {
+			return conv.failOpen(streamErr)
 		}
 		if err := initDuplexSession(conv, conv.config); err != nil {
 			return conv.failOpen(err)
@@ -423,17 +435,9 @@ func loadAndValidatePack(packPath, promptName string, cfg *config) (*pack.Pack, 
 	// Check cache first.
 	if cached, ok := packCache.Load(absPath); ok {
 		p := cached.(*pack.Pack)
-		if cfg.activeComposition != nil {
-			// Composition state: no prompt_task required.
-			return p, &pack.Prompt{}, nil
-		}
-		prompt, ok := p.Prompts[promptName]
-		if !ok {
-			available := make([]string, 0, len(p.Prompts))
-			for name := range p.Prompts {
-				available = append(available, name)
-			}
-			return nil, nil, fmt.Errorf("prompt %q not found in pack (available: %v)", promptName, available)
+		prompt, findErr := findPrompt(p, promptName, cfg)
+		if findErr != nil {
+			return nil, nil, findErr
 		}
 		return p, prompt, nil
 	}
@@ -452,21 +456,28 @@ func loadAndValidatePack(packPath, promptName string, cfg *config) (*pack.Pack, 
 	// both loaded the same file and the result is identical.
 	packCache.Store(absPath, p)
 
-	if cfg.activeComposition != nil {
-		// Composition state: no prompt_task required.
-		return p, &pack.Prompt{}, nil
+	prompt, err := findPrompt(p, promptName, cfg)
+	if err != nil {
+		return nil, nil, err
 	}
+	return p, prompt, nil
+}
 
+// findPrompt returns the prompt an open runs, for every open path: the named
+// prompt, or an empty one for a composition state, which runs no prompt_task.
+func findPrompt(p *pack.Pack, promptName string, cfg *config) (*pack.Prompt, error) {
+	if cfg.activeComposition != nil {
+		return &pack.Prompt{}, nil
+	}
 	prompt, ok := p.Prompts[promptName]
 	if !ok {
 		available := make([]string, 0, len(p.Prompts))
 		for name := range p.Prompts {
 			available = append(available, name)
 		}
-		return nil, nil, fmt.Errorf("prompt %q not found in pack (available: %v)", promptName, available)
+		return nil, fmt.Errorf("prompt %q not found in pack (available: %v)", promptName, available)
 	}
-
-	return p, prompt, nil
+	return prompt, nil
 }
 
 // resolveProvider auto-detects or uses the configured provider.

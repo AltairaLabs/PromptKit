@@ -135,7 +135,7 @@ func (t *PackTemplate) openConversation(
 		return nil, err
 	}
 
-	packPrompt, err := t.validatePrompt(promptName)
+	packPrompt, err := findPrompt(t.pack, promptName, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -151,15 +151,3 @@ func (t *PackTemplate) openConversation(
 	return completeOpen(conv, prov, duplex)
 }
 
-// validatePrompt checks that the named prompt exists in the cached pack.
-func (t *PackTemplate) validatePrompt(promptName string) (*pack.Prompt, error) {
-	packPrompt, ok := t.pack.Prompts[promptName]
-	if !ok {
-		available := make([]string, 0, len(t.pack.Prompts))
-		for name := range t.pack.Prompts {
-			available = append(available, name)
-		}
-		return nil, fmt.Errorf("prompt %q not found in pack (available: %v)", promptName, available)
-	}
-	return packPrompt, nil
-}
