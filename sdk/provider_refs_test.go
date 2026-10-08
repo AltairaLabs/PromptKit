@@ -9,9 +9,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/composition"
+	rtprompt "github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
 )
 
 // RFC 0017: a prompt, or a composition prompt/agent step, names the
@@ -456,4 +459,62 @@ func TestProviderRefs_OpenWorkflowChecksAtEntry(t *testing.T) {
 	require.ErrorIs(t, err, errProviderKeys)
 	assert.Contains(t, err.Error(), `prompt "draft" names provider "drafter"`,
 		"the entry state's prompt names no key; the drafting state's does")
+}
+
+func TestPackNeedsAgent(t *testing.T) {
+	named := func(key string) *pack.Prompt { return &pack.Prompt{Provider: key} }
+	step := func(kind, task, key string, branches ...*composition.Step) *composition.Step {
+		return &composition.Step{ID: task, Kind: kind, PromptTask: task, Provider: key, Branches: branches}
+	}
+	withComp := func(steps ...*composition.Step) *pack.Pack {
+		p := &pack.Pack{}
+		p.Prompts = map[string]*pack.Prompt{"a": named("drafter")}
+		p.Compositions = map[string]*composition.Composition{"c": {Steps: steps}}
+		return p
+	}
+
+	cases := []struct {
+		name string
+		pack *pack.Pack
+		want bool
+	}{
+		{"no pack", nil, true},
+		{"a prompt names no key", func() *pack.Pack {
+			p := &pack.Pack{}
+			p.Prompts = map[string]*pack.Prompt{"a": named("drafter"), "b": named("")}
+			return p
+		}(), true},
+		{"a prompt names default", func() *pack.Pack {
+			p := &pack.Pack{}
+			p.Prompts = map[string]*pack.Prompt{"a": named("default")}
+			return p
+		}(), true},
+		{"every prompt and step named", withComp(step("prompt", "a", "")), false},
+		{"a step's prompt is not in the pack", withComp(step("prompt", "missing", "")), true},
+		{"a nested agent step resolves to default",
+			withComp(step("parallel", "", "", step("agent", "missing", ""))), true},
+		{"a nested step names a key", withComp(step("parallel", "", "", step("agent", "missing", "reviewer"))), false},
+		{"tool steps never use the agent", withComp(step("tool", "", "")), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, packNeedsAgent(tc.pack))
+		})
+	}
+}
+
+// A malformed requires block is reported by the call-site check, which builds
+// it once and returns the same error on every run.
+func TestCallProviderCheck_MalformedRequires(t *testing.T) {
+	p := &pack.Pack{}
+	p.Requires = &rtprompt.Requires{Providers: []*rtprompt.ProviderRequirement{
+		{Key: "dup", Role: "llm"}, {Key: "dup", Role: "llm"},
+	}}
+	p.Prompts = map[string]*pack.Prompt{"a": {Provider: "dup"}}
+
+	check := newCallProviderCheck(p)
+	err := check.run(&config{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pack requires")
+	assert.Equal(t, err, check.run(&config{}))
 }
