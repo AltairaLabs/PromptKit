@@ -111,16 +111,104 @@ func TestProviderStage_HandoffCompactsForTheDestinationsWindow(t *testing.T) {
 	}
 }
 
-// A compaction rule that removes messages can leave the transcript shorter
-// than what was persisted; persisting then appends nothing rather than
-// slicing out of range.
-func TestToolLoop_PersistAfterShrinkingCompaction(t *testing.T) {
-	stage := newCallHandoffStage(t, newCallRecordingProvider("p", false), nil)
-	log := &spyMessageLog{}
-	stage.config.MessageLog = log
-	stage.config.MessageLogConvID = "conv"
-	loop := &toolLoop{stage: stage, messages: []types.Message{{Role: "user", Content: "hi"}}, lastPersistedSeq: 3}
+// dropOldestTwo is a compaction strategy that removes the two oldest
+// messages, as a message-removing rule (CollapsePairs) can.
+type dropOldestTwo struct{}
 
-	assert.NotPanics(t, func() { loop.persistMessages(context.Background(), 1) })
-	assert.Empty(t, log.appends)
+func (dropOldestTwo) Compact(msgs []types.Message, _ int) CompactResult {
+	return CompactResult{Messages: append([]types.Message(nil), msgs[2:]...), MessagesFolded: 2}
+}
+func (dropOldestTwo) TokenBudget() int { return 1 }
+
+func textMsgs(texts ...string) []types.Message {
+	out := make([]types.Message, len(texts))
+	for i, tx := range texts {
+		out[i] = types.Message{Role: "user", Content: tx}
+	}
+	return out
+}
+
+// After a compaction removes persisted messages, the next new message is
+// still appended to the log, after everything already there.
+func TestToolLoop_PersistsAfterMessageRemovingCompaction(t *testing.T) {
+	stage := newCallHandoffStage(t, newCallRecordingProvider("p", false), nil)
+	log := &spyMessageLog{messages: textMsgs("a", "b", "c", "d")}
+	stage.config.MessageLog, stage.config.MessageLogConvID = log, "conv"
+	stage.config.Compactor = dropOldestTwo{}
+	loop := &toolLoop{stage: stage, messages: textMsgs("a", "b", "c", "d"), lastPersistedSeq: 4, persistedIdx: 4}
+
+	loop.compactBeforeRound(2)
+	loop.messages = append(loop.messages, textMsgs("e")...)
+	loop.persistMessages(context.Background(), 2)
+
+	require.Len(t, log.messages, 5, "e is appended; nothing is lost or re-sent")
+	assert.Equal(t, "e", log.messages[4].Content)
+}
+
+// When the log holds more history than this turn loaded, a new message is
+// appended after all of it.
+func TestToolLoop_PersistsWhenLogHoldsMoreHistoryThanLoaded(t *testing.T) {
+	stage := newCallHandoffStage(t, newCallRecordingProvider("p", false), nil)
+	log := &spyMessageLog{messages: textMsgs("1", "2", "3", "4", "5", "x", "y")}
+	stage.config.MessageLog, stage.config.MessageLogConvID = log, "conv"
+	loaded := textMsgs("x", "y") // the recent window this turn loaded
+	loop := &toolLoop{stage: stage, messages: loaded, lastPersistedSeq: len(loaded), persistedIdx: len(loaded)}
+
+	loop.preSeedLog(context.Background())
+	loop.messages = append(loop.messages, textMsgs("z")...)
+	loop.persistMessages(context.Background(), 1)
+
+	require.Len(t, log.messages, 8)
+	assert.Equal(t, "z", log.messages[7].Content)
+}
+
+// toolHistory is three old, large tool round-trips and a recent user turn.
+func toolHistory() []types.Message {
+	big := strings.Repeat("result data ", 200) // ~600 tokens each
+	var history []types.Message
+	for _, id := range []string{"h1", "h2", "h3"} {
+		history = append(history,
+			types.Message{Role: "assistant", ToolCalls: []types.MessageToolCall{{ID: id, Name: "lookup", Args: []byte(`{}`)}}},
+			types.Message{Role: "tool", ToolResult: &types.MessageToolResult{
+				ID: id, Name: "lookup", Parts: []types.ContentPart{types.NewTextPart(big)},
+			}},
+		)
+	}
+	return append(history, types.Message{Role: "user", Content: "next"})
+}
+
+// The messages leave room for what else the round sends: a transcript that
+// fits the budget on its own is compacted once the system prompt and tools
+// are reserved (#2214).
+func TestContextCompactor_ReservedTokensShrinkTheMessageBudget(t *testing.T) {
+	history := toolHistory()
+	c := &ContextCompactor{BudgetTokens: 4000}
+
+	assert.Zero(t, c.Compact(history, 0).MessagesFolded, "fits 70% of 4000 on its own")
+
+	reserved, ok := c.WithReserved(2500).(*ContextCompactor)
+	require.True(t, ok)
+	assert.Positive(t, reserved.Compact(history, 0).MessagesFolded, "does not fit once 2500 are reserved")
+	assert.Zero(t, c.ReservedTokens, "WithReserved leaves the original alone")
+	assert.Same(t, c, c.WithReserved(0), "an unchanged reserve is the same strategy")
+}
+
+// The provider stage reserves the round's system prompt: a large one forces
+// compaction of a transcript that would otherwise be sent as is.
+func TestCompactBeforeRound_ReservesTheSystemPrompt(t *testing.T) {
+	run := func(systemPrompt string) int {
+		stage := newCallHandoffStage(t, newCallRecordingProvider("p", false), nil)
+		stage.config.Compactor = &ContextCompactor{BudgetTokens: 4000}
+		loop := &toolLoop{stage: stage, acc: &providerInput{systemPrompt: systemPrompt}, messages: toolHistory()}
+		loop.compactBeforeRound(2)
+		folded := 0
+		for i := range loop.messages {
+			if strings.Contains(loop.messages[i].GetContent(), compactedMarker) {
+				folded++
+			}
+		}
+		return folded
+	}
+	assert.Zero(t, run("short"))
+	assert.Positive(t, run(strings.Repeat("instructions ", 2500)))
 }

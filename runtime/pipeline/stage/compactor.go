@@ -73,6 +73,11 @@ type ContextCompactor struct {
 	// defaults to [FoldToolResults()].
 	Rules []CompactionRule
 
+	// ReservedTokens is the part of the budget the round's system prompt and
+	// tool definitions take, which the messages must leave room for. The
+	// provider stage sets it per round through WithReserved.
+	ReservedTokens int
+
 	// BudgetFromProvider marks BudgetTokens as the context window of the
 	// provider the turn runs on, rather than a fixed number: ForProvider then
 	// re-budgets for whichever provider a round runs on after a workflow
@@ -85,6 +90,25 @@ type ContextCompactor struct {
 type ProviderBudgetedCompaction interface {
 	CompactionStrategy
 	ForProvider(p providers.Provider) CompactionStrategy
+}
+
+// ReservingCompaction is a CompactionStrategy that leaves room for what a
+// round sends besides its messages. WithReserved returns the strategy for a
+// round whose system prompt and tools take tokens.
+type ReservingCompaction interface {
+	CompactionStrategy
+	WithReserved(tokens int) CompactionStrategy
+}
+
+// WithReserved implements ReservingCompaction: a copy of c whose messages
+// leave tokens free for the system prompt and tool definitions.
+func (c *ContextCompactor) WithReserved(tokens int) CompactionStrategy {
+	if c == nil || tokens == c.ReservedTokens {
+		return c
+	}
+	cp := *c
+	cp.ReservedTokens = max(tokens, 0)
+	return &cp
 }
 
 // BudgetTokensFor returns p's context window, or DefaultBudgetTokens when it
@@ -139,7 +163,9 @@ func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int
 		pinCount = defaultPinRecentCount
 	}
 
-	budget := int(float64(c.BudgetTokens) * threshold)
+	// The messages get the threshold's share of the window, less what the
+	// round's system prompt and tools take.
+	budget := max(int(float64(c.BudgetTokens)*threshold)-c.ReservedTokens, 0)
 
 	originalTokens := lastInputTokens
 	if originalTokens <= 0 {

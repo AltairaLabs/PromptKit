@@ -24,6 +24,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tokenizer"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -949,6 +950,18 @@ func (s *ProviderStage) applyStateHandoff(
 	return false, nil
 }
 
+// reservedTokens estimates what the next round sends besides its messages:
+// the system prompt and the tool definitions.
+func (tl *toolLoop) reservedTokens() int {
+	tokens := tokenizer.CountTokens(tl.acc.systemPrompt)
+	if tl.providerTools != nil {
+		if raw, err := json.Marshal(tl.providerTools); err == nil {
+			tokens += tokenizer.CountTokens(string(raw))
+		}
+	}
+	return tokens
+}
+
 // compactBeforeRound folds stale tool results to the budget of the provider
 // round runs on, once, just before it: after the previous round's results
 // were appended and after any workflow handoff switched the provider, which
@@ -966,8 +979,18 @@ func (tl *toolLoop) compactBeforeRound(round int) {
 	if pb, ok := compactor.(ProviderBudgetedCompaction); ok {
 		compactor = pb.ForProvider(tl.stage.callProvider())
 	}
+	if rc, ok := compactor.(ReservingCompaction); ok {
+		compactor = rc.WithReserved(tl.reservedTokens())
+	}
+	before := len(tl.messages)
 	cr := compactor.Compact(tl.messages, 0)
 	tl.messages = cr.Messages
+	// Messages a rule removed were persisted already (persistence follows
+	// every round, and compaction leaves the recent window alone), so the
+	// boundary moves back by as many.
+	if removed := before - len(tl.messages); removed > 0 {
+		tl.persistedIdx = max(0, tl.persistedIdx-removed)
+	}
 	if cr.MessagesFolded > 0 && tl.stage.emitter != nil {
 		// Reported against the round whose results were compacted.
 		tl.stage.emitter.ContextCompacted(round-1, cr.OriginalTokens, cr.CompactedTokens,
@@ -1276,7 +1299,8 @@ type toolLoop struct {
 	excluded            map[string]bool
 	rejectionCounts     map[string]int
 	identicalCallCounts map[string]int // keyed by "toolName\x00<canonical-args>"
-	lastPersistedSeq    int            // messages persisted so far via MessageLog
+	lastPersistedSeq    int            // messages in the MessageLog: LogAppend's next start seq
+	persistedIdx        int            // tl.messages[:persistedIdx] are already in the log
 	cumulativeCost      float64        // accumulated cost across rounds
 	cumulativeInput     int            // accumulated input tokens across this loop's rounds
 	cumulativeCached    int            // accumulated cache-read tokens across this loop's rounds
@@ -1363,6 +1387,7 @@ func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
 		identicalCallCounts: map[string]int{},
 		cachingSupported:    cachingSupported,
 		lastPersistedSeq:    len(acc.messages), // history already in store
+		persistedIdx:        len(acc.messages),
 		// Seed with the cost already incurred in this conversation (prior
 		// turns), so MaxCostUSD bounds the whole RUN, not just this turn's
 		// loop. Arena builds a fresh pipeline (and toolLoop) per turn, so
@@ -1554,10 +1579,10 @@ func overBudgetResults(calls []types.MessageToolCall) []types.Message {
 // turns, so this is safe to call on every turn start.
 func (tl *toolLoop) preSeedLog(ctx context.Context) {
 	cfg := tl.stage.config
-	if cfg == nil || cfg.MessageLog == nil || tl.lastPersistedSeq == 0 {
+	if cfg == nil || cfg.MessageLog == nil || tl.persistedIdx == 0 {
 		return
 	}
-	history := tl.messages[:tl.lastPersistedSeq]
+	history := tl.messages[:tl.persistedIdx]
 	if len(history) == 0 {
 		return
 	}
@@ -1583,14 +1608,11 @@ func (tl *toolLoop) persistMessages(ctx context.Context, round int) {
 	if cfg == nil || cfg.MessageLog == nil {
 		return
 	}
-	if tl.lastPersistedSeq > len(tl.messages) {
-		// A compaction rule that removes messages (CollapsePairs) shrank the
-		// transcript below what was persisted; nothing here is new.
-		logger.Warn("message log: transcript shorter than persisted after compaction; skipping append",
-			"round", round, "persisted", tl.lastPersistedSeq, "messages", len(tl.messages))
-		return
-	}
-	newMsgs := tl.messages[tl.lastPersistedSeq:]
+	// The log's count and the transcript's persisted boundary are separate
+	// numbers: the log can hold more history than this turn loaded, and a
+	// compaction rule that removes messages (CollapsePairs) moves the boundary
+	// back without changing the log.
+	newMsgs := tl.messages[min(tl.persistedIdx, len(tl.messages)):]
 	if len(newMsgs) == 0 {
 		return
 	}
@@ -1600,6 +1622,7 @@ func (tl *toolLoop) persistMessages(ctx context.Context, round int) {
 		return
 	}
 	tl.lastPersistedSeq = newTotal
+	tl.persistedIdx = len(tl.messages)
 }
 
 func (s *ProviderStage) executeRound(

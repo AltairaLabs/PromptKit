@@ -147,6 +147,7 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
   - [func \(c \*ContextCompactor\) Compact\(messages \[\]types.Message, lastInputTokens int\) CompactResult](<#ContextCompactor.Compact>)
   - [func \(c \*ContextCompactor\) ForProvider\(p providers.Provider\) CompactionStrategy](<#ContextCompactor.ForProvider>)
   - [func \(c \*ContextCompactor\) TokenBudget\(\) int](<#ContextCompactor.TokenBudget>)
+  - [func \(c \*ContextCompactor\) WithReserved\(tokens int\) CompactionStrategy](<#ContextCompactor.WithReserved>)
 - [type DebugStage](<#DebugStage>)
   - [func NewDebugStage\(stageName string\) \*DebugStage](<#NewDebugStage>)
   - [func \(s \*DebugStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#DebugStage.Process>)
@@ -297,8 +298,6 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
   - [func \(s \*PromptAssemblyStage\) WithModel\(model string\) \*PromptAssemblyStage](<#PromptAssemblyStage.WithModel>)
 - [type ProviderBudgetedCompaction](<#ProviderBudgetedCompaction>)
 - [type ProviderConfig](<#ProviderConfig>)
-  - [func \(c \*ProviderConfig\) ApplyCallParams\(p prompt.CallParams\)](<#ProviderConfig.ApplyCallParams>)
-  - [func \(c \*ProviderConfig\) CallParams\(\) prompt.CallParams](<#ProviderConfig.CallParams>)
 - [type ProviderStage](<#ProviderStage>)
   - [func NewProviderStage\(provider providers.Provider, toolRegistry \*tools.Registry, toolPolicy \*pipeline.ToolPolicy, config \*ProviderConfig\) \*ProviderStage](<#NewProviderStage>)
   - [func NewProviderStageWithEmitter\(provider providers.Provider, toolRegistry \*tools.Registry, toolPolicy \*pipeline.ToolPolicy, config \*ProviderConfig, emitter \*events.Emitter\) \*ProviderStage](<#NewProviderStageWithEmitter>)
@@ -321,6 +320,7 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
 - [type RecordingStageConfig](<#RecordingStageConfig>)
   - [func DefaultRecordingStageConfig\(\) RecordingStageConfig](<#DefaultRecordingStageConfig>)
 - [type RelevanceConfig](<#RelevanceConfig>)
+- [type ReservingCompaction](<#ReservingCompaction>)
 - [type Response](<#Response>)
 - [type ResponseVADConfig](<#ResponseVADConfig>)
   - [func DefaultResponseVADConfig\(\) ResponseVADConfig](<#DefaultResponseVADConfig>)
@@ -673,7 +673,7 @@ func BatchEmbeddingTexts(texts []string, batchSize int) [][]string
 BatchEmbeddingTexts splits texts into batches of the given size. Useful for respecting embedding provider batch limits.
 
 <a name="BudgetTokensFor"></a>
-## func [BudgetTokensFor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L92>)
+## func [BudgetTokensFor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L116>)
 
 ```go
 func BudgetTokensFor(p providers.Provider) int
@@ -1802,7 +1802,7 @@ func (s *ContextBuilderStage) Process(ctx context.Context, input <-chan StreamEl
 Process enforces token budget and truncates messages if needed.
 
 <a name="ContextCompactor"></a>
-## type [ContextCompactor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L60-L81>)
+## type [ContextCompactor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L60-L86>)
 
 ContextCompactor is the default CompactionStrategy. It applies rules in order to fold stale messages until context is under the token budget. Deterministic, zero LLM calls.
 
@@ -1823,6 +1823,11 @@ type ContextCompactor struct {
     // defaults to [FoldToolResults()].
     Rules []CompactionRule
 
+    // ReservedTokens is the part of the budget the round's system prompt and
+    // tool definitions take, which the messages must leave room for. The
+    // provider stage sets it per round through WithReserved.
+    ReservedTokens int
+
     // BudgetFromProvider marks BudgetTokens as the context window of the
     // provider the turn runs on, rather than a fixed number: ForProvider then
     // re-budgets for whichever provider a round runs on after a workflow
@@ -1832,7 +1837,7 @@ type ContextCompactor struct {
 ```
 
 <a name="ContextCompactor.Compact"></a>
-### func \(\*ContextCompactor\) [Compact](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L127>)
+### func \(\*ContextCompactor\) [Compact](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L151>)
 
 ```go
 func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int) CompactResult
@@ -1841,7 +1846,7 @@ func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int
 Compact applies rules to fold stale messages until under budget. Safe to call on a nil receiver \(returns messages unchanged\).
 
 <a name="ContextCompactor.ForProvider"></a>
-### func \(\*ContextCompactor\) [ForProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L103>)
+### func \(\*ContextCompactor\) [ForProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L127>)
 
 ```go
 func (c *ContextCompactor) ForProvider(p providers.Provider) CompactionStrategy
@@ -1850,13 +1855,22 @@ func (c *ContextCompactor) ForProvider(p providers.Provider) CompactionStrategy
 ForProvider implements ProviderBudgetedCompaction. With BudgetFromProvider it returns a copy budgeted for p's context window; otherwise c itself.
 
 <a name="ContextCompactor.TokenBudget"></a>
-### func \(\*ContextCompactor\) [TokenBudget](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L118>)
+### func \(\*ContextCompactor\) [TokenBudget](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L142>)
 
 ```go
 func (c *ContextCompactor) TokenBudget() int
 ```
 
 TokenBudget implements CompactionStrategy.
+
+<a name="ContextCompactor.WithReserved"></a>
+### func \(\*ContextCompactor\) [WithReserved](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L105>)
+
+```go
+func (c *ContextCompactor) WithReserved(tokens int) CompactionStrategy
+```
+
+WithReserved implements ReservingCompaction: a copy of c whose messages leave tokens free for the system prompt and tool definitions.
 
 <a name="DebugStage"></a>
 ## type [DebugStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L26-L29>)
@@ -2427,7 +2441,7 @@ func (s *FramesToMessageStage) Process(ctx context.Context, input <-chan StreamE
 Process implements the Stage interface. Collects frames and composes them into messages.
 
 <a name="Handoff"></a>
-## type [Handoff](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/state_handoff.go#L19-L42>)
+## type [Handoff](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/state_handoff.go#L18-L41>)
 
 Handoff describes the prompt and tool set the workflow's current state needs.
 
@@ -2461,14 +2475,15 @@ type Handoff struct {
 ```
 
 <a name="HandoffCall"></a>
-## type [HandoffCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/state_handoff.go#L46-L49>)
+## type [HandoffCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/state_handoff.go#L46-L50>)
 
-HandoffCall is what the current state's prompt runs on: its provider and its sampling parameters \(prompt.Registry.CallParameters\).
+HandoffCall is what the current state's prompt runs on. MaxTokens and Temperature are the values the request carries, zero meaning the provider's default, exactly as ProviderConfig's.
 
 ```go
 type HandoffCall struct {
-    Provider providers.Provider
-    Params   prompt.CallParams
+    Provider    providers.Provider
+    MaxTokens   int
+    Temperature float32
 }
 ```
 
@@ -3960,7 +3975,7 @@ func (s *PromptAssemblyStage) WithModel(model string) *PromptAssemblyStage
 WithModel sets the model of the provider that runs this prompt, so the prompt's model\_overrides entry for it applies. Returns the stage.
 
 <a name="ProviderBudgetedCompaction"></a>
-## type [ProviderBudgetedCompaction](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L85-L88>)
+## type [ProviderBudgetedCompaction](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L90-L93>)
 
 ProviderBudgetedCompaction is a CompactionStrategy whose budget follows the provider a round runs on. ForProvider returns the strategy for p.
 
@@ -3972,24 +3987,16 @@ type ProviderBudgetedCompaction interface {
 ```
 
 <a name="ProviderConfig"></a>
-## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L136-L219>)
+## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L118-L193>)
 
 ProviderConfig contains configuration for the provider stage.
 
 ```go
 type ProviderConfig struct {
-    MaxTokens   int
-    Temperature float32
-    // TemperatureSet marks Temperature as set, so a zero is requested rather
-    // than the provider's default (providers.ResolveTemperature).
-    TemperatureSet bool
-    // TopP, FrequencyPenalty and PresencePenalty are the prompt's other
-    // sampling parameters; zero TopP and nil penalties are unset.
-    TopP             float32
-    FrequencyPenalty *float32
-    PresencePenalty  *float32
-    Seed             *int
-    ResponseFormat   *providers.ResponseFormat // Optional response format (JSON mode)
+    MaxTokens      int
+    Temperature    float32
+    Seed           *int
+    ResponseFormat *providers.ResponseFormat // Optional response format (JSON mode)
 
     // StructuredOutputMode selects when ResponseFormat is applied to a tool
     // loop. Empty means final_turn — the schema is withheld from tool-calling
@@ -4063,26 +4070,8 @@ type ProviderConfig struct {
 }
 ```
 
-<a name="ProviderConfig.ApplyCallParams"></a>
-### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L126>)
-
-```go
-func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
-```
-
-ApplyCallParams sets c's sampling fields from a prompt's resolved parameters \(prompt.Registry.CallParameters\).
-
-<a name="ProviderConfig.CallParams"></a>
-### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L117>)
-
-```go
-func (c *ProviderConfig) CallParams() prompt.CallParams
-```
-
-CallParams returns c's sampling fields as one value.
-
 <a name="ProviderStage"></a>
-## type [ProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L53-L90>)
+## type [ProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L54-L91>)
 
 ProviderStage executes LLM calls and handles tool execution. This is the request/response mode implementation.
 
@@ -4094,7 +4083,7 @@ type ProviderStage struct {
 ```
 
 <a name="NewProviderStage"></a>
-### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L254-L259>)
+### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L228-L233>)
 
 ```go
 func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig) *ProviderStage
@@ -4103,7 +4092,7 @@ func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry,
 NewProviderStage creates a new provider stage for request/response mode.
 
 <a name="NewProviderStageWithEmitter"></a>
-### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L266-L272>)
+### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L240-L246>)
 
 ```go
 func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter) *ProviderStage
@@ -4112,7 +4101,7 @@ func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tool
 NewProviderStageWithEmitter creates a new provider stage with event emission support. The stage emits provider.call.started, provider.call.completed, and provider.call.failed events through it for observability and session recording.
 
 <a name="NewProviderStageWithHooks"></a>
-### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L279-L286>)
+### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L253-L260>)
 
 ```go
 func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry) *ProviderStage
@@ -4121,7 +4110,7 @@ func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.
 NewProviderStageWithHooks creates a provider stage with event emission and hook support. The hookRegistry enables synchronous interception of provider calls, streaming chunks, and tool execution. Pass nil for no hooks \(zero overhead\).
 
 <a name="NewProviderStageWithTurnState"></a>
-### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L293-L301>)
+### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L267-L275>)
 
 ```go
 func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry, turnState *TurnState) *ProviderStage
@@ -4130,7 +4119,7 @@ func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *to
 NewProviderStageWithTurnState creates a provider stage that sources system\_prompt, allowed\_tools, and provider\-bound metadata from the shared \*TurnState. Pass nil for ad\-hoc / test usage where TurnState is not wired.
 
 <a name="ProviderStage.Process"></a>
-### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L437-L441>)
+### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L390-L394>)
 
 ```go
 func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4139,7 +4128,7 @@ func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement,
 Process executes the LLM provider call and handles tool execution.
 
 <a name="ProviderStage.SetWorkflowStateResolver"></a>
-### func \(\*ProviderStage\) [SetWorkflowStateResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L112>)
+### func \(\*ProviderStage\) [SetWorkflowStateResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L113>)
 
 ```go
 func (s *ProviderStage) SetWorkflowStateResolver(r WorkflowStateResolver)
@@ -4380,6 +4369,18 @@ type RelevanceConfig struct {
     // CacheEmbeddings enables caching of embeddings across truncation calls.
     // Useful when context changes incrementally.
     CacheEmbeddings bool
+}
+```
+
+<a name="ReservingCompaction"></a>
+## type [ReservingCompaction](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L98-L101>)
+
+ReservingCompaction is a CompactionStrategy that leaves room for what a round sends besides its messages. WithReserved returns the strategy for a round whose system prompt and tools take tokens.
+
+```go
+type ReservingCompaction interface {
+    CompactionStrategy
+    WithReserved(tokens int) CompactionStrategy
 }
 ```
 
@@ -5266,7 +5267,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2416>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2393>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement
@@ -5690,7 +5691,7 @@ func (s *TokenBudgetStage) Process(ctx context.Context, input <-chan StreamEleme
 Process reads all messages, enforces the token budget, and forwards the \(possibly truncated\) messages downstream.
 
 <a name="ToolCallRecorder"></a>
-## type [ToolCallRecorder](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/state_handoff.go#L94-L100>)
+## type [ToolCallRecorder](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/state_handoff.go#L95-L101>)
 
 ToolCallRecorder is an optional interface a WorkflowStateResolver may implement to receive the number of tool calls each round executed.
 
@@ -6196,7 +6197,7 @@ func (r *WeightedRouter) RegisterOutput(name string, output chan<- StreamElement
 RegisterOutput registers an output channel with a name.
 
 <a name="WorkflowStateResolver"></a>
-## type [WorkflowStateResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/state_handoff.go#L66-L80>)
+## type [WorkflowStateResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/state_handoff.go#L67-L81>)
 
 WorkflowStateResolver lets a workflow consumer keep a turn aligned with the workflow's current state.
 
