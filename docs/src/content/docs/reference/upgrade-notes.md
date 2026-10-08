@@ -8,6 +8,24 @@ changes that need you to do something, with what to change and why.
 
 ## Unreleased
 
+### A prompt or composition step runs on the provider its `provider` key names
+
+PromptKit implements PromptPack v1.9.0, which adds RFC 0017. A prompt, or a
+composition `prompt` or `agent` step, may name a `requires.providers` key in
+`provider`, and that call runs on whatever the host bound to the key. A step's
+key wins over its prompt's; with neither, the call runs on the agent provider as
+before. `sdk.Open` checks every prompt and step in the pack, not only the one it
+opens.
+
+| If you | You will see | Change |
+|---|---|---|
+| Open a pack whose prompts and steps name no `provider` | nothing: every call runs on the agent provider | nothing |
+| Open a pack where a prompt or step names a key the pack does not declare in `requires.providers` | `Open` fails, naming the prompt or step and the key | declare the key, or fix the name |
+| Open such a pack without binding the key | `Open` fails, even when the requirement is optional | bind it with `WithNamedProvider`, or declare it in a provider file after the agent (`WithProviderFile`, `WithProvidersDir`) |
+| Bind an inference provider to such a key, or a provider without tool support to a key an `agent` step names | `Open` fails, saying what the key is bound to | bind an LLM provider; one with tool support for an `agent` step |
+| Open a prompt naming a key with `OpenDuplex` | the session streams on the bound provider, which must support duplex streaming in ASM mode | bind a provider that implements `providers.StreamInputSupport` |
+| Build `stage.CompositionExecutorDeps` yourself | nothing: the new `ResolveProvider` is optional, and without it every step runs on `Provider` | set `ResolveProvider` to route steps by key |
+
 ### Packs carry RFC 0016 governance, and dangling governance references fail `Open`
 
 PromptKit implements PromptPack v1.8.1. A pack may declare `obligations`,

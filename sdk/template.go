@@ -143,6 +143,15 @@ func (t *PackTemplate) openConversation(
 
 	conv := t.newConversation(promptName, packPrompt, cfg)
 
+	// RFC 0017: validate every call site's provider key, then run the opened
+	// prompt on the provider its key is bound to.
+	if refErr := checkCallProviders(t.pack, cfg); refErr != nil {
+		return nil, refErr
+	}
+	if prov, err = conv.resolvePromptProvider(); err != nil {
+		return nil, err
+	}
+
 	if err := t.initConversation(conv, packPrompt, cfg); err != nil {
 		return nil, err
 	}

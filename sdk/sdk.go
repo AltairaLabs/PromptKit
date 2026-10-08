@@ -301,7 +301,17 @@ func initConversation(
 	if err := checkProviderKeys(p, prompt, cfg); err != nil {
 		return nil, nil, err
 	}
+	// RFC 0017: every prompt and composition step that names a provider key,
+	// across the whole pack. Before the requirements gate, which only warns
+	// about an unbound optional requirement that a call site cannot run without.
+	if refErr := checkCallProviders(p, cfg); refErr != nil {
+		return nil, nil, refErr
+	}
 	if err := checkProviderRequirements(p, cfg); err != nil {
+		return nil, nil, err
+	}
+	// The opened prompt runs on the provider its key is bound to.
+	if prov, err = conv.resolvePromptProvider(); err != nil {
 		return nil, nil, err
 	}
 
@@ -909,7 +919,7 @@ func initDuplexSession(conv *Conversation, cfg *config) error {
 		UserID:           cfg.userID,
 		StateStore:       store,
 		PipelineBuilder:  pipelineBuilder,
-		Provider:         cfg.getAgentProvider(),
+		Provider:         conv.callProvider(),
 		Config:           streamConfig, // nil for VAD mode, set for ASM mode
 		ToolRegistry:     conv.toolRegistry,
 		AsyncToolChecker: conv.newAsyncToolChecker(),

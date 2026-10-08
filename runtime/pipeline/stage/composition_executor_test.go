@@ -214,6 +214,47 @@ func TestCompositionExecutor_PromptStep(t *testing.T) {
 	}
 }
 
+// ResolveProvider picks each step's provider; Provider is only the fallback.
+func TestCompositionExecutor_ResolveProviderPicksTheStepsProvider(t *testing.T) {
+	fallback := mock.NewProvider("fallback", "fallback-model", false)
+	chosen := mock.NewProvider("chosen", "chosen-model", false)
+	reg := prompt.NewRegistryWithRepository(newMockRepo())
+	registerSimplePrompt(t, reg, "p")
+
+	var asked *composition.Step
+	exec := NewCompositionStepExecutor(CompositionExecutorDeps{
+		PromptRegistry: reg,
+		Provider:       fallback,
+		ToolRegistry:   tools.NewRegistry(),
+		ResolveProvider: func(step *composition.Step) (providers.Provider, error) {
+			asked = step
+			return chosen, nil
+		},
+	})
+	step := &composition.Step{ID: "s", Kind: composition.KindPrompt, PromptTask: "p", Provider: "drafter"}
+	out, err := exec(context.Background(), step, json.RawMessage(`"hello"`))
+	require.NoError(t, err)
+	assert.Same(t, step, asked)
+	assert.Contains(t, string(out), "chosen-model", "the step ran on the resolved provider")
+	assert.NotContains(t, string(out), "fallback-model")
+}
+
+func TestCompositionExecutor_ResolveProviderError(t *testing.T) {
+	reg := prompt.NewRegistryWithRepository(newMockRepo())
+	registerSimplePrompt(t, reg, "p")
+	exec := NewCompositionStepExecutor(CompositionExecutorDeps{
+		PromptRegistry: reg,
+		Provider:       mock.NewProvider("fallback", "m", false),
+		ResolveProvider: func(*composition.Step) (providers.Provider, error) {
+			return nil, fmt.Errorf("no provider bound to drafter")
+		},
+	})
+	_, err := exec(context.Background(),
+		&composition.Step{ID: "s", Kind: composition.KindPrompt, PromptTask: "p"}, json.RawMessage(`"x"`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `step "s": no provider bound to drafter`)
+}
+
 func TestCompositionExecutor_AgentStepUsesTermination(t *testing.T) {
 	prov := mock.NewProvider("test-id", "test-model", false)
 	repo := newMockRepo()

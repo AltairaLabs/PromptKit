@@ -61,7 +61,12 @@ func (s *toolScopeStage) Process(ctx context.Context, in <-chan StreamElement, o
 // needs to execute. Injected once; reused for every step of every Execute call.
 type CompositionExecutorDeps struct {
 	PromptRegistry *prompt.Registry
-	Provider       providers.Provider
+	// Provider runs every prompt/agent step, unless ResolveProvider is set.
+	Provider providers.Provider
+	// ResolveProvider, when set, picks the provider for each prompt/agent step
+	// (RFC 0017: the step's provider key, else its prompt's, else the default).
+	// Optional; without it every step runs on Provider.
+	ResolveProvider func(step *composition.Step) (providers.Provider, error)
 	ToolRegistry   *tools.Registry
 	Emitter        *events.Emitter
 	HookRegistry   *hooks.Registry
@@ -127,7 +132,15 @@ func (deps CompositionExecutorDeps) executeTool(
 func (deps CompositionExecutorDeps) execLLM(
 	ctx context.Context, step *composition.Step, input json.RawMessage,
 ) (json.RawMessage, error) {
-	if deps.Provider == nil || deps.PromptRegistry == nil {
+	provider := deps.Provider
+	if deps.ResolveProvider != nil {
+		resolved, err := deps.ResolveProvider(step)
+		if err != nil {
+			return nil, fmt.Errorf("step %q: %w", step.ID, err)
+		}
+		provider = resolved
+	}
+	if provider == nil || deps.PromptRegistry == nil {
 		return nil, fmt.Errorf("step %q: provider/prompt registry not configured", step.ID)
 	}
 
@@ -186,7 +199,7 @@ func (deps CompositionExecutorDeps) execLLM(
 	toolsOverride := &toolScopeStage{turnState: turnState, stepTools: step.Tools}
 
 	provStage := NewProviderStageWithTurnState(
-		deps.Provider, deps.ToolRegistry, policy, cfg, deps.Emitter, deps.HookRegistry, turnState,
+		provider, deps.ToolRegistry, policy, cfg, deps.Emitter, deps.HookRegistry, turnState,
 	)
 
 	pipe, err := NewPipelineBuilder().Chain(promptStage, templateStage, toolsOverride, provStage).Build()

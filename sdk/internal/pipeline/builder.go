@@ -300,6 +300,10 @@ type Config struct {
 	// that runs this composition instead of an LLM ProviderStage (RFC 0010).
 	ActiveComposition *composition.Composition
 
+	// StepProviderResolver picks the provider for each composition prompt/agent
+	// step (RFC 0017). nil runs every step on Provider.
+	StepProviderResolver func(step *composition.Step) (providers.Provider, error)
+
 	// CompositionName labels the CompositionStage (typically the state's composition name).
 	// Falls back to "composition" when empty.
 	CompositionName string
@@ -624,6 +628,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 		deps := stage.CompositionExecutorDeps{
 			PromptRegistry:     cfg.PromptRegistry,
 			Provider:           cfg.Provider,
+			ResolveProvider:    cfg.StepProviderResolver,
 			ToolRegistry:       cfg.ToolRegistry,
 			Emitter:            cfg.EventEmitter,
 			HookRegistry:       cfg.HookRegistry,

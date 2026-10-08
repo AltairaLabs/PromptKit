@@ -128,6 +128,11 @@ type Conversation struct {
 	// Configuration from options (includes provider)
 	config *config
 
+	// provider runs this conversation's prompt: the provider bound to the
+	// prompt's RFC 0017 `provider` key, or the agent provider. Resolved and
+	// validated at Open; nil means the agent provider.
+	provider providers.Provider
+
 	// Session management - mode-based approach
 	mode SessionMode
 
@@ -643,7 +648,7 @@ func (c *Conversation) buildPipelineConfig(
 	}
 
 	pipelineCfg := &intpipeline.Config{
-		Provider:              c.config.getAgentProvider(),
+		Provider:              c.callProvider(),
 		ToolRegistry:          toolRegistry,
 		PromptRegistry:        c.promptRegistry,
 		WorkflowStateResolver: c.workflowResolver,
@@ -757,6 +762,7 @@ func (c *Conversation) buildPipelineConfig(
 	if c.config.activeComposition != nil {
 		pipelineCfg.ActiveComposition = c.config.activeComposition
 		pipelineCfg.CompositionName = c.config.compositionName
+		pipelineCfg.StepProviderResolver = stepProviderResolver(c.pack, c.config)
 		if c.pack != nil && c.pack.FilePath != "" {
 			pipelineCfg.SchemaResolver = stage.NewFileSchemaResolver(filepath.Dir(c.pack.FilePath))
 		}
