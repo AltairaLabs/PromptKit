@@ -220,6 +220,38 @@ func TestListTasks(t *testing.T) {
 	}
 }
 
+// ListTasksPage returns the paging fields ListTasks drops, and sends the page
+// token back.
+func TestListTasksPage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		req := decodeRPC(r)
+		var params ListTasksRequest
+		_ = json.Unmarshal(req.Params, &params)
+		if params.PageToken != "cursor-1" {
+			t.Errorf("PageToken = %q, want cursor-1", params.PageToken)
+		}
+		rpcResult(w, req.ID, ListTasksResponse{
+			Tasks:         []Task{{ID: "t3", Status: TaskStatus{State: TaskStateCompleted}}},
+			NextPageToken: "cursor-2",
+			PageSize:      1,
+			TotalSize:     5,
+		})
+	}))
+	defer srv.Close()
+
+	resp, err := NewClient(srv.URL).ListTasksPage(context.Background(),
+		&ListTasksRequest{ContextID: "ctx-1", PageSize: 1, PageToken: "cursor-1"})
+	if err != nil {
+		t.Fatalf("ListTasksPage() error = %v", err)
+	}
+	if resp.NextPageToken != "cursor-2" || resp.PageSize != 1 || resp.TotalSize != 5 {
+		t.Fatalf("paging fields = %q/%d/%d, want cursor-2/1/5", resp.NextPageToken, resp.PageSize, resp.TotalSize)
+	}
+	if len(resp.Tasks) != 1 || resp.Tasks[0].ID != "t3" {
+		t.Fatalf("tasks = %+v, want [t3]", resp.Tasks)
+	}
+}
+
 func TestSendMessageStream(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

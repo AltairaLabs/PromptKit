@@ -104,7 +104,7 @@ var ErrTooManySubscribers = errors.New("a2a: too many subscribers")
 ```
 
 <a name="AgentCardProvider"></a>
-## type [AgentCardProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L74-L76>)
+## type [AgentCardProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L78-L80>)
 
 AgentCardProvider returns the agent card to serve at /.well\-known/agent\-card.json \(and the legacy /.well\-known/agent.json\).
 
@@ -115,7 +115,7 @@ type AgentCardProvider interface {
 ```
 
 <a name="Authenticator"></a>
-## type [Authenticator](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L68-L70>)
+## type [Authenticator](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L72-L74>)
 
 Authenticator validates incoming requests. Return a non\-nil error to reject.
 
@@ -186,7 +186,7 @@ const (
 ```
 
 <a name="HealthChecker"></a>
-## type [HealthChecker](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L174-L176>)
+## type [HealthChecker](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L178-L180>)
 
 HealthChecker performs a named health check. Implementations should return nil when healthy and a non\-nil error describing the problem otherwise.
 
@@ -197,7 +197,7 @@ type HealthChecker interface {
 ```
 
 <a name="HealthCheckerFunc"></a>
-## type [HealthCheckerFunc](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L179>)
+## type [HealthCheckerFunc](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L183>)
 
 HealthCheckerFunc adapts an ordinary function to the [HealthChecker](<#HealthChecker>) interface.
 
@@ -206,7 +206,7 @@ type HealthCheckerFunc func(ctx context.Context) error
 ```
 
 <a name="HealthCheckerFunc.Check"></a>
-### func \(HealthCheckerFunc\) [Check](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L182>)
+### func \(HealthCheckerFunc\) [Check](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L186>)
 
 ```go
 func (f HealthCheckerFunc) Check(ctx context.Context) error
@@ -408,7 +408,7 @@ type MessageRequest struct {
 ```
 
 <a name="Option"></a>
-## type [Option](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L89>)
+## type [Option](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L93>)
 
 Option configures a [Server](<#Server>).
 
@@ -417,7 +417,7 @@ type Option func(*Server)
 ```
 
 <a name="WithAuthenticator"></a>
-### func [WithAuthenticator](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L168>)
+### func [WithAuthenticator](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L172>)
 
 ```go
 func WithAuthenticator(auth Authenticator) Option
@@ -426,7 +426,7 @@ func WithAuthenticator(auth Authenticator) Option
 WithAuthenticator sets an authenticator for incoming requests.
 
 <a name="WithCard"></a>
-### func [WithCard](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L97>)
+### func [WithCard](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L101>)
 
 ```go
 func WithCard(card *a2a.AgentCard) Option
@@ -437,7 +437,7 @@ WithCard sets the agent card served at /.well\-known/agent\-card.json.
 The server completes the card's JSON\-RPC interface declarations for the protocol versions it speaks \(see servedCard\); declare SecuritySchemes and SecurityRequirements on it when WithAuthenticator is in use, so callers can discover how to authenticate.
 
 <a name="WithCardProvider"></a>
-### func [WithCardProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L102>)
+### func [WithCardProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L106>)
 
 ```go
 func WithCardProvider(p AgentCardProvider) Option
@@ -446,7 +446,7 @@ func WithCardProvider(p AgentCardProvider) Option
 WithCardProvider sets a dynamic agent card provider.
 
 <a name="WithConversationTTL"></a>
-### func [WithConversationTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L163>)
+### func [WithConversationTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L167>)
 
 ```go
 func WithConversationTTL(d time.Duration) Option
@@ -455,7 +455,7 @@ func WithConversationTTL(d time.Duration) Option
 WithConversationTTL sets how long idle conversations are retained before automatic eviction. A conversation is considered idle when its last\-use timestamp exceeds this duration. Default: 1 hour. Set to 0 to disable.
 
 <a name="WithHealthCheck"></a>
-### func [WithHealthCheck](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L187>)
+### func [WithHealthCheck](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L191>)
 
 ```go
 func WithHealthCheck(name string, checker HealthChecker) Option
@@ -464,7 +464,7 @@ func WithHealthCheck(name string, checker HealthChecker) Option
 WithHealthCheck registers a named health checker that is evaluated by the /readyz endpoint. Multiple checkers can be registered; each is reported individually in the response body.
 
 <a name="WithIdleTimeout"></a>
-### func [WithIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L144>)
+### func [WithIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L148>)
 
 ```go
 func WithIdleTimeout(d time.Duration) Option
@@ -473,7 +473,7 @@ func WithIdleTimeout(d time.Duration) Option
 WithIdleTimeout sets the maximum amount of time to wait for the next request when keep\-alives are enabled. Default: 120s.
 
 <a name="WithMaxBlockingWait"></a>
-### func [WithMaxBlockingWait](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L138>)
+### func [WithMaxBlockingWait](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L142>)
 
 ```go
 func WithMaxBlockingWait(d time.Duration) Option
@@ -484,7 +484,7 @@ WithMaxBlockingWait caps how long a blocking SendMessage holds its request open.
 Set it below the timeout of whatever sits in front of the server \(a load balancer's idle timeout, a proxy's read timeout\), so the caller gets a task to follow rather than a gateway error.
 
 <a name="WithMaxBodySize"></a>
-### func [WithMaxBodySize](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L150>)
+### func [WithMaxBodySize](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L154>)
 
 ```go
 func WithMaxBodySize(n int64) Option
@@ -493,7 +493,7 @@ func WithMaxBodySize(n int64) Option
 WithMaxBodySize sets the maximum allowed request body size in bytes. Default: 10 MB.
 
 <a name="WithPort"></a>
-### func [WithPort](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L107>)
+### func [WithPort](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L111>)
 
 ```go
 func WithPort(port int) Option
@@ -502,7 +502,7 @@ func WithPort(port int) Option
 WithPort sets the TCP port for ListenAndServe.
 
 <a name="WithReadTimeout"></a>
-### func [WithReadTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L118>)
+### func [WithReadTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L122>)
 
 ```go
 func WithReadTimeout(d time.Duration) Option
@@ -540,7 +540,7 @@ WithTaskOwner scopes every task to the caller that created it. owner identifies 
 The task store must implement OwnedTaskStore \(the default in\-memory store does\); NewServer panics otherwise, since serving with scoping silently off would be worse than not starting. A request whose owner is empty is refused.
 
 <a name="WithTaskStore"></a>
-### func [WithTaskStore](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L112>)
+### func [WithTaskStore](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L116>)
 
 ```go
 func WithTaskStore(store TaskStore) Option
@@ -549,7 +549,7 @@ func WithTaskStore(store TaskStore) Option
 WithTaskStore sets a custom task store. Defaults to an in\-memory store.
 
 <a name="WithTaskTTL"></a>
-### func [WithTaskTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L156>)
+### func [WithTaskTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L160>)
 
 ```go
 func WithTaskTTL(d time.Duration) Option
@@ -558,7 +558,7 @@ func WithTaskTTL(d time.Duration) Option
 WithTaskTTL sets how long completed/failed/canceled tasks are retained before automatic eviction. Default: 1 hour. Set to 0 to disable eviction.
 
 <a name="WithWriteTimeout"></a>
-### func [WithWriteTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L124>)
+### func [WithWriteTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L128>)
 
 ```go
 func WithWriteTimeout(d time.Duration) Option
@@ -650,7 +650,7 @@ type SendResult interface {
 ```
 
 <a name="Server"></a>
-## type [Server](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L201-L256>)
+## type [Server](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L205-L260>)
 
 Server is an HTTP server that exposes a Conversation as an A2A\-compliant JSON\-RPC endpoint.
 
@@ -661,7 +661,7 @@ type Server struct {
 ```
 
 <a name="NewServer"></a>
-### func [NewServer](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L265>)
+### func [NewServer](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L269>)
 
 ```go
 func NewServer(opener ConversationOpener, opts ...Option) *Server
@@ -683,7 +683,7 @@ NewStatelessServer creates a server that holds no conversations.
 It is [NewServer](<#NewServer>)'s sibling: same protocol, same options, but each message goes to the handler with its request context and nothing is kept between calls. Use it when the embedder owns conversations — because it already tracks sessions, because the runtime is in another process, or because the server needs to scale horizontally with only the task store shared.
 
 <a name="Server.Handler"></a>
-### func \(\*Server\) [Handler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L314>)
+### func \(\*Server\) [Handler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L318>)
 
 ```go
 func (s *Server) Handler() http.Handler
@@ -692,7 +692,7 @@ func (s *Server) Handler() http.Handler
 Handler returns an http.Handler implementing the A2A protocol.
 
 <a name="Server.ListenAndServe"></a>
-### func \(\*Server\) [ListenAndServe](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L345>)
+### func \(\*Server\) [ListenAndServe](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L349>)
 
 ```go
 func (s *Server) ListenAndServe() error
@@ -703,7 +703,7 @@ ListenAndServe starts the HTTP server on the configured port.
 WriteTimeout is set to 0 \(disabled\) because SSE streaming endpoints \(message/stream, tasks/subscribe\) hold the connection open indefinitely. A non\-zero WriteTimeout would kill long\-lived SSE connections. Non\-streaming endpoints rely on the request context deadline for timeout enforcement.
 
 <a name="Server.Serve"></a>
-### func \(\*Server\) [Serve](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L417>)
+### func \(\*Server\) [Serve](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L421>)
 
 ```go
 func (s *Server) Serve(ln net.Listener) error
@@ -712,7 +712,7 @@ func (s *Server) Serve(ln net.Listener) error
 Serve starts the HTTP server on the given listener. See ListenAndServe for the rationale behind WriteTimeout: 0.
 
 <a name="Server.Shutdown"></a>
-### func \(\*Server\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L367>)
+### func \(\*Server\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L371>)
 
 ```go
 func (s *Server) Shutdown(ctx context.Context) error
@@ -721,7 +721,7 @@ func (s *Server) Shutdown(ctx context.Context) error
 Shutdown gracefully shuts down the server: stops the eviction goroutine, drains HTTP requests, cancels in\-flight tasks, and closes all conversations.
 
 <a name="StaticCard"></a>
-## type [StaticCard](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L79-L81>)
+## type [StaticCard](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L83-L85>)
 
 StaticCard is an AgentCardProvider that always returns the same card.
 
@@ -732,7 +732,7 @@ type StaticCard struct {
 ```
 
 <a name="StaticCard.AgentCard"></a>
-### func \(\*StaticCard\) [AgentCard](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L84>)
+### func \(\*StaticCard\) [AgentCard](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L88>)
 
 ```go
 func (s *StaticCard) AgentCard(*http.Request) (*a2a.AgentCard, error)
@@ -868,7 +868,7 @@ type TaskQuery struct {
     ContextID string
     // Status, when set, keeps only tasks in that state.
     Status *a2a.TaskState
-    // StatusAfter, when set, keeps only tasks whose status changed after it.
+    // StatusAfter, when set, keeps only tasks whose status changed at or after it.
     StatusAfter *time.Time
     // Limit and Offset select the page within the ordered result.
     Limit  int

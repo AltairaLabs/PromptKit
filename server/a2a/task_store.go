@@ -73,7 +73,7 @@ type TaskQuery struct {
 	ContextID string
 	// Status, when set, keeps only tasks in that state.
 	Status *a2a.TaskState
-	// StatusAfter, when set, keeps only tasks whose status changed after it.
+	// StatusAfter, when set, keeps only tasks whose status changed at or after it.
 	StatusAfter *time.Time
 	// Limit and Offset select the page within the ordered result.
 	Limit  int
@@ -173,7 +173,7 @@ func matchesQuery(t *a2a.Task, q TaskQuery) bool {
 	if q.Status != nil && t.Status.State != *q.Status {
 		return false
 	}
-	if q.StatusAfter != nil && (t.Status.Timestamp == nil || !t.Status.Timestamp.After(*q.StatusAfter)) {
+	if q.StatusAfter != nil && (t.Status.Timestamp == nil || t.Status.Timestamp.Before(*q.StatusAfter)) {
 		return false
 	}
 	return true
