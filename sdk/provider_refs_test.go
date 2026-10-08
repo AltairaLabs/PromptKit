@@ -521,7 +521,7 @@ func TestPackNeedsAgent(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, packNeedsAgent(tc.pack))
+			assert.Equal(t, tc.want, rtprompt.NeedsDefaultProvider(tc.pack))
 		})
 	}
 }
