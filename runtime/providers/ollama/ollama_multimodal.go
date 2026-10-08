@@ -95,11 +95,13 @@ func (p *Provider) convertImagePartToOllama(
 
 	imageURL := make(map[string]any)
 
-	// Resolve to a URL when possible (external URL or storage reference), else
-	// fall back to inline base64 data. The MediaLoader is store-aware via the
-	// injected MediaStorageService.
+	// Hand Ollama a storage reference's URL when the store gives one, else
+	// inline base64 data. A message's own URL is always fetched here and
+	// inlined, never passed on: an Ollama server usually sits inside the host's
+	// network, so letting it fetch a caller-chosen URL would reach whatever
+	// the host can reach. The loader refuses non-public addresses.
 	loader := p.MediaLoader()
-	if url, ok, err := loader.ResolveURL(ctx, part.Media); err != nil {
+	if url, ok, err := resolveStorageURL(ctx, loader, part.Media); err != nil {
 		return nil, fmt.Errorf("failed to resolve image: %w", err)
 	} else if ok {
 		imageURL["url"] = url
@@ -119,4 +121,15 @@ func (p *Provider) convertImagePartToOllama(
 	imagePart["image_url"] = imageURL
 
 	return imagePart, nil
+}
+
+// resolveStorageURL resolves only a storage reference to a URL. A message's own
+// URL is reported as not resolvable, so the caller fetches and inlines it.
+func resolveStorageURL(
+	ctx context.Context, loader *providers.MediaLoader, media *types.MediaContent,
+) (string, bool, error) {
+	if media.URL != nil && *media.URL != "" {
+		return "", false, nil
+	}
+	return loader.ResolveURL(ctx, media)
 }

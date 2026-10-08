@@ -402,7 +402,10 @@ func (p *Provider) geminiContentForMessage(ctx context.Context, msg *types.Messa
 	for _, part := range msg.Parts {
 		gPart, err := p.convertPartToGemini(ctx, part)
 		if err != nil {
-			// Fall back to text-only on conversion error
+			// Fall back to text-only on conversion error, saying so: a media
+			// URL refused as non-public, for one, otherwise vanishes silently.
+			logger.Warn("Gemini: media part could not be loaded; sending the message as text only",
+				"part_type", part.Type, "error", err)
 			return geminiContent{Role: role, Parts: []geminiPart{{Text: msg.GetContent()}}}
 		}
 		parts = append(parts, gPart)

@@ -93,6 +93,10 @@ type config struct {
 	// time. Injected into every provider in the pool via WithMediaStorage.
 	mediaStorage storage.MediaStorageService
 
+	// allowPrivateNetworkMedia lets pooled providers fetch URL media from
+	// non-public addresses. Set by WithUnsafePrivateNetworkMedia.
+	allowPrivateNetworkMedia bool
+
 	// State management
 	stateStore     statestore.Store
 	conversationID string
@@ -490,6 +494,23 @@ func WithProvider(p providers.Provider) Option {
 func WithMediaStorage(store storage.MediaStorageService) Option {
 	return func(c *config) error {
 		c.mediaStorage = store
+		return nil
+	}
+}
+
+// WithUnsafePrivateNetworkMedia lets providers fetch URL media from loopback,
+// private, link-local and other non-public addresses.
+//
+// By default they refuse. A media URL can arrive in a message from a remote
+// client (A2A, AG-UI) or in a model's output, and a provider that fetches it
+// from the host would otherwise let that URL reach the host's cloud metadata
+// service or internal network. Use this only when every media URL the
+// conversation sees comes from a source the host trusts, such as a local
+// development server; egress policy in the host's network is the better
+// place to allow specific internal destinations.
+func WithUnsafePrivateNetworkMedia() Option {
+	return func(c *config) error {
+		c.allowPrivateNetworkMedia = true
 		return nil
 	}
 }

@@ -176,6 +176,7 @@ type BaseProvider struct {
 	maxRequestPayloadSize int64
 	customHeaders         map[string]string
 	mediaStorage          storage.MediaStorageService
+	allowPrivateMediaURLs bool
 }
 
 // NewBaseProvider creates a new BaseProvider with common fields. A companion
@@ -373,11 +374,21 @@ func (b *BaseProvider) SetMediaStorageService(store storage.MediaStorageService)
 	b.mediaStorage = store
 }
 
+// SetAllowPrivateNetworkMedia lets this provider fetch URL media from
+// non-public addresses. See MediaLoaderConfig.AllowPrivateNetworks for why it
+// is off by default.
+func (b *BaseProvider) SetAllowPrivateNetworkMedia(allow bool) {
+	b.allowPrivateMediaURLs = allow
+}
+
 // MediaLoader returns a per-call MediaLoader configured with this provider's
 // injected storage service (if any). Providers use it to resolve media parts
 // (ResolveURL for URL-first providers, GetBase64Data for byte-based ones).
 func (b *BaseProvider) MediaLoader() *MediaLoader {
-	return NewMediaLoader(MediaLoaderConfig{StorageService: b.mediaStorage})
+	return NewMediaLoader(MediaLoaderConfig{
+		StorageService:       b.mediaStorage,
+		AllowPrivateNetworks: b.allowPrivateMediaURLs,
+	})
 }
 
 // ApplyCustomHeaders applies stored custom headers to the HTTP request.

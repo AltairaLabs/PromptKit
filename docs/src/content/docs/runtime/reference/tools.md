@@ -264,6 +264,13 @@ var ErrAggregateResponseSizeExceeded = fmt.Errorf("aggregate HTTP response size 
 var ErrRateLimitExceeded = fmt.Errorf("tool rate limit exceeded")
 ```
 
+<a name="ErrTemplatedURLHost"></a>ErrTemplatedURLHost is returned for an HTTP tool whose URL template puts an argument in the scheme or host.
+
+```go
+var ErrTemplatedURLHost = errors.New(
+    "http tool URL templates may use arguments in the path and query, not the scheme or host")
+```
+
 <a name="CallIDFromContext"></a>
 ## func [CallIDFromContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/context.go#L18>)
 
@@ -372,7 +379,7 @@ func ReadMultimodalResponse(resp *http.Response, aggregateSize *atomic.Int64, ma
 ReadMultimodalResponse reads a binary HTTP response and returns it as a ContentPart with base64\-encoded data. It enforces per\-response and aggregate size limits.
 
 <a name="RedactFields"></a>
-## func [RedactFields](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L581>)
+## func [RedactFields](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L611>)
 
 ```go
 func RedactFields(data []byte, fields []string) []byte
@@ -744,7 +751,7 @@ type HTTPConfig struct {
 ```
 
 <a name="HTTPExecutor"></a>
-## type [HTTPExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L59-L71>)
+## type [HTTPExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L60-L72>)
 
 HTTPExecutor executes tools that make HTTP calls based on pack configuration. It reads the HTTPConfig from the tool descriptor and makes the appropriate HTTP request. It tracks cumulative response sizes and rejects calls once the aggregate limit is reached.
 
@@ -767,7 +774,7 @@ type HTTPExecutor struct {
 ```
 
 <a name="NewHTTPExecutor"></a>
-### func [NewHTTPExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L75>)
+### func [NewHTTPExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L76>)
 
 ```go
 func NewHTTPExecutor() *HTTPExecutor
@@ -776,7 +783,7 @@ func NewHTTPExecutor() *HTTPExecutor
 NewHTTPExecutor creates a new HTTP executor with the default HTTP client and default aggregate response size limit.
 
 <a name="NewHTTPExecutorWithClient"></a>
-### func [NewHTTPExecutorWithClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L84>)
+### func [NewHTTPExecutorWithClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L85>)
 
 ```go
 func NewHTTPExecutorWithClient(client *http.Client) *HTTPExecutor
@@ -785,7 +792,7 @@ func NewHTTPExecutorWithClient(client *http.Client) *HTTPExecutor
 NewHTTPExecutorWithClient creates a new HTTP executor with a custom HTTP client. This is useful for testing or when custom transport configuration is needed.
 
 <a name="NewHTTPExecutorWithMaxAggregate"></a>
-### func [NewHTTPExecutorWithMaxAggregate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L93>)
+### func [NewHTTPExecutorWithMaxAggregate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L94>)
 
 ```go
 func NewHTTPExecutorWithMaxAggregate(maxAggregate int64) *HTTPExecutor
@@ -794,7 +801,7 @@ func NewHTTPExecutorWithMaxAggregate(maxAggregate int64) *HTTPExecutor
 NewHTTPExecutorWithMaxAggregate creates a new HTTP executor with a custom aggregate response size limit. Use 0 or a negative value to disable.
 
 <a name="HTTPExecutor.AggregateResponseSize"></a>
-### func \(\*HTTPExecutor\) [AggregateResponseSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L101>)
+### func \(\*HTTPExecutor\) [AggregateResponseSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L102>)
 
 ```go
 func (e *HTTPExecutor) AggregateResponseSize() int64
@@ -803,7 +810,7 @@ func (e *HTTPExecutor) AggregateResponseSize() int64
 AggregateResponseSize returns the cumulative response size consumed so far.
 
 <a name="HTTPExecutor.Execute"></a>
-### func \(\*HTTPExecutor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L116-L120>)
+### func \(\*HTTPExecutor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L117-L121>)
 
 ```go
 func (e *HTTPExecutor) Execute(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error)
@@ -812,7 +819,7 @@ func (e *HTTPExecutor) Execute(ctx context.Context, descriptor *ToolDescriptor, 
 Execute performs an HTTP request based on the tool descriptor's HTTPConfig.
 
 <a name="HTTPExecutor.ExecuteMultimodal"></a>
-### func \(\*HTTPExecutor\) [ExecuteMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L498-L502>)
+### func \(\*HTTPExecutor\) [ExecuteMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L528-L532>)
 
 ```go
 func (e *HTTPExecutor) ExecuteMultimodal(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, []types.ContentPart, error)
@@ -821,7 +828,7 @@ func (e *HTTPExecutor) ExecuteMultimodal(ctx context.Context, descriptor *ToolDe
 ExecuteMultimodal performs an HTTP request and returns multimodal content parts when the response is a binary type \(image, audio, video\). For JSON responses, it falls back to the standard Execute path with no content parts.
 
 <a name="HTTPExecutor.Name"></a>
-### func \(\*HTTPExecutor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L111>)
+### func \(\*HTTPExecutor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L112>)
 
 ```go
 func (e *HTTPExecutor) Name() string
@@ -830,7 +837,7 @@ func (e *HTTPExecutor) Name() string
 Name returns the executor name used for registration.
 
 <a name="HTTPExecutor.ResetAggregateSize"></a>
-### func \(\*HTTPExecutor\) [ResetAggregateSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L106>)
+### func \(\*HTTPExecutor\) [ResetAggregateSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L107>)
 
 ```go
 func (e *HTTPExecutor) ResetAggregateSize()

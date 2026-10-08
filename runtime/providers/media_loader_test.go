@@ -21,7 +21,7 @@ import (
 )
 
 func TestMediaLoader_GetBase64Data_InlineData(t *testing.T) {
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{})
 
 	testData := "SGVsbG8gV29ybGQ=" // "Hello World" in base64
 	media := &types.MediaContent{
@@ -42,7 +42,7 @@ func TestMediaLoader_GetBase64Data_FilePath(t *testing.T) {
 	err := os.WriteFile(tmpFile, testContent, 0644)
 	require.NoError(t, err)
 
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{})
 	media := &types.MediaContent{
 		FilePath: &tmpFile,
 		MIMEType: "text/plain",
@@ -66,7 +66,7 @@ func TestMediaLoader_GetBase64Data_URL(t *testing.T) {
 	}))
 	defer server.Close()
 
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{
 		HTTPTimeout: 5 * time.Second,
 	})
 
@@ -110,7 +110,7 @@ func TestMediaLoader_GetBase64Data_StorageReference(t *testing.T) {
 	require.NoError(t, err)
 
 	// Load via MediaLoader
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{
 		StorageService: storageService,
 	})
 
@@ -131,7 +131,7 @@ func TestMediaLoader_GetBase64Data_StorageReference(t *testing.T) {
 }
 
 func TestMediaLoader_GetBase64Data_StorageReferenceWithoutService(t *testing.T) {
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{})
 
 	ref := "some-storage-ref"
 	media := &types.MediaContent{
@@ -145,7 +145,7 @@ func TestMediaLoader_GetBase64Data_StorageReferenceWithoutService(t *testing.T) 
 }
 
 func TestMediaLoader_GetBase64Data_NilMedia(t *testing.T) {
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{})
 
 	_, err := loader.GetBase64Data(context.Background(), nil)
 	assert.Error(t, err)
@@ -153,7 +153,7 @@ func TestMediaLoader_GetBase64Data_NilMedia(t *testing.T) {
 }
 
 func TestMediaLoader_GetBase64Data_NoSource(t *testing.T) {
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{})
 
 	media := &types.MediaContent{
 		MIMEType: "text/plain",
@@ -165,7 +165,7 @@ func TestMediaLoader_GetBase64Data_NoSource(t *testing.T) {
 }
 
 func TestMediaLoader_GetBase64Data_FileNotFound(t *testing.T) {
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{})
 
 	nonExistentFile := "/nonexistent/file.txt"
 	media := &types.MediaContent{
@@ -185,7 +185,7 @@ func TestMediaLoader_GetBase64Data_URL_404(t *testing.T) {
 	}))
 	defer server.Close()
 
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{})
 
 	url := server.URL
 	media := &types.MediaContent{
@@ -206,7 +206,7 @@ func TestMediaLoader_GetBase64Data_URL_TooLarge(t *testing.T) {
 	}))
 	defer server.Close()
 
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{
 		MaxURLSizeBytes: 1024, // Only allow 1KB
 	})
 
@@ -228,7 +228,7 @@ func TestMediaLoader_GetBase64Data_PriorityOrder(t *testing.T) {
 	err := os.WriteFile(tmpFile, []byte("file content"), 0644)
 	require.NoError(t, err)
 
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{})
 
 	inlineData := base64.StdEncoding.EncodeToString([]byte("inline data"))
 	media := &types.MediaContent{
@@ -250,7 +250,7 @@ func TestMediaLoader_GetBase64Data_ContextCancellation(t *testing.T) {
 	}))
 	defer server.Close()
 
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{
 		HTTPTimeout: 5 * time.Second,
 	})
 
@@ -291,7 +291,7 @@ func TestLoadFileAsBase64_BackwardCompatibility(t *testing.T) {
 // --- New tests for aggregate media size limits, per-item validation, and item count ---
 
 func TestMediaLoader_MaxMediaItems_Exceeded(t *testing.T) {
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{})
 
 	// Load MaxMediaItems items successfully (using inline data, which doesn't count
 	// toward aggregate size but does count toward item limit)
@@ -366,7 +366,7 @@ func TestMediaLoader_AggregateSize_ExceededViaFiles(t *testing.T) {
 
 	_ = tmpDir // not needed for this approach
 
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{
 		MaxURLSizeBytes: 70 * 1024 * 1024, // 70MB per file limit
 		HTTPTimeout:     30 * time.Second,
 	})
@@ -402,7 +402,7 @@ func TestMediaLoader_FileSizeLimit_Exceeded(t *testing.T) {
 	require.NoError(t, err)
 
 	// Set max URL size to 1KB (used as per-file limit too)
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{
 		MaxURLSizeBytes: 1024,
 	})
 
@@ -427,7 +427,7 @@ func TestMediaLoader_URLSizeLimit_ViaActualContent(t *testing.T) {
 	}))
 	defer server.Close()
 
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{
 		MaxURLSizeBytes: 1024,
 	})
 
@@ -445,7 +445,7 @@ func TestMediaLoader_URLSizeLimit_ViaActualContent(t *testing.T) {
 func TestMediaLoader_MaxMediaItems_WithFiles(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{})
 
 	// Create MaxMediaItems files and load them all
 	for i := 0; i < providers.MaxMediaItems; i++ {
@@ -482,7 +482,7 @@ func TestMediaLoader_MaxMediaItems_WithURLs(t *testing.T) {
 	}))
 	defer server.Close()
 
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{
 		HTTPTimeout: 5 * time.Second,
 	})
 
@@ -520,7 +520,7 @@ func TestMediaLoader_AggregateSize_TrackedAcrossFiles(t *testing.T) {
 	err = os.WriteFile(f2, make([]byte, 512), 0644)
 	require.NoError(t, err)
 
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{})
 
 	media1 := &types.MediaContent{FilePath: &f1, MIMEType: "application/octet-stream"}
 	_, err = loader.GetBase64Data(context.Background(), media1)
@@ -543,7 +543,7 @@ func TestMediaLoader_LargeFileWarning(t *testing.T) {
 	err := os.WriteFile(tmpFile, data, 0644)
 	require.NoError(t, err)
 
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{})
 	media := &types.MediaContent{
 		FilePath: &tmpFile,
 		MIMEType: "application/octet-stream",
@@ -569,7 +569,7 @@ func TestMediaLoader_LargeURLWarning(t *testing.T) {
 	}))
 	defer server.Close()
 
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{
 		HTTPTimeout: 10 * time.Second,
 	})
 
@@ -598,7 +598,7 @@ func TestMediaLoader_MixedSourceTypes_ItemCounting(t *testing.T) {
 	}))
 	defer server.Close()
 
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{
 		HTTPTimeout: 5 * time.Second,
 	})
 
@@ -637,8 +637,8 @@ func TestMediaLoader_MixedSourceTypes_ItemCounting(t *testing.T) {
 
 func TestMediaLoader_NewLoaderResetsCounters(t *testing.T) {
 	// Verify that each new MediaLoader instance starts fresh
-	loader1 := providers.NewMediaLoader(providers.MediaLoaderConfig{})
-	loader2 := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	loader1 := newLocalMediaLoader(providers.MediaLoaderConfig{})
+	loader2 := newLocalMediaLoader(providers.MediaLoaderConfig{})
 
 	// Load items on loader1
 	for i := 0; i < 5; i++ {
@@ -658,7 +658,7 @@ func TestMediaLoader_NewLoaderResetsCounters(t *testing.T) {
 func TestMediaLoader_FileStatError(t *testing.T) {
 	// Test error when file exists but stat fails (e.g., permission issues)
 	// We simulate this by using a non-existent file path
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{})
 
 	path := "/nonexistent/path/to/file.bin"
 	media := &types.MediaContent{
@@ -673,7 +673,7 @@ func TestMediaLoader_FileStatError(t *testing.T) {
 
 func TestMediaLoader_EmptyDataField(t *testing.T) {
 	// When Data is a pointer to an empty string, it should fall through
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{})
 
 	empty := ""
 	media := &types.MediaContent{
@@ -688,7 +688,7 @@ func TestMediaLoader_EmptyDataField(t *testing.T) {
 
 func TestMediaLoader_EmptyFilePathField(t *testing.T) {
 	// When FilePath is a pointer to an empty string, it should fall through
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{})
 
 	empty := ""
 	media := &types.MediaContent{
@@ -703,7 +703,7 @@ func TestMediaLoader_EmptyFilePathField(t *testing.T) {
 
 func TestMediaLoader_EmptyURLField(t *testing.T) {
 	// When URL is a pointer to an empty string, it should fall through
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{})
 
 	empty := ""
 	media := &types.MediaContent{
@@ -718,7 +718,7 @@ func TestMediaLoader_EmptyURLField(t *testing.T) {
 
 func TestMediaLoader_EmptyStorageRefField(t *testing.T) {
 	// When StorageReference is a pointer to an empty string, it should fall through
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{})
 
 	empty := ""
 	media := &types.MediaContent{
@@ -739,7 +739,7 @@ func TestMediaLoader_URLContentLengthExceedsLimit(t *testing.T) {
 	}))
 	defer server.Close()
 
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{
 		MaxURLSizeBytes: 1024,
 	})
 
@@ -757,7 +757,7 @@ func TestMediaLoader_URLContentLengthExceedsLimit(t *testing.T) {
 
 func TestMediaLoader_DefaultConfig(t *testing.T) {
 	// Verify defaults are applied when config is zero-valued
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{})
 
 	// Should be able to load small content without issues
 	tmpDir := t.TempDir()
@@ -801,7 +801,7 @@ func TestMediaLoader_AggregateSize_ErrorMessage(t *testing.T) {
 	}))
 	defer server.Close()
 
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{
 		MaxURLSizeBytes: 70 * 1024 * 1024,
 		HTTPTimeout:     30 * time.Second,
 	})
@@ -822,7 +822,7 @@ func TestMediaLoader_AggregateSize_ErrorMessage(t *testing.T) {
 }
 
 func TestMediaLoader_ItemCountError_IncludesNumbers(t *testing.T) {
-	loader := providers.NewMediaLoader(providers.MediaLoaderConfig{})
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{})
 
 	// Fill up all slots
 	for i := 0; i < providers.MaxMediaItems; i++ {

@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/httputil"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -61,6 +62,14 @@ type MediaLoaderConfig struct {
 
 	// MaxURLSizeBytes is the maximum size for URL-based media (default: 50MB)
 	MaxURLSizeBytes int64
+
+	// AllowPrivateNetworks lets URL media be fetched from loopback, private,
+	// link-local and other non-public addresses. Off by default, and it should
+	// stay off: a media URL can come from a remote client or a model, and
+	// fetching it from the host is how such a URL reaches the host's cloud
+	// metadata service or internal network. Turn it on only when every media
+	// URL comes from a source the host trusts.
+	AllowPrivateNetworks bool
 }
 
 // NewMediaLoader creates a new MediaLoader with the given configuration.
@@ -75,12 +84,15 @@ func NewMediaLoader(config MediaLoaderConfig) *MediaLoader {
 		maxSize = defaultMaxURLSizeBytes
 	}
 
+	httpClient := httputil.NewPublicHTTPClient(timeout)
+	if config.AllowPrivateNetworks {
+		httpClient = &http.Client{Timeout: timeout}
+	}
+
 	return &MediaLoader{
 		storageService: config.StorageService,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		maxURLSize: maxSize,
+		httpClient:     httpClient,
+		maxURLSize:     maxSize,
 	}
 }
 

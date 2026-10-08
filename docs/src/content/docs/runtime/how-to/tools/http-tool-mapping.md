@@ -45,6 +45,8 @@ spec:
 
 Path-consumed arguments are automatically excluded from the request body.
 
+Arguments go in the path and query only. The URL from the scheme through the host and port must be fixed text, so the model cannot choose where the request goes. A template such as `https://{{.region}}.api.example.com` fails when the tool is called. To reach several hosts, declare one tool per host.
+
 ### Header Parameters
 
 Route arguments to HTTP headers using templates:
