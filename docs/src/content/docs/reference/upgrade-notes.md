@@ -22,7 +22,7 @@ in order.
 | If you | You will see | Change |
 |---|---|---|
 | Use the default compactor with a large system prompt or many tools | compaction starts earlier, so the request fits | nothing |
-| Supply your own `CompactionStrategy` | `Compact` receives the round's whole input — messages, system prompt and tool definitions — as `lastInputTokens` | compare that, not just the messages, to your budget |
+| Supply your own `CompactionStrategy` | `Compact` receives the round's input tokens (messages, system prompt and tool definitions) as `lastInputTokens` | compare that, not the messages alone, to your budget |
 | Use `CompactionRules` with `CollapsePairs` and a `MessageLog` | new messages reach the log after a compaction removes old ones | nothing |
 
 ### A prompt's `temperature: 0`, `top_p` and penalties reach the provider
