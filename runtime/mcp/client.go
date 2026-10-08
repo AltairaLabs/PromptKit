@@ -240,9 +240,20 @@ func (c *sdkClient) connect(ctx context.Context, modern bool) (*gosdk.ClientSess
 // connectSSE opens an HTTP+SSE session. The configured URL is the SSE
 // endpoint (2024-11-05); earlier releases appended "/sse" to it, so that is
 // tried second, for configs that name the server's base URL.
+//
+// HTTP+SSE is a handshake-era transport: 2026-07-28 defines only stdio and
+// Streamable HTTP, so the session always uses LegacyProtocolVersion and never
+// tries server/discover. Trying it was not just a wasted round trip: go-sdk's
+// SSE server sends the endpoint event before it records which versions the
+// transport supports, so a discover that arrived in that gap was answered
+// with 2026-07-28, and the session ran stateless over a transport that
+// cannot carry it, with no initialize handshake at all (#2189).
 func (c *sdkClient) connectSSE(
 	ctx context.Context, client *gosdk.Client, opts *gosdk.ClientSessionOptions,
 ) (*gosdk.ClientSession, error) {
+	legacy := *opts
+	legacy.ProtocolVersion = LegacyProtocolVersion
+	opts = &legacy
 	session, err := client.Connect(ctx, c.sseTransport(c.config.URL), opts)
 	base := strings.TrimRight(c.config.URL, "/")
 	if err == nil || strings.HasSuffix(base, "/sse") || ctx.Err() != nil {

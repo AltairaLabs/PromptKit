@@ -31,7 +31,8 @@ generations of the protocol. It first asks the server which revisions it support
 protocol version and client capabilities, and there is no handshake or session. A server that
 predates discovery gets the `initialize` handshake of revisions up to 2025-11-25. A stdio server
 that never answers the discovery request is restarted with the handshake after
-`ClientOptions.EraProbeTimeout` (3s by default). Set `ClientOptions.DisableModernProtocol` to skip
+`ClientOptions.EraProbeTimeout` (3s by default). HTTP+SSE, which 2026-07-28 does not define,
+always uses the handshake and never sends the discovery request. Set `ClientOptions.DisableModernProtocol` to skip
 the discovery probe for a server that misbehaves when it receives one.
 
 ## Spec support
