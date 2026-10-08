@@ -23,9 +23,9 @@ entry can set them too. A realtime duplex session (ASM) does not take them yet.
 Penalties are sent to OpenAI Chat Completions, vLLM, Ollama and Gemini, whose
 APIs take them, and not to the OpenAI Responses API or Claude, whose APIs do not.
 `top_p` is not sent to Claude, which rejects it alongside a temperature. A model
-that rejects a parameter is configured with `unsupported_params` — now honored
-by Gemini for the penalties — and OpenAI o-series models withhold the penalties
-by default, as they already did temperature and `top_p`.
+that rejects a parameter is configured with `unsupported_params`, which Gemini
+now honors for the penalties. OpenAI o-series models withhold the penalties by
+default, as they already did temperature and `top_p`.
 
 | If you | You will see | Change |
 |---|---|---|
