@@ -662,6 +662,39 @@ func (r *Registry) assembleFragmentVars(config *Config, finalVars map[string]str
 	return fragmentVars, nil
 }
 
+// CallParameters returns the max_tokens and temperature a call to activity's
+// prompt on model requests: the prompt's parameters, then those of its
+// model_overrides entry for model. Zero means unset, leaving the provider's
+// default, as do an unknown activity and a prompt that sets neither.
+func (r *Registry) CallParameters(activity, model string) (maxTokens int, temperature float32) {
+	if activity == "" {
+		return 0, 0 // a composition state's conversation runs no prompt of its own
+	}
+	config, err := r.loadConfig(activity)
+	if err != nil {
+		// Not silent: the call goes out with the provider's defaults.
+		logger.Warn("prompt parameters unavailable; the call uses the provider's defaults",
+			"task_type", activity, "error", err)
+		return 0, 0
+	}
+	apply := func(params *ParametersPack) {
+		if params == nil {
+			return
+		}
+		if params.MaxTokens != nil {
+			maxTokens = *params.MaxTokens
+		}
+		if params.Temperature != nil {
+			temperature = float32(*params.Temperature)
+		}
+	}
+	apply(config.Spec.Parameters)
+	if override, ok := config.Spec.ModelOverrides[model]; ok && model != "" {
+		apply(override.Parameters)
+	}
+	return maxTokens, temperature
+}
+
 // applyModelOverrides applies model-specific template overrides
 func (r *Registry) applyModelOverrides(config *Config, model string) string {
 	systemTemplate := config.Spec.SystemTemplate

@@ -52,6 +52,14 @@ func (p *callRecordingProvider) next(req providers.PredictionRequest, tools prov
 	return p.transitions && len(p.rounds) == 1
 }
 
+func (p *callRecordingProvider) Predict(
+	_ context.Context, req providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
+	// Recorded only: a call without tools cannot carry the scripted transition.
+	p.rounds = append(p.rounds, callRound{req.System, req.MaxTokens, req.Temperature, nil})
+	return providers.PredictionResponse{Content: "from " + p.ID()}, nil
+}
+
 func (p *callRecordingProvider) PredictWithTools(
 	_ context.Context, req providers.PredictionRequest, tools providers.ProviderTools, _ string,
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {

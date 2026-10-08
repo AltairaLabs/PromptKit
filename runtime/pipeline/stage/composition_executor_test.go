@@ -780,3 +780,28 @@ func TestCompositionExecutor_ToolScopeIntersection(t *testing.T) {
 		})
 	}
 }
+
+// A step runs with its prompt's parameters, and its model_overrides entry's
+// for the step provider's model, as an opened prompt does (#2205).
+func TestCompositionExecutor_StepCarriesPromptParameters(t *testing.T) {
+	maxTokens, temp, overrideTemp := 300, 0.8, 0.4
+	reg := prompt.NewRegistryWithRepository(newMockRepo())
+	require.NoError(t, reg.RegisterConfig("p", &prompt.Config{Spec: prompt.Spec{
+		TaskType: "p", SystemTemplate: "You are a helpful assistant.",
+		Parameters: &prompt.ParametersPack{MaxTokens: &maxTokens, Temperature: &temp},
+		ModelOverrides: map[string]prompt.ModelOverride{
+			"step-model": {Parameters: &prompt.ParametersPack{Temperature: &overrideTemp}},
+		},
+	}}))
+
+	prov := newCallRecordingProvider("step", false)
+	prov.ToolProvider = mock.NewToolProvider("step", "step-model", false, nil)
+	exec := NewCompositionStepExecutor(CompositionExecutorDeps{PromptRegistry: reg, Provider: prov})
+	_, err := exec(context.Background(),
+		&composition.Step{ID: "s", Kind: composition.KindPrompt, PromptTask: "p"}, json.RawMessage(`"hi"`))
+	require.NoError(t, err)
+
+	require.Len(t, prov.rounds, 1)
+	assert.Equal(t, 300, prov.rounds[0].maxTokens)
+	assert.InDelta(t, 0.4, prov.rounds[0].temperature, 1e-6)
+}

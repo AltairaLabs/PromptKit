@@ -81,9 +81,10 @@ const modelOverridesPack = `{
 		"draft": {
 			"id": "draft", "name": "draft", "version": "1.0.0",
 			"system_template": "draft base", "provider": "drafter",
+			"parameters": {"max_tokens": 300, "temperature": 0.8},
 			"model_overrides": {
-				"agent-model":   {"system_template": "WRONG: the agent's override"},
-				"drafter-model": {"system_template": "drafter override"}
+				"agent-model":   {"system_template": "WRONG: the agent's override", "parameters": {"max_tokens": 1}},
+				"drafter-model": {"system_template": "drafter override", "parameters": {"temperature": 0.4}}
 			}
 		}
 	},
@@ -154,5 +155,7 @@ func TestModelOverrides_ApplyForTheRunningProvidersModel(t *testing.T) {
 		req, n := drafter.lastRequest()
 		require.Equal(t, 1, n)
 		assert.Equal(t, "drafter override", req.System, "not the agent's override")
+		assert.Equal(t, 300, req.MaxTokens, "a composition step carries its prompt's parameters (#2205)")
+		assert.InDelta(t, 0.4, req.Temperature, 1e-6, "and its override's for the step provider's model")
 	})
 }
