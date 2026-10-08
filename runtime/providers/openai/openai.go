@@ -770,15 +770,10 @@ func (p *Provider) convertResponseFormat(rf *providers.ResponseFormat) *openAIRe
 // Predict runs predictOnce, retrying without any sampling parameter the API
 // rejects for this model (providers.BaseProvider.RetryRejectedParams).
 func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
-	// A system-role message goes to the system field: the APIs reject it
-	// as a message role on some paths (#2222).
-	req.NormalizeMessages()
-	var resp providers.PredictionResponse
-	err := p.RetryRejectedParams(func() (err error) {
-		resp, err = p.predictOnce(ctx, req)
-		return err
-	})
-	return resp, err
+	return providers.RetryCall(&p.BaseProvider, req,
+		func(r providers.PredictionRequest) (providers.PredictionResponse, error) {
+			return p.predictOnce(ctx, r)
+		})
 }
 
 // predictOnce sends a predict request to OpenAI
@@ -862,15 +857,10 @@ func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.Co
 func (p *Provider) PredictStream(
 	ctx context.Context, req providers.PredictionRequest,
 ) (<-chan providers.StreamChunk, error) {
-	// A system-role message goes to the system field: the APIs reject it
-	// as a message role on some paths (#2222).
-	req.NormalizeMessages()
-	var ch <-chan providers.StreamChunk
-	err := p.RetryRejectedParams(func() (err error) {
-		ch, err = p.predictStreamOnce(ctx, req)
-		return err
-	})
-	return ch, err
+	return providers.RetryCall(&p.BaseProvider, req,
+		func(r providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+			return p.predictStreamOnce(ctx, r)
+		})
 }
 
 // predictStreamOnce streams a predict response from OpenAI.

@@ -83,6 +83,7 @@ This file contains exported test helpers that can be used by provider implementa
 - [func ResolveMaxTokens\(requested int, defaults ProviderDefaults\) int](<#ResolveMaxTokens>)
 - [func ResolveRerankCredential\(ctx context.Context, providerType string, cfgDir string, cred \*credentials.CredentialConfig, platform \*credentials.PlatformConfig\) \(credentials.Credential, error\)](<#ResolveRerankCredential>)
 - [func ResolveTemperature\(req \*PredictionRequest, def float32\) float32](<#ResolveTemperature>)
+- [func RetryCall\[T any\]\(b \*BaseProvider, req PredictionRequest, call func\(PredictionRequest\) \(T, error\)\) \(T, error\)](<#RetryCall>)
 - [func RunProviderContractTests\(t \*testing.T, config ProviderContractTests\)](<#RunProviderContractTests>)
 - [func SetErrorResponse\(predictResp \*PredictionResponse, respBody \[\]byte, start time.Time\)](<#SetErrorResponse>)
 - [func SkipIfNoCredentials\(t \*testing.T, provider Provider\)](<#SkipIfNoCredentials>)
@@ -232,6 +233,7 @@ This file contains exported test helpers that can be used by provider implementa
 - [type PredictionRequest](<#PredictionRequest>)
   - [func \(r \*PredictionRequest\) NormalizeMessages\(\)](<#PredictionRequest.NormalizeMessages>)
 - [type PredictionResponse](<#PredictionResponse>)
+  - [func RetryToolCall\(b \*BaseProvider, req PredictionRequest, call func\(PredictionRequest\) \(PredictionResponse, \[\]types.MessageToolCall, error\)\) \(PredictionResponse, \[\]types.MessageToolCall, error\)](<#RetryToolCall>)
 - [type Pricing](<#Pricing>)
 - [type PrivateNetworkMediaConfigurable](<#PrivateNetworkMediaConfigurable>)
 - [type Provider](<#Provider>)
@@ -976,7 +978,7 @@ func RegisteredRerankProviderTypes() []string
 RegisteredRerankProviderTypes returns the rerank provider types with a registered factory, sorted. Use it to check a configured type before CreateRerankProviderFromSpec rather than constructing and parsing the error.
 
 <a name="RejectedParams"></a>
-## func [RejectedParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rejected_params.go#L41>)
+## func [RejectedParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rejected_params.go#L42>)
 
 ```go
 func RejectedParams(err error) []string
@@ -1028,6 +1030,15 @@ func ResolveTemperature(req *PredictionRequest, def float32) float32
 ```
 
 ResolveTemperature returns the temperature req sends: its own when it set one \(explicitly, or any non\-zero value\), otherwise the provider's default def. A zero without TemperatureSet is "unset", which is what every caller that predates TemperatureSet means by it.
+
+<a name="RetryCall"></a>
+## func [RetryCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rejected_params.go#L115>)
+
+```go
+func RetryCall[T any](b *BaseProvider, req PredictionRequest, call func(PredictionRequest) (T, error)) (T, error)
+```
+
+RetryCall runs call with req through b.RetryRejectedParams, after moving req's system\-role messages to its System field \(NormalizeMessages\): the APIs reject "system" as a message role on some paths. Each provider's Predict and PredictStream are this around their single attempt.
 
 <a name="RunProviderContractTests"></a>
 ## func [RunProviderContractTests](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider_contract_integration.go#L56>)
@@ -1521,7 +1532,7 @@ func (b *BaseProvider) MediaLoader() *MediaLoader
 MediaLoader returns a per\-call MediaLoader configured with this provider's injected storage service \(if any\). Providers use it to resolve media parts \(ResolveURL for URL\-first providers, GetBase64Data for byte\-based ones\).
 
 <a name="BaseProvider.ParamRejected"></a>
-### func \(\*BaseProvider\) [ParamRejected](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rejected_params.go#L71>)
+### func \(\*BaseProvider\) [ParamRejected](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rejected_params.go#L72>)
 
 ```go
 func (b *BaseProvider) ParamRejected(param string) bool
@@ -1539,7 +1550,7 @@ func (b *BaseProvider) RateLimiter() *rate.Limiter
 RateLimiter returns the current rate limiter, or nil if rate limiting is not configured. This is useful for inspecting or sharing limiters.
 
 <a name="BaseProvider.RejectedParamNames"></a>
-### func \(\*BaseProvider\) [RejectedParamNames](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rejected_params.go#L81>)
+### func \(\*BaseProvider\) [RejectedParamNames](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rejected_params.go#L82>)
 
 ```go
 func (b *BaseProvider) RejectedParamNames() []string
@@ -1557,7 +1568,7 @@ func (b *BaseProvider) ReleaseStreamSlot()
 ReleaseStreamSlot returns a slot to the concurrent\-stream semaphore. Nil\-safe; must be paired with a successful AcquireStreamSlot.
 
 <a name="BaseProvider.RetryRejectedParams"></a>
-### func \(\*BaseProvider\) [RetryRejectedParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rejected_params.go#L100>)
+### func \(\*BaseProvider\) [RetryRejectedParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rejected_params.go#L101>)
 
 ```go
 func (b *BaseProvider) RetryRejectedParams(call func() error) error
@@ -2785,6 +2796,15 @@ type PredictionResponse struct {
     FinishReason string `json:"finish_reason,omitempty"`
 }
 ```
+
+<a name="RetryToolCall"></a>
+### func [RetryToolCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/rejected_params.go#L127-L130>)
+
+```go
+func RetryToolCall(b *BaseProvider, req PredictionRequest, call func(PredictionRequest) (PredictionResponse, []types.MessageToolCall, error)) (PredictionResponse, []types.MessageToolCall, error)
+```
+
+RetryToolCall is RetryCall for PredictWithTools, which also returns the tool calls.
 
 <a name="Pricing"></a>
 ## type [Pricing](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L194-L197>)

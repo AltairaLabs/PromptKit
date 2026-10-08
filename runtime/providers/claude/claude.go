@@ -920,15 +920,10 @@ func (p *Provider) parseAndValidateClaudeResponse(respBody []byte, predictResp p
 // Predict runs predictOnce, retrying without any sampling parameter the API
 // rejects for this model (providers.BaseProvider.RetryRejectedParams).
 func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
-	// A system-role message goes to the system field: the APIs reject it
-	// as a message role on some paths (#2222).
-	req.NormalizeMessages()
-	var resp providers.PredictionResponse
-	err := p.RetryRejectedParams(func() (err error) {
-		resp, err = p.predictOnce(ctx, req)
-		return err
-	})
-	return resp, err
+	return providers.RetryCall(&p.BaseProvider, req,
+		func(r providers.PredictionRequest) (providers.PredictionResponse, error) {
+			return p.predictOnce(ctx, r)
+		})
 }
 
 // predictOnce sends a predict request to Claude

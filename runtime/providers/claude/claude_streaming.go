@@ -25,15 +25,10 @@ const (
 func (p *Provider) PredictStream(
 	ctx context.Context, req providers.PredictionRequest,
 ) (<-chan providers.StreamChunk, error) {
-	// A system-role message goes to the system field: the APIs reject it
-	// as a message role on some paths (#2222).
-	req.NormalizeMessages()
-	var ch <-chan providers.StreamChunk
-	err := p.RetryRejectedParams(func() (err error) {
-		ch, err = p.predictStreamOnce(ctx, req)
-		return err
-	})
-	return ch, err
+	return providers.RetryCall(&p.BaseProvider, req,
+		func(r providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+			return p.predictStreamOnce(ctx, r)
+		})
 }
 
 // predictStreamOnce performs a streaming prediction request to Claude.

@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // Wire names of the sampling parameters a provider learns its model rejects.
@@ -105,6 +106,37 @@ func (b *BaseProvider) RetryRejectedParams(call func() error) error {
 			return err
 		}
 	}
+}
+
+// RetryCall runs call with req through b.RetryRejectedParams, after moving
+// req's system-role messages to its System field (NormalizeMessages): the APIs
+// reject "system" as a message role on some paths. Each provider's Predict and
+// PredictStream are this around their single attempt.
+func RetryCall[T any](b *BaseProvider, req PredictionRequest, call func(PredictionRequest) (T, error)) (T, error) {
+	req.NormalizeMessages()
+	var out T
+	err := b.RetryRejectedParams(func() (err error) {
+		out, err = call(req)
+		return err
+	})
+	return out, err
+}
+
+// RetryToolCall is RetryCall for PredictWithTools, which also returns the
+// tool calls.
+func RetryToolCall(
+	b *BaseProvider, req PredictionRequest,
+	call func(PredictionRequest) (PredictionResponse, []types.MessageToolCall, error),
+) (PredictionResponse, []types.MessageToolCall, error) {
+	type result struct {
+		resp  PredictionResponse
+		calls []types.MessageToolCall
+	}
+	r, err := RetryCall(b, req, func(req PredictionRequest) (result, error) {
+		resp, calls, err := call(req)
+		return result{resp, calls}, err
+	})
+	return r.resp, r.calls, err
 }
 
 // rejectedSnapshot copies the rejected set as it stood when a request was built.

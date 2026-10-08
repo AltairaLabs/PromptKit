@@ -150,16 +150,10 @@ func (p *ToolProvider) useStrictTools() bool {
 func (p *ToolProvider) PredictWithTools(
 	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools, toolChoice string,
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
-	// A system-role message goes to the system field: the APIs reject it
-	// as a message role on some paths (#2222).
-	req.NormalizeMessages()
-	var resp providers.PredictionResponse
-	var calls []types.MessageToolCall
-	err := p.RetryRejectedParams(func() (err error) {
-		resp, calls, err = p.predictWithToolsOnce(ctx, req, tools, toolChoice)
-		return err
-	})
-	return resp, calls, err
+	return providers.RetryToolCall(&p.BaseProvider, req,
+		func(r providers.PredictionRequest) (providers.PredictionResponse, []types.MessageToolCall, error) {
+			return p.predictWithToolsOnce(ctx, r, tools, toolChoice)
+		})
 }
 
 // predictWithToolsOnce performs a predict request with tool support
@@ -736,17 +730,12 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request *claudeRequest) 
 // PredictStreamWithTools runs predictStreamWithToolsOnce, retrying without
 // any sampling parameter the API rejects for this model.
 func (p *ToolProvider) PredictStreamWithTools(
-	ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string,
+	ctx context.Context, req providers.PredictionRequest, tools any, toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
-	// A system-role message goes to the system field: the APIs reject it
-	// as a message role on some paths (#2222).
-	req.NormalizeMessages()
-	var ch <-chan providers.StreamChunk
-	err := p.RetryRejectedParams(func() (err error) {
-		ch, err = p.predictStreamWithToolsOnce(ctx, req, tools, toolChoice)
-		return err
-	})
-	return ch, err
+	return providers.RetryCall(&p.BaseProvider, req,
+		func(r providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+			return p.predictStreamWithToolsOnce(ctx, r, tools, toolChoice)
+		})
 }
 
 // predictStreamWithToolsOnce performs a streaming predict request with tool support.
