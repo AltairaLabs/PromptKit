@@ -8,6 +8,20 @@ changes that need you to do something, with what to change and why.
 
 ## Unreleased
 
+### A mid-turn workflow handoff runs on the destination prompt's provider
+
+When the model transitions a workflow mid-turn, the destination state speaks in
+the same turn. That round used to stay on the origin conversation's provider,
+`max_tokens` and `temperature`, with only the system prompt and tools swapped.
+It now runs on what opening the destination state would give it: the provider
+its prompt's `provider` key is bound to (RFC 0017), its `parameters`, and the
+`model_overrides` entry for that provider's model.
+
+| If you | You will see | Change |
+|---|---|---|
+| Run a workflow whose states' prompts name different `provider` keys or set different `parameters` | the destination's provider and parameters from the round after the transition | nothing |
+| Implement `stage.WorkflowStateResolver` | nothing: `Handoff.Call` is optional, and nil keeps the turn's provider and parameters | set `Call` to switch them |
+
 ### A prompt's `model_overrides` apply
 
 A prompt's `model_overrides` entry for a model never applied: the runtime loaded

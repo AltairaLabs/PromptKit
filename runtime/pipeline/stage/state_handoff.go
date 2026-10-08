@@ -1,6 +1,10 @@
 package stage
 
-import "context"
+import (
+	"context"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+)
 
 // Handoff describes the prompt and tool set the workflow's current state needs.
 //
@@ -29,13 +33,28 @@ type Handoff struct {
 	// the declaration of the prompt actually running after a handoff. Empty
 	// leaves the task the turn started on.
 	PromptTask string
+	// Call is the provider and parameters the current state's prompt runs
+	// with — its RFC 0017 provider and its max_tokens/temperature — so a
+	// handoff to a prompt that runs elsewhere switches them for the next
+	// round. nil keeps the ones the turn started with.
+	Call *HandoffCall
+}
+
+// HandoffCall is what the current state's prompt runs on. MaxTokens and
+// Temperature are the values the request carries, zero meaning the provider's
+// default, exactly as ProviderConfig's.
+type HandoffCall struct {
+	Provider    providers.Provider
+	MaxTokens   int
+	Temperature float32
 }
 
 // WorkflowStateResolver lets a workflow consumer keep a turn aligned with the
 // workflow's current state.
 //
-// A workflow state change is exactly two things: a different system prompt and
-// a different tool set. Both are already per-round inputs to the provider tool
+// A workflow state change is a different system prompt, a different tool set
+// and, when the state's prompt runs elsewhere (RFC 0017), a different provider
+// and parameters (Handoff.Call). All are per-round inputs to the provider tool
 // loop, so reconciling them between rounds is sufficient to make the turn run
 // as the current state — no new conversation, no new pipeline, and no user
 // message required. Without this, a transition advances the state machine and

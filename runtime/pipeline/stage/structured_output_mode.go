@@ -160,12 +160,12 @@ func (tl *toolLoop) reaskPredict(
 	ctx context.Context, req providers.PredictionRequest,
 ) (providers.PredictionResponse, error) {
 	s := tl.stage
-	toolProvider, supportsTools := s.provider.(providers.ToolSupport)
+	toolProvider, supportsTools := s.callProvider().(providers.ToolSupport)
 	if s.useToolPath(nil, req.Messages, supportsTools) {
 		resp, _, err := toolProvider.PredictWithTools(ctx, req, nil, "")
 		return resp, err
 	}
-	return s.provider.Predict(ctx, req)
+	return s.callProvider().Predict(ctx, req)
 }
 
 // reaskUnderSchema regenerates the loop's closing answer with the caller's
@@ -194,8 +194,8 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 	req := providers.PredictionRequest{
 		System:         tl.acc.systemPrompt,
 		Messages:       prior,
-		MaxTokens:      s.config.MaxTokens,
-		Temperature:    s.config.Temperature,
+		MaxTokens:      s.callMaxTokens(),
+		Temperature:    s.callTemperature(),
 		Seed:           s.config.Seed,
 		ResponseFormat: s.config.ResponseFormat,
 		Metadata:       tl.acc.metadata,
@@ -218,8 +218,8 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 	callID := newProviderCallID()
 	if tl.stage.emitter != nil {
 		tl.stage.emitter.ProviderCallStartedCtx(ctx, &events.ProviderCallStartedData{
-			Provider: s.provider.ID(),
-			Model:    s.provider.Model(),
+			Provider: s.callProvider().ID(),
+			Model:    s.callProvider().Model(),
 			Source:   s.config.Source,
 			Labels:   s.config.Labels,
 			Round:    rr.round,
@@ -232,8 +232,8 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 	if err != nil {
 		if tl.stage.emitter != nil {
 			tl.stage.emitter.ProviderCallFailedCtx(ctx, &events.ProviderCallFailedData{
-				Provider: s.provider.ID(),
-				Model:    s.provider.Model(),
+				Provider: s.callProvider().ID(),
+				Model:    s.callProvider().Model(),
 				Error:    err,
 				Duration: timeNow().Sub(started),
 				Source:   s.config.Source,
@@ -259,10 +259,10 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 
 	if resp.CostInfo != nil {
 		if resp.CostInfo.ProviderName == "" {
-			resp.CostInfo.ProviderName = s.provider.Name()
+			resp.CostInfo.ProviderName = s.callProvider().Name()
 		}
 		if resp.CostInfo.Capability == "" {
-			resp.CostInfo.Capability = string(s.provider.Type())
+			resp.CostInfo.Capability = string(s.callProvider().Type())
 		}
 		if resp.CostInfo.Latency == 0 {
 			resp.CostInfo.Latency = duration
@@ -271,8 +271,8 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 
 	if tl.stage.emitter != nil {
 		completed := &events.ProviderCallCompletedData{
-			Provider:     s.provider.ID(),
-			Model:        s.provider.Model(),
+			Provider:     s.callProvider().ID(),
+			Model:        s.callProvider().Model(),
 			Duration:     duration,
 			FinishReason: resp.FinishReason,
 			Source:       s.config.Source,

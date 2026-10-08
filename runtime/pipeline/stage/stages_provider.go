@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -65,6 +66,12 @@ type ProviderStage struct {
 	// task the turn started on, updated when a workflow handoff switches
 	// state mid-turn. Read by provider hooks to find the prompt declaration.
 	promptTask atomic.Value // string
+	// active is what the model is invoked on next: the provider and the
+	// max_tokens/temperature. Each execution starts on the stage's own; a
+	// workflow handoff to a state whose prompt runs elsewhere (RFC 0017) swaps
+	// it mid-turn, as promptTask is swapped. Read through callProvider,
+	// callMaxTokens and callTemperature, never s.provider directly.
+	active atomic.Pointer[activeCall]
 	// stateResolver advances workflow state between tool-loop rounds, so a
 	// transition's destination state generates the next round instead of the
 	// turn ending with the origin state still in control. Nil for
@@ -310,6 +317,42 @@ func (s *ProviderStage) toolDeclaration(name string) *packspec.Tool {
 	return nil
 }
 
+// activeCall is the provider and parameters the next round runs with.
+type activeCall struct {
+	provider    providers.Provider
+	maxTokens   int
+	temperature float32
+}
+
+// resetActiveCall starts an execution on the stage's own provider and
+// parameters, so a stage reused across executions never runs on a previous
+// execution's handoff.
+func (s *ProviderStage) resetActiveCall() {
+	call := &activeCall{provider: s.provider}
+	if s.config != nil {
+		call.maxTokens = s.config.MaxTokens
+		call.temperature = s.config.Temperature
+	}
+	s.active.Store(call)
+}
+
+func (s *ProviderStage) activeCallOrDefault() *activeCall {
+	if call := s.active.Load(); call != nil {
+		return call
+	}
+	s.resetActiveCall()
+	return s.active.Load()
+}
+
+// callProvider returns the provider the next round runs on.
+func (s *ProviderStage) callProvider() providers.Provider { return s.activeCallOrDefault().provider }
+
+// callMaxTokens returns the max_tokens the next round requests.
+func (s *ProviderStage) callMaxTokens() int { return s.activeCallOrDefault().maxTokens }
+
+// callTemperature returns the temperature the next round requests.
+func (s *ProviderStage) callTemperature() float32 { return s.activeCallOrDefault().temperature }
+
 // setPromptTask records the prompt task the model is invoked for next.
 func (s *ProviderStage) setPromptTask(task string) { s.promptTask.Store(task) }
 
@@ -405,6 +448,7 @@ func (s *ProviderStage) accumulateInput(input <-chan StreamElement) *providerInp
 		}
 	}
 	s.promptTaskFromTurnState()
+	s.resetActiveCall()
 
 	return acc
 }
@@ -422,6 +466,7 @@ type streamingConfig struct {
 func (s *ProviderStage) streamingTurnState() streamingConfig {
 	cfg := streamingConfig{baseMeta: map[string]interface{}{}}
 	s.promptTaskFromTurnState()
+	s.resetActiveCall()
 	if s.turnState == nil {
 		return cfg
 	}
@@ -561,7 +606,7 @@ func (s *ProviderStage) fireStreamingTurn(
 
 	var full []types.Message
 	var err error
-	if s.provider.SupportsStreaming() {
+	if s.callProvider().SupportsStreaming() {
 		full, err = s.executeStreamingMultiRound(genCtx, acc, output)
 	} else {
 		full, err = s.executeMultiRound(genCtx, acc)
@@ -634,7 +679,7 @@ func (s *ProviderStage) executeAndEmit(
 	var responseMessages []types.Message
 	var err error
 
-	if s.provider.SupportsStreaming() {
+	if s.callProvider().SupportsStreaming() {
 		responseMessages, err = s.executeStreamingMultiRound(ctx, acc, output)
 	} else {
 		responseMessages, err = s.executeMultiRound(ctx, acc)
@@ -825,9 +870,14 @@ func (s *ProviderStage) applyStateHandoff(
 	// was built for, so a resumed turn (HITL, deferred client tool) can find
 	// itself back on the origin state's prompt with nothing "pending" to
 	// signal it. Reconciling against what is actually loaded self-corrects.
-	if !handoff.Valid || handoff.SystemPrompt == acc.systemPrompt {
+	// The call switches before the prompt comparison for the same reason: two
+	// states may share a prompt text and still run on different providers.
+	providerChanged := handoff.Valid && s.applyHandoffCall(handoff.Call)
+	if !handoff.Valid || (handoff.SystemPrompt == acc.systemPrompt && !providerChanged) {
 		return false, nil
 	}
+	// Tools are rebuilt on a provider change too: their wire form is the
+	// provider's (BuildTooling).
 	rebuilt, _, err := s.buildProviderTools(handoff.AllowedTools, loop.excluded)
 	if err != nil {
 		return false, fmt.Errorf("provider stage: workflow handoff: rebuild tools: %w", err)
@@ -835,6 +885,9 @@ func (s *ProviderStage) applyStateHandoff(
 	acc.systemPrompt = handoff.SystemPrompt
 	acc.allowedTools = handoff.AllowedTools
 	loop.providerTools = rebuilt
+	if providerChanged {
+		loop.cachingSupported = supportsPromptCaching(s.callProvider())
+	}
 
 	// Write through to TurnState so anything else reading it this execution
 	// sees the same state. Note this does NOT survive the next execution --
@@ -845,6 +898,34 @@ func (s *ProviderStage) applyStateHandoff(
 		s.turnState.AllowedTools = handoff.AllowedTools
 	}
 	return false, nil
+}
+
+// applyHandoffCall switches the next round to call's provider and parameters.
+// Reports whether the provider changed. nil keeps the current call.
+func (s *ProviderStage) applyHandoffCall(call *HandoffCall) (providerChanged bool) {
+	if call == nil || call.Provider == nil {
+		return false
+	}
+	current := s.activeCallOrDefault()
+	same := sameProvider(call.Provider, current.provider)
+	if same && call.MaxTokens == current.maxTokens && call.Temperature == current.temperature {
+		return false
+	}
+	s.active.Store(&activeCall{provider: call.Provider, maxTokens: call.MaxTokens, temperature: call.Temperature})
+	return !same
+}
+
+// sameProvider reports whether a and b are the same provider value, without
+// the panic == raises on an interface holding an uncomparable type.
+func sameProvider(a, b providers.Provider) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	ta := reflect.TypeOf(a)
+	if ta != reflect.TypeOf(b) || !ta.Comparable() {
+		return false
+	}
+	return a == b
 }
 
 // applyToolSelector narrows acc.allowedTools through the configured
@@ -1188,9 +1269,7 @@ func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
 		return nil, fmt.Errorf("provider stage: %w", err)
 	}
 	cachingSupported := false
-	if pc, ok := s.provider.(promptCachingProvider); ok {
-		cachingSupported = pc.SupportsPromptCaching()
-	}
+	cachingSupported = supportsPromptCaching(s.callProvider())
 	return &toolLoop{
 		stage:               s,
 		acc:                 acc,
@@ -1474,8 +1553,8 @@ func (s *ProviderStage) executeRound(
 	req := providers.PredictionRequest{
 		System:         systemPrompt,
 		Messages:       messages,
-		MaxTokens:      s.config.MaxTokens,
-		Temperature:    s.config.Temperature,
+		MaxTokens:      s.callMaxTokens(),
+		Temperature:    s.callTemperature(),
 		Seed:           s.config.Seed,
 		ResponseFormat: s.roundResponseFormat(providerTools),
 		Metadata:       metadata,
@@ -1501,8 +1580,8 @@ func (s *ProviderStage) executeRound(
 	// Emit provider call started event
 	if s.emitter != nil {
 		s.emitter.ProviderCallStartedCtx(ctx, &events.ProviderCallStartedData{
-			Provider:     s.provider.ID(),
-			Model:        s.provider.Model(),
+			Provider:     s.callProvider().ID(),
+			Model:        s.callProvider().Model(),
 			MessageCount: len(messages),
 			ToolCount:    toolCount,
 			Labels:       s.config.Labels,
@@ -1517,7 +1596,7 @@ func (s *ProviderStage) executeRound(
 	var toolCalls []types.MessageToolCall
 	var err error
 
-	toolProvider, supportsTools := s.provider.(providers.ToolSupport)
+	toolProvider, supportsTools := s.callProvider().(providers.ToolSupport)
 	if s.useToolPath(providerTools, req.Messages, supportsTools) {
 		// Use tool-aware provider interface
 		if !supportsTools {
@@ -1526,7 +1605,7 @@ func (s *ProviderStage) executeRound(
 		resp, toolCalls, err = toolProvider.PredictWithTools(ctx, req, providerTools, toolChoice)
 	} else {
 		// Regular prediction
-		resp, err = s.provider.Predict(ctx, req)
+		resp, err = s.callProvider().Predict(ctx, req)
 		toolCalls = resp.ToolCalls
 	}
 
@@ -1537,8 +1616,8 @@ func (s *ProviderStage) executeRound(
 		// Emit provider call failed event
 		if s.emitter != nil {
 			s.emitter.ProviderCallFailedCtx(ctx, &events.ProviderCallFailedData{
-				Provider: s.provider.ID(),
-				Model:    s.provider.Model(),
+				Provider: s.callProvider().ID(),
+				Model:    s.callProvider().Model(),
 				Error:    err,
 				Duration: duration,
 				Source:   s.config.Source,
@@ -1553,8 +1632,8 @@ func (s *ProviderStage) executeRound(
 	// Emit provider call completed event
 	if s.emitter != nil {
 		completedData := &events.ProviderCallCompletedData{
-			Provider:      s.provider.ID(),
-			Model:         s.provider.Model(),
+			Provider:      s.callProvider().ID(),
+			Model:         s.callProvider().Model(),
 			Duration:      duration,
 			ToolCallCount: len(toolCalls),
 			FinishReason:  resp.FinishReason,
@@ -1580,10 +1659,10 @@ func (s *ProviderStage) executeRound(
 	// and capability discriminator the breakdown / aggregation paths expect.
 	if resp.CostInfo != nil {
 		if resp.CostInfo.ProviderName == "" {
-			resp.CostInfo.ProviderName = s.provider.Name()
+			resp.CostInfo.ProviderName = s.callProvider().Name()
 		}
 		if resp.CostInfo.Capability == "" {
-			resp.CostInfo.Capability = string(s.provider.Type())
+			resp.CostInfo.Capability = string(s.callProvider().Type())
 		}
 		if resp.CostInfo.Latency == 0 {
 			resp.CostInfo.Latency = duration
@@ -1655,8 +1734,8 @@ func (s *ProviderStage) executeStreamingRound(
 	req := providers.PredictionRequest{
 		System:         params.systemPrompt,
 		Messages:       params.messages,
-		MaxTokens:      s.config.MaxTokens,
-		Temperature:    s.config.Temperature,
+		MaxTokens:      s.callMaxTokens(),
+		Temperature:    s.callTemperature(),
 		Seed:           s.config.Seed,
 		Metadata:       params.metadata,
 		ResponseFormat: s.roundResponseFormat(params.providerTools),
@@ -1682,8 +1761,8 @@ func (s *ProviderStage) executeStreamingRound(
 	// Emit provider call started event
 	if s.emitter != nil {
 		s.emitter.ProviderCallStartedCtx(ctx, &events.ProviderCallStartedData{
-			Provider:     s.provider.ID(),
-			Model:        s.provider.Model(),
+			Provider:     s.callProvider().ID(),
+			Model:        s.callProvider().Model(),
 			MessageCount: len(params.messages),
 			ToolCount:    toolCount,
 			Labels:       s.config.Labels,
@@ -1701,8 +1780,8 @@ func (s *ProviderStage) executeStreamingRound(
 		// Emit provider call failed event
 		if s.emitter != nil {
 			s.emitter.ProviderCallFailedCtx(ctx, &events.ProviderCallFailedData{
-				Provider: s.provider.ID(),
-				Model:    s.provider.Model(),
+				Provider: s.callProvider().ID(),
+				Model:    s.callProvider().Model(),
 				Error:    err,
 				Duration: duration,
 				Source:   s.config.Source,
@@ -1726,8 +1805,8 @@ func (s *ProviderStage) executeStreamingRound(
 		// Emit provider call failed event
 		if s.emitter != nil {
 			s.emitter.ProviderCallFailedCtx(ctx, &events.ProviderCallFailedData{
-				Provider: s.provider.ID(),
-				Model:    s.provider.Model(),
+				Provider: s.callProvider().ID(),
+				Model:    s.callProvider().Model(),
 				Error:    err,
 				Duration: duration,
 				Source:   s.config.Source,
@@ -1742,8 +1821,8 @@ func (s *ProviderStage) executeStreamingRound(
 	// Emit provider call completed event with cost info from streaming response
 	if s.emitter != nil {
 		completedData := &events.ProviderCallCompletedData{
-			Provider:      s.provider.ID(),
-			Model:         s.provider.Model(),
+			Provider:      s.callProvider().ID(),
+			Model:         s.callProvider().Model(),
 			Duration:      duration,
 			ToolCallCount: len(toolCalls),
 			FinishReason:  finishReason,
@@ -1767,10 +1846,10 @@ func (s *ProviderStage) executeStreamingRound(
 	// provider/capability stamp.
 	if costInfo != nil {
 		if costInfo.ProviderName == "" {
-			costInfo.ProviderName = s.provider.Name()
+			costInfo.ProviderName = s.callProvider().Name()
 		}
 		if costInfo.Capability == "" {
-			costInfo.Capability = string(s.provider.Type())
+			costInfo.Capability = string(s.callProvider().Type())
 		}
 		if costInfo.Latency == 0 {
 			costInfo.Latency = duration
@@ -1862,7 +1941,7 @@ func (s *ProviderStage) startStreamingRequest(
 	providerTools interface{},
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
-	toolProvider, supportsTools := s.provider.(providers.ToolSupport)
+	toolProvider, supportsTools := s.callProvider().(providers.ToolSupport)
 	if s.useToolPath(providerTools, req.Messages, supportsTools) {
 		if !supportsTools {
 			return nil, errors.New("provider does not support tools")
@@ -1875,7 +1954,7 @@ func (s *ProviderStage) startStreamingRequest(
 		return streamChan, nil
 	}
 
-	streamChan, err := s.provider.PredictStream(ctx, req)
+	streamChan, err := s.callProvider().PredictStream(ctx, req)
 	if err != nil {
 		logger.Error("Provider stream failed", "error", err)
 		return nil, fmt.Errorf("provider stream failed: %w", err)
@@ -2512,8 +2591,8 @@ func (s *ProviderStage) runAfterCallHooks(ctx context.Context, p *afterCallParam
 	defer keepIdleAlive(ctx)()
 
 	hookReq := &hooks.ProviderRequest{
-		ProviderID:   s.provider.ID(),
-		Model:        s.provider.Model(),
+		ProviderID:   s.callProvider().ID(),
+		Model:        s.callProvider().Model(),
 		Messages:     p.messages,
 		SystemPrompt: p.systemPrompt,
 		Round:        p.round,
@@ -2522,8 +2601,8 @@ func (s *ProviderStage) runAfterCallHooks(ctx context.Context, p *afterCallParam
 		Prompt:       s.promptDeclaration(),
 	}
 	hookResp := &hooks.ProviderResponse{
-		ProviderID: s.provider.ID(),
-		Model:      s.provider.Model(),
+		ProviderID: s.callProvider().ID(),
+		Model:      s.callProvider().Model(),
 		Message:    *p.responseMsg,
 		Round:      p.round,
 		LatencyMs:  p.duration.Milliseconds(),
@@ -2585,8 +2664,8 @@ func (s *ProviderStage) runBeforeCallHooks(
 	defer keepIdleAlive(ctx)()
 
 	hookReq := &hooks.ProviderRequest{
-		ProviderID:   s.provider.ID(),
-		Model:        s.provider.Model(),
+		ProviderID:   s.callProvider().ID(),
+		Model:        s.callProvider().Model(),
 		Messages:     messages,
 		SystemPrompt: systemPrompt,
 		Round:        round,
@@ -3254,7 +3333,7 @@ func (s *ProviderStage) buildProviderTools(
 	}
 
 	// Check if provider supports tools
-	toolProvider, ok := s.provider.(providers.ToolSupport)
+	toolProvider, ok := s.callProvider().(providers.ToolSupport)
 	if !ok {
 		return nil, "", nil
 	}
@@ -3288,4 +3367,10 @@ func (s *ProviderStage) buildProviderTools(
 	}
 
 	return providerTools, toolChoice, nil
+}
+
+// supportsPromptCaching reports whether p advertises prompt caching.
+func supportsPromptCaching(p providers.Provider) bool {
+	pc, ok := p.(promptCachingProvider)
+	return ok && pc.SupportsPromptCaching()
 }

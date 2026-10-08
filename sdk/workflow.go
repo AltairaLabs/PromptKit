@@ -617,7 +617,7 @@ func (wc *WorkflowConversation) registerWorkflowTools() {
 	if wc.activeConv.workflowResolver != nil {
 		wc.activeConv.workflowResolver.set(newWorkflowStateResolver(
 			wc.machine, wc.workflowSpec, wc.transExec, wc.activeConv.promptRegistry,
-		).withModel(wc.activeConv.callModel()))
+		).withConversation(wc.activeConv))
 	}
 }
 
