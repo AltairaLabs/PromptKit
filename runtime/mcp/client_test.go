@@ -2,10 +2,12 @@ package mcp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -630,4 +632,42 @@ func TestRPCError_Error(t *testing.T) {
 	assert.Equal(t, "JSON-RPC error -32602: bad", (&RPCError{Code: -32602, Message: "bad"}).Error())
 	assert.Equal(t, `JSON-RPC error -32602: bad (data: {"field":"a"})`,
 		(&RPCError{Code: -32602, Message: "bad", Data: json.RawMessage(`{"field":"a"}`)}).Error())
+}
+
+// HTTP+SSE is a handshake-era transport, so the client never offers it
+// 2026-07-28: no server/discover, and the initialize handshake every time.
+// Offering it let go-sdk's SSE server answer discover with 2026-07-28 when the
+// request beat the server's own record of what the transport supports, and
+// the session then ran without a handshake (#2189).
+func TestClient_SSEAlwaysUsesTheHandshake(t *testing.T) {
+	var mu sync.Mutex
+	var methods []string
+	sse := gosdk.NewSSEHandler(func(*http.Request) *gosdk.Server { return goSDKTestServer(nil) }, nil)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			body, _ := io.ReadAll(r.Body)
+			var msg struct {
+				Method string `json:"method"`
+			}
+			_ = json.Unmarshal(body, &msg)
+			mu.Lock()
+			methods = append(methods, msg.Method)
+			mu.Unlock()
+			r.Body = io.NopCloser(bytes.NewReader(body))
+		}
+		sse.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+
+	c := NewSSEClientWithOptions(ServerConfig{Name: "s", URL: srv.URL}, testOptions())
+	defer c.Close()
+	info, err := c.Initialize(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, LegacyProtocolVersion, info.ProtocolVersion)
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.NotContains(t, methods, "server/discover")
+	assert.Contains(t, methods, "initialize")
+	assert.Contains(t, methods, "notifications/initialized")
 }
