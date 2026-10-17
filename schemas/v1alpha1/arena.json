@@ -236,6 +236,9 @@
         "description": {
           "type": "string"
         },
+        "extensions": {
+          "type": "object"
+        },
         "governance": {
           "$ref": "#/$defs/Governance"
         },
@@ -552,6 +555,10 @@
         "engine": {
           "type": "object",
           "description": "Runtime-specific configuration (e.g. budgets, telemetry, scheduling hints). Opaque escape hatch with no schema enforcement."
+        },
+        "extensions": {
+          "type": "object",
+          "description": "Opaque policy annotations about this object (RFC 0016). Never interpreted by this specification and never passed to a scorer, guardrail or model as configuration. Keys SHOULD be namespaced."
         },
         "input_schema": {
           "type": "string",
@@ -1416,6 +1423,9 @@
           },
           "type": "array"
         },
+        "independent_of": {
+          "$ref": "#/$defs/GovernanceIndependentOf"
+        },
         "intended_deployment_contexts": {
           "items": {
             "type": "string"
@@ -1425,11 +1435,23 @@
         "intended_purpose": {
           "type": "string"
         },
+        "obligations": {
+          "items": {
+            "$ref": "#/$defs/Obligation"
+          },
+          "type": "array"
+        },
         "operator_role": {
           "type": "string"
         },
         "requires_ai_disclosure": {
           "type": "boolean"
+        },
+        "reviews": {
+          "items": {
+            "$ref": "#/$defs/Review"
+          },
+          "type": "array"
         },
         "risk_classification": {
           "type": "string"
@@ -1443,6 +1465,22 @@
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "GovernanceIndependentOf": {
+      "properties": {
+        "axes": {
+          "items": true,
+          "type": "array"
+        },
+        "enforcement": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "axes"
+      ]
     },
     "HTMLOutputConfig": {
       "properties": {
@@ -1753,7 +1791,7 @@
             "streamable_http"
           ],
           "title": "MCP Transport",
-          "description": "Explicit transport adapter. Defaults: url→sse for back-compat; command→stdio. Set to 'streamable_http' to opt into the MCP 2025-03-26 Streamable HTTP transport."
+          "description": "Explicit transport adapter. When unset: command uses stdio; url uses Streamable HTTP and falls back to HTTP+SSE if the server only hosts that."
         },
         "source": {
           "type": "string",
@@ -2158,6 +2196,71 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "Obligation": {
+      "properties": {
+        "applies_to": {
+          "$ref": "#/$defs/ObligationAppliesTo"
+        },
+        "controls": {
+          "items": {
+            "$ref": "#/$defs/ObligationControl"
+          },
+          "type": "array"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "id": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "obligation": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "controls",
+        "id",
+        "obligation"
+      ]
+    },
+    "ObligationAppliesTo": {
+      "properties": {
+        "capability": {
+          "type": "string"
+        },
+        "data_class": {
+          "type": "string"
+        },
+        "risk_classification": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ObligationControl": {
+      "properties": {
+        "eval": {
+          "type": "string"
+        },
+        "external": {
+          "type": "string"
+        },
+        "field": {
+          "type": "string"
+        },
+        "validator": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "OutputConfig": {
       "properties": {
         "dir": {
@@ -2285,6 +2388,9 @@
         },
         "enabled": {
           "type": "boolean"
+        },
+        "extensions": {
+          "type": "object"
         },
         "groups": {
           "items": {
@@ -3021,6 +3127,42 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "Review": {
+      "properties": {
+        "cadence": {
+          "type": "string"
+        },
+        "eval": {
+          "type": "string"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "id": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "satisfies": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "cadence",
+        "id",
+        "owner",
+        "type"
+      ]
+    },
     "RuntimeConfigSpec": {
       "properties": {
         "providers": {
@@ -3529,6 +3671,9 @@
         },
         "compilation": {
           "$ref": "#/$defs/PackCompilation"
+        },
+        "extensions": {
+          "type": "object"
         }
       },
       "additionalProperties": false,
@@ -3626,6 +3771,10 @@
         "prompt_task": {
           "type": "string",
           "description": "Reference to a prompt key defined in the pack's prompts object."
+        },
+        "provider": {
+          "type": "string",
+          "description": "Key of the provider requirement that runs this step, overriding the provider of the step's prompt_task. Absent means the prompt's provider (RFC 0017)."
         },
         "reduce": {
           "$ref": "#/$defs/Reducer",
@@ -4246,6 +4395,12 @@
         },
         "message": {
           "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "extensions": {
+          "type": "object"
         }
       },
       "additionalProperties": false,
@@ -4439,11 +4594,15 @@
             "user",
             "agent"
           ],
-          "description": "Who holds the next turn after entering this state (RFC 0014). 'user' yields the conversation to the user (default, and the behavior of every state before v1.7.0). 'agent' runs another agent round in this state without yielding, for transient routing or processing states. Orthogonal to 'orchestration', which declares who initiates a transition rather than who holds the turn after one; inert on states reached via 'external' orchestration. Bounded by terminal states, max_visits and the workflow budget — it introduces no new limits."
+          "description": "Who holds the next turn after entering this state (RFC 0014). 'user' yields the conversation to the user (the default). Before v1.7.0 the specification did not say who holds the turn after a transition, and implementations differed; one that previously ran the destination state should treat adopting this default as a behavioral change for packs that do not declare 'control'. 'agent' runs another agent round in this state without yielding, for transient routing or processing states. Orthogonal to 'orchestration', which declares who initiates a transition rather than who holds the turn after one; inert on states reached via 'external' orchestration. Bounded by terminal states, max_visits and the workflow budget — it introduces no new limits."
         },
         "description": {
           "type": "string",
           "description": "Human-readable description of this state's purpose."
+        },
+        "extensions": {
+          "type": "object",
+          "description": "Opaque policy annotations about this object (RFC 0016). Never interpreted by this specification and never passed to a scorer, guardrail or model as configuration. Keys SHOULD be namespaced."
         },
         "max_visits": {
           "type": "integer",
