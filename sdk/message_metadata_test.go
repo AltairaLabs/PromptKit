@@ -185,3 +185,71 @@ func TestApplyMessageMetadata_MergesOverExisting(t *testing.T) {
 	applyMessageMetadata(msg, map[string]any{"b": 2})
 	assert.Equal(t, map[string]any{"a": 1, "b": 2}, msg.Metadata())
 }
+
+// The pack decides how metadata reaches the model: it references the keys as
+// template variables, with defaults for turns that send none.
+const messageMetadataTemplatePack = `{
+	"id": "message-metadata-template-test",
+	"version": "1.0.0",
+	"prompts": {
+		"chat": {
+			"id": "chat",
+			"name": "Chat",
+			"system_template": "Selected: {{selection}}. View: {{view}}.",
+			"variables": [
+				{"name": "selection", "type": "string", "required": false, "default": "none"},
+				{"name": "view", "type": "string", "required": false, "default": "list"}
+			]
+		}
+	}
+}`
+
+func openMessageMetadataTemplateConv(t *testing.T) (*Conversation, *turnRecordingProvider) {
+	t.Helper()
+	provider := &turnRecordingProvider{}
+	conv, err := Open(writeWorkflowTestPack(t, messageMetadataTemplatePack), "chat",
+		WithProvider(provider), WithSkipSchemaValidation())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conv.Close() })
+	return conv, provider
+}
+
+func TestWithMessageMetadata_TemplateRendersItForThatTurnOnly(t *testing.T) {
+	conv, provider := openMessageMetadataTemplateConv(t)
+
+	_, err := conv.Send(context.Background(), "align these", WithMessageMetadata(map[string]any{
+		"selection": []string{"s1", "s2"},
+		"view":      "canvas",
+	}))
+	require.NoError(t, err)
+	_, err = conv.Send(context.Background(), "and now?")
+	require.NoError(t, err)
+
+	require.Equal(t, 2, provider.turnCount())
+	assert.Equal(t, `Selected: ["s1","s2"]. View: canvas.`, provider.systemAt(0),
+		"a string binds as is; anything else as its JSON")
+	assert.Equal(t, "Selected: none. View: list.", provider.systemAt(1),
+		"the next turn sent no metadata, so the pack's defaults render")
+}
+
+func TestWithMessageMetadata_StreamRendersItInTheTemplate(t *testing.T) {
+	conv, provider := openMessageMetadataTemplateConv(t)
+
+	for chunk := range conv.Stream(context.Background(), "align",
+		WithMessageMetadata(map[string]any{"view": "canvas"})) {
+		require.NoError(t, chunk.Error)
+	}
+
+	assert.Equal(t, "Selected: none. View: canvas.", provider.systemAt(0))
+}
+
+func TestWithMessageMetadata_JSONInputWinsANameClash(t *testing.T) {
+	conv, provider := openMessageMetadataTemplateConv(t)
+
+	_, err := conv.Send(context.Background(), "go",
+		WithMessageMetadata(map[string]any{"view": "from-metadata", "selection": "s1"}),
+		WithJSONInput(map[string]any{"view": "from-json-input"}))
+	require.NoError(t, err)
+
+	assert.Equal(t, "Selected: s1. View: from-json-input.", provider.systemAt(0))
+}

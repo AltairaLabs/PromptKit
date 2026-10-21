@@ -292,9 +292,10 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 	}
 	applyMessageMetadata(userMsg, sendCfg.messageMetadata)
 
-	// Carry WithJSONInput-bound variables on the context so the send-scoped
-	// variable provider resolves them for this turn.
-	ctx = withSendVars(ctx, sendCfg.jsonInputVars)
+	// Carry the send's template variables (WithMessageMetadata and
+	// WithJSONInput) on the context so the send-scoped variable provider
+	// resolves them for this turn.
+	ctx = withSendVars(ctx, sendCfg.templateVars())
 
 	// Refresh per-send skill index in case an external selector is
 	// configured. Runs after capability registration (which happens

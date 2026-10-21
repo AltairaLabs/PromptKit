@@ -32,6 +32,7 @@ Later rows win:
 | `WithVariables` | `Open` |
 | `variables.Provider` | Every turn |
 | `SetVar` / `SetVars` | Read every turn |
+| `WithMessageMetadata` key | That `Send` only |
 | `WithJSONInput` binding | That `Send` only |
 
 `SetVar` is sticky, not static: the value persists until changed and is re-read each turn, so changing it between sends changes the next prompt.

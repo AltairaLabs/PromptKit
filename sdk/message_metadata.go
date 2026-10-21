@@ -17,8 +17,17 @@ import (
 // message history (Messages, the state store) and on the message's
 // message.created event (event bus and event store), where events.Redacting
 // rewrites its strings. Evals read the conversation's messages, so they see it
-// too. It is never sent to the model: to put structured input in front of the
-// model, use WithJSONInput.
+// too.
+//
+// The runtime does not send the metadata to the model itself. The pack decides
+// whether and how it reaches the model: for this turn, each top-level key is
+// bound to the template variable of the same name, so a system template (or a
+// model override's prefix or suffix) that references {{selection}} renders the
+// "selection" value. A string binds as is; any other value binds as its
+// compact JSON. To render on turns that send no metadata, the pack declares
+// the variable with a default. These bindings override WithVariables, SetVar
+// and variable providers for the turn; a WithJSONInput binding of the same
+// name overrides them.
 //
 // Read it back with types.Message.Metadata. Calling WithMessageMetadata more
 // than once in a call merges the maps, the later value winning for a repeated
@@ -41,6 +50,23 @@ func WithMessageMetadata(md map[string]any) SendOption {
 		maps.Copy(c.messageMetadata, md)
 		return nil
 	}
+}
+
+// templateVars returns the template variables this send binds: the
+// WithMessageMetadata keys, overlaid by the WithJSONInput bindings, which are
+// the more explicit request for a template variable. Nil when there are none.
+func (c *sendConfig) templateVars() map[string]string {
+	if len(c.messageMetadata) == 0 {
+		return c.jsonInputVars
+	}
+	vars := make(map[string]string, len(c.messageMetadata)+len(c.jsonInputVars))
+	for k, v := range c.messageMetadata {
+		// WithMessageMetadata checked the whole map marshals.
+		raw, _ := json.Marshal(v)
+		vars[k] = jsonValueToString(raw)
+	}
+	maps.Copy(vars, c.jsonInputVars)
+	return vars
 }
 
 // applyMessageMetadata attaches the send's metadata to the user message under
