@@ -150,10 +150,9 @@ func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOpti
 			return
 		}
 
-		// Carry the send's template variables (WithMessageMetadata and
-		// WithJSONInput) on the context so the send-scoped variable provider
-		// resolves them for this turn.
-		ctx = withSendVars(ctx, sendCfg.templateVars())
+		// Carry WithJSONInput-bound variables on the context so the send-scoped
+		// variable provider resolves them for this turn.
+		ctx = withSendVars(ctx, sendCfg.jsonInputVars)
 
 		// Execute streaming pipeline
 		if err := c.executeStreamingPipeline(ctx, userMsg, ch, startTime); err != nil {

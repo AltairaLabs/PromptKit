@@ -172,20 +172,7 @@ resp, err := conv.Send(ctx, "Align these",
     }))
 ```
 
-The runtime does not send the metadata to the model. The pack decides whether and how the model sees it. For that turn, each top-level key is bound to the template variable of the same name, so a system template that references `{{selection}}` renders the `selection` value. A string binds as is. Any other value binds as its compact JSON, so the example above renders `{{selection}}` as `["s1","s2","s3"]`.
-
-Declare each variable with a default so turns that send no metadata still render:
-
-```json
-"system_template": "The user has selected: {{selection}}.",
-"variables": [
-  {"name": "selection", "type": "string", "required": false, "default": "nothing"}
-]
-```
-
-To render the metadata differently for each model, reference it in a model override's `system_template_prefix` or `system_template_suffix`.
-
-The bindings last for that turn only. They override `WithVariables`, `SetVar` and variable providers. A `WithJSONInput` binding of the same name overrides them.
+The model never receives the metadata. To give the model structured input, use `WithJSONInput`.
 
 The metadata is stored on the user message, so it appears in `Messages()`, the state store, and the evals that read them. Read it back with `Metadata()`:
 
