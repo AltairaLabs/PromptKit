@@ -661,3 +661,36 @@ func TestNewMultimodalMessage(t *testing.T) {
 		t.Errorf("GetContent() mismatch: got %q, want %q", msg.GetContent(), text)
 	}
 }
+
+func TestMessage_Metadata(t *testing.T) {
+	md := map[string]any{"selection": "shape-1"}
+
+	tests := []struct {
+		name string
+		msg  *Message
+		want map[string]any
+	}{
+		{name: "nil message", msg: nil, want: nil},
+		{name: "no meta", msg: &Message{Role: "user"}, want: nil},
+		{name: "other keys only", msg: &Message{Meta: map[string]interface{}{MetaToolsOffered: []string{"x"}}}, want: nil},
+		{name: "attached", msg: &Message{Meta: map[string]interface{}{MetaMessageMetadata: md}}, want: md},
+		{name: "wrong type", msg: &Message{Meta: map[string]interface{}{MetaMessageMetadata: "not a map"}}, want: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.msg.Metadata())
+		})
+	}
+}
+
+// After a JSON round trip, as through a state store, the metadata still reads.
+func TestMessage_Metadata_SurvivesJSON(t *testing.T) {
+	in := Message{Role: "user", Meta: map[string]interface{}{
+		MetaMessageMetadata: map[string]any{"view": "canvas", "zoom": 2},
+	}}
+	raw, err := json.Marshal(in)
+	require.NoError(t, err)
+	var out Message
+	require.NoError(t, json.Unmarshal(raw, &out))
+	assert.Equal(t, map[string]any{"view": "canvas", "zoom": float64(2)}, out.Metadata())
+}

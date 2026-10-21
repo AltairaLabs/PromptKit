@@ -33,6 +33,11 @@ func messageEvent() *Event {
 				Parts: []types.ContentPart{textPart("result " + redactSecret)},
 				Error: "failed for " + redactSecret,
 			},
+			Metadata: map[string]any{
+				"note":   "holds " + redactSecret,
+				"nested": map[string]any{"list": []any{"also " + redactSecret}},
+				"count":  3,
+			},
 		},
 	}
 }
@@ -57,6 +62,7 @@ func TestRedacting_DoesNotMutateTheSharedEvent(t *testing.T) {
 	assert.Contains(t, original.ToolCalls[0].Args, redactSecret)
 	assert.Contains(t, *original.Parts[0].Text, redactSecret)
 	assert.Contains(t, original.ToolResult.Error, redactSecret)
+	assert.Contains(t, original.Metadata["note"], redactSecret)
 
 	got, ok := redacted.Data.(*MessageCreatedData)
 	require.True(t, ok)
@@ -77,6 +83,10 @@ func TestRedacting_CoversEveryContentFieldOnAMessage(t *testing.T) {
 	assert.NotContains(t, d.ToolCalls[0].Args, redactSecret, "ToolCalls.Args")
 	assert.NotContains(t, *d.ToolResult.Parts[0].Text, redactSecret, "ToolResult.Parts")
 	assert.NotContains(t, d.ToolResult.Error, redactSecret, "ToolResult.Error")
+	assert.NotContains(t, d.Metadata["note"], redactSecret, "Metadata")
+	assert.NotContains(t, d.Metadata["nested"].(map[string]any)["list"].([]any)[0], redactSecret,
+		"Metadata, nested")
+	assert.Equal(t, 3, d.Metadata["count"], "non-string metadata passes through")
 
 	// Identity survives: redaction scrubs payload, not routing.
 	assert.Equal(t, "assistant", d.Role)

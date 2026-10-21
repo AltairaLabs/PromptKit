@@ -160,6 +160,34 @@ msg := types.Message{
 resp, _ := conv.Send(ctx, &msg)
 ```
 
+## Attach Metadata to a Turn
+
+`WithMessageMetadata` attaches key-value data to the user message of one `Send` or `Stream` call. Use it for what your application knows about the turn that is not chat text, such as the shapes selected on a canvas:
+
+```go
+resp, err := conv.Send(ctx, "Align these",
+    sdk.WithMessageMetadata(map[string]any{
+        "selection": []string{"s1", "s2", "s3"},
+        "view":      "canvas",
+    }))
+```
+
+The model never receives the metadata. To give the model structured input, use `WithJSONInput`.
+
+The metadata is stored on the user message, so it appears in `Messages()`, the state store, and the evals that read them. Read it back with `Metadata()`:
+
+```go
+for _, m := range conv.Messages(ctx) {
+    if m.Role == "user" {
+        fmt.Println(m.Metadata())
+    }
+}
+```
+
+The message's `message.created` event carries it as `Metadata`, on the event bus and in the event store. A subscriber wrapped in `events.Redacting` receives it with its strings passed through the redactor as the `message.metadata` field.
+
+Values must be JSON-serializable, or `Send` returns an error. A state store keeps them as JSON, so numbers read back from it as `float64`.
+
 ## Complete Example
 
 ```go

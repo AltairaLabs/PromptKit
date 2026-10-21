@@ -3337,6 +3337,10 @@ type sendConfig struct {
 	// jsonInputRaw is the compact JSON encoding of the WithJSONInput value, used
 	// as the user-turn message when the caller supplies an empty message.
 	jsonInputRaw json.RawMessage
+
+	// messageMetadata is the application metadata from WithMessageMetadata,
+	// attached to this send's user message.
+	messageMetadata map[string]any
 }
 
 // SendOption configures a single Send call.

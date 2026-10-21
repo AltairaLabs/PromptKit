@@ -585,6 +585,10 @@ type MessageCreatedData struct {
 	Parts      []types.ContentPart // Multimodal content parts (text, images, audio, video)
 	ToolCalls  []MessageToolCall   // Tool calls requested by assistant (if any)
 	ToolResult *MessageToolResult  // Tool result for tool messages (if any)
+	// Metadata is the metadata the application attached to the message
+	// (types.Message.Metadata), if any. It is customer data, so Redacting
+	// rewrites its strings.
+	Metadata map[string]any
 	// Reasoning is the model's reasoning ("thinking") for this message, carried
 	// in-memory so live consumers (the in-process TUI) can show it in turn
 	// history. It is NOT conversational content, and `json:"-"` keeps it out of

@@ -80,6 +80,26 @@ const (
 // reply stopped: the error text of the stream failure or cancellation.
 const MetaInterruptedCause = "_interrupted_cause"
 
+// MetaMessageMetadata is the Message.Meta key holding the metadata an
+// application attached to this message (the SDK's WithMessageMetadata): what
+// the user selected, the view they were on, anything that is not chat text.
+//
+// It is one key holding the application's map, not keys merged into Meta, so
+// application keys can never collide with the runtime's own. Read it with
+// Message.Metadata. It is stored with the message and carried on its
+// message.created event, and never sent to a provider.
+const MetaMessageMetadata = "message_metadata"
+
+// Metadata returns the metadata an application attached to the message (see
+// MetaMessageMetadata), or nil when there is none.
+func (m *Message) Metadata() map[string]any {
+	if m == nil {
+		return nil
+	}
+	md, _ := m.Meta[MetaMessageMetadata].(map[string]any)
+	return md
+}
+
 // MessageToolCall represents a request to call a tool within a Message.
 // The Args field contains the JSON-encoded arguments for the tool.
 type MessageToolCall struct {

@@ -1,6 +1,10 @@
 package events
 
-import "github.com/AltairaLabs/PromptKit/runtime/v2/types"
+import (
+	"maps"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+)
 
 // roleTool is the message role whose text lives on ToolResult rather than
 // Content or Parts.
@@ -44,6 +48,7 @@ func NewMessageCreatedData(msg *types.Message, index int, stripBinary bool) *Mes
 		Index:     index,
 		Parts:     parts,
 		Reasoning: msg.Reasoning,
+		Metadata:  maps.Clone(msg.Metadata()),
 	}
 
 	if len(msg.ToolCalls) > 0 {

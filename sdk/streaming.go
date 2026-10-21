@@ -200,6 +200,7 @@ func (c *Conversation) buildStreamMessage(message any, opts []SendOption) (*type
 	if err := c.addContentParts(userMsg, sendCfg.parts); err != nil {
 		return nil, nil, err
 	}
+	applyMessageMetadata(userMsg, sendCfg.messageMetadata)
 
 	return userMsg, sendCfg, nil
 }
