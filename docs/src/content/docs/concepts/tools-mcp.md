@@ -118,7 +118,7 @@ A prompt's `tool_policy` in the pack limits how it uses tools in one turn:
 }
 ```
 
-- `max_rounds`: how many LLM → tool → LLM cycles one turn may take. Defaults to 50. A turn that still wants tools at the limit fails with `max rounds (N) exceeded`.
+- `max_rounds`: how many LLM → tool → LLM cycles one turn may take. Defaults to 50. A turn that still wants tools at the limit fails with `max rounds (N) exceeded`. The error matches `stage.ErrMaxRoundsExceeded` with `errors.Is`, and `errors.As` with `*stage.MaxRoundsError` gives the limit, so a host can tell it apart from other failures without matching the message.
 - `max_tool_calls_per_turn`: how many tool calls one turn may run, across all its rounds. A call over the limit is not run; the model gets an error result for it, and the next round offers no tools, so the model answers.
 - `tool_choice`: `auto`, `required` or `none`. With `none`, no tools are sent.
 - `blocklist`: tools this prompt may not run, even when listed in `tools`.

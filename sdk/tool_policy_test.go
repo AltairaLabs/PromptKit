@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -107,6 +108,12 @@ func TestToolPolicy_PackMaxRoundsBoundsTheTurn(t *testing.T) {
 	_, err := conv.Send(context.Background(), "where is my order?")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "max rounds (3) exceeded")
+	// A host tells the round limit apart from other turn failures by type,
+	// not by matching the message.
+	require.ErrorIs(t, err, stage.ErrMaxRoundsExceeded)
+	var maxErr *stage.MaxRoundsError
+	require.ErrorAs(t, err, &maxErr)
+	assert.Equal(t, 3, maxErr.Rounds)
 	assert.Equal(t, 3, provider.roundsSeen(), "the pack's max_rounds, not the default 50")
 }
 
