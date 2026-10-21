@@ -52,6 +52,8 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
+          # Astro raises its Node floor in patch releases; the runner's cached 22.x can lag behind it.
+          check-latest: true
           cache: 'npm'
           cache-dependency-path: docs/package-lock.json
       
