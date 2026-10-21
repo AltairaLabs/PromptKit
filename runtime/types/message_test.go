@@ -694,3 +694,19 @@ func TestMessage_Metadata_SurvivesJSON(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &out))
 	assert.Equal(t, map[string]any{"view": "canvas", "zoom": float64(2)}, out.Metadata())
 }
+
+// Metadata returns a deep copy: changing it, at any depth, leaves the message
+// alone.
+func TestMessage_Metadata_ReturnsADeepCopy(t *testing.T) {
+	msg := &Message{Meta: map[string]interface{}{MetaMessageMetadata: map[string]any{
+		"pos": map[string]any{"x": "1"},
+		"sel": []any{"a"},
+	}}}
+
+	md := msg.Metadata()
+	md["added"] = true
+	md["pos"].(map[string]any)["x"] = "changed"
+	md["sel"].([]any)[0] = "changed"
+
+	assert.Equal(t, map[string]any{"pos": map[string]any{"x": "1"}, "sel": []any{"a"}}, msg.Metadata())
+}

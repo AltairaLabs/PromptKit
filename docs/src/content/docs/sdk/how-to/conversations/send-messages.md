@@ -186,7 +186,9 @@ for _, m := range conv.Messages(ctx) {
 
 The message's `message.created` event carries it as `Metadata`, on the event bus and in the event store. A subscriber wrapped in `events.Redacting` receives it with its strings passed through the redactor as the `message.metadata` field.
 
-Values must be JSON-serializable, or `Send` returns an error. A state store keeps them as JSON, so numbers read back from it as `float64`.
+Values must be JSON-serializable, or `Send` returns an error. The SDK keeps them in decoded JSON form, the form a state store returns: a number reads back as `float64`, a slice as `[]any`, and a struct or typed map as `map[string]any`. `Metadata()` returns a copy, so changing it does not change the message.
+
+When you pass a `*types.Message` to `Send`, the metadata goes on a copy, not on your message. Reusing your message for the next turn carries no metadata over.
 
 ## Complete Example
 

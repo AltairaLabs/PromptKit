@@ -226,5 +226,7 @@ func TestNewMessageCreatedData_CarriesOnlyTheApplicationMetadata(t *testing.T) {
 	assert.NotContains(t, data.Metadata, types.MetaToolsOffered)
 
 	data.Metadata["added"] = true
-	assert.NotContains(t, msg.Metadata(), "added", "the payload must not alias the message's map")
+	data.Metadata["selection"].([]any)[0] = "changed"
+	assert.Equal(t, map[string]any{"selection": []any{"a", "b"}}, msg.Metadata(),
+		"events are delivered asynchronously; the payload must share nothing with the message")
 }

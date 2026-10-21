@@ -23,7 +23,9 @@ import (
 // Read it back with types.Message.Metadata. Calling WithMessageMetadata more
 // than once in a call merges the maps, the later value winning for a repeated
 // key. The values must be JSON-serializable, since state stores persist them
-// as JSON; after a round trip through a store, numbers read back as float64.
+// as JSON, and they are kept in their decoded JSON form from the start: a
+// number reads back as float64, a slice as []any and a struct as
+// map[string]any, whether read live or from a store.
 //
 //	resp, err := conv.Send(ctx, "Align these",
 //	    sdk.WithMessageMetadata(map[string]any{"selection": []string{"s1", "s2", "s3"}}))
@@ -32,36 +34,46 @@ func WithMessageMetadata(md map[string]any) SendOption {
 		if len(md) == 0 {
 			return nil
 		}
-		if _, err := json.Marshal(md); err != nil {
+		// Keep the decoded JSON form, not the caller's values: it is what a
+		// state store hands back, it shares nothing with the caller, and its
+		// strings are all reachable by events.Redacting.
+		raw, err := json.Marshal(md)
+		if err != nil {
 			return fmt.Errorf("WithMessageMetadata: metadata must be JSON-serializable: %w", err)
 		}
-		if c.messageMetadata == nil {
-			c.messageMetadata = make(map[string]any, len(md))
+		var decoded map[string]any
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			return fmt.Errorf("WithMessageMetadata: decode metadata: %w", err)
 		}
-		maps.Copy(c.messageMetadata, md)
+		if c.messageMetadata == nil {
+			c.messageMetadata = make(map[string]any, len(decoded))
+		}
+		maps.Copy(c.messageMetadata, decoded)
 		return nil
 	}
 }
 
-// applyMessageMetadata attaches the send's metadata to the user message under
-// types.MetaMessageMetadata, merged over any the message already carries.
+// withMessageMetadata returns the user message with the send's metadata
+// attached under types.MetaMessageMetadata, merged over any the message
+// already carries.
 //
-// A *types.Message passed to Send is used as is, so like the content-part
-// options this sets the metadata on it. It replaces the message's Meta map
-// rather than writing into it: the caller may share that map with other
-// messages, and they must not gain this turn's metadata.
-func applyMessageMetadata(msg *types.Message, md map[string]any) {
+// It attaches to a shallow copy, never to msg itself: a *types.Message passed
+// to Send belongs to the caller, who may reuse it for the next turn, and that
+// turn must not inherit this one's metadata. The copy gets its own Meta map
+// for the same reason.
+func withMessageMetadata(msg *types.Message, md map[string]any) *types.Message {
 	if len(md) == 0 {
-		return
+		return msg
 	}
-	merged := maps.Clone(msg.Metadata())
+	merged := msg.Metadata()
 	if merged == nil {
 		merged = make(map[string]any, len(md))
 	}
 	maps.Copy(merged, md)
 
-	meta := make(map[string]interface{}, len(msg.Meta)+1)
-	maps.Copy(meta, msg.Meta)
-	meta[types.MetaMessageMetadata] = merged
-	msg.Meta = meta
+	cp := *msg
+	cp.Meta = make(map[string]interface{}, len(msg.Meta)+1)
+	maps.Copy(cp.Meta, msg.Meta)
+	cp.Meta[types.MetaMessageMetadata] = merged
+	return &cp
 }

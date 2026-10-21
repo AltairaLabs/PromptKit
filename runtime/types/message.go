@@ -90,14 +90,42 @@ const MetaInterruptedCause = "_interrupted_cause"
 // message.created event, and never sent to a provider.
 const MetaMessageMetadata = "message_metadata"
 
-// Metadata returns the metadata an application attached to the message (see
-// MetaMessageMetadata), or nil when there is none.
+// Metadata returns a copy of the metadata an application attached to the
+// message (see MetaMessageMetadata), or nil when there is none. The copy is
+// deep, so changing it never changes the message, or any other holder of the
+// message's Meta.
 func (m *Message) Metadata() map[string]any {
 	if m == nil {
 		return nil
 	}
 	md, _ := m.Meta[MetaMessageMetadata].(map[string]any)
-	return md
+	if md == nil {
+		return nil
+	}
+	cp, _ := cloneJSONValue(md).(map[string]any)
+	return cp
+}
+
+// cloneJSONValue deep-copies the maps and slices of a decoded JSON value.
+// Anything else is returned as is: scalars are immutable, and other types do
+// not occur in metadata, which is stored in its decoded JSON form.
+func cloneJSONValue(v any) any {
+	switch val := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(val))
+		for k, inner := range val {
+			out[k] = cloneJSONValue(inner)
+		}
+		return out
+	case []any:
+		out := make([]any, len(val))
+		for i, inner := range val {
+			out[i] = cloneJSONValue(inner)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // MessageToolCall represents a request to call a tool within a Message.

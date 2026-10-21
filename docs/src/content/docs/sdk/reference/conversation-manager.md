@@ -5901,7 +5901,7 @@ resp, _ := conv.Send(ctx, "", sdk.WithJSONInput(map[string]any{"topic": "x"}))
 ```
 
 <a name="WithMessageMetadata"></a>
-### func [WithMessageMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/message_metadata.go#L30>)
+### func [WithMessageMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/message_metadata.go#L32>)
 
 ```go
 func WithMessageMetadata(md map[string]any) SendOption
@@ -5911,7 +5911,7 @@ WithMessageMetadata attaches key\-value metadata to the user message of a single
 
 The metadata is stored with the message, so it is in the conversation's message history \(Messages, the state store\) and on the message's message.created event \(event bus and event store\), where events.Redacting rewrites its strings. Evals read the conversation's messages, so they see it too. It is never sent to the model: to put structured input in front of the model, use WithJSONInput.
 
-Read it back with types.Message.Metadata. Calling WithMessageMetadata more than once in a call merges the maps, the later value winning for a repeated key. The values must be JSON\-serializable, since state stores persist them as JSON; after a round trip through a store, numbers read back as float64.
+Read it back with types.Message.Metadata. Calling WithMessageMetadata more than once in a call merges the maps, the later value winning for a repeated key. The values must be JSON\-serializable, since state stores persist them as JSON, and they are kept in their decoded JSON form from the start: a number reads back as float64, a slice as \[\]any and a struct as map\[string\]any, whether read live or from a store.
 
 ```
 resp, err := conv.Send(ctx, "Align these",

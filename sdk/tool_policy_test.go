@@ -117,6 +117,22 @@ func TestToolPolicy_PackMaxRoundsBoundsTheTurn(t *testing.T) {
 	assert.Equal(t, 3, provider.roundsSeen(), "the pack's max_rounds, not the default 50")
 }
 
+// Stream reports the round limit with the same typed error as Send.
+func TestToolPolicy_StreamReportsTheRoundLimitTyped(t *testing.T) {
+	conv, _ := openToolPolicyConv(t, `{"max_rounds": 2}`, newAlwaysCallProvider())
+
+	var streamErr error
+	for chunk := range conv.Stream(context.Background(), "where is my order?") {
+		if chunk.Error != nil {
+			streamErr = chunk.Error
+		}
+	}
+	require.ErrorIs(t, streamErr, stage.ErrMaxRoundsExceeded)
+	var maxErr *stage.MaxRoundsError
+	require.ErrorAs(t, streamErr, &maxErr)
+	assert.Equal(t, 2, maxErr.Rounds)
+}
+
 func TestToolPolicy_PackBlocklistStopsExecution(t *testing.T) {
 	provider := newAlwaysCallProvider()
 	conv, executed := openToolPolicyConv(t, `{"max_rounds": 2, "blocklist": ["lookup_order"]}`, provider)
