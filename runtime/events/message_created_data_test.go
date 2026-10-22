@@ -30,6 +30,10 @@ func messageWithEverything() *types.Message {
 		}},
 		ToolResult: &types.MessageToolResult{ID: "call_1", Name: "lookup"},
 		Reasoning:  &types.ReasoningTrace{Text: "thought about it"},
+		Meta: map[string]interface{}{
+			types.MetaMessageMetadata: map[string]any{"selection": []any{"a", "b"}},
+			types.MetaToolsOffered:    []string{"lookup"},
+		},
 	}
 }
 
@@ -51,6 +55,7 @@ func TestNewMessageCreatedData_RoutesAgreeExceptParts(t *testing.T) {
 	assert.Equal(t, recording.ToolCalls, live.ToolCalls)
 	assert.Equal(t, recording.ToolResult, live.ToolResult)
 	assert.Equal(t, recording.Reasoning, live.Reasoning)
+	assert.Equal(t, recording.Metadata, live.Metadata)
 }
 
 // TestNewMessageCreatedData_PartsDifferDeliberately pins the ONE intended
@@ -208,4 +213,20 @@ func TestMessageCreatedData_GetContent_ReadsWhicheverFieldCarriesTheText(t *test
 			assert.Equal(t, tc.want, tc.data.GetContent())
 		})
 	}
+}
+
+// The application's metadata travels with the message; the runtime's own Meta
+// keys (tools offered, costs, workflow state) do not.
+func TestNewMessageCreatedData_CarriesOnlyTheApplicationMetadata(t *testing.T) {
+	msg := messageWithEverything()
+
+	data := NewMessageCreatedData(msg, 0, true)
+
+	assert.Equal(t, map[string]any{"selection": []any{"a", "b"}}, data.Metadata)
+	assert.NotContains(t, data.Metadata, types.MetaToolsOffered)
+
+	data.Metadata["added"] = true
+	data.Metadata["selection"].([]any)[0] = "changed"
+	assert.Equal(t, map[string]any{"selection": []any{"a", "b"}}, msg.Metadata(),
+		"events are delivered asynchronously; the payload must share nothing with the message")
 }

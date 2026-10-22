@@ -214,6 +214,9 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
 - [type MapStage](<#MapStage>)
   - [func NewMapStage\(name string, mapFunc func\(StreamElement\) \(StreamElement, error\)\) \*MapStage](<#NewMapStage>)
   - [func \(ms \*MapStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#MapStage.Process>)
+- [type MaxRoundsError](<#MaxRoundsError>)
+  - [func \(e \*MaxRoundsError\) Error\(\) string](<#MaxRoundsError.Error>)
+  - [func \(e \*MaxRoundsError\) Unwrap\(\) error](<#MaxRoundsError.Unwrap>)
 - [type MediaComposeConfig](<#MediaComposeConfig>)
   - [func DefaultMediaComposeConfig\(\) MediaComposeConfig](<#DefaultMediaComposeConfig>)
 - [type MediaComposeStage](<#MediaComposeStage>)
@@ -653,6 +656,12 @@ var (
 
 ```go
 var ErrIdleTimeout = errors.New("pipeline idle timeout: no activity detected")
+```
+
+<a name="ErrMaxRoundsExceeded"></a>ErrMaxRoundsExceeded matches, with errors.Is, a turn the provider stage ended because the model was still calling tools when the tool loop reached its round limit. Unlike a provider's own error it carries nothing secret, and it is recoverable: the model was working, and another message lets it continue. errors.As with \*MaxRoundsError gives the limit.
+
+```go
+var ErrMaxRoundsExceeded = errors.New("max rounds exceeded")
 ```
 
 <a name="ErrTemplateUnresolved"></a>ErrTemplateUnresolved is returned by TemplateStage when the system prompt references a variable nothing supplied.
@@ -2860,6 +2869,36 @@ func (ms *MapStage) Process(ctx context.Context, input <-chan StreamElement, out
 ```
 
 Process transforms each element using the map function.
+
+<a name="MaxRoundsError"></a>
+## type [MaxRoundsError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/errors.go#L121-L124>)
+
+MaxRoundsError is the error the provider stage returns when the tool loop reaches its round limit. It wraps ErrMaxRoundsExceeded.
+
+```go
+type MaxRoundsError struct {
+    // Rounds is the limit that was reached.
+    Rounds int
+}
+```
+
+<a name="MaxRoundsError.Error"></a>
+### func \(\*MaxRoundsError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/errors.go#L127>)
+
+```go
+func (e *MaxRoundsError) Error() string
+```
+
+Error returns the error message.
+
+<a name="MaxRoundsError.Unwrap"></a>
+### func \(\*MaxRoundsError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/errors.go#L132>)
+
+```go
+func (e *MaxRoundsError) Unwrap() error
+```
+
+Unwrap returns ErrMaxRoundsExceeded.
 
 <a name="MediaComposeConfig"></a>
 ## type [MediaComposeConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L27-L35>)

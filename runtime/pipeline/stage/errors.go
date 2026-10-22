@@ -108,3 +108,27 @@ func NewStageError(stageName string, stageType StageType, err error) *StageError
 // instructions, which is a far longer trail back to a missing variable than an
 // error naming it.
 var ErrTemplateUnresolved = errors.New("system prompt has unresolved variables")
+
+// ErrMaxRoundsExceeded matches, with errors.Is, a turn the provider stage
+// ended because the model was still calling tools when the tool loop reached
+// its round limit. Unlike a provider's own error it carries nothing secret,
+// and it is recoverable: the model was working, and another message lets it
+// continue. errors.As with *MaxRoundsError gives the limit.
+var ErrMaxRoundsExceeded = errors.New("max rounds exceeded")
+
+// MaxRoundsError is the error the provider stage returns when the tool loop
+// reaches its round limit. It wraps ErrMaxRoundsExceeded.
+type MaxRoundsError struct {
+	// Rounds is the limit that was reached.
+	Rounds int
+}
+
+// Error returns the error message.
+func (e *MaxRoundsError) Error() string {
+	return fmt.Sprintf("provider stage: max rounds (%d) exceeded", e.Rounds)
+}
+
+// Unwrap returns ErrMaxRoundsExceeded.
+func (e *MaxRoundsError) Unwrap() error {
+	return ErrMaxRoundsExceeded
+}

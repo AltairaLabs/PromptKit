@@ -23,10 +23,11 @@ import "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 // Field names passed to a Redactor, so a policy can treat them differently —
 // scrub tool arguments but keep message content, say.
 const (
-	FieldMessageContent = "message.content"
-	FieldToolCallArgs   = "tool_call.args"
-	FieldToolResult     = "tool_result"
-	FieldContentPart    = "content_part"
+	FieldMessageContent  = "message.content"
+	FieldMessageMetadata = "message.metadata"
+	FieldToolCallArgs    = "tool_call.args"
+	FieldToolResult      = "tool_result"
+	FieldContentPart     = "content_part"
 
 	// Eval payloads. An eval's output quotes what it judged — a judge's
 	// reasoning restates the answer, a rubric cites the passage, a violation's
@@ -96,6 +97,9 @@ func redactMessage(d *MessageCreatedData, r Redactor) *MessageCreatedData {
 	cp := *d
 	cp.Content = r(FieldMessageContent, d.Content)
 	cp.Parts = redactParts(d.Parts, r)
+	if len(d.Metadata) > 0 {
+		cp.Metadata, _ = redactAny(FieldMessageMetadata, d.Metadata, r).(map[string]any)
+	}
 
 	if len(d.ToolCalls) > 0 {
 		calls := make([]MessageToolCall, len(d.ToolCalls))

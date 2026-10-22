@@ -290,6 +290,7 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 	if optErr := c.addContentParts(userMsg, sendCfg.parts); optErr != nil {
 		return nil, optErr
 	}
+	userMsg = withMessageMetadata(userMsg, sendCfg.messageMetadata)
 
 	// Carry WithJSONInput-bound variables on the context so the send-scoped
 	// variable provider resolves them for this turn.

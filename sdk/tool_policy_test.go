@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -107,7 +108,29 @@ func TestToolPolicy_PackMaxRoundsBoundsTheTurn(t *testing.T) {
 	_, err := conv.Send(context.Background(), "where is my order?")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "max rounds (3) exceeded")
+	// A host tells the round limit apart from other turn failures by type,
+	// not by matching the message.
+	require.ErrorIs(t, err, stage.ErrMaxRoundsExceeded)
+	var maxErr *stage.MaxRoundsError
+	require.ErrorAs(t, err, &maxErr)
+	assert.Equal(t, 3, maxErr.Rounds)
 	assert.Equal(t, 3, provider.roundsSeen(), "the pack's max_rounds, not the default 50")
+}
+
+// Stream reports the round limit with the same typed error as Send.
+func TestToolPolicy_StreamReportsTheRoundLimitTyped(t *testing.T) {
+	conv, _ := openToolPolicyConv(t, `{"max_rounds": 2}`, newAlwaysCallProvider())
+
+	var streamErr error
+	for chunk := range conv.Stream(context.Background(), "where is my order?") {
+		if chunk.Error != nil {
+			streamErr = chunk.Error
+		}
+	}
+	require.ErrorIs(t, streamErr, stage.ErrMaxRoundsExceeded)
+	var maxErr *stage.MaxRoundsError
+	require.ErrorAs(t, streamErr, &maxErr)
+	assert.Equal(t, 2, maxErr.Rounds)
 }
 
 func TestToolPolicy_PackBlocklistStopsExecution(t *testing.T) {

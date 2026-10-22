@@ -44,6 +44,7 @@ func NewMessageCreatedData(msg *types.Message, index int, stripBinary bool) *Mes
 		Index:     index,
 		Parts:     parts,
 		Reasoning: msg.Reasoning,
+		Metadata:  msg.Metadata(), // a deep copy: events are delivered asynchronously
 	}
 
 	if len(msg.ToolCalls) > 0 {

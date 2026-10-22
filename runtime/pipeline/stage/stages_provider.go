@@ -1588,7 +1588,7 @@ func (tl *toolLoop) afterRound(
 	}
 
 	if round == tl.maxRounds {
-		return true, tl.messages, fmt.Errorf("provider stage: max rounds (%d) exceeded", tl.maxRounds)
+		return true, tl.messages, &MaxRoundsError{Rounds: tl.maxRounds}
 	}
 
 	return false, nil, nil

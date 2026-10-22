@@ -2761,8 +2761,11 @@ func TestAfterRound_MaxRoundsExceeded(t *testing.T) {
 	done, _, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response, true, roundRef{round: 1})
 
 	assert.True(t, done)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "max rounds")
+	require.ErrorIs(t, err, ErrMaxRoundsExceeded)
+	var maxErr *MaxRoundsError
+	require.ErrorAs(t, err, &maxErr)
+	assert.Equal(t, 1, maxErr.Rounds)
+	assert.Equal(t, "provider stage: max rounds (1) exceeded", err.Error())
 }
 
 func TestAfterRound_ExcludesAfterRepeatedRejection(t *testing.T) {
