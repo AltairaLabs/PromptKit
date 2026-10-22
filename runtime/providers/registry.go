@@ -223,6 +223,14 @@ type ProviderSpec struct {
 	// the upstream's SETTINGS_MAX_CONCURRENT_STREAMS) is the primary
 	// lever on realistic single-process concurrent-stream capacity.
 	HTTPTransport HTTPTransportOptions
+
+	// MessageMetadataTemplate renders a message's application metadata
+	// (types.Message.Metadata, set with the SDK's WithMessageMetadata) as
+	// text the model reads. Its {{key}} placeholders are filled from each
+	// message's metadata, and the result is appended to that message's text
+	// in the request only; stored history is unchanged. Empty means the model
+	// does not see the metadata. Exposed via MessageMetadataTemplater.
+	MessageMetadataTemplate string
 }
 
 // Credential applies authentication to HTTP requests.
@@ -285,6 +293,13 @@ type httpTransportConfigurable interface {
 // for post-construction wiring interfaces (timeoutConfigurable etc.)
 type headersConfigurable interface {
 	SetCustomHeaders(map[string]string)
+}
+
+// messageMetadataTemplateConfigurable is implemented by any provider embedding
+// *base.Implementation (every chat provider, the mock included).
+// CreateProviderFromSpec uses it to apply spec.MessageMetadataTemplate.
+type messageMetadataTemplateConfigurable interface {
+	SetMessageMetadataTemplate(string)
 }
 
 // MediaStorageConfigurable is implemented by any provider embedding
@@ -453,6 +468,10 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 	// MediaContent.StorageReference values at request-build time.
 	if mc, ok := provider.(MediaStorageConfigurable); ok && spec.StorageService != nil {
 		mc.SetMediaStorageService(spec.StorageService)
+	}
+
+	if mt, ok := provider.(messageMetadataTemplateConfigurable); ok && spec.MessageMetadataTemplate != "" {
+		mt.SetMessageMetadataTemplate(spec.MessageMetadataTemplate)
 	}
 
 	return provider, nil

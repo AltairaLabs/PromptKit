@@ -1704,7 +1704,7 @@ func (s *ProviderStage) executeRound(
 	// Build provider request
 	req := providers.PredictionRequest{
 		System:         systemPrompt,
-		Messages:       messages,
+		Messages:       withRenderedMessageMetadata(messages, messageMetadataTemplate(prov)),
 		Seed:           s.config.Seed,
 		ResponseFormat: s.roundResponseFormat(providerTools),
 		Metadata:       metadata,
@@ -1885,7 +1885,7 @@ func (s *ProviderStage) executeStreamingRound(
 	// Build provider request
 	req := providers.PredictionRequest{
 		System:         params.systemPrompt,
-		Messages:       params.messages,
+		Messages:       withRenderedMessageMetadata(params.messages, messageMetadataTemplate(prov)),
 		Seed:           s.config.Seed,
 		Metadata:       params.metadata,
 		ResponseFormat: s.roundResponseFormat(params.providerTools),

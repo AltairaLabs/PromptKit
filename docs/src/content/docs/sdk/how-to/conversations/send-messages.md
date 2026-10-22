@@ -172,7 +172,7 @@ resp, err := conv.Send(ctx, "Align these",
     }))
 ```
 
-The model never receives the metadata. To give the model structured input, use `WithJSONInput`.
+By default the model never receives the metadata. To show it to the model, see [Show Metadata to the Model](#show-metadata-to-the-model).
 
 The metadata is stored on the user message, so it appears in `Messages()`, the state store, and the evals that read them. Read it back with `Metadata()`:
 
@@ -189,6 +189,34 @@ The message's `message.created` event carries it as `Metadata`, on the event bus
 Values must be JSON-serializable, or `Send` returns an error. The SDK keeps them in decoded JSON form, the form a state store returns: a number reads back as `float64`, a slice as `[]any`, and a struct or typed map as `map[string]any`. `Metadata()` returns a copy, so changing it does not change the message.
 
 When you pass a `*types.Message` to `Send`, the metadata goes on a copy, not on your message. Reusing your message for the next turn carries no metadata over.
+
+### Show Metadata to the Model
+
+Set `MessageMetadataTemplate` on the provider to render the metadata as text the model reads. Each `{{key}}` is filled from the message's metadata:
+
+```go
+conv, err := sdk.Open("./app.pack.json", "chat",
+    sdk.WithLLMProvider(sdk.ProviderSpec{
+        Type:                    "claude",
+        Model:                   "claude-sonnet-4-20250514",
+        MessageMetadataTemplate: "<context>Selected: {{selection}}</context>",
+    }))
+```
+
+With the `Send` call above, the model receives the user message followed by:
+
+```text
+<context>Selected: ["s1","s2","s3"]</context>
+```
+
+The template lives on the provider, not in the pack, because the wording a model responds to best differs by provider and model.
+
+- A string value is inserted as is, and any other value as compact JSON. A key the message does not carry renders as empty.
+- Every message in the history that has metadata is rendered, including earlier turns. What the model sees for earlier turns does not change, so provider prompt caching keeps working.
+- The rendered text is added to the request only. `Messages()`, the state store and `message.created` keep the user's own text.
+- A provider built with `providers.CreateProviderFromSpec` takes the same template as `providers.ProviderSpec.MessageMetadataTemplate`.
+
+To give the model structured input that fills the pack's template variables instead, use `WithJSONInput`.
 
 ## Complete Example
 

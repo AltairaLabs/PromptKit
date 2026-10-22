@@ -356,20 +356,21 @@ func TestWithProviderFile_STTRejectsStreamRetry(t *testing.T) {
 func TestProviderSpecFromConfig_RoundTripsTuningFields(t *testing.T) {
 	caching := false
 	in := &pkgconfig.Provider{
-		ID:                  "rt",
-		Type:                "openai",
-		Model:               "m",
-		BaseURL:             "http://x",
-		Credential:          cred("k"),
-		AdditionalConfig:    map[string]any{"a": 1},
-		Platform:            &pkgconfig.PlatformConfig{Type: "azure", Endpoint: "https://e"},
-		Headers:             map[string]string{"X-A": "1"},
-		RequestTimeout:      "3s",
-		StreamIdleTimeout:   "45s",
-		StreamRetry:         &pkgconfig.StreamRetryConfig{Enabled: true, MaxAttempts: 2},
-		StreamMaxConcurrent: 5,
-		HTTPTransport:       &pkgconfig.HTTPTransportConfig{MaxConnsPerHost: 9},
-		Defaults:            pkgconfig.ProviderDefaults{PromptCaching: &caching},
+		ID:                      "rt",
+		Type:                    "openai",
+		Model:                   "m",
+		BaseURL:                 "http://x",
+		Credential:              cred("k"),
+		AdditionalConfig:        map[string]any{"a": 1},
+		Platform:                &pkgconfig.PlatformConfig{Type: "azure", Endpoint: "https://e"},
+		Headers:                 map[string]string{"X-A": "1"},
+		RequestTimeout:          "3s",
+		StreamIdleTimeout:       "45s",
+		StreamRetry:             &pkgconfig.StreamRetryConfig{Enabled: true, MaxAttempts: 2},
+		StreamMaxConcurrent:     5,
+		HTTPTransport:           &pkgconfig.HTTPTransportConfig{MaxConnsPerHost: 9},
+		Defaults:                pkgconfig.ProviderDefaults{PromptCaching: &caching},
+		MessageMetadataTemplate: "[{{selection}}]",
 	}
 	out := providerSpecFromConfig(in).toPkgProvider()
 	assert.Equal(t, in, out)
