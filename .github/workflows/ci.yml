@@ -63,9 +63,6 @@ jobs:
     - name: Install dependencies
       run: make install
     
-    - name: Generate schemas for tests
-      run: make schemas-copy
-    
     - name: Install gotestsum
       run: go install gotest.tools/gotestsum@latest
     

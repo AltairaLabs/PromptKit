@@ -2,11 +2,8 @@ package config
 
 import (
 	"errors"
-	"io/fs"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -14,7 +11,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/xeipuuv/gojsonschema"
 )
 
 // useSchemaFSForTest registers fsys for one test and restores the default.
@@ -100,10 +96,10 @@ func TestUseSchemaFS_SourcePrecedence(t *testing.T) {
 		t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "remote")
 		assert.Equal(t, SchemaBaseURL+"/arena.json", buildSchemaKey(ConfigTypeArena, ""))
 	})
-	t.Run("nil restores the embedded default", func(t *testing.T) {
+	t.Run("nil leaves no source", func(t *testing.T) {
 		useSchemaFSForTest(t, fsys)
 		UseSchemaFS(nil)
-		assert.Equal(t, embeddedSchemaPrefix+"0:arena.json", buildSchemaKey(ConfigTypeArena, ""))
+		assert.Empty(t, buildSchemaKey(ConfigTypeArena, ""))
 	})
 }
 
@@ -116,10 +112,10 @@ func (f *failingTransport) RoundTrip(*http.Request) (*http.Response, error) {
 	return nil, errors.New("network disabled by test")
 }
 
-// With no network, the default validates against the schemas embedded in this
-// package and makes no request at all (#2070) — including the raw-schema read
-// that enriches errors.
-func TestDefaultSchemaSource_ValidatesOfflineAgainstEmbeddedSchemas(t *testing.T) {
+// PromptKit ships no config schemas: with nothing registered and no
+// PROMPTKIT_SCHEMA_SOURCE, validation is an error naming the fix, and makes no
+// network request trying to find a copy.
+func TestNoSchemaSource_IsAnError(t *testing.T) {
 	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "")
 	UseSchemaFS(nil)
 	transport := &failingTransport{}
@@ -127,92 +123,38 @@ func TestDefaultSchemaSource_ValidatesOfflineAgainstEmbeddedSchemas(t *testing.T
 	http.DefaultTransport = transport
 	t.Cleanup(func() { http.DefaultTransport = orig })
 
-	valid := []byte(markerArenaYAML + `metadata:
-  name: offline
-spec:
-  prompt_configs:
-    - id: test
-      file: test.yaml
-  providers:
-    - file: provider.yaml
-  scenarios:
-    - file: scenario.yaml
-  defaults:
-    temperature: 0.7
-`)
-	result, err := ValidateWithSchema(valid, ConfigTypeArena)
-	require.NoError(t, err)
-	assert.True(t, result.Valid, "errors: %+v", result.Errors)
-
-	invalid := []byte(markerArenaYAML + "spec: {}\nzz_not_a_field: 1\n")
-	result, err = ValidateWithSchema(invalid, ConfigTypeArena)
-	require.NoError(t, err)
-	require.False(t, result.Valid)
-	assert.Equal(t, keywordAdditionalProperty, result.Errors[0].Keyword)
-	assert.Contains(t, result.Errors[0].ValidValues, "spec", "enrichment must read the embedded schema too")
-
+	_, err := ValidateWithSchema([]byte(markerArenaYAML), ConfigTypeArena)
+	require.ErrorIs(t, err, errNoSchemas)
+	assert.Contains(t, err.Error(), "UseSchemaFS")
+	require.ErrorIs(t, ValidateProvider([]byte("kind: Provider\n")), errNoSchemas)
 	assert.Zero(t, transport.calls.Load(), "validation must not touch the network")
 }
 
-// The embedded copy is a mirror of schemas/v1alpha1, which go:embed cannot
-// reach from this module. If they differ, the default validates against stale
-// schemas — run `make schemas`.
-func TestEmbeddedSchemas_MatchCommittedCopy(t *testing.T) {
-	committed := os.DirFS(filepath.Join("..", "..", SchemaLocalPath))
-	embedded := builtinSchemaFS.fsys
-
-	list := func(fsys fs.FS) []string {
-		var names []string
-		require.NoError(t, fs.WalkDir(fsys, ".", func(p string, d fs.DirEntry, err error) error {
-			if err == nil && !d.IsDir() {
-				names = append(names, p)
-			}
-			return err
-		}))
-		return names
-	}
-	names := list(committed)
-	require.NotEmpty(t, names)
-	require.Equal(t, names, list(embedded), "embedded schema files differ from %s — run `make schemas`", SchemaLocalPath)
-	for _, name := range names {
-		want, err := fs.ReadFile(committed, name)
-		require.NoError(t, err)
-		got, err := fs.ReadFile(embedded, name)
-		require.NoError(t, err)
-		assert.Equal(t, string(want), string(got), "%s differs from %s — run `make schemas`", name, SchemaLocalPath)
-	}
+// A schema read after its filesystem was unregistered is an error, not a panic.
+func TestReadEmbeddedSchema_AfterUnregister(t *testing.T) {
+	useSchemaFSForTest(t, fstest.MapFS{"arena.json": {Data: []byte(`{}`)}})
+	key := buildSchemaKey(ConfigTypeArena, "")
+	UseSchemaFS(nil)
+	_, err := readEmbeddedSchema(key)
+	require.Error(t, err)
 }
 
-// PROMPTKIT_SCHEMA_SOURCE=remote is opt-in; when the fetch fails it falls back
-// to the embedded schemas unless SchemaFallbackDisabled is set.
+// PROMPTKIT_SCHEMA_SOURCE=remote fetches the hosted copy; a failed fetch is an
+// error, since there is no built-in copy to fall back to.
 func TestRemoteSchemaFetchFailure(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	t.Cleanup(srv.Close)
-	key := srv.URL + "/arena.json"
 
-	t.Run("falls back to the embedded schema", func(t *testing.T) {
-		schema, err := loadSchema(key, ConfigTypeArena, "")
-		require.NoError(t, err)
-		result, err := schema.Validate(gojsonschema.NewStringLoader(`{"apiVersion":"x","kind":"Arena"}`))
-		require.NoError(t, err)
-		require.False(t, result.Valid())
-		assert.Contains(t, result.Errors()[0].String(), "spec", "the fallback must be the real arena schema")
-	})
-	t.Run("errors when fallback is disabled", func(t *testing.T) {
-		SchemaFallbackDisabled.Store(true)
-		t.Cleanup(func() { SchemaFallbackDisabled.Store(false) })
-		_, err := loadSchema(key, ConfigTypeArena, "")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to load schema")
-	})
+	_, err := loadSchema(srv.URL + "/arena.json")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to load schema")
 }
 
-// A local directory the caller asked for is never silently swapped for the
-// embedded copy.
+// A local directory the caller asked for that holds no schema is an error.
 func TestLocalSchemaFailure_DoesNotFallBack(t *testing.T) {
-	_, err := loadSchema("file:///nonexistent/schemas/arena.json", ConfigTypeArena, "")
+	_, err := loadSchema("file:///nonexistent/schemas/arena.json")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to load schema")
 }

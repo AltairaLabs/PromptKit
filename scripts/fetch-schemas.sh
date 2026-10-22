@@ -1,21 +1,19 @@
 #!/usr/bin/env bash
 #
-# Fetch the generated JSON schemas from the promptarena repo (the schema owner)
-# into this repo. PromptKit no longer generates the schemas — the config types
-# they reflect live in promptarena/arena/arenaconfig (arena, scenario, persona,
-# eval, promptconfig, tool) and PromptKit/pkg/config (provider, runtime, logging),
-# and promptarena's tools/schema-gen generates them. PromptKit keeps a committed
-# copy because pkg/config's validator loads them and docs hosts them at the
-# stable promptkit.altairalabs.ai/schemas URL.
+# Fetch the config-file JSON schemas promptarena generates and publishes. They
+# are promptarena's: PromptKit neither commits nor validates against them, and
+# checks its own config against its Go types. The docs site still serves them at
+# the stable promptkit.altairalabs.ai/schemas URL, so `make schemas-host` fetches
+# them into docs/public at build time.
 #
-# Usage: scripts/fetch-schemas.sh [DEST_DIR]   (default: schemas/v1alpha1)
+# Usage: scripts/fetch-schemas.sh DEST_DIR
 #   PROMPTARENA_SCHEMA_REF   git ref to fetch from (default: main)
 #
 set -euo pipefail
 
 REF="${PROMPTARENA_SCHEMA_REF:-main}"
 BASE="https://raw.githubusercontent.com/AltairaLabs/promptarena/${REF}/schemas/v1alpha1"
-DEST="${1:-schemas/v1alpha1}"
+DEST="${1:?usage: fetch-schemas.sh DEST_DIR}"
 
 FILES=(
   arena.json

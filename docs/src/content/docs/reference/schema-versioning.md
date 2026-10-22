@@ -79,15 +79,15 @@ const (
 
 ### Schema Generation
 
-Schemas are automatically generated during the build process:
+promptarena generates the schemas into its `schemas/v1alpha1/` directory (`make schemas` in that repo). The PromptKit docs build fetches them and writes the `/latest/` aliases:
 
 ```bash
-# Generate schemas for current version
-make schemas
+# In the PromptKit repo; run by the docs build
+make schemas-host
 
 # Outputs to:
-#   schemas/v1alpha1/       # Versioned schemas
-#   docs/public/schemas/latest/  # Latest aliases
+#   docs/public/schemas/v1alpha1/  # Versioned schemas
+#   docs/public/schemas/latest/    # Latest aliases
 ```
 
 ### Latest Schema Structure
@@ -231,7 +231,7 @@ When releasing a new schema version:
    const SchemaVersion = "v1alpha2"
    ```
 
-2. **Generate new schemas:**
+2. **Generate new schemas** in the promptarena repo:
 
    ```bash
    make schemas

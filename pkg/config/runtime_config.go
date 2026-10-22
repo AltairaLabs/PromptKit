@@ -319,14 +319,14 @@ func LoadRuntimeConfig(path string) (*RuntimeConfig, error) {
 
 	if rc.APIVersion != "promptkit.altairalabs.ai/v1alpha1" {
 		return nil, &ValidationError{
-			Field:   "apiVersion",
+			Field:   fieldAPIVersion,
 			Message: "must be promptkit.altairalabs.ai/v1alpha1",
 			Value:   rc.APIVersion,
 		}
 	}
 	if rc.Kind != "RuntimeConfig" {
 		return nil, &ValidationError{
-			Field:   "kind",
+			Field:   fieldKind,
 			Message: "must be RuntimeConfig",
 			Value:   rc.Kind,
 		}

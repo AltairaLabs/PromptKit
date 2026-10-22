@@ -141,9 +141,6 @@ spec:
 `
 
 func TestWithProviderFile_LoadsTTS(t *testing.T) {
-	// LoadProvider schema-validates; pin to the in-repo schema so the test is
-	// hermetic (no network fetch of the published schema).
-	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
 	dir := t.TempDir()
 	path := writeProviderYAML(t, dir, "tts.provider.yaml", ttsProviderYAML)
 
@@ -164,7 +161,6 @@ func TestWithProviderFile_MissingFile(t *testing.T) {
 }
 
 func TestWithProvidersDir_LoadsAllFirstWinsAgent(t *testing.T) {
-	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
 	dir := t.TempDir()
 	// Two llm providers + one tts; glob is sorted, so "a-llm" sorts before "b-llm".
 	writeProviderYAML(t, dir, "a-llm.provider.yaml", `apiVersion: promptkit.altairalabs.ai/v1alpha1
@@ -280,7 +276,6 @@ const embeddingDims = "  additional_config:\n    dimensions: 3\n"
 
 func loadTunedProvider(t *testing.T, body string) *config {
 	t.Helper()
-	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
 	path := writeProviderYAML(t, t.TempDir(), "tuned.provider.yaml", body)
 	c := &config{}
 	require.NoError(t, WithProviderFile(path)(c))
@@ -340,7 +335,6 @@ func TestWithProviderFile_RerankHonorsHeadersAndTimeout(t *testing.T) {
 }
 
 func TestWithProviderFile_STTRejectsStreamRetry(t *testing.T) {
-	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
 	body := tunedProviderYAML("stt", "openai", "http://127.0.0.1:1", "  stream_retry:\n    enabled: true\n")
 	path := writeProviderYAML(t, t.TempDir(), "stt.provider.yaml", body)
 	err := WithProviderFile(path)(&config{})

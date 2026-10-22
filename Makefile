@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 .PHONY: mcp-schema mcp-schema-check mcp-spec-docs mcp-conformance mcp-interop
-.PHONY: help build test test-race lint clean coverage install test-e2e test-e2e-mock test-e2e-coverage test-e2e-ci schemas schemas-check schemas-copy bench-audio-memory
+.PHONY: help build test test-race lint clean coverage install test-e2e test-e2e-mock test-e2e-coverage test-e2e-ci schemas-host bench-audio-memory
 
 # Route unknown targets to help
 .DEFAULT:
@@ -260,22 +260,6 @@ test-fast: ## Run tests for changed packages only (fast, for pre-commit)
 verify: lint-diff test-fast ## Run all verification checks (used by CI and pre-commit)
 	@echo "✓ All verification checks passed!"
 
-schemas: ## Fetch JSON schemas from promptarena (the schema owner) and mirror them into pkg/config
-	@./scripts/fetch-schemas.sh
-	@rm -rf pkg/config/schemas && cp -R schemas/v1alpha1 pkg/config/schemas
-	@echo "✓ Mirrored into pkg/config/schemas (embedded by the validator)"
-
-schemas-check: ## Check committed schemas match promptarena (for CI)
-	@echo "Checking schemas are in sync with promptarena..."
-	@tmp=$$(mktemp -d); \
-	./scripts/fetch-schemas.sh "$$tmp" >/dev/null; \
-	if diff -rq "$$tmp" schemas/v1alpha1 >/dev/null 2>&1; then \
-		echo "✓ Schemas are in sync with promptarena"; rm -rf "$$tmp"; \
-	else \
-		echo "::error::schemas/v1alpha1 is out of sync with promptarena — run 'make schemas' and commit"; \
-		diff -rq "$$tmp" schemas/v1alpha1 || true; rm -rf "$$tmp"; exit 1; \
-	fi
-
 promptpack-schema: ## Refresh the embedded PromptPack schema from the published release
 	@./scripts/fetch-promptpack-schema.sh
 
@@ -359,11 +343,9 @@ packspec-check: ## Check the generated pack types are current (for CI)
 		-schema ../../runtime/prompt/schema/promptpack.schema.json \
 		-out ../../runtime/packspec/types.go -check
 
-schemas-copy: schemas ## Copy schemas to docs/public for hosting (+ latest refs)
-	@echo "Copying schemas to docs/public/schemas..."
-	@mkdir -p docs/public/schemas
-	@cp -r schemas/* docs/public/schemas/
-	@./scripts/gen-schema-latest-refs.sh schemas/v1alpha1 docs/public/schemas/latest
+schemas-host: ## Fetch promptarena's config schemas into docs/public, which hosts them (+ latest refs)
+	@./scripts/fetch-schemas.sh docs/public/schemas/v1alpha1
+	@./scripts/gen-schema-latest-refs.sh docs/public/schemas/v1alpha1 docs/public/schemas/latest
 	@echo "✓ Schemas hosted at https://promptkit.altairalabs.ai/schemas/{v1alpha1,latest}/"
 
 clean: ## Clean build artifacts
@@ -454,7 +436,7 @@ docs-serve: ## Serve documentation locally for development
 docs-build: ## Build complete documentation site
 	@echo "🏗️ Building documentation site..."
 	@$(MAKE) docs-api
-	@$(MAKE) schemas-copy
+	@$(MAKE) schemas-host
 	@echo "📝 Preparing example documentation..."
 	@./scripts/prepare-examples-docs.sh
 	@echo "🔨 Building Astro site..."

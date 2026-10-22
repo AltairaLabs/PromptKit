@@ -1346,7 +1346,6 @@ func TestApplyRuntimeConfig_MCPSourceRejected(t *testing.T) {
 // provider under spec.providers rather than in its own provider file: both
 // routes share applyProviderConfig, and both must carry headers through.
 func TestWithRuntimeConfig_EmbeddingProviderHonorsHeaders(t *testing.T) {
-	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
 	srv := newGatewayServer(t, tunedEmbeddingBody, 0)
 	path := writeRuntimeConfig(t, `apiVersion: promptkit.altairalabs.ai/v1alpha1
 kind: RuntimeConfig
