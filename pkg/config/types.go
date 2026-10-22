@@ -227,6 +227,14 @@ type Provider struct {
 	// MaxConnsPerHost × SETTINGS_MAX_CONCURRENT_STREAMS per upstream.
 	// See AltairaLabs/PromptKit#873.
 	HTTPTransport *HTTPTransportConfig `json:"http_transport,omitempty" yaml:"http_transport,omitempty"`
+	// MessageMetadataTemplate renders the application metadata attached to a
+	// message (the SDK's WithMessageMetadata) as text the model reads, for
+	// example "<context>Selected: {{selection}}</context>". Each {{key}} is
+	// filled from that message's metadata (a string as is, anything else as
+	// compact JSON, a missing key as empty), and the result is appended to the
+	// message's text in the request only. Empty means the model does not see
+	// the metadata.
+	MessageMetadataTemplate string `json:"message_metadata_template,omitempty" yaml:"message_metadata_template,omitempty"` //nolint:lll // struct tag
 }
 
 // ProviderSpec is the unified, post-compat shape used internally for any

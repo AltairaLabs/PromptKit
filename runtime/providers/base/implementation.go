@@ -10,6 +10,8 @@ type Implementation struct {
 	name    string
 	typ     ProviderType
 	pricing *PricingDescriptor
+
+	messageMetadataTemplate string
 }
 
 // NewImplementation constructs a helper. Pass nil pricing for free / local providers.
@@ -49,3 +51,17 @@ func (i *Implementation) Close() error { return nil }
 // SetPricing allows post-construction pricing wiring (used when the resolver
 // fills in pricing after Init completes).
 func (i *Implementation) SetPricing(p *PricingDescriptor) { i.pricing = p }
+
+// MessageMetadataTemplate returns the template that renders a message's
+// application metadata for the model ("" when none is set). Safe to call on a
+// nil receiver, for the same reason as Pricing.
+func (i *Implementation) MessageMetadataTemplate() string {
+	if i == nil {
+		return ""
+	}
+	return i.messageMetadataTemplate
+}
+
+// SetMessageMetadataTemplate sets the template MessageMetadataTemplate returns
+// (applied from the provider spec after construction).
+func (i *Implementation) SetMessageMetadataTemplate(t string) { i.messageMetadataTemplate = t }

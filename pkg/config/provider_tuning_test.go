@@ -24,13 +24,17 @@ func TestApplyProviderTuning_CopiesEveryTuningField(t *testing.T) {
 			RetryWindow:  "always",
 			Budget:       &StreamRetryBudgetConfig{RatePerSec: 2, Burst: 4},
 		},
-		HTTPTransport: &HTTPTransportConfig{MaxConnsPerHost: 50, MaxIdleConnsPerHost: 25, IdleConnTimeout: "30s"},
-		Defaults:      ProviderDefaults{PromptCaching: &caching},
+		HTTPTransport:           &HTTPTransportConfig{MaxConnsPerHost: 50, MaxIdleConnsPerHost: 25, IdleConnTimeout: "30s"},
+		Defaults:                ProviderDefaults{PromptCaching: &caching},
+		MessageMetadataTemplate: "<context>{{selection}}</context>",
 	}
 	var spec providers.ProviderSpec
 
 	ApplyProviderTuning(&spec, p)
 
+	if spec.MessageMetadataTemplate != "<context>{{selection}}</context>" {
+		t.Errorf("MessageMetadataTemplate = %q", spec.MessageMetadataTemplate)
+	}
 	if spec.RequestTimeout != 3*time.Minute || spec.StreamIdleTimeout != 45*time.Second {
 		t.Errorf("timeouts = (%v, %v), want (3m, 45s)", spec.RequestTimeout, spec.StreamIdleTimeout)
 	}
@@ -169,6 +173,11 @@ func TestCapabilityHTTPTuning(t *testing.T) {
 			name:    "defaults.prompt_caching rejected",
 			p:       &Provider{ID: "s", Role: RoleEmbedding, Defaults: ProviderDefaults{PromptCaching: &caching}},
 			wantErr: `defaults.prompt_caching is not supported for role "embedding"`,
+		},
+		{
+			name:    "message_metadata_template rejected",
+			p:       &Provider{ID: "s", Role: RoleTTS, MessageMetadataTemplate: "{{a}}"},
+			wantErr: `message_metadata_template is not supported for role "tts"`,
 		},
 	}
 	for _, tc := range cases {

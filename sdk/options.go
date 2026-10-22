@@ -2613,6 +2613,10 @@ type ProviderSpec struct {
 	// PromptCaching mirrors defaults.prompt_caching: false disables
 	// Anthropic prompt caching. Completion roles only.
 	PromptCaching *bool
+	// MessageMetadataTemplate mirrors message_metadata_template: renders the
+	// metadata attached with WithMessageMetadata as text the model reads,
+	// appended to each message that carries it. Completion roles only.
+	MessageMetadataTemplate string
 }
 
 // idOrType returns the spec ID, falling back to Type.
@@ -2680,20 +2684,21 @@ func WithClassifier(id string, provider any) Option {
 //nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
 func (s ProviderSpec) toPkgProvider() *pkgconfig.Provider {
 	return &pkgconfig.Provider{
-		ID:                  s.idOrType(),
-		Type:                s.Type,
-		Model:               s.Model,
-		BaseURL:             s.BaseURL,
-		Credential:          s.Credential,
-		AdditionalConfig:    s.AdditionalConfig,
-		Platform:            s.Platform,
-		Headers:             s.Headers,
-		RequestTimeout:      s.RequestTimeout,
-		StreamIdleTimeout:   s.StreamIdleTimeout,
-		StreamRetry:         s.StreamRetry,
-		StreamMaxConcurrent: s.StreamMaxConcurrent,
-		HTTPTransport:       s.HTTPTransport,
-		Defaults:            pkgconfig.ProviderDefaults{PromptCaching: s.PromptCaching},
+		ID:                      s.idOrType(),
+		Type:                    s.Type,
+		Model:                   s.Model,
+		BaseURL:                 s.BaseURL,
+		Credential:              s.Credential,
+		AdditionalConfig:        s.AdditionalConfig,
+		Platform:                s.Platform,
+		Headers:                 s.Headers,
+		RequestTimeout:          s.RequestTimeout,
+		StreamIdleTimeout:       s.StreamIdleTimeout,
+		StreamRetry:             s.StreamRetry,
+		StreamMaxConcurrent:     s.StreamMaxConcurrent,
+		HTTPTransport:           s.HTTPTransport,
+		Defaults:                pkgconfig.ProviderDefaults{PromptCaching: s.PromptCaching},
+		MessageMetadataTemplate: s.MessageMetadataTemplate,
 	}
 }
 

@@ -281,6 +281,16 @@ type ContextWindowProvider interface {
 	MaxContextTokens() int
 }
 
+// MessageMetadataTemplater is implemented by a provider that renders a
+// message's application metadata (types.Message.Metadata) for the model. The
+// provider stage fills the template's {{key}} placeholders from each message's
+// metadata and appends the result to that message's text in the request only.
+// An empty template means the model does not see the metadata.
+// ProviderSpec.MessageMetadataTemplate sets it.
+type MessageMetadataTemplater interface {
+	MessageMetadataTemplate() string
+}
+
 // ToolDescriptor represents a tool that can be used by providers
 type ToolDescriptor struct {
 	Name         string          `json:"name"`

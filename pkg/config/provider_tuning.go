@@ -11,8 +11,8 @@ import (
 
 // ApplyProviderTuning copies a provider's request-tuning settings from its
 // config onto spec: request_timeout, stream_idle_timeout, stream_retry (with
-// its budget), stream_max_concurrent, http_transport and
-// defaults.prompt_caching. It is the single conversion used by every loader
+// its budget), stream_max_concurrent, http_transport, defaults.prompt_caching
+// and message_metadata_template. It is the single conversion used by every loader
 // that turns a config.Provider into a providers.ProviderSpec, so a field is
 // honored the same way wherever the config is loaded.
 //
@@ -30,6 +30,7 @@ func ApplyProviderTuning(spec *providers.ProviderSpec, p *Provider) {
 	spec.StreamMaxConcurrent = p.StreamMaxConcurrent
 	spec.HTTPTransport = httpTransportOptions(p.ID, p.HTTPTransport)
 	spec.Defaults.DisablePromptCaching = p.Defaults.PromptCaching != nil && !*p.Defaults.PromptCaching
+	spec.MessageMetadataTemplate = p.MessageMetadataTemplate
 }
 
 // streamRetryPolicy translates stream_retry into a providers policy. A nil
@@ -136,6 +137,8 @@ func completionOnlyField(p *Provider) string {
 		return "stream_idle_timeout"
 	case p.Defaults.PromptCaching != nil:
 		return "defaults.prompt_caching"
+	case p.MessageMetadataTemplate != "":
+		return "message_metadata_template"
 	default:
 		return ""
 	}
