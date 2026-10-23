@@ -433,7 +433,7 @@
             "streamable_http"
           ],
           "title": "MCP Transport",
-          "description": "Explicit transport adapter. Defaults: url→sse for back-compat; command→stdio. Set to 'streamable_http' to opt into the MCP 2025-03-26 Streamable HTTP transport."
+          "description": "Explicit transport adapter. When unset: command uses stdio; url uses Streamable HTTP and falls back to HTTP+SSE if the server only hosts that."
         },
         "source": {
           "type": "string",

@@ -74,6 +74,9 @@
         "enabled": {
           "type": "boolean"
         },
+        "extensions": {
+          "type": "object"
+        },
         "groups": {
           "items": {
             "type": "string"
@@ -159,7 +162,13 @@
           "type": "array"
         },
         "autonomy_level": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "suggests",
+            "acts_with_approval",
+            "acts_with_oversight",
+            "acts_autonomously"
+          ]
         },
         "capabilities": {
           "items": {
@@ -176,6 +185,9 @@
           },
           "type": "array"
         },
+        "independent_of": {
+          "$ref": "#/$defs/GovernanceIndependentOf"
+        },
         "intended_deployment_contexts": {
           "items": {
             "type": "string"
@@ -185,11 +197,23 @@
         "intended_purpose": {
           "type": "string"
         },
+        "obligations": {
+          "items": {
+            "$ref": "#/$defs/Obligation"
+          },
+          "type": "array"
+        },
         "operator_role": {
           "type": "string"
         },
         "requires_ai_disclosure": {
           "type": "boolean"
+        },
+        "reviews": {
+          "items": {
+            "$ref": "#/$defs/Review"
+          },
+          "type": "array"
         },
         "risk_classification": {
           "type": "string"
@@ -203,6 +227,34 @@
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "GovernanceIndependentOf": {
+      "properties": {
+        "axes": {
+          "items": {
+            "enum": [
+              "model",
+              "provider",
+              "tools",
+              "prompts",
+              "accountable_owner"
+            ]
+          },
+          "type": "array"
+        },
+        "enforcement": {
+          "type": "string",
+          "enum": [
+            "strict",
+            "advisory"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "axes"
+      ]
     },
     "ImageConfig": {
       "properties": {
@@ -400,6 +452,73 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "Obligation": {
+      "properties": {
+        "applies_to": {
+          "$ref": "#/$defs/ObligationAppliesTo"
+        },
+        "controls": {
+          "items": {
+            "$ref": "#/$defs/ObligationControl"
+          },
+          "type": "array"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "id": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "obligation": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "controls",
+        "id",
+        "obligation"
+      ]
+    },
+    "ObligationAppliesTo": {
+      "properties": {
+        "capability": {
+          "type": "string"
+        },
+        "data_class": {
+          "type": "string"
+        },
+        "risk_classification": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ObligationControl": {
+      "properties": {
+        "eval": {
+          "type": "string"
+        },
+        "external": {
+          "type": "string"
+        },
+        "field": {
+          "type": "string"
+        },
+        "validator": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "maxProperties": 1,
+      "minProperties": 1
+    },
     "PackCompilation": {
       "properties": {
         "compiled_with": {
@@ -509,6 +628,43 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "Review": {
+      "properties": {
+        "cadence": {
+          "type": "string",
+          "pattern": "^P(?:(?:\\d+Y(?:\\d+M)?(?:\\d+W)?(?:\\d+D)?|\\d+M(?:\\d+W)?(?:\\d+D)?|\\d+W(?:\\d+D)?|\\d+D)(?:T(?:\\d+H(?:\\d+M)?(?:\\d+S)?|\\d+M(?:\\d+S)?|\\d+S))?|T(?:\\d+H(?:\\d+M)?(?:\\d+S)?|\\d+M(?:\\d+S)?|\\d+S))$"
+        },
+        "eval": {
+          "type": "string"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "id": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "satisfies": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "cadence",
+        "id",
+        "owner",
+        "type"
+      ]
+    },
     "Spec": {
       "properties": {
         "task_type": {
@@ -584,6 +740,9 @@
         },
         "compilation": {
           "$ref": "#/$defs/PackCompilation"
+        },
+        "extensions": {
+          "type": "object"
         }
       },
       "additionalProperties": false,
@@ -667,6 +826,12 @@
         },
         "message": {
           "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "extensions": {
+          "type": "object"
         }
       },
       "additionalProperties": false,
