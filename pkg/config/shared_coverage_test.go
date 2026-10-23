@@ -9,7 +9,6 @@ import (
 // TestLoadProvider covers LoadProvider + LoadSimpleK8sManifest for the shared
 // provider-config path that remains in pkg/config after the arena config split.
 func TestLoadProvider(t *testing.T) {
-	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.provider.yaml")
 	content := `apiVersion: promptkit.altairalabs.ai/v1alpha1
@@ -50,7 +49,6 @@ spec:
 // TestLoadProvider_IDSource pins which field supplies the provider ID:
 // spec.id when present, metadata.name only when it is absent (#2083).
 func TestLoadProvider_IDSource(t *testing.T) {
-	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
 	tests := []struct {
 		name   string
 		specID string
@@ -94,50 +92,6 @@ func TestExplicitID(t *testing.T) {
 func TestLoadProviderReadError(t *testing.T) {
 	if _, err := LoadProvider(filepath.Join(t.TempDir(), "missing.yaml")); err == nil {
 		t.Error("expected error for missing file")
-	}
-}
-
-func TestLoadProviderSchemaError(t *testing.T) {
-	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
-	dir := t.TempDir()
-	path := filepath.Join(dir, "bad.provider.yaml")
-	// Missing required spec fields → schema validation failure.
-	if err := os.WriteFile(path, []byte("apiVersion: promptkit.altairalabs.ai/v1alpha1\nkind: Provider\nmetadata:\n  name: p\nspec: {}\n"), 0o600); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	if _, err := LoadProvider(path); err == nil {
-		t.Error("expected schema validation error")
-	}
-}
-
-// TestLoadSimpleK8sManifestKinds exercises the per-kind validation switch and the
-// YAML-parse error branch of the shared generic loader.
-func TestLoadSimpleK8sManifestParseError(t *testing.T) {
-	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
-	dir := t.TempDir()
-	path := filepath.Join(dir, "notyaml.provider.yaml")
-	if err := os.WriteFile(path, []byte("kind: Provider\n\tbad: [unterminated"), 0o600); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	if _, err := LoadSimpleK8sManifest[*ProviderConfigK8s](path, "Provider"); err == nil {
-		t.Error("expected error for malformed yaml")
-	}
-}
-
-// TestLoadSimpleK8sManifestKindBranches exercises the per-kind validation switch.
-// Each kind routes to its validator; the provider data fails validation, which is
-// expected — the point is to cover every branch of the switch.
-func TestLoadSimpleK8sManifestKindBranches(t *testing.T) {
-	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
-	dir := t.TempDir()
-	path := filepath.Join(dir, "x.yaml")
-	if err := os.WriteFile(path, []byte("apiVersion: v1\nkind: X\nmetadata:\n  name: n\nspec: {}\n"), 0o600); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	for _, kind := range []string{"Scenario", kindEval, "Tool", "Persona"} {
-		if _, err := LoadSimpleK8sManifest[*ProviderConfigK8s](path, kind); err == nil {
-			t.Errorf("kind %q: expected validation error for mismatched data", kind)
-		}
 	}
 }
 

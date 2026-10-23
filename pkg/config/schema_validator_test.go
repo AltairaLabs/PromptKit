@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -39,223 +40,6 @@ func TestBuildSchemaKey_UsesFileWhenSchemaDirOrEnvSet(t *testing.T) {
 	if !strings.HasPrefix(key2, "file://") || !strings.HasSuffix(key2, "/scenario.json") {
 		t.Fatalf("expected file:// schema key from env, got %q", key2)
 	}
-}
-
-func TestValidateArenaConfig_Valid(t *testing.T) {
-	validConfig := []byte(`
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Arena
-metadata:
-  name: test-arena
-  namespace: default
-spec:
-  prompt_configs:
-    - id: test
-      file: test.yaml
-  providers:
-    - file: provider.yaml
-  scenarios:
-    - file: scenario.yaml
-  defaults:
-    temperature: 0.7
-`)
-
-	err := ValidateArenaConfig(validConfig)
-	assert.NoError(t, err)
-}
-
-func TestValidateArenaConfig_MissingMetadata(t *testing.T) {
-	invalidConfig := []byte(`
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Arena
-spec:
-  prompt_configs:
-    - id: test
-      file: test.yaml
-`)
-
-	err := ValidateArenaConfig(invalidConfig)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "schema")
-}
-
-func TestSchemaCaching(t *testing.T) {
-	// Clear cache before test
-	schemaCache.mu.Lock()
-	schemaCache.schemas = make(map[string]*schemaCacheEntry)
-	schemaCache.order = nil
-	schemaCache.mu.Unlock()
-
-	validConfig := []byte(`
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Arena
-metadata:
-  name: test-arena
-spec:
-  prompt_configs:
-    - id: test
-      file: test.yaml
-  providers:
-    - file: provider.yaml
-  scenarios:
-    - file: scenario.yaml
-`)
-
-	// Find the project root by looking for go.work file
-	cwd, err := os.Getwd()
-	require.NoError(t, err)
-
-	// Navigate up to find the project root (where go.work exists)
-	projectRoot := cwd
-	for {
-		if _, err := os.Stat(filepath.Join(projectRoot, "go.work")); err == nil {
-			break
-		}
-		parent := filepath.Dir(projectRoot)
-		if parent == projectRoot {
-			t.Skip("Cannot find project root (go.work not found)")
-			return
-		}
-		projectRoot = parent
-	}
-
-	schemaDir := filepath.Join(projectRoot, "docs", "public", "schemas", "v1alpha1")
-
-	// Verify schema directory exists before running test
-	if _, err := os.Stat(schemaDir); os.IsNotExist(err) {
-		t.Skipf("Schema directory not found at %s, skipping test", schemaDir)
-		return
-	}
-
-	// First validation - should cache the schema
-	_, err = ValidateWithLocalSchema(validConfig, ConfigTypeArena, schemaDir)
-	require.NoError(t, err)
-
-	// Check that schema was cached
-	schemaKey := "file://" + schemaDir + "/arena.json"
-	cachedSchema := schemaCache.get(schemaKey)
-	assert.NotNil(t, cachedSchema, "Schema should be cached after first validation")
-
-	// Second validation - should use cached schema
-	_, err = ValidateWithLocalSchema(validConfig, ConfigTypeArena, schemaDir)
-	require.NoError(t, err)
-
-	// Verify same schema instance is used (pointer equality)
-	cachedSchema2 := schemaCache.get(schemaKey)
-	assert.Same(t, cachedSchema, cachedSchema2, "Should reuse cached schema instance")
-}
-
-func TestValidateArenaConfig_MissingKind(t *testing.T) {
-	invalidConfig := []byte(`
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-metadata:
-  name: test-arena
-spec:
-  prompt_configs:
-    - id: test
-      file: test.yaml
-`)
-
-	err := ValidateArenaConfig(invalidConfig)
-	assert.Error(t, err)
-}
-
-func TestValidateScenario_Valid(t *testing.T) {
-	validScenario := []byte(`
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Scenario
-metadata:
-  name: test-scenario
-spec:
-  id: test-scenario
-  task_type: test
-  description: Test scenario
-  turns:
-    - role: user
-      content: Hello
-`)
-
-	err := ValidateScenario(validScenario)
-	assert.NoError(t, err)
-}
-
-func TestValidateProvider_Valid(t *testing.T) {
-	validProvider := []byte(`
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Provider
-metadata:
-  name: test-provider
-spec:
-  id: test-provider
-  type: openai
-  model: gpt-4
-`)
-
-	err := ValidateProvider(validProvider)
-	assert.NoError(t, err)
-}
-
-func TestValidatePromptConfig_Valid(t *testing.T) {
-	validPromptConfig := []byte(`
-apiVersion: promptkit.altaira.ai/v1alpha1
-kind: PromptConfig
-metadata:
-  name: test-prompt
-spec:
-  task_type: test
-  version: v1.0.0
-  description: Test prompt config
-  system_template: You are a helpful assistant
-`)
-
-	err := ValidatePromptConfig(validPromptConfig)
-	assert.NoError(t, err)
-}
-
-func TestValidateTool_Valid(t *testing.T) {
-	validTool := []byte(`
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Tool
-metadata:
-  name: test-tool
-spec:
-  name: get_weather
-  description: Get weather information
-  input_schema: {}
-  output_schema: {}
-  mode: mock
-  timeout_ms: 5000
-`)
-
-	err := ValidateTool(validTool)
-	assert.NoError(t, err)
-}
-
-func TestValidatePersona_Valid(t *testing.T) {
-	validPersona := []byte(`
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Persona
-metadata:
-  name: test-persona
-spec:
-  id: test-persona
-  description: Test user persona
-  system_prompt: You are a friendly test user
-  goals:
-    - Test the system
-  constraints:
-    - Be polite
-  style:
-    verbosity: medium
-    challenge_level: low
-    friction_tags: []
-  defaults:
-    temperature: 0.7
-    seed: 42
-`)
-
-	err := ValidatePersona(validPersona)
-	assert.NoError(t, err)
 }
 
 func TestDetectConfigType(t *testing.T) {
@@ -401,46 +185,6 @@ func TestSchemaValidationError_Error(t *testing.T) {
 	}
 }
 
-func TestValidateEval_Valid(t *testing.T) {
-	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
-	validEval := []byte(`
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Eval
-metadata:
-  name: test-eval
-spec:
-  id: test-eval-id
-  description: Test evaluation
-  recording:
-    path: test-recording.json
-    type: session
-  turns:
-    - all_turns:
-        assertions:
-          - type: content_includes
-            params:
-              patterns: ["test"]
-`)
-
-	err := ValidateEval(validEval)
-	assert.NoError(t, err)
-}
-
-func TestValidateEval_MissingRequired(t *testing.T) {
-	t.Setenv("PROMPTKIT_SCHEMA_SOURCE", "local")
-	invalidEval := []byte(`
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Eval
-metadata:
-  name: test-eval
-spec:
-  description: Missing recording field
-`)
-
-	err := ValidateEval(invalidEval)
-	assert.Error(t, err)
-}
-
 func TestDetectConfigType_Eval(t *testing.T) {
 	yamlData := []byte(`
 apiVersion: promptkit.altairalabs.ai/v1alpha1
@@ -521,87 +265,53 @@ func TestValidatePersona_InvalidYAML(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to parse YAML")
 }
 
-func TestValidateScenario_SchemaValidationFailure(t *testing.T) {
-	// Valid YAML but doesn't match schema (missing required fields)
-	invalidScenario := []byte(`
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Scenario
-metadata:
-  name: test
-spec:
-  id: test
-  # Missing required fields like task_type, description, turns
-`)
+// testManifestSchema stands in for a tool's schema: a manifest whose spec only
+// accepts an id.
+const testManifestSchema = `{"type":"object","required":["apiVersion","kind","spec"],
+"properties":{"spec":{"type":"object","additionalProperties":false,"properties":{"id":{"type":"string"}}}}}`
 
-	err := ValidateScenario(invalidScenario)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "scenario configuration does not match schema")
+// Each Validate* wrapper validates against the schema its tool registered for
+// that type, and names the type when the file does not match.
+func TestValidateWrappers_UseTheRegisteredSchemaForTheirType(t *testing.T) {
+	fsys := fstest.MapFS{}
+	for _, ct := range []ConfigType{ConfigTypeArena, ConfigTypeScenario, ConfigTypeEval, ConfigTypeProvider,
+		ConfigTypePromptConfig, ConfigTypeTool, ConfigTypePersona} {
+		fsys[string(ct)+".json"] = &fstest.MapFile{Data: []byte(testManifestSchema)}
+	}
+	useSchemaFSForTest(t, fsys)
+
+	wrappers := map[ConfigType]func([]byte) error{
+		ConfigTypeArena: ValidateArenaConfig, ConfigTypeScenario: ValidateScenario, ConfigTypeEval: ValidateEval,
+		ConfigTypeProvider: ValidateProvider, ConfigTypePromptConfig: ValidatePromptConfig,
+		ConfigTypeTool: ValidateTool, ConfigTypePersona: ValidatePersona,
+	}
+	for ct, validate := range wrappers {
+		t.Run(string(ct), func(t *testing.T) {
+			assert.NoError(t, validate([]byte("apiVersion: v1\nkind: X\nspec:\n  id: a\n")))
+
+			err := validate([]byte("apiVersion: v1\nkind: X\nspec:\n  stray: true\n"))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), string(ct)+" configuration does not match schema")
+			assert.Contains(t, err.Error(), "stray")
+		})
+	}
 }
 
-func TestValidateProvider_SchemaValidationFailure(t *testing.T) {
-	// Valid YAML but doesn't match schema
-	invalidProvider := []byte(`
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Provider
-metadata:
-  name: test
-spec:
-  id: test
-  # Missing required field 'type'
-`)
+// A compiled schema is cached per source, so repeat validations reuse it.
+func TestSchemaCaching(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "arena.json"), []byte(testManifestSchema), 0o600))
+	doc := []byte("apiVersion: v1\nkind: Arena\nspec: {}\n")
 
-	err := ValidateProvider(invalidProvider)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "provider configuration does not match schema")
-}
+	_, err := ValidateWithLocalSchema(doc, ConfigTypeArena, dir)
+	require.NoError(t, err)
+	key := "file://" + dir + "/arena.json"
+	first := schemaCache.get(key)
+	require.NotNil(t, first, "schema should be cached after the first validation")
 
-func TestValidatePromptConfig_SchemaValidationFailure(t *testing.T) {
-	// Valid YAML but doesn't match schema
-	invalidPrompt := []byte(`
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: PromptConfig
-metadata:
-  name: test
-spec:
-  id: test
-  # Missing required fields
-`)
-
-	err := ValidatePromptConfig(invalidPrompt)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "promptconfig configuration does not match schema")
-}
-
-func TestValidateTool_SchemaValidationFailure(t *testing.T) {
-	// Valid YAML but doesn't match schema
-	invalidTool := []byte(`
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Tool
-metadata:
-  name: test
-spec:
-  invalid_field: true
-`)
-
-	err := ValidateTool(invalidTool)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "tool configuration does not match schema")
-}
-
-func TestValidatePersona_SchemaValidationFailure(t *testing.T) {
-	// Valid YAML but doesn't match schema
-	invalidPersona := []byte(`
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Persona
-metadata:
-  name: test
-spec:
-  invalid_field: true
-`)
-
-	err := ValidatePersona(invalidPersona)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "persona configuration does not match schema")
+	_, err = ValidateWithLocalSchema(doc, ConfigTypeArena, dir)
+	require.NoError(t, err)
+	assert.Same(t, first, schemaCache.get(key))
 }
 
 // --- M32: Schema cache LRU eviction ---

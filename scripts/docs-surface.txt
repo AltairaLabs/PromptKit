@@ -7,4 +7,3 @@ sdk/*.go
 server/a2a/*.go
 pkg/config/*.go
 runtime/prompt/schema/promptpack.schema.json
-schemas/v1alpha1/*.json

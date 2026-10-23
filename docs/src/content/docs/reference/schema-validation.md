@@ -3,29 +3,22 @@ title: Configuration Schema Validation
 description: How to use JSON schemas for validating PromptKit configuration files
 ---
 
-PromptKit provides JSON schemas for all configuration file types, enabling automatic validation and IDE support.
+PromptArena publishes JSON schemas for its configuration file types, and this site hosts them, for validation and editor support.
 
 ## Overview
 
-JSON schemas are automatically generated from the PromptKit codebase and provide:
+promptarena generates the schemas from the config Go types: its own, plus PromptKit's provider and runtime types. They provide:
 
 - **Validation**: Ensure your config files match the expected structure
 - **IDE Support**: Get autocomplete, inline documentation, and error checking
 - **CI/CD Integration**: Validate configs automatically in your pipelines
-- **Automatic Loading**: Configs are validated against schemas when loaded by PromptKit tools
+- **Validation on load**: PromptArena and PackC validate configs against them when loading
 
-### Automatic Validation
+### Validation on Load
 
-As of version 1.0, PromptKit automatically validates all configuration files against their schemas during loading:
+PromptArena and PackC validate each configuration file against these schemas when they load it: arena configs, scenarios, providers, prompt configs, tools, personas and evals. A file that does not match fails to load, with an error naming the field.
 
-- **Arena configs**: Validated when `config.LoadConfig()` is called
-- **Scenarios**: Validated when loading individual scenario files
-- **Providers**: Validated when loading provider configurations
-- **PromptConfigs**: Validated when loading prompt configuration files
-- **Tools**: Validated when loading tool definitions
-- **Personas**: Validated when loading persona files
-
-This means you'll get immediate, detailed error messages if your configs don't match the expected structure, making it easier to catch typos and structural issues early.
+The PromptKit SDK does not use the schemas. When it loads a provider file (`sdk.WithProviderFile`, `sdk.WithProvidersDir`), it checks the file against its Go types. An unknown key, a missing `apiVersion`, `kind`, `spec` or `spec.type`, or an unknown `role` is an error. A provider setting is accepted from the PromptKit release that adds it, before the published schema includes it.
 
 ## Available Schemas
 
@@ -444,29 +437,11 @@ ajv validate \
   --strict=false
 ```
 
-### Using make (in PromptKit repo)
-
-The PromptKit repository includes Makefile targets:
-
-```bash
-# Check if schemas are up to date
-make schemas-check
-
-# Regenerate schemas
-make schemas
-```
-
 ## CI/CD Integration
 
 ### GitHub Actions
 
-PromptKit includes a [schema validation workflow](https://github.com/AltairaLabs/PromptKit/blob/main/.github/workflows/schemas.yml) that:
-
-1. Validates schemas are up to date with code
-2. Tests all example configs against their schemas
-3. Reports validation errors
-
-Example workflow snippet:
+To check your own config files in CI, validate them against the hosted schemas:
 
 ```yaml
 - name: Validate configs
@@ -549,8 +524,8 @@ type ArenaConfig struct {
 }
 ```
 
-1. Run `make schemas` to regenerate
-1. The CI validates schemas match the code
+1. Run `make schemas` in the promptarena repo to regenerate them
+1. The docs site serves promptarena's schemas from its next deploy
 
 ## Troubleshooting
 
@@ -599,7 +574,7 @@ Error: must NOT have additional properties
 
 1. **Always include `$schema`**: Makes configs self-documenting
 2. **Use schema validation in CI**: Catch errors before deployment
-3. **Keep schemas up to date**: Run `make schemas` after struct changes
+3. **Keep schemas up to date**: Regenerate them in promptarena after struct changes
 4. **Add descriptions**: Document fields in Go struct tags
 5. **Test with examples**: Validate example configs in CI
 

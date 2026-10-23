@@ -8,15 +8,6 @@ bin/
 dist/
 /tools/seamscan/seamscan
 
-# Generated files
-schemas/*
-!schemas/v1alpha1/
-schemas/v1alpha1/*
-!schemas/v1alpha1/*.json
-!schemas/v1alpha1/common/
-schemas/v1alpha1/common/*
-!schemas/v1alpha1/common/*.json
-
 # Test binary, built with `go test -c`
 *.test
 

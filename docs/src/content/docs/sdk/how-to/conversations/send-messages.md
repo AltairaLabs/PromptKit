@@ -215,6 +215,7 @@ The template lives on the provider, not in the pack, because the wording a model
 - Every message in the history that has metadata is rendered, including earlier turns. What the model sees for earlier turns does not change, so provider prompt caching keeps working.
 - The rendered text is added to the request only. `Messages()`, the state store and `message.created` keep the user's own text.
 - A provider built with `providers.CreateProviderFromSpec` takes the same template as `providers.ProviderSpec.MessageMetadataTemplate`.
+- In a provider file or a [RuntimeConfig](/sdk/reference/runtime-config/) provider entry, the field is `message_metadata_template`.
 
 To give the model structured input that fills the pack's template variables instead, use `WithJSONInput`.
 

@@ -197,10 +197,6 @@ jobs:
       if: ${{ !inputs.skip_tests }}
       run: make install
     
-    - name: Generate schemas for tests
-      if: ${{ !inputs.skip_tests }}
-      run: make schemas-copy
-    
     - name: Run tests
       if: ${{ !inputs.skip_tests }}
       run: |

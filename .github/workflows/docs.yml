@@ -69,9 +69,6 @@ jobs:
       - name: Install D2
         run: curl -fsSL https://d2lang.com/install.sh | sh -s --
 
-      - name: Generate JSON schemas
-        run: make schemas
-      
       - name: Setup Pages
         id: pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0

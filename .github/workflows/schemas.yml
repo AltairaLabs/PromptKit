@@ -5,27 +5,29 @@ on:
   # output against THIS repo's sources (check-packspec and friends) — there a
   # failure is always a defect here, so failing main is the right signal.
   #
-  # The two jobs that guard a MIRRORED file against a hand-edit
-  # (validate-schemas, check-promptpack-schema) are gated to push/PR. Upstream
-  # regeneration is not a defect in this repo, and it is picked up by
-  # promptarena-schema-sync.yml / promptpack-schema-sync.yml, which raise a PR
-  # on this same daily cron.
+  # The job that guards a MIRRORED file against a hand-edit
+  # (check-promptpack-schema) is gated to push/PR. A new upstream release is not
+  # a defect in this repo, and promptpack-schema-sync.yml picks it up and raises
+  # a PR on this same daily cron.
+  #
+  # The config-file schemas are not here: they belong to promptarena, which
+  # generates and validates them. PromptKit keeps no copy.
   schedule:
     - cron: '0 6 * * *'
   workflow_dispatch:
+  # go.mod is in the filters so a dependency bump meets module-dep-skew-check on
+  # its PR, not on the next morning's schedule.
   push:
     branches: [ main ]
     paths:
-      - 'schemas/**/*.json'
-      - 'scripts/fetch-schemas.sh'
       - 'runtime/prompt/schema/**'
+      - '**/go.mod'
       - '.github/workflows/schemas.yml'
   pull_request:
     branches: [ main ]
     paths:
-      - 'schemas/**/*.json'
-      - 'scripts/fetch-schemas.sh'
       - 'runtime/prompt/schema/**'
+      - '**/go.mod'
       - '.github/workflows/schemas.yml'
 
 permissions:
@@ -33,31 +35,6 @@ permissions:
   pull-requests: write
 
 jobs:
-  validate-schemas:
-    name: Validate JSON Schemas
-    runs-on: ubuntu-latest
-    # Push/PR only, for the same reason as check-promptpack-schema below: on a
-    # branch this catches a hand-edit of the mirror, which IS a defect here, but
-    # an upstream regeneration is not, and failing main for it teaches people to
-    # ignore a red main. promptarena-schema-sync.yml picks those up and raises a
-    # PR instead.
-    #
-    # The schedule that #1700 added was right to want detection — the path
-    # filters only fire on our edits, so nothing else sees upstream drift. It
-    # just reported by failing main, because the sync half was never built. It
-    # is built now, and it runs on the same schedule.
-    if: github.event_name == 'push' || github.event_name == 'pull_request'
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-    # The schemas are generated + owned by the promptarena repo; PromptKit keeps
-    # a committed copy (pkg/config validates against it, docs hosts it). Fail if
-    # the committed copy has drifted from promptarena's generated schemas.
-    - name: Check committed schemas match promptarena
-      run: make schemas-check
-
   check-promptpack-schema:
     name: Check PromptPack Schema Is The Published Release
     runs-on: ubuntu-latest

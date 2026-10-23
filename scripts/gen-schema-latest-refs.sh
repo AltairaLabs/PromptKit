@@ -6,12 +6,12 @@
 # latest published version. Regenerated into docs/public at docs-build time.
 #
 # Usage: scripts/gen-schema-latest-refs.sh [SRC_DIR] [DEST_DIR]
-#   SRC_DIR  versioned schemas (default: schemas/v1alpha1)
+#   SRC_DIR  versioned schemas (default: docs/public/schemas/v1alpha1)
 #   DEST_DIR latest output      (default: docs/public/schemas/latest)
 #
 set -euo pipefail
 
-SRC="${1:-schemas/v1alpha1}"
+SRC="${1:-docs/public/schemas/v1alpha1}"
 DEST="${2:-docs/public/schemas/latest}"
 BASE="https://promptkit.altairalabs.ai/schemas/v1alpha1"
 

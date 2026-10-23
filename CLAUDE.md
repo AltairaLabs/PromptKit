@@ -37,17 +37,15 @@ Go workspace with multiple modules (see `go.work`):
 |------|---------|
 | `runtime/` | Core runtime: providers, pipeline, tools, types, a2a protocol, workflow engine |
 | `sdk/` | Developer SDK: `Open()`, `OpenDuplex()`, `OpenWorkflow()`, capabilities, options |
-| `pkg/` | Shared packages: config, schema validation |
+| `pkg/` | Shared packages: config types and loading |
 | `server/a2a/` | A2A protocol server module |
-| `schemas/v1alpha1/` | JSON schemas, fetched from promptarena and hosted at promptkit.altairalabs.ai |
 | `examples/` | Example projects and SDK usage |
 | `docs/` | Starlight documentation site |
 
 The **PromptArena** and **PackC** CLIs live in a separate repository,
-`github.com/AltairaLabs/promptarena`, which also **generates** the JSON schemas
-(from its `arena/arenaconfig` + this repo's `pkg/config` types). PromptKit ships
-the Go SDK/runtime libraries, keeps a committed copy of the schemas (its
-`pkg/config` validator loads them), and hosts them at promptkit.altairalabs.ai.
+`github.com/AltairaLabs/promptarena`, which also **generates and owns** the config-file
+JSON schemas (from its `arena/arenaconfig` + this repo's `pkg/config` types). PromptKit
+ships the Go SDK/runtime libraries and does not use those schemas — see [Schemas](#schemas).
 
 ## Build & Test Commands
 
@@ -77,19 +75,12 @@ go -C runtime test ./evals/... -count=1
 
 | Target | Regenerates | Check target |
 |---|---|---|
-| `make schemas` | `schemas/v1alpha1/` from promptarena, plus its `pkg/config/schemas/` mirror | `make schemas-check` |
 | `make packspec` | `runtime/packspec` pack types from the embedded schema | `make packspec-check` |
 | `make promptpack-schema` | the embedded PromptPack schema from its release | `make promptpack-schema-check` |
 | `make docs-reference` / `make docs-sdk-reference` | generated API reference pages | `…-check` variants |
 
-### Two things the targets don't cover
+### What the targets don't cover
 
-- **`pkg/config` validates against its embedded mirror, `pkg/config/schemas/`.** go:embed
-  can't reach `schemas/v1alpha1/`, so `make schemas` refreshes both and
-  `TestEmbeddedSchemas_MatchCommittedCopy` fails when they differ. To test edits to
-  `schemas/v1alpha1/` before mirroring them, set `PROMPTKIT_SCHEMA_SOURCE=local` (CI does):
-  `env PROMPTKIT_SCHEMA_SOURCE=local go -C pkg test ./config/... -count=1`. `=remote` fetches
-  the hosted copy.
 - **Nested example modules have their own `go.mod`.** `make build` covers the four
   published modules; it does not compile `sdk/examples/*`, and neither does
   `go -C sdk build ./...`. CI catches breakage there, so check them before claiming green.
@@ -115,15 +106,22 @@ Interfaces like `Conversation` and `StreamingConversation` are defined in `a2a`;
 
 ## Schemas
 
-The JSON schemas are **generated in the promptarena repo** (it owns the
-`arena/arenaconfig` types and imports this repo's `pkg/config`). PromptKit is the
-host: it keeps a committed copy under `schemas/v1alpha1/` (loaded by
-`pkg/config`'s validator and used by promptarena/packc via the hosted URL) and
-serves it at `https://promptkit.altairalabs.ai/schemas/{v1alpha1,latest}/`.
+A config-file schema belongs to the tool that publishes it. The config-file JSON schemas
+(arena, scenario, provider, ...) are **generated, embedded and validated in the promptarena
+repo**; Omnia maps the same Go types onto its CRDs. PromptKit's contract is its Go types.
 
-- Refresh the committed copy from promptarena: `make schemas` (fetches via `scripts/fetch-schemas.sh` and mirrors into `pkg/config/schemas/`), then commit both.
-- CI (`schemas.yml`) runs `make schemas-check` — fails if the committed copy drifts from promptarena's generated schemas.
-- `PROMPTKIT_SCHEMA_SOURCE=local` validates against in-repo `schemas/v1alpha1/`; a development-only tool that must not appear in shipped docs or example READMEs.
+- **PromptKit validates config against the Go types, never a JSON schema.** `pkg/config`'s
+  loaders decode strictly (unknown keys are errors) and run Go checks (`ValidateRole`,
+  `RuntimeConfigSpec.Validate`, `ApplyProviderTuning`). A new config field works in the
+  release that adds it; promptarena regenerates its schema on its own schedule.
+- **No schema copies are committed here.** `pkg/config`'s `Validate*`/`UseSchemaFS` API is
+  deprecated and validates only against schemas the caller supplies; don't build on it.
+- The docs site still **hosts** promptarena's schemas at
+  `https://promptkit.altairalabs.ai/schemas/{v1alpha1,latest}/`: `make schemas-host` (run by
+  `make docs-build`) fetches them into `docs/public` at build time.
+- `PROMPTKIT_SCHEMA_SOURCE` still selects the **PromptPack** schema source
+  (`runtime/prompt/schema`); `=local` is a development-only setting that must not appear in
+  shipped docs or example READMEs.
 
 ### Generated artifacts — never hand-edit
 
@@ -133,7 +131,6 @@ regeneration and fails that check.
 
 | Artifact | Source of truth | Regenerate |
 |---|---|---|
-| `schemas/v1alpha1/*.json`, `pkg/config/schemas/*.json` | promptarena's `tools/schema-gen` | fix promptarena, then `make schemas` |
 | `runtime/prompt/schema/promptpack.schema.json` | the PromptPack spec release — a **verbatim mirror**; runtime divergence belongs in `deliberateOmission`, never in the file | `make promptpack-schema` |
 | `runtime/packspec/*.go` | the embedded schema above | `make packspec` |
 | `runtime/mcp/testdata/spec/<rev>/schema.json` | the official MCP schemas for `mcp.ProtocolVersion` and `mcp.LegacyProtocolVersion` — **verbatim mirrors**; a field the client doesn't carry is a `specOmission` in `runtime/mcp/spec_parity_test.go` | `make mcp-schema` |

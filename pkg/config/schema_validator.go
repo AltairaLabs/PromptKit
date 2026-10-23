@@ -2,8 +2,8 @@ package config
 
 import (
 	"context"
-	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -21,47 +21,48 @@ import (
 	promptschema "github.com/AltairaLabs/PromptKit/runtime/v2/prompt/schema"
 )
 
-// SchemaBaseURL is the base URL for PromptKit JSON schemas
+// This file is the JSON-schema validator for config files. PromptKit no longer
+// ships config schemas or validates its own config against them: LoadProvider
+// checks a provider file against the Go types instead. The schemas belong to
+// the tools that publish them — promptarena generates and embeds its own — so
+// everything here validates only against schemas the program supplies, with
+// UseSchemaFS, PROMPTKIT_SCHEMA_SOURCE or ValidateWithLocalSchema's directory.
+// It is kept, deprecated, so existing callers keep compiling.
+
+// SchemaBaseURL is the base URL the config schemas are hosted under.
+//
+// Deprecated: PromptKit no longer ships config schemas; see UseSchemaFS.
 const SchemaBaseURL = "https://promptkit.altairalabs.ai/schemas/v1alpha1"
 
 const errorFormat = "  - %s"
 
-// SchemaFallbackDisabled controls whether a failed remote fetch falls back to
-// the embedded schemas. It only matters with PROMPTKIT_SCHEMA_SOURCE=remote.
-// When true (non-default), a failed fetch is an error.
-// Uses atomic.Bool for safe concurrent access across goroutines and test init functions.
+// SchemaFallbackDisabled once stopped a failed remote fetch falling back to the
+// schemas embedded in this package. There are none now, so a failed fetch is
+// always an error.
+//
+// Deprecated: it has no effect.
 var SchemaFallbackDisabled atomic.Bool
 
 // schemaSourceEnvVar selects where config schemas come from: unset uses the
-// schemas embedded in this package, "local" a schemas/v1alpha1 directory found
+// filesystem registered with UseSchemaFS, "local" a schemas/v1alpha1 directory found
 // relative to the working directory, "remote" the hosted copy at SchemaBaseURL.
 const schemaSourceEnvVar = "PROMPTKIT_SCHEMA_SOURCE"
-
-// The embedded schemas are a mirror of the repo's schemas/v1alpha1, which an
-// embed directive cannot reach from this module. `make schemas` refreshes both, and
-// TestEmbeddedSchemas_MatchCommittedCopy fails when they differ.
-//
-//go:embed schemas/*.json schemas/common/*.json
-var embeddedSchemas embed.FS
-
-// builtinSchemaFS is the default schema source: the embedded schemas, with gen
-// 0 so its cache keys never collide with a filesystem from UseSchemaFS.
-var builtinSchemaFS = func() *schemaFSSource {
-	sub, err := fs.Sub(embeddedSchemas, "schemas")
-	if err != nil {
-		// fs.Sub fails only for an invalid path, and "schemas" is a constant.
-		panic(fmt.Sprintf("config: embedded schemas: %v", err))
-	}
-	return &schemaFSSource{fsys: sub}
-}()
 
 // SchemaValidationDisabled controls whether schema validation is skipped.
 // When true (non-default), schema validation is bypassed (useful for testing or unpublished schemas).
 // Uses atomic.Bool for safe concurrent access across goroutines and test init functions.
+//
+// Deprecated: PromptKit's own loaders no longer use schema validation; see UseSchemaFS.
 var SchemaValidationDisabled atomic.Bool
 
 // SchemaLocalPath is the path to local schema files (relative to repo root)
+//
+// Deprecated: PromptKit no longer ships config schemas; see UseSchemaFS.
 const SchemaLocalPath = "schemas/v1alpha1"
+
+// errNoSchemas is returned when nothing supplies the schemas to validate against.
+var errNoSchemas = errors.New("no config schemas to validate against: PromptKit no longer ships them; " +
+	"register the schemas your tool publishes with config.UseSchemaFS, or set PROMPTKIT_SCHEMA_SOURCE")
 
 // embeddedSchemaPrefix marks a schema key served from the filesystem set with
 // UseSchemaFS rather than fetched or read from disk.
@@ -80,19 +81,20 @@ var (
 	schemaFSGen        atomic.Uint64
 )
 
-// UseSchemaFS makes schema validation — ValidateWithSchema and every Load
-// function that validates — use the schemas in fsys, named <type>.json at its
-// root (arena.json, scenario.json, ...), instead of the schemas embedded in
-// this package.
-//
-// Without it, validation uses the embedded schemas: no network access, and the
-// result depends only on the version of this module. A program that embeds its
-// own copy (as the promptarena CLI does) calls this once at startup so that
-// validation matches the schemas it was built with.
+// UseSchemaFS makes ValidateWithSchema and the Validate* functions use the
+// schemas in fsys, named <type>.json at its root (arena.json, scenario.json,
+// ...). A program that embeds the schemas it publishes (as the promptarena CLI
+// does) calls this once at startup. Without it, and without
+// PROMPTKIT_SCHEMA_SOURCE, those functions return an error: PromptKit ships no
+// config schemas.
 //
 // PROMPTKIT_SCHEMA_SOURCE=local or =remote still takes precedence, and
 // ValidateWithLocalSchema's explicit directory wins over everything. Pass nil
-// to return to the embedded schemas.
+// to unregister.
+//
+// Deprecated: config schemas belong to the tool that publishes them; validate
+// with that tool's own validator. PromptKit's loaders check config against the
+// Go types.
 func UseSchemaFS(fsys fs.FS) {
 	if fsys == nil {
 		registeredSchemaFS.Store(nil)
@@ -247,11 +249,15 @@ type SchemaValidationResult struct {
 }
 
 // ValidateWithSchema validates YAML data against a JSON schema
+//
+// Deprecated: see UseSchemaFS.
 func ValidateWithSchema(yamlData []byte, configType ConfigType) (*SchemaValidationResult, error) {
 	return validateWithSchemaSource(yamlData, configType, "")
 }
 
 // ValidateWithLocalSchema validates YAML data against a local JSON schema file
+//
+// Deprecated: see UseSchemaFS.
 func ValidateWithLocalSchema(yamlData []byte, configType ConfigType, schemaDir string) (*SchemaValidationResult, error) {
 	return validateWithSchemaSource(yamlData, configType, schemaDir)
 }
@@ -268,7 +274,10 @@ func validateWithSchemaSource(yamlData []byte, configType ConfigType, schemaDir 
 	}
 
 	schemaKey := buildSchemaKey(configType, schemaDir)
-	schema, err := loadOrGetCachedSchema(schemaKey, configType, schemaDir)
+	if schemaKey == "" {
+		return nil, errNoSchemas
+	}
+	schema, err := loadOrGetCachedSchema(schemaKey)
 	if err != nil {
 		return nil, err
 	}
@@ -302,16 +311,10 @@ func buildSchemaKey(configType ConfigType, schemaDir string) string {
 	if os.Getenv(schemaSourceEnvVar) == "remote" {
 		return fmt.Sprintf("%s/%s.json", SchemaBaseURL, configType)
 	}
-	return embeddedSchemaKey(activeSchemaFS(), configType)
-}
-
-// activeSchemaFS returns the filesystem registered with UseSchemaFS, or the
-// embedded schemas when none is.
-func activeSchemaFS() *schemaFSSource {
 	if src := registeredSchemaFS.Load(); src != nil {
-		return src
+		return embeddedSchemaKey(src, configType)
 	}
-	return builtinSchemaFS
+	return ""
 }
 
 func embeddedSchemaKey(src *schemaFSSource, configType ConfigType) string {
@@ -321,9 +324,9 @@ func embeddedSchemaKey(src *schemaFSSource, configType ConfigType) string {
 // readEmbeddedSchema returns the bytes behind an embedded: schema key, from the
 // filesystem that was active when the key was built.
 func readEmbeddedSchema(schemaKey string) ([]byte, error) {
-	src := activeSchemaFS()
+	src := registeredSchemaFS.Load()
 	gen, name, ok := strings.Cut(strings.TrimPrefix(schemaKey, embeddedSchemaPrefix), ":")
-	if !ok || gen != fmt.Sprint(src.gen) {
+	if !ok || src == nil || gen != fmt.Sprint(src.gen) {
 		return nil, fmt.Errorf("schema %s: the schema filesystem changed since the key was built", schemaKey)
 	}
 	return fs.ReadFile(src.fsys, name)
@@ -332,7 +335,7 @@ func readEmbeddedSchema(schemaKey string) ([]byte, error) {
 // TODO: Use golang.org/x/sync/singleflight to deduplicate concurrent schema loads
 // for the same key. Currently, multiple goroutines requesting the same uncached
 // schema will each perform an independent load (thundering herd).
-func loadOrGetCachedSchema(schemaKey string, configType ConfigType, schemaDir string) (*gojsonschema.Schema, error) {
+func loadOrGetCachedSchema(schemaKey string) (*gojsonschema.Schema, error) {
 	// Check cache first
 	schema := schemaCache.get(schemaKey)
 	if schema != nil {
@@ -340,7 +343,7 @@ func loadOrGetCachedSchema(schemaKey string, configType ConfigType, schemaDir st
 	}
 
 	// Load and cache schema
-	schema, err := loadSchema(schemaKey, configType, schemaDir)
+	schema, err := loadSchema(schemaKey)
 	if err != nil {
 		return nil, err
 	}
@@ -349,9 +352,9 @@ func loadOrGetCachedSchema(schemaKey string, configType ConfigType, schemaDir st
 	return schema, nil
 }
 
-func loadSchema(schemaKey string, configType ConfigType, schemaDir string) (*gojsonschema.Schema, error) {
-	// An embedded or registered schema filesystem is authoritative: no network
-	// fetch and no working-directory fallback.
+func loadSchema(schemaKey string) (*gojsonschema.Schema, error) {
+	// A registered schema filesystem is authoritative: no network fetch and no
+	// working-directory fallback.
 	if strings.HasPrefix(schemaKey, embeddedSchemaPrefix) {
 		data, err := readEmbeddedSchema(schemaKey)
 		if err != nil {
@@ -361,32 +364,10 @@ func loadSchema(schemaKey string, configType ConfigType, schemaDir string) (*goj
 	}
 
 	compiledSchema, err := gojsonschema.NewSchema(gojsonschema.NewReferenceLoader(schemaKey))
-	if err == nil {
-		return compiledSchema, nil
-	}
-
-	// A remote fetch that fails falls back to the embedded schemas. An explicit
-	// or env-requested local directory does not: its caller asked for that copy.
-	if isRemoteSchemaKey(schemaKey) && !SchemaFallbackDisabled.Load() {
-		if fallback, fallbackErr := loadBuiltinSchema(configType); fallbackErr == nil {
-			return fallback, nil
-		}
-	}
-
-	return nil, fmt.Errorf("failed to load schema: %w", err)
-}
-
-func isRemoteSchemaKey(schemaKey string) bool {
-	return strings.HasPrefix(schemaKey, "http://") || strings.HasPrefix(schemaKey, "https://")
-}
-
-// loadBuiltinSchema compiles the schema for configType embedded in this package.
-func loadBuiltinSchema(configType ConfigType) (*gojsonschema.Schema, error) {
-	data, err := fs.ReadFile(builtinSchemaFS.fsys, string(configType)+".json")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to load schema: %w", err)
 	}
-	return gojsonschema.NewSchema(gojsonschema.NewBytesLoader(data))
+	return compiledSchema, nil
 }
 
 func validateJSONWithSchema(
@@ -574,6 +555,8 @@ func fetchSchemaBytes(schemaKey string) ([]byte, error) {
 
 // ValidateConfig validates YAML data against the JSON schema for the given ConfigType.
 // It returns a formatted error listing all schema violations, or nil if the data is valid.
+//
+// Deprecated: see UseSchemaFS.
 func ValidateConfig(configType ConfigType, yamlData []byte) error {
 	result, err := ValidateWithSchema(yamlData, configType)
 	if err != nil {
@@ -593,29 +576,45 @@ func ValidateConfig(configType ConfigType, yamlData []byte) error {
 }
 
 // ValidateArenaConfig validates an Arena configuration against its schema.
+//
+// Deprecated: see UseSchemaFS.
 func ValidateArenaConfig(yamlData []byte) error { return ValidateConfig(ConfigTypeArena, yamlData) }
 
 // ValidateScenario validates a Scenario configuration against its schema.
+//
+// Deprecated: see UseSchemaFS.
 func ValidateScenario(yamlData []byte) error { return ValidateConfig(ConfigTypeScenario, yamlData) }
 
 // ValidateEval validates an Eval configuration against its schema.
+//
+// Deprecated: see UseSchemaFS.
 func ValidateEval(yamlData []byte) error { return ValidateConfig(ConfigTypeEval, yamlData) }
 
 // ValidateProvider validates a Provider configuration against its schema.
+//
+// Deprecated: see UseSchemaFS.
 func ValidateProvider(yamlData []byte) error { return ValidateConfig(ConfigTypeProvider, yamlData) }
 
 // ValidatePromptConfig validates a PromptConfig configuration against its schema.
+//
+// Deprecated: see UseSchemaFS.
 func ValidatePromptConfig(yamlData []byte) error {
 	return ValidateConfig(ConfigTypePromptConfig, yamlData)
 }
 
 // ValidateTool validates a Tool configuration against its schema.
+//
+// Deprecated: see UseSchemaFS.
 func ValidateTool(yamlData []byte) error { return ValidateConfig(ConfigTypeTool, yamlData) }
 
 // ValidatePersona validates a Persona configuration against its schema.
+//
+// Deprecated: see UseSchemaFS.
 func ValidatePersona(yamlData []byte) error { return ValidateConfig(ConfigTypePersona, yamlData) }
 
 // DetectConfigType attempts to detect the configuration type from YAML data
+//
+// Deprecated: see UseSchemaFS.
 func DetectConfigType(yamlData []byte) (ConfigType, error) {
 	var data map[string]interface{}
 	if err := yaml.Unmarshal(yamlData, &data); err != nil {
@@ -623,7 +622,7 @@ func DetectConfigType(yamlData []byte) (ConfigType, error) {
 	}
 
 	// Check for K8s-style manifest with kind field
-	if kind, ok := data["kind"].(string); ok {
+	if kind, ok := data[fieldKind].(string); ok {
 		switch kind {
 		case "Arena":
 			return ConfigTypeArena, nil
