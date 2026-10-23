@@ -2,6 +2,8 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import d2 from 'astro-d2';
+import starlightLlmsTxt from 'starlight-llms-txt';
+import starlightPageActions from 'starlight-page-actions';
 
 // Redirects for How-To pages that moved into themed subdirectories (see
 // docs/local-backlog/2026-07-05-docs-navigation-taxonomy-design.md). In-repo
@@ -113,6 +115,26 @@ export default defineConfig({
           },
         },
       },
+      plugins: [
+        // /llms.txt, /llms-full.txt and /llms-small.txt for LLMs and coding
+        // agents, generated from the docs collection. Replaces the old
+        // hand-written public/llms.txt, which drifted as pages moved.
+        starlightLlmsTxt({
+          description:
+            'PromptKit is an open-source Go runtime and SDK for building LLM applications and agents. The runtime handles provider adapters (OpenAI, Anthropic Claude, Google Gemini, Ollama, vLLM and others), the streaming pipeline, tool execution, MCP, A2A, workflow state machines, memory and an event bus. The SDK is the developer-facing API on top: `Open()`, `Send()`, streaming, tools, state and observability.',
+          details:
+            'Install the SDK with `go get github.com/AltairaLabs/PromptKit/sdk/v2`. Pages under `/sdk/` cover the SDK, and pages under `/runtime/` cover the runtime. Every docs page is also served as Markdown at its URL with `.md` appended (for example `/sdk/how-to/tools/register-tools.md`). Prompt testing (PromptArena) and the PackC pack compiler are documented on a separate site, linked below.',
+          optionalLinks: [
+            { label: 'PromptArena and PackC docs', url: 'https://promptarena.altairalabs.ai/llms.txt', description: 'Prompt testing, evaluation and the pack compiler, built on PromptKit' },
+            { label: 'PromptPack specification', url: 'https://promptpack.org/llms.txt', description: 'The pack format PromptKit loads' },
+            { label: 'Source code', url: 'https://github.com/AltairaLabs/PromptKit', description: 'Go, Apache 2.0' },
+          ],
+        }),
+        // Copy-as-Markdown, "Open in ChatGPT/Claude", and a raw .md copy of
+        // every page. No `baseUrl`: setting it makes this plugin write its own
+        // dist/llms.txt at build:done, clobbering starlight-llms-txt's.
+        starlightPageActions(),
+      ],
       // Custom Header renders the AltairaLabs masterbrand family bar as a strip
       // across the top of the fixed header, so every doc page carries the same
       // family chrome as the landing.
