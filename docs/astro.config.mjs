@@ -121,7 +121,7 @@ export default defineConfig({
         // hand-written public/llms.txt, which drifted as pages moved.
         starlightLlmsTxt({
           description:
-            'PromptKit is an open-source Go runtime and SDK for building LLM applications and agents. The runtime handles provider adapters (OpenAI, Anthropic Claude, Google Gemini, Ollama, vLLM and others), the streaming pipeline, tool execution, MCP, A2A, workflow state machines, memory and an event bus. The SDK is the developer-facing API on top: `Open()`, `Send()`, streaming, tools, state and observability.',
+            'PromptKit is an open-source Go runtime and SDK for building LLM applications and agents. The runtime handles provider adapters (OpenAI, Anthropic Claude, Google Gemini, Ollama, vLLM and others), the streaming pipeline, tool execution, MCP, A2A, workflow state machines, memory and an event bus. The SDK is the developer-facing API on top: `Open()`, `Send()`, streaming, tools, state and observability. It is the runtime Omnia runs agents on.',
           details:
             'Install the SDK with `go get github.com/AltairaLabs/PromptKit/sdk/v2`. Pages under `/sdk/` cover the SDK, and pages under `/runtime/` cover the runtime. Every docs page is also served as Markdown at its URL with `.md` appended (for example `/sdk/how-to/tools/register-tools.md`). Prompt testing (PromptArena) and the PackC pack compiler are documented on a separate site, linked below.',
           optionalLinks: [
