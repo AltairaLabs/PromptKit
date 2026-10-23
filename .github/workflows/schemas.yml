@@ -1,0 +1,102 @@
+name: Schema Validation
+
+on:
+  # The schedule stays, but only for the jobs that check THIS repo's generated
+  # output against THIS repo's sources (check-packspec and friends) — there a
+  # failure is always a defect here, so failing main is the right signal.
+  #
+  # The job that guards a MIRRORED file against a hand-edit
+  # (check-promptpack-schema) is gated to push/PR. A new upstream release is not
+  # a defect in this repo, and promptpack-schema-sync.yml picks it up and raises
+  # a PR on this same daily cron.
+  #
+  # The config-file schemas are not here: they belong to promptarena, which
+  # generates and validates them. PromptKit keeps no copy.
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+  # go.mod is in the filters so a dependency bump meets module-dep-skew-check on
+  # its PR, not on the next morning's schedule.
+  push:
+    branches: [ main ]
+    paths:
+      - 'runtime/prompt/schema/**'
+      - '**/go.mod'
+      - '.github/workflows/schemas.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'runtime/prompt/schema/**'
+      - '**/go.mod'
+      - '.github/workflows/schemas.yml'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check-promptpack-schema:
+    name: Check PromptPack Schema Is The Published Release
+    runs-on: ubuntu-latest
+    # Push/PR only. This job guards against a HAND-EDIT of the embedded copy, so
+    # it must hard-fail on a branch. It deliberately does not run on the
+    # schedule: a new upstream release is not a defect in this repo, and failing
+    # main for it teaches people to ignore a red main. promptpack-schema-sync.yml
+    # picks up releases and raises a PR instead.
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    # The embedded schema is a verbatim mirror of the published PromptPack
+    # release — never a promptkit-owned document. This step FAILS on any
+    # difference.
+    #
+    # It used to emit ::warning:: and pass, which is why the copy drifted 143
+    # leaves from the spec between 2026-06 and 2026-08 while still claiming to be
+    # v1.5.0, and why promptkit spent that time rejecting packs that were valid
+    # against promptpack.org. A warning nobody is required to read is not a gate.
+    - name: Check embedded schema matches the published release
+      run: make promptpack-schema-check
+
+  check-packspec:
+    name: Check Generated Pack Types Are Current
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: '1.26.0'
+
+    # Two failures share this step, and both are the point of the generator:
+    #   - the committed output is stale (someone changed the schema without
+    #     regenerating), or
+    #   - the schema contains something the generator does not account for, in
+    #     which case it names the construct and refuses rather than emitting
+    #     types that quietly omit it.
+    - name: Check generated pack types
+      run: make packspec-check
+
+    # v1.8.0 shipped with runtime and sdk requiring different apimachinery
+    # versions (#1920). Every check ran inside the Go workspace, which unifies
+    # the build list, so nothing could see it — the skew exists only for a
+    # consumer taking the modules separately.
+    - name: Check the modules agree on shared dependency versions
+      run: make module-dep-skew-check
+
+    # The shape the Go workspace hides: each module resolved on its own, as a
+    # consumer gets it. Runs here as well as at release so main cannot drift
+    # into a state the release then has to catch.
+    - name: Build every module outside the workspace
+      run: make modules-standalone-check
+
+    # The version PromptKit claims to implement must match the one it embeds.
+    # Stating it anywhere creates a second place to be wrong; this is the pin.
+    - name: Check the README spec badge matches the embedded schema
+      run: make spec-version-check
+

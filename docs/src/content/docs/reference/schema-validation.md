@@ -441,13 +441,7 @@ ajv validate \
 
 ### GitHub Actions
 
-PromptKit includes a [schema validation workflow](https://github.com/AltairaLabs/PromptKit/blob/main/.github/workflows/schemas.yml) that:
-
-1. Validates schemas are up to date with code
-2. Tests all example configs against their schemas
-3. Reports validation errors
-
-Example workflow snippet:
+To check your own config files in CI, validate them against the hosted schemas:
 
 ```yaml
 - name: Validate configs
