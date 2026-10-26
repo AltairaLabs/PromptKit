@@ -11,8 +11,11 @@ Usage:
   python3 scripts/docs-provenance.py [--merge] <page.md> <stage2.json> <stage3.json> <commit>
 
 <page.md> is repo-relative; the script runs from the repo root whatever the
-caller's working directory. <commit> may be any ref; it is resolved to a sha.
-A missing <stage2.json> is fine (claim text is then kept from the sidecar).
+caller's working directory. <commit> may be any ref; it is resolved to a sha,
+which must be on origin's default branch: a branch commit is gone once the PR
+is squash-merged, and the page then has no baseline (docs-stale's
+`unknown-commit`). A missing <stage2.json> is fine (claim text is then kept
+from the sidecar).
 
 --merge  update an existing sidecar: claims whose ids appear in stage3 are
          replaced, every other claim is kept, and the page's sources are
@@ -39,6 +42,20 @@ def resolve(ref):
         sys.exit(f"cannot resolve commit {ref!r}")
 
 
+def require_on_default_branch(sha):
+    """Exit unless sha is reachable from origin's default branch."""
+    for ref in ("origin/HEAD", "origin/main", "origin/master"):
+        if subprocess.run(["git", "rev-parse", "--verify", "-q", ref],
+                          capture_output=True).returncode != 0:
+            continue
+        if subprocess.run(["git", "merge-base", "--is-ancestor", sha, ref]).returncode == 0:
+            return
+        sys.exit(f"commit {sha} is not on {ref}. A branch commit is discarded when the PR is "
+                 f"squash-merged, leaving the page with no baseline. Pass {ref} as it was when "
+                 "the claims were checked (fetch it first if the commit is newer).")
+    sys.exit("cannot find origin's default branch (origin/HEAD, origin/main or origin/master)")
+
+
 def main():
     args = sys.argv[1:]
     merge = "--merge" in args
@@ -54,6 +71,7 @@ def main():
     if not page.startswith(DOCS + "/"):
         sys.exit(f"page must be repo-relative under {DOCS}/")
     commit = resolve(commit)
+    require_on_default_branch(commit)
 
     results = json.load(open(stage3)).get("results", [])
     texts = {}
