@@ -416,7 +416,7 @@ func (c *sdkClient) listTools(ctx context.Context, degrade bool) ([]Tool, error)
 		return nil, err
 	}
 	reqCtx, cancel, _ := c.requestContext(ctx)
-	defer cancel()
+	defer cancel(nil)
 	tools := []Tool{}
 	for tool, err := range session.Tools(reqCtx, nil) {
 		if err != nil {
@@ -452,7 +452,7 @@ func (c *sdkClient) CallTool(ctx context.Context, name string, arguments json.Ra
 		params.Arguments = arguments
 	}
 	reqCtx, cancel, progressed := c.requestContext(ctx)
-	defer cancel()
+	defer cancel(nil)
 	token := strconv.FormatInt(c.nextToken.Add(1), 10)
 	params.SetProgressToken(token)
 	c.progress.Store(token, progressed)
@@ -482,12 +482,13 @@ func (c *sdkClient) requestError(ctx, reqCtx context.Context, err error) error {
 // input: a handshake-era server asks mid-call, and the user's time to
 // answer is not the server's time to respond. The returned progressed
 // function restarts the clock; the server reports progress on a long call.
-// ctx still bounds the request however much progress is reported.
+// ctx still bounds the request however much progress is reported. The
+// caller defers cancel(nil), which ends the request with context.Canceled.
 func (c *sdkClient) requestContext(
 	ctx context.Context,
-) (reqCtx context.Context, cancel context.CancelFunc, progressed func()) {
+) (reqCtx context.Context, cancel context.CancelCauseFunc, progressed func()) {
 	if c.options.RequestTimeout <= 0 {
-		return ctx, func() {}, func() {}
+		return ctx, func(error) {}, func() {}
 	}
 	var lastProgress atomic.Int64
 	reqCtx, cancelCause := context.WithCancelCause(ctx)
@@ -508,8 +509,7 @@ func (c *sdkClient) requestContext(
 			}
 		}
 	}()
-	return reqCtx, func() { cancelCause(context.Canceled) },
-		func() { lastProgress.Store(time.Now().UnixNano()) }
+	return reqCtx, cancelCause, func() { lastProgress.Store(time.Now().UnixNano()) }
 }
 
 // timeoutRemaining is how much longer a request whose timer has fired may
