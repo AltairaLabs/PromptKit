@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/reference/runtime-config.md",
- "commit": "fd966db8c393d5338bb3556904f0d2e806f0d43a",
+ "commit": "0b4f0066f2ec99ca65c2528d963f767eaedcd993",
  "claims": [
   {
    "id": 1,
@@ -34,7 +34,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/role.go:57",
-    "sdk/provider_file.go:46"
+    "sdk/provider_file.go:48"
    ]
   },
   {
@@ -53,7 +53,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:419",
-    "sdk/provider_file.go:42-45"
+    "sdk/provider_file.go:44-47"
    ]
   },
   {
@@ -154,8 +154,8 @@
    "claim": "stream_retry retry_window default is pre_first_chunk",
    "verdict": "true",
    "evidence": [
-    "pkg/config/provider_tuning.go:46",
-    "pkg/config/types.go:317",
+    "pkg/config/provider_tuning.go:47",
+    "pkg/config/types.go:325",
     "runtime/providers/stream_retry.go:44"
    ]
   },
@@ -164,8 +164,8 @@
    "claim": "stream_retry retry_window values: pre_first_chunk (default) or always",
    "verdict": "true",
    "evidence": [
-    "pkg/config/provider_tuning.go:49-51",
-    "pkg/config/types.go:317"
+    "pkg/config/provider_tuning.go:50-52",
+    "pkg/config/types.go:325"
    ]
   },
   {
@@ -173,7 +173,7 @@
    "claim": "stream_retry max_attempts default: 2",
    "verdict": "dead",
    "evidence": [
-    "pkg/config/types.go:307",
+    "pkg/config/types.go:315",
     "runtime/providers/stream_retry.go:28",
     "runtime/providers/stream_retry.go:96"
    ]
@@ -183,7 +183,7 @@
    "claim": "stream_retry initial_delay default: `250ms` (Go duration string)",
    "verdict": "dead",
    "evidence": [
-    "pkg/config/types.go:311",
+    "pkg/config/types.go:319",
     "runtime/providers/stream_retry.go:29"
    ]
   },
@@ -192,8 +192,8 @@
    "claim": "stream_retry max_delay default: 2s (Go duration string)",
    "verdict": "true",
    "evidence": [
-    "pkg/config/provider_tuning.go:45",
-    "pkg/config/types.go:314",
+    "pkg/config/provider_tuning.go:46",
+    "pkg/config/types.go:322",
     "runtime/providers/stream_retry.go:30"
    ]
   },
@@ -214,7 +214,7 @@
    "verdict": "dead",
    "evidence": [
     "pkg/config/types.go:206",
-    "runtime/providers/registry.go:381",
+    "runtime/providers/registry.go:422",
     "runtime/providers/streaming.go:44"
    ]
   },
@@ -224,7 +224,7 @@
    "verdict": "dead",
    "evidence": [
     "pkg/config/types.go:220",
-    "runtime/providers/registry.go:402"
+    "runtime/providers/registry.go:443"
    ]
   },
   {
@@ -232,9 +232,9 @@
    "claim": "http_transport max_conns_per_host default: 100",
    "verdict": "false",
    "evidence": [
-    "pkg/config/types.go:286",
-    "runtime/providers/base_provider.go:104",
-    "runtime/providers/base_provider.go:36"
+    "pkg/config/types.go:294",
+    "runtime/providers/base_provider.go:105",
+    "runtime/providers/base_provider.go:37"
    ]
   },
   {
@@ -242,9 +242,9 @@
    "claim": "http_transport max_idle_conns_per_host default: 100",
    "verdict": "dead",
    "evidence": [
-    "pkg/config/types.go:289",
-    "runtime/providers/base_provider.go:108",
-    "runtime/providers/base_provider.go:30"
+    "pkg/config/types.go:297",
+    "runtime/providers/base_provider.go:109",
+    "runtime/providers/base_provider.go:31"
    ]
   },
   {
@@ -252,9 +252,9 @@
    "claim": "http_transport idle_conn_timeout default: `90s` (Go duration string)",
    "verdict": "dead",
    "evidence": [
-    "pkg/config/types.go:294",
-    "runtime/providers/base_provider.go:112",
-    "runtime/providers/base_provider.go:37"
+    "pkg/config/types.go:302",
+    "runtime/providers/base_provider.go:113",
+    "runtime/providers/base_provider.go:38"
    ]
   },
   {
@@ -262,7 +262,7 @@
    "claim": "Tool spec modes: `mock` (canned responses), `live` (HTTP), `exec` (subprocess), or `client` (client-side execution)",
    "verdict": "false",
    "evidence": [
-    "pkg/config/types.go:381",
+    "pkg/config/types.go:389",
     "sdk/runtime_config.go:467"
    ]
   },
@@ -272,7 +272,6 @@
    "verdict": "false",
    "evidence": [
     "pkg/config/runtime_config.go:343",
-    "schemas/v1alpha1/runtime-config.json",
     "sdk/runtime_config.go:467"
    ]
   },
@@ -282,7 +281,6 @@
    "verdict": "false",
    "evidence": [
     "pkg/config/runtime_config.go:343",
-    "schemas/v1alpha1/runtime-config.json",
     "sdk/runtime_config.go:467"
    ]
   },
@@ -292,7 +290,6 @@
    "verdict": "false",
    "evidence": [
     "pkg/config/runtime_config.go:343",
-    "schemas/v1alpha1/runtime-config.json",
     "sdk/runtime_config.go:467"
    ]
   },
@@ -302,7 +299,6 @@
    "verdict": "false",
    "evidence": [
     "pkg/config/runtime_config.go:343",
-    "schemas/v1alpha1/runtime-config.json",
     "sdk/runtime_config.go:467"
    ]
   },
@@ -372,8 +368,7 @@
    "claim": "MCP server config requires `name` field",
    "verdict": "true",
    "evidence": [
-    "pkg/config/runtime_config.go:619",
-    "schemas/v1alpha1/runtime-config.json"
+    "pkg/config/runtime_config.go:619"
    ]
   },
   {
@@ -381,8 +376,7 @@
    "claim": "MCP server config requires `command` field",
    "verdict": "false",
    "evidence": [
-    "pkg/config/runtime_config.go:635",
-    "schemas/v1alpha1/runtime-config.json"
+    "pkg/config/runtime_config.go:624-637"
    ]
   },
   {
@@ -390,9 +384,9 @@
    "claim": "tool_filter allowlist is applied first, then blocklist removes from the result",
    "verdict": "false",
    "evidence": [
-    "runtime/mcp/types.go:301",
-    "runtime/mcp/types.go:319",
-    "sdk/conversation_tools.go:518"
+    "runtime/mcp/types.go:302",
+    "runtime/mcp/types.go:320",
+    "sdk/mcp_tool_sync.go:157"
    ]
   },
   {
@@ -503,7 +497,7 @@
    "evidence": [
     "runtime/providers/registry.go:48",
     "runtime/providers/voyageai/embedding_register.go:7",
-    "sdk/provider_file.go:66"
+    "sdk/provider_file.go:68"
    ]
   },
   {
@@ -511,7 +505,7 @@
    "claim": "Example tool mode `exec` with runtime `server`",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/types.go:265",
+    "runtime/tools/types.go:281",
     "sdk/exec_tools.go:20",
     "sdk/runtime_config.go:467"
    ]
@@ -521,7 +515,7 @@
    "claim": "Example tool mode `live` with HTTP method GET",
    "verdict": "dead",
    "evidence": [
-    "pkg/config/types.go:381",
+    "pkg/config/types.go:389",
     "sdk/runtime_config.go:467"
    ]
   },
@@ -557,8 +551,8 @@
    "claim": "Example MCP server tool_filter blocklist includes `delete_file`",
    "verdict": "true",
    "evidence": [
-    "runtime/mcp/types.go:319",
-    "sdk/conversation_tools.go:518"
+    "runtime/mcp/types.go:320",
+    "sdk/mcp_tool_sync.go:157"
    ]
   },
   {
@@ -621,7 +615,7 @@
    "verdict": "dead",
    "evidence": [
     "pkg/config/types.go:201",
-    "runtime/providers/registry.go:378"
+    "runtime/providers/registry.go:419"
    ]
   },
   {
@@ -638,7 +632,7 @@
    "claim": "request_timeout on capability roles keeps the provider's own default when unset",
    "verdict": "true",
    "evidence": [
-    "pkg/config/provider_tuning.go:106",
+    "pkg/config/provider_tuning.go:107",
     "runtime/providers/base/http_tuning.go:48"
    ]
   },
@@ -647,9 +641,9 @@
    "claim": "Roles llm, image and video honor all tuning fields; tts, stt, embedding, inference and rerank honor headers, request_timeout and http_transport and reject stream_idle_timeout, stream_retry, stream_max_concurrent and defaults.prompt_caching with an error naming field and role",
    "verdict": "true",
    "evidence": [
-    "pkg/config/provider_tuning.go:106",
-    "pkg/config/provider_tuning.go:129",
-    "sdk/provider_file.go:47"
+    "pkg/config/provider_tuning.go:107",
+    "pkg/config/provider_tuning.go:130",
+    "sdk/provider_file.go:49"
    ]
   },
   {
@@ -657,8 +651,8 @@
    "claim": "On a capability role, http_transport replaces the provider's transport with a pooled, instrumented one",
    "verdict": "true",
    "evidence": [
-    "pkg/config/provider_tuning.go:121-122",
-    "runtime/providers/base_provider.go:149"
+    "pkg/config/provider_tuning.go:122-123",
+    "runtime/providers/base_provider.go:150"
    ]
   },
   {

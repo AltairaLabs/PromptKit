@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/conversations/use-runtime-config.md",
- "commit": "fd966db8c393d5338bb3556904f0d2e806f0d43a",
+ "commit": "0b4f0066f2ec99ca65c2528d963f767eaedcd993",
  "claims": [
   {
    "id": 1,
@@ -13,7 +13,7 @@
    "claim": "sdk.Open function exists and accepts packPath string and promptName string",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:82"
+    "sdk/sdk.go:84"
    ]
   },
   {
@@ -30,7 +30,7 @@
    "claim": "Conversation type has Close() method",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1430"
+    "sdk/conversation.go:1485"
    ]
   },
   {
@@ -95,7 +95,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:141",
-    "sdk/provider_file.go:42"
+    "sdk/provider_file.go:44"
    ]
   },
   {
@@ -104,7 +104,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:142",
-    "sdk/provider_file.go:48"
+    "sdk/provider_file.go:50"
    ]
   },
   {
@@ -147,9 +147,9 @@
    "claim": "WithRuntimeConfig is equivalent to calling sdk.WithProvider(...) with same settings",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:461",
-    "sdk/provider_file.go:48",
-    "sdk/provider_file.go:60",
+    "sdk/options.go:482",
+    "sdk/provider_file.go:50",
+    "sdk/provider_file.go:62",
     "sdk/runtime_config.go:128"
    ]
   },
@@ -176,7 +176,7 @@
    "claim": "tool has exec section",
    "verdict": "true",
    "evidence": [
-    "pkg/config/types.go:388",
+    "pkg/config/types.go:396",
     "sdk/exec_tools.go:40",
     "sdk/runtime_config.go:468"
    ]
@@ -444,8 +444,8 @@
     "sdk/runtime_config.go:184",
     "sdk/runtime_config.go:193",
     "sdk/runtime_config.go:84",
-    "sdk/sdk.go:356",
-    "sdk/sdk.go:506"
+    "sdk/sdk.go:387",
+    "sdk/sdk.go:550"
    ]
   },
   {
@@ -453,9 +453,9 @@
    "claim": "sdk.WithProvider can override YAML provider setting",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:461",
-    "sdk/provider_file.go:55",
-    "sdk/sdk.go:506"
+    "sdk/options.go:482",
+    "sdk/provider_file.go:57",
+    "sdk/sdk.go:550"
    ]
   },
   {
