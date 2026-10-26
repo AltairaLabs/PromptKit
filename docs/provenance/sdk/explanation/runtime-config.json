@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/explanation/runtime-config.md",
- "commit": "fd966db8c393d5338bb3556904f0d2e806f0d43a",
+ "commit": "0b4f0066f2ec99ca65c2528d963f767eaedcd993",
  "claims": [
   {
    "id": 1,
@@ -17,7 +17,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:76",
-    "pkg/config/types.go:374"
+    "pkg/config/types.go:382"
    ]
   },
   {
@@ -61,10 +61,10 @@
    "claim": "Options applied after WithRuntimeConfig() take precedence over YAML-declared settings",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:904",
+    "sdk/options.go:942",
     "sdk/runtime_config.go:84",
-    "sdk/sdk.go:356",
-    "sdk/sdk.go:506"
+    "sdk/sdk.go:387",
+    "sdk/sdk.go:550"
    ]
   },
   {
@@ -73,8 +73,8 @@
    "verdict": "false",
    "evidence": [
     "runtime/evals/registry.go:124",
-    "sdk/options.go:2092",
-    "sdk/provider_file.go:55",
+    "sdk/options.go:2159",
+    "sdk/provider_file.go:57",
     "sdk/runtime_config.go:180",
     "sdk/runtime_config.go:184",
     "sdk/runtime_config.go:193",
@@ -150,7 +150,7 @@
    "evidence": [
     "pkg/config/runtime_config.go:76",
     "pkg/config/runtime_config.go:93",
-    "runtime/prompt/schema/promptpack.schema.json"
+    "runtime/prompt/schema/promptpack.schema.json:812"
    ]
   },
   {
