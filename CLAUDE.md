@@ -6,6 +6,7 @@
 - Always use feature branches: `feat/<description>` or `feature/<issue-number>-<description>`.
 - Standard flow: branch → commit → push with `-u` → create PR via `gh pr create` → monitor CI → merge via `gh pr merge --squash`.
 - When continuing a previous session, check `git status`, `git log --oneline -5`, and any existing plan files before taking action.
+- **No Claude attribution, anywhere.** No `Co-Authored-By: Claude`, `Claude-Session:` or "Generated with Claude Code" lines in commits, PR titles or bodies. The CLA check reads commit authors and Claude has not signed the CLA; commits are authored by the person, with their sign-off. `.claude/settings.json` turns Claude Code's own attribution off.
 - **All commits must be signed off (DCO).** Every commit needs a `Signed-off-by: Name <email>` trailer matching the author — always commit with `git commit -s`. The `commit-msg` hook rejects commits without it. To fix the last commit: `git commit --amend -s --no-edit`. When committing via `git commit -F -`, add `-s` as well.
 
 ## Git Hooks

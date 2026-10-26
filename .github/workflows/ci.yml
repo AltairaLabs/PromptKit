@@ -173,6 +173,12 @@ jobs:
       with:
         name: coverage-report
 
+    - name: Download golangci-lint reports
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        pattern: golangci-lint-*
+        merge-multiple: true
+
     - name: Verify coverage files
       run: |
         echo "=== Go Coverage ==="
@@ -260,7 +266,26 @@ jobs:
         only-new-issues: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  
+
+    # SonarCloud imports every issue, not only new ones, as checkstyle.
+    # Paths are relative to .golangci.yml at the repo root, as Sonar expects.
+    - name: Write golangci-lint report for SonarCloud
+      working-directory: ${{ matrix.module }}
+      env:
+        MODULE: ${{ matrix.module }}
+      run: |
+        report="golangci-lint-$(echo "$MODULE" | sed 's|^\./||; s|/|-|g')"
+        echo "LINT_REPORT=$report" >> "$GITHUB_ENV"
+        golangci-lint run --issues-exit-code=0 --output.text.path=stdout \
+          --output.checkstyle.path="$GITHUB_WORKSPACE/$report.xml" ./...
+
+    - name: Upload golangci-lint report
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ${{ env.LINT_REPORT }}
+        path: ${{ env.LINT_REPORT }}.xml
+        retention-days: 5
+
   build:
     name: Build
     runs-on: ubuntu-latest
