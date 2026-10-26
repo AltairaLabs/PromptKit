@@ -488,7 +488,8 @@ func (c *sdkClient) requestContext(
 	ctx context.Context,
 ) (reqCtx context.Context, cancel context.CancelCauseFunc, progressed func()) {
 	if c.options.RequestTimeout <= 0 {
-		return ctx, func(error) {}, func() {}
+		return ctx, func(error) { /* no timeout: nothing to cancel */ },
+			func() { /* no timeout: no clock to restart */ }
 	}
 	var lastProgress atomic.Int64
 	reqCtx, cancelCause := context.WithCancelCause(ctx)
