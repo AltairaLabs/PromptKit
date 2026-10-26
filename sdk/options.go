@@ -3007,6 +3007,12 @@ type VADModeConfig struct {
 	// Default: 1.0
 	Speed float64
 
+	// OutputSampleRate is the sample rate of the synthesized audio delivered to
+	// the caller, in Hz — for example 16000 for telephony. The TTS service's PCM
+	// is resampled to it when the rates differ.
+	// Default: 0, the TTS service's own PCM rate (24000 for the built-in providers)
+	OutputSampleRate int
+
 	// VAD is the voice activity detector deciding what counts as speech, and so
 	// where turns begin and end.
 	// If nil, an AdaptiveVAD tuned for general microphone input is used.
@@ -3122,6 +3128,9 @@ func (v *VADModeConfig) toTTSStageConfig(ih *audio.InterruptionHandler) stage.TT
 	}
 	if v.Speed > 0 {
 		cfg.Speed = v.Speed
+	}
+	if v.OutputSampleRate > 0 {
+		cfg.OutputSampleRate = v.OutputSampleRate
 	}
 	cfg.InterruptionHandler = ih
 	return cfg

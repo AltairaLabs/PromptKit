@@ -811,6 +811,30 @@ func TestStreamElementToStreamChunk_AssistantTurnComplete(t *testing.T) {
 	})
 }
 
+// TestStreamElementToStreamChunk_Interrupted verifies that barge-in reaches the
+// caller as StreamChunk.Interrupted, from VAD mode's Interrupt control element
+// and from a realtime provider's Meta.Interrupted alike (#2264).
+func TestStreamElementToStreamChunk_Interrupted(t *testing.T) {
+	t.Run("VAD-mode Interrupt control element", func(t *testing.T) {
+		elem := stage.NewInterruptElement()
+		chunk := streamElementToStreamChunk(&elem)
+		assert.True(t, chunk.Interrupted)
+		assert.Nil(t, chunk.MediaData)
+	})
+
+	t.Run("realtime provider interruption", func(t *testing.T) {
+		elem := stage.StreamElement{}
+		elem.Meta.Interrupted = true
+		assert.True(t, streamElementToStreamChunk(&elem).Interrupted)
+	})
+
+	t.Run("ordinary content is not interrupted", func(t *testing.T) {
+		text := "hello"
+		elem := stage.StreamElement{Text: &text}
+		assert.False(t, streamElementToStreamChunk(&elem).Interrupted)
+	})
+}
+
 func TestStreamElementToStreamChunk_InputTranscription(t *testing.T) {
 	t.Run("materialized user message (streaming)", func(t *testing.T) {
 		const transcript = "hello from the user"

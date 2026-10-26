@@ -148,6 +148,7 @@ conv, _ := sdk.OpenDuplex("./voice-assistant.pack.json", "assistant",
 | `Language` | "en" | Language hint for STT |
 | `Voice` | "alloy" | TTS voice ID |
 | `Speed` | 1.0 | TTS speech rate (0.5-2.0) |
+| `OutputSampleRate` | TTS service's rate | Sample rate of the reply audio in Hz, resampled when it differs from the service's (for example 16000 for telephony) |
 
 ## ASM Mode: Native Audio LLMs
 
@@ -282,12 +283,21 @@ conv, _ := sdk.OpenDuplex("./voice-assistant.pack.json", "assistant",
 
 Users can interrupt the assistant while it's speaking (barge-in).
 
+When speech is detected while the reply is being synthesized, the pipeline stops
+synthesis and drops the reply's remaining audio. Audio already delivered is in
+your player's buffer, so the session tells you to flush it: a chunk on
+`Response()` arrives with `Interrupted` set. The same signal arrives in ASM mode.
+
 ```go
-// The TTSStageWithInterruption stage handles this automatically
-// When speech is detected during TTS output:
-// 1. TTS playback stops
-// 2. New user speech is processed
-// 3. Assistant responds to the interruption
+for chunk := range responses {
+    if chunk.Interrupted {
+        player.Flush() // stop playing the reply the user talked over
+        continue
+    }
+    if chunk.MediaData != nil {
+        player.Write(chunk.MediaData.Data)
+    }
+}
 ```
 
 ## Complete Example: Voice Interview

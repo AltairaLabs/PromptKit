@@ -873,6 +873,14 @@ func streamElementToStreamChunk(elem *stage.StreamElement) providers.StreamChunk
 		chunk.Error = elem.Error
 	}
 
+	// Surface barge-in so the caller can flush buffered playback. VAD mode
+	// signals it with an Interrupt control element (AudioTurnStage, forwarded by
+	// the TTS stage); a realtime provider's interruption arrives as
+	// Meta.Interrupted from DuplexProviderStage.
+	if elem.Interrupt || elem.Meta.Interrupted {
+		chunk.Interrupted = true
+	}
+
 	// Surface the user's input transcription to the caller.
 	//
 	// In continuous (streaming) realtime voice the DuplexProviderStage

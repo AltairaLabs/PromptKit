@@ -71,11 +71,10 @@ const (
 	// silence is a rounding error against the many seconds of dead air removed,
 	// whereas too small a pre-roll corrupts the transcript by clipping the
 	// caller's first word. Bias toward keeping audio.
-	defaultAudioTurnPreRoll    = time.Second
-	bytesPerSample16Bit        = 2     // 16-bit audio = 2 bytes per sample
-	defaultMinAudioBytes       = 1600  // 50ms at 16kHz 16-bit mono
-	defaultTTSOutputSampleRate = 24000 // OpenAI TTS output sample rate
-	msPerSecond                = 1000
+	defaultAudioTurnPreRoll = time.Second
+	bytesPerSample16Bit     = 2    // 16-bit audio = 2 bytes per sample
+	defaultMinAudioBytes    = 1600 // 50ms at 16kHz 16-bit mono
+	msPerSecond             = 1000
 
 	// ResponseVAD default params - tuned for TTS audio detection
 	defaultResponseVADConfidence = 0.3   // Lower threshold for TTS audio
@@ -868,6 +867,11 @@ type TTSStageWithInterruptionConfig struct {
 	// Retry configures bounded retry on transient synthesis errors.
 	// Zero value uses tts.DefaultRetryConfig (3 attempts, 250ms initial).
 	Retry tts.RetryConfig
+
+	// OutputSampleRate is the sample rate of the emitted audio, in Hz. When it
+	// differs from the rate the service synthesizes PCM at, the audio is
+	// resampled. Zero emits the service's own rate unchanged.
+	OutputSampleRate int
 }
 
 // DefaultTTSStageWithInterruptionConfig returns sensible defaults.
@@ -891,6 +895,8 @@ type TTSStageWithInterruption struct {
 	service      tts.Service
 	config       TTSStageWithInterruptionConfig
 	interruption *audio.InterruptionHandler
+	// serviceRate is the rate the service returns tts.FormatPCM16 audio at.
+	serviceRate int
 }
 
 // NewTTSStageWithInterruption creates a new TTS stage with interruption support.
@@ -903,7 +909,21 @@ func NewTTSStageWithInterruption(
 		service:      service,
 		config:       config,
 		interruption: config.InterruptionHandler,
+		serviceRate:  pcmSampleRate(service),
 	}
+}
+
+// pcmSampleRate returns the rate a service synthesizes tts.FormatPCM16 at: the
+// rate its SupportedFormats entry for PCM declares, else the format's default.
+func pcmSampleRate(service tts.Service) int {
+	if service != nil {
+		for _, f := range service.SupportedFormats() {
+			if f.Name == tts.FormatPCM16.Name && f.SampleRate > 0 {
+				return f.SampleRate
+			}
+		}
+	}
+	return tts.FormatPCM16.SampleRate
 }
 
 // Process implements the Stage interface.
@@ -964,10 +984,24 @@ func (s *TTSStageWithInterruption) processElement(
 	}
 
 	if s.shouldSkipText(text) {
-		return nil
+		return s.forwardUnspoken(forwardCtx, elem, output)
 	}
 
-	return s.synthesizeAndEmit(synthCtx, text, elem, output)
+	return s.synthesizeAndEmit(forwardCtx, synthCtx, text, elem, output)
+}
+
+// forwardUnspoken passes on an element whose text produced no audio, so the
+// assistant message it carries still reaches the save and broadcast stages.
+// A bare Text element is dropped: it was only an instruction to speak.
+func (s *TTSStageWithInterruption) forwardUnspoken(
+	ctx context.Context,
+	elem *StreamElement,
+	output chan<- StreamElement,
+) error {
+	if elem.Message == nil {
+		return nil
+	}
+	return s.forwardElement(ctx, *elem, output)
 }
 
 // shouldSkipText checks if text should be skipped based on config.
@@ -1004,20 +1038,32 @@ func (s *TTSStageWithInterruption) setBotSpeaking(speaking bool) {
 // Interruption is handled exclusively by the in-channel Interrupt element and
 // the per-turn synthCtx (canceled by turnCanceller on barge-in), so there is
 // no need to poll the shared handler here.
+//
+// The audio element carries the input's assistant message, stamped with the
+// synthesis cost under Message.Meta["tts_cost"]. When no audio is produced (a
+// barge-in canceled synthesis, or reading the audio failed) the message is
+// still forwarded, without a cost: the model's history holds the reply whether
+// or not it was heard, and a canceled request is not priced.
 func (s *TTSStageWithInterruption) synthesizeAndEmit(
-	ctx context.Context,
+	forwardCtx, synthCtx context.Context,
 	text string,
 	elem *StreamElement,
 	output chan<- StreamElement,
 ) error {
 	s.setBotSpeaking(true)
 
-	audioData, err := s.performSynthesis(ctx, text, elem, output)
-	if err != nil || audioData == nil {
+	start := time.Now()
+	audioData, err := s.performSynthesis(synthCtx, text, elem, output)
+	if err != nil {
 		return err
 	}
+	if audioData == nil || synthCtx.Err() != nil {
+		s.setBotSpeaking(false)
+		return s.forwardUnspoken(forwardCtx, elem, output)
+	}
+	cost := tts.ComputeTTSCost(s.service, text, time.Since(start))
 
-	return s.emitAudioElement(ctx, text, audioData, &elem.Meta, output)
+	return s.emitAudioElement(forwardCtx, text, audioData, elem, cost, output)
 }
 
 // performSynthesis executes the TTS synthesis and returns audio data.
@@ -1033,6 +1079,10 @@ func (s *TTSStageWithInterruption) performSynthesis(
 		Format: tts.FormatPCM16,
 	}, s.config.Retry)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			logger.Debug("TTSStageWithInterruption: synthesis canceled (barge-in/shutdown), dropping output")
+			return nil, nil
+		}
 		return nil, s.handleSynthesisError(ctx, err, elem, output)
 	}
 
@@ -1041,18 +1091,18 @@ func (s *TTSStageWithInterruption) performSynthesis(
 		logger.Warn("TTSStageWithInterruption: failed to close reader", "error", closeErr)
 	}
 	if err != nil {
-		logger.Error("TTSStageWithInterruption: failed to read audio", "error", err)
-		s.setBotSpeaking(false)
-		return nil, nil // Not a fatal error, just skip this element
+		if !errors.Is(err, context.Canceled) {
+			logger.Error("TTSStageWithInterruption: failed to read audio", "error", err)
+		}
+		return nil, nil // Not a fatal error: the message goes on without audio
 	}
 
 	return audioData, nil
 }
 
-// handleSynthesisError handles synthesis errors and emits error element.
-// A context cancellation means a barge-in interrupt (or pipeline shutdown)
-// aborted the synthesis — that audio is intentionally dropped, not an error to
-// surface downstream.
+// handleSynthesisError emits the element with the synthesis error attached.
+// A context cancellation is not an error: performSynthesis handles it before
+// this is reached.
 func (s *TTSStageWithInterruption) handleSynthesisError(
 	ctx context.Context,
 	err error,
@@ -1060,38 +1110,36 @@ func (s *TTSStageWithInterruption) handleSynthesisError(
 	output chan<- StreamElement,
 ) error {
 	s.setBotSpeaking(false)
-	if errors.Is(err, context.Canceled) {
-		logger.Debug("TTSStageWithInterruption: synthesis canceled (barge-in/shutdown), dropping output")
-		return nil
-	}
 	logger.Error("TTSStageWithInterruption: synthesis failed", "error", err)
 	elem.Error = err
 	return s.forwardElement(ctx, *elem, output)
 }
 
-// emitAudioElement creates and emits the audio output element.
+// emitAudioElement creates and emits the audio output element. The element
+// keeps the input's message, with the synthesis cost stamped on a copy of it.
 func (s *TTSStageWithInterruption) emitAudioElement(
 	ctx context.Context,
 	text string,
 	audioData []byte,
-	meta *ElementMetadata,
+	in *StreamElement,
+	cost *types.CostInfo,
 	output chan<- StreamElement,
 ) error {
 	logger.Debug("TTSStageWithInterruption: synthesized",
 		"text_len", len(text), "audio_bytes", len(audioData))
 
+	samples, sampleRate := s.toOutputRate(audioData)
 	outElem := StreamElement{
 		Text: &text,
 		Audio: &AudioData{
-			Samples:    audioData,
-			SampleRate: defaultTTSOutputSampleRate,
+			Samples:    samples,
+			SampleRate: sampleRate,
 			Channels:   1,
 			Format:     AudioFormatPCM16,
 		},
+		Message:   withTTSCost(in.Message, cost),
+		Meta:      in.Meta,
 		Timestamp: time.Now(),
-	}
-	if meta != nil {
-		outElem.Meta = *meta
 	}
 	// The reply text already streamed as deltas; this element's Text is a
 	// reference copy of what was submitted for synthesis. Mark it so a consumer
@@ -1112,6 +1160,41 @@ func (s *TTSStageWithInterruption) emitAudioElement(
 
 	s.setBotSpeaking(false)
 	return s.forwardElement(ctx, outElem, output)
+}
+
+// toOutputRate resamples synthesized PCM to the configured output rate and
+// returns the samples with the rate they are at. Without a configured rate, or
+// if resampling fails, the audio keeps the service's rate.
+func (s *TTSStageWithInterruption) toOutputRate(pcm []byte) (samples []byte, sampleRate int) {
+	want := s.config.OutputSampleRate
+	if want <= 0 || want == s.serviceRate {
+		return pcm, s.serviceRate
+	}
+	resampled, err := audio.ResamplePCM16(pcm, s.serviceRate, want)
+	if err != nil {
+		logger.Warn("TTSStageWithInterruption: resample failed, emitting service rate",
+			"from", s.serviceRate, "to", want, "error", err)
+		return pcm, s.serviceRate
+	}
+	return resampled, want
+}
+
+// withTTSCost returns a copy of msg with cost stamped under
+// Meta["tts_cost"]. The copy and its fresh Meta map keep the stamp off the
+// message the provider stage holds in its history. A nil message, or a nil
+// cost (an unpriced service), returns msg unchanged.
+func withTTSCost(msg *types.Message, cost *types.CostInfo) *types.Message {
+	costMeta := base.CostInfoToMetaMap(cost)
+	if msg == nil || costMeta == nil {
+		return msg
+	}
+	stamped := *msg
+	stamped.Meta = make(map[string]interface{}, len(msg.Meta)+1)
+	for k, v := range msg.Meta {
+		stamped.Meta[k] = v
+	}
+	stamped.Meta[ttsCostMetaKey] = costMeta
+	return &stamped
 }
 
 // extractText extracts text content from an element.
