@@ -8,7 +8,12 @@ SCRIPT="$REPO_ROOT/scripts/docs-provenance.py"
 FAILURES=0
 P=docs/src/content/docs/reference/a.md
 
-# fx: temp git repo with a page and a few source files; prints its dir.
+G() { git -C "$1" -c user.email=t@t -c user.name=t -c push.negotiate=false "${@:2}"; }
+# land: commit everything in $1 and push it to origin's main.
+land() { G "$1" add -A; G "$1" commit -q -m "$2"; G "$1" push -q origin HEAD:main; }
+
+# fx: temp git repo with a page and a few source files, cloned from a bare
+# origin whose main holds them; prints its dir.
 fx() {
 	local d; d=$(mktemp -d)
 	mkdir -p "$d/docs/src/content/docs/reference" "$d/.github/workflows" "$d/internal/db" "$d/src"
@@ -16,8 +21,9 @@ fx() {
 	echo "on: push" > "$d/.github/workflows/ci.yml"
 	echo "select 1;" > "$d/internal/db/001.sql"
 	echo "package x" > "$d/src/x.go"; echo "package y" > "$d/src/y.go"
-	git -C "$d" init -q; git -C "$d" -c user.email=t@t -c user.name=t add -A
-	git -C "$d" -c user.email=t@t -c user.name=t commit -q -m c1
+	git init -q --bare "$d.origin"
+	git -C "$d" init -q -b main; git -C "$d" remote add origin "$d.origin"
+	land "$d" c1
 	echo "$d"
 }
 ok() { echo "ok   - $1"; }
@@ -32,7 +38,7 @@ grep -q -- '- internal/db/001.sql' "$d/$P" && ok ".sql evidence recorded" || bad
 
 # .tsx paths, [param] route segments and Dockerfile.<variant> are recorded whole
 mkdir -p "$d/app/[name]"; echo "x" > "$d/app/[name]/page.tsx"; echo "FROM x" > "$d/Dockerfile.cli"
-git -C "$d" -c user.email=t@t -c user.name=t add -A; git -C "$d" -c user.email=t@t -c user.name=t commit -q -m c2
+land "$d" c2
 printf '{"results":[{"id":1,"verdict":"true","evidence":["app/[name]/page.tsx:1","Dockerfile.cli:1"]}]}' > "$d/s3.json"
 (cd "$d" && python3 "$SCRIPT" "$P" missing.json s3.json HEAD >/dev/null)
 grep -qF -- '- app/[name]/page.tsx' "$d/$P" && ok ".tsx route path recorded" || bad ".tsx route path recorded"
@@ -58,5 +64,47 @@ if grep -q -- '- src/x.go' "$d/$P" && grep -q -- '- src/y.go' "$d/$P" &&
 	python3 -c "import json,sys;c={x['id']:x for x in json.load(open('$d/docs/provenance/reference/a.json'))['claims']};sys.exit(0 if c[2]['verdict']=='false' and c[1]['verdict']=='true' else 1)"; then
 	ok "--merge keeps untouched claims"
 else bad "--merge keeps untouched claims"; fi
+
+# run: run the script in $1 with args $2..; its stderr is left in $1/err.
+run() { (cd "$1" && python3 "$SCRIPT" "${@:2}" >/dev/null 2>"$1/err"); }
+S3='{"results":[{"id":1,"verdict":"true","evidence":["src/x.go:1"]}]}'
+
+# a commit not on origin's main (a PR branch's, discarded on squash merge) is refused
+d=$(fx); printf '%s' "$S3" > "$d/s3.json"
+echo "package x // v2" > "$d/src/x.go"; G "$d" commit -q -am branch
+if run "$d" "$P" missing.json s3.json HEAD || ! grep -q "is not on origin/main" "$d/err"; then
+	bad "commit off origin/main refused"
+elif grep -q verified "$d/$P" || [ -e "$d/docs/provenance/reference/a.json" ]; then
+	bad "refused commit writes nothing"
+else ok "commit off origin/main refused"; fi
+
+# the same commit is accepted once it is on origin's main
+G "$d" push -q origin HEAD:main
+run "$d" "$P" missing.json s3.json HEAD
+grep -q "commit: $(git -C "$d" rev-parse HEAD)" "$d/$P" && ok "commit on origin/main accepted" ||
+	bad "commit on origin/main accepted"
+
+# an origin/HEAD naming another branch does not hide origin/main
+d=$(fx); printf '%s' "$S3" > "$d/s3.json"
+G "$d" push -q origin HEAD:old; G "$d" fetch -q origin; G "$d" remote set-head origin old
+echo "package x // v2" > "$d/src/x.go"; land "$d" c2
+run "$d" "$P" missing.json s3.json HEAD
+grep -q "commit: $(git -C "$d" rev-parse HEAD)" "$d/$P" && ok "stale origin/HEAD falls back to origin/main" ||
+	bad "stale origin/HEAD falls back to origin/main"
+
+# a repo with no origin has no default branch to check against
+d=$(fx); git -C "$d" remote remove origin; printf '%s' "$S3" > "$d/s3.json"
+if ! run "$d" "$P" missing.json s3.json HEAD && grep -q "cannot find origin's default branch" "$d/err"; then
+	ok "no origin refused"
+else bad "no origin refused"; fi
+
+# --merge refuses a sidecar whose recorded commit is gone, rather than keep unmoved lines
+d=$(fx); printf '%s' "$S3" > "$d/s3.json"
+run "$d" "$P" missing.json s3.json HEAD
+sed -i.bak "s/$(git -C "$d" rev-parse HEAD)/$(printf '%040d' 0)/" "$d/docs/provenance/reference/a.json"
+echo "package x // v2" > "$d/src/x.go"; land "$d" c2
+if ! run "$d" --merge "$P" missing.json s3.json HEAD && grep -q "is not in this clone" "$d/err"; then
+	ok "--merge from a missing commit refused"
+else bad "--merge from a missing commit refused"; fi
 
 exit $FAILURES

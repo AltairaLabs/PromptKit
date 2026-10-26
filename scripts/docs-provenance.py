@@ -11,8 +11,11 @@ Usage:
   python3 scripts/docs-provenance.py [--merge] <page.md> <stage2.json> <stage3.json> <commit>
 
 <page.md> is repo-relative; the script runs from the repo root whatever the
-caller's working directory. <commit> may be any ref; it is resolved to a sha.
-A missing <stage2.json> is fine (claim text is then kept from the sidecar).
+caller's working directory. <commit> may be any ref; it is resolved to a sha,
+which must be on origin's default branch: a branch commit is gone once the PR
+is squash-merged, and the page then has no baseline (docs-stale's
+`unknown-commit`). A missing <stage2.json> is fine (claim text is then kept
+from the sidecar).
 
 --merge  update an existing sidecar: claims whose ids appear in stage3 are
          replaced, every other claim is kept, and the page's sources are
@@ -39,6 +42,26 @@ def resolve(ref):
         sys.exit(f"cannot resolve commit {ref!r}")
 
 
+def require_on_default_branch(sha):
+    """Exit unless sha is reachable from origin's default branch. Every candidate
+    ref that exists is tried, so a stale origin/HEAD does not hide origin/main."""
+    refs = [r for r in ("origin/HEAD", "origin/main", "origin/master")
+            if subprocess.run(["git", "rev-parse", "--verify", "-q", r],
+                              capture_output=True).returncode == 0]
+    if not refs:
+        sys.exit("cannot find origin's default branch (origin/HEAD, origin/main or origin/master)")
+    for ref in refs:
+        r = subprocess.run(["git", "merge-base", "--is-ancestor", sha, ref],
+                           capture_output=True, text=True)
+        if r.returncode == 0:
+            return
+        if r.returncode != 1:  # not a "no": missing history, e.g. a shallow clone
+            sys.exit(f"cannot tell whether {sha} is on {ref}: {r.stderr.strip()}")
+    sys.exit(f"commit {sha} is not on {' or '.join(refs)}. A branch commit is discarded when "
+             "the PR is squash-merged, leaving the page with no baseline. Pass origin/main as "
+             "it was when the claims were checked (fetch it first if the commit is newer).")
+
+
 def main():
     args = sys.argv[1:]
     merge = "--merge" in args
@@ -54,6 +77,7 @@ def main():
     if not page.startswith(DOCS + "/"):
         sys.exit(f"page must be repo-relative under {DOCS}/")
     commit = resolve(commit)
+    require_on_default_branch(commit)
 
     results = json.load(open(stage3)).get("results", [])
     texts = {}
@@ -69,6 +93,10 @@ def main():
         # to the new one so the stale check compares like with like.
         old_commit = old.get("commit")
         if old_commit and old_commit != commit:
+            if not df.has_commit(".", old_commit):
+                # Diffing from it would find no hunks and keep every line as is.
+                sys.exit(f"{sidecar}: recorded commit {old_commit} is not in this clone, so kept "
+                         "claims' lines cannot be moved. Re-record the page without --merge.")
             cache = {}
             for c in claims.values():
                 moved = []
