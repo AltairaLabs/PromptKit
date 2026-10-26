@@ -29,6 +29,8 @@ go.work.sum
 .VSCodeCounter/
 .claude/*
 !.claude/skills/
+!.claude/hooks/
+!.claude/settings.json
 .idea/
 .scannerwork/
 .sonarlint/
