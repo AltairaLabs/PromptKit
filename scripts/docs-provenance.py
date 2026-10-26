@@ -43,17 +43,23 @@ def resolve(ref):
 
 
 def require_on_default_branch(sha):
-    """Exit unless sha is reachable from origin's default branch."""
-    for ref in ("origin/HEAD", "origin/main", "origin/master"):
-        if subprocess.run(["git", "rev-parse", "--verify", "-q", ref],
-                          capture_output=True).returncode != 0:
-            continue
-        if subprocess.run(["git", "merge-base", "--is-ancestor", sha, ref]).returncode == 0:
+    """Exit unless sha is reachable from origin's default branch. Every candidate
+    ref that exists is tried, so a stale origin/HEAD does not hide origin/main."""
+    refs = [r for r in ("origin/HEAD", "origin/main", "origin/master")
+            if subprocess.run(["git", "rev-parse", "--verify", "-q", r],
+                              capture_output=True).returncode == 0]
+    if not refs:
+        sys.exit("cannot find origin's default branch (origin/HEAD, origin/main or origin/master)")
+    for ref in refs:
+        r = subprocess.run(["git", "merge-base", "--is-ancestor", sha, ref],
+                           capture_output=True, text=True)
+        if r.returncode == 0:
             return
-        sys.exit(f"commit {sha} is not on {ref}. A branch commit is discarded when the PR is "
-                 f"squash-merged, leaving the page with no baseline. Pass {ref} as it was when "
-                 "the claims were checked (fetch it first if the commit is newer).")
-    sys.exit("cannot find origin's default branch (origin/HEAD, origin/main or origin/master)")
+        if r.returncode != 1:  # not a "no": missing history, e.g. a shallow clone
+            sys.exit(f"cannot tell whether {sha} is on {ref}: {r.stderr.strip()}")
+    sys.exit(f"commit {sha} is not on {' or '.join(refs)}. A branch commit is discarded when "
+             "the PR is squash-merged, leaving the page with no baseline. Pass origin/main as "
+             "it was when the claims were checked (fetch it first if the commit is newer).")
 
 
 def main():
@@ -87,6 +93,10 @@ def main():
         # to the new one so the stale check compares like with like.
         old_commit = old.get("commit")
         if old_commit and old_commit != commit:
+            if not df.has_commit(".", old_commit):
+                # Diffing from it would find no hunks and keep every line as is.
+                sys.exit(f"{sidecar}: recorded commit {old_commit} is not in this clone, so kept "
+                         "claims' lines cannot be moved. Re-record the page without --merge.")
             cache = {}
             for c in claims.values():
                 moved = []
