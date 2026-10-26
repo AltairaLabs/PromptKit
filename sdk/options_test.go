@@ -687,6 +687,10 @@ func TestVADModeConfigConversions(t *testing.T) {
 	ttsCfg := cfg.toTTSStageConfig(nil)
 	assert.Equal(t, cfg.Voice, ttsCfg.Voice)
 	assert.Equal(t, cfg.Speed, ttsCfg.Speed)
+	assert.Zero(t, ttsCfg.OutputSampleRate, "no output rate by default: the service's own rate")
+
+	cfg.OutputSampleRate = 16000
+	assert.Equal(t, 16000, cfg.toTTSStageConfig(nil).OutputSampleRate)
 }
 
 // Credential option tests
