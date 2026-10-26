@@ -2,6 +2,7 @@ package stage_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -188,4 +189,26 @@ func TestTTSStageWithInterruption_OutputSampleRateMatchingServiceIsUnchanged(t *
 	require.Len(t, results, 1)
 	assert.Equal(t, 16000, results[0].Audio.SampleRate)
 	assert.Equal(t, pcm, results[0].Audio.Samples)
+}
+
+// A synthesis failure forwards the element exactly once, with the error
+// attached, so the save stage does not store the assistant reply twice.
+func TestTTSStageWithInterruption_SynthesisErrorForwardsMessageOnce(t *testing.T) {
+	synthErr := errors.New("synthesis exploded")
+	svc := &mockTTSService{
+		synthesizeFunc: func(_ context.Context, _ string, _ tts.SynthesisConfig) (io.ReadCloser, error) {
+			return nil, synthErr
+		},
+	}
+	cfg := stage.DefaultTTSStageWithInterruptionConfig()
+	cfg.Retry = tts.RetryConfig{MaxAttempts: 1}
+	s := stage.NewTTSStageWithInterruption(svc, cfg)
+
+	msg := &types.Message{Role: "assistant", Content: "hello"}
+	results := runStage(t, s, []stage.StreamElement{stage.NewMessageElement(msg)}, 2*time.Second)
+
+	require.Len(t, results, 1, "the failed element must be forwarded exactly once")
+	assert.Same(t, msg, results[0].Message)
+	assert.ErrorIs(t, results[0].Error, synthErr)
+	assert.Nil(t, results[0].Audio)
 }

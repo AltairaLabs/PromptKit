@@ -1043,7 +1043,8 @@ func (s *TTSStageWithInterruption) setBotSpeaking(speaking bool) {
 // synthesis cost under Message.Meta["tts_cost"]. When no audio is produced (a
 // barge-in canceled synthesis, or reading the audio failed) the message is
 // still forwarded, without a cost: the model's history holds the reply whether
-// or not it was heard, and a canceled request is not priced.
+// or not it was heard, and a canceled request is not priced. A synthesis error
+// forwards the element once, with the error attached.
 func (s *TTSStageWithInterruption) synthesizeAndEmit(
 	forwardCtx, synthCtx context.Context,
 	text string,
@@ -1053,26 +1054,33 @@ func (s *TTSStageWithInterruption) synthesizeAndEmit(
 	s.setBotSpeaking(true)
 
 	start := time.Now()
-	audioData, err := s.performSynthesis(synthCtx, text, elem, output)
+	audioData, err := s.performSynthesis(synthCtx, text)
 	if err != nil {
-		return err
+		// handleSynthesisError forwards the element itself; returning here keeps
+		// it from being forwarded a second time below.
+		return s.handleSynthesisError(forwardCtx, err, elem, output)
 	}
-	if audioData == nil || synthCtx.Err() != nil {
+	if audioData == nil {
 		s.setBotSpeaking(false)
 		return s.forwardUnspoken(forwardCtx, elem, output)
 	}
 	cost := tts.ComputeTTSCost(s.service, text, time.Since(start))
+	if synthCtx.Err() != nil {
+		// A barge-in landed after the audio was fully read: the audio is
+		// dropped, but the completed request was billed, so it is priced.
+		s.setBotSpeaking(false)
+		unspoken := *elem
+		unspoken.Message = withTTSCost(elem.Message, cost)
+		return s.forwardUnspoken(forwardCtx, &unspoken, output)
+	}
 
 	return s.emitAudioElement(forwardCtx, text, audioData, elem, cost, output)
 }
 
-// performSynthesis executes the TTS synthesis and returns audio data.
-func (s *TTSStageWithInterruption) performSynthesis(
-	ctx context.Context,
-	text string,
-	elem *StreamElement,
-	output chan<- StreamElement,
-) ([]byte, error) {
+// performSynthesis executes the TTS synthesis and returns audio data. It
+// returns (nil, nil) when synthesis was canceled or reading the audio failed,
+// and a non-nil error only for a synthesis failure the caller must surface.
+func (s *TTSStageWithInterruption) performSynthesis(ctx context.Context, text string) ([]byte, error) {
 	reader, err := tts.SynthesizeWithRetry(ctx, s.service, text, tts.SynthesisConfig{
 		Voice:  s.config.Voice,
 		Speed:  s.config.Speed,
@@ -1083,7 +1091,7 @@ func (s *TTSStageWithInterruption) performSynthesis(
 			logger.Debug("TTSStageWithInterruption: synthesis canceled (barge-in/shutdown), dropping output")
 			return nil, nil
 		}
-		return nil, s.handleSynthesisError(ctx, err, elem, output)
+		return nil, err
 	}
 
 	audioData, err := io.ReadAll(reader)
