@@ -150,7 +150,7 @@
    "evidence": [
     "pkg/config/runtime_config.go:76",
     "pkg/config/runtime_config.go:93",
-    "runtime/prompt/schema/promptpack.schema.json:812"
+    "runtime/prompt/schema/promptpack.schema.json:812-874"
    ]
   },
   {

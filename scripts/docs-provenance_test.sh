@@ -65,11 +65,14 @@ if grep -q -- '- src/x.go' "$d/$P" && grep -q -- '- src/y.go' "$d/$P" &&
 	ok "--merge keeps untouched claims"
 else bad "--merge keeps untouched claims"; fi
 
+# run: run the script in $1 with args $2..; its stderr is left in $1/err.
+run() { (cd "$1" && python3 "$SCRIPT" "${@:2}" >/dev/null 2>"$1/err"); }
+S3='{"results":[{"id":1,"verdict":"true","evidence":["src/x.go:1"]}]}'
+
 # a commit not on origin's main (a PR branch's, discarded on squash merge) is refused
-d=$(fx)
-printf '{"results":[{"id":1,"verdict":"true","evidence":["src/x.go:1"]}]}' > "$d/s3.json"
+d=$(fx); printf '%s' "$S3" > "$d/s3.json"
 echo "package x // v2" > "$d/src/x.go"; G "$d" commit -q -am branch
-if (cd "$d" && python3 "$SCRIPT" "$P" missing.json s3.json HEAD >/dev/null 2>&1); then
+if run "$d" "$P" missing.json s3.json HEAD || ! grep -q "is not on origin/main" "$d/err"; then
 	bad "commit off origin/main refused"
 elif grep -q verified "$d/$P" || [ -e "$d/docs/provenance/reference/a.json" ]; then
 	bad "refused commit writes nothing"
@@ -77,14 +80,31 @@ else ok "commit off origin/main refused"; fi
 
 # the same commit is accepted once it is on origin's main
 G "$d" push -q origin HEAD:main
-(cd "$d" && python3 "$SCRIPT" "$P" missing.json s3.json HEAD >/dev/null 2>&1)
+run "$d" "$P" missing.json s3.json HEAD
 grep -q "commit: $(git -C "$d" rev-parse HEAD)" "$d/$P" && ok "commit on origin/main accepted" ||
 	bad "commit on origin/main accepted"
 
+# an origin/HEAD naming another branch does not hide origin/main
+d=$(fx); printf '%s' "$S3" > "$d/s3.json"
+G "$d" push -q origin HEAD:old; G "$d" fetch -q origin; G "$d" remote set-head origin old
+echo "package x // v2" > "$d/src/x.go"; land "$d" c2
+run "$d" "$P" missing.json s3.json HEAD
+grep -q "commit: $(git -C "$d" rev-parse HEAD)" "$d/$P" && ok "stale origin/HEAD falls back to origin/main" ||
+	bad "stale origin/HEAD falls back to origin/main"
+
 # a repo with no origin has no default branch to check against
-d=$(fx); git -C "$d" remote remove origin
-printf '{"results":[{"id":1,"verdict":"true","evidence":["src/x.go:1"]}]}' > "$d/s3.json"
-(cd "$d" && python3 "$SCRIPT" "$P" missing.json s3.json HEAD >/dev/null 2>&1) &&
-	bad "no origin refused" || ok "no origin refused"
+d=$(fx); git -C "$d" remote remove origin; printf '%s' "$S3" > "$d/s3.json"
+if ! run "$d" "$P" missing.json s3.json HEAD && grep -q "cannot find origin's default branch" "$d/err"; then
+	ok "no origin refused"
+else bad "no origin refused"; fi
+
+# --merge refuses a sidecar whose recorded commit is gone, rather than keep unmoved lines
+d=$(fx); printf '%s' "$S3" > "$d/s3.json"
+run "$d" "$P" missing.json s3.json HEAD
+sed -i.bak "s/$(git -C "$d" rev-parse HEAD)/$(printf '%040d' 0)/" "$d/docs/provenance/reference/a.json"
+echo "package x // v2" > "$d/src/x.go"; land "$d" c2
+if ! run "$d" --merge "$P" missing.json s3.json HEAD && grep -q "is not in this clone" "$d/err"; then
+	ok "--merge from a missing commit refused"
+else bad "--merge from a missing commit refused"; fi
 
 exit $FAILURES

@@ -376,7 +376,7 @@
    "claim": "MCP server config requires `command` field",
    "verdict": "false",
    "evidence": [
-    "pkg/config/runtime_config.go:624-637"
+    "pkg/config/runtime_config.go:625-640"
    ]
   },
   {
