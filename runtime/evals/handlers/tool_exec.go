@@ -38,9 +38,19 @@ const metadataKeyToolRegistry = "tool_registry"
 //   - tool string (required) — registry name of the tool to invoke
 //   - args map[string]any (optional) — arguments passed verbatim to Execute
 //   - timeout_seconds int (optional) — bounds the call; default 120
+//   - score_path string (optional) — JMESPath into the parsed tool payload
+//     selecting a number to report as the score
+//   - score_pattern string (optional) — regex with one capture group over
+//     the tool's text output; the captured number is the score
+//   - score_scale number (optional) — divisor applied to the extracted
+//     value (e.g. 100 for a percentage); default 1
 //
 // Score is 1.0 on success, 0.0 on any failure (error returned, result
-// has Error field set, missing tool, missing registry, timeout).
+// has Error field set, missing tool, missing registry, timeout). With
+// score_path or score_pattern set, a successful call scores the
+// extracted value / score_scale instead, and 0.0 when it cannot be
+// extracted. min_score / max_score are rejected: thresholds belong on
+// the `type: assertion` wrapper.
 type ToolExecHandler struct{}
 
 // Type returns the eval type identifier.
@@ -56,6 +66,14 @@ func (h *ToolExecHandler) Eval(
 	toolName, _ := params["tool"].(string)
 	if toolName == "" {
 		return failResult(h.Type(), "tool_exec: 'tool' parameter is required"), nil
+	}
+	if msg := rejectThresholdParams(params); msg != "" {
+		return errorResult(h.Type(), "tool_exec: "+msg), nil
+	}
+	// Parsed before the call so a misconfigured check never runs the tool.
+	scoreSpec, scoreErr := parseToolExecScore(params)
+	if scoreErr != "" {
+		return errorResult(h.Type(), scoreErr), nil
 	}
 
 	registry, err := h.resolveRegistry(evalCtx)
@@ -131,9 +149,13 @@ func (h *ToolExecHandler) Eval(
 		"tool":       toolName,
 		"latency_ms": result.LatencyMs,
 	}
-	if payload := parseToolPayload(result.Result); payload != nil {
+	payload := parseToolPayload(result.Result)
+	if payload != nil {
 		value["result"] = payload
 		details["result"] = payload
+	}
+	if scoreSpec != nil {
+		return h.scoredResult(toolName, scoreSpec, payload, outputText, value, details), nil
 	}
 	return &evals.EvalResult{
 		Type:        h.Type(),
@@ -142,6 +164,36 @@ func (h *ToolExecHandler) Eval(
 		Value:       value,
 		Details:     details,
 	}, nil
+}
+
+// scoredResult reports the number score_path / score_pattern pulled out of a
+// successful call, divided by score_scale. The score is a raw measurement:
+// not clamped and not thresholded — `type: assertion`'s min_score / max_score
+// decides what passes. A miss scores 0 with the reason in Explanation.
+func (h *ToolExecHandler) scoredResult(
+	toolName string, spec *toolExecScore, payload any, outputText string,
+	value, details map[string]any,
+) *evals.EvalResult {
+	raw, miss := spec.extract(payload, outputText)
+	if miss != "" {
+		return &evals.EvalResult{
+			Type:        h.Type(),
+			Score:       scorePtr(0),
+			Explanation: fmt.Sprintf("tool_exec: %q succeeded but %s", toolName, miss),
+			Value:       value,
+			Details:     details,
+		}
+	}
+	score := raw / spec.scale
+	details["raw_score"] = raw
+	return &evals.EvalResult{
+		Type:        h.Type(),
+		Score:       scorePtr(score),
+		MetricValue: scorePtr(score),
+		Explanation: fmt.Sprintf("tool_exec: %q succeeded; score %g (raw %g)", toolName, score, raw),
+		Value:       value,
+		Details:     details,
+	}
 }
 
 // parseToolPayload best-effort decodes the tool's response into a Go
