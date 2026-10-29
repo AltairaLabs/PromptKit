@@ -167,7 +167,7 @@ func redactParts(parts []types.ContentPart, r Redactor) []types.ContentPart {
 // redactEval copies an eval payload and rewrites the fields that quote what was
 // judged.
 //
-// Score, MetricValue, Passed, Kind and the timings are measurements ABOUT
+// Score, MetricValue, Metrics, Passed, Kind and the timings are measurements ABOUT
 // content, not content, and are left alone — redacting them would leave a
 // consumer unable to tell a blocked guardrail from a passing one, which is the
 // thing an audit most needs. Message is the pack author's own configured text,

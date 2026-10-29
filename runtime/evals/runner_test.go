@@ -1024,3 +1024,35 @@ func TestRunTurnEvals_SupportedWhenKeyStillGates(t *testing.T) {
 		t.Errorf("handler ran %d times, want 0", handler.calls)
 	}
 }
+
+// TestEvalRunner_EmitResult_CarriesMetrics: a result's named sub-scores reach
+// bus subscribers (and so run reports and the OTel listener) unchanged.
+func TestEvalRunner_EmitResult_CarriesMetrics(t *testing.T) {
+	bus := events.NewEventBus()
+	defer bus.Close()
+	received := make(chan *events.Event, 1)
+	bus.Subscribe(events.EventEvalCompleted, func(e *events.Event) { received <- e })
+
+	r := NewEvalRunner(NewEvalTypeRegistry(), WithEmitter(events.NewEmitter(bus, "", "", "")))
+	metrics := map[string]float64{"clarity": 0.9, "accuracy": 0.7}
+	r.emitResult(&EvalDef{ID: "rubric", Type: "llm_judge"}, &EvalResult{
+		EvalID: "rubric", Type: "llm_judge", Score: float64Ptr(0.8), Metrics: metrics,
+	})
+
+	select {
+	case e := <-received:
+		got := e.Data.(*events.EvalCompletedData).Metrics
+		if len(got) != 2 || got["clarity"] != 0.9 {
+			t.Errorf("Metrics = %v, want %v", got, metrics)
+		}
+		// The event holds a copy: the caller changing its result afterwards
+		// must not reach a subscriber still reading the event.
+		metrics["clarity"] = 0
+		delete(metrics, "accuracy")
+		if len(got) != 2 || got["clarity"] != 0.9 {
+			t.Errorf("event Metrics shares the result's map: %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for EvalCompleted event")
+	}
+}

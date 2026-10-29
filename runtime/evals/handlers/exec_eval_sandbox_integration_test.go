@@ -158,7 +158,7 @@ func TestExecEval_SandboxScoring_Integration(t *testing.T) {
 	require.Empty(t, plain.Error, "the program ran past the runner timeout and saw its sandbox")
 	assert.InDelta(t, 0.75, *plain.Score, 1e-9)
 	assert.Nil(t, plain.Passed, "a plain eval states no verdict")
-	assert.Equal(t, map[string]float64{"functional_score": 0.75, "security_score": 1}, plain.Details["metrics"])
+	assert.Equal(t, map[string]float64{"functional_score": 0.75, "security_score": 1}, plain.Metrics)
 	assert.Equal(t, "c0ffee", plain.Details["container_id"])
 	assert.Equal(t, "app ok", plain.Details["app_body"], "the program reached the app through the mapped port")
 	assert.Equal(t, "run-1", plain.Details["run_id"])

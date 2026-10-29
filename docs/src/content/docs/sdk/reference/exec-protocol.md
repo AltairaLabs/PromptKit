@@ -134,7 +134,7 @@ The `args` object contains the tool arguments as provided by the LLM, matching t
 | `score` | float | The eval's score. Reported as both `Score` and `MetricValue`. |
 | `detail` | string | Human-readable explanation |
 | `data` | object | Arbitrary structured data, reported in `Details` |
-| `metrics` | object | Named numeric sub-scores, reported at `Details["metrics"]`. Every value must be a number. |
+| `metrics` | object | Named numeric sub-scores, reported as the result's `Metrics`. Every value must be a number. |
 | `error` | string | Set when the program could not take its measurement. The result is an error, and `data` and `metrics` are still reported. |
 
 The result is an **error**, not a score of 0, when the process exits non-zero, runs past `timeout_ms`, writes output that is not this JSON, or sets `error`. An assertion fails on an error whatever its `min_score` / `max_score`. A score of 0 would pass a `max_score` gate, so an eval that failed to run would read as "no findings".

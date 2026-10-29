@@ -24,6 +24,7 @@ package metrics
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -89,6 +90,21 @@ type CollectorOpts struct {
 
 	// DisableEvalMetrics disables eval result metrics.
 	DisableEvalMetrics bool
+
+	// EvalDimensionLimit turns on export of eval dimensions — the named
+	// sub-scores in evals.EvalResult.Metrics — and caps how many distinct
+	// dimensions each eval metric may export for the life of the process.
+	// Zero, the default, exports none: results, events and traces still carry
+	// them, only Prometheus does not.
+	//
+	// Each dimension is a gauge in a family derived from the eval's metric,
+	// <metric>_dimension{dimension="<name>"}, so the eval's own family and its
+	// existing series are untouched. Dimension names come from handler output
+	// (a judge model can invent a new one on any call), so the cap is what
+	// bounds cardinality: a series, once created, is never deleted. Names
+	// that are not snake_case, and dimensions past the cap, are not exported
+	// and are counted in <namespace>_eval_dimensions_dropped_total.
+	EvalDimensionLimit int
 }
 
 // Collector records both pipeline and eval metrics into a Prometheus registry.
@@ -158,6 +174,11 @@ type Collector struct {
 
 	disablePipeline bool
 	disableEval     bool
+
+	// Eval dimension export; see CollectorOpts.EvalDimensionLimit.
+	dimensionLimit    int
+	dimensionFamilies map[string]*dimensionFamily // nil value: failed to register; guarded by mu
+	dimensionsDropped *prometheus.CounterVec
 }
 
 // evalMetricEntry holds a registered prometheus collector for a dynamic eval metric.
@@ -197,6 +218,12 @@ func NewCollector(opts CollectorOpts) *Collector {
 		evalMetrics:     make(map[string]evalMetricEntry),
 		disablePipeline: opts.DisablePipelineMetrics,
 		disableEval:     opts.DisableEvalMetrics,
+	}
+
+	if opts.EvalDimensionLimit > 0 && !opts.DisableEvalMetrics {
+		c.dimensionLimit = opts.EvalDimensionLimit
+		c.dimensionFamilies = make(map[string]*dimensionFamily)
+		c.dimensionsDropped = c.registerDimensionsDropped()
 	}
 
 	if !opts.DisablePipelineMetrics {
@@ -947,6 +974,12 @@ func (mc *MetricContext) Record(result evals.EvalResult, metric *evals.MetricDef
 		}
 	}
 
+	labelValues := mc.evalLabelValues(metric)
+
+	// Dimensions are independent of the headline value: a rubric can return
+	// its breakdown with no single number worth graphing.
+	mc.recordDimensions(result, name, metric, labelValues)
+
 	value, ok := evals.ExtractValue(result, metric)
 	if !ok {
 		// No scalar to record. Skipping is the point: writing 0 here made an
@@ -964,8 +997,6 @@ func (mc *MetricContext) Record(result evals.EvalResult, metric *evals.MetricDef
 			"metric", metric.Name, "eval_id", result.EvalID)
 		return nil
 	}
-
-	labelValues := mc.evalLabelValues(metric)
 
 	switch metric.Type {
 	case evals.MetricGauge:
@@ -1091,9 +1122,16 @@ func prefixedName(namespace, name string) string {
 	return prefix + name
 }
 
-// evalMetricKey builds a map key for an eval metric from its name and label schema.
+// evalMetricKey builds a map key for an eval metric from its name, type and
+// label schema.
+//
+// The label names are part of the key because a registered vector has a fixed
+// label set. Keyed on name and type alone, a second eval declaring the same
+// metric name with different labels was handed the first one's vector and
+// WithLabelValues panicked on the wrong number of values. Keyed this way it
+// gets a registration of its own, which the registry refuses with an error.
 func evalMetricKey(name string, metric *evals.MetricDef) string {
-	return name + "|" + string(metric.Type)
+	return name + "|" + metric.Type + "|" + strings.Join(sortedKeys(evals.MetricLabels(metric)), ",")
 }
 
 // sortedKeys returns the keys of a map in sorted order.

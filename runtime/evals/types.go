@@ -361,9 +361,23 @@ type EvalResult struct {
 	// own field, above.
 	Value       any      `json:"value,omitempty"`
 	MetricValue *float64 `json:"metric_value,omitempty"`
-	Explanation string   `json:"explanation,omitempty"`
-	DurationMs  int64    `json:"duration_ms"`
-	Error       string   `json:"error,omitempty"`
+
+	// Metrics are named sub-scores the eval produced alongside its score: a
+	// rubric's clarity and accuracy from one judge call, an exec program's
+	// functional_score and security_score.
+	//
+	// They are OUTPUT, not declaration. A pack declares one metric per eval
+	// (the PromptPack spec's Eval.metric is singular), so the names here come
+	// from whatever the handler returned and are not trusted: a judge model can
+	// invent a new key on any call. Reports and events carry them as they are;
+	// Prometheus export is opt-in on the host's collector and bounded there
+	// (metrics.CollectorOpts.EvalDimensionLimit). A per-test breakdown with
+	// hundreds of entries belongs in Details, not here.
+	Metrics map[string]float64 `json:"metrics,omitempty"`
+
+	Explanation string `json:"explanation,omitempty"`
+	DurationMs  int64  `json:"duration_ms"`
+	Error       string `json:"error,omitempty"`
 
 	// Message is the AUTHOR-configured message for this eval — EvalDef.Message,
 	// written in the pack as AssertionConfig.message — as distinct from

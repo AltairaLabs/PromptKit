@@ -77,6 +77,7 @@ func parseJudgeResponse(raw string) (*JudgeResult, error) {
 		Score:     parsed.Score,
 		Reasoning: parsed.Reasoning,
 		Raw:       raw,
+		Metrics:   judgeDimensions(jsonStr),
 	}
 
 	// Honor the model's explicit verdict when present; otherwise fall
@@ -89,6 +90,30 @@ func parseJudgeResponse(raw string) (*JudgeResult, error) {
 	}
 
 	return result, nil
+}
+
+// judgeDimensions collects the top-level numeric fields of a judge response
+// other than score, so a rubric judged once yields every dimension. Anything
+// that is not a number (passed, reasoning, nested objects) is not a dimension.
+// The names are the model's own and untrusted; the metrics collector bounds
+// them on export.
+func judgeDimensions(jsonStr string) map[string]float64 {
+	var fields map[string]any
+	if err := json.Unmarshal([]byte(jsonStr), &fields); err != nil {
+		return nil
+	}
+	var dims map[string]float64
+	for name, v := range fields {
+		n, ok := v.(float64)
+		if !ok || name == resultFieldScore {
+			continue
+		}
+		if dims == nil {
+			dims = make(map[string]float64)
+		}
+		dims[name] = n
+	}
+	return dims
 }
 
 // JudgeOpts configures a judge evaluation request.
@@ -128,6 +153,10 @@ type JudgeResult struct {
 
 	// Raw is the unprocessed LLM response text.
 	Raw string
+
+	// Metrics are the numeric fields the judge returned besides score — a
+	// rubric's per-dimension scores from the same single judgement.
+	Metrics map[string]float64
 }
 
 // SpecJudgeProvider implements JudgeProvider by creating a provider

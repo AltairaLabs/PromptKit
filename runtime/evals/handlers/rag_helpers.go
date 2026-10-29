@@ -175,7 +175,14 @@ func ragJudgeCall(
 		), nil
 	}
 
-	return buildEvalResult(evalType, judgeResult), nil
+	// Rubric dimensions are an llm_judge feature, where the author writes the
+	// rubric and so chooses the dimensions. These handlers run a fixed
+	// prompt, so any other number in the reply (a claim count, a confidence)
+	// is the prompt's working, not a score — exported, it would read as one
+	// and spend the collector's per-metric dimension cap.
+	result := buildEvalResult(evalType, judgeResult)
+	result.Metrics = nil
+	return result, nil
 }
 
 // ragErrorResult produces a standardized failure result with a score

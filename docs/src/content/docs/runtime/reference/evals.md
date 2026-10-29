@@ -694,7 +694,7 @@ func (h *AssertionEvalHandler) ValidateParams(params map[string]any) error
 ValidateParams lets a wrapped eval's own param validation run at load time, the same as a directly declared one. The guardrail factory and sdk.ValidatePack both look for this interface, so implementing it here is what makes \`type: guardrail\` wrapping a check with a typo'd param fail to load rather than load unprotected.
 
 <a name="EvalContext"></a>
-## type [EvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L395-L435>)
+## type [EvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L409-L449>)
 
 EvalContext provides data to eval handlers. For turn\-level evals: Messages contains history up to the current turn. For session\-level evals: Messages contains the full conversation.
 
@@ -841,7 +841,7 @@ type EvalHook interface {
 ```
 
 <a name="EvalResult"></a>
-## type [EvalResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L325-L390>)
+## type [EvalResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L325-L404>)
 
 EvalResult captures the outcome of a single eval execution. Handlers produce scores only \(0.0–1.0\). There is no pass/fail on evals. Assertion wrappers store pass/fail as a bool in Value.
 
@@ -885,9 +885,23 @@ type EvalResult struct {
     // own field, above.
     Value       any      `json:"value,omitempty"`
     MetricValue *float64 `json:"metric_value,omitempty"`
-    Explanation string   `json:"explanation,omitempty"`
-    DurationMs  int64    `json:"duration_ms"`
-    Error       string   `json:"error,omitempty"`
+
+    // Metrics are named sub-scores the eval produced alongside its score: a
+    // rubric's clarity and accuracy from one judge call, an exec program's
+    // functional_score and security_score.
+    //
+    // They are OUTPUT, not declaration. A pack declares one metric per eval
+    // (the PromptPack spec's Eval.metric is singular), so the names here come
+    // from whatever the handler returned and are not trusted: a judge model can
+    // invent a new key on any call. Reports and events carry them as they are;
+    // Prometheus export is opt-in on the host's collector and bounded there
+    // (metrics.CollectorOpts.EvalDimensionLimit). A per-test breakdown with
+    // hundreds of entries belongs in Details, not here.
+    Metrics map[string]float64 `json:"metrics,omitempty"`
+
+    Explanation string `json:"explanation,omitempty"`
+    DurationMs  int64  `json:"duration_ms"`
+    Error       string `json:"error,omitempty"`
 
     // Message is the AUTHOR-configured message for this eval — EvalDef.Message,
     // written in the pack as AssertionConfig.message — as distinct from
@@ -915,7 +929,7 @@ type EvalResult struct {
 ```
 
 <a name="EvalRunner"></a>
-## type [EvalRunner](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L19-L24>)
+## type [EvalRunner](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L20-L25>)
 
 EvalRunner executes evals in\-process. It is the leaf execution unit used by all dispatch modes \(in\-proc, event\-driven, worker\).
 
@@ -926,7 +940,7 @@ type EvalRunner struct {
 ```
 
 <a name="NewEvalRunner"></a>
-### func [NewEvalRunner](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L81-L83>)
+### func [NewEvalRunner](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L82-L84>)
 
 ```go
 func NewEvalRunner(registry *EvalTypeRegistry, opts ...RunnerOption) *EvalRunner
@@ -935,7 +949,7 @@ func NewEvalRunner(registry *EvalTypeRegistry, opts ...RunnerOption) *EvalRunner
 NewEvalRunner creates an EvalRunner with the given registry and options.
 
 <a name="EvalRunner.AddHook"></a>
-### func \(\*EvalRunner\) [AddHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L73>)
+### func \(\*EvalRunner\) [AddHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L74>)
 
 ```go
 func (r *EvalRunner) AddHook(h EvalHook)
@@ -944,7 +958,7 @@ func (r *EvalRunner) AddHook(h EvalHook)
 AddHook appends an EvalHook to the runner. Intended to be called during setup, before evals start running — there is no locking. Nil hooks are silently ignored.
 
 <a name="EvalRunner.Clone"></a>
-### func \(\*EvalRunner\) [Clone](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L53>)
+### func \(\*EvalRunner\) [Clone](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L54>)
 
 ```go
 func (r *EvalRunner) Clone() *EvalRunner
@@ -955,7 +969,7 @@ Clone creates a copy of the runner with the same registry, timeout, and hooks bu
 Hooks are copied into a new slice so appending to the clone does not mutate the source. The emitter is intentionally dropped — callers are expected to wire a fresh emitter per\-use.
 
 <a name="EvalRunner.RunConversationEvals"></a>
-### func \(\*EvalRunner\) [RunConversationEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L126-L130>)
+### func \(\*EvalRunner\) [RunConversationEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L127-L131>)
 
 ```go
 func (r *EvalRunner) RunConversationEvals(ctx context.Context, defs []EvalDef, evalCtx *EvalContext) []EvalResult
@@ -964,7 +978,7 @@ func (r *EvalRunner) RunConversationEvals(ctx context.Context, defs []EvalDef, e
 RunConversationEvals runs conversation\-level evals \(on\_conversation\_complete trigger\). Call this when a multi\-turn conversation ends \(e.g., Arena self\-play completion\).
 
 <a name="EvalRunner.RunSessionEvals"></a>
-### func \(\*EvalRunner\) [RunSessionEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L111-L115>)
+### func \(\*EvalRunner\) [RunSessionEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L112-L116>)
 
 ```go
 func (r *EvalRunner) RunSessionEvals(ctx context.Context, defs []EvalDef, evalCtx *EvalContext) []EvalResult
@@ -973,7 +987,7 @@ func (r *EvalRunner) RunSessionEvals(ctx context.Context, defs []EvalDef, evalCt
 RunSessionEvals runs session\-level evals \(on\_session\_complete and sample\_sessions triggers\). Call this when a session ends.
 
 <a name="EvalRunner.RunTurnEvals"></a>
-### func \(\*EvalRunner\) [RunTurnEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L96-L100>)
+### func \(\*EvalRunner\) [RunTurnEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L97-L101>)
 
 ```go
 func (r *EvalRunner) RunTurnEvals(ctx context.Context, defs []EvalDef, evalCtx *EvalContext) []EvalResult
@@ -982,7 +996,7 @@ func (r *EvalRunner) RunTurnEvals(ctx context.Context, defs []EvalDef, evalCtx *
 RunTurnEvals runs turn\-level evals \(every\_turn and sample\_turns triggers\). It filters by enabled state and trigger, then executes matching handlers.
 
 <a name="EvalRunner.SetEmitter"></a>
-### func \(\*EvalRunner\) [SetEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L66>)
+### func \(\*EvalRunner\) [SetEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L67>)
 
 ```go
 func (r *EvalRunner) SetEmitter(e *events.Emitter)
@@ -1302,7 +1316,7 @@ func (h *GuardrailEvalHandler) ValidateParams(params map[string]any) error
 ValidateParams mirrors AssertionEvalHandler.ValidateParams.
 
 <a name="HandlerTimeout"></a>
-## type [HandlerTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L262-L266>)
+## type [HandlerTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L263-L267>)
 
 HandlerTimeout is implemented by handlers that bound their own work \(a subprocess, a tool call\) and can legitimately need longer than the runner's per\-eval timeout. Without it the runner's timeout \(30s by default\) silently caps a configured \`timeout\_ms: 300000\` at 30 seconds.
 
@@ -1477,7 +1491,7 @@ type ResultWriter interface {
 ```
 
 <a name="RunnerOption"></a>
-## type [RunnerOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L27>)
+## type [RunnerOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L28>)
 
 RunnerOption configures an EvalRunner.
 
@@ -1486,7 +1500,7 @@ type RunnerOption func(*EvalRunner)
 ```
 
 <a name="WithEmitter"></a>
-### func [WithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L35>)
+### func [WithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L36>)
 
 ```go
 func WithEmitter(e *events.Emitter) RunnerOption
@@ -1495,7 +1509,7 @@ func WithEmitter(e *events.Emitter) RunnerOption
 WithEmitter configures the runner to emit eval.completed/eval.failed events.
 
 <a name="WithEvalHook"></a>
-### func [WithEvalHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L42>)
+### func [WithEvalHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L43>)
 
 ```go
 func WithEvalHook(h EvalHook) RunnerOption
@@ -1504,7 +1518,7 @@ func WithEvalHook(h EvalHook) RunnerOption
 WithEvalHook registers an EvalHook that observes every eval result the runner produces. Multiple hooks may be registered; they are invoked in registration order, before the result is emitted on the event bus.
 
 <a name="WithTimeout"></a>
-### func [WithTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L30>)
+### func [WithTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L31>)
 
 ```go
 func WithTimeout(d time.Duration) RunnerOption
@@ -1574,7 +1588,7 @@ type Threshold = packspec.EvalThreshold
 ```
 
 <a name="ToolCallRecord"></a>
-## type [ToolCallRecord](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L452>)
+## type [ToolCallRecord](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L466>)
 
 ToolCallRecord is an alias for types.ToolCallRecord so existing code referencing evals.ToolCallRecord continues to compile unchanged.
 

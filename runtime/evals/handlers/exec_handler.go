@@ -87,7 +87,7 @@ type execEvalCtx struct {
 // never started, say). It makes the result an Error, which fails an
 // assertion whatever its thresholds — a placeholder score of 0 would pass a
 // max_score gate. Metrics carries named sub-scores (functional_score,
-// security_score, ...) and lands at details.metrics, where a report or CSV
+// security_score, ...) and becomes EvalResult.Metrics, where a report or CSV
 // writer can tell numeric columns from the free-form Data.
 type execEvalResponse struct {
 	Score   float64            `json:"score"`
@@ -96,9 +96,6 @@ type execEvalResponse struct {
 	Metrics map[string]float64 `json:"metrics,omitempty"`
 	Error   string             `json:"error,omitempty"`
 }
-
-// detailsKeyMetrics is where an exec eval's named metrics are reported.
-const detailsKeyMetrics = "metrics"
 
 // EvalTimeout reports the binding's timeout so the eval runner does not cap
 // it at its own, shorter per-eval default.
@@ -140,10 +137,10 @@ func (h *ExecEvalHandler) Eval(
 		return errorResult(h.typeName, fmt.Sprintf("exec eval returned invalid JSON: %v", err)), nil
 	}
 
-	details := execDetails(resp.Data, resp.Metrics)
 	if resp.Error != "" {
 		result := errorResult(h.typeName, "exec eval reported error: "+resp.Error)
-		result.Details = details
+		result.Details = resp.Data
+		result.Metrics = resp.Metrics
 		return result, nil
 	}
 
@@ -154,24 +151,9 @@ func (h *ExecEvalHandler) Eval(
 		MetricValue: scorePtr(score),
 		Explanation: resp.Detail,
 		Value:       resp.Data,
-		Details:     details,
+		Metrics:     resp.Metrics,
+		Details:     resp.Data,
 	}, nil
-}
-
-// execDetails is the program's data with its metrics under details.metrics.
-// The map is a copy, so the response's data is never mutated.
-func execDetails(data map[string]any, metrics map[string]float64) map[string]any {
-	if len(data) == 0 && len(metrics) == 0 {
-		return nil
-	}
-	details := make(map[string]any, len(data)+1)
-	for k, v := range data {
-		details[k] = v
-	}
-	if len(metrics) > 0 {
-		details[detailsKeyMetrics] = metrics
-	}
-	return details
 }
 
 func (h *ExecEvalHandler) buildRequest(evalCtx *evals.EvalContext, params map[string]any) *execEvalRequest {

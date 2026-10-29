@@ -3,6 +3,7 @@ package evals
 import (
 	"context"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
@@ -392,6 +393,9 @@ func (r *EvalRunner) emitResult(def *EvalDef, result *EvalResult) {
 		EvalType:    result.Type,
 		Score:       result.Score,
 		MetricValue: result.MetricValue,
+		// A copy: async subscribers read the event while the caller owns,
+		// and may change, the result it was handed back.
+		Metrics:     maps.Clone(result.Metrics),
 		Explanation: result.Explanation,
 		DurationMs:  result.DurationMs,
 		Error:       result.Error,

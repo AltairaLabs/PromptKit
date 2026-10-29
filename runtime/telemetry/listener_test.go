@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -1501,5 +1502,51 @@ func TestOTelEventListener_EvalErroredIsAnErrorSpan(t *testing.T) {
 	}
 	if !strings.Contains(evalSpan.Status.Description, "panic in eval") {
 		t.Errorf("status must carry the error, got %q", evalSpan.Status.Description)
+	}
+}
+
+func TestOTelEventListener_EvalMetricsBecomeSpanAttributes(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+	score := 0.8
+	listener.StartSession(context.Background(), "sess-m")
+	listener.OnEvent(&events.Event{
+		Type: events.EventEvalCompleted, Timestamp: time.Now(),
+		SessionID: "sess-m", ExecutionID: "run-m",
+		Data: &events.EvalCompletedData{
+			EvalID: "rubric", EvalType: "llm_judge", Score: &score,
+			Metrics: map[string]float64{"clarity": 0.9, "accuracy": 0.7},
+		},
+	})
+	listener.EndSession("sess-m")
+	span := findSpan(t, flushAndGetSpans(t, tp, exp), "promptkit.eval.rubric")
+
+	got := map[string]float64{}
+	for _, a := range span.Attributes {
+		if k := string(a.Key); strings.HasPrefix(k, evalMetricAttributePrefix) {
+			got[strings.TrimPrefix(k, evalMetricAttributePrefix)] = a.Value.AsFloat64()
+		}
+	}
+	if len(got) != 2 || got["clarity"] != 0.9 || got["accuracy"] != 0.7 {
+		t.Errorf("metric attributes = %v", got)
+	}
+}
+
+func TestEvalMetricAttributes_CappedAndMarked(t *testing.T) {
+	metrics := map[string]float64{}
+	for i := range maxEvalMetricAttributes + 10 {
+		metrics[fmt.Sprintf("test_%03d", i)] = float64(i)
+	}
+	attrs := evalMetricAttributes(metrics)
+	if len(attrs) != maxEvalMetricAttributes+1 {
+		t.Fatalf("got %d attributes, want %d metrics plus the truncation marker", len(attrs), maxEvalMetricAttributes)
+	}
+	if string(attrs[0].Key) != evalMetricAttributePrefix+"test_000" {
+		t.Errorf("first kept attribute = %s, want sorted order", attrs[0].Key)
+	}
+	if last := attrs[len(attrs)-1]; string(last.Key) != evalMetricAttributesTruncated || !last.Value.AsBool() {
+		t.Errorf("missing truncation marker, last = %v", last)
+	}
+	if got := evalMetricAttributes(map[string]float64{"a": 1}); len(got) != 1 {
+		t.Errorf("uncapped case = %v", got)
 	}
 }

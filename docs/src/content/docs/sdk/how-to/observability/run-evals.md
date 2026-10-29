@@ -232,6 +232,35 @@ results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
 
 You can also pass a raw `MetricRecorder` for custom implementations, but `MetricsCollector` is preferred for new code.
 
+### Eval dimensions
+
+An eval's named sub-scores (`EvalResult.Metrics`) are not exported by default. Set `EvalDimensionLimit` on the collector to export them:
+
+```go
+collector := metrics.NewEvalOnlyCollector(metrics.CollectorOpts{
+    Registerer:         reg,
+    EvalDimensionLimit: 16,
+})
+```
+
+Each dimension becomes a gauge in a family derived from the eval's metric, leaving the eval's own series unchanged:
+
+```
+promptkit_eval_rubric_score 0.8
+promptkit_eval_rubric_score_dimension{dimension="clarity"} 0.9
+promptkit_eval_rubric_score_dimension{dimension="accuracy"} 0.7
+```
+
+The names come from handler output, and a judge model can invent a new one on any call, so the export is bounded:
+
+- A name must be snake_case (`^[a-z_][a-z0-9_]{0,63}$`). Others are not exported, and nothing is case-folded: `Clarity` is dropped, not merged into `clarity`.
+- Each eval metric exports at most `EvalDimensionLimit` distinct dimensions for the life of the process, admitted in sorted name order. A series, once created, is never removed, so this cap is the bound on cardinality.
+- Dropped dimensions are counted in `promptkit_eval_dimensions_dropped_total{metric, reason}`, with `reason` either `invalid_name` or `over_limit`.
+- A result with `Error` set exports no dimensions.
+- Collectors sharing a registry share the drop counter. A derived family that cannot be registered (an eval metric already named `<metric>_dimension`, or a metric label already called `dimension`) is skipped with a warning; the eval's own metric still records.
+
+Keep `Metrics` to a handful of summary scores. A per-test or per-finding breakdown belongs in `Details`.
+
 Evals must have a `metric` definition in the pack to be recorded. See [Metrics & Prometheus](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/#metrics--prometheus) for metric types and label configuration, and [Monitor Events](/sdk/how-to/observability/monitor-events/#prometheus-metrics) for the full metrics reference.
 
 ## Type Validation
@@ -311,24 +340,30 @@ results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
 
 ## EvalResult
 
-Each result contains:
+Each result contains, among other fields:
 
 ```go
 type EvalResult struct {
-    EvalID      string          // Eval identifier
-    Type        string          // Handler type
-    Score       *float64        // Score (0.0-1.0)
-    Explanation string          // Human-readable explanation
-    DurationMs  int64           // Execution time
-    Error       string          // Error message if eval errored
-    Violations  []EvalViolation // Detailed violations
-    Skipped     bool            // Was eval skipped?
-    SkipReason  string          // Why skipped
-    Passed      bool            // Deprecated: set only by assertion/guardrail wrappers
+    EvalID      string             // Eval identifier
+    Type        string             // Handler type
+    Kind        events.EvalKind    // Role: eval, assertion or guardrail
+    Passed      *bool              // Verdict; set only by assertion and guardrail wrappers
+    Score       *float64           // The eval's score
+    MetricValue *float64           // The number a metric pipeline graphs
+    Metrics     map[string]float64 // Named sub-scores from the same eval
+    Explanation string             // Human-readable explanation
+    DurationMs  int64              // Execution time
+    Error       string             // Set when no measurement was taken
+    Details     map[string]any     // Handler-specific structured detail
+    Violations  []EvalViolation    // Detailed violations
+    Skipped     bool               // Was eval skipped?
+    SkipReason  string             // Why skipped
 }
 ```
 
-Eval handlers produce scores only. Use `result.IsPassed()` to derive pass/fail from the score (true when score is nil or ≥ 1.0). The `Passed` field is deprecated for standalone evals — it is only set explicitly by `AssertionEvalHandler` and `GuardrailEvalHandler` wrappers.
+Eval handlers measure; they do not pass or fail. `Passed` is nil for a plain eval and is set only when the eval runs under `type: assertion` or `type: guardrail`. An assertion fails any result with `Error` set.
+
+`Metrics` holds named sub-scores an eval produced alongside its score, such as a judge's per-dimension rubric scores or an exec eval's `metrics`. The names come from the handler's output, not from the pack. They travel on `eval.completed` events and as `promptkit.eval.metric.<name>` span attributes; a span carries at most 32 of them, in name order, and is marked `promptkit.eval.metrics_truncated` when more were dropped. They are exported to Prometheus only when the collector opts in; see [Eval dimensions](#eval-dimensions).
 
 ## Observing Results with EvalHook
 
