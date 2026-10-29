@@ -1041,8 +1041,16 @@ func TestEvalRunner_EmitResult_CarriesMetrics(t *testing.T) {
 
 	select {
 	case e := <-received:
-		if got := e.Data.(*events.EvalCompletedData).Metrics; len(got) != 2 || got["clarity"] != 0.9 {
+		got := e.Data.(*events.EvalCompletedData).Metrics
+		if len(got) != 2 || got["clarity"] != 0.9 {
 			t.Errorf("Metrics = %v, want %v", got, metrics)
+		}
+		// The event holds a copy: the caller changing its result afterwards
+		// must not reach a subscriber still reading the event.
+		metrics["clarity"] = 0
+		delete(metrics, "accuracy")
+		if len(got) != 2 || got["clarity"] != 0.9 {
+			t.Errorf("event Metrics shares the result's map: %v", got)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for EvalCompleted event")

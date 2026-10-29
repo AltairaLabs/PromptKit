@@ -720,10 +720,19 @@ func (l *OTelEventListener) emitEvalSpan(evt *events.Event, data *events.EvalEve
 // evalMetricAttributePrefix namespaces an eval's named sub-scores on its span.
 const evalMetricAttributePrefix = "promptkit.eval.metric."
 
+// maxEvalMetricAttributes caps how many of an eval's named sub-scores go on
+// its span. The names are handler output, and a span has an attribute limit
+// (128 by default in the OTel SDK); an eval returning hundreds would push the
+// span's own attributes off it.
+const maxEvalMetricAttributes = 32
+
+// evalMetricAttributesTruncated marks a span whose metric attributes were capped.
+const evalMetricAttributesTruncated = "promptkit.eval.metrics_truncated"
+
 // evalMetricAttributes turns an eval's named sub-scores into span attributes,
-// sorted so a span's attributes do not depend on map iteration order. A span
-// attribute adds no time series, so unlike the Prometheus export these are
-// neither opt-in nor capped.
+// sorted so the attributes, and which ones the cap keeps, do not depend on map
+// iteration order. A span attribute adds no time series, so unlike the
+// Prometheus export these are not opt-in.
 func evalMetricAttributes(metrics map[string]float64) []attribute.KeyValue {
 	if len(metrics) == 0 {
 		return nil
@@ -733,9 +742,16 @@ func evalMetricAttributes(metrics map[string]float64) []attribute.KeyValue {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	attrs := make([]attribute.KeyValue, 0, len(names))
+	truncated := len(names) > maxEvalMetricAttributes
+	if truncated {
+		names = names[:maxEvalMetricAttributes]
+	}
+	attrs := make([]attribute.KeyValue, 0, len(names)+1)
 	for _, name := range names {
 		attrs = append(attrs, attribute.Float64(evalMetricAttributePrefix+name, metrics[name]))
+	}
+	if truncated {
+		attrs = append(attrs, attribute.Bool(evalMetricAttributesTruncated, true))
 	}
 	return attrs
 }

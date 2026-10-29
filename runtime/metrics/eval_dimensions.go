@@ -1,8 +1,10 @@
 package metrics
 
 import (
+	"errors"
 	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -95,6 +97,9 @@ func (c *Collector) admitDimension(family *dimensionFamily, dim string) bool {
 }
 
 func (mc *MetricContext) dropDimension(metricName, reason string) {
+	if mc.collector.dimensionsDropped == nil {
+		return
+	}
 	values := make([]string, 0, len(mc.collector.instanceLabels))
 	for _, l := range mc.collector.instanceLabels {
 		values = append(values, mc.labels[l])
@@ -103,44 +108,65 @@ func (mc *MetricContext) dropDimension(metricName, reason string) {
 	mc.collector.dimensionsDropped.WithLabelValues(values...).Inc()
 }
 
-// dimensionFamilyFor returns the derived family, registering it on first use.
-// Its labels are the eval metric's plus dimension; a family that cannot be
-// registered (a pack label already called "dimension", a name collision) is
-// logged once and its dimensions are skipped thereafter.
-func (c *Collector) dimensionFamilyFor(familyName string, metric *evals.MetricDef) *dimensionFamily {
-	c.mu.RLock()
-	family, ok := c.dimensionFamilies[familyName]
-	failed := c.dimensionFamilyErrs[familyName]
-	c.mu.RUnlock()
-	if ok {
-		return family
-	}
-	if failed {
+// registerDimensionsDropped registers the drop counter, or reuses one already
+// registered. An eval-only collector registers nothing else at construction,
+// and workers build one per job against a shared (often the default)
+// registry, so a second construction must not panic on a duplicate.
+func (c *Collector) registerDimensionsDropped() *prometheus.CounterVec {
+	vec := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace:   c.namespace,
+		Name:        "eval_dimensions_dropped_total",
+		Help:        "Eval dimensions not exported: name not snake_case, or past EvalDimensionLimit",
+		ConstLabels: c.constLabels,
+	}, c.allLabels([]string{"metric", "reason"}))
+	if err := c.registerer.Register(vec); err != nil {
+		var already prometheus.AlreadyRegisteredError
+		if errors.As(err, &already) {
+			if existing, ok := already.ExistingCollector.(*prometheus.CounterVec); ok {
+				return existing
+			}
+		}
+		logger.Warn("eval dimension drops will not be counted", "error", err)
 		return nil
+	}
+	return vec
+}
+
+// dimensionFamilyFor returns the derived family, registering it on first use.
+// Its labels are the eval metric's plus dimension, and it is keyed on that
+// label schema as well as its name, for the reason evalMetricKey gives. A
+// family that cannot be registered (a pack label already called "dimension",
+// an eval metric that already took the derived name, or the same name under
+// another label set) is logged once and its dimensions are skipped thereafter.
+func (c *Collector) dimensionFamilyFor(familyName string, metric *evals.MetricDef) *dimensionFamily {
+	packLabels := sortedKeys(evals.MetricLabels(metric))
+	key := familyName + "|" + strings.Join(packLabels, ",")
+
+	c.mu.RLock()
+	family, known := c.dimensionFamilies[key]
+	c.mu.RUnlock()
+	if known {
+		return family
 	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if existing, ok := c.dimensionFamilies[familyName]; ok {
+	if existing, ok := c.dimensionFamilies[key]; ok {
 		return existing
 	}
-	if c.dimensionFamilyErrs[familyName] {
-		return nil
-	}
 
-	labelNames := append(c.allLabels(sortedKeys(evals.MetricLabels(metric))), dimensionLabel)
 	vec := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name:        familyName,
 		Help:        "Named sub-scores of eval metric " + metric.Name,
 		ConstLabels: c.constLabels,
-	}, labelNames)
+	}, append(c.allLabels(packLabels), dimensionLabel))
 	if err := c.registerer.Register(vec); err != nil {
 		logger.Warn("eval dimensions not exported: family could not be registered",
 			"metric", familyName, "error", err)
-		c.dimensionFamilyErrs[familyName] = true
+		c.dimensionFamilies[key] = nil
 		return nil
 	}
 	family = &dimensionFamily{gauge: vec, seen: make(map[string]bool)}
-	c.dimensionFamilies[familyName] = family
+	c.dimensionFamilies[key] = family
 	return family
 }

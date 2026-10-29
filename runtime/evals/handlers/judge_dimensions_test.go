@@ -47,3 +47,27 @@ func TestLLMJudge_RubricDimensionsFromOneJudgeCall(t *testing.T) {
 	assert.InDelta(t, 0.8, *res.Score, 1e-9)
 	assert.Equal(t, map[string]float64{"clarity": 0.9, "accuracy": 0.7}, res.Metrics)
 }
+
+// RAG and safety judges run a fixed prompt; numbers in their reply other than
+// score are the prompt's working, not author-chosen dimensions.
+func TestRAGJudge_ReportsNoDimensions(t *testing.T) {
+	mockJudge := &llmJudgeMock{result: &JudgeResult{
+		Score: 0.7, Metrics: map[string]float64{"confidence": 0.95, "num_claims": 12},
+	}}
+	res, err := (&FaithfulnessHandler{}).Eval(context.Background(), &evals.EvalContext{
+		CurrentOutput: "answer",
+		Metadata:      map[string]any{"judge_provider": mockJudge},
+	}, map[string]any{"contexts": []any{"a retrieved chunk"}})
+	require.NoError(t, err)
+	require.Empty(t, res.Error)
+	assert.InDelta(t, 0.7, *res.Score, 1e-9)
+	assert.Nil(t, res.Metrics)
+
+	// The same judge reply through llm_judge keeps them.
+	viaJudge, err := (&LLMJudgeHandler{}).Eval(context.Background(), &evals.EvalContext{
+		CurrentOutput: "answer",
+		Metadata:      map[string]any{"judge_provider": mockJudge},
+	}, map[string]any{"criteria": "c"})
+	require.NoError(t, err)
+	assert.Len(t, viaJudge.Metrics, 2)
+}

@@ -257,6 +257,7 @@ The names come from handler output, and a judge model can invent a new one on an
 - Each eval metric exports at most `EvalDimensionLimit` distinct dimensions for the life of the process, admitted in sorted name order. A series, once created, is never removed, so this cap is the bound on cardinality.
 - Dropped dimensions are counted in `promptkit_eval_dimensions_dropped_total{metric, reason}`, with `reason` either `invalid_name` or `over_limit`.
 - A result with `Error` set exports no dimensions.
+- Collectors sharing a registry share the drop counter. A derived family that cannot be registered (an eval metric already named `<metric>_dimension`, or a metric label already called `dimension`) is skipped with a warning; the eval's own metric still records.
 
 Keep `Metrics` to a handful of summary scores. A per-test or per-finding breakdown belongs in `Details`.
 
@@ -362,7 +363,7 @@ type EvalResult struct {
 
 Eval handlers measure; they do not pass or fail. `Passed` is nil for a plain eval and is set only when the eval runs under `type: assertion` or `type: guardrail`. An assertion fails any result with `Error` set.
 
-`Metrics` holds named sub-scores an eval produced alongside its score, such as a judge's per-dimension rubric scores or an exec eval's `metrics`. The names come from the handler's output, not from the pack. They travel on `eval.completed` events and as `promptkit.eval.metric.<name>` span attributes. They are exported to Prometheus only when the collector opts in; see [Eval dimensions](#eval-dimensions).
+`Metrics` holds named sub-scores an eval produced alongside its score, such as a judge's per-dimension rubric scores or an exec eval's `metrics`. The names come from the handler's output, not from the pack. They travel on `eval.completed` events and as `promptkit.eval.metric.<name>` span attributes; a span carries at most 32 of them, in name order, and is marked `promptkit.eval.metrics_truncated` when more were dropped. They are exported to Prometheus only when the collector opts in; see [Eval dimensions](#eval-dimensions).
 
 ## Observing Results with EvalHook
 

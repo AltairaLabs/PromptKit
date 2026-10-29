@@ -801,7 +801,7 @@ Turn-level LLM evaluation. The judge sees the current assistant response and eva
 
 **Surfaces:** A E
 
-**Rubric dimensions.** Numeric fields in the judge's JSON besides `score` become the result's `Metrics`. A rubric judged once yields every dimension: ask for `{"score": 0.8, "clarity": 0.9, "accuracy": 0.7, "reasoning": "..."}` and the result carries `clarity` and `accuracy` alongside the score. `passed`, `reasoning` and nested objects are not dimensions. See [eval dimensions](/sdk/how-to/observability/run-evals/#eval-dimensions) for exporting them to Prometheus.
+**Rubric dimensions.** Numeric fields in the judge's JSON besides `score` become the result's `Metrics`. A rubric judged once yields every dimension: ask for `{"score": 0.8, "clarity": 0.9, "accuracy": 0.7, "reasoning": "..."}` and the result carries `clarity` and `accuracy` alongside the score. `passed`, `reasoning` and nested objects are not dimensions. This applies to `llm_judge`, `llm_judge_session` and `llm_judge_tool_calls`; the RAG and safety judges run fixed prompts and report no dimensions. See [eval dimensions](/sdk/how-to/observability/run-evals/#eval-dimensions) for exporting them to Prometheus.
 
 ### `llm_judge_session`
 

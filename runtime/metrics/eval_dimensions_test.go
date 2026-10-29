@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,7 +56,7 @@ func TestEvalDimensions_CapBoundsCardinality(t *testing.T) {
 	// A judge inventing new keys run after run cannot grow the family.
 	require.NoError(t, mc.Record(rubricResult(map[string]float64{"d": 4, "e": 5, "a": 10}), rubricMetric))
 
-	family := c.dimensionFamilies["test_eval_rubric_score_dimension"]
+	family := c.dimensionFamilies["test_eval_rubric_score_dimension|"]
 	require.NotNil(t, family)
 	assert.Equal(t, 2, testutil.CollectAndCount(family.gauge), "sorted order admits a and b, then nothing new")
 	out := gatherMetrics(t, reg)
@@ -118,7 +119,9 @@ func TestEvalDimensions_LabelCollisionSkipsFamilyOnly(t *testing.T) {
 	out := gatherMetrics(t, reg)
 	assert.Contains(t, out, `test_eval_rubric_score{dimension="x"} 0.8`)
 	assert.NotContains(t, out, "_dimension{")
-	assert.True(t, c.dimensionFamilyErrs["test_eval_rubric_score_dimension"])
+	family, known := c.dimensionFamilies["test_eval_rubric_score_dimension|dimension"]
+	assert.True(t, known)
+	assert.Nil(t, family, "a family that failed to register is remembered as nil")
 }
 
 func TestEvalDimensions_DisabledEvalMetricsIgnoresLimit(t *testing.T) {
@@ -142,9 +145,49 @@ func TestEvalDimensions_CapHoldsUnderConcurrency(t *testing.T) {
 	}
 	wg.Wait()
 
-	family := c.dimensionFamilies["test_eval_rubric_score_dimension"]
+	family := c.dimensionFamilies["test_eval_rubric_score_dimension|"]
 	require.NotNil(t, family)
 	assert.Equal(t, limit, testutil.CollectAndCount(family.gauge))
 	assert.InDelta(t, writers-limit,
 		testutil.ToFloat64(c.dimensionsDropped.WithLabelValues("rubric_score", dropReasonOverLimit)), 0)
+}
+
+// Two evals declaring the same metric name with different label sets used to
+// share one vector, and the second write panicked on the label count. Now the
+// second is refused by the registry with an error, for the headline metric and
+// its dimensions alike.
+func TestEvalMetrics_SameNameDifferentLabelsDoesNotPanic(t *testing.T) {
+	c, reg := newTestCollector(withDimensionLimit(4))
+	labeled := &evals.MetricDef{Name: "rubric_score", Type: evals.MetricGauge}
+	evals.SetMetricLabels(labeled, map[string]string{"team": "support"})
+	mc := c.Bind(nil)
+	require.NoError(t, mc.Record(rubricResult(map[string]float64{"clarity": 0.9}), labeled))
+
+	assert.NotPanics(t, func() {
+		err := mc.Record(rubricResult(map[string]float64{"clarity": 0.1}), rubricMetric)
+		assert.Error(t, err, "the registry refuses a second label set under one name")
+	})
+	assert.NotPanics(t, func() {
+		_ = mc.Record(evals.EvalResult{Metrics: map[string]float64{"clarity": 0.1}}, rubricMetric)
+	})
+	assert.Contains(t, gatherMetrics(t, reg),
+		`test_eval_rubric_score_dimension{dimension="clarity",team="support"} 0.9`, "the first family is intact")
+}
+
+// Eval-only collectors are built per job against a shared registry; enabling
+// dimensions must not make the second construction panic.
+func TestEvalDimensions_SecondCollectorOnSameRegistry(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	opts := CollectorOpts{Registerer: reg, Namespace: "test", EvalDimensionLimit: 2}
+	first := NewEvalOnlyCollector(opts)
+	var second *Collector
+	require.NotPanics(t, func() { second = NewEvalOnlyCollector(opts) })
+
+	bad := rubricResult(map[string]float64{"Bad": 1})
+	require.NoError(t, first.Bind(nil).Record(bad, rubricMetric))
+	_ = second.Bind(nil).Record(bad, &evals.MetricDef{Name: "other_score", Type: evals.MetricGauge})
+	out := gatherMetrics(t, reg)
+	assert.Contains(t, out, `test_eval_dimensions_dropped_total{metric="rubric_score",reason="invalid_name"} 1`)
+	assert.Contains(t, out, `test_eval_dimensions_dropped_total{metric="other_score",reason="invalid_name"} 1`,
+		"both collectors count into the one registered counter")
 }
