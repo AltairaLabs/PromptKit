@@ -189,9 +189,12 @@ pass rate, a findings count or a p95 latency instead of a yes/no.
 - The raw extracted value is reported in `details.raw_score`, next to
   `details.result`.
 - The score is neither clamped nor thresholded. The pass boundary is
-  `min_score` / `max_score` on the assertion; with neither set, an assertion
-  requires `1.0`. Putting `min_score` / `max_score` among a pack `evals:`
-  entry's params is rejected.
+  `min_score` / `max_score` on the assertion. With neither set, an assertion
+  passes when the score is `1.0` **or more**, so an unthresholded count or
+  latency passes at 1 or above and fails at 0 — the opposite of what a
+  lower-is-better metric wants. Set `max_score` for counts and latencies, and
+  `min_score` for rates. Putting `min_score` / `max_score` among a pack
+  `evals:` entry's params is rejected.
 
 **Surfaces:** A E (conversation-level / session-level — invoke at the end of the session, not per turn)
 
