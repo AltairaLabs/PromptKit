@@ -1304,7 +1304,7 @@ ValidateParams mirrors AssertionEvalHandler.ValidateParams.
 <a name="HandlerTimeout"></a>
 ## type [HandlerTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L262-L266>)
 
-HandlerTimeout is implemented by handlers that bound their own work — a subprocess, a tool call — and can legitimately need longer than the runner's per\-eval timeout. Without it the runner's timeout \(30s by default\) silently caps a configured \`timeout\_ms: 300000\` at 30 seconds.
+HandlerTimeout is implemented by handlers that bound their own work \(a subprocess, a tool call\) and can legitimately need longer than the runner's per\-eval timeout. Without it the runner's timeout \(30s by default\) silently caps a configured \`timeout\_ms: 300000\` at 30 seconds.
 
 ```go
 type HandlerTimeout interface {

@@ -255,8 +255,8 @@ func (r *EvalRunner) runOne(
 	return r.executeHandler(ctx, handler, def, evalCtx)
 }
 
-// HandlerTimeout is implemented by handlers that bound their own work — a
-// subprocess, a tool call — and can legitimately need longer than the
+// HandlerTimeout is implemented by handlers that bound their own work (a
+// subprocess, a tool call) and can legitimately need longer than the
 // runner's per-eval timeout. Without it the runner's timeout (30s by default)
 // silently caps a configured `timeout_ms: 300000` at 30 seconds.
 type HandlerTimeout interface {
