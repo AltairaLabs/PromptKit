@@ -179,10 +179,13 @@ the extracted value divided by `score_scale`, so a check can report a test
 pass rate, a findings count or a p95 latency instead of a yes/no.
 
 - Set one of `score_path` and `score_pattern`, not both.
-- A tool error, a `success_pattern` miss or a `failure_pattern` match still
-  scores `0.0`.
-- When the value cannot be extracted (no match, path selects nothing, value
-  is not a number) the score is `0.0` and the explanation says why.
+- `score_path` reads a number, or a string holding a number (`"87.5"`).
+- When no number is taken (the tool errors, a `success_pattern` misses, a
+  `failure_pattern` matches, or the value cannot be extracted) the result is
+  an error, not a score of `0.0`, and the explanation says why. An assertion
+  fails on an error whatever its thresholds, so a `max_score: 0` findings gate
+  does not pass when the scanner crashed.
+- A bad `score_path`, regex or `score_scale` is rejected when the pack loads.
 - The raw extracted value is reported in `details.raw_score`, next to
   `details.result`.
 - The score is neither clamped nor thresholded. The pass boundary is

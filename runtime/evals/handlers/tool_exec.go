@@ -3,8 +3,8 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -22,6 +22,12 @@ const defaultToolExecTimeout = 120 * time.Second
 // Without it, ToolExecHandler returns a clear configuration error
 // rather than panicking on a nil registry.
 const metadataKeyToolRegistry = "tool_registry"
+
+// Value keys on a failed call: the tool's name and its own error text.
+const (
+	valueKeyTool  = "tool"
+	valueKeyError = "error"
+)
 
 // ToolExecHandler invokes a tool by name through the runtime tool
 // registry and asserts the call succeeded. The pass condition is:
@@ -56,6 +62,18 @@ type ToolExecHandler struct{}
 // Type returns the eval type identifier.
 func (h *ToolExecHandler) Type() string { return "tool_exec" }
 
+// ValidateParams rejects a misconfigured check when the pack loads, before
+// any session runs, using the same parse Eval applies.
+func (h *ToolExecHandler) ValidateParams(params map[string]any) error {
+	if toolName, _ := params["tool"].(string); toolName == "" {
+		return fmt.Errorf("tool_exec: 'tool' parameter is required")
+	}
+	if _, msg := parseToolExecConfig(params); msg != "" {
+		return errors.New(msg)
+	}
+	return nil
+}
+
 // Eval invokes the named tool and returns pass/fail based on whether
 // the tool reported success.
 func (h *ToolExecHandler) Eval(
@@ -67,23 +85,21 @@ func (h *ToolExecHandler) Eval(
 	if toolName == "" {
 		return failResult(h.Type(), "tool_exec: 'tool' parameter is required"), nil
 	}
-	if msg := rejectThresholdParams(params); msg != "" {
-		return errorResult(h.Type(), "tool_exec: "+msg), nil
-	}
 	// Parsed before the call so a misconfigured check never runs the tool.
-	scoreSpec, scoreErr := parseToolExecScore(params)
-	if scoreErr != "" {
-		return errorResult(h.Type(), scoreErr), nil
+	cfg, cfgErr := parseToolExecConfig(params)
+	if cfgErr != "" {
+		return errorResult(h.Type(), cfgErr), nil
 	}
+	fail := cfg.failFunc(h.Type())
 
 	registry, err := h.resolveRegistry(evalCtx)
 	if err != nil {
-		return failResult(h.Type(), err.Error()), nil
+		return fail(err.Error()), nil
 	}
 
 	args, err := h.encodeArgs(params)
 	if err != nil {
-		return failResult(h.Type(), fmt.Sprintf("tool_exec: encode args for %q: %v", toolName, err)), nil
+		return fail(fmt.Sprintf("tool_exec: encode args for %q: %v", toolName, err)), nil
 	}
 
 	timeout := h.timeout(params)
@@ -92,44 +108,27 @@ func (h *ToolExecHandler) Eval(
 
 	result, execErr := registry.Execute(execCtx, toolName, args)
 	if execErr != nil {
-		return failResult(h.Type(), fmt.Sprintf("tool_exec: %q failed: %v", toolName, execErr)), nil
+		return fail(fmt.Sprintf("tool_exec: %q failed: %v", toolName, execErr)), nil
 	}
 	if result == nil {
-		return failResult(h.Type(), fmt.Sprintf("tool_exec: %q returned no result", toolName)), nil
+		return fail(fmt.Sprintf("tool_exec: %q returned no result", toolName)), nil
 	}
 	if result.Error != "" {
-		return &evals.EvalResult{
-			Type:        h.Type(),
-			Score:       boolScore(false),
-			Explanation: fmt.Sprintf("tool_exec: %q reported error: %s", toolName, result.Error),
-			Value:       map[string]any{"tool": toolName, "error": result.Error},
-		}, nil
+		res := fail(fmt.Sprintf("tool_exec: %q reported error: %s", toolName, result.Error))
+		res.Value = map[string]any{valueKeyTool: toolName, valueKeyError: result.Error}
+		return res, nil
 	}
 
 	// Pattern checks run against the human-readable output text.
 	outputText := extractResultText(result.Result)
 
-	if sp, _ := params["success_pattern"].(string); sp != "" {
-		rx, compileErr := regexp.Compile(sp)
-		if compileErr != nil {
-			msg := fmt.Sprintf("tool_exec: success_pattern %q is not a valid regex: %v", sp, compileErr)
-			return failResult(h.Type(), msg), nil
-		}
-		if !rx.MatchString(outputText) {
-			msg := fmt.Sprintf("tool_exec: %q succeeded but output did not match success_pattern %q", toolName, sp)
-			return failResult(h.Type(), msg), nil
-		}
+	if cfg.success != nil && !cfg.success.MatchString(outputText) {
+		return fail(fmt.Sprintf("tool_exec: %q succeeded but output did not match success_pattern %q",
+			toolName, cfg.success.String())), nil
 	}
-
-	if fp, _ := params["failure_pattern"].(string); fp != "" {
-		rx, compileErr := regexp.Compile(fp)
-		if compileErr != nil {
-			msg := fmt.Sprintf("tool_exec: failure_pattern %q is not a valid regex: %v", fp, compileErr)
-			return failResult(h.Type(), msg), nil
-		}
-		if rx.MatchString(outputText) {
-			return failResult(h.Type(), fmt.Sprintf("tool_exec: %q output matched failure_pattern %q", toolName, fp)), nil
-		}
+	if cfg.failure != nil && cfg.failure.MatchString(outputText) {
+		return fail(fmt.Sprintf("tool_exec: %q output matched failure_pattern %q",
+			toolName, cfg.failure.String())), nil
 	}
 
 	value := map[string]any{
@@ -154,8 +153,8 @@ func (h *ToolExecHandler) Eval(
 		value["result"] = payload
 		details["result"] = payload
 	}
-	if scoreSpec != nil {
-		return h.scoredResult(toolName, scoreSpec, payload, outputText, value, details), nil
+	if cfg.score != nil {
+		return h.scoredResult(toolName, cfg.score, payload, outputText, value, details), nil
 	}
 	return &evals.EvalResult{
 		Type:        h.Type(),
@@ -169,20 +168,18 @@ func (h *ToolExecHandler) Eval(
 // scoredResult reports the number score_path / score_pattern pulled out of a
 // successful call, divided by score_scale. The score is a raw measurement:
 // not clamped and not thresholded — `type: assertion`'s min_score / max_score
-// decides what passes. A miss scores 0 with the reason in Explanation.
+// decides what passes. A miss is an Error, not a measurement of 0: a 0 would
+// pass a max_score gate (no findings) when the tool never reported any.
 func (h *ToolExecHandler) scoredResult(
 	toolName string, spec *toolExecScore, payload any, outputText string,
 	value, details map[string]any,
 ) *evals.EvalResult {
 	raw, miss := spec.extract(payload, outputText)
 	if miss != "" {
-		return &evals.EvalResult{
-			Type:        h.Type(),
-			Score:       scorePtr(0),
-			Explanation: fmt.Sprintf("tool_exec: %q succeeded but %s", toolName, miss),
-			Value:       value,
-			Details:     details,
-		}
+		res := errorResult(h.Type(), fmt.Sprintf("tool_exec: %q succeeded but %s", toolName, miss))
+		res.Value = value
+		res.Details = details
+		return res
 	}
 	score := raw / spec.scale
 	details["raw_score"] = raw

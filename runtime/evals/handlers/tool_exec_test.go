@@ -414,15 +414,16 @@ func TestToolExec_ScoreIsNotClampedOrThresholded(t *testing.T) {
 	assert.Nil(t, res.Passed)
 }
 
-func TestToolExec_ScoreExtractionFailureScoresZero(t *testing.T) {
+func TestToolExec_ScoreExtractionFailureIsError(t *testing.T) {
 	cases := map[string]struct {
 		payload string
 		params  map[string]any
 		want    string
 	}{
 		"path missing":       {`{"other": 1}`, map[string]any{"score_path": "pass_rate"}, "no value"},
+		"path boolean":       {`{"pass_rate": true}`, map[string]any{"score_path": "pass_rate"}, "not a number"},
 		"path non-numeric":   {`{"pass_rate": "high"}`, map[string]any{"score_path": "pass_rate"}, "not a number"},
-		"payload not JSON":   {`"plain text"`, map[string]any{"score_path": "pass_rate"}, "no value"},
+		"payload not JSON":   {`"plain text"`, map[string]any{"score_path": "pass_rate"}, "use score_pattern"},
 		"pattern no match":   {`"nothing here"`, map[string]any{"score_pattern": `RATE=(\d+)`}, "did not match"},
 		"capture non-number": {`"RATE=abc"`, map[string]any{"score_pattern": `RATE=(\w+)`}, "not a number"},
 	}
@@ -431,7 +432,7 @@ func TestToolExec_ScoreExtractionFailureScoresZero(t *testing.T) {
 			res := runToolExec(t, tc.payload, tc.params)
 			assert.Equal(t, 0.0, *res.Score)
 			assert.Contains(t, res.Explanation, tc.want)
-			assert.Empty(t, res.Error, "an extraction miss is a measurement of 0, not a config error")
+			assert.NotEmpty(t, res.Error, "a miss is no measurement; a 0 would pass a max_score gate")
 		})
 	}
 }
@@ -459,6 +460,7 @@ func TestToolExec_ScoreConfigErrors(t *testing.T) {
 		"string scale":   {map[string]any{"score_path": "a", "score_scale": "100"}, "score_scale"},
 		"scale alone":    {map[string]any{"score_scale": 100}, "score_scale"},
 		"threshold here": {map[string]any{"score_path": "a", "min_score": 0.5}, "type: assertion"},
+		"bad gate regex": {map[string]any{"score_path": "a", "success_pattern": `[bad`}, "success_pattern"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -510,4 +512,57 @@ func TestToolExec_AssertionMinScoreGatesExtractedScore(t *testing.T) {
 		assert.Equal(t, tc.pass, *res.Passed, "min_score %v", tc.min)
 		assert.InDelta(t, 0.75, *res.Score, 1e-9)
 	}
+}
+
+func TestToolExec_ScorePathAcceptsNumericString(t *testing.T) {
+	res := runToolExec(t, `{"rate": " 87.5 "}`, map[string]any{"score_path": "rate", "score_scale": 100})
+	assert.InDelta(t, 0.875, *res.Score, 1e-9)
+	assert.Empty(t, res.Error)
+}
+
+// In score mode a failed call took no measurement, so it is an Error; in
+// binary mode the failed call is the measurement and stays a plain 0.
+func TestToolExec_FailedCallIsErrorOnlyInScoreMode(t *testing.T) {
+	payload := `"exit: 1\nPASS_RATE=90\n"`
+	scored := runToolExec(t, payload, map[string]any{
+		"score_pattern":   `PASS_RATE=([0-9.]+)`,
+		"failure_pattern": `exit: [1-9]`,
+	})
+	assert.Equal(t, 0.0, *scored.Score)
+	assert.Contains(t, scored.Error, "failure_pattern")
+
+	binary := runToolExec(t, payload, map[string]any{"failure_pattern": `exit: [1-9]`})
+	assert.Equal(t, 0.0, *binary.Score)
+	assert.Empty(t, binary.Error)
+}
+
+// TestToolExec_AssertionMaxScoreFailsWhenNothingMeasured pins the fail-open
+// case: a findings count gated by max_score must not pass when the tool
+// broke and its placeholder score is 0.
+func TestToolExec_AssertionMaxScoreFailsWhenNothingMeasured(t *testing.T) {
+	wrapper, err := evals.NewEvalTypeRegistry().Get(evals.WrapperTypeAssertion)
+	require.NoError(t, err)
+	for name, payload := range map[string]string{
+		"measured zero": `{"findings": 0}`,
+		"no findings":   `{"error": "semgrep crashed"}`,
+	} {
+		registry := newStubRegistry(t, "run_semgrep", &stubExecutor{name: "stub-" + name, result: json.RawMessage(payload)})
+		res, evalErr := wrapper.Eval(context.Background(), evalCtxWithRegistry(registry), map[string]any{
+			"eval_type":   "tool_exec",
+			"max_score":   0.0,
+			"eval_params": map[string]any{"tool": "run_semgrep", "score_path": "findings"},
+		})
+		require.NoError(t, evalErr)
+		require.NotNil(t, res.Passed)
+		assert.Equal(t, name == "measured zero", *res.Passed, name)
+	}
+}
+
+func TestToolExec_ValidateParams(t *testing.T) {
+	h := &ToolExecHandler{}
+	assert.NoError(t, h.ValidateParams(map[string]any{"tool": "t", "score_path": "a.b"}))
+	assert.ErrorContains(t, h.ValidateParams(map[string]any{}), "'tool'")
+	assert.ErrorContains(t, h.ValidateParams(map[string]any{"tool": "t", "score_path": "a[["}), "score_path")
+	assert.ErrorContains(t, h.ValidateParams(map[string]any{"tool": "t", "failure_pattern": "[x"}), "failure_pattern")
+	assert.ErrorContains(t, h.ValidateParams(map[string]any{"tool": "t", "max_score": 1}), "type: assertion")
 }
