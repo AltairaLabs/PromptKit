@@ -255,6 +255,35 @@ func (r *EvalRunner) runOne(
 	return r.executeHandler(ctx, handler, def, evalCtx)
 }
 
+// HandlerTimeout is implemented by handlers that bound their own work — a
+// subprocess, a tool call — and can legitimately need longer than the
+// runner's per-eval timeout. Without it the runner's timeout (30s by default)
+// silently caps a configured `timeout_ms: 300000` at 30 seconds.
+type HandlerTimeout interface {
+	// EvalTimeout returns the time this handler allows itself for params,
+	// or zero when it sets no bound of its own.
+	EvalTimeout(params map[string]any) time.Duration
+}
+
+// handlerTimeoutGrace is added on top of a handler's own timeout so the
+// handler's bound fires first and reports what timed out, rather than the
+// runner canceling it with a bare context error.
+const handlerTimeoutGrace = 5 * time.Second
+
+// timeoutFor is the runner timeout, raised to cover a handler that declares a
+// longer bound of its own. It is never lowered: the runner's timeout stays
+// the floor every eval gets.
+func (r *EvalRunner) timeoutFor(handler EvalTypeHandler, params map[string]any) time.Duration {
+	ht, ok := handler.(HandlerTimeout)
+	if !ok {
+		return r.timeout
+	}
+	if own := ht.EvalTimeout(params); own > 0 && own+handlerTimeoutGrace > r.timeout {
+		return own + handlerTimeoutGrace
+	}
+	return r.timeout
+}
+
 // executeHandler runs a handler with timeout and panic recovery.
 func (r *EvalRunner) executeHandler(
 	ctx context.Context,
@@ -262,7 +291,7 @@ func (r *EvalRunner) executeHandler(
 	def *EvalDef,
 	evalCtx *EvalContext,
 ) *EvalResult {
-	evalCtx2, cancel := context.WithTimeout(ctx, r.timeout)
+	evalCtx2, cancel := context.WithTimeout(ctx, r.timeoutFor(handler, def.Params))
 	defer cancel()
 	// Inference providers a handler calls report through the runner's emitter.
 	evalCtx2 = inference.WithEmitter(evalCtx2, r.emitter)

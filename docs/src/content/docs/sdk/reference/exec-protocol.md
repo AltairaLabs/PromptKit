@@ -112,7 +112,7 @@ The `args` object contains the tool arguments as provided by the LLM, matching t
 | `context.turn_index` | integer | Current turn index |
 | `context.tool_calls` | array | Tool calls made during this turn |
 | `context.variables` | object | Template variables in scope |
-| `context.metadata` | object | Arbitrary metadata from the pipeline |
+| `context.metadata` | object | Metadata the host attached to the eval context. Entries that cannot be encoded as JSON (live objects such as a tool registry) are dropped; the rest pass through unchanged. |
 | `context.session_id` | string | Session identifier (omitted when empty) |
 | `context.prompt_id` | string | Prompt identifier (omitted when empty) |
 
@@ -124,19 +124,28 @@ The `args` object contains the tool arguments as provided by the LLM, matching t
 {
   "score": 0.85,
   "detail": "Sentiment polarity: 0.85",
-  "data": {"polarity": 0.85, "subjectivity": 0.6}
+  "data": {"polarity": 0.85, "subjectivity": 0.6},
+  "metrics": {"polarity": 0.85, "subjectivity": 0.6}
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `score` | float | Numeric score (0.0--1.0) |
+| `score` | float | The eval's score. Reported as both `Score` and `MetricValue`. |
 | `detail` | string | Human-readable explanation |
-| `data` | object | Arbitrary structured data |
+| `data` | object | Arbitrary structured data, reported in `Details` |
+| `metrics` | object | Named numeric sub-scores, reported at `Details["metrics"]`. Every value must be a number. |
+| `error` | string | Set when the program could not take its measurement. The result is an error, and `data` and `metrics` are still reported. |
+
+The result is an **error**, not a score of 0, when the process exits non-zero, runs past `timeout_ms`, writes output that is not this JSON, or sets `error`. An assertion fails on an error whatever its `min_score` / `max_score`. A score of 0 would pass a `max_score` gate, so an eval that failed to run would read as "no findings".
+
+### Timeout
+
+`timeout_ms` on the binding bounds the program; the default is 30 seconds. The eval runner gives the eval at least that long plus a short grace period, even when its own per-eval timeout (`EvaluateOpts.Timeout`, `evals.WithTimeout`) is shorter. That holds when the eval is wrapped in `type: assertion` or `type: guardrail` too.
 
 ### How Callers Use the Result
 
-- **Assertions**: `AssertionEvalHandler` checks min/max score thresholds to determine pass/fail.
+- **Assertions**: `AssertionEvalHandler` fails a result that carries an error, then checks min/max score thresholds to determine pass/fail.
 - **Guardrails**: `GuardrailHookAdapter` derives pass/fail directly from `Score` (`Score == nil || *Score < 1.0` → fail) to enforce or monitor. There is no `IsPassed()` method — the check is inlined (`runtime/hooks/guardrails/adapter.go`).
 - **Standalone evals**: Score is recorded as a metric.
 

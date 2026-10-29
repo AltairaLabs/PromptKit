@@ -773,3 +773,42 @@ func writeTestScript(t *testing.T, content string) string {
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o755))
 	return path
 }
+
+// TestEvaluate_RuntimeConfigBindingTimeoutOutlivesRunnerTimeout is the
+// file-to-runner path for a long sandbox eval: a binding's timeout_ms above
+// EvaluateOpts.Timeout must win, or a 300s scoring program is cut off at the
+// runner's bound. The program sleeps past Timeout and well inside timeout_ms.
+func TestEvaluate_RuntimeConfigBindingTimeoutOutlivesRunnerTimeout(t *testing.T) {
+	script := writeTestScript(t, `#!/bin/sh
+cat > /dev/null
+sleep 0.4
+echo '{"score": 0.5, "metrics": {"functional_score": 0.5}}'
+`)
+	rcYAML := []byte(`apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: RuntimeConfig
+metadata:
+  name: test
+spec:
+  evals:
+    sandbox_score:
+      command: ` + script + `
+      timeout_ms: 30000
+`)
+	rcPath := t.TempDir() + "/runtime.yaml"
+	require.NoError(t, os.WriteFile(rcPath, rcYAML, 0o644))
+
+	results, err := Evaluate(context.Background(), EvaluateOpts{
+		EvalDefs: []evals.EvalDef{{
+			ID: "sandbox", Type: "sandbox_score", Trigger: evals.TriggerOnSessionComplete,
+		}},
+		Trigger:           evals.TriggerOnSessionComplete,
+		RuntimeConfigPath: rcPath,
+		Timeout:           50 * time.Millisecond,
+		Messages:          []types.Message{types.NewAssistantMessage("done")},
+	})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Empty(t, results[0].Error)
+	assert.InDelta(t, 0.5, *results[0].Score, 1e-9)
+	assert.Equal(t, map[string]float64{"functional_score": 0.5}, results[0].Details["metrics"])
+}

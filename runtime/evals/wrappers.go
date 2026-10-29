@@ -3,6 +3,7 @@ package evals
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 )
@@ -315,6 +316,35 @@ func prepareInner(
 		}
 	}
 	return handler, inner, nil
+}
+
+// innerTimeout reports the wrapped eval's own timeout, so the runner gives a
+// wrapped long-running check (tool_exec, an exec eval) the same time it would
+// get declared directly.
+func innerTimeout(registry *EvalTypeRegistry, params map[string]any) time.Duration {
+	evalType, ok := innerEvalType(params)
+	if !ok || registry == nil {
+		return 0
+	}
+	handler, err := registry.Get(evalType)
+	if err != nil {
+		return 0
+	}
+	ht, ok := handler.(HandlerTimeout)
+	if !ok {
+		return 0
+	}
+	return ht.EvalTimeout(ApplyDefaults(evalType, extractEvalParams(params)))
+}
+
+// EvalTimeout delegates to the wrapped eval.
+func (h *AssertionEvalHandler) EvalTimeout(params map[string]any) time.Duration {
+	return innerTimeout(h.registry, params)
+}
+
+// EvalTimeout delegates to the wrapped eval.
+func (h *GuardrailEvalHandler) EvalTimeout(params map[string]any) time.Duration {
+	return innerTimeout(h.registry, params)
 }
 
 // ValidateParams lets a wrapped eval's own param validation run at load time,
