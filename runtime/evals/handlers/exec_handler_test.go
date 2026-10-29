@@ -74,6 +74,7 @@ exit 1
 	require.NotNil(t, result)
 	assert.Contains(t, result.Explanation, "exec eval failed")
 	assert.Contains(t, result.Explanation, "process error")
+	assert.Contains(t, result.Error, "process error", "no measurement was taken: an Error, not a score of 0")
 }
 
 func TestExecEvalHandler_Eval_InvalidJSON(t *testing.T) {
@@ -92,6 +93,7 @@ echo "not valid json"
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Contains(t, result.Explanation, "invalid JSON")
+	assert.NotEmpty(t, result.Error)
 }
 
 func TestExecEvalHandler_Eval_WithTimeout(t *testing.T) {
@@ -115,6 +117,7 @@ echo '{"score": 1.0}'
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Contains(t, result.Explanation, "exec eval failed")
+	assert.Contains(t, result.Error, "timed out after 100ms")
 	assert.Less(t, time.Since(start), time.Second, "a script's child process must not outlive the timeout")
 }
 
@@ -239,4 +242,64 @@ func TestNewExecEvalHandler(t *testing.T) {
 	assert.Equal(t, []string{"--mode", "strict"}, h.args)
 	assert.Equal(t, []string{"API_KEY"}, h.env)
 	assert.Equal(t, 10000, h.timeoutMs)
+}
+
+func TestExecEvalHandler_Eval_MetricsAndData(t *testing.T) {
+	script := writeExecScript(t, "eval.sh", `#!/bin/sh
+echo '{"score": 0.5, "metrics": {"functional_score": 0.75, "security_score": 0.25}, "data": {"cwe": ["CWE-89"]}}'
+`)
+	h := NewExecEvalHandler(&ExecEvalConfig{TypeName: "baxbench", Command: script})
+
+	result, err := h.Eval(context.Background(), &evals.EvalContext{}, nil)
+	require.NoError(t, err)
+	assert.Empty(t, result.Error)
+	assert.InDelta(t, 0.5, *result.Score, 1e-9)
+	require.NotNil(t, result.MetricValue)
+	assert.InDelta(t, 0.5, *result.MetricValue, 1e-9)
+	assert.Equal(t, map[string]float64{"functional_score": 0.75, "security_score": 0.25},
+		result.Details["metrics"])
+	assert.Equal(t, []any{"CWE-89"}, result.Details["cwe"])
+}
+
+func TestExecEvalHandler_Eval_NonNumericMetricIsError(t *testing.T) {
+	script := writeExecScript(t, "eval.sh", `#!/bin/sh
+echo '{"score": 1, "metrics": {"functional_score": "high"}}'
+`)
+	h := NewExecEvalHandler(&ExecEvalConfig{TypeName: "baxbench", Command: script})
+
+	result, err := h.Eval(context.Background(), &evals.EvalContext{}, nil)
+	require.NoError(t, err)
+	assert.Contains(t, result.Error, "invalid JSON")
+}
+
+func TestExecEvalHandler_Eval_ReportedErrorKeepsData(t *testing.T) {
+	script := writeExecScript(t, "eval.sh", `#!/bin/sh
+echo '{"score": 0, "error": "app did not start within 60s", "data": {"log": "EADDRINUSE"}}'
+`)
+	h := NewExecEvalHandler(&ExecEvalConfig{TypeName: "baxbench", Command: script})
+
+	result, err := h.Eval(context.Background(), &evals.EvalContext{}, nil)
+	require.NoError(t, err)
+	assert.Contains(t, result.Error, "app did not start within 60s")
+	assert.Equal(t, "EADDRINUSE", result.Details["log"], "the program's evidence survives the error")
+	assert.Nil(t, result.MetricValue, "nothing was measured")
+}
+
+func TestExecEvalHandler_EvalTimeoutIsTheBindingTimeout(t *testing.T) {
+	h := NewExecEvalHandler(&ExecEvalConfig{TypeName: "t", Command: "/bin/echo", TimeoutMs: 300000})
+	assert.Equal(t, 300*time.Second, h.EvalTimeout(nil))
+	assert.Equal(t, defaultExecEvalTimeout,
+		NewExecEvalHandler(&ExecEvalConfig{TypeName: "t2", Command: "/bin/echo"}).EvalTimeout(nil))
+}
+
+func TestJSONSafeMetadata_DropsOnlyUnencodableEntries(t *testing.T) {
+	in := map[string]any{
+		"sandbox": map[string]any{"container_id": "abc"},
+		"live":    func() {},
+		"ch":      make(chan int),
+	}
+	out := jsonSafeMetadata(in)
+	assert.Equal(t, map[string]any{"sandbox": map[string]any{"container_id": "abc"}}, out)
+	assert.Len(t, in, 3, "the host's map is not mutated")
+	assert.Nil(t, jsonSafeMetadata(nil))
 }

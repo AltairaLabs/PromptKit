@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
@@ -565,4 +566,10 @@ func TestToolExec_ValidateParams(t *testing.T) {
 	assert.ErrorContains(t, h.ValidateParams(map[string]any{"tool": "t", "score_path": "a[["}), "score_path")
 	assert.ErrorContains(t, h.ValidateParams(map[string]any{"tool": "t", "failure_pattern": "[x"}), "failure_pattern")
 	assert.ErrorContains(t, h.ValidateParams(map[string]any{"tool": "t", "max_score": 1}), "type: assertion")
+}
+
+func TestToolExec_EvalTimeoutIsTimeoutSeconds(t *testing.T) {
+	h := &ToolExecHandler{}
+	assert.Equal(t, defaultToolExecTimeout, h.EvalTimeout(map[string]any{}))
+	assert.Equal(t, 300*time.Second, h.EvalTimeout(map[string]any{"timeout_seconds": 300}))
 }

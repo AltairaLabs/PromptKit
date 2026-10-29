@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // defaultExecEvalTimeout is the default timeout for exec eval subprocesses.
@@ -80,13 +82,33 @@ type execEvalCtx struct {
 }
 
 // execEvalResponse is the JSON payload read from the subprocess stdout.
+//
+// Error says the program could not take its measurement (the app under test
+// never started, say). It makes the result an Error, which fails an
+// assertion whatever its thresholds — a placeholder score of 0 would pass a
+// max_score gate. Metrics carries named sub-scores (functional_score,
+// security_score, ...) and lands at details.metrics, where a report or CSV
+// writer can tell numeric columns from the free-form Data.
 type execEvalResponse struct {
-	Score  float64        `json:"score"`
-	Detail string         `json:"detail,omitempty"`
-	Data   map[string]any `json:"data,omitempty"`
+	Score   float64            `json:"score"`
+	Detail  string             `json:"detail,omitempty"`
+	Data    map[string]any     `json:"data,omitempty"`
+	Metrics map[string]float64 `json:"metrics,omitempty"`
+	Error   string             `json:"error,omitempty"`
 }
 
-// Eval runs the external eval subprocess and returns the result.
+// detailsKeyMetrics is where an exec eval's named metrics are reported.
+const detailsKeyMetrics = "metrics"
+
+// EvalTimeout reports the binding's timeout so the eval runner does not cap
+// it at its own, shorter per-eval default.
+func (h *ExecEvalHandler) EvalTimeout(map[string]any) time.Duration {
+	return h.timeout()
+}
+
+// Eval runs the external eval subprocess and returns the result. Anything
+// that leaves no measurement — the process failing or timing out, output
+// that is not the response JSON, a response carrying error — is an Error.
 func (h *ExecEvalHandler) Eval(
 	ctx context.Context,
 	evalCtx *evals.EvalContext,
@@ -103,34 +125,53 @@ func (h *ExecEvalHandler) Eval(
 
 	stdout, stderr, err := h.runProcess(execCtx, reqBytes)
 	if err != nil {
+		if errors.Is(execCtx.Err(), context.DeadlineExceeded) {
+			err = fmt.Errorf("timed out after %s", timeout)
+		}
 		detail := ""
 		if len(stderr) > 0 {
 			detail = fmt.Sprintf(" (stderr: %s)", bytes.TrimSpace(stderr))
 		}
-		return &evals.EvalResult{
-			Type:        h.typeName,
-			Score:       boolScore(false),
-			Explanation: fmt.Sprintf("exec eval failed: %v%s", err, detail),
-		}, nil
+		return errorResult(h.typeName, fmt.Sprintf("exec eval failed: %v%s", err, detail)), nil
 	}
 
 	var resp execEvalResponse
 	if err := json.Unmarshal(stdout, &resp); err != nil {
-		return &evals.EvalResult{
-			Type:        h.typeName,
-			Score:       boolScore(false),
-			Explanation: fmt.Sprintf("exec eval returned invalid JSON: %v", err),
-		}, nil
+		return errorResult(h.typeName, fmt.Sprintf("exec eval returned invalid JSON: %v", err)), nil
+	}
+
+	details := execDetails(resp.Data, resp.Metrics)
+	if resp.Error != "" {
+		result := errorResult(h.typeName, "exec eval reported error: "+resp.Error)
+		result.Details = details
+		return result, nil
 	}
 
 	score := resp.Score
 	return &evals.EvalResult{
 		Type:        h.typeName,
 		Score:       &score,
+		MetricValue: scorePtr(score),
 		Explanation: resp.Detail,
 		Value:       resp.Data,
-		Details:     resp.Data,
+		Details:     details,
 	}, nil
+}
+
+// execDetails is the program's data with its metrics under details.metrics.
+// The map is a copy, so the response's data is never mutated.
+func execDetails(data map[string]any, metrics map[string]float64) map[string]any {
+	if len(data) == 0 && len(metrics) == 0 {
+		return nil
+	}
+	details := make(map[string]any, len(data)+1)
+	for k, v := range data {
+		details[k] = v
+	}
+	if len(metrics) > 0 {
+		details[detailsKeyMetrics] = metrics
+	}
+	return details
 }
 
 func (h *ExecEvalHandler) buildRequest(evalCtx *evals.EvalContext, params map[string]any) *execEvalRequest {
@@ -141,7 +182,7 @@ func (h *ExecEvalHandler) buildRequest(evalCtx *evals.EvalContext, params map[st
 		Context: &execEvalCtx{
 			TurnIndex: evalCtx.TurnIndex,
 			Variables: evalCtx.Variables,
-			Metadata:  evalCtx.Metadata,
+			Metadata:  jsonSafeMetadata(evalCtx.Metadata),
 			SessionID: evalCtx.SessionID,
 			PromptID:  evalCtx.PromptID,
 		},
@@ -151,6 +192,25 @@ func (h *ExecEvalHandler) buildRequest(evalCtx *evals.EvalContext, params map[st
 	req.Context.ToolCalls = buildToolCallViews(evalCtx)
 
 	return req
+}
+
+// jsonSafeMetadata returns the metadata entries that serialize to JSON.
+// Hosts keep live objects in eval metadata (a tool registry, a judge
+// provider) next to plain data such as sandbox details; one value json
+// cannot encode must not stop the program from running, so it is dropped.
+func jsonSafeMetadata(metadata map[string]any) map[string]any {
+	if len(metadata) == 0 {
+		return metadata
+	}
+	safe := make(map[string]any, len(metadata))
+	for k, v := range metadata {
+		if _, err := json.Marshal(v); err != nil {
+			logger.Debug("exec eval: dropping metadata entry that is not JSON", "key", k, "error", err)
+			continue
+		}
+		safe[k] = v
+	}
+	return safe
 }
 
 func (h *ExecEvalHandler) timeout() time.Duration {

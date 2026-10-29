@@ -1241,7 +1241,7 @@ spec:
       command: python3
       args: ["./evaluators/my_eval.py"]
       env: ["EVAL_TYPE=my_python_eval"]
-      timeoutMs: 5000
+      timeout_ms: 5000
 ```
 
 **Stdin** receives:
@@ -1253,8 +1253,10 @@ spec:
 **Stdout** must return:
 
 ```json
-{"score": 0.85, "detail": "Explanation text", "data": {}}
+{"score": 0.85, "detail": "Explanation text", "data": {}, "metrics": {}, "error": ""}
 ```
+
+`metrics` holds named numeric sub-scores, and `error` reports that no measurement was taken, which fails any assertion on the eval. A crash, a timeout or output that is not this JSON is also an error. See the [exec protocol](/sdk/reference/exec-protocol/#eval-protocol) for every field.
 
 The `score` value (0.0--1.0) is the eval's output. Pass/fail is not determined by the handler — assertion and guardrail wrappers apply score thresholds to determine pass/fail.
 

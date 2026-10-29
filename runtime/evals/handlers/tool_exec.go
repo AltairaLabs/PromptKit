@@ -259,6 +259,12 @@ func (h *ToolExecHandler) encodeArgs(params map[string]any) (json.RawMessage, er
 	return encoded, nil
 }
 
+// EvalTimeout reports timeout_seconds so the eval runner does not cap the
+// call at its own, shorter per-eval default.
+func (h *ToolExecHandler) EvalTimeout(params map[string]any) time.Duration {
+	return h.timeout(params)
+}
+
 // timeout reads timeout_seconds from params, clamped to a sane default.
 func (h *ToolExecHandler) timeout(params map[string]any) time.Duration {
 	secs := extractInt(params, "timeout_seconds", 0)
