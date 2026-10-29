@@ -50,6 +50,13 @@ var packFacingParams = map[string]string{
 	"min_score": "assertion threshold; handlers reject it",
 	"max_score": "assertion threshold; handlers reject it",
 
+	// tool_exec score extraction (#2272). They describe the shape of the
+	// tool's own output, which the pack author wrote or chose; nothing
+	// host-side is named, so `provider` does not apply.
+	"score_path":    "tool_exec: JMESPath into the tool's JSON output selecting the score",
+	"score_pattern": "tool_exec: one-group regex over the tool's text output capturing the score",
+	"score_scale":   "tool_exec: divisor mapping the extracted value onto the score range",
+
 	// Removed vocabulary, listed so the rejection path stays deliberate.
 	"classifier_id": "REMOVED: named a host-side provider id inside a pack (#2027)",
 }

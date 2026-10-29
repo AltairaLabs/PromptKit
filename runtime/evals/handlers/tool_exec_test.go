@@ -360,3 +360,209 @@ func (e *capturingExecutor) Execute(_ context.Context, _ *tools.ToolDescriptor, 
 	*e.captured = clone
 	return json.RawMessage(`{}`), nil
 }
+
+// runToolExec executes tool_exec against a stub tool returning payload.
+func runToolExec(t *testing.T, payload string, params map[string]any) *evals.EvalResult {
+	t.Helper()
+	registry := newStubRegistry(t, "run_tests", &stubExecutor{
+		name:   "stub-score",
+		result: json.RawMessage(payload),
+	})
+	params["tool"] = "run_tests"
+	res, err := (&ToolExecHandler{}).Eval(context.Background(), evalCtxWithRegistry(registry), params)
+	require.NoError(t, err)
+	require.NotNil(t, res.Score)
+	return res
+}
+
+func TestToolExec_ScorePathExtractsNumber(t *testing.T) {
+	res := runToolExec(t, `{"pass_rate": 0.75, "total": 8}`, map[string]any{
+		"score_path": "pass_rate",
+	})
+	assert.InDelta(t, 0.75, *res.Score, 1e-9)
+	require.NotNil(t, res.MetricValue)
+	assert.InDelta(t, 0.75, *res.MetricValue, 1e-9)
+	assert.InDelta(t, 0.75, res.Details["raw_score"], 1e-9)
+	assert.NotNil(t, res.Details["result"], "the parsed payload stays in details")
+	assert.Empty(t, res.Error)
+}
+
+func TestToolExec_ScorePathReadsNestedJSONString(t *testing.T) {
+	// Shell wrappers return stdout as a JSON string holding the JSON payload.
+	res := runToolExec(t, `"{\"summary\":{\"passed\":3,\"rate\":60}}\n"`, map[string]any{
+		"score_path":  "summary.rate",
+		"score_scale": 100,
+	})
+	assert.InDelta(t, 0.6, *res.Score, 1e-9)
+	assert.InDelta(t, 60.0, res.Details["raw_score"], 1e-9)
+}
+
+func TestToolExec_ScorePatternExtractsCapture(t *testing.T) {
+	res := runToolExec(t, `"running...\nPASS_RATE=87.5\ndone\n"`, map[string]any{
+		"score_pattern": `PASS_RATE=([0-9.]+)`,
+		"score_scale":   100.0,
+	})
+	assert.InDelta(t, 0.875, *res.Score, 1e-9)
+	assert.InDelta(t, 87.5, res.Details["raw_score"], 1e-9)
+}
+
+func TestToolExec_ScoreIsNotClampedOrThresholded(t *testing.T) {
+	// A findings count is a raw measurement; the assertion wrapper's
+	// max_score decides what is acceptable.
+	res := runToolExec(t, `{"findings": 3}`, map[string]any{"score_path": "findings"})
+	assert.InDelta(t, 3.0, *res.Score, 1e-9)
+	assert.Nil(t, res.Passed)
+}
+
+func TestToolExec_ScoreExtractionFailureIsError(t *testing.T) {
+	cases := map[string]struct {
+		payload string
+		params  map[string]any
+		want    string
+	}{
+		"path missing":       {`{"other": 1}`, map[string]any{"score_path": "pass_rate"}, "no value"},
+		"path boolean":       {`{"pass_rate": true}`, map[string]any{"score_path": "pass_rate"}, "not a number"},
+		"path non-numeric":   {`{"pass_rate": "high"}`, map[string]any{"score_path": "pass_rate"}, "not a number"},
+		"payload not JSON":   {`"plain text"`, map[string]any{"score_path": "pass_rate"}, "use score_pattern"},
+		"pattern no match":   {`"nothing here"`, map[string]any{"score_pattern": `RATE=(\d+)`}, "did not match"},
+		"capture non-number": {`"RATE=abc"`, map[string]any{"score_pattern": `RATE=(\w+)`}, "not a number"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			res := runToolExec(t, tc.payload, tc.params)
+			assert.Equal(t, 0.0, *res.Score)
+			assert.Contains(t, res.Explanation, tc.want)
+			assert.NotEmpty(t, res.Error, "a miss is no measurement; a 0 would pass a max_score gate")
+		})
+	}
+}
+
+func TestToolExec_ToolErrorScoresZeroWithScorePath(t *testing.T) {
+	res := runToolExec(t, `"exit: 1\nPASS_RATE=90\n"`, map[string]any{
+		"score_pattern":   `PASS_RATE=([0-9.]+)`,
+		"failure_pattern": `exit: [1-9]`,
+	})
+	assert.Equal(t, 0.0, *res.Score)
+	assert.Contains(t, res.Explanation, "failure_pattern")
+}
+
+func TestToolExec_ScoreConfigErrors(t *testing.T) {
+	cases := map[string]struct {
+		params map[string]any
+		want   string
+	}{
+		"both set":       {map[string]any{"score_path": "a", "score_pattern": `a=(\d)`}, "not both"},
+		"bad path":       {map[string]any{"score_path": "a[["}, "score_path"},
+		"bad regex":      {map[string]any{"score_pattern": `[invalid`}, "score_pattern"},
+		"no capture":     {map[string]any{"score_pattern": `RATE=\d+`}, "one capture group"},
+		"two captures":   {map[string]any{"score_pattern": `(R)=(\d+)`}, "one capture group"},
+		"zero scale":     {map[string]any{"score_path": "a", "score_scale": 0}, "score_scale"},
+		"string scale":   {map[string]any{"score_path": "a", "score_scale": "100"}, "score_scale"},
+		"scale alone":    {map[string]any{"score_scale": 100}, "score_scale"},
+		"threshold here": {map[string]any{"score_path": "a", "min_score": 0.5}, "type: assertion"},
+		"bad gate regex": {map[string]any{"score_path": "a", "success_pattern": `[bad`}, "success_pattern"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			res := runToolExec(t, `{"a": 1}`, tc.params)
+			assert.Equal(t, 0.0, *res.Score)
+			assert.Contains(t, res.Error, tc.want)
+		})
+	}
+}
+
+func TestToolExec_ScoreConfigErrorSkipsToolCall(t *testing.T) {
+	var captured json.RawMessage
+	exec := &capturingExecutor{name: "stub-capture-score", captured: &captured}
+	registry := tools.NewRegistry()
+	registry.RegisterExecutor(exec)
+	require.NoError(t, registry.Register(&tools.ToolDescriptor{Name: "run_tests", Mode: exec.Name()}))
+
+	res, err := (&ToolExecHandler{}).Eval(context.Background(), evalCtxWithRegistry(registry), map[string]any{
+		"tool":          "run_tests",
+		"score_pattern": `[invalid`,
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, res.Error)
+	assert.Nil(t, captured, "a misconfigured check must not run the (possibly expensive) tool")
+}
+
+// TestToolExec_AssertionMinScoreGatesExtractedScore runs tool_exec through the
+// real `type: assertion` wrapper: min_score is where the pass boundary lives,
+// and the same 0.75 pass rate passes at 0.7 and fails at 0.8.
+func TestToolExec_AssertionMinScoreGatesExtractedScore(t *testing.T) {
+	registry := newStubRegistry(t, "run_tests", &stubExecutor{
+		name:   "stub-assert",
+		result: json.RawMessage(`{"pass_rate": 0.75}`),
+	})
+	wrapper, err := evals.NewEvalTypeRegistry().Get(evals.WrapperTypeAssertion)
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		min  float64
+		pass bool
+	}{{0.7, true}, {0.8, false}} {
+		res, evalErr := wrapper.Eval(context.Background(), evalCtxWithRegistry(registry), map[string]any{
+			"eval_type":   "tool_exec",
+			"min_score":   tc.min,
+			"eval_params": map[string]any{"tool": "run_tests", "score_path": "pass_rate"},
+		})
+		require.NoError(t, evalErr)
+		require.NotNil(t, res.Passed)
+		assert.Equal(t, tc.pass, *res.Passed, "min_score %v", tc.min)
+		assert.InDelta(t, 0.75, *res.Score, 1e-9)
+	}
+}
+
+func TestToolExec_ScorePathAcceptsNumericString(t *testing.T) {
+	res := runToolExec(t, `{"rate": " 87.5 "}`, map[string]any{"score_path": "rate", "score_scale": 100})
+	assert.InDelta(t, 0.875, *res.Score, 1e-9)
+	assert.Empty(t, res.Error)
+}
+
+// In score mode a failed call took no measurement, so it is an Error; in
+// binary mode the failed call is the measurement and stays a plain 0.
+func TestToolExec_FailedCallIsErrorOnlyInScoreMode(t *testing.T) {
+	payload := `"exit: 1\nPASS_RATE=90\n"`
+	scored := runToolExec(t, payload, map[string]any{
+		"score_pattern":   `PASS_RATE=([0-9.]+)`,
+		"failure_pattern": `exit: [1-9]`,
+	})
+	assert.Equal(t, 0.0, *scored.Score)
+	assert.Contains(t, scored.Error, "failure_pattern")
+
+	binary := runToolExec(t, payload, map[string]any{"failure_pattern": `exit: [1-9]`})
+	assert.Equal(t, 0.0, *binary.Score)
+	assert.Empty(t, binary.Error)
+}
+
+// TestToolExec_AssertionMaxScoreFailsWhenNothingMeasured pins the fail-open
+// case: a findings count gated by max_score must not pass when the tool
+// broke and its placeholder score is 0.
+func TestToolExec_AssertionMaxScoreFailsWhenNothingMeasured(t *testing.T) {
+	wrapper, err := evals.NewEvalTypeRegistry().Get(evals.WrapperTypeAssertion)
+	require.NoError(t, err)
+	for name, payload := range map[string]string{
+		"measured zero": `{"findings": 0}`,
+		"no findings":   `{"error": "semgrep crashed"}`,
+	} {
+		registry := newStubRegistry(t, "run_semgrep", &stubExecutor{name: "stub-" + name, result: json.RawMessage(payload)})
+		res, evalErr := wrapper.Eval(context.Background(), evalCtxWithRegistry(registry), map[string]any{
+			"eval_type":   "tool_exec",
+			"max_score":   0.0,
+			"eval_params": map[string]any{"tool": "run_semgrep", "score_path": "findings"},
+		})
+		require.NoError(t, evalErr)
+		require.NotNil(t, res.Passed)
+		assert.Equal(t, name == "measured zero", *res.Passed, name)
+	}
+}
+
+func TestToolExec_ValidateParams(t *testing.T) {
+	h := &ToolExecHandler{}
+	assert.NoError(t, h.ValidateParams(map[string]any{"tool": "t", "score_path": "a.b"}))
+	assert.ErrorContains(t, h.ValidateParams(map[string]any{}), "'tool'")
+	assert.ErrorContains(t, h.ValidateParams(map[string]any{"tool": "t", "score_path": "a[["}), "score_path")
+	assert.ErrorContains(t, h.ValidateParams(map[string]any{"tool": "t", "failure_pattern": "[x"}), "failure_pattern")
+	assert.ErrorContains(t, h.ValidateParams(map[string]any{"tool": "t", "max_score": 1}), "type: assertion")
+}

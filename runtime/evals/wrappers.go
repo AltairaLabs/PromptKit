@@ -188,6 +188,11 @@ func (h *AssertionEvalHandler) Eval(
 func (h *AssertionEvalHandler) applyThresholds(
 	result *EvalResult, minScore, maxScore *float64,
 ) bool {
+	// An inner Error means no measurement was taken. Its score is a
+	// placeholder 0, which a max_score gate would read as a clean pass.
+	if result.Error != "" {
+		return false
+	}
 	if minScore == nil && maxScore == nil {
 		// Default: inner eval must score 1.0 to pass the assertion.
 		defaultMin := 1.0

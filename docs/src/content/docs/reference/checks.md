@@ -165,6 +165,36 @@ doesn't know or care about the transport.
 | `tool` | string | Yes | Registry name of the tool to invoke. |
 | `args` | object | No | Arguments passed verbatim to the tool. Defaults to `{}`. |
 | `timeout_seconds` | int | No | Per-call timeout. Default `120`. Generous because the typical use case is a long-running test suite inside a sandbox. |
+| `success_pattern` | string | No | Regex the tool's text output must match. |
+| `failure_pattern` | string | No | Regex that fails the check when the tool's text output matches it. |
+| `score_path` | string | No | [JMESPath](https://jmespath.org/) expression into the tool's JSON output selecting a number to report as the score, e.g. `summary.pass_rate`. |
+| `score_pattern` | string | No | Regex with exactly one capture group, applied to the tool's text output; the captured number is the score, e.g. `PASS_RATE=([0-9.]+)`. |
+| `score_scale` | number | No | Divisor applied to the extracted value, e.g. `100` for a percentage. Default `1`. Needs `score_path` or `score_pattern`. |
+
+#### Numeric scores
+
+Without `score_path` or `score_pattern`, the score is `1.0` when the call
+succeeds and `0.0` otherwise. With one of them set, a successful call scores
+the extracted value divided by `score_scale`, so a check can report a test
+pass rate, a findings count or a p95 latency instead of a yes/no.
+
+- Set one of `score_path` and `score_pattern`, not both.
+- `score_path` reads a number, or a string holding a number (`"87.5"`).
+- When no number is taken (the tool errors, a `success_pattern` misses, a
+  `failure_pattern` matches, or the value cannot be extracted) the result is
+  an error, not a score of `0.0`, and the explanation says why. An assertion
+  fails on an error whatever its thresholds, so a `max_score: 0` findings gate
+  does not pass when the scanner crashed.
+- A bad `score_path`, regex or `score_scale` is rejected when the pack loads.
+- The raw extracted value is reported in `details.raw_score`, next to
+  `details.result`.
+- The score is neither clamped nor thresholded. The pass boundary is
+  `min_score` / `max_score` on the assertion. With neither set, an assertion
+  passes when the score is `1.0` **or more**, so an unthresholded count or
+  latency passes at 1 or above and fails at 0 — the opposite of what a
+  lower-is-better metric wants. Set `max_score` for counts and latencies, and
+  `min_score` for rates. Putting `min_score` / `max_score` among a pack
+  `evals:` entry's params is rejected.
 
 **Surfaces:** A E (conversation-level / session-level — invoke at the end of the session, not per turn)
 
@@ -193,6 +223,31 @@ conversation_assertions:
         strict: true
       timeout_seconds: 30
     message: "Final invoice must validate"
+```
+
+**Example — gating on a test pass rate:**
+
+```yaml
+conversation_assertions:
+  - type: tool_exec
+    params:
+      tool: run_tests
+      score_pattern: 'PASS_RATE=([0-9.]+)'
+      score_scale: 100
+      min_score: 0.8
+    message: "At least 80% of hidden tests must pass"
+```
+
+**Example — measuring Semgrep findings without gating:**
+
+```yaml
+evals:
+  - id: semgrep_findings
+    type: tool_exec
+    trigger: on_session_complete
+    params:
+      tool: run_semgrep
+      score_path: findings_count
 ```
 
 **Notes**
