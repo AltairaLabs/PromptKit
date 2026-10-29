@@ -1503,3 +1503,29 @@ func TestOTelEventListener_EvalErroredIsAnErrorSpan(t *testing.T) {
 		t.Errorf("status must carry the error, got %q", evalSpan.Status.Description)
 	}
 }
+
+func TestOTelEventListener_EvalMetricsBecomeSpanAttributes(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+	score := 0.8
+	listener.StartSession(context.Background(), "sess-m")
+	listener.OnEvent(&events.Event{
+		Type: events.EventEvalCompleted, Timestamp: time.Now(),
+		SessionID: "sess-m", ExecutionID: "run-m",
+		Data: &events.EvalCompletedData{
+			EvalID: "rubric", EvalType: "llm_judge", Score: &score,
+			Metrics: map[string]float64{"clarity": 0.9, "accuracy": 0.7},
+		},
+	})
+	listener.EndSession("sess-m")
+	span := findSpan(t, flushAndGetSpans(t, tp, exp), "promptkit.eval.rubric")
+
+	got := map[string]float64{}
+	for _, a := range span.Attributes {
+		if k := string(a.Key); strings.HasPrefix(k, evalMetricAttributePrefix) {
+			got[strings.TrimPrefix(k, evalMetricAttributePrefix)] = a.Value.AsFloat64()
+		}
+	}
+	if len(got) != 2 || got["clarity"] != 0.9 || got["accuracy"] != 0.7 {
+		t.Errorf("metric attributes = %v", got)
+	}
+}

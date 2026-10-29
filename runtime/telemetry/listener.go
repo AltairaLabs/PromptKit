@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -684,6 +685,7 @@ func (l *OTelEventListener) emitEvalSpan(evt *events.Event, data *events.EvalEve
 	if data.Explanation != "" {
 		attrs = append(attrs, attribute.String("gen_ai.evaluation.explanation", data.Explanation))
 	}
+	attrs = append(attrs, evalMetricAttributes(data.Metrics)...)
 
 	parentCtx := l.parentCtxForRun(evt.SessionID, evt.ExecutionID)
 	_, span := l.tracer.Start(parentCtx, "promptkit.eval."+data.EvalID,
@@ -713,6 +715,29 @@ func (l *OTelEventListener) emitEvalSpan(evt *events.Event, data *events.EvalEve
 		span.SetStatus(codes.Error, errMsg)
 	}
 	span.End()
+}
+
+// evalMetricAttributePrefix namespaces an eval's named sub-scores on its span.
+const evalMetricAttributePrefix = "promptkit.eval.metric."
+
+// evalMetricAttributes turns an eval's named sub-scores into span attributes,
+// sorted so a span's attributes do not depend on map iteration order. A span
+// attribute adds no time series, so unlike the Prometheus export these are
+// neither opt-in nor capped.
+func evalMetricAttributes(metrics map[string]float64) []attribute.KeyValue {
+	if len(metrics) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(metrics))
+	for name := range metrics {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	attrs := make([]attribute.KeyValue, 0, len(names))
+	for _, name := range names {
+		attrs = append(attrs, attribute.Float64(evalMetricAttributePrefix+name, metrics[name]))
+	}
+	return attrs
 }
 
 // labelsToAttributes converts a map of string labels to OTel attribute.KeyValues

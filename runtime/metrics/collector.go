@@ -89,6 +89,21 @@ type CollectorOpts struct {
 
 	// DisableEvalMetrics disables eval result metrics.
 	DisableEvalMetrics bool
+
+	// EvalDimensionLimit turns on export of eval dimensions — the named
+	// sub-scores in evals.EvalResult.Metrics — and caps how many distinct
+	// dimensions each eval metric may export for the life of the process.
+	// Zero, the default, exports none: results, events and traces still carry
+	// them, only Prometheus does not.
+	//
+	// Each dimension is a gauge in a family derived from the eval's metric,
+	// <metric>_dimension{dimension="<name>"}, so the eval's own family and its
+	// existing series are untouched. Dimension names come from handler output
+	// (a judge model can invent a new one on any call), so the cap is what
+	// bounds cardinality: a series, once created, is never deleted. Names
+	// that are not snake_case, and dimensions past the cap, are not exported
+	// and are counted in <namespace>_eval_dimensions_dropped_total.
+	EvalDimensionLimit int
 }
 
 // Collector records both pipeline and eval metrics into a Prometheus registry.
@@ -158,6 +173,12 @@ type Collector struct {
 
 	disablePipeline bool
 	disableEval     bool
+
+	// Eval dimension export; see CollectorOpts.EvalDimensionLimit.
+	dimensionLimit      int
+	dimensionFamilies   map[string]*dimensionFamily // guarded by mu
+	dimensionsDropped   *prometheus.CounterVec
+	dimensionFamilyErrs map[string]bool // families that failed to register; guarded by mu
 }
 
 // evalMetricEntry holds a registered prometheus collector for a dynamic eval metric.
@@ -197,6 +218,17 @@ func NewCollector(opts CollectorOpts) *Collector {
 		evalMetrics:     make(map[string]evalMetricEntry),
 		disablePipeline: opts.DisablePipelineMetrics,
 		disableEval:     opts.DisableEvalMetrics,
+	}
+
+	if opts.EvalDimensionLimit > 0 && !opts.DisableEvalMetrics {
+		c.dimensionLimit = opts.EvalDimensionLimit
+		c.dimensionFamilies = make(map[string]*dimensionFamily)
+		c.dimensionFamilyErrs = make(map[string]bool)
+		c.dimensionsDropped = c.mustRegisterCounterVec(
+			"eval_dimensions_dropped_total",
+			"Eval dimensions not exported: name not snake_case, or past EvalDimensionLimit",
+			[]string{"metric", "reason"},
+		)
 	}
 
 	if !opts.DisablePipelineMetrics {
@@ -946,6 +978,10 @@ func (mc *MetricContext) Record(result evals.EvalResult, metric *evals.MetricDef
 			return err
 		}
 	}
+
+	// Dimensions are independent of the headline value: a rubric can return
+	// its breakdown with no single number worth graphing.
+	mc.recordDimensions(result, name, metric, mc.evalLabelValues(metric))
 
 	value, ok := evals.ExtractValue(result, metric)
 	if !ok {

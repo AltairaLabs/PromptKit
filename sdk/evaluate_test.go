@@ -810,5 +810,5 @@ spec:
 	require.Len(t, results, 1)
 	require.Empty(t, results[0].Error)
 	assert.InDelta(t, 0.5, *results[0].Score, 1e-9)
-	assert.Equal(t, map[string]float64{"functional_score": 0.5}, results[0].Details["metrics"])
+	assert.Equal(t, map[string]float64{"functional_score": 0.5}, results[0].Metrics)
 }

@@ -257,7 +257,7 @@ echo '{"score": 0.5, "metrics": {"functional_score": 0.75, "security_score": 0.2
 	require.NotNil(t, result.MetricValue)
 	assert.InDelta(t, 0.5, *result.MetricValue, 1e-9)
 	assert.Equal(t, map[string]float64{"functional_score": 0.75, "security_score": 0.25},
-		result.Details["metrics"])
+		result.Metrics)
 	assert.Equal(t, []any{"CWE-89"}, result.Details["cwe"])
 }
 

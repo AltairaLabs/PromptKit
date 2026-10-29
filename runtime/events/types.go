@@ -909,6 +909,11 @@ type EvalEventData struct {
 	Value       any      `json:"value,omitempty"`
 	MetricValue *float64 `json:"metric_value,omitempty"`
 
+	// Metrics mirrors evals.EvalResult.Metrics: named sub-scores the eval
+	// produced. Numbers only, so they are not size-bounded or redacted the way
+	// Value is.
+	Metrics map[string]float64 `json:"metrics,omitempty"`
+
 	// ValueOmitted reports that Value was DROPPED for exceeding
 	// MaxEvalValueBytes, as distinct from an eval that produced none.
 	//

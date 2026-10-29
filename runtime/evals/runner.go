@@ -392,6 +392,7 @@ func (r *EvalRunner) emitResult(def *EvalDef, result *EvalResult) {
 		EvalType:    result.Type,
 		Score:       result.Score,
 		MetricValue: result.MetricValue,
+		Metrics:     result.Metrics,
 		Explanation: result.Explanation,
 		DurationMs:  result.DurationMs,
 		Error:       result.Error,

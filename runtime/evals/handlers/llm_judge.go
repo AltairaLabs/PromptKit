@@ -241,6 +241,7 @@ func buildEvalResult(
 		Type:        evalType,
 		Score:       &score,
 		MetricValue: &score,
+		Metrics:     jr.Metrics,
 		Explanation: jr.Reasoning,
 		Details: map[string]any{
 			resultFieldScore:     score,

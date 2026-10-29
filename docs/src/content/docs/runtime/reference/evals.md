@@ -694,7 +694,7 @@ func (h *AssertionEvalHandler) ValidateParams(params map[string]any) error
 ValidateParams lets a wrapped eval's own param validation run at load time, the same as a directly declared one. The guardrail factory and sdk.ValidatePack both look for this interface, so implementing it here is what makes \`type: guardrail\` wrapping a check with a typo'd param fail to load rather than load unprotected.
 
 <a name="EvalContext"></a>
-## type [EvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L395-L435>)
+## type [EvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L409-L449>)
 
 EvalContext provides data to eval handlers. For turn\-level evals: Messages contains history up to the current turn. For session\-level evals: Messages contains the full conversation.
 
@@ -841,7 +841,7 @@ type EvalHook interface {
 ```
 
 <a name="EvalResult"></a>
-## type [EvalResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L325-L390>)
+## type [EvalResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L325-L404>)
 
 EvalResult captures the outcome of a single eval execution. Handlers produce scores only \(0.0–1.0\). There is no pass/fail on evals. Assertion wrappers store pass/fail as a bool in Value.
 
@@ -885,9 +885,23 @@ type EvalResult struct {
     // own field, above.
     Value       any      `json:"value,omitempty"`
     MetricValue *float64 `json:"metric_value,omitempty"`
-    Explanation string   `json:"explanation,omitempty"`
-    DurationMs  int64    `json:"duration_ms"`
-    Error       string   `json:"error,omitempty"`
+
+    // Metrics are named sub-scores the eval produced alongside its score: a
+    // rubric's clarity and accuracy from one judge call, an exec program's
+    // functional_score and security_score.
+    //
+    // They are OUTPUT, not declaration. A pack declares one metric per eval
+    // (the PromptPack spec's Eval.metric is singular), so the names here come
+    // from whatever the handler returned and are not trusted: a judge model can
+    // invent a new key on any call. Reports and events carry them as they are;
+    // Prometheus export is opt-in on the host's collector and bounded there
+    // (metrics.CollectorOpts.EvalDimensionLimit). A per-test breakdown with
+    // hundreds of entries belongs in Details, not here.
+    Metrics map[string]float64 `json:"metrics,omitempty"`
+
+    Explanation string `json:"explanation,omitempty"`
+    DurationMs  int64  `json:"duration_ms"`
+    Error       string `json:"error,omitempty"`
 
     // Message is the AUTHOR-configured message for this eval — EvalDef.Message,
     // written in the pack as AssertionConfig.message — as distinct from
@@ -1574,7 +1588,7 @@ type Threshold = packspec.EvalThreshold
 ```
 
 <a name="ToolCallRecord"></a>
-## type [ToolCallRecord](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L452>)
+## type [ToolCallRecord](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L466>)
 
 ToolCallRecord is an alias for types.ToolCallRecord so existing code referencing evals.ToolCallRecord continues to compile unchanged.
 
