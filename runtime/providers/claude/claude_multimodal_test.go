@@ -425,11 +425,9 @@ func TestClaudeProvider_ConvertMessagesToClaudeMultimodal(t *testing.T) {
 		false,
 	)
 
+	// The live path receives the system prompt separately (req.System →
+	// createSystemBlocks), so only conversation turns reach the converter.
 	messages := []types.Message{
-		{
-			Role:    "system",
-			Content: "You are a helpful assistant.",
-		},
 		{
 			Role:    "user",
 			Content: "Hello!",
@@ -449,19 +447,13 @@ func TestClaudeProvider_ConvertMessagesToClaudeMultimodal(t *testing.T) {
 		},
 	}
 
-	claudeMessages, systemBlocks, err := provider.convertMessagesToClaudeMultimodal(messages)
+	claudeMessages, err := provider.convertMessagesToClaudeFormat(context.Background(), messages)
 	if err != nil {
 		t.Fatalf("Failed to convert messages: %v", err)
 	}
 
-	// System message should be separated
-	if len(systemBlocks) != 1 {
-		t.Errorf("Expected 1 system block, got %d", len(systemBlocks))
-	}
-
-	// Should have 3 non-system messages
 	if len(claudeMessages) != 3 {
-		t.Errorf("Expected 3 claude messages (excluding system), got %d", len(claudeMessages))
+		t.Fatalf("Expected 3 claude messages, got %d", len(claudeMessages))
 	}
 
 	// Last message should have 2 content parts (text + image)
@@ -649,31 +641,15 @@ func TestClaudeProvider_ConvertSystemMessage(t *testing.T) {
 		false,
 	)
 
-	messages := []types.Message{
-		{
-			Role:    "system",
-			Content: "You are a helpful assistant.",
-		},
-		{
-			Role:    "user",
-			Content: "Hello!",
-		},
-	}
+	// The live path builds the system prompt into its own text block.
+	systemBlocks := provider.createSystemBlocks("You are a helpful assistant.")
 
-	claudeMessages, systemBlocks, err := provider.convertMessagesToClaudeMultimodal(messages)
-	if err != nil {
-		t.Fatalf("Failed to convert messages: %v", err)
-	}
-
-	// System message should be in systemBlocks, not claudeMessages
 	if len(systemBlocks) != 1 {
-		t.Errorf("Expected 1 system block, got %d", len(systemBlocks))
+		t.Fatalf("Expected 1 system block, got %d", len(systemBlocks))
 	}
-
-	if len(claudeMessages) != 1 {
-		t.Errorf("Expected 1 claude message (user), got %d", len(claudeMessages))
+	if systemBlocks[0].Type != "text" {
+		t.Errorf("Expected system block type 'text', got %q", systemBlocks[0].Type)
 	}
-
 	if systemBlocks[0].Text != "You are a helpful assistant." {
 		t.Errorf("System block text mismatch")
 	}
@@ -723,7 +699,7 @@ func TestClaudeProvider_ConvertMessagesToClaudeMultimodal_ConversionError(t *tes
 		},
 	}
 
-	_, _, err := provider.convertMessagesToClaudeMultimodal(messages)
+	_, err := provider.convertMessagesToClaudeFormat(context.Background(), messages)
 	if err == nil {
 		t.Error("Expected conversion error for unsupported audio content")
 	}

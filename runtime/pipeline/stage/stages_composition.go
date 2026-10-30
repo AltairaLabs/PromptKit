@@ -86,15 +86,7 @@ func (s *CompositionStage) Process(ctx context.Context, in <-chan StreamElement,
 			return err
 		}
 		executed = true
-		assistant := &types.Message{Role: roleAssistant, Content: string(result)}
-		if s.recorder != nil {
-			if snap := s.recorder.Snapshot(); snap != nil {
-				if assistant.Meta == nil {
-					assistant.Meta = map[string]interface{}{}
-				}
-				assistant.Meta[compositionSnapshotMetaKey] = snap
-			}
-		}
+		assistant := s.resultMessage(result)
 		select {
 		case out <- NewMessageElement(assistant):
 		case <-ctx.Done():
@@ -102,6 +94,21 @@ func (s *CompositionStage) Process(ctx context.Context, in <-chan StreamElement,
 		}
 	}
 	return nil
+}
+
+// resultMessage builds the assistant message carrying the composition output,
+// with the recorder's snapshot (when any) under compositionSnapshotMetaKey.
+func (s *CompositionStage) resultMessage(result json.RawMessage) *types.Message {
+	assistant := &types.Message{Role: roleAssistant, Content: string(result)}
+	if s.recorder != nil {
+		if snap := s.recorder.Snapshot(); snap != nil {
+			if assistant.Meta == nil {
+				assistant.Meta = map[string]interface{}{}
+			}
+			assistant.Meta[compositionSnapshotMetaKey] = snap
+		}
+	}
+	return assistant
 }
 
 // execute runs a single composition turn: prepares the recorder and emitter,

@@ -127,7 +127,7 @@ func (p *Provider) applyStreamTools(tools []providers.StreamingToolDefinition, c
 	config.Tools = make([]RealtimeToolDefinition, len(tools))
 	for i, tool := range tools {
 		config.Tools[i] = RealtimeToolDefinition{
-			Type:        "function",
+			Type:        typeFunction,
 			Name:        tool.Name,
 			Description: tool.Description,
 			Parameters:  tool.Parameters,

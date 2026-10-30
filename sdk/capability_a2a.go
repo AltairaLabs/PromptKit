@@ -49,8 +49,11 @@ func NewA2ACapability() *A2ACapability {
 	return &A2ACapability{}
 }
 
+// capabilityNameA2A is the identifier of the A2A capability.
+const capabilityNameA2A = "a2a"
+
 // Name returns the capability identifier.
-func (c *A2ACapability) Name() string { return "a2a" }
+func (c *A2ACapability) Name() string { return capabilityNameA2A }
 
 // defaultA2ADiscoveryTimeout bounds agent card discovery for a builder agent
 // that sets no timeout of its own.

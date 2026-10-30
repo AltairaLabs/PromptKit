@@ -49,7 +49,7 @@ func NewToolProvider(id, model string, includeRawOutput bool, additionalConfig m
 		case bool:
 			autoRespond = v
 		case string:
-			autoRespond = v == "true"
+			autoRespond = v == boolStringTrue
 		}
 
 		if autoRespond {
@@ -119,8 +119,6 @@ func (m *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (pr
 // PredictWithTools implements the ToolSupport interface.
 // This method handles the initial predict request with tools available,
 // potentially returning tool calls based on the mock configuration.
-//
-//nolint:gocritic // hugeParam: interface signature requires value receiver
 func (m *ToolProvider) PredictWithTools(
 	ctx context.Context,
 	req providers.PredictionRequest,
@@ -161,7 +159,7 @@ func (m *ToolProvider) PredictWithTools(
 	costInfo := m.generateMockCostInfo(inputTokens, outputTokens)
 
 	// If turn type is tool_calls, return tool calls
-	if mockTurn.Type == "tool_calls" {
+	if mockTurn.Type == turnTypeToolCalls {
 		toolCalls := make([]types.MessageToolCall, len(mockTurn.ToolCalls))
 		for i, tc := range mockTurn.ToolCalls {
 			argsBytes, err := json.Marshal(tc.Arguments)
@@ -203,9 +201,9 @@ func (m *ToolProvider) generateMockCostInfo(inputTokens, outputTokens int) types
 	return types.CostInfo{
 		InputTokens:   inputTokens,
 		OutputTokens:  outputTokens,
-		InputCostUSD:  float64(inputTokens) * 0.00001,  // $0.01 per 1K tokens
-		OutputCostUSD: float64(outputTokens) * 0.00001, // $0.01 per 1K tokens
-		TotalCost:     float64(inputTokens+outputTokens) * 0.00001,
+		InputCostUSD:  float64(inputTokens) * mockCostPerToken,  // $0.01 per 1K tokens
+		OutputCostUSD: float64(outputTokens) * mockCostPerToken, // $0.01 per 1K tokens
+		TotalCost:     float64(inputTokens+outputTokens) * mockCostPerToken,
 	}
 }
 
@@ -213,7 +211,7 @@ func (m *ToolProvider) generateMockCostInfo(inputTokens, outputTokens int) types
 func (m *ToolProvider) calculateInputTokens(messages []types.Message) int {
 	tokenCount := 0
 	for i := range messages {
-		tokenCount += len(messages[i].Content) / 4 // Rough approximation: ~4 chars per token
+		tokenCount += len(messages[i].Content) / mockCharsPerToken // Rough approximation: ~4 chars per token
 	}
 	if tokenCount == 0 {
 		tokenCount = 10
@@ -223,7 +221,7 @@ func (m *ToolProvider) calculateInputTokens(messages []types.Message) int {
 
 // calculateOutputTokens estimates output tokens from response text (rough approximation).
 func (m *ToolProvider) calculateOutputTokens(responseText string) int {
-	tokens := len(responseText) / 4
+	tokens := len(responseText) / mockCharsPerToken
 	if tokens == 0 {
 		tokens = 20
 	}
@@ -342,9 +340,9 @@ func (m *ToolProvider) PredictStreamWithTools(
 		}
 
 		// Send final chunk with tool calls and finish reason
-		finishReason := "stop"
+		finishReason := finishReasonStop
 		if len(toolCalls) > 0 {
-			finishReason = "tool_calls"
+			finishReason = turnTypeToolCalls
 		}
 		outChan <- providers.StreamChunk{
 			Content:      content,
@@ -379,7 +377,7 @@ func getBoolFromConfig(config map[string]interface{}, key string) bool {
 		case bool:
 			return v
 		case string:
-			return v == "true"
+			return v == boolStringTrue
 		}
 	}
 	return false

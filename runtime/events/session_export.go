@@ -460,9 +460,9 @@ func (e *SessionExporter) buildAudioFFmpegArgs(inputPaths, outputPaths []string,
 	//nolint:exhaustive // Only handling audio formats here
 	switch e.config.Format {
 	case ExportFormatWAV:
-		args = append(args, "-c:a", "pcm_s16le")
+		args = append(args, ffmpegAudioCodec, "pcm_s16le")
 	case ExportFormatMP3:
-		args = append(args, "-c:a", "libmp3lame", "-q:a", "2")
+		args = append(args, ffmpegAudioCodec, "libmp3lame", "-q:a", "2")
 	}
 
 	args = append(args, "-y", e.config.OutputPath)
@@ -730,13 +730,19 @@ func (e *SessionExporter) buildMappingArgs(audioPaths []string) []string {
 	return args
 }
 
+// ffmpeg flags selecting the video and audio codecs.
+const (
+	ffmpegVideoCodec = "-c:v"
+	ffmpegAudioCodec = "-c:a"
+)
+
 // buildOutputFormatArgs builds codec arguments based on output format.
 func (e *SessionExporter) buildOutputFormatArgs() []string {
 	switch e.config.Format { //nolint:exhaustive // Only handling video formats
 	case ExportFormatMP4:
-		return []string{"-c:v", "libx264", "-preset", "fast", "-c:a", "aac"}
+		return []string{ffmpegVideoCodec, "libx264", "-preset", "fast", ffmpegAudioCodec, "aac"}
 	case ExportFormatWebM:
-		return []string{"-c:v", "libvpx-vp9", "-c:a", "libopus"}
+		return []string{ffmpegVideoCodec, "libvpx-vp9", ffmpegAudioCodec, "libopus"}
 	}
 	return nil
 }

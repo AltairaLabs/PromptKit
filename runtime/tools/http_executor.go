@@ -221,7 +221,7 @@ func (e *HTTPExecutor) buildRequest(
 		method = defaultHTTPMethod
 	}
 
-	hasArgs := len(args) > 0 && string(args) != "null" && string(args) != "{}"
+	hasArgs := len(args) > 0 && string(args) != jsonNull && string(args) != "{}"
 
 	// If a request mapping is configured, use the mapper pipeline.
 	if cfg.Request != nil && hasArgs {
@@ -503,7 +503,7 @@ func (e *HTTPExecutor) processResponse(resp *http.Response, cfg *HTTPConfig) (js
 	// Validate response is valid JSON
 	if !json.Valid(respBody) {
 		// Wrap non-JSON response in a result object
-		result := map[string]string{"result": string(respBody)}
+		result := map[string]string{wrappedResultKey: string(respBody)}
 		return json.Marshal(result)
 	}
 

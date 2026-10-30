@@ -21,13 +21,6 @@ const ProtocolVersion = "2026-07-28"
 // choose (2025-06-18, 2025-03-26, 2024-11-05).
 const LegacyProtocolVersion = "2025-11-25"
 
-// methodNotificationsInitialized is the notification a client MUST send after
-// a successful initialize response, before any other request.
-const methodNotificationsInitialized = "notifications/initialized"
-
-// msgInitializedNotifyFailed is logged when that notification cannot be sent.
-const msgInitializedNotifyFailed = "MCP initialized notification failed, continuing"
-
 // JSONRPCMessage represents a JSON-RPC 2.0 message
 type JSONRPCMessage struct {
 	JSONRPC string          `json:"jsonrpc"`

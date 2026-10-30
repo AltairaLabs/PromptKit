@@ -559,8 +559,8 @@ func TestGeminiProvider_MixedMultimodal(t *testing.T) {
 	}
 }
 
-// TestPredictWithContents_HTTPErrors tests error handling in predictWithContents
-func TestPredictWithContents_HTTPErrors(t *testing.T) {
+// TestPredict_HTTPErrors tests HTTP send handling on the live Predict path
+func TestPredict_HTTPErrors(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupServer func() *httptest.Server
@@ -609,11 +609,10 @@ func TestPredictWithContents_HTTPErrors(t *testing.T) {
 				false,
 			)
 
-			contents := []geminiContent{
-				{Role: "user", Parts: []geminiPart{{Text: "test"}}},
-			}
-
-			_, err := provider.predictWithContents(context.Background(), contents, nil, 0.7, 0.9, 100, nil)
+			_, err := provider.Predict(context.Background(), providers.PredictionRequest{
+				Messages:    []types.Message{{Role: "user", Content: "test"}},
+				Temperature: 0.7, TopP: 0.9, MaxTokens: 100,
+			})
 
 			if tt.wantErrMsg == "" {
 				require.NoError(t, err)
@@ -625,8 +624,8 @@ func TestPredictWithContents_HTTPErrors(t *testing.T) {
 	}
 }
 
-// TestPredictStreamWithContents_HTTPErrors tests error handling in predictStreamWithContents
-func TestPredictStreamWithContents_HTTPErrors(t *testing.T) {
+// TestPredictStream_HTTPErrors tests HTTP error handling on the live PredictStream path
+func TestPredictStream_HTTPErrors(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupServer func() *httptest.Server
@@ -670,11 +669,10 @@ func TestPredictStreamWithContents_HTTPErrors(t *testing.T) {
 				false,
 			)
 
-			contents := []geminiContent{
-				{Role: "user", Parts: []geminiPart{{Text: "test"}}},
-			}
-
-			_, err := provider.predictStreamWithContents(context.Background(), contents, nil, 0.7, 0.9, 100, nil)
+			_, err := provider.PredictStream(context.Background(), providers.PredictionRequest{
+				Messages:    []types.Message{{Role: "user", Content: "test"}},
+				Temperature: 0.7, TopP: 0.9, MaxTokens: 100,
+			})
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.wantErrMsg)
@@ -796,52 +794,6 @@ func TestConvertMediaMissingMediaField(t *testing.T) {
 	assert.Contains(t, err.Error(), "missing media field")
 }
 
-// TestPredictWithContents_MarshalError tests JSON marshal error
-func TestPredictWithContents_MarshalError(t *testing.T) {
-	provider := NewProvider(
-		"test",
-		"gemini-2.0-flash",
-		"https://generativelanguage.googleapis.com/v1beta",
-		providers.ProviderDefaults{},
-		false,
-	)
-
-	// Create invalid content that will fail marshaling
-	// In practice, this is very rare with proper typed data
-	// We test that normal content marshals successfully
-	contents := []geminiContent{
-		{Role: "user", Parts: []geminiPart{{Text: "Hello"}}},
-	}
-
-	_, err := provider.predictWithContents(context.Background(), contents, nil, 0.7, 0.9, 100, nil)
-	// This will fail at HTTP stage, not marshal, for valid content
-	if err != nil && err.Error() == "failed to marshal request" {
-		t.Error("Unexpected marshal error for valid content")
-	}
-}
-
-// TestPredictStreamWithContents_MarshalError tests JSON marshal error in streaming
-func TestPredictStreamWithContents_MarshalError(t *testing.T) {
-	provider := NewProvider(
-		"test",
-		"gemini-2.0-flash",
-		"https://generativelanguage.googleapis.com/v1beta",
-		providers.ProviderDefaults{},
-		false,
-	)
-
-	// Test with valid content to ensure marshal works
-	contents := []geminiContent{
-		{Role: "user", Parts: []geminiPart{{Text: "Hello"}}},
-	}
-
-	_, err := provider.predictStreamWithContents(context.Background(), contents, nil, 0.7, 0.9, 100, nil)
-	// Should fail at HTTP stage, not marshal
-	if err != nil && err.Error() == "failed to marshal request" {
-		t.Error("Unexpected marshal error for valid content")
-	}
-}
-
 // TestParseGeminiResponse_EmptyCandidates tests empty candidates error
 func TestParseGeminiResponse_EmptyCandidates(t *testing.T) {
 	provider := NewProvider(
@@ -854,7 +806,7 @@ func TestParseGeminiResponse_EmptyCandidates(t *testing.T) {
 
 	respBody := []byte(`{"candidates": []}`)
 
-	_, err := provider.parseGeminiResponse(respBody)
+	err := parseGeminiResponseLive(provider, respBody)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no candidates")
 }
@@ -876,7 +828,7 @@ func TestParseGeminiResponse_PromptBlocked(t *testing.T) {
 		"candidates": []
 	}`)
 
-	_, err := provider.parseGeminiResponse(respBody)
+	err := parseGeminiResponseLive(provider, respBody)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "prompt blocked")
 	assert.Contains(t, err.Error(), "SAFETY")
@@ -902,9 +854,9 @@ func TestParseGeminiResponse_MaxTokens(t *testing.T) {
 		}]
 	}`)
 
-	_, err := provider.parseGeminiResponse(respBody)
+	err := parseGeminiResponseLive(provider, respBody)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "max tokens limit reached")
+	assert.Contains(t, err.Error(), "output-token limit")
 }
 
 // TestParseGeminiResponse_SafetyFilter tests SAFETY finish reason
@@ -927,7 +879,7 @@ func TestParseGeminiResponse_SafetyFilter(t *testing.T) {
 		}]
 	}`)
 
-	_, err := provider.parseGeminiResponse(respBody)
+	err := parseGeminiResponseLive(provider, respBody)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "blocked by safety filters")
 }
@@ -952,7 +904,7 @@ func TestParseGeminiResponse_Recitation(t *testing.T) {
 		}]
 	}`)
 
-	_, err := provider.parseGeminiResponse(respBody)
+	err := parseGeminiResponseLive(provider, respBody)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "recitation concerns")
 }
@@ -977,7 +929,7 @@ func TestParseGeminiResponse_UnknownFinishReason(t *testing.T) {
 		}]
 	}`)
 
-	_, err := provider.parseGeminiResponse(respBody)
+	err := parseGeminiResponseLive(provider, respBody)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no content parts")
 	assert.Contains(t, err.Error(), "UNKNOWN_REASON")
@@ -995,7 +947,7 @@ func TestParseGeminiResponse_InvalidJSON(t *testing.T) {
 
 	respBody := []byte(`{"candidates": [invalid json`)
 
-	_, err := provider.parseGeminiResponse(respBody)
+	err := parseGeminiResponseLive(provider, respBody)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to unmarshal")
 }
@@ -1029,8 +981,8 @@ func TestConvertMessagesToGemini_ConversionError(t *testing.T) {
 	assert.Contains(t, err.Error(), "unsupported part type")
 }
 
-// TestPredictWithContents_InvalidURL tests invalid URL error
-func TestPredictWithContents_InvalidURL(t *testing.T) {
+// TestPredict_InvalidURL tests the invalid URL error on the live Predict path
+func TestPredict_InvalidURL(t *testing.T) {
 	provider := NewProvider(
 		"test",
 		"gemini-2.0-flash",
@@ -1039,11 +991,10 @@ func TestPredictWithContents_InvalidURL(t *testing.T) {
 		false,
 	)
 
-	contents := []geminiContent{
-		{Role: "user", Parts: []geminiPart{{Text: "Hello"}}},
-	}
-
-	resp, err := provider.predictWithContents(context.Background(), contents, nil, 0.7, 0.9, 100, nil)
+	resp, err := provider.Predict(context.Background(), providers.PredictionRequest{
+		Messages:    []types.Message{{Role: "user", Content: "Hello"}},
+		Temperature: 0.7, TopP: 0.9, MaxTokens: 100,
+	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create request")
 	// Latency should be set even on error

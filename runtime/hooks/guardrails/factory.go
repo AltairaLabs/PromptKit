@@ -293,21 +293,9 @@ func compileValidators(
 			continue
 		}
 
-		opts := append([]GuardrailOption{}, shared...)
-		if decl := validatorDeclaration(v); decl != nil {
-			opts = append(opts, WithDeclaration(decl))
-		}
-		if v.Message != "" {
-			opts = append(opts, WithMessage(v.Message))
-		} else if msg, ok := v.Params["message"].(string); ok && msg != "" {
-			opts = append(opts, WithMessage(msg))
-		}
-
-		hook, err := NewGuardrailHookFromRegistry(v.Type, v.Params, reg, opts...)
+		hook, err := NewGuardrailHookFromRegistry(v.Type, v.Params, reg, validatorOptions(v, shared)...)
 		if err != nil {
-			if strict && (errors.Is(err, ErrUnknownGuardrailType) ||
-				errors.Is(err, ErrInvalidGuardrailParams) ||
-				errors.Is(err, ErrGuardrailNeedsJudge)) {
+			if strict && isUnusableValidatorErr(err) {
 				return nil, fmt.Errorf("pack validator: %w", err)
 			}
 			logger.Warn("Skipping unusable pack validator", "type", v.Type, "error", err)
@@ -316,6 +304,30 @@ func compileValidators(
 		out = append(out, hook)
 	}
 	return out, nil
+}
+
+// validatorOptions builds a validator's guardrail options: the shared ones,
+// then its pack declaration and its block message (Message, else the
+// "message" param).
+func validatorOptions(v prompt.ValidatorConfig, shared []GuardrailOption) []GuardrailOption {
+	opts := append([]GuardrailOption{}, shared...)
+	if decl := validatorDeclaration(v); decl != nil {
+		opts = append(opts, WithDeclaration(decl))
+	}
+	if v.Message != "" {
+		opts = append(opts, WithMessage(v.Message))
+	} else if msg, ok := v.Params["message"].(string); ok && msg != "" {
+		opts = append(opts, WithMessage(msg))
+	}
+	return opts
+}
+
+// isUnusableValidatorErr reports whether err means the validator cannot be
+// constructed at all, which aborts a strict compile.
+func isUnusableValidatorErr(err error) bool {
+	return errors.Is(err, ErrUnknownGuardrailType) ||
+		errors.Is(err, ErrInvalidGuardrailParams) ||
+		errors.Is(err, ErrGuardrailNeedsJudge)
 }
 
 // resolveDirection picks which side of the provider call this guardrail gates.

@@ -11,6 +11,9 @@ import (
 
 const audioPCM16Format = "pcm16"
 
+// openAIMaxImageSizeMB is OpenAI's image size limit.
+const openAIMaxImageSizeMB = 20
+
 // GetMultimodalCapabilities returns OpenAI's multimodal capabilities
 func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
 	caps := providers.MultimodalCapabilities{
@@ -25,7 +28,7 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 		},
 		AudioFormats:   []string{},
 		VideoFormats:   []string{},
-		MaxImageSizeMB: 20, // OpenAI limit
+		MaxImageSizeMB: openAIMaxImageSizeMB,
 		MaxAudioSizeMB: 0,
 		MaxVideoSizeMB: 0,
 	}
@@ -153,7 +156,7 @@ func (p *Provider) convertImagePartToOpenAI(
 	}
 
 	imagePart := map[string]interface{}{
-		"type": "image_url",
+		keyType: partTypeImageURL,
 	}
 
 	imageURL := make(map[string]interface{})
@@ -178,7 +181,7 @@ func (p *Provider) convertImagePartToOpenAI(
 		imageURL["detail"] = *part.Media.Detail
 	}
 
-	imagePart["image_url"] = imageURL
+	imagePart[keyImageURL] = imageURL
 
 	return imagePart, nil
 }
@@ -206,10 +209,10 @@ func (p *Provider) convertAudioPartToOpenAI(
 	}
 
 	return map[string]interface{}{
-		"type": "input_audio",
-		"input_audio": map[string]interface{}{
-			"data":   audioData,
-			"format": format,
+		keyType: partTypeInputAudio,
+		keyInputAudio: map[string]interface{}{
+			"data":    audioData,
+			keyFormat: format,
 		},
 	}, nil
 }
@@ -218,9 +221,9 @@ func (p *Provider) convertAudioPartToOpenAI(
 func getAudioFormat(mimeType string) string {
 	switch mimeType {
 	case types.MIMETypeAudioWAV, "audio/x-wav":
-		return "wav"
+		return audioFormatWAV
 	case types.MIMETypeAudioMP3: // "audio/mpeg"
-		return "mp3"
+		return audioFormatMP3
 	default:
 		return ""
 	}
@@ -230,12 +233,12 @@ func getAudioFormat(mimeType string) string {
 // request parameter or response) to a MIME type.
 func audioFormatToMIME(format string) string {
 	switch format {
-	case "wav":
+	case audioFormatWAV:
 		return types.MIMETypeAudioWAV
-	case "mp3":
+	case audioFormatMP3:
 		return types.MIMETypeAudioMP3
 	case audioPCM16Format:
-		return "audio/pcm"
+		return mimeAudioPCM
 	case "aac":
 		return "audio/aac"
 	case "flac":

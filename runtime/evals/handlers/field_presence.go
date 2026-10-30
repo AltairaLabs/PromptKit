@@ -52,9 +52,9 @@ func (h *FieldPresenceHandler) Eval(
 		Score:       &score,
 		Explanation: explanation,
 		Details: map[string]any{
-			"found":   found,
-			"missing": missing,
-			"total":   total,
+			keyFound:   found,
+			keyMissing: missing,
+			keyTotal:   total,
 		},
 	}, nil
 }

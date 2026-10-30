@@ -35,7 +35,7 @@ func (h *WorkflowTransitionOrderHandler) Eval(
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Score:       boolScore(false),
-			Explanation: "no workflow transitions available in context",
+			Explanation: msgNoTransitions,
 		}, nil
 	}
 
@@ -44,7 +44,7 @@ func (h *WorkflowTransitionOrderHandler) Eval(
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Score:       boolScore(false),
-			Explanation: "invalid transitions data in context",
+			Explanation: msgInvalidTransitions,
 		}, nil
 	}
 
@@ -69,10 +69,10 @@ func (h *WorkflowTransitionOrderHandler) Eval(
 	}
 
 	value := map[string]any{
-		"matched_steps":      seqIdx,
-		"total_steps":        len(sequence),
-		"expected_sequence":  sequence,
-		"actual_transitions": actual,
+		keyMatchedSteps:      seqIdx,
+		keyTotalSteps:        len(sequence),
+		keyExpectedSequence:  sequence,
+		keyActualTransitions: actual,
 	}
 
 	if seqIdx < len(sequence) {
@@ -85,10 +85,10 @@ func (h *WorkflowTransitionOrderHandler) Eval(
 				seqIdx, len(sequence), sequence[seqIdx],
 			),
 			Details: map[string]any{
-				"matched_steps":      seqIdx,
-				"total_steps":        len(sequence),
-				"expected_sequence":  sequence,
-				"actual_transitions": actual,
+				keyMatchedSteps:      seqIdx,
+				keyTotalSteps:        len(sequence),
+				keyExpectedSequence:  sequence,
+				keyActualTransitions: actual,
 			},
 		}, nil
 	}
@@ -99,9 +99,9 @@ func (h *WorkflowTransitionOrderHandler) Eval(
 		Value:       value,
 		Explanation: fmt.Sprintf("sequence [%s] fully matched", strings.Join(sequence, " → ")),
 		Details: map[string]any{
-			"matched_steps":      seqIdx,
-			"expected_sequence":  sequence,
-			"actual_transitions": actual,
+			keyMatchedSteps:      seqIdx,
+			keyExpectedSequence:  sequence,
+			keyActualTransitions: actual,
 		},
 	}, nil
 }

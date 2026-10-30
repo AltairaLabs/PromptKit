@@ -174,7 +174,9 @@ func TestPrepareGeminiRequest(t *testing.T) {
 				defaults: tt.defaults,
 			}
 
-			contents, systemInstruction, temp, topP, maxTokens, prepErr := provider.prepareGeminiRequest(context.Background(), tt.req)
+			prep, prepErr := provider.prepareGeminiRequest(context.Background(), tt.req)
+			contents, systemInstruction, temp, topP, maxTokens :=
+				prep.contents, prep.systemInstruction, prep.temperature, prep.topP, prep.maxTokens
 			require.NoError(t, prepErr)
 
 			// Check contents
@@ -325,7 +327,9 @@ func TestGeminiHelpers_Integration(t *testing.T) {
 		}
 
 		// Step 1: Prepare request
-		contents, systemInstruction, temp, topP, maxTokens, prepErr := provider.prepareGeminiRequest(context.Background(), req)
+		prep, prepErr := provider.prepareGeminiRequest(context.Background(), req)
+		contents, systemInstruction, temp, topP, maxTokens :=
+			prep.contents, prep.systemInstruction, prep.temperature, prep.topP, prep.maxTokens
 		require.NoError(t, prepErr)
 
 		if len(contents) != 3 {

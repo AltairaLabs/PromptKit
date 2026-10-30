@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 )
 
@@ -48,10 +49,10 @@ type TTSStage struct {
 }
 
 // NewTTSStage creates a new TTS stage.
-func NewTTSStage(tts TTSService, config TTSConfig) *TTSStage {
+func NewTTSStage(svc TTSService, config TTSConfig) *TTSStage {
 	return &TTSStage{
 		BaseStage: NewBaseStage("tts", StageTypeTransform),
-		tts:       tts,
+		tts:       svc,
 		config:    config,
 	}
 }
@@ -115,7 +116,7 @@ func (s *TTSStage) processElement(ctx context.Context, elem *StreamElement) erro
 	// The arena's cost rollup reads Message.Meta["tts_cost"] via the
 	// ancillaryCostMetaKeys mechanism (same pattern as self_play_cost).
 	if elem.Message != nil {
-		if costMeta := tts.CostInfoToMetaMap(tts.ComputeTTSCost(s.tts, text, latency)); costMeta != nil {
+		if costMeta := base.CostInfoToMetaMap(tts.ComputeTTSCost(s.tts, text, latency)); costMeta != nil {
 			if elem.Message.Meta == nil {
 				elem.Message.Meta = make(map[string]interface{})
 			}

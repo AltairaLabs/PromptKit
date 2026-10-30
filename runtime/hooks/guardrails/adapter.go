@@ -41,6 +41,10 @@ const (
 	reasonError   = "error"
 )
 
+// metadataKeyValidatorType is the decision metadata key naming the eval type
+// that fired.
+const metadataKeyValidatorType = "validator_type"
+
 // lastUserTurn returns the trailing user message an input guardrail gates on.
 // ok is false when there is no trailing user message: BeforeCall runs once per
 // round inside the tool loop, and rounds after the first end in a tool-result
@@ -483,9 +487,9 @@ func (a *GuardrailHookAdapter) enforcedContent(content string, params map[string
 // enforced builds an Enforced decision from an EvalResult.
 func (a *GuardrailHookAdapter) enforced(result *evals.EvalResult) hooks.Decision {
 	return a.withDeclaration(hooks.Enforced(result.Explanation, map[string]any{
-		"validator_type": a.evalType,
-		"score":          result.Score,
-		"value":          result.Value,
+		metadataKeyValidatorType: a.evalType,
+		"score":                  result.Score,
+		"value":                  result.Value,
 	}))
 }
 
@@ -516,8 +520,8 @@ func failureDecision(validatorType string, err error) hooks.Decision {
 		reason = reasonTimeout
 	}
 	return hooks.Enforced("guardrail "+reason+": "+err.Error(), map[string]any{
-		"validator_type": validatorType,
-		"reason":         reason,
+		metadataKeyValidatorType: validatorType,
+		"reason":                 reason,
 	})
 }
 

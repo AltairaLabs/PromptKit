@@ -173,9 +173,8 @@ func NewSpecJudgeProvider(spec *providers.ProviderSpec) *SpecJudgeProvider {
 
 // Judge creates a provider from the spec, sends the evaluation prompt,
 // and parses the verdict. Emits ProviderCallStarted/Completed/Failed
-// events if an emitter is set on opts.
-//
-//nolint:gocritic // JudgeOpts passed by value intentionally for simplicity
+// events if an emitter is set on opts. JudgeOpts is passed by value
+// intentionally for simplicity.
 func (sp *SpecJudgeProvider) Judge(ctx context.Context, opts JudgeOpts) (*JudgeResult, error) {
 	provider, err := providers.CreateProviderFromSpec(*sp.spec)
 	if err != nil {

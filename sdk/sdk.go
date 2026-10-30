@@ -1093,7 +1093,10 @@ func initMCPRegistry(conv *Conversation, cfg *config) error {
 	conv.mcpRegistry = registry
 	conv.mcpTools = toolSync
 
-	for _, serverCfg := range cfg.mcpServers {
+	for i := range cfg.mcpServers {
+		// Copy: resolveMCPEndpoint rewrites the endpoint on the registered
+		// config, not on the caller's options.
+		serverCfg := cfg.mcpServers[i]
 		if err := resolveMCPEndpoint(&serverCfg, cfg.mcpEndpointResolver); err != nil {
 			_ = registry.Close()
 			return err
@@ -1385,53 +1388,72 @@ func wireA2AConfig(caps []Capability, cfg *config) {
 		if !ok {
 			continue
 		}
-		if cfg.agentEndpointResolver != nil && a2aCap.endpointResolver == nil {
-			a2aCap.endpointResolver = cfg.agentEndpointResolver
-		}
-		if cfg.localAgentExecutor != nil && a2aCap.localExecutor == nil {
-			a2aCap.localExecutor = cfg.localAgentExecutor
-		}
-		if cfg.a2aBridge != nil && a2aCap.bridge == nil {
-			a2aCap.bridge = cfg.a2aBridge
-		}
-		// Wire builder-based A2A agents as bridges.
-		if len(cfg.a2aAgents) > 0 && len(a2aCap.agentBridges) == 0 {
-			for _, agentCfg := range cfg.a2aAgents {
-				var opts []a2a.ClientOption
-				if agentCfg.config.Auth != nil {
-					token := agentCfg.config.Auth.Token
-					if token == "" && agentCfg.config.Auth.TokenEnv != "" {
-						token = os.Getenv(agentCfg.config.Auth.TokenEnv)
-					}
-					if token != "" {
-						opts = append(opts, a2a.WithAuth(agentCfg.config.Auth.Scheme, token))
-					}
-				}
-				headers := resolveA2AHeaders(agentCfg.config)
-				if len(headers) > 0 {
-					opts = append(opts, a2a.WithHeaders(headers))
-				}
-				timeout := time.Duration(agentCfg.config.TimeoutMs) * time.Millisecond
-				if timeout > 0 {
-					opts = append(opts, a2a.WithRequestTimeout(timeout))
-				}
-				client := a2a.NewClient(agentCfg.url, opts...)
-				bridge := a2a.NewToolBridgeWithConfig(client, agentCfg.config)
-				a2aCap.agentBridges = append(a2aCap.agentBridges, bridge)
-				if a2aCap.agentSettings == nil {
-					a2aCap.agentSettings = make(map[*a2a.ToolBridge]a2aBridgeSettings, len(cfg.a2aAgents))
-				}
-				a2aCap.agentSettings[bridge] = a2aBridgeSettings{
-					url:      agentCfg.url,
-					timeout:  timeout,
-					required: agentCfg.required,
-				}
-			}
-		}
-		if cfg.a2aToolExecutor != nil && a2aCap.toolExecutor == nil {
-			a2aCap.toolExecutor = cfg.a2aToolExecutor
+		wireA2ACapability(a2aCap, cfg)
+	}
+}
+
+// wireA2ACapability fills unset fields of one A2ACapability from config.
+func wireA2ACapability(a2aCap *A2ACapability, cfg *config) {
+	if cfg.agentEndpointResolver != nil && a2aCap.endpointResolver == nil {
+		a2aCap.endpointResolver = cfg.agentEndpointResolver
+	}
+	if cfg.localAgentExecutor != nil && a2aCap.localExecutor == nil {
+		a2aCap.localExecutor = cfg.localAgentExecutor
+	}
+	if cfg.a2aBridge != nil && a2aCap.bridge == nil {
+		a2aCap.bridge = cfg.a2aBridge
+	}
+	// Wire builder-based A2A agents as bridges.
+	if len(cfg.a2aAgents) > 0 && len(a2aCap.agentBridges) == 0 {
+		for _, agentCfg := range cfg.a2aAgents {
+			addA2AAgentBridge(a2aCap, agentCfg, len(cfg.a2aAgents))
 		}
 	}
+	if cfg.a2aToolExecutor != nil && a2aCap.toolExecutor == nil {
+		a2aCap.toolExecutor = cfg.a2aToolExecutor
+	}
+}
+
+// addA2AAgentBridge builds a client and tool bridge for one builder-based A2A
+// agent and records it, with its discovery settings, on the capability.
+// agentCount sizes the settings map on first use.
+func addA2AAgentBridge(a2aCap *A2ACapability, agentCfg a2aAgentConfig, agentCount int) {
+	opts, timeout := a2aAgentClientOptions(agentCfg.config)
+	client := a2a.NewClient(agentCfg.url, opts...)
+	bridge := a2a.NewToolBridgeWithConfig(client, agentCfg.config)
+	a2aCap.agentBridges = append(a2aCap.agentBridges, bridge)
+	if a2aCap.agentSettings == nil {
+		a2aCap.agentSettings = make(map[*a2a.ToolBridge]a2aBridgeSettings, agentCount)
+	}
+	a2aCap.agentSettings[bridge] = a2aBridgeSettings{
+		url:      agentCfg.url,
+		timeout:  timeout,
+		required: agentCfg.required,
+	}
+}
+
+// a2aAgentClientOptions returns the client options (auth, headers, request
+// timeout) for an A2A agent config, and the request timeout it sets.
+func a2aAgentClientOptions(agentConfig *tools.A2AConfig) ([]a2a.ClientOption, time.Duration) {
+	var opts []a2a.ClientOption
+	if agentConfig.Auth != nil {
+		token := agentConfig.Auth.Token
+		if token == "" && agentConfig.Auth.TokenEnv != "" {
+			token = os.Getenv(agentConfig.Auth.TokenEnv)
+		}
+		if token != "" {
+			opts = append(opts, a2a.WithAuth(agentConfig.Auth.Scheme, token))
+		}
+	}
+	headers := resolveA2AHeaders(agentConfig)
+	if len(headers) > 0 {
+		opts = append(opts, a2a.WithHeaders(headers))
+	}
+	timeout := time.Duration(agentConfig.TimeoutMs) * time.Millisecond
+	if timeout > 0 {
+		opts = append(opts, a2a.WithRequestTimeout(timeout))
+	}
+	return opts, timeout
 }
 
 // resolveA2AHeaders merges static headers with env-based headers for A2A config.

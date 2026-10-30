@@ -85,7 +85,7 @@ func (h *JSONSchemaHandler) validateSchema(
 		return &evals.EvalResult{
 			Type:  h.Type(),
 			Score: boolScore(false),
-			Value: map[string]any{"valid": false, "errors": errs},
+			Value: map[string]any{keyValid: false, keyErrors: errs},
 			Explanation: fmt.Sprintf(
 				"schema violations: %s",
 				strings.Join(errs, "; "),
@@ -96,7 +96,7 @@ func (h *JSONSchemaHandler) validateSchema(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Score:       boolScore(true),
-		Value:       map[string]any{"valid": true, "errors": []string{}},
+		Value:       map[string]any{keyValid: true, keyErrors: []string{}},
 		Explanation: "output matches JSON schema",
 	}, nil
 }

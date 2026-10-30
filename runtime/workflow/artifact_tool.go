@@ -83,25 +83,25 @@ func BuildArtifactToolDescriptor(spec *Spec) *tools.ToolDescriptor {
 	names := collectArtifactNames(spec)
 
 	schema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"name": map[string]any{
-				"type":        "string",
-				"enum":        names,
-				"description": "The artifact name to set.",
+		schemaKeyType: schemaTypeObject,
+		schemaKeyProperties: map[string]any{
+			argName: map[string]any{
+				schemaKeyType:        schemaTypeString,
+				schemaKeyEnum:        names,
+				schemaKeyDescription: "The artifact name to set.",
 			},
-			"value": map[string]any{
-				"type":        "string",
-				"description": "The artifact value.",
+			argValue: map[string]any{
+				schemaKeyType:        schemaTypeString,
+				schemaKeyDescription: "The artifact value.",
 			},
 		},
-		"required": []string{"name", "value"},
+		schemaKeyRequired: []string{argName, argValue},
 	}
 	schemaJSON, _ := json.Marshal(schema)
 
 	return &tools.ToolDescriptor{
 		Name:        ArtifactToolName,
-		Namespace:   "workflow",
+		Namespace:   toolNamespace,
 		Description: "Set a workflow artifact value. Artifacts persist across state transitions.",
 		InputSchema: schemaJSON,
 	}

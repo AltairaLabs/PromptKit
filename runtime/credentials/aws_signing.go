@@ -101,7 +101,7 @@ func signRequest(req *http.Request, creds *aws.Credentials, region, service stri
 		strings.Join(signedHeaders, ";"),
 		signature,
 	)
-	req.Header.Set("Authorization", authHeader)
+	req.Header.Set(headerAuthorization, authHeader)
 
 	return nil
 }

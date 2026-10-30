@@ -54,7 +54,7 @@ func (h *ToolsNotCalledSessionHandler) Eval(
 				strings.Join(found, "; "),
 			),
 			Value: map[string]any{
-				"forbidden_called": found,
+				keyForbiddenCalled: found,
 			},
 		}, nil
 	}
@@ -64,7 +64,7 @@ func (h *ToolsNotCalledSessionHandler) Eval(
 		Score:       boolScore(true),
 		Explanation: "no forbidden tools called",
 		Value: map[string]any{
-			"forbidden_called": []string{},
+			keyForbiddenCalled: []string{},
 		},
 	}, nil
 }

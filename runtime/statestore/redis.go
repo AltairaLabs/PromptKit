@@ -317,25 +317,8 @@ func (s *RedisStore) Save(ctx context.Context, state *ConversationState) error {
 	pipe := s.client.Pipeline()
 	pipe.Set(ctx, s.metaKey(state.ID), metaData, s.ttl)
 
-	newCount := int64(len(state.Messages))
-	if existingCount > 0 && existingCount <= newCount {
-		// Append-only delta: only RPUSH messages beyond what is already stored
-		delta := state.Messages[existingCount:]
-		if len(delta) > 0 {
-			vals, marshalErr := marshalMessageSlice(delta)
-			if marshalErr != nil {
-				return marshalErr
-			}
-			pipe.RPush(ctx, msgKey, vals...)
-		}
-		if s.ttl > 0 {
-			pipe.Expire(ctx, msgKey, s.ttl)
-		}
-	} else {
-		// Full rewrite: count mismatch (truncation, first save, or empty list)
-		if replaceErr := s.pipeReplaceList(ctx, pipe, msgKey, marshalMessages(state.Messages)); replaceErr != nil {
-			return replaceErr
-		}
+	if err := s.pipeWriteMessages(ctx, pipe, msgKey, state.Messages, existingCount); err != nil {
+		return err
 	}
 
 	if err := s.pipeReplaceList(ctx, pipe, s.summariesKey(state.ID), marshalSummaries(state.Summaries)); err != nil {
@@ -357,6 +340,31 @@ func (s *RedisStore) Save(ctx context.Context, state *ConversationState) error {
 	}
 
 	return nil
+}
+
+// pipeWriteMessages queues the message-list write: an append of only the new
+// messages when the stored list is a prefix of them, a full rewrite otherwise.
+func (s *RedisStore) pipeWriteMessages(
+	ctx context.Context, pipe redis.Pipeliner, msgKey string, messages []types.Message, existingCount int64,
+) error {
+	newCount := int64(len(messages))
+	if existingCount > 0 && existingCount <= newCount {
+		// Append-only delta: only RPUSH messages beyond what is already stored
+		delta := messages[existingCount:]
+		if len(delta) > 0 {
+			vals, marshalErr := marshalMessageSlice(delta)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			pipe.RPush(ctx, msgKey, vals...)
+		}
+		if s.ttl > 0 {
+			pipe.Expire(ctx, msgKey, s.ttl)
+		}
+		return nil
+	}
+	// Full rewrite: count mismatch (truncation, first save, or empty list)
+	return s.pipeReplaceList(ctx, pipe, msgKey, marshalMessages(messages))
 }
 
 // marshalMessageSlice serializes a message slice to a list of interface{} values.

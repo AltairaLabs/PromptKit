@@ -86,7 +86,7 @@ func RegisteredEmbeddingProviderTypes() []string {
 // don't stream, so only spec.Tuning (headers, request timeout, transport)
 // is applied after construction.
 //
-//nolint:gocritic // spec is a value-semantics builder; callers assemble inline.
+// spec is a value-semantics builder; callers assemble inline.
 func CreateEmbeddingProviderFromSpec(spec EmbeddingProviderSpec) (EmbeddingProvider, error) {
 	embeddingFactoriesMu.RLock()
 	factory, ok := embeddingFactories[spec.Type]

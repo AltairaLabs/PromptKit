@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -264,12 +263,17 @@ func TestBedrockMarshalStreamingRequest(t *testing.T) {
 	}
 }
 
-func TestMakeBedrockStreamingRequest_Accept(t *testing.T) {
+// TestBedrockPredictStream_AcceptsEventStream pins the request the live Bedrock
+// streaming path sends: Accept must ask for the binary event-stream framing the
+// response scanner decodes.
+func TestBedrockPredictStream_AcceptsEventStream(t *testing.T) {
 	var receivedAcceptHeader string
+	streamBody := buildBedrockStream(t, []string{`{"type":"message_stop"}`})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedAcceptHeader = r.Header.Get("Accept")
 		w.Header().Set("Content-Type", "application/vnd.amazon.eventstream")
 		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(streamBody)
 	}))
 	t.Cleanup(server.Close)
 
@@ -278,20 +282,20 @@ func TestMakeBedrockStreamingRequest_Accept(t *testing.T) {
 		model:        "anthropic.claude-3-5-haiku-20241022-v1:0",
 		baseURL:      server.URL,
 		platform:     "bedrock",
+		defaults:     providers.ProviderDefaults{MaxTokens: 1024},
 	}
 
-	body, scanner, err := provider.makeBedrockStreamingRequest(context.Background(), []byte(`{}`))
+	ch, err := provider.PredictStream(context.Background(), providers.PredictionRequest{
+		Messages:  []types.Message{{Role: "user", Content: "hello"}},
+		MaxTokens: 100,
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if body != nil {
-		_ = body.(io.Closer).Close()
+	for range ch { //nolint:revive // drain the stream so the request completes
 	}
 
 	if receivedAcceptHeader != "application/vnd.amazon.eventstream" {
 		t.Errorf("expected Accept header 'application/vnd.amazon.eventstream', got %q", receivedAcceptHeader)
-	}
-	if scanner == nil {
-		t.Error("expected non-nil scanner")
 	}
 }

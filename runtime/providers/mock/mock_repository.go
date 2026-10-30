@@ -6,9 +6,10 @@ import (
 	"os"
 	"path/filepath"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
-	"gopkg.in/yaml.v3"
 )
 
 // Turn type constants for mock responses.
@@ -143,7 +144,7 @@ type FileMockRepository struct {
 // NewFileMockRepository creates a repository that loads mock responses from a YAML file.
 // The file should follow the Config structure with scenarios and turn-specific responses.
 func NewFileMockRepository(configPath string) (*FileMockRepository, error) {
-	data, err := os.ReadFile(configPath)
+	data, err := os.ReadFile(configPath) //nolint:gosec // G304: path is the operator's own mock config file
 	if err != nil {
 		return nil, fmt.Errorf("failed to read mock config file: %w", err)
 	}
@@ -410,12 +411,8 @@ func (r *FileMockRepository) parseStructuredResponse(responseMap map[string]inte
 	}
 
 	// Parse content field - supports 'content', 'text', and 'response' (legacy) keys
-	if contentVal, ok := responseMap["content"].(string); ok {
-		turn.Content = contentVal
-	} else if textVal, ok := responseMap["text"].(string); ok {
-		turn.Content = textVal // YAML can use 'text' field, maps to Content
-	} else if responseVal, ok := responseMap["response"].(string); ok {
-		turn.Content = responseVal // Legacy 'response' field support
+	if content, ok := parseTurnContent(responseMap); ok {
+		turn.Content = content
 	}
 
 	// Parse parts field for multimodal content
@@ -436,11 +433,31 @@ func (r *FileMockRepository) parseStructuredResponse(responseMap map[string]inte
 		turn.ToolCalls = toolCalls
 		// Automatically set type to tool_calls if tool calls are present
 		if turn.Type == turnTypeText {
-			turn.Type = "tool_calls"
+			turn.Type = turnTypeToolCalls
 		}
 	}
 
-	// Parse audio fixture fields (used by mock streaming auto-respond mode).
+	parseAudioFixture(&turn, responseMap)
+
+	return &turn, nil
+}
+
+// parseTurnContent reads the turn text from the 'content', 'text' or legacy
+// 'response' key, in that order of precedence.
+func parseTurnContent(responseMap map[string]interface{}) (string, bool) {
+	if contentVal, ok := responseMap["content"].(string); ok {
+		return contentVal, true
+	} else if textVal, ok := responseMap["text"].(string); ok {
+		return textVal, true // YAML can use 'text' field, maps to Content
+	} else if responseVal, ok := responseMap["response"].(string); ok {
+		return responseVal, true // Legacy 'response' field support
+	}
+	return "", false
+}
+
+// parseAudioFixture parses the audio fixture fields (used by mock streaming
+// auto-respond mode) into turn.
+func parseAudioFixture(turn *Turn, responseMap map[string]interface{}) {
 	if audioFile, ok := responseMap["audio_file"].(string); ok {
 		turn.AudioFile = audioFile
 	}
@@ -457,8 +474,6 @@ func (r *FileMockRepository) parseStructuredResponse(responseMap map[string]inte
 	if mime, ok := responseMap["audio_mime_type"].(string); ok {
 		turn.AudioMIMEType = mime
 	}
-
-	return &turn, nil
 }
 
 // parseParts parses multimodal content parts from interface{} slice.
@@ -776,7 +791,7 @@ func (m *ContentPart) applyMetadataToMedia(media *types.MediaContent) {
 	}
 	if size, ok := m.Metadata["size"].(int); ok {
 		size64 := int64(size)
-		sizeKB := size64 / 1024
+		sizeKB := size64 / bytesPerKB
 		media.SizeKB = &sizeKB
 	}
 	if sizeKB, ok := m.Metadata["size_kb"].(int); ok {

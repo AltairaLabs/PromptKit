@@ -85,27 +85,27 @@ func (h *JSONPathHandler) validateResult(result any, params map[string]any) (*ev
 	if expected, ok := params["expected"]; ok {
 		if !jsonCompareValues(result, expected) {
 			r := h.fail("result does not match expected value",
-				map[string]any{"expected": expected, "actual": result})
-			r.Value = map[string]any{"path": expr, "result": result}
+				map[string]any{keyExpected: expected, keyActual: result})
+			r.Value = map[string]any{keyPath: expr, keyResult: result}
 			return r, nil
 		}
 	}
 
 	if contains, ok := params["contains"]; ok {
 		if err := h.checkContains(result, contains); err != "" {
-			r := h.fail(err, map[string]any{"result": result})
-			r.Value = map[string]any{"path": expr, "result": result}
+			r := h.fail(err, map[string]any{keyResult: result})
+			r.Value = map[string]any{keyPath: expr, keyResult: result}
 			return r, nil
 		}
 	}
 
 	if r := h.checkNumericRange(result, params); r != nil {
-		r.Value = map[string]any{"path": expr, "result": result}
+		r.Value = map[string]any{keyPath: expr, keyResult: result}
 		return r, nil
 	}
 
 	if r := h.checkArrayCount(result, params); r != nil {
-		r.Value = map[string]any{"path": expr, "result": result}
+		r.Value = map[string]any{keyPath: expr, keyResult: result}
 		return r, nil
 	}
 
@@ -113,8 +113,8 @@ func (h *JSONPathHandler) validateResult(result any, params map[string]any) (*ev
 		Type:        h.Type(),
 		Score:       boolScore(true),
 		Explanation: "JSON path validation passed",
-		Value:       map[string]any{"path": expr, "result": result},
-		Details:     map[string]any{"result": result},
+		Value:       map[string]any{keyPath: expr, keyResult: result},
+		Details:     map[string]any{keyResult: result},
 	}, nil
 }
 

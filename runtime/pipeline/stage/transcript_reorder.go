@@ -78,44 +78,23 @@ func (s *TranscriptReorderStage) Process(
 ) error {
 	defer close(output)
 
-	var timer *time.Timer
-	var timerC <-chan time.Time
-	stopTimer := func() {
-		if timer != nil {
-			timer.Stop()
-			timer = nil
-			timerC = nil
-		}
-	}
-	defer stopTimer()
+	var hold holdTimer
+	defer hold.stop()
 
 	for {
 		select {
 		case elem, ok := <-input:
 			if !ok {
-				// Input closed: resolve any held turn (placeholder if still no
-				// transcript) and flush.
-				if s.pendingEnd != nil || len(s.buffered) > 0 {
-					return s.resolvePending(ctx, output, true)
-				}
-				return nil
+				return s.resolveOnInputClosed(ctx, output)
 			}
 			held, err := s.handle(ctx, elem, output)
 			if err != nil {
 				return err
 			}
-			// Manage the hold timer to match pendingEnd state.
-			switch {
-			case held && timer == nil:
-				timer = time.NewTimer(s.holdTimeout)
-				timerC = timer.C
-			case !held && s.pendingEnd == nil:
-				stopTimer()
-			}
+			s.syncHoldTimer(&hold, held)
 
-		case <-timerC:
-			timer = nil
-			timerC = nil
+		case <-hold.c:
+			hold.clear()
 			// Transcript never arrived — fall back to the placeholder.
 			if err := s.resolvePending(ctx, output, true); err != nil {
 				return err
@@ -125,6 +104,54 @@ func (s *TranscriptReorderStage) Process(
 			return ctx.Err()
 		}
 	}
+}
+
+// holdTimer is the optional timer bounding how long a turn-end is held for a
+// late transcript. A nil c never fires in a select, so an unstarted timer is
+// inert.
+type holdTimer struct {
+	timer *time.Timer
+	c     <-chan time.Time
+}
+
+// start arms the timer for d.
+func (h *holdTimer) start(d time.Duration) {
+	h.timer = time.NewTimer(d)
+	h.c = h.timer.C
+}
+
+// stop stops a running timer and clears it.
+func (h *holdTimer) stop() {
+	if h.timer != nil {
+		h.timer.Stop()
+		h.clear()
+	}
+}
+
+// clear forgets the timer without stopping it (used after it fired).
+func (h *holdTimer) clear() {
+	h.timer = nil
+	h.c = nil
+}
+
+// syncHoldTimer manages the hold timer to match pendingEnd state: it starts
+// when handle began holding a turn-end and stops once nothing is held.
+func (s *TranscriptReorderStage) syncHoldTimer(hold *holdTimer, held bool) {
+	switch {
+	case held && hold.timer == nil:
+		hold.start(s.holdTimeout)
+	case !held && s.pendingEnd == nil:
+		hold.stop()
+	}
+}
+
+// resolveOnInputClosed resolves any held turn (placeholder if still no
+// transcript) and flushes, once the input channel has closed.
+func (s *TranscriptReorderStage) resolveOnInputClosed(ctx context.Context, output chan<- StreamElement) error {
+	if s.pendingEnd != nil || len(s.buffered) > 0 {
+		return s.resolvePending(ctx, output, true)
+	}
+	return nil
 }
 
 // handle routes one element. It returns held=true when it started holding a

@@ -38,17 +38,17 @@ func (h *SkillActivationOrderHandler) Eval(
 			Type:        h.Type(),
 			Score:       boolScore(false),
 			Explanation: "no skill activations found",
-			Details:     map[string]any{"expected_sequence": sequence, "activated_skills": activated},
+			Details:     map[string]any{keyExpectedSequence: sequence, keyActivatedSkills: activated},
 		}, nil
 	}
 
 	matched := matchSkillSubsequence(activated, sequence)
 
 	value := map[string]any{
-		"matched_steps":     matched,
-		"total_steps":       len(sequence),
-		"expected_sequence": sequence,
-		"activated_skills":  activated,
+		keyMatchedSteps:     matched,
+		keyTotalSteps:       len(sequence),
+		keyExpectedSequence: sequence,
+		keyActivatedSkills:  activated,
 	}
 
 	if matched < len(sequence) {
@@ -61,9 +61,9 @@ func (h *SkillActivationOrderHandler) Eval(
 				matched, len(sequence), sequence[matched],
 			),
 			Details: map[string]any{
-				"matched_steps":    matched,
-				"total_steps":      len(sequence),
-				"activated_skills": activated,
+				keyMatchedSteps:    matched,
+				keyTotalSteps:      len(sequence),
+				keyActivatedSkills: activated,
 			},
 		}, nil
 	}
@@ -74,8 +74,8 @@ func (h *SkillActivationOrderHandler) Eval(
 		Value:       value,
 		Explanation: fmt.Sprintf("skill activation sequence [%s] fully matched", strings.Join(sequence, " → ")),
 		Details: map[string]any{
-			"matched_steps":    matched,
-			"activated_skills": activated,
+			keyMatchedSteps:    matched,
+			keyActivatedSkills: activated,
 		},
 	}, nil
 }

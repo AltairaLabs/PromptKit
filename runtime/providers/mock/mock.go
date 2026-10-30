@@ -60,7 +60,7 @@ func NewProviderWithRepository(id, model string, includeRawOutput bool, repo Res
 	}
 }
 
-func init() {
+func init() { //nolint:gochecknoinits // provider self-registration via init() is the established pattern
 	providers.RegisterProviderFactory("mock", func(spec providers.ProviderSpec) (providers.Provider, error) {
 		// Use ToolProvider by default as it's backward compatible with MockProvider
 		// and supports both tool calls and scenario-specific responses
@@ -127,13 +127,13 @@ func (m *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	} // Count tokens based on message length (rough approximation)
 	inputTokens := 0
 	for i := range req.Messages {
-		inputTokens += len(req.Messages[i].Content) / 4 // Rough approximation: ~4 chars per token
+		inputTokens += len(req.Messages[i].Content) / mockCharsPerToken // Rough approximation: ~4 chars per token
 	}
 	if inputTokens == 0 {
 		inputTokens = 10
 	}
 
-	outputTokens := len(responseText) / 4
+	outputTokens := len(responseText) / mockCharsPerToken
 	if outputTokens == 0 {
 		outputTokens = 20
 	}
@@ -141,9 +141,9 @@ func (m *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	costBreakdown := types.CostInfo{
 		InputTokens:   inputTokens,
 		OutputTokens:  outputTokens,
-		InputCostUSD:  float64(inputTokens) * 0.00001,  // $0.01 per 1K tokens
-		OutputCostUSD: float64(outputTokens) * 0.00001, // $0.01 per 1K tokens
-		TotalCost:     float64(inputTokens+outputTokens) * 0.00001,
+		InputCostUSD:  float64(inputTokens) * mockCostPerToken,  // $0.01 per 1K tokens
+		OutputCostUSD: float64(outputTokens) * mockCostPerToken, // $0.01 per 1K tokens
+		TotalCost:     float64(inputTokens+outputTokens) * mockCostPerToken,
 	}
 
 	return providers.PredictionResponse{
@@ -154,7 +154,9 @@ func (m *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 }
 
 // PredictStream returns a mock streaming response using the configured repository.
-func (m *Provider) PredictStream(ctx context.Context, req providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+func (m *Provider) PredictStream(
+	ctx context.Context, req providers.PredictionRequest,
+) (<-chan providers.StreamChunk, error) {
 	outChan := make(chan providers.StreamChunk, 1)
 
 	go func() {
@@ -166,7 +168,9 @@ func (m *Provider) PredictStream(ctx context.Context, req providers.PredictionRe
 }
 
 // handleStreamRequest processes the stream request and sends the response
-func (m *Provider) handleStreamRequest(ctx context.Context, req providers.PredictionRequest, outChan chan<- providers.StreamChunk) {
+func (m *Provider) handleStreamRequest(
+	ctx context.Context, req providers.PredictionRequest, outChan chan<- providers.StreamChunk,
+) {
 	params := m.buildResponseParams(req)
 	m.logStreamRequest(params)
 
@@ -189,7 +193,8 @@ func (m *Provider) handleStreamRequest(ctx context.Context, req providers.Predic
 		responseText = m.value
 		parts = []types.ContentPart{types.NewTextPart(m.value)}
 	} else {
-		logger.Debug("MockProvider stream using repository response", "turn_type", turn.Type, "has_parts", len(turn.Parts) > 0)
+		logger.Debug("MockProvider stream using repository response",
+			"turn_type", turn.Type, "has_parts", len(turn.Parts) > 0)
 		responseText = turn.Content
 		parts = turn.ToContentParts()
 	}
@@ -251,7 +256,7 @@ func (m *Provider) getStreamTurn(ctx context.Context, params ResponseParams) (*T
 func (m *Provider) calculateInputTokens(messages []types.Message) int {
 	inputTokens := 0
 	for i := range messages {
-		inputTokens += len(messages[i].Content) / 4
+		inputTokens += len(messages[i].Content) / mockCharsPerToken
 	}
 	if inputTokens == 0 {
 		inputTokens = 10
@@ -261,7 +266,7 @@ func (m *Provider) calculateInputTokens(messages []types.Message) int {
 
 // calculateOutputTokens estimates output tokens from response text
 func (m *Provider) calculateOutputTokens(responseText string) int {
-	outputTokens := len(responseText) / 4
+	outputTokens := len(responseText) / mockCharsPerToken
 	if outputTokens == 0 {
 		outputTokens = 20
 	}
@@ -269,13 +274,15 @@ func (m *Provider) calculateOutputTokens(responseText string) int {
 }
 
 // createStreamChunk creates a stream chunk with the response and cost info
-func (m *Provider) createStreamChunk(responseText string, parts []types.ContentPart, inputTokens, outputTokens int) providers.StreamChunk {
+func (m *Provider) createStreamChunk(
+	responseText string, parts []types.ContentPart, inputTokens, outputTokens int,
+) providers.StreamChunk {
 	costInfo := &types.CostInfo{
 		InputTokens:   inputTokens,
 		OutputTokens:  outputTokens,
-		InputCostUSD:  float64(inputTokens) * 0.00001,
-		OutputCostUSD: float64(outputTokens) * 0.00001,
-		TotalCost:     float64(inputTokens+outputTokens) * 0.00001,
+		InputCostUSD:  float64(inputTokens) * mockCostPerToken,
+		OutputCostUSD: float64(outputTokens) * mockCostPerToken,
+		TotalCost:     float64(inputTokens+outputTokens) * mockCostPerToken,
 	}
 
 	return providers.StreamChunk{
@@ -283,7 +290,7 @@ func (m *Provider) createStreamChunk(responseText string, parts []types.ContentP
 		Delta:        responseText,
 		TokenCount:   outputTokens,
 		DeltaTokens:  outputTokens,
-		FinishReason: testutil.Ptr("stop"),
+		FinishReason: testutil.Ptr(finishReasonStop),
 		CostInfo:     costInfo,
 		FinalResult: &providers.PredictionResponse{
 			Content:  responseText,
@@ -315,6 +322,15 @@ const (
 	mockInputCostPer1K  = 0.01
 	mockOutputCostPer1K = 0.01
 	mockCachedCostPer1K = 0.005 // 50% discount for cached tokens
+)
+
+// Rough token/cost approximations used to fabricate mock usage figures.
+const (
+	mockCharsPerToken = 4       // ~4 chars per token
+	mockCostPerToken  = 0.00001 // $0.01 per 1K tokens
+	bytesPerKB        = 1024
+	finishReasonStop  = "stop"
+	boolStringTrue    = "true"
 )
 
 // mockPricing preserves the mock provider's intentionally nonzero, fixed

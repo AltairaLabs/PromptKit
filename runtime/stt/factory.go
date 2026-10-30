@@ -29,8 +29,6 @@ func RegisterFactory(providerType string, factory Factory) {
 func RegisteredTypes() []string { return sttRegistry.Types() }
 
 // CreateFromSpec returns a Service implementation for the given spec.
-//
-//nolint:gocritic // spec is a value-semantics builder; callers assemble inline.
 func CreateFromSpec(spec ProviderSpec) (Service, error) {
 	return sttRegistry.Create(spec)
 }
@@ -52,8 +50,6 @@ func APIKeyFromCredential(c credentials.Credential) string {
 }
 
 // PricingFromSpec extracts an optional pricing override from spec.AdditionalConfig.
-//
-//nolint:gocritic // spec is a value-semantics builder; callers assemble inline.
 func PricingFromSpec(spec ProviderSpec) *base.PricingDescriptor {
 	return base.PricingFromAdditionalConfig(spec.AdditionalConfig)
 }

@@ -5,7 +5,16 @@ import (
 	"time"
 )
 
-// PolicyConfig defines a retention policy for media storage.
+// Policy-name formats and policy types recognized by ParsePolicyName.
+const (
+	deleteAfterMinutesFormat = "delete-after-%dmin"
+	retainHoursFormat        = "retain-%dhours"
+	retainDaysFormat         = "retain-%ddays"
+	policyTypeRetain         = "retain"
+	hoursPerDay              = 24
+)
+
+// Config defines a retention policy for media storage.
 // Policies control how long media should be retained and when it should be deleted.
 type Config struct {
 	// Name is a unique identifier for this policy (e.g., "delete-after-5min", "retain-30days")
@@ -18,7 +27,7 @@ type Config struct {
 	Rules map[string]interface{} `json:"rules,omitempty" yaml:"rules,omitempty"`
 }
 
-// PolicyMetadata stores policy information in .meta files alongside media.
+// Metadata stores policy information in .meta files alongside media.
 // This metadata is used by the enforcement system to determine when to delete files.
 type Metadata struct {
 	// PolicyName identifies the policy applied to this media
@@ -49,7 +58,8 @@ func ParsePolicyName(name string) (string, time.Duration, error) {
 
 	// Try "delete-after-Xmin" format
 	var minutes int
-	if n, _ := fmt.Sscanf(name, "delete-after-%dmin", &minutes); n == 1 && fmt.Sprintf("delete-after-%dmin", minutes) == name { // NOSONAR: Parse failure handled by n==1 check
+	n, _ := fmt.Sscanf(name, deleteAfterMinutesFormat, &minutes) // NOSONAR: Parse failure handled by n==1 check
+	if n == 1 && fmt.Sprintf(deleteAfterMinutesFormat, minutes) == name {
 		policyType = "delete-after"
 		duration = time.Duration(minutes) * time.Minute
 		return policyType, duration, nil
@@ -57,17 +67,19 @@ func ParsePolicyName(name string) (string, time.Duration, error) {
 
 	// Try "retain-Xhours" format
 	var hours int
-	if n, _ := fmt.Sscanf(name, "retain-%dhours", &hours); n == 1 && fmt.Sprintf("retain-%dhours", hours) == name { // NOSONAR: Parse failure handled by n==1 check
-		policyType = "retain"
+	n, _ = fmt.Sscanf(name, retainHoursFormat, &hours) // NOSONAR: Parse failure handled by n==1 check
+	if n == 1 && fmt.Sprintf(retainHoursFormat, hours) == name {
+		policyType = policyTypeRetain
 		duration = time.Duration(hours) * time.Hour
 		return policyType, duration, nil
 	}
 
 	// Try "retain-Xdays" format
 	var days int
-	if n, _ := fmt.Sscanf(name, "retain-%ddays", &days); n == 1 && fmt.Sprintf("retain-%ddays", days) == name { // NOSONAR: Parse failure handled by n==1 check
-		policyType = "retain"
-		duration = time.Duration(days) * 24 * time.Hour
+	n, _ = fmt.Sscanf(name, retainDaysFormat, &days) // NOSONAR: Parse failure handled by n==1 check
+	if n == 1 && fmt.Sprintf(retainDaysFormat, days) == name {
+		policyType = policyTypeRetain
+		duration = time.Duration(days) * hoursPerDay * time.Hour
 		return policyType, duration, nil
 	}
 

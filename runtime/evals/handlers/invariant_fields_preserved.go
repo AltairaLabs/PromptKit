@@ -59,9 +59,9 @@ func (h *InvariantFieldsPreservedHandler) Eval(
 		r := h.failResult(violations, tool)
 		r.Score = ratioScore(preserved, len(fields))
 		r.Value = map[string]any{
-			"preserved": preserved,
-			"total":     len(fields),
-			"tool":      tool,
+			keyPreserved: preserved,
+			keyTotal:     len(fields),
+			valueKeyTool: tool,
 		}
 		return r, nil
 	}
@@ -70,9 +70,9 @@ func (h *InvariantFieldsPreservedHandler) Eval(
 		Type:  h.Type(),
 		Score: ratioScore(preserved, len(fields)),
 		Value: map[string]any{
-			"preserved": preserved,
-			"total":     len(fields),
-			"tool":      tool,
+			keyPreserved: preserved,
+			keyTotal:     len(fields),
+			valueKeyTool: tool,
 		},
 		Explanation: fmt.Sprintf(
 			"all %d tracked field(s) preserved across %d calls to %q",
@@ -134,6 +134,6 @@ func (h *InvariantFieldsPreservedHandler) failResult(
 		Score: boolScore(false),
 		Explanation: fmt.Sprintf(
 			"%d field(s) lost: %s", len(violations), strings.Join(msgs, "; ")),
-		Details: map[string]any{"violations": violations, "tool": tool},
+		Details: map[string]any{keyViolations: violations, valueKeyTool: tool},
 	}
 }

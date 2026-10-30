@@ -192,8 +192,12 @@ func (s *MergeStage) forwardInput(
 	}
 }
 
+// metricsStageBufferSize is the buffer size of the channel MetricsStage uses to
+// intercept the wrapped stage's output.
+const metricsStageBufferSize = 16
+
 // StageMetrics contains performance metrics for a stage.
-type StageMetrics struct {
+type StageMetrics struct { //nolint:revive // exported: renaming to Metrics would break the public API
 	StageName       string
 	ElementsIn      int64
 	ElementsOut     int64
@@ -300,7 +304,7 @@ func (s *MetricsStage) Process(
 	output chan<- StreamElement,
 ) error {
 	// Create intermediate channel to intercept elements
-	intermediate := make(chan StreamElement, 16)
+	intermediate := make(chan StreamElement, metricsStageBufferSize)
 
 	// Process elements through wrapped stage in a goroutine
 	errChan := make(chan error, 1)
@@ -427,15 +431,16 @@ func (pc *PriorityChannel) Receive(ctx context.Context) (StreamElement, bool, er
 	// Get highest priority element
 	// Priority order: Critical > High > Normal > Low
 	for priority := PriorityCritical; priority >= PriorityLow; priority-- {
-		if len(pc.queues[priority]) > 0 {
-			elem := pc.queues[priority][0]
-			pc.queues[priority] = pc.queues[priority][1:]
-			pc.size--
-
-			// Signal waiting senders
-			pc.cond.Signal()
-			return elem, true, nil
+		if len(pc.queues[priority]) == 0 {
+			continue
 		}
+		elem := pc.queues[priority][0]
+		pc.queues[priority] = pc.queues[priority][1:]
+		pc.size--
+
+		// Signal waiting senders
+		pc.cond.Signal()
+		return elem, true, nil
 	}
 
 	// Should never reach here

@@ -111,7 +111,7 @@ func unionStrings(a, b []string) []string {
 	return out
 }
 
-// PipelineConfig represents the complete pipeline configuration for pack format
+// Config represents the complete pipeline configuration for pack format
 type Config struct {
 	Stages []string `json:"stages"` // Pipeline stages in order
 }

@@ -18,6 +18,15 @@ var streamFirstChunkBuckets = []float64{0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 1
 // realtime audio health metric vecs (values: "input" / "output").
 const labelDirection = "direction"
 
+// Metric label names shared by the stream metric vecs.
+const (
+	labelProvider = "provider"
+	labelOutcome  = "outcome"
+	labelHost     = "host"
+	labelReason   = "reason"
+	labelStage    = "stage"
+)
+
 // streamErrorChunksForwardedBuckets partitions the "chunks forwarded
 // before error" histogram. The critical boundary is 0 vs 1: zero
 // chunks means Phase 1 pre-first-chunk retry could have caught the
@@ -94,13 +103,13 @@ func NewStreamMetrics(
 			Name:        "streams_in_flight",
 			Help:        "Number of streaming provider calls currently in flight (per provider).",
 			ConstLabels: constLabels,
-		}, []string{"provider"}),
+		}, []string{labelProvider}),
 		providerCallsInFlight: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace:   namespace,
 			Name:        "provider_calls_in_flight",
 			Help:        "Number of provider calls (streaming or not) currently in flight, per provider.",
 			ConstLabels: constLabels,
-		}, []string{"provider"}),
+		}, []string{labelProvider}),
 		streamFirstChunkLatency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
 			Name:      "stream_first_chunk_latency_seconds",
@@ -108,7 +117,7 @@ func NewStreamMetrics(
 				"per provider. Includes any pre-first-chunk retries.",
 			Buckets:     streamFirstChunkBuckets,
 			ConstLabels: constLabels,
-		}, []string{"provider"}),
+		}, []string{labelProvider}),
 		streamErrorChunksForwarded: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
 			Name:      "stream_error_chunks_forwarded",
@@ -124,14 +133,14 @@ func NewStreamMetrics(
 				"Phase 4 is worth building.",
 			Buckets:     streamErrorChunksForwardedBuckets,
 			ConstLabels: constLabels,
-		}, []string{"provider"}),
+		}, []string{labelProvider}),
 		streamRetriesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "stream_retries_total",
 			Help: "Total streaming retry attempts, labeled by outcome " +
 				"(success, failed, exhausted, budget_exhausted, retry_after_too_long).",
 			ConstLabels: constLabels,
-		}, []string{"provider", "outcome"}),
+		}, []string{labelProvider, labelOutcome}),
 		providerRetriesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "provider_retries_total",
@@ -139,7 +148,7 @@ func NewStreamMetrics(
 				"retry (a transient failure that is being retried), success (the call recovered " +
 				"after at least one retry) and exhausted (every attempt failed).",
 			ConstLabels: constLabels,
-		}, []string{"provider", "outcome"}),
+		}, []string{labelProvider, labelOutcome}),
 		streamRetryBudgetAvailable: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Name:      "stream_retry_budget_available",
@@ -147,7 +156,7 @@ func NewStreamMetrics(
 				"Early-warning signal for upstream degradation — a provider whose budget is " +
 				"trending toward zero is about to start failing retries.",
 			ConstLabels: constLabels,
-		}, []string{"provider", "host"}),
+		}, []string{labelProvider, labelHost}),
 		streamConcurrencyRejections: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "stream_concurrency_rejections_total",
@@ -156,7 +165,7 @@ func NewStreamMetrics(
 				"A healthy signal that back-pressure is working; sustained spikes " +
 				"indicate the semaphore limit is undersized or upstream is saturated.",
 			ConstLabels: constLabels,
-		}, []string{"provider", "reason"}),
+		}, []string{labelProvider, labelReason}),
 		pipelineStageElements: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "pipeline_stage_elements_total",
@@ -164,7 +173,7 @@ func NewStreamMetrics(
 				"Labeled by stage name so operators can see exactly where element " +
 				"flow stops in a multi-stage pipeline.",
 			ConstLabels: constLabels,
-		}, []string{"stage"}),
+		}, []string{labelStage}),
 		pipelineStageAudioBytes: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "pipeline_stage_audio_bytes_total",
@@ -173,7 +182,7 @@ func NewStreamMetrics(
 				"shows zero audio bytes while its predecessor shows nonzero " +
 				"indicates the stage is dropping or not forwarding audio elements.",
 			ConstLabels: constLabels,
-		}, []string{"stage"}),
+		}, []string{labelStage}),
 		audioFrameUnderruns: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "audio_frame_underruns_total",
@@ -195,7 +204,7 @@ func NewStreamMetrics(
 			Help: "Cumulative audio samples dropped, by direction and reason " +
 				"(reason=overflow: producer exceeded buffer capacity / real-time cadence).",
 			ConstLabels: constLabels,
-		}, []string{labelDirection, "reason"}),
+		}, []string{labelDirection, labelReason}),
 		audioPacingBehindDeadline: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "audio_pacing_behind_deadline_total",
@@ -216,7 +225,7 @@ func NewStreamMetrics(
 				"the transport is pool-saturated and new streams will serialize behind in-use " +
 				"connections.",
 			ConstLabels: constLabels,
-		}, []string{"host"}),
+		}, []string{labelHost}),
 	}
 	registerer.MustRegister(
 		m.streamsInFlight,
@@ -390,7 +399,6 @@ func (m *StreamMetrics) PipelineStageAudioBytesAdd(stage string, bytes int) {
 	m.pipelineStageAudioBytes.WithLabelValues(stage).Add(float64(bytes))
 }
 
-// Package-level default instance. Hosts register it by calling
 // PipelineStageElementsVec returns the raw counter vec for testing.
 func (m *StreamMetrics) PipelineStageElementsVec() *prometheus.CounterVec {
 	if m == nil {

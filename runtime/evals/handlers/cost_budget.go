@@ -63,17 +63,17 @@ func (h *CostBudgetHandler) Eval(
 	}
 
 	details := map[string]any{
-		"total_cost_usd": totalCost,
-		"input_tokens":   inputTokens,
-		"output_tokens":  outputTokens,
-		"total_tokens":   totalTokens,
+		keyTotalCostUSD: totalCost,
+		keyInputTokens:  inputTokens,
+		keyOutputTokens: outputTokens,
+		keyTotalTokens:  totalTokens,
 	}
 
 	value := map[string]any{
-		"total_cost_usd": totalCost,
-		"input_tokens":   inputTokens,
-		"output_tokens":  outputTokens,
-		"total_tokens":   totalTokens,
+		keyTotalCostUSD: totalCost,
+		keyInputTokens:  inputTokens,
+		keyOutputTokens: outputTokens,
+		keyTotalTokens:  totalTokens,
 	}
 
 	if len(failures) > 0 {

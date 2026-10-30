@@ -27,7 +27,7 @@ func (h *ToolCallCountHandler) Eval(
 
 	count, violation := coreToolCallCount(views, tool, minCount, maxCount)
 
-	value := map[string]any{"count": count, "tool": tool}
+	value := map[string]any{keyCount: count, valueKeyTool: tool}
 
 	if violation != "" {
 		return &evals.EvalResult{
@@ -35,7 +35,7 @@ func (h *ToolCallCountHandler) Eval(
 			Score:       boolScore(false),
 			Value:       value,
 			Explanation: violation,
-			Details:     map[string]any{"tool": tool, "count": count},
+			Details:     map[string]any{valueKeyTool: tool, keyCount: count},
 		}, nil
 	}
 
@@ -44,6 +44,6 @@ func (h *ToolCallCountHandler) Eval(
 		Score:       boolScore(true),
 		Value:       value,
 		Explanation: fmt.Sprintf("tool call count %d is within bounds", count),
-		Details:     map[string]any{"tool": tool, "count": count},
+		Details:     map[string]any{valueKeyTool: tool, keyCount: count},
 	}, nil
 }

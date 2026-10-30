@@ -481,7 +481,7 @@ func TestUnsupportedContentError(t *testing.T) {
 				Message:     "unsupported format",
 				PartIndex:   2,
 			},
-			wantMsg: "test-provider: unsupported format (part \x02)",
+			wantMsg: "test-provider: unsupported format (part 2)",
 		},
 	}
 

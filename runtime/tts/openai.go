@@ -76,8 +76,8 @@ const (
 // dimension for forward-compat but does not differentiate rates today.
 var openAIDefaultPricing = &base.PricingDescriptor{
 	Source:   base.PricingSourceInline,
-	Currency: "usd",
-	Items:    []base.PriceItem{{Unit: "character", Rate: openAICharRatePerChar}},
+	Currency: currencyUSD,
+	Items:    []base.PriceItem{{Unit: unitCharacter, Rate: openAICharRatePerChar}},
 }
 
 // OpenAIService implements TTS using OpenAI's text-to-speech API.
@@ -94,7 +94,7 @@ type OpenAIOption = base.HTTPServiceOption
 // NewOpenAI creates an OpenAI TTS service.
 func NewOpenAI(apiKey string, opts ...OpenAIOption) *OpenAIService {
 	impl, fields := base.NewHTTPService(apiKey, base.HTTPServiceDefaults{
-		Name:    "openai",
+		Name:    providerOpenAI,
 		Type:    base.ProviderTypeTTS,
 		Pricing: openAIDefaultPricing,
 		BaseURL: openAIBaseURL,
@@ -105,7 +105,7 @@ func NewOpenAI(apiKey string, opts ...OpenAIOption) *OpenAIService {
 }
 
 // ImplName returns the implementation name for cost tracking.
-func (s *OpenAIService) ImplName() string { return "openai" }
+func (s *OpenAIService) ImplName() string { return providerOpenAI }
 
 // ModelName returns the configured model name for cost tracking.
 func (s *OpenAIService) ModelName() string { return s.Model }
@@ -136,8 +136,6 @@ type openAIRequest struct {
 }
 
 // Synthesize converts text to audio using OpenAI's TTS API.
-//
-//nolint:gocritic // hugeParam: SynthesisConfig passed by value to satisfy Service interface
 func (s *OpenAIService) Synthesize(
 	ctx context.Context, text string, config SynthesisConfig,
 ) (io.ReadCloser, error) {
@@ -202,11 +200,11 @@ func (s *OpenAIService) Synthesize(
 	}
 
 	req.Header.Set("Authorization", "Bearer "+s.APIKey)
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(headerContentType, mimeJSON)
 
 	resp, err := s.Client.Do(req)
 	if err != nil {
-		return nil, NewSynthesisError("openai", "", "request failed", err, true)
+		return nil, NewSynthesisError(providerOpenAI, "", "request failed", err, true)
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -287,7 +285,7 @@ func (s *OpenAIService) handleError(resp *http.Response) error {
 	var errResp openAIErrorResponse
 	if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
 		return NewSynthesisError(
-			"openai",
+			providerOpenAI,
 			fmt.Sprintf("%d", resp.StatusCode),
 			"unknown error",
 			err,
@@ -313,7 +311,7 @@ func (s *OpenAIService) handleError(resp *http.Response) error {
 	}
 
 	return NewSynthesisError(
-		"openai",
+		providerOpenAI,
 		errResp.Error.Code,
 		errResp.Error.Message,
 		cause,

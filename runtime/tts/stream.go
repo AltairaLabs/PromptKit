@@ -79,7 +79,7 @@ func computeStreamCost(text string, pricing *base.PricingDescriptor, implName st
 	}
 	charCount := utf8.RuneCountInString(text)
 	info := &types.CostInfo{
-		Quantities:   map[string]float64{"character": float64(charCount)},
+		Quantities:   map[string]float64{unitCharacter: float64(charCount)},
 		ProviderName: implName,
 		Capability:   string(base.ProviderTypeTTS),
 	}
@@ -114,7 +114,7 @@ func (s *ttsStream) Close() error {
 	s.mu.Unlock()
 
 	// Drain so the goroutine unblocks.
-	for range s.ch { //nolint:revive // intentional drain
+	for range s.ch { // intentional drain
 	}
 	return nil
 }

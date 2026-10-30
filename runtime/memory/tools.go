@@ -19,6 +19,39 @@ const (
 // ExecutorMode is the executor name for Mode-based routing.
 const ExecutorMode = "memory"
 
+// toolNamespace is the namespace the memory tools are registered under.
+const toolNamespace = "memory"
+
+// Memory tool argument and result field names.
+const (
+	argQuery       = "query"
+	argTypes       = "types"
+	argType        = "type"
+	argLimit       = "limit"
+	argContent     = "content"
+	argMemoryID    = "memory_id"
+	resultMemories = "memories"
+	resultCount    = "count"
+	resultStatus   = "status"
+)
+
+// JSON Schema keywords and type names used in the memory tool schemas.
+const (
+	schemaKeyType        = "type"
+	schemaKeyProperties  = "properties"
+	schemaKeyDescription = "description"
+	schemaKeyItems       = "items"
+	schemaKeyRequired    = "required"
+	schemaTypeObject     = "object"
+	schemaTypeString     = "string"
+	schemaTypeArray      = "array"
+	schemaTypeInteger    = "integer"
+	schemaTypeNumber     = "number"
+)
+
+// descMaxResults describes the limit argument of the recall and list tools.
+const descMaxResults = "Maximum number of results."
+
 // Executor implements tools.Executor for all memory tools.
 // It routes by tool name to the appropriate Store method.
 //
@@ -81,7 +114,7 @@ func (e *Executor) recall(ctx context.Context, args json.RawMessage) (json.RawMe
 	// memory__recall's input schema with backend-specific fields (Omnia adds
 	// graph expansion and point-in-time args); without this passthrough the
 	// store never sees them. See AltairaLabs/PromptKit#1987.
-	extras, err := tools.DecodeArgsExtras(args, &a, "query", "types", "limit", "min_confidence")
+	extras, err := tools.DecodeArgsExtras(args, &a, argQuery, argTypes, argLimit, "min_confidence")
 	if err != nil {
 		return nil, fmt.Errorf("memory recall: %w", err)
 	}
@@ -97,8 +130,8 @@ func (e *Executor) recall(ctx context.Context, args json.RawMessage) (json.RawMe
 	}
 
 	return json.Marshal(map[string]any{
-		"memories": memories,
-		"count":    len(memories),
+		resultMemories: memories,
+		resultCount:    len(memories),
 	})
 }
 
@@ -114,7 +147,7 @@ func (e *Executor) remember(ctx context.Context, args json.RawMessage) (json.Raw
 	// sdk.WithToolDescriptorOverride to extend memory__remember's input
 	// schema with deployment-specific fields (e.g. Omnia's `about` for
 	// dedup); without this passthrough those fields would be dropped.
-	extras, err := tools.DecodeArgsExtras(args, &a, "content", "type", "confidence", "category", "metadata")
+	extras, err := tools.DecodeArgsExtras(args, &a, argContent, argType, "confidence", "category", "metadata")
 	if err != nil {
 		return nil, fmt.Errorf("memory remember: %w", err)
 	}
@@ -149,8 +182,8 @@ func (e *Executor) remember(ctx context.Context, args json.RawMessage) (json.Raw
 	}
 
 	return json.Marshal(map[string]string{
-		"status": "remembered",
-		"id":     m.ID,
+		resultStatus: "remembered",
+		"id":         m.ID,
 	})
 }
 
@@ -161,7 +194,7 @@ func (e *Executor) list(ctx context.Context, args json.RawMessage) (json.RawMess
 		Offset int      `json:"offset,omitempty"`
 	}
 	// Same passthrough as recall — see [Executor.recall].
-	extras, err := tools.DecodeArgsExtras(args, &a, "types", "limit", "offset")
+	extras, err := tools.DecodeArgsExtras(args, &a, argTypes, argLimit, "offset")
 	if err != nil {
 		return nil, fmt.Errorf("memory list: %w", err)
 	}
@@ -177,8 +210,8 @@ func (e *Executor) list(ctx context.Context, args json.RawMessage) (json.RawMess
 	}
 
 	return json.Marshal(map[string]any{
-		"memories": memories,
-		"count":    len(memories),
+		resultMemories: memories,
+		resultCount:    len(memories),
 	})
 }
 
@@ -189,7 +222,7 @@ func (e *Executor) forget(ctx context.Context, args json.RawMessage) (json.RawMe
 	// Same passthrough as recall — see [Executor.recall]. Delete takes no
 	// options parameter, so the extras reach only a store that opts in by
 	// implementing [ExtrasDeleter]; the rest keep the plain Delete.
-	extras, err := tools.DecodeArgsExtras(args, &a, "memory_id")
+	extras, err := tools.DecodeArgsExtras(args, &a, argMemoryID)
 	if err != nil {
 		return nil, fmt.Errorf("memory forget: %w", err)
 	}
@@ -202,8 +235,8 @@ func (e *Executor) forget(ctx context.Context, args json.RawMessage) (json.RawMe
 	}
 
 	return json.Marshal(map[string]string{
-		"status":    "forgotten",
-		"memory_id": a.MemoryID,
+		resultStatus: "forgotten",
+		argMemoryID:  a.MemoryID,
 	})
 }
 
@@ -228,24 +261,24 @@ func RegisterMemoryTools(registry *tools.Registry) {
 // Common output schemas to avoid duplication.
 var (
 	memoriesOutputSchema = mustJSON(map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"memories": map[string]any{"type": "array"},
-			"count":    map[string]any{"type": "integer"},
+		schemaKeyType: schemaTypeObject,
+		schemaKeyProperties: map[string]any{
+			resultMemories: map[string]any{schemaKeyType: schemaTypeArray},
+			resultCount:    map[string]any{schemaKeyType: schemaTypeInteger},
 		},
 	})
 	statusOutputSchema = mustJSON(map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"status": map[string]any{"type": "string"},
-			"id":     map[string]any{"type": "string"},
+		schemaKeyType: schemaTypeObject,
+		schemaKeyProperties: map[string]any{
+			resultStatus: map[string]any{schemaKeyType: schemaTypeString},
+			"id":         map[string]any{schemaKeyType: schemaTypeString},
 		},
 	})
 	forgetOutputSchema = mustJSON(map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"status":    map[string]any{"type": "string"},
-			"memory_id": map[string]any{"type": "string"},
+		schemaKeyType: schemaTypeObject,
+		schemaKeyProperties: map[string]any{
+			resultStatus: map[string]any{schemaKeyType: schemaTypeString},
+			argMemoryID:  map[string]any{schemaKeyType: schemaTypeString},
 		},
 	})
 )
@@ -254,58 +287,58 @@ func buildMemoryToolDescriptors() []*tools.ToolDescriptor {
 	return []*tools.ToolDescriptor{
 		{
 			Name:      RecallToolName,
-			Namespace: "memory",
+			Namespace: toolNamespace,
 			Description: "Search your memories for relevant information. " +
 				"Use this to recall facts, preferences, or context from previous conversations.",
 			OutputSchema: memoriesOutputSchema,
 			InputSchema: mustJSON(map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"query": map[string]any{
-						"type":        "string",
-						"description": "What to search for in memory.",
+				schemaKeyType: schemaTypeObject,
+				schemaKeyProperties: map[string]any{
+					argQuery: map[string]any{
+						schemaKeyType:        schemaTypeString,
+						schemaKeyDescription: "What to search for in memory.",
 					},
-					"types": map[string]any{
-						"type":        "array",
-						"items":       map[string]any{"type": "string"},
-						"description": "Filter by memory type (e.g., 'preference', 'episodic').",
+					argTypes: map[string]any{
+						schemaKeyType:        schemaTypeArray,
+						schemaKeyItems:       map[string]any{schemaKeyType: schemaTypeString},
+						schemaKeyDescription: "Filter by memory type (e.g., 'preference', 'episodic').",
 					},
-					"limit": map[string]any{
-						"type":        "integer",
-						"description": "Maximum number of results.",
+					argLimit: map[string]any{
+						schemaKeyType:        schemaTypeInteger,
+						schemaKeyDescription: descMaxResults,
 					},
 					"min_confidence": map[string]any{
-						"type":        "number",
-						"description": "Minimum confidence threshold (0.0-1.0).",
+						schemaKeyType:        schemaTypeNumber,
+						schemaKeyDescription: "Minimum confidence threshold (0.0-1.0).",
 					},
 				},
-				"required": []string{"query"},
+				schemaKeyRequired: []string{argQuery},
 			}),
 		},
 		{
 			Name:      RememberToolName,
-			Namespace: "memory",
+			Namespace: toolNamespace,
 			Description: "Store something in memory for future conversations. " +
 				"Use this to remember user preferences, important facts, or decisions.",
 			OutputSchema: statusOutputSchema,
 			InputSchema: mustJSON(map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"content": map[string]any{
-						"type":        "string",
-						"description": "What to remember (natural language).",
+				schemaKeyType: schemaTypeObject,
+				schemaKeyProperties: map[string]any{
+					argContent: map[string]any{
+						schemaKeyType:        schemaTypeString,
+						schemaKeyDescription: "What to remember (natural language).",
 					},
-					"type": map[string]any{
-						"type":        "string",
-						"description": "Memory category (e.g., 'preference', 'fact', 'decision').",
+					argType: map[string]any{
+						schemaKeyType:        schemaTypeString,
+						schemaKeyDescription: "Memory category (e.g., 'preference', 'fact', 'decision').",
 					},
 					"confidence": map[string]any{
-						"type":        "number",
-						"description": "How confident you are (0.0-1.0). Default: 0.8.",
+						schemaKeyType:        schemaTypeNumber,
+						schemaKeyDescription: "How confident you are (0.0-1.0). Default: 0.8.",
 					},
 					"category": map[string]any{
-						"type": "string",
-						"description": "Optional consent category for downstream policies " +
+						schemaKeyType: schemaTypeString,
+						schemaKeyDescription: "Optional consent category for downstream policies " +
 							"(retention, redaction, opt-out). Pick the most specific match " +
 							"for the memory's content; leave unset if uncertain so a " +
 							"server-side classifier can decide. Suggested values:\n" +
@@ -317,47 +350,47 @@ func buildMemoryToolDescriptors() []*tools.ToolDescriptor {
 							"  memory:history      past conversations, decisions, what was said before",
 					},
 					"metadata": map[string]any{
-						"type":        "object",
-						"description": "Optional structured data to attach to the memory.",
+						schemaKeyType:        schemaTypeObject,
+						schemaKeyDescription: "Optional structured data to attach to the memory.",
 					},
 				},
-				"required": []string{"content"},
+				schemaKeyRequired: []string{argContent},
 			}),
 		},
 		{
 			Name:         ListToolName,
-			Namespace:    "memory",
+			Namespace:    toolNamespace,
 			Description:  "List stored memories, optionally filtered by type.",
 			OutputSchema: memoriesOutputSchema,
 			InputSchema: mustJSON(map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"types": map[string]any{
-						"type":        "array",
-						"items":       map[string]any{"type": "string"},
-						"description": "Filter by memory type.",
+				schemaKeyType: schemaTypeObject,
+				schemaKeyProperties: map[string]any{
+					argTypes: map[string]any{
+						schemaKeyType:        schemaTypeArray,
+						schemaKeyItems:       map[string]any{schemaKeyType: schemaTypeString},
+						schemaKeyDescription: "Filter by memory type.",
 					},
-					"limit": map[string]any{
-						"type":        "integer",
-						"description": "Maximum number of results.",
+					argLimit: map[string]any{
+						schemaKeyType:        schemaTypeInteger,
+						schemaKeyDescription: descMaxResults,
 					},
 				},
 			}),
 		},
 		{
 			Name:         ForgetToolName,
-			Namespace:    "memory",
+			Namespace:    toolNamespace,
 			Description:  "Delete a specific memory by ID.",
 			OutputSchema: forgetOutputSchema,
 			InputSchema: mustJSON(map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"memory_id": map[string]any{
-						"type":        "string",
-						"description": "The ID of the memory to forget.",
+				schemaKeyType: schemaTypeObject,
+				schemaKeyProperties: map[string]any{
+					argMemoryID: map[string]any{
+						schemaKeyType:        schemaTypeString,
+						schemaKeyDescription: "The ID of the memory to forget.",
 					},
 				},
-				"required": []string{"memory_id"},
+				schemaKeyRequired: []string{argMemoryID},
 			}),
 		},
 	}

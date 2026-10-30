@@ -96,7 +96,7 @@ type CompositionExecutorDeps struct {
 // steps as sub-pipelines and tool steps via the registry.
 func NewCompositionStepExecutor(deps CompositionExecutorDeps) engine.StepExecutor {
 	return func(ctx context.Context, step *composition.Step, input json.RawMessage) (json.RawMessage, error) {
-		//nolint:exhaustive // KindBranch and KindParallel are handled by the engine; a leaf executor never receives them.
+		// KindBranch and KindParallel are handled by the engine; a leaf executor never receives them.
 		switch step.Kind {
 		case composition.KindTool:
 			return deps.executeTool(ctx, step, input)
@@ -124,6 +124,36 @@ func (deps CompositionExecutorDeps) executeTool(
 		return nil, fmt.Errorf("tool %q: %w: %s", step.Tool, errToolFailed, res.Error)
 	}
 	return res.Result, nil
+}
+
+// stepToolPolicy returns the per-step tool policy: agent steps configure
+// MaxRounds/StopOnTool from Termination; prompt steps are always single-round.
+//
+// termination.max_steps bounds THIS agent step's LLM-tool loop: it counts
+// the same rounds as the prompt's tool_policy.max_rounds. It is not a limit
+// on how many composition steps execute — the spec requires the step graph
+// to be acyclic (validate.go rejects cycles), so no step runs twice and
+// looping belongs to the workflow layer (max_visits, engine.budget). The
+// provider stage merges this policy with the step prompt's tool_policy and
+// runs to the LOWER of max_steps and max_rounds; a step that sets only
+// tool_called gets the prompt's max_rounds, or the default.
+// See pipeline.MergeToolPolicy.
+// Tool scoping is handled uniformly by toolScopeStage: it intersects the
+// prompt template's AllowedTools with step.Tools, so a prompt step (empty
+// Tools) yields no tools regardless of what the template declares.
+func stepToolPolicy(step *composition.Step) *pipeline.ToolPolicy {
+	policy := &pipeline.ToolPolicy{}
+	if step.Kind == composition.KindAgent {
+		if step.Termination != nil {
+			if maxSteps := packspec.Deref(step.Termination.MaxSteps, 0); maxSteps > 0 {
+				policy.MaxRounds = maxSteps
+			}
+			policy.StopOnTool = step.Termination.ToolCalled
+		}
+	} else {
+		policy.MaxRounds = 1
+	}
+	return policy
 }
 
 // execLLM runs a prompt/agent step as a minimal PromptAssembly → Template →
@@ -172,32 +202,7 @@ func (deps CompositionExecutorDeps) execLLM(
 	}
 	cfg.ResponseFormat = rf
 
-	// Per-step tool policy: agent steps configure MaxRounds/StopOnTool from
-	// Termination; prompt steps are always single-round.
-	//
-	// termination.max_steps bounds THIS agent step's LLM-tool loop: it counts
-	// the same rounds as the prompt's tool_policy.max_rounds. It is not a limit
-	// on how many composition steps execute — the spec requires the step graph
-	// to be acyclic (validate.go rejects cycles), so no step runs twice and
-	// looping belongs to the workflow layer (max_visits, engine.budget). The
-	// provider stage merges this policy with the step prompt's tool_policy and
-	// runs to the LOWER of max_steps and max_rounds; a step that sets only
-	// tool_called gets the prompt's max_rounds, or the default.
-	// See pipeline.MergeToolPolicy.
-	// Tool scoping is handled uniformly by toolScopeStage: it intersects the
-	// prompt template's AllowedTools with step.Tools, so a prompt step (empty
-	// Tools) yields no tools regardless of what the template declares.
-	policy := &pipeline.ToolPolicy{}
-	if step.Kind == composition.KindAgent {
-		if step.Termination != nil {
-			if maxSteps := packspec.Deref(step.Termination.MaxSteps, 0); maxSteps > 0 {
-				policy.MaxRounds = maxSteps
-			}
-			policy.StopOnTool = step.Termination.ToolCalled
-		}
-	} else {
-		policy.MaxRounds = 1
-	}
+	policy := stepToolPolicy(step)
 
 	// toolScopeStage runs after PromptAssemblyStage and narrows AllowedTools to
 	// the intersection of the prompt template's tools and the step's tools.

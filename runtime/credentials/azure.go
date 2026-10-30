@@ -50,7 +50,7 @@ func (c *AzureCredential) Apply(ctx context.Context, req *http.Request) error {
 		return fmt.Errorf("failed to get Azure token: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+token.Token)
+	req.Header.Set(headerAuthorization, bearerPrefix+token.Token)
 	return nil
 }
 

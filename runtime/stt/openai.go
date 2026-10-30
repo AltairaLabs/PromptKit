@@ -39,6 +39,8 @@ const (
 
 	// bitsPerByte is the number of bits in a byte, used for PCM byte-rate computation.
 	bitsPerByte = 8
+	// unitSecond is the pricing/quantity unit for audio duration.
+	unitSecond = "second"
 )
 
 // openAIDefaultPricing is the inline pricing descriptor for OpenAI Whisper.
@@ -47,7 +49,7 @@ var openAIDefaultPricing = &base.PricingDescriptor{
 	Source:   base.PricingSourceInline,
 	Currency: "usd",
 	Items: []base.PriceItem{
-		{Unit: "second", Rate: openAIWhisperPerSecondRate},
+		{Unit: unitSecond, Rate: openAIWhisperPerSecondRate},
 	},
 }
 
@@ -120,7 +122,7 @@ func (s *OpenAIService) Transcribe(ctx context.Context, req base.STTRequest) (ba
 			pricing,
 			s.Name(),
 			base.ProviderTypeSTT,
-			map[string]float64{"second": audioSeconds},
+			map[string]float64{unitSecond: audioSeconds},
 			latency,
 		)
 	}
@@ -191,8 +193,6 @@ func estimateAudioSeconds(audio []byte, mimeType string, nc *normalizedConfig) f
 
 // TranscribeBytes converts raw audio bytes to text using the legacy config shape.
 // It delegates to the Whisper API using the simple (non-verbose) response format.
-//
-//nolint:gocritic // hugeParam: TranscriptionConfig passed by value to satisfy Service interface
 func (s *OpenAIService) TranscribeBytes(
 	ctx context.Context, audio []byte, config TranscriptionConfig,
 ) (string, error) {

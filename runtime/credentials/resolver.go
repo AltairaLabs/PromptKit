@@ -17,13 +17,35 @@ const (
 	platformAzure   = "azure"
 )
 
+// Provider type keys of DefaultEnvVars and ProviderHeaderConfig.
+const (
+	providerClaude = "claude"
+	providerOpenAI = "openai"
+	providerGemini = "gemini"
+	providerImagen = "imagen"
+)
+
+// Environment variables holding a Google AI API key.
+//
+//nolint:gosec // G101: these are environment variable names, not credentials
+const (
+	envGeminiAPIKey = "GEMINI_API_KEY"
+	envGoogleAPIKey = "GOOGLE_API_KEY"
+)
+
+// headerAuthorization is the HTTP Authorization header name.
+const headerAuthorization = "Authorization"
+
+// bearerPrefix is the scheme prefix of a bearer-token Authorization value.
+const bearerPrefix = "Bearer "
+
 // DefaultEnvVars maps provider types to their default environment variable names.
 // This maintains backward compatibility with existing configurations.
 var DefaultEnvVars = map[string][]string{
-	"claude": {"ANTHROPIC_API_KEY", "CLAUDE_API_KEY"},
-	"openai": {"OPENAI_API_KEY", "OPENAI_TOKEN"},
-	"gemini": {"GEMINI_API_KEY", "GOOGLE_API_KEY"},
-	"imagen": {"GEMINI_API_KEY", "GOOGLE_API_KEY"},
+	providerClaude: {"ANTHROPIC_API_KEY", "CLAUDE_API_KEY"},
+	providerOpenAI: {"OPENAI_API_KEY", "OPENAI_TOKEN"},
+	providerGemini: {envGeminiAPIKey, envGoogleAPIKey},
+	providerImagen: {envGeminiAPIKey, envGoogleAPIKey},
 	// classify backends authenticate the same way as LLM providers, so
 	// they share this map. HF_TOKEN is canonical; HUGGING_FACE_HUB_TOKEN
 	// is the legacy alias that some CI runners use.
@@ -35,10 +57,10 @@ var ProviderHeaderConfig = map[string]struct {
 	HeaderName string
 	Prefix     string
 }{
-	"claude": {HeaderName: "X-API-Key", Prefix: ""},
-	"openai": {HeaderName: "Authorization", Prefix: "Bearer "},
-	"gemini": {HeaderName: "", Prefix: ""}, // Gemini uses query param, not header
-	"imagen": {HeaderName: "", Prefix: ""}, // Same as Gemini
+	providerClaude: {HeaderName: "X-API-Key", Prefix: ""},
+	providerOpenAI: {HeaderName: headerAuthorization, Prefix: bearerPrefix},
+	providerGemini: {HeaderName: "", Prefix: ""}, // Gemini uses query param, not header
+	providerImagen: {HeaderName: "", Prefix: ""}, // Same as Gemini
 }
 
 // ResolverConfig holds configuration for credential resolution.
@@ -154,7 +176,7 @@ func createAPIKeyCredential(apiKey, providerType string) *APIKeyCredential {
 		headerCfg = struct {
 			HeaderName string
 			Prefix     string
-		}{HeaderName: "Authorization", Prefix: "Bearer "}
+		}{HeaderName: headerAuthorization, Prefix: bearerPrefix}
 	}
 
 	opts := []APIKeyOption{WithHeaderName(headerCfg.HeaderName)}

@@ -31,8 +31,6 @@ import (
 //     Gemini 2.5 rejects a level with HTTP 400, so pick the one matching the
 //     model generation. When both are set, the level wins.
 //   - include_thoughts (bool): return thought summaries.
-//
-//nolint:gocritic // hugeParam: providers.ProviderSpec is passed by value across the factory
 func applyThinkingConfig(p *Provider, spec providers.ProviderSpec) {
 	if spec.AdditionalConfig == nil {
 		return

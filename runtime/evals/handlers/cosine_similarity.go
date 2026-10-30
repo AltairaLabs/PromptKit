@@ -80,7 +80,7 @@ func (h *CosineSimilarityHandler) computeAndCheck(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Score:       &similarity,
-		Value:       map[string]any{"similarity": similarity, "threshold": minSim},
+		Value:       map[string]any{"similarity": similarity, keyThreshold: minSim},
 		Explanation: explanation,
 	}, nil
 }

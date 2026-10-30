@@ -38,7 +38,7 @@ func (h *JSONValidHandler) Eval(
 		return &evals.EvalResult{
 			Type:  h.Type(),
 			Score: boolScore(false),
-			Value: map[string]any{"valid": false},
+			Value: map[string]any{keyValid: false},
 			Explanation: fmt.Sprintf(
 				"invalid JSON: %v", parseErr,
 			),
@@ -48,7 +48,7 @@ func (h *JSONValidHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Score:       boolScore(true),
-		Value:       map[string]any{"valid": true},
+		Value:       map[string]any{keyValid: true},
 		Explanation: "output is valid JSON",
 	}, nil
 }

@@ -15,6 +15,15 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
+const (
+	// replayProviderID is the ID of a replay provider built by NewProvider.
+	replayProviderID = "replay"
+	// keyProviderID is the metadata key carrying the recorded provider's ID.
+	keyProviderID = "provider_id"
+	// encodingPCM is the raw PCM audio encoding name.
+	encodingPCM = "pcm"
+)
+
 // TimingMode controls how response timing is handled during replay.
 type TimingMode int
 
@@ -109,8 +118,8 @@ func NewProvider(rec *recording.SessionRecording, cfg *Config) (*Provider, error
 	}
 
 	p := &Provider{
-		Implementation: base.NewImplementation("replay", base.ProviderTypeInference, nil),
-		id:             "replay",
+		Implementation: base.NewImplementation(replayProviderID, base.ProviderTypeInference, nil),
+		id:             replayProviderID,
 		recording:      rec,
 		config:         config,
 		contentMap:     make(map[string]int),
@@ -531,11 +540,11 @@ func (p *Provider) addRecordingMetadata(metadata map[string]interface{}) {
 // addProviderInfo adds provider information to the metadata map.
 func (p *Provider) addProviderInfo(metadata map[string]interface{}) {
 	if existingInfo, ok := metadata["provider_info"].(map[string]interface{}); ok {
-		existingInfo["provider_id"] = p.recording.Metadata.ProviderName
+		existingInfo[keyProviderID] = p.recording.Metadata.ProviderName
 		existingInfo["model"] = p.recording.Metadata.Model
 	} else {
 		metadata["provider_info"] = map[string]interface{}{
-			"provider_id": p.recording.Metadata.ProviderName,
+			keyProviderID: p.recording.Metadata.ProviderName,
 			"model":       p.recording.Metadata.Model,
 		}
 	}

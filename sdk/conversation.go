@@ -63,30 +63,6 @@ const (
 	DuplexMode
 )
 
-// requireDuplex checks that the conversation is in duplex mode and not closed.
-// It must be called while c.mu is held (at least RLock).
-func (c *Conversation) requireDuplex(op string) error {
-	if c.mode != DuplexMode {
-		return fmt.Errorf(errDuplexModeRequired, op)
-	}
-	if c.closed {
-		return ErrConversationClosed
-	}
-	return nil
-}
-
-// requireUnary checks that the conversation is in unary mode and not closed.
-// It must be called while c.mu is held (at least RLock).
-func (c *Conversation) requireUnary(op string) error {
-	if c.mode != UnaryMode {
-		return fmt.Errorf(errUnaryModeRequired, op)
-	}
-	if c.closed {
-		return ErrConversationClosed
-	}
-	return nil
-}
-
 // Conversation represents an active LLM conversation.
 //
 // A conversation maintains:
@@ -213,6 +189,30 @@ type Conversation struct {
 	// Closed flag
 	closed bool
 	mu     sync.RWMutex
+}
+
+// requireDuplex checks that the conversation is in duplex mode and not closed.
+// It must be called while c.mu is held (at least RLock).
+func (c *Conversation) requireDuplex(op string) error {
+	if c.mode != DuplexMode {
+		return fmt.Errorf(errDuplexModeRequired, op)
+	}
+	if c.closed {
+		return ErrConversationClosed
+	}
+	return nil
+}
+
+// requireUnary checks that the conversation is in unary mode and not closed.
+// It must be called while c.mu is held (at least RLock).
+func (c *Conversation) requireUnary(op string) error {
+	if c.mode != UnaryMode {
+		return fmt.Errorf(errUnaryModeRequired, op)
+	}
+	if c.closed {
+		return ErrConversationClosed
+	}
+	return nil
 }
 
 // ToolHandler is a function that executes a tool call.
@@ -347,7 +347,7 @@ func (c *Conversation) buildUserMessage(message any) (*types.Message, error) {
 		if err := c.validateMessageSize(len(m)); err != nil {
 			return nil, err
 		}
-		userMsg := &types.Message{Role: "user"}
+		userMsg := &types.Message{Role: roleUser}
 		userMsg.AddTextPart(m)
 		return userMsg, nil
 	case *types.Message:
@@ -559,21 +559,11 @@ func (c *Conversation) buildPipelineConfig(
 	streamConfig *providers.StreamingInputConfig,
 ) *intpipeline.Config {
 	// Get initial variables from config (required for prompt template resolution)
-	vars := make(map[string]string)
-	if c.config != nil && c.config.initialVariables != nil {
-		for k, v := range c.config.initialVariables {
-			vars[k] = v
-		}
-	}
+	vars := c.initialVariablesSnapshot()
 
 	// Snapshot handler maps and build tool registry under a single lock to avoid
 	// a TOCTOU window between the snapshot and executor registration.
-	c.clientHandlersMu.RLock()
-	clientHandlersCopy := make(map[string]ClientToolHandler, len(c.clientHandlers))
-	for k, v := range c.clientHandlers {
-		clientHandlersCopy[k] = v
-	}
-	c.clientHandlersMu.RUnlock()
+	clientHandlersCopy := c.clientHandlersSnapshot()
 
 	c.handlersMu.Lock()
 	handlersCopy := make(map[string]ToolHandler, len(c.handlers))
@@ -603,31 +593,7 @@ func (c *Conversation) buildPipelineConfig(
 	c.registerMediaGenTools()
 	// Register capability tools (includes A2A) — only on first build
 	if !c.capabilitiesRegistered {
-		for _, cap := range c.capabilities {
-			beforeCount := len(c.toolRegistry.List())
-			cap.RegisterTools(c.toolRegistry)
-			afterCount := len(c.toolRegistry.List())
-			registered := afterCount - beforeCount
-			if registered > 0 {
-				logger.Info("capability registered tools",
-					"capability", cap.Name(), "tools_registered", registered)
-			} else {
-				logger.Debug("capability registered no tools", "capability", cap.Name())
-			}
-		}
-		// Apply per-tool descriptor overrides AFTER capabilities have
-		// registered their defaults. Last-write-wins semantics in
-		// Registry.Register let us replace any tool by name regardless of
-		// which capability owns it. See WithToolDescriptorOverride.
-		if len(c.config.toolDescriptorOverrides) > 0 {
-			applyToolDescriptorOverrides(c.toolRegistry, c.config.toolDescriptorOverrides)
-		}
-
-		c.capabilitiesRegistered = true
-		allTools := c.toolRegistry.List()
-		if len(allTools) > 0 {
-			logger.Debug("all registered tools", "tools", allTools, "count", len(allTools))
-		}
+		c.registerCapabilityToolsLocked()
 	}
 	toolRegistry := c.toolRegistry
 	c.handlersMu.Unlock()
@@ -700,29 +666,7 @@ func (c *Conversation) buildPipelineConfig(
 		InputTranscriptPlaceholder: transcriptPlaceholder,
 	}
 
-	// Wire memory stages from MemoryCapability if present
-	for _, capItem := range c.capabilities {
-		mc, ok := capItem.(*MemoryCapability)
-		if !ok {
-			continue
-		}
-		pipelineCfg.MemoryStore = mc.store
-		pipelineCfg.MemoryScope = mc.scope
-		pipelineCfg.MemoryRetriever = mc.retriever
-		pipelineCfg.MemoryExtractor = mc.extractor
-		pipelineCfg.MemoryContextFormatter = mc.formatter
-		break
-	}
-
-	// WithRetriever wires ambient grounding on its own — no store, no scope,
-	// no memory capability — and wins over a retriever the capability carried,
-	// since it is the more specific declaration.
-	if c.config.retriever != nil {
-		pipelineCfg.MemoryRetriever = c.config.retriever
-	}
-	if c.config.retrievalFormatter != nil {
-		pipelineCfg.MemoryContextFormatter = c.config.retrievalFormatter
-	}
+	c.wireMemoryConfig(pipelineCfg)
 
 	// Wire recording config if enabled. The recording stage requires an EventStore
 	// destination — when one isn't supplied via WithEventStore, the recording stage
@@ -757,15 +701,100 @@ func (c *Conversation) buildPipelineConfig(
 	// thread it into the pipeline so CompositionStage runs instead of the
 	// normal prompt-assembly → LLM path.
 	if c.config.activeComposition != nil {
-		pipelineCfg.ActiveComposition = c.config.activeComposition
-		pipelineCfg.CompositionName = c.config.compositionName
-		pipelineCfg.StepProviderResolver = stepProviderResolver(c.pack, c.config)
-		if c.pack != nil && c.pack.FilePath != "" {
-			pipelineCfg.SchemaResolver = stage.NewFileSchemaResolver(filepath.Dir(c.pack.FilePath))
-		}
+		c.wireComposition(pipelineCfg)
 	}
 
 	return pipelineCfg
+}
+
+// initialVariablesSnapshot copies the configured initial variables.
+func (c *Conversation) initialVariablesSnapshot() map[string]string {
+	vars := make(map[string]string)
+	if c.config != nil && c.config.initialVariables != nil {
+		for k, v := range c.config.initialVariables {
+			vars[k] = v
+		}
+	}
+	return vars
+}
+
+// clientHandlersSnapshot copies the client tool handler map under its lock.
+func (c *Conversation) clientHandlersSnapshot() map[string]ClientToolHandler {
+	c.clientHandlersMu.RLock()
+	defer c.clientHandlersMu.RUnlock()
+	clientHandlersCopy := make(map[string]ClientToolHandler, len(c.clientHandlers))
+	for k, v := range c.clientHandlers {
+		clientHandlersCopy[k] = v
+	}
+	return clientHandlersCopy
+}
+
+// registerCapabilityToolsLocked registers every capability's tools, then the
+// descriptor overrides, and marks capabilities registered. Called once, on
+// the first pipeline build, with c.handlersMu held.
+func (c *Conversation) registerCapabilityToolsLocked() {
+	for _, cap := range c.capabilities {
+		beforeCount := len(c.toolRegistry.List())
+		cap.RegisterTools(c.toolRegistry)
+		afterCount := len(c.toolRegistry.List())
+		registered := afterCount - beforeCount
+		if registered > 0 {
+			logger.Info("capability registered tools",
+				"capability", cap.Name(), "tools_registered", registered)
+		} else {
+			logger.Debug("capability registered no tools", "capability", cap.Name())
+		}
+	}
+	// Apply per-tool descriptor overrides AFTER capabilities have
+	// registered their defaults. Last-write-wins semantics in
+	// Registry.Register let us replace any tool by name regardless of
+	// which capability owns it. See WithToolDescriptorOverride.
+	if len(c.config.toolDescriptorOverrides) > 0 {
+		applyToolDescriptorOverrides(c.toolRegistry, c.config.toolDescriptorOverrides)
+	}
+
+	c.capabilitiesRegistered = true
+	allTools := c.toolRegistry.List()
+	if len(allTools) > 0 {
+		logger.Debug("all registered tools", "tools", allTools, "count", len(allTools))
+	}
+}
+
+// wireMemoryConfig wires memory stages from the MemoryCapability, if present,
+// then applies the WithRetriever / retrieval formatter options.
+func (c *Conversation) wireMemoryConfig(pipelineCfg *intpipeline.Config) {
+	for _, capItem := range c.capabilities {
+		mc, ok := capItem.(*MemoryCapability)
+		if !ok {
+			continue
+		}
+		pipelineCfg.MemoryStore = mc.store
+		pipelineCfg.MemoryScope = mc.scope
+		pipelineCfg.MemoryRetriever = mc.retriever
+		pipelineCfg.MemoryExtractor = mc.extractor
+		pipelineCfg.MemoryContextFormatter = mc.formatter
+		break
+	}
+
+	// WithRetriever wires ambient grounding on its own — no store, no scope,
+	// no memory capability — and wins over a retriever the capability carried,
+	// since it is the more specific declaration.
+	if c.config.retriever != nil {
+		pipelineCfg.MemoryRetriever = c.config.retriever
+	}
+	if c.config.retrievalFormatter != nil {
+		pipelineCfg.MemoryContextFormatter = c.config.retrievalFormatter
+	}
+}
+
+// wireComposition threads the active RFC 0010 composition into the pipeline.
+func (c *Conversation) wireComposition(pipelineCfg *intpipeline.Config) {
+	pipelineCfg.ActiveComposition = c.config.activeComposition
+	pipelineCfg.CompositionName = c.config.compositionName
+	pipelineCfg.StepProviderResolver = stepProviderResolver(c.pack, c.config)
+	if c.pack != nil && c.pack.FilePath != "" {
+		pipelineCfg.SchemaResolver = stage.NewFileSchemaResolver(filepath.Dir(c.pack.FilePath))
+	}
 }
 
 // buildPipelineWithParams builds a stage pipeline with explicit parameters.
@@ -1288,6 +1317,26 @@ func (c *Conversation) Clear() error {
 	return c.getBaseSession().Clear(ctx)
 }
 
+// forkToolRegistry returns a new registry holding copies of this
+// conversation's tool descriptors.
+func (c *Conversation) forkToolRegistry() *tools.Registry {
+	forkRegistry := tools.NewRegistry()
+	for _, desc := range c.toolRegistry.GetTools() {
+		_ = forkRegistry.Register(&tools.ToolDescriptor{
+			Name:        desc.Name,
+			Description: desc.Description,
+			InputSchema: desc.InputSchema,
+			Mode:        desc.Mode,
+			Namespace:   desc.Namespace,
+			// Copies, so a hook or executor in the fork cannot change what
+			// the parent's hooks and executors see (RFC 0016).
+			Declaration: packspec.Clone(desc.Declaration),
+			Agent:       packspec.Clone(desc.Agent),
+		})
+	}
+	return forkRegistry
+}
+
 // Fork creates a copy of the current conversation state.
 //
 // Use this to explore alternative conversation branches:
@@ -1330,13 +1379,8 @@ func (c *Conversation) Fork() (*Conversation, error) {
 	}
 	c.asyncHandlersMu.RUnlock()
 
-	c.clientHandlersMu.RLock()
 	// Copy client handlers
-	clientHandlers := make(map[string]ClientToolHandler, len(c.clientHandlers))
-	for k, v := range c.clientHandlers {
-		clientHandlers[k] = v
-	}
-	c.clientHandlersMu.RUnlock()
+	clientHandlers := c.clientHandlersSnapshot()
 
 	// Create fork with new ID
 	sess := c.getBaseSession()
@@ -1355,20 +1399,7 @@ func (c *Conversation) Fork() (*Conversation, error) {
 
 	// Create a new tool registry for the fork, copying tool descriptors from the original.
 	// This prevents mutations in the fork from affecting the parent's registry.
-	forkRegistry := tools.NewRegistry()
-	for _, desc := range c.toolRegistry.GetTools() {
-		_ = forkRegistry.Register(&tools.ToolDescriptor{
-			Name:        desc.Name,
-			Description: desc.Description,
-			InputSchema: desc.InputSchema,
-			Mode:        desc.Mode,
-			Namespace:   desc.Namespace,
-			// Copies, so a hook or executor in the fork cannot change what
-			// the parent's hooks and executors see (RFC 0016).
-			Declaration: packspec.Clone(desc.Declaration),
-			Agent:       packspec.Clone(desc.Agent),
-		})
-	}
+	forkRegistry := c.forkToolRegistry()
 
 	// Create the forked conversation
 	forkPendingStore, forkOwnsPending := newPendingStore(c.config)

@@ -177,7 +177,7 @@ func validatePromptValidators(
 		}
 		if _, err := guardrails.NewGuardrailHookFromRegistry(v.Type, v.Params, registry); err != nil {
 			issues = append(issues, PackIssue{
-				Severity: "error",
+				Severity: packIssueSeverityError,
 				Kind:     "validator",
 				PromptID: promptID,
 				Index:    i,
@@ -203,7 +203,7 @@ func validateEvalDefs(
 	for _, e := range errs {
 		id, reason := parseEvalValidationError(e)
 		issues = append(issues, PackIssue{
-			Severity: "error",
+			Severity: packIssueSeverityError,
 			Kind:     "eval",
 			PromptID: promptID,
 			ID:       id,
@@ -243,3 +243,7 @@ func findEvalTypeByID(defs []evals.EvalDef, id string) string {
 	}
 	return ""
 }
+
+// packIssueSeverityError is the PackIssue severity for an issue that fails
+// the pack.
+const packIssueSeverityError = "error"

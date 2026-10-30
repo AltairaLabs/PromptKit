@@ -548,14 +548,6 @@ func buildTypeSet(types []EventType) map[EventType]struct{} {
 	return m
 }
 
-// matchesFilter checks if an event matches the filter criteria.
-func (s *FileEventStore) matchesFilter(event *Event, filter *EventFilter) bool {
-	if !s.matchesBasicCriteria(event, filter) {
-		return false
-	}
-	return s.matchesEventTypes(event.Type, filter.Types)
-}
-
 // matchesBasicCriteria checks conversation, run, and time filters.
 func (s *FileEventStore) matchesBasicCriteria(event *Event, filter *EventFilter) bool {
 	if filter.ConversationID != "" && event.ConversationID != filter.ConversationID {
@@ -571,20 +563,6 @@ func (s *FileEventStore) matchesBasicCriteria(event *Event, filter *EventFilter)
 		return false
 	}
 	return true
-}
-
-// matchesEventTypes checks if the event type is in the allowed list.
-// For filters with many types, callers should use matchesEventTypeSet for O(1) lookup.
-func (s *FileEventStore) matchesEventTypes(eventType EventType, types []EventType) bool {
-	if len(types) == 0 {
-		return true
-	}
-	for _, t := range types {
-		if eventType == t {
-			return true
-		}
-	}
-	return false
 }
 
 // matchesEventTypeSet checks event type membership using a pre-built set for O(1) lookup.

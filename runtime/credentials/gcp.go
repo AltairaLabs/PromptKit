@@ -82,7 +82,7 @@ func (c *GCPCredential) Apply(ctx context.Context, req *http.Request) error {
 		return fmt.Errorf("failed to get GCP token: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	req.Header.Set(headerAuthorization, bearerPrefix+token.AccessToken)
 	return nil
 }
 

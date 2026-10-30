@@ -237,22 +237,24 @@ func (p *Provider) GetStreamingCapabilities() providers.StreamingCapabilities {
 	return providers.StreamingCapabilities{
 		SupportedMediaTypes: []string{types.ContentTypeAudio, types.ContentTypeVideo, types.ContentTypeImage},
 		Audio: &providers.AudioStreamingCapabilities{
-			SupportedEncodings:   []string{"pcm_linear16"},
-			SupportedSampleRates: []int{16000},
+			SupportedEncodings:   []string{encodingPCMLinear16},
+			SupportedSampleRates: []int{geminiSampleRate},
 			SupportedChannels:    []int{1}, // mono only
 			SupportedBitDepths:   []int{16},
-			PreferredEncoding:    "pcm_linear16",
-			PreferredSampleRate:  16000,
+			PreferredEncoding:    encodingPCMLinear16,
+			PreferredSampleRate:  geminiSampleRate,
 		},
 		Video: &providers.VideoStreamingCapabilities{
-			SupportedEncodings: []string{"image/jpeg", "image/png", "image/gif", "image/webp"},
+			SupportedEncodings: []string{
+				types.MIMETypeImageJPEG, types.MIMETypeImagePNG, types.MIMETypeImageGIF, types.MIMETypeImageWebP,
+			},
 			SupportedResolutions: []providers.VideoResolution{
 				{Width: videoResHDWidth, Height: videoResHDHeight},
 				{Width: videoRes1024, Height: videoRes1024},
 				{Width: videoResVGAWidth, Height: videoResVGAHeight},
 			},
 			SupportedFrameRates: []int{videoPreferredFPS}, // Gemini Live API processes at 1 FPS
-			PreferredEncoding:   "image/jpeg",
+			PreferredEncoding:   types.MIMETypeImageJPEG,
 			PreferredResolution: providers.VideoResolution{Width: videoRes1024, Height: videoRes1024},
 			PreferredFrameRate:  videoPreferredFPS,
 		},

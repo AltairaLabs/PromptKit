@@ -26,7 +26,7 @@ func (h *RegexHandler) Eval(
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Score:       boolScore(false),
-			Explanation: "no pattern specified",
+			Explanation: msgNoPattern,
 		}, nil
 	}
 
@@ -56,7 +56,7 @@ func (h *RegexHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Score:       boolScore(passed),
-		Value:       map[string]any{"matched": matched},
+		Value:       map[string]any{keyMatched: matched},
 		Explanation: explanation,
 	}, nil
 }

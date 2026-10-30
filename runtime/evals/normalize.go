@@ -1,38 +1,54 @@
 package evals
 
+// Eval type and param names that recur in the alias and default tables below.
+const (
+	aliasTypeBannedWords      = "banned_words"
+	aliasTypeMaxSentences     = "max_sentences"
+	legacyParamMaxChars       = "max_chars"
+	legacyParamMaxCharacters  = "max_characters"
+	legacyParamWords          = "words"
+	legacyParamRequiredFields = "required_fields"
+	aliasTypeRequiredFields   = "required_fields"
+	legacyParamMaxSentences   = "max_sentences"
+	canonicalParamPatterns    = "patterns"
+	canonicalParamMax         = "max"
+	canonicalParamMin         = "min"
+	canonicalParamFields      = "fields"
+)
+
 // ParamAliases maps legacy param names to canonical names per eval type.
 // Entries exist for both the canonical type name and any aliases, so that
 // NormalizeParams works regardless of which name is used.
 var ParamAliases = map[string]map[string]string{
 	"content_excludes": {
-		"words": "patterns",
+		legacyParamWords: canonicalParamPatterns,
 	},
-	"banned_words": {
-		"words": "patterns",
+	aliasTypeBannedWords: {
+		legacyParamWords: canonicalParamPatterns,
 	},
 	"max_length": {
-		"max_characters": "max",
-		"max_chars":      "max",
+		legacyParamMaxCharacters: canonicalParamMax,
+		legacyParamMaxChars:      canonicalParamMax,
 	},
 	"length": {
-		"max_characters": "max",
-		"max_chars":      "max",
+		legacyParamMaxCharacters: canonicalParamMax,
+		legacyParamMaxChars:      canonicalParamMax,
 	},
 	"min_length": {
-		"min_characters": "min",
-		"min_chars":      "min",
+		"min_characters": canonicalParamMin,
+		"min_chars":      canonicalParamMin,
 	},
 	"sentence_count": {
-		"max_sentences": "max",
+		legacyParamMaxSentences: canonicalParamMax,
 	},
-	"max_sentences": {
-		"max_sentences": "max",
+	aliasTypeMaxSentences: {
+		legacyParamMaxSentences: canonicalParamMax,
 	},
 	"field_presence": {
-		"required_fields": "fields",
+		legacyParamRequiredFields: canonicalParamFields,
 	},
-	"required_fields": {
-		"required_fields": "fields",
+	aliasTypeRequiredFields: {
+		legacyParamRequiredFields: canonicalParamFields,
 	},
 }
 
@@ -49,7 +65,7 @@ const topicPolicyDefaultRecentTurns = 4
 // ParamDefaults provides default param values for aliased eval types.
 // These are applied when the param is not already present.
 var ParamDefaults = map[string]map[string]any{
-	"banned_words": {"match_mode": "word_boundary"},
+	aliasTypeBannedWords: {"match_mode": "word_boundary"},
 	// direction: a topic check that only inspects the assistant's reply never
 	// blocks the call it exists to prevent. The guardrail factory defaults to
 	// output, so this entry is what makes the check gate input.

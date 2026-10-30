@@ -68,7 +68,7 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (an
 	tools := make([]ollamaTool, len(descriptors))
 	for i, desc := range descriptors {
 		tools[i] = ollamaTool{
-			Type: "function",
+			Type: toolTypeFunction,
 			Function: ollamaToolFunction{
 				Name:        desc.Name,
 				Description: desc.Description,
@@ -138,10 +138,10 @@ func (p *ToolProvider) buildToolRequest(
 
 	// Build request
 	ollamaReq := map[string]any{
-		"model":       p.model,
-		"messages":    messages,
-		"temperature": temperature,
-		"top_p":       topP,
+		keyModel:       p.model,
+		keyMessages:    messages,
+		keyTemperature: temperature,
+		keyTopP:        topP,
 	}
 	if maxTokens > 0 {
 		ollamaReq["max_tokens"] = maxTokens
@@ -174,8 +174,8 @@ func (p *ToolProvider) convertRequestMessagesToOllama(
 	// Add system message if present
 	if req.System != "" {
 		messages = append(messages, map[string]any{
-			"role":    "system",
-			"content": req.System,
+			keyRole:    roleSystem,
+			keyContent: req.System,
 		})
 	}
 
@@ -204,8 +204,8 @@ func (p *ToolProvider) convertSingleMessageForTools(
 
 	// Build the message map with content
 	ollamaMsg := map[string]any{
-		"role":    convertedMsg.Role,
-		"content": convertedMsg.Content,
+		keyRole:    convertedMsg.Role,
+		keyContent: convertedMsg.Content,
 	}
 
 	// Add tool-related fields if present
@@ -230,9 +230,9 @@ func (p *ToolProvider) convertToolCallsToOllama(toolCalls []types.MessageToolCal
 	result := make([]map[string]any, len(toolCalls))
 	for i, tc := range toolCalls {
 		result[i] = map[string]any{
-			"id":   tc.ID,
-			"type": "function",
-			"function": map[string]any{
+			"id":    tc.ID,
+			keyType: toolTypeFunction,
+			keyFunction: map[string]any{
 				keyName: tc.Name,
 				// Never replay arguments that are not valid JSON: one malformed
 				// call would fail every later request (#2103).
@@ -257,8 +257,8 @@ func (p *ToolProvider) addToolChoiceToRequest(ollamaReq map[string]any, toolChoi
 	default:
 		// Specific function name
 		ollamaReq["tool_choice"] = map[string]any{
-			"type": "function",
-			"function": map[string]string{
+			keyType: toolTypeFunction,
+			keyFunction: map[string]string{
 				keyName: toolChoice,
 			},
 		}
@@ -353,7 +353,7 @@ func (p *ToolProvider) PredictStreamWithTools(
 
 	// Add streaming options
 	ollamaReq["stream"] = true
-	ollamaReq["stream_options"] = map[string]any{"include_usage": true}
+	ollamaReq["stream_options"] = map[string]any{keyIncludeUsage: true}
 
 	reqBody, err := providers.MarshalWithExtraBody(p.ID(), ollamaReq, p.extraBody)
 	if err != nil {

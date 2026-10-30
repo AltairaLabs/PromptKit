@@ -75,7 +75,7 @@ func (r *FactoryRegistry[T]) Types() []string {
 // Create dispatches to the registered factory for spec.Type, then applies
 // spec.Tuning to the result.
 //
-//nolint:gocritic // spec is a value-semantics builder; callers assemble inline.
+// spec is a value-semantics builder; callers assemble inline.
 func (r *FactoryRegistry[T]) Create(spec CapabilitySpec) (T, error) {
 	r.mu.RLock()
 	f, ok := r.factories[spec.Type]

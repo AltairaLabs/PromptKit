@@ -277,8 +277,9 @@ func TestRegistry_GetPromptInfo(t *testing.T) {
 
 // Tests for refactored helper methods
 
-func TestRegistry_PrepareVariables(t *testing.T) {
-	reg := createTestRegistry()
+// TestRegistry_LoadTemplate_VariableValidation covers required-var validation and
+// default merging on LoadTemplate, the live path that validates and merges vars.
+func TestRegistry_LoadTemplate_VariableValidation(t *testing.T) {
 
 	tests := []struct {
 		name        string
@@ -343,15 +344,25 @@ func TestRegistry_PrepareVariables(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := reg.prepareVariables(tt.config, tt.vars, "test-activity")
+			repo := newMockRepository()
+			reg := NewRegistryWithRepository(repo)
+			tt.config.Spec.TaskType = "test-task"
+			tt.config.Spec.SystemTemplate = "template"
+			repo.prompts["test-task"] = tt.config
+
+			tmpl, err := reg.LoadTemplate("test-task", tt.vars, "")
 
 			if tt.wantErr {
 				assert.Error(t, err)
+				assert.Nil(t, tmpl)
 				return
 			}
 
-			assert.NoError(t, err)
-			assert.Len(t, result, tt.expectedLen)
+			require.NoError(t, err)
+			assert.Len(t, tmpl.DefaultVars, tt.expectedLen)
+			for k, v := range tt.vars {
+				assert.Equal(t, v, tmpl.DefaultVars[k], "caller value for %q must win over default", k)
+			}
 		})
 	}
 }

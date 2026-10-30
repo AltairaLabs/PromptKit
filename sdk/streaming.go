@@ -185,7 +185,7 @@ func (c *Conversation) buildStreamMessage(message any, opts []SendOption) (*type
 		if err := c.validateMessageSize(len(m)); err != nil {
 			return nil, nil, err
 		}
-		userMsg = &types.Message{Role: "user"}
+		userMsg = &types.Message{Role: roleUser}
 		userMsg.AddTextPart(m)
 	case *types.Message:
 		if err := c.validateMessageSize(messageContentSize(m)); err != nil {
@@ -208,61 +208,69 @@ func (c *Conversation) buildStreamMessage(message any, opts []SendOption) (*type
 // addContentParts adds content parts from options to the message.
 func (c *Conversation) addContentParts(msg *types.Message, parts []any) error {
 	for _, part := range parts {
-		switch p := part.(type) {
-		case imageFilePart:
-			if err := msg.AddImagePart(p.path, p.detail); err != nil {
-				return fmt.Errorf("failed to add image from file: %w", err)
-			}
-		case imageURLPart:
-			msg.AddImagePartFromURL(p.url, p.detail)
-		case imageDataPart:
-			base64Data := base64.StdEncoding.EncodeToString(p.data)
-			contentPart := types.NewImagePartFromData(base64Data, p.mimeType, p.detail)
-			msg.AddPart(contentPart)
-		case audioFilePart:
-			if err := msg.AddAudioPart(p.path); err != nil {
-				return fmt.Errorf("failed to add audio from file: %w", err)
-			}
-		case audioDataPart:
-			base64Data := base64.StdEncoding.EncodeToString(p.data)
-			contentPart := types.NewAudioPartFromData(base64Data, p.mimeType)
-			msg.AddPart(contentPart)
-		case videoFilePart:
-			if err := msg.AddVideoPart(p.path); err != nil {
-				return fmt.Errorf("failed to add video from file: %w", err)
-			}
-		case videoDataPart:
-			base64Data := base64.StdEncoding.EncodeToString(p.data)
-			contentPart := types.NewVideoPartFromData(base64Data, p.mimeType)
-			msg.AddPart(contentPart)
-		case documentFilePart:
-			if err := msg.AddDocumentPart(p.path); err != nil {
-				return fmt.Errorf("failed to add document from file: %w", err)
-			}
-		case documentDataPart:
-			base64Data := base64.StdEncoding.EncodeToString(p.data)
-			contentPart := types.NewDocumentPartFromData(base64Data, p.mimeType)
-			msg.AddPart(contentPart)
-		case imageStorageRefPart:
-			msg.AddPart(types.NewImagePartFromStorageRef(p.ref, p.mimeType, p.detail))
-		case audioStorageRefPart:
-			msg.AddPart(types.NewAudioPartFromStorageRef(p.ref, p.mimeType))
-		case videoStorageRefPart:
-			msg.AddPart(types.NewVideoPartFromStorageRef(p.ref, p.mimeType))
-		case documentStorageRefPart:
-			docPart := types.NewDocumentPartFromStorageRef(p.ref, p.mimeType)
-			if p.name != "" && docPart.Media != nil {
-				name := p.name
-				docPart.Media.Caption = &name
-			}
-			msg.AddPart(docPart)
-		case filePart:
-			// Legacy file part - kept for backward compatibility
-			// Try to detect if it's a document by checking the name extension
-			msg.AddTextPart(fmt.Sprintf("[File: %s]\n%s", p.name, string(p.data)))
-		default:
-			return fmt.Errorf("unknown content part type: %T", part)
+		if err := addContentPart(msg, part); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+// addContentPart adds one content part from options to the message.
+func addContentPart(msg *types.Message, part any) error {
+	switch p := part.(type) {
+	case imageFilePart:
+		if err := msg.AddImagePart(p.path, p.detail); err != nil {
+			return fmt.Errorf("failed to add image from file: %w", err)
+		}
+	case imageURLPart:
+		msg.AddImagePartFromURL(p.url, p.detail)
+	case imageDataPart:
+		base64Data := base64.StdEncoding.EncodeToString(p.data)
+		contentPart := types.NewImagePartFromData(base64Data, p.mimeType, p.detail)
+		msg.AddPart(contentPart)
+	case audioFilePart:
+		if err := msg.AddAudioPart(p.path); err != nil {
+			return fmt.Errorf("failed to add audio from file: %w", err)
+		}
+	case audioDataPart:
+		base64Data := base64.StdEncoding.EncodeToString(p.data)
+		contentPart := types.NewAudioPartFromData(base64Data, p.mimeType)
+		msg.AddPart(contentPart)
+	case videoFilePart:
+		if err := msg.AddVideoPart(p.path); err != nil {
+			return fmt.Errorf("failed to add video from file: %w", err)
+		}
+	case videoDataPart:
+		base64Data := base64.StdEncoding.EncodeToString(p.data)
+		contentPart := types.NewVideoPartFromData(base64Data, p.mimeType)
+		msg.AddPart(contentPart)
+	case documentFilePart:
+		if err := msg.AddDocumentPart(p.path); err != nil {
+			return fmt.Errorf("failed to add document from file: %w", err)
+		}
+	case documentDataPart:
+		base64Data := base64.StdEncoding.EncodeToString(p.data)
+		contentPart := types.NewDocumentPartFromData(base64Data, p.mimeType)
+		msg.AddPart(contentPart)
+	case imageStorageRefPart:
+		msg.AddPart(types.NewImagePartFromStorageRef(p.ref, p.mimeType, p.detail))
+	case audioStorageRefPart:
+		msg.AddPart(types.NewAudioPartFromStorageRef(p.ref, p.mimeType))
+	case videoStorageRefPart:
+		msg.AddPart(types.NewVideoPartFromStorageRef(p.ref, p.mimeType))
+	case documentStorageRefPart:
+		docPart := types.NewDocumentPartFromStorageRef(p.ref, p.mimeType)
+		if p.name != "" && docPart.Media != nil {
+			name := p.name
+			docPart.Media.Caption = &name
+		}
+		msg.AddPart(docPart)
+	case filePart:
+		// Legacy file part - kept for backward compatibility
+		// Try to detect if it's a document by checking the name extension
+		msg.AddTextPart(fmt.Sprintf("[File: %s]\n%s", p.name, string(p.data)))
+	default:
+		return fmt.Errorf("unknown content part type: %T", part)
 	}
 	return nil
 }

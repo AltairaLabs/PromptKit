@@ -148,8 +148,6 @@ type EvaluateOpts struct {
 // The function builds an [evals.EvalContext] from the provided messages,
 // dispatches to the appropriate runner method based on Trigger, and
 // optionally emits events on the EventBus.
-//
-//nolint:gocritic // hugeParam: value receiver is intentional for public API ergonomics
 func Evaluate(ctx context.Context, opts EvaluateOpts) ([]evals.EvalResult, error) {
 	// 0. Wire OTel listener if TracerProvider is set. Releasing it on return
 	// flushes the listener's events before Evaluate returns.
@@ -290,7 +288,7 @@ func dispatchEvals(
 	evalCtx *evals.EvalContext,
 	trigger evals.EvalTrigger,
 ) []evals.EvalResult {
-	switch trigger { //nolint:exhaustive // Callers filter to meaningful triggers
+	switch trigger { // Callers filter to meaningful triggers
 	case evals.TriggerOnSessionComplete, evals.TriggerSampleSessions:
 		return runner.RunSessionEvals(ctx, defs, evalCtx)
 	case evals.TriggerOnConversationComplete:

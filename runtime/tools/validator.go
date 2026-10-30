@@ -122,80 +122,65 @@ func NewSchemaValidatorWithSize(maxSize int) *SchemaValidator {
 
 // ValidateArgs validates tool arguments against the input schema
 func (sv *SchemaValidator) ValidateArgs(descriptor *ToolDescriptor, args json.RawMessage) error {
-	// Skip validation if no input schema is defined
-	if len(descriptor.InputSchema) == 0 {
-		return nil
-	}
-
-	schema, err := sv.getSchema(string(descriptor.InputSchema))
-	if errors.Is(err, errExternalSchemaRef) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("invalid input schema for tool %s: %w", descriptor.Name, err)
-	}
-
-	// Treat nil/empty/null args as empty object for validation
-	validationArgs := args
-	if len(validationArgs) == 0 || string(validationArgs) == "null" {
-		validationArgs = json.RawMessage(`{}`)
-	}
-	argsLoader := gojsonschema.NewBytesLoader(validationArgs)
-	result, err := schema.Validate(argsLoader)
-	if err != nil {
-		return fmt.Errorf("validation error for tool %s: %w", descriptor.Name, err)
-	}
-
-	if !result.Valid() {
-		errors := make([]string, len(result.Errors()))
-		for i, desc := range result.Errors() {
-			errors[i] = desc.String()
-		}
-		return &ValidationError{
-			Type:   "args_invalid",
-			Tool:   descriptor.Name,
-			Detail: fmt.Sprintf("argument validation failed: %v", errors),
-		}
-	}
-
-	return nil
+	return sv.validateAgainstSchema(descriptor.InputSchema, args, descriptor.Name, schemaCheck{
+		schemaKind:   "input",
+		errType:      "args_invalid",
+		detailPrefix: "argument validation failed",
+	})
 }
 
 // ValidateResult validates tool result against the output schema
 func (sv *SchemaValidator) ValidateResult(descriptor *ToolDescriptor, result json.RawMessage) error {
-	// Skip validation if no output schema is defined
-	if len(descriptor.OutputSchema) == 0 {
+	return sv.validateAgainstSchema(descriptor.OutputSchema, result, descriptor.Name, schemaCheck{
+		schemaKind:   "output",
+		errType:      "result_invalid",
+		detailPrefix: "result validation failed",
+	})
+}
+
+// schemaCheck names the side of a tool call being validated, for error text.
+type schemaCheck struct {
+	schemaKind   string // "input" or "output", in the invalid-schema error
+	errType      string // ValidationError.Type on a failed validation
+	detailPrefix string // ValidationError.Detail prefix on a failed validation
+}
+
+// validateAgainstSchema validates data against a tool schema. An absent schema
+// or one with an external $ref skips validation; nil/empty/null data is
+// validated as an empty object.
+func (sv *SchemaValidator) validateAgainstSchema(
+	schemaJSON, data json.RawMessage, toolName string, check schemaCheck,
+) error {
+	if len(schemaJSON) == 0 {
 		return nil
 	}
 
-	schema, err := sv.getSchema(string(descriptor.OutputSchema))
+	schema, err := sv.getSchema(string(schemaJSON))
 	if errors.Is(err, errExternalSchemaRef) {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("invalid output schema for tool %s: %w", descriptor.Name, err)
+		return fmt.Errorf("invalid %s schema for tool %s: %w", check.schemaKind, toolName, err)
 	}
 
-	// Treat nil/empty result as empty object for validation
-	validationData := result
-	if len(validationData) == 0 || string(validationData) == "null" {
+	validationData := data
+	if len(validationData) == 0 || string(validationData) == jsonNull {
 		validationData = json.RawMessage(`{}`)
 	}
-	resultLoader := gojsonschema.NewBytesLoader(validationData)
-	validationResult, err := schema.Validate(resultLoader)
+	result, err := schema.Validate(gojsonschema.NewBytesLoader(validationData))
 	if err != nil {
-		return fmt.Errorf("validation error for tool %s: %w", descriptor.Name, err)
+		return fmt.Errorf("validation error for tool %s: %w", toolName, err)
 	}
 
-	if !validationResult.Valid() {
-		errors := make([]string, len(validationResult.Errors()))
-		for i, desc := range validationResult.Errors() {
-			errors[i] = desc.String()
+	if !result.Valid() {
+		failures := make([]string, len(result.Errors()))
+		for i, desc := range result.Errors() {
+			failures[i] = desc.String()
 		}
 		return &ValidationError{
-			Type:   "result_invalid",
-			Tool:   descriptor.Name,
-			Detail: fmt.Sprintf("result validation failed: %v", errors),
+			Type:   check.errType,
+			Tool:   toolName,
+			Detail: fmt.Sprintf("%s: %v", check.detailPrefix, failures),
 		}
 	}
 
@@ -397,32 +382,8 @@ func (sv *SchemaValidator) CoerceArgs(
 		requiredSet[r] = true
 	}
 
-	var coercions []Coercion
-
 	// Phase 1: strip nulls and empty strings from non-required fields.
-	for key, prop := range schema.Properties {
-		val, exists := data[key]
-		if !exists {
-			continue
-		}
-
-		// Strip null from non-required fields.
-		if val == nil && !requiredSet[key] {
-			delete(data, key)
-			coercions = append(coercions, Coercion{Path: key, From: nil, To: "<stripped>"})
-			continue
-		}
-
-		// Strip empty strings from non-required fields when the empty string
-		// is not a valid value: non-string types, or string types with an enum constraint.
-		if str, ok := val.(string); ok && str == "" && !requiredSet[key] {
-			if prop.Type != schemaTypeString || len(prop.Enum) > 0 {
-				delete(data, key)
-				coercions = append(coercions, Coercion{Path: key, From: "", To: "<stripped>"})
-				continue
-			}
-		}
-	}
+	coercions := stripOptionalEmpties(data, schema.Properties, requiredSet)
 
 	// Phase 2: type coercion for remaining fields.
 	for key, prop := range schema.Properties {
@@ -433,48 +394,15 @@ func (sv *SchemaValidator) CoerceArgs(
 
 		// String value coercion (string → target type).
 		if str, ok := val.(string); ok {
-			coerced, err := coerceStringValue(str, prop.Type)
+			stringCoercions, err := coerceStringField(data, key, str, prop)
 			if err != nil {
-				return nil, nil, fmt.Errorf("cannot coerce %q=%q to %s: %w", key, str, prop.Type, err)
+				return nil, nil, err
 			}
-			if coerced != nil {
-				data[key] = coerced
-				coercions = append(coercions, Coercion{Path: key, From: str, To: coerced})
-			}
-
-			// Enum case/whitespace normalisation for string fields.
-			if prop.Type == schemaTypeString && len(prop.Enum) > 0 {
-				// Re-read: coercion above returns nil for string→string, so val is unchanged.
-				current, _ := data[key].(string)
-				if normalized, ok := normalizeEnum(current, prop.Enum); ok {
-					data[key] = normalized
-					coercions = append(coercions, Coercion{Path: key, From: current, To: normalized})
-				}
-			}
+			coercions = append(coercions, stringCoercions...)
 			continue
 		}
 
-		// Non-string coercion: number → boolean (LLMs send 1/0 for booleans).
-		if num, ok := val.(float64); ok && prop.Type == schemaTypeBoolean {
-			switch num {
-			case 0:
-				data[key] = false
-				coercions = append(coercions, Coercion{Path: key, From: num, To: false})
-			case 1:
-				data[key] = true
-				coercions = append(coercions, Coercion{Path: key, From: num, To: true})
-			}
-		}
-
-		// Array element coercion: coerce string elements to match items.type.
-		isTypedArray := prop.Type == schemaTypeArray &&
-			prop.Items.Type != "" && prop.Items.Type != schemaTypeString
-		if arr, ok := val.([]any); ok && isTypedArray {
-			if coerced := coerceArrayElements(arr, prop.Items.Type); coerced != nil {
-				data[key] = coerced
-				coercions = append(coercions, Coercion{Path: key, From: "array elements", To: "coerced"})
-			}
-		}
+		coercions = append(coercions, coerceNonStringField(data, key, val, prop)...)
 	}
 
 	if len(coercions) == 0 {
@@ -486,6 +414,95 @@ func (sv *SchemaValidator) CoerceArgs(
 		return nil, nil, fmt.Errorf("cannot marshal coerced args: %w", err)
 	}
 	return coerced, coercions, nil
+}
+
+// strippedMarker is the Coercion.To value recorded when a field is removed.
+const strippedMarker = "<stripped>"
+
+// stripOptionalEmpties removes nulls, and empty strings where the empty string
+// is not a valid value, from fields that are not required.
+func stripOptionalEmpties(
+	data map[string]any, props map[string]schemaProperty, requiredSet map[string]bool,
+) []Coercion {
+	var coercions []Coercion
+	for key, prop := range props {
+		val, exists := data[key]
+		if !exists {
+			continue
+		}
+
+		// Strip null from non-required fields.
+		if val == nil && !requiredSet[key] {
+			delete(data, key)
+			coercions = append(coercions, Coercion{Path: key, From: nil, To: strippedMarker})
+			continue
+		}
+
+		// Strip empty strings from non-required fields when the empty string
+		// is not a valid value: non-string types, or string types with an enum constraint.
+		if str, ok := val.(string); ok && str == "" && !requiredSet[key] {
+			if prop.Type != schemaTypeString || len(prop.Enum) > 0 {
+				delete(data, key)
+				coercions = append(coercions, Coercion{Path: key, From: "", To: strippedMarker})
+				continue
+			}
+		}
+	}
+	return coercions
+}
+
+// coerceStringField coerces a string value to the property's declared type and
+// normalizes enum case/whitespace for string enums.
+func coerceStringField(data map[string]any, key, str string, prop schemaProperty) ([]Coercion, error) {
+	var coercions []Coercion
+	coerced, err := coerceStringValue(str, prop.Type)
+	if err != nil {
+		return nil, fmt.Errorf("cannot coerce %q=%q to %s: %w", key, str, prop.Type, err)
+	}
+	if coerced != nil {
+		data[key] = coerced
+		coercions = append(coercions, Coercion{Path: key, From: str, To: coerced})
+	}
+
+	// Enum case/whitespace normalisation for string fields.
+	if prop.Type == schemaTypeString && len(prop.Enum) > 0 {
+		// Re-read: coercion above returns nil for string→string, so val is unchanged.
+		current, _ := data[key].(string)
+		if normalized, ok := normalizeEnum(current, prop.Enum); ok {
+			data[key] = normalized
+			coercions = append(coercions, Coercion{Path: key, From: current, To: normalized})
+		}
+	}
+	return coercions, nil
+}
+
+// coerceNonStringField coerces 1/0 numbers to booleans and string elements of
+// typed arrays to their item type.
+func coerceNonStringField(data map[string]any, key string, val any, prop schemaProperty) []Coercion {
+	var coercions []Coercion
+
+	// Number → boolean (LLMs send 1/0 for booleans).
+	if num, ok := val.(float64); ok && prop.Type == schemaTypeBoolean {
+		switch num {
+		case 0:
+			data[key] = false
+			coercions = append(coercions, Coercion{Path: key, From: num, To: false})
+		case 1:
+			data[key] = true
+			coercions = append(coercions, Coercion{Path: key, From: num, To: true})
+		}
+	}
+
+	// Array element coercion: coerce string elements to match items.type.
+	isTypedArray := prop.Type == schemaTypeArray &&
+		prop.Items.Type != "" && prop.Items.Type != schemaTypeString
+	if arr, ok := val.([]any); ok && isTypedArray {
+		if coerced := coerceArrayElements(arr, prop.Items.Type); coerced != nil {
+			data[key] = coerced
+			coercions = append(coercions, Coercion{Path: key, From: "array elements", To: "coerced"})
+		}
+	}
+	return coercions
 }
 
 // normalizeEnum tries to match a value against enum entries with whitespace

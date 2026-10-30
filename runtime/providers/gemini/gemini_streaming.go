@@ -25,8 +25,6 @@ func (p *Provider) PredictStream(
 }
 
 // predictStreamOnce performs a streaming prediction request to Gemini
-//
-//nolint:gocritic // hugeParam: interface signature requires value receiver
 func (p *Provider) predictStreamOnce(
 	ctx context.Context, req providers.PredictionRequest,
 ) (<-chan providers.StreamChunk, error) {
@@ -34,13 +32,13 @@ func (p *Provider) predictStreamOnce(
 	ctx = p.LoggingContext(ctx, p.model)
 
 	// Convert messages to Gemini format and apply defaults
-	contents, systemInstruction, temperature, topP, maxTokens, err := p.prepareGeminiRequest(ctx, req)
+	prep, err := p.prepareGeminiRequest(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 
 	// Create streaming request
-	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
+	geminiReq := prep.build(p)
 	geminiReq.GenerationConfig.applyOptionalSampling(p, &req)
 
 	// Explicit context caching: reference the cached system prefix and drop the
@@ -112,89 +110,114 @@ func (p *Provider) processGeminiStreamChunk(
 	// Process all parts in the candidate (a no-op when Parts is empty — an
 	// empty-parts chunk may still carry a terminal finishReason, handled below).
 	for i, part := range candidate.Content.Parts {
-		// Reasoning ("thought") parts stream on Reasoning, not content.
-		if part.Thought {
-			if part.Text != "" || part.ThoughtSignature != "" {
-				rc := providers.StreamChunk{Reasoning: part.Text}
-				if part.ThoughtSignature != "" {
-					rc.OpaqueReasoning = []types.OpaqueReasoning{{
-						Provider: providerNameGemini, Kind: kindThoughtSignature, Data: part.ThoughtSignature,
-					}}
-				}
-				outChan <- rc
-			}
-			continue
-		}
-
-		// Handle text content
-		if part.Text != "" {
-			sb.WriteString(part.Text)
-
-			outChan <- providers.StreamChunk{
-				Content: sb.String(),
-				Delta:   part.Text,
-			}
-		}
-
-		// Handle function calls
-		if part.FunctionCall != nil {
-			toolCall := types.MessageToolCall{
-				ID:   fmt.Sprintf("call_%d", len(toolCalls)+i),
-				Name: part.FunctionCall.Name,
-			}
-			if part.FunctionCall.Args != nil {
-				toolCall.Args = part.FunctionCall.Args
-			}
-			// Preserve Gemini 3's thoughtSignature so it can be replayed on
-			// the next turn. Without this, Gemini 3 rejects the request.
-			if part.ThoughtSignature != "" {
-				toolCall.ProviderMetadata = map[string]string{
-					providerMetaThoughtSignature: part.ThoughtSignature,
-				}
-			}
-			toolCalls = append(toolCalls, toolCall)
-		}
+		toolCalls = processGeminiStreamPart(i, &part, sb, toolCalls, outChan)
 	}
 
 	if candidate.FinishReason != "" {
-		// A terminal chunk that produced no text and no tool calls across the
-		// whole stream means the model was blocked or refused (SAFETY,
-		// RECITATION, MAX_TOKENS, UNEXPECTED_TOOL_CALL, ...). Surface it as an
-		// error instead of silently emitting an empty success — this mirrors
-		// the non-streaming handleGeminiFinishReason path, which already errors
-		// on a content-less terminal response.
-		if sb.Len() == 0 && len(toolCalls) == 0 {
-			outChan <- providers.StreamChunk{
-				Error: fmt.Errorf(
-					"gemini stream ended with finish reason %q and no content",
-					candidate.FinishReason,
-				),
-				FinishReason: &candidate.FinishReason,
-			}
-			return toolCalls, true
-		}
-
-		normalized := normalizeFinishReason(candidate.FinishReason)
-		finalChunk := providers.StreamChunk{
-			Content:      sb.String(),
-			FinishReason: &normalized,
-			ToolCalls:    toolCalls,
-		}
-
-		// TokenCount and CostInfo come from real usageMetadata only — routed
-		// through costFromUsage (not the CalculateCost wrapper) so thinking
-		// tokens are priced too (see Task 10).
-		if chunk.UsageMetadata != nil {
-			finalChunk.TokenCount = chunk.UsageMetadata.CandidatesTokenCount
-			costBreakdown := p.costFromUsage(*chunk.UsageMetadata)
-			finalChunk.CostInfo = &costBreakdown
-		}
-
-		outChan <- finalChunk
+		p.emitGeminiStreamFinish(&chunk, candidate.FinishReason, sb, toolCalls, outChan)
 		return toolCalls, true // Signal finish
 	}
 
 	return toolCalls, false
+}
+
+// processGeminiStreamPart emits the stream chunks for one candidate part and
+// returns toolCalls with any function call in the part appended.
+func processGeminiStreamPart(
+	i int,
+	part *geminiPart,
+	sb *strings.Builder,
+	toolCalls []types.MessageToolCall,
+	outChan chan<- providers.StreamChunk,
+) []types.MessageToolCall {
+	// Reasoning ("thought") parts stream on Reasoning, not content.
+	if part.Thought {
+		if part.Text != "" || part.ThoughtSignature != "" {
+			rc := providers.StreamChunk{Reasoning: part.Text}
+			if part.ThoughtSignature != "" {
+				rc.OpaqueReasoning = []types.OpaqueReasoning{{
+					Provider: providerNameGemini, Kind: kindThoughtSignature, Data: part.ThoughtSignature,
+				}}
+			}
+			outChan <- rc
+		}
+		return toolCalls
+	}
+
+	// Handle text content
+	if part.Text != "" {
+		sb.WriteString(part.Text)
+
+		outChan <- providers.StreamChunk{
+			Content: sb.String(),
+			Delta:   part.Text,
+		}
+	}
+
+	// Handle function calls
+	if part.FunctionCall != nil {
+		toolCall := types.MessageToolCall{
+			ID:   fmt.Sprintf("call_%d", len(toolCalls)+i),
+			Name: part.FunctionCall.Name,
+		}
+		if part.FunctionCall.Args != nil {
+			toolCall.Args = part.FunctionCall.Args
+		}
+		// Preserve Gemini 3's thoughtSignature so it can be replayed on
+		// the next turn. Without this, Gemini 3 rejects the request.
+		if part.ThoughtSignature != "" {
+			toolCall.ProviderMetadata = map[string]string{
+				providerMetaThoughtSignature: part.ThoughtSignature,
+			}
+		}
+		toolCalls = append(toolCalls, toolCall)
+	}
+	return toolCalls
+}
+
+// emitGeminiStreamFinish sends the terminal chunk for a candidate that carries
+// a finish reason.
+func (p *Provider) emitGeminiStreamFinish(
+	chunk *geminiResponse,
+	finishReason string,
+	sb *strings.Builder,
+	toolCalls []types.MessageToolCall,
+	outChan chan<- providers.StreamChunk,
+) {
+	// A terminal chunk that produced no text and no tool calls across the
+	// whole stream means the model was blocked or refused (SAFETY,
+	// RECITATION, MAX_TOKENS, UNEXPECTED_TOOL_CALL, ...). Surface it as an
+	// error instead of silently emitting an empty success — this mirrors
+	// the non-streaming handleGeminiFinishReason path, which already errors
+	// on a content-less terminal response.
+	if sb.Len() == 0 && len(toolCalls) == 0 {
+		outChan <- providers.StreamChunk{
+			Error: fmt.Errorf(
+				"gemini stream ended with finish reason %q and no content",
+				finishReason,
+			),
+			FinishReason: &finishReason,
+		}
+		return
+	}
+
+	normalized := normalizeFinishReason(finishReason)
+	finalChunk := providers.StreamChunk{
+		Content:      sb.String(),
+		FinishReason: &normalized,
+		ToolCalls:    toolCalls,
+	}
+
+	// TokenCount and CostInfo come from real usageMetadata only — routed
+	// through costFromUsage (not the CalculateCost wrapper) so thinking
+	// tokens are priced too (see Task 10).
+	if chunk.UsageMetadata != nil {
+		finalChunk.TokenCount = chunk.UsageMetadata.CandidatesTokenCount
+		costBreakdown := p.costFromUsage(*chunk.UsageMetadata)
+		finalChunk.CostInfo = &costBreakdown
+	}
+
+	outChan <- finalChunk
 }
 
 // streamResponse reads a JSON array stream from Gemini and sends chunks incrementally.

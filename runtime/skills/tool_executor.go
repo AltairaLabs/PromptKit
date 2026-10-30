@@ -17,25 +17,51 @@ const (
 	SkillExecutorName     = "skill"
 )
 
+// Skill tool argument and result field names.
+const (
+	argName            = "name"
+	argSkillName       = "skill_name"
+	argPath            = "path"
+	resultInstructions = "instructions"
+	resultAddedTools   = "added_tools"
+	resultRemovedTools = "removed_tools"
+	resultContent      = "content"
+)
+
+// JSON Schema keywords and type names used in the skill tool schemas.
+const (
+	schemaKeyType        = "type"
+	schemaKeyProperties  = "properties"
+	schemaKeyDescription = "description"
+	schemaKeyItems       = "items"
+	schemaKeyRequired    = "required"
+	schemaTypeObject     = "object"
+	schemaTypeString     = "string"
+	schemaTypeArray      = "array"
+)
+
 // BuildSkillActivateDescriptor returns the tool descriptor for skill__activate.
 func BuildSkillActivateDescriptor() *tools.ToolDescriptor {
 	schema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"name": map[string]any{
-				"type":        "string",
-				"description": "Name of the skill to activate.",
+		schemaKeyType: schemaTypeObject,
+		schemaKeyProperties: map[string]any{
+			argName: map[string]any{
+				schemaKeyType:        schemaTypeString,
+				schemaKeyDescription: "Name of the skill to activate.",
 			},
 		},
-		"required": []string{"name"},
+		schemaKeyRequired: []string{argName},
 	}
 	inputSchema, _ := json.Marshal(schema)
 
 	outputSchema, _ := json.Marshal(map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"instructions": map[string]any{"type": "string"},
-			"added_tools":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		schemaKeyType: schemaTypeObject,
+		schemaKeyProperties: map[string]any{
+			resultInstructions: map[string]any{schemaKeyType: schemaTypeString},
+			resultAddedTools: map[string]any{
+				schemaKeyType:  schemaTypeArray,
+				schemaKeyItems: map[string]any{schemaKeyType: schemaTypeString},
+			},
 		},
 	})
 
@@ -61,23 +87,23 @@ func BuildSkillActivateDescriptorWithIndex(index string) *tools.ToolDescriptor {
 // BuildSkillDeactivateDescriptor returns the tool descriptor for skill__deactivate.
 func BuildSkillDeactivateDescriptor() *tools.ToolDescriptor {
 	schema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"name": map[string]any{
-				"type":        "string",
-				"description": "Name of the skill to deactivate.",
+		schemaKeyType: schemaTypeObject,
+		schemaKeyProperties: map[string]any{
+			argName: map[string]any{
+				schemaKeyType:        schemaTypeString,
+				schemaKeyDescription: "Name of the skill to deactivate.",
 			},
 		},
-		"required": []string{"name"},
+		schemaKeyRequired: []string{argName},
 	}
 	inputSchema, _ := json.Marshal(schema)
 
 	outputSchema, _ := json.Marshal(map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"removed_tools": map[string]any{
-				"type":  "array",
-				"items": map[string]any{"type": "string"},
+		schemaKeyType: schemaTypeObject,
+		schemaKeyProperties: map[string]any{
+			resultRemovedTools: map[string]any{
+				schemaKeyType:  schemaTypeArray,
+				schemaKeyItems: map[string]any{schemaKeyType: schemaTypeString},
 			},
 		},
 	})
@@ -95,25 +121,25 @@ func BuildSkillDeactivateDescriptor() *tools.ToolDescriptor {
 // BuildSkillReadResourceDescriptor returns the tool descriptor for skill__read_resource.
 func BuildSkillReadResourceDescriptor() *tools.ToolDescriptor {
 	schema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"skill_name": map[string]any{
-				"type":        "string",
-				"description": "Name of the skill owning the resource.",
+		schemaKeyType: schemaTypeObject,
+		schemaKeyProperties: map[string]any{
+			argSkillName: map[string]any{
+				schemaKeyType:        schemaTypeString,
+				schemaKeyDescription: "Name of the skill owning the resource.",
 			},
-			"path": map[string]any{
-				"type":        "string",
-				"description": "Relative path to the resource within the skill directory.",
+			argPath: map[string]any{
+				schemaKeyType:        schemaTypeString,
+				schemaKeyDescription: "Relative path to the resource within the skill directory.",
 			},
 		},
-		"required": []string{"skill_name", "path"},
+		schemaKeyRequired: []string{argSkillName, argPath},
 	}
 	inputSchema, _ := json.Marshal(schema)
 
 	outputSchema, _ := json.Marshal(map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"content": map[string]any{"type": "string"},
+		schemaKeyType: schemaTypeObject,
+		schemaKeyProperties: map[string]any{
+			resultContent: map[string]any{schemaKeyType: schemaTypeString},
 		},
 	})
 
@@ -188,8 +214,8 @@ func (e *ToolExecutor) executeActivate(ctx context.Context, args json.RawMessage
 		addedTools = []string{}
 	}
 	result := map[string]any{
-		"instructions": act.Instructions,
-		"added_tools":  addedTools,
+		resultInstructions: act.Instructions,
+		resultAddedTools:   addedTools,
 	}
 	return json.Marshal(result)
 }
@@ -213,7 +239,7 @@ func (e *ToolExecutor) executeDeactivate(
 		removedTools = []string{}
 	}
 	result := map[string]any{
-		"removed_tools": removedTools,
+		resultRemovedTools: removedTools,
 	}
 	return json.Marshal(result)
 }
@@ -233,7 +259,7 @@ func (e *ToolExecutor) executeReadResource(args json.RawMessage) (json.RawMessag
 	}
 
 	result := map[string]any{
-		"content": string(data),
+		resultContent: string(data),
 	}
 	return json.Marshal(result)
 }

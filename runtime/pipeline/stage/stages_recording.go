@@ -281,7 +281,7 @@ func (rs *RecordingStage) recordAudioElement(ctx context.Context, elem *StreamEl
 	if role == roleUser {
 		direction = audioDirectionInput
 		eventType = events.EventAudioInput
-		actor = "user"
+		actor = roleUser
 		generatedFrom = ""
 	}
 
@@ -349,7 +349,7 @@ func (rs *RecordingStage) recordImageElement(ctx context.Context, elem *StreamEl
 	if role == roleUser {
 		eventType = events.EventImageInput
 		direction = audioDirectionInput
-		actor = "user"
+		actor = roleUser
 	}
 
 	rs.appendOrWarn(ctx, &events.Event{

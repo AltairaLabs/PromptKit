@@ -37,6 +37,9 @@ type Provider struct {
 }
 
 // Default timeout for vLLM requests (configurable via additional_config)
+// roleSystem is the chat role of the system message.
+const roleSystem = "system"
+
 const vllmHTTPTimeout = 120 * time.Second
 
 // NewProvider creates a new vLLM provider
@@ -51,7 +54,7 @@ func NewProvider(
 		Timeout:   vllmHTTPTimeout,
 		Transport: providers.NewInstrumentedTransport(providers.NewPooledTransport()),
 	}
-	base := providers.NewBaseProvider(id, includeRawOutput, client)
+	baseProvider := providers.NewBaseProvider(id, includeRawOutput, client)
 
 	// Extract optional API key from additional config
 	apiKey := ""
@@ -62,7 +65,7 @@ func NewProvider(
 	}
 
 	return &Provider{
-		BaseProvider:     base,
+		BaseProvider:     baseProvider,
 		model:            model,
 		baseURL:          baseURL,
 		apiKey:           apiKey,
@@ -204,7 +207,7 @@ func (p *Provider) prepareMessages(req *providers.PredictionRequest) ([]vllmMess
 	messages := make([]vllmMessage, 0, len(req.Messages)+1)
 	if req.System != "" {
 		messages = append(messages, vllmMessage{
-			Role:    "system",
+			Role:    roleSystem,
 			Content: req.System,
 		})
 	}
@@ -378,8 +381,6 @@ func (p *Provider) buildRequest( // NOSONAR
 }
 
 // Predict sends a prediction request to vLLM
-//
-//nolint:gocritic // req size matches Provider interface
 func (p *Provider) Predict(
 	ctx context.Context,
 	req providers.PredictionRequest,
@@ -425,8 +426,6 @@ func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.Co
 }
 
 // PredictStream streams a prediction response from vLLM
-//
-//nolint:gocritic // req size matches Provider interface
 func (p *Provider) PredictStream(
 	ctx context.Context,
 	req providers.PredictionRequest,
@@ -442,8 +441,6 @@ func (p *Provider) PredictStream(
 }
 
 // predictWithMessages is the core implementation that accepts pre-converted messages
-//
-//nolint:gocritic // req size matches internal pattern, consistent with other provider methods
 func (p *Provider) predictWithMessages(
 	ctx context.Context,
 	req providers.PredictionRequest,
@@ -554,8 +551,6 @@ func extractContentString(content any) string {
 }
 
 // predictStreamWithMessages is the streaming implementation
-//
-//nolint:gocritic // req size matches internal pattern, consistent with other provider methods
 func (p *Provider) predictStreamWithMessages(
 	ctx context.Context,
 	req providers.PredictionRequest,
@@ -606,6 +601,47 @@ func (p *Provider) predictStreamWithMessages(
 	}, p.streamResponse)
 }
 
+// emitStreamChoice forwards the first choice of a stream chunk (reasoning,
+// content delta, and the final finish-reason chunk when usage is present) and
+// reports whether the choice carried a finish reason.
+func (p *Provider) emitStreamChoice(
+	chunk *vllmStreamChunk, sb *strings.Builder, outChan chan<- providers.StreamChunk,
+) bool {
+	choice := chunk.Choices[0]
+
+	// Reasoning streams separately from content so it reaches
+	// Message.Reasoning without contaminating spoken output.
+	if choice.Delta.ReasoningContent != "" {
+		outChan <- providers.StreamChunk{
+			Content:   sb.String(),
+			Reasoning: choice.Delta.ReasoningContent,
+		}
+	}
+
+	// Send content chunk
+	if choice.Delta.Content != "" {
+		sb.WriteString(choice.Delta.Content)
+		outChan <- providers.StreamChunk{
+			Content:     sb.String(),
+			Delta:       choice.Delta.Content,
+			DeltaTokens: 1,
+		}
+	}
+
+	// Send final chunk with finish reason and usage
+	if choice.FinishReason != "" && chunk.Usage != nil {
+		costInfo := p.costFromUsage(*chunk.Usage)
+		normalized := providers.NormalizeOpenAIFinishReason(choice.FinishReason)
+		outChan <- providers.StreamChunk{
+			Content:      sb.String(),
+			FinishReason: &normalized,
+			CostInfo:     &costInfo,
+		}
+	}
+
+	return choice.FinishReason != ""
+}
+
 // streamResponse reads SSE stream from vLLM and sends chunks
 func (p *Provider) streamResponse(
 	ctx context.Context,
@@ -650,40 +686,8 @@ func (p *Provider) streamResponse(
 			continue
 		}
 
-		choice := chunk.Choices[0]
-
-		// Reasoning streams separately from content so it reaches
-		// Message.Reasoning without contaminating spoken output.
-		if choice.Delta.ReasoningContent != "" {
-			outChan <- providers.StreamChunk{
-				Content:   sb.String(),
-				Reasoning: choice.Delta.ReasoningContent,
-			}
-		}
-
-		// Send content chunk
-		if choice.Delta.Content != "" {
-			sb.WriteString(choice.Delta.Content)
-			outChan <- providers.StreamChunk{
-				Content:     sb.String(),
-				Delta:       choice.Delta.Content,
-				DeltaTokens: 1,
-			}
-		}
-
-		if choice.FinishReason != "" {
+		if p.emitStreamChoice(&chunk, &sb, outChan) {
 			sawFinish = true
-		}
-
-		// Send final chunk with finish reason and usage
-		if choice.FinishReason != "" && chunk.Usage != nil {
-			costInfo := p.costFromUsage(*chunk.Usage)
-			normalized := providers.NormalizeOpenAIFinishReason(choice.FinishReason)
-			outChan <- providers.StreamChunk{
-				Content:      sb.String(),
-				FinishReason: &normalized,
-				CostInfo:     &costInfo,
-			}
 		}
 	}
 

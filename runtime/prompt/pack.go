@@ -230,6 +230,9 @@ func (pc *PackCompiler) CompileToFile(taskType, outputPath, compilerVersion stri
 	return pc.WritePack(pack, outputPath)
 }
 
+// packFilePerm is the file mode of a written pack: owner read/write only.
+const packFilePerm = 0o600
+
 // WritePack writes a pack to a file
 func (pc *PackCompiler) WritePack(pack *Pack, outputPath string) error {
 	data, err := pc.MarshalPack(pack)
@@ -237,7 +240,7 @@ func (pc *PackCompiler) WritePack(pack *Pack, outputPath string) error {
 		return fmt.Errorf("failed to marshal pack: %w", err)
 	}
 
-	if err := pc.fileWriter.WriteFile(outputPath, data, 0600); err != nil {
+	if err := pc.fileWriter.WriteFile(outputPath, data, packFilePerm); err != nil {
 		return fmt.Errorf("failed to write pack file: %w", err)
 	}
 
@@ -625,7 +628,7 @@ func (pc *PackCompiler) getCurrentTimestamp() string {
 
 // LoadPack loads a pack from a JSON file
 func LoadPack(filePath string) (*Pack, error) {
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) //nolint:gosec // G304: the caller names the pack file to load
 	if err != nil {
 		return nil, fmt.Errorf("failed to read pack file: %w", err)
 	}

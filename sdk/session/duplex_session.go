@@ -862,10 +862,7 @@ func streamElementToStreamChunk(elem *stage.StreamElement) providers.StreamChunk
 	// was said. Kept OFF Delta/Content (which mean new model output) — mirrors the
 	// input_transcription key. Empty when the provider can't report it. (#1657)
 	if elem.Meta.SpokenText != "" {
-		if chunk.Metadata == nil {
-			chunk.Metadata = make(map[string]interface{})
-		}
-		chunk.Metadata["spoken_text"] = elem.Meta.SpokenText
+		setChunkMetadata(&chunk, "spoken_text", elem.Meta.SpokenText)
 	}
 
 	// Handle errors
@@ -890,10 +887,7 @@ func streamElementToStreamChunk(elem *stage.StreamElement) providers.StreamChunk
 	// elem.Meta.Transcription. Either way, expose it under a single stable key
 	// so realtime callers can render the user's turn.
 	if transcript := userTranscriptFromElement(elem); transcript != "" {
-		if chunk.Metadata == nil {
-			chunk.Metadata = make(map[string]interface{})
-		}
-		chunk.Metadata["input_transcription"] = transcript
+		setChunkMetadata(&chunk, "input_transcription", transcript)
 	}
 
 	// Detect pending client tools (pipeline suspended)
@@ -908,13 +902,19 @@ func streamElementToStreamChunk(elem *stage.StreamElement) providers.StreamChunk
 	// a FinishReason as end-of-response and stop reading, which would end the
 	// conversation after one turn. A dedicated metadata flag is additive and safe.
 	if elem.EndOfStream && elem.Message != nil && elem.Message.Role == "assistant" {
-		if chunk.Metadata == nil {
-			chunk.Metadata = make(map[string]interface{})
-		}
-		chunk.Metadata["assistant_turn_complete"] = true
+		setChunkMetadata(&chunk, "assistant_turn_complete", true)
 	}
 
 	return chunk
+}
+
+// setChunkMetadata sets key on the chunk's metadata, creating the map on
+// first use.
+func setChunkMetadata(chunk *providers.StreamChunk, key string, value interface{}) {
+	if chunk.Metadata == nil {
+		chunk.Metadata = make(map[string]interface{})
+	}
+	chunk.Metadata[key] = value
 }
 
 // userTranscriptFromElement extracts the user's input transcription from a

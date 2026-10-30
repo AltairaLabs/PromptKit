@@ -111,7 +111,7 @@ func IsKnownCategory(s string) bool
 IsKnownCategory reports whether s exactly matches one of the canonical category strings. Unknown values are not rejected by the storage layer — this helper exists for consumer validation only.
 
 <a name="RegisterMemoryTools"></a>
-## func [RegisterMemoryTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/tools.go#L221>)
+## func [RegisterMemoryTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/tools.go#L254>)
 
 ```go
 func RegisterMemoryTools(registry *tools.Registry)
@@ -197,7 +197,7 @@ type DeleteOptions struct {
 ```
 
 <a name="Executor"></a>
-## type [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/tools.go#L29-L32>)
+## type [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/tools.go#L62-L65>)
 
 Executor implements tools.Executor for all memory tools. It routes by tool name to the appropriate Store method.
 
@@ -210,7 +210,7 @@ type Executor struct {
 ```
 
 <a name="NewExecutor"></a>
-### func [NewExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/tools.go#L35>)
+### func [NewExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/tools.go#L68>)
 
 ```go
 func NewExecutor(store Store, scope map[string]string) *Executor
@@ -219,7 +219,7 @@ func NewExecutor(store Store, scope map[string]string) *Executor
 NewExecutor creates a Executor for the given store and default scope.
 
 <a name="Executor.Execute"></a>
-### func \(\*Executor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/tools.go#L52-L54>)
+### func \(\*Executor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/tools.go#L85-L87>)
 
 ```go
 func (e *Executor) Execute(ctx context.Context, desc *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error)
@@ -228,7 +228,7 @@ func (e *Executor) Execute(ctx context.Context, desc *tools.ToolDescriptor, args
 Execute implements tools.Executor. Routes by tool name.
 
 <a name="Executor.Name"></a>
-### func \(\*Executor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/tools.go#L49>)
+### func \(\*Executor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/tools.go#L82>)
 
 ```go
 func (e *Executor) Name() string

@@ -208,7 +208,7 @@ func evalMediaDuration(
 		Details: map[string]any{
 			countKey:          len(parts),
 			"found_durations": foundDurations,
-			"violations":      violations,
+			keyViolations:     violations,
 		},
 	}, nil
 }
@@ -260,7 +260,7 @@ func evalMediaFormats(
 		Type:        typeName,
 		Score:       boolScore(passed),
 		Explanation: explanation,
-		Value:       map[string]any{"formats": foundFormats, "expected": formats},
+		Value:       map[string]any{"formats": foundFormats, keyExpected: formats},
 		Details: map[string]any{
 			"found_formats":   foundFormats,
 			"invalid_formats": invalidFormats,
@@ -275,8 +275,8 @@ func collectImageDimensions(parts []types.ContentPart) map[string]any {
 	for _, part := range parts {
 		if part.Media != nil && part.Media.Width != nil && part.Media.Height != nil {
 			dims = append(dims, map[string]any{
-				"width":  *part.Media.Width,
-				"height": *part.Media.Height,
+				keyWidth:  *part.Media.Width,
+				keyHeight: *part.Media.Height,
 			})
 		}
 	}

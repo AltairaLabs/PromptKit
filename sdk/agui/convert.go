@@ -563,8 +563,8 @@ func tryDecodeInputContents(content any) []aguitypes.InputContent {
 	}
 
 	// Verify at least one element has a recognized type
-	for _, c := range contents {
-		if isKnownPartType(c.Type) {
+	for i := range contents {
+		if isKnownPartType(contents[i].Type) {
 			return contents
 		}
 	}

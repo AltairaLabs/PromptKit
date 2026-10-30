@@ -29,7 +29,7 @@ func (h *ToolResultIncludesHandler) Eval(
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Score:       boolScore(false),
-			Explanation: "no patterns specified",
+			Explanation: msgNoPatterns,
 		}, nil
 	}
 
@@ -46,13 +46,13 @@ func (h *ToolResultIncludesHandler) Eval(
 		Score:       boolScore(passed),
 		Explanation: explanation,
 		Value: map[string]any{
-			"match_count": matchCount,
-			"occurrence":  occurrence,
+			keyMatchCount: matchCount,
+			keyOccurrence: occurrence,
 			"patterns":    patterns,
 		},
 		Details: map[string]any{
-			"match_count":     matchCount,
-			"occurrence":      occurrence,
+			keyMatchCount:     matchCount,
+			keyOccurrence:     occurrence,
 			"missing_details": missingDetails,
 		},
 	}, nil

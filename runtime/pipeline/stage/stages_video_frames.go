@@ -168,8 +168,6 @@ type VideoToFramesStage struct {
 }
 
 // NewVideoToFramesStage creates a new video-to-frames extraction stage.
-//
-//nolint:gocritic // hugeParam: config is intentionally passed by value for API consistency
 func NewVideoToFramesStage(config VideoToFramesConfig) *VideoToFramesStage {
 	return &VideoToFramesStage{
 		BaseStage: NewBaseStage("video-to-frames", StageTypeTransform),
@@ -380,7 +378,7 @@ func NewFramesToMessageStage(config FramesToMessageConfig) *FramesToMessageStage
 // Process implements the Stage interface.
 // Collects frames and composes them into messages.
 //
-//nolint:dupl,gocognit // Similar pattern to MediaComposeStage; complex but well-structured
+//nolint:gocognit // complex but well-structured fan-in loop
 func (s *FramesToMessageStage) Process(
 	ctx context.Context,
 	input <-chan StreamElement,
@@ -534,7 +532,7 @@ func (s *FramesToMessageStage) composeMessage(pf *pendingFrames) (*types.Message
 
 	// Create message
 	msg := &types.Message{
-		Role:      "user",
+		Role:      roleUser,
 		Timestamp: time.Now(),
 	}
 

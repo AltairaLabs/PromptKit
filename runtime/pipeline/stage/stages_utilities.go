@@ -61,6 +61,17 @@ func (s *DebugStage) Process(
 	return nil
 }
 
+const (
+	// debugTextPreviewLen caps the text preview DebugStage logs.
+	debugTextPreviewLen = 100
+	// metaKeySampleRate is the snapshot/metadata key for an audio sample rate.
+	metaKeySampleRate = "sample_rate"
+	// metaKeyMIMEType is the metadata key for a media MIME type.
+	metaKeyMIMEType = "mime_type"
+	// bytesPerKiB converts byte counts to KiB.
+	bytesPerKiB = 1024
+)
+
 // logElement creates a JSON snapshot of the element and logs it.
 func (s *DebugStage) logElement(elem *StreamElement, timing string) {
 	snapshot := map[string]interface{}{
@@ -70,8 +81,8 @@ func (s *DebugStage) logElement(elem *StreamElement, timing string) {
 
 	if elem.Text != nil {
 		preview := *elem.Text
-		if len(preview) > 100 {
-			preview = preview[:100] + "..."
+		if len(preview) > debugTextPreviewLen {
+			preview = preview[:debugTextPreviewLen] + "..."
 		}
 		snapshot["text"] = preview
 	}
@@ -87,9 +98,9 @@ func (s *DebugStage) logElement(elem *StreamElement, timing string) {
 
 	if elem.Audio != nil {
 		snapshot["audio"] = map[string]interface{}{
-			"sample_rate": elem.Audio.SampleRate,
-			"samples_len": len(elem.Audio.Samples),
-			"format":      elem.Audio.Format,
+			metaKeySampleRate: elem.Audio.SampleRate,
+			"samples_len":     len(elem.Audio.Samples),
+			"format":          elem.Audio.Format,
 		}
 	}
 
@@ -533,7 +544,7 @@ func (s *MediaExternalizerStage) externalizeMedia(
 	// re-confirm we want to externalize it is unnecessary).
 	if hasInline && s.config.SizeThresholdKB > 0 {
 		// Estimate size from base64 data (base64 is ~4/3 original size)
-		estimatedSizeKB := int64(len(*media.Data) * 3 / 4 / 1024)
+		estimatedSizeKB := int64(len(*media.Data) * 3 / 4 / bytesPerKiB)
 		if estimatedSizeKB < s.config.SizeThresholdKB {
 			// Too small, keep inline
 			return nil
@@ -571,7 +582,7 @@ func (s *MediaExternalizerStage) externalizeMedia(
 
 	// Set size if not already set
 	if media.SizeKB == nil && metadata.SizeBytes > 0 {
-		sizeKB := metadata.SizeBytes / 1024
+		sizeKB := metadata.SizeBytes / bytesPerKiB
 		media.SizeKB = &sizeKB
 	}
 
@@ -733,33 +744,10 @@ func (s *ContextBuilderStage) Process(
 
 	// No policy or unlimited budget - pass through
 	if s.policy == nil || s.policy.TokenBudget <= 0 {
-		for elem := range input {
-			select {
-			case output <- elem:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
-		return nil
+		return passThroughElements(ctx, input, output)
 	}
 
-	// Accumulate all messages, keeping each one's FromHistory flag. The flag is
-	// per-message: history replayed upstream carries it, this turn's new
-	// messages do not.
-	var messages []types.Message
-	var fromHistory []bool
-	var firstElem *StreamElement
-
-	for elem := range input {
-		if firstElem == nil {
-			firstElem = &elem
-		}
-
-		if elem.Message != nil {
-			messages = append(messages, *elem.Message)
-			fromHistory = append(fromHistory, elem.Meta.FromHistory)
-		}
-	}
+	messages, fromHistory, firstElem := collectContextMessages(input)
 
 	systemPrompt := ""
 	if s.turnState != nil {
@@ -799,6 +787,39 @@ func (s *ContextBuilderStage) Process(
 	return s.emitMessages(ctx, truncated, nil, firstElem, output, true)
 }
 
+// passThroughElements forwards every input element unchanged, honoring
+// cancellation.
+func passThroughElements(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
+	for elem := range input {
+		select {
+		case output <- elem:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+
+// collectContextMessages drains input, accumulating all messages and keeping
+// each one's FromHistory flag. The flag is per-message: history replayed
+// upstream carries it, this turn's new messages do not. firstElem is the
+// first element seen (nil when input was empty).
+func collectContextMessages(
+	input <-chan StreamElement,
+) (messages []types.Message, fromHistory []bool, firstElem *StreamElement) {
+	for elem := range input {
+		if firstElem == nil {
+			firstElem = &elem
+		}
+
+		if elem.Message != nil {
+			messages = append(messages, *elem.Message)
+			fromHistory = append(fromHistory, elem.Meta.FromHistory)
+		}
+	}
+	return messages, fromHistory, firstElem
+}
+
 // emitMessages emits accumulated messages as elements.
 //
 // fromHistory is index-aligned with messages, or nil when truncation has made
@@ -807,7 +828,7 @@ func (s *ContextBuilderStage) emitMessages(
 	ctx context.Context,
 	messages []types.Message,
 	fromHistory []bool,
-	template *StreamElement,
+	metaTemplate *StreamElement,
 	output chan<- StreamElement,
 	truncated bool,
 ) error {
@@ -815,8 +836,8 @@ func (s *ContextBuilderStage) emitMessages(
 		elem := StreamElement{
 			Message: &messages[i],
 		}
-		if template != nil {
-			elem.Meta = template.Meta
+		if metaTemplate != nil {
+			elem.Meta = metaTemplate.Meta
 		}
 		// FromHistory is PER-MESSAGE and must be set AFTER the template copy.
 		// The template is the first element seen, which on any conversation
@@ -975,9 +996,9 @@ func (s *ContextBuilderStage) truncateBySummarization(
 
 	// Build result: summary message + kept recent messages
 	summaryMsg := types.Message{
-		Role:    "system",
+		Role:    roleSystem,
 		Content: fmt.Sprintf("[Summary of %d earlier messages]: %s", len(toSummarize), summaryContent),
-		Source:  "summary",
+		Source:  sourceSummary,
 	}
 
 	result := make([]types.Message, 0, 1+len(kept))
@@ -1084,7 +1105,7 @@ func (s *ContextBuilderStage) buildRelevanceQuery(
 	case QuerySourceLastUser:
 		// Use last user message as query
 		for i := len(messages) - 1; i >= 0; i-- {
-			if messages[i].Role == "user" {
+			if messages[i].Role == roleUser {
 				return s.extractMessageText(&messages[i])
 			}
 		}
@@ -1112,7 +1133,7 @@ func (s *ContextBuilderStage) buildScoredMessages(
 		}
 
 		// Mark as protected if system role and keepSystemRole is true
-		if keepSystemRole && messages[i].Role == "system" {
+		if keepSystemRole && messages[i].Role == roleSystem {
 			scored[i].IsProtected = true
 		}
 

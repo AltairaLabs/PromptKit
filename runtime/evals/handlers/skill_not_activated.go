@@ -56,7 +56,7 @@ func (h *SkillNotActivatedHandler) Eval(
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Score:       boolScore(false),
-			Value:       map[string]any{"forbidden_activated": names},
+			Value:       map[string]any{keyForbiddenActivated: names},
 			Explanation: fmt.Sprintf("forbidden skills activated: %s", strings.Join(names, ", ")),
 			Violations:  violations,
 		}, nil
@@ -65,7 +65,7 @@ func (h *SkillNotActivatedHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Score:       boolScore(true),
-		Value:       map[string]any{"forbidden_activated": []string{}},
+		Value:       map[string]any{keyForbiddenActivated: []string{}},
 		Explanation: "no forbidden skills were activated",
 	}, nil
 }

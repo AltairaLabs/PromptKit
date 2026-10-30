@@ -51,7 +51,7 @@ func defaultGitClone(url, dest string) error {
 		return err
 	}
 
-	cmd := exec.CommandContext(
+	cmd := exec.CommandContext( //nolint:gosec // G204: absolute git from gitPath; url/dest from a validated SkillRef
 		context.Background(),
 		git, "clone", "--depth", "1", url, dest,
 	)
@@ -69,7 +69,7 @@ func defaultGitCheckout(dir, ref string) error {
 	}
 
 	// For shallow clones with a specific tag/version, we need to fetch it first.
-	fetchCmd := exec.CommandContext(
+	fetchCmd := exec.CommandContext( //nolint:gosec // G204: absolute git from gitPath; ref from a validated SkillRef
 		context.Background(),
 		git, "fetch", "--depth", "1", "origin", ref,
 	)
@@ -80,7 +80,7 @@ func defaultGitCheckout(dir, ref string) error {
 		return err
 	}
 
-	cmd := exec.CommandContext(
+	cmd := exec.CommandContext( //nolint:gosec // G204: absolute git from gitPath; ref from a validated SkillRef
 		context.Background(),
 		git, "checkout", ref,
 	)

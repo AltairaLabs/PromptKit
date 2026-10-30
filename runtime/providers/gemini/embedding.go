@@ -286,7 +286,7 @@ func (p *EmbeddingProvider) embedSingle(
 		return providers.EmbeddingResponse{}, fmt.Errorf("no embedding in response")
 	}
 
-	providers.LogEmbeddingRequest("Gemini", model, 1, start)
+	providers.LogEmbeddingRequest(logNameGemini, model, 1, start)
 
 	return providers.EmbeddingResponse{
 		Embeddings: [][]float32{embedResp.Embedding.Values},

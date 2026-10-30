@@ -99,20 +99,20 @@ type runtimeLoggerAdapter struct {
 
 // Debug implements streaming.Logger.
 func (a *runtimeLoggerAdapter) Debug(msg string, keysAndValues ...interface{}) {
-	logger.Debug(msg, append([]interface{}{"component", a.prefix}, keysAndValues...)...)
+	logger.Debug(msg, append([]interface{}{logKeyComponent, a.prefix}, keysAndValues...)...)
 }
 
 // Info implements streaming.Logger.
 func (a *runtimeLoggerAdapter) Info(msg string, keysAndValues ...interface{}) {
-	logger.Info(msg, append([]interface{}{"component", a.prefix}, keysAndValues...)...)
+	logger.Info(msg, append([]interface{}{logKeyComponent, a.prefix}, keysAndValues...)...)
 }
 
 // Warn implements streaming.Logger.
 func (a *runtimeLoggerAdapter) Warn(msg string, keysAndValues ...interface{}) {
-	logger.Warn(msg, append([]interface{}{"component", a.prefix}, keysAndValues...)...)
+	logger.Warn(msg, append([]interface{}{logKeyComponent, a.prefix}, keysAndValues...)...)
 }
 
 // Error implements streaming.Logger.
 func (a *runtimeLoggerAdapter) Error(msg string, keysAndValues ...interface{}) {
-	logger.Error(msg, append([]interface{}{"component", a.prefix}, keysAndValues...)...)
+	logger.Error(msg, append([]interface{}{logKeyComponent, a.prefix}, keysAndValues...)...)
 }

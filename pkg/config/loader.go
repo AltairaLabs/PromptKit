@@ -45,7 +45,7 @@ type K8sManifest interface {
 func LoadSimpleK8sManifest[T K8sManifest](filename, expectedKind string) (T, error) {
 	var zero T
 
-	data, err := os.ReadFile(filename)
+	data, err := os.ReadFile(filename) //nolint:gosec // G304: reading the caller-named manifest is the loader's job
 	if err != nil {
 		return zero, fmt.Errorf("failed to read %s file: %w", expectedKind, err)
 	}

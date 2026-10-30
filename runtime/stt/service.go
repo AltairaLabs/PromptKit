@@ -7,14 +7,18 @@ import (
 )
 
 const (
-	// Default audio settings.
+	// DefaultSampleRate is the default audio sample rate in Hz.
 	DefaultSampleRate = 16000
-	DefaultChannels   = 1
-	DefaultBitDepth   = 16
+	// DefaultChannels is the default channel count (mono).
+	DefaultChannels = 1
+	// DefaultBitDepth is the default bits per sample.
+	DefaultBitDepth = 16
 
-	// Common audio formats.
+	// FormatPCM is raw PCM audio.
 	FormatPCM = "pcm"
+	// FormatWAV is WAV-wrapped audio.
 	FormatWAV = "wav"
+	// FormatMP3 is MP3 audio.
 	FormatMP3 = "mp3"
 )
 

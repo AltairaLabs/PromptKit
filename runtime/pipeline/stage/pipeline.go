@@ -109,9 +109,9 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 // executeBackground runs the pipeline execution in a background goroutine.
 // It starts all stages as goroutines and collects output CONCURRENTLY with stage execution
 // to support streaming/duplex stages that run indefinitely.
-//
-//nolint:lll // Channel signature cannot be shortened
-func (p *StreamPipeline) executeBackground(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement, cancel context.CancelFunc) {
+func (p *StreamPipeline) executeBackground(
+	ctx context.Context, input <-chan StreamElement, output chan<- StreamElement, cancel context.CancelFunc,
+) {
 	defer func() {
 		p.wg.Done()
 		if cancel != nil {
@@ -169,8 +169,6 @@ func (p *StreamPipeline) monitorExecutionTimeout(ctx context.Context, start time
 // edgeChannels is the per-Execute() map of dedicated MultiOutputStage edge
 // channels built by createChannels; it is threaded through as a local
 // parameter (like channels) rather than stored on the pipeline.
-//
-//nolint:lll // Channel signature cannot be shortened
 func (p *StreamPipeline) startStages(
 	ctx context.Context,
 	input <-chan StreamElement,
@@ -335,8 +333,6 @@ func (p *StreamPipeline) registerMultiOutputEdges() map[string]map[string]chan S
 // getStageInputs returns the input channel(s) for a stage.
 // For root stages, it's the pipeline input (single channel). For others, it's
 // determined by the DAG — one channel per upstream stage, in reverseEdges order.
-//
-//nolint:lll // Channel signature cannot be shortened
 func (p *StreamPipeline) getStageInputs(
 	stage Stage,
 	pipelineInput <-chan StreamElement,
@@ -584,6 +580,27 @@ type ExecutionTrace struct {
 	Duration    time.Duration
 }
 
+// collectResultMessage appends msg to result.Messages and, for an assistant
+// message, makes it the response and aggregates its cost.
+func collectResultMessage(result *ExecutionResult, msg *types.Message) {
+	result.Messages = append(result.Messages, *msg)
+	// Set response to last assistant message
+	if msg.Role != roleAssistant {
+		return
+	}
+	result.Response = &Response{
+		Role:      msg.Role,
+		Content:   msg.Content,
+		Parts:     msg.Parts,
+		ToolCalls: msg.ToolCalls,
+	}
+	// Propagate cost info from provider response to result via the
+	// single shared aggregator so Breakdown/Quantities are never dropped.
+	if msg.CostInfo != nil {
+		result.CostInfo = base.AggregateCost(&result.CostInfo, msg.CostInfo)
+	}
+}
+
 // accumulateResult collects all elements from output and builds an ExecutionResult.
 func (p *StreamPipeline) accumulateResult(output <-chan StreamElement) (*ExecutionResult, error) {
 	result := &ExecutionResult{
@@ -599,21 +616,7 @@ func (p *StreamPipeline) accumulateResult(output <-chan StreamElement) (*Executi
 	for elem := range output {
 		// Collect messages
 		if elem.Message != nil {
-			result.Messages = append(result.Messages, *elem.Message)
-			// Set response to last assistant message
-			if elem.Message.Role == roleAssistant {
-				result.Response = &Response{
-					Role:      elem.Message.Role,
-					Content:   elem.Message.Content,
-					Parts:     elem.Message.Parts,
-					ToolCalls: elem.Message.ToolCalls,
-				}
-				// Propagate cost info from provider response to result via the
-				// single shared aggregator so Breakdown/Quantities are never dropped.
-				if elem.Message.CostInfo != nil {
-					result.CostInfo = base.AggregateCost(&result.CostInfo, elem.Message.CostInfo)
-				}
-			}
+			collectResultMessage(result, elem.Message)
 		}
 
 		// Collect text into response content

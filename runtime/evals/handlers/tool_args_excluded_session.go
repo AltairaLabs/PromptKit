@@ -37,7 +37,7 @@ func (h *ToolArgsExcludedSessionHandler) Eval(
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Score:       boolScore(false),
-			Explanation: "tool_name parameter is required",
+			Explanation: msgToolNameRequired,
 		}, nil
 	}
 
@@ -72,7 +72,7 @@ func (h *ToolArgsExcludedSessionHandler) Eval(
 				strings.Join(violations, "; "),
 			),
 			Value: map[string]any{
-				"violations": violations,
+				keyViolations: violations,
 			},
 		}, nil
 	}
@@ -82,7 +82,7 @@ func (h *ToolArgsExcludedSessionHandler) Eval(
 		Score:       boolScore(true),
 		Explanation: "no excluded args detected",
 		Value: map[string]any{
-			"violations": []string{},
+			keyViolations: []string{},
 		},
 	}, nil
 }

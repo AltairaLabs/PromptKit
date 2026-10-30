@@ -53,6 +53,9 @@ type vllmFunctionCall struct {
 // toolTypeFunction is the only tool type the OpenAI-compatible API defines.
 const toolTypeFunction = "function"
 
+// keyType is the wire key carrying a tool or content part's type.
+const keyType = "type"
+
 // BuildTooling converts tool descriptors to vLLM format
 func (p *Provider) BuildTooling(descriptors []*providers.ToolDescriptor) (any, error) {
 	if len(descriptors) == 0 {
@@ -62,7 +65,7 @@ func (p *Provider) BuildTooling(descriptors []*providers.ToolDescriptor) (any, e
 	tools := make([]vllmTool, len(descriptors))
 	for i, desc := range descriptors {
 		tools[i] = vllmTool{
-			Type: "function",
+			Type: toolTypeFunction,
 			Function: vllmToolFunction{
 				Name:        desc.Name,
 				Description: desc.Description,
@@ -76,7 +79,7 @@ func (p *Provider) BuildTooling(descriptors []*providers.ToolDescriptor) (any, e
 
 // PredictWithTools performs a prediction request with tool support
 //
-//nolint:gocritic,gocognit // req size matches ToolSupport interface, complexity from tool call extraction
+//nolint:gocognit // complexity from tool call extraction
 func (p *Provider) PredictWithTools( // NOSONAR
 	ctx context.Context,
 	req providers.PredictionRequest,
@@ -199,8 +202,6 @@ func (p *Provider) PredictWithTools( // NOSONAR
 }
 
 // PredictStreamWithTools performs a streaming prediction request with tool support
-//
-//nolint:gocritic // req size matches ToolSupport interface
 func (p *Provider) PredictStreamWithTools(
 	ctx context.Context,
 	req providers.PredictionRequest,
@@ -317,6 +318,24 @@ func (p *Provider) buildToolRequest(
 		reqMap["stream_options"] = vllmReq.StreamOptions
 	}
 
+	addVLLMExtensionFields(reqMap, vllmReq)
+
+	// Add tools if present
+	if params.tools != nil {
+		reqMap["tools"] = params.tools
+
+		// Add tool choice if specified
+		if params.toolChoice != "" {
+			reqMap["tool_choice"] = wireToolChoice(params.toolChoice)
+		}
+	}
+
+	return reqMap
+}
+
+// addVLLMExtensionFields copies the set vLLM-specific request fields (seed,
+// beam search, guided decoding, ...) into the request map.
+func addVLLMExtensionFields(reqMap map[string]any, vllmReq *vllmRequest) {
 	if vllmReq.Seed != nil {
 		reqMap["seed"] = vllmReq.Seed
 	}
@@ -341,33 +360,27 @@ func (p *Provider) buildToolRequest(
 	if vllmReq.GuidedChoice != nil {
 		reqMap["guided_choice"] = vllmReq.GuidedChoice
 	}
+}
 
-	// Add tools if present
-	if params.tools != nil {
-		reqMap["tools"] = params.tools
-
-		// Add tool choice if specified
-		if params.toolChoice != "" {
-			switch params.toolChoice {
-			case toolChoiceRequired:
-				reqMap["tool_choice"] = "required"
-			case toolChoiceNone:
-				reqMap["tool_choice"] = "none"
-			case toolChoiceAuto:
-				reqMap["tool_choice"] = "auto"
-			default:
-				// Specific tool choice (function name)
-				reqMap["tool_choice"] = map[string]any{
-					"type": "function",
-					"function": map[string]any{
-						"name": params.toolChoice,
-					},
-				}
-			}
+// wireToolChoice maps a non-empty tool choice onto its wire value: one of the
+// named modes, or a specific function name.
+func wireToolChoice(toolChoice string) any {
+	switch toolChoice {
+	case toolChoiceRequired:
+		return "required"
+	case toolChoiceNone:
+		return "none"
+	case toolChoiceAuto:
+		return "auto"
+	default:
+		// Specific tool choice (function name)
+		return map[string]any{
+			keyType: toolTypeFunction,
+			"function": map[string]any{
+				"name": toolChoice,
+			},
 		}
 	}
-
-	return reqMap
 }
 
 // streamToolResponse processes the SSE stream for tool calls. A stream that

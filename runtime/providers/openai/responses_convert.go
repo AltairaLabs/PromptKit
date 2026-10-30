@@ -23,6 +23,35 @@ const (
 	keyImageURL  = "image_url"
 	keyArguments = "arguments"
 
+	keyModel        = "model"
+	keyMessages     = "messages"
+	keyIncludeUsage = "include_usage"
+	keyItemID       = "item_id"
+	keyResponseID   = "response_id"
+	keyContentIndex = "content_index"
+	keyInputAudio   = "input_audio"
+	keyText         = "text"
+	keyFunction     = "function"
+
+	partTypeImageURL   = "image_url"
+	partTypeInputAudio = "input_audio"
+	typeReasoning      = "reasoning"
+	roleSystem         = "system"
+	toolChoiceRequired = "required"
+	toolChoiceNone     = "none"
+	audioFormatWAV     = "wav"
+	audioFormatMP3     = "mp3"
+
+	// maskedHeaderValue replaces credential header values in request logs.
+	maskedHeaderValue = "***"
+	// logKeyComponent is the log key naming the emitting component.
+	logKeyComponent = "component"
+
+	// Realtime client event types.
+	realtimeEventSessionUpdate  = "session.update"
+	realtimeEventItemCreate     = "conversation.item.create"
+	realtimeEventResponseCreate = "response.create"
+
 	typeJSONSchema         = "json_schema"
 	typeFunction           = "function"
 	typeFunctionCallOutput = "function_call_output"

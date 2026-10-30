@@ -330,7 +330,6 @@ func (d *ImageData) EnsureLoaded(ctx context.Context, store storage.MediaStorage
 	return d.Data, nil
 }
 
-// defaultMetadataCapacity is the initial map capacity for StreamElement metadata.
 // NewTextElement creates a new StreamElement with text content.
 func NewTextElement(text string) StreamElement {
 	return StreamElement{

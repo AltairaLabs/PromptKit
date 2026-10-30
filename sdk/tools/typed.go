@@ -134,7 +134,7 @@ type ToolHandler = func(args map[string]any) (any, error)
 // tag parsing and field enumeration on hot paths with many tool calls.
 func mapToStruct(m map[string]any, v any) error {
 	rv := reflect.ValueOf(v)
-	if rv.Kind() != reflect.Ptr || rv.IsNil() {
+	if rv.Kind() != reflect.Pointer || rv.IsNil() {
 		return fmt.Errorf("v must be a non-nil pointer to a struct")
 	}
 	rv = rv.Elem()

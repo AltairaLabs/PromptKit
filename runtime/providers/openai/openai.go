@@ -102,6 +102,46 @@ func addMaxTokensToRequest(req map[string]interface{}, unsupportedParams []strin
 	}
 }
 
+// Provider implements the Provider interface for OpenAI
+type Provider struct {
+	providers.BaseProvider
+	model             string
+	baseURL           string
+	apiKey            string
+	credential        providers.Credential
+	defaults          providers.ProviderDefaults
+	apiMode           APIMode
+	additionalConfig  map[string]any
+	extraBody         map[string]any // additional_config.extra_body, merged into every request
+	platform          string
+	platformConfig    *providers.PlatformConfig
+	unsupportedParams []string
+	// capabilities holds the declared capability set from the provider config.
+	// When non-nil it is authoritative for multimodal support; when nil the
+	// provider falls back to model-name heuristics.
+	capabilities map[string]bool
+	// reasoningEffort, when non-empty, is sent as reasoning.effort in
+	// Responses API requests. Accepted values: "minimal", "low", "medium",
+	// "high". Empty means do not emit the field and let OpenAI apply its
+	// model-specific default. Configured via additional_config.reasoning_effort.
+	reasoningEffort string
+	// reasoningSummary, when non-empty ("auto"|"concise"|"detailed"), requests
+	// reasoning summaries via the Responses API (captured onto Message.Reasoning).
+	// Opt-in: OpenAI requires a verified org to return summaries. Configured via
+	// additional_config.reasoning_summary.
+	reasoningSummary string
+	// parallelToolCalls, when non-nil, is sent as parallel_tool_calls on requests
+	// that declare tools. Setting it false makes the model emit at most one tool
+	// call per assistant turn instead of a parallel batch. nil means omit the
+	// field and take OpenAI's default (parallel calling enabled). Configured via
+	// additional_config.parallel_tool_calls.
+	//
+	// Only valid alongside a non-empty tools array — OpenAI rejects the pair with
+	// "'parallel_tool_calls' is only allowed when 'tools' are specified" — so
+	// every write of this field sits inside a tools guard.
+	parallelToolCalls *bool
+}
+
 // unsupported returns the parameters not to send: those configured with
 // unsupported_params, and those the API has rejected for this model.
 func (p *Provider) unsupported() []string {
@@ -153,46 +193,6 @@ func addSamplingParamsToRequest(req map[string]interface{}, unsupportedParams []
 	if topP != 0 && !hasUnsupportedParam(unsupportedParams, "top_p") {
 		req["top_p"] = topP
 	}
-}
-
-// OpenAIProvider implements the Provider interface for OpenAI
-type Provider struct {
-	providers.BaseProvider
-	model             string
-	baseURL           string
-	apiKey            string
-	credential        providers.Credential
-	defaults          providers.ProviderDefaults
-	apiMode           APIMode
-	additionalConfig  map[string]any
-	extraBody         map[string]any // additional_config.extra_body, merged into every request
-	platform          string
-	platformConfig    *providers.PlatformConfig
-	unsupportedParams []string
-	// capabilities holds the declared capability set from the provider config.
-	// When non-nil it is authoritative for multimodal support; when nil the
-	// provider falls back to model-name heuristics.
-	capabilities map[string]bool
-	// reasoningEffort, when non-empty, is sent as reasoning.effort in
-	// Responses API requests. Accepted values: "minimal", "low", "medium",
-	// "high". Empty means do not emit the field and let OpenAI apply its
-	// model-specific default. Configured via additional_config.reasoning_effort.
-	reasoningEffort string
-	// reasoningSummary, when non-empty ("auto"|"concise"|"detailed"), requests
-	// reasoning summaries via the Responses API (captured onto Message.Reasoning).
-	// Opt-in: OpenAI requires a verified org to return summaries. Configured via
-	// additional_config.reasoning_summary.
-	reasoningSummary string
-	// parallelToolCalls, when non-nil, is sent as parallel_tool_calls on requests
-	// that declare tools. Setting it false makes the model emit at most one tool
-	// call per assistant turn instead of a parallel batch. nil means omit the
-	// field and take OpenAI's default (parallel calling enabled). Configured via
-	// additional_config.parallel_tool_calls.
-	//
-	// Only valid alongside a non-empty tools array — OpenAI rejects the pair with
-	// "'parallel_tool_calls' is only allowed when 'tools' are specified" — so
-	// every write of this field sits inside a tools guard.
-	parallelToolCalls *bool
 }
 
 // NewProvider creates a new OpenAI provider
@@ -253,20 +253,9 @@ type ProviderConfig struct {
 	Capabilities      []string
 }
 
-// NewProviderFromConfig creates a provider from a full config struct.
-func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
-	var base providers.BaseProvider
-	var apiKey string
-	if cfg.Credential != nil {
-		base, apiKey = providers.NewBaseProviderWithCredential(
-			cfg.ID, cfg.IncludeRawOutput, httpClientTimeout, cfg.Credential,
-		)
-	} else {
-		base, apiKey = providers.NewBaseProviderWithAPIKey(
-			cfg.ID, cfg.IncludeRawOutput, "OPENAI_API_KEY", "OPENAI_TOKEN",
-		)
-	}
-
+// defaultUnsupportedParams returns the configured unsupported_params, or the
+// best-effort model/platform default when none are declared.
+func defaultUnsupportedParams(cfg *ProviderConfig) []string {
 	unsupported := cfg.UnsupportedParams
 	// Fallback for configs that don't declare unsupported_params: o-series
 	// reasoning models don't accept temperature, top_p or the penalties.
@@ -293,7 +282,12 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 			unsupported = append(unsupported, "top_p")
 		}
 	}
+	return unsupported
+}
 
+// platformBaseURL returns cfg.BaseURL, or the platform-derived base URL
+// (Azure, Bedrock, Vertex) when it is empty and the platform config allows.
+func platformBaseURL(cfg *ProviderConfig) string {
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
 		switch {
@@ -312,9 +306,28 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 				cfg.PlatformConfig.Project, cfg.PlatformConfig.Region, cfg.PlatformConfig.Endpoint)
 		}
 	}
+	return baseURL
+}
+
+// NewProviderFromConfig creates a provider from a full config struct.
+func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
+	var bp providers.BaseProvider
+	var apiKey string
+	if cfg.Credential != nil {
+		bp, apiKey = providers.NewBaseProviderWithCredential(
+			cfg.ID, cfg.IncludeRawOutput, httpClientTimeout, cfg.Credential,
+		)
+	} else {
+		bp, apiKey = providers.NewBaseProviderWithAPIKey(
+			cfg.ID, cfg.IncludeRawOutput, "OPENAI_API_KEY", "OPENAI_TOKEN",
+		)
+	}
+
+	unsupported := defaultUnsupportedParams(cfg)
+	baseURL := platformBaseURL(cfg)
 
 	p := &Provider{
-		BaseProvider:      base,
+		BaseProvider:      bp,
 		model:             cfg.Model,
 		baseURL:           baseURL,
 		apiKey:            apiKey,
@@ -391,7 +404,7 @@ func getReasoningSummary(additionalConfig map[string]any) string {
 	if !ok {
 		return ""
 	}
-	//nolint:goconst // "auto" here is a reasoning_summary value, semantically
+	// "auto" here is a reasoning_summary value, semantically
 	// unrelated to toolChoiceAuto; sharing that const would be misleading.
 	switch strings.ToLower(raw) {
 	case "auto", "concise", "detailed":
@@ -497,13 +510,13 @@ func hasAudioOutputConfigured(additionalConfig map[string]any) bool {
 func applyAudioModalities(openAIReq map[string]interface{}, additionalConfig map[string]any, formatFallback string) {
 	modalities := getAudioModalities(additionalConfig)
 	if modalities == nil {
-		modalities = []string{"text"}
+		modalities = []string{modalityText}
 	}
 	openAIReq["modalities"] = modalities
 	if hasModality(modalities, "audio") {
 		openAIReq["audio"] = map[string]interface{}{
-			"voice":  getStringConfigOrDefault(additionalConfig, "voice", defaultAudioVoice),
-			"format": getStringConfigOrDefault(additionalConfig, "audio_format", formatFallback),
+			"voice":   getStringConfigOrDefault(additionalConfig, "voice", defaultAudioVoice),
+			keyFormat: getStringConfigOrDefault(additionalConfig, "audio_format", formatFallback),
 		}
 	}
 }
@@ -608,17 +621,6 @@ func (p *Provider) Model() string {
 	return p.model
 }
 
-// OpenAI API request/response structures
-type openAIRequest struct {
-	Model          string                `json:"model"`
-	Messages       []openAIMessage       `json:"messages"`
-	Temperature    float32               `json:"temperature"`
-	TopP           float32               `json:"top_p"`
-	MaxTokens      int                   `json:"max_tokens"`
-	Seed           *int                  `json:"seed,omitempty"`
-	ResponseFormat *openAIResponseFormat `json:"response_format,omitempty"`
-}
-
 // openAIResponseFormat specifies the response format for OpenAI API
 type openAIResponseFormat struct {
 	Type       string            `json:"type"` // "text", "json_object", or "json_schema"
@@ -702,7 +704,7 @@ func (p *Provider) prepareOpenAIMessages(
 	messages := make([]openAIMessage, 0, len(req.Messages)+1)
 	if req.System != "" {
 		messages = append(messages, openAIMessage{
-			Role:    "system",
+			Role:    roleSystem,
 			Content: req.System,
 		})
 	}
@@ -903,8 +905,6 @@ func (p *Provider) predictStreamOnce(
 // (without -with-response-stream) is non-streaming — and keeps Arena
 // scenarios with `streaming: true` working until real binary-event-stream
 // support lands for the openai provider.
-//
-//nolint:gocritic // hugeParam: matches the upstream PredictStream signature.
 func (p *Provider) predictStreamBedrockFallback(
 	ctx context.Context, req providers.PredictionRequest,
 ) (<-chan providers.StreamChunk, error) {
@@ -981,7 +981,10 @@ func processToolCallDeltas(accumulatedToolCalls *[]types.MessageToolCall, toolCa
 }
 
 // createFinalStreamChunk creates the final chunk with usage and cost information
-func (p *Provider) createFinalStreamChunk(accumulated string, accumulatedToolCalls []types.MessageToolCall, totalTokens int, finishReason *string, usage *openAIUsage) providers.StreamChunk {
+func (p *Provider) createFinalStreamChunk(
+	accumulated string, accumulatedToolCalls []types.MessageToolCall, totalTokens int,
+	finishReason *string, usage *openAIUsage,
+) providers.StreamChunk {
 	finalChunk := providers.StreamChunk{
 		Content:      accumulated,
 		ToolCalls:    accumulatedToolCalls,
@@ -1013,13 +1016,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 	// The done channel ensures this goroutine exits on normal stream completion.
 	done := make(chan struct{})
 	defer close(done)
-	go func() {
-		select {
-		case <-ctx.Done():
-			closeBody()
-		case <-done:
-		}
-	}()
+	go closeOnCancel(ctx, done, closeBody)
 
 	// Wrap body with idle timeout detection to guard against stalled streams.
 	// Duration is configured on the BaseProvider via SetStreamIdleTimeout.
@@ -1036,16 +1033,8 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 	var finishReason *string
 
 	for scanner.Scan() {
-		select {
-		case <-ctx.Done():
-			outChan <- providers.StreamChunk{
-				Content:      sb.String(),
-				ToolCalls:    accumulatedToolCalls,
-				Error:        ctx.Err(),
-				FinishReason: providers.StringPtr("cancelled"),
-			}
+		if sendIfCanceled(ctx, sb.String(), accumulatedToolCalls, outChan) {
 			return
-		default:
 		}
 
 		rawData := scanner.DataBytes()
@@ -1065,79 +1054,136 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 			continue // Skip malformed chunks
 		}
 
-		// Handle usage-only chunk (sent when stream_options.include_usage is true)
-		// This chunk has no choices but contains the final token counts. It
-		// arrives after the choice that carried the finish_reason, so the
-		// reply ends here with that reason — "stop" would hide a length or
-		// tool_calls finish — and the [DONE] that follows is not read, so it
-		// cannot emit a second final chunk.
-		if len(chunk.Choices) == 0 {
-			if chunk.Usage != nil {
-				outChan <- p.createFinalStreamChunk(
-					sb.String(), accumulatedToolCalls, totalTokens, seenOrStop(finishReason), chunk.Usage)
-				return
-			}
-			continue
-		}
-
-		choice := chunk.Choices[0]
-
-		// Handle reasoning deltas: reasoning models stream reasoning_content
-		// before any visible token. Emit a keepalive carrying the current
-		// content snapshot (no visible Delta) so the pipeline idle timer is
-		// reset and a long reasoning phase does not trip the idle timeout.
-		if choice.Delta.ReasoningContent != "" {
-			outChan <- providers.StreamChunk{
-				Content:    sb.String(),
-				ToolCalls:  accumulatedToolCalls,
-				TokenCount: totalTokens,
-				Reasoning:  choice.Delta.ReasoningContent,
-			}
-		}
-
-		// Handle content delta
-		if choice.Delta.Content != "" {
-			sb.WriteString(choice.Delta.Content)
-			totalTokens++
-			contentSnapshot := sb.String()
-
-			outChan <- providers.StreamChunk{
-				Content:     contentSnapshot,
-				Delta:       choice.Delta.Content,
-				ToolCalls:   accumulatedToolCalls,
-				TokenCount:  totalTokens,
-				DeltaTokens: 1,
-			}
-		}
-
-		// Handle tool call deltas
-		if len(choice.Delta.ToolCalls) > 0 {
-			processToolCallDeltas(&accumulatedToolCalls, choice.Delta.ToolCalls)
-			outChan <- providers.StreamChunk{
-				Content:     sb.String(),
-				ToolCalls:   accumulatedToolCalls,
-				TokenCount:  totalTokens,
-				DeltaTokens: 0,
-			}
-		}
-
-		// Handle finish reason - don't return yet, wait for usage-only chunk
-		// When stream_options.include_usage is true, usage comes in a separate chunk
-		if choice.FinishReason != nil {
-			normalized := providers.NormalizeOpenAIFinishReason(*choice.FinishReason)
-			finishReason = &normalized
-			// If usage is included in this chunk, send final chunk now
-			if chunk.Usage != nil {
-				finalChunk := p.createFinalStreamChunk(
-					sb.String(), accumulatedToolCalls, totalTokens, &normalized, chunk.Usage)
-				outChan <- finalChunk
-				return
-			}
-			// Otherwise, continue to wait for the usage-only chunk
+		if p.handleChatStreamChunk(&chunk, &sb, &totalTokens, &accumulatedToolCalls, &finishReason, outChan) {
+			return
 		}
 	}
 
 	p.endIncompleteStream(ctx, scanner.Err(), sb.String(), accumulatedToolCalls, totalTokens, finishReason, outChan)
+}
+
+// closeOnCancel calls closeFn when ctx is canceled, and returns without
+// calling it once done is closed.
+func closeOnCancel(ctx context.Context, done <-chan struct{}, closeFn func()) {
+	select {
+	case <-ctx.Done():
+		closeFn()
+	case <-done:
+	}
+}
+
+// sendIfCanceled emits the canceled terminal chunk and reports true when ctx
+// is done.
+func sendIfCanceled(
+	ctx context.Context, content string, toolCalls []types.MessageToolCall, outChan chan<- providers.StreamChunk,
+) bool {
+	select {
+	case <-ctx.Done():
+		outChan <- providers.StreamChunk{
+			Content:      content,
+			ToolCalls:    toolCalls,
+			Error:        ctx.Err(),
+			FinishReason: providers.StringPtr("cancelled"), //nolint:misspell // the documented finish-reason value
+		}
+		return true
+	default:
+		return false
+	}
+}
+
+// handleChatStreamChunk processes one decoded stream chunk and reports whether
+// the final chunk was sent (ending the stream).
+func (p *Provider) handleChatStreamChunk(
+	chunk *openAIStreamChunk, sb *strings.Builder, totalTokens *int,
+	accumulatedToolCalls *[]types.MessageToolCall, finishReason **string, outChan chan<- providers.StreamChunk,
+) bool {
+	// Handle usage-only chunk (sent when stream_options.include_usage is true)
+	// This chunk has no choices but contains the final token counts. It
+	// arrives after the choice that carried the finish_reason, so the
+	// reply ends here with that reason — "stop" would hide a length or
+	// tool_calls finish — and the [DONE] that follows is not read, so it
+	// cannot emit a second final chunk.
+	if len(chunk.Choices) == 0 {
+		return p.sendFinalIfUsage(chunk, sb.String(), *accumulatedToolCalls, *totalTokens,
+			seenOrStop(*finishReason), outChan)
+	}
+
+	choice := chunk.Choices[0]
+
+	emitChoiceDeltas(chunk, sb, totalTokens, accumulatedToolCalls, outChan)
+
+	// Handle finish reason - don't return yet, wait for usage-only chunk
+	// When stream_options.include_usage is true, usage comes in a separate chunk
+	if choice.FinishReason != nil {
+		normalized := providers.NormalizeOpenAIFinishReason(*choice.FinishReason)
+		*finishReason = &normalized
+		// If usage is included in this chunk, send final chunk now;
+		// otherwise, continue to wait for the usage-only chunk.
+		return p.sendFinalIfUsage(chunk, sb.String(), *accumulatedToolCalls, *totalTokens, &normalized, outChan)
+	}
+	return false
+}
+
+// sendFinalIfUsage sends the final chunk now when the chunk that carried the
+// finish reason also includes usage, and reports whether it did.
+func (p *Provider) sendFinalIfUsage(
+	chunk *openAIStreamChunk, content string, toolCalls []types.MessageToolCall, totalTokens int,
+	finishReason *string, outChan chan<- providers.StreamChunk,
+) bool {
+	if chunk.Usage == nil {
+		return false
+	}
+	outChan <- p.createFinalStreamChunk(content, toolCalls, totalTokens, finishReason, chunk.Usage)
+	return true
+}
+
+// emitChoiceDeltas forwards the reasoning, content and tool-call deltas of the
+// chunk's first choice, updating the accumulated content, token count and
+// tool calls.
+func emitChoiceDeltas(
+	chunk *openAIStreamChunk, sb *strings.Builder, totalTokens *int,
+	accumulatedToolCalls *[]types.MessageToolCall, outChan chan<- providers.StreamChunk,
+) {
+	choice := &chunk.Choices[0]
+
+	// Handle reasoning deltas: reasoning models stream reasoning_content
+	// before any visible token. Emit a keepalive carrying the current
+	// content snapshot (no visible Delta) so the pipeline idle timer is
+	// reset and a long reasoning phase does not trip the idle timeout.
+	if choice.Delta.ReasoningContent != "" {
+		outChan <- providers.StreamChunk{
+			Content:    sb.String(),
+			ToolCalls:  *accumulatedToolCalls,
+			TokenCount: *totalTokens,
+			Reasoning:  choice.Delta.ReasoningContent,
+		}
+	}
+
+	// Handle content delta
+	if choice.Delta.Content != "" {
+		sb.WriteString(choice.Delta.Content)
+		*totalTokens++
+		contentSnapshot := sb.String()
+
+		outChan <- providers.StreamChunk{
+			Content:     contentSnapshot,
+			Delta:       choice.Delta.Content,
+			ToolCalls:   *accumulatedToolCalls,
+			TokenCount:  *totalTokens,
+			DeltaTokens: 1,
+		}
+	}
+
+	// Handle tool call deltas
+	if len(choice.Delta.ToolCalls) > 0 {
+		processToolCallDeltas(accumulatedToolCalls, choice.Delta.ToolCalls)
+		outChan <- providers.StreamChunk{
+			Content:     sb.String(),
+			ToolCalls:   *accumulatedToolCalls,
+			TokenCount:  *totalTokens,
+			DeltaTokens: 0,
+		}
+	}
 }
 
 // seenOrStop returns the finish reason a choice already carried, or "stop"
@@ -1211,12 +1257,12 @@ func getTextFromPart(part interface{}) string {
 		return ""
 	}
 
-	partType, ok := partMap["type"].(string)
-	if !ok || partType != "text" {
+	partType, ok := partMap[keyType].(string)
+	if !ok || partType != partTypeText {
 		return ""
 	}
 
-	textVal, ok := partMap["text"].(string)
+	textVal, ok := partMap[keyText].(string)
 	if !ok {
 		return ""
 	}
@@ -1249,16 +1295,19 @@ func convertOpenAIPart(part interface{}) *types.ContentPart {
 	if !ok {
 		return nil
 	}
-	partType, _ := partMap["type"].(string)
+	partType, _ := partMap[keyType].(string)
 	switch partType {
-	case "text":
-		if text, ok := partMap["text"].(string); ok {
+	case partTypeText:
+		if text, ok := partMap[keyText].(string); ok {
 			cp := types.NewTextPart(text)
 			return &cp
 		}
 	case types.ContentTypeThinking:
 		if text, ok := partMap["thinking"].(string); ok {
-			cp := types.NewThinkingPart(text)
+			// Compatibility path: a thinking part in the response content stays a
+			// thinking ContentPart; moving it onto Message.Reasoning changes output.
+			cp := types.NewThinkingPart(text) //nolint:staticcheck // SA1019: kept until thinking parts move to Message.Reasoning
+
 			return &cp
 		}
 	}
@@ -1266,17 +1315,19 @@ func convertOpenAIPart(part interface{}) *types.ContentPart {
 }
 
 // predictWithMessages is a refactored version of Predict that accepts pre-converted messages
-func (p *Provider) predictWithMessages(ctx context.Context, req providers.PredictionRequest, messages []openAIMessage) (providers.PredictionResponse, error) {
+func (p *Provider) predictWithMessages(
+	ctx context.Context, req providers.PredictionRequest, messages []openAIMessage,
+) (providers.PredictionResponse, error) {
 	// Enrich context with provider and model info for logging
 	ctx = p.LoggingContext(ctx, p.model)
 
 	start := time.Now()
 
 	openAIReq := map[string]interface{}{
-		"model":    p.model,
-		"messages": messages,
+		keyModel:    p.model,
+		keyMessages: messages,
 	}
-	p.enrichRequest(openAIReq, &req, "wav")
+	p.enrichRequest(openAIReq, &req, audioFormatWAV)
 	providers.ApplyExtraBody(p.ID(), openAIReq, p.extraBody)
 
 	reqBody, err := json.Marshal(openAIReq)
@@ -1308,7 +1359,7 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 
 	logger.APIRequest("OpenAI", "POST", p.chatCompletionsURL(), map[string]string{
 		contentTypeHeader:   applicationJSON,
-		authorizationHeader: "***",
+		authorizationHeader: maskedHeaderValue,
 	}, openAIReq)
 
 	respBody, statusCode, err := p.DoAndReadResponse(httpReq, &predictResp, start, "OpenAI")
@@ -1316,35 +1367,9 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 		return predictResp, err
 	}
 
-	if statusCode != http.StatusOK {
-		predictResp.Latency = time.Since(start)
-		predictResp.Raw = respBody
-		if p.platform != "" {
-			return predictResp, providers.ParsePlatformHTTPError(p.platform, statusCode, respBody)
-		}
-		return predictResp, &providers.ProviderHTTPError{
-			StatusCode: statusCode, URL: p.chatCompletionsURL(),
-			Body: string(respBody), Provider: p.ID(),
-		}
-	}
-
-	var openAIResp openAIResponse
-	if err := json.Unmarshal(respBody, &openAIResp); err != nil {
-		predictResp.Latency = time.Since(start)
-		predictResp.Raw = respBody
-		return predictResp, fmt.Errorf("failed to unmarshal response: %w", err)
-	}
-
-	if openAIResp.Error != nil {
-		predictResp.Latency = time.Since(start)
-		predictResp.Raw = respBody
-		return predictResp, fmt.Errorf("OpenAI API error: %s", openAIResp.Error.Message)
-	}
-
-	if len(openAIResp.Choices) == 0 {
-		predictResp.Latency = time.Since(start)
-		predictResp.Raw = respBody
-		return predictResp, fmt.Errorf("no choices in response")
+	openAIResp, err := p.decodeChatResponse(respBody, statusCode, &predictResp, start)
+	if err != nil {
+		return predictResp, err
 	}
 
 	latency := time.Since(start)
@@ -1364,7 +1389,7 @@ func (p *Provider) predictWithMessages(ctx context.Context, req providers.Predic
 			parts = append(parts, types.NewTextPart(audio.Transcript))
 		}
 		if audio.Data != "" {
-			audioFormat := getStringConfigOrDefault(p.additionalConfig, "audio_format", "wav")
+			audioFormat := getStringConfigOrDefault(p.additionalConfig, "audio_format", audioFormatWAV)
 			parts = append(parts, types.NewAudioPartFromData(audio.Data, audioFormatToMIME(audioFormat)))
 		}
 	}
@@ -1390,21 +1415,61 @@ func reasoningFromContent(text string) *types.ReasoningTrace {
 	return &types.ReasoningTrace{Text: text}
 }
 
+// decodeChatResponse checks the HTTP status and decodes a Chat Completions
+// response body, recording latency and the raw body on predictResp on error.
+func (p *Provider) decodeChatResponse(
+	respBody []byte, statusCode int, predictResp *providers.PredictionResponse, start time.Time,
+) (openAIResponse, error) {
+	var openAIResp openAIResponse
+	if statusCode != http.StatusOK {
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBody
+		if p.platform != "" {
+			return openAIResp, providers.ParsePlatformHTTPError(p.platform, statusCode, respBody)
+		}
+		return openAIResp, &providers.ProviderHTTPError{
+			StatusCode: statusCode, URL: p.chatCompletionsURL(),
+			Body: string(respBody), Provider: p.ID(),
+		}
+	}
+
+	if err := json.Unmarshal(respBody, &openAIResp); err != nil {
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBody
+		return openAIResp, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	if openAIResp.Error != nil {
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBody
+		return openAIResp, fmt.Errorf("OpenAI API error: %s", openAIResp.Error.Message)
+	}
+
+	if len(openAIResp.Choices) == 0 {
+		predictResp.Latency = time.Since(start)
+		predictResp.Raw = respBody
+		return openAIResp, fmt.Errorf("no choices in response")
+	}
+	return openAIResp, nil
+}
+
 // predictStreamWithMessages is a refactored version of PredictStream that accepts pre-converted messages
-func (p *Provider) predictStreamWithMessages(ctx context.Context, req providers.PredictionRequest, messages []openAIMessage) (<-chan providers.StreamChunk, error) {
+func (p *Provider) predictStreamWithMessages(
+	ctx context.Context, req providers.PredictionRequest, messages []openAIMessage,
+) (<-chan providers.StreamChunk, error) {
 	// Enrich context with provider and model info for logging
 	ctx = p.LoggingContext(ctx, p.model)
 
 	openAIReq := map[string]interface{}{
-		"model":    p.model,
-		"messages": messages,
-		"stream":   true,
+		keyModel:    p.model,
+		keyMessages: messages,
+		"stream":    true,
 		"stream_options": map[string]interface{}{
-			"include_usage": true,
+			keyIncludeUsage: true,
 		},
 	}
 	// When stream=true, OpenAI only supports "pcm16" for audio.format.
-	p.enrichRequest(openAIReq, &req, "pcm16")
+	p.enrichRequest(openAIReq, &req, audioPCM16Format)
 	providers.ApplyExtraBody(p.ID(), openAIReq, p.extraBody)
 
 	reqBody, err := json.Marshal(openAIReq)

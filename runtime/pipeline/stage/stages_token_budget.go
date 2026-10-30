@@ -288,16 +288,6 @@ func (s *TokenBudgetStage) precomputeTokenCounts(messages []types.Message) []int
 	return counts
 }
 
-// selectRecentMessages picks the most recent messages that fit within
-// the given token budget, working backward from the end.
-func (s *TokenBudgetStage) selectRecentMessages(
-	messages []types.Message,
-	budget int,
-) []types.Message {
-	counts := s.precomputeTokenCounts(messages)
-	return s.selectRecentMessagesPrecomputed(messages, counts, budget)
-}
-
 // selectRecentMessagesPrecomputed picks the most recent messages using
 // precomputed per-message token counts, avoiding redundant counting.
 func (s *TokenBudgetStage) selectRecentMessagesPrecomputed(

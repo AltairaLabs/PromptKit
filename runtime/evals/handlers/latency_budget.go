@@ -57,7 +57,7 @@ func (h *LatencyBudgetHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Score:       &score,
-		Value:       map[string]any{"latency_ms": latencyMs, "budget_ms": maxMs},
+		Value:       map[string]any{keyLatencyMs: latencyMs, "budget_ms": maxMs},
 		Explanation: explanation,
 	}, nil
 }

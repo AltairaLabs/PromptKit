@@ -4,10 +4,18 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
+
+// parseGeminiResponseLive runs a raw response body through the live
+// non-streaming parser (parseAndValidateGeminiResponse) and returns its error.
+func parseGeminiResponseLive(p *Provider, body []byte) error {
+	_, _, _, err := p.parseAndValidateGeminiResponse(body, providers.PredictionResponse{}, time.Now())
+	return err
+}
 
 func TestGeminiProvider_ParseGeminiResponse_PromptBlocked(t *testing.T) {
 	provider := NewProvider("test", "gemini-1.5-flash", "https://test.com", providers.ProviderDefaults{}, false)
@@ -19,13 +27,13 @@ func TestGeminiProvider_ParseGeminiResponse_PromptBlocked(t *testing.T) {
 		}
 	}`
 
-	_, err := provider.parseGeminiResponse([]byte(respJSON))
+	err := parseGeminiResponseLive(provider, []byte(respJSON))
 	if err == nil {
 		t.Error("Expected error for blocked prompt")
 	}
 
-	if err != nil && err.Error() != "prompt blocked: SAFETY" {
-		t.Errorf("Expected 'prompt blocked: SAFETY', got: %v", err)
+	if err != nil && !strings.Contains(err.Error(), "prompt blocked: SAFETY") {
+		t.Errorf("Expected error containing 'prompt blocked: SAFETY', got: %v", err)
 	}
 }
 
@@ -36,13 +44,13 @@ func TestGeminiProvider_ParseGeminiResponse_NoCandidates(t *testing.T) {
 		"candidates": []
 	}`
 
-	_, err := provider.parseGeminiResponse([]byte(respJSON))
+	err := parseGeminiResponseLive(provider, []byte(respJSON))
 	if err == nil {
 		t.Error("Expected error for no candidates")
 	}
 
-	if err != nil && err.Error() != "no candidates in response" {
-		t.Errorf("Expected 'no candidates in response', got: %v", err)
+	if err != nil && !strings.Contains(err.Error(), "no candidates in response") {
+		t.Errorf("Expected error containing 'no candidates in response', got: %v", err)
 	}
 }
 
@@ -56,13 +64,13 @@ func TestGeminiProvider_ParseGeminiResponse_MaxTokens(t *testing.T) {
 		}]
 	}`
 
-	_, err := provider.parseGeminiResponse([]byte(respJSON))
+	err := parseGeminiResponseLive(provider, []byte(respJSON))
 	if err == nil {
 		t.Error("Expected error for MAX_TOKENS")
 	}
 
-	if err != nil && err.Error() != "max tokens limit reached" {
-		t.Errorf("Expected 'max tokens limit reached', got: %v", err)
+	if err != nil && !strings.Contains(err.Error(), "output-token limit") {
+		t.Errorf("Expected error containing 'output-token limit', got: %v", err)
 	}
 }
 
@@ -76,7 +84,7 @@ func TestGeminiProvider_ParseGeminiResponse_Safety(t *testing.T) {
 		}]
 	}`
 
-	_, err := provider.parseGeminiResponse([]byte(respJSON))
+	err := parseGeminiResponseLive(provider, []byte(respJSON))
 	if err == nil {
 		t.Error("Expected error for SAFETY")
 	}
@@ -96,7 +104,7 @@ func TestGeminiProvider_ParseGeminiResponse_Recitation(t *testing.T) {
 		}]
 	}`
 
-	_, err := provider.parseGeminiResponse([]byte(respJSON))
+	err := parseGeminiResponseLive(provider, []byte(respJSON))
 	if err == nil {
 		t.Error("Expected error for RECITATION")
 	}
@@ -116,7 +124,7 @@ func TestGeminiProvider_ParseGeminiResponse_UnknownFinishReason(t *testing.T) {
 		}]
 	}`
 
-	_, err := provider.parseGeminiResponse([]byte(respJSON))
+	err := parseGeminiResponseLive(provider, []byte(respJSON))
 	if err == nil {
 		t.Error("Expected error for unknown finish reason with no parts")
 	}

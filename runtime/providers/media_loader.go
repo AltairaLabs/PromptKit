@@ -275,20 +275,20 @@ func (ml *MediaLoader) loadFromFile(filePath string) (string, error) {
 }
 
 // loadFromURL fetches media from a URL and returns base64-encoded data.
-func (ml *MediaLoader) loadFromURL(ctx context.Context, url string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+func (ml *MediaLoader) loadFromURL(ctx context.Context, rawURL string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, http.NoBody)
 	if err != nil {
-		return "", fmt.Errorf("failed to create request for %s: %w", url, err)
+		return "", fmt.Errorf("failed to create request for %s: %w", rawURL, err)
 	}
 
 	resp, err := ml.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to fetch URL %s: %w", url, err)
+		return "", fmt.Errorf("failed to fetch URL %s: %w", rawURL, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("HTTP %d fetching URL %s", resp.StatusCode, url)
+		return "", fmt.Errorf("HTTP %d fetching URL %s", resp.StatusCode, rawURL)
 	}
 
 	// Check content length
@@ -300,7 +300,7 @@ func (ml *MediaLoader) loadFromURL(ctx context.Context, url string) (string, err
 	limitReader := io.LimitReader(resp.Body, ml.maxURLSize+1)
 	data, err := io.ReadAll(limitReader)
 	if err != nil {
-		return "", fmt.Errorf("failed to read URL response %s: %w", url, err)
+		return "", fmt.Errorf("failed to read URL response %s: %w", rawURL, err)
 	}
 
 	if int64(len(data)) > ml.maxURLSize {
@@ -308,11 +308,11 @@ func (ml *MediaLoader) loadFromURL(ctx context.Context, url string) (string, err
 	}
 
 	rawSize := int64(len(data))
-	if err := ml.trackSize(rawSize, url); err != nil {
+	if err := ml.trackSize(rawSize, rawURL); err != nil {
 		return "", err
 	}
 
-	warnIfLargeFile(rawSize, url)
+	warnIfLargeFile(rawSize, rawURL)
 
 	return base64.StdEncoding.EncodeToString(data), nil
 }

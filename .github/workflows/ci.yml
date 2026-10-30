@@ -262,32 +262,26 @@ jobs:
       with:
         version: v2.12.2
         working-directory: ${{ matrix.module }}
-        args: --issues-exit-code=0
-        only-new-issues: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    # SonarCloud is sent the issues this change introduces: the same set the
-    # step above gates on (only-new-issues), measured from the PR's merge base
-    # or the commit before a push. Sonar files every imported golangci-lint
-    # finding as a new-code BUG, so a whole-codebase report put the ~370
-    # findings CI has always tolerated into the reliability rating and failed
-    # the quality gate on every push to main. Issues absent from a later
-    # report are closed by Sonar.
+    # The step above fails on any issue in the module, so this report is
+    # normally empty; it is still sent so SonarCloud closes issues as they are
+    # fixed and shows any that a failing PR introduces.
     # Paths are relative to .golangci.yml at the repo root, as Sonar expects.
     - name: Write golangci-lint report for SonarCloud
+      if: always()
       working-directory: ${{ matrix.module }}
       env:
         MODULE: ${{ matrix.module }}
-        BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
       run: |
         report="golangci-lint-$(echo "$MODULE" | sed 's|^\./||; s|/|-|g')"
         echo "LINT_REPORT=$report" >> "$GITHUB_ENV"
-        base="$(git merge-base HEAD "$BASE_SHA")"
-        golangci-lint run --issues-exit-code=0 --new-from-rev="$base" --output.text.path=stdout \
+        golangci-lint run --issues-exit-code=0 --output.text.path=stdout \
           --output.checkstyle.path="$GITHUB_WORKSPACE/$report.xml" ./...
 
     - name: Upload golangci-lint report
+      if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ env.LINT_REPORT }}

@@ -44,7 +44,7 @@ func (h *AgentResponseContainsHandler) Eval(
 			return &evals.EvalResult{
 				Type:        h.Type(),
 				Score:       boolScore(true),
-				Value:       map[string]any{"agent": agent, "contains": contains, "found": true},
+				Value:       map[string]any{keyAgent: agent, keyContains: contains, keyFound: true},
 				Explanation: fmt.Sprintf("agent %q response contains expected text", agent),
 			}, nil
 		}
@@ -53,12 +53,12 @@ func (h *AgentResponseContainsHandler) Eval(
 	// Also check messages for tool result messages
 	for i := range evalCtx.Messages {
 		msg := &evalCtx.Messages[i]
-		if msg.Role == "tool" && msg.ToolResult != nil && msg.ToolResult.Name == agent {
+		if msg.Role == roleTool && msg.ToolResult != nil && msg.ToolResult.Name == agent {
 			if strings.Contains(msg.ToolResult.GetTextContent(), contains) {
 				return &evals.EvalResult{
 					Type:        h.Type(),
 					Score:       boolScore(true),
-					Value:       map[string]any{"agent": agent, "contains": contains, "found": true},
+					Value:       map[string]any{keyAgent: agent, keyContains: contains, keyFound: true},
 					Explanation: fmt.Sprintf("agent %q response contains expected text", agent),
 				}, nil
 			}
@@ -68,8 +68,8 @@ func (h *AgentResponseContainsHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Score:       boolScore(false),
-		Value:       map[string]any{"agent": agent, "contains": contains, "found": false},
+		Value:       map[string]any{keyAgent: agent, keyContains: contains, keyFound: false},
 		Explanation: fmt.Sprintf("no response from agent %q containing %q", agent, contains),
-		Details:     map[string]any{"agent": agent, "expected_substr": contains},
+		Details:     map[string]any{keyAgent: agent, "expected_substr": contains},
 	}, nil
 }

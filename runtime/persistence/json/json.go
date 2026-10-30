@@ -18,13 +18,16 @@ import (
 
 const jsonExt = ".json"
 
+// toolManifestKind is the manifest kind of a tool file.
+const toolManifestKind = "Tool"
+
 // Compile-time interface checks
 var (
 	_ persistence.PromptRepository = (*PromptRepository)(nil)
 	_ persistence.ToolRepository   = (*ToolRepository)(nil)
 )
 
-// JSONPromptRepository loads prompts from JSON files on disk
+// PromptRepository loads prompts from JSON files on disk
 type PromptRepository struct {
 	*common.BasePromptRepository
 }
@@ -59,7 +62,7 @@ func (r *PromptRepository) LoadFragment(name, relativePath, baseDir string) (*pr
 		fragmentPath = filepath.Join(r.BasePath, "fragments", name+".json")
 	}
 
-	data, err := os.ReadFile(fragmentPath)
+	data, err := os.ReadFile(fragmentPath) //nolint:gosec // G304: path from the pack's fragment reference or the base path
 	if err != nil {
 		return nil, fmt.Errorf("failed to read fragment: %w", err)
 	}
@@ -80,7 +83,7 @@ func (r *PromptRepository) SavePrompt(config *prompt.Config) error {
 	return r.BasePromptRepository.SavePrompt(config)
 }
 
-// JSONToolRepository loads tools from JSON files on disk
+// ToolRepository loads tools from JSON files on disk
 type ToolRepository struct {
 	basePath string
 	tools    map[string]*tools.ToolDescriptor
@@ -125,7 +128,7 @@ func (r *ToolRepository) SaveTool(descriptor *tools.ToolDescriptor) error {
 	// Build K8s manifest format
 	toolConfig := tools.ToolConfig{
 		APIVersion: "promptkit.altairalabs.io/v1",
-		Kind:       "Tool",
+		Kind:       toolManifestKind,
 		Spec:       *descriptor,
 	}
 	toolConfig.Metadata.Name = descriptor.Name
@@ -157,7 +160,7 @@ func (r *ToolRepository) SaveTool(descriptor *tools.ToolDescriptor) error {
 
 // LoadToolFromFile loads a tool from a JSON file
 func (r *ToolRepository) LoadToolFromFile(filename string) error {
-	data, err := os.ReadFile(filename)
+	data, err := os.ReadFile(filename) //nolint:gosec // G304: the caller names the tool file to load
 	if err != nil {
 		return fmt.Errorf("failed to read tool file %s: %w", filename, err)
 	}
@@ -175,7 +178,7 @@ func (r *ToolRepository) LoadToolFromFile(filename string) error {
 			return fmt.Errorf("failed to unmarshal K8s manifest %s: %w", filename, err)
 		}
 
-		if toolConfig.Kind != "Tool" {
+		if toolConfig.Kind != toolManifestKind {
 			return fmt.Errorf("invalid kind: expected 'Tool', got '%s'", toolConfig.Kind)
 		}
 		if toolConfig.Metadata.Name == "" {

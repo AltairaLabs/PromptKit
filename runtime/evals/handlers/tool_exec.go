@@ -132,8 +132,8 @@ func (h *ToolExecHandler) Eval(
 	}
 
 	value := map[string]any{
-		"tool":       toolName,
-		"latency_ms": result.LatencyMs,
+		valueKeyTool: toolName,
+		keyLatencyMs: result.LatencyMs,
 	}
 	// Surface the tool's parsed response on Details so this handler
 	// can serve as a non-gating measurement: tools that emit JSON
@@ -145,8 +145,8 @@ func (h *ToolExecHandler) Eval(
 	// JSON parse failures are non-fatal — the handler still reports
 	// success on the binary score.
 	details := map[string]any{
-		"tool":       toolName,
-		"latency_ms": result.LatencyMs,
+		valueKeyTool: toolName,
+		keyLatencyMs: result.LatencyMs,
 	}
 	payload := parseToolPayload(result.Result)
 	if payload != nil {
@@ -200,7 +200,7 @@ func (h *ToolExecHandler) scoredResult(
 // the metrics surface as structured fields rather than an escaped
 // string blob. Empty/null bodies and unparseable bytes return nil.
 func parseToolPayload(raw json.RawMessage) any {
-	if len(raw) == 0 || string(raw) == "null" {
+	if len(raw) == 0 || string(raw) == jsonNull {
 		return nil
 	}
 	var decoded any
@@ -280,7 +280,7 @@ func (h *ToolExecHandler) timeout(params map[string]any) time.Duration {
 // JSON string encoding when present. For any other JSON shape (objects,
 // arrays, numbers) we fall back to the raw JSON bytes.
 func extractResultText(raw json.RawMessage) string {
-	if len(raw) == 0 || string(raw) == "null" {
+	if len(raw) == 0 || string(raw) == jsonNull {
 		return ""
 	}
 	var s string

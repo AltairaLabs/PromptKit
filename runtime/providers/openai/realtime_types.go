@@ -126,10 +126,10 @@ type RealtimeToolDefinition struct {
 func DefaultRealtimeSessionConfig() RealtimeSessionConfig {
 	return RealtimeSessionConfig{
 		Model:             "gpt-realtime-2.1",
-		Modalities:        []string{"text", "audio"},
+		Modalities:        []string{modalityText, modalityAudio},
 		Voice:             "alloy",
-		InputAudioFormat:  "pcm16",
-		OutputAudioFormat: "pcm16",
+		InputAudioFormat:  audioPCM16Format,
+		OutputAudioFormat: audioPCM16Format,
 		Temperature:       defaultTemperature,
 		TurnDetection: &TurnDetectionConfig{
 			Type:              "server_vad",
@@ -148,11 +148,11 @@ func RealtimeStreamingCapabilities() providers.StreamingCapabilities {
 		BidirectionalSupport: true,
 		MaxSessionDuration:   0, // No documented limit
 		Audio: &providers.AudioStreamingCapabilities{
-			SupportedEncodings:   []string{"pcm16", "g711_ulaw", "g711_alaw"},
+			SupportedEncodings:   []string{audioPCM16Format, "g711_ulaw", "g711_alaw"},
 			SupportedSampleRates: []int{24000},
 			SupportedChannels:    []int{1},
 			SupportedBitDepths:   []int{16},
-			PreferredEncoding:    "pcm16",
+			PreferredEncoding:    audioPCM16Format,
 			PreferredSampleRate:  DefaultRealtimeSampleRate,
 		},
 	}

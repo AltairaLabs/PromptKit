@@ -41,7 +41,7 @@ func (h *ContextHandler) Enabled(ctx context.Context, level slog.Level) bool {
 // Handle processes the log record by extracting context fields and adding them
 // to the record before delegating to the inner handler.
 //
-//nolint:gocritic // slog.Record is passed by value per slog.Handler interface contract
+// slog.Record is passed by value per slog.Handler interface contract
 func (h *ContextHandler) Handle(ctx context.Context, r slog.Record) error {
 	// Add common fields and context fields directly to the passed record.
 	// slog passes records by value, so this is safe and avoids allocating
@@ -114,7 +114,7 @@ func (h *ModuleHandler) Enabled(ctx context.Context, level slog.Level) bool {
 
 // Handle processes the log record, adding the module name as an attribute.
 //
-//nolint:gocritic // slog.Record is passed by value per slog.Handler interface contract
+// slog.Record is passed by value per slog.Handler interface contract
 func (h *ModuleHandler) Handle(ctx context.Context, r slog.Record) error {
 	// Check if we should handle this record based on module level
 	module := getCallerModuleFromPC(r.PC)

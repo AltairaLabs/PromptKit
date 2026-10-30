@@ -16,6 +16,20 @@ import (
 // nsA2A is the namespace prefix for A2A agent tools.
 const nsA2A = "a2a"
 
+// toolModeA2A is the tool descriptor mode for tools dispatched over A2A.
+const toolModeA2A = "a2a"
+
+// JSON Schema keywords and field names used by the agent tool schemas.
+const (
+	jsonSchemaKeyType        = "type"
+	jsonSchemaKeyProperties  = "properties"
+	jsonSchemaKeyDescription = "description"
+	jsonSchemaTypeObject     = "object"
+	jsonSchemaTypeString     = "string"
+	agentToolArgQuery        = "query"
+	agentToolResultResponse  = "response"
+)
+
 // EndpointResolver determines the A2A endpoint URL for a given agent member.
 // Implementations can provide static URLs, service-discovery lookups, or
 // test-friendly mock endpoints.
@@ -156,7 +170,7 @@ func (r *AgentToolResolver) ResolveAgentTools(toolNames []string) []*tools.ToolD
 				Description:  card.Skills[i].Description,
 				InputSchema:  agentInputSchema(),
 				OutputSchema: agentOutputSchema(),
-				Mode:         "a2a",
+				Mode:         toolModeA2A,
 				A2AConfig: &tools.A2AConfig{
 					AgentURL: agentURL,
 					SkillID:  card.Skills[i].ID,
@@ -186,14 +200,14 @@ func (r *AgentToolResolver) MemberNames() []string {
 // Agent tools accept a "query" string that is forwarded as the A2A message.
 func agentInputSchema() json.RawMessage {
 	schema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"query": map[string]any{
-				"type":        "string",
-				"description": "The message to send to the agent",
+		jsonSchemaKeyType: jsonSchemaTypeObject,
+		jsonSchemaKeyProperties: map[string]any{
+			agentToolArgQuery: map[string]any{
+				jsonSchemaKeyType:        jsonSchemaTypeString,
+				jsonSchemaKeyDescription: "The message to send to the agent",
 			},
 		},
-		"required": []string{"query"},
+		"required": []string{agentToolArgQuery},
 	}
 	data, _ := json.Marshal(schema)
 	return data
@@ -202,11 +216,11 @@ func agentInputSchema() json.RawMessage {
 // agentOutputSchema returns the JSON Schema for an agent tool's output.
 func agentOutputSchema() json.RawMessage {
 	schema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"response": map[string]any{
-				"type":        "string",
-				"description": "The agent's response text",
+		jsonSchemaKeyType: jsonSchemaTypeObject,
+		jsonSchemaKeyProperties: map[string]any{
+			agentToolResultResponse: map[string]any{
+				jsonSchemaKeyType:        jsonSchemaTypeString,
+				jsonSchemaKeyDescription: "The agent's response text",
 			},
 		},
 	}

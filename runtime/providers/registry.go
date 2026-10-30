@@ -360,42 +360,7 @@ func openAIBuildsPlatformBaseURL(platform string) bool {
 // CreateProviderFromSpec creates a provider implementation from a spec.
 // Returns an error if the provider type is unsupported.
 func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
-	// Use default base URLs if not specified.
-	baseURL := spec.BaseURL
-	if baseURL == "" {
-		switch spec.Type {
-		case "openai":
-			if !openAIBuildsPlatformBaseURL(spec.Platform) {
-				baseURL = "https://api.openai.com/v1"
-			}
-		case "gemini":
-			// Skip the AI Studio default for Vertex — the gemini
-			// factory builds the publisher-models URL from
-			// PlatformConfig.Region+Project. Same #1010 root cause as
-			// openai+azure: the default would clobber spec.BaseURL
-			// and make the Vertex branch unreachable.
-			if spec.Platform != "vertex" {
-				baseURL = DefaultGeminiBaseURL
-			}
-		case "claude":
-			// Skip the api.anthropic.com default for hyperscaler-hosted
-			// Anthropic — the claude factory builds the platform URL from
-			// PlatformConfig (Vertex: publishers/anthropic/models; Azure:
-			// openai/deployments/{deployment}; Bedrock:
-			// bedrock-runtime.{region}.amazonaws.com). Same #1010 root cause.
-			// See #1029 for the Bedrock case that previously fell through.
-			if spec.Platform != "vertex" && spec.Platform != "azure" &&
-				spec.Platform != "bedrock" {
-				baseURL = "https://api.anthropic.com"
-			}
-		case "ollama":
-			baseURL = "http://localhost:11434"
-		case "vllm":
-			baseURL = "http://localhost:8000"
-		case "mock":
-			// No base URL needed for mock provider
-		}
-	}
+	baseURL := defaultBaseURLForSpec(&spec)
 
 	// Update spec with default baseURL
 	spec.BaseURL = baseURL
@@ -413,6 +378,67 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 		return nil, err
 	}
 
+	applySpecConfig(provider, &spec)
+
+	return provider, nil
+}
+
+// providerTypeOpenAI is the provider type name of the OpenAI provider.
+const providerTypeOpenAI = "openai"
+
+// defaultBaseURLForSpec returns spec.BaseURL, or the provider type's default
+// base URL when it is empty.
+func defaultBaseURLForSpec(spec *ProviderSpec) string {
+	// Use default base URLs if not specified.
+	baseURL := spec.BaseURL
+	if baseURL == "" {
+		switch spec.Type {
+		case providerTypeOpenAI:
+			if !openAIBuildsPlatformBaseURL(spec.Platform) {
+				baseURL = "https://api.openai.com/v1"
+			}
+		case "gemini":
+			// Skip the AI Studio default for Vertex — the gemini
+			// factory builds the publisher-models URL from
+			// PlatformConfig.Region+Project. Same #1010 root cause as
+			// openai+azure: the default would clobber spec.BaseURL
+			// and make the Vertex branch unreachable.
+			if spec.Platform != platformVertex {
+				baseURL = DefaultGeminiBaseURL
+			}
+		case "claude":
+			// Skip the api.anthropic.com default for hyperscaler-hosted
+			// Anthropic — the claude factory builds the platform URL from
+			// PlatformConfig (Vertex: publishers/anthropic/models; Azure:
+			// openai/deployments/{deployment}; Bedrock:
+			// bedrock-runtime.{region}.amazonaws.com). Same #1010 root cause.
+			// See #1029 for the Bedrock case that previously fell through.
+			if spec.Platform != platformVertex && spec.Platform != platformAzure &&
+				spec.Platform != platformBedrock {
+				baseURL = "https://api.anthropic.com"
+			}
+		case "ollama":
+			baseURL = "http://localhost:11434"
+		case "vllm":
+			baseURL = "http://localhost:8000"
+		case "mock":
+			// No base URL needed for mock provider
+		}
+	}
+	return baseURL
+}
+
+// applySpecConfig applies the spec's optional runtime settings (timeouts,
+// stream retry, concurrency, transport, headers, media storage, metadata
+// template) to a freshly constructed provider.
+func applySpecConfig(provider Provider, spec *ProviderSpec) {
+	applyStreamingConfig(provider, spec)
+	applyTransportConfig(provider, spec)
+}
+
+// applyStreamingConfig applies the timeout, stream-retry and stream
+// concurrency settings from spec.
+func applyStreamingConfig(provider Provider, spec *ProviderSpec) {
 	// Apply configured timeouts. Zero values leave the defaults in place
 	// (BaseProvider's constructor-time defaults / DefaultStreamIdleTimeout).
 	if tc, ok := provider.(timeoutConfigurable); ok {
@@ -443,7 +469,11 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 	if scc, ok := provider.(streamConcurrencyConfigurable); ok && spec.StreamMaxConcurrent > 0 {
 		scc.SetStreamSemaphore(NewStreamSemaphore(spec.StreamMaxConcurrent))
 	}
+}
 
+// applyTransportConfig applies the HTTP transport, custom headers, media
+// storage and message-metadata template settings from spec.
+func applyTransportConfig(provider Provider, spec *ProviderSpec) {
 	// Replace the HTTP transport with a pooled-and-instrumented one
 	// built from spec.HTTPTransport. Done unconditionally (not gated
 	// on operator overrides) so the conn-tracking wrapper is always
@@ -473,8 +503,6 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 	if mt, ok := provider.(messageMetadataTemplateConfigurable); ok && spec.MessageMetadataTemplate != "" {
 		mt.SetMessageMetadataTemplate(spec.MessageMetadataTemplate)
 	}
-
-	return provider, nil
 }
 
 // UnsupportedProviderError is returned when a provider type is not recognized

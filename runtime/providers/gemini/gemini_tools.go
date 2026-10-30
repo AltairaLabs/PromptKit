@@ -25,6 +25,21 @@ const (
 	// providerMetaThoughtSignature is the MessageToolCall.ProviderMetadata key
 	// used to round-trip Gemini 3's opaque thoughtSignature on tool-call parts.
 	providerMetaThoughtSignature = "gemini.thought_signature"
+
+	// Wire keys shared by generateContent and Live API message bodies.
+	wireKeyRole     = "role"
+	wireKeyMimeType = "mimeType"
+	wireKeyData     = "data"
+
+	// Gemini function-calling modes (toolConfig.functionCallingConfig.mode).
+	functionCallingModeAuto = "AUTO"
+	functionCallingModeAny  = "ANY"
+
+	// toolChoiceNone is the PromptKit tool-choice value that disables tool calls.
+	toolChoiceNone = "none"
+
+	// logNameGemini identifies this provider in log lines.
+	logNameGemini = "Gemini"
 )
 
 // ToolProvider extends GeminiProvider with tool support
@@ -35,7 +50,9 @@ type ToolProvider struct {
 }
 
 // NewToolProvider creates a new Gemini provider with tool support
-func NewToolProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool) *ToolProvider {
+func NewToolProvider(
+	id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool,
+) *ToolProvider {
 	return &ToolProvider{
 		Provider: NewProvider(id, model, baseURL, defaults, includeRawOutput),
 	}
@@ -143,8 +160,6 @@ func (p *ToolProvider) PredictWithTools(
 }
 
 // predictWithToolsOnce performs a predict request with tool support
-//
-//nolint:gocritic // hugeParam: interface signature requires value receiver
 func (p *ToolProvider) predictWithToolsOnce(
 	ctx context.Context,
 	req providers.PredictionRequest,
@@ -185,8 +200,6 @@ func (p *ToolProvider) predictWithToolsOnce(
 // processToolMessage converts a tool result message to Gemini's functionResponse format.
 // For multimodal tool results (containing images, audio, etc.), it builds a response
 // with text and inlineData entries per Gemini's multimodal function response format.
-//
-//nolint:gocritic // hugeParam: types.Message is part of established API
 func (p *Provider) processToolMessage(ctx context.Context, msg types.Message) map[string]any {
 	// Debug: log tool message details
 	logger.Debug("Processing tool message",
@@ -208,8 +221,8 @@ func (p *Provider) processToolMessage(ctx context.Context, msg types.Message) ma
 
 	return map[string]any{
 		"functionResponse": map[string]any{
-			"name":     msg.ToolResult.Name,
-			"response": response,
+			wireKeyName: msg.ToolResult.Name,
+			"response":  response,
 		},
 	}
 }
@@ -221,13 +234,13 @@ func buildTextToolResponse(content string) any {
 	var response any
 	if err := json.Unmarshal([]byte(content), &response); err != nil {
 		return map[string]any{
-			"result": content,
+			wireKeyResult: content,
 		}
 	}
 	// Successfully unmarshaled, but check if it's a map (object) or primitive
 	if _, isMap := response.(map[string]any); !isMap {
 		return map[string]any{
-			"result": response,
+			wireKeyResult: response,
 		}
 	}
 	return response
@@ -271,8 +284,6 @@ func (p *Provider) buildMultimodalToolResponse(
 }
 
 // buildMessageParts creates parts array for a message including text, images, and tool calls
-//
-//nolint:gocritic // hugeParam: types.Message is part of established API
 func (p *Provider) buildMessageParts(
 	ctx context.Context, msg types.Message, pendingToolResults []map[string]any,
 ) []any {
@@ -362,11 +373,11 @@ func (p *Provider) convertMediaPartToMap(ctx context.Context, part types.Content
 		// Default mime types based on content type
 		switch part.Type {
 		case types.ContentTypeImage:
-			mimeType = "image/png"
+			mimeType = types.MIMETypeImagePNG
 		case types.ContentTypeAudio:
-			mimeType = "audio/wav"
+			mimeType = types.MIMETypeAudioWAV
 		case types.ContentTypeVideo:
-			mimeType = "video/mp4"
+			mimeType = types.MIMETypeVideoMP4
 		case types.ContentTypeDocument:
 			mimeType = "application/pdf"
 		default:
@@ -383,8 +394,8 @@ func (p *Provider) convertMediaPartToMap(ctx context.Context, part types.Content
 
 	return map[string]any{
 		"inlineData": map[string]any{
-			"mimeType": mimeType,
-			"data":     base64Data,
+			wireKeyMimeType: mimeType,
+			wireKeyData:     base64Data,
 		},
 	}
 }
@@ -393,17 +404,17 @@ func (p *Provider) convertMediaPartToMap(ctx context.Context, part types.Content
 func addToolConfig(request map[string]any, tools any, toolChoice string) {
 	request["tools"] = []any{tools}
 
-	mode := "AUTO" // default
+	mode := functionCallingModeAuto // default
 	if toolChoice != "" {
 		switch toolChoice {
 		case "auto":
-			mode = "AUTO"
+			mode = functionCallingModeAuto
 		case "required", "any":
-			mode = "ANY"
-		case "none":
+			mode = functionCallingModeAny
+		case toolChoiceNone:
 			mode = "NONE"
 		default:
-			mode = "ANY"
+			mode = functionCallingModeAny
 		}
 	}
 
@@ -414,31 +425,29 @@ func addToolConfig(request map[string]any, tools any, toolChoice string) {
 	}
 }
 
-//nolint:gocritic // hugeParam: method uses req value throughout
-func (p *ToolProvider) buildToolRequest(
-	ctx context.Context, req providers.PredictionRequest, tools any, toolChoice string,
-) map[string]any {
-	// Convert messages to Gemini format
-	contents := make([]map[string]any, 0, len(req.Messages))
+// buildToolContents converts the request messages to Gemini contents, folding
+// tool results into user turns.
+func (p *ToolProvider) buildToolContents(ctx context.Context, messages []types.Message) []map[string]any {
+	contents := make([]map[string]any, 0, len(messages))
 	var pendingToolResults []map[string]any
 
-	for i := range req.Messages {
-		if req.Messages[i].Role == "tool" {
-			pendingToolResults = append(pendingToolResults, p.processToolMessage(ctx, req.Messages[i]))
+	for i := range messages {
+		if messages[i].Role == "tool" {
+			pendingToolResults = append(pendingToolResults, p.processToolMessage(ctx, messages[i]))
 			continue
 		}
 
 		// If we have pending tool results, add them as a user message before non-user messages
-		if len(pendingToolResults) > 0 && req.Messages[i].Role != "user" {
+		if len(pendingToolResults) > 0 && messages[i].Role != roleUser {
 			contents = append(contents, map[string]any{
-				"role":  "user",
-				"parts": pendingToolResults,
+				wireKeyRole:  roleUser,
+				wireKeyParts: pendingToolResults,
 			})
 			pendingToolResults = nil
 		}
 
-		parts := p.buildMessageParts(ctx, req.Messages[i], pendingToolResults)
-		if req.Messages[i].Role == roleUser {
+		parts := p.buildMessageParts(ctx, messages[i], pendingToolResults)
+		if messages[i].Role == roleUser {
 			pendingToolResults = nil
 		}
 
@@ -446,24 +455,32 @@ func (p *ToolProvider) buildToolRequest(
 			continue
 		}
 
-		role := req.Messages[i].Role
+		role := messages[i].Role
 		if role == "assistant" {
 			role = "model"
 		}
 
 		contents = append(contents, map[string]any{
-			"role":  role,
-			"parts": parts,
+			wireKeyRole:  role,
+			wireKeyParts: parts,
 		})
 	}
 
 	// If there are still pending tool results at the end, add them as a final user message
 	if len(pendingToolResults) > 0 {
 		contents = append(contents, map[string]any{
-			"role":  "user",
-			"parts": pendingToolResults,
+			wireKeyRole:  roleUser,
+			wireKeyParts: pendingToolResults,
 		})
 	}
+	return contents
+}
+
+func (p *ToolProvider) buildToolRequest(
+	ctx context.Context, req providers.PredictionRequest, tools any, toolChoice string,
+) map[string]any {
+	// Convert messages to Gemini format
+	contents := p.buildToolContents(ctx, req.Messages)
 
 	// Apply defaults to zero-valued request parameters
 	temperature, topP, maxTokens := p.applyRequestDefaults(req)
@@ -527,7 +544,7 @@ func (p *ToolProvider) buildToolRequest(
 
 	if req.System != "" {
 		request["systemInstruction"] = map[string]any{
-			"parts": []any{
+			wireKeyParts: []any{
 				map[string]any{wireKeyText: req.System},
 			},
 		}
@@ -552,7 +569,26 @@ func (p *ToolProvider) buildToolRequest(
 	return request
 }
 
-func (p *ToolProvider) parseToolResponse(respBytes []byte, predictResp providers.PredictionResponse) (providers.PredictionResponse, []types.MessageToolCall, error) {
+// emptyCandidateError explains why a Gemini candidate came back with no parts,
+// based on its finish reason.
+func emptyCandidateError(finishReason string) error {
+	switch finishReason {
+	case "MAX_TOKENS":
+		return fmt.Errorf("gemini hit the output-token limit before emitting any content: " +
+			"on 2.5 'thinking' models the reasoning budget counts toward maxOutputTokens, so a low max_tokens " +
+			"can be exhausted by thinking alone — raise max_tokens or set a smaller thinking_budget")
+	case finishReasonSafety:
+		return fmt.Errorf("response blocked by Gemini safety filters")
+	case "RECITATION":
+		return fmt.Errorf("response blocked due to recitation concerns")
+	default:
+		return fmt.Errorf("no parts in Gemini candidate (finish reason: %s)", finishReason)
+	}
+}
+
+func (p *ToolProvider) parseToolResponse(
+	respBytes []byte, predictResp providers.PredictionResponse,
+) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	start := time.Now()
 
 	var resp geminiToolResponse
@@ -572,19 +608,7 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte, predictResp providers
 	if len(candidate.Content.Parts) == 0 {
 		predictResp.Latency = time.Since(start)
 		predictResp.Raw = respBytes
-		// Handle different finish reasons
-		switch candidate.FinishReason {
-		case "MAX_TOKENS":
-			return predictResp, nil, fmt.Errorf("gemini hit the output-token limit before emitting any content: " +
-				"on 2.5 'thinking' models the reasoning budget counts toward maxOutputTokens, so a low max_tokens " +
-				"can be exhausted by thinking alone — raise max_tokens or set a smaller thinking_budget")
-		case "SAFETY":
-			return predictResp, nil, fmt.Errorf("response blocked by Gemini safety filters")
-		case "RECITATION":
-			return predictResp, nil, fmt.Errorf("response blocked due to recitation concerns")
-		default:
-			return predictResp, nil, fmt.Errorf("no parts in Gemini candidate (finish reason: %s)", candidate.FinishReason)
-		}
+		return predictResp, nil, emptyCandidateError(candidate.FinishReason)
 	}
 
 	// Extract text content and tool calls
@@ -600,24 +624,7 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte, predictResp providers
 
 		// Check for function call
 		if part.FunctionCall != nil {
-			toolCall := types.MessageToolCall{
-				ID:   fmt.Sprintf("call_%d", i), // Gemini doesn't provide IDs, so we generate them
-				Name: part.FunctionCall.Name,
-			}
-
-			if part.FunctionCall.Args != nil {
-				// Marshal can't fail for map[string]any
-				argsBytes, _ := json.Marshal(part.FunctionCall.Args)
-				toolCall.Args = json.RawMessage(argsBytes)
-			}
-			// Preserve Gemini 3's thoughtSignature so it can be replayed on the
-			// next turn. Without this, Gemini 3 rejects the request.
-			if part.ThoughtSignature != "" {
-				toolCall.ProviderMetadata = map[string]string{
-					providerMetaThoughtSignature: part.ThoughtSignature,
-				}
-			}
-			toolCalls = append(toolCalls, toolCall)
+			toolCalls = append(toolCalls, functionCallToToolCall(i, &part))
 		}
 	}
 
@@ -638,6 +645,29 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte, predictResp providers
 	predictResp.FinishReason = normalizeFinishReason(candidate.FinishReason)
 
 	return predictResp, toolCalls, nil
+}
+
+// functionCallToToolCall converts the function call in the i-th candidate part
+// to a MessageToolCall.
+func functionCallToToolCall(i int, part *geminiToolPart) types.MessageToolCall {
+	toolCall := types.MessageToolCall{
+		ID:   fmt.Sprintf("call_%d", i), // Gemini doesn't provide IDs, so we generate them
+		Name: part.FunctionCall.Name,
+	}
+
+	if part.FunctionCall.Args != nil {
+		// Marshal can't fail for map[string]any
+		argsBytes, _ := json.Marshal(part.FunctionCall.Args)
+		toolCall.Args = json.RawMessage(argsBytes)
+	}
+	// Preserve Gemini 3's thoughtSignature so it can be replayed on the
+	// next turn. Without this, Gemini 3 rejects the request.
+	if part.ThoughtSignature != "" {
+		toolCall.ProviderMetadata = map[string]string{
+			providerMetaThoughtSignature: part.ThoughtSignature,
+		}
+	}
+	return toolCall
 }
 
 // reasoningFromToolParts builds a ReasoningTrace from a tool-response candidate's

@@ -1,4 +1,4 @@
-package types //nolint:revive // package name matches existing convention
+package types
 
 import "time"
 

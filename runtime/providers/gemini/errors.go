@@ -3,6 +3,7 @@ package gemini
 import (
 	"errors"
 	"fmt"
+	"net/http"
 )
 
 // Common errors for Gemini streaming
@@ -26,7 +27,7 @@ var (
 	ErrInvalidRequest = errors.New("invalid request")
 )
 
-// GeminiAPIError represents an error from the Gemini API
+// APIError represents an error from the Gemini API
 type APIError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
@@ -42,11 +43,11 @@ func (e *APIError) Error() string {
 func (e *APIError) IsRetryable() bool {
 	// Retryable errors: temporary failures, rate limits, service unavailable
 	switch e.Code {
-	case 429: // Rate limit
+	case http.StatusTooManyRequests: // Rate limit
 		return true
-	case 500: // Internal server error
+	case http.StatusInternalServerError: // Internal server error
 		return true
-	case 503: // Service unavailable
+	case http.StatusServiceUnavailable: // Service unavailable
 		return true
 	default:
 		return false
@@ -55,12 +56,12 @@ func (e *APIError) IsRetryable() bool {
 
 // IsAuthError returns true if the error is authentication-related
 func (e *APIError) IsAuthError() bool {
-	return e.Code == 401
+	return e.Code == http.StatusUnauthorized
 }
 
 // IsPolicyViolation returns true if the error is a content policy violation
 func (e *APIError) IsPolicyViolation() bool {
-	return e.Code == 400 && e.Status == "POLICY_VIOLATION"
+	return e.Code == http.StatusBadRequest && e.Status == "POLICY_VIOLATION"
 }
 
 // ErrorResponse wraps a GeminiAPIError in a message format
@@ -75,16 +76,16 @@ func ClassifyError(apiErr *APIError) error {
 	}
 
 	switch apiErr.Code {
-	case 400:
+	case http.StatusBadRequest:
 		if apiErr.IsPolicyViolation() {
 			return fmt.Errorf("policy violation: %w - %s", ErrPolicyViolation, apiErr.Message)
 		}
 		return fmt.Errorf("invalid request: %w - %s", ErrInvalidRequest, apiErr.Message)
-	case 401:
+	case http.StatusUnauthorized:
 		return fmt.Errorf("authentication failed: %w - %s", ErrAuthenticationFailed, apiErr.Message)
-	case 429:
+	case http.StatusTooManyRequests:
 		return fmt.Errorf("rate limit exceeded: %w - %s", ErrRateLimitExceeded, apiErr.Message)
-	case 503:
+	case http.StatusServiceUnavailable:
 		return fmt.Errorf("service unavailable: %w - %s", ErrServiceUnavailable, apiErr.Message)
 	default:
 		return apiErr
@@ -160,10 +161,13 @@ func (f *PromptFeedback) IsBlocked() bool {
 	return f.BlockReason != ""
 }
 
+// blockReasonNone is reported by GetBlockReason when nothing was blocked.
+const blockReasonNone = "none"
+
 // GetBlockReason returns a human-readable block reason
 func (f *PromptFeedback) GetBlockReason() string {
 	if f.BlockReason == "" {
-		return "none"
+		return blockReasonNone
 	}
 	return f.BlockReason
 }

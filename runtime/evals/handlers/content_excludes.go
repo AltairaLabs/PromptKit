@@ -64,7 +64,7 @@ func (h *ContentExcludesHandler) Eval(
 		return &evals.EvalResult{
 			Type:  h.Type(),
 			Score: boolScore(false),
-			Value: map[string]any{"violations": found},
+			Value: map[string]any{keyViolations: found},
 			Explanation: fmt.Sprintf(
 				"forbidden content found: %s",
 				strings.Join(found, "; "),
@@ -99,7 +99,7 @@ func (h *ContentExcludesHandler) EvalPartial(
 			return &evals.EvalResult{
 				Type:  h.Type(),
 				Score: boolScore(false),
-				Value: map[string]any{"violations": []string{fmt.Sprintf("contains %q", p)}},
+				Value: map[string]any{keyViolations: []string{fmt.Sprintf("contains %q", p)}},
 				Explanation: fmt.Sprintf(
 					"forbidden content found in stream: %q", p,
 				),

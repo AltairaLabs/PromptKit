@@ -169,7 +169,7 @@ func (e *MockScriptedExecutor) Execute(
 	if err := json.Unmarshal([]byte(result), &jsonResult); err != nil {
 		// If not valid JSON, wrap it as a string value
 		jsonResult = map[string]any{
-			"result": result,
+			wrappedResultKey: result,
 		}
 	}
 

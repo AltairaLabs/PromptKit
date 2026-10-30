@@ -85,8 +85,6 @@ const numDefaultOptions = 5
 // RunOptions is intentionally passed by value: tests benefit from the inline
 // struct-literal call site (Run(t, RunOptions{SeedHistory: 5})), and the
 // per-call cost of an 80-byte copy is negligible against the work Run does.
-//
-//nolint:gocritic // hugeParam suppression — see godoc above.
 func Run(tb testing.TB, ro RunOptions) (*Probes, *sdk.Conversation) {
 	tb.Helper()
 

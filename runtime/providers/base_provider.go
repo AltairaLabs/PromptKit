@@ -132,8 +132,8 @@ func NewPooledTransportWithOptions(opts HTTPTransportOptions) *http.Transport {
 // instrumentation. This propagates trace context (W3C traceparent header)
 // on outgoing requests and creates client-side HTTP spans. When no
 // TracerProvider is configured, the wrapper is a near-zero-cost passthrough.
-func NewInstrumentedTransport(base http.RoundTripper) http.RoundTripper {
-	return otelhttp.NewTransport(base,
+func NewInstrumentedTransport(next http.RoundTripper) http.RoundTripper {
+	return otelhttp.NewTransport(next,
 		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
 			return "provider " + r.Method
 		}),
@@ -226,7 +226,9 @@ func (b *BaseProvider) GetRetryPolicy() pipeline.RetryPolicy {
 
 // NewBaseProviderWithAPIKey creates a BaseProvider and retrieves API key from environment
 // It tries the primary key first, then falls back to the secondary key if primary is empty.
-func NewBaseProviderWithAPIKey(id string, includeRawOutput bool, primaryKey, fallbackKey string) (provider BaseProvider, apiKey string) {
+func NewBaseProviderWithAPIKey(
+	id string, includeRawOutput bool, primaryKey, fallbackKey string,
+) (provider BaseProvider, apiKey string) {
 	apiKey = os.Getenv(primaryKey)
 	if apiKey == "" {
 		apiKey = os.Getenv(fallbackKey)
@@ -258,14 +260,14 @@ func ExtractAPIKey(cred Credential) string {
 // This eliminates the duplicated credential-setup boilerplate across providers.
 func NewBaseProviderWithCredential(
 	id string, includeRawOutput bool, timeout time.Duration, cred Credential,
-) (base BaseProvider, apiKey string) {
+) (bp BaseProvider, apiKey string) {
 	client := &http.Client{
 		Timeout:   timeout,
 		Transport: NewInstrumentedTransport(NewPooledTransport()),
 	}
-	base = NewBaseProvider(id, includeRawOutput, client)
+	bp = NewBaseProvider(id, includeRawOutput, client)
 	apiKey = ExtractAPIKey(cred)
-	return base, apiKey
+	return bp, apiKey
 }
 
 // ID returns the provider ID
@@ -871,7 +873,7 @@ func ReadErrorBody(body io.Reader) []byte {
 func (b *BaseProvider) DoAndReadResponse(
 	req *http.Request, predictResp *PredictionResponse, start time.Time, providerName string,
 ) (body []byte, statusCode int, err error) {
-	resp, err := b.client.Do(req)
+	resp, err := b.client.Do(req) //nolint:gosec // G704: req targets the provider's configured endpoint
 	if err != nil {
 		predictResp.Latency = time.Since(start)
 		return nil, 0, &ProviderTransportError{Cause: err, Provider: b.id}
@@ -959,6 +961,45 @@ func (b *BaseProvider) MakeJSONRequest(
 	return b.MakeRawRequest(ctx, url, reqBytes, headers, providerName)
 }
 
+// mergeCustomHeaders merges the provider-level custom headers into the
+// caller's headers. http.Header gives us case-insensitive lookup so we don't
+// have to re-implement the collision check that ApplyCustomHeaders already does.
+func (b *BaseProvider) mergeCustomHeaders(headers RequestHeaders) (RequestHeaders, error) {
+	if len(b.customHeaders) == 0 {
+		return headers, nil
+	}
+	merged := http.Header{}
+	for k, v := range headers {
+		merged.Set(k, v)
+	}
+	for k, v := range b.customHeaders {
+		if merged.Get(k) != "" {
+			return nil, fmt.Errorf("custom header %q collides with built-in header set by provider", k)
+		}
+		merged.Set(k, v)
+	}
+	flat := make(RequestHeaders, len(merged))
+	for k, vs := range merged {
+		if len(vs) > 0 {
+			flat[k] = vs[0]
+		}
+	}
+	return flat, nil
+}
+
+// maskHeadersForLog returns a copy of headers with credential headers masked.
+func maskHeadersForLog(headers RequestHeaders) map[string]string {
+	logHeaders := make(map[string]string)
+	for k, v := range headers {
+		if k == "Authorization" || k == "x-api-key" {
+			logHeaders[k] = "***"
+		} else {
+			logHeaders[k] = v
+		}
+	}
+	return logHeaders
+}
+
 // MakeRawRequest performs an HTTP POST request with pre-marshaled body.
 // It automatically retries on transient errors (429, 502, 503, 504 and
 // network errors) according to the provider's RetryPolicy.
@@ -976,40 +1017,13 @@ func (b *BaseProvider) MakeRawRequest(
 	headers RequestHeaders,
 	providerName string,
 ) ([]byte, error) {
-	// Merge custom headers into the effective header set. http.Header
-	// gives us case-insensitive lookup so we don't have to re-implement
-	// the collision check that ApplyCustomHeaders already does.
-	effectiveHeaders := headers
-	if len(b.customHeaders) > 0 {
-		merged := http.Header{}
-		for k, v := range headers {
-			merged.Set(k, v)
-		}
-		for k, v := range b.customHeaders {
-			if merged.Get(k) != "" {
-				return nil, fmt.Errorf("custom header %q collides with built-in header set by provider", k)
-			}
-			merged.Set(k, v)
-		}
-		flat := make(RequestHeaders, len(merged))
-		for k, vs := range merged {
-			if len(vs) > 0 {
-				flat[k] = vs[0]
-			}
-		}
-		effectiveHeaders = flat
+	effectiveHeaders, mergeErr := b.mergeCustomHeaders(headers)
+	if mergeErr != nil {
+		return nil, mergeErr
 	}
 
 	// Log the request once (mask sensitive headers for logging).
-	logHeaders := make(map[string]string)
-	for k, v := range effectiveHeaders {
-		if k == "Authorization" || k == "x-api-key" {
-			logHeaders[k] = "***"
-		} else {
-			logHeaders[k] = v
-		}
-	}
-	logger.APIRequest(providerName, "POST", url, logHeaders, json.RawMessage(body))
+	logger.APIRequest(providerName, "POST", url, maskHeadersForLog(effectiveHeaders), json.RawMessage(body))
 
 	// Validate payload size before sending the request.
 	if err := b.checkPayloadSize(body, providerName); err != nil {

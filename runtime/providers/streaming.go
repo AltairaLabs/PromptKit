@@ -47,6 +47,8 @@ const DefaultStreamIdleTimeout = 30 * time.Second
 type ExecutionResult interface{}
 
 // StreamChunk represents a batch of tokens with metadata
+//
+//nolint:misspell // the FinishReason doc lists the literal "cancelled" value providers emit
 type StreamChunk struct {
 	// Content is the accumulated content so far
 	Content string `json:"content"`

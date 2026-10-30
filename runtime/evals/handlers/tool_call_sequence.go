@@ -43,13 +43,13 @@ func (h *ToolCallSequenceHandler) Eval(
 				matched, len(sequence), sequence[matched],
 			),
 			Value: map[string]any{
-				"actual_sequence":   actualTools,
-				"expected_sequence": sequence,
+				keyActualSequence:   actualTools,
+				keyExpectedSequence: sequence,
 			},
 			Details: map[string]any{
-				"matched_steps": matched,
-				"total_steps":   len(sequence),
-				"actual_tools":  actualTools,
+				keyMatchedSteps: matched,
+				keyTotalSteps:   len(sequence),
+				keyActualTools:  actualTools,
 			},
 		}, nil
 	}
@@ -59,12 +59,12 @@ func (h *ToolCallSequenceHandler) Eval(
 		Score:       ratioScore(matched, len(sequence)),
 		Explanation: fmt.Sprintf("sequence [%s] fully matched", strings.Join(sequence, " → ")),
 		Value: map[string]any{
-			"actual_sequence":   actualTools,
-			"expected_sequence": sequence,
+			keyActualSequence:   actualTools,
+			keyExpectedSequence: sequence,
 		},
 		Details: map[string]any{
-			"matched_steps": matched,
-			"actual_tools":  actualTools,
+			keyMatchedSteps: matched,
+			keyActualTools:  actualTools,
 		},
 	}, nil
 }

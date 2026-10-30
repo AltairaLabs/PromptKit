@@ -286,12 +286,21 @@ func (r *SessionRecording) SaveTo(path string, format Format) error {
 	return nil
 }
 
+// lineKeyType is the key of the field naming a SessionRecording JSONL line's kind.
+const lineKeyType = "type"
+
+// "type" values of the lines in a SessionRecording JSONL file.
+const (
+	lineTypeMetadata = "metadata"
+	lineTypeEvent    = "event"
+)
+
 // marshalJSONLines creates JSONL output with metadata on first line.
 func (r *SessionRecording) marshalJSONLines() ([]byte, error) {
 	// First line is metadata
 	metaLine, err := json.Marshal(map[string]any{
-		"type":     "metadata",
-		"metadata": r.Metadata,
+		lineKeyType: lineTypeMetadata,
+		"metadata":  r.Metadata,
 	})
 	if err != nil {
 		return nil, err
@@ -304,8 +313,8 @@ func (r *SessionRecording) marshalJSONLines() ([]byte, error) {
 	// Subsequent lines are events
 	for i := range r.Events {
 		eventLine, err := json.Marshal(map[string]any{
-			"type":  "event",
-			"event": r.Events[i],
+			lineKeyType: lineTypeEvent,
+			"event":     r.Events[i],
 		})
 		if err != nil {
 			return nil, err
@@ -387,9 +396,9 @@ func loadSessionRecordingFormat(lines [][]byte) (*SessionRecording, error) {
 		}
 
 		switch wrapper.Type {
-		case "metadata":
+		case lineTypeMetadata:
 			rec.Metadata = wrapper.Metadata
-		case "event":
+		case lineTypeEvent:
 			rec.Events = append(rec.Events, wrapper.Event)
 		}
 	}

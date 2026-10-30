@@ -23,7 +23,7 @@ func (s *RealtimeSession) SendToolResponse(ctx context.Context, toolCallID, resu
 
 	// Create a function_call_output conversation item
 	item := ConversationItem{
-		Type:   "function_call_output",
+		Type:   typeFunctionCallOutput,
 		CallID: toolCallID,
 		Output: result,
 	}
@@ -31,7 +31,7 @@ func (s *RealtimeSession) SendToolResponse(ctx context.Context, toolCallID, resu
 	event := ConversationItemCreateEvent{
 		ClientEvent: ClientEvent{
 			EventID: s.nextEventID(),
-			Type:    "conversation.item.create",
+			Type:    realtimeEventItemCreate,
 		},
 		Item: item,
 	}
@@ -44,7 +44,7 @@ func (s *RealtimeSession) SendToolResponse(ctx context.Context, toolCallID, resu
 	responseEvent := ResponseCreateEvent{
 		ClientEvent: ClientEvent{
 			EventID: s.nextEventID(),
-			Type:    "response.create",
+			Type:    realtimeEventResponseCreate,
 		},
 	}
 
@@ -63,7 +63,7 @@ func (s *RealtimeSession) SendToolResponses(ctx context.Context, responses []pro
 	// Send each tool response as a separate conversation item
 	for _, resp := range responses {
 		item := ConversationItem{
-			Type:   "function_call_output",
+			Type:   typeFunctionCallOutput,
 			CallID: resp.ToolCallID,
 			Output: resp.Result,
 		}
@@ -71,7 +71,7 @@ func (s *RealtimeSession) SendToolResponses(ctx context.Context, responses []pro
 		event := ConversationItemCreateEvent{
 			ClientEvent: ClientEvent{
 				EventID: s.nextEventID(),
-				Type:    "conversation.item.create",
+				Type:    realtimeEventItemCreate,
 			},
 			Item: item,
 		}
@@ -85,7 +85,7 @@ func (s *RealtimeSession) SendToolResponses(ctx context.Context, responses []pro
 	responseEvent := ResponseCreateEvent{
 		ClientEvent: ClientEvent{
 			EventID: s.nextEventID(),
-			Type:    "response.create",
+			Type:    realtimeEventResponseCreate,
 		},
 	}
 

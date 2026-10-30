@@ -314,35 +314,9 @@ func (p *SessionPlayer) getPlaybackEventInfo() *playbackEventInfo {
 	}
 }
 
-// waitForEventTiming waits until the event should be delivered based on timing.
+// waitForEventTimingWithTimer waits until the event should be delivered based on
+// timing, reusing the provided timer to avoid allocating a new timer per event.
 // Returns false if context was canceled.
-func (p *SessionPlayer) waitForEventTiming(info *playbackEventInfo) bool {
-	// Allocate a fresh timer for callers that don't have a reusable one.
-	if info.skipTiming || info.eventOffset <= 0 {
-		return true
-	}
-
-	scaledOffset := time.Duration(float64(info.eventOffset) / info.speed)
-	p.mu.RLock()
-	targetTime := p.startTime.Add(scaledOffset)
-	ctx := p.ctx
-	p.mu.RUnlock()
-
-	waitDuration := time.Until(targetTime)
-	if waitDuration <= 0 {
-		return true
-	}
-
-	select {
-	case <-ctx.Done():
-		return false
-	case <-time.After(waitDuration):
-		return true
-	}
-}
-
-// waitForEventTimingWithTimer is like waitForEventTiming but reuses the provided timer
-// to avoid allocating a new timer per event.
 func (p *SessionPlayer) waitForEventTimingWithTimer(info *playbackEventInfo, t *time.Timer) bool {
 	if info.skipTiming || info.eventOffset <= 0 {
 		return true

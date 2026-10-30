@@ -93,7 +93,7 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (pr
 			params = ensureStrictSchema(params)
 		}
 		tools[i] = openAITool{
-			Type: "function",
+			Type: typeFunction,
 			Function: openAIToolFunction{
 				Name:        desc.Name,
 				Description: desc.Description,
@@ -194,8 +194,6 @@ func (p *ToolProvider) PredictWithTools(
 }
 
 // predictWithToolsOnce performs a prediction request with tool support
-//
-//nolint:gocritic // hugeParam: interface signature requires value receiver
 func (p *ToolProvider) predictWithToolsOnce(
 	ctx context.Context,
 	req providers.PredictionRequest,
@@ -212,8 +210,6 @@ func (p *ToolProvider) predictWithToolsOnce(
 }
 
 // predictWithCompletions performs a prediction using the chat completions API
-//
-//nolint:gocritic // hugeParam: interface signature requires value receiver for compatibility
 func (p *ToolProvider) predictWithCompletions(
 	ctx context.Context,
 	req providers.PredictionRequest,
@@ -266,8 +262,8 @@ func (p *ToolProvider) buildToolRequest(
 
 	// Build request
 	openaiReq := map[string]interface{}{
-		"model":    p.model,
-		"messages": messages,
+		keyModel:    p.model,
+		keyMessages: messages,
 	}
 
 	// Every field shared with the non-tool paths — max tokens, sampling params,
@@ -276,7 +272,7 @@ func (p *ToolProvider) buildToolRequest(
 	// drifted: response_format was set only in enrichRequest, so a pack combining
 	// structured output with tools silently lost its schema. Adding a field here
 	// by hand is how that happens; add it to enrichRequest instead.
-	p.enrichRequest(openaiReq, &req, "wav")
+	p.enrichRequest(openaiReq, &req, audioFormatWAV)
 
 	// Add tools if provided. parallel_tool_calls belongs strictly inside this
 	// guard: OpenAI rejects it when no tools are declared ("only allowed when
@@ -302,8 +298,8 @@ func (p *ToolProvider) convertRequestMessagesToOpenAI(
 	// Add system message if present
 	if req.System != "" {
 		messages = append(messages, map[string]interface{}{
-			"role":    "system",
-			"content": req.System,
+			keyRole:    roleSystem,
+			keyContent: req.System,
 		})
 	}
 
@@ -331,8 +327,8 @@ func (p *ToolProvider) convertSingleMessageForTools(ctx context.Context, msg typ
 
 	// Build the message map with content
 	openaiMsg := map[string]interface{}{
-		"role":    convertedMsg.Role,
-		"content": convertedMsg.Content,
+		keyRole:    convertedMsg.Role,
+		keyContent: convertedMsg.Content,
 	}
 
 	// Add tool-related fields if present
@@ -343,8 +339,8 @@ func (p *ToolProvider) convertSingleMessageForTools(ctx context.Context, msg typ
 	// Handle tool result messages
 	if msg.Role == "tool" && msg.ToolResult != nil {
 		openaiMsg["tool_call_id"] = msg.ToolResult.ID
-		openaiMsg["name"] = msg.ToolResult.Name
-		openaiMsg["content"] = convertToolResultContent(msg.ToolResult)
+		openaiMsg[keyName] = msg.ToolResult.Name
+		openaiMsg[keyContent] = convertToolResultContent(msg.ToolResult)
 	}
 
 	return openaiMsg
@@ -366,16 +362,16 @@ func convertToolResultContent(result *types.MessageToolResult) interface{} {
 		case types.ContentTypeText:
 			if part.Text != nil {
 				parts = append(parts, map[string]interface{}{
-					"type": "text",
-					"text": *part.Text,
+					keyType: partTypeText,
+					keyText: *part.Text,
 				})
 			}
 		case types.ContentTypeImage:
 			if part.Media != nil {
 				if imgURL := resolveImageURL(part.Media); imgURL != "" {
 					parts = append(parts, map[string]interface{}{
-						"type":      "image_url",
-						"image_url": map[string]interface{}{"url": imgURL},
+						keyType:     partTypeImageURL,
+						keyImageURL: map[string]interface{}{"url": imgURL},
 					})
 				}
 			}
@@ -426,10 +422,10 @@ func (p *ToolProvider) convertToolCallsToOpenAI(toolCalls []types.MessageToolCal
 	result := make([]map[string]interface{}, len(toolCalls))
 	for i, tc := range toolCalls {
 		result[i] = map[string]interface{}{
-			"id":   tc.ID,
-			"type": "function",
-			"function": map[string]interface{}{
-				"name":      tc.Name,
+			"id":    tc.ID,
+			keyType: typeFunction,
+			keyFunction: map[string]interface{}{
+				keyName:     tc.Name,
 				"arguments": replayArgs(tc.Args),
 			},
 		}
@@ -439,28 +435,30 @@ func (p *ToolProvider) convertToolCallsToOpenAI(toolCalls []types.MessageToolCal
 
 // addToolChoiceToRequest adds tool_choice parameter based on the choice string
 func (p *ToolProvider) addToolChoiceToRequest(openaiReq map[string]interface{}, toolChoice string) {
-	if toolChoice == "" || toolChoice == "auto" {
+	if toolChoice == "" || toolChoice == toolChoiceAuto {
 		return
 	}
 
 	switch toolChoice {
-	case "required":
-		openaiReq["tool_choice"] = "required"
-	case "none":
-		openaiReq["tool_choice"] = "none"
+	case toolChoiceRequired:
+		openaiReq["tool_choice"] = toolChoiceRequired
+	case toolChoiceNone:
+		openaiReq["tool_choice"] = toolChoiceNone
 	default:
 		// Specific function name
 		openaiReq["tool_choice"] = map[string]interface{}{
-			"type": "function",
-			"function": map[string]string{
-				"name": toolChoice,
+			keyType: typeFunction,
+			keyFunction: map[string]string{
+				keyName: toolChoice,
 			},
 		}
 	}
 }
 
 // parseToolResponse parses the OpenAI response and extracts tool calls
-func (p *ToolProvider) parseToolResponse(respBytes []byte) (providers.PredictionResponse, []types.MessageToolCall, error) {
+func (p *ToolProvider) parseToolResponse(
+	respBytes []byte,
+) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	var openaiResp struct {
 		Choices []struct {
 			Message struct {
@@ -507,7 +505,7 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte) (providers.Prediction
 			resp.Parts = append(resp.Parts, types.NewTextPart(audio.Transcript))
 		}
 		if audio.Data != "" {
-			audioFormat := getStringConfigOrDefault(p.additionalConfig, "audio_format", "wav")
+			audioFormat := getStringConfigOrDefault(p.additionalConfig, "audio_format", audioFormatWAV)
 			resp.Parts = append(resp.Parts, types.NewAudioPartFromData(audio.Data, audioFormatToMIME(audioFormat)))
 		}
 	}
@@ -529,46 +527,52 @@ func (p *ToolProvider) parseToolResponse(respBytes []byte) (providers.Prediction
 func (p *ToolProvider) makeRequest(ctx context.Context, request interface{}) ([]byte, error) {
 	url := p.chatCompletionsURL()
 	if p.credential != nil {
-		reqBytes, err := json.Marshal(request)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal request: %w", err)
-		}
-		httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBytes))
-		if err != nil {
-			return nil, fmt.Errorf("failed to create request: %w", err)
-		}
-		httpReq.Header.Set(contentTypeHeader, applicationJSON)
-		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
-			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
-		}
-		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
-			return nil, hdrErr
-		}
-		resp, doErr := p.GetHTTPClient().Do(httpReq)
-		if doErr != nil {
-			return nil, &providers.ProviderTransportError{Cause: doErr, Provider: p.ID()}
-		}
-		defer resp.Body.Close()
-		body, readErr := providers.ReadResponseBody(resp.Body)
-		if readErr != nil {
-			return nil, fmt.Errorf("failed to read response: %w", readErr)
-		}
-		if resp.StatusCode != http.StatusOK {
-			if p.platform != "" {
-				return nil, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, body)
-			}
-			return nil, &providers.ProviderHTTPError{
-				StatusCode: resp.StatusCode, URL: url,
-				Body: string(body), Provider: p.ID(),
-			}
-		}
-		return body, nil
+		return p.makeCredentialRequest(ctx, url, request)
 	}
 	headers := providers.RequestHeaders{
 		contentTypeHeader:   applicationJSON,
 		authorizationHeader: bearerPrefix + p.apiKey,
 	}
 	return p.MakeJSONRequest(ctx, url, request, headers, "OpenAI")
+}
+
+// makeCredentialRequest sends the request authenticated through the
+// configured credential and returns the response body.
+func (p *ToolProvider) makeCredentialRequest(ctx context.Context, url string, request interface{}) ([]byte, error) {
+	reqBytes, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set(contentTypeHeader, applicationJSON)
+	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+		return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+	}
+	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
+		return nil, hdrErr
+	}
+	resp, doErr := p.GetHTTPClient().Do(httpReq)
+	if doErr != nil {
+		return nil, &providers.ProviderTransportError{Cause: doErr, Provider: p.ID()}
+	}
+	defer resp.Body.Close()
+	body, readErr := providers.ReadResponseBody(resp.Body)
+	if readErr != nil {
+		return nil, fmt.Errorf("failed to read response: %w", readErr)
+	}
+	if resp.StatusCode != http.StatusOK {
+		if p.platform != "" {
+			return nil, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, body)
+		}
+		return nil, &providers.ProviderHTTPError{
+			StatusCode: resp.StatusCode, URL: url,
+			Body: string(body), Provider: p.ID(),
+		}
+	}
+	return body, nil
 }
 
 // PredictStreamWithTools runs predictStreamWithToolsOnce, retrying without
@@ -609,8 +613,6 @@ func (p *ToolProvider) predictStreamWithToolsOnce(
 // predictStreamWithToolsBedrockFallback runs PredictWithTools synchronously
 // and emits a single terminal chunk that carries content, tool calls,
 // finish reason and cost. See PredictStream for the rationale.
-//
-//nolint:gocritic // hugeParam: matches the upstream PredictStreamWithTools signature.
 func (p *ToolProvider) predictStreamWithToolsBedrockFallback(
 	ctx context.Context,
 	req providers.PredictionRequest,
@@ -639,8 +641,6 @@ func (p *ToolProvider) predictStreamWithToolsBedrockFallback(
 }
 
 // predictStreamWithCompletions performs a streaming predict using chat completions API
-//
-//nolint:gocritic // hugeParam: interface signature requires value receiver for compatibility
 func (p *ToolProvider) predictStreamWithCompletions(
 	ctx context.Context,
 	req providers.PredictionRequest,
@@ -653,13 +653,13 @@ func (p *ToolProvider) predictStreamWithCompletions(
 	// Add streaming options
 	openaiReq["stream"] = true
 	openaiReq["stream_options"] = map[string]interface{}{
-		"include_usage": true,
+		keyIncludeUsage: true,
 	}
 
 	// When streaming, OpenAI chat/completions only accepts "pcm16" for audio.format.
 	// buildToolRequest defaults to "wav" (valid for non-streaming); override here.
 	if audio, ok := openaiReq["audio"].(map[string]interface{}); ok {
-		audio["format"] = "pcm16"
+		audio[keyFormat] = audioPCM16Format
 	}
 	providers.ApplyExtraBody(p.ID(), openaiReq, p.extraBody)
 

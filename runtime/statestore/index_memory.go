@@ -61,7 +61,7 @@ func NewInMemoryIndex(provider providers.EmbeddingProvider, opts ...InMemoryInde
 
 // Index adds a message to the search index by computing its embedding.
 //
-//nolint:gocritic // message passed by value to match MessageIndex interface
+// message passed by value to match MessageIndex interface
 func (idx *InMemoryIndex) Index(
 	ctx context.Context, conversationID string, turnIndex int, message types.Message,
 ) error {

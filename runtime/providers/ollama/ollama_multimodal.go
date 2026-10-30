@@ -51,8 +51,8 @@ func (p *Provider) convertMessageToOllama(
 		case types.ContentTypeText:
 			if part.Text != nil && *part.Text != "" {
 				contentParts = append(contentParts, map[string]any{
-					"type": "text",
-					"text": *part.Text,
+					keyType: partTypeText,
+					keyText: *part.Text,
 				})
 			}
 
@@ -90,7 +90,7 @@ func (p *Provider) convertImagePartToOllama(
 	}
 
 	imagePart := map[string]any{
-		"type": "image_url",
+		keyType: "image_url",
 	}
 
 	imageURL := make(map[string]any)

@@ -72,8 +72,8 @@ const (
 // Rate: $15/1M chars (Cartesia's published per-character rate for Sonic).
 var cartesiaDefaultPricing = &base.PricingDescriptor{
 	Source:   base.PricingSourceInline,
-	Currency: "usd",
-	Items:    []base.PriceItem{{Unit: "character", Rate: cartesiaCharRatePerChar}},
+	Currency: currencyUSD,
+	Items:    []base.PriceItem{{Unit: unitCharacter, Rate: cartesiaCharRatePerChar}},
 }
 
 // CartesiaService implements TTS using Cartesia's ultra-low latency API.
@@ -119,7 +119,7 @@ func WithCartesiaWSURL(url string) func(*CartesiaService) {
 // NewCartesia creates a Cartesia TTS service.
 func NewCartesia(apiKey string, opts ...CartesiaOption) *CartesiaService {
 	impl, fields := base.NewHTTPService(apiKey, base.HTTPServiceDefaults{
-		Name:    "cartesia",
+		Name:    providerCartesia,
 		Type:    base.ProviderTypeTTS,
 		Pricing: cartesiaDefaultPricing,
 		BaseURL: cartesiaBaseURL,
@@ -134,7 +134,7 @@ func NewCartesia(apiKey string, opts ...CartesiaOption) *CartesiaService {
 }
 
 // ImplName returns the implementation name for cost tracking.
-func (s *CartesiaService) ImplName() string { return "cartesia" }
+func (s *CartesiaService) ImplName() string { return providerCartesia }
 
 // ModelName returns the configured model name for cost tracking.
 func (s *CartesiaService) ModelName() string { return s.Model }
@@ -190,8 +190,6 @@ type cartesiaOutputFormat struct {
 
 // Synthesize converts text to audio using Cartesia's REST API.
 // For streaming output, use SynthesizeStream instead.
-//
-//nolint:gocritic // hugeParam: SynthesisConfig passed by value to satisfy Service interface
 func (s *CartesiaService) Synthesize(
 	ctx context.Context, text string, config SynthesisConfig,
 ) (io.ReadCloser, error) {
@@ -240,11 +238,11 @@ func (s *CartesiaService) Synthesize(
 
 	headers := map[string]string{
 		"X-API-Key":        s.APIKey,
-		"Content-Type":     "application/json",
+		headerContentType:  mimeJSON,
 		"Cartesia-Version": "2026-03-01",
 	}
 	return postJSONForAudio(
-		ctx, s.Client, "cartesia", s.BaseURL+cartesiaRESTURL, reqBody, headers, s.handleError,
+		ctx, s.Client, providerCartesia, s.BaseURL+cartesiaRESTURL, reqBody, headers, s.handleError,
 	)
 }
 
@@ -301,12 +299,12 @@ func lowerCartesiaMarkup(text string) (transcript string, cfg *cartesiaGeneratio
 // request is robust to silent server-side rejection of unknown values.
 func cartesiaEmotionForTag(t markup.Tag) string {
 	switch t.Name {
-	case "excited", "laughs", "laugh":
-		return "excited"
+	case emotionExcited, "laughs", "laugh":
+		return emotionExcited
 	case "smile", "smiles":
 		return "content"
-	case "sad", "sighs", "sigh":
-		return "sad"
+	case emotionSad, "sighs", "sigh":
+		return emotionSad
 	case tagShouts, tagShout:
 		return "angry"
 	default:
@@ -331,7 +329,7 @@ func (s *CartesiaService) processWSResponse(
 	resp *cartesiaWSResponse, index int,
 ) (*audio.Chunk, error) {
 	if resp.Error != "" {
-		return nil, NewSynthesisError("cartesia", "", resp.Error, nil, false)
+		return nil, NewSynthesisError(providerCartesia, "", resp.Error, nil, false)
 	}
 
 	if resp.Type != "chunk" || resp.Data == "" {
@@ -362,14 +360,14 @@ func (s *CartesiaService) mapFormat(format AudioFormat) cartesiaOutputFormat {
 	case formatWAV:
 		return cartesiaOutputFormat{
 			Container:  formatWAV,
-			Encoding:   "pcm_s16le",
+			Encoding:   cartesiaEncodingPCMS16LE,
 			SampleRate: sampleRate44100,
 		}
 	default:
 		// Default to PCM raw format (also handles formatPCM explicitly)
 		return cartesiaOutputFormat{
 			Container:  "raw",
-			Encoding:   "pcm_s16le",
+			Encoding:   cartesiaEncodingPCMS16LE,
 			SampleRate: sampleRate24000,
 		}
 	}
@@ -384,7 +382,7 @@ type cartesiaErrorResponse struct {
 // handleError processes an error response from Cartesia.
 func (s *CartesiaService) handleError(resp *http.Response) error {
 	var errResp cartesiaErrorResponse
-	if e := decodeErrorBody("cartesia", resp, &errResp); e != nil {
+	if e := decodeErrorBody(providerCartesia, resp, &errResp); e != nil {
 		return e
 	}
 	retryable, cause := classifyHTTPStatus(resp.StatusCode, ErrInvalidVoice, fmt.Errorf("bad request"))
@@ -392,7 +390,7 @@ func (s *CartesiaService) handleError(resp *http.Response) error {
 	if message == "" {
 		message = errResp.Error
 	}
-	return NewSynthesisError("cartesia", errResp.Error, message, cause, retryable)
+	return NewSynthesisError(providerCartesia, errResp.Error, message, cause, retryable)
 }
 
 // SupportedVoices returns a sample of available Cartesia voices.
@@ -410,7 +408,7 @@ func (s *CartesiaService) SupportedVoices() []Voice {
 func (s *CartesiaService) SupportedFormats() []AudioFormat {
 	return []AudioFormat{
 		makeFormat(formatPCM, "audio/pcm", sampleRate24000, bitDepth16),
-		makeFormat(formatMP3, "audio/mpeg", sampleRate44100, 0),
+		makeFormat(formatMP3, mimeAudioMPEG, sampleRate44100, 0),
 		makeFormat(formatWAV, "audio/wav", sampleRate44100, bitDepth16),
 	}
 }

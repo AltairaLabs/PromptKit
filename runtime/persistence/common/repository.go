@@ -29,7 +29,9 @@ type BasePromptRepository struct {
 }
 
 // NewBasePromptRepository creates a new base repository
-func NewBasePromptRepository(basePath string, taskTypeToFile map[string]string, extensions []string, unmarshal UnmarshalFunc) *BasePromptRepository {
+func NewBasePromptRepository(
+	basePath string, taskTypeToFile map[string]string, extensions []string, unmarshal UnmarshalFunc,
+) *BasePromptRepository {
 	if taskTypeToFile == nil {
 		taskTypeToFile = make(map[string]string)
 	}
@@ -56,7 +58,7 @@ func (r *BasePromptRepository) LoadPrompt(taskType string) (*prompt.Config, erro
 	}
 
 	// Read file
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) //nolint:gosec // G304: path from the configured base path or mapping
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
@@ -110,8 +112,10 @@ func (r *BasePromptRepository) SearchForPrompt(taskType string) (string, error) 
 func (r *BasePromptRepository) SearchByFilename(taskType string) string {
 	var patterns []string
 	for _, ext := range r.Extensions {
-		patterns = append(patterns, fmt.Sprintf("%s%s", taskType, ext))
-		patterns = append(patterns, fmt.Sprintf("%s.v*%s", taskType, ext))
+		patterns = append(patterns,
+			fmt.Sprintf("%s%s", taskType, ext),
+			fmt.Sprintf("%s.v*%s", taskType, ext),
+		)
 	}
 
 	var foundFile string
@@ -120,8 +124,9 @@ func (r *BasePromptRepository) SearchByFilename(taskType string) string {
 			return nil
 		}
 
+		base := filepath.Base(path)
 		for _, pattern := range patterns {
-			if matched, _ := filepath.Match(pattern, filepath.Base(path)); matched { // NOSONAR: Pattern syntax is controlled and valid
+			if matched, _ := filepath.Match(pattern, base); matched { // NOSONAR: Pattern syntax is controlled and valid
 				foundFile = path
 				return filepath.SkipAll
 			}
@@ -176,7 +181,7 @@ func (r *BasePromptRepository) HasValidExtension(path string) bool {
 
 // HasMatchingTaskType checks if a file contains the specified task type
 func (r *BasePromptRepository) HasMatchingTaskType(path, taskType string) bool {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path found by walking the configured base path
 	if err != nil {
 		return false
 	}
@@ -211,7 +216,7 @@ func (r *BasePromptRepository) ListPrompts() ([]string, error) {
 			return nil
 		}
 
-		data, err := os.ReadFile(path)
+		data, err := os.ReadFile(path) //nolint:gosec // G304: path found by walking the configured base path
 		if err != nil {
 			return nil
 		}

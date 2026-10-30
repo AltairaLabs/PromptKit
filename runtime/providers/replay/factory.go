@@ -17,7 +17,7 @@ func init() {
 // - recording: path to a SessionRecording file (for standard Predict/PredictStream)
 // - arena_output: path to an arena run output JSON (for duplex streaming replay)
 //
-//nolint:gocritic // hugeParam: ProviderSpec passed by value to match factory interface
+// ProviderSpec is passed by value to match the factory interface.
 func createReplayProvider(spec providers.ProviderSpec) (providers.Provider, error) {
 	cfg := parseConfig(spec.AdditionalConfig)
 

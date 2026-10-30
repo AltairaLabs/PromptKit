@@ -10,6 +10,12 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
+// EmitsLateInputTranscription reports that OpenAI Realtime delivers the user's
+// input transcription asynchronously (Whisper), after the assistant reply has
+// begun — so the pipeline should reorder the transcript when transcription is
+// enabled. Implements providers.LateInputTranscriber.
+func (p *Provider) EmitsLateInputTranscription() bool { return true }
+
 // CreateStreamSession creates a new bidirectional streaming session with OpenAI Realtime API.
 //
 // The session supports real-time audio input/output with the following features:
@@ -42,13 +48,6 @@ import (
 //	    },
 //	    SystemInstruction: "You are a helpful assistant.",
 //	})
-//
-// EmitsLateInputTranscription reports that OpenAI Realtime delivers the user's
-// input transcription asynchronously (Whisper), after the assistant reply has
-// begun — so the pipeline should reorder the transcript when transcription is
-// enabled. Implements providers.LateInputTranscriber.
-func (p *Provider) EmitsLateInputTranscription() bool { return true }
-
 func (p *Provider) CreateStreamSession(
 	ctx context.Context,
 	req *providers.StreamingInputConfig,

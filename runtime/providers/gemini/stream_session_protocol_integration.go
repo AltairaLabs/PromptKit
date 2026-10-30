@@ -21,6 +21,20 @@ const audioPCMMime = "audio/pcm"
 // format, which requires the sample rate. Gemini Live input is 16 kHz mono PCM16.
 const audioPCMMimeRate = "audio/pcm;rate=16000"
 
+// Gemini Live client-message wire keys.
+const (
+	liveKeyClientContent      = "client_content"
+	liveKeyTurnComplete       = "turn_complete"
+	liveKeyRealtimeInput      = "realtime_input"
+	liveKeyRealtimeInputCamel = "realtimeInput"
+)
+
+// StreamChunk metadata keys for transcription chunks.
+const (
+	metaKeyType         = "type"
+	metaKeyTurnComplete = "turn_complete"
+)
+
 // defaultOutputSampleRate is the default output sample rate for Gemini native audio models (24kHz).
 const defaultOutputSampleRate = 24000
 
@@ -47,8 +61,8 @@ func truncateInlineData(v interface{}) {
 	switch val := v.(type) {
 	case map[string]interface{}:
 		// Check for inlineData.data
-		if data, ok := val["data"].(string); ok && len(data) > 100 {
-			val["data"] = fmt.Sprintf("[%d bytes base64]", len(data))
+		if data, ok := val[wireKeyData].(string); ok && len(data) > 100 {
+			val[wireKeyData] = fmt.Sprintf("[%d bytes base64]", len(data))
 		}
 		// Recurse into all values
 		for _, child := range val {
@@ -157,10 +171,6 @@ func (s *StreamSession) sendError(err error) {
 
 // logRawMessage logs the raw WebSocket message for debugging.
 func (s *StreamSession) logRawMessage(rawMsg json.RawMessage) {
-	if logger.DefaultLogger == nil {
-		return
-	}
-
 	var logMsg map[string]interface{}
 	_ = json.Unmarshal(rawMsg, &logMsg)
 
@@ -171,7 +181,7 @@ func (s *StreamSession) logRawMessage(rawMsg json.RawMessage) {
 
 	truncateInlineData(logMsg)
 	logBytes, _ := json.MarshalIndent(logMsg, "", "  ")
-	logger.DefaultLogger.Debug("Gemini message", "keys", keys, "content", string(logBytes))
+	logger.Debug("Gemini message", "keys", keys, "content", string(logBytes))
 }
 
 // processServerMessage processes a message from the server
@@ -264,9 +274,9 @@ func (s *StreamSession) handleInputTranscription(content *ServerContent) error {
 	}
 	return s.sendChunk(&providers.StreamChunk{
 		Metadata: map[string]interface{}{
-			"type":          "input_transcription",
-			"transcription": content.InputTranscription.Text,
-			"turn_complete": content.TurnComplete,
+			metaKeyType:         "input_transcription",
+			"transcription":     content.InputTranscription.Text,
+			metaKeyTurnComplete: content.TurnComplete,
 		},
 	})
 }
@@ -279,8 +289,8 @@ func (s *StreamSession) handleOutputTranscription(content *ServerContent) error 
 	return s.sendChunk(&providers.StreamChunk{
 		Delta: content.OutputTranscription.Text,
 		Metadata: map[string]interface{}{
-			"type":          "output_transcription",
-			"turn_complete": content.TurnComplete,
+			metaKeyType:         "output_transcription",
+			metaKeyTurnComplete: content.TurnComplete,
 		},
 	})
 }
@@ -293,17 +303,7 @@ func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool, cos
 
 	// Extract text and audio from parts
 	for _, part := range turn.Parts {
-		if part.Text != "" {
-			if part.Thought {
-				// Reasoning, not spoken output — surface separately so it doesn't
-				// leak into the transcript (the spoken text arrives via
-				// outputTranscription).
-				response.Reasoning += part.Text
-			} else {
-				response.Content += part.Text
-				response.Delta = part.Text
-			}
-		}
+		appendTurnText(&response, &part)
 
 		// Handle audio/media data. While the pump is dropping (post-barge-in,
 		// until the turn completes), skip audio so the interrupted response stops
@@ -312,19 +312,7 @@ func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool, cos
 			continue
 		}
 		if part.InlineData != nil {
-			// Decode base64 at source — downstream receives raw bytes
-			rawBytes, decodeErr := base64.StdEncoding.DecodeString(part.InlineData.Data)
-			if decodeErr != nil {
-				logger.Warn("failed to decode base64 media from Gemini", "error", decodeErr)
-			} else {
-				media := &providers.StreamMediaData{
-					Data:     rawBytes,
-					MIMEType: part.InlineData.MimeType,
-				}
-				if strings.HasPrefix(part.InlineData.MimeType, "audio/") {
-					media.SampleRate = s.outputSampleRate()
-					media.Channels = 1
-				}
+			if media := s.decodeTurnMedia(part.InlineData); media != nil {
 				response.MediaData = media
 			}
 		}
@@ -345,6 +333,42 @@ func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool, cos
 	case <-s.ctx.Done():
 		return s.ctx.Err()
 	}
+}
+
+// appendTurnText adds a model turn part's text to the response chunk.
+func appendTurnText(response *providers.StreamChunk, part *Part) {
+	if part.Text == "" {
+		return
+	}
+	if part.Thought {
+		// Reasoning, not spoken output — surface separately so it doesn't
+		// leak into the transcript (the spoken text arrives via
+		// outputTranscription).
+		response.Reasoning += part.Text
+		return
+	}
+	response.Content += part.Text
+	response.Delta = part.Text
+}
+
+// decodeTurnMedia decodes a model turn's inline media. Base64 is decoded at
+// source so downstream receives raw bytes; a decode failure is logged and
+// yields nil.
+func (s *StreamSession) decodeTurnMedia(data *InlineData) *providers.StreamMediaData {
+	rawBytes, decodeErr := base64.StdEncoding.DecodeString(data.Data)
+	if decodeErr != nil {
+		logger.Warn("failed to decode base64 media from Gemini", "error", decodeErr)
+		return nil
+	}
+	media := &providers.StreamMediaData{
+		Data:     rawBytes,
+		MIMEType: data.MimeType,
+	}
+	if strings.HasPrefix(data.MimeType, "audio/") {
+		media.SampleRate = s.outputSampleRate()
+		media.Channels = 1
+	}
+	return media
 }
 
 // buildClientMessage builds a realtime input message with media chunk.
@@ -375,10 +399,10 @@ func buildClientMessage(chunk types.MediaChunk, _ bool) map[string]interface{} {
 
 		// Use camelCase keys to match the TypeScript SDK / protobuf JSON encoding
 		return map[string]interface{}{
-			"realtimeInput": map[string]interface{}{
+			liveKeyRealtimeInputCamel: map[string]interface{}{
 				"media": map[string]interface{}{
-					"data":     base64Data,
-					"mimeType": mimeType,
+					wireKeyData:     base64Data,
+					wireKeyMimeType: mimeType,
 				},
 			},
 		}
@@ -396,10 +420,10 @@ func buildClientMessage(chunk types.MediaChunk, _ bool) map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"realtimeInput": map[string]interface{}{
+		liveKeyRealtimeInputCamel: map[string]interface{}{
 			"audio": map[string]interface{}{
-				"data":     base64Data,
-				"mimeType": audioPCMMimeRate,
+				wireKeyData:     base64Data,
+				wireKeyMimeType: audioPCMMimeRate,
 			},
 		},
 	}
@@ -412,14 +436,14 @@ func buildTextMessage(text string, turnComplete bool) map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"client_content": map[string]interface{}{
+		liveKeyClientContent: map[string]interface{}{
 			"turns": []map[string]interface{}{
 				{
-					"role":  "user",
-					"parts": []interface{}{part},
+					wireKeyRole:  roleUser,
+					wireKeyParts: []interface{}{part},
 				},
 			},
-			"turn_complete": turnComplete,
+			liveKeyTurnComplete: turnComplete,
 		},
 	}
 }

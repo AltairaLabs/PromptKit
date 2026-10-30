@@ -26,7 +26,7 @@ func (h *ContainsHandler) Eval(
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Score:       boolScore(false),
-			Explanation: "no patterns specified",
+			Explanation: msgNoPatterns,
 		}, nil
 	}
 
@@ -46,7 +46,7 @@ func (h *ContainsHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Score:       ratioScore(found, len(patterns)),
-		Value:       map[string]any{"found": found, "total": len(patterns), "missing": missing},
+		Value:       map[string]any{keyFound: found, keyTotal: len(patterns), keyMissing: missing},
 		Explanation: explanation,
 	}, nil
 }

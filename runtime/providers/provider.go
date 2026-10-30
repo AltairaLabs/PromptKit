@@ -181,7 +181,7 @@ func (r *PredictionRequest) NormalizeMessages() {
 type PredictionResponse struct {
 	Content    string                  `json:"content"`
 	Parts      []types.ContentPart     `json:"parts,omitempty"`     // Multimodal content parts (text, image, audio, video)
-	CostInfo   *types.CostInfo         `json:"cost_info,omitempty"` // Cost breakdown for this response (includes token counts)
+	CostInfo   *types.CostInfo         `json:"cost_info,omitempty"` // Cost breakdown (includes token counts)
 	Latency    time.Duration           `json:"latency"`
 	Raw        []byte                  `json:"raw,omitempty"`
 	RawRequest any                     `json:"raw_request,omitempty"` // Raw API request (for debugging)

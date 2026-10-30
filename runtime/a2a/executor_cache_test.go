@@ -401,7 +401,7 @@ func TestExecutor_GetOrCreateClient_UpdatesLastUsed(t *testing.T) {
 	defer e.Close()
 
 	// Create a client.
-	_ = e.getOrCreateClient("http://example.com")
+	_ = e.getOrCreateClientWithConfig(&tools.A2AConfig{AgentURL: "http://example.com"})
 
 	e.mu.RLock()
 	entry := e.clients["http://example.com"]
@@ -413,7 +413,7 @@ func TestExecutor_GetOrCreateClient_UpdatesLastUsed(t *testing.T) {
 	now = now.Add(5 * time.Minute)
 	mu.Unlock()
 
-	_ = e.getOrCreateClient("http://example.com")
+	_ = e.getOrCreateClientWithConfig(&tools.A2AConfig{AgentURL: "http://example.com"})
 
 	e.mu.RLock()
 	updatedTime := e.clients["http://example.com"].lastUsed

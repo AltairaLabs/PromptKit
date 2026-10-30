@@ -180,14 +180,13 @@ func (p *Provider) prepareResponsesMessages(
 // convertImagePartToOpenAI resolved, so the Responses builder needs no loader.
 func resolvedImageMedia(media *types.MediaContent, converted any) *types.MediaContent {
 	part, _ := converted.(map[string]any)
-	image, _ := part["image_url"].(map[string]any)
+	image, _ := part[keyImageURL].(map[string]any)
 	url, _ := image["url"].(string)
 	resolved := *media
 	resolved.URL = &url
 	return &resolved
 }
 
-//nolint:gocritic // hugeParam: interface requires value receiver for compatibility
 func (p *Provider) buildResponsesRequest(req providers.PredictionRequest, tools any, toolChoice string) map[string]any {
 	// Convert messages to Responses API input format
 	input := p.convertMessagesToResponsesInput(req.Messages)
@@ -197,8 +196,8 @@ func (p *Provider) buildResponsesRequest(req providers.PredictionRequest, tools 
 
 	// Build request map for flexibility
 	responsesReq := map[string]any{
-		"model": p.model,
-		"input": input,
+		keyModel: p.model,
+		"input":  input,
 	}
 
 	// Add system instructions if present
@@ -228,13 +227,7 @@ func (p *Provider) buildResponsesRequest(req providers.PredictionRequest, tools 
 	// same reason as the completions builder — it is only valid alongside a
 	// declared tools array.
 	if tools != nil {
-		responsesReq["tools"] = p.convertToolsToResponsesFormat(tools)
-		if toolChoice != "" && toolChoice != toolChoiceAuto {
-			responsesReq["tool_choice"] = toolChoice
-		}
-		if p.parallelToolCalls != nil {
-			responsesReq["parallel_tool_calls"] = *p.parallelToolCalls
-		}
+		p.addResponsesTools(responsesReq, tools, toolChoice)
 	}
 
 	// Seed is deliberately NOT sent. The Responses API rejects the parameter
@@ -273,25 +266,41 @@ func (p *Provider) buildResponsesRequest(req providers.PredictionRequest, tools 
 	// prompts can burn tens of seconds on internal reasoning. Callers set
 	// this via additional_config.reasoning_effort to control it.
 	if p.reasoningEffort != "" || p.reasoningSummary != "" {
-		reasoning := map[string]any{}
-		if p.reasoningEffort != "" {
-			reasoning["effort"] = p.reasoningEffort
-		}
-		// reasoning_summary is opt-in: OpenAI captures these summaries onto
-		// Message.Reasoning (the raw chain-of-thought is never exposed), but
-		// requesting them requires a verified OpenAI org.
-		if p.reasoningSummary != "" {
-			reasoning["summary"] = p.reasoningSummary
-		}
-		responsesReq["reasoning"] = reasoning
+		responsesReq["reasoning"] = p.responsesReasoning()
 	}
 
 	return responsesReq
 }
 
+// addResponsesTools adds the tools, a non-auto tool_choice and
+// parallel_tool_calls to a Responses API request that declares tools.
+func (p *Provider) addResponsesTools(responsesReq map[string]any, tools any, toolChoice string) {
+	responsesReq["tools"] = p.convertToolsToResponsesFormat(tools)
+	if toolChoice != "" && toolChoice != toolChoiceAuto {
+		responsesReq["tool_choice"] = toolChoice
+	}
+	if p.parallelToolCalls != nil {
+		responsesReq["parallel_tool_calls"] = *p.parallelToolCalls
+	}
+}
+
+// responsesReasoning builds the reasoning object (effort and summary) for a
+// Responses API request.
+func (p *Provider) responsesReasoning() map[string]any {
+	reasoning := map[string]any{}
+	if p.reasoningEffort != "" {
+		reasoning["effort"] = p.reasoningEffort
+	}
+	// reasoning_summary is opt-in: OpenAI captures these summaries onto
+	// Message.Reasoning (the raw chain-of-thought is never exposed), but
+	// requesting them requires a verified OpenAI org.
+	if p.reasoningSummary != "" {
+		reasoning["summary"] = p.reasoningSummary
+	}
+	return reasoning
+}
+
 // predictWithResponses performs a prediction using the Responses API
-//
-//nolint:gocritic // hugeParam: interface signature requires value receiver for compatibility
 func (p *Provider) predictWithResponses(
 	ctx context.Context,
 	req providers.PredictionRequest,
@@ -336,7 +345,7 @@ func (p *Provider) predictWithResponses(
 
 	logger.APIRequest("OpenAI Responses", "POST", url, map[string]string{
 		contentTypeHeader:   applicationJSON,
-		authorizationHeader: "***",
+		authorizationHeader: maskedHeaderValue,
 	}, responsesReq)
 
 	resp, err := p.GetHTTPClient().Do(httpReq)
@@ -411,9 +420,10 @@ func (p *Provider) extractResponsesOutput(
 	var toolCalls []types.MessageToolCall
 	var reasoning strings.Builder
 
-	for _, output := range outputs {
+	for i := range outputs {
+		output := &outputs[i]
 		switch output.Type {
-		case "message":
+		case typeMessage:
 			for _, c := range output.Content {
 				if c.Type == "output_text" {
 					content.WriteString(c.Text)
@@ -425,7 +435,7 @@ func (p *Provider) extractResponsesOutput(
 				Name: output.Name,
 				Args: json.RawMessage(output.Args),
 			})
-		case "reasoning":
+		case typeReasoning:
 			for _, s := range output.Summary {
 				reasoning.WriteString(s.Text)
 			}
@@ -440,8 +450,6 @@ func (p *Provider) extractResponsesOutput(
 }
 
 // predictStreamWithResponses performs a streaming prediction using the Responses API
-//
-//nolint:gocritic // hugeParam: interface signature requires value receiver for compatibility
 func (p *Provider) predictStreamWithResponses(
 	ctx context.Context,
 	req providers.PredictionRequest,
@@ -602,7 +610,7 @@ func (p *Provider) handleOutputDone(data string, outChan chan<- providers.Stream
 	if err := json.Unmarshal([]byte(data), &ev); err != nil {
 		return
 	}
-	if ev.Item.Type != "reasoning" {
+	if ev.Item.Type != typeReasoning {
 		return
 	}
 	var sb strings.Builder
@@ -668,7 +676,7 @@ func (p *Provider) handleAudioDelta(data string, outChan chan<- providers.Stream
 	outChan <- providers.StreamChunk{
 		MediaData: &providers.StreamMediaData{
 			Data:     raw,
-			MIMEType: "audio/pcm",
+			MIMEType: mimeAudioPCM,
 		},
 	}
 }
@@ -700,6 +708,29 @@ func (p *Provider) handleAudioTranscriptDelta(
 	return totalTokens
 }
 
+// lookupToolCallIndex finds the tool call index for a delta: it tries item_id,
+// then call_id, then output_index (the Responses API may send only
+// output_index in delta events). Returns -1 when none match.
+func lookupToolCallIndex(idMap itemIDMap, itemID, callID string, outputIndex *int) int {
+	idx := -1
+	if itemID != "" {
+		if i, ok := idMap[itemID]; ok {
+			idx = i
+		}
+	}
+	if idx < 0 && callID != "" {
+		if i, ok := idMap[callID]; ok {
+			idx = i
+		}
+	}
+	if idx < 0 && outputIndex != nil {
+		if i, ok := idMap[outputIndexKey(*outputIndex)]; ok {
+			idx = i
+		}
+	}
+	return idx
+}
+
 // handleFuncArgsDelta processes function call arguments delta events.
 // The raw data is parsed because call_id is a top-level field in the SSE event,
 // not nested inside the delta field.
@@ -718,24 +749,7 @@ func (p *Provider) handleFuncArgsDelta(
 		return toolCalls
 	}
 
-	// Look up the tool call index: try item_id, then call_id, then output_index.
-	// The Responses API may send only output_index in delta events.
-	idx := -1
-	if delta.ItemID != "" {
-		if i, ok := idMap[delta.ItemID]; ok {
-			idx = i
-		}
-	}
-	if idx < 0 && delta.CallID != "" {
-		if i, ok := idMap[delta.CallID]; ok {
-			idx = i
-		}
-	}
-	if idx < 0 && delta.OutputIndex != nil {
-		if i, ok := idMap[outputIndexKey(*delta.OutputIndex)]; ok {
-			idx = i
-		}
-	}
+	idx := lookupToolCallIndex(idMap, delta.ItemID, delta.CallID, delta.OutputIndex)
 
 	if idx >= 0 && idx < len(toolCalls) {
 		currentArgs := string(toolCalls[idx].Args)
@@ -902,8 +916,6 @@ func (p *Provider) handleErrorEvent(
 }
 
 // streamResponsesResponse handles streaming from the Responses API
-//
-//nolint:gocognit // Complexity 16 is acceptable for SSE stream parsing with context cancellation
 func (p *Provider) streamResponsesResponse(
 	ctx context.Context,
 	body io.ReadCloser,

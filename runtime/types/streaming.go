@@ -260,11 +260,14 @@ type ChunkWriter struct {
 	buffer []byte
 }
 
+// chunkWriterBufferSize is the initial capacity of a ChunkWriter's buffer (64KB).
+const chunkWriterBufferSize = 64 * 1024
+
 // NewChunkWriter creates a new ChunkWriter that writes to the given writer.
 func NewChunkWriter(w io.Writer) *ChunkWriter {
 	return &ChunkWriter{
 		writer: w,
-		buffer: make([]byte, 0, 65536), // 64KB buffer
+		buffer: make([]byte, 0, chunkWriterBufferSize),
 	}
 }
 

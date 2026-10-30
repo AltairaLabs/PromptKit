@@ -95,10 +95,8 @@ var (
 	claudeOpus45   = perM(claudeOpus45In, claudeOpus45Out)
 )
 
-// Model IDs shared with the legacy claudePricing() heuristic fallback in
-// claude.go (still exercised directly by claude_pricing_test.go), named here
-// so the id string is spelled once instead of duplicated across the two
-// tables (goconst).
+// Model IDs used as claudePricingTable keys, named so each id string is
+// spelled once (goconst).
 const (
 	idClaude3Haiku20240307   = "claude-3-haiku-20240307"
 	idClaude3Sonnet20240229  = "claude-3-sonnet-20240229"

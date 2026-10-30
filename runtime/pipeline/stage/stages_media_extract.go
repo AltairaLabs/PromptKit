@@ -110,37 +110,7 @@ func (s *MediaExtractStage) extractMediaFromMessage(
 	msg := elem.Message
 
 	// Count media parts first
-	var mediaParts []struct {
-		index     int
-		part      *types.ContentPart
-		mediaType string
-	}
-
-	for i := range msg.Parts {
-		part := &msg.Parts[i]
-		if part.Media == nil {
-			continue
-		}
-
-		switch part.Type {
-		case types.ContentTypeImage:
-			if s.config.ExtractImages {
-				mediaParts = append(mediaParts, struct {
-					index     int
-					part      *types.ContentPart
-					mediaType string
-				}{i, part, types.ContentTypeImage})
-			}
-		case types.ContentTypeVideo:
-			if s.config.ExtractVideos {
-				mediaParts = append(mediaParts, struct {
-					index     int
-					part      *types.ContentPart
-					mediaType string
-				}{i, part, types.ContentTypeVideo})
-			}
-		}
-	}
+	mediaParts := s.selectMediaParts(msg)
 
 	// If no media parts, pass through the original element
 	if len(mediaParts) == 0 {
@@ -157,22 +127,9 @@ func (s *MediaExtractStage) extractMediaFromMessage(
 
 	// Extract each media part
 	for partIdx, mp := range mediaParts {
-		var outElem StreamElement
-
-		switch mp.mediaType {
-		case types.ContentTypeImage:
-			imageData, err := mediaContentToImageData(mp.part.Media, s.config.PreserveStorageRefs)
-			if err != nil {
-				return fmt.Errorf("failed to convert image part %d: %w", mp.index, err)
-			}
-			outElem = NewImageElement(imageData)
-
-		case types.ContentTypeVideo:
-			videoData, err := mediaContentToVideoData(mp.part.Media, s.config.PreserveStorageRefs)
-			if err != nil {
-				return fmt.Errorf("failed to convert video part %d: %w", mp.index, err)
-			}
-			outElem = NewVideoElement(videoData)
+		outElem, err := s.mediaPartElement(mp)
+		if err != nil {
+			return err
 		}
 
 		// Set correlation metadata
@@ -196,6 +153,59 @@ func (s *MediaExtractStage) extractMediaFromMessage(
 	}
 
 	return nil
+}
+
+// extractedMediaPart is one media part selected for extraction.
+type extractedMediaPart struct {
+	index     int
+	part      *types.ContentPart
+	mediaType string
+}
+
+// selectMediaParts returns msg's media parts that the config extracts, in
+// part order.
+func (s *MediaExtractStage) selectMediaParts(msg *types.Message) []extractedMediaPart {
+	var mediaParts []extractedMediaPart
+	for i := range msg.Parts {
+		part := &msg.Parts[i]
+		if part.Media == nil {
+			continue
+		}
+
+		switch part.Type {
+		case types.ContentTypeImage:
+			if s.config.ExtractImages {
+				mediaParts = append(mediaParts, extractedMediaPart{i, part, types.ContentTypeImage})
+			}
+		case types.ContentTypeVideo:
+			if s.config.ExtractVideos {
+				mediaParts = append(mediaParts, extractedMediaPart{i, part, types.ContentTypeVideo})
+			}
+		}
+	}
+	return mediaParts
+}
+
+// mediaPartElement converts one selected media part into its stream element.
+func (s *MediaExtractStage) mediaPartElement(mp extractedMediaPart) (StreamElement, error) {
+	var outElem StreamElement
+
+	switch mp.mediaType {
+	case types.ContentTypeImage:
+		imageData, err := mediaContentToImageData(mp.part.Media, s.config.PreserveStorageRefs)
+		if err != nil {
+			return outElem, fmt.Errorf("failed to convert image part %d: %w", mp.index, err)
+		}
+		outElem = NewImageElement(imageData)
+
+	case types.ContentTypeVideo:
+		videoData, err := mediaContentToVideoData(mp.part.Media, s.config.PreserveStorageRefs)
+		if err != nil {
+			return outElem, fmt.Errorf("failed to convert video part %d: %w", mp.index, err)
+		}
+		outElem = NewVideoElement(videoData)
+	}
+	return outElem, nil
 }
 
 // generateMessageID creates a unique identifier for message correlation.
@@ -232,38 +242,12 @@ func mediaContentToImageData(media *types.MediaContent, preserveStorageRef bool)
 		return nil, fmt.Errorf("storage reference requires StorageService to load data")
 	}
 
-	// Handle inline base64 data
-	if media.Data != nil && *media.Data != "" {
-		data, err := base64.StdEncoding.DecodeString(*media.Data)
-		if err != nil {
-			return nil, fmt.Errorf("failed to decode base64 image data: %w", err)
-		}
-		imageData.Data = data
-		return imageData, nil
+	data, err := readMediaBytes(media, mediaKindImage)
+	if err != nil {
+		return nil, err
 	}
-
-	// Handle file path
-	if media.FilePath != nil && *media.FilePath != "" {
-		reader, err := media.ReadData()
-		if err != nil {
-			return nil, fmt.Errorf("failed to read image file: %w", err)
-		}
-		defer reader.Close()
-
-		data, err := io.ReadAll(reader)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read image data: %w", err)
-		}
-		imageData.Data = data
-		return imageData, nil
-	}
-
-	// URL requires external fetching - not supported in extract stage
-	if media.URL != nil && *media.URL != "" {
-		return nil, fmt.Errorf("URL-based media requires external loading; use MediaLoader first")
-	}
-
-	return nil, fmt.Errorf("no data source available for image")
+	imageData.Data = data
+	return imageData, nil
 }
 
 // mediaContentToVideoData converts MediaContent to VideoData.
@@ -300,30 +284,36 @@ func mediaContentToVideoData(media *types.MediaContent, preserveStorageRef bool)
 		return nil, fmt.Errorf("storage reference requires StorageService to load data")
 	}
 
+	data, err := readMediaBytes(media, mediaKindVideo)
+	if err != nil {
+		return nil, err
+	}
+	videoData.Data = data
+	return videoData, nil
+}
+
+// Media kinds named in readMediaBytes error messages.
+const (
+	mediaKindImage = "image"
+	mediaKindVideo = "video"
+)
+
+// readMediaBytes loads media bytes from inline base64 data or a file path.
+// URL-based media requires external fetching and is not supported in the
+// extract stage. kind ("image"/"video") names the media in error messages.
+func readMediaBytes(media *types.MediaContent, kind string) ([]byte, error) {
 	// Handle inline base64 data
 	if media.Data != nil && *media.Data != "" {
 		data, err := base64.StdEncoding.DecodeString(*media.Data)
 		if err != nil {
-			return nil, fmt.Errorf("failed to decode base64 video data: %w", err)
+			return nil, fmt.Errorf("failed to decode base64 %s data: %w", kind, err)
 		}
-		videoData.Data = data
-		return videoData, nil
+		return data, nil
 	}
 
 	// Handle file path
 	if media.FilePath != nil && *media.FilePath != "" {
-		reader, err := media.ReadData()
-		if err != nil {
-			return nil, fmt.Errorf("failed to read video file: %w", err)
-		}
-		defer reader.Close()
-
-		data, err := io.ReadAll(reader)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read video data: %w", err)
-		}
-		videoData.Data = data
-		return videoData, nil
+		return readMediaFile(media, kind)
 	}
 
 	// URL requires external fetching
@@ -331,7 +321,22 @@ func mediaContentToVideoData(media *types.MediaContent, preserveStorageRef bool)
 		return nil, fmt.Errorf("URL-based media requires external loading; use MediaLoader first")
 	}
 
-	return nil, fmt.Errorf("no data source available for video")
+	return nil, fmt.Errorf("no data source available for %s", kind)
+}
+
+// readMediaFile reads all bytes from media's file path.
+func readMediaFile(media *types.MediaContent, kind string) ([]byte, error) {
+	reader, err := media.ReadData()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s file: %w", kind, err)
+	}
+	defer reader.Close()
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s data: %w", kind, err)
+	}
+	return data, nil
 }
 
 // GetConfig returns the stage configuration.
