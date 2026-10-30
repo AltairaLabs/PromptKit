@@ -63,35 +63,6 @@ type claudeContentBlockMultimodal struct {
 	CacheControl *claudeCacheControl `json:"cache_control,omitempty"`
 }
 
-// convertMessagesToClaudeMultimodal converts PromptKit messages to Claude's multimodal format
-func (p *Provider) convertMessagesToClaudeMultimodal(messages []types.Message) ([]claudeMessage, []claudeContentBlockMultimodal, error) {
-	claudeMessages := make([]claudeMessage, 0)
-	var systemBlocks []claudeContentBlockMultimodal
-
-	for i := range messages {
-		msg := &messages[i]
-		// Handle system messages separately
-		if msg.Role == "system" {
-			systemBlocks = append(systemBlocks, claudeContentBlockMultimodal{
-				Type: "text",
-				Text: msg.Content,
-			})
-			continue
-		}
-
-		// Convert multimodal message. This helper has no production caller (the
-		// live path is convertMessagesToClaudeFormat); background context suffices.
-		claudeMsg, err := p.convertMessageToClaudeMultimodal(context.Background(), *msg)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		claudeMessages = append(claudeMessages, claudeMsg)
-	}
-
-	return claudeMessages, systemBlocks, nil
-}
-
 // convertMessageToClaudeMultimodal converts a single PromptKit message to Claude format
 func (p *Provider) convertMessageToClaudeMultimodal(ctx context.Context, msg types.Message) (claudeMessage, error) {
 	var contentBlocks []interface{}
@@ -99,7 +70,7 @@ func (p *Provider) convertMessageToClaudeMultimodal(ctx context.Context, msg typ
 	// Handle legacy string content
 	if msg.Content != "" && len(msg.Parts) == 0 {
 		contentBlocks = append(contentBlocks, claudeContentBlockMultimodal{
-			Type: "text",
+			Type: contentTypeText,
 			Text: msg.Content,
 		})
 	} else {
@@ -124,7 +95,7 @@ func (p *Provider) convertPartsToClaudeBlocks(ctx context.Context, parts []types
 		case types.ContentTypeText:
 			if part.Text != nil && *part.Text != "" {
 				contentBlocks = append(contentBlocks, claudeContentBlockMultimodal{
-					Type: "text",
+					Type: contentTypeText,
 					Text: *part.Text,
 				})
 			}
@@ -208,7 +179,7 @@ func (p *Provider) convertImagePartToClaude(
 		if err != nil {
 			return claudeContentBlockMultimodal{}, fmt.Errorf("failed to load image data: %w", err)
 		}
-		block.Source.Type = "base64"
+		block.Source.Type = sourceTypeBase64
 		block.Source.MediaType = part.Media.MIMEType
 		block.Source.Data = data
 	}
@@ -242,7 +213,7 @@ func (p *Provider) convertDocumentPartToClaude(
 	if err != nil {
 		return claudeContentBlockMultimodal{}, fmt.Errorf("failed to load document data: %w", err)
 	}
-	block.Source.Type = "base64"
+	block.Source.Type = sourceTypeBase64
 	block.Source.Data = data
 
 	return block, nil

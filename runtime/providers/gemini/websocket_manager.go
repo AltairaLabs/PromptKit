@@ -125,22 +125,27 @@ func (wm *WebSocketManager) Reset() {
 // geminiLoggerAdapter adapts the runtime logger to the streaming.Logger interface.
 type geminiLoggerAdapter struct{}
 
+// withGeminiComponent prefixes log key-values with the Gemini component tag.
+func withGeminiComponent(keysAndValues []interface{}) []interface{} {
+	return append([]interface{}{"component", logNameGemini}, keysAndValues...)
+}
+
 // Debug implements streaming.Logger.
 func (a *geminiLoggerAdapter) Debug(msg string, keysAndValues ...interface{}) {
-	logger.Debug(msg, append([]interface{}{"component", "Gemini"}, keysAndValues...)...)
+	logger.Debug(msg, withGeminiComponent(keysAndValues)...)
 }
 
 // Info implements streaming.Logger.
 func (a *geminiLoggerAdapter) Info(msg string, keysAndValues ...interface{}) {
-	logger.Info(msg, append([]interface{}{"component", "Gemini"}, keysAndValues...)...)
+	logger.Info(msg, withGeminiComponent(keysAndValues)...)
 }
 
 // Warn implements streaming.Logger.
 func (a *geminiLoggerAdapter) Warn(msg string, keysAndValues ...interface{}) {
-	logger.Warn(msg, append([]interface{}{"component", "Gemini"}, keysAndValues...)...)
+	logger.Warn(msg, withGeminiComponent(keysAndValues)...)
 }
 
 // Error implements streaming.Logger.
 func (a *geminiLoggerAdapter) Error(msg string, keysAndValues ...interface{}) {
-	logger.Error(msg, append([]interface{}{"component", "Gemini"}, keysAndValues...)...)
+	logger.Error(msg, withGeminiComponent(keysAndValues)...)
 }

@@ -73,16 +73,8 @@ func FilterByGroups(defs []EvalDef, groups []string) []EvalDef {
 	available := make(map[string]bool)
 	filtered := make([]EvalDef, 0, len(defs))
 	for i := range defs {
-		kept := false
-		for _, g := range Groups(&defs[i]) {
-			available[g] = true
-			if allowed[g] {
-				matched[g] = true
-				if !kept {
-					filtered = append(filtered, defs[i])
-					kept = true
-				}
-			}
+		if markGroups(Groups(&defs[i]), allowed, matched, available) {
+			filtered = append(filtered, defs[i])
 		}
 	}
 
@@ -91,17 +83,7 @@ func FilterByGroups(defs []EvalDef, groups []string) []EvalDef {
 	// behind it, guardrails included. Report it against the groups that exist.
 	// A pack with no evals at all stays quiet: there is nothing to match (#1950).
 	if len(defs) > 0 {
-		availableGroups := make([]string, 0, len(available))
-		for g := range available {
-			availableGroups = append(availableGroups, g)
-		}
-		sort.Strings(availableGroups)
-		for _, g := range groups {
-			if !matched[g] {
-				logger.Warn("evals: requested group matches no eval",
-					"group", g, "available_groups", availableGroups)
-			}
-		}
+		warnUnmatchedGroups(groups, matched, available)
 	}
 
 	logger.Debug("evals: filtered by groups",
@@ -111,4 +93,35 @@ func FilterByGroups(defs []EvalDef, groups []string) []EvalDef {
 	)
 
 	return filtered
+}
+
+// markGroups records every group in defGroups as available and every allowed
+// one as matched. It reports whether any of defGroups is allowed, i.e. whether
+// the def that declares them should be kept.
+func markGroups(defGroups []string, allowed, matched, available map[string]bool) bool {
+	kept := false
+	for _, g := range defGroups {
+		available[g] = true
+		if allowed[g] {
+			matched[g] = true
+			kept = true
+		}
+	}
+	return kept
+}
+
+// warnUnmatchedGroups logs each requested group that matched no def, listing
+// the groups the defs actually declare.
+func warnUnmatchedGroups(groups []string, matched, available map[string]bool) {
+	availableGroups := make([]string, 0, len(available))
+	for g := range available {
+		availableGroups = append(availableGroups, g)
+	}
+	sort.Strings(availableGroups)
+	for _, g := range groups {
+		if !matched[g] {
+			logger.Warn("evals: requested group matches no eval",
+				"group", g, "available_groups", availableGroups)
+		}
+	}
 }

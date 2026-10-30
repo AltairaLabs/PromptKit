@@ -34,12 +34,12 @@ func NewResponseForTest(text string, toolCalls []types.MessageToolCall, opts ...
 	var msg *types.Message
 	if text != "" {
 		msg = &types.Message{
-			Role:    "assistant",
+			Role:    roleAssistant,
 			Content: text,
 		}
 	} else {
 		msg = &types.Message{
-			Role: "assistant",
+			Role: roleAssistant,
 		}
 	}
 

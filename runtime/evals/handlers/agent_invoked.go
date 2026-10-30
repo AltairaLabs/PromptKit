@@ -48,7 +48,7 @@ func (h *AgentInvokedHandler) Eval(
 			invoked = append(invoked, agent)
 		}
 	}
-	value := map[string]any{"invoked": invoked, "expected": agents}
+	value := map[string]any{"invoked": invoked, keyExpected: agents}
 	found := len(agents) - len(missing)
 
 	if len(missing) > 0 {

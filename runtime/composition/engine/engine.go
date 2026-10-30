@@ -168,7 +168,7 @@ func (e *Engine) runLeaf(ctx context.Context, step *composition.Step, scope Scop
 	if err != nil {
 		return nil, fmt.Errorf("marshaling resolved input: %w", err)
 	}
-	kind := string(step.Kind)
+	kind := step.Kind
 	if e.recorder != nil {
 		e.recorder.RecordStepStarted(step.ID, kind, resolvedJSON)
 	}

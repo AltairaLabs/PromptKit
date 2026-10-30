@@ -410,7 +410,7 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
   - [func DefaultTTSConfig\(\) TTSConfig](<#DefaultTTSConfig>)
 - [type TTSService](<#TTSService>)
 - [type TTSStage](<#TTSStage>)
-  - [func NewTTSStage\(tts TTSService, config TTSConfig\) \*TTSStage](<#NewTTSStage>)
+  - [func NewTTSStage\(svc TTSService, config TTSConfig\) \*TTSStage](<#NewTTSStage>)
   - [func \(s \*TTSStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#TTSStage.Process>)
 - [type TTSStageWithInterruption](<#TTSStageWithInterruption>)
   - [func NewTTSStageWithInterruption\(service tts.Service, config TTSStageWithInterruptionConfig\) \*TTSStageWithInterruption](<#NewTTSStageWithInterruption>)
@@ -1720,7 +1720,7 @@ func (s *ContextAssemblyStage) Process(ctx context.Context, input <-chan StreamE
 Process loads context tiers and emits them before the current input.
 
 <a name="ContextBuilderPolicy"></a>
-## type [ContextBuilderPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L644-L663>)
+## type [ContextBuilderPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L655-L674>)
 
 ContextBuilderPolicy defines token budget and truncation behavior.
 
@@ -1748,7 +1748,7 @@ type ContextBuilderPolicy struct {
 ```
 
 <a name="ContextBuilderStage"></a>
-## type [ContextBuilderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L692-L699>)
+## type [ContextBuilderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L703-L710>)
 
 ContextBuilderStage manages token budget and truncates messages if needed.
 
@@ -1789,7 +1789,7 @@ type ContextBuilderStage struct {
 ```
 
 <a name="NewContextBuilderStage"></a>
-### func [NewContextBuilderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L705>)
+### func [NewContextBuilderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L716>)
 
 ```go
 func NewContextBuilderStage(policy *ContextBuilderPolicy) *ContextBuilderStage
@@ -1798,7 +1798,7 @@ func NewContextBuilderStage(policy *ContextBuilderPolicy) *ContextBuilderStage
 NewContextBuilderStage creates a context builder stage with no TurnState wired. Useful for tests; production callers should use NewContextBuilderStageWithTurnState so the system prompt is available for token\-budget accounting.
 
 <a name="NewContextBuilderStageWithTurnState"></a>
-### func [NewContextBuilderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L711>)
+### func [NewContextBuilderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L722>)
 
 ```go
 func NewContextBuilderStageWithTurnState(policy *ContextBuilderPolicy, turnState *TurnState) *ContextBuilderStage
@@ -1807,7 +1807,7 @@ func NewContextBuilderStageWithTurnState(policy *ContextBuilderPolicy, turnState
 NewContextBuilderStageWithTurnState creates a context builder stage that reads the system prompt from the shared \*TurnState.
 
 <a name="ContextBuilderStage.Process"></a>
-### func \(\*ContextBuilderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L727-L731>)
+### func \(\*ContextBuilderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L738-L742>)
 
 ```go
 func (s *ContextBuilderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -2135,7 +2135,7 @@ type EndInputter interface {
 ```
 
 <a name="ExecutionResult"></a>
-## type [ExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L562-L569>)
+## type [ExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L558-L565>)
 
 ExecutionResult represents the final result of a pipeline execution. This matches the existing pipeline.ExecutionResult for compatibility.
 
@@ -2151,7 +2151,7 @@ type ExecutionResult struct {
 ```
 
 <a name="ExecutionTrace"></a>
-## type [ExecutionTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L581-L585>)
+## type [ExecutionTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L577-L581>)
 
 ExecutionTrace captures execution history \(for compatibility\).
 
@@ -2328,7 +2328,7 @@ func (s *FrameRateLimitStage) Process(ctx context.Context, input <-chan StreamEl
 Process implements the Stage interface. Drops video/image frames to maintain the target frame rate.
 
 <a name="FrameSelectionStrategy"></a>
-## type [FrameSelectionStrategy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L289>)
+## type [FrameSelectionStrategy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L287>)
 
 FrameSelectionStrategy defines how frames are selected when limiting.
 
@@ -2352,7 +2352,7 @@ const (
 ```
 
 <a name="FrameSelectionStrategy.String"></a>
-### func \(FrameSelectionStrategy\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L303>)
+### func \(FrameSelectionStrategy\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L301>)
 
 ```go
 func (s FrameSelectionStrategy) String() string
@@ -2361,7 +2361,7 @@ func (s FrameSelectionStrategy) String() string
 String returns the string representation of the selection strategy.
 
 <a name="FramesToMessageConfig"></a>
-## type [FramesToMessageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L317-L334>)
+## type [FramesToMessageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L315-L332>)
 
 FramesToMessageConfig configures the FramesToMessageStage behavior.
 
@@ -2387,7 +2387,7 @@ type FramesToMessageConfig struct {
 ```
 
 <a name="DefaultFramesToMessageConfig"></a>
-### func [DefaultFramesToMessageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L337>)
+### func [DefaultFramesToMessageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L335>)
 
 ```go
 func DefaultFramesToMessageConfig() FramesToMessageConfig
@@ -2396,7 +2396,7 @@ func DefaultFramesToMessageConfig() FramesToMessageConfig
 DefaultFramesToMessageConfig returns sensible defaults for frame composition.
 
 <a name="FramesToMessageStage"></a>
-## type [FramesToMessageStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L364-L369>)
+## type [FramesToMessageStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L362-L367>)
 
 FramesToMessageStage collects extracted frames and composes them into Messages. Elements are correlated by video ID from VideoToFramesStage metadata.
 
@@ -2414,7 +2414,7 @@ type FramesToMessageStage struct {
 ```
 
 <a name="NewFramesToMessageStage"></a>
-### func [NewFramesToMessageStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L372>)
+### func [NewFramesToMessageStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L370>)
 
 ```go
 func NewFramesToMessageStage(config FramesToMessageConfig) *FramesToMessageStage
@@ -2423,7 +2423,7 @@ func NewFramesToMessageStage(config FramesToMessageConfig) *FramesToMessageStage
 NewFramesToMessageStage creates a new frame composition stage.
 
 <a name="FramesToMessageStage.GetConfig"></a>
-### func \(\*FramesToMessageStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L713>)
+### func \(\*FramesToMessageStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L711>)
 
 ```go
 func (s *FramesToMessageStage) GetConfig() FramesToMessageConfig
@@ -2432,7 +2432,7 @@ func (s *FramesToMessageStage) GetConfig() FramesToMessageConfig
 GetConfig returns the stage configuration.
 
 <a name="FramesToMessageStage.Process"></a>
-### func \(\*FramesToMessageStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L384-L388>)
+### func \(\*FramesToMessageStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L382-L386>)
 
 ```go
 func (s *FramesToMessageStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -2954,7 +2954,7 @@ func NewMediaComposeStage(config MediaComposeConfig) *MediaComposeStage
 NewMediaComposeStage creates a new media composition stage.
 
 <a name="MediaComposeStage.GetConfig"></a>
-### func \(\*MediaComposeStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L472>)
+### func \(\*MediaComposeStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L494>)
 
 ```go
 func (s *MediaComposeStage) GetConfig() MediaComposeConfig
@@ -2963,7 +2963,7 @@ func (s *MediaComposeStage) GetConfig() MediaComposeConfig
 GetConfig returns the stage configuration.
 
 <a name="MediaComposeStage.Process"></a>
-### func \(\*MediaComposeStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L96-L100>)
+### func \(\*MediaComposeStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L94-L98>)
 
 ```go
 func (s *MediaComposeStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -3074,7 +3074,7 @@ func (s *MediaConvertStage) Process(ctx context.Context, input <-chan StreamElem
 Process implements the Stage interface. Converts media elements to target formats as needed.
 
 <a name="MediaExternalizerConfig"></a>
-## type [MediaExternalizerConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L391-L399>)
+## type [MediaExternalizerConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L402-L410>)
 
 MediaExternalizerConfig configures media externalization behavior.
 
@@ -3091,7 +3091,7 @@ type MediaExternalizerConfig struct {
 ```
 
 <a name="MediaExternalizerStage"></a>
-## type [MediaExternalizerStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L420-L423>)
+## type [MediaExternalizerStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L431-L434>)
 
 MediaExternalizerStage externalizes large media content to external storage.
 
@@ -3121,7 +3121,7 @@ type MediaExternalizerStage struct {
 ```
 
 <a name="NewMediaExternalizerStage"></a>
-### func [NewMediaExternalizerStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L426>)
+### func [NewMediaExternalizerStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L437>)
 
 ```go
 func NewMediaExternalizerStage(config *MediaExternalizerConfig) *MediaExternalizerStage
@@ -3130,7 +3130,7 @@ func NewMediaExternalizerStage(config *MediaExternalizerConfig) *MediaExternaliz
 NewMediaExternalizerStage creates a media externalizer stage.
 
 <a name="MediaExternalizerStage.Process"></a>
-### func \(\*MediaExternalizerStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L434-L438>)
+### func \(\*MediaExternalizerStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L445-L449>)
 
 ```go
 func (s *MediaExternalizerStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -3221,7 +3221,7 @@ func NewMediaExtractStage(config MediaExtractConfig) *MediaExtractStage
 NewMediaExtractStage creates a new media extraction stage.
 
 <a name="MediaExtractStage.GetConfig"></a>
-### func \(\*MediaExtractStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_extract.go#L338>)
+### func \(\*MediaExtractStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_extract.go#L343>)
 
 ```go
 func (s *MediaExtractStage) GetConfig() MediaExtractConfig
@@ -3422,7 +3422,7 @@ func (s *MessageBroadcastStage) Process(ctx context.Context, input <-chan Stream
 Process publishes each new complete message and forwards all elements.
 
 <a name="MetricsStage"></a>
-## type [MetricsStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L281-L285>)
+## type [MetricsStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L285-L289>)
 
 MetricsStage wraps another stage and collects metrics about its performance. This is a transparent wrapper that doesn't modify element flow.
 
@@ -3434,7 +3434,7 @@ type MetricsStage struct {
 ```
 
 <a name="NewMetricsStage"></a>
-### func [NewMetricsStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L288>)
+### func [NewMetricsStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L292>)
 
 ```go
 func NewMetricsStage(wrappedStage Stage) *MetricsStage
@@ -3443,7 +3443,7 @@ func NewMetricsStage(wrappedStage Stage) *MetricsStage
 NewMetricsStage wraps a stage with metrics collection.
 
 <a name="MetricsStage.GetMetrics"></a>
-### func \(\*MetricsStage\) [GetMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L337>)
+### func \(\*MetricsStage\) [GetMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L341>)
 
 ```go
 func (s *MetricsStage) GetMetrics() StageMetrics
@@ -3452,7 +3452,7 @@ func (s *MetricsStage) GetMetrics() StageMetrics
 GetMetrics returns the collected metrics.
 
 <a name="MetricsStage.Process"></a>
-### func \(\*MetricsStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L297-L301>)
+### func \(\*MetricsStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L301-L305>)
 
 ```go
 func (s *MetricsStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -3900,7 +3900,7 @@ const (
 ```
 
 <a name="PriorityChannel"></a>
-## type [PriorityChannel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L343-L350>)
+## type [PriorityChannel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L347-L354>)
 
 PriorityChannel is a channel that supports priority\-based element delivery. Higher priority elements are delivered before lower priority elements.
 
@@ -3911,7 +3911,7 @@ type PriorityChannel struct {
 ```
 
 <a name="NewPriorityChannel"></a>
-### func [NewPriorityChannel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L353>)
+### func [NewPriorityChannel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L357>)
 
 ```go
 func NewPriorityChannel(capacity int) *PriorityChannel
@@ -3920,7 +3920,7 @@ func NewPriorityChannel(capacity int) *PriorityChannel
 NewPriorityChannel creates a new priority channel with the given capacity.
 
 <a name="PriorityChannel.Close"></a>
-### func \(\*PriorityChannel\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L446>)
+### func \(\*PriorityChannel\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L451>)
 
 ```go
 func (pc *PriorityChannel) Close()
@@ -3929,7 +3929,7 @@ func (pc *PriorityChannel) Close()
 Close closes the priority channel.
 
 <a name="PriorityChannel.Len"></a>
-### func \(\*PriorityChannel\) [Len](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L455>)
+### func \(\*PriorityChannel\) [Len](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L460>)
 
 ```go
 func (pc *PriorityChannel) Len() int
@@ -3938,7 +3938,7 @@ func (pc *PriorityChannel) Len() int
 Len returns the current number of elements in the channel.
 
 <a name="PriorityChannel.Receive"></a>
-### func \(\*PriorityChannel\) [Receive](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L401>)
+### func \(\*PriorityChannel\) [Receive](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L405>)
 
 ```go
 func (pc *PriorityChannel) Receive(ctx context.Context) (StreamElement, bool, error)
@@ -3947,7 +3947,7 @@ func (pc *PriorityChannel) Receive(ctx context.Context) (StreamElement, bool, er
 Receive receives the highest priority element from the channel. Blocks if the channel is empty.
 
 <a name="PriorityChannel.Send"></a>
-### func \(\*PriorityChannel\) [Send](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L363>)
+### func \(\*PriorityChannel\) [Send](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L367>)
 
 ```go
 func (pc *PriorityChannel) Send(ctx context.Context, elem StreamElement) error
@@ -3986,7 +3986,7 @@ func NewPromptAssemblyStageWithTurnState(promptRegistry *prompt.Registry, taskTy
 NewPromptAssemblyStageWithTurnState creates a stage that publishes the loaded template, allowed tools, and validator configs onto the supplied TurnState before forwarding the first element.
 
 <a name="PromptAssemblyStage.Process"></a>
-### func \(\*PromptAssemblyStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L74>)
+### func \(\*PromptAssemblyStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L72-L74>)
 
 ```go
 func (s *PromptAssemblyStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4016,7 +4016,7 @@ type ProviderBudgetedCompaction interface {
 ```
 
 <a name="ProviderConfig"></a>
-## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L139-L223>)
+## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L121-L205>)
 
 ProviderConfig contains configuration for the provider stage.
 
@@ -4109,7 +4109,7 @@ type ProviderConfig struct {
 ```
 
 <a name="ProviderConfig.ApplyCallParams"></a>
-### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L128>)
+### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L218>)
 
 ```go
 func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
@@ -4118,7 +4118,7 @@ func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
 ApplyCallParams sets c's sampling fields from a prompt's resolved parameters \(prompt.Registry.CallParameters\).
 
 <a name="ProviderConfig.CallParams"></a>
-### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L118>)
+### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L208>)
 
 ```go
 func (c *ProviderConfig) CallParams() prompt.CallParams
@@ -4127,7 +4127,7 @@ func (c *ProviderConfig) CallParams() prompt.CallParams
 CallParams returns c's sampling fields as one value.
 
 <a name="ProviderStage"></a>
-## type [ProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L54-L91>)
+## type [ProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L57-L94>)
 
 ProviderStage executes LLM calls and handles tool execution. This is the request/response mode implementation.
 
@@ -4139,7 +4139,7 @@ type ProviderStage struct {
 ```
 
 <a name="NewProviderStage"></a>
-### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L258-L263>)
+### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L261-L266>)
 
 ```go
 func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig) *ProviderStage
@@ -4148,7 +4148,7 @@ func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry,
 NewProviderStage creates a new provider stage for request/response mode.
 
 <a name="NewProviderStageWithEmitter"></a>
-### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L270-L276>)
+### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L273-L279>)
 
 ```go
 func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter) *ProviderStage
@@ -4157,7 +4157,7 @@ func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tool
 NewProviderStageWithEmitter creates a new provider stage with event emission support. The stage emits provider.call.started, provider.call.completed, and provider.call.failed events through it for observability and session recording.
 
 <a name="NewProviderStageWithHooks"></a>
-### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L283-L290>)
+### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L286-L293>)
 
 ```go
 func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry) *ProviderStage
@@ -4166,7 +4166,7 @@ func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.
 NewProviderStageWithHooks creates a provider stage with event emission and hook support. The hookRegistry enables synchronous interception of provider calls, streaming chunks, and tool execution. Pass nil for no hooks \(zero overhead\).
 
 <a name="NewProviderStageWithTurnState"></a>
-### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L297-L305>)
+### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L300-L308>)
 
 ```go
 func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry, turnState *TurnState) *ProviderStage
@@ -4175,7 +4175,7 @@ func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *to
 NewProviderStageWithTurnState creates a provider stage that sources system\_prompt, allowed\_tools, and provider\-bound metadata from the shared \*TurnState. Pass nil for ad\-hoc / test usage where TurnState is not wired.
 
 <a name="ProviderStage.Process"></a>
-### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L443-L447>)
+### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L446-L450>)
 
 ```go
 func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4184,7 +4184,7 @@ func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement,
 Process executes the LLM provider call and handles tool execution.
 
 <a name="ProviderStage.SetWorkflowStateResolver"></a>
-### func \(\*ProviderStage\) [SetWorkflowStateResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L113>)
+### func \(\*ProviderStage\) [SetWorkflowStateResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L116>)
 
 ```go
 func (s *ProviderStage) SetWorkflowStateResolver(r WorkflowStateResolver)
@@ -4193,7 +4193,7 @@ func (s *ProviderStage) SetWorkflowStateResolver(r WorkflowStateResolver)
 SetWorkflowStateResolver installs the resolver that applies workflow state changes mid\-turn. Pass nil to disable. Must be called before the stage runs.
 
 <a name="QuerySourceType"></a>
-## type [QuerySourceType](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L598>)
+## type [QuerySourceType](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L609>)
 
 QuerySourceType defines how to construct the relevance query.
 
@@ -4390,7 +4390,7 @@ func DefaultRecordingStageConfig() RecordingStageConfig
 DefaultRecordingStageConfig returns sensible defaults.
 
 <a name="RelevanceConfig"></a>
-## type [RelevanceConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L611-L641>)
+## type [RelevanceConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L622-L652>)
 
 RelevanceConfig configures embedding\-based relevance truncation. Used when TruncationStrategy is TruncateLeastRelevant.
 
@@ -4429,7 +4429,7 @@ type RelevanceConfig struct {
 ```
 
 <a name="Response"></a>
-## type [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L572-L578>)
+## type [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L568-L574>)
 
 Response represents a response message \(for compatibility with existing pipeline\).
 
@@ -4444,7 +4444,7 @@ type Response struct {
 ```
 
 <a name="ResponseVADConfig"></a>
-## type [ResponseVADConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1243-L1261>)
+## type [ResponseVADConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1259-L1277>)
 
 ResponseVADConfig configures the ResponseVADStage.
 
@@ -4471,7 +4471,7 @@ type ResponseVADConfig struct {
 ```
 
 <a name="DefaultResponseVADConfig"></a>
-### func [DefaultResponseVADConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1271>)
+### func [DefaultResponseVADConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1287>)
 
 ```go
 func DefaultResponseVADConfig() ResponseVADConfig
@@ -4480,7 +4480,7 @@ func DefaultResponseVADConfig() ResponseVADConfig
 DefaultResponseVADConfig returns sensible defaults for ResponseVADStage.
 
 <a name="ResponseVADStage"></a>
-## type [ResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1291-L1295>)
+## type [ResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1307-L1311>)
 
 ResponseVADStage monitors response audio for silence and delays EndOfStream until actual silence is detected. This decouples turn completion from provider signaling \(e.g., Gemini's turnComplete\) which may arrive before all audio chunks have been received.
 
@@ -4496,7 +4496,7 @@ type ResponseVADStage struct {
 ```
 
 <a name="NewResponseVADStage"></a>
-### func [NewResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1298>)
+### func [NewResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1314>)
 
 ```go
 func NewResponseVADStage(config ResponseVADConfig) (*ResponseVADStage, error)
@@ -4505,7 +4505,7 @@ func NewResponseVADStage(config ResponseVADConfig) (*ResponseVADStage, error)
 NewResponseVADStage creates a new response VAD stage.
 
 <a name="ResponseVADStage.Process"></a>
-### func \(\*ResponseVADStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1352-L1356>)
+### func \(\*ResponseVADStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1368-L1372>)
 
 ```go
 func (s *ResponseVADStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4646,7 +4646,7 @@ func RouteWhen(output string, predicate func(StreamElement) bool) RoutingRule
 RouteWhen creates a routing rule with the given predicate.
 
 <a name="STTStage"></a>
-## type [STTStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L686-L693>)
+## type [STTStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L703-L710>)
 
 STTStage transcribes audio to text using a speech\-to\-text service.
 
@@ -4660,7 +4660,7 @@ type STTStage struct {
 ```
 
 <a name="NewSTTStage"></a>
-### func [NewSTTStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L699>)
+### func [NewSTTStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L716>)
 
 ```go
 func NewSTTStage(service base.STTProvider, config STTStageConfig) *STTStage
@@ -4669,7 +4669,7 @@ func NewSTTStage(service base.STTProvider, config STTStageConfig) *STTStage
 NewSTTStage creates a new STT stage. The service parameter accepts any base.STTProvider implementation. The legacy stt.Service interface embeds base.STTProvider, so existing callers that pass an stt.Service remain compatible without changes.
 
 <a name="NewSTTStageWithEmitter"></a>
-### func [NewSTTStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L718-L722>)
+### func [NewSTTStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L735-L739>)
 
 ```go
 func NewSTTStageWithEmitter(service base.STTProvider, config STTStageConfig, emitter *events.Emitter) *STTStage
@@ -4682,7 +4682,7 @@ The event type and its payload \(events.AudioTranscriptionData\) were declared a
 The emitter is optional; NewSTTStage remains the no\-events constructor.
 
 <a name="STTStage.Process"></a>
-### func \(\*STTStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L730-L734>)
+### func \(\*STTStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L747-L751>)
 
 ```go
 func (s *STTStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4691,7 +4691,7 @@ func (s *STTStage) Process(ctx context.Context, input <-chan StreamElement, outp
 Process implements the Stage interface. Transcribes audio elements to text.
 
 <a name="STTStageConfig"></a>
-## type [STTStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L658-L671>)
+## type [STTStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L675-L688>)
 
 STTStageConfig configures the STTStage.
 
@@ -4713,7 +4713,7 @@ type STTStageConfig struct {
 ```
 
 <a name="DefaultSTTStageConfig"></a>
-### func [DefaultSTTStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L674>)
+### func [DefaultSTTStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L691>)
 
 ```go
 func DefaultSTTStageConfig() STTStageConfig
@@ -4927,7 +4927,7 @@ func (sf *StageFunc) Process(ctx context.Context, input <-chan StreamElement, ou
 Process executes the stage function.
 
 <a name="StageMetrics"></a>
-## type [StageMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L196-L207>)
+## type [StageMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L200-L211>)
 
 StageMetrics contains performance metrics for a stage.
 
@@ -4947,7 +4947,7 @@ type StageMetrics struct {
 ```
 
 <a name="NewStageMetrics"></a>
-### func [NewStageMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L210>)
+### func [NewStageMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L214>)
 
 ```go
 func NewStageMetrics(stageName string) *StageMetrics
@@ -4956,7 +4956,7 @@ func NewStageMetrics(stageName string) *StageMetrics
 NewStageMetrics creates a new metrics collector for a stage.
 
 <a name="StageMetrics.GetMetrics"></a>
-### func \(\*StageMetrics\) [GetMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L247>)
+### func \(\*StageMetrics\) [GetMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L251>)
 
 ```go
 func (m *StageMetrics) GetMetrics() StageMetrics
@@ -4965,7 +4965,7 @@ func (m *StageMetrics) GetMetrics() StageMetrics
 GetMetrics returns a copy of the current metrics \(thread\-safe\).
 
 <a name="StageMetrics.RecordElement"></a>
-### func \(\*StageMetrics\) [RecordElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L219>)
+### func \(\*StageMetrics\) [RecordElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L223>)
 
 ```go
 func (m *StageMetrics) RecordElement(latency time.Duration, hasError bool)
@@ -4974,7 +4974,7 @@ func (m *StageMetrics) RecordElement(latency time.Duration, hasError bool)
 RecordElement records metrics for a processed element.
 
 <a name="StageMetrics.Reset"></a>
-### func \(\*StageMetrics\) [Reset](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L265>)
+### func \(\*StageMetrics\) [Reset](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L269>)
 
 ```go
 func (m *StageMetrics) Reset()
@@ -5062,7 +5062,7 @@ func NewStateStoreLoadStageWithTurnState(config *pipeline.StateStoreConfig, turn
 NewStateStoreLoadStageWithTurnState creates a state store load stage that publishes ConversationID/UserID onto the supplied TurnState.
 
 <a name="StateStoreLoadStage.Process"></a>
-### func \(\*StateStoreLoadStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L183-L187>)
+### func \(\*StateStoreLoadStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L181-L185>)
 
 ```go
 func (s *StateStoreLoadStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -5230,7 +5230,7 @@ func GetVideoElement(video *VideoData) *StreamElement
 GetVideoElement retrieves a StreamElement from the pool and initializes it with video data. This is a pooled alternative to NewVideoElement.
 
 <a name="NewAudioElement"></a>
-### func [NewAudioElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L353>)
+### func [NewAudioElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L352>)
 
 ```go
 func NewAudioElement(audio *AudioData) StreamElement
@@ -5239,7 +5239,7 @@ func NewAudioElement(audio *AudioData) StreamElement
 NewAudioElement creates a new StreamElement with audio data.
 
 <a name="NewEndOfStreamElement"></a>
-### func [NewEndOfStreamElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L389>)
+### func [NewEndOfStreamElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L388>)
 
 ```go
 func NewEndOfStreamElement() StreamElement
@@ -5248,7 +5248,7 @@ func NewEndOfStreamElement() StreamElement
 NewEndOfStreamElement creates a new StreamElement marking end of stream.
 
 <a name="NewEndOfTurnElement"></a>
-### func [NewEndOfTurnElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L401>)
+### func [NewEndOfTurnElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L400>)
 
 ```go
 func NewEndOfTurnElement() StreamElement
@@ -5257,7 +5257,7 @@ func NewEndOfTurnElement() StreamElement
 NewEndOfTurnElement marks the end of one conversational turn's input within a still\-open stream. Distinct from NewEndOfStreamElement \(session over\): the streaming provider stage fires its tool loop on EndOfTurn and stays open for the next turn.
 
 <a name="NewErrorElement"></a>
-### func [NewErrorElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L380>)
+### func [NewErrorElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L379>)
 
 ```go
 func NewErrorElement(err error) StreamElement
@@ -5266,7 +5266,7 @@ func NewErrorElement(err error) StreamElement
 NewErrorElement creates a new StreamElement with an error.
 
 <a name="NewImageElement"></a>
-### func [NewImageElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L371>)
+### func [NewImageElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L370>)
 
 ```go
 func NewImageElement(image *ImageData) StreamElement
@@ -5275,7 +5275,7 @@ func NewImageElement(image *ImageData) StreamElement
 NewImageElement creates a new StreamElement with image data.
 
 <a name="NewInterruptElement"></a>
-### func [NewInterruptElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L411>)
+### func [NewInterruptElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L410>)
 
 ```go
 func NewInterruptElement() StreamElement
@@ -5284,7 +5284,7 @@ func NewInterruptElement() StreamElement
 NewInterruptElement signals barge\-in: downstream stages cancel in\-flight generation/playback and drop queued audio. Travels at PriorityCritical.
 
 <a name="NewMessageElement"></a>
-### func [NewMessageElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L344>)
+### func [NewMessageElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L343>)
 
 ```go
 func NewMessageElement(msg *types.Message) StreamElement
@@ -5293,16 +5293,16 @@ func NewMessageElement(msg *types.Message) StreamElement
 NewMessageElement creates a new StreamElement with a message.
 
 <a name="NewTextElement"></a>
-### func [NewTextElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L335>)
+### func [NewTextElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L334>)
 
 ```go
 func NewTextElement(text string) StreamElement
 ```
 
-defaultMetadataCapacity is the initial map capacity for StreamElement metadata. NewTextElement creates a new StreamElement with text content.
+NewTextElement creates a new StreamElement with text content.
 
 <a name="NewVideoElement"></a>
-### func [NewVideoElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L362>)
+### func [NewVideoElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L361>)
 
 ```go
 func NewVideoElement(video *VideoData) StreamElement
@@ -5311,7 +5311,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2493>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2557>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement
@@ -5320,7 +5320,7 @@ func StreamMediaToElement(media *providers.StreamMediaData) StreamElement
 StreamMediaToElement converts a StreamMediaData to a StreamElement. Routes by MIME type: audio/\* → AudioData, video/\* → VideoData, image/\* → ImageData.
 
 <a name="StreamElement.HasContent"></a>
-### func \(\*StreamElement\) [HasContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L436>)
+### func \(\*StreamElement\) [HasContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L435>)
 
 ```go
 func (e *StreamElement) HasContent() bool
@@ -5329,7 +5329,7 @@ func (e *StreamElement) HasContent() bool
 HasContent returns true if the element contains any content \(excluding control signals\).
 
 <a name="StreamElement.IsControl"></a>
-### func \(\*StreamElement\) [IsControl](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L449>)
+### func \(\*StreamElement\) [IsControl](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L448>)
 
 ```go
 func (e *StreamElement) IsControl() bool
@@ -5338,7 +5338,7 @@ func (e *StreamElement) IsControl() bool
 IsControl returns true if the element is a control signal \(error, end\-of\-stream, end\-of\-turn, or interrupt\) rather than content.
 
 <a name="StreamElement.IsEmpty"></a>
-### func \(\*StreamElement\) [IsEmpty](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L420>)
+### func \(\*StreamElement\) [IsEmpty](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L419>)
 
 ```go
 func (e *StreamElement) IsEmpty() bool
@@ -5356,7 +5356,7 @@ func (e *StreamElement) Reset()
 Reset clears all fields of the StreamElement to their zero values. This is called automatically by PutElement before returning to the pool.
 
 <a name="StreamElement.WithPriority"></a>
-### func \(\*StreamElement\) [WithPriority](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L460>)
+### func \(\*StreamElement\) [WithPriority](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L459>)
 
 ```go
 func (e *StreamElement) WithPriority(priority Priority) *StreamElement
@@ -5365,7 +5365,7 @@ func (e *StreamElement) WithPriority(priority Priority) *StreamElement
 WithPriority sets the priority for this element.
 
 <a name="StreamElement.WithSequence"></a>
-### func \(\*StreamElement\) [WithSequence](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L466>)
+### func \(\*StreamElement\) [WithSequence](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L465>)
 
 ```go
 func (e *StreamElement) WithSequence(seq int64) *StreamElement
@@ -5374,7 +5374,7 @@ func (e *StreamElement) WithSequence(seq int64) *StreamElement
 WithSequence sets the sequence number for this element.
 
 <a name="StreamElement.WithSource"></a>
-### func \(\*StreamElement\) [WithSource](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L454>)
+### func \(\*StreamElement\) [WithSource](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L453>)
 
 ```go
 func (e *StreamElement) WithSource(source string) *StreamElement
@@ -5403,7 +5403,7 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 Execute starts the pipeline execution with the given input channel. Returns an output channel that will receive all elements from terminal stages. The pipeline executes in background goroutines and closes the output channel when complete.
 
 <a name="StreamPipeline.ExecuteSync"></a>
-### func \(\*StreamPipeline\) [ExecuteSync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L541>)
+### func \(\*StreamPipeline\) [ExecuteSync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L537>)
 
 ```go
 func (p *StreamPipeline) ExecuteSync(ctx context.Context, input ...StreamElement) (*ExecutionResult, error)
@@ -5412,7 +5412,7 @@ func (p *StreamPipeline) ExecuteSync(ctx context.Context, input ...StreamElement
 ExecuteSync runs the pipeline synchronously and returns the accumulated result. This is a convenience method for request/response mode where you want a single result. It converts the streaming execution into a blocking call.
 
 <a name="StreamPipeline.Shutdown"></a>
-### func \(\*StreamPipeline\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L642>)
+### func \(\*StreamPipeline\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L645>)
 
 ```go
 func (p *StreamPipeline) Shutdown(ctx context.Context) error
@@ -5473,7 +5473,7 @@ ParseStructuredOutputMode reads a configured mode string.
 Mirrors the provider api\_mode convention: an unrecognized value is ignored with a warning rather than forwarded, since guessing here silently changes whether a caller's schema constrains tool\-calling rounds.
 
 <a name="TTSConfig"></a>
-## type [TTSConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_tts.go#L21-L27>)
+## type [TTSConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_tts.go#L22-L28>)
 
 TTSConfig contains configuration for TTS stage.
 
@@ -5488,7 +5488,7 @@ type TTSConfig struct {
 ```
 
 <a name="DefaultTTSConfig"></a>
-### func [DefaultTTSConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_tts.go#L33>)
+### func [DefaultTTSConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_tts.go#L34>)
 
 ```go
 func DefaultTTSConfig() TTSConfig
@@ -5497,7 +5497,7 @@ func DefaultTTSConfig() TTSConfig
 DefaultTTSConfig returns sensible defaults for TTS configuration.
 
 <a name="TTSService"></a>
-## type [TTSService](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_tts.go#L12-L18>)
+## type [TTSService](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_tts.go#L13-L19>)
 
 TTSService converts text to audio.
 
@@ -5512,7 +5512,7 @@ type TTSService interface {
 ```
 
 <a name="TTSStage"></a>
-## type [TTSStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_tts.go#L44-L48>)
+## type [TTSStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_tts.go#L45-L49>)
 
 TTSStage synthesizes audio for streaming text elements. It reads text elements from input and adds audio data to them.
 
@@ -5526,16 +5526,16 @@ type TTSStage struct {
 ```
 
 <a name="NewTTSStage"></a>
-### func [NewTTSStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_tts.go#L51>)
+### func [NewTTSStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_tts.go#L52>)
 
 ```go
-func NewTTSStage(tts TTSService, config TTSConfig) *TTSStage
+func NewTTSStage(svc TTSService, config TTSConfig) *TTSStage
 ```
 
 NewTTSStage creates a new TTS stage.
 
 <a name="TTSStage.Process"></a>
-### func \(\*TTSStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_tts.go#L61-L65>)
+### func \(\*TTSStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_tts.go#L62-L66>)
 
 ```go
 func (s *TTSStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -5544,7 +5544,7 @@ func (s *TTSStage) Process(ctx context.Context, input <-chan StreamElement, outp
 Process implements the Stage interface. Synthesizes audio for each text element and adds it to the element.
 
 <a name="TTSStageWithInterruption"></a>
-## type [TTSStageWithInterruption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L893-L900>)
+## type [TTSStageWithInterruption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L911-L918>)
 
 TTSStageWithInterruption synthesizes text to audio with interruption support. When the user starts speaking \(detected via shared InterruptionHandler\), synthesis is stopped and pending output is discarded.
 
@@ -5558,7 +5558,7 @@ type TTSStageWithInterruption struct {
 ```
 
 <a name="NewTTSStageWithInterruption"></a>
-### func [NewTTSStageWithInterruption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L903-L906>)
+### func [NewTTSStageWithInterruption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L921-L924>)
 
 ```go
 func NewTTSStageWithInterruption(service tts.Service, config TTSStageWithInterruptionConfig) *TTSStageWithInterruption
@@ -5567,7 +5567,7 @@ func NewTTSStageWithInterruption(service tts.Service, config TTSStageWithInterru
 NewTTSStageWithInterruption creates a new TTS stage with interruption support.
 
 <a name="TTSStageWithInterruption.Process"></a>
-### func \(\*TTSStageWithInterruption\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L934-L938>)
+### func \(\*TTSStageWithInterruption\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L952-L956>)
 
 ```go
 func (s *TTSStageWithInterruption) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -5576,7 +5576,7 @@ func (s *TTSStageWithInterruption) Process(ctx context.Context, input <-chan Str
 Process implements the Stage interface. Synthesizes audio for text elements with interruption support. A concurrent reader cancels in\-flight synthesis the instant a barge\-in Interrupt arrives, so a long synthesis call cannot swallow the interrupt; queued text behind the interrupt is dropped too, and synthesis resumes on the next turn.
 
 <a name="TTSStageWithInterruptionConfig"></a>
-## type [TTSStageWithInterruptionConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L850-L875>)
+## type [TTSStageWithInterruptionConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L868-L893>)
 
 TTSStageWithInterruptionConfig configures TTSStageWithInterruption.
 
@@ -5610,7 +5610,7 @@ type TTSStageWithInterruptionConfig struct {
 ```
 
 <a name="DefaultTTSStageWithInterruptionConfig"></a>
-### func [DefaultTTSStageWithInterruptionConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L878>)
+### func [DefaultTTSStageWithInterruptionConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L896>)
 
 ```go
 func DefaultTTSStageWithInterruptionConfig() TTSStageWithInterruptionConfig
@@ -5619,7 +5619,7 @@ func DefaultTTSStageWithInterruptionConfig() TTSStageWithInterruptionConfig
 DefaultTTSStageWithInterruptionConfig returns sensible defaults.
 
 <a name="TemplateStage"></a>
-## type [TemplateStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L118-L128>)
+## type [TemplateStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L129-L139>)
 
 TemplateStage substitutes \{\{variable\}\} placeholders in messages and metadata.
 
@@ -5635,7 +5635,7 @@ type TemplateStage struct {
 ```
 
 <a name="NewTemplateStage"></a>
-### func [NewTemplateStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L131>)
+### func [NewTemplateStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L142>)
 
 ```go
 func NewTemplateStage() *TemplateStage
@@ -5644,7 +5644,7 @@ func NewTemplateStage() *TemplateStage
 NewTemplateStage creates a template substitution stage.
 
 <a name="NewTemplateStageWithEmitter"></a>
-### func [NewTemplateStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L139>)
+### func [NewTemplateStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L150>)
 
 ```go
 func NewTemplateStageWithEmitter(emitter *events.Emitter) *TemplateStage
@@ -5653,7 +5653,7 @@ func NewTemplateStageWithEmitter(emitter *events.Emitter) *TemplateStage
 NewTemplateStageWithEmitter creates a template stage that emits lifecycle events.
 
 <a name="NewTemplateStageWithTurnState"></a>
-### func [NewTemplateStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L151>)
+### func [NewTemplateStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L162>)
 
 ```go
 func NewTemplateStageWithTurnState(emitter *events.Emitter, turnState *TurnState) *TemplateStage
@@ -5662,7 +5662,7 @@ func NewTemplateStageWithTurnState(emitter *events.Emitter, turnState *TurnState
 NewTemplateStageWithTurnState creates a template stage that uses a shared \*TurnState as a per\-Turn render cache. The system\_template is rendered once per Send regardless of how many elements flow through \(history loaders fan\-out N elements per turn but this stage does a single render\).
 
 <a name="TemplateStage.Process"></a>
-### func \(\*TemplateStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L161-L165>)
+### func \(\*TemplateStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L172-L176>)
 
 ```go
 func (s *TemplateStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -5814,7 +5814,7 @@ type Transcription struct {
 ```
 
 <a name="TruncationStrategy"></a>
-## type [TruncationStrategy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L584>)
+## type [TruncationStrategy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L595>)
 
 TruncationStrategy defines how to handle messages when over token budget.
 
@@ -5959,7 +5959,7 @@ TurnIndex is the 1\-based number of the turn being executed, or 0 when none was 
 It is what places an event against the transcript, so everything reporting a turn \(guardrail events, eval results\) must read it from here rather than counting locally. A local count is only right while one pipeline instance outlives the conversation, and is always wrong for a conversation resumed from history it did not itself produce.
 
 <a name="VariableProviderStage"></a>
-## type [VariableProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L310-L315>)
+## type [VariableProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L321-L326>)
 
 VariableProviderStage resolves variables from dynamic providers and adds them to metadata.
 
@@ -5991,7 +5991,7 @@ type VariableProviderStage struct {
 ```
 
 <a name="NewVariableProviderStage"></a>
-### func [NewVariableProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L342>)
+### func [NewVariableProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L353>)
 
 ```go
 func NewVariableProviderStage(variableProviders ...variables.Provider) *VariableProviderStage
@@ -6000,7 +6000,7 @@ func NewVariableProviderStage(variableProviders ...variables.Provider) *Variable
 NewVariableProviderStage creates a variable provider stage.
 
 <a name="NewVariableProviderStageWithVars"></a>
-### func [NewVariableProviderStageWithVars](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L319-L322>)
+### func [NewVariableProviderStageWithVars](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L330-L333>)
 
 ```go
 func NewVariableProviderStageWithVars(staticVars map[string]string, variableProviders []variables.Provider) *VariableProviderStage
@@ -6009,7 +6009,7 @@ func NewVariableProviderStageWithVars(staticVars map[string]string, variableProv
 NewVariableProviderStageWithVars creates a variable provider stage with static variables and dynamic providers. Static variables are injected first; dynamic providers can override them.
 
 <a name="NewVariableProviderStageWithVarsAndTurnState"></a>
-### func [NewVariableProviderStageWithVarsAndTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L328-L332>)
+### func [NewVariableProviderStageWithVarsAndTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L339-L343>)
 
 ```go
 func NewVariableProviderStageWithVarsAndTurnState(staticVars map[string]string, variableProviders []variables.Provider, turnState *TurnState) *VariableProviderStage
@@ -6018,7 +6018,7 @@ func NewVariableProviderStageWithVarsAndTurnState(staticVars map[string]string, 
 NewVariableProviderStageWithVarsAndTurnState creates a stage that publishes the resolved variables onto the supplied TurnState.Variables.
 
 <a name="VariableProviderStage.Process"></a>
-### func \(\*VariableProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L348-L352>)
+### func \(\*VariableProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L359-L363>)
 
 ```go
 func (s *VariableProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -6180,7 +6180,7 @@ type VideoToFramesStage struct {
 ```
 
 <a name="NewVideoToFramesStage"></a>
-### func [NewVideoToFramesStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L173>)
+### func [NewVideoToFramesStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L171>)
 
 ```go
 func NewVideoToFramesStage(config VideoToFramesConfig) *VideoToFramesStage
@@ -6189,7 +6189,7 @@ func NewVideoToFramesStage(config VideoToFramesConfig) *VideoToFramesStage
 NewVideoToFramesStage creates a new video\-to\-frames extraction stage.
 
 <a name="VideoToFramesStage.GetConfig"></a>
-### func \(\*VideoToFramesStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L284>)
+### func \(\*VideoToFramesStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L282>)
 
 ```go
 func (s *VideoToFramesStage) GetConfig() VideoToFramesConfig
@@ -6198,7 +6198,7 @@ func (s *VideoToFramesStage) GetConfig() VideoToFramesConfig
 GetConfig returns the stage configuration.
 
 <a name="VideoToFramesStage.Process"></a>
-### func \(\*VideoToFramesStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L182-L186>)
+### func \(\*VideoToFramesStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L180-L184>)
 
 ```go
 func (s *VideoToFramesStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error

@@ -137,14 +137,7 @@ func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int
 		return noOp
 	}
 
-	threshold := c.Threshold
-	if threshold <= 0 {
-		threshold = defaultCompactThreshold
-	}
-	pinCount := c.PinRecentCount
-	if pinCount <= 0 {
-		pinCount = defaultPinRecentCount
-	}
+	threshold, pinCount := c.effectiveThresholdAndPin()
 
 	budget := int(float64(c.BudgetTokens) * threshold)
 
@@ -188,13 +181,7 @@ func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int
 
 		ctx.Current = totalTokens
 
-		var matchedRule CompactionRule
-		for _, rule := range rules {
-			if rule.CanFold(msg, i, ctx) {
-				matchedRule = rule
-				break
-			}
-		}
+		matchedRule := firstFoldableRule(rules, msg, i, ctx)
 		if matchedRule == nil {
 			continue
 		}
@@ -207,28 +194,15 @@ func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int
 		messagesFolded++
 
 		// Handle additional removals (e.g., pair collapse removes the assistant msg)
-		for _, ri := range extraRemovals {
-			if ri >= 0 && ri < pinBoundary && !removed[ri] {
-				removed[ri] = true
-				totalTokens -= tokenizer.CountMessageTokensDefault(
-					[]types.Message{compacted[ri]})
-				messagesFolded++
-			}
-		}
+		removedTokens, removedCount := markExtraRemovals(extraRemovals, pinBoundary, removed, compacted)
+		totalTokens -= removedTokens
+		messagesFolded += removedCount
 	}
 
 	// Build final message slice, excluding removed indices
 	var removedIndices []int
 	if len(removed) > 0 {
-		final := make([]types.Message, 0, len(compacted)-len(removed))
-		for i := range compacted {
-			if removed[i] {
-				removedIndices = append(removedIndices, i)
-				continue
-			}
-			final = append(final, compacted[i])
-		}
-		compacted = final
+		compacted, removedIndices = dropRemoved(compacted, removed)
 	}
 
 	if messagesFolded > 0 {
@@ -246,6 +220,63 @@ func (c *ContextCompactor) Compact(messages []types.Message, lastInputTokens int
 		MessagesFolded:  messagesFolded,
 		RemovedIndices:  removedIndices,
 	}
+}
+
+// effectiveThresholdAndPin returns the configured threshold and pin count,
+// substituting the defaults for unset (non-positive) values.
+func (c *ContextCompactor) effectiveThresholdAndPin() (threshold float64, pinCount int) {
+	threshold = c.Threshold
+	if threshold <= 0 {
+		threshold = defaultCompactThreshold
+	}
+	pinCount = c.PinRecentCount
+	if pinCount <= 0 {
+		pinCount = defaultPinRecentCount
+	}
+	return threshold, pinCount
+}
+
+// firstFoldableRule returns the first rule that can fold msg, or nil.
+func firstFoldableRule(
+	rules []CompactionRule, msg *types.Message, idx int, ctx *CompactionContext,
+) CompactionRule {
+	for _, rule := range rules {
+		if rule.CanFold(msg, idx, ctx) {
+			return rule
+		}
+	}
+	return nil
+}
+
+// markExtraRemovals records a fold's additional removals (in range of the
+// unpinned prefix and not already removed) in removed, returning the tokens
+// they freed and how many were newly removed.
+func markExtraRemovals(
+	extraRemovals []int, pinBoundary int, removed map[int]bool, compacted []types.Message,
+) (freedTokens, count int) {
+	for _, ri := range extraRemovals {
+		if ri >= 0 && ri < pinBoundary && !removed[ri] {
+			removed[ri] = true
+			freedTokens += tokenizer.CountMessageTokensDefault(
+				[]types.Message{compacted[ri]})
+			count++
+		}
+	}
+	return freedTokens, count
+}
+
+// dropRemoved returns compacted without the removed indices, plus those
+// indices in ascending order.
+func dropRemoved(compacted []types.Message, removed map[int]bool) (final []types.Message, removedIndices []int) {
+	final = make([]types.Message, 0, len(compacted)-len(removed))
+	for i := range compacted {
+		if removed[i] {
+			removedIndices = append(removedIndices, i)
+			continue
+		}
+		final = append(final, compacted[i])
+	}
+	return final, removedIndices
 }
 
 // applyFold sets the folded content on a message, updating both Content

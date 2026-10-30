@@ -62,29 +62,40 @@ const (
 	GroupExternal = "external"
 )
 
+// Eval type names that appear in both the long-running and external sets.
+const (
+	typeLLMJudge          = "llm_judge"
+	typeLLMJudgeSession   = "llm_judge_session"
+	typeLLMJudgeToolCalls = "llm_judge_tool_calls"
+	typeA2AEval           = "a2a_eval"
+	typeA2AEvalSession    = "a2a_eval_session"
+	typeRESTEval          = "rest_eval"
+	typeRESTEvalSession   = "rest_eval_session"
+)
+
 // longRunningTypes is the set of eval types classified as long-running.
 var longRunningTypes = map[string]bool{
-	"llm_judge":            true,
-	"llm_judge_session":    true,
-	"llm_judge_tool_calls": true,
-	"outcome_equivalent":   true,
-	"cosine_similarity":    true,
-	"a2a_eval":             true,
-	"a2a_eval_session":     true,
-	"rest_eval":            true,
-	"rest_eval_session":    true,
+	typeLLMJudge:          true,
+	typeLLMJudgeSession:   true,
+	typeLLMJudgeToolCalls: true,
+	"outcome_equivalent":  true,
+	"cosine_similarity":   true,
+	typeA2AEval:           true,
+	typeA2AEvalSession:    true,
+	typeRESTEval:          true,
+	typeRESTEvalSession:   true,
 }
 
 // externalTypes is the set of eval types classified as external.
 // These are a subset of long-running types that call external systems.
 var externalTypes = map[string]bool{
-	"llm_judge":            true,
-	"llm_judge_session":    true,
-	"llm_judge_tool_calls": true,
-	"a2a_eval":             true,
-	"a2a_eval_session":     true,
-	"rest_eval":            true,
-	"rest_eval_session":    true,
+	typeLLMJudge:          true,
+	typeLLMJudgeSession:   true,
+	typeLLMJudgeToolCalls: true,
+	typeA2AEval:           true,
+	typeA2AEvalSession:    true,
+	typeRESTEval:          true,
+	typeRESTEvalSession:   true,
 }
 
 // customTypeGroups holds dynamically registered type→groups mappings

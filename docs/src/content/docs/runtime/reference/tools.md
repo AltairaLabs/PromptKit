@@ -290,7 +290,7 @@ func ContentTypeToMediaType(contentType string) string
 ContentTypeToMediaType maps an HTTP Content\-Type to a types.ContentPart Type string.
 
 <a name="DecodeArgsExtras"></a>
-## func [DecodeArgsExtras](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/args_passthrough.go#L25>)
+## func [DecodeArgsExtras](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/args_passthrough.go#L31>)
 
 ```go
 func DecodeArgsExtras(args json.RawMessage, typed any, knownKeys ...string) (map[string]any, error)
@@ -341,7 +341,7 @@ func MatchToolPattern(pattern, name string) bool
 MatchToolPattern reports whether a tool name matches an allowed\_tools entry. An entry ending in "\*" is a prefix match \(the text before "\*" is treated as a literal prefix\), so "mcp\_\_memory\_\_\*" matches every tool from the "memory" MCP server and "mcp\_\_\*" matches every MCP tool. Any other entry is an exact match.
 
 <a name="MergeExtrasIntoMetadata"></a>
-## func [MergeExtrasIntoMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/args_passthrough.go#L51>)
+## func [MergeExtrasIntoMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/args_passthrough.go#L57>)
 
 ```go
 func MergeExtrasIntoMetadata(target, extras map[string]any) map[string]any
@@ -508,7 +508,7 @@ type AsyncToolExecutor interface {
 <a name="ClientConfig"></a>
 ## type [ClientConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L289-L294>)
 
-
+ClientConfig defines configuration for client\-side tool execution. Tools with mode "client" are fulfilled by the SDK caller's device \(e.g., GPS, camera, contacts, biometrics\).
 
 ```go
 type ClientConfig struct {
@@ -520,7 +520,7 @@ type ClientConfig struct {
 ```
 
 <a name="Coercion"></a>
-## type [Coercion](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L330-L334>)
+## type [Coercion](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L315-L319>)
 
 Coercion represents a type coercion that was performed.
 
@@ -639,9 +639,9 @@ func (e *ErrToolsPending) Error() string
 
 
 <a name="ExecConfig"></a>
-## type [ExecConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L281-L287>)
+## type [ExecConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L278-L284>)
 
-ClientConfig defines configuration for client\-side tool execution. Tools with mode "client" are fulfilled by the SDK caller's device \(e.g., GPS, camera, contacts, biometrics\). ExecConfig defines configuration for exec subprocess tool execution. The runtime spawns the command per invocation, passing tool arguments as JSON on stdin and reading the result from stdout.
+ExecConfig defines configuration for exec subprocess tool execution. The runtime spawns the command per invocation, passing tool arguments as JSON on stdin and reading the result from stdout.
 
 ```go
 type ExecConfig struct {
@@ -1238,7 +1238,7 @@ Descriptor lookup is live, not a snapshot. A tool registered on the parent after
 Child is nil\-receiver safe: a nil parent yields a standalone registry, so a caller can write reg = hostRegistry.Child\(\) without branching on whether the host supplied one.
 
 <a name="Registry.Execute"></a>
-### func \(\*Registry\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L440-L442>)
+### func \(\*Registry\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L452-L454>)
 
 ```go
 func (r *Registry) Execute(ctx context.Context, toolName string, args json.RawMessage) (*ToolResult, error)
@@ -1247,7 +1247,7 @@ func (r *Registry) Execute(ctx context.Context, toolName string, args json.RawMe
 Execute executes a tool with the given arguments
 
 <a name="Registry.ExecuteAsync"></a>
-### func \(\*Registry\) [ExecuteAsync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L554-L556>)
+### func \(\*Registry\) [ExecuteAsync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L555-L557>)
 
 ```go
 func (r *Registry) ExecuteAsync(ctx context.Context, toolName string, args json.RawMessage) (*ToolExecutionResult, error)
@@ -1573,7 +1573,7 @@ func NewSchemaValidatorWithSize(maxSize int) *SchemaValidator
 NewSchemaValidatorWithSize creates a new schema validator with the given maximum cache size. If maxSize \<= 0 it defaults to DefaultMaxSchemaCacheSize.
 
 <a name="SchemaValidator.CacheLen"></a>
-### func \(\*SchemaValidator\) [CacheLen](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L266>)
+### func \(\*SchemaValidator\) [CacheLen](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L251>)
 
 ```go
 func (sv *SchemaValidator) CacheLen() int
@@ -1582,7 +1582,7 @@ func (sv *SchemaValidator) CacheLen() int
 CacheLen returns the number of entries in the schema cache. Exported for testing and monitoring.
 
 <a name="SchemaValidator.CoerceArgs"></a>
-### func \(\*SchemaValidator\) [CoerceArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L375-L377>)
+### func \(\*SchemaValidator\) [CoerceArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L360-L362>)
 
 ```go
 func (sv *SchemaValidator) CoerceArgs(descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, []Coercion, error)
@@ -1602,7 +1602,7 @@ CoerceArgs normalises LLM tool arguments to match the types declared in the tool
 All normalisation happens here, before ValidateArgs, keeping the schema validator strict and tool executors simple.
 
 <a name="SchemaValidator.CoerceResult"></a>
-### func \(\*SchemaValidator\) [CoerceResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L278-L280>)
+### func \(\*SchemaValidator\) [CoerceResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L263-L265>)
 
 ```go
 func (sv *SchemaValidator) CoerceResult(descriptor *ToolDescriptor, result json.RawMessage) (json.RawMessage, []Coercion, error)
@@ -1622,7 +1622,7 @@ func (sv *SchemaValidator) ValidateArgs(descriptor *ToolDescriptor, args json.Ra
 ValidateArgs validates tool arguments against the input schema
 
 <a name="SchemaValidator.ValidateResult"></a>
-### func \(\*SchemaValidator\) [ValidateResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L165>)
+### func \(\*SchemaValidator\) [ValidateResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L133>)
 
 ```go
 func (sv *SchemaValidator) ValidateResult(descriptor *ToolDescriptor, result json.RawMessage) error

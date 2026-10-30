@@ -664,7 +664,7 @@ func withTenant(params json.RawMessage, tenant string) (json.RawMessage, error) 
 func (c *Client) newRPCRequest(
 	ctx context.Context, v ProtocolVersion, method string, params any,
 ) (*http.Request, error) {
-	url, iface, err := c.endpoint(v)
+	endpointURL, iface, err := c.endpoint(v)
 	if err != nil {
 		return nil, fmt.Errorf("a2a: %s: %w", method, err)
 	}
@@ -690,7 +690,7 @@ func (c *Client) newRPCRequest(
 		return nil, fmt.Errorf("a2a: marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("a2a: %s: %w", method, err)
 	}
@@ -1188,6 +1188,21 @@ func parseStreamEvent(data string) (StreamEvent, bool) {
 	}
 
 	// 1.0 wrapper.
+	if evt, ok := parseWrappedStreamEvent(fields); ok {
+		return evt, true
+	}
+
+	// 0.3 discriminator.
+	if streamKey, ok := streamKeyForKind(fields); ok {
+		return decodeStreamPayload(streamKey, raw)
+	}
+
+	return parseLegacyStreamEvent(fields, raw)
+}
+
+// parseWrappedStreamEvent decodes A2A 1.0's oneof wrapper, the first wrapper
+// key whose payload decodes.
+func parseWrappedStreamEvent(fields map[string]json.RawMessage) (StreamEvent, bool) {
 	for key, inner := range fields {
 		switch key {
 		case streamKeyTask, streamKeyMessage, streamKeyStatus, streamKeyArtifact:
@@ -1196,23 +1211,33 @@ func parseStreamEvent(data string) (StreamEvent, bool) {
 			}
 		}
 	}
+	return StreamEvent{}, false
+}
 
-	// 0.3 discriminator.
+// streamKeyForKind maps a 0.3 "kind" discriminator to its stream key; false
+// when there is no kind or it is not a known one.
+func streamKeyForKind(fields map[string]json.RawMessage) (string, bool) {
 	var kind string
-	if k, ok := fields["kind"]; ok && json.Unmarshal(k, &kind) == nil {
-		switch kind {
-		case kindTask:
-			return decodeStreamPayload(streamKeyTask, raw)
-		case kindMessage:
-			return decodeStreamPayload(streamKeyMessage, raw)
-		case kindStatusUpdate:
-			return decodeStreamPayload(streamKeyStatus, raw)
-		case kindArtifactUpdate:
-			return decodeStreamPayload(streamKeyArtifact, raw)
-		}
+	k, ok := fields["kind"]
+	if !ok || json.Unmarshal(k, &kind) != nil {
+		return "", false
 	}
+	switch kind {
+	case kindTask:
+		return streamKeyTask, true
+	case kindMessage:
+		return streamKeyMessage, true
+	case kindStatusUpdate:
+		return streamKeyStatus, true
+	case kindArtifactUpdate:
+		return streamKeyArtifact, true
+	}
+	return "", false
+}
 
-	// Legacy: discriminate by field presence.
+// parseLegacyStreamEvent decodes the legacy untagged events, told apart by
+// field presence.
+func parseLegacyStreamEvent(fields map[string]json.RawMessage, raw json.RawMessage) (StreamEvent, bool) {
 	if _, ok := fields["artifact"]; ok {
 		return decodeStreamPayload(streamKeyArtifact, raw)
 	}

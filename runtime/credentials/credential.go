@@ -24,7 +24,7 @@ type Credential interface {
 type APIKeyCredential struct {
 	apiKey     string
 	headerName string
-	prefix     string // Optional prefix like "Bearer "
+	prefix     string // Optional prefix like bearerPrefix
 }
 
 // APIKeyOption configures an APIKeyCredential.
@@ -40,7 +40,7 @@ func WithHeaderName(name string) APIKeyOption {
 // WithBearerPrefix adds "Bearer " prefix to the API key.
 func WithBearerPrefix() APIKeyOption {
 	return func(c *APIKeyCredential) {
-		c.prefix = "Bearer "
+		c.prefix = bearerPrefix
 	}
 }
 
@@ -56,8 +56,8 @@ func WithPrefix(prefix string) APIKeyOption {
 func NewAPIKeyCredential(apiKey string, opts ...APIKeyOption) *APIKeyCredential {
 	c := &APIKeyCredential{
 		apiKey:     apiKey,
-		headerName: "Authorization",
-		prefix:     "Bearer ",
+		headerName: headerAuthorization,
+		prefix:     bearerPrefix,
 	}
 	for _, opt := range opts {
 		opt(c)

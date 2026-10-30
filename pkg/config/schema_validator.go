@@ -187,9 +187,10 @@ func findLocalSchemaPath(configType string) string {
 	// This works when running tests or when the module is in the current directory
 	possiblePaths := []string{
 		filepath.Join(SchemaLocalPath, configType+".json"),
-		filepath.Join("..", SchemaLocalPath, configType+".json"),        // From a top-level module (sdk, runtime, server)
-		filepath.Join("../../", SchemaLocalPath, configType+".json"),    // From pkg/config
-		filepath.Join("../../../", SchemaLocalPath, configType+".json"), // From deeper nested packages
+		// From a top-level module (sdk, runtime, server)
+		filepath.Join("..", SchemaLocalPath, configType+".json"),
+		filepath.Join("..", "..", SchemaLocalPath, configType+".json"),       // From pkg/config
+		filepath.Join("..", "..", "..", SchemaLocalPath, configType+".json"), // From deeper nested packages
 	}
 
 	for _, path := range possiblePaths {
@@ -206,8 +207,9 @@ func findLocalSchemaPath(configType string) string {
 }
 
 // ConfigType represents the type of configuration file
-type ConfigType string
+type ConfigType string //nolint:revive // exported: renaming to Type would break the public API
 
+// Configuration file types accepted by the schema validation functions.
 const (
 	ConfigTypeArena        ConfigType = "arena"
 	ConfigTypeScenario     ConfigType = "scenario"
@@ -258,11 +260,15 @@ func ValidateWithSchema(yamlData []byte, configType ConfigType) (*SchemaValidati
 // ValidateWithLocalSchema validates YAML data against a local JSON schema file
 //
 // Deprecated: see UseSchemaFS.
-func ValidateWithLocalSchema(yamlData []byte, configType ConfigType, schemaDir string) (*SchemaValidationResult, error) {
+func ValidateWithLocalSchema(
+	yamlData []byte, configType ConfigType, schemaDir string,
+) (*SchemaValidationResult, error) {
 	return validateWithSchemaSource(yamlData, configType, schemaDir)
 }
 
-func validateWithSchemaSource(yamlData []byte, configType ConfigType, schemaDir string) (*SchemaValidationResult, error) {
+func validateWithSchemaSource(
+	yamlData []byte, configType ConfigType, schemaDir string,
+) (*SchemaValidationResult, error) {
 	// Skip validation if disabled (for testing or when schemas not yet published)
 	if SchemaValidationDisabled.Load() {
 		return &SchemaValidationResult{Valid: true, Errors: []SchemaValidationError{}}, nil

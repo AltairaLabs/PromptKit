@@ -79,19 +79,25 @@ func DefaultVADParams() VADParams {
 	}
 }
 
+// VAD parameter validation messages.
+const (
+	msgMustBeUnitInterval = "must be between 0.0 and 1.0"
+	msgMustBeNonNegative  = "must be non-negative"
+)
+
 // Validate checks that VAD parameters are within acceptable ranges.
 func (p VADParams) Validate() error {
 	if p.Confidence < 0 || p.Confidence > 1 {
-		return &ValidationError{Field: "Confidence", Message: "must be between 0.0 and 1.0"}
+		return &ValidationError{Field: "Confidence", Message: msgMustBeUnitInterval}
 	}
 	if p.StartSecs < 0 {
-		return &ValidationError{Field: "StartSecs", Message: "must be non-negative"}
+		return &ValidationError{Field: "StartSecs", Message: msgMustBeNonNegative}
 	}
 	if p.StopSecs < 0 {
-		return &ValidationError{Field: "StopSecs", Message: "must be non-negative"}
+		return &ValidationError{Field: "StopSecs", Message: msgMustBeNonNegative}
 	}
 	if p.MinVolume < 0 || p.MinVolume > 1 {
-		return &ValidationError{Field: "MinVolume", Message: "must be between 0.0 and 1.0"}
+		return &ValidationError{Field: "MinVolume", Message: msgMustBeUnitInterval}
 	}
 	if p.SampleRate <= 0 {
 		return &ValidationError{Field: "SampleRate", Message: "must be positive"}

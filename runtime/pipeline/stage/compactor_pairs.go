@@ -36,13 +36,16 @@ func (r *collapsePairsRule) CanFold(msg *types.Message, idx int, ctx *Compaction
 	return isSuperseded(msg, idx, ctx)
 }
 
+// fallbackToolName labels a collapsed tool result whose tool name is empty.
+const fallbackToolName = "tool"
+
 // Fold implements CompactionRule.
 func (r *collapsePairsRule) Fold(
 	msg *types.Message, idx int, ctx *CompactionContext,
 ) (folded string, extraRemovals []int) {
 	name := msg.ToolResult.Name
 	if name == "" {
-		name = "tool"
+		name = fallbackToolName
 	}
 	summary := fmt.Sprintf("[%s: superseded — %d bytes %s]",
 		name, len(msg.GetContent()), compactedMarker)

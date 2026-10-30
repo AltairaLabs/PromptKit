@@ -44,7 +44,7 @@ func (h *ToolCallsWithArgsHandler) Eval(
 			Type:        h.Type(),
 			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("tool %q was not called", toolName),
-			Details:     map[string]any{"tool_name": toolName},
+			Details:     map[string]any{keyToolName: toolName},
 		}, nil
 	}
 
@@ -64,13 +64,13 @@ func (h *ToolCallsWithArgsHandler) Eval(
 		Score:       boolScore(passed),
 		Explanation: explanation,
 		Value: map[string]any{
-			"matching_calls":  len(matching),
-			"violation_count": len(violations),
-			"tool_name":       toolName,
+			keyMatchingCalls:  len(matching),
+			keyViolationCount: len(violations),
+			keyToolName:       toolName,
 		},
 		Details: map[string]any{
-			"violations":     violations,
-			"matching_calls": len(matching),
+			keyViolations:    violations,
+			keyMatchingCalls: len(matching),
 		},
 	}, nil
 }
@@ -81,14 +81,14 @@ func validateExactArgs(tc toolCallView, expectedArgs map[string]any) []map[strin
 		actualValue, exists := tc.Args[argName]
 		if !exists {
 			violations = append(violations, map[string]any{
-				"type": "missing_argument", "tool": tc.Name, "argument": argName,
+				keyType: "missing_argument", valueKeyTool: tc.Name, keyArgument: argName,
 			})
 			continue
 		}
 		if expectedValue != nil && asString(actualValue) != asString(expectedValue) {
 			violations = append(violations, map[string]any{
-				"type": "value_mismatch", "tool": tc.Name, "argument": argName,
-				"expected": expectedValue, "actual": actualValue,
+				keyType: "value_mismatch", valueKeyTool: tc.Name, keyArgument: argName,
+				keyExpected: expectedValue, keyActual: actualValue,
 			})
 		}
 	}
@@ -101,23 +101,23 @@ func validatePatternArgs(tc toolCallView, argsMatch map[string]string) []map[str
 		actualValue, exists := tc.Args[argName]
 		if !exists {
 			violations = append(violations, map[string]any{
-				"type": "missing_argument_for_pattern", "tool": tc.Name,
-				"argument": argName, "pattern": pattern,
+				keyType: "missing_argument_for_pattern", valueKeyTool: tc.Name,
+				keyArgument: argName, keyPattern: pattern,
 			})
 			continue
 		}
 		re, err := regexp.Compile(pattern)
 		if err != nil {
 			violations = append(violations, map[string]any{
-				"type": "invalid_pattern", "tool": tc.Name, "argument": argName,
-				"pattern": pattern, "error": err.Error(),
+				keyType: "invalid_pattern", valueKeyTool: tc.Name, keyArgument: argName,
+				keyPattern: pattern, valueKeyError: err.Error(),
 			})
 			continue
 		}
 		if !re.MatchString(asString(actualValue)) {
 			violations = append(violations, map[string]any{
-				"type": "pattern_mismatch", "tool": tc.Name, "argument": argName,
-				"pattern": pattern, "actual": actualValue,
+				keyType: "pattern_mismatch", valueKeyTool: tc.Name, keyArgument: argName,
+				keyPattern: pattern, keyActual: actualValue,
 			})
 		}
 	}
@@ -131,7 +131,7 @@ func validateResultConstraints(
 
 	if noError && tc.Error != "" {
 		violations = append(violations, map[string]any{
-			"type": "tool_error", "tool": tc.Name, "error": tc.Error,
+			keyType: "tool_error", valueKeyTool: tc.Name, valueKeyError: tc.Error,
 		})
 	}
 
@@ -140,7 +140,7 @@ func validateResultConstraints(
 		for _, pattern := range resultIncludes {
 			if !strings.Contains(resultLower, strings.ToLower(pattern)) {
 				violations = append(violations, map[string]any{
-					"type": "result_missing_pattern", "tool": tc.Name, "pattern": pattern,
+					keyType: "result_missing_pattern", valueKeyTool: tc.Name, keyPattern: pattern,
 				})
 			}
 		}
@@ -150,12 +150,12 @@ func validateResultConstraints(
 		re, err := regexp.Compile(resultMatches)
 		if err != nil {
 			violations = append(violations, map[string]any{
-				"type": "invalid_result_pattern", "tool": tc.Name,
-				"pattern": resultMatches, "error": err.Error(),
+				keyType: "invalid_result_pattern", valueKeyTool: tc.Name,
+				keyPattern: resultMatches, valueKeyError: err.Error(),
 			})
 		} else if !re.MatchString(tc.Result) {
 			violations = append(violations, map[string]any{
-				"type": "result_pattern_mismatch", "tool": tc.Name, "pattern": resultMatches,
+				keyType: "result_pattern_mismatch", valueKeyTool: tc.Name, keyPattern: resultMatches,
 			})
 		}
 	}

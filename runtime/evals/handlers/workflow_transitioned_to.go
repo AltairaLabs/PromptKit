@@ -25,7 +25,7 @@ func (h *WorkflowTransitionedToHandler) Eval(
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Score:       boolScore(false),
-			Explanation: "missing required param 'state'",
+			Explanation: msgMissingState,
 		}, nil
 	}
 
@@ -34,7 +34,7 @@ func (h *WorkflowTransitionedToHandler) Eval(
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Score:       boolScore(false),
-			Explanation: "no workflow transitions available in context",
+			Explanation: msgNoTransitions,
 		}, nil
 	}
 
@@ -43,7 +43,7 @@ func (h *WorkflowTransitionedToHandler) Eval(
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Score:       boolScore(false),
-			Explanation: "invalid transitions data in context",
+			Explanation: msgInvalidTransitions,
 		}, nil
 	}
 
@@ -56,9 +56,9 @@ func (h *WorkflowTransitionedToHandler) Eval(
 			return &evals.EvalResult{
 				Type:        h.Type(),
 				Score:       boolScore(true),
-				Value:       map[string]any{"target": target, "found": true, "transition": tr},
+				Value:       map[string]any{keyTarget: target, keyFound: true, keyTransition: tr},
 				Explanation: fmt.Sprintf("workflow transitioned to %q", target),
-				Details:     map[string]any{"transition": tr},
+				Details:     map[string]any{keyTransition: tr},
 			}, nil
 		}
 	}
@@ -66,8 +66,8 @@ func (h *WorkflowTransitionedToHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Score:       boolScore(false),
-		Value:       map[string]any{"target": target, "found": false, "transitions": transitions},
+		Value:       map[string]any{keyTarget: target, keyFound: false, keyTransitions: transitions},
 		Explanation: fmt.Sprintf("no transition to state %q found", target),
-		Details:     map[string]any{"target": target, "transitions": transitions},
+		Details:     map[string]any{keyTarget: target, keyTransitions: transitions},
 	}, nil
 }

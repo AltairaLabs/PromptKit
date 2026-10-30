@@ -120,7 +120,7 @@ func NewStreamingProviderFromArenaOutput(path string, cfg *Config) (*StreamingPr
 	// Add provider info
 	if output.ProviderID != "" {
 		config.Metadata["provider_info"] = map[string]interface{}{
-			"provider_id": output.ProviderID,
+			keyProviderID: output.ProviderID,
 		}
 	}
 
@@ -185,10 +185,10 @@ func (p *StreamingProvider) GetStreamingCapabilities() providers.StreamingCapabi
 	return providers.StreamingCapabilities{
 		SupportedMediaTypes: []string{types.ContentTypeAudio},
 		Audio: &providers.AudioStreamingCapabilities{
-			SupportedEncodings:   []string{"pcm", "pcm_linear16", "wav"},
+			SupportedEncodings:   []string{encodingPCM, "pcm_linear16", "wav"},
 			SupportedSampleRates: []int{16000, preferredSampleRate},
 			SupportedChannels:    []int{1},
-			PreferredEncoding:    "pcm",
+			PreferredEncoding:    encodingPCM,
 			PreferredSampleRate:  preferredSampleRate,
 		},
 		BidirectionalSupport: true,

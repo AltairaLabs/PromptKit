@@ -51,7 +51,7 @@ func (h *ToolNoRepeatHandler) Eval(
 				continue
 			}
 			violations = append(violations, map[string]any{
-				"tool":        name,
+				valueKeyTool:  name,
 				"consecutive": consecutive,
 				"at_index":    views[i].Index,
 			})
@@ -70,8 +70,8 @@ func (h *ToolNoRepeatHandler) Eval(
 				"repeated tool calls detected (max %d): %s",
 				maxRepeats, strings.Join(names, ", "),
 			),
-			Value:   map[string]any{"repeated_tools": violations},
-			Details: map[string]any{"violations": violations},
+			Value:   map[string]any{keyRepeatedTools: violations},
+			Details: map[string]any{keyViolations: violations},
 		}, nil
 	}
 
@@ -79,6 +79,6 @@ func (h *ToolNoRepeatHandler) Eval(
 		Type:        h.Type(),
 		Score:       boolScore(true),
 		Explanation: fmt.Sprintf("no tool called more than %d time(s) consecutively", maxRepeats),
-		Value:       map[string]any{"repeated_tools": []map[string]any{}},
+		Value:       map[string]any{keyRepeatedTools: []map[string]any{}},
 	}, nil
 }

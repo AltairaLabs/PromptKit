@@ -891,7 +891,12 @@ func TestMatchesEventTypeSet(t *testing.T) {
 	})
 }
 
-func TestFileEventStore_MatchesFilter(t *testing.T) {
+// matchesWithSet runs the live filter path: a type set built from the filter.
+func matchesWithSet(store *FileEventStore, event *Event, filter *EventFilter) bool {
+	return store.matchesFilterWithSet(event, filter, buildTypeSet(filter.Types))
+}
+
+func TestFileEventStore_MatchesFilterWithSet(t *testing.T) {
 	store, err := NewFileEventStore(t.TempDir())
 	require.NoError(t, err)
 	defer store.Close()
@@ -903,48 +908,22 @@ func TestFileEventStore_MatchesFilter(t *testing.T) {
 		ConversationID: "conv-1",
 	}
 
-	t.Run("matches with no type filter", func(t *testing.T) {
-		assert.True(t, store.matchesFilter(event, &EventFilter{SessionID: "s1"}))
-	})
-
-	t.Run("matches with matching type", func(t *testing.T) {
-		assert.True(t, store.matchesFilter(event, &EventFilter{
-			SessionID: "s1",
-			Types:     []EventType{EventMessageCreated},
-		}))
-	})
-
-	t.Run("does not match non-matching type", func(t *testing.T) {
-		assert.False(t, store.matchesFilter(event, &EventFilter{
-			SessionID: "s1",
-			Types:     []EventType{EventToolCallStarted},
-		}))
-	})
-
-	t.Run("does not match wrong conversation", func(t *testing.T) {
-		assert.False(t, store.matchesFilter(event, &EventFilter{
-			SessionID:      "s1",
-			ConversationID: "conv-999",
-		}))
-	})
-}
-
-func TestFileEventStore_MatchesEventTypes(t *testing.T) {
-	store, err := NewFileEventStore(t.TempDir())
-	require.NoError(t, err)
-	defer store.Close()
-
-	t.Run("empty types matches all", func(t *testing.T) {
-		assert.True(t, store.matchesEventTypes(EventMessageCreated, nil))
-	})
-
-	t.Run("type in list", func(t *testing.T) {
-		assert.True(t, store.matchesEventTypes(EventMessageCreated, []EventType{EventMessageCreated, EventToolCallStarted}))
-	})
-
-	t.Run("type not in list", func(t *testing.T) {
-		assert.False(t, store.matchesEventTypes(EventPipelineStarted, []EventType{EventMessageCreated}))
-	})
+	cases := []struct {
+		name   string
+		filter *EventFilter
+		want   bool
+	}{
+		{"matches with no type filter", &EventFilter{SessionID: "s1"}, true},
+		{"matches with matching type",
+			&EventFilter{SessionID: "s1", Types: []EventType{EventMessageCreated}}, true},
+		{"does not match non-matching type",
+			&EventFilter{SessionID: "s1", Types: []EventType{EventToolCallStarted}}, false},
+		{"does not match wrong conversation",
+			&EventFilter{SessionID: "s1", ConversationID: "conv-999"}, false},
+	}
+	for _, tc := range cases {
+		assert.Equal(t, tc.want, matchesWithSet(store, event, tc.filter), tc.name)
+	}
 }
 
 func TestFileEventStore_CloseAndReopen(t *testing.T) {

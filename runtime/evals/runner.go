@@ -409,7 +409,7 @@ func (r *EvalRunner) emitResult(def *EvalDef, result *EvalResult) {
 	// oversized handler output from evicting a turn's other events.
 	data.SetValue(result.Value)
 	if def != nil {
-		data.Trigger = string(def.Trigger)
+		data.Trigger = def.Trigger
 	}
 	// Kind and Passed are COPIED, never derived. The result already states
 	// both — the wrapper that coerced set them, and executeHandler stripped

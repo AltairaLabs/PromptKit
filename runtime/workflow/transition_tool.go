@@ -14,13 +14,35 @@ const TransitionToolName = "workflow__transition"
 const transitionToolDescription = "Transition the workflow to a new state by triggering an event. " +
 	"Use this when the conversation requires escalation, resolution, or any state change."
 
+// toolNamespace is the namespace the workflow tools are registered under.
+const toolNamespace = "workflow"
+
+// Argument names of the workflow tools' input schemas.
+const (
+	argEvent   = "event"
+	argContext = "context"
+	argName    = "name"
+	argValue   = "value"
+)
+
+// JSON Schema keywords and type names used in the workflow tool schemas.
+const (
+	schemaKeyType        = "type"
+	schemaKeyProperties  = "properties"
+	schemaKeyDescription = "description"
+	schemaKeyEnum        = "enum"
+	schemaKeyRequired    = "required"
+	schemaTypeObject     = "object"
+	schemaTypeString     = "string"
+)
+
 // BuildTransitionToolDescriptor creates a tools.ToolDescriptor for the
 // workflow__transition tool with the given events as an enum constraint.
 func BuildTransitionToolDescriptor(events []string) *tools.ToolDescriptor {
 	schemaJSON := buildTransitionSchema(events)
 	return &tools.ToolDescriptor{
 		Name:        TransitionToolName,
-		Namespace:   "workflow",
+		Namespace:   toolNamespace,
 		Description: transitionToolDescription,
 		InputSchema: schemaJSON,
 	}
@@ -56,19 +78,19 @@ func RegisterTransitionTool(registry *tools.Registry, state *State) {
 // buildTransitionSchema constructs the JSON schema for the transition tool.
 func buildTransitionSchema(events []string) json.RawMessage {
 	schema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"event": map[string]any{
-				"type":        "string",
-				"enum":        events,
-				"description": "The workflow event to trigger.",
+		schemaKeyType: schemaTypeObject,
+		schemaKeyProperties: map[string]any{
+			argEvent: map[string]any{
+				schemaKeyType:        schemaTypeString,
+				schemaKeyEnum:        events,
+				schemaKeyDescription: "The workflow event to trigger.",
 			},
-			"context": map[string]any{
-				"type":        "string",
-				"description": "Summary of relevant context to carry forward.",
+			argContext: map[string]any{
+				schemaKeyType:        schemaTypeString,
+				schemaKeyDescription: "Summary of relevant context to carry forward.",
 			},
 		},
-		"required": []string{"event", "context"},
+		schemaKeyRequired: []string{argEvent, argContext},
 	}
 	schemaJSON, _ := json.Marshal(schema)
 	return schemaJSON

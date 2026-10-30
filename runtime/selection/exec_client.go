@@ -54,7 +54,7 @@ type ExecClient struct {
 // NewExecClient constructs an ExecClient from the given config.
 // Sandbox defaults to the built-in direct backend when nil.
 //
-//nolint:gocritic // config is a value-semantics builder; users assemble inline.
+// config is a value-semantics builder; users assemble inline.
 func NewExecClient(cfg ExecClientConfig) *ExecClient {
 	sb := cfg.Sandbox
 	if sb == nil {

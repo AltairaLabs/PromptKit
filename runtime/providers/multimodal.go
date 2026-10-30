@@ -1,6 +1,8 @@
 package providers
 
 import (
+	"strconv"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -246,7 +248,7 @@ type UnsupportedContentError struct {
 
 func (e *UnsupportedContentError) Error() string {
 	if e.PartIndex >= 0 {
-		return e.Provider + ": " + e.Message + " (part " + string(rune(e.PartIndex)) + ")"
+		return e.Provider + ": " + e.Message + " (part " + strconv.Itoa(e.PartIndex) + ")"
 	}
 	return e.Provider + ": " + e.Message
 }

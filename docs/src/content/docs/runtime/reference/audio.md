@@ -1022,7 +1022,7 @@ type TurnDetector interface {
 ```
 
 <a name="VADAnalyzer"></a>
-## type [VADAnalyzer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/vad.go#L122-L139>)
+## type [VADAnalyzer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/vad.go#L128-L145>)
 
 VADAnalyzer analyzes audio for voice activity.
 
@@ -1048,7 +1048,7 @@ type VADAnalyzer interface {
 ```
 
 <a name="VADEvent"></a>
-## type [VADEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/vad.go#L113-L119>)
+## type [VADEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/vad.go#L119-L125>)
 
 VADEvent represents a state transition in VAD.
 
@@ -1100,7 +1100,7 @@ func DefaultVADParams() VADParams
 DefaultVADParams returns sensible defaults for voice activity detection.
 
 <a name="VADParams.Validate"></a>
-### func \(VADParams\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/vad.go#L83>)
+### func \(VADParams\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/vad.go#L89>)
 
 ```go
 func (p VADParams) Validate() error
@@ -1142,7 +1142,7 @@ func (s VADState) String() string
 String returns a human\-readable representation of the VAD state.
 
 <a name="ValidationError"></a>
-## type [ValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/vad.go#L103-L106>)
+## type [ValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/vad.go#L109-L112>)
 
 ValidationError represents a parameter validation error.
 
@@ -1154,7 +1154,7 @@ type ValidationError struct {
 ```
 
 <a name="ValidationError.Error"></a>
-### func \(\*ValidationError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/vad.go#L108>)
+### func \(\*ValidationError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/vad.go#L114>)
 
 ```go
 func (e *ValidationError) Error() string

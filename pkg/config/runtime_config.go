@@ -466,8 +466,12 @@ func (s *RuntimeConfigSpec) validateStateStore() error {
 	return nil
 }
 
+// providerTypeOpenAI is the OpenAI implementation type accepted by the
+// embedding, TTS and STT provider blocks.
+const providerTypeOpenAI = "openai"
+
 var validEmbeddingTypes = map[string]bool{
-	"openai": true, "gemini": true, "voyageai": true, "ollama": true,
+	providerTypeOpenAI: true, "gemini": true, "voyageai": true, "ollama": true,
 }
 
 func (s *RuntimeConfigSpec) validateEmbeddingProviders() error {
@@ -504,7 +508,7 @@ func (s *RuntimeConfigSpec) validateEmbeddingProviders() error {
 }
 
 var validTTSTypes = map[string]bool{
-	"openai": true, "elevenlabs": true, "cartesia": true,
+	providerTypeOpenAI: true, "elevenlabs": true, "cartesia": true,
 }
 
 func (s *RuntimeConfigSpec) validateTTSProviders() error {
@@ -541,7 +545,7 @@ func (s *RuntimeConfigSpec) validateTTSProviders() error {
 }
 
 var validSTTTypes = map[string]bool{
-	"openai": true,
+	providerTypeOpenAI: true,
 }
 
 func (s *RuntimeConfigSpec) validateSTTProviders() error {
@@ -615,51 +619,75 @@ func (s *RuntimeConfigSpec) validateInferenceProviders() error {
 }
 
 func (s *RuntimeConfigSpec) validateMCPServers() error {
-	for i, m := range s.MCPServers {
-		if m.Name == "" {
-			return &ValidationError{
-				Field:   fmt.Sprintf("mcp_servers[%d].name", i),
-				Message: "MCP server name is required",
-			}
-		}
-		transports := 0
-		if m.Command != "" {
-			transports++
-		}
-		if m.URL != "" {
-			transports++
-		}
-		if m.Source != "" {
-			transports++
-		}
-		if transports != 1 {
-			return &ValidationError{
-				Field:   fmt.Sprintf("mcp_servers[%d]", i),
-				Message: "exactly one of 'command' (stdio), 'url' (sse), or 'source' (host-provisioned) must be set",
-			}
-		}
-		if m.Source != "" {
-			if m.Scope == "" {
-				return &ValidationError{
-					Field:   fmt.Sprintf("mcp_servers[%d].scope", i),
-					Message: "scope is required when source is set (run|scenario|session)",
-				}
-			}
-			switch m.Scope {
-			case "run", "scenario", "session":
-				// ok
-			default:
-				return &ValidationError{
-					Field:   fmt.Sprintf("mcp_servers[%d].scope", i),
-					Message: fmt.Sprintf("invalid scope %q (want run|scenario|session)", m.Scope),
-				}
-			}
-		}
-		if err := validateMCPTransportField(i, &m); err != nil {
+	for i := range s.MCPServers {
+		if err := validateMCPServer(i, &s.MCPServers[i]); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// MCP server lifecycle scopes accepted for host-provisioned (source) servers.
+const (
+	mcpScopeRun      = "run"
+	mcpScopeScenario = "scenario"
+	mcpScopeSession  = "session"
+)
+
+// validateMCPServer validates the MCP server entry at index i.
+func validateMCPServer(i int, m *MCPServerConfig) error {
+	if m.Name == "" {
+		return &ValidationError{
+			Field:   fmt.Sprintf("mcp_servers[%d].name", i),
+			Message: "MCP server name is required",
+		}
+	}
+	if countMCPTransports(m) != 1 {
+		return &ValidationError{
+			Field:   fmt.Sprintf("mcp_servers[%d]", i),
+			Message: "exactly one of 'command' (stdio), 'url' (sse), or 'source' (host-provisioned) must be set",
+		}
+	}
+	if m.Source != "" {
+		if err := validateMCPScope(i, m.Scope); err != nil {
+			return err
+		}
+	}
+	return validateMCPTransportField(i, m)
+}
+
+// countMCPTransports returns how many of command, url and source are set.
+func countMCPTransports(m *MCPServerConfig) int {
+	transports := 0
+	if m.Command != "" {
+		transports++
+	}
+	if m.URL != "" {
+		transports++
+	}
+	if m.Source != "" {
+		transports++
+	}
+	return transports
+}
+
+// validateMCPScope checks the scope of a host-provisioned MCP server.
+func validateMCPScope(i int, scope string) error {
+	if scope == "" {
+		return &ValidationError{
+			Field:   fmt.Sprintf("mcp_servers[%d].scope", i),
+			Message: "scope is required when source is set (run|scenario|session)",
+		}
+	}
+	switch scope {
+	case mcpScopeRun, mcpScopeScenario, mcpScopeSession:
+		return nil
+	default:
+		return &ValidationError{
+			Field:   fmt.Sprintf("mcp_servers[%d].scope", i),
+			Message: fmt.Sprintf("invalid scope %q (want run|scenario|session)", scope),
+		}
+	}
 }
 
 const (
@@ -729,6 +757,10 @@ func validateOneShotRuntime(field, runtime string) error {
 
 var validHookTypes = map[string]bool{"provider": true, "tool": true, "session": true, "eval": true}
 
+// msgSandboxNotDeclared is the validation message for a reference to an
+// undeclared sandbox.
+const msgSandboxNotDeclared = "references a sandbox not declared under spec.sandboxes"
+
 func (s *RuntimeConfigSpec) validateSandboxes() error {
 	for name, sb := range s.Sandboxes {
 		if sb == nil {
@@ -786,7 +818,7 @@ func (s *RuntimeConfigSpec) validateSelectorEntry(name string, sel *SelectorConf
 	if _, ok := s.Sandboxes[sel.Sandbox]; !ok {
 		return &ValidationError{
 			Field:   fmt.Sprintf("selectors[%s].sandbox", name),
-			Message: "references a sandbox not declared under spec.sandboxes",
+			Message: msgSandboxNotDeclared,
 			Value:   sel.Sandbox,
 		}
 	}
@@ -838,7 +870,7 @@ func (s *RuntimeConfigSpec) validateHooks() error {
 			if _, ok := s.Sandboxes[h.Sandbox]; !ok {
 				return &ValidationError{
 					Field:   fmt.Sprintf("hooks[%s].sandbox", name),
-					Message: "references a sandbox not declared under spec.sandboxes",
+					Message: msgSandboxNotDeclared,
 					Value:   h.Sandbox,
 				}
 			}

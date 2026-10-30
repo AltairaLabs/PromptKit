@@ -503,8 +503,8 @@ func (r *RegistryImpl) updateToolsResult(serverName string, tools []Tool, result
 	mu.Unlock()
 
 	r.mu.Lock()
-	for _, tool := range tools {
-		r.toolIndex[tool.Name] = serverName
+	for i := range tools {
+		r.toolIndex[tools[i].Name] = serverName
 	}
 	r.mu.Unlock()
 }
@@ -557,8 +557,8 @@ func (r *RegistryImpl) indexServerTools(serverName string, tools []Tool) {
 			delete(r.toolIndex, toolName)
 		}
 	}
-	for _, tool := range tools {
-		r.toolIndex[tool.Name] = serverName
+	for i := range tools {
+		r.toolIndex[tools[i].Name] = serverName
 	}
 }
 
@@ -628,8 +628,9 @@ type ServerConfigData struct {
 func NewRegistryWithServers(serverConfigs []ServerConfigData) (*RegistryImpl, error) {
 	registry := NewRegistry()
 
-	for _, cfg := range serverConfigs {
-		if err := registry.RegisterServer(ServerConfig(cfg)); err != nil {
+	for i := range serverConfigs {
+		cfg := &serverConfigs[i]
+		if err := registry.RegisterServer(ServerConfig(*cfg)); err != nil {
 			return nil, fmt.Errorf("failed to register MCP server %s: %w", cfg.Name, err)
 		}
 	}

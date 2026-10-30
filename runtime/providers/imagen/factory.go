@@ -7,6 +7,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
+//nolint:gochecknoinits // provider self-registration via init is the established pattern
 func init() {
 	providers.RegisterProviderFactory("imagen", func(spec providers.ProviderSpec) (providers.Provider, error) {
 		// Resolve API key. Construction must not fail when the key is
@@ -23,14 +24,16 @@ func init() {
 
 		// Project ID and location are no longer required when using Gemini API endpoint
 		// Keep them for backwards compatibility but they're not used
-		projectID, _ := spec.AdditionalConfig["project_id"].(string) // NOSONAR: Type assertion failure returns empty string, handled below
+		// Type assertion failure returns empty string, handled below
+		projectID, _ := spec.AdditionalConfig["project_id"].(string) // NOSONAR
 		if projectID == "" {
 			projectID = os.Getenv("GOOGLE_CLOUD_PROJECT")
 		}
 
-		location, _ := spec.AdditionalConfig["location"].(string) // NOSONAR: Type assertion failure returns empty string, handled below
+		// Type assertion failure returns empty string, handled below
+		location, _ := spec.AdditionalConfig["location"].(string) // NOSONAR
 		if location == "" {
-			location = "us-central1"
+			location = defaultLocation
 		}
 
 		provider := NewProvider(Config{

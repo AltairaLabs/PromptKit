@@ -946,17 +946,16 @@ func TestHandleContextCancellation(t *testing.T) {
 	})
 }
 
-func TestSendDoneChunk(t *testing.T) {
+// TestCreateFinalStreamChunk_TokenCount covers the token-count rules of the
+// final stream chunk (ported from the removed sendDoneChunk wrapper's test).
+func TestCreateFinalStreamChunk_TokenCount(t *testing.T) {
 	provider := NewProvider("test", "llama2", "http://localhost:11434",
 		providers.ProviderDefaults{}, false, nil)
 
-	outChan := make(chan providers.StreamChunk, 1)
 	toolCalls := []types.MessageToolCall{{ID: "call_1"}}
 
 	// Test without usage
-	provider.sendDoneChunk("content", toolCalls, 10, nil, outChan)
-
-	chunk := <-outChan
+	chunk := provider.createFinalStreamChunk("content", toolCalls, 10, providers.StringPtr("stop"), nil)
 
 	if chunk.Content != "content" {
 		t.Error("Content mismatch")
@@ -972,9 +971,7 @@ func TestSendDoneChunk(t *testing.T) {
 
 	// Test with usage - should override estimated token count
 	usage := &ollamaUsage{PromptTokens: 50, CompletionTokens: 25, TotalTokens: 75}
-	provider.sendDoneChunk("content", toolCalls, 10, usage, outChan)
-
-	chunk = <-outChan
+	chunk = provider.createFinalStreamChunk("content", toolCalls, 10, providers.StringPtr("stop"), usage)
 
 	if chunk.TokenCount != 75 {
 		t.Errorf("Expected TokenCount 75 from usage, got %d", chunk.TokenCount)

@@ -19,7 +19,21 @@ const (
 	mediaTypeImage = "image"
 	mediaTypeAudio = "audio"
 	mediaTypeVideo = "video"
+	mediaTypeText  = "text"
 )
+
+// Container formats accepted for both audio and video.
+const (
+	formatOgg  = "ogg"
+	formatWebM = "webm"
+)
+
+// validImageDetails are the accepted image detail levels.
+var validImageDetails = map[string]bool{
+	"low":  true,
+	"high": true,
+	"auto": true,
+}
 
 // ValidateMediaConfig validates a MediaConfig for correctness and completeness
 func ValidateMediaConfig(config *MediaConfig) error {
@@ -120,12 +134,7 @@ func validateImageConfig(config *ImageConfig) error {
 	// defaults it to "auto" — nil means "not set", which is valid, and is a
 	// different fact from an explicit empty string.
 	if config.DefaultDetail != nil {
-		validDetails := map[string]bool{
-			"low":  true,
-			"high": true,
-			"auto": true,
-		}
-		if !validDetails[*config.DefaultDetail] {
+		if !validImageDetails[*config.DefaultDetail] {
 			return fmt.Errorf("invalid default_detail '%s': must be one of low, high, auto",
 				*config.DefaultDetail)
 		}
@@ -146,12 +155,12 @@ func validateAudioConfig(config *AudioConfig) error {
 
 	// Validate allowed formats
 	validFormats := map[string]bool{
-		"mp3":  true,
-		"wav":  true,
-		"ogg":  true,
-		"webm": true,
-		"m4a":  true,
-		"flac": true,
+		"mp3":      true,
+		"wav":      true,
+		formatOgg:  true,
+		formatWebM: true,
+		"m4a":      true,
+		"flac":     true,
 	}
 
 	for _, format := range config.AllowedFormats {
@@ -176,11 +185,11 @@ func validateVideoConfig(config *VideoConfig) error {
 
 	// Validate allowed formats
 	validFormats := map[string]bool{
-		"mp4":  true,
-		"webm": true,
-		"ogg":  true,
-		"mov":  true,
-		"avi":  true,
+		"mp4":      true,
+		formatWebM: true,
+		formatOgg:  true,
+		"mov":      true,
+		"avi":      true,
 	}
 
 	for _, format := range config.AllowedFormats {
@@ -234,7 +243,7 @@ func validateMultimodalExample(example *MultimodalExample) error {
 // validateExampleContentPart validates a content part in an example
 func validateExampleContentPart(part *ExampleContentPart) error {
 	validTypes := map[string]bool{
-		"text":         true,
+		mediaTypeText:  true,
 		mediaTypeImage: true,
 		mediaTypeAudio: true,
 		mediaTypeVideo: true,
@@ -245,7 +254,7 @@ func validateExampleContentPart(part *ExampleContentPart) error {
 	}
 
 	switch part.Type {
-	case "text":
+	case mediaTypeText:
 		if part.Text == "" {
 			return fmt.Errorf("text content part must have non-empty text")
 		}
@@ -296,12 +305,7 @@ func validateExampleMedia(media *ExampleMedia, contentType string) error {
 
 	// Validate detail level for images
 	if contentType == mediaTypeImage && media.Detail != "" {
-		validDetails := map[string]bool{
-			"low":  true,
-			"high": true,
-			"auto": true,
-		}
-		if !validDetails[media.Detail] {
+		if !validImageDetails[media.Detail] {
 			return fmt.Errorf("invalid detail level '%s': must be one of low, high, auto", media.Detail)
 		}
 	}

@@ -70,6 +70,9 @@ const (
 	LogFormatText = "text"
 )
 
+// msgInvalidLogLevel is the validation message for an unrecognized log level.
+const msgInvalidLogLevel = "must be one of: trace, debug, info, warn, error"
+
 // DefaultLoggingConfig returns a LoggingConfigSpec with sensible defaults.
 func DefaultLoggingConfig() LoggingConfigSpec {
 	return LoggingConfigSpec{
@@ -84,7 +87,7 @@ func (c *LoggingConfigSpec) Validate() error {
 	if c.DefaultLevel != "" && !isValidLogLevel(c.DefaultLevel) {
 		return &ValidationError{
 			Field:   "defaultLevel",
-			Message: "must be one of: trace, debug, info, warn, error",
+			Message: msgInvalidLogLevel,
 			Value:   c.DefaultLevel,
 		}
 	}
@@ -109,7 +112,7 @@ func (c *LoggingConfigSpec) Validate() error {
 		if mod.Level != "" && !isValidLogLevel(mod.Level) {
 			return &ValidationError{
 				Field:   "modules[" + mod.Name + "].level",
-				Message: "must be one of: trace, debug, info, warn, error",
+				Message: msgInvalidLogLevel,
 				Value:   mod.Level,
 			}
 		}

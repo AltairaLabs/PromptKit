@@ -359,7 +359,7 @@ func defaultCopyDir(src, dest string) error {
 			return err
 		}
 
-		return os.WriteFile(destPath, data, info.Mode())
+		return os.WriteFile(destPath, data, info.Mode()) //nolint:gosec // G703: destPath is under dest, built by Walk
 	})
 }
 

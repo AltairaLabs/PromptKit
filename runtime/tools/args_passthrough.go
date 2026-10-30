@@ -5,6 +5,12 @@ import (
 	"fmt"
 )
 
+// jsonNull is the JSON literal null, as raw bytes compare against it.
+const jsonNull = "null"
+
+// wrappedResultKey is the key a non-JSON tool output is wrapped under.
+const wrappedResultKey = "result"
+
 // DecodeArgsExtras decodes raw tool args twice: once into the executor's typed
 // struct, and once into a generic map so any keys NOT named in knownKeys can be
 // returned to the caller for routing into the output's Metadata bag.
@@ -23,7 +29,7 @@ import (
 // merge unconditionally without nil checks. Returns nil + nil when args is
 // empty or "null" — both mean "no args at all".
 func DecodeArgsExtras(args json.RawMessage, typed any, knownKeys ...string) (map[string]any, error) {
-	if len(args) == 0 || string(args) == "null" {
+	if len(args) == 0 || string(args) == jsonNull {
 		return nil, nil
 	}
 	if err := json.Unmarshal(args, typed); err != nil {

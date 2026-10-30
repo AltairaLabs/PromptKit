@@ -69,9 +69,9 @@ func (s *PromptAssemblyStage) WithModel(model string) *PromptAssemblyStage {
 // render the template (that is TemplateStage's job) and does NOT set
 // variables (that is VariableProviderStage's job). All input elements are
 // forwarded unchanged.
-//
-//nolint:lll // Channel signature cannot be shortened
-func (s *PromptAssemblyStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
+func (s *PromptAssemblyStage) Process(
+	ctx context.Context, input <-chan StreamElement, output chan<- StreamElement,
+) error {
 	defer close(output)
 
 	// Load raw template (no rendering)
@@ -178,8 +178,6 @@ func NewStateStoreLoadStageWithTurnState(config *pipeline.StateStoreConfig, turn
 }
 
 // Process loads conversation history and emits it before current input.
-//
-//nolint:lll // Channel signature cannot be shortened
 func (s *StateStoreLoadStage) Process(
 	ctx context.Context,
 	input <-chan StreamElement,
@@ -272,7 +270,7 @@ func (s *StateStoreLoadStage) loadHistoryMessages(ctx context.Context) ([]types.
 	}
 
 	for i := range state.Messages {
-		state.Messages[i].Source = "statestore"
+		state.Messages[i].Source = sourceStateStore
 	}
 	return state.Messages, nil
 }

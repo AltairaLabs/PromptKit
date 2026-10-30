@@ -111,7 +111,7 @@ func skillToToolDescriptor(agentURL string, card *AgentCard, skill *AgentSkill) 
 		Description:  description,
 		InputSchema:  generateInputSchema(inputModes),
 		OutputSchema: generateOutputSchema(outputModes),
-		Mode:         "a2a",
+		Mode:         executorModeA2A,
 		A2AConfig: &tools.A2AConfig{
 			AgentURL: agentURL,
 			SkillID:  skill.ID,
@@ -119,32 +119,50 @@ func skillToToolDescriptor(agentURL string, card *AgentCard, skill *AgentSkill) 
 	}
 }
 
+// Keys and values shared by the A2A tool descriptors and their executor.
+const (
+	// executorModeA2A is the tool Mode, and executor name, for A2A tools.
+	executorModeA2A = "a2a"
+	// argKeyQuery is the tool argument carrying the text sent to the agent.
+	argKeyQuery = "query"
+	// resultKeyResponse is the tool result field carrying the agent's reply.
+	resultKeyResponse = "response"
+	// schemaTypeObject is the JSON Schema "object" type.
+	schemaTypeObject = "object"
+	// schemaTypeString is the JSON Schema "string" type.
+	schemaTypeString = "string"
+	// schemaKeyProperties is the JSON Schema "properties" keyword.
+	schemaKeyProperties = "properties"
+	// schemaKeyType is the JSON Schema "type" keyword.
+	schemaKeyType = "type"
+)
+
 // generateInputSchema builds a JSON Schema based on the skill's input modes.
 func generateInputSchema(inputModes []string) json.RawMessage {
 	props := map[string]any{
-		"query": map[string]any{"type": "string"},
+		argKeyQuery: map[string]any{schemaKeyType: schemaTypeString},
 	}
-	required := []string{"query"}
+	required := []string{argKeyQuery}
 
 	for _, mode := range inputModes {
 		if matchesMIME(mode, "image/") {
-			props["image_url"] = map[string]any{"type": "string"}
-			props["image_data"] = map[string]any{"type": "string"}
+			props["image_url"] = map[string]any{schemaKeyType: schemaTypeString}
+			props["image_data"] = map[string]any{schemaKeyType: schemaTypeString}
 			break
 		}
 	}
 
 	for _, mode := range inputModes {
 		if matchesMIME(mode, "audio/") {
-			props["audio_data"] = map[string]any{"type": "string"}
+			props["audio_data"] = map[string]any{schemaKeyType: schemaTypeString}
 			break
 		}
 	}
 
 	schema := map[string]any{
-		"type":       "object",
-		"properties": props,
-		"required":   required,
+		schemaKeyType:       schemaTypeObject,
+		schemaKeyProperties: props,
+		"required":          required,
 	}
 	data, _ := json.Marshal(schema)
 	return data
@@ -153,7 +171,7 @@ func generateInputSchema(inputModes []string) json.RawMessage {
 // generateOutputSchema builds a JSON Schema based on the skill's output modes.
 func generateOutputSchema(outputModes []string) json.RawMessage {
 	props := map[string]any{
-		"response": map[string]any{"type": "string"},
+		resultKeyResponse: map[string]any{schemaKeyType: schemaTypeString},
 	}
 
 	hasMedia := false
@@ -164,13 +182,13 @@ func generateOutputSchema(outputModes []string) json.RawMessage {
 		}
 	}
 	if hasMedia {
-		props["media_url"] = map[string]any{"type": "string"}
-		props["media_type"] = map[string]any{"type": "string"}
+		props["media_url"] = map[string]any{schemaKeyType: schemaTypeString}
+		props["media_type"] = map[string]any{schemaKeyType: schemaTypeString}
 	}
 
 	schema := map[string]any{
-		"type":       "object",
-		"properties": props,
+		schemaKeyType:       schemaTypeObject,
+		schemaKeyProperties: props,
 	}
 	data, _ := json.Marshal(schema)
 	return data

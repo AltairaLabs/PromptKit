@@ -58,7 +58,7 @@ func (h *WorkflowToolAccessHandler) Eval(
 		}
 		if !allowed[tc.ToolName] {
 			violations = append(violations, map[string]any{
-				"tool":       tc.ToolName,
+				valueKeyTool: tc.ToolName,
 				"state":      state,
 				"turn_index": tc.TurnIndex,
 			})
@@ -76,16 +76,16 @@ func (h *WorkflowToolAccessHandler) Eval(
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Score:       boolScore(false),
-			Value:       map[string]any{"violations": violations, "violation_count": len(violations)},
+			Value:       map[string]any{keyViolations: violations, keyViolationCount: len(violations)},
 			Explanation: fmt.Sprintf("%d violation(s): %s", len(violations), strings.Join(msgs, "; ")),
-			Details:     map[string]any{"violations": violations},
+			Details:     map[string]any{keyViolations: violations},
 		}, nil
 	}
 
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Score:       boolScore(true),
-		Value:       map[string]any{"violations": []map[string]any{}, "violation_count": 0},
+		Value:       map[string]any{keyViolations: []map[string]any{}, keyViolationCount: 0},
 		Explanation: fmt.Sprintf("all tool calls comply with %d access rule(s)", len(rules)),
 	}, nil
 }

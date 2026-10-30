@@ -72,8 +72,6 @@ func (p *probedProvider) CalculateCost(inputTokens, outputTokens, cachedTokens i
 //
 // Signature must match providers.Provider; PredictionRequest is passed by
 // value there and we cannot deviate.
-//
-//nolint:gocritic // hugeParam — locked by interface contract.
 func (p *probedProvider) Predict(
 	ctx context.Context, req providers.PredictionRequest,
 ) (providers.PredictionResponse, error) {
@@ -84,8 +82,6 @@ func (p *probedProvider) Predict(
 }
 
 // PredictStream counts the call and forwards to the inner provider.
-//
-//nolint:gocritic // hugeParam — locked by interface contract.
 func (p *probedProvider) PredictStream(
 	ctx context.Context, req providers.PredictionRequest,
 ) (<-chan providers.StreamChunk, error) {

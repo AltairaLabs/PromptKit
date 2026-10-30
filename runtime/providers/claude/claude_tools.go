@@ -24,6 +24,15 @@ const (
 	sourceTypeBase64 = "base64"
 	sourceTypeURL    = "url"
 
+	// contentTypeText is the "type" value of a Claude text content block.
+	contentTypeText = "text"
+	// contentTypeToolUse is the "type" value of a Claude tool_use content block.
+	contentTypeToolUse = "tool_use"
+
+	// Claude tool_choice "type" values.
+	toolChoiceAuto = "auto"
+	toolChoiceAny  = "any"
+
 	// Shared error-wrapping formats for tool-path request building.
 	errMarshalRequestFailed = "failed to marshal request: %w"
 	errCreateRequestFailed  = "failed to create request: %w"
@@ -42,7 +51,9 @@ type ToolProvider struct {
 }
 
 // NewToolProvider creates a new Claude provider with tool support
-func NewToolProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool) *ToolProvider {
+func NewToolProvider(
+	id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool,
+) *ToolProvider {
 	return &ToolProvider{
 		Provider: NewProvider(id, model, baseURL, defaults, includeRawOutput),
 	}
@@ -157,8 +168,6 @@ func (p *ToolProvider) PredictWithTools(
 }
 
 // predictWithToolsOnce performs a predict request with tool support
-//
-//nolint:gocritic // hugeParam: interface signature requires value receiver
 func (p *ToolProvider) predictWithToolsOnce(
 	ctx context.Context,
 	req providers.PredictionRequest,
@@ -194,8 +203,6 @@ func (p *ToolProvider) predictWithToolsOnce(
 // processClaudeToolResult converts a tool message to Claude's tool_result format.
 // For text-only results, content is a plain string.
 // For multimodal results (containing images, documents, etc.), content is an array of content blocks.
-//
-//nolint:gocritic // hugeParam: types.Message is part of established API
 func (p *Provider) processClaudeToolResult(ctx context.Context, msg types.Message) claudeToolResult {
 	result := claudeToolResult{
 		Type:      "tool_result",
@@ -231,7 +238,7 @@ func (p *Provider) convertToolResultPart(ctx context.Context, part types.Content
 	switch part.Type {
 	case types.ContentTypeText:
 		if part.Text != nil && *part.Text != "" {
-			return claudeTextContent{Type: "text", Text: *part.Text}
+			return claudeTextContent{Type: contentTypeText, Text: *part.Text}
 		}
 	case types.ContentTypeImage:
 		if part.Media != nil {
@@ -274,8 +281,6 @@ func (p *Provider) buildToolResultMediaBlock(
 }
 
 // buildClaudeMessageContent creates content array for a message including text, images, and tool calls
-//
-//nolint:gocritic // hugeParam: types.Message is part of established API
 func (p *ToolProvider) buildClaudeMessageContent(
 	ctx context.Context,
 	msg types.Message,
@@ -300,7 +305,7 @@ func (p *ToolProvider) buildClaudeMessageContent(
 			// off at max_tokens leaves non-empty-but-invalid JSON that would crash
 			// the request marshal on replay.
 			content = append(content, claudeToolUse{
-				Type:  "tool_use",
+				Type:  contentTypeToolUse,
 				ID:    toolCall.ID,
 				Name:  toolCall.Name,
 				Input: types.NormalizeRawMessage(toolCall.Args),
@@ -313,8 +318,6 @@ func (p *ToolProvider) buildClaudeMessageContent(
 
 // buildMessageContentBlocks creates content blocks for text and media parts of a message.
 // This is extracted to reduce cognitive complexity of buildClaudeMessageContent.
-//
-//nolint:gocritic // hugeParam: types.Message is part of established API
 func (p *ToolProvider) buildMessageContentBlocks(ctx context.Context, msg types.Message) []interface{} {
 	// Check if message has multimodal content (images, etc.)
 	if msg.HasMediaContent() {
@@ -330,7 +333,7 @@ func (p *ToolProvider) buildMessageContentBlocks(ctx context.Context, msg types.
 	textContent := msg.GetContent()
 	if textContent != "" {
 		return []interface{}{claudeTextContent{
-			Type: "text",
+			Type: contentTypeText,
 			Text: textContent,
 		}}
 	}
@@ -349,10 +352,10 @@ func addClaudeToolConfig(request *claudeRequest, tools any, toolChoice string) {
 		// tool_choice:"none" directly, so omit tool_choice and let the model
 		// decide not to use tools (the tools are still sent so it knows they
 		// exist). Both leave ToolChoice unset.
-	case "auto":
-		request.ToolChoice = map[string]any{fieldType: "auto"}
-	case "required", "any":
-		request.ToolChoice = map[string]any{fieldType: "any"}
+	case toolChoiceAuto:
+		request.ToolChoice = map[string]any{fieldType: toolChoiceAuto}
+	case "required", toolChoiceAny:
+		request.ToolChoice = map[string]any{fieldType: toolChoiceAny}
 	default:
 		request.ToolChoice = map[string]any{
 			fieldType: "tool",
@@ -445,7 +448,6 @@ func markLastBlockCacheable(messages []claudeToolMessage) {
 	}
 }
 
-//nolint:gocritic // hugeParam: providers.PredictionRequest is passed by value across the provider interface
 func (p *ToolProvider) buildToolRequest(
 	ctx context.Context, req providers.PredictionRequest, tools any, toolChoice string,
 ) claudeRequest {
@@ -504,7 +506,7 @@ func (p *ToolProvider) buildToolRequest(
 // extractTextContentFromResponse extracts text content from Claude response
 func extractTextContentFromResponse(content []claudeContent) string {
 	for _, c := range content {
-		if c.Type == "text" {
+		if c.Type == contentTypeText {
 			return c.Text
 		}
 	}
@@ -517,7 +519,7 @@ func extractTextContentFromResponse(content []claudeContent) string {
 func extractContentParts(content []claudeContent) []types.ContentPart {
 	var parts []types.ContentPart
 	for _, c := range content {
-		if c.Type == "text" {
+		if c.Type == contentTypeText {
 			parts = append(parts, types.NewTextPart(c.Text))
 		}
 	}
@@ -575,7 +577,7 @@ func parseToolCallsFromRawResponse(respBytes []byte) []types.MessageToolCall {
 
 	for _, item := range content {
 		itemMap, ok := item.(map[string]interface{})
-		if !ok || itemMap["type"] != "tool_use" {
+		if !ok || itemMap["type"] != contentTypeToolUse {
 			continue
 		}
 
@@ -585,7 +587,8 @@ func parseToolCallsFromRawResponse(respBytes []byte) []types.MessageToolCall {
 		}
 
 		if input, ok := itemMap["input"]; ok {
-			inputBytes, _ := json.Marshal(input) // NOSONAR: Marshal only errors on unsupported types, impossible with map[string]interface{}
+			// Marshal only errors on unsupported types, impossible with map[string]interface{}
+			inputBytes, _ := json.Marshal(input) // NOSONAR
 			toolCall.Args = json.RawMessage(inputBytes)
 		}
 
@@ -890,8 +893,6 @@ func (p *ToolProvider) buildDirectStreamingRequestFn(
 // applyThinkingConfig enables Claude extended thinking from additional_config:
 //   - thinking_budget (int): reasoning-token budget (>= 1024). Sets the request's
 //     thinking block; omit to leave thinking off.
-//
-//nolint:gocritic // hugeParam: providers.ProviderSpec is passed by value across the factory
 func applyThinkingConfig(p *Provider, spec providers.ProviderSpec) {
 	if spec.AdditionalConfig == nil {
 		return

@@ -191,7 +191,7 @@ func (h *ExecProviderHook) BeforeCall(ctx context.Context, req *ProviderRequest)
 	if !h.hasPhase("before_call") {
 		return Allow
 	}
-	hookReq := &execHookRequest{Hook: "provider", Phase: "before_call", Request: req}
+	hookReq := &execHookRequest{Hook: HookTypeProvider, Phase: "before_call", Request: req}
 	if h.isObserve() {
 		h.execObserve(ctx, hookReq)
 		return Allow
@@ -206,7 +206,7 @@ func (h *ExecProviderHook) AfterCall(
 	if !h.hasPhase("after_call") {
 		return Allow
 	}
-	hookReq := &execHookRequest{Hook: "provider", Phase: "after_call", Request: req, Response: resp}
+	hookReq := &execHookRequest{Hook: HookTypeProvider, Phase: "after_call", Request: req, Response: resp}
 	if h.isObserve() {
 		h.execObserve(ctx, hookReq)
 		return Allow
@@ -234,7 +234,7 @@ func (h *ExecToolHook) BeforeExecution(ctx context.Context, req ToolRequest) Dec
 	if !h.hasPhase("before_execution") {
 		return Allow
 	}
-	hookReq := &execHookRequest{Hook: "tool", Phase: "before_execution", Request: req}
+	hookReq := &execHookRequest{Hook: HookTypeTool, Phase: "before_execution", Request: req}
 	if h.isObserve() {
 		h.execObserve(ctx, hookReq)
 		return Allow
@@ -247,7 +247,7 @@ func (h *ExecToolHook) AfterExecution(ctx context.Context, req ToolRequest, resp
 	if !h.hasPhase("after_execution") {
 		return Allow
 	}
-	hookReq := &execHookRequest{Hook: "tool", Phase: "after_execution", Request: req, Response: resp}
+	hookReq := &execHookRequest{Hook: HookTypeTool, Phase: "after_execution", Request: req, Response: resp}
 	if h.isObserve() {
 		h.execObserve(ctx, hookReq)
 		return Allow

@@ -59,6 +59,6 @@ func (e *LocalAgentExecutor) Execute(
 	}
 
 	// Return the response
-	result := map[string]string{"response": resp.Text()}
+	result := map[string]string{agentToolResultResponse: resp.Text()}
 	return json.Marshal(result)
 }

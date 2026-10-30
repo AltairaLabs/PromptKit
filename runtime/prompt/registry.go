@@ -37,12 +37,13 @@ import (
 	"strings"
 	"sync"
 
+	"gopkg.in/yaml.v3"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/template"
-	"gopkg.in/yaml.v3"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // AssembledPrompt represents a complete prompt ready for LLM execution.
@@ -95,23 +96,30 @@ func (c *Config) GetAllowedTools() []string {
 
 // Spec contains the actual prompt configuration
 type Spec struct {
-	TaskType       string                   `yaml:"task_type" json:"task_type"`
-	Version        string                   `yaml:"version" json:"version"`
-	Description    string                   `yaml:"description" json:"description"`
-	TemplateEngine *TemplateEngineInfo      `yaml:"template_engine,omitempty" json:"template_engine,omitempty"` // Template engine configuration
-	Fragments      []FragmentRef            `yaml:"fragments,omitempty" json:"fragments,omitempty"`             // New: fragment assembly
-	SystemTemplate string                   `yaml:"system_template" json:"system_template"`
-	Variables      []VariableMetadata       `yaml:"variables,omitempty" json:"variables,omitempty"` // Variable definitions with rich metadata
+	TaskType    string `yaml:"task_type" json:"task_type"`
+	Version     string `yaml:"version" json:"version"`
+	Description string `yaml:"description" json:"description"`
+	// TemplateEngine is the template engine configuration.
+	TemplateEngine *TemplateEngineInfo `yaml:"template_engine,omitempty" json:"template_engine,omitempty"`
+	// Fragments drive fragment assembly.
+	Fragments      []FragmentRef `yaml:"fragments,omitempty" json:"fragments,omitempty"`
+	SystemTemplate string        `yaml:"system_template" json:"system_template"`
+	// Variables are the variable definitions with rich metadata.
+	Variables      []VariableMetadata       `yaml:"variables,omitempty" json:"variables,omitempty"`
 	ModelOverrides map[string]ModelOverride `yaml:"model_overrides,omitempty" json:"model_overrides,omitempty"`
-	AllowedTools   []string                 `yaml:"allowed_tools,omitempty" json:"allowed_tools,omitempty"` // Tools this prompt can use
-	MediaConfig    *MediaConfig             `yaml:"media,omitempty" json:"media,omitempty"`                 // Multimodal media configuration
-	Validators     []ValidatorConfig        `yaml:"validators,omitempty" json:"validators,omitempty"`       // Validators/Guardrails for production runtime
-	TestedModels   []ModelTestResultRef     `yaml:"tested_models,omitempty" json:"tested_models,omitempty"` // Model testing metadata
-	ToolPolicy     *ToolPolicyPack          `yaml:"tool_policy,omitempty" json:"tool_policy,omitempty"`
-	Parameters     *ParametersPack          `yaml:"parameters,omitempty" json:"parameters,omitempty"`
-	Evals          []evals.EvalDef          `yaml:"evals,omitempty" json:"evals,omitempty"`
-	Metadata       *Metadata                `yaml:"metadata,omitempty" json:"metadata,omitempty"`
-	Compilation    *CompilationInfo         `yaml:"compilation,omitempty" json:"compilation,omitempty"`
+	// AllowedTools are the tools this prompt can use.
+	AllowedTools []string `yaml:"allowed_tools,omitempty" json:"allowed_tools,omitempty"`
+	// MediaConfig is the multimodal media configuration.
+	MediaConfig *MediaConfig `yaml:"media,omitempty" json:"media,omitempty"`
+	// Validators are the validators/guardrails for the production runtime.
+	Validators []ValidatorConfig `yaml:"validators,omitempty" json:"validators,omitempty"`
+	// TestedModels is the model testing metadata.
+	TestedModels []ModelTestResultRef `yaml:"tested_models,omitempty" json:"tested_models,omitempty"`
+	ToolPolicy   *ToolPolicyPack      `yaml:"tool_policy,omitempty" json:"tool_policy,omitempty"`
+	Parameters   *ParametersPack      `yaml:"parameters,omitempty" json:"parameters,omitempty"`
+	Evals        []evals.EvalDef      `yaml:"evals,omitempty" json:"evals,omitempty"`
+	Metadata     *Metadata            `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	Compilation  *CompilationInfo     `yaml:"compilation,omitempty" json:"compilation,omitempty"`
 
 	// Extensions are opaque policy annotations about this prompt (RFC 0016),
 	// carried into the compiled pack unchanged and never interpreted.
@@ -270,8 +278,9 @@ type VariableBinding struct {
 // VariableMetadata defines a template variable with validation rules
 // This struct matches the SDK Variable type for PromptPack spec compliance
 type VariableMetadata struct {
-	Name        string                 `yaml:"name" json:"name"`
-	Type        string                 `yaml:"type,omitempty" json:"type,omitempty"` // "string", "number", "boolean", "object", "array"
+	Name string `yaml:"name" json:"name"`
+	// Type is one of "string", "number", "boolean", "object", "array".
+	Type        string                 `yaml:"type,omitempty" json:"type,omitempty"`
 	Required    bool                   `yaml:"required" json:"required"`
 	Default     interface{}            `yaml:"default,omitempty" json:"default,omitempty"`
 	Description string                 `yaml:"description,omitempty" json:"description,omitempty"`
@@ -626,34 +635,10 @@ func (r *Registry) LoadWithVars(activity string, vars map[string]string, model s
 	return r.renderAndAssemble(tmpl, activity)
 }
 
-// prepareVariables validates required vars, merges with defaults, and assembles fragments
-func (r *Registry) prepareVariables(config *Config, vars map[string]string, activity string) (map[string]string, error) {
-	// Validate required variables
-	if err := r.validateRequiredVars(config, vars); err != nil {
-		logger.Error("Prompt missing required vars", "activity", activity, "error", err)
-		return nil, err
-	}
-
-	// Merge optional variables with defaults
-	finalVars := r.mergeVars(config, vars)
-
-	// Assemble fragments if configured
-	if len(config.Spec.Fragments) > 0 {
-		fragmentVars, err := r.assembleFragmentVars(config, finalVars, activity)
-		if err != nil {
-			return nil, err
-		}
-		// Merge fragment variables into final vars
-		for key, val := range fragmentVars {
-			finalVars[key] = val
-		}
-	}
-
-	return finalVars, nil
-}
-
 // assembleFragmentVars assembles fragment variables
-func (r *Registry) assembleFragmentVars(config *Config, finalVars map[string]string, activity string) (map[string]string, error) {
+func (r *Registry) assembleFragmentVars(
+	config *Config, finalVars map[string]string, activity string,
+) (map[string]string, error) {
 	fragmentVars, err := r.fragmentResolver.AssembleFragments(config.Spec.Fragments, finalVars, "")
 	if err != nil {
 		logger.Error("Fragment assembly failed", "activity", activity, "error", err)

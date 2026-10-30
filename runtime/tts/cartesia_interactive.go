@@ -32,8 +32,6 @@ func (s *CartesiaService) wsDialHeader() (http.Header, error) {
 
 // SynthesizeStream converts text to audio with streaming output via WebSocket.
 // This provides ultra-low latency (<100ms first-byte) for real-time applications.
-//
-//nolint:gocritic // hugeParam: SynthesisConfig passed by value to satisfy StreamingService interface
 func (s *CartesiaService) SynthesizeStream(
 	ctx context.Context, text string, config SynthesisConfig,
 ) (<-chan audio.Chunk, error) {
@@ -104,6 +102,21 @@ func (s *CartesiaService) SynthesizeStream(
 	return chunks, nil
 }
 
+// wsReadErrorChunk maps a WebSocket read failure to the error chunk to emit,
+// or nil when nothing should be reported: a canceled context means the close
+// goroutine killed the connection, and a normal closure is not an error.
+func wsReadErrorChunk(ctx context.Context, err error) *audio.Chunk {
+	if ctx.Err() != nil {
+		return nil
+	}
+	if !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+		return &audio.Chunk{Error: NewSynthesisError(
+			providerCartesia, "", "websocket read failed", err, true,
+		)}
+	}
+	return nil
+}
+
 // readStreamResponses reads audio chunks from the WebSocket connection.
 // Closes the connection when the context is canceled so ReadJSON
 // unblocks immediately instead of hanging indefinitely on a stale
@@ -137,15 +150,8 @@ func (s *CartesiaService) readStreamResponses(
 
 		var resp cartesiaWSResponse
 		if err := conn.ReadJSON(&resp); err != nil {
-			if ctx.Err() != nil {
-				// Context canceled — the close goroutine above killed
-				// the connection. Don't report as an error.
-				return
-			}
-			if !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
-				chunks <- audio.Chunk{Error: NewSynthesisError(
-					"cartesia", "", "websocket read failed", err, true,
-				)}
+			if errChunk := wsReadErrorChunk(ctx, err); errChunk != nil {
+				chunks <- *errChunk
 			}
 			return
 		}

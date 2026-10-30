@@ -113,6 +113,7 @@ func TestStream_WithCallback(t *testing.T) {
 func TestStream_ContextCancellation(t *testing.T) {
 	conv := openTestConv(t)
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // cancel below is the test's action; this covers the closed-channel path
 
 	ch := conv.Stream(ctx, "Hello")
 

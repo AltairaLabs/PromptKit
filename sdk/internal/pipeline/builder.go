@@ -481,28 +481,9 @@ func collectPipelineStages(
 	// rendering happens once per Send rather than once per element.
 	stages = appendTemplateStage(stages, cfg, turnState)
 
-	// 4.1 Input recording stage - captures user input with full binary data
-	if cfg.RecordingConfig != nil && cfg.RecordingStore != nil {
-		inputCfg := *cfg.RecordingConfig
-		inputCfg.Position = stage.RecordingPositionInput
-		stages = append(stages, stage.NewRecordingStage(cfg.RecordingStore, inputCfg))
-	}
-
-	// 4.5 Context builder stage - manages token budget and truncation
-	if cfg.TokenBudget > 0 {
-		contextPolicy := buildContextBuilderPolicy(cfg)
-		stages = append(stages, stage.NewContextBuilderStageWithTurnState(contextPolicy, turnState))
-	}
-
-	// 4.6 Image preprocessing stage - resize/optimize images before provider
-	if cfg.ImagePreprocessConfig != nil {
-		stages = append(stages, stage.NewImagePreprocessStage(*cfg.ImagePreprocessConfig))
-	}
-
-	// 4.7 Frame rate limiting stage - drop excess video/image frames before provider
-	if cfg.VideoStreamConfig != nil && cfg.VideoStreamConfig.TargetFPS > 0 {
-		stages = append(stages, stage.NewFrameRateLimitStage(*cfg.VideoStreamConfig))
-	}
+	// 4.1-4.7 Input recording, context builder, image preprocessing and
+	// frame rate limiting.
+	stages = appendPreProviderStages(stages, cfg, turnState)
 
 	// 5. Provider stage - LLM calls with streaming and tool support
 	providerStages, err := buildProviderStages(cfg, turnState)
@@ -556,6 +537,34 @@ func collectPipelineStages(
 	}
 
 	return stages, nil
+}
+
+// appendPreProviderStages adds the stages that run between the template
+// stage and the provider stage.
+func appendPreProviderStages(stages []stage.Stage, cfg *Config, turnState *stage.TurnState) []stage.Stage {
+	// 4.1 Input recording stage - captures user input with full binary data
+	if cfg.RecordingConfig != nil && cfg.RecordingStore != nil {
+		inputCfg := *cfg.RecordingConfig
+		inputCfg.Position = stage.RecordingPositionInput
+		stages = append(stages, stage.NewRecordingStage(cfg.RecordingStore, inputCfg))
+	}
+
+	// 4.5 Context builder stage - manages token budget and truncation
+	if cfg.TokenBudget > 0 {
+		contextPolicy := buildContextBuilderPolicy(cfg)
+		stages = append(stages, stage.NewContextBuilderStageWithTurnState(contextPolicy, turnState))
+	}
+
+	// 4.6 Image preprocessing stage - resize/optimize images before provider
+	if cfg.ImagePreprocessConfig != nil {
+		stages = append(stages, stage.NewImagePreprocessStage(*cfg.ImagePreprocessConfig))
+	}
+
+	// 4.7 Frame rate limiting stage - drop excess video/image frames before provider
+	if cfg.VideoStreamConfig != nil && cfg.VideoStreamConfig.TargetFPS > 0 {
+		stages = append(stages, stage.NewFrameRateLimitStage(*cfg.VideoStreamConfig))
+	}
+	return stages
 }
 
 // appendStateStoreLoadStages adds the appropriate state store load stage.

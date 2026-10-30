@@ -375,42 +375,7 @@ func (m *MockStreamSession) emitAutoResponse() {
 	shouldInterrupt := m.interruptOnTurn > 0 && currentTurn == m.interruptOnTurn
 
 	if shouldInterrupt {
-		// Simulate interruption: emit partial response, then interrupted flag, then empty turnComplete
-		logger.Debug("MockStreamSession: simulating interruption",
-			"turn", currentTurn,
-			"partialText", m.responseText[:min(len(m.responseText), logPreviewMaxLen)])
-
-		// 1. Emit partial content before interruption
-		partialText := m.responseText[:min(len(m.responseText), len(m.responseText)/partialTextDivisor)]
-		partialChunk := providers.StreamChunk{
-			Content: partialText,
-			Delta:   partialText,
-		}
-		select {
-		case m.responses <- partialChunk:
-		default:
-		}
-
-		// 2. Emit interrupted flag (mimics Gemini's serverContent.interrupted)
-		interruptChunk := providers.StreamChunk{
-			Interrupted: true,
-		}
-		select {
-		case m.responses <- interruptChunk:
-		default:
-		}
-
-		// 3. Emit empty turnComplete (mimics Gemini's turnComplete after interruption)
-		finishReason := "complete"
-		emptyComplete := providers.StreamChunk{
-			FinishReason: &finishReason,
-		}
-		select {
-		case m.responses <- emptyComplete:
-		default:
-		}
-
-		m.interrupted = true
+		m.emitInterruption(currentTurn)
 	} else if len(m.responseChunks) > 0 {
 		// Emit custom chunks
 		for i := range m.responseChunks {
@@ -422,6 +387,53 @@ func (m *MockStreamSession) emitAutoResponse() {
 
 	m.responseCount++
 
+	m.closeAfterTurnIfConfigured()
+}
+
+// emitInterruption simulates an interruption: it emits a partial response,
+// then the interrupted flag, then an empty turnComplete (must be called with
+// lock held).
+func (m *MockStreamSession) emitInterruption(currentTurn int) {
+	logger.Debug("MockStreamSession: simulating interruption",
+		"turn", currentTurn,
+		"partialText", m.responseText[:min(len(m.responseText), logPreviewMaxLen)])
+
+	// 1. Emit partial content before interruption
+	partialText := m.responseText[:min(len(m.responseText), len(m.responseText)/partialTextDivisor)]
+	partialChunk := providers.StreamChunk{
+		Content: partialText,
+		Delta:   partialText,
+	}
+	select {
+	case m.responses <- partialChunk:
+	default:
+	}
+
+	// 2. Emit interrupted flag (mimics Gemini's serverContent.interrupted)
+	interruptChunk := providers.StreamChunk{
+		Interrupted: true,
+	}
+	select {
+	case m.responses <- interruptChunk:
+	default:
+	}
+
+	// 3. Emit empty turnComplete (mimics Gemini's turnComplete after interruption)
+	finishReason := "complete"
+	emptyComplete := providers.StreamChunk{
+		FinishReason: &finishReason,
+	}
+	select {
+	case m.responses <- emptyComplete:
+	default:
+	}
+
+	m.interrupted = true
+}
+
+// closeAfterTurnIfConfigured closes the session after a response when
+// configured to (must be called with lock held).
+func (m *MockStreamSession) closeAfterTurnIfConfigured() {
 	// Check if we should close the session unexpectedly after this turn
 	// This simulates Gemini closing the connection BEFORE sending a proper response
 	shouldClose := m.closeAfterTurns > 0 && m.responseCount >= m.closeAfterTurns
@@ -456,7 +468,7 @@ func (m *MockStreamSession) emitTurnResponse(turnNumber int) {
 		m.emitAudioChunks(audioFixture)
 	}
 
-	finishReason := "stop"
+	finishReason := finishReasonStop
 	if len(toolCalls) > 0 {
 		finishReason = turnTypeToolCalls
 	}
@@ -743,6 +755,18 @@ func (p *StreamingProvider) WithResponseChunks(chunks ...providers.StreamChunk) 
 	return p
 }
 
+// sessionScenarioID returns the scenario ID for a new session: the provider default,
+// overridable per-session via StreamingInputConfig.Metadata["mock_scenario_id"].
+func (p *StreamingProvider) sessionScenarioID(req *providers.StreamingInputConfig) string {
+	scenarioID := p.defaultScenarioID
+	if req != nil && req.Metadata != nil {
+		if override, ok := req.Metadata["mock_scenario_id"].(string); ok && override != "" {
+			scenarioID = override
+		}
+	}
+	return scenarioID
+}
+
 // CreateStreamSession implements StreamInputSupport.CreateStreamSession.
 func (p *StreamingProvider) CreateStreamSession(
 	ctx context.Context,
@@ -767,13 +791,7 @@ func (p *StreamingProvider) CreateStreamSession(
 	// can be overridden per-session via StreamingInputConfig.Metadata.
 	if p.repo != nil {
 		session.WithRepository(p.repo, p.fixtureBaseDir)
-		scenarioID := p.defaultScenarioID
-		if req != nil && req.Metadata != nil {
-			if override, ok := req.Metadata["mock_scenario_id"].(string); ok && override != "" {
-				scenarioID = override
-			}
-		}
-		if scenarioID != "" {
+		if scenarioID := p.sessionScenarioID(req); scenarioID != "" {
 			session.WithScenarioID(scenarioID)
 		}
 	}

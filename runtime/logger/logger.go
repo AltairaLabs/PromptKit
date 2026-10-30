@@ -47,12 +47,27 @@ var (
 	customHandler slog.Handler
 )
 
+// Slice capacities for the fixed key/value pairs each structured log helper adds.
+const (
+	threeAttrPairs = 6
+	fourAttrPairs  = 8
+	fiveAttrPairs  = 10
+)
+
+// redactPrefixMinLen is the length a matched secret must exceed before its first
+// characters are kept in the redacted form.
+const redactPrefixMinLen = 8
+
+// statusClientErrorMin is the lowest HTTP status code treated as an error response.
+const statusClientErrorMin = 400
+
 // currentLevel stores the current log level for reuse when recreating handlers.
 var currentLevel = slog.LevelInfo
 
 // currentFormat stores the current log format for reuse when recreating handlers.
 var currentFormat = FormatText
 
+//nolint:gochecknoinits // the global logger must read LOG_LEVEL/LOG_FORMAT before any package logs
 func init() {
 	// Check LOG_LEVEL environment variable
 	currentLevel = slog.LevelInfo
@@ -66,7 +81,7 @@ func init() {
 	}
 
 	// Initialize with appropriate handler wrapped in context handler
-	initLogger(currentLevel, nil)
+	initLogger(currentLevel)
 
 	// Log version info at startup (debug level only)
 	version.LogStartup()
@@ -87,8 +102,8 @@ func storeLogger(l *slog.Logger) {
 	slog.SetDefault(l)
 }
 
-// initLogger creates the logger with the given level and common fields.
-func initLogger(level slog.Level, commonFields []slog.Attr) {
+// initLogger creates the logger with the given level.
+func initLogger(level slog.Level) {
 	opts := &slog.HandlerOptions{
 		Level: level,
 	}
@@ -100,7 +115,7 @@ func initLogger(level slog.Level, commonFields []slog.Attr) {
 		baseHandler = slog.NewTextHandler(logOutput, opts)
 	}
 
-	contextHandler := NewContextHandler(baseHandler, commonFields...)
+	contextHandler := NewContextHandler(baseHandler)
 	storeLogger(slog.New(contextHandler))
 }
 
@@ -136,7 +151,7 @@ func SetLevel(level slog.Level) {
 		// Preserve the external handler; don't recreate with TextHandler.
 		return
 	}
-	initLogger(level, nil)
+	initLogger(level)
 }
 
 // SetVerbose enables debug-level logging when verbose is true, otherwise sets info-level.
@@ -163,7 +178,7 @@ func SetVerbose(verbose bool) {
 func SetLogger(l *slog.Logger) {
 	if l == nil {
 		customHandler = nil
-		initLogger(currentLevel, nil)
+		initLogger(currentLevel)
 		return
 	}
 	customHandler = l.Handler()
@@ -181,7 +196,7 @@ func SetOutput(w io.Writer) {
 		logOutput = w
 	}
 	customHandler = nil
-	initLogger(currentLevel, nil)
+	initLogger(currentLevel)
 }
 
 // Info logs an informational message with structured key-value attributes.
@@ -232,7 +247,7 @@ func ErrorContext(ctx context.Context, msg string, args ...any) {
 // LLMCall logs a provider API call with structured fields for observability.
 // Additional attributes can be passed as key-value pairs after the required parameters.
 func LLMCall(provider, role string, messages int, temperature float64, attrs ...any) {
-	allAttrs := make([]any, 0, 8+len(attrs))
+	allAttrs := make([]any, 0, fourAttrPairs+len(attrs))
 	allAttrs = append(allAttrs,
 		"provider", provider,
 		"role", role,
@@ -246,7 +261,7 @@ func LLMCall(provider, role string, messages int, temperature float64, attrs ...
 // LLMResponse logs a provider API response with token usage and cost tracking.
 // Cost should be provided in USD (e.g., 0.0001 for $0.0001).
 func LLMResponse(provider, role string, tokensIn, tokensOut int, cost float64, attrs ...any) {
-	allAttrs := make([]any, 0, 10+len(attrs))
+	allAttrs := make([]any, 0, fiveAttrPairs+len(attrs))
 	allAttrs = append(allAttrs,
 		"provider", provider,
 		"role", role,
@@ -260,7 +275,7 @@ func LLMResponse(provider, role string, tokensIn, tokensOut int, cost float64, a
 
 // LLMError logs a provider API error for debugging and monitoring.
 func LLMError(provider, role string, err error, attrs ...any) {
-	allAttrs := make([]any, 0, 6+len(attrs))
+	allAttrs := make([]any, 0, threeAttrPairs+len(attrs))
 	allAttrs = append(allAttrs,
 		"provider", provider,
 		"role", role,
@@ -273,7 +288,7 @@ func LLMError(provider, role string, err error, attrs ...any) {
 // ToolCall logs a tool execution request with context about available tools.
 // The choice parameter indicates the tool selection mode (e.g., "auto", "required", "none").
 func ToolCall(provider string, messages, tools int, choice string, attrs ...any) {
-	allAttrs := make([]any, 0, 8+len(attrs))
+	allAttrs := make([]any, 0, fourAttrPairs+len(attrs))
 	allAttrs = append(allAttrs,
 		"provider", provider,
 		"messages", messages,
@@ -286,7 +301,7 @@ func ToolCall(provider string, messages, tools int, choice string, attrs ...any)
 
 // ToolResponse logs the result of tool executions with token usage and cost.
 func ToolResponse(provider string, tokensIn, tokensOut, toolCalls int, cost float64, attrs ...any) {
-	allAttrs := make([]any, 0, 10+len(attrs))
+	allAttrs := make([]any, 0, fiveAttrPairs+len(attrs))
 	allAttrs = append(allAttrs,
 		"provider", provider,
 		"tokens_in", tokensIn,
@@ -327,7 +342,7 @@ func RedactSensitiveData(input string) string {
 				return "Bearer [REDACTED]"
 			}
 			// Show first 4 characters for debugging context
-			if len(match) > 8 {
+			if len(match) > redactPrefixMinLen {
 				return match[:4] + "...[REDACTED]"
 			}
 			return "[REDACTED]"
@@ -354,7 +369,7 @@ func APIRequest(provider, method, url string, headers map[string]string, body in
 		return
 	}
 
-	attrs := make([]any, 0, 8)
+	attrs := make([]any, 0, fourAttrPairs)
 	attrs = append(attrs,
 		"provider", provider,
 		"method", method,
@@ -401,7 +416,7 @@ func APIResponse(provider string, statusCode int, body string, err error) {
 		return
 	}
 
-	attrs := make([]any, 0, 6)
+	attrs := make([]any, 0, threeAttrPairs)
 	attrs = append(attrs,
 		"provider", provider,
 		"status_code", statusCode,
@@ -419,7 +434,7 @@ func APIResponse(provider string, statusCode int, body string, err error) {
 	switch {
 	case statusCode >= 200 && statusCode < 300:
 		emoji = "🟢"
-	case statusCode >= 400:
+	case statusCode >= statusClientErrorMin:
 		emoji = "🔴"
 	default:
 		emoji = "🟡"

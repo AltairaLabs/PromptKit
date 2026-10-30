@@ -272,9 +272,6 @@ func (f *A2ASkillFilter) IncludesSkill(skillID string) bool {
 	return true
 }
 
-// ClientConfig defines configuration for client-side tool execution.
-// Tools with mode "client" are fulfilled by the SDK caller's device
-// (e.g., GPS, camera, contacts, biometrics).
 // ExecConfig defines configuration for exec subprocess tool execution.
 // The runtime spawns the command per invocation, passing tool arguments as JSON on stdin
 // and reading the result from stdout.
@@ -286,6 +283,9 @@ type ExecConfig struct {
 	TimeoutMs int      `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
 }
 
+// ClientConfig defines configuration for client-side tool execution.
+// Tools with mode "client" are fulfilled by the SDK caller's device
+// (e.g., GPS, camera, contacts, biometrics).
 type ClientConfig struct {
 	Consent        *ConsentConfig `json:"consent,omitempty" yaml:"consent,omitempty"`
 	TimeoutMs      int            `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`

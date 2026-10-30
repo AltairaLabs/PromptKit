@@ -179,6 +179,9 @@ func (r *Renderer) MergeVars(varMaps ...map[string]string) map[string]string {
 	return result
 }
 
+// placeholderOpen opens a {{variable}} placeholder.
+const placeholderOpen = "{{"
+
 // findUnresolvedPlaceholders extracts unresolved {{variable}} placeholders from text.
 // This is used for error reporting when template rendering fails.
 func (r *Renderer) findUnresolvedPlaceholders(text string) []string {
@@ -188,7 +191,7 @@ func (r *Renderer) findUnresolvedPlaceholders(text string) []string {
 	for i := 0; i < len(text)-3; i++ {
 		if text[i:i+2] == "{{" {
 			// Find the closing }}
-			for j := i + 2; j < len(text)-1; j++ {
+			for j := i + len(placeholderOpen); j < len(text)-1; j++ {
 				if text[j:j+2] == "}}" {
 					placeholder := text[i : j+2]
 					placeholders = append(placeholders, placeholder)

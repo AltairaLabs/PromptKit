@@ -19,10 +19,13 @@ const (
 	ymlExt  = ".yml"
 )
 
+// toolManifestKind is the manifest kind of a tool file.
+const toolManifestKind = "Tool"
+
 // Compile-time interface check
 var _ persistence.ToolRepository = (*ToolRepository)(nil)
 
-// YAMLToolRepository loads tools from YAML files on disk
+// ToolRepository loads tools from YAML files on disk
 type ToolRepository struct {
 	basePath string
 	tools    map[string]*tools.ToolDescriptor
@@ -67,7 +70,7 @@ func (r *ToolRepository) SaveTool(descriptor *tools.ToolDescriptor) error {
 	// Build K8s manifest format
 	toolConfig := tools.ToolConfig{
 		APIVersion: "promptkit.altairalabs.io/v1",
-		Kind:       "Tool",
+		Kind:       toolManifestKind,
 		Spec:       *descriptor,
 	}
 	toolConfig.Metadata.Name = descriptor.Name
@@ -99,7 +102,7 @@ func (r *ToolRepository) SaveTool(descriptor *tools.ToolDescriptor) error {
 
 // LoadToolFromFile loads a tool from a YAML file and registers it
 func (r *ToolRepository) LoadToolFromFile(filename string) error {
-	data, err := os.ReadFile(filename)
+	data, err := os.ReadFile(filename) //nolint:gosec // G304: the caller names the tool file to load
 	if err != nil {
 		return fmt.Errorf("failed to read tool file %s: %w", filename, err)
 	}
@@ -168,7 +171,7 @@ func (r *ToolRepository) validateK8sManifest(filename string, toolConfig *tools.
 	if toolConfig.Kind == "" {
 		return fmt.Errorf("tool config %s is missing kind", filename)
 	}
-	if toolConfig.Kind != "Tool" {
+	if toolConfig.Kind != toolManifestKind {
 		return fmt.Errorf("tool config %s has invalid kind: expected 'Tool', got '%s'", filename, toolConfig.Kind)
 	}
 	if toolConfig.Metadata.Name == "" {

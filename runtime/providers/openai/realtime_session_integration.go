@@ -215,15 +215,13 @@ func (s *RealtimeSession) sendSessionUpdate() error {
 	event := SessionUpdateEvent{
 		ClientEvent: ClientEvent{
 			EventID: s.nextEventID(),
-			Type:    "session.update",
+			Type:    realtimeEventSessionUpdate,
 		},
 		Session: sessionConfig,
 	}
 
-	if logger.DefaultLogger != nil {
-		if configJSON, err := json.MarshalIndent(event, "", "  "); err == nil {
-			logger.Debug("OpenAI Realtime: sending session.update", "config", string(configJSON))
-		}
+	if configJSON, err := json.MarshalIndent(event, "", "  "); err == nil {
+		logger.Debug("OpenAI Realtime: sending session.update", "config", string(configJSON))
 	}
 
 	return s.ws.Send(event)
@@ -279,7 +277,7 @@ func (s *RealtimeSession) SendText(ctx context.Context, text string) error {
 
 	// Create a user message with text content
 	item := ConversationItem{
-		Type: "message",
+		Type: typeMessage,
 		Role: "user",
 		Content: []ConversationContent{
 			{
@@ -292,7 +290,7 @@ func (s *RealtimeSession) SendText(ctx context.Context, text string) error {
 	createEvent := ConversationItemCreateEvent{
 		ClientEvent: ClientEvent{
 			EventID: s.nextEventID(),
-			Type:    "conversation.item.create",
+			Type:    realtimeEventItemCreate,
 		},
 		Item: item,
 	}
@@ -305,7 +303,7 @@ func (s *RealtimeSession) SendText(ctx context.Context, text string) error {
 	responseEvent := ResponseCreateEvent{
 		ClientEvent: ClientEvent{
 			EventID: s.nextEventID(),
-			Type:    "response.create",
+			Type:    realtimeEventResponseCreate,
 		},
 	}
 
@@ -327,7 +325,7 @@ func (s *RealtimeSession) SendSystemContext(ctx context.Context, text string) er
 	event := SessionUpdateEvent{
 		ClientEvent: ClientEvent{
 			EventID: s.nextEventID(),
-			Type:    "session.update",
+			Type:    realtimeEventSessionUpdate,
 		},
 		Session: SessionConfig{
 			Type:         sessionTypeRealtime,
@@ -388,7 +386,7 @@ func (s *RealtimeSession) TriggerResponse(config *ResponseConfig) error {
 	event := ResponseCreateEvent{
 		ClientEvent: ClientEvent{
 			EventID: s.nextEventID(),
-			Type:    "response.create",
+			Type:    realtimeEventResponseCreate,
 		},
 		Response: config,
 	}
@@ -521,36 +519,7 @@ func (s *RealtimeSession) receiveLoop() {
 			logger.Debug("OpenAI Realtime: receiveLoop context done")
 			return
 		case err := <-errCh:
-			if err != nil && !errors.Is(err, context.Canceled) {
-				connErr := fmt.Errorf("%w: %w", ErrConnectionLost, err)
-				logger.Error("OpenAI Realtime: connection lost", "error", err)
-
-				// Queue a terminal error chunk so callers reading
-				// Response() learn the session died with a
-				// distinguishable error type. errors.Is(chunk.Error,
-				// ErrConnectionLost) returns true. It flows through the
-				// pump like any other chunk; the deferred drain guarantees
-				// it reaches a reading consumer before responseCh closes.
-				reason := "error"
-				// ctx-guarded so a blocked send can't outlive the session.
-				select {
-				case s.emitCh <- providers.StreamChunk{Error: connErr, FinishReason: &reason}:
-				case <-s.ctx.Done():
-				}
-
-				// Propagate to errCh for callers using Error().
-				select {
-				case s.errCh <- connErr:
-				default:
-				}
-
-				// Don't cancel here: the deferred drain closes responseCh
-				// and then cancels the context, so Done() fires only after
-				// the terminal chunk has been delivered. Callers watching
-				// Done() + Error() still get the complete signal.
-			} else {
-				logger.Debug("OpenAI Realtime: WebSocket receive loop ended", "error", err)
-			}
+			s.handleReceiveLoopEnd(err)
 			return
 		case data := <-msgCh:
 			// Instrumentation + regression guard for the barge-in path. Handlers
@@ -572,6 +541,42 @@ func (s *RealtimeSession) receiveLoop() {
 					"msgCh_cap", cap(msgCh))
 			}
 		}
+	}
+}
+
+// handleReceiveLoopEnd reports how the WebSocket receive loop ended: a
+// connection loss queues a terminal error chunk and propagates the error; a
+// clean end (or cancellation) is only logged.
+func (s *RealtimeSession) handleReceiveLoopEnd(err error) {
+	if err != nil && !errors.Is(err, context.Canceled) {
+		connErr := fmt.Errorf("%w: %w", ErrConnectionLost, err)
+		logger.Error("OpenAI Realtime: connection lost", "error", err)
+
+		// Queue a terminal error chunk so callers reading
+		// Response() learn the session died with a
+		// distinguishable error type. errors.Is(chunk.Error,
+		// ErrConnectionLost) returns true. It flows through the
+		// pump like any other chunk; the deferred drain guarantees
+		// it reaches a reading consumer before responseCh closes.
+		reason := finishError
+		// ctx-guarded so a blocked send can't outlive the session.
+		select {
+		case s.emitCh <- providers.StreamChunk{Error: connErr, FinishReason: &reason}:
+		case <-s.ctx.Done():
+		}
+
+		// Propagate to errCh for callers using Error().
+		select {
+		case s.errCh <- connErr:
+		default:
+		}
+
+		// Don't cancel here: the deferred drain closes responseCh
+		// and then cancels the context, so Done() fires only after
+		// the terminal chunk has been delivered. Callers watching
+		// Done() + Error() still get the complete signal.
+	} else {
+		logger.Debug("OpenAI Realtime: WebSocket receive loop ended", "error", err)
 	}
 }
 
@@ -663,9 +668,9 @@ func (s *RealtimeSession) handleTextDelta(e *ResponseTextDeltaEvent) {
 	s.emitCh <- providers.StreamChunk{
 		Delta: e.Delta,
 		Metadata: map[string]interface{}{
-			"item_id":       e.ItemID,
-			"response_id":   e.ResponseID,
-			"content_index": e.ContentIndex,
+			keyItemID:       e.ItemID,
+			keyResponseID:   e.ResponseID,
+			keyContentIndex: e.ContentIndex,
 		},
 	}
 }
@@ -674,9 +679,9 @@ func (s *RealtimeSession) handleTextDone(e *ResponseTextDoneEvent) {
 	s.emitCh <- providers.StreamChunk{
 		Content: e.Text,
 		Metadata: map[string]interface{}{
-			"item_id":       e.ItemID,
-			"response_id":   e.ResponseID,
-			"content_index": e.ContentIndex,
+			keyItemID:       e.ItemID,
+			keyResponseID:   e.ResponseID,
+			keyContentIndex: e.ContentIndex,
 			"text_done":     true,
 		},
 	}
@@ -711,9 +716,9 @@ func (s *RealtimeSession) handleAudioDelta(e *ResponseAudioDeltaEvent) {
 			Channels:   1,
 		},
 		Metadata: map[string]interface{}{
-			"item_id":       e.ItemID,
-			"response_id":   e.ResponseID,
-			"content_index": e.ContentIndex,
+			keyItemID:       e.ItemID,
+			keyResponseID:   e.ResponseID,
+			keyContentIndex: e.ContentIndex,
 		},
 	}
 }
@@ -724,9 +729,9 @@ func (s *RealtimeSession) handleAudioDone(e *ResponseAudioDoneEvent) {
 	}
 	s.emitCh <- providers.StreamChunk{
 		Metadata: map[string]interface{}{
-			"item_id":       e.ItemID,
-			"response_id":   e.ResponseID,
-			"content_index": e.ContentIndex,
+			keyItemID:       e.ItemID,
+			keyResponseID:   e.ResponseID,
+			keyContentIndex: e.ContentIndex,
 			"audio_done":    true,
 		},
 	}
@@ -736,10 +741,10 @@ func (s *RealtimeSession) handleTranscriptDelta(e *ResponseAudioTranscriptDeltaE
 	s.emitCh <- providers.StreamChunk{
 		Delta: e.Delta, // DuplexProviderStage accumulates this for output transcription
 		Metadata: map[string]interface{}{
-			"type":          "output_transcription",
-			"item_id":       e.ItemID,
-			"response_id":   e.ResponseID,
-			"content_index": e.ContentIndex,
+			keyType:         "output_transcription",
+			keyItemID:       e.ItemID,
+			keyResponseID:   e.ResponseID,
+			keyContentIndex: e.ContentIndex,
 		},
 	}
 }
@@ -748,9 +753,9 @@ func (s *RealtimeSession) handleTranscriptDone(e *ResponseAudioTranscriptDoneEve
 	s.emitCh <- providers.StreamChunk{
 		Metadata: map[string]interface{}{
 			"transcript":      e.Transcript,
-			"item_id":         e.ItemID,
-			"response_id":     e.ResponseID,
-			"content_index":   e.ContentIndex,
+			keyItemID:         e.ItemID,
+			keyResponseID:     e.ResponseID,
+			keyContentIndex:   e.ContentIndex,
 			"transcript_done": true,
 		},
 	}
@@ -769,8 +774,8 @@ func (s *RealtimeSession) handleFunctionCallDone(e *ResponseFunctionCallArgument
 	s.emitCh <- providers.StreamChunk{
 		ToolCalls: []types.MessageToolCall{toolCall},
 		Metadata: map[string]interface{}{
-			"item_id":     e.ItemID,
-			"response_id": e.ResponseID,
+			keyItemID:     e.ItemID,
+			keyResponseID: e.ResponseID,
 		},
 	}
 }
@@ -800,8 +805,8 @@ func (s *RealtimeSession) handleOutputItemDone(e *ResponseOutputItemDoneEvent) {
 	s.emitCh <- providers.StreamChunk{
 		ToolCalls: []types.MessageToolCall{toolCall},
 		Metadata: map[string]interface{}{
-			"item_id":     e.Item.ID,
-			"response_id": e.ResponseID,
+			keyItemID:     e.Item.ID,
+			keyResponseID: e.ResponseID,
 		},
 	}
 }
@@ -816,7 +821,7 @@ func (s *RealtimeSession) handleResponseDone(e *ResponseDoneEvent) {
 	chunk := providers.StreamChunk{
 		FinishReason: &e.Response.Status,
 		Metadata: map[string]interface{}{
-			"response_id": e.Response.ID,
+			keyResponseID: e.Response.ID,
 		},
 	}
 
@@ -831,10 +836,10 @@ func (s *RealtimeSession) handleResponseDone(e *ResponseDoneEvent) {
 func (s *RealtimeSession) handleInputTranscription(e *ConversationItemInputAudioTranscriptionCompletedEvent) {
 	s.emitCh <- providers.StreamChunk{
 		Metadata: map[string]interface{}{
-			"type":          "input_transcription",
+			keyType:         "input_transcription",
 			"transcription": e.Transcript, // DuplexProviderStage expects this key
-			"item_id":       e.ItemID,
-			"content_index": e.ContentIndex,
+			keyItemID:       e.ItemID,
+			keyContentIndex: e.ContentIndex,
 			// This fires on conversation.item.input_audio_transcription.completed —
 			// a discrete final event carrying the full user transcript. Mark it as
 			// final so DuplexProviderStage materializes the user turn immediately

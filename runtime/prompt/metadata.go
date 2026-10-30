@@ -19,7 +19,9 @@ func NewMetadataBuilder(spec *Spec) *MetadataBuilder {
 }
 
 // BuildMetadata generates Metadata from test execution results
-func (mb *MetadataBuilder) BuildMetadata(domain, language string, tags []string, testResults []TestResultSummary) *Metadata {
+func (mb *MetadataBuilder) BuildMetadata(
+	domain, language string, tags []string, testResults []TestResultSummary,
+) *Metadata {
 	metadata := &Metadata{
 		Domain:   domain,
 		Language: language,
@@ -180,7 +182,7 @@ func calculateP95Latency(results []TestResultSummary) int {
 	}
 
 	// Calculate P95 index
-	idx := int(float64(len(latencies)) * 0.95)
+	idx := int(float64(len(latencies)) * p95Quantile)
 	if idx >= len(latencies) {
 		idx = len(latencies) - 1
 	}
@@ -251,17 +253,23 @@ func ExtractVariablesFromTemplate(template string) []string {
 	return vars
 }
 
+// templateVarOpen opens a {{variable}} reference in a template.
+const templateVarOpen = "{{"
+
+// p95Quantile is the quantile reported as the P95 latency.
+const p95Quantile = 0.95
+
 func isOpeningBrace(template string, pos int) bool {
 	return template[pos] == '{' && template[pos+1] == '{'
 }
 
 func extractVariable(template string, startPos int) (varName string, nextPos int) {
-	closingPos := findClosingBrace(template, startPos+2)
+	closingPos := findClosingBrace(template, startPos+len(templateVarOpen))
 	if closingPos == -1 {
 		return "", startPos + 1
 	}
 
-	varName = template[startPos+2 : closingPos]
+	varName = template[startPos+len(templateVarOpen) : closingPos]
 	return varName, closingPos + 1
 }
 
@@ -310,7 +318,8 @@ func (mb *MetadataBuilder) UpdateFromCostInfo(costs []types.CostInfo) {
 	minCost = costs[0].InputCostUSD + costs[0].OutputCostUSD
 	maxCost = minCost
 
-	for _, cost := range costs {
+	for i := range costs {
+		cost := &costs[i]
 		total := cost.InputCostUSD + cost.OutputCostUSD
 		totalCost += total
 		if total < minCost {

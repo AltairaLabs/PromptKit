@@ -131,53 +131,13 @@ func applyRuntimeConfig(c *config, spec *pkgconfig.RuntimeConfigSpec) error {
 		}
 	}
 
-	// Apply embedding providers (declarative). The first declared
-	// entry doubles as the default RAG retrievalProvider when one
-	// isn't already set programmatically.
-	if err := applyEmbeddingProviders(c, spec.EmbeddingProviders); err != nil {
-		return fmt.Errorf("applying embedding providers from runtime config: %w", err)
-	}
-
-	// Apply TTS / STT providers (declarative). First declared entry
-	// becomes the default ttsService / sttService when one isn't set
-	// programmatically via WithTTS / WithVADMode.
-	if err := applyTTSProviders(c, spec.TTSProviders); err != nil {
-		return fmt.Errorf("applying TTS providers from runtime config: %w", err)
-	}
-	if err := applySTTProviders(c, spec.STTProviders); err != nil {
-		return fmt.Errorf("applying STT providers from runtime config: %w", err)
-	}
-	if err := applyInferenceProviders(c, spec.InferenceProviders); err != nil {
-		return fmt.Errorf("applying inference providers from runtime config: %w", err)
+	if err := applyDeprecatedProviderBlocks(c, spec); err != nil {
+		return err
 	}
 
 	// Apply MCP servers
-	for _, mcpCfg := range spec.MCPServers {
-		// MCPSource (host-registered sources opened per run, scenario or
-		// session scope) is a PromptArena feature; the SDK has no scopes to
-		// open one in, so a source-backed entry would have no transport.
-		if mcpCfg.Source != "" {
-			return fmt.Errorf("mcp server %q: source %q is not supported by the SDK; "+
-				"use command (stdio) or url instead", mcpCfg.Name, mcpCfg.Source)
-		}
-		serverCfg := mcp.ServerConfig{
-			Name:          mcpCfg.Name,
-			Command:       mcpCfg.Command,
-			Args:          mcpCfg.Args,
-			Env:           mcpCfg.Env,
-			WorkingDir:    mcpCfg.WorkingDir,
-			URL:           mcpCfg.URL,
-			Headers:       mcpCfg.Headers,
-			TransportName: mcp.Transport(mcpCfg.Transport),
-			TimeoutMs:     mcpCfg.TimeoutMs,
-		}
-		if mcpCfg.ToolFilter != nil {
-			serverCfg.ToolFilter = &mcp.ToolFilter{
-				Allowlist: mcpCfg.ToolFilter.Allowlist,
-				Blocklist: mcpCfg.ToolFilter.Blocklist,
-			}
-		}
-		c.mcpServers = append(c.mcpServers, serverCfg)
+	if err := applyMCPServerConfigs(c, spec.MCPServers); err != nil {
+		return err
 	}
 
 	// Apply state store (only if not already set)
@@ -217,12 +177,7 @@ func applyRuntimeConfig(c *config, spec *pkgconfig.RuntimeConfigSpec) error {
 	if err := applySelectors(c, spec.Selectors, resolved); err != nil {
 		return fmt.Errorf("applying selectors from runtime config: %w", err)
 	}
-	if spec.Skills != nil && spec.Skills.Selector != "" {
-		c.skillsSelectorName = spec.Skills.Selector
-	}
-	if spec.ToolSelector != "" {
-		c.toolSelectorName = spec.ToolSelector
-	}
+	applySelectorBindings(c, spec)
 
 	// Init all selectors with the shared SelectorContext now that
 	// embedding providers are resolved. Programmatic selectors that
@@ -233,6 +188,82 @@ func applyRuntimeConfig(c *config, spec *pkgconfig.RuntimeConfigSpec) error {
 	}
 
 	return nil
+}
+
+// applyDeprecatedProviderBlocks applies the per-capability provider blocks
+// (embedding_providers, tts_providers, stt_providers, inference_providers).
+// They are deprecated in favor of spec.providers with a role, but stay
+// supported until v3 (#1998).
+func applyDeprecatedProviderBlocks(c *config, spec *pkgconfig.RuntimeConfigSpec) error {
+	// Apply embedding providers (declarative). The first declared
+	// entry doubles as the default RAG retrievalProvider when one
+	// isn't already set programmatically.
+	//nolint:staticcheck // SA1019: deprecated per-capability block kept until v3 (#1998)
+	if err := applyEmbeddingProviders(c, spec.EmbeddingProviders); err != nil {
+		return fmt.Errorf("applying embedding providers from runtime config: %w", err)
+	}
+
+	// Apply TTS / STT providers (declarative). First declared entry
+	// becomes the default ttsService / sttService when one isn't set
+	// programmatically via WithTTS / WithVADMode.
+	//nolint:staticcheck // SA1019: deprecated per-capability block kept until v3 (#1998)
+	if err := applyTTSProviders(c, spec.TTSProviders); err != nil {
+		return fmt.Errorf("applying TTS providers from runtime config: %w", err)
+	}
+	//nolint:staticcheck // SA1019: deprecated per-capability block kept until v3 (#1998)
+	if err := applySTTProviders(c, spec.STTProviders); err != nil {
+		return fmt.Errorf("applying STT providers from runtime config: %w", err)
+	}
+	//nolint:staticcheck // SA1019: deprecated per-capability block kept until v3 (#1998)
+	if err := applyInferenceProviders(c, spec.InferenceProviders); err != nil {
+		return fmt.Errorf("applying inference providers from runtime config: %w", err)
+	}
+	return nil
+}
+
+// applyMCPServerConfigs converts the declared MCP servers into SDK MCP
+// server configs.
+func applyMCPServerConfigs(c *config, specs []pkgconfig.MCPServerConfig) error {
+	for i := range specs {
+		mcpCfg := &specs[i]
+		// MCPSource (host-registered sources opened per run, scenario or
+		// session scope) is a PromptArena feature; the SDK has no scopes to
+		// open one in, so a source-backed entry would have no transport.
+		if mcpCfg.Source != "" {
+			return fmt.Errorf("mcp server %q: source %q is not supported by the SDK; "+
+				"use command (stdio) or url instead", mcpCfg.Name, mcpCfg.Source)
+		}
+		serverCfg := mcp.ServerConfig{
+			Name:          mcpCfg.Name,
+			Command:       mcpCfg.Command,
+			Args:          mcpCfg.Args,
+			Env:           mcpCfg.Env,
+			WorkingDir:    mcpCfg.WorkingDir,
+			URL:           mcpCfg.URL,
+			Headers:       mcpCfg.Headers,
+			TransportName: mcp.Transport(mcpCfg.Transport),
+			TimeoutMs:     mcpCfg.TimeoutMs,
+		}
+		if mcpCfg.ToolFilter != nil {
+			serverCfg.ToolFilter = &mcp.ToolFilter{
+				Allowlist: mcpCfg.ToolFilter.Allowlist,
+				Blocklist: mcpCfg.ToolFilter.Blocklist,
+			}
+		}
+		c.mcpServers = append(c.mcpServers, serverCfg)
+	}
+	return nil
+}
+
+// applySelectorBindings records which declared selectors drive skills and
+// tool selection.
+func applySelectorBindings(c *config, spec *pkgconfig.RuntimeConfigSpec) {
+	if spec.Skills != nil && spec.Skills.Selector != "" {
+		c.skillsSelectorName = spec.Skills.Selector
+	}
+	if spec.ToolSelector != "" {
+		c.toolSelectorName = spec.ToolSelector
+	}
 }
 
 // initSelectors calls Init on every registered selector with a
@@ -302,7 +333,10 @@ func applySelectors(c *config, specs map[string]*pkgconfig.SelectorConfig,
 // declared entry doubles as the default RAG retrievalProvider when
 // one isn't already set programmatically (matching the chat-provider
 // "first wins, programmatic-takes-precedence" pattern).
-func applyEmbeddingProviders(c *config, specs []pkgconfig.EmbeddingProviderConfig) error {
+func applyEmbeddingProviders(
+	c *config,
+	specs []pkgconfig.EmbeddingProviderConfig, //nolint:staticcheck // SA1019: legacy block kept until v3 (#1998)
+) error {
 	if len(specs) == 0 {
 		return nil
 	}
@@ -355,7 +389,10 @@ func applyEmbeddingProviders(c *config, specs []pkgconfig.EmbeddingProviderConfi
 // the embedding-provider precedence pattern).
 //
 //nolint:dupl // applySTTProviders is structurally identical but operates on a different type.
-func applyTTSProviders(c *config, specs []pkgconfig.TTSProviderConfig) error {
+func applyTTSProviders(
+	c *config,
+	specs []pkgconfig.TTSProviderConfig, //nolint:staticcheck // SA1019: legacy block kept until v3 (#1998)
+) error {
 	if len(specs) == 0 {
 		return nil
 	}
@@ -398,7 +435,10 @@ func applyTTSProviders(c *config, specs []pkgconfig.TTSProviderConfig) error {
 // applySTTProviders mirrors applyTTSProviders for STT.
 //
 //nolint:dupl // applyTTSProviders is structurally identical but operates on a different type.
-func applySTTProviders(c *config, specs []pkgconfig.STTProviderConfig) error {
+func applySTTProviders(
+	c *config,
+	specs []pkgconfig.STTProviderConfig, //nolint:staticcheck // SA1019: legacy block kept until v3 (#1998)
+) error {
 	if len(specs) == 0 {
 		return nil
 	}
@@ -443,7 +483,10 @@ func applySTTProviders(c *config, specs []pkgconfig.STTProviderConfig) error {
 // registry, after any registered by WithInferenceProvider / WithClassifier
 // (programmatic registration runs first). The first provider registered is the
 // default.
-func applyInferenceProviders(c *config, specs []pkgconfig.InferenceProviderConfig) error {
+func applyInferenceProviders(
+	c *config,
+	specs []pkgconfig.InferenceProviderConfig, //nolint:staticcheck // SA1019: legacy block kept until v3 (#1998)
+) error {
 	for i := range specs {
 		ip := &specs[i]
 		id := ip.ID

@@ -212,9 +212,9 @@ func (e *MCPExecutor) extractErrorMessage(content []mcp.Content) string {
 	}
 
 	var parts []string
-	for _, item := range content {
-		if item.Text != "" {
-			parts = append(parts, item.Text)
+	for i := range content {
+		if content[i].Text != "" {
+			parts = append(parts, content[i].Text)
 		}
 	}
 

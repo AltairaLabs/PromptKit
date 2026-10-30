@@ -73,7 +73,7 @@ const grandchildWaitDelay = 500 * time.Millisecond
 // (forwarded verbatim). A timeout or non-zero exit surfaces as a
 // non-nil Response.Err.
 //
-//nolint:gocritic // Request is a public interface param; pass-by-value keeps ownership clear.
+// Request is a public interface param; pass-by-value keeps ownership clear.
 func (s *Sandbox) Spawn(ctx context.Context, req sandbox.Request) (sandbox.Response, error) {
 	timeout := req.Timeout
 	if timeout <= 0 {

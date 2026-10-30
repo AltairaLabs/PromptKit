@@ -102,10 +102,10 @@ func (p *Provider) setCapabilities(capabilities []string) {
 
 // NewProvider creates a new Gemini provider
 func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool) *Provider {
-	base, apiKey := providers.NewBaseProviderWithAPIKey(id, includeRawOutput, "GEMINI_API_KEY", "GOOGLE_API_KEY")
+	baseProvider, apiKey := providers.NewBaseProviderWithAPIKey(id, includeRawOutput, "GEMINI_API_KEY", "GOOGLE_API_KEY")
 
 	return &Provider{
-		BaseProvider: base,
+		BaseProvider: baseProvider,
 		model:        model,
 		baseURL:      baseURL,
 		apiKey:       apiKey,
@@ -125,7 +125,7 @@ func NewProviderWithCredential(
 	includeRawOutput bool, cred providers.Credential,
 	platform string, platformConfig *providers.PlatformConfig,
 ) *Provider {
-	base, apiKey := providers.NewBaseProviderWithCredential(id, includeRawOutput, httpClientTimeout, cred)
+	baseProvider, apiKey := providers.NewBaseProviderWithCredential(id, includeRawOutput, httpClientTimeout, cred)
 
 	if baseURL == "" && platform == vertexPlatform &&
 		platformConfig != nil && platformConfig.Region != "" && platformConfig.Project != "" {
@@ -133,7 +133,7 @@ func NewProviderWithCredential(
 	}
 
 	return &Provider{
-		BaseProvider:   base,
+		BaseProvider:   baseProvider,
 		model:          model,
 		baseURL:        baseURL,
 		apiKey:         apiKey,
@@ -236,6 +236,9 @@ const (
 	providerNameGemini   = "gemini"
 	kindThoughtSignature = "thought_signature"
 )
+
+// safetyThresholdBlockNone is the Gemini safety threshold that blocks nothing.
+const safetyThresholdBlockNone = "BLOCK_NONE"
 
 // reasoningFromParts builds a ReasoningTrace from a candidate's thought parts:
 // thought text plus any signature as an opaque round-trip token. Returns nil
@@ -431,31 +434,44 @@ func (p *Provider) applyRequestDefaults(req providers.PredictionRequest) (temper
 	return temperature, topP, maxTokens
 }
 
+// preparedGeminiRequest is a predict request converted to Gemini format with
+// defaults applied, ready for buildGeminiRequest.
+type preparedGeminiRequest struct {
+	contents          []geminiContent
+	systemInstruction *geminiContent
+	temperature, topP float32
+	maxTokens         int
+}
+
+// build creates the Gemini API request from the prepared parts.
+func (r preparedGeminiRequest) build(p *Provider) geminiRequest {
+	return p.buildGeminiRequest(r.contents, r.systemInstruction, r.temperature, r.topP, r.maxTokens)
+}
+
 // prepareGeminiRequest converts a predict request to Gemini format with defaults applied
-func (p *Provider) prepareGeminiRequest(ctx context.Context, req providers.PredictionRequest) (
-	contents []geminiContent,
-	systemInstruction *geminiContent,
-	temperature, topP float32,
-	maxTokens int,
-	err error,
-) {
+func (p *Provider) prepareGeminiRequest(
+	ctx context.Context, req providers.PredictionRequest,
+) (preparedGeminiRequest, error) {
+	var prep preparedGeminiRequest
+
 	// Handle system message
 	if req.System != "" {
-		systemInstruction = &geminiContent{
+		prep.systemInstruction = &geminiContent{
 			Parts: []geminiPart{{Text: req.System}},
 		}
 	}
 
 	// Convert conversation messages
-	contents, err = p.convertMessagesToGeminiContents(ctx, req.Messages)
+	contents, err := p.convertMessagesToGeminiContents(ctx, req.Messages)
 	if err != nil {
-		return nil, nil, 0, 0, 0, err
+		return preparedGeminiRequest{}, err
 	}
+	prep.contents = contents
 
 	// Apply defaults using the shared method
-	temperature, topP, maxTokens = p.applyRequestDefaults(req)
+	prep.temperature, prep.topP, prep.maxTokens = p.applyRequestDefaults(req)
 
-	return contents, systemInstruction, temperature, topP, maxTokens, nil
+	return prep, nil
 }
 
 // applyOptionalSampling sets the request's top_k, which Gemini's
@@ -477,7 +493,9 @@ func (p *Provider) warnUnsentPenalties(req *providers.PredictionRequest) {
 }
 
 // buildGeminiRequest creates a Gemini API request with standard safety settings
-func (p *Provider) buildGeminiRequest(contents []geminiContent, systemInstruction *geminiContent, temperature, topP float32, maxTokens int) geminiRequest {
+func (p *Provider) buildGeminiRequest(
+	contents []geminiContent, systemInstruction *geminiContent, temperature, topP float32, maxTokens int,
+) geminiRequest {
 	return geminiRequest{
 		Contents:          contents,
 		SystemInstruction: systemInstruction,
@@ -488,10 +506,10 @@ func (p *Provider) buildGeminiRequest(contents []geminiContent, systemInstructio
 			ThinkingConfig:  p.geminiThinkingConfigFor(maxTokens),
 		},
 		SafetySettings: []geminiSafety{
-			{Category: "HARM_CATEGORY_HARASSMENT", Threshold: "BLOCK_NONE"},
-			{Category: "HARM_CATEGORY_HATE_SPEECH", Threshold: "BLOCK_NONE"},
-			{Category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", Threshold: "BLOCK_NONE"},
-			{Category: "HARM_CATEGORY_DANGEROUS_CONTENT", Threshold: "BLOCK_NONE"},
+			{Category: "HARM_CATEGORY_HARASSMENT", Threshold: safetyThresholdBlockNone},
+			{Category: "HARM_CATEGORY_HATE_SPEECH", Threshold: safetyThresholdBlockNone},
+			{Category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", Threshold: safetyThresholdBlockNone},
+			{Category: "HARM_CATEGORY_DANGEROUS_CONTENT", Threshold: safetyThresholdBlockNone},
 		},
 	}
 }
@@ -611,7 +629,9 @@ func sanitizeGeminiSchemaRaw(raw json.RawMessage) json.RawMessage {
 }
 
 // handleGeminiFinishReason processes error finish reasons from Gemini responses
-func (p *Provider) handleGeminiFinishReason(finishReason string, predictResp providers.PredictionResponse, respBody []byte, start time.Time) (providers.PredictionResponse, error) {
+func (p *Provider) handleGeminiFinishReason(
+	finishReason string, predictResp providers.PredictionResponse, respBody []byte, start time.Time,
+) (providers.PredictionResponse, error) {
 	predictResp.Latency = time.Since(start)
 	predictResp.Raw = respBody
 
@@ -630,7 +650,9 @@ func (p *Provider) handleGeminiFinishReason(finishReason string, predictResp pro
 }
 
 // handleNoCandidatesError creates an appropriate error when no candidates are returned
-func (p *Provider) handleNoCandidatesError(geminiResp geminiResponse, predictResp providers.PredictionResponse, respBody []byte, start time.Time) (providers.PredictionResponse, error) {
+func (p *Provider) handleNoCandidatesError(
+	geminiResp geminiResponse, predictResp providers.PredictionResponse, respBody []byte, start time.Time,
+) (providers.PredictionResponse, error) {
 	predictResp.Latency = time.Since(start)
 	predictResp.Raw = respBody
 
@@ -661,7 +683,9 @@ func (p *Provider) handleNoCandidatesError(geminiResp geminiResponse, predictRes
 }
 
 // makeGeminiHTTPRequest sends the HTTP request to Gemini API
-func (p *Provider) makeGeminiHTTPRequest(ctx context.Context, geminiReq geminiRequest, predictResp providers.PredictionResponse, start time.Time) ([]byte, providers.PredictionResponse, error) {
+func (p *Provider) makeGeminiHTTPRequest(
+	ctx context.Context, geminiReq geminiRequest, predictResp providers.PredictionResponse, start time.Time,
+) ([]byte, providers.PredictionResponse, error) {
 	reqBody, err := json.Marshal(geminiReq)
 	if err != nil {
 		return nil, predictResp, fmt.Errorf("failed to marshal request: %w", err)
@@ -673,7 +697,7 @@ func (p *Provider) makeGeminiHTTPRequest(ctx context.Context, geminiReq geminiRe
 	headers := map[string]string{
 		contentTypeHeader: applicationJSON,
 	}
-	logger.APIRequest("Gemini", "POST", url, headers, geminiReq)
+	logger.APIRequest(logNameGemini, "POST", url, headers, geminiReq)
 
 	// Make HTTP request
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
@@ -695,7 +719,7 @@ func (p *Provider) makeGeminiHTTPRequest(ctx context.Context, geminiReq geminiRe
 
 	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
-		logger.APIResponse("Gemini", 0, "", err)
+		logger.APIResponse(logNameGemini, 0, "", err)
 		predictResp.Latency = time.Since(start)
 		return nil, predictResp, &providers.ProviderTransportError{Cause: err, Provider: p.ID()}
 	}
@@ -703,13 +727,13 @@ func (p *Provider) makeGeminiHTTPRequest(ctx context.Context, geminiReq geminiRe
 
 	respBody, err := providers.ReadResponseBody(resp.Body)
 	if err != nil {
-		logger.APIResponse("Gemini", resp.StatusCode, "", err)
+		logger.APIResponse(logNameGemini, resp.StatusCode, "", err)
 		predictResp.Latency = time.Since(start)
 		return nil, predictResp, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	// Debug log the response
-	logger.APIResponse("Gemini", resp.StatusCode, string(respBody), nil)
+	logger.APIResponse(logNameGemini, resp.StatusCode, string(respBody), nil)
 
 	if resp.StatusCode != http.StatusOK {
 		predictResp.Latency = time.Since(start)
@@ -727,7 +751,9 @@ func (p *Provider) makeGeminiHTTPRequest(ctx context.Context, geminiReq geminiRe
 }
 
 // parseAndValidateGeminiResponse parses and validates the Gemini API response
-func (p *Provider) parseAndValidateGeminiResponse(respBody []byte, predictResp providers.PredictionResponse, start time.Time) (geminiResponse, geminiCandidate, providers.PredictionResponse, error) {
+func (p *Provider) parseAndValidateGeminiResponse(
+	respBody []byte, predictResp providers.PredictionResponse, start time.Time,
+) (geminiResponse, geminiCandidate, providers.PredictionResponse, error) {
 	var geminiResp geminiResponse
 	if err := json.Unmarshal(respBody, &geminiResp); err != nil {
 		predictResp.Latency = time.Since(start)
@@ -743,7 +769,7 @@ func (p *Provider) parseAndValidateGeminiResponse(respBody []byte, predictResp p
 	candidate := geminiResp.Candidates[0]
 
 	// Check for safety blocking
-	if candidate.FinishReason == "SAFETY" {
+	if candidate.FinishReason == finishReasonSafety {
 		predictResp.Latency = time.Since(start)
 		predictResp.Raw = respBody
 		return geminiResp, candidate, predictResp, fmt.Errorf("response blocked by safety filters")
@@ -767,13 +793,13 @@ func (p *Provider) predictOnce(
 	start := time.Now()
 
 	// Convert messages to Gemini format and apply defaults
-	contents, systemInstruction, temperature, topP, maxTokens, err := p.prepareGeminiRequest(ctx, req)
+	prep, err := p.prepareGeminiRequest(ctx, req)
 	if err != nil {
 		return providers.PredictionResponse{}, err
 	}
 
 	// Create request
-	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
+	geminiReq := prep.build(p)
 	geminiReq.GenerationConfig.applyOptionalSampling(p, &req)
 
 	// Explicit context caching: move the stable system prefix into a
@@ -819,43 +845,9 @@ func (p *Provider) predictOnce(
 	costBreakdown := p.costFromUsage(usage)
 
 	// Extract all content parts (text + inline media + markdown images)
-	var contentParts []types.ContentPart
-	var textContent strings.Builder
+	contentParts, textContent := extractCandidateContent(candidate.Content.Parts)
 
-	for _, part := range candidate.Content.Parts {
-		// Reasoning ("thought") parts go to Message.Reasoning, not content.
-		if part.Thought {
-			continue
-		}
-		if part.Text != "" {
-			// Check if text contains markdown images and split accordingly
-			textParts := processTextPartForImages(part.Text)
-			contentParts = append(contentParts, textParts...)
-			textContent.WriteString(part.Text)
-		}
-
-		if part.InlineData != nil {
-			// Add inline media part (image, audio, video)
-			mediaType := inferMediaTypeFromMIME(part.InlineData.MimeType)
-			var mediaPart types.ContentPart
-
-			switch mediaType {
-			case types.ContentTypeImage:
-				mediaPart = types.NewImagePartFromData(part.InlineData.Data, part.InlineData.MimeType, nil)
-			case types.ContentTypeAudio:
-				mediaPart = types.NewAudioPartFromData(part.InlineData.Data, part.InlineData.MimeType)
-			case types.ContentTypeVideo:
-				mediaPart = types.NewVideoPartFromData(part.InlineData.Data, part.InlineData.MimeType)
-			default:
-				// Unknown media type, skip
-				continue
-			}
-
-			contentParts = append(contentParts, mediaPart)
-		}
-	}
-
-	predictResp.Content = textContent.String()
+	predictResp.Content = textContent
 	predictResp.Parts = contentParts
 	predictResp.Reasoning = reasoningFromParts(candidate.Content.Parts)
 	predictResp.CostInfo = &costBreakdown
@@ -872,6 +864,48 @@ func (p *Provider) predictOnce(
 		"video_parts", countPartsByType(contentParts, types.ContentTypeVideo))
 
 	return predictResp, nil
+}
+
+// extractCandidateContent collects a candidate's content parts (text, inline
+// media and markdown images) and its concatenated text. Reasoning ("thought")
+// parts go to Message.Reasoning, not content, and are skipped here.
+func extractCandidateContent(parts []geminiPart) (contentParts []types.ContentPart, text string) {
+	var textContent strings.Builder
+
+	for _, part := range parts {
+		if part.Thought {
+			continue
+		}
+		if part.Text != "" {
+			// Check if text contains markdown images and split accordingly
+			textParts := processTextPartForImages(part.Text)
+			contentParts = append(contentParts, textParts...)
+			textContent.WriteString(part.Text)
+		}
+
+		if part.InlineData != nil {
+			if mediaPart, ok := inlineDataToContentPart(part.InlineData); ok {
+				contentParts = append(contentParts, mediaPart)
+			}
+		}
+	}
+
+	return contentParts, textContent.String()
+}
+
+// inlineDataToContentPart converts an inline media part (image, audio, video)
+// to a ContentPart; ok is false for an unknown media type, which is skipped.
+func inlineDataToContentPart(data *geminiInlineData) (types.ContentPart, bool) {
+	switch inferMediaTypeFromMIME(data.MimeType) {
+	case types.ContentTypeImage:
+		return types.NewImagePartFromData(data.Data, data.MimeType, nil), true
+	case types.ContentTypeAudio:
+		return types.NewAudioPartFromData(data.Data, data.MimeType), true
+	case types.ContentTypeVideo:
+		return types.NewVideoPartFromData(data.Data, data.MimeType), true
+	default:
+		return types.ContentPart{}, false
+	}
 }
 
 // Predict runs predictOnce, retrying without any sampling parameter the API

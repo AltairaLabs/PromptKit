@@ -63,9 +63,9 @@ func (h *ToolsCalledSessionHandler) Eval(
 				strings.Join(missing, "; "),
 			),
 			Value: map[string]any{
-				"found":    found,
-				"expected": len(required),
-				"missing":  missing,
+				keyFound:    found,
+				keyExpected: len(required),
+				keyMissing:  missing,
 			},
 		}, nil
 	}
@@ -75,9 +75,9 @@ func (h *ToolsCalledSessionHandler) Eval(
 		Score:       ratioScore(found, len(required)),
 		Explanation: "all required tools were called",
 		Value: map[string]any{
-			"found":    found,
-			"expected": len(required),
-			"missing":  []string{},
+			keyFound:    found,
+			keyExpected: len(required),
+			keyMissing:  []string{},
 		},
 	}, nil
 }

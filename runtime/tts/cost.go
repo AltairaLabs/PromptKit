@@ -42,7 +42,7 @@ func ComputeTTSCost(svc any, text string, latency time.Duration) *types.CostInfo
 		desc,
 		p.ImplName(),
 		base.ProviderTypeTTS,
-		map[string]float64{"character": float64(charCount)},
+		map[string]float64{unitCharacter: float64(charCount)},
 		latency,
 	)
 }

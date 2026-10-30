@@ -158,7 +158,7 @@ func NewFileStore(config FileStoreConfig, opts ...FileStoreOption) (*FileStore, 
 	}
 
 	// Create base directory if it doesn't exist
-	if err := os.MkdirAll(config.BaseDir, 0750); err != nil {
+	if err := os.MkdirAll(config.BaseDir, mediaDirPerm); err != nil {
 		return nil, fmt.Errorf("failed to create base directory: %w", err)
 	}
 
@@ -190,7 +190,9 @@ func NewFileStore(config FileStoreConfig, opts ...FileStoreOption) (*FileStore, 
 }
 
 // StoreMedia implements MediaStorageService.StoreMedia
-func (fs *FileStore) StoreMedia(ctx context.Context, content *types.MediaContent, metadata *storage.MediaMetadata) (storage.Reference, error) {
+func (fs *FileStore) StoreMedia(
+	ctx context.Context, content *types.MediaContent, metadata *storage.MediaMetadata,
+) (storage.Reference, error) {
 	if err := content.Validate(); err != nil {
 		return "", fmt.Errorf("invalid media content: %w", err)
 	}
@@ -204,84 +206,35 @@ func (fs *FileStore) StoreMedia(ctx context.Context, content *types.MediaContent
 		return fs.storeMediaStreaming(ctx, content, metadata)
 	}
 
-	// Get the media data
-	data, err := fs.getMediaData(content)
+	data, err := fs.prepareInlineData(content)
 	if err != nil {
-		return "", fmt.Errorf("failed to get media data: %w", err)
-	}
-
-	// Wrap raw PCM audio in WAV header for playability
-	// Gemini Live API outputs 24kHz, 16-bit, mono PCM
-	if isPCMAudio(content.MIMEType) {
-		data = wrapPCMInWAV(data, geminiumSampleRate, geminiumBitDepth, geminiumChannels)
-	}
-
-	// Check final data size against MaxFileSize (after any transformations like WAV wrapping)
-	if sizeErr := fs.checkSize(int64(len(data))); sizeErr != nil {
-		return "", fmt.Errorf("failed to store media: %w", sizeErr)
+		return "", err
 	}
 
 	// Compute hash if deduplication is enabled
-	var hash string
+	var contentHash string
 	if fs.config.EnableDeduplication {
-		hash = fs.computeHash(data)
+		contentHash = fs.computeHash(data)
 
 		// Hold write lock from check through index update to prevent race where
 		// two goroutines both pass the existence check and write the same file.
-		fs.dedupMu.Lock()
-		existingPath, exists := fs.dedupIndex[hash]
-		if exists {
-			fs.dedupMu.Unlock()
-			// Increment reference count
-			fs.refMu.Lock()
-			fs.refCounts[existingPath]++
-			fs.refMu.Unlock()
-
+		if existingPath, exists := fs.lookupDedupLocked(contentHash); exists {
 			return storage.Reference(existingPath), nil
 		}
 		// Keep dedupMu locked — will update index after write below
 	}
 
-	// Generate file path based on organization mode
-	filePath, err := fs.generateFilePath(metadata, hash, content.MIMEType)
+	filePath, err := fs.writeNewMediaFile(metadata, contentHash, content.MIMEType, data)
 	if err != nil {
 		if fs.config.EnableDeduplication {
 			fs.dedupMu.Unlock()
 		}
-		return "", fmt.Errorf("failed to generate file path: %w", err)
-	}
-
-	// Ensure directory exists
-	dir := filepath.Dir(filePath)
-	if err := os.MkdirAll(dir, 0750); err != nil {
-		if fs.config.EnableDeduplication {
-			fs.dedupMu.Unlock()
-		}
-		return "", fmt.Errorf("failed to create directory: %w", err)
-	}
-
-	// Write file atomically (write to temp, then rename)
-	if err := fs.writeFileAtomic(filePath, data); err != nil {
-		if fs.config.EnableDeduplication {
-			fs.dedupMu.Unlock()
-		}
-		return "", fmt.Errorf("failed to write file: %w", err)
+		return "", err
 	}
 
 	// Update deduplication index (lock already held from check above)
-	if fs.config.EnableDeduplication && hash != "" {
-		fs.dedupIndex[hash] = filePath
-		fs.dedupDirty = true
-		fs.dedupMu.Unlock()
-
-		fs.refMu.Lock()
-		fs.refCounts[filePath] = 1
-		fs.refMu.Unlock()
-
-		// Persist index (skips write if not dirty)
-		if err := fs.saveDedupIndex(); err != nil {
-			logger.Warn("failed to persist dedup index", "error", err)
-		}
+	if fs.config.EnableDeduplication && contentHash != "" {
+		fs.registerDedupLocked(contentHash, filePath)
 	}
 
 	// Store metadata alongside the file
@@ -291,6 +244,82 @@ func (fs *FileStore) StoreMedia(ctx context.Context, content *types.MediaContent
 	}
 
 	return storage.Reference(filePath), nil
+}
+
+// prepareInlineData loads the media bytes, wraps raw PCM audio in a WAV
+// header for playability (Gemini Live API outputs 24kHz, 16-bit, mono PCM),
+// and checks the final size against MaxFileSize.
+func (fs *FileStore) prepareInlineData(content *types.MediaContent) ([]byte, error) {
+	data, err := fs.getMediaData(content)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get media data: %w", err)
+	}
+
+	if isPCMAudio(content.MIMEType) {
+		data = wrapPCMInWAV(data, geminiumSampleRate, geminiumBitDepth, geminiumChannels)
+	}
+
+	// Check final data size against MaxFileSize (after any transformations like WAV wrapping)
+	if sizeErr := fs.checkSize(int64(len(data))); sizeErr != nil {
+		return nil, fmt.Errorf("failed to store media: %w", sizeErr)
+	}
+	return data, nil
+}
+
+// lookupDedupLocked takes dedupMu and checks the index for contentHash. On a
+// hit it releases dedupMu, increments the file's reference count and returns
+// the existing path. On a miss it returns with dedupMu STILL HELD; the caller
+// must release it (directly or via registerDedupLocked).
+func (fs *FileStore) lookupDedupLocked(contentHash string) (string, bool) {
+	fs.dedupMu.Lock()
+	existingPath, exists := fs.dedupIndex[contentHash]
+	if !exists {
+		return "", false
+	}
+	fs.dedupMu.Unlock()
+
+	fs.refMu.Lock()
+	fs.refCounts[existingPath]++
+	fs.refMu.Unlock()
+	return existingPath, true
+}
+
+// writeNewMediaFile generates the file path for new media, creates its
+// directory and writes data atomically (temp file then rename).
+func (fs *FileStore) writeNewMediaFile(
+	metadata *storage.MediaMetadata, contentHash, mimeType string, data []byte,
+) (string, error) {
+	filePath, err := fs.generateFilePath(metadata, contentHash, mimeType)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate file path: %w", err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(filePath), mediaDirPerm); err != nil {
+		return "", fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	if err := fs.writeFileAtomic(filePath, data); err != nil {
+		return "", fmt.Errorf("failed to write file: %w", err)
+	}
+	return filePath, nil
+}
+
+// registerDedupLocked records filePath under contentHash, releases dedupMu
+// (which the caller holds from lookupDedupLocked), sets the reference count
+// to one and persists the index.
+func (fs *FileStore) registerDedupLocked(contentHash, filePath string) {
+	fs.dedupIndex[contentHash] = filePath
+	fs.dedupDirty = true
+	fs.dedupMu.Unlock()
+
+	fs.refMu.Lock()
+	fs.refCounts[filePath] = 1
+	fs.refMu.Unlock()
+
+	// Persist index (skips write if not dirty)
+	if err := fs.saveDedupIndex(); err != nil {
+		logger.Warn("failed to persist dedup index", "error", err)
+	}
 }
 
 // storeMediaStreaming is the streaming variant of StoreMedia, used when
@@ -675,16 +704,18 @@ func (fs *FileStore) readFileData(content *types.MediaContent) ([]byte, error) {
 }
 
 func (fs *FileStore) computeHash(data []byte) string {
-	hash := sha256.Sum256(data)
-	return hex.EncodeToString(hash[:])
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
-func (fs *FileStore) generateFilePath(metadata *storage.MediaMetadata, hash, mimeType string) (string, error) {
+func (fs *FileStore) generateFilePath(
+	metadata *storage.MediaMetadata, contentHash, mimeType string,
+) (string, error) {
 	// Get file extension from MIME type
 	ext := getExtensionFromMIME(mimeType)
 
 	// Use hash as filename if available, otherwise generate one
-	filename := hash
+	filename := contentHash
 	if filename == "" {
 		filename = fmt.Sprintf("%d_%d_%d", metadata.MessageIdx, metadata.PartIdx, time.Now().UnixNano())
 	}
@@ -718,7 +749,7 @@ func (fs *FileStore) generateFilePath(metadata *storage.MediaMetadata, hash, mim
 func (fs *FileStore) writeFileAtomic(path string, data []byte) error {
 	// Write to temporary file
 	tempPath := path + ".tmp"
-	if err := os.WriteFile(tempPath, data, 0600); err != nil {
+	if err := os.WriteFile(tempPath, data, filePermissions); err != nil {
 		return err
 	}
 
@@ -739,13 +770,13 @@ func (fs *FileStore) storeMetadata(filePath string, metadata *storage.MediaMetad
 		return err
 	}
 
-	return os.WriteFile(metadataPath, data, 0600)
+	return os.WriteFile(metadataPath, data, filePermissions)
 }
 
 func (fs *FileStore) loadMetadata(filePath string) (*storage.MediaMetadata, error) {
 	metadataPath := filePath + ".meta"
 
-	data, err := os.ReadFile(metadataPath)
+	data, err := os.ReadFile(filepath.Clean(metadataPath))
 	if err != nil {
 		return nil, err
 	}
@@ -761,7 +792,7 @@ func (fs *FileStore) loadMetadata(filePath string) (*storage.MediaMetadata, erro
 func (fs *FileStore) loadDedupIndex() error {
 	indexPath := filepath.Join(fs.config.BaseDir, ".dedup_index.json")
 
-	data, err := os.ReadFile(indexPath)
+	data, err := os.ReadFile(filepath.Clean(indexPath))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil // Index doesn't exist yet, that's ok
@@ -846,33 +877,60 @@ func sanitizeFilename(name string) string {
 	return replacer.Replace(name)
 }
 
+// MIME types and file extensions mapped by getExtensionFromMIME and
+// inferMIMETypeFromPath.
+const (
+	mimeImageJPEG = "image/jpeg"
+	mimeImagePNG  = "image/png"
+	mimeImageGIF  = "image/gif"
+	mimeImageWebP = "image/webp"
+	mimeAudioMPEG = "audio/mpeg"
+	mimeAudioOGG  = "audio/ogg"
+	mimeAudioWebM = "audio/webm"
+	mimeVideoMP4  = "video/mp4"
+	mimeVideoWebM = "video/webm"
+	mimeVideoOGG  = "video/ogg"
+
+	extJPG  = ".jpg"
+	extPNG  = ".png"
+	extGIF  = ".gif"
+	extWebP = ".webp"
+	extMP3  = ".mp3"
+	extWAV  = ".wav"
+	extOGG  = ".ogg"
+	extWebA = ".weba"
+	extMP4  = ".mp4"
+	extWebM = ".webm"
+	extOGV  = ".ogv"
+)
+
 func getExtensionFromMIME(mimeType string) string {
 	switch mimeType {
-	case "image/jpeg":
-		return ".jpg"
-	case "image/png":
-		return ".png"
-	case "image/gif":
-		return ".gif"
-	case "image/webp":
-		return ".webp"
-	case "audio/mpeg":
-		return ".mp3"
+	case mimeImageJPEG:
+		return extJPG
+	case mimeImagePNG:
+		return extPNG
+	case mimeImageGIF:
+		return extGIF
+	case mimeImageWebP:
+		return extWebP
+	case mimeAudioMPEG:
+		return extMP3
 	case audioMIMETypeWAV:
-		return ".wav"
-	case "audio/ogg":
-		return ".ogg"
-	case "audio/webm":
-		return ".weba"
+		return extWAV
+	case mimeAudioOGG:
+		return extOGG
+	case mimeAudioWebM:
+		return extWebA
 	case audioMIMETypePCM, audioMIMETypeL16:
 		// PCM will be wrapped in WAV header for playability
-		return ".wav"
-	case "video/mp4":
-		return ".mp4"
-	case "video/webm":
-		return ".webm"
-	case "video/ogg":
-		return ".ogv"
+		return extWAV
+	case mimeVideoMP4:
+		return extMP4
+	case mimeVideoWebM:
+		return extWebM
+	case mimeVideoOGG:
+		return extOGV
 	default:
 		return ".bin"
 	}
@@ -881,30 +939,30 @@ func getExtensionFromMIME(mimeType string) string {
 func inferMIMETypeFromPath(path string) string {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
-	case ".jpg", ".jpeg":
-		return "image/jpeg"
-	case ".png":
-		return "image/png"
-	case ".gif":
-		return "image/gif"
-	case ".webp":
-		return "image/webp"
-	case ".mp3":
-		return "audio/mpeg"
-	case ".wav":
+	case extJPG, ".jpeg":
+		return mimeImageJPEG
+	case extPNG:
+		return mimeImagePNG
+	case extGIF:
+		return mimeImageGIF
+	case extWebP:
+		return mimeImageWebP
+	case extMP3:
+		return mimeAudioMPEG
+	case extWAV:
 		return audioMIMETypeWAV
 	case ".pcm":
-		return "audio/pcm"
-	case ".ogg", ".oga":
-		return "audio/ogg"
-	case ".weba":
-		return "audio/webm"
-	case ".mp4":
-		return "video/mp4"
-	case ".webm":
-		return "video/webm"
-	case ".ogv":
-		return "video/ogg"
+		return audioMIMETypePCM
+	case extOGG, ".oga":
+		return mimeAudioOGG
+	case extWebA:
+		return mimeAudioWebM
+	case extMP4:
+		return mimeVideoMP4
+	case extWebM:
+		return mimeVideoWebM
+	case extOGV:
+		return mimeVideoOGG
 	default:
 		return ""
 	}
@@ -912,8 +970,6 @@ func inferMIMETypeFromPath(path string) string {
 
 // wrapPCMInWAV wraps raw PCM audio data in a WAV header for playability.
 // Assumes 24kHz, 16-bit, mono PCM (Gemini Live API output format).
-//
-//nolint:gosec // Integer conversions are safe for audio parameters
 func wrapPCMInWAV(pcmData []byte, sampleRate, bitsPerSample, numChannels int) []byte {
 	dataSize := len(pcmData)
 	header := buildWAVHeader(int64(dataSize), sampleRate, bitsPerSample, numChannels)
@@ -943,11 +999,11 @@ func buildWAVHeader(dataSize int64, sampleRate, bitsPerSample, numChannels int) 
 	copy(header[12:16], "fmt ")
 	binary.LittleEndian.PutUint32(header[16:20], wavFmtChunkSize)       // Subchunk1Size (16 for PCM)
 	binary.LittleEndian.PutUint16(header[20:22], 1)                     // AudioFormat (1 = PCM)
-	binary.LittleEndian.PutUint16(header[22:24], uint16(numChannels))   // NumChannels
-	binary.LittleEndian.PutUint32(header[24:28], uint32(sampleRate))    // SampleRate
-	binary.LittleEndian.PutUint32(header[28:32], uint32(byteRate))      // ByteRate
-	binary.LittleEndian.PutUint16(header[32:34], uint16(blockAlign))    // BlockAlign
-	binary.LittleEndian.PutUint16(header[34:36], uint16(bitsPerSample)) // BitsPerSample
+	binary.LittleEndian.PutUint16(header[22:24], wavU16(numChannels))   // NumChannels
+	binary.LittleEndian.PutUint32(header[24:28], wavU32(sampleRate))    // SampleRate
+	binary.LittleEndian.PutUint32(header[28:32], wavU32(byteRate))      // ByteRate
+	binary.LittleEndian.PutUint16(header[32:34], wavU16(blockAlign))    // BlockAlign
+	binary.LittleEndian.PutUint16(header[34:36], wavU16(bitsPerSample)) // BitsPerSample
 
 	// "data" sub-chunk
 	copy(header[36:40], "data")
@@ -955,6 +1011,16 @@ func buildWAVHeader(dataSize int64, sampleRate, bitsPerSample, numChannels int) 
 	binary.LittleEndian.PutUint32(header[40:44], uint32(dataSize)) // Subchunk2Size
 
 	return header
+}
+
+// wavU32 converts an int audio parameter to the uint32 a WAV header field holds.
+func wavU32(v int) uint32 {
+	return uint32(v) //nolint:gosec // G115: WAV header fields are 32-bit by format; wraparound matches the prior behavior
+}
+
+// wavU16 converts an int audio parameter to the uint16 a WAV header field holds.
+func wavU16(v int) uint16 {
+	return uint16(v) //nolint:gosec // G115: WAV header fields are 16-bit by format; wraparound matches the prior behavior
 }
 
 // isPCMAudio returns true if the MIME type represents raw PCM audio.

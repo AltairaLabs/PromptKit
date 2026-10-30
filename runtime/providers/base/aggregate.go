@@ -7,6 +7,37 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
+// mergeHeadlineOnlyPart synthesizes breakdown lines from the flat fields of a
+// part with an empty Breakdown and merges them into the aggregate.
+func mergeHeadlineOnlyPart(
+	out *types.CostInfo, lines map[string]*types.CostLineItem, order *[]string, p *types.CostInfo,
+) {
+	var synthUSD float64
+	for _, li := range synthesizeLines(p) {
+		if _, ok := p.Quantities[li.Unit]; !ok {
+			out.Quantities[li.Unit] += li.Quantity
+		}
+		synthUSD += li.USD
+		mergeLine(lines, order, li)
+	}
+	// Preserve any cost the flat TotalCost carries that the synthesized
+	// lines didn't account for (e.g. imagen's per-image TotalCost with no
+	// token buckets, or replay's token counts priced at $0 with the real
+	// cost only in TotalCost). Without this, a headline-only part whose
+	// TotalCost isn't fully explained by Input/Output/CachedCostUSD would
+	// silently lose the difference.
+	residual := p.TotalCost - synthUSD
+	if residual > 1e-12 || residual < -1e-12 {
+		mergeLine(lines, order, types.CostLineItem{
+			Provider:   p.ProviderName,
+			Capability: p.Capability,
+			Unit:       UnitOutputToken,
+			Quantity:   0,
+			USD:        residual,
+		})
+	}
+}
+
 // AggregateCost merges per-message CostInfo into one roll-up: it sums
 // Quantities, merges Breakdown line items by (provider, capability, unit,
 // dimensions), and re-derives the flat directional headlines so the
@@ -41,30 +72,7 @@ func AggregateCost(parts ...*types.CostInfo) types.CostInfo {
 			}
 			continue
 		}
-		var synthUSD float64
-		for _, li := range synthesizeLines(p) {
-			if _, ok := p.Quantities[li.Unit]; !ok {
-				out.Quantities[li.Unit] += li.Quantity
-			}
-			synthUSD += li.USD
-			mergeLine(lines, &order, li)
-		}
-		// Preserve any cost the flat TotalCost carries that the synthesized
-		// lines didn't account for (e.g. imagen's per-image TotalCost with no
-		// token buckets, or replay's token counts priced at $0 with the real
-		// cost only in TotalCost). Without this, a headline-only part whose
-		// TotalCost isn't fully explained by Input/Output/CachedCostUSD would
-		// silently lose the difference.
-		residual := p.TotalCost - synthUSD
-		if residual > 1e-12 || residual < -1e-12 {
-			mergeLine(lines, &order, types.CostLineItem{
-				Provider:   p.ProviderName,
-				Capability: p.Capability,
-				Unit:       UnitOutputToken,
-				Quantity:   0,
-				USD:        residual,
-			})
-		}
+		mergeHeadlineOnlyPart(&out, lines, &order, p)
 	}
 
 	for _, k := range order {

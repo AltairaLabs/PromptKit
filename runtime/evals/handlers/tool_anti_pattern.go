@@ -38,7 +38,7 @@ func (h *ToolAntiPatternHandler) Eval(
 		if matched >= len(p.sequence) {
 			violations = append(violations, map[string]any{
 				"sequence": p.sequence,
-				"message":  p.message,
+				keyMessage: p.message,
 			})
 		}
 	}
@@ -58,8 +58,8 @@ func (h *ToolAntiPatternHandler) Eval(
 			Type:        h.Type(),
 			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("found %d anti-pattern(s): %s", len(violations), strings.Join(msgs, "; ")),
-			Value:       map[string]any{"violations": violations},
-			Details:     map[string]any{"violations": violations},
+			Value:       map[string]any{keyViolations: violations},
+			Details:     map[string]any{keyViolations: violations},
 		}, nil
 	}
 
@@ -67,7 +67,7 @@ func (h *ToolAntiPatternHandler) Eval(
 		Type:        h.Type(),
 		Score:       boolScore(true),
 		Explanation: fmt.Sprintf("none of %d anti-patterns detected", len(patterns)),
-		Value:       map[string]any{"violations": []map[string]any{}},
+		Value:       map[string]any{keyViolations: []map[string]any{}},
 	}, nil
 }
 

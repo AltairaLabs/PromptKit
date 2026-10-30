@@ -29,7 +29,7 @@ func (h *ContainsAnyHandler) Eval(
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Score:       boolScore(false),
-			Explanation: "no patterns specified",
+			Explanation: msgNoPatterns,
 		}, nil
 	}
 
@@ -47,7 +47,7 @@ func (h *ContainsAnyHandler) Eval(
 		return &evals.EvalResult{
 			Type:  h.Type(),
 			Score: boolScore(true),
-			Value: map[string]any{"matched": matchedPatterns},
+			Value: map[string]any{keyMatched: matchedPatterns},
 			Explanation: fmt.Sprintf(
 				"matched patterns: %s",
 				strings.Join(matchedPatterns, ", "),
@@ -58,7 +58,7 @@ func (h *ContainsAnyHandler) Eval(
 	return &evals.EvalResult{
 		Type:  h.Type(),
 		Score: boolScore(false),
-		Value: map[string]any{"matched": matchedPatterns},
+		Value: map[string]any{keyMatched: matchedPatterns},
 		Explanation: fmt.Sprintf(
 			"no assistant message contained any of: %s",
 			strings.Join(patterns, ", "),

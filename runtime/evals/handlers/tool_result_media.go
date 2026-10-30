@@ -45,13 +45,13 @@ func (h *ToolResultHasMediaHandler) Eval(
 					Score:       boolScore(true),
 					Explanation: fmt.Sprintf("tool %q returned media of type %q", tc.ToolName, mediaType),
 					Value: map[string]any{
-						"tool":       tc.ToolName,
-						"media_type": mediaType,
-						"found":      true,
+						valueKeyTool: tc.ToolName,
+						keyMediaType: mediaType,
+						keyFound:     true,
 					},
 					Details: map[string]any{
-						"tool":       tc.ToolName,
-						"media_type": mediaType,
+						valueKeyTool: tc.ToolName,
+						keyMediaType: mediaType,
 					},
 				}, nil
 			}
@@ -63,13 +63,13 @@ func (h *ToolResultHasMediaHandler) Eval(
 		Score:       boolScore(false),
 		Explanation: fmt.Sprintf("no tool result contains media of type %q", mediaType),
 		Value: map[string]any{
-			"tool":       tool,
-			"media_type": mediaType,
-			"found":      false,
+			valueKeyTool: tool,
+			keyMediaType: mediaType,
+			keyFound:     false,
 		},
 		Details: map[string]any{
-			"tool":       tool,
-			"media_type": mediaType,
+			valueKeyTool: tool,
+			keyMediaType: mediaType,
 		},
 	}, nil
 }
@@ -113,13 +113,13 @@ func (h *ToolResultMediaTypeHandler) Eval(
 					Score:       boolScore(true),
 					Explanation: fmt.Sprintf("tool %q returned media with MIME type %q", tc.ToolName, mimeType),
 					Value: map[string]any{
-						"tool":      tc.ToolName,
-						"mime_type": mimeType,
-						"found":     true,
+						valueKeyTool: tc.ToolName,
+						keyMimeType:  mimeType,
+						keyFound:     true,
 					},
 					Details: map[string]any{
-						"tool":      tc.ToolName,
-						"mime_type": mimeType,
+						valueKeyTool: tc.ToolName,
+						keyMimeType:  mimeType,
 					},
 				}, nil
 			}
@@ -131,13 +131,13 @@ func (h *ToolResultMediaTypeHandler) Eval(
 		Score:       boolScore(false),
 		Explanation: fmt.Sprintf("no tool result contains media with MIME type %q", mimeType),
 		Value: map[string]any{
-			"tool":      tool,
-			"mime_type": mimeType,
-			"found":     false,
+			valueKeyTool: tool,
+			keyMimeType:  mimeType,
+			keyFound:     false,
 		},
 		Details: map[string]any{
-			"tool":      tool,
-			"mime_type": mimeType,
+			valueKeyTool: tool,
+			keyMimeType:  mimeType,
 		},
 	}, nil
 }

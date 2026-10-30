@@ -57,8 +57,8 @@ type ErrToolsPending struct {
 
 func (e *ErrToolsPending) Error() string {
 	names := make([]string, len(e.Pending))
-	for i, p := range e.Pending {
-		names[i] = p.ToolName
+	for i := range e.Pending {
+		names[i] = e.Pending[i].ToolName
 	}
 	return fmt.Sprintf("tools pending: %s", strings.Join(names, ", "))
 }

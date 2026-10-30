@@ -18,6 +18,23 @@ import (
 )
 
 // HTTP constants
+// Request-body keys and wire values shared across the Ollama request builders.
+const (
+	keyModel         = "model"
+	keyMessages      = "messages"
+	keyTemperature   = "temperature"
+	keyTopP          = "top_p"
+	keyIncludeUsage  = "include_usage"
+	keyRole          = "role"
+	keyContent       = "content"
+	keyType          = "type"
+	keyText          = "text"
+	keyFunction      = "function"
+	roleSystem       = "system"
+	partTypeText     = "text"
+	toolTypeFunction = "function"
+)
+
 const (
 	ollamaChatCompletionsPath = "/v1/chat/completions"
 	contentTypeHeader         = "Content-Type"
@@ -49,7 +66,7 @@ func NewProvider(
 		Timeout:   ollamaHTTPTimeout,
 		Transport: providers.NewInstrumentedTransport(providers.NewPooledTransport()),
 	}
-	base := providers.NewBaseProvider(id, includeRawOutput, client)
+	baseProvider := providers.NewBaseProvider(id, includeRawOutput, client)
 
 	// Extract keep_alive from additional config
 	keepAlive := ""
@@ -60,7 +77,7 @@ func NewProvider(
 	}
 
 	return &Provider{
-		BaseProvider: base,
+		BaseProvider: baseProvider,
 		model:        model,
 		baseURL:      baseURL,
 		keepAlive:    keepAlive,
@@ -144,7 +161,7 @@ func (p *Provider) prepareMessages(
 	messages := make([]ollamaMessage, 0, len(req.Messages)+1)
 	if req.System != "" {
 		messages = append(messages, ollamaMessage{
-			Role:    "system",
+			Role:    roleSystem,
 			Content: req.System,
 		})
 	}
@@ -366,10 +383,7 @@ func (p *Provider) streamResponse(
 			choice, &sb, totalTokens,
 			&accumulatedToolCalls, outChan,
 		)
-		if choice.FinishReason != nil {
-			normalized := providers.NormalizeOpenAIFinishReason(*choice.FinishReason)
-			finishReason = &normalized
-		}
+		finishReason = updateFinishReason(finishReason, choice.FinishReason)
 	}
 
 	// A canceled stream ends here too: the goroutine above closes the body,
@@ -379,23 +393,11 @@ func (p *Provider) streamResponse(
 		return
 	}
 
-	if err := scanner.Err(); err != nil {
+	if err := streamEndError(scanner.Err(), sawDone, finishReason); err != nil {
 		outChan <- providers.StreamChunk{
 			Content:      sb.String(),
 			ToolCalls:    accumulatedToolCalls,
 			Error:        err,
-			FinishReason: providers.StringPtr("error"),
-		}
-		return
-	}
-
-	// A clean EOF with neither [DONE] nor a finish_reason means the server
-	// dropped the stream mid-reply; never present that as a completed turn.
-	if !sawDone && finishReason == nil {
-		outChan <- providers.StreamChunk{
-			Content:      sb.String(),
-			ToolCalls:    accumulatedToolCalls,
-			Error:        fmt.Errorf("ollama stream ended before completion: %w", io.ErrUnexpectedEOF),
 			FinishReason: providers.StringPtr("error"),
 		}
 		return
@@ -408,6 +410,30 @@ func (p *Provider) streamResponse(
 	outChan <- p.createFinalStreamChunk(
 		sb.String(), accumulatedToolCalls, totalTokens, finishReason, lastUsage,
 	)
+}
+
+// updateFinishReason returns the normalized form of a chunk's finish reason,
+// or current when the chunk carries none.
+func updateFinishReason(current, chunkReason *string) *string {
+	if chunkReason == nil {
+		return current
+	}
+	normalized := providers.NormalizeOpenAIFinishReason(*chunkReason)
+	return &normalized
+}
+
+// streamEndError returns the error a finished stream must report: the scanner
+// error if any, else an unexpected-EOF error when a clean EOF arrived with
+// neither [DONE] nor a finish_reason (the server dropped the stream mid-reply;
+// never present that as a completed turn).
+func streamEndError(scanErr error, sawDone bool, finishReason *string) error {
+	if scanErr != nil {
+		return scanErr
+	}
+	if !sawDone && finishReason == nil {
+		return fmt.Errorf("ollama stream ended before completion: %w", io.ErrUnexpectedEOF)
+	}
+	return nil
 }
 
 // handleContextCancellation checks for context cancellation and sends appropriate chunk
@@ -429,20 +455,6 @@ func (p *Provider) handleContextCancellation(
 	default:
 		return false
 	}
-}
-
-// sendDoneChunk sends the final done chunk
-func (p *Provider) sendDoneChunk(
-	accumulated string,
-	accumulatedToolCalls []types.MessageToolCall,
-	totalTokens int,
-	usage *ollamaUsage,
-	outChan chan<- providers.StreamChunk,
-) {
-	finalChunk := p.createFinalStreamChunk(
-		accumulated, accumulatedToolCalls, totalTokens, providers.StringPtr("stop"), usage,
-	)
-	outChan <- finalChunk
 }
 
 // parseStreamChunk parses a stream chunk from JSON
@@ -537,12 +549,12 @@ func getTextFromPart(part any) string {
 		return ""
 	}
 
-	partType, ok := partMap["type"].(string)
-	if !ok || partType != "text" {
+	partType, ok := partMap[keyType].(string)
+	if !ok || partType != partTypeText {
 		return ""
 	}
 
-	textVal, ok := partMap["text"].(string)
+	textVal, ok := partMap[keyText].(string)
 	if !ok {
 		return ""
 	}
@@ -677,12 +689,12 @@ func (p *Provider) predictStreamWithMessages(
 
 	// Create streaming request
 	ollamaReq := map[string]any{
-		"model":          p.model,
-		"messages":       messages,
-		"temperature":    temperature,
-		"top_p":          topP,
+		keyModel:         p.model,
+		keyMessages:      messages,
+		keyTemperature:   temperature,
+		keyTopP:          topP,
 		"stream":         true,
-		"stream_options": map[string]any{"include_usage": true},
+		"stream_options": map[string]any{keyIncludeUsage: true},
 	}
 	if maxTokens > 0 {
 		ollamaReq["max_tokens"] = maxTokens

@@ -70,7 +70,7 @@ func (h *ToolArgsHandler) checkArgs(
 					toolName,
 				),
 				Value: map[string]any{
-					"matched": true,
+					keyMatched: true,
 				},
 			}, nil
 		}
@@ -88,7 +88,7 @@ func (h *ToolArgsHandler) checkArgs(
 			toolName, strings.Join(violations, "; "),
 		),
 		Value: map[string]any{
-			"matched": false,
+			keyMatched: false,
 		},
 	}, nil
 }

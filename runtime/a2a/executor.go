@@ -170,7 +170,7 @@ func NewExecutor(opts ...ExecutorOption) *Executor {
 }
 
 // Name returns "a2a" to match the Mode on A2A tool descriptors.
-func (e *Executor) Name() string { return "a2a" }
+func (e *Executor) Name() string { return executorModeA2A }
 
 // a2aInput holds parsed arguments for an A2A tool call.
 type a2aInput struct {
@@ -198,7 +198,7 @@ func buildRequest(
 	// this passthrough those fields would be dropped between the LLM and the
 	// outgoing A2A Message.Metadata.
 	extras, err := tools.DecodeArgsExtras(args, &input,
-		"query", "image_url", "image_data", "audio_data")
+		argKeyQuery, "image_url", "image_data", "audio_data")
 	if err != nil {
 		return nil, nil, fmt.Errorf("a2a executor: parse args: %w", err)
 	}
@@ -382,7 +382,7 @@ func (e *Executor) Execute(
 	}
 
 	responseText := ExtractResponseText(task)
-	result := map[string]string{"response": responseText}
+	result := map[string]string{resultKeyResponse: responseText}
 	return json.Marshal(result)
 }
 
@@ -405,7 +405,7 @@ func (e *Executor) ExecuteMultimodal(
 
 	parts := ExtractResponseParts(task)
 	responseText := ExtractResponseText(task)
-	result := map[string]string{"response": responseText}
+	result := map[string]string{resultKeyResponse: responseText}
 	raw, err := json.Marshal(result)
 	if err != nil {
 		return nil, nil, fmt.Errorf("a2a executor: marshal result: %w", err)
@@ -645,53 +645,6 @@ func (e *Executor) evictLRU() {
 	}
 	oldest := heap.Pop(&e.clientHeap).(*clientEntry)
 	delete(e.clients, oldest.url)
-}
-
-// getOrCreateClient returns a cached client or creates a new one.
-// It updates the lastUsed timestamp on cache hits and enforces
-// the maximum client count by evicting the least recently used entry.
-func (e *Executor) getOrCreateClient(agentURL string) *Client {
-	now := e.nowFunc()
-
-	e.mu.RLock()
-	if entry, ok := e.clients[agentURL]; ok {
-		e.mu.RUnlock()
-		// Update lastUsed under write lock and fix heap position.
-		e.mu.Lock()
-		entry.lastUsed = now
-		if entry.index >= 0 {
-			heap.Fix(&e.clientHeap, entry.index)
-		}
-		e.mu.Unlock()
-		return entry.client
-	}
-	e.mu.RUnlock()
-
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	// Double-check after acquiring write lock
-	if entry, ok := e.clients[agentURL]; ok {
-		entry.lastUsed = now
-		if entry.index >= 0 {
-			heap.Fix(&e.clientHeap, entry.index)
-		}
-		return entry.client
-	}
-	if e.clients == nil {
-		e.clients = make(map[string]*clientEntry)
-	}
-
-	// Evict LRU if at capacity.
-	if len(e.clients) >= e.maxClients {
-		e.evictLRU()
-	}
-
-	c := NewClient(agentURL)
-	c.useCard(e.cards[agentURL])
-	entry := &clientEntry{client: c, lastUsed: now, url: agentURL}
-	e.clients[agentURL] = entry
-	heap.Push(&e.clientHeap, entry)
-	return c
 }
 
 // getOrCreateClientWithConfig returns a cached client or creates a new one with

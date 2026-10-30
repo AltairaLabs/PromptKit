@@ -421,13 +421,13 @@ func TestLogFormatJSON(t *testing.T) {
 	defer func() {
 		currentFormat = origFormat
 		logOutput = origOutput
-		initLogger(currentLevel, nil)
+		initLogger(currentLevel)
 	}()
 
 	var buf bytes.Buffer
 	logOutput = &buf
 	currentFormat = FormatJSON
-	initLogger(slog.LevelInfo, nil)
+	initLogger(slog.LevelInfo)
 
 	Info("json test message", "key", "value")
 
@@ -448,13 +448,13 @@ func TestLogFormatText(t *testing.T) {
 	defer func() {
 		currentFormat = origFormat
 		logOutput = origOutput
-		initLogger(currentLevel, nil)
+		initLogger(currentLevel)
 	}()
 
 	var buf bytes.Buffer
 	logOutput = &buf
 	currentFormat = FormatText
-	initLogger(slog.LevelInfo, nil)
+	initLogger(slog.LevelInfo)
 
 	Info("text test message", "key", "value")
 
@@ -476,7 +476,7 @@ func TestLogFormatEnvVar(t *testing.T) {
 	defer func() {
 		currentFormat = origFormat
 		logOutput = origOutput
-		initLogger(currentLevel, nil)
+		initLogger(currentLevel)
 	}()
 
 	tests := []struct {
@@ -512,7 +512,7 @@ func TestSetLogger_Custom(t *testing.T) {
 	defer func() {
 		storeLogger(origLogger)
 		logOutput = origOutput
-		initLogger(currentLevel, nil)
+		initLogger(currentLevel)
 	}()
 
 	var buf bytes.Buffer
@@ -539,7 +539,7 @@ func TestSetLogger_SetLevelPreservesCustomLogger(t *testing.T) {
 		customHandler = origHandler
 		storeLogger(origLogger)
 		logOutput = origOutput
-		initLogger(currentLevel, nil)
+		initLogger(currentLevel)
 	}()
 
 	var buf bytes.Buffer
@@ -564,7 +564,7 @@ func TestSetLogger_NilResetsDefault(t *testing.T) {
 	defer func() {
 		storeLogger(origLogger)
 		logOutput = origOutput
-		initLogger(currentLevel, nil)
+		initLogger(currentLevel)
 	}()
 
 	// Set a custom logger
@@ -597,7 +597,7 @@ func TestSetLogger_SlogDefaultUpdated(t *testing.T) {
 	defer func() {
 		storeLogger(origLogger)
 		logOutput = origOutput
-		initLogger(currentLevel, nil)
+		initLogger(currentLevel)
 	}()
 
 	var buf bytes.Buffer
@@ -618,7 +618,7 @@ func TestSetLogger_ConfigureDoesNotOverwrite(t *testing.T) {
 		customHandler = origHandler
 		storeLogger(origLogger)
 		logOutput = origOutput
-		initLogger(currentLevel, nil)
+		initLogger(currentLevel)
 	}()
 
 	// Set a custom logger writing to a buffer
@@ -648,7 +648,7 @@ func TestSetOutputPreservesFormat(t *testing.T) {
 	defer func() {
 		currentFormat = origFormat
 		logOutput = origOutput
-		initLogger(currentLevel, nil)
+		initLogger(currentLevel)
 	}()
 
 	// Set JSON format, then call SetOutput — format should be preserved

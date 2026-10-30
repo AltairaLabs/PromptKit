@@ -25,7 +25,7 @@ func (h *WorkflowStateIsHandler) Eval(
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Score:       boolScore(false),
-			Explanation: "missing required param 'state'",
+			Explanation: msgMissingState,
 		}, nil
 	}
 
@@ -39,7 +39,7 @@ func (h *WorkflowStateIsHandler) Eval(
 	}
 
 	passed := actual == expected
-	value := map[string]any{"current_state": actual, "expected_state": expected}
+	value := map[string]any{"current_state": actual, keyExpectedState: expected}
 
 	if passed {
 		return &evals.EvalResult{
@@ -55,7 +55,7 @@ func (h *WorkflowStateIsHandler) Eval(
 		Score:       boolScore(false),
 		Value:       value,
 		Explanation: fmt.Sprintf("expected state %q but got %q", expected, actual),
-		Details:     map[string]any{"expected": expected, "actual": actual},
+		Details:     map[string]any{keyExpected: expected, keyActual: actual},
 	}, nil
 }
 

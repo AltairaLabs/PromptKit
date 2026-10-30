@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -133,10 +132,12 @@ func (p *Provider) setCapabilities(capabilities []string) {
 
 // NewProvider creates a new Claude provider
 func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool) *Provider {
-	base, apiKey := providers.NewBaseProviderWithAPIKey(id, includeRawOutput, "ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
+	baseProvider, apiKey := providers.NewBaseProviderWithAPIKey(
+		id, includeRawOutput, "ANTHROPIC_API_KEY", "CLAUDE_API_KEY",
+	)
 
 	return &Provider{
-		BaseProvider: base,
+		BaseProvider: baseProvider,
 		model:        model,
 		baseURL:      normalizeBaseURL(baseURL),
 		apiKey:       apiKey,
@@ -155,7 +156,7 @@ func NewProviderWithCredential(
 	includeRawOutput bool, cred providers.Credential,
 	platform string, platformConfig *providers.PlatformConfig,
 ) *Provider {
-	base, apiKey := providers.NewBaseProviderWithCredential(id, includeRawOutput, httpClientTimeout, cred)
+	baseProvider, apiKey := providers.NewBaseProviderWithCredential(id, includeRawOutput, httpClientTimeout, cred)
 
 	if baseURL == "" && platformConfig != nil {
 		switch {
@@ -170,7 +171,7 @@ func NewProviderWithCredential(
 	}
 
 	return &Provider{
-		BaseProvider:   base,
+		BaseProvider:   baseProvider,
 		model:          model,
 		baseURL:        normalizeBaseURL(baseURL),
 		apiKey:         apiKey,
@@ -316,43 +317,6 @@ func (p *Provider) marshalPartnerRequest(cr *claudeRequest) ([]byte, error) {
 	return json.Marshal(reqMap)
 }
 
-// makeBedrockStreamingRequest sends a streaming HTTP request to Bedrock and returns the
-// response body and a BedrockEventScanner. The caller owns the response body.
-func (p *Provider) makeBedrockStreamingRequest(
-	ctx context.Context, reqBody []byte,
-) (io.ReadCloser, providers.StreamScanner, error) {
-	url := p.messagesStreamURL()
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	httpReq.Header.Set("Accept", "application/vnd.amazon.eventstream")
-
-	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
-		return nil, nil, fmt.Errorf("failed to apply authentication: %w", authErr)
-	}
-
-	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
-		return nil, nil, hdrErr
-	}
-
-	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
-	if err != nil {
-		return nil, nil, &providers.ProviderTransportError{Cause: err, Provider: p.ID()}
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		body := providers.ReadErrorBody(resp.Body)
-		_ = resp.Body.Close()
-		return nil, nil, parseBedrockHTTPError(resp.StatusCode, body)
-	}
-
-	scanner := providers.NewBedrockEventScanner(resp.Body)
-	return resp.Body, scanner, nil
-}
-
 // applyAuth applies authentication to an HTTP request.
 // Uses credential interface if available, falls back to legacy apiKey.
 func (p *Provider) applyAuth(ctx context.Context, req *http.Request) error {
@@ -486,8 +450,6 @@ func (p *Provider) claudeThinkingFor() *claudeThinking {
 // than appearing implicitly for paths that have not considered it. All three
 // paths (Predict, PredictStream, buildToolRequest) now do so — the tool paths
 // used to omit it, which silently discarded the caller's schema (#1848).
-//
-//nolint:gocritic // hugeParam: providers.PredictionRequest is passed by value across the provider interface
 func (p *Provider) buildBaseRequest(req providers.PredictionRequest, messages any) claudeRequest {
 	temperature, _, maxTokens := p.applyDefaults(&req)
 	cr := claudeRequest{
@@ -624,6 +586,15 @@ func (p *Provider) SupportsPromptCaching() bool {
 	return p.supportsCaching()
 }
 
+const (
+	// messageCacheMinTokens is the token minimum Claude requires before it caches a message.
+	messageCacheMinTokens = 2048
+	// systemCacheMinTokens is the token threshold at which the system prompt is marked cacheable.
+	systemCacheMinTokens = 1024
+	// charsPerToken approximates characters per token when converting cache thresholds.
+	charsPerToken = 4
+)
+
 // convertMessagesToClaudeFormat converts provider messages to Claude format with cache control.
 // Handles both text-only and multimodal (image) messages inline.
 //
@@ -633,7 +604,7 @@ func (p *Provider) convertMessagesToClaudeFormat(
 	ctx context.Context, messages []types.Message,
 ) ([]claudeMessage, error) {
 	claudeMessages := make([]claudeMessage, 0, len(messages))
-	minCharsForCaching := 2048 * 4 // ~8192 characters (Claude requires 2048 tokens minimum)
+	minCharsForCaching := messageCacheMinTokens * charsPerToken // ~8192 characters
 
 	for i := range messages {
 		msg := &messages[i]
@@ -652,7 +623,7 @@ func (p *Provider) convertMessagesToClaudeFormat(
 		// Text-only message
 		textContent := msg.GetContent()
 		contentBlock := claudeContentBlock{
-			Type: "text",
+			Type: contentTypeText,
 			Text: textContent,
 		}
 
@@ -677,12 +648,12 @@ func (p *Provider) createSystemBlocks(systemPrompt string) []claudeContentBlock 
 	}
 
 	systemBlock := claudeContentBlock{
-		Type: "text",
+		Type: contentTypeText,
 		Text: systemPrompt,
 	}
 
 	// Enable cache control for system prompt only if model supports it and prompt is long enough
-	minCharsForCaching := 1024 * 4 // ~4096 characters for system prompt
+	minCharsForCaching := systemCacheMinTokens * charsPerToken // ~4096 characters for system prompt
 	if p.supportsCaching() && len(systemPrompt) >= minCharsForCaching {
 		systemBlock.CacheControl = &claudeCacheControl{Type: cacheTypeEphemeral}
 	}
@@ -724,7 +695,9 @@ func validateDefaults(defaults providers.ProviderDefaults) error {
 }
 
 // makeClaudeHTTPRequest sends the HTTP request to Claude API
-func (p *Provider) makeClaudeHTTPRequest(ctx context.Context, claudeReq claudeRequest, predictResp providers.PredictionResponse, start time.Time) ([]byte, providers.PredictionResponse, error) {
+func (p *Provider) makeClaudeHTTPRequest(
+	ctx context.Context, claudeReq claudeRequest, predictResp providers.PredictionResponse, start time.Time,
+) ([]byte, providers.PredictionResponse, error) {
 	// Partner-hosted (Bedrock/Vertex): inject anthropic_version and drop the
 	// model field via the shared partner marshaler — the same transform every
 	// other partner path uses, so output_config and any future field stay in.
@@ -854,7 +827,9 @@ func parseBedrockHTTPError(statusCode int, body []byte) error {
 }
 
 // parseAndValidateClaudeResponse parses and validates the Claude API response
-func (p *Provider) parseAndValidateClaudeResponse(respBody []byte, predictResp providers.PredictionResponse, start time.Time) (claudeResponse, string, providers.PredictionResponse, error) {
+func (p *Provider) parseAndValidateClaudeResponse(
+	respBody []byte, predictResp providers.PredictionResponse, start time.Time,
+) (claudeResponse, string, providers.PredictionResponse, error) {
 	var claudeResp claudeResponse
 	if err := providers.UnmarshalJSON(respBody, &claudeResp, &predictResp, start); err != nil {
 		return claudeResp, "", predictResp, err
@@ -874,7 +849,7 @@ func (p *Provider) parseAndValidateClaudeResponse(respBody []byte, predictResp p
 	var responseText string
 	var parts []types.ContentPart
 	for _, content := range claudeResp.Content {
-		if content.Type == "text" {
+		if content.Type == contentTypeText {
 			responseText = content.Text
 			parts = append(parts, types.NewTextPart(content.Text))
 		}
@@ -955,64 +930,6 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 		func(r providers.PredictionRequest) (providers.PredictionResponse, error) {
 			return p.predictOnce(ctx, r)
 		})
-}
-
-// claudePricing returns pricing for Claude models (input, output, cached per 1K tokens)
-func claudePricing(model string) (inputPrice, outputPrice, cachedPrice float64) {
-	// Define pricing constants (USD per 1K tokens). Cached = 10% of input.
-	const (
-		sonnetInput  = 0.003
-		sonnetOutput = 0.015
-		sonnetCached = 0.0003
-		haikuInput   = 0.001 // Haiku 4.5
-		haikuOutput  = 0.005
-		haikuCached  = 0.0001
-		opus3Input   = 0.015 // Claude 3 Opus (legacy)
-		opus3Output  = 0.075
-		opus3Cached  = 0.0015
-		opus4Input   = 0.005 // Opus 4.6/4.7/4.8
-		opus4Output  = 0.025
-		opus4Cached  = 0.0005
-		fableInput   = 0.010 // Fable 5 / Mythos 5
-		fableOutput  = 0.050
-		fableCached  = 0.001
-		haiku3Input  = 0.00025
-		haiku3Output = 0.00125
-		haiku3Cached = 0.000025
-	)
-
-	switch model {
-	case idClaude35Sonnet20241022, idClaude35Sonnet20240620, idClaude3Sonnet20240229:
-		return sonnetInput, sonnetOutput, sonnetCached
-	case "claude-sonnet-4-6", idClaudeSonnet45:
-		return sonnetInput, sonnetOutput, sonnetCached
-	case idClaudeHaiku45:
-		return haikuInput, haikuOutput, haikuCached
-	case idClaude35Haiku20241022:
-		return haikuInput, haikuOutput, haikuCached
-	case "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6":
-		return opus4Input, opus4Output, opus4Cached
-	case "claude-fable-5", "claude-mythos-5", "claude-mythos-preview":
-		return fableInput, fableOutput, fableCached
-	case idClaude3Opus20240229:
-		return opus3Input, opus3Output, opus3Cached
-	case idClaude3Haiku20240307:
-		return haiku3Input, haiku3Output, haiku3Cached
-	default:
-		// Heuristic fallback for unlisted IDs (e.g. a future dated snapshot) so a
-		// new model name doesn't silently bill at the wrong tier. Order matters:
-		// check the most specific family token first.
-		switch {
-		case strings.Contains(model, "haiku"):
-			return haikuInput, haikuOutput, haikuCached
-		case strings.Contains(model, "opus"):
-			return opus4Input, opus4Output, opus4Cached
-		case strings.Contains(model, "fable"), strings.Contains(model, "mythos"):
-			return fableInput, fableOutput, fableCached
-		default: // sonnet and everything else
-			return sonnetInput, sonnetOutput, sonnetCached
-		}
-	}
 }
 
 // claudeUsageToTokens maps Anthropic's cache-EXCLUSIVE input accounting into

@@ -46,7 +46,7 @@ func (h *AgentNotInvokedHandler) Eval(
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Score:       boolScore(false),
-			Value:       map[string]any{"forbidden_invoked": called},
+			Value:       map[string]any{keyForbiddenInvoked: called},
 			Explanation: fmt.Sprintf("forbidden agents called: %s", strings.Join(called, ", ")),
 			Details:     map[string]any{"forbidden_agents_called": called},
 		}, nil
@@ -55,7 +55,7 @@ func (h *AgentNotInvokedHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Score:       boolScore(true),
-		Value:       map[string]any{"forbidden_invoked": []string{}},
+		Value:       map[string]any{keyForbiddenInvoked: []string{}},
 		Explanation: "no forbidden agents were invoked",
 	}, nil
 }

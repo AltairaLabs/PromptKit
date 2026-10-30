@@ -36,6 +36,9 @@ const (
 	toolChoiceAuto              = "auto"
 	toolChoiceNone              = "none"
 
+	// selectionKindTool is the selection.Query Kind for tool selection.
+	selectionKindTool = "tool"
+
 	// HookDeniedError fields for provider hook denials (BeforeCall/AfterCall).
 	providerHookName       = "provider_hook"
 	providerHookTypeBefore = "provider_before"
@@ -112,27 +115,6 @@ func (s *ProviderStage) currentTurn() int { return s.turnState.TurnIndex() }
 // changes mid-turn. Pass nil to disable. Must be called before the stage runs.
 func (s *ProviderStage) SetWorkflowStateResolver(r WorkflowStateResolver) {
 	s.stateResolver = r
-}
-
-// CallParams returns c's sampling fields as one value.
-func (c *ProviderConfig) CallParams() prompt.CallParams {
-	return prompt.CallParams{
-		MaxTokens: c.MaxTokens, Temperature: c.Temperature, TemperatureSet: c.TemperatureSet,
-		TopP: c.TopP, FrequencyPenalty: c.FrequencyPenalty, PresencePenalty: c.PresencePenalty,
-		TopK: c.TopK,
-	}
-}
-
-// ApplyCallParams sets c's sampling fields from a prompt's resolved
-// parameters (prompt.Registry.CallParameters).
-func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams) {
-	c.MaxTokens = p.MaxTokens
-	c.Temperature = p.Temperature
-	c.TemperatureSet = p.TemperatureSet
-	c.TopP = p.TopP
-	c.FrequencyPenalty = p.FrequencyPenalty
-	c.PresencePenalty = p.PresencePenalty
-	c.TopK = p.TopK
 }
 
 // ProviderConfig contains configuration for the provider stage.
@@ -220,6 +202,27 @@ type ProviderConfig struct {
 	// for (hooks.ProviderRequest.Prompt). Nil or a missing task means
 	// undeclared. PromptKit never reads them.
 	PromptDeclarations map[string]*packspec.Prompt
+}
+
+// CallParams returns c's sampling fields as one value.
+func (c *ProviderConfig) CallParams() prompt.CallParams {
+	return prompt.CallParams{
+		MaxTokens: c.MaxTokens, Temperature: c.Temperature, TemperatureSet: c.TemperatureSet,
+		TopP: c.TopP, FrequencyPenalty: c.FrequencyPenalty, PresencePenalty: c.PresencePenalty,
+		TopK: c.TopK,
+	}
+}
+
+// ApplyCallParams sets c's sampling fields from a prompt's resolved
+// parameters (prompt.Registry.CallParameters).
+func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams) {
+	c.MaxTokens = p.MaxTokens
+	c.Temperature = p.Temperature
+	c.TemperatureSet = p.TemperatureSet
+	c.TopP = p.TopP
+	c.FrequencyPenalty = p.FrequencyPenalty
+	c.PresencePenalty = p.PresencePenalty
+	c.TopK = p.TopK
 }
 
 // streamingRoundParams holds parameters for a streaming round execution.
@@ -713,8 +716,6 @@ func (s *ProviderStage) keepInterruptedTurn(
 }
 
 // sendStreamElement forwards one element downstream, honoring cancellation.
-//
-//nolint:gocritic // hugeParam: StreamElement is the channel element type, passed by value throughout the pipeline
 func sendStreamElement(ctx context.Context, elem StreamElement, output chan<- StreamElement) error {
 	select {
 	case output <- elem:
@@ -956,6 +957,47 @@ func (s *ProviderStage) applyStateHandoff(
 	return false, nil
 }
 
+// toolLoop holds shared state for multi-round tool execution.
+type toolLoop struct {
+	stage               *ProviderStage
+	messages            []types.Message
+	providerTools       interface{}
+	toolChoice          string
+	maxRounds           int
+	excluded            map[string]bool
+	rejectionCounts     map[string]int
+	identicalCallCounts map[string]int // keyed by "toolName\x00<canonical-args>"
+	lastPersistedSeq    int            // messages in the MessageLog: LogAppend's next start seq
+	persistedIdx        int            // tl.messages[:persistedIdx] are already in the log
+	reserve             int            // tokens the system prompt and tools take (reservedTokens)
+	reserveValid        bool           // reserve is current
+	warnedReserve       bool           // one-time warning that the reserve fills the window
+	cumulativeCost      float64        // accumulated cost across rounds
+	cumulativeInput     int            // accumulated input tokens across this loop's rounds
+	cumulativeCached    int            // accumulated cache-read tokens across this loop's rounds
+	cachingSupported    bool           // provider advertises prompt caching (gates the stall warning)
+	warnedNoCaching     bool           // one-time guard for the caching-stalled warning
+	nudgedLoop          bool           // already fed an identical-loop back to the model once
+	toolCallsExecuted   int            // tool calls let through this turn, for max_tool_calls_per_turn
+
+	// acc is the live turn input. Held as a pointer rather than copied because
+	// applyStateHandoff can swap the system prompt mid-loop, and the
+	// final-turn re-ask must use the prompt in force when the loop ended.
+	acc *providerInput
+
+	// schemaWithheld records that ResponseFormat was kept off this loop's
+	// rounds, so the final answer still owes a constrained re-ask. Set once at
+	// construction: whether a schema was withheld is a property of the loop,
+	// not of the round that happens to finish it.
+	schemaWithheld bool
+
+	// output is the pipeline's element channel, set only on the streaming path.
+	// Its presence is what tells the final-turn re-ask to stream its answer —
+	// with every round's text suppressed, that re-ask is the only text a
+	// streaming consumer receives.
+	output chan<- StreamElement
+}
+
 // reservedTokens estimates what the next round sends besides its messages —
 // the system prompt and the tool definitions — computed once and again only
 // after a handoff or a tool rebuild changes them (invalidateReserve).
@@ -1096,7 +1138,7 @@ func (s *ProviderStage) applyToolSelector(ctx context.Context, acc *providerInpu
 		return
 	}
 	ids, err := s.config.ToolSelector.Select(ctx,
-		selection.Query{Text: query, Kind: "tool", K: len(candidates)},
+		selection.Query{Text: query, Kind: selectionKindTool, K: len(candidates)},
 		candidates,
 	)
 	if err != nil || len(ids) == 0 {
@@ -1146,7 +1188,7 @@ func intersectInOrder(source, keep []string) []string {
 // recent user message in the slice, or "" when none is found.
 func lastUserMessageText(msgs []types.Message) string {
 	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role != "user" {
+		if msgs[i].Role != roleUser {
 			continue
 		}
 		var sb strings.Builder
@@ -1338,47 +1380,6 @@ func (s *ProviderStage) executeStreamingMultiRound(
 	return loop.messages, nil
 }
 
-// toolLoop holds shared state for multi-round tool execution.
-type toolLoop struct {
-	stage               *ProviderStage
-	messages            []types.Message
-	providerTools       interface{}
-	toolChoice          string
-	maxRounds           int
-	excluded            map[string]bool
-	rejectionCounts     map[string]int
-	identicalCallCounts map[string]int // keyed by "toolName\x00<canonical-args>"
-	lastPersistedSeq    int            // messages in the MessageLog: LogAppend's next start seq
-	persistedIdx        int            // tl.messages[:persistedIdx] are already in the log
-	reserve             int            // tokens the system prompt and tools take (reservedTokens)
-	reserveValid        bool           // reserve is current
-	warnedReserve       bool           // one-time warning that the reserve fills the window
-	cumulativeCost      float64        // accumulated cost across rounds
-	cumulativeInput     int            // accumulated input tokens across this loop's rounds
-	cumulativeCached    int            // accumulated cache-read tokens across this loop's rounds
-	cachingSupported    bool           // provider advertises prompt caching (gates the stall warning)
-	warnedNoCaching     bool           // one-time guard for the caching-stalled warning
-	nudgedLoop          bool           // already fed an identical-loop back to the model once
-	toolCallsExecuted   int            // tool calls let through this turn, for max_tool_calls_per_turn
-
-	// acc is the live turn input. Held as a pointer rather than copied because
-	// applyStateHandoff can swap the system prompt mid-loop, and the
-	// final-turn re-ask must use the prompt in force when the loop ended.
-	acc *providerInput
-
-	// schemaWithheld records that ResponseFormat was kept off this loop's
-	// rounds, so the final answer still owes a constrained re-ask. Set once at
-	// construction: whether a schema was withheld is a property of the loop,
-	// not of the round that happens to finish it.
-	schemaWithheld bool
-
-	// output is the pipeline's element channel, set only on the streaming path.
-	// Its presence is what tells the final-turn re-ask to stream its answer —
-	// with every round's text suppressed, that re-ask is the only text a
-	// streaming consumer receives.
-	output chan<- StreamElement
-}
-
 // promptCachingProvider is optionally implemented by providers that support
 // prompt caching. The caching-stall warning only fires for providers that
 // advertise support, so a provider without caching (local models, etc.) never
@@ -1489,11 +1490,7 @@ func (tl *toolLoop) afterRound(
 	}
 
 	// Track cumulative cost for budget enforcement
-	if response.CostInfo != nil {
-		tl.cumulativeCost += response.CostInfo.TotalCost
-		tl.cumulativeInput += response.CostInfo.InputTokens
-		tl.cumulativeCached += response.CostInfo.CachedTokens
-	}
+	tl.addRoundCost(response.CostInfo)
 	tl.warnIfCachingStalled(round)
 	policy := tl.stage.policy()
 	if policy != nil && policy.MaxCostUSD > 0 && tl.cumulativeCost > policy.MaxCostUSD {
@@ -1520,19 +1517,7 @@ func (tl *toolLoop) afterRound(
 	// — loops are often transient confusion (e.g. a model retrying a failing call
 	// verbatim). If it loops AGAIN after the nudge, abort.
 	if looping := tl.identicalLoopCalls(response.ToolCalls); len(looping) > 0 {
-		if tl.nudgedLoop {
-			tl.persistMessages(ctx, round)
-			return true, tl.messages, fmt.Errorf(
-				"provider stage: tool loop persisted after a self-correction nudge: %q called with identical arguments",
-				looping[0].Name)
-		}
-		tl.nudgedLoop = true
-		logger.Warn("identical tool-call loop detected; feeding it back to the model for one self-correction attempt",
-			"tool", looping[0].Name)
-		tl.messages = append(tl.messages, tl.loopFeedbackResults(ctx, response.ToolCalls, looping, rr)...)
-		ResetIdleFromContext(ctx)
-		tl.persistMessages(ctx, round)
-		return false, tl.messages, nil
+		return tl.handleIdenticalLoop(ctx, response.ToolCalls, looping, rr)
 	}
 
 	grantsBefore := tl.stage.grantedTools()
@@ -1556,14 +1541,8 @@ func (tl *toolLoop) afterRound(
 	// a tool crossed the rejection threshold (excluded), or a tool call such as
 	// skill__activate / skill__deactivate changed the granted set. Rebuilding
 	// busts the provider's cached prefix, so it happens only on a real change.
-	excludedChanged := tl.stage.updateExcludedTools(toolResults, tl.rejectionCounts, tl.excluded)
-	if excludedChanged || !stringSlicesEqual(grantsBefore, tl.stage.grantedTools()) {
-		rebuilt, _, rebuildErr := tl.stage.buildProviderTools(allowedTools, tl.excluded)
-		if rebuildErr != nil {
-			return true, tl.messages, fmt.Errorf("provider stage: rebuild tools: %w", rebuildErr)
-		}
-		tl.providerTools = rebuilt
-		tl.invalidateReserve()
+	if err := tl.rebuildToolsIfChanged(allowedTools, toolResults, grantsBefore); err != nil {
+		return true, tl.messages, err
 	}
 
 	tl.toolChoice = toolChoiceAuto
@@ -1579,12 +1558,8 @@ func (tl *toolLoop) afterRound(
 	// RFC 0010 termination.tool_called: stop cleanly after the round in which
 	// the named terminal tool fired. The tool has already executed and its result
 	// is recorded in tl.messages — now stop before the next provider round.
-	if policy != nil && policy.StopOnTool != "" {
-		for _, tc := range response.ToolCalls {
-			if tc.Name == policy.StopOnTool {
-				return true, tl.messages, nil
-			}
-		}
+	if calledStopTool(policy, response.ToolCalls) {
+		return true, tl.messages, nil
 	}
 
 	if round == tl.maxRounds {
@@ -1592,6 +1567,76 @@ func (tl *toolLoop) afterRound(
 	}
 
 	return false, nil, nil
+}
+
+// addRoundCost accumulates a round's cost and token usage for budget
+// enforcement and the caching-stall warning. A nil cost adds nothing.
+func (tl *toolLoop) addRoundCost(cost *types.CostInfo) {
+	if cost == nil {
+		return
+	}
+	tl.cumulativeCost += cost.TotalCost
+	tl.cumulativeInput += cost.InputTokens
+	tl.cumulativeCached += cost.CachedTokens
+}
+
+// handleIdenticalLoop applies the repeated-identical-call breaker for a round
+// whose calls include looping ones: the first time it feeds the loop back to
+// the model as synthetic results for one self-correction attempt; after that
+// nudge it aborts. Returns afterRound's (done, messages, error).
+func (tl *toolLoop) handleIdenticalLoop(
+	ctx context.Context,
+	toolCalls, looping []types.MessageToolCall,
+	rr roundRef,
+) (bool, []types.Message, error) {
+	if tl.nudgedLoop {
+		tl.persistMessages(ctx, rr.round)
+		return true, tl.messages, fmt.Errorf(
+			"provider stage: tool loop persisted after a self-correction nudge: %q called with identical arguments",
+			looping[0].Name)
+	}
+	tl.nudgedLoop = true
+	logger.Warn("identical tool-call loop detected; feeding it back to the model for one self-correction attempt",
+		"tool", looping[0].Name)
+	tl.messages = append(tl.messages, tl.loopFeedbackResults(ctx, toolCalls, looping, rr)...)
+	ResetIdleFromContext(ctx)
+	tl.persistMessages(ctx, rr.round)
+	return false, tl.messages, nil
+}
+
+// rebuildToolsIfChanged rebuilds the tools array when this round changed what
+// the model may call: a tool crossed the rejection threshold (excluded), or a
+// tool call such as skill__activate / skill__deactivate changed the granted
+// set. Rebuilding busts the provider's cached prefix, so it happens only on a
+// real change.
+func (tl *toolLoop) rebuildToolsIfChanged(
+	allowedTools []string, toolResults []types.Message, grantsBefore []string,
+) error {
+	excludedChanged := tl.stage.updateExcludedTools(toolResults, tl.rejectionCounts, tl.excluded)
+	if !excludedChanged && stringSlicesEqual(grantsBefore, tl.stage.grantedTools()) {
+		return nil
+	}
+	rebuilt, _, rebuildErr := tl.stage.buildProviderTools(allowedTools, tl.excluded)
+	if rebuildErr != nil {
+		return fmt.Errorf("provider stage: rebuild tools: %w", rebuildErr)
+	}
+	tl.providerTools = rebuilt
+	tl.invalidateReserve()
+	return nil
+}
+
+// calledStopTool reports whether the policy names a terminal tool
+// (termination.tool_called) and one of the round's calls invoked it.
+func calledStopTool(policy *pipeline.ToolPolicy, toolCalls []types.MessageToolCall) bool {
+	if policy == nil || policy.StopOnTool == "" {
+		return false
+	}
+	for _, tc := range toolCalls {
+		if tc.Name == policy.StopOnTool {
+			return true
+		}
+	}
+	return false
 }
 
 // splitCallBudget divides a round's tool calls into those within the turn's
@@ -1679,6 +1724,108 @@ func (tl *toolLoop) persistMessages(ctx context.Context, round int) {
 	tl.persistedIdx = len(tl.messages)
 }
 
+// providerToolCount returns how many tool descriptors a round offers, for
+// event emission; 0 when providerTools is nil or not a descriptor slice.
+func providerToolCount(providerTools interface{}) int {
+	if providerTools == nil {
+		return 0
+	}
+	if toolDescs, ok := providerTools.([]*providers.ToolDescriptor); ok {
+		return len(toolDescs)
+	}
+	return 0
+}
+
+// emitProviderCallStarted emits provider.call.started for a round. No-op
+// without an emitter.
+func (s *ProviderStage) emitProviderCallStarted(
+	ctx context.Context, prov providers.Provider, messageCount, toolCount int, rr roundRef,
+) {
+	if s.emitter == nil {
+		return
+	}
+	s.emitter.ProviderCallStartedCtx(ctx, &events.ProviderCallStartedData{
+		Provider:     prov.ID(),
+		Model:        prov.Model(),
+		MessageCount: messageCount,
+		ToolCount:    toolCount,
+		Labels:       s.config.Labels,
+		Round:        rr.round,
+		CallID:       rr.providerCallID,
+	})
+}
+
+// emitProviderCallFailed emits provider.call.failed for a round. No-op
+// without an emitter.
+func (s *ProviderStage) emitProviderCallFailed(
+	ctx context.Context, prov providers.Provider, err error, duration time.Duration, rr roundRef,
+) {
+	if s.emitter == nil {
+		return
+	}
+	s.emitter.ProviderCallFailedCtx(ctx, &events.ProviderCallFailedData{
+		Provider: prov.ID(),
+		Model:    prov.Model(),
+		Error:    err,
+		Duration: duration,
+		Source:   s.config.Source,
+		Labels:   s.config.Labels,
+		Round:    rr.round,
+		CallID:   rr.providerCallID,
+	})
+}
+
+// emitProviderCallCompleted emits provider.call.completed for a round, with
+// token counts and cost from costInfo when present. No-op without an emitter.
+func (s *ProviderStage) emitProviderCallCompleted(
+	ctx context.Context,
+	prov providers.Provider,
+	duration time.Duration,
+	toolCallCount int,
+	finishReason string,
+	costInfo *types.CostInfo,
+	rr roundRef,
+) {
+	if s.emitter == nil {
+		return
+	}
+	completedData := &events.ProviderCallCompletedData{
+		Provider:      prov.ID(),
+		Model:         prov.Model(),
+		Duration:      duration,
+		ToolCallCount: toolCallCount,
+		FinishReason:  finishReason,
+		Source:        s.config.Source,
+		Labels:        s.config.Labels,
+		Round:         rr.round,
+		CallID:        rr.providerCallID,
+	}
+	if costInfo != nil {
+		completedData.InputTokens = costInfo.InputTokens
+		completedData.OutputTokens = costInfo.OutputTokens
+		completedData.CachedTokens = costInfo.CachedTokens
+		completedData.Cost = costInfo.TotalCost
+	}
+	s.emitter.ProviderCallCompletedCtx(ctx, completedData)
+}
+
+// stampCostIdentity fills the unified CostInfo identity fields (provider name,
+// capability, latency) the provider left empty. No-op for a nil costInfo.
+func stampCostIdentity(costInfo *types.CostInfo, prov providers.Provider, duration time.Duration) {
+	if costInfo == nil {
+		return
+	}
+	if costInfo.ProviderName == "" {
+		costInfo.ProviderName = prov.Name()
+	}
+	if costInfo.Capability == "" {
+		costInfo.Capability = string(prov.Type())
+	}
+	if costInfo.Latency == 0 {
+		costInfo.Latency = duration
+	}
+}
+
 func (s *ProviderStage) executeRound(
 	ctx context.Context,
 	messages []types.Message,
@@ -1716,12 +1863,7 @@ func (s *ProviderStage) executeRound(
 	req.NormalizeMessages()
 
 	// Count tools for event emission
-	toolCount := 0
-	if providerTools != nil {
-		if toolDescs, ok := providerTools.([]*providers.ToolDescriptor); ok {
-			toolCount = len(toolDescs)
-		}
-	}
+	toolCount := providerToolCount(providerTools)
 
 	logger.Debug("Provider round starting",
 		"round", round,
@@ -1729,17 +1871,7 @@ func (s *ProviderStage) executeRound(
 		"tools", providerTools != nil)
 
 	// Emit provider call started event
-	if s.emitter != nil {
-		s.emitter.ProviderCallStartedCtx(ctx, &events.ProviderCallStartedData{
-			Provider:     prov.ID(),
-			Model:        prov.Model(),
-			MessageCount: len(messages),
-			ToolCount:    toolCount,
-			Labels:       s.config.Labels,
-			Round:        rr.round,
-			CallID:       rr.providerCallID,
-		})
-	}
+	s.emitProviderCallStarted(ctx, prov, len(messages), toolCount, rr)
 
 	// Call provider (with or without tools)
 	startTime := time.Now()
@@ -1765,42 +1897,12 @@ func (s *ProviderStage) executeRound(
 	if err != nil {
 		logger.Error("Provider call failed", "error", err, "duration", duration)
 		// Emit provider call failed event
-		if s.emitter != nil {
-			s.emitter.ProviderCallFailedCtx(ctx, &events.ProviderCallFailedData{
-				Provider: prov.ID(),
-				Model:    prov.Model(),
-				Error:    err,
-				Duration: duration,
-				Source:   s.config.Source,
-				Labels:   s.config.Labels,
-				Round:    rr.round,
-				CallID:   rr.providerCallID,
-			})
-		}
+		s.emitProviderCallFailed(ctx, prov, err, duration, rr)
 		return types.Message{}, false, fmt.Errorf("provider call failed: %w", err)
 	}
 
 	// Emit provider call completed event
-	if s.emitter != nil {
-		completedData := &events.ProviderCallCompletedData{
-			Provider:      prov.ID(),
-			Model:         prov.Model(),
-			Duration:      duration,
-			ToolCallCount: len(toolCalls),
-			FinishReason:  resp.FinishReason,
-			Source:        s.config.Source,
-			Labels:        s.config.Labels,
-			Round:         rr.round,
-			CallID:        rr.providerCallID,
-		}
-		if resp.CostInfo != nil {
-			completedData.InputTokens = resp.CostInfo.InputTokens
-			completedData.OutputTokens = resp.CostInfo.OutputTokens
-			completedData.CachedTokens = resp.CostInfo.CachedTokens
-			completedData.Cost = resp.CostInfo.TotalCost
-		}
-		s.emitter.ProviderCallCompletedCtx(ctx, completedData)
-	}
+	s.emitProviderCallCompleted(ctx, prov, duration, len(toolCalls), resp.FinishReason, resp.CostInfo, rr)
 
 	// Stamp the unified CostInfo identity fields if the provider didn't fill
 	// them in itself. Most chat providers leave these empty since they only
@@ -1808,17 +1910,7 @@ func (s *ProviderStage) executeRound(
 	// ancillary providers populate them at source. Either way, after this
 	// stamp every assistant message's cost_info carries the provider name
 	// and capability discriminator the breakdown / aggregation paths expect.
-	if resp.CostInfo != nil {
-		if resp.CostInfo.ProviderName == "" {
-			resp.CostInfo.ProviderName = prov.Name()
-		}
-		if resp.CostInfo.Capability == "" {
-			resp.CostInfo.Capability = string(prov.Type())
-		}
-		if resp.CostInfo.Latency == 0 {
-			resp.CostInfo.Latency = duration
-		}
-	}
+	stampCostIdentity(resp.CostInfo, prov, duration)
 
 	// Build response message with latency and cost info
 	responseMsg := types.Message{
@@ -1897,30 +1989,17 @@ func (s *ProviderStage) executeStreamingRound(
 	req.NormalizeMessages()
 
 	// Count tools for event emission
-	toolCount := 0
-	if params.providerTools != nil {
-		if toolDescs, ok := params.providerTools.([]*providers.ToolDescriptor); ok {
-			toolCount = len(toolDescs)
-		}
-	}
+	toolCount := providerToolCount(params.providerTools)
 
 	logger.Debug("Provider streaming round starting",
 		"round", params.round,
 		"messages", len(params.messages),
 		"tools", params.providerTools != nil)
 
+	rr := roundRef{round: params.round, providerCallID: params.providerCallID}
+
 	// Emit provider call started event
-	if s.emitter != nil {
-		s.emitter.ProviderCallStartedCtx(ctx, &events.ProviderCallStartedData{
-			Provider:     prov.ID(),
-			Model:        prov.Model(),
-			MessageCount: len(params.messages),
-			ToolCount:    toolCount,
-			Labels:       s.config.Labels,
-			Round:        params.round,
-			CallID:       params.providerCallID,
-		})
-	}
+	s.emitProviderCallStarted(ctx, prov, len(params.messages), toolCount, rr)
 
 	startTime := time.Now()
 
@@ -1929,83 +2008,30 @@ func (s *ProviderStage) executeStreamingRound(
 	if err != nil {
 		duration := time.Since(startTime)
 		// Emit provider call failed event
-		if s.emitter != nil {
-			s.emitter.ProviderCallFailedCtx(ctx, &events.ProviderCallFailedData{
-				Provider: prov.ID(),
-				Model:    prov.Model(),
-				Error:    err,
-				Duration: duration,
-				Source:   s.config.Source,
-				Labels:   s.config.Labels,
-				Round:    params.round,
-				CallID:   params.providerCallID,
-			})
-		}
+		s.emitProviderCallFailed(ctx, prov, err, duration, rr)
 		return types.Message{}, false, err
 	}
 
 	// Process all chunks and collect response
-	got, err := s.processStreamChunks(ctx, streamChan, output,
-		roundRef{round: params.round, providerCallID: params.providerCallID},
-		s.withholdsSchema(params.providerTools))
+	got, err := s.processStreamChunks(ctx, streamChan, output, rr, s.withholdsSchema(params.providerTools))
 	content, toolCalls, costInfo, reasoning, chunkValidations, finishReason :=
 		got.content, got.toolCalls, got.costInfo, got.reasoning, got.validations, got.finishReason
 	duration := time.Since(startTime)
 
 	if err != nil {
 		// Emit provider call failed event
-		if s.emitter != nil {
-			s.emitter.ProviderCallFailedCtx(ctx, &events.ProviderCallFailedData{
-				Provider: prov.ID(),
-				Model:    prov.Model(),
-				Error:    err,
-				Duration: duration,
-				Source:   s.config.Source,
-				Labels:   s.config.Labels,
-				Round:    params.round,
-				CallID:   params.providerCallID,
-			})
-		}
+		s.emitProviderCallFailed(ctx, prov, err, duration, rr)
 		return s.keptInterruptedReply(ctx, params, &got, duration, err), false, err
 	}
 
 	// Emit provider call completed event with cost info from streaming response
-	if s.emitter != nil {
-		completedData := &events.ProviderCallCompletedData{
-			Provider:      prov.ID(),
-			Model:         prov.Model(),
-			Duration:      duration,
-			ToolCallCount: len(toolCalls),
-			FinishReason:  finishReason,
-			Source:        s.config.Source,
-			Labels:        s.config.Labels,
-			Round:         params.round,
-			CallID:        params.providerCallID,
-		}
-		// Populate token counts from cost info if available (present in final chunk)
-		if costInfo != nil {
-			completedData.InputTokens = costInfo.InputTokens
-			completedData.OutputTokens = costInfo.OutputTokens
-			completedData.CachedTokens = costInfo.CachedTokens
-			completedData.Cost = costInfo.TotalCost
-		}
-		s.emitter.ProviderCallCompletedCtx(ctx, completedData)
-	}
+	// (token counts are present in the final chunk when available).
+	s.emitProviderCallCompleted(ctx, prov, duration, len(toolCalls), finishReason, costInfo, rr)
 
 	// Stamp identity fields onto the streaming-path cost info; mirrors the
 	// non-streaming path above so every assistant message has a consistent
 	// provider/capability stamp.
-	if costInfo != nil {
-		if costInfo.ProviderName == "" {
-			costInfo.ProviderName = prov.Name()
-		}
-		if costInfo.Capability == "" {
-			costInfo.Capability = string(prov.Type())
-		}
-		if costInfo.Latency == 0 {
-			costInfo.Latency = duration
-		}
-	}
+	stampCostIdentity(costInfo, prov, duration)
 
 	// Build final response message with latency and cost info. Stamp any
 	// chunk-interceptor firings up-front so downstream readers see streaming
@@ -2279,13 +2305,7 @@ func (s *ProviderStage) processStreamChunks(
 	rr roundRef,
 	suppressText bool,
 ) (streamedRound, error) {
-	var content string
-	var toolCalls []types.MessageToolCall
-	var costInfo *types.CostInfo
-	var reasoning strings.Builder
-	var opaqueReasoning []types.OpaqueReasoning
-	var pendingValidations []types.ValidationResult
-	var finishReason string
+	var acc streamAccumulator
 
 	// Every return before the provider closes the channel — a canceled emit,
 	// a guardrail abort or enforcement — leaves the provider (and the relay in
@@ -2295,17 +2315,6 @@ func (s *ProviderStage) processStreamChunks(
 	drained, stoppedEarly := false, false
 	defer drainIfAbandoned(streamChan, &drained)
 
-	collected := func() streamedRound {
-		r := streamedRound{
-			content: content, toolCalls: toolCalls, costInfo: costInfo,
-			validations: pendingValidations, finishReason: finishReason,
-		}
-		if reasoning.Len() > 0 || len(opaqueReasoning) > 0 {
-			r.reasoning = &types.ReasoningTrace{Text: reasoning.String(), Opaque: opaqueReasoning}
-		}
-		return r
-	}
-
 	for chunk := range streamChan {
 		ResetIdleFromContext(ctx)
 
@@ -2314,77 +2323,130 @@ func (s *ProviderStage) processStreamChunks(
 		// caller sees only the retry's response, not a mashup of the
 		// failed attempt and the retry.
 		if chunk.Reset {
-			content = ""
-			toolCalls = nil
-			costInfo = nil
-			reasoning.Reset()
-			opaqueReasoning = nil
+			acc.reset()
 			continue
 		}
 
 		if chunk.Error != nil {
 			logger.Error("Stream chunk error", "error", chunk.Error)
-			return collected(), fmt.Errorf("stream chunk error: %w", chunk.Error)
+			return acc.collected(), fmt.Errorf("stream chunk error: %w", chunk.Error)
 		}
 
-		content = chunk.Content
-		if len(chunk.ToolCalls) > 0 {
-			toolCalls = chunk.ToolCalls
-		}
-		// Capture cost info from final chunk (only present when FinishReason != nil)
-		if chunk.CostInfo != nil {
-			costInfo = chunk.CostInfo
-		}
-		// Capture the finish reason (last non-nil wins) so the completion event
-		// carries it instead of an empty string.
-		if chunk.FinishReason != nil {
-			finishReason = *chunk.FinishReason
-		}
-		// Accumulate reasoning (deltas) separately from content; it surfaces on
-		// Message.Reasoning, never as content or future context.
-		reasoning.WriteString(chunk.Reasoning)
-		opaqueReasoning = append(opaqueReasoning, chunk.OpaqueReasoning...)
+		acc.absorb(&chunk)
 
 		if err := s.emitChunkElement(ctx, &chunk, output, rr, suppressText); err != nil {
-			return collected(), err
+			return acc.collected(), err
 		}
 
 		// Run chunk interceptor hooks
-		if s.hookRegistry != nil && s.hookRegistry.HasChunkInterceptors() {
-			if d := s.hookRegistry.RunOnChunk(ctx, &chunk); !d.Allow {
-				s.recordGuardrailFiring(nil, d, hooks.DirectionOutput, 0)
-				// Stamp the firing on a sentinel pending-validation slot so
-				// the AfterCall path below can fold it into responseMsg.
-				// Without this, streaming-only guardrails produce no
-				// observable Validations entry and the guardrail_triggered
-				// assertion would silently miss them.
-				//
-				// The stamp goes through the same builder recordGuardrailFiring
-				// uses so a streaming firing carries direction and a timestamp
-				// like every other firing, and copies the decision metadata
-				// rather than aliasing it.
-				if v, ok := guardrailValidation(d, hooks.DirectionOutput); ok {
-					pendingValidations = append(pendingValidations, v)
-				}
-				if d.Enforced {
-					// Hook enforced (e.g., truncated content) — use the
-					// modified chunk content and stop reading the stream.
-					content = chunk.Content
-					stoppedEarly = true
-					break
-				}
-				// An empty round: a guardrail blocked this output, so none of
-				// it may be kept as an interrupted message.
-				return streamedRound{}, &providers.ValidationAbortError{
-					Reason: d.Reason,
-					Chunk:  chunk,
-				}
-			}
+		stop, abortErr := s.interceptChunk(ctx, &chunk, &acc)
+		if abortErr != nil {
+			// An empty round: a guardrail blocked this output, so none of
+			// it may be kept as an interrupted message.
+			return streamedRound{}, abortErr
+		}
+		if stop {
+			stoppedEarly = true
+			break
 		}
 	}
 	drained = !stoppedEarly // the range ended because the provider closed the channel
 
-	return collected(), canceledBeforeFinish(ctx, finishReason)
+	return acc.collected(), canceledBeforeFinish(ctx, acc.finishReason)
+}
+
+// streamAccumulator gathers a streaming round's output across chunks.
+type streamAccumulator struct {
+	content            string
+	toolCalls          []types.MessageToolCall
+	costInfo           *types.CostInfo
+	reasoning          strings.Builder
+	opaqueReasoning    []types.OpaqueReasoning
+	pendingValidations []types.ValidationResult
+	finishReason       string
+}
+
+// reset discards the accumulated response after a retry restarts the stream.
+// Pending validations and the finish reason are deliberately kept.
+func (a *streamAccumulator) reset() {
+	a.content = ""
+	a.toolCalls = nil
+	a.costInfo = nil
+	a.reasoning.Reset()
+	a.opaqueReasoning = nil
+}
+
+// absorb folds one (non-reset, non-error) chunk into the accumulated state.
+func (a *streamAccumulator) absorb(chunk *providers.StreamChunk) {
+	a.content = chunk.Content
+	if len(chunk.ToolCalls) > 0 {
+		a.toolCalls = chunk.ToolCalls
+	}
+	// Capture cost info from final chunk (only present when FinishReason != nil)
+	if chunk.CostInfo != nil {
+		a.costInfo = chunk.CostInfo
+	}
+	// Capture the finish reason (last non-nil wins) so the completion event
+	// carries it instead of an empty string.
+	if chunk.FinishReason != nil {
+		a.finishReason = *chunk.FinishReason
+	}
+	// Accumulate reasoning (deltas) separately from content; it surfaces on
+	// Message.Reasoning, never as content or future context.
+	a.reasoning.WriteString(chunk.Reasoning)
+	a.opaqueReasoning = append(a.opaqueReasoning, chunk.OpaqueReasoning...)
+}
+
+// collected returns the round's output so far.
+func (a *streamAccumulator) collected() streamedRound {
+	r := streamedRound{
+		content: a.content, toolCalls: a.toolCalls, costInfo: a.costInfo,
+		validations: a.pendingValidations, finishReason: a.finishReason,
+	}
+	if a.reasoning.Len() > 0 || len(a.opaqueReasoning) > 0 {
+		r.reasoning = &types.ReasoningTrace{Text: a.reasoning.String(), Opaque: a.opaqueReasoning}
+	}
+	return r
+}
+
+// interceptChunk runs the chunk interceptor hooks on one chunk. stop reports
+// an enforcing hook (e.g., truncated content): the modified chunk content is
+// kept and the stream must stop being read. A non-nil error is the
+// ValidationAbortError for a hook that blocked the output outright.
+func (s *ProviderStage) interceptChunk(
+	ctx context.Context, chunk *providers.StreamChunk, acc *streamAccumulator,
+) (stop bool, err error) {
+	if s.hookRegistry == nil || !s.hookRegistry.HasChunkInterceptors() {
+		return false, nil
+	}
+	d := s.hookRegistry.RunOnChunk(ctx, chunk)
+	if d.Allow {
+		return false, nil
+	}
+	s.recordGuardrailFiring(nil, d, hooks.DirectionOutput, 0)
+	// Stamp the firing on a sentinel pending-validation slot so
+	// the AfterCall path below can fold it into responseMsg.
+	// Without this, streaming-only guardrails produce no
+	// observable Validations entry and the guardrail_triggered
+	// assertion would silently miss them.
+	//
+	// The stamp goes through the same builder recordGuardrailFiring
+	// uses so a streaming firing carries direction and a timestamp
+	// like every other firing, and copies the decision metadata
+	// rather than aliasing it.
+	if v, ok := guardrailValidation(d, hooks.DirectionOutput); ok {
+		acc.pendingValidations = append(acc.pendingValidations, v)
+	}
+	if d.Enforced {
+		// Hook enforced (e.g., truncated content) — use the
+		// modified chunk content and stop reading the stream.
+		acc.content = chunk.Content
+		return true, nil
+	}
+	return false, &providers.ValidationAbortError{
+		Reason: d.Reason,
+		Chunk:  *chunk,
+	}
 }
 
 // canceledBeforeFinish reports a stream that ended because the caller
@@ -2411,6 +2473,24 @@ func drainIfAbandoned(streamChan <-chan providers.StreamChunk, drained *bool) {
 		for range streamChan {
 		}
 	}()
+}
+
+// textDeltaElement builds the text element for a chunk's Delta.
+func textDeltaElement(chunk *providers.StreamChunk) StreamElement {
+	elem := NewTextElement(chunk.Delta)
+	elem.Timestamp = timeNow()
+	elem.Priority = PriorityNormal
+
+	// Mark as an incremental delta so a downstream speech-out stage speaks
+	// the complete assistant Message instead of each fragment (see
+	// ElementMetadata.StreamingDelta).
+	elem.Meta.StreamingDelta = true
+	elem.Meta.TokenCount = chunk.TokenCount
+	if chunk.FinishReason != nil {
+		fr := *chunk.FinishReason
+		elem.Meta.FinishReason = &fr
+	}
+	return elem
 }
 
 // emitChunkElement creates and emits streaming element(s) for a chunk.
@@ -2453,24 +2533,8 @@ func (s *ProviderStage) emitChunkElement(
 	// separate, non-content channel that a UI renders as thinking, and they
 	// never form part of the schema-constrained answer.
 	if chunk.Delta != "" && !suppressText {
-		elem := NewTextElement(chunk.Delta)
-		elem.Timestamp = timeNow()
-		elem.Priority = PriorityNormal
-
-		// Mark as an incremental delta so a downstream speech-out stage speaks
-		// the complete assistant Message instead of each fragment (see
-		// ElementMetadata.StreamingDelta).
-		elem.Meta.StreamingDelta = true
-		elem.Meta.TokenCount = chunk.TokenCount
-		if chunk.FinishReason != nil {
-			fr := *chunk.FinishReason
-			elem.Meta.FinishReason = &fr
-		}
-
-		select {
-		case output <- elem:
-		case <-ctx.Done():
-			return ctx.Err()
+		if err := sendStreamElement(ctx, textDeltaElement(chunk), output); err != nil {
+			return err
 		}
 	}
 
@@ -2655,6 +2719,33 @@ func (s *ProviderStage) preExecCheck(
 	return hookDecision, toolCallResult{}, false
 }
 
+// holdForApproval is the human-in-the-loop approval gate: if a checker holds
+// this call, it is surfaced as pending (via ErrToolsPending / PendingTools
+// metadata) instead of executing, and ok is true. The caller resolves it
+// (approve / approve-with-edits / reject) and resumes.
+func (s *ProviderStage) holdForApproval(
+	ctx context.Context, toolCall types.MessageToolCall,
+) (toolCallResult, bool) {
+	if s.config == nil || s.config.ApprovalChecker == nil {
+		return toolCallResult{}, false
+	}
+	var argsMap map[string]any
+	if len(toolCall.Args) > 0 {
+		_ = json.Unmarshal(toolCall.Args, &argsMap)
+	}
+	info := s.config.ApprovalChecker(ctx, toolCall.ID, toolCall.Name, argsMap)
+	if info == nil {
+		return toolCallResult{}, false
+	}
+	if info.ToolName == "" {
+		info.ToolName = toolCall.Name
+	}
+	return s.buildPendingResult(ctx, toolCall, &tools.ToolExecutionResult{
+		Status:      tools.ToolStatusPending,
+		PendingInfo: info,
+	}), true
+}
+
 // executeSingleToolCall handles policy checks, hooks, execution, and event
 // emission for a single tool call. It never returns an error — failures are
 // captured as error results in the returned message, matching the previous
@@ -2669,24 +2760,8 @@ func (s *ProviderStage) executeSingleToolCall(
 		return blocked
 	}
 
-	// Human-in-the-loop approval gate: if a checker holds this call, surface it
-	// as pending (via ErrToolsPending / PendingTools metadata) instead of
-	// executing. The caller resolves it (approve / approve-with-edits / reject)
-	// and resumes.
-	if s.config != nil && s.config.ApprovalChecker != nil {
-		var argsMap map[string]any
-		if len(toolCall.Args) > 0 {
-			_ = json.Unmarshal(toolCall.Args, &argsMap)
-		}
-		if info := s.config.ApprovalChecker(ctx, toolCall.ID, toolCall.Name, argsMap); info != nil {
-			if info.ToolName == "" {
-				info.ToolName = toolCall.Name
-			}
-			return s.buildPendingResult(ctx, toolCall, &tools.ToolExecutionResult{
-				Status:      tools.ToolStatusPending,
-				PendingInfo: info,
-			})
-		}
+	if held, ok := s.holdForApproval(ctx, toolCall); ok {
+		return held
 	}
 
 	labels := s.toolLabels(toolCall.Name)

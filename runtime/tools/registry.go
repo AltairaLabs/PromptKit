@@ -436,6 +436,18 @@ func (r *Registry) withTimeout(
 	return ctx, func() { /* no-op cancel: tool has no timeout */ }
 }
 
+// invokeExecutor runs the tool on its executor, preferring the multimodal
+// entry point when the executor supports it.
+func invokeExecutor(
+	ctx context.Context, executor Executor, tool *ToolDescriptor, args json.RawMessage,
+) (json.RawMessage, []types.ContentPart, error) {
+	if mmExec, ok := executor.(MultimodalExecutor); ok {
+		return mmExec.ExecuteMultimodal(ctx, tool, args)
+	}
+	result, err := executor.Execute(ctx, tool, args)
+	return result, nil, err
+}
+
 // Execute executes a tool with the given arguments
 func (r *Registry) Execute(
 	ctx context.Context, toolName string, args json.RawMessage,
@@ -485,18 +497,7 @@ func (r *Registry) Execute(
 
 	// Execute the tool, preferring multimodal if supported
 	start := getCurrentTimeMs()
-	var result json.RawMessage
-	var parts []types.ContentPart
-
-	if mmExec, ok := executor.(MultimodalExecutor); ok {
-		var mmErr error
-		result, parts, mmErr = mmExec.ExecuteMultimodal(execCtx, tool, args)
-		if mmErr != nil {
-			err = mmErr
-		}
-	} else {
-		result, err = executor.Execute(execCtx, tool, args)
-	}
+	result, parts, err := invokeExecutor(execCtx, executor, tool, args)
 	latency := getCurrentTimeMs() - start
 
 	if err != nil {
@@ -680,10 +681,7 @@ func (r *Registry) executeWithAsyncExecutor(
 	}
 
 	// result.Content is already json.RawMessage
-	validated, err := r.validateAndCoerceResult(tool, result.Content)
-	if err != nil {
-		return validated, err
-	}
+	validated := r.validateAndCoerceResult(tool, result.Content)
 	// Propagate multimodal parts from the executor through validation
 	validated.Parts = result.Parts
 	return validated, nil
@@ -694,16 +692,7 @@ func (r *Registry) executeSyncFallback(
 	ctx context.Context, executor Executor, tool *ToolDescriptor,
 	_ string, args json.RawMessage,
 ) (*ToolExecutionResult, error) {
-	var result json.RawMessage
-	var parts []types.ContentPart
-	var err error
-
-	if mmExec, ok := executor.(MultimodalExecutor); ok {
-		result, parts, err = mmExec.ExecuteMultimodal(ctx, tool, args)
-	} else {
-		result, err = executor.Execute(ctx, tool, args)
-	}
-
+	result, parts, err := invokeExecutor(ctx, executor, tool, args)
 	if err != nil {
 		errMsg := err.Error()
 		if ctx.Err() == context.DeadlineExceeded {
@@ -727,10 +716,7 @@ func (r *Registry) executeSyncFallback(
 		}, nil
 	}
 
-	execResult, resultErr := r.validateAndCoerceResult(tool, result)
-	if resultErr != nil {
-		return execResult, resultErr
-	}
+	execResult := r.validateAndCoerceResult(tool, result)
 	execResult.Parts = parts
 	return execResult, nil
 }
@@ -738,19 +724,19 @@ func (r *Registry) executeSyncFallback(
 // validateAndCoerceResult validates and coerces tool execution results
 func (r *Registry) validateAndCoerceResult(
 	tool *ToolDescriptor, content json.RawMessage,
-) (*ToolExecutionResult, error) {
+) *ToolExecutionResult {
 	validatedResult, _, err := r.validator.CoerceResult(tool, content)
 	if err != nil {
 		return &ToolExecutionResult{
 			Status: ToolStatusFailed,
 			Error:  fmt.Sprintf(errResultValidationFailed, err),
-		}, nil
+		}
 	}
 
 	return &ToolExecutionResult{
 		Status:  ToolStatusComplete,
 		Content: validatedResult,
-	}, nil
+	}
 }
 
 // validateDescriptor validates a tool descriptor

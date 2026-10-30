@@ -43,7 +43,7 @@ func (h *WorkflowCompleteHandler) Eval(
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Score:       boolScore(true),
-			Value:       map[string]any{"complete": true},
+			Value:       map[string]any{keyComplete: true},
 			Explanation: fmt.Sprintf("workflow completed in terminal state %q", state),
 		}, nil
 	}
@@ -51,7 +51,7 @@ func (h *WorkflowCompleteHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Score:       boolScore(false),
-		Value:       map[string]any{"complete": false},
+		Value:       map[string]any{keyComplete: false},
 		Explanation: "workflow has not reached a terminal state",
 	}, nil
 }

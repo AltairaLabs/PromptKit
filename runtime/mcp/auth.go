@@ -115,7 +115,7 @@ func (d *httpDoer) do(tmpl *http.Request) (*http.Response, error) {
 				return nil, &AuthError{Server: d.server, Err: aerr}
 			}
 		}
-		resp, err := d.client.Do(req)
+		resp, err := d.client.Do(req) //nolint:gosec // G704: the URL is the operator-configured MCP server endpoint
 		if err != nil || d.auth == nil || !isAuthChallenge(resp) {
 			return resp, err
 		}

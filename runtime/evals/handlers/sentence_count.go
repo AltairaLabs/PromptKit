@@ -32,7 +32,7 @@ func (h *SentenceCountHandler) Eval(
 		Type:  h.Type(),
 		Score: &score,
 		Details: map[string]any{
-			"count": count,
+			keyCount: count,
 		},
 	}, nil
 }

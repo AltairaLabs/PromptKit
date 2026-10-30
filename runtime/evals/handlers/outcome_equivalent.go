@@ -101,8 +101,8 @@ func (h *OutcomeEquivalentHandler) evalContentHash(
 			Type:        h.Type(),
 			Score:       boolScore(true),
 			Explanation: "content matches expected output",
-			Value:       map[string]any{"matched": true, "length": len(actual)},
-			Details:     map[string]any{"length": len(actual)},
+			Value:       map[string]any{keyMatched: true, keyLength: len(actual)},
+			Details:     map[string]any{keyLength: len(actual)},
 		}, nil
 	}
 
@@ -110,7 +110,7 @@ func (h *OutcomeEquivalentHandler) evalContentHash(
 		Type:        h.Type(),
 		Score:       boolScore(false),
 		Explanation: "content does not match expected output",
-		Value:       map[string]any{"matched": false, "actual_length": len(actual), "expected_length": len(expectedContent)},
+		Value:       map[string]any{keyMatched: false, "actual_length": len(actual), "expected_length": len(expectedContent)},
 		Details:     map[string]any{"actual_length": len(actual), "expected_length": len(expectedContent)},
 	}, nil
 }

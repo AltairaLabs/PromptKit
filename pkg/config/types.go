@@ -178,13 +178,15 @@ type Provider struct {
 	// Values are plain strings — use the credentials field for secrets.
 	// Collisions with built-in provider headers (Authorization, Content-Type,
 	// etc.) are rejected at request time.
-	Headers          map[string]string      `json:"headers,omitempty" yaml:"headers,omitempty"`
-	RateLimit        RateLimit              `json:"rate_limit,omitempty" yaml:"rate_limit,omitempty"`
-	Defaults         ProviderDefaults       `json:"defaults,omitempty" yaml:"defaults,omitempty"`
-	Pricing          Pricing                `json:"pricing,omitempty" yaml:"pricing,omitempty"`
-	PricingCorrectAt string                 `json:"pricing_correct_at,omitempty" yaml:"pricing_correct_at,omitempty"`
-	IncludeRawOutput bool                   `json:"include_raw_output,omitempty" yaml:"include_raw_output,omitempty"` // Include raw API requests in output for debugging
-	AdditionalConfig map[string]interface{} `json:"additional_config,omitempty" yaml:"additional_config,omitempty"`   // Additional provider-specific configuration
+	Headers          map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	RateLimit        RateLimit         `json:"rate_limit,omitempty" yaml:"rate_limit,omitempty"`
+	Defaults         ProviderDefaults  `json:"defaults,omitempty" yaml:"defaults,omitempty"`
+	Pricing          Pricing           `json:"pricing,omitempty" yaml:"pricing,omitempty"`
+	PricingCorrectAt string            `json:"pricing_correct_at,omitempty" yaml:"pricing_correct_at,omitempty"`
+	// IncludeRawOutput includes raw API requests in output for debugging.
+	IncludeRawOutput bool `json:"include_raw_output,omitempty" yaml:"include_raw_output,omitempty"`
+	// AdditionalConfig holds additional provider-specific configuration.
+	AdditionalConfig map[string]interface{} `json:"additional_config,omitempty" yaml:"additional_config,omitempty"`
 	Credential       *CredentialConfig      `json:"credential,omitempty" yaml:"credential,omitempty"`
 	Platform         *PlatformConfig        `json:"platform,omitempty" yaml:"platform,omitempty"`
 	// Capabilities lists what this provider supports: text, streaming, vision, tools, json, audio, video, documents

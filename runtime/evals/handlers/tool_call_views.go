@@ -81,9 +81,9 @@ func coreNoToolErrors(calls []toolCallView, tools []string) []map[string]any {
 		}
 		if tc.Error != "" {
 			errors = append(errors, map[string]any{
-				"tool":  tc.Name,
-				"error": tc.Error,
-				"index": tc.Index,
+				valueKeyTool:  tc.Name,
+				valueKeyError: tc.Error,
+				keyIndex:      tc.Index,
 			})
 		}
 	}
@@ -130,9 +130,9 @@ func coreToolResultIncludes(
 			matchCount++
 		} else {
 			missingDetails = append(missingDetails, map[string]any{
-				"tool":             tc.Name,
+				valueKeyTool:       tc.Name,
 				"missing_patterns": missing,
-				"index":            tc.Index,
+				keyIndex:           tc.Index,
 			})
 		}
 	}
@@ -231,7 +231,7 @@ func coreToolCallChain(
 func validateChainStepView(tc *toolCallView, step chainStep, stepIndex int) map[string]any {
 	if step.noError && tc.Error != "" {
 		return chainStepFailure(stepIndex, step.tool, "unexpected error", map[string]any{
-			"error": tc.Error,
+			valueKeyError: tc.Error,
 		})
 	}
 
@@ -269,12 +269,12 @@ func checkChainResultMatchesView(tc *toolCallView, step chainStep, stepIndex int
 	if err != nil {
 		return chainStepFailure(stepIndex, step.tool,
 			fmt.Sprintf("invalid regex %q", step.resultMatches),
-			map[string]any{"error": err.Error()})
+			map[string]any{valueKeyError: err.Error()})
 	}
 	if !re.MatchString(tc.Result) {
 		return chainStepFailure(stepIndex, step.tool,
 			"result does not match pattern",
-			map[string]any{"pattern": step.resultMatches})
+			map[string]any{keyPattern: step.resultMatches})
 	}
 	return nil
 }
@@ -285,18 +285,18 @@ func checkChainArgsMatchView(tc *toolCallView, step chainStep, stepIndex int) ma
 		if !exists {
 			return chainStepFailure(stepIndex, step.tool,
 				fmt.Sprintf("missing argument %q", argName),
-				map[string]any{"argument": argName})
+				map[string]any{keyArgument: argName})
 		}
 		re, err := regexp.Compile(pattern)
 		if err != nil {
 			return chainStepFailure(stepIndex, step.tool,
 				fmt.Sprintf("invalid arg regex %q", pattern),
-				map[string]any{"error": err.Error()})
+				map[string]any{valueKeyError: err.Error()})
 		}
 		if !re.MatchString(asString(argVal)) {
 			return chainStepFailure(stepIndex, step.tool,
 				fmt.Sprintf("argument %q does not match pattern", argName),
-				map[string]any{"argument": argName, "pattern": pattern, "actual": argVal})
+				map[string]any{keyArgument: argName, keyPattern: pattern, keyActual: argVal})
 		}
 	}
 	return nil
@@ -306,9 +306,9 @@ func chainStepFailure(
 	stepIndex int, tool, reason string, extra map[string]any,
 ) map[string]any {
 	result := map[string]any{
-		"message":    fmt.Sprintf("step %d (%s): %s", stepIndex, tool, reason),
+		keyMessage:   fmt.Sprintf("step %d (%s): %s", stepIndex, tool, reason),
 		"step_index": stepIndex,
-		"tool":       tool,
+		valueKeyTool: tool,
 	}
 	for k, v := range extra {
 		result[k] = v

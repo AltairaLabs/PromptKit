@@ -183,9 +183,9 @@ func (s *ContextAssemblyStage) assembleFromReader(
 			content := fmt.Sprintf("[Conversation summary (turns %d-%d)]: %s",
 				summary.StartTurn, summary.EndTurn, summary.Content)
 			assembled = append(assembled, types.Message{
-				Role:    "system",
+				Role:    roleSystem,
 				Content: content,
-				Source:  "summary",
+				Source:  sourceSummary,
 			})
 		}
 	}
@@ -228,7 +228,7 @@ func (s *ContextAssemblyStage) retrieveRelevant(
 	// Build query from the last user message
 	var query string
 	for i := len(recentMsgs) - 1; i >= 0; i-- {
-		if recentMsgs[i].Role == "user" {
+		if recentMsgs[i].Role == roleUser {
 			query = recentMsgs[i].Content
 			break
 		}
@@ -286,7 +286,7 @@ func (s *ContextAssemblyStage) emitHistory(
 	output chan<- StreamElement,
 ) error {
 	for i := range messages {
-		messages[i].Source = "statestore"
+		messages[i].Source = sourceStateStore
 		elem := NewMessageElement(&messages[i])
 		elem.Meta.FromHistory = true
 		select {

@@ -1,3 +1,5 @@
+// Package types defines the shared data types of the runtime: messages and
+// their content parts, tool calls and results, streaming chunks and costs.
 package types
 
 import (
@@ -349,7 +351,9 @@ func (mc *MediaContent) GetBase64Data() (string, error) {
 	}
 
 	if mc.StorageReference != nil {
-		return "", fmt.Errorf("cannot get base64 data from storage reference %s: use MediaLoader with storage service", *mc.StorageReference)
+		return "", fmt.Errorf(
+			"cannot get base64 data from storage reference %s: use MediaLoader with storage service",
+			*mc.StorageReference)
 	}
 
 	if mc.FilePath != nil {

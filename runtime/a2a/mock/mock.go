@@ -19,6 +19,10 @@ import (
 const (
 	headerContentType = "Content-Type"
 	mimeJSON          = "application/json"
+	// mockContextID is the context ID every mock task and message carries.
+	mockContextID = "mock-ctx"
+	// jsonRPCVersion is the JSON-RPC protocol version in every response.
+	jsonRPCVersion = "2.0"
 )
 
 // Response holds the parts returned by a matched rule.
@@ -209,7 +213,7 @@ func extractSkillID(params *a2a.SendMessageRequest) string {
 func (m *A2AServer) completedTask(taskID string, parts []a2a.Part) *a2a.Task {
 	return &a2a.Task{
 		ID:        taskID,
-		ContextID: "mock-ctx",
+		ContextID: mockContextID,
 		Status: a2a.TaskStatus{
 			State: a2a.TaskStateCompleted,
 		},
@@ -226,7 +230,7 @@ func (m *A2AServer) completedTask(taskID string, parts []a2a.Part) *a2a.Task {
 func (m *A2AServer) failedTask(taskID, errMsg string) *a2a.Task {
 	return &a2a.Task{
 		ID:        taskID,
-		ContextID: "mock-ctx",
+		ContextID: mockContextID,
 		Status: a2a.TaskStatus{
 			State: a2a.TaskStateFailed,
 			Message: &a2a.Message{
@@ -253,7 +257,7 @@ func writeRPCResult(w http.ResponseWriter, id, result any) {
 	data, _ := json.Marshal(result)
 	w.Header().Set(headerContentType, mimeJSON)
 	_ = json.NewEncoder(w).Encode(a2a.JSONRPCResponse{
-		JSONRPC: "2.0",
+		JSONRPC: jsonRPCVersion,
 		ID:      id,
 		Result:  data,
 	})
@@ -263,7 +267,7 @@ func writeRPCResult(w http.ResponseWriter, id, result any) {
 func writeRPCError(w http.ResponseWriter, id any, code int, msg string) {
 	w.Header().Set(headerContentType, mimeJSON)
 	_ = json.NewEncoder(w).Encode(a2a.JSONRPCResponse{
-		JSONRPC: "2.0",
+		JSONRPC: jsonRPCVersion,
 		ID:      id,
 		Error:   &a2a.JSONRPCError{Code: code, Message: msg},
 	})

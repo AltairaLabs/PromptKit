@@ -97,8 +97,6 @@ func (s *unarySession) Execute(ctx context.Context, role, content string) (*pipe
 }
 
 // ExecuteWithMessage implements TextSession.
-//
-//nolint:gocritic // Interface signature cannot be changed
 func (s *unarySession) ExecuteWithMessage(
 	ctx context.Context,
 	message types.Message,
@@ -183,8 +181,6 @@ func (s *unarySession) ExecuteStream(ctx context.Context, role, content string) 
 }
 
 // ExecuteStreamWithMessage implements TextSession.
-//
-//nolint:gocritic // Interface signature cannot be changed
 func (s *unarySession) ExecuteStreamWithMessage(
 	ctx context.Context,
 	message types.Message,

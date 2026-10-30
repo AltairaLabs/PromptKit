@@ -1,14 +1,9 @@
 package gemini
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -40,7 +35,7 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 			"image/heif",
 		},
 		AudioFormats: []string{
-			"audio/wav",
+			types.MIMETypeAudioWAV,
 			"audio/mp3",
 			"audio/aiff",
 			"audio/aac",
@@ -48,7 +43,7 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 			"audio/flac",
 		},
 		VideoFormats: []string{
-			"video/mp4",
+			types.MIMETypeVideoMP4,
 			"video/mpeg",
 			"video/mov",
 			"video/avi",
@@ -184,210 +179,4 @@ func (p *Provider) convertMediaPartToGemini(ctx context.Context, part types.Cont
 			Data:     base64Data,
 		},
 	}, nil
-}
-
-// predictWithContents is a helper method for both regular and multimodal predict
-// It's similar to Predict() but accepts pre-converted contents
-func (p *Provider) predictWithContents(ctx context.Context, contents []geminiContent, systemInstruction *geminiContent, temperature, topP float32, maxTokens int, seed *int) (providers.PredictionResponse, error) {
-	start := time.Now()
-
-	// Apply provider defaults for zero values
-	if temperature == 0 {
-		temperature = p.defaults.Temperature
-	}
-
-	if topP == 0 {
-		topP = p.defaults.TopP
-	}
-
-	maxTokens = providers.ResolveMaxTokens(maxTokens, p.defaults)
-
-	// Create request
-	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
-
-	// Note: Gemini doesn't support seed parameter like OpenAI does
-
-	reqBody, err := json.Marshal(geminiReq)
-	if err != nil {
-		return providers.PredictionResponse{}, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	// Prepare response with raw request if configured
-	predictResp := providers.PredictionResponse{
-		Latency: time.Since(start),
-	}
-	if p.ShouldIncludeRawOutput() {
-		predictResp.RawRequest = geminiReq
-	}
-
-	url := p.generateContentURL("generateContent")
-
-	// Debug log the request
-	headers := map[string]string{
-		contentTypeHeader: applicationJSON,
-	}
-	logger.APIRequest("Gemini", "POST", url, headers, geminiReq)
-
-	// Make HTTP request
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
-	if err != nil {
-		predictResp.Latency = time.Since(start)
-		return predictResp, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-
-	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
-		predictResp.Latency = time.Since(start)
-		return predictResp, fmt.Errorf("failed to apply authentication: %w", authErr)
-	}
-
-	respBody, statusCode, err := p.DoAndReadResponse(httpReq, &predictResp, start, "Gemini")
-	if err != nil {
-		return predictResp, err
-	}
-
-	if statusCode != http.StatusOK {
-		predictResp.Latency = time.Since(start)
-		predictResp.Raw = respBody
-		if p.platform != "" {
-			return predictResp, providers.ParsePlatformHTTPError(p.platform, statusCode, respBody)
-		}
-		return predictResp, &providers.ProviderHTTPError{
-			StatusCode: statusCode, URL: logger.RedactSensitiveData(url),
-			Body: string(respBody), Provider: p.ID(),
-		}
-	}
-
-	// Parse and validate response
-	geminiResp, err := p.parseGeminiResponse(respBody)
-	if err != nil {
-		predictResp.Latency = time.Since(start)
-		predictResp.Raw = respBody
-		return predictResp, err
-	}
-
-	// costFromUsage (not the CalculateCost wrapper) so thinking tokens
-	// (ThoughtsTokenCount) are priced; the wrapper's narrower signature drops them.
-	var usage geminiUsage
-	if geminiResp.UsageMetadata != nil {
-		usage = *geminiResp.UsageMetadata
-	}
-
-	latency := time.Since(start)
-
-	costBreakdown := p.costFromUsage(usage)
-
-	// Guard against an empty/odd API response (no candidates, no parts) rather
-	// than panicking with an index-out-of-range.
-	if len(geminiResp.Candidates) == 0 {
-		return predictResp, fmt.Errorf("gemini: response contained no candidates")
-	}
-	candidate := geminiResp.Candidates[0]
-	if len(candidate.Content.Parts) > 0 {
-		predictResp.Content = candidate.Content.Parts[0].Text
-	}
-	predictResp.CostInfo = &costBreakdown
-	predictResp.Latency = latency
-	predictResp.Raw = respBody
-
-	return predictResp, nil
-}
-
-// parseGeminiResponse parses and validates a Gemini API response
-func (p *Provider) parseGeminiResponse(respBody []byte) (*geminiResponse, error) {
-	var geminiResp geminiResponse
-	if err := json.Unmarshal(respBody, &geminiResp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
-	}
-
-	// Check for prompt feedback errors
-	if geminiResp.PromptFeedback != nil && geminiResp.PromptFeedback.BlockReason != "" {
-		return nil, fmt.Errorf("prompt blocked: %s", geminiResp.PromptFeedback.BlockReason)
-	}
-
-	// Check for candidates
-	if len(geminiResp.Candidates) == 0 {
-		return nil, fmt.Errorf("no candidates in response")
-	}
-
-	candidate := geminiResp.Candidates[0]
-
-	// Check for content parts
-	if len(candidate.Content.Parts) == 0 {
-		// Handle different finish reasons
-		switch candidate.FinishReason {
-		case finishReasonMaxTokens:
-			return nil, fmt.Errorf("max tokens limit reached")
-		case finishReasonSafety:
-			return nil, fmt.Errorf("response blocked by safety filters")
-		case finishReasonRecitation:
-			return nil, fmt.Errorf("response blocked due to recitation concerns")
-		default:
-			return nil, fmt.Errorf("no content parts in response (finish reason: %s)", candidate.FinishReason)
-		}
-	}
-
-	return &geminiResp, nil
-}
-
-// predictStreamWithContents is a helper method for both regular and multimodal streaming
-func (p *Provider) predictStreamWithContents(ctx context.Context, contents []geminiContent, systemInstruction *geminiContent, temperature, topP float32, maxTokens int, seed *int) (<-chan providers.StreamChunk, error) {
-	// Apply provider defaults for zero values
-	if temperature == 0 {
-		temperature = p.defaults.Temperature
-	}
-
-	if topP == 0 {
-		topP = p.defaults.TopP
-	}
-
-	maxTokens = providers.ResolveMaxTokens(maxTokens, p.defaults)
-
-	// Create streaming request
-	geminiReq := p.buildGeminiRequest(contents, systemInstruction, temperature, topP, maxTokens)
-
-	// Note: Gemini doesn't support seed parameter
-
-	reqBody, err := json.Marshal(geminiReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	url := p.generateContentURL("streamGenerateContent")
-
-	// Make HTTP request
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-
-	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
-		return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
-	}
-
-	resp, err := p.GetStreamingHTTPClient().Do(httpReq)
-	if err != nil {
-		return nil, &providers.ProviderTransportError{Cause: err, Provider: p.ID()}
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
-		body := providers.ReadErrorBody(resp.Body)
-		if p.platform != "" {
-			return nil, providers.ParsePlatformHTTPError(p.platform, resp.StatusCode, body)
-		}
-		return nil, &providers.ProviderHTTPError{
-			StatusCode: resp.StatusCode, URL: logger.RedactSensitiveData(url),
-			Body: string(body), Provider: p.ID(),
-		}
-	}
-
-	outChan := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
-
-	go p.streamResponse(ctx, resp.Body, outChan)
-
-	return outChan, nil
 }

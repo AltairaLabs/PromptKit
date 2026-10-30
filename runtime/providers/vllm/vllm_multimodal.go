@@ -13,6 +13,15 @@ const (
 	vLLMMaxImageSizeMB = 20
 )
 
+// Wire values used by the image content builder.
+//
+//nolint:unused // referenced only by the unwired image path, see #2281
+const (
+	partTypeText     = "text"
+	partTypeImageURL = "image_url"
+	keyImageURL      = "image_url"
+)
+
 // GetMultimodalCapabilities returns the multimodal capabilities of the vLLM provider
 func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
 	return providers.MultimodalCapabilities{
@@ -26,14 +35,14 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 
 // prepareMultimodalMessages converts prediction request messages to vLLM format with image support
 //
-//nolint:gocritic // req size matches internal pattern
+//nolint:unused // unwired image path: vLLM declares SupportsImages but prepareMessages drops images, see #2281
 func (p *Provider) prepareMultimodalMessages(req providers.PredictionRequest) ([]vllmMessage, error) {
 	messages := make([]vllmMessage, 0, len(req.Messages)+1)
 
 	// Add system message if present
 	if req.System != "" {
 		messages = append(messages, vllmMessage{
-			Role:    "system",
+			Role:    roleSystem,
 			Content: req.System,
 		})
 	}
@@ -61,7 +70,7 @@ func (p *Provider) prepareMultimodalMessages(req providers.PredictionRequest) ([
 // buildMultimodalContent creates the multimodal content array for a message with images
 // vLLM uses OpenAI-compatible format: array of content parts with type and text/image_url
 //
-//nolint:gocognit,gocritic // complexity from multimodal content part handling; msg contains media data
+//nolint:unused // unwired image path: vLLM declares SupportsImages but prepareMessages drops images, see #2281
 func (p *Provider) buildMultimodalContent(msg types.Message) ([]map[string]any, error) { // NOSONAR
 	content := make([]map[string]any, 0)
 
@@ -71,32 +80,16 @@ func (p *Provider) buildMultimodalContent(msg types.Message) ([]map[string]any, 
 		case types.ContentTypeText:
 			if part.Text != nil && *part.Text != "" {
 				content = append(content, map[string]any{
-					"type": "text",
-					"text": *part.Text,
+					keyType: partTypeText,
+					"text":  *part.Text,
 				})
 			}
 
 		case types.ContentTypeImage:
-			if part.Media == nil {
-				return nil, fmt.Errorf("image part has no media content")
-			}
-			imageURL, err := p.convertMediaToURL(part.Media)
+			imageURLPart, err := p.buildImageURLPart(part.Media)
 			if err != nil {
-				return nil, fmt.Errorf("failed to convert image: %w", err)
+				return nil, err
 			}
-
-			imageURLPart := map[string]any{
-				"type": "image_url",
-				"image_url": map[string]any{
-					"url": imageURL,
-				},
-			}
-
-			// Add detail level if specified
-			if part.Media.Detail != nil {
-				imageURLPart["image_url"].(map[string]any)["detail"] = *part.Media.Detail
-			}
-
 			content = append(content, imageURLPart)
 
 		default:
@@ -108,10 +101,38 @@ func (p *Provider) buildMultimodalContent(msg types.Message) ([]map[string]any, 
 	return content, nil
 }
 
+// buildImageURLPart creates the image_url content part for an image's media.
+//
+//nolint:unused // unwired image path: vLLM declares SupportsImages but prepareMessages drops images, see #2281
+func (p *Provider) buildImageURLPart(media *types.MediaContent) (map[string]any, error) {
+	if media == nil {
+		return nil, fmt.Errorf("image part has no media content")
+	}
+	imageURL, err := p.convertMediaToURL(media)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert image: %w", err)
+	}
+
+	imageURLPart := map[string]any{
+		keyType: partTypeImageURL,
+		keyImageURL: map[string]any{
+			"url": imageURL,
+		},
+	}
+
+	// Add detail level if specified
+	if media.Detail != nil {
+		imageURLPart[keyImageURL].(map[string]any)["detail"] = *media.Detail
+	}
+	return imageURLPart, nil
+}
+
 // convertMediaToURL converts media content to a format vLLM can accept
 // vLLM accepts:
 // - data:image/... base64 URLs
 // - http/https URLs
+//
+//nolint:unused // unwired image path: vLLM declares SupportsImages but prepareMessages drops images, see #2281
 func (p *Provider) convertMediaToURL(media *types.MediaContent) (string, error) {
 	// If URL is provided, use it directly
 	if media.URL != nil {

@@ -13,7 +13,7 @@ import (
 // or break a request. See types.NormalizeRawMessage.
 
 // MarshalJSON normalizes the descriptor's schemas (empty -> {}).
-func (d ToolDescriptor) MarshalJSON() ([]byte, error) { //nolint:gocritic // value receiver required for json.Marshaler
+func (d ToolDescriptor) MarshalJSON() ([]byte, error) { // value receiver required for json.Marshaler
 	type alias ToolDescriptor
 	a := alias(d)
 	a.InputSchema = types.NormalizeRawMessage(a.InputSchema)
@@ -30,7 +30,7 @@ func (c ToolCall) MarshalJSON() ([]byte, error) {
 }
 
 // MarshalJSON normalizes the tool result payload (empty -> {}).
-func (r ToolResult) MarshalJSON() ([]byte, error) { //nolint:gocritic // value receiver required for json.Marshaler
+func (r ToolResult) MarshalJSON() ([]byte, error) { // value receiver required for json.Marshaler
 	type alias ToolResult
 	a := alias(r)
 	a.Result = types.NormalizeRawMessage(a.Result)
@@ -38,7 +38,7 @@ func (r ToolResult) MarshalJSON() ([]byte, error) { //nolint:gocritic // value r
 }
 
 // MarshalJSON normalizes the pending tool call's args (empty -> {}).
-func (p PendingToolInfo) MarshalJSON() ([]byte, error) { //nolint:gocritic // value receiver required for json.Marshaler
+func (p PendingToolInfo) MarshalJSON() ([]byte, error) { // value receiver required for json.Marshaler
 	type alias PendingToolInfo
 	a := alias(p)
 	a.Args = types.NormalizeRawMessage(a.Args)

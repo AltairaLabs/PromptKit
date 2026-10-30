@@ -419,7 +419,7 @@ func ParseServerEvent(data []byte) (interface{}, error) {
 
 	// Then parse into the specific type
 	switch base.Type {
-	case "error":
+	case eventTypeError:
 		var e ErrorEvent
 		return &e, json.Unmarshal(data, &e)
 	case "session.created":

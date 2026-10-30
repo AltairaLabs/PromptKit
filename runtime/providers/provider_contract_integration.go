@@ -28,6 +28,15 @@ const (
 	contractSamplingPenalty = 0.1
 	contractSamplingTopK    = 20
 	contractHelloPrompt     = "Say 'hello'"
+	contractTestPrompt      = "Say 'test'"
+	contractRoleUser        = "user"
+	contractWeatherTool     = "get_weather"
+	contractWeatherToolDesc = "Get the current weather for a location"
+	contractWeatherQuestion = "What is the weather in Sydney?"
+	contractCostInputTokens = 100
+	contractCostOutputToks  = 50
+	contractProbeMaxTokens  = 10
+	contractProbeTemp       = 0.5
 )
 
 // ProviderContractTests defines a comprehensive test suite that validates
@@ -138,10 +147,10 @@ func ValidatePredictReturnsLatency(t *testing.T, provider Provider) {
 	ctx := context.Background()
 	req := PredictionRequest{
 		Messages: []types.Message{
-			{Role: "user", Content: "Say 'test'"},
+			{Role: contractRoleUser, Content: contractTestPrompt},
 		},
 		MaxTokens:   contractMaxTokens,
-		Temperature: 0.7,
+		Temperature: contractTestTemperature,
 	}
 
 	start := time.Now()
@@ -185,17 +194,17 @@ func ValidatePredictWithToolsReturnsLatency(t *testing.T, provider Provider) {
 	ctx := context.Background()
 	req := PredictionRequest{
 		Messages: []types.Message{
-			{Role: "user", Content: "What's the weather like in San Francisco?"},
+			{Role: contractRoleUser, Content: "What's the weather like in San Francisco?"},
 		},
 		MaxTokens:   contractMaxTokens,
-		Temperature: 0.7,
+		Temperature: contractTestTemperature,
 	}
 
 	// Define a simple weather tool using ToolDescriptor
 	descriptors := []*ToolDescriptor{
 		{
-			Name:        "get_weather",
-			Description: "Get the current weather for a location",
+			Name:        contractWeatherTool,
+			Description: contractWeatherToolDesc,
 			InputSchema: []byte(`{
 				"type": "object",
 				"properties": {
@@ -254,7 +263,7 @@ func ValidateSamplingParamsAccepted(t *testing.T, provider Provider) {
 	t.Helper()
 	pen, topK := float32(contractSamplingPenalty), contractSamplingTopK
 	req := PredictionRequest{
-		Messages:         []types.Message{{Role: "user", Content: contractHelloPrompt}},
+		Messages:         []types.Message{{Role: contractRoleUser, Content: contractHelloPrompt}},
 		MaxTokens:        contractMaxTokens,
 		Temperature:      contractZeroTemperature,
 		TemperatureSet:   true,
@@ -296,10 +305,10 @@ func testPredictReturnsCostInfo(t *testing.T, provider Provider) {
 	ctx := context.Background()
 	req := PredictionRequest{
 		Messages: []types.Message{
-			{Role: "user", Content: "Say 'test'"},
+			{Role: contractRoleUser, Content: contractTestPrompt},
 		},
 		MaxTokens:   contractMaxTokens,
-		Temperature: 0.7,
+		Temperature: contractTestTemperature,
 	}
 
 	resp, err := provider.Predict(ctx, req)
@@ -334,10 +343,10 @@ func testPredictNonEmptyResponse(t *testing.T, provider Provider) {
 	ctx := context.Background()
 	req := PredictionRequest{
 		Messages: []types.Message{
-			{Role: "user", Content: contractHelloPrompt},
+			{Role: contractRoleUser, Content: contractHelloPrompt},
 		},
 		MaxTokens:   contractMaxTokens,
-		Temperature: 0.7,
+		Temperature: contractTestTemperature,
 	}
 
 	resp, err := provider.Predict(ctx, req)
@@ -354,7 +363,7 @@ func testPredictNonEmptyResponse(t *testing.T, provider Provider) {
 // testCalculateCostReasonable verifies that CalculateCost returns reasonable values
 func testCalculateCostReasonable(t *testing.T, provider Provider) {
 	// Test with typical token counts
-	cost := provider.CalculateCost(100, 50, 0)
+	cost := provider.CalculateCost(contractCostInputTokens, contractCostOutputToks, 0)
 
 	// Costs should be non-negative
 	if cost.InputCostUSD < 0 {
@@ -377,10 +386,10 @@ func testCalculateCostReasonable(t *testing.T, provider Provider) {
 	}
 
 	// Token counts should match input
-	if cost.InputTokens != 100 {
+	if cost.InputTokens != contractCostInputTokens {
 		t.Errorf("InputTokens should be 100, got %d", cost.InputTokens)
 	}
-	if cost.OutputTokens != 50 {
+	if cost.OutputTokens != contractCostOutputToks {
 		t.Errorf("OutputTokens should be 50, got %d", cost.OutputTokens)
 	}
 
@@ -404,10 +413,10 @@ func testPredictStreamReturnsLatency(t *testing.T, provider Provider) {
 	ctx := context.Background()
 	req := PredictionRequest{
 		Messages: []types.Message{
-			{Role: "user", Content: "Count to 3"},
+			{Role: contractRoleUser, Content: "Count to 3"},
 		},
 		MaxTokens:   contractMaxTokens,
-		Temperature: 0.7,
+		Temperature: contractTestTemperature,
 	}
 
 	start := time.Now()
@@ -453,8 +462,8 @@ func testPredictStreamReturnsLatency(t *testing.T, provider Provider) {
 func weatherToolDescriptors() []*ToolDescriptor {
 	return []*ToolDescriptor{
 		{
-			Name:        "get_weather",
-			Description: "Get the current weather for a location",
+			Name:        contractWeatherTool,
+			Description: contractWeatherToolDesc,
 			InputSchema: []byte(`{
 				"type": "object",
 				"properties": {
@@ -490,7 +499,7 @@ func requiredToolCalls(t *testing.T, provider Provider, city string) []types.Mes
 		t.Skip("Provider doesn't implement ToolSupport")
 	}
 	req := PredictionRequest{
-		Messages:    []types.Message{{Role: "user", Content: "What is the weather in " + city + "?"}},
+		Messages:    []types.Message{{Role: contractRoleUser, Content: "What is the weather in " + city + "?"}},
 		MaxTokens:   contractMaxTokens,
 		Temperature: contractZeroTemperature,
 	}
@@ -553,7 +562,7 @@ func testPredictWithToolsSystemMessage(t *testing.T, provider Provider) {
 		System: "You are a helpful weather assistant. Always use the get_weather tool when asked about weather.",
 		Messages: []types.Message{
 			{Role: "system", Content: "Additional system context: respond concisely."},
-			{Role: "user", Content: "What is the weather in London?"},
+			{Role: contractRoleUser, Content: "What is the weather in London?"},
 		},
 		MaxTokens:   contractMaxTokens,
 		Temperature: contractZeroTemperature,
@@ -586,7 +595,7 @@ func testPredictWithToolsReturnsCostInfo(t *testing.T, provider Provider) {
 	ctx := context.Background()
 	req := PredictionRequest{
 		Messages: []types.Message{
-			{Role: "user", Content: "What is the weather in Berlin?"},
+			{Role: contractRoleUser, Content: "What is the weather in Berlin?"},
 		},
 		MaxTokens:   contractMaxTokens,
 		Temperature: contractTestTemperature,
@@ -626,7 +635,7 @@ func testPredictWithToolsMultiTurn(t *testing.T, provider Provider) {
 	// Turn 1: get tool call
 	req1 := PredictionRequest{
 		Messages: []types.Message{
-			{Role: "user", Content: "What is the weather in Sydney?"},
+			{Role: contractRoleUser, Content: contractWeatherQuestion},
 		},
 		MaxTokens:   contractMaxTokens,
 		Temperature: contractZeroTemperature,
@@ -650,7 +659,7 @@ func testPredictWithToolsMultiTurn(t *testing.T, provider Provider) {
 	// Turn 2: feed back tool result and get final response
 	req2 := PredictionRequest{
 		Messages: []types.Message{
-			{Role: "user", Content: "What is the weather in Sydney?"},
+			{Role: contractRoleUser, Content: contractWeatherQuestion},
 			{
 				Role:    "assistant",
 				Content: resp1.Content,
@@ -699,7 +708,7 @@ func testPredictWithSystemMessage(t *testing.T, provider Provider) {
 	req := PredictionRequest{
 		System: "You are a pirate. Always respond with 'Arr!'",
 		Messages: []types.Message{
-			{Role: "user", Content: "Hello"},
+			{Role: contractRoleUser, Content: "Hello"},
 		},
 		MaxTokens:   contractMaxTokens,
 		Temperature: contractTestTemperature,
@@ -723,9 +732,9 @@ func SkipIfNoCredentials(t *testing.T, provider Provider) {
 	// Try a simple call to see if credentials work
 	ctx := context.Background()
 	req := PredictionRequest{
-		Messages:    []types.Message{{Role: "user", Content: "test"}},
-		MaxTokens:   10,
-		Temperature: 0.5,
+		Messages:    []types.Message{{Role: contractRoleUser, Content: "test"}},
+		MaxTokens:   contractProbeMaxTokens,
+		Temperature: contractProbeTemp,
 	}
 
 	_, err := provider.Predict(ctx, req)
@@ -752,7 +761,7 @@ func testPredictStreamWithToolsProducesToolCalls(t *testing.T, provider Provider
 	ctx := context.Background()
 	req := PredictionRequest{
 		Messages: []types.Message{
-			{Role: "user", Content: "What is the weather in Tokyo?"},
+			{Role: contractRoleUser, Content: "What is the weather in Tokyo?"},
 		},
 		MaxTokens:   contractMaxTokens,
 		Temperature: contractZeroTemperature,

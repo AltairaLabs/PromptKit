@@ -631,7 +631,7 @@ func (eb *EventBus) Close() {
 	eb.mu.Unlock()
 
 	if !started {
-		for range eb.eventCh { //nolint:revive // intentional drain
+		for range eb.eventCh { // intentional drain
 		}
 		return
 	}

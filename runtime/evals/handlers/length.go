@@ -50,7 +50,7 @@ func (h *MinLengthHandler) Eval(
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Score:       score,
-		Value:       map[string]any{"length": actual, "min": minLen},
+		Value:       map[string]any{keyLength: actual, "min": minLen},
 		Explanation: fmt.Sprintf("length %d, min %d", actual, minLen),
 	}, nil
 }
@@ -96,7 +96,7 @@ func (h *MaxLengthHandler) Eval(
 		score = scorePtr(1.0)
 	}
 
-	value := map[string]any{"length": actual, "max": maxLen}
+	value := map[string]any{keyLength: actual, keyMax: maxLen}
 	explanation := fmt.Sprintf("length %d, max %d", actual, maxLen)
 
 	// Check max_tokens if specified
@@ -157,7 +157,7 @@ func (h *MaxLengthHandler) EvalPartial(
 		score = scorePtr(1.0)
 	}
 
-	value := map[string]any{"length": actual, "max": maxLen}
+	value := map[string]any{keyLength: actual, keyMax: maxLen}
 
 	// Check max_tokens if specified
 	maxTokens := extractInt(params, "max_tokens", 0)

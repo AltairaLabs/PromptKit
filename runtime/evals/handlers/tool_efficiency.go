@@ -43,16 +43,16 @@ func (h *ToolEfficiencyHandler) Eval(
 	failures := checkEfficiencyThresholds(stats, maxCalls, maxErrors, maxErrorRate)
 
 	details := map[string]any{
-		"total_calls": stats.totalCalls,
-		"errors":      stats.errorCount,
+		keyTotalCalls: stats.totalCalls,
+		keyErrors:     stats.errorCount,
 	}
 	if stats.totalCalls > 0 {
 		details["error_rate"] = stats.errorRate()
 	}
 
 	value := map[string]any{
-		"total_calls": stats.totalCalls,
-		"errors":      stats.errorCount,
+		keyTotalCalls: stats.totalCalls,
+		keyErrors:     stats.errorCount,
 	}
 	if stats.totalCalls > 0 {
 		value["error_rate"] = stats.errorRate()

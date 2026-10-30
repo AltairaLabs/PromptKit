@@ -42,7 +42,7 @@ type EmbeddingTransport struct {
 // place embedding factories consult, mirroring the chat path's
 // credential/platform handling.
 //
-//nolint:gocritic // spec is a value-semantics builder; callers assemble inline.
+// spec is a value-semantics builder; callers assemble inline.
 func ResolveEmbeddingTransport(spec EmbeddingProviderSpec) (EmbeddingTransport, error) {
 	if spec.Platform == "" {
 		return EmbeddingTransport{

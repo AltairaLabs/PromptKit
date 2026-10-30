@@ -132,11 +132,3 @@ func translateLegacy(raw *rawProvider) (*ProviderSpec, error) {
 		Capabilities: []CapabilitySpec{capSpec},
 	}, nil
 }
-
-// pricingCurrency returns s if non-empty, otherwise "usd".
-func pricingCurrency(s string) string {
-	if s == "" {
-		return "usd"
-	}
-	return s
-}

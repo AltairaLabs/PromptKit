@@ -33,8 +33,6 @@ func (p *Provider) PredictStream(
 // predictStreamOnce performs a streaming prediction request to Claude.
 // On Bedrock, falls back to non-streaming Predict since Bedrock uses
 // binary event-stream encoding that requires AWS-specific parsing.
-//
-//nolint:gocritic // hugeParam: interface signature requires value receiver
 func (p *Provider) predictStreamOnce(
 	ctx context.Context, req providers.PredictionRequest,
 ) (<-chan providers.StreamChunk, error) {
@@ -375,7 +373,7 @@ func (p *Provider) streamResponse(
 				} `json:"content_block,omitempty"`
 			}
 			if err := json.Unmarshal([]byte(data), &blockStartEvent); err == nil {
-				if blockStartEvent.ContentBlock != nil && blockStartEvent.ContentBlock.Type == "tool_use" {
+				if blockStartEvent.ContentBlock != nil && blockStartEvent.ContentBlock.Type == contentTypeToolUse {
 					// Start a new tool call
 					currentToolCallIndex = len(accumulatedToolCalls)
 					currentToolCallJSON.Reset()

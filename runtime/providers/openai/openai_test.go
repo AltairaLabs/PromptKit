@@ -385,36 +385,6 @@ func TestOpenAIProvider_DifferentBaseURLs(t *testing.T) {
 	}
 }
 
-func TestOpenAIRequest_Structure(t *testing.T) {
-	seed := 42
-	req := openAIRequest{
-		Model: "gpt-4",
-		Messages: []openAIMessage{
-			{Role: "user", Content: "Hello"},
-		},
-		Temperature: 0.7,
-		TopP:        0.9,
-		MaxTokens:   1000,
-		Seed:        &seed,
-	}
-
-	if req.Model != "gpt-4" {
-		t.Error("Model mismatch")
-	}
-
-	if len(req.Messages) != 1 {
-		t.Error("Messages count mismatch")
-	}
-
-	if req.Temperature != 0.7 {
-		t.Error("Temperature mismatch")
-	}
-
-	if req.Seed == nil || *req.Seed != 42 {
-		t.Error("Seed mismatch")
-	}
-}
-
 func TestOpenAIMessage_Structure(t *testing.T) {
 	msg := openAIMessage{
 		Role:    "assistant",
@@ -2177,4 +2147,17 @@ func TestOpenAI_ResponsesURL(t *testing.T) {
 			t.Errorf("responsesURL() = %q, want %q", got, expected)
 		}
 	})
+}
+
+// openAIRequest decodes the Chat Completions request body a test server
+// receives. Production builds that body as a map; this struct lives here
+// because only tests read it back.
+type openAIRequest struct {
+	Model          string                `json:"model"`
+	Messages       []openAIMessage       `json:"messages"`
+	Temperature    float32               `json:"temperature"`
+	TopP           float32               `json:"top_p"`
+	MaxTokens      int                   `json:"max_tokens"`
+	Seed           *int                  `json:"seed,omitempty"`
+	ResponseFormat *openAIResponseFormat `json:"response_format,omitempty"`
 }

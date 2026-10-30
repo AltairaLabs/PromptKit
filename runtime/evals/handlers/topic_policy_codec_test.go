@@ -21,7 +21,9 @@ import (
 // on_unknown (deny), never to an allow decided by the tail.
 func TestTopicPolicy_OpenAICodec_NonLabelAnswerIsUnknownNotAllow(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		entry := func(tok string, p float64) map[string]any { return map[string]any{"token": tok, "logprob": math.Log(p)} }
+		entry := func(tok string, p float64) map[string]any {
+			return map[string]any{"token": tok, "logprob": math.Log(p)}
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"logprobs": map[string]any{
 			"content": []any{map[string]any{"token": "maybe", "logprob": math.Log(0.95),
 				"top_logprobs": []any{entry("maybe", 0.95), entry("on", 0.03), entry("off", 0.02)}}}}}}})

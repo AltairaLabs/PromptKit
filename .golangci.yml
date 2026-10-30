@@ -219,6 +219,13 @@ run:
   tests: false
   allow-parallel-runners: true
 
+# Report every issue. The defaults (50 per linter, 3 per identical message)
+# hid more than half of the findings, so a full run that looked like ~400
+# issues was really ~900. CI lints the whole codebase, so it must see all of it.
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
 output:
   formats:
     text:

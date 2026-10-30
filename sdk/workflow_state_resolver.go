@@ -176,18 +176,9 @@ func (r *workflowStateResolver) RecordToolCalls(n int) {
 // — which re-runs PromptAssemblyStage and resets the prompt to the pipeline's
 // build-time state — is corrected on the next call. Safe to call repeatedly.
 func (r *workflowStateResolver) ResolveCurrentState(_ context.Context) (stage.Handoff, error) {
-	// Commit any transition the tool left pending. Capture the brief first:
-	// CommitPending clears the record, and the LLM's `context` argument is
-	// what the outgoing state wrote for the incoming one.
-	justTransitioned := false
-	if r.transExec != nil {
-		if pending := r.transExec.Pending(); pending != nil {
-			r.contextSummary = pending.ContextSummary
-			if _, err := r.transExec.CommitPending(); err != nil {
-				return stage.Handoff{}, err
-			}
-			justTransitioned = true
-		}
+	justTransitioned, err := r.commitPendingTransition()
+	if err != nil {
+		return stage.Handoff{}, err
 	}
 
 	if r.machine == nil {
@@ -209,23 +200,8 @@ func (r *workflowStateResolver) ResolveCurrentState(_ context.Context) (stage.Ha
 	//
 	//   external    — RFC 0009: wait for the injected event, don't run on.
 	//   composition — CompositionStage runs the state itself.
-	if justTransitioned {
-		switch workflow.OrchestrationOf(current) {
-		case workflow.OrchestrationExternal, workflow.OrchestrationComposition:
-			return stage.Handoff{Stop: true}, nil
-		case workflow.OrchestrationInternal, workflow.OrchestrationHybrid:
-			// Both are runtime-driven: continue the turn as this state.
-			// An undeclared state arrives as internal — OrchestrationOf
-			// resolves the default, so "" never reaches here.
-		}
-		// RFC 0014: the destination may hand the turn straight back to the
-		// user instead of speaking. Checked after orchestration because those
-		// two stop for structural reasons that outrank an author's preference,
-		// and `control` is inert on an externally orchestrated state anyway —
-		// there is no floor to hold when the runtime is not mid-turn.
-		if !workflow.HoldsFloor(current) {
-			return stage.Handoff{Stop: true}, nil
-		}
+	if justTransitioned && stopsOnArrival(current) {
+		return stage.Handoff{Stop: true}, nil
 	}
 
 	// Nothing to render: leave the turn on whatever prompt it already has
@@ -253,6 +229,44 @@ func (r *workflowStateResolver) ResolveCurrentState(_ context.Context) (stage.Ha
 		PromptTask:   current.PromptTask,
 		Call:         call,
 	}, nil
+}
+
+// commitPendingTransition commits any transition the tool left pending and
+// reports whether one was committed. It captures the brief first:
+// CommitPending clears the record, and the LLM's `context` argument is what
+// the outgoing state wrote for the incoming one.
+func (r *workflowStateResolver) commitPendingTransition() (bool, error) {
+	if r.transExec == nil {
+		return false, nil
+	}
+	pending := r.transExec.Pending()
+	if pending == nil {
+		return false, nil
+	}
+	r.contextSummary = pending.ContextSummary
+	if _, err := r.transExec.CommitPending(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// stopsOnArrival reports whether a turn that just transitioned into current
+// must stop instead of running on as that state.
+func stopsOnArrival(current *workflow.State) bool {
+	switch workflow.OrchestrationOf(current) {
+	case workflow.OrchestrationExternal, workflow.OrchestrationComposition:
+		return true
+	case workflow.OrchestrationInternal, workflow.OrchestrationHybrid:
+		// Both are runtime-driven: continue the turn as this state.
+		// An undeclared state arrives as internal — OrchestrationOf
+		// resolves the default, so "" never reaches here.
+	}
+	// RFC 0014: the destination may hand the turn straight back to the
+	// user instead of speaking. Checked after orchestration because those
+	// two stop for structural reasons that outrank an author's preference,
+	// and `control` is inert on an externally orchestrated state anyway —
+	// there is no floor to hold when the runtime is not mid-turn.
+	return !workflow.HoldsFloor(current)
 }
 
 // renderState loads and renders the destination state's prompt with the

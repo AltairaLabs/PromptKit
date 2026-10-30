@@ -67,7 +67,7 @@ func (h *ImageDimensionsHandler) Eval(
 		Value:       collectImageDimensions(parts),
 		Details: map[string]any{
 			"image_count": len(parts),
-			"violations":  violations,
+			keyViolations: violations,
 		},
 	}, nil
 }

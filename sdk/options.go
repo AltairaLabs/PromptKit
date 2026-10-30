@@ -2321,9 +2321,9 @@ type A2AAgentBuilder struct {
 //	conv, _ := sdk.Open("./assistant.pack.json", "assistant",
 //	    sdk.WithA2AAgent(agent),
 //	)
-func NewA2AAgent(url string) *A2AAgentBuilder {
+func NewA2AAgent(agentURL string) *A2AAgentBuilder {
 	return &A2AAgentBuilder{
-		url:     url,
+		url:     agentURL,
 		headers: make(map[string]string),
 	}
 }
@@ -2620,8 +2620,6 @@ type ProviderSpec struct {
 }
 
 // idOrType returns the spec ID, falling back to Type.
-//
-//nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
 func (s ProviderSpec) idOrType() string {
 	if s.ID != "" {
 		return s.ID
@@ -2634,8 +2632,6 @@ func (s ProviderSpec) idOrType() string {
 // calls — huggingface, openai, systemone, or nvidia-topic-control (an alias for
 // openai with NemoGuard topic control's model). The first inference provider
 // registered is the default for checks that name none.
-//
-//nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
 func WithInferenceProvider(spec ProviderSpec) Option {
 	return func(c *config) error {
 		id := spec.idOrType()
@@ -2680,8 +2676,6 @@ func WithClassifier(id string, provider any) Option {
 
 // toPkgProvider adapts a ProviderSpec to the pkgconfig.Provider shape
 // consumed by createProviderFromConfig (agent/LLM + image path).
-//
-//nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
 func (s ProviderSpec) toPkgProvider() *pkgconfig.Provider {
 	return &pkgconfig.Provider{
 		ID:                      s.idOrType(),
@@ -2742,8 +2736,6 @@ func WithNamedProvider(spec ProviderSpec) Option {
 // It sets the AGENT: the last call wins, and a provider registered this way
 // becomes the model the conversation talks to. To bind an ancillary provider a
 // pack names (a judge, say), use [WithNamedProvider] instead.
-//
-//nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
 func WithLLMProvider(spec ProviderSpec) Option {
 	return func(c *config) error {
 		prov, err := createProviderFromConfig(spec.toPkgProvider(), c.mediaStorage)
@@ -2759,8 +2751,6 @@ func WithLLMProvider(spec ProviderSpec) Option {
 // provider. Image providers are Predict-compatible: the generated image is the
 // turn's response. Wired identically to WithLLMProvider; both target the single
 // agent slot (last writer wins).
-//
-//nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
 func WithImageProvider(spec ProviderSpec) Option {
 	return func(c *config) error {
 		prov, err := createProviderFromConfig(spec.toPkgProvider(), c.mediaStorage)
@@ -2777,7 +2767,7 @@ func WithImageProvider(spec ProviderSpec) Option {
 // prior WithTTSProvider call). Registering the same ID twice is an error,
 // matching the declarative path.
 //
-//nolint:gocritic,dupl // value-semantics builder; WithSTTProvider is structurally identical on a different type.
+//nolint:dupl // value-semantics builder; WithSTTProvider is structurally identical on a different type.
 func WithTTSProvider(spec ProviderSpec) Option {
 	return func(c *config) error {
 		if _, exists := c.ttsProviders[spec.idOrType()]; exists {
@@ -2815,7 +2805,7 @@ func WithTTSProvider(spec ProviderSpec) Option {
 // sttService (first-wins; does not overwrite one already set). Registering the
 // same ID twice is an error, matching the declarative path.
 //
-//nolint:gocritic,dupl // value-semantics builder; WithTTSProvider is structurally identical on a different type.
+//nolint:dupl // value-semantics builder; WithTTSProvider is structurally identical on a different type.
 func WithSTTProvider(spec ProviderSpec) Option {
 	return func(c *config) error {
 		if _, exists := c.sttProviders[spec.idOrType()]; exists {
@@ -2856,8 +2846,6 @@ func WithSTTProvider(spec ProviderSpec) Option {
 // Registering the same ID twice is an error, matching what the declarative
 // path (a runtime config's embedding_providers) does. Silently keeping one
 // provider while listing its ID twice would make the ID list stop being a set.
-//
-//nolint:gocritic // ProviderSpec is a value-semantics builder; callers assemble inline.
 func WithEmbeddingProvider(spec ProviderSpec) Option {
 	return func(c *config) error {
 		if _, exists := c.embeddingProviders[spec.idOrType()]; exists {
@@ -3381,13 +3369,13 @@ func WithImageFile(path string, detail ...*string) SendOption {
 //	resp, _ := conv.Send(ctx, "What's in this image?",
 //	    sdk.WithImageURL("https://example.com/photo.jpg"),
 //	)
-func WithImageURL(url string, detail ...*string) SendOption {
+func WithImageURL(imageURL string, detail ...*string) SendOption {
 	return func(c *sendConfig) error {
 		var d *string
 		if len(detail) > 0 {
 			d = detail[0]
 		}
-		c.parts = append(c.parts, imageURLPart{url: url, detail: d})
+		c.parts = append(c.parts, imageURLPart{url: imageURL, detail: d})
 		return nil
 	}
 }
@@ -3793,8 +3781,6 @@ func WithSkillsDir(dir string) Option {
 //	        Preload: false,
 //	    }),
 //	)
-//
-//nolint:gocritic // SkillSource is a public config struct; pass by value for API ergonomics.
 func WithSkillSource(src skills.SkillSource) Option {
 	return func(c *config) error {
 		c.skillSources = append(c.skillSources, src)

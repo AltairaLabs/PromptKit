@@ -207,10 +207,8 @@ func createSession(
 
 // logSetupMessage logs the setup message at debug level
 func logSetupMessage(setupMsg map[string]interface{}) {
-	if logger.DefaultLogger != nil {
-		if setupJSON, err := json.MarshalIndent(setupMsg, "", "  "); err == nil {
-			logger.DefaultLogger.Debug("Gemini setup message", "setup", string(setupJSON))
-		}
+	if setupJSON, err := json.MarshalIndent(setupMsg, "", "  "); err == nil {
+		logger.Debug("Gemini setup message", "setup", string(setupJSON))
 	}
 }
 
@@ -356,8 +354,8 @@ func (s *StreamSession) CompleteTurn(ctx context.Context) error {
 
 	// Send turn_complete message
 	msg := map[string]interface{}{
-		"client_content": map[string]interface{}{
-			"turn_complete": true,
+		liveKeyClientContent: map[string]interface{}{
+			liveKeyTurnComplete: true,
 		},
 	}
 
@@ -376,7 +374,7 @@ func (s *StreamSession) sendActivityStart() error {
 	s.mu.Unlock()
 
 	msg := map[string]interface{}{
-		"realtime_input": map[string]interface{}{
+		liveKeyRealtimeInput: map[string]interface{}{
 			"activityStart": map[string]interface{}{},
 		},
 	}
@@ -397,7 +395,7 @@ func (s *StreamSession) sendActivityEnd() error {
 	s.mu.Unlock()
 
 	msg := map[string]interface{}{
-		"realtime_input": map[string]interface{}{
+		liveKeyRealtimeInput: map[string]interface{}{
 			"activityEnd": map[string]interface{}{},
 		},
 	}

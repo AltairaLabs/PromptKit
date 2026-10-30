@@ -56,8 +56,8 @@ const (
 // Rate: Creator-tier ~$180/1M chars (hardcoded conservative estimate).
 var elevenLabsDefaultPricing = &base.PricingDescriptor{
 	Source:   base.PricingSourceInline,
-	Currency: "usd",
-	Items:    []base.PriceItem{{Unit: "character", Rate: elevenLabsCharRatePerChar}},
+	Currency: currencyUSD,
+	Items:    []base.PriceItem{{Unit: unitCharacter, Rate: elevenLabsCharRatePerChar}},
 }
 
 // ElevenLabsService implements TTS using ElevenLabs' API.
@@ -75,7 +75,7 @@ type ElevenLabsOption = base.HTTPServiceOption
 // NewElevenLabs creates an ElevenLabs TTS service.
 func NewElevenLabs(apiKey string, opts ...ElevenLabsOption) *ElevenLabsService {
 	impl, fields := base.NewHTTPService(apiKey, base.HTTPServiceDefaults{
-		Name:    "elevenlabs",
+		Name:    providerElevenLabs,
 		Type:    base.ProviderTypeTTS,
 		Pricing: elevenLabsDefaultPricing,
 		BaseURL: elevenLabsBaseURL,
@@ -86,7 +86,7 @@ func NewElevenLabs(apiKey string, opts ...ElevenLabsOption) *ElevenLabsService {
 }
 
 // ImplName returns the implementation name for cost tracking.
-func (s *ElevenLabsService) ImplName() string { return "elevenlabs" }
+func (s *ElevenLabsService) ImplName() string { return providerElevenLabs }
 
 // ModelName returns the configured model name for cost tracking.
 func (s *ElevenLabsService) ModelName() string { return s.Model }
@@ -118,8 +118,6 @@ type elevenLabsVoiceSettings struct {
 }
 
 // Synthesize converts text to audio using ElevenLabs' TTS API.
-//
-//nolint:gocritic // hugeParam: SynthesisConfig passed by value to satisfy Service interface
 func (s *ElevenLabsService) Synthesize(
 	ctx context.Context, text string, config SynthesisConfig,
 ) (io.ReadCloser, error) {
@@ -177,11 +175,11 @@ func (s *ElevenLabsService) Synthesize(
 	}
 
 	headers := map[string]string{
-		"xi-api-key":   s.APIKey,
-		"Content-Type": "application/json",
-		"Accept":       "audio/mpeg",
+		"xi-api-key":      s.APIKey,
+		headerContentType: mimeJSON,
+		"Accept":          mimeAudioMPEG,
 	}
-	return postJSONForAudio(ctx, s.Client, "elevenlabs", endpoint, reqBody, headers, s.handleError)
+	return postJSONForAudio(ctx, s.Client, providerElevenLabs, endpoint, reqBody, headers, s.handleError)
 }
 
 // SpokenText reports the text ElevenLabs will actually speak for the given input,
@@ -218,9 +216,9 @@ func elevenLabsSupportsInlineTags(model string) bool {
 // mapFormat converts AudioFormat to ElevenLabs format string.
 func (s *ElevenLabsService) mapFormat(format AudioFormat) string {
 	switch format.Name {
-	case "mp3":
+	case formatMP3:
 		return elevenLabsFormatMP3
-	case "pcm":
+	case formatPCM:
 		return elevenLabsFormatPCM
 	case "":
 		return elevenLabsFormatMP3
@@ -240,12 +238,12 @@ type elevenLabsErrorResponse struct {
 // handleError processes an error response from ElevenLabs.
 func (s *ElevenLabsService) handleError(resp *http.Response) error {
 	var errResp elevenLabsErrorResponse
-	if e := decodeErrorBody("elevenlabs", resp, &errResp); e != nil {
+	if e := decodeErrorBody(providerElevenLabs, resp, &errResp); e != nil {
 		return e
 	}
 	retryable, cause := classifyHTTPStatus(resp.StatusCode, ErrInvalidVoice, fmt.Errorf("bad request"))
 	return NewSynthesisError(
-		"elevenlabs",
+		providerElevenLabs,
 		errResp.Detail.Status,
 		errResp.Detail.Message,
 		cause,
@@ -273,7 +271,7 @@ func (s *ElevenLabsService) SupportedVoices() []Voice {
 // SupportedFormats returns audio formats supported by ElevenLabs.
 func (s *ElevenLabsService) SupportedFormats() []AudioFormat {
 	return []AudioFormat{
-		makeFormat("mp3", "audio/mpeg", elevenLabsSampleRate44, 0),
-		makeFormat("pcm", "audio/pcm", elevenLabsSampleRate24, elevenLabsBitDepth16),
+		makeFormat(formatMP3, mimeAudioMPEG, elevenLabsSampleRate44, 0),
+		makeFormat(formatPCM, "audio/pcm", elevenLabsSampleRate24, elevenLabsBitDepth16),
 	}
 }

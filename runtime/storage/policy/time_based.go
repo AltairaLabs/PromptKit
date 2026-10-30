@@ -408,7 +408,7 @@ func (h *TimeBasedPolicyHandler) ExpiryIndexLen() int {
 
 // loadPolicyMetadata loads policy metadata from a .meta file.
 func (h *TimeBasedPolicyHandler) loadPolicyMetadata(metaPath string) (*Metadata, error) {
-	data, err := os.ReadFile(metaPath)
+	data, err := os.ReadFile(filepath.Clean(metaPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read metadata file: %w", err)
 	}
@@ -416,7 +416,7 @@ func (h *TimeBasedPolicyHandler) loadPolicyMetadata(metaPath string) (*Metadata,
 	// The .meta file contains MediaMetadata with PolicyName
 	// We need to extract policy info and compute expiration
 	var mediaMetadata storage.MediaMetadata
-	if err := json.Unmarshal(data, &mediaMetadata); err != nil {
+	if err = json.Unmarshal(data, &mediaMetadata); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
 	}
 

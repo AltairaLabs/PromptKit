@@ -66,7 +66,7 @@ func (h *VideoResolutionHandler) Eval(
 	var resolutions []map[string]any
 	for _, part := range parts {
 		if part.Media.Width != nil && part.Media.Height != nil {
-			resolutions = append(resolutions, map[string]any{"width": *part.Media.Width, "height": *part.Media.Height})
+			resolutions = append(resolutions, map[string]any{keyWidth: *part.Media.Width, keyHeight: *part.Media.Height})
 		}
 	}
 
@@ -78,7 +78,7 @@ func (h *VideoResolutionHandler) Eval(
 		Details: map[string]any{
 			"video_count":       len(parts),
 			"found_resolutions": foundResolutions,
-			"violations":        violations,
+			keyViolations:       violations,
 		},
 	}, nil
 }

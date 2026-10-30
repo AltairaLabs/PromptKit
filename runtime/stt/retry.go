@@ -46,8 +46,6 @@ func DefaultRetryConfig() RetryConfig {
 // true are retried; all others are returned immediately. Uses full
 // jitter backoff to avoid synchronized retries across concurrent
 // callers.
-//
-//nolint:gocritic // hugeParam: config value is caller-owned and not modified
 func TranscribeWithRetry(
 	ctx context.Context,
 	svc base.STTProvider,
@@ -110,7 +108,7 @@ func backoff(attempt int, initial, ceiling time.Duration) time.Duration {
 	if ceiling <= 0 {
 		ceiling = defaultRetryMaxDelay
 	}
-	shift := uint(min(attempt, maxBackoffShift)) //nolint:gosec // bounded by min
+	shift := uint(min(attempt, maxBackoffShift)) // bounded by min
 	delay := initial << shift
 	if delay <= 0 || delay > ceiling {
 		delay = ceiling

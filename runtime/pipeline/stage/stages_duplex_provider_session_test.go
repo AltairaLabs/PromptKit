@@ -675,3 +675,28 @@ func TestProcess_CreateSessionErrorReportedWhileInputOpen(t *testing.T) {
 	require.Len(t, elems, 1, "the consumer must get the error as an element, not just a closed output")
 	require.ErrorContains(t, elems[0].Error, "connect refused")
 }
+
+// A panic after the session is created (here, in the session observer) must
+// still close it: Process only defers Close once the lazy creation returns.
+func TestProcess_SessionClosedWhenObserverPanics(t *testing.T) {
+	provider := providersmock.NewStreamingProvider("t", "m", false)
+	s := NewDuplexProviderStage(provider, baseConfig())
+	s.SetSessionObserver(func(providers.StreamInputSession) { panic("observer exploded") })
+
+	input := make(chan StreamElement, 1)
+	text := "hello"
+	input <- StreamElement{Text: &text, EndOfStream: true}
+	close(input)
+	output := make(chan StreamElement, 4)
+
+	require.PanicsWithValue(t, "observer exploded", func() {
+		_ = s.Process(context.Background(), input, output)
+	})
+	sessions := provider.GetSessions()
+	require.Len(t, sessions, 1)
+	select {
+	case <-sessions[0].Done():
+	default:
+		t.Fatal("the session created before the panic was left open")
+	}
+}

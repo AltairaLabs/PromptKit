@@ -31,7 +31,7 @@ func (h *ToolArgsSessionHandler) Eval(
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Score:       boolScore(false),
-			Explanation: "tool_name parameter is required",
+			Explanation: msgToolNameRequired,
 		}, nil
 	}
 
@@ -67,7 +67,7 @@ func (h *ToolArgsSessionHandler) Eval(
 				"%s was called with expected args", toolName,
 			),
 			Value: map[string]any{
-				"matched": true,
+				keyMatched: true,
 			},
 		}, nil
 	}
@@ -80,7 +80,7 @@ func (h *ToolArgsSessionHandler) Eval(
 				"tool %q was never called", toolName,
 			),
 			Value: map[string]any{
-				"matched": false,
+				keyMatched: false,
 			},
 		}, nil
 	}
@@ -93,7 +93,7 @@ func (h *ToolArgsSessionHandler) Eval(
 			toolName, strings.Join(mismatches, "; "),
 		),
 		Value: map[string]any{
-			"matched": false,
+			keyMatched: false,
 		},
 	}, nil
 }

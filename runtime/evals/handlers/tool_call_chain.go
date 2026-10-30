@@ -44,9 +44,9 @@ func (h *ToolCallChainHandler) Eval(
 			Score:       ratioScore(completed, len(steps)),
 			Explanation: fmt.Sprintf("%v", failure["message"]),
 			Value: map[string]any{
-				"completed_steps": completed,
-				"total_steps":     len(steps),
-				"chain":           stepNames,
+				keyCompletedSteps: completed,
+				keyTotalSteps:     len(steps),
+				keyChain:          stepNames,
 			},
 			Details: failure,
 		}, nil
@@ -61,13 +61,13 @@ func (h *ToolCallChainHandler) Eval(
 				completed, len(steps), steps[completed].tool,
 			),
 			Value: map[string]any{
-				"completed_steps": completed,
-				"total_steps":     len(steps),
-				"chain":           stepNames,
+				keyCompletedSteps: completed,
+				keyTotalSteps:     len(steps),
+				keyChain:          stepNames,
 			},
 			Details: map[string]any{
-				"completed_steps": completed,
-				"total_steps":     len(steps),
+				keyCompletedSteps: completed,
+				keyTotalSteps:     len(steps),
 			},
 		}, nil
 	}
@@ -77,12 +77,12 @@ func (h *ToolCallChainHandler) Eval(
 		Score:       ratioScore(completed, len(steps)),
 		Explanation: "chain fully satisfied",
 		Value: map[string]any{
-			"completed_steps": len(steps),
-			"total_steps":     len(steps),
-			"chain":           stepNames,
+			keyCompletedSteps: len(steps),
+			keyTotalSteps:     len(steps),
+			keyChain:          stepNames,
 		},
 		Details: map[string]any{
-			"completed_steps": len(steps),
+			keyCompletedSteps: len(steps),
 		},
 	}, nil
 }

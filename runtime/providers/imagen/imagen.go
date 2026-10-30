@@ -21,6 +21,12 @@ const (
 	defaultTimeout = 120 * time.Second
 	// Cost per image in USD
 	costPerImage = 0.04
+	// defaultLocation is the Google Cloud region used when none is configured.
+	defaultLocation = "us-central1"
+	// unitImage is the pricing/quantity unit for one generated image.
+	unitImage = "image"
+	// roleUser is the chat role of the prompting message.
+	roleUser = "user"
 )
 
 // defaultImagenPricing exposes Imagen's per-image cost as a PricingDescriptor
@@ -29,7 +35,7 @@ var defaultImagenPricing = &base.PricingDescriptor{
 	Source:   base.PricingSourceInline,
 	Currency: "usd",
 	Items: []base.PriceItem{
-		{Unit: "image", Rate: costPerImage},
+		{Unit: unitImage, Rate: costPerImage},
 	},
 }
 
@@ -94,7 +100,7 @@ type imagenMetadata struct {
 	// Add metadata fields if needed
 }
 
-// ImagenConfig holds configuration for creating an Imagen provider
+// Config holds configuration for creating an Imagen provider
 type Config struct {
 	ID               string
 	Model            string
@@ -115,7 +121,7 @@ func NewProvider(config Config) *Provider {
 		config.Model = "imagen-4.0-generate-001"
 	}
 	if config.Location == "" {
-		config.Location = "us-central1"
+		config.Location = defaultLocation
 	}
 
 	httpClient := &http.Client{Timeout: defaultTimeout}
@@ -139,7 +145,7 @@ func extractPrompt(req providers.PredictionRequest) (string, error) {
 	}
 
 	lastMsg := req.Messages[len(req.Messages)-1]
-	if lastMsg.Role != "user" {
+	if lastMsg.Role != roleUser {
 		return "", fmt.Errorf("last message must be from user")
 	}
 
@@ -261,7 +267,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 		TotalCost:    costPerImage,
 
 		// Unified cost fields for the new aggregation path:
-		Quantities:     map[string]float64{"image": 1},
+		Quantities:     map[string]float64{unitImage: 1},
 		DimensionMatch: map[string]string{"size": "1024x1024", "quality": "standard"},
 		ProviderName:   p.Name(),
 		Capability:     string(base.ProviderTypeImage),
@@ -285,7 +291,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 // Future PRs can migrate call sites to Generate directly.
 func (p *Provider) Generate(ctx context.Context, req base.ImageRequest) (base.ImageResponse, error) {
 	predReq := providers.PredictionRequest{
-		Messages: []types.Message{{Role: "user", Content: req.Prompt}},
+		Messages: []types.Message{{Role: roleUser, Content: req.Prompt}},
 	}
 	resp, err := p.Predict(ctx, predReq)
 	if err != nil {

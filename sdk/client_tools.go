@@ -405,7 +405,7 @@ func (c *Conversation) emitClientToolResolvedEvents(resolutions []*sdktools.Tool
 			status = "rejected"
 			reason = res.RejectionReason
 		} else if res.Error != nil {
-			status = "error"
+			status = clientToolStatusError
 		}
 		emitter.ClientToolResolved(&events.ClientToolResolvedData{
 			CallID:          res.ID,
@@ -614,3 +614,7 @@ func (c *Conversation) FailClientTool(_ context.Context, callID string, partial 
 	c.resolvedStore.Add(res)
 	return nil
 }
+
+// clientToolStatusError is the resolved-event status for a client tool that
+// failed.
+const clientToolStatusError = "error"

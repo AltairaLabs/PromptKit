@@ -255,8 +255,8 @@ var (
 var (
     // FormatMP3 is MP3 format (most compatible).
     FormatMP3 = AudioFormat{
-        Name:       "mp3",
-        MIMEType:   "audio/mpeg",
+        Name:       formatMP3,
+        MIMEType:   mimeAudioMPEG,
         SampleRate: sampleRateDefault,
         BitDepth:   0,
         Channels:   1,
@@ -291,7 +291,7 @@ var (
 
     // FormatPCM16 is raw 16-bit PCM (for processing).
     FormatPCM16 = AudioFormat{
-        Name:       "pcm",
+        Name:       formatPCM,
         MIMEType:   "audio/pcm",
         SampleRate: sampleRateDefault,
         BitDepth:   bitDepthDefault,
@@ -310,7 +310,7 @@ var (
 ```
 
 <a name="APIKeyFromCredential"></a>
-## func [APIKeyFromCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/factory.go#L51>)
+## func [APIKeyFromCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/factory.go#L49>)
 
 ```go
 func APIKeyFromCredential(c credentials.Credential) string
@@ -347,7 +347,7 @@ CostInfoToMetaMap is kept here as a deprecated alias for back\-compat with exist
 Deprecated: use base.CostInfoToMetaMap.
 
 <a name="PricingFromSpec"></a>
-## func [PricingFromSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/factory.go#L58>)
+## func [PricingFromSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/factory.go#L54>)
 
 ```go
 func PricingFromSpec(spec ProviderSpec) *base.PricingDescriptor
@@ -374,7 +374,7 @@ func RegisteredTypes() []string
 RegisteredTypes returns the TTS provider types with a registered factory, sorted. Use it to check a configured type before CreateFromSpec rather than constructing and parsing the error.
 
 <a name="ResolveCredential"></a>
-## func [ResolveCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/factory.go#L41-L46>)
+## func [ResolveCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/factory.go#L39-L44>)
 
 ```go
 func ResolveCredential(ctx context.Context, providerType string, cfgDir string, cred *credentials.CredentialConfig) (credentials.Credential, error)
@@ -383,7 +383,7 @@ func ResolveCredential(ctx context.Context, providerType string, cfgDir string, 
 ResolveCredential is a thin wrapper around base.ResolveCredential, kept here for back\-compat with callers that resolve TTS\-specific credential configs.
 
 <a name="SynthesizeWithRetry"></a>
-## func [SynthesizeWithRetry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/retry.go#L51-L57>)
+## func [SynthesizeWithRetry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/retry.go#L49-L55>)
 
 ```go
 func SynthesizeWithRetry(ctx context.Context, svc Service, text string, config SynthesisConfig, retry RetryConfig) (io.ReadCloser, error)
@@ -401,7 +401,7 @@ func WithCartesiaWSURL(url string) func(*CartesiaService)
 WithCartesiaWSURL sets a custom WebSocket URL.
 
 <a name="AudioFormat"></a>
-## type [AudioFormat](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L134-L149>)
+## type [AudioFormat](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L161-L176>)
 
 AudioFormat describes an audio output format.
 
@@ -425,7 +425,7 @@ type AudioFormat struct {
 ```
 
 <a name="AudioFormat.String"></a>
-### func \(AudioFormat\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L209>)
+### func \(AudioFormat\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L236>)
 
 ```go
 func (f AudioFormat) String() string
@@ -528,7 +528,7 @@ func (s *CartesiaService) PersonaRubric() string
 PersonaRubric implements [PersonaRubricProvider](<#PersonaRubricProvider>). Returns the emotion\-only rubric: Cartesia's experimental controls accept a narrow vocabulary \(positivity / sadness / anger\), so we advertise only the tags the adapter actually maps. Other tags \(e.g. whispers, pause\) would be dropped by lowerCartesiaMarkup, so we omit them from the rubric to keep persona tokens focused on directives that move audio.
 
 <a name="CartesiaService.SpokenText"></a>
-### func \(\*CartesiaService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L254>)
+### func \(\*CartesiaService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L252>)
 
 ```go
 func (s *CartesiaService) SpokenText(text string, _ SynthesisConfig) string
@@ -537,7 +537,7 @@ func (s *CartesiaService) SpokenText(text string, _ SynthesisConfig) string
 SpokenText reports the text Cartesia will actually speak for the given input: emotion tags become generation config, so the spoken transcript is the text with tags removed. Implements tts.SpokenTextReporter.
 
 <a name="CartesiaService.SupportedFormats"></a>
-### func \(\*CartesiaService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L410>)
+### func \(\*CartesiaService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L408>)
 
 ```go
 func (s *CartesiaService) SupportedFormats() []AudioFormat
@@ -546,7 +546,7 @@ func (s *CartesiaService) SupportedFormats() []AudioFormat
 SupportedFormats returns audio formats supported by Cartesia.
 
 <a name="CartesiaService.SupportedVoices"></a>
-### func \(\*CartesiaService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L399>)
+### func \(\*CartesiaService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L397>)
 
 ```go
 func (s *CartesiaService) SupportedVoices() []Voice
@@ -555,7 +555,7 @@ func (s *CartesiaService) SupportedVoices() []Voice
 SupportedVoices returns a sample of available Cartesia voices.
 
 <a name="CartesiaService.Synthesize"></a>
-### func \(\*CartesiaService\) [Synthesize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L195-L197>)
+### func \(\*CartesiaService\) [Synthesize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L193-L195>)
 
 ```go
 func (s *CartesiaService) Synthesize(ctx context.Context, text string, config SynthesisConfig) (io.ReadCloser, error)
@@ -564,7 +564,7 @@ func (s *CartesiaService) Synthesize(ctx context.Context, text string, config Sy
 Synthesize converts text to audio using Cartesia's REST API. For streaming output, use SynthesizeStream instead.
 
 <a name="CartesiaService.SynthesizeStream"></a>
-### func \(\*CartesiaService\) [SynthesizeStream](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia_interactive.go#L37-L39>)
+### func \(\*CartesiaService\) [SynthesizeStream](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia_interactive.go#L35-L37>)
 
 ```go
 func (s *CartesiaService) SynthesizeStream(ctx context.Context, text string, config SynthesisConfig) (<-chan audio.Chunk, error)
@@ -684,7 +684,7 @@ func (s *ElevenLabsService) PersonaRubric() string
 PersonaRubric implements [PersonaRubricProvider](<#PersonaRubricProvider>). Returns the full markup rubric on v3\-class models \(they consume bracket tags natively\); older models \(v1, v2, turbo\) speak the brackets literally, so we return the empty string and the persona prompt is left untouched.
 
 <a name="ElevenLabsService.SpokenText"></a>
-### func \(\*ElevenLabsService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L190>)
+### func \(\*ElevenLabsService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L188>)
 
 ```go
 func (s *ElevenLabsService) SpokenText(text string, config SynthesisConfig) string
@@ -693,7 +693,7 @@ func (s *ElevenLabsService) SpokenText(text string, config SynthesisConfig) stri
 SpokenText reports the text ElevenLabs will actually speak for the given input, after markup lowering: eleven\_v3 keeps inline tags \(the model interprets them\), other models strip tags. Implements tts.SpokenTextReporter.
 
 <a name="ElevenLabsService.SupportedFormats"></a>
-### func \(\*ElevenLabsService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L274>)
+### func \(\*ElevenLabsService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L272>)
 
 ```go
 func (s *ElevenLabsService) SupportedFormats() []AudioFormat
@@ -702,7 +702,7 @@ func (s *ElevenLabsService) SupportedFormats() []AudioFormat
 SupportedFormats returns audio formats supported by ElevenLabs.
 
 <a name="ElevenLabsService.SupportedVoices"></a>
-### func \(\*ElevenLabsService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L259>)
+### func \(\*ElevenLabsService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L257>)
 
 ```go
 func (s *ElevenLabsService) SupportedVoices() []Voice
@@ -711,7 +711,7 @@ func (s *ElevenLabsService) SupportedVoices() []Voice
 SupportedVoices returns a sample of available ElevenLabs voices. Note: ElevenLabs has many more voices including custom cloned voices. Use the ElevenLabs API to get a complete list of available voices.
 
 <a name="ElevenLabsService.Synthesize"></a>
-### func \(\*ElevenLabsService\) [Synthesize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L123-L125>)
+### func \(\*ElevenLabsService\) [Synthesize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L121-L123>)
 
 ```go
 func (s *ElevenLabsService) Synthesize(ctx context.Context, text string, config SynthesisConfig) (io.ReadCloser, error)
@@ -840,7 +840,7 @@ func (s *OpenAIService) PersonaRubric() string
 PersonaRubric implements [PersonaRubricProvider](<#PersonaRubricProvider>). Returns the full markup rubric on gpt\-4o\-mini\-tts \(the model honors arbitrary instructions via the request's instructions field\). Older models \(tts\-1, tts\-1\-hd\) do not understand the markup, so we return the empty string — emitting tags would only waste persona tokens.
 
 <a name="OpenAIService.SpokenText"></a>
-### func \(\*OpenAIService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L224>)
+### func \(\*OpenAIService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L222>)
 
 ```go
 func (s *OpenAIService) SpokenText(text string, config SynthesisConfig) string
@@ -849,7 +849,7 @@ func (s *OpenAIService) SpokenText(text string, config SynthesisConfig) string
 SpokenText reports the text OpenAI will actually speak for the given input, after markup lowering: on gpt\-4o\-mini\-tts the bracket tags become the \`instructions\` field so the spoken text is the stripped remainder; other models strip tags entirely. Implements tts.SpokenTextReporter.
 
 <a name="OpenAIService.SupportedFormats"></a>
-### func \(\*OpenAIService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L337>)
+### func \(\*OpenAIService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L335>)
 
 ```go
 func (s *OpenAIService) SupportedFormats() []AudioFormat
@@ -858,7 +858,7 @@ func (s *OpenAIService) SupportedFormats() []AudioFormat
 SupportedFormats returns audio formats supported by OpenAI TTS.
 
 <a name="OpenAIService.SupportedVoices"></a>
-### func \(\*OpenAIService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L325>)
+### func \(\*OpenAIService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L323>)
 
 ```go
 func (s *OpenAIService) SupportedVoices() []Voice
@@ -867,7 +867,7 @@ func (s *OpenAIService) SupportedVoices() []Voice
 SupportedVoices returns available OpenAI voices.
 
 <a name="OpenAIService.Synthesize"></a>
-### func \(\*OpenAIService\) [Synthesize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L141-L143>)
+### func \(\*OpenAIService\) [Synthesize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L139-L141>)
 
 ```go
 func (s *OpenAIService) Synthesize(ctx context.Context, text string, config SynthesisConfig) (io.ReadCloser, error)
@@ -903,7 +903,7 @@ func (s *OpenAIService) Validate() error
 Validate performs synchronous config validation \(no\-op for TTS services\).
 
 <a name="PersonaRubricProvider"></a>
-## type [PersonaRubricProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L71-L73>)
+## type [PersonaRubricProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L98-L100>)
 
 PersonaRubricProvider is an optional extension interface that TTS adapters implement to advertise the bracket\-tag rubric an upstream persona / script should splice into its system prompt. Implementations return the empty string when the configured model cannot consume characterization markup — callers MUST treat the empty string as "do not inject any rubric" so we do not waste persona tokens on tags that would be silently dropped.
 
@@ -952,7 +952,7 @@ func DefaultRetryConfig() RetryConfig
 DefaultRetryConfig returns sensible defaults for TTS retry.
 
 <a name="Service"></a>
-## type [Service](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L22-L36>)
+## type [Service](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L49-L63>)
 
 Service converts text to speech audio. This interface abstracts different TTS providers \(OpenAI, ElevenLabs, etc.\) enabling voice AI applications to use any provider interchangeably.
 
@@ -975,7 +975,7 @@ type Service interface {
 ```
 
 <a name="CreateFromSpec"></a>
-### func [CreateFromSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/factory.go#L35>)
+### func [CreateFromSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/factory.go#L33>)
 
 ```go
 func CreateFromSpec(spec ProviderSpec) (Service, error)
@@ -984,7 +984,7 @@ func CreateFromSpec(spec ProviderSpec) (Service, error)
 CreateFromSpec returns a Service implementation for the given spec.
 
 <a name="SpokenTextReporter"></a>
-## type [SpokenTextReporter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L45-L49>)
+## type [SpokenTextReporter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L72-L76>)
 
 SpokenTextReporter is an optional Service extension: given the input text and config, it returns the exact text that will be submitted to the synthesis engine after PromptKit's bracket\-tag markup is lowered — provider\- and model\-specific \(e.g. OpenAI gpt\-4o\-mini\-tts moves tags to \`instructions\`, so the spoken text is the stripped remainder; ElevenLabs v3 keeps inline tags\). The lowering is pure, so this reports the value without synthesizing. Returns "" when unknown, letting consumers fall back to the LLM text.
 
@@ -997,7 +997,7 @@ type SpokenTextReporter interface {
 ```
 
 <a name="StreamingService"></a>
-## type [StreamingService](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L53-L60>)
+## type [StreamingService](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L80-L87>)
 
 StreamingService extends Service with streaming synthesis capabilities. Streaming TTS provides lower latency by returning audio chunks as they're generated.
 
@@ -1013,7 +1013,7 @@ type StreamingService interface {
 ```
 
 <a name="SynthesisConfig"></a>
-## type [SynthesisConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L76-L100>)
+## type [SynthesisConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L103-L127>)
 
 SynthesisConfig configures text\-to\-speech synthesis.
 
@@ -1046,7 +1046,7 @@ type SynthesisConfig struct {
 ```
 
 <a name="DefaultSynthesisConfig"></a>
-### func [DefaultSynthesisConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L103>)
+### func [DefaultSynthesisConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L130>)
 
 ```go
 func DefaultSynthesisConfig() SynthesisConfig
@@ -1127,7 +1127,7 @@ func (e *SynthesisError) Unwrap() error
 Unwrap returns the underlying error.
 
 <a name="Voice"></a>
-## type [Voice](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L113-L131>)
+## type [Voice](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L140-L158>)
 
 Voice describes a TTS voice available from a provider.
 

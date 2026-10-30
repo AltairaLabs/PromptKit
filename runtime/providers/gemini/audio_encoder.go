@@ -32,11 +32,17 @@ const (
 	geminiChannels   = 1     // mono
 	bytesPerSample   = geminiBitDepth / 8
 
+	// msPerSecond converts between seconds and milliseconds.
+	msPerSecond = 1000
+
+	// encodingPCMLinear16 names the raw 16-bit little-endian PCM encoding.
+	encodingPCMLinear16 = "pcm_linear16"
+
 	// DefaultChunkDuration is 100ms of audio
 	DefaultChunkDuration = 100 // milliseconds
 	// DefaultChunkSize is the number of bytes for 100ms at 16kHz 16-bit mono
 	// 16000 Hz * 0.1 sec * 2 bytes/sample = 3200 bytes
-	DefaultChunkSize = (geminiSampleRate * DefaultChunkDuration / 1000) * bytesPerSample
+	DefaultChunkSize = (geminiSampleRate * DefaultChunkDuration / msPerSecond) * bytesPerSample
 )
 
 // AudioEncoder handles PCM Linear16 audio encoding for Gemini Live API
@@ -152,12 +158,7 @@ func (e *AudioEncoder) CreateChunks(ctx context.Context, pcmData []byte) ([]*typ
 			Data:        pcmData[i:end],
 			SequenceNum: int64(len(chunks)),
 			IsLast:      end == len(pcmData),
-			Metadata: map[string]string{
-				"format":      "pcm_linear16",
-				"sample_rate": fmt.Sprintf("%d", e.sampleRate),
-				"channels":    fmt.Sprintf("%d", e.channels),
-				"bit_depth":   fmt.Sprintf("%d", e.bitDepth),
-			},
+			Metadata:    e.chunkMetadata(),
 		}
 
 		chunks = append(chunks, chunk)
@@ -167,7 +168,9 @@ func (e *AudioEncoder) CreateChunks(ctx context.Context, pcmData []byte) ([]*typ
 }
 
 // ReadChunks reads audio from an io.Reader and creates chunks on-the-fly
-func (e *AudioEncoder) ReadChunks(ctx context.Context, reader io.Reader) (chunkStream <-chan *types.MediaChunk, errStream <-chan error) {
+func (e *AudioEncoder) ReadChunks(
+	ctx context.Context, reader io.Reader,
+) (chunkStream <-chan *types.MediaChunk, errStream <-chan error) {
 	chunkCh := make(chan *types.MediaChunk)
 	errCh := make(chan error, 1)
 
@@ -193,7 +196,6 @@ func (e *AudioEncoder) ReadChunks(ctx context.Context, reader io.Reader) (chunkS
 					return
 				}
 				sequenceNum++
-				previousChunk = nil
 			}
 
 			// Handle read error
@@ -229,7 +231,9 @@ func (e *AudioEncoder) markLastChunkIfEOF(chunk *types.MediaChunk, err error, n 
 }
 
 // sendChunk sends a chunk to the channel, returning false if context is done
-func (e *AudioEncoder) sendChunk(ctx context.Context, chunkCh chan<- *types.MediaChunk, errCh chan<- error, chunk *types.MediaChunk) bool {
+func (e *AudioEncoder) sendChunk(
+	ctx context.Context, chunkCh chan<- *types.MediaChunk, errCh chan<- error, chunk *types.MediaChunk,
+) bool {
 	select {
 	case chunkCh <- chunk:
 		return true
@@ -240,7 +244,10 @@ func (e *AudioEncoder) sendChunk(ctx context.Context, chunkCh chan<- *types.Medi
 }
 
 // handleReadError handles errors from reading
-func (e *AudioEncoder) handleReadError(ctx context.Context, chunkCh chan<- *types.MediaChunk, errCh chan<- error, err error, n int, buffer []byte, sequenceNum int64) {
+func (e *AudioEncoder) handleReadError(
+	ctx context.Context, chunkCh chan<- *types.MediaChunk, errCh chan<- error,
+	err error, n int, buffer []byte, sequenceNum int64,
+) {
 	if err == io.EOF || err == io.ErrUnexpectedEOF {
 		// Send final chunk if we have partial data
 		if n > 0 {
@@ -258,15 +265,20 @@ func (e *AudioEncoder) createChunk(buffer []byte, n int, sequenceNum int64, isLa
 		Data:        make([]byte, n),
 		SequenceNum: sequenceNum,
 		IsLast:      isLast,
-		Metadata: map[string]string{
-			"format":      "pcm_linear16",
-			"sample_rate": fmt.Sprintf("%d", e.sampleRate),
-			"channels":    fmt.Sprintf("%d", e.channels),
-			"bit_depth":   fmt.Sprintf("%d", e.bitDepth),
-		},
+		Metadata:    e.chunkMetadata(),
 	}
 	copy(chunk.Data, buffer[:n])
 	return chunk
+}
+
+// chunkMetadata describes the encoder's PCM format for a MediaChunk.
+func (e *AudioEncoder) chunkMetadata() map[string]string {
+	return map[string]string{
+		"format":      encodingPCMLinear16,
+		"sample_rate": fmt.Sprintf("%d", e.sampleRate),
+		"channels":    fmt.Sprintf("%d", e.channels),
+		"bit_depth":   fmt.Sprintf("%d", e.bitDepth),
+	}
 }
 
 // AssembleChunks reassembles MediaChunks back into continuous PCM data.
@@ -294,7 +306,8 @@ func (e *AudioEncoder) AssembleChunks(chunks []*types.MediaChunk) ([]byte, error
 func (e *AudioEncoder) ConvertInt16ToPCM(samples []int16) []byte {
 	pcmData := make([]byte, len(samples)*bytesPerSample)
 	for i, sample := range samples {
-		binary.LittleEndian.PutUint16(pcmData[i*bytesPerSample:], uint16(sample))
+		bits := uint16(sample) //nolint:gosec // G115: two's-complement bit reinterpretation of a PCM sample
+		binary.LittleEndian.PutUint16(pcmData[i*bytesPerSample:], bits)
 	}
 	return pcmData
 }
@@ -307,7 +320,8 @@ func (e *AudioEncoder) ConvertPCMToInt16(pcmData []byte) ([]int16, error) {
 
 	samples := make([]int16, len(pcmData)/bytesPerSample)
 	for i := 0; i < len(samples); i++ {
-		samples[i] = int16(binary.LittleEndian.Uint16(pcmData[i*bytesPerSample:]))
+		bits := binary.LittleEndian.Uint16(pcmData[i*bytesPerSample:])
+		samples[i] = int16(bits) //nolint:gosec // G115: two's-complement bit reinterpretation of a PCM sample
 	}
 	return samples, nil
 }
@@ -318,7 +332,7 @@ func (e *AudioEncoder) GenerateSineWave(frequency float64, durationMs int, ampli
 		amplitude = 1.0
 	}
 
-	numSamples := (e.sampleRate * durationMs) / 1000
+	numSamples := (e.sampleRate * durationMs) / msPerSecond
 	samples := make([]int16, numSamples)
 
 	for i := 0; i < numSamples; i++ {
@@ -333,7 +347,7 @@ func (e *AudioEncoder) GenerateSineWave(frequency float64, durationMs int, ampli
 // GetChunkDurationMs calculates the duration of a chunk in milliseconds
 func (e *AudioEncoder) GetChunkDurationMs(chunkSize int) float64 {
 	samplesPerChunk := chunkSize / bytesPerSample
-	return float64(samplesPerChunk) / float64(e.sampleRate) * 1000.0
+	return float64(samplesPerChunk) / float64(e.sampleRate) * msPerSecond
 }
 
 // GetChunkSize returns the configured chunk size in bytes

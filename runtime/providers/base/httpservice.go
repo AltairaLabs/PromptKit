@@ -29,7 +29,7 @@ type HTTPServiceDefaults struct {
 // HTTPServiceOption mutations on the way out. Eliminates per-impl
 // constructor boilerplate.
 //
-//nolint:gocritic // hugeParam: defaults passed by value to keep call sites composable.
+// defaults is passed by value to keep call sites composable.
 func NewHTTPService(
 	apiKey string,
 	defaults HTTPServiceDefaults,

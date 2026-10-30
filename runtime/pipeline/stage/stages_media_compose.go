@@ -91,8 +91,6 @@ func NewMediaComposeStage(config MediaComposeConfig) *MediaComposeStage {
 
 // Process implements the Stage interface.
 // Collects media elements and composes them back into messages.
-//
-//nolint:dupl // Similar fan-in pattern shared with FramesToMessageStage but different data types
 func (s *MediaComposeStage) Process(
 	ctx context.Context,
 	input <-chan StreamElement,
@@ -111,69 +109,13 @@ func (s *MediaComposeStage) Process(
 	}()
 
 	for elem := range input {
-		// Check if this is a media element with extract metadata
-		if elem.Meta.MediaExtract == nil {
-			// Pass through non-extracted elements
-			select {
-			case output <- elem:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-			continue
-		}
-
-		// Accumulate the part
-		complete, err := s.accumulatePart(&elem)
-		if err != nil {
-			logger.Error("Failed to accumulate media part", "error", err)
-			elem.Error = err
-			select {
-			case output <- elem:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-			continue
-		}
-
-		// If all parts received, compose and emit
-		if complete != nil {
-			composed, err := s.composeMessage(complete)
-			if err != nil {
-				logger.Error("Failed to compose message", "error", err)
-				// Emit error element
-				errElem := NewErrorElement(err)
-				errElem.Sequence = complete.sequence
-				errElem.Source = complete.source
-				select {
-				case output <- errElem:
-				case <-ctx.Done():
-					return ctx.Err()
-				}
-				continue
-			}
-
-			outElem := NewMessageElement(composed)
-			outElem.Sequence = complete.sequence
-			outElem.Source = complete.source
-
-			select {
-			case output <- outElem:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
+		if err := s.handleComposeInput(ctx, output, elem); err != nil {
+			return err
 		}
 	}
 
 	// Process any remaining pending messages
-	s.mu.Lock()
-	remaining := make([]*pendingMessage, 0, len(s.pending))
-	for _, pm := range s.pending {
-		remaining = append(remaining, pm)
-	}
-	s.pending = make(map[string]*pendingMessage)
-	s.mu.Unlock()
-
-	for _, pm := range remaining {
+	for _, pm := range s.takePending() {
 		composed, err := s.composeMessage(pm)
 		if err != nil {
 			logger.Warn("Failed to compose incomplete message", "error", err)
@@ -192,6 +134,66 @@ func (s *MediaComposeStage) Process(
 	}
 
 	return nil
+}
+
+// handleComposeInput routes one input element: non-extracted elements pass
+// through, extracted media parts accumulate, and a completed message is
+// composed and emitted. Returns non-nil only on cancellation.
+func (s *MediaComposeStage) handleComposeInput(
+	ctx context.Context, output chan<- StreamElement, elem StreamElement,
+) error {
+	// Check if this is a media element with extract metadata
+	if elem.Meta.MediaExtract == nil {
+		// Pass through non-extracted elements
+		return sendStreamElement(ctx, elem, output)
+	}
+
+	// Accumulate the part
+	complete, err := s.accumulatePart(&elem)
+	if err != nil {
+		logger.Error("Failed to accumulate media part", "error", err)
+		elem.Error = err
+		return sendStreamElement(ctx, elem, output)
+	}
+
+	// If all parts received, compose and emit
+	if complete != nil {
+		return s.emitComposed(ctx, output, complete)
+	}
+	return nil
+}
+
+// emitComposed composes a completed pending message and emits it, or emits an
+// error element when composition fails. Returns non-nil only on cancellation.
+func (s *MediaComposeStage) emitComposed(
+	ctx context.Context, output chan<- StreamElement, complete *pendingMessage,
+) error {
+	composed, err := s.composeMessage(complete)
+	if err != nil {
+		logger.Error("Failed to compose message", "error", err)
+		// Emit error element
+		errElem := NewErrorElement(err)
+		errElem.Sequence = complete.sequence
+		errElem.Source = complete.source
+		return sendStreamElement(ctx, errElem, output)
+	}
+
+	outElem := NewMessageElement(composed)
+	outElem.Sequence = complete.sequence
+	outElem.Source = complete.source
+	return sendStreamElement(ctx, outElem, output)
+}
+
+// takePending removes and returns every still-pending message.
+func (s *MediaComposeStage) takePending() []*pendingMessage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	remaining := make([]*pendingMessage, 0, len(s.pending))
+	for _, pm := range s.pending {
+		remaining = append(remaining, pm)
+	}
+	s.pending = make(map[string]*pendingMessage)
+	return remaining
 }
 
 // accumulatePart adds a processed part to its pending message.
@@ -259,49 +261,69 @@ func (s *MediaComposeStage) composeMessage(pm *pendingMessage) (*types.Message, 
 		}
 	} else {
 		msg = &types.Message{
-			Role:      "user",
+			Role:      roleUser,
 			Timestamp: time.Now(),
 		}
 	}
 
 	// Rebuild parts with processed media
 	var newParts []types.ContentPart
+	var err error
 
 	// If we have original message, preserve non-media parts
 	if pm.originalMessage != nil {
-		mediaIdx := 0
-		for _, origPart := range pm.originalMessage.Parts {
-			switch origPart.Type {
-			case types.ContentTypeText:
-				// Keep text parts as-is
-				newParts = append(newParts, origPart)
-			case types.ContentTypeImage, types.ContentTypeVideo:
-				// Replace with processed media if available
-				if processed, ok := pm.parts[mediaIdx]; ok {
-					newPart, err := s.createContentPartFromProcessed(processed)
-					if err != nil {
-						return nil, fmt.Errorf("failed to create content part for index %d: %w", mediaIdx, err)
-					}
-					newParts = append(newParts, newPart)
-				}
-				mediaIdx++
-			}
-		}
+		newParts, err = s.rebuildOriginalParts(pm)
 	} else {
 		// No original message, just add processed parts in order
-		for i := 0; i < pm.totalParts; i++ {
-			if processed, ok := pm.parts[i]; ok {
-				newPart, err := s.createContentPartFromProcessed(processed)
-				if err != nil {
-					return nil, fmt.Errorf("failed to create content part for index %d: %w", i, err)
-				}
-				newParts = append(newParts, newPart)
-			}
-		}
+		newParts, err = s.processedPartsInOrder(pm)
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	msg.Parts = newParts
 	return msg, nil
+}
+
+// rebuildOriginalParts walks the original message's parts, keeping text parts
+// as-is and replacing each media part with its processed version when one was
+// received.
+func (s *MediaComposeStage) rebuildOriginalParts(pm *pendingMessage) ([]types.ContentPart, error) {
+	var newParts []types.ContentPart
+	mediaIdx := 0
+	for _, origPart := range pm.originalMessage.Parts {
+		switch origPart.Type {
+		case types.ContentTypeText:
+			// Keep text parts as-is
+			newParts = append(newParts, origPart)
+		case types.ContentTypeImage, types.ContentTypeVideo:
+			// Replace with processed media if available
+			if processed, ok := pm.parts[mediaIdx]; ok {
+				newPart, err := s.createContentPartFromProcessed(processed)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create content part for index %d: %w", mediaIdx, err)
+				}
+				newParts = append(newParts, newPart)
+			}
+			mediaIdx++
+		}
+	}
+	return newParts, nil
+}
+
+// processedPartsInOrder returns the received processed parts in index order.
+func (s *MediaComposeStage) processedPartsInOrder(pm *pendingMessage) ([]types.ContentPart, error) {
+	var newParts []types.ContentPart
+	for i := 0; i < pm.totalParts; i++ {
+		if processed, ok := pm.parts[i]; ok {
+			newPart, err := s.createContentPartFromProcessed(processed)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create content part for index %d: %w", i, err)
+			}
+			newParts = append(newParts, newPart)
+		}
+	}
+	return newParts, nil
 }
 
 // createContentPartFromProcessed creates a ContentPart from processed media.

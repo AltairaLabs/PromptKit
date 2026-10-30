@@ -437,11 +437,18 @@ func (s *Server) Serve(ln net.Listener) error {
 	return srv.Serve(ln)
 }
 
+// JSON keys and values used in the health probe response bodies.
+const (
+	healthKeyStatus      = "status"
+	healthKeyReason      = "reason"
+	healthStatusNotReady = "not_ready"
+)
+
 // handleHealthz is a liveness probe: it returns 200 whenever the HTTP server
 // is accepting connections.
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	_ = json.NewEncoder(w).Encode(map[string]string{healthKeyStatus: "ok"})
 }
 
 // handleReadyz is a readiness probe: it returns 200 when the server is ready
@@ -453,8 +460,8 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	if !s.isReady.Load() {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_ = json.NewEncoder(w).Encode(map[string]string{
-			"status": "not_ready",
-			"reason": "server is shutting down or not yet initialized",
+			healthKeyStatus: healthStatusNotReady,
+			healthKeyReason: "server is shutting down or not yet initialized",
 		})
 		return
 	}
@@ -478,14 +485,14 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	if !allOK {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"status": "not_ready",
-			"reason": "one or more health checks failed",
-			"checks": checks,
+			healthKeyStatus: healthStatusNotReady,
+			healthKeyReason: "one or more health checks failed",
+			"checks":        checks,
 		})
 		return
 	}
 
-	resp := map[string]any{"status": "ready"}
+	resp := map[string]any{healthKeyStatus: "ready"}
 	if len(checks) > 0 {
 		resp["checks"] = checks
 	}

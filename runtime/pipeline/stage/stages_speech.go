@@ -229,30 +229,17 @@ func (s *AudioTurnStage) Process(
 		// Handle EndOfStream specially - emit any accumulated audio first
 		// This prevents EndOfStream from racing ahead of buffered audio
 		if elem.EndOfStream {
-			logger.Debug("AudioTurnStage: EndOfStream received, emitting accumulated audio")
-			if err := s.emitRemainingAudio(ctx, state, output); err != nil {
-				return err
-			}
-			// Reset state for next turn
-			s.resetState(state)
-			// Forward the EndOfStream after the audio
-			if err := s.forwardElement(ctx, &elem, output); err != nil {
+			if err := s.handleEndOfStream(ctx, &elem, state, output); err != nil {
 				return err
 			}
 			continue
 		}
 
-		// Pass through other non-audio elements immediately
-		if elem.Audio == nil {
-			if err := s.forwardElement(ctx, &elem, output); err != nil {
-				return err
-			}
-			continue
-		}
-
-		// Check for passthrough mode - forward audio immediately without accumulation
-		// This is used for selfplay/TTS audio that needs real-time streaming to the provider
-		if elem.Meta.Passthrough {
+		// Pass through other non-audio elements immediately.
+		// Passthrough mode forwards audio immediately without accumulation too:
+		// this is used for selfplay/TTS audio that needs real-time streaming to
+		// the provider.
+		if elem.Audio == nil || elem.Meta.Passthrough {
 			if err := s.forwardElement(ctx, &elem, output); err != nil {
 				return err
 			}
@@ -267,6 +254,25 @@ func (s *AudioTurnStage) Process(
 
 	// Stream closed - emit any remaining audio
 	return s.emitRemainingAudio(ctx, state, output)
+}
+
+// handleEndOfStream emits any accumulated audio, resets the turn state, then
+// forwards the EndOfStream after the audio so it never races ahead of
+// buffered audio.
+func (s *AudioTurnStage) handleEndOfStream(
+	ctx context.Context,
+	elem *StreamElement,
+	state *audioTurnState,
+	output chan<- StreamElement,
+) error {
+	logger.Debug("AudioTurnStage: EndOfStream received, emitting accumulated audio")
+	if err := s.emitRemainingAudio(ctx, state, output); err != nil {
+		return err
+	}
+	// Reset state for next turn
+	s.resetState(state)
+	// Forward the EndOfStream after the audio
+	return s.forwardElement(ctx, elem, output)
 }
 
 // forwardElement forwards a non-audio element to output.
@@ -395,6 +401,40 @@ func (s *AudioTurnStage) emitRemainingAudio(
 	return nil
 }
 
+// updateSpeechTallies updates the speech/silence sample tallies based on VAD.
+// n is the chunk's sample count and chunkBytes its byte length (the chunk is
+// already appended to state.audioBuffer).
+func updateSpeechTallies(state *audioTurnState, vadState audio.VADState, n, chunkBytes int) {
+	switch vadState {
+	case audio.VADStateSpeaking, audio.VADStateStarting:
+		if !state.speechDetected {
+			state.speechDetected = true
+			// Record where this chunk starts so the dead air before it can be trimmed.
+			state.speechStartOffset = len(state.audioBuffer) - chunkBytes
+			logger.Debug("AudioTurnStage: speech started")
+		}
+		state.silenceSamples = 0 // speech resumed; reset the silence run
+
+	case audio.VADStateStopping, audio.VADStateQuiet:
+		if state.speechDetected {
+			if state.silenceSamples == 0 {
+				logger.Debug("AudioTurnStage: silence started")
+			}
+			state.silenceSamples += n
+		}
+	}
+}
+
+// feedTurnDetector passes a chunk's audio and the VAD state to the turn
+// detector (see processAudio for why both calls are required).
+func (s *AudioTurnStage) feedTurnDetector(ctx context.Context, samples []byte, vadState audio.VADState) error {
+	if _, err := s.turnDetector.ProcessAudio(ctx, samples); err != nil {
+		return err
+	}
+	_, err := s.turnDetector.ProcessVADState(ctx, vadState)
+	return err
+}
+
 // processAudio processes a single audio element.
 // Always buffers audio for forwarding - VAD is only used for turn detection, not filtering.
 func (s *AudioTurnStage) processAudio(
@@ -424,25 +464,7 @@ func (s *AudioTurnStage) processAudio(
 
 	vadState := s.vad.State()
 
-	// Update speech/silence sample tallies based on VAD.
-	switch vadState {
-	case audio.VADStateSpeaking, audio.VADStateStarting:
-		if !state.speechDetected {
-			state.speechDetected = true
-			// Record where this chunk starts so the dead air before it can be trimmed.
-			state.speechStartOffset = len(state.audioBuffer) - len(elem.Audio.Samples)
-			logger.Debug("AudioTurnStage: speech started")
-		}
-		state.silenceSamples = 0 // speech resumed; reset the silence run
-
-	case audio.VADStateStopping, audio.VADStateQuiet:
-		if state.speechDetected {
-			if state.silenceSamples == 0 {
-				logger.Debug("AudioTurnStage: silence started")
-			}
-			state.silenceSamples += n
-		}
-	}
+	updateSpeechTallies(state, vadState, n, len(elem.Audio.Samples))
 
 	// Time-since-speech-start (incl. intra-utterance pauses), for MinSpeechDuration.
 	if state.speechDetected {
@@ -458,12 +480,7 @@ func (s *AudioTurnStage) processAudio(
 	// reporting not-speaking, so its vote ends the turn on every evaluation and
 	// continuous speech is shattered into MinSpeechDuration fragments.
 	if s.turnDetector != nil {
-		if _, err := s.turnDetector.ProcessAudio(ctx, elem.Audio.Samples); err != nil {
-			return err
-		}
-		if _, err := s.turnDetector.ProcessVADState(ctx, vadState); err != nil {
-			return err
-		}
+		return s.feedTurnDetector(ctx, elem.Audio.Samples, vadState)
 	}
 
 	return nil
@@ -735,102 +752,103 @@ func (s *STTStage) Process(
 	defer close(output)
 
 	for elem := range input {
-		// Pass through non-audio elements
-		if elem.Audio == nil || len(elem.Audio.Samples) == 0 {
-			select {
-			case output <- elem:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-			continue
-		}
-
-		// Skip if too small
-		if s.config.SkipEmpty && len(elem.Audio.Samples) < s.config.MinAudioBytes {
-			logger.Debug("STTStage: skipping small audio", "bytes", len(elem.Audio.Samples))
-			continue
-		}
-
-		// Build the base.STTRequest from the audio element.
-		req := base.STTRequest{
-			Audio:    elem.Audio.Samples,
-			MIMEType: "audio/pcm",
-			Hints: map[string]string{
-				"sample_rate": itoa(elem.Audio.SampleRate),
-				"channels":    itoa(elem.Audio.Channels),
-				"language":    s.config.Language,
-			},
-		}
-
-		// Transcribe (with retry on transient errors)
-		sttResp, err := stt.TranscribeWithRetry(ctx, s.service, req, s.config.Retry)
-		if err != nil {
-			logger.Error("STTStage: transcription failed", "error", err)
-			elem.Error = err
-			select {
-			case output <- elem:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-			continue
-		}
-
-		// Skip empty transcriptions
-		text := strings.TrimSpace(sttResp.Text)
-		if text == "" {
-			logger.Debug("STTStage: empty transcription, skipping")
-			continue
-		}
-
-		logger.Debug("STTStage: transcribed", "textLength", len(text))
-
-		// Publish the transcription so subscribers and session export can see it.
-		// Optional: a stage built without an emitter behaves exactly as before.
-		if s.emitter != nil {
-			s.emitter.AudioTranscription(text, s.config.Language, s.service.Name(), true)
-		}
-
-		// Create text element, preserving metadata.
-		//
-		// Message is populated as well as Text. ProviderStage's accumulateInput
-		// collects only elem.Message, so a Text-only element reaches the model as
-		// nothing at all — and the shipped VAD topology wires this stage straight
-		// into it (sdk/internal/pipeline/builder_vad.go: Audio -> VAD -> STT ->
-		// LLM -> TTS, no stage between). A transcribed turn was therefore asking
-		// the model to answer an empty conversation, silently.
-		//
-		// Text is kept alongside it: consumers that read the raw transcript
-		// (UI mirrors, logging) continue to work unchanged.
-		//
-		// The role is "user" because this stage transcribes inbound speech. A
-		// pipeline transcribing something else should map the role downstream.
-		msg := types.Message{Role: roleUser}
-		msg.AddTextPart(text)
-
-		outElem := StreamElement{
-			Text:      &text,
-			Message:   &msg,
-			Timestamp: time.Now(),
-			Meta:      elem.Meta,
-		}
-
-		// Stamp STT cost onto a message element when present.
-		// The arena's cost rollup reads Message.Meta["stt_cost"] via ancillaryMetaCostKeys.
-		if outElem.Message != nil && sttResp.Cost != nil {
-			if outElem.Message.Meta == nil {
-				outElem.Message.Meta = make(map[string]interface{})
-			}
-			outElem.Message.Meta[sttCostMetaKey] = base.CostInfoToMetaMap(sttResp.Cost)
-		}
-
-		select {
-		case output <- outElem:
-		case <-ctx.Done():
-			return ctx.Err()
+		if err := s.processElement(ctx, elem, output); err != nil {
+			return err
 		}
 	}
 
 	return nil
+}
+
+// processElement handles one input element: non-audio elements pass through,
+// audio is transcribed and emitted as a text element. Returns non-nil only on
+// cancellation.
+func (s *STTStage) processElement(ctx context.Context, elem StreamElement, output chan<- StreamElement) error {
+	// Pass through non-audio elements
+	if elem.Audio == nil || len(elem.Audio.Samples) == 0 {
+		return sendStreamElement(ctx, elem, output)
+	}
+
+	// Skip if too small
+	if s.config.SkipEmpty && len(elem.Audio.Samples) < s.config.MinAudioBytes {
+		logger.Debug("STTStage: skipping small audio", "bytes", len(elem.Audio.Samples))
+		return nil
+	}
+
+	// Transcribe (with retry on transient errors)
+	sttResp, err := stt.TranscribeWithRetry(ctx, s.service, s.sttRequest(elem.Audio), s.config.Retry)
+	if err != nil {
+		logger.Error("STTStage: transcription failed", "error", err)
+		elem.Error = err
+		return sendStreamElement(ctx, elem, output)
+	}
+
+	// Skip empty transcriptions
+	text := strings.TrimSpace(sttResp.Text)
+	if text == "" {
+		logger.Debug("STTStage: empty transcription, skipping")
+		return nil
+	}
+
+	logger.Debug("STTStage: transcribed", "textLength", len(text))
+
+	// Publish the transcription so subscribers and session export can see it.
+	// Optional: a stage built without an emitter behaves exactly as before.
+	if s.emitter != nil {
+		s.emitter.AudioTranscription(text, s.config.Language, s.service.Name(), true)
+	}
+
+	return sendStreamElement(ctx, transcriptElement(text, elem.Meta, sttResp.Cost), output)
+}
+
+// sttRequest builds the base.STTRequest for an audio element.
+func (s *STTStage) sttRequest(a *AudioData) base.STTRequest {
+	return base.STTRequest{
+		Audio:    a.Samples,
+		MIMEType: "audio/pcm",
+		Hints: map[string]string{
+			metaKeySampleRate: itoa(a.SampleRate),
+			"channels":        itoa(a.Channels),
+			"language":        s.config.Language,
+		},
+	}
+}
+
+// transcriptElement creates the text element for a transcription, preserving
+// the source element's metadata.
+//
+// Message is populated as well as Text. ProviderStage's accumulateInput
+// collects only elem.Message, so a Text-only element reaches the model as
+// nothing at all — and the shipped VAD topology wires this stage straight
+// into it (sdk/internal/pipeline/builder_vad.go: Audio -> VAD -> STT ->
+// LLM -> TTS, no stage between). A transcribed turn was therefore asking
+// the model to answer an empty conversation, silently.
+//
+// Text is kept alongside it: consumers that read the raw transcript
+// (UI mirrors, logging) continue to work unchanged.
+//
+// The role is "user" because this stage transcribes inbound speech. A
+// pipeline transcribing something else should map the role downstream.
+func transcriptElement(text string, meta ElementMetadata, cost *types.CostInfo) StreamElement {
+	msg := types.Message{Role: roleUser}
+	msg.AddTextPart(text)
+
+	outElem := StreamElement{
+		Text:      &text,
+		Message:   &msg,
+		Timestamp: time.Now(),
+		Meta:      meta,
+	}
+
+	// Stamp STT cost onto a message element when present.
+	// The arena's cost rollup reads Message.Meta["stt_cost"] via ancillaryMetaCostKeys.
+	if outElem.Message != nil && cost != nil {
+		if outElem.Message.Meta == nil {
+			outElem.Message.Meta = make(map[string]interface{})
+		}
+		outElem.Message.Meta[sttCostMetaKey] = base.CostInfoToMetaMap(cost)
+	}
+	return outElem
 }
 
 // sttCostMetaKey is the Message.Meta key for STT ancillary cost.
@@ -1010,8 +1028,6 @@ func (s *TTSStageWithInterruption) shouldSkipText(text string) bool {
 }
 
 // forwardElement forwards an element to output.
-//
-//nolint:gocritic // hugeParam: StreamElement intentionally passed by value to avoid modification
 func (s *TTSStageWithInterruption) forwardElement(
 	ctx context.Context,
 	elem StreamElement,

@@ -100,8 +100,6 @@ func (p *Provider) Close() error {
 // applyExplicitCachingConfig enables explicit context caching when the provider
 // config opts in via additional_config.explicit_caching: true. An optional
 // explicit_cache_ttl_seconds (number) overrides the default TTL. Off by default.
-//
-//nolint:gocritic // hugeParam: providers.ProviderSpec is passed by value across the factory
 func applyExplicitCachingConfig(p *Provider, spec providers.ProviderSpec) {
 	if spec.AdditionalConfig == nil {
 		return

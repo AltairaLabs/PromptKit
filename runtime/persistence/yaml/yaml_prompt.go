@@ -19,7 +19,7 @@ import (
 // Compile-time interface check
 var _ persistence.PromptRepository = (*PromptRepository)(nil)
 
-// YAMLPromptRepository loads prompts from YAML files on disk
+// PromptRepository loads prompts from YAML files on disk
 type PromptRepository struct {
 	*common.BasePromptRepository
 }
@@ -59,7 +59,7 @@ func (r *PromptRepository) LoadFragment(name, relativePath, baseDir string) (*pr
 	}
 
 	// Read and parse
-	data, err := os.ReadFile(fragmentPath)
+	data, err := os.ReadFile(fragmentPath) //nolint:gosec // G304: path from the pack's fragment reference or the base path
 	if err != nil {
 		return nil, fmt.Errorf("failed to read fragment: %w", err)
 	}

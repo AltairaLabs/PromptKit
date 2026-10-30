@@ -230,7 +230,7 @@ func (mtc MessageToolCall) MarshalJSON() ([]byte, error) {
 
 // MarshalJSON ensures InputSchema is always valid JSON (empty -> {}). A tool with
 // no input schema must never crash a provider request.
-func (td ToolDef) MarshalJSON() ([]byte, error) { //nolint:gocritic // value receiver required for json.Marshaler
+func (td ToolDef) MarshalJSON() ([]byte, error) { // value receiver required for json.Marshaler
 	type alias ToolDef
 	a := alias(td)
 	a.InputSchema = NormalizeRawMessage(a.InputSchema)
@@ -299,6 +299,9 @@ type ValidationResult struct {
 	Timestamp     time.Time              `json:"timestamp,omitempty"` // When validation was performed
 }
 
+// roleTool is the Role of a message carrying a tool result.
+const roleTool = "tool"
+
 // GetContent returns the content of the message.
 // This is the recommended way to access message content as it handles all cases:
 // 1. For tool messages (Role="tool"): returns ToolResult.Content (authoritative source)
@@ -307,7 +310,7 @@ type ValidationResult struct {
 func (m *Message) GetContent() string {
 	// Tool messages: ToolResult.Parts is the authoritative source
 	// This handles the case where Content field may be empty but ToolResult.Parts is set
-	if m.Role == "tool" && m.ToolResult != nil {
+	if m.Role == roleTool && m.ToolResult != nil {
 		return m.ToolResult.GetTextContent()
 	}
 
@@ -496,7 +499,7 @@ func NewSystemMessage(content string) Message {
 // synchronization issues.
 func NewToolResultMessage(result MessageToolResult) Message {
 	return Message{
-		Role:       "tool",
+		Role:       roleTool,
 		Content:    result.GetTextContent(), // Sync Content for backward compatibility
 		ToolResult: &result,
 	}

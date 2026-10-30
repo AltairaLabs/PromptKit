@@ -16,6 +16,33 @@ const (
 	bitDepthDefault = 16
 )
 
+// Shared string constants used across the TTS providers.
+const (
+	// currencyUSD is the pricing currency for built-in pricing descriptors.
+	currencyUSD = "usd"
+	// unitCharacter is the pricing/quantity unit for synthesized text.
+	unitCharacter = "character"
+
+	// Provider names reported in metadata and errors.
+	providerCartesia   = "cartesia"
+	providerElevenLabs = "elevenlabs"
+	providerOpenAI     = "openai"
+
+	// headerContentType is the HTTP Content-Type header name.
+	headerContentType = "Content-Type"
+	// mimeJSON is the JSON MIME type for request bodies.
+	mimeJSON = "application/json"
+	// mimeAudioMPEG is the MIME type for MP3 audio.
+	mimeAudioMPEG = "audio/mpeg"
+
+	// Canonical Cartesia emotion names.
+	emotionExcited = "excited"
+	emotionSad     = "sad"
+
+	// cartesiaEncodingPCMS16LE is Cartesia's signed 16-bit little-endian PCM encoding.
+	cartesiaEncodingPCMS16LE = "pcm_s16le"
+)
+
 // Service converts text to speech audio.
 // This interface abstracts different TTS providers (OpenAI, ElevenLabs, etc.)
 // enabling voice AI applications to use any provider interchangeably.
@@ -152,8 +179,8 @@ type AudioFormat struct {
 var (
 	// FormatMP3 is MP3 format (most compatible).
 	FormatMP3 = AudioFormat{
-		Name:       "mp3",
-		MIMEType:   "audio/mpeg",
+		Name:       formatMP3,
+		MIMEType:   mimeAudioMPEG,
 		SampleRate: sampleRateDefault,
 		BitDepth:   0, // Compressed
 		Channels:   1,
@@ -188,7 +215,7 @@ var (
 
 	// FormatPCM16 is raw 16-bit PCM (for processing).
 	FormatPCM16 = AudioFormat{
-		Name:       "pcm",
+		Name:       formatPCM,
 		MIMEType:   "audio/pcm",
 		SampleRate: sampleRateDefault,
 		BitDepth:   bitDepthDefault,

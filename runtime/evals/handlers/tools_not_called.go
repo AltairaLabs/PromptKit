@@ -56,7 +56,7 @@ func (h *ToolsNotCalledHandler) Eval(
 		Score:       boolScore(passed),
 		Explanation: explanation,
 		Value: map[string]any{
-			"forbidden_called": called,
+			keyForbiddenCalled: called,
 		},
 	}, nil
 }
