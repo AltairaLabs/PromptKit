@@ -14,6 +14,7 @@
 Install hooks once after cloning: `./scripts/install-hooks.sh` (sources are tracked under `scripts/`; the installed copies in `.git/hooks/` are not).
 
 **Pre-commit hook** (`scripts/pre-commit.sh` → `.git/hooks/pre-commit`) runs on every commit:
+- Require the golangci-lint version CI pins in `ci.yml` (`scripts/check-lint-version.sh`, also run by `make lint`/`make lint-diff`) — versions disagree about findings, so another version's "0 issues" does not predict CI
 - Lint changed files (`golangci-lint --new-from-rev=HEAD`)
 - Build changed modules
 - Run tests with coverage on changed packages (80% threshold on non-test files)
