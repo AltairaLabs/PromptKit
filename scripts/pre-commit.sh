@@ -172,11 +172,10 @@ done
 #
 print_header "Linting Changed Files"
 
-# Check if golangci-lint is installed
-if ! command -v golangci-lint &> /dev/null; then
-    print_error "golangci-lint is not installed"
-    echo "  Install with: brew install golangci-lint"
-    echo "  Or visit: https://golangci-lint.run/usage/install/"
+# golangci-lint must be the version CI pins: versions disagree about what is a
+# finding, so any other version's result does not predict CI's.
+if ! ./scripts/check-lint-version.sh; then
+    print_error "golangci-lint does not match the version CI runs"
     CHECKS_FAILED=1
 else
     if [ ${#CHANGED_MODULES[@]} -eq 0 ]; then
