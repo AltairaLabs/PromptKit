@@ -37,7 +37,7 @@ func TestBuildMultimodalContent_TextAndImage(t *testing.T) {
 	msg.AddTextPart("Describe this")
 	msg.AddImagePartFromURL("https://example.com/test.jpg", nil)
 
-	content, err := provider.buildMultimodalContent(msg)
+	content, err := provider.buildMultimodalContent(t.Context(), provider.MediaLoader(), msg)
 	if err != nil {
 		t.Fatalf("buildMultimodalContent failed: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestBuildMultimodalContent_WithDetail(t *testing.T) {
 	detail := "high"
 	msg.AddImagePartFromURL("https://example.com/test.jpg", &detail)
 
-	content, err := provider.buildMultimodalContent(msg)
+	content, err := provider.buildMultimodalContent(t.Context(), provider.MediaLoader(), msg)
 	if err != nil {
 		t.Fatalf("buildMultimodalContent failed: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestBuildMultimodalContent_UnsupportedType(t *testing.T) {
 	}
 	msg.Parts = []types.ContentPart{audioPart}
 
-	content, err := provider.buildMultimodalContent(msg)
+	content, err := provider.buildMultimodalContent(t.Context(), provider.MediaLoader(), msg)
 	if err != nil {
 		t.Fatalf("buildMultimodalContent failed: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestConvertMediaToURL_URL(t *testing.T) {
 		MIMEType: "image/jpeg",
 	}
 
-	result, err := provider.convertMediaToURL(media)
+	result, err := provider.convertMediaToURL(t.Context(), provider.MediaLoader(), media)
 	if err != nil {
 		t.Fatalf("convertMediaToURL failed: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestConvertMediaToURL_Base64Data(t *testing.T) {
 		MIMEType: "image/png",
 	}
 
-	result, err := provider.convertMediaToURL(media)
+	result, err := provider.convertMediaToURL(t.Context(), provider.MediaLoader(), media)
 	if err != nil {
 		t.Fatalf("convertMediaToURL failed: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestConvertMediaToURL_FilePath(t *testing.T) {
 		MIMEType: "image/jpeg",
 	}
 
-	_, err := provider.convertMediaToURL(media)
+	_, err := provider.convertMediaToURL(t.Context(), provider.MediaLoader(), media)
 	if err == nil {
 		t.Error("Expected error for file path without loaded data")
 	}
@@ -168,13 +168,13 @@ func TestConvertMediaToURL_NoSource(t *testing.T) {
 		MIMEType: "image/jpeg",
 	}
 
-	_, err := provider.convertMediaToURL(media)
+	_, err := provider.convertMediaToURL(t.Context(), provider.MediaLoader(), media)
 	if err == nil {
 		t.Error("Expected error for media with no source")
 	}
 }
 
-func TestPrepareMultimodalMessages_WithSystem(t *testing.T) {
+func TestPrepareMessages_ImageMessageWithSystem(t *testing.T) {
 	provider := NewProvider("test", "model", "url", providers.ProviderDefaults{}, false, nil)
 
 	msg := types.Message{Role: "user"}
@@ -186,9 +186,9 @@ func TestPrepareMultimodalMessages_WithSystem(t *testing.T) {
 		Messages: []types.Message{msg},
 	}
 
-	messages, err := provider.prepareMultimodalMessages(req)
+	messages, err := provider.prepareMessages(t.Context(), &req)
 	if err != nil {
-		t.Fatalf("prepareMultimodalMessages failed: %v", err)
+		t.Fatalf("prepareMessages failed: %v", err)
 	}
 
 	if len(messages) != 2 {

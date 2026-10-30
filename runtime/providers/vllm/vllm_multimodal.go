@@ -2,6 +2,7 @@
 package vllm
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -14,8 +15,6 @@ const (
 )
 
 // Wire values used by the image content builder.
-//
-//nolint:unused // referenced only by the unwired image path, see #2281
 const (
 	partTypeText     = "text"
 	partTypeImageURL = "image_url"
@@ -33,48 +32,28 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 	}
 }
 
-// prepareMultimodalMessages converts prediction request messages to vLLM format with image support
-//
-//nolint:unused // unwired image path: vLLM declares SupportsImages but prepareMessages drops images, see #2281
-func (p *Provider) prepareMultimodalMessages(req providers.PredictionRequest) ([]vllmMessage, error) {
-	messages := make([]vllmMessage, 0, len(req.Messages)+1)
-
-	// Add system message if present
-	if req.System != "" {
-		messages = append(messages, vllmMessage{
-			Role:    roleSystem,
-			Content: req.System,
-		})
+// hasImagePart reports whether msg must be sent as a content-part array.
+// Tool results stay string content: their text comes from ToolResult, which
+// GetContent reads and the part builder does not.
+func hasImagePart(msg *types.Message) bool {
+	if msg.Role == roleTool {
+		return false
 	}
-
-	// Convert each message with potential multimodal content
-	for i := range req.Messages {
-		msg := req.Messages[i]
-
-		// If message has multimodal parts with images, use multimodal format
-		if msg.IsMultimodal() && msg.HasMediaContent() {
-			content, err := p.buildMultimodalContent(msg)
-			if err != nil {
-				return nil, fmt.Errorf("failed to build multimodal content for message %d: %w", i, err)
-			}
-			messages = append(messages, newVLLMMessage(msg, content))
-		} else {
-			// Regular text-only message
-			messages = append(messages, newVLLMMessage(msg, msg.GetContent()))
+	for i := range msg.Parts {
+		if msg.Parts[i].Type == types.ContentTypeImage {
+			return true
 		}
 	}
-
-	return messages, nil
+	return false
 }
 
 // buildMultimodalContent creates the multimodal content array for a message with images
 // vLLM uses OpenAI-compatible format: array of content parts with type and text/image_url
-//
-//nolint:unused // unwired image path: vLLM declares SupportsImages but prepareMessages drops images, see #2281
-func (p *Provider) buildMultimodalContent(msg types.Message) ([]map[string]any, error) { // NOSONAR
-	content := make([]map[string]any, 0)
+func (p *Provider) buildMultimodalContent(
+	ctx context.Context, loader *providers.MediaLoader, msg types.Message,
+) ([]map[string]any, error) {
+	content := make([]map[string]any, 0, len(msg.Parts))
 
-	// Process each content part
 	for _, part := range msg.Parts {
 		switch part.Type {
 		case types.ContentTypeText:
@@ -86,7 +65,7 @@ func (p *Provider) buildMultimodalContent(msg types.Message) ([]map[string]any, 
 			}
 
 		case types.ContentTypeImage:
-			imageURLPart, err := p.buildImageURLPart(part.Media)
+			imageURLPart, err := p.buildImageURLPart(ctx, loader, part.Media)
 			if err != nil {
 				return nil, err
 			}
@@ -102,54 +81,42 @@ func (p *Provider) buildMultimodalContent(msg types.Message) ([]map[string]any, 
 }
 
 // buildImageURLPart creates the image_url content part for an image's media.
-//
-//nolint:unused // unwired image path: vLLM declares SupportsImages but prepareMessages drops images, see #2281
-func (p *Provider) buildImageURLPart(media *types.MediaContent) (map[string]any, error) {
+func (p *Provider) buildImageURLPart(
+	ctx context.Context, loader *providers.MediaLoader, media *types.MediaContent,
+) (map[string]any, error) {
 	if media == nil {
 		return nil, fmt.Errorf("image part has no media content")
 	}
-	imageURL, err := p.convertMediaToURL(media)
+	imageURL, err := p.convertMediaToURL(ctx, loader, media)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert image: %w", err)
 	}
 
-	imageURLPart := map[string]any{
-		keyType: partTypeImageURL,
-		keyImageURL: map[string]any{
-			"url": imageURL,
-		},
-	}
-
-	// Add detail level if specified
+	urlObj := map[string]any{"url": imageURL}
 	if media.Detail != nil {
-		imageURLPart[keyImageURL].(map[string]any)["detail"] = *media.Detail
+		urlObj["detail"] = *media.Detail
 	}
-	return imageURLPart, nil
+	return map[string]any{
+		keyType:     partTypeImageURL,
+		keyImageURL: urlObj,
+	}, nil
 }
 
-// convertMediaToURL converts media content to a format vLLM can accept
-// vLLM accepts:
-// - data:image/... base64 URLs
-// - http/https URLs
-//
-//nolint:unused // unwired image path: vLLM declares SupportsImages but prepareMessages drops images, see #2281
-func (p *Provider) convertMediaToURL(media *types.MediaContent) (string, error) {
-	// If URL is provided, use it directly
-	if media.URL != nil {
-		return *media.URL, nil
+// convertMediaToURL converts media content to a URL vLLM accepts: an http(s)
+// URL when the media has one (directly or via the storage service), otherwise
+// a data: URI built from inline, file or stored bytes.
+func (p *Provider) convertMediaToURL(
+	ctx context.Context, loader *providers.MediaLoader, media *types.MediaContent,
+) (string, error) {
+	if url, ok, err := loader.ResolveURL(ctx, media); err != nil {
+		return "", err
+	} else if ok {
+		return url, nil
 	}
 
-	// If base64 data is provided, create a data URL
-	if media.Data != nil {
-		return fmt.Sprintf("data:%s;base64,%s", media.MIMEType, *media.Data), nil
+	data, err := loader.GetBase64Data(ctx, media)
+	if err != nil {
+		return "", err
 	}
-
-	// If file path is provided, we need to load and encode it
-	if media.FilePath != nil {
-		// For now, vLLM requires the file to be already loaded as base64
-		// The pipeline should have already loaded this via media processors
-		return "", fmt.Errorf("file path provided but data not loaded - ensure media is preprocessed")
-	}
-
-	return "", fmt.Errorf("no valid image source (URL, Data, or FilePath)")
+	return fmt.Sprintf("data:%s;base64,%s", media.MIMEType, data), nil
 }

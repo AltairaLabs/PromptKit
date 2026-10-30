@@ -90,7 +90,7 @@ func (p *Provider) PredictWithTools( // NOSONAR
 	start := time.Now()
 
 	// Prepare messages
-	messages, err := p.prepareMessages(&req)
+	messages, err := p.prepareMessages(ctx, &req)
 	if err != nil {
 		return providers.PredictionResponse{}, nil, fmt.Errorf("failed to prepare messages: %w", err)
 	}
@@ -209,7 +209,7 @@ func (p *Provider) PredictStreamWithTools(
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
 	// Prepare messages
-	messages, err := p.prepareMessages(&req)
+	messages, err := p.prepareMessages(ctx, &req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare messages: %w", err)
 	}

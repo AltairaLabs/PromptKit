@@ -16,7 +16,7 @@ func TestPrepareMessages_InvalidToolArgsReplayAsEmptyObject(t *testing.T) {
 	history := toolRoundTripHistory()
 	history[1].ToolCalls[0].Args = json.RawMessage(`{`)
 
-	msgs, err := (&Provider{}).prepareMessages(&providers.PredictionRequest{Messages: history})
+	msgs, err := (&Provider{}).prepareMessages(t.Context(), &providers.PredictionRequest{Messages: history})
 	require.NoError(t, err)
 	assistant := findByRole(t, msgs, "assistant")
 	require.Len(t, assistant.ToolCalls, 1)
