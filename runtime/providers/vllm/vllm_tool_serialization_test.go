@@ -48,7 +48,7 @@ func findByRole(t *testing.T, msgs []vllmMessage, role string) vllmMessage {
 func TestPrepareMessages_SerializesAssistantToolCalls(t *testing.T) {
 	p := &Provider{}
 
-	msgs, err := p.prepareMessages(&providers.PredictionRequest{Messages: toolRoundTripHistory()})
+	msgs, err := p.prepareMessages(t.Context(), &providers.PredictionRequest{Messages: toolRoundTripHistory()})
 
 	require.NoError(t, err)
 	assistant := findByRole(t, msgs, "assistant")
@@ -65,7 +65,7 @@ func TestPrepareMessages_SerializesAssistantToolCalls(t *testing.T) {
 func TestPrepareMessages_LinksToolResultToItsCall(t *testing.T) {
 	p := &Provider{}
 
-	msgs, err := p.prepareMessages(&providers.PredictionRequest{Messages: toolRoundTripHistory()})
+	msgs, err := p.prepareMessages(t.Context(), &providers.PredictionRequest{Messages: toolRoundTripHistory()})
 
 	require.NoError(t, err)
 	tool := findByRole(t, msgs, "tool")
@@ -78,7 +78,7 @@ func TestPrepareMessages_LinksToolResultToItsCall(t *testing.T) {
 func TestPrepareMessages_ToolRoundTripIsLinked(t *testing.T) {
 	p := &Provider{}
 
-	msgs, err := p.prepareMessages(&providers.PredictionRequest{Messages: toolRoundTripHistory()})
+	msgs, err := p.prepareMessages(t.Context(), &providers.PredictionRequest{Messages: toolRoundTripHistory()})
 
 	require.NoError(t, err)
 	called := map[string]bool{}
@@ -96,18 +96,33 @@ func TestPrepareMessages_ToolRoundTripIsLinked(t *testing.T) {
 	assert.NotEmpty(t, called, "no tool calls were serialized at all")
 }
 
-// The multimodal serializer is the other path into the same request body. A fix
-// applied to only one of the two leaves multimodal tool use broken.
-func TestPrepareMultimodalMessages_SerializesToolFields(t *testing.T) {
+// An image in the conversation routes its message through the part builder; the
+// tool calls and results around it must still carry their linking fields.
+func TestPrepareMessages_ImageRequestSerializesToolFields(t *testing.T) {
 	p := &Provider{}
 
-	msgs, err := p.prepareMultimodalMessages(providers.PredictionRequest{Messages: toolRoundTripHistory()})
+	msgs, err := p.prepareMessages(t.Context(), &providers.PredictionRequest{Messages: imageToolRoundTripHistory()})
 
 	require.NoError(t, err)
+	assert.IsType(t, []map[string]any{}, findByRole(t, msgs, "user").Content,
+		"the image-bearing user message must be sent as content parts")
 	assistant := findByRole(t, msgs, "assistant")
 	require.Len(t, assistant.ToolCalls, 1)
 	assert.Equal(t, "call_abc123", assistant.ToolCalls[0].ID)
-	assert.Equal(t, "call_abc123", findByRole(t, msgs, "tool").ToolCallID)
+	tool := findByRole(t, msgs, "tool")
+	assert.Equal(t, "call_abc123", tool.ToolCallID)
+	assert.Equal(t, "42", tool.Content, "tool result must keep its string content")
+}
+
+// imageToolRoundTripHistory is toolRoundTripHistory opened by a user message
+// that carries an image.
+func imageToolRoundTripHistory() []types.Message {
+	history := toolRoundTripHistory()
+	user := types.Message{Role: "user"}
+	user.AddTextPart("what is 6 times 7?")
+	user.AddImagePartFromURL("https://example.com/sum.png", nil)
+	history[0] = user
+	return history
 }
 
 // Tool-free requests must serialize exactly as before: the new fields are
@@ -115,7 +130,7 @@ func TestPrepareMultimodalMessages_SerializesToolFields(t *testing.T) {
 func TestPrepareMessages_NoToolKeysForToolFreeMessages(t *testing.T) {
 	p := &Provider{}
 
-	msgs, err := p.prepareMessages(&providers.PredictionRequest{
+	msgs, err := p.prepareMessages(t.Context(), &providers.PredictionRequest{
 		System:   "be brief",
 		Messages: []types.Message{{Role: "user", Content: "hello"}},
 	})
@@ -136,7 +151,7 @@ func TestPrepareMessages_FailedToolResultIsStillLinked(t *testing.T) {
 	result := types.NewTextToolResult("call_err", "divide", "Tool execution failed: division by zero")
 	result.Error = "division by zero"
 
-	msgs, err := p.prepareMessages(&providers.PredictionRequest{
+	msgs, err := p.prepareMessages(t.Context(), &providers.PredictionRequest{
 		Messages: []types.Message{types.NewToolResultMessage(result)},
 	})
 

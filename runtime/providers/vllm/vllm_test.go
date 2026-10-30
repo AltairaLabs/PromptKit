@@ -581,7 +581,7 @@ func TestPrepareMessages_EmptySystem(t *testing.T) {
 		Messages: []types.Message{{Role: "user", Content: "Hello"}},
 	}
 
-	messages, err := provider.prepareMessages(&req)
+	messages, err := provider.prepareMessages(t.Context(), &req)
 	if err != nil {
 		t.Fatalf("prepareMessages failed: %v", err)
 	}
@@ -606,7 +606,7 @@ func TestPrepareMessages_MultipleMessages(t *testing.T) {
 		},
 	}
 
-	messages, err := provider.prepareMessages(&req)
+	messages, err := provider.prepareMessages(t.Context(), &req)
 	if err != nil {
 		t.Fatalf("prepareMessages failed: %v", err)
 	}

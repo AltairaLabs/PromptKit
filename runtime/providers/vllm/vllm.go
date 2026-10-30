@@ -36,10 +36,13 @@ type Provider struct {
 	extraBody        map[string]any // additional_config.extra_body, merged into every request
 }
 
-// Default timeout for vLLM requests (configurable via additional_config)
-// roleSystem is the chat role of the system message.
-const roleSystem = "system"
+// Chat roles the request builder treats specially.
+const (
+	roleSystem = "system"
+	roleTool   = "tool"
+)
 
+// Default timeout for vLLM requests (configurable via additional_config)
 const vllmHTTPTimeout = 120 * time.Second
 
 // NewProvider creates a new vLLM provider
@@ -200,10 +203,12 @@ type vllmErrorResponse struct {
 	Error vllmError `json:"error"`
 }
 
-// prepareMessages converts prediction request messages to vLLM format with system message
-//
-//nolint:unparam // error return for consistency with other providers
-func (p *Provider) prepareMessages(req *providers.PredictionRequest) ([]vllmMessage, error) {
+// prepareMessages converts prediction request messages to vLLM format with
+// system message. A message carrying image parts is sent as an OpenAI-style
+// content-part array; every other message keeps plain string content.
+func (p *Provider) prepareMessages(
+	ctx context.Context, req *providers.PredictionRequest,
+) ([]vllmMessage, error) {
 	messages := make([]vllmMessage, 0, len(req.Messages)+1)
 	if req.System != "" {
 		messages = append(messages, vllmMessage{
@@ -212,9 +217,23 @@ func (p *Provider) prepareMessages(req *providers.PredictionRequest) ([]vllmMess
 		})
 	}
 
-	// Convert each message
+	// One loader per request, so its media item and size limits span the
+	// whole conversation.
+	var loader *providers.MediaLoader
 	for i := range req.Messages {
-		messages = append(messages, newVLLMMessage(req.Messages[i], req.Messages[i].GetContent()))
+		msg := req.Messages[i]
+		if !hasImagePart(&msg) {
+			messages = append(messages, newVLLMMessage(msg, msg.GetContent()))
+			continue
+		}
+		if loader == nil {
+			loader = p.MediaLoader()
+		}
+		content, err := p.buildMultimodalContent(ctx, loader, msg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build multimodal content for message %d: %w", i, err)
+		}
+		messages = append(messages, newVLLMMessage(msg, content))
 	}
 
 	return messages, nil
@@ -250,7 +269,7 @@ func newVLLMMessage(msg types.Message, content any) vllmMessage {
 
 	// A tool result is unusable to the model without the id of the call it
 	// answers; OpenAI-compatible servers reject or ignore an unlinked one.
-	if msg.Role == "tool" && msg.ToolResult != nil {
+	if msg.Role == roleTool && msg.ToolResult != nil {
 		out.ToolCallID = msg.ToolResult.ID
 		out.Name = msg.ToolResult.Name
 	}
@@ -386,7 +405,7 @@ func (p *Provider) Predict(
 	req providers.PredictionRequest,
 ) (providers.PredictionResponse, error) {
 	// Convert messages to vLLM format
-	messages, err := p.prepareMessages(&req)
+	messages, err := p.prepareMessages(ctx, &req)
 	if err != nil {
 		return providers.PredictionResponse{}, fmt.Errorf("failed to prepare messages: %w", err)
 	}
@@ -431,7 +450,7 @@ func (p *Provider) PredictStream(
 	req providers.PredictionRequest,
 ) (<-chan providers.StreamChunk, error) {
 	// Convert messages to vLLM format
-	messages, err := p.prepareMessages(&req)
+	messages, err := p.prepareMessages(ctx, &req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare messages: %w", err)
 	}

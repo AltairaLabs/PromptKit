@@ -61,7 +61,7 @@ func TestVLLMCost_UnconfiguredIsZeroWithTokenCounts(t *testing.T) {
 func TestVLLMStreaming_RequestsUsage(t *testing.T) {
 	p := newTestVLLMProvider(t)
 	req := &providers.PredictionRequest{Messages: []types.Message{{Role: "user", Content: "hi"}}}
-	messages, err := p.prepareMessages(req)
+	messages, err := p.prepareMessages(t.Context(), req)
 	require.NoError(t, err)
 
 	vllmReq := p.buildRequest(req, messages, 0.7, 0.9, 100, true)
@@ -76,7 +76,7 @@ func TestVLLMStreaming_RequestsUsage(t *testing.T) {
 func TestVLLMStreaming_NonStreamingRequestOmitsStreamOptions(t *testing.T) {
 	p := newTestVLLMProvider(t)
 	req := &providers.PredictionRequest{Messages: []types.Message{{Role: "user", Content: "hi"}}}
-	messages, err := p.prepareMessages(req)
+	messages, err := p.prepareMessages(t.Context(), req)
 	require.NoError(t, err)
 
 	vllmReq := p.buildRequest(req, messages, 0.7, 0.9, 100, false)
@@ -91,7 +91,7 @@ func TestVLLMStreaming_NonStreamingRequestOmitsStreamOptions(t *testing.T) {
 func TestVLLMToolStreamRequest_IncludesStreamOptions(t *testing.T) {
 	p := newTestVLLMProvider(t)
 	req := &providers.PredictionRequest{Messages: []types.Message{{Role: "user", Content: "hi"}}}
-	messages, err := p.prepareMessages(req)
+	messages, err := p.prepareMessages(t.Context(), req)
 	require.NoError(t, err)
 
 	reqMap := p.buildToolRequest(req, messages, toolRequestParams{
