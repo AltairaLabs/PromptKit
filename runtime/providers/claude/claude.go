@@ -956,7 +956,17 @@ func (p *Provider) costFromUsage(u claudeUsage) types.CostInfo {
 		p.Pricing(),
 		base.FlatPricing{Input: p.defaults.Pricing.InputCostPer1K, Output: p.defaults.Pricing.OutputCostPer1K},
 		claudePricingTable, p.model)
-	return base.PriceUsage(desc, p.ID(), base.ProviderTypeInference, claudeUsageToTokens(u), nil, 0)
+	return base.PriceUsage(desc, p.ID(), base.ProviderTypeInference, claudeUsageToTokens(u), promptSizeDims(u), 0)
+}
+
+// promptSizeDims marks a request whose prompt (all input, cached or not) is
+// over longPromptThreshold tokens, so a model priced by prompt length
+// (Haiku 5.5) matches its higher rates. nil otherwise.
+func promptSizeDims(u claudeUsage) map[string]string {
+	if u.InputTokens+u.CacheReadInputTokens+u.CacheCreationInputTokens <= longPromptThreshold {
+		return nil
+	}
+	return map[string]string{promptSizeDimension: promptSizeOver100K}
 }
 
 // CalculateCost calculates detailed cost breakdown including optional cached
