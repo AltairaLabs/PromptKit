@@ -219,32 +219,41 @@ pipeline := stage.NewPipelineBuilder().
 For voice applications using text-based LLMs:
 
 ```go
-vadConfig := stage.AudioTurnConfig{
-    SilenceDuration:   800 * time.Millisecond,
-    MinSpeechDuration: 200 * time.Millisecond,
-    MaxTurnDuration:   30 * time.Second,
-    SampleRate:        16000,
+// One handler, shared by the turn, STT and TTS stages, decides when the
+// caller's speech interrupts the reply (barge-in).
+interruptionHandler := audio.NewInterruptionHandler(audio.InterruptionImmediate, nil)
+
+audioTurn, err := stage.NewAudioTurnStage(stage.AudioTurnConfig{
+    SilenceDuration:     800 * time.Millisecond,
+    MinSpeechDuration:   200 * time.Millisecond,
+    MaxTurnDuration:     30 * time.Second,
+    SampleRate:          16000,
+    EmitEndOfTurn:       true, // fire the model once per turn, not at session close
+    InterruptionHandler: interruptionHandler,
+})
+if err != nil {
+    return err
 }
 
-sttConfig := stage.STTStageConfig{
-    Language:      "en",
-    MinAudioBytes: 1600,
-}
+sttConfig := stage.DefaultSTTStageConfig()
+sttConfig.Language = "en"
+sttConfig.InterruptionHandler = interruptionHandler
 
-ttsConfig := stage.TTSConfig{
-    Voice: "alloy",
-    Speed: 1.0,
-}
+ttsConfig := stage.DefaultTTSStageWithInterruptionConfig()
+ttsConfig.Voice = "alloy"
+ttsConfig.InterruptionHandler = interruptionHandler
+
+providerConfig.Streaming = true // one tool loop per EndOfTurn, history kept across turns
 
 pipeline := stage.NewPipelineBuilder().
     Chain(
-        stage.NewAudioTurnStage(vadConfig),
+        audioTurn,
         stage.NewSTTStage(sttService, sttConfig),
         stage.NewStateStoreLoadStage(stateConfig),
         stage.NewPromptAssemblyStage(promptRegistry, task, vars),
-        stage.NewProviderStage(provider, tools, policy, config),
+        stage.NewProviderStage(provider, tools, policy, providerConfig),
         stage.NewStateStoreSaveStage(stateConfig),
-        stage.NewTTSStageWithInterruption(ttsService, interruptionHandler, ttsConfig),
+        stage.NewTTSStageWithInterruption(ttsService, ttsConfig),
     ).
     Build()
 ```

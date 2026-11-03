@@ -283,10 +283,21 @@ conv, _ := sdk.OpenDuplex("./voice-assistant.pack.json", "assistant",
 
 Users can interrupt the assistant while it's speaking (barge-in).
 
-When speech is detected while the reply is being synthesized, the pipeline stops
-synthesis and drops the reply's remaining audio. Audio already delivered is in
-your player's buffer, so the session tells you to flush it: a chunk on
-`Response()` arrives with `Interrupted` set. The same signal arrives in ASM mode.
+In VAD mode, speech counts as barge-in from the moment the user's turn ends until
+the reply's audio would have finished playing. That covers the model generating
+the reply, synthesis, and playback, where the session assumes your player starts
+each audio chunk as it arrives. The pipeline cancels whatever is still in flight
+and drops the reply's remaining audio. Audio already delivered is in your
+player's buffer, so the session tells you to flush it: a chunk on `Response()`
+arrives with `Interrupted` set. The same signal arrives in ASM mode.
+
+The speech that interrupted the reply is the user's next turn, and it is
+transcribed in full. Speech that starts after the reply has finished playing is
+an ordinary turn, with no `Interrupted` chunk.
+
+Barge-in during playback means the microphone must not pick up the reply itself.
+Use headphones, or capture audio with echo cancellation (browsers and phones
+provide it).
 
 ```go
 for chunk := range responses {
@@ -305,7 +316,7 @@ for chunk := range responses {
 VAD and ASM mode mark turns on `Response()` the same way, through chunk metadata:
 
 - `Metadata["input_transcription"]` (a string) carries what the user said, once per user turn. In VAD mode it is the STT stage's transcript.
-- `Metadata["assistant_turn_complete"]` (a bool) marks the end of each assistant turn. In VAD mode that includes a reply cut short by barge-in, whose boundary arrives before its `Interrupted` chunk.
+- `Metadata["assistant_turn_complete"]` (a bool) marks the end of each assistant turn. In VAD mode that includes a reply cut short by barge-in, whose boundary arrives before its `Interrupted` chunk. A reply interrupted before the model produced any of it has no assistant turn to close, so only the `Interrupted` chunk arrives.
 
 Neither sets `FinishReason`, so a loop over `Response()` keeps reading across turns.
 
