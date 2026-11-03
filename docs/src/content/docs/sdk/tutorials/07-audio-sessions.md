@@ -300,6 +300,29 @@ for chunk := range responses {
 }
 ```
 
+## Transcripts and Turn Boundaries
+
+VAD and ASM mode mark turns on `Response()` the same way, through chunk metadata:
+
+- `Metadata["input_transcription"]` (a string) carries what the user said, once per user turn. In VAD mode it is the STT stage's transcript.
+- `Metadata["assistant_turn_complete"]` (a bool) marks the end of each assistant turn. In VAD mode that includes a reply cut short by barge-in, whose boundary arrives before its `Interrupted` chunk.
+
+Neither sets `FinishReason`, so a loop over `Response()` keeps reading across turns.
+
+```go
+for chunk := range responses {
+    if t, ok := chunk.Metadata["input_transcription"].(string); ok {
+        fmt.Println("you:", t)
+    }
+    if chunk.Delta != "" {
+        fmt.Print(chunk.Delta)
+    }
+    if done, _ := chunk.Metadata["assistant_turn_complete"].(bool); done {
+        fmt.Println()
+    }
+}
+```
+
 ## Complete Example: Voice Interview
 
 See the `sdk/examples/voice-interview/` directory for a complete working example that includes:

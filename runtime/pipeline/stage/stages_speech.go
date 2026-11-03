@@ -1161,9 +1161,12 @@ func (s *TTSStageWithInterruption) emitAudioElement(
 			Channels:   1,
 			Format:     AudioFormatPCM16,
 		},
-		Message:   withTTSCost(in.Message, cost),
-		Meta:      in.Meta,
-		Timestamp: time.Now(),
+		Message: withTTSCost(in.Message, cost),
+		Meta:    in.Meta,
+		// This element replaces the one it synthesized, so it carries that
+		// element's end-of-stream boundary on, or the boundary is lost (#2287).
+		EndOfStream: in.EndOfStream,
+		Timestamp:   time.Now(),
 	}
 	// The reply text already streamed as deltas; this element's Text is a
 	// reference copy of what was submitted for synthesis. Mark it so a consumer
