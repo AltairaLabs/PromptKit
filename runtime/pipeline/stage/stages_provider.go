@@ -674,7 +674,13 @@ func (s *ProviderStage) fireStreamingTurn(
 		}
 		if errors.Is(err, context.Canceled) {
 			// Barge-in (or shutdown) canceled this turn's generation; the
-			// session continues with a fresh context.
+			// session continues with a fresh context. A turn canceled before the
+			// model said anything still keeps what the user said (it was emitted
+			// and saved above): a caller who paused and went on speaking cut off
+			// the reply, not their own first half.
+			if !endsInterrupted(full) {
+				*history = append(*history, pending...)
+			}
 			logger.Debug("ProviderStage streaming turn canceled (barge-in/shutdown)")
 			return nil
 		}

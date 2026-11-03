@@ -302,15 +302,23 @@ func (s *AudioTurnStage) processAudioElement(
 		return err
 	}
 
-	// Check for interruption (barge-in): user spoke while the bot was talking.
+	// Check for interruption (barge-in): user spoke while the bot was replying.
 	// Emit an Interrupt control element so the provider and TTS stages cancel
-	// in-flight generation/playback, then drop the partial turn.
-	if s.checkInterruption(ctx, state) {
-		return s.emitInterrupt(ctx, output)
+	// in-flight generation/playback. The speech that triggered it is the start
+	// of the caller's next turn, so it stays buffered and the turn carries on.
+	if s.checkInterruption(ctx) {
+		if err := s.emitInterrupt(ctx, output); err != nil {
+			return err
+		}
 	}
 
 	// Check if turn is complete
 	if s.shouldCompleteTurn(state) {
+		// The bot owes this turn a reply from now until that reply ends, and
+		// speech in that window interrupts it. Marked before the audio leaves,
+		// so a downstream stage that finds there will be no reply (the STT
+		// stage, on an empty transcript) always ends it after it began.
+		s.beginResponse()
 		if err := s.emitTurnAudio(ctx, state, output); err != nil {
 			return err
 		}
@@ -350,18 +358,30 @@ func (s *AudioTurnStage) emitInterrupt(ctx context.Context, output chan<- Stream
 	}
 }
 
-// checkInterruption checks for user interruption and resets state if detected.
-func (s *AudioTurnStage) checkInterruption(ctx context.Context, state *audioTurnState) bool {
+// checkInterruption reports whether the user's speech interrupts the bot.
+//
+// The turn state is deliberately left alone. The audio buffered so far holds the
+// onset of the speech that triggered the barge-in, and the VAD is mid-utterance;
+// resetting either would make the interrupting turn start after the caller had
+// already begun speaking, and its transcript would lose the first word(s).
+func (s *AudioTurnStage) checkInterruption(ctx context.Context) bool {
 	if s.interruption == nil {
 		return false
 	}
-	vadState := s.vad.State()
-	if interrupted, _ := s.interruption.ProcessVADState(ctx, vadState); interrupted {
-		logger.Debug("AudioTurnStage: user interrupted, resetting turn")
-		s.resetState(state)
-		return true
+	interrupted, _ := s.interruption.ProcessVADState(ctx, s.vad.State())
+	if interrupted {
+		logger.Debug("AudioTurnStage: user interrupted the bot")
 	}
-	return false
+	return interrupted
+}
+
+// beginResponse marks, on the shared interruption handler, that the bot owes
+// the turn being emitted a reply. Only a turn-based stage (EmitEndOfTurn) has a
+// reply per turn; the TTS stage ends it when the reply's turn ends.
+func (s *AudioTurnStage) beginResponse() {
+	if s.interruption != nil && s.config.EmitEndOfTurn {
+		s.interruption.BeginResponse()
+	}
 }
 
 // emitRemainingAudio emits any buffered audio when the stream closes or EndOfStream is received.
@@ -685,6 +705,12 @@ type STTStageConfig struct {
 	// Retry configures bounded retry on transient transcription errors.
 	// Zero value uses stt.DefaultRetryConfig (3 attempts, 250ms initial).
 	Retry stt.RetryConfig
+
+	// InterruptionHandler, when set, is the handler shared with AudioTurnStage
+	// and TTSStageWithInterruption. AudioTurnStage marks a reply as owed when it
+	// ends a turn; a turn that yields no transcript (too short, empty, or failed)
+	// gets no reply, so this stage ends it. Optional.
+	InterruptionHandler *audio.InterruptionHandler
 }
 
 // DefaultSTTStageConfig returns sensible defaults.
@@ -772,6 +798,7 @@ func (s *STTStage) processElement(ctx context.Context, elem StreamElement, outpu
 	// Skip if too small
 	if s.config.SkipEmpty && len(elem.Audio.Samples) < s.config.MinAudioBytes {
 		logger.Debug("STTStage: skipping small audio", "bytes", len(elem.Audio.Samples))
+		s.endResponse()
 		return nil
 	}
 
@@ -779,6 +806,7 @@ func (s *STTStage) processElement(ctx context.Context, elem StreamElement, outpu
 	sttResp, err := stt.TranscribeWithRetry(ctx, s.service, s.sttRequest(elem.Audio), s.config.Retry)
 	if err != nil {
 		logger.Error("STTStage: transcription failed", "error", err)
+		s.endResponse()
 		elem.Error = err
 		return sendStreamElement(ctx, elem, output)
 	}
@@ -787,6 +815,7 @@ func (s *STTStage) processElement(ctx context.Context, elem StreamElement, outpu
 	text := strings.TrimSpace(sttResp.Text)
 	if text == "" {
 		logger.Debug("STTStage: empty transcription, skipping")
+		s.endResponse()
 		return nil
 	}
 
@@ -799,6 +828,14 @@ func (s *STTStage) processElement(ctx context.Context, elem StreamElement, outpu
 	}
 
 	return sendStreamElement(ctx, transcriptElement(text, elem.Meta, sttResp.Cost), output)
+}
+
+// endResponse ends the reply AudioTurnStage marked as owed for a turn that
+// produced no transcript: nothing downstream will answer it.
+func (s *STTStage) endResponse() {
+	if s.config.InterruptionHandler != nil {
+		s.config.InterruptionHandler.EndResponse()
+	}
 }
 
 // sttRequest builds the base.STTRequest for an audio element.
@@ -978,11 +1015,33 @@ func (s *TTSStageWithInterruption) Process(
 			}
 			continue
 		}
-		if err := s.processElement(ctx, canceller.context(), &elem, output); err != nil {
+		if err := s.processTurnElement(ctx, canceller.context(), &elem, output); err != nil {
 			return err
 		}
 	}
 
+	return nil
+}
+
+// processTurnElement handles one non-interrupt element and ends the reply at
+// the right point. A turn boundary or a failed turn ends the reply before it is
+// passed on, so the caller never sees the boundary while the bot still counts
+// as responding. An EndOfStream may still carry text to speak, so it ends the
+// reply once that is done.
+func (s *TTSStageWithInterruption) processTurnElement(
+	forwardCtx, synthCtx context.Context,
+	elem *StreamElement,
+	output chan<- StreamElement,
+) error {
+	if elem.EndOfTurn || elem.Error != nil {
+		s.endResponse()
+	}
+	if err := s.processElement(forwardCtx, synthCtx, elem, output); err != nil {
+		return err
+	}
+	if elem.EndOfStream {
+		s.endResponse()
+	}
 	return nil
 }
 
@@ -1042,8 +1101,9 @@ func (s *TTSStageWithInterruption) forwardElement(
 }
 
 // setBotSpeaking safely sets bot speaking state if handler exists.
-// The bot-speaking flag is still needed: AudioTurnStage's ProcessVADState only
-// fires a barge-in while the bot is speaking, so this gate must stay in sync.
+// It covers synthesis only. The rest of the barge-in window is the reply
+// AudioTurnStage began (ended by endResponse) and the playback of emitted audio
+// (ExtendPlayback in emitAudioElement).
 func (s *TTSStageWithInterruption) setBotSpeaking(speaking bool) {
 	if s.interruption != nil {
 		s.interruption.SetBotSpeaking(speaking)
@@ -1185,8 +1245,29 @@ func (s *TTSStageWithInterruption) emitAudioElement(
 		})
 	}
 
+	// The caller plays this audio after it is handed over, so the bot is still
+	// speaking — and interruptible — until it would have finished. Extended
+	// before the synthesis flag drops, so there is no gap between the two.
+	if s.interruption != nil {
+		s.interruption.ExtendPlayback(pcm16Duration(len(samples), sampleRate))
+	}
 	s.setBotSpeaking(false)
 	return s.forwardElement(ctx, outElem, output)
+}
+
+// pcm16Duration is the playback length of n bytes of 16-bit mono PCM.
+func pcm16Duration(n, sampleRate int) time.Duration {
+	return samplesToDuration(n/bytesPerSample16Bit, sampleRate)
+}
+
+// endResponse ends the reply AudioTurnStage began for the user's turn: its turn
+// is over (EndOfTurn/EndOfStream) or failed (an error element; a failed turn
+// emits no EndOfTurn). Audio already delivered keeps playing, and the handler
+// keeps the bot interruptible until it would have finished.
+func (s *TTSStageWithInterruption) endResponse() {
+	if s.interruption != nil {
+		s.interruption.EndResponse()
+	}
 }
 
 // toOutputRate resamples synthesized PCM to the configured output rate and

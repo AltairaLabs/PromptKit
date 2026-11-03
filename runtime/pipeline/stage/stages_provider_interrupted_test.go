@@ -227,3 +227,61 @@ func TestProcessStreamChunks_EarlyReturnDrainsProvider(t *testing.T) {
 		t.Fatal("the provider goroutine is still blocked sending after the round returned")
 	}
 }
+
+// blockOnceProvider blocks its first Predict until the turn is canceled, then
+// replies normally. It records every request.
+type blockOnceProvider struct {
+	multiTurnRecordingProvider
+	mu      sync.Mutex
+	started chan struct{}
+}
+
+func (p *blockOnceProvider) Predict(
+	ctx context.Context, req providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
+	p.mu.Lock()
+	p.requests = append(p.requests, append([]types.Message(nil), req.Messages...))
+	first := len(p.requests) == 1
+	p.mu.Unlock()
+	if first {
+		close(p.started)
+		<-ctx.Done()
+		return providers.PredictionResponse{}, ctx.Err()
+	}
+	return providers.PredictionResponse{Content: "reply"}, nil
+}
+
+// TestProviderStage_Streaming_CanceledTurnKeepsUserInput covers a barge-in that
+// lands before the model has said anything, e.g. a caller who paused and went on
+// speaking. What they said in the canceled turn stays in context, so the next
+// turn's request carries both halves rather than only the second (#2301).
+func TestProviderStage_Streaming_CanceledTurnKeepsUserInput(t *testing.T) {
+	prov := &blockOnceProvider{started: make(chan struct{})}
+	stage := NewProviderStageWithTurnState(prov, nil, nil, &ProviderConfig{Streaming: true}, nil, nil, NewTurnState())
+
+	input := make(chan StreamElement)
+	output := make(chan StreamElement, 32)
+	done := make(chan error, 1)
+	go func() { done <- stage.Process(context.Background(), input, output) }()
+
+	input <- NewMessageElement(&types.Message{Role: "user", Content: "book me a table"})
+	input <- NewEndOfTurnElement()
+	<-prov.started // generating, nothing said yet
+	input <- NewInterruptElement()
+	input <- NewMessageElement(&types.Message{Role: "user", Content: "for two at eight"})
+	input <- NewEndOfTurnElement()
+	close(input)
+	require.NoError(t, <-done)
+	for range output { //nolint:revive // drain
+	}
+
+	prov.mu.Lock()
+	defer prov.mu.Unlock()
+	require.Len(t, prov.requests, 2)
+	var said []string
+	for _, m := range prov.requests[1] {
+		said = append(said, m.GetContent())
+	}
+	assert.Equal(t, []string{"book me a table", "for two at eight"}, said,
+		"the canceled turn's user input stays in context")
+}

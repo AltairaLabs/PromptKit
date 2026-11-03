@@ -322,7 +322,9 @@ func TestAudioTurnStage_TurnDetector_Integration(t *testing.T) {
 	assert.Greater(t, processAudioCalled, 0, "processAudioFunc should have been called")
 }
 
-func TestAudioTurnStage_Interruption_ResetsState(t *testing.T) {
+// A barge-in keeps the audio that triggered it: the chunk the caller spoke over
+// the bot is the start of their next turn, not something to discard (#2301).
+func TestAudioTurnStage_Interruption_KeepsBufferedSpeech(t *testing.T) {
 	config := stage.DefaultAudioTurnConfig()
 	config.SilenceDuration = 10 * time.Second // Won't trigger
 
@@ -371,12 +373,11 @@ func TestAudioTurnStage_Interruption_ResetsState(t *testing.T) {
 	input <- makeAudioElement(generateTestPCMAudio(160), 16000)
 	close(input)
 
-	// Expect post-interruption audio (only the chunk after reset)
+	// Expect both chunks: the one that triggered the barge-in is kept.
 	select {
 	case elem := <-output:
 		require.NotNil(t, elem.Audio, "Expected post-interruption audio")
-		// Should be ~160 bytes (1 chunk post-reset)
-		assert.Equal(t, 160, len(elem.Audio.Samples))
+		assert.Equal(t, 320, len(elem.Audio.Samples), "the barge-in chunk must not be dropped")
 	case <-time.After(time.Second):
 		t.Fatal("Timeout waiting for post-interruption audio")
 	}

@@ -3,6 +3,7 @@ package audio
 import (
 	"context"
 	"sync"
+	"time"
 )
 
 // InterruptionStrategy determines how to handle user interrupting bot.
@@ -35,12 +36,28 @@ func (s InterruptionStrategy) String() string {
 type InterruptionCallback func()
 
 // InterruptionHandler manages user interruption logic during bot output.
+//
+// User speech is a barge-in while the bot is engaged in a reply, which is any
+// of: SetBotSpeaking(true) (e.g. TTS synthesizing), a reply begun with
+// BeginResponse that EndResponse has not ended (the model generating it), or
+// delivered audio still playing (ExtendPlayback).
 type InterruptionHandler struct {
 	strategy InterruptionStrategy
 	vad      VADAnalyzer
 
-	mu              sync.RWMutex
-	botSpeaking     bool
+	mu          sync.RWMutex
+	botSpeaking bool
+	// responding is set from the end of the user's turn until the reply's turn
+	// ends (BeginResponse/EndResponse), covering the generation that precedes
+	// any audio.
+	responding bool
+	// respondAfterReset records a reply begun while an interruption was still
+	// being handled, so the Reset that closes that interruption keeps it.
+	respondAfterReset bool
+	// speakingUntil is when the audio delivered so far would finish playing.
+	speakingUntil time.Time
+	// now is the clock for speakingUntil; nil means time.Now.
+	now             func() time.Time
 	interrupted     bool
 	onInterrupt     InterruptionCallback
 	deferredPending bool
@@ -106,7 +123,9 @@ func (h *InterruptionHandler) Interrupt() {
 	}
 }
 
-// SetBotSpeaking sets whether the bot is outputting audio.
+// SetBotSpeaking sets whether the bot is outputting audio (e.g. while TTS is
+// synthesizing). See BeginResponse and ExtendPlayback for the rest of the
+// window in which user speech interrupts the bot.
 func (h *InterruptionHandler) SetBotSpeaking(speaking bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -114,19 +133,88 @@ func (h *InterruptionHandler) SetBotSpeaking(speaking bool) {
 	h.botSpeaking = speaking
 
 	// If bot stops speaking and there's a deferred interruption, trigger it
-	if !speaking && h.deferredPending {
-		h.deferredPending = false
-		if h.onInterrupt != nil {
-			go h.onInterrupt()
-		}
+	if !speaking {
+		h.fireDeferredLocked()
 	}
 }
 
-// IsBotSpeaking returns true if the bot is outputting audio.
+// fireDeferredLocked delivers a pending deferred interruption. Caller must hold
+// h.mu.
+func (h *InterruptionHandler) fireDeferredLocked() {
+	if !h.deferredPending {
+		return
+	}
+	h.deferredPending = false
+	if h.onInterrupt != nil {
+		go h.onInterrupt()
+	}
+}
+
+// BeginResponse marks that the bot owes a reply: call it when the user's turn
+// ends. Until EndResponse, user speech interrupts the reply even though no
+// audio has been produced yet (the model is still generating it).
+//
+// A reply begun while an interruption is still being handled (its Reset has not
+// happened yet) survives that Reset: it is the reply to the interrupting turn.
+func (h *InterruptionHandler) BeginResponse() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.responding = true
+	if h.interrupted {
+		h.respondAfterReset = true
+	}
+}
+
+// EndResponse marks the end of the reply begun by BeginResponse: its turn is
+// over, or no reply will follow. Audio still playing (see ExtendPlayback) keeps
+// the bot speaking until it would have finished. A deferred interruption
+// pending on this reply fires now.
+func (h *InterruptionHandler) EndResponse() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.responding = false
+	h.respondAfterReset = false
+	h.fireDeferredLocked()
+}
+
+// ExtendPlayback records that d more audio was handed out for playback. Audio
+// queues behind whatever is still playing, so the bot counts as speaking until
+// max(now, previous end) + d. Reset clears it. Non-positive d is ignored.
+func (h *InterruptionHandler) ExtendPlayback(d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	start := h.clockLocked()
+	if h.speakingUntil.After(start) {
+		start = h.speakingUntil
+	}
+	h.speakingUntil = start.Add(d)
+}
+
+// clockLocked returns the current time. Caller must hold h.mu.
+func (h *InterruptionHandler) clockLocked() time.Time {
+	if h.now != nil {
+		return h.now()
+	}
+	return time.Now()
+}
+
+// engagedLocked reports whether user speech now counts as a barge-in: the bot
+// is synthesizing, owes a reply, or its audio is still playing. Caller must
+// hold h.mu (read or write).
+func (h *InterruptionHandler) engagedLocked() bool {
+	return h.botSpeaking || h.responding || h.clockLocked().Before(h.speakingUntil)
+}
+
+// IsBotSpeaking reports whether the bot is engaged in a reply, so that user
+// speech would interrupt it: SetBotSpeaking(true), a reply begun and not ended,
+// or delivered audio still playing.
 func (h *InterruptionHandler) IsBotSpeaking() bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	return h.botSpeaking
+	return h.engagedLocked()
 }
 
 // OnInterrupt registers a callback for when interruption occurs.
@@ -140,7 +228,7 @@ func (h *InterruptionHandler) OnInterrupt(callback InterruptionCallback) {
 // Returns true if an interruption was detected and should be acted upon.
 func (h *InterruptionHandler) ProcessAudio(ctx context.Context, audio []byte) (bool, error) {
 	h.mu.RLock()
-	botSpeaking := h.botSpeaking
+	botSpeaking := h.engagedLocked()
 	strategy := h.strategy
 	h.mu.RUnlock()
 
@@ -172,7 +260,7 @@ func (h *InterruptionHandler) ProcessAudio(ctx context.Context, audio []byte) (b
 // Returns true if an interruption was detected and should be acted upon.
 func (h *InterruptionHandler) ProcessVADState(ctx context.Context, state VADState) (bool, error) {
 	h.mu.RLock()
-	botSpeaking := h.botSpeaking
+	botSpeaking := h.engagedLocked()
 	strategy := h.strategy
 	h.mu.RUnlock()
 
@@ -227,12 +315,18 @@ func (h *InterruptionHandler) WasInterrupted() bool {
 	return h.interrupted
 }
 
-// Reset clears interruption state for a new turn.
+// Reset clears interruption state for a new turn: the interrupted reply's
+// speaking, responding and playback state is dropped with it.
 func (h *InterruptionHandler) Reset() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	h.botSpeaking = false
+	// A reply begun after the interruption fired belongs to the interrupting
+	// turn, so it outlives the Reset that closes the interrupted one.
+	h.responding = h.respondAfterReset
+	h.respondAfterReset = false
+	h.speakingUntil = time.Time{}
 	h.interrupted = false
 	h.deferredPending = false
 	// Re-arm the interrupt channel for the next turn. Waiters from the previous

@@ -4444,7 +4444,7 @@ type Response struct {
 ```
 
 <a name="ResponseVADConfig"></a>
-## type [ResponseVADConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1262-L1280>)
+## type [ResponseVADConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1343-L1361>)
 
 ResponseVADConfig configures the ResponseVADStage.
 
@@ -4471,7 +4471,7 @@ type ResponseVADConfig struct {
 ```
 
 <a name="DefaultResponseVADConfig"></a>
-### func [DefaultResponseVADConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1290>)
+### func [DefaultResponseVADConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1371>)
 
 ```go
 func DefaultResponseVADConfig() ResponseVADConfig
@@ -4480,7 +4480,7 @@ func DefaultResponseVADConfig() ResponseVADConfig
 DefaultResponseVADConfig returns sensible defaults for ResponseVADStage.
 
 <a name="ResponseVADStage"></a>
-## type [ResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1310-L1314>)
+## type [ResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1391-L1395>)
 
 ResponseVADStage monitors response audio for silence and delays EndOfStream until actual silence is detected. This decouples turn completion from provider signaling \(e.g., Gemini's turnComplete\) which may arrive before all audio chunks have been received.
 
@@ -4496,7 +4496,7 @@ type ResponseVADStage struct {
 ```
 
 <a name="NewResponseVADStage"></a>
-### func [NewResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1317>)
+### func [NewResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1398>)
 
 ```go
 func NewResponseVADStage(config ResponseVADConfig) (*ResponseVADStage, error)
@@ -4505,7 +4505,7 @@ func NewResponseVADStage(config ResponseVADConfig) (*ResponseVADStage, error)
 NewResponseVADStage creates a new response VAD stage.
 
 <a name="ResponseVADStage.Process"></a>
-### func \(\*ResponseVADStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1371-L1375>)
+### func \(\*ResponseVADStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1452-L1456>)
 
 ```go
 func (s *ResponseVADStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4646,7 +4646,7 @@ func RouteWhen(output string, predicate func(StreamElement) bool) RoutingRule
 RouteWhen creates a routing rule with the given predicate.
 
 <a name="STTStage"></a>
-## type [STTStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L703-L710>)
+## type [STTStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L729-L736>)
 
 STTStage transcribes audio to text using a speech\-to\-text service.
 
@@ -4660,7 +4660,7 @@ type STTStage struct {
 ```
 
 <a name="NewSTTStage"></a>
-### func [NewSTTStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L716>)
+### func [NewSTTStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L742>)
 
 ```go
 func NewSTTStage(service base.STTProvider, config STTStageConfig) *STTStage
@@ -4669,7 +4669,7 @@ func NewSTTStage(service base.STTProvider, config STTStageConfig) *STTStage
 NewSTTStage creates a new STT stage. The service parameter accepts any base.STTProvider implementation. The legacy stt.Service interface embeds base.STTProvider, so existing callers that pass an stt.Service remain compatible without changes.
 
 <a name="NewSTTStageWithEmitter"></a>
-### func [NewSTTStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L735-L739>)
+### func [NewSTTStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L761-L765>)
 
 ```go
 func NewSTTStageWithEmitter(service base.STTProvider, config STTStageConfig, emitter *events.Emitter) *STTStage
@@ -4682,7 +4682,7 @@ The event type and its payload \(events.AudioTranscriptionData\) were declared a
 The emitter is optional; NewSTTStage remains the no\-events constructor.
 
 <a name="STTStage.Process"></a>
-### func \(\*STTStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L747-L751>)
+### func \(\*STTStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L773-L777>)
 
 ```go
 func (s *STTStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4691,7 +4691,7 @@ func (s *STTStage) Process(ctx context.Context, input <-chan StreamElement, outp
 Process implements the Stage interface. Transcribes audio elements to text.
 
 <a name="STTStageConfig"></a>
-## type [STTStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L675-L688>)
+## type [STTStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L695-L714>)
 
 STTStageConfig configures the STTStage.
 
@@ -4709,11 +4709,17 @@ type STTStageConfig struct {
     // Retry configures bounded retry on transient transcription errors.
     // Zero value uses stt.DefaultRetryConfig (3 attempts, 250ms initial).
     Retry stt.RetryConfig
+
+    // InterruptionHandler, when set, is the handler shared with AudioTurnStage
+    // and TTSStageWithInterruption. AudioTurnStage marks a reply as owed when it
+    // ends a turn; a turn that yields no transcript (too short, empty, or failed)
+    // gets no reply, so this stage ends it. Optional.
+    InterruptionHandler *audio.InterruptionHandler
 }
 ```
 
 <a name="DefaultSTTStageConfig"></a>
-### func [DefaultSTTStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L691>)
+### func [DefaultSTTStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L717>)
 
 ```go
 func DefaultSTTStageConfig() STTStageConfig
@@ -5311,7 +5317,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2559>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2565>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement
@@ -5544,7 +5550,7 @@ func (s *TTSStage) Process(ctx context.Context, input <-chan StreamElement, outp
 Process implements the Stage interface. Synthesizes audio for each text element and adds it to the element.
 
 <a name="TTSStageWithInterruption"></a>
-## type [TTSStageWithInterruption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L911-L918>)
+## type [TTSStageWithInterruption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L948-L955>)
 
 TTSStageWithInterruption synthesizes text to audio with interruption support. When the user starts speaking \(detected via shared InterruptionHandler\), synthesis is stopped and pending output is discarded.
 
@@ -5558,7 +5564,7 @@ type TTSStageWithInterruption struct {
 ```
 
 <a name="NewTTSStageWithInterruption"></a>
-### func [NewTTSStageWithInterruption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L921-L924>)
+### func [NewTTSStageWithInterruption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L958-L961>)
 
 ```go
 func NewTTSStageWithInterruption(service tts.Service, config TTSStageWithInterruptionConfig) *TTSStageWithInterruption
@@ -5567,7 +5573,7 @@ func NewTTSStageWithInterruption(service tts.Service, config TTSStageWithInterru
 NewTTSStageWithInterruption creates a new TTS stage with interruption support.
 
 <a name="TTSStageWithInterruption.Process"></a>
-### func \(\*TTSStageWithInterruption\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L952-L956>)
+### func \(\*TTSStageWithInterruption\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L989-L993>)
 
 ```go
 func (s *TTSStageWithInterruption) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -5576,7 +5582,7 @@ func (s *TTSStageWithInterruption) Process(ctx context.Context, input <-chan Str
 Process implements the Stage interface. Synthesizes audio for text elements with interruption support. A concurrent reader cancels in\-flight synthesis the instant a barge\-in Interrupt arrives, so a long synthesis call cannot swallow the interrupt; queued text behind the interrupt is dropped too, and synthesis resumes on the next turn.
 
 <a name="TTSStageWithInterruptionConfig"></a>
-## type [TTSStageWithInterruptionConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L868-L893>)
+## type [TTSStageWithInterruptionConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L905-L930>)
 
 TTSStageWithInterruptionConfig configures TTSStageWithInterruption.
 
@@ -5610,7 +5616,7 @@ type TTSStageWithInterruptionConfig struct {
 ```
 
 <a name="DefaultTTSStageWithInterruptionConfig"></a>
-### func [DefaultTTSStageWithInterruptionConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L896>)
+### func [DefaultTTSStageWithInterruptionConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L933>)
 
 ```go
 func DefaultTTSStageWithInterruptionConfig() TTSStageWithInterruptionConfig

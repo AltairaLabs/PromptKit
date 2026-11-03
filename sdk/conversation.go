@@ -855,6 +855,9 @@ func (c *Conversation) buildStreamPipelineWithParams(
 		}
 
 		sttCfg := vadCfg.toSTTStageConfig()
+		// The STT stage ends the reply AudioTurnStage began for a turn that
+		// transcribes to nothing, so the bot does not stay "responding" to it.
+		sttCfg.InterruptionHandler = interruptionHandler
 		ttsCfg := vadCfg.toTTSStageConfig(interruptionHandler)
 
 		pipelineCfg.VADConfig = &audioTurnCfg
