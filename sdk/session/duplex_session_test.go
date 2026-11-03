@@ -809,6 +809,25 @@ func TestStreamElementToStreamChunk_AssistantTurnComplete(t *testing.T) {
 		_, ok := chunk.Metadata["assistant_turn_complete"]
 		assert.False(t, ok, "a user message must not signal an assistant turn boundary")
 	})
+
+	t.Run("VAD-mode EndOfTurn control element is an assistant turn boundary", func(t *testing.T) {
+		elem := stage.NewEndOfTurnElement()
+
+		chunk := streamElementToStreamChunk(&elem)
+
+		done, _ := chunk.Metadata["assistant_turn_complete"].(bool)
+		assert.True(t, done, "the streaming ProviderStage closes each turn with EndOfTurn (#2287)")
+		assert.Nil(t, chunk.FinishReason)
+	})
+
+	t.Run("assistant message without a boundary is not turn complete", func(t *testing.T) {
+		elem := stage.NewMessageElement(&types.Message{Role: "assistant", Content: "mid-turn"})
+
+		chunk := streamElementToStreamChunk(&elem)
+
+		_, ok := chunk.Metadata["assistant_turn_complete"]
+		assert.False(t, ok)
+	})
 }
 
 // TestStreamElementToStreamChunk_Interrupted verifies that barge-in reaches the
@@ -846,6 +865,18 @@ func TestStreamElementToStreamChunk_InputTranscription(t *testing.T) {
 		chunk := streamElementToStreamChunk(&elem)
 
 		require.NotNil(t, chunk.Metadata, "expected metadata to be populated")
+		assert.Equal(t, transcript, chunk.Metadata["input_transcription"])
+	})
+
+	t.Run("parts-only user message (VAD-mode STT)", func(t *testing.T) {
+		const transcript = "transcribed by the STT stage"
+		msg := &types.Message{Role: "user"}
+		msg.AddTextPart(transcript)
+		elem := stage.NewMessageElement(msg)
+
+		chunk := streamElementToStreamChunk(&elem)
+
+		require.NotNil(t, chunk.Metadata, "a Parts-only transcript must still surface (#2287)")
 		assert.Equal(t, transcript, chunk.Metadata["input_transcription"])
 	})
 

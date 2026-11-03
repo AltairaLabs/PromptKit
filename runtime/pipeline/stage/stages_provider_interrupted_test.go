@@ -71,14 +71,23 @@ func TestProviderStage_Streaming_BargeInKeepsPartialReply(t *testing.T) {
 	close(input)
 	require.NoError(t, <-done)
 
-	var interrupted *types.Message
+	var elems []StreamElement
 	for e := range output {
+		elems = append(elems, e)
+	}
+	var interrupted *types.Message
+	at := -1
+	for i, e := range elems {
 		if e.Message != nil && e.Message.IsInterrupted() {
-			interrupted = e.Message
+			interrupted, at = e.Message, i
 		}
 	}
 	require.NotNil(t, interrupted, "the partial reply must be emitted")
 	assert.Equal(t, "Well, the", interrupted.Content)
+	// The kept partial reply closes its turn, so a caller delimiting assistant
+	// turns sees the cut-short one end (#2287).
+	require.Less(t, at+1, len(elems))
+	assert.True(t, elems[at+1].EndOfTurn, "the kept partial reply must be followed by an EndOfTurn")
 
 	prov.mu.Lock()
 	defer prov.mu.Unlock()

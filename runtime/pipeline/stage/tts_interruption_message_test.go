@@ -74,6 +74,21 @@ func TestTTSStageWithInterruption_KeepsMessageAndStampsCost(t *testing.T) {
 	assert.False(t, leaked, "the stamp goes on a copy, not the provider's message")
 }
 
+// The audio element replaces the element it synthesized, so it must keep that
+// element's EndOfStream: a realtime-style turn boundary (EndOfStream on the
+// assistant message) is otherwise lost to every downstream consumer (#2287).
+func TestTTSStageWithInterruption_KeepsEndOfStream(t *testing.T) {
+	s := stage.NewTTSStageWithInterruption(&mockTTSService{}, stage.DefaultTTSStageWithInterruptionConfig())
+
+	in := stage.NewMessageElement(&types.Message{Role: "assistant", Content: "goodbye"})
+	in.EndOfStream = true
+	results := runStage(t, s, []stage.StreamElement{in}, 2*time.Second)
+
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Audio)
+	assert.True(t, results[0].EndOfStream, "the synthesized element must keep the turn's EndOfStream")
+}
+
 func TestTTSStageWithInterruption_UnpricedServiceKeepsMessageWithoutCost(t *testing.T) {
 	s := stage.NewTTSStageWithInterruption(&mockTTSService{}, stage.DefaultTTSStageWithInterruptionConfig())
 

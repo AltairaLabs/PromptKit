@@ -698,7 +698,9 @@ func (s *ProviderStage) fireStreamingTurn(
 // keepInterruptedTurn keeps a reply the model had started before a streaming
 // turn died: the turn's new messages (from newStart) are emitted for the save
 // stage and the turn joins the history, where the reply's interrupted marker
-// keeps it out of every later request. A turn that produced nothing is left
+// keeps it out of every later request. The kept turn is closed with an
+// EndOfTurn like a completed one, so a caller delimiting assistant turns sees
+// the cut-short reply end too (#2287). A turn that produced nothing is left
 // out, as before.
 func (s *ProviderStage) keepInterruptedTurn(
 	ctx context.Context, full []types.Message, newStart int, history *[]types.Message, output chan<- StreamElement,
@@ -712,7 +714,7 @@ func (s *ProviderStage) keepInterruptedTurn(
 		}
 	}
 	*history = full
-	return nil
+	return sendStreamElement(ctx, NewEndOfTurnElement(), output)
 }
 
 // sendStreamElement forwards one element downstream, honoring cancellation.

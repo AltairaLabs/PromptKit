@@ -901,11 +901,27 @@ func streamElementToStreamChunk(elem *stage.StreamElement) providers.StreamChunk
 	// via FinishReason: continuous realtime callers loop over Response() and treat
 	// a FinishReason as end-of-response and stop reading, which would end the
 	// conversation after one turn. A dedicated metadata flag is additive and safe.
-	if elem.EndOfStream && elem.Message != nil && elem.Message.Role == "assistant" {
+	if isAssistantTurnBoundary(elem) {
 		setChunkMetadata(&chunk, "assistant_turn_complete", true)
 	}
 
 	return chunk
+}
+
+// isAssistantTurnBoundary reports whether an element closes an assistant turn.
+//
+// The realtime DuplexProviderStage closes a turn with an EndOfStream element
+// carrying the assistant message. The composed VAD topology (and WithIngestion)
+// never does: its streaming ProviderStage emits the turn's messages and then an
+// EndOfTurn control element, which TTS forwards after the reply's audio (or
+// after an unspoken reply cut short by barge-in). EndOfStream must not be
+// borrowed for that: the session's response loop treats an EndOfStream without
+// content as a fatal empty response. (#2287)
+func isAssistantTurnBoundary(elem *stage.StreamElement) bool {
+	if elem.EndOfTurn {
+		return true
+	}
+	return elem.EndOfStream && elem.Message != nil && elem.Message.Role == "assistant"
 }
 
 // setChunkMetadata sets key on the chunk's metadata, creating the map on
@@ -922,8 +938,12 @@ func setChunkMetadata(chunk *providers.StreamChunk, key string, value interface{
 // streaming) or as typed transcription metadata (scenario path). Returns "" when
 // the element carries no user transcript.
 func userTranscriptFromElement(elem *stage.StreamElement) string {
-	if elem.Message != nil && elem.Message.Role == "user" && elem.Message.Content != "" {
-		return elem.Message.Content
+	// GetContent, not Content: the STT stage builds the user message from a text
+	// Part and leaves Content empty, so VAD-mode transcripts never surfaced (#2287).
+	if elem.Message != nil && elem.Message.Role == "user" {
+		if text := elem.Message.GetContent(); text != "" {
+			return text
+		}
 	}
 	if elem.Meta.Transcription != nil {
 		return elem.Meta.Transcription.Text
