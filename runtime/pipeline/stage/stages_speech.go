@@ -1015,21 +1015,33 @@ func (s *TTSStageWithInterruption) Process(
 			}
 			continue
 		}
-		// A turn boundary or a failed turn ends the reply before it is passed
-		// on, so the caller never sees the boundary while the bot still counts
-		// as responding. An EndOfStream may still carry text to speak, so it
-		// ends the reply once that is done.
-		if elem.EndOfTurn || elem.Error != nil {
-			s.endResponse()
-		}
-		if err := s.processElement(ctx, canceller.context(), &elem, output); err != nil {
+		if err := s.processTurnElement(ctx, canceller.context(), &elem, output); err != nil {
 			return err
-		}
-		if elem.EndOfStream {
-			s.endResponse()
 		}
 	}
 
+	return nil
+}
+
+// processTurnElement handles one non-interrupt element and ends the reply at
+// the right point. A turn boundary or a failed turn ends the reply before it is
+// passed on, so the caller never sees the boundary while the bot still counts
+// as responding. An EndOfStream may still carry text to speak, so it ends the
+// reply once that is done.
+func (s *TTSStageWithInterruption) processTurnElement(
+	forwardCtx, synthCtx context.Context,
+	elem *StreamElement,
+	output chan<- StreamElement,
+) error {
+	if elem.EndOfTurn || elem.Error != nil {
+		s.endResponse()
+	}
+	if err := s.processElement(forwardCtx, synthCtx, elem, output); err != nil {
+		return err
+	}
+	if elem.EndOfStream {
+		s.endResponse()
+	}
 	return nil
 }
 
