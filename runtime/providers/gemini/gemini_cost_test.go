@@ -89,11 +89,12 @@ func TestGeminiCost_CalculateCostWrapperMatchesCostFromUsage(t *testing.T) {
 
 	// Compare the priced fields directly rather than the whole struct: Breakdown
 	// row order comes from a map iteration and is not guaranteed stable across
-	// two independent calls.
-	assert.Equal(t, want.TotalCost, got.TotalCost)
-	assert.Equal(t, want.InputCostUSD, got.InputCostUSD)
-	assert.Equal(t, want.OutputCostUSD, got.OutputCostUSD)
-	assert.Equal(t, want.CachedCostUSD, got.CachedCostUSD)
+	// two independent calls, and neither is the float summation order, so the
+	// dollar amounts can differ in the last bit.
+	assert.InDelta(t, want.TotalCost, got.TotalCost, 1e-15)
+	assert.InDelta(t, want.InputCostUSD, got.InputCostUSD, 1e-15)
+	assert.InDelta(t, want.OutputCostUSD, got.OutputCostUSD, 1e-15)
+	assert.InDelta(t, want.CachedCostUSD, got.CachedCostUSD, 1e-15)
 	assert.Equal(t, want.InputTokens, got.InputTokens)
 	assert.Equal(t, want.OutputTokens, got.OutputTokens)
 	assert.Equal(t, want.CachedTokens, got.CachedTokens)

@@ -1,10 +1,13 @@
 package base_test
 
 import (
+	"bytes"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func rateOf(d *base.PricingDescriptor, unit string) float64 {
@@ -38,8 +41,32 @@ func TestResolveLLMPricing_Order(t *testing.T) {
 	got2 := base.ResolveLLMPricing(nil, base.FlatPricing{}, table, "claude-sonnet-4-5")
 	assert.Equal(t, 0.003, rateOf(got2, base.UnitInputToken))
 
-	// unknown model, no config, no flat: nil
-	assert.Nil(t, base.ResolveLLMPricing(nil, base.FlatPricing{}, table, "made-up-model"))
+	// unknown model with a table: an empty descriptor, so PriceUsage warns
+	unknown := base.ResolveLLMPricing(nil, base.FlatPricing{}, table, "made-up-model")
+	require.NotNil(t, unknown)
+	assert.Empty(t, unknown.Items)
+
+	// no table and no config (a self-hosted server): nil, priced quietly at $0
+	assert.Nil(t, base.ResolveLLMPricing(nil, base.FlatPricing{}, nil, "any-model"))
+}
+
+// TestResolveLLMPricing_UnknownModelWarns checks the property the empty
+// descriptor exists for: a paid provider's new model is reported, not billed
+// as a silent $0.
+func TestResolveLLMPricing_UnknownModelWarns(t *testing.T) {
+	var buf bytes.Buffer
+	logger.SetOutput(&buf)
+	defer logger.SetOutput(nil)
+
+	table := map[string]*base.PricingDescriptor{
+		"known-model": {Items: []base.PriceItem{{Unit: base.UnitInputToken, Rate: 0.001}}},
+	}
+	desc := base.ResolveLLMPricing(nil, base.FlatPricing{}, table, "unknown-model-warn-test")
+	ci := base.PriceUsage(desc, "unknown-model-warn-test-provider", base.ProviderTypeInference,
+		base.TokenUsage{Input: 100}, nil, 0)
+
+	assert.Zero(t, ci.TotalCost)
+	assert.Contains(t, buf.String(), "nonzero token unit has no pricing")
 }
 
 func TestResolveLLMPricing_NormalizeModelStripsVendorPrefix(t *testing.T) {

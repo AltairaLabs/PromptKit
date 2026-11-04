@@ -16,8 +16,12 @@ type FlatPricing struct {
 const per1KScale = 1000.0
 
 // ResolveLLMPricing selects the pricing descriptor for a model, in order:
-// explicit config descriptor > flat config pricing > embedded default table >
-// nil (paid provider; PriceUsage will warn on nonzero unpriced units).
+// explicit config descriptor > flat config pricing > embedded default table.
+//
+// A provider that ships a table is a paid one, so a model missing from it
+// resolves to an empty descriptor: PriceUsage then warns about every nonzero
+// unit instead of reporting a silent $0. With no table (a self-hosted server
+// such as vLLM) and no config, it returns nil, which prices at $0 quietly.
 func ResolveLLMPricing(
 	configDesc *PricingDescriptor, flat FlatPricing,
 	table map[string]*PricingDescriptor, model string,
@@ -40,6 +44,9 @@ func ResolveLLMPricing(
 	}
 	if d, ok := table[normalizeModel(model)]; ok {
 		return d
+	}
+	if table != nil {
+		return &PricingDescriptor{Source: PricingSourceInline}
 	}
 	return nil
 }
