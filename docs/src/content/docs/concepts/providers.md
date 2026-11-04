@@ -1,9 +1,63 @@
 ---
 title: Providers
+description: How PromptKit models LLM providers, their roles, hosting platforms, credentials and per-call pricing.
 sidebar:
   order: 3
+verified:
+  commit: e16364fb2e353574937eb70165d503422bdd50f0
+  sources:
+    - pkg/config/role.go
+    - pkg/config/types.go
+    - runtime/classify/backends/hf/register.go
+    - runtime/classify/factory.go
+    - runtime/classify/types.go
+    - runtime/credentials/aws_integration.go
+    - runtime/credentials/azure.go
+    - runtime/credentials/azure_integration.go
+    - runtime/credentials/gcp_integration.go
+    - runtime/credentials/resolver.go
+    - runtime/credentials/resolver_platform.go
+    - runtime/credentials/types.go
+    - runtime/evals/handlers/audio_emotion.go
+    - runtime/evals/handlers/classify_handler_base.go
+    - runtime/evals/handlers/text_toxicity.go
+    - runtime/evals/handlers/topic_policy.go
+    - runtime/inference/huggingface/provider.go
+    - runtime/inference/huggingface/register.go
+    - runtime/inference/openai/provider.go
+    - runtime/inference/openai/register.go
+    - runtime/inference/provider.go
+    - runtime/inference/systemone/register.go
+    - runtime/providers/base/factory.go
+    - runtime/providers/base/llmpricing.go
+    - runtime/providers/base/priceusage.go
+    - runtime/providers/base/pricing.go
+    - runtime/providers/base/types.go
+    - runtime/providers/base/units.go
+    - runtime/providers/claude/claude.go
+    - runtime/providers/claude/claude_tools.go
+    - runtime/providers/claude/pricing_table.go
+    - runtime/providers/embedding.go
+    - runtime/providers/gemini/gemini.go
+    - runtime/providers/gemini/gemini_tools.go
+    - runtime/providers/gemini/pricing_table.go
+    - runtime/providers/gemini/usage_modality.go
+    - runtime/providers/imagen/factory.go
+    - runtime/providers/openai/openai.go
+    - runtime/providers/openai/openai_tools.go
+    - runtime/providers/openai/pricing_table.go
+    - runtime/providers/provider.go
+    - runtime/providers/vllm/vllm.go
+    - runtime/stt/openai.go
+    - runtime/tts/service.go
+    - runtime/types/message.go
+    - sdk/conversation.go
+    - sdk/provider_file.go
+    - sdk/provider_introspection.go
+    - sdk/runtime_config.go
+    - sdk/sdk.go
 ---
-Understanding LLM providers in PromptKit.
+This page explains what a provider is in PromptKit, why the runtime puts every provider behind one interface, and how credentials and call costs are resolved.
 
 ## What is a Provider?
 
@@ -11,77 +65,49 @@ A **provider** is an LLM service (OpenAI, Anthropic, Google) that generates text
 
 ## Supported Providers
 
-### OpenAI
-- **Models**: GPT-4o, GPT-4o-mini, GPT-4-turbo, GPT-3.5-turbo
-- **Features**: Function calling, JSON mode, vision, streaming
-- **Pricing**: Pay per token, varies by model
-
-### Anthropic (Claude)
-- **Models**: Claude 3.5 Sonnet, Claude 3.5 Haiku, Claude 3 Opus
-- **Features**: Function calling, vision, 200K context, streaming
-- **Pricing**: Pay per token, varies by model
-
-### Google (Gemini)
-- **Models**: Gemini 1.5 Pro, Gemini 1.5 Flash
-- **Features**: Function calling, multimodal, 1M+ context, streaming
-- **Pricing**: Pay per token, free tier available
-
-### Ollama (Local)
-- **Models**: Llama 3.2, Mistral, LLaVA, DeepSeek, Phi, and more
-- **Features**: Function calling, vision (LLaVA), streaming, OpenAI-compatible API
-- **Pricing**: Free (local inference, no API costs)
-
-### vLLM (High-Performance Inference)
-- **Models**: Any HuggingFace model, Llama 3.x, Mistral, Qwen, Phi, LLaVA, and more
-- **Features**: Function calling, vision, streaming, guided decoding, beam search, GPU-accelerated high-throughput
-- **Pricing**: Free (self-hosted, no API costs)
+The chat provider types are `openai`, `claude`, `gemini`, `ollama` and `vllm`. The first three call vendor APIs. `ollama` and `vllm` call servers you run yourself. `mock` returns canned responses and `replay` replays a recorded session, both for tests, and `imagen` generates images. For the models each type serves, and how to configure it, see [Set up providers](/runtime/how-to/providers/setup-providers/).
 
 ## Provider Roles
 
-Every provider declares a `role:` that tells the runtime which interface
-it implements:
+A provider's `role:` field is optional and defaults to `llm`. It tells the runtime which interface the provider implements:
 
-- `llm` (default) — chat completion via `Predict()`. The matrix of
+- `llm` is the default role: chat completion via `Predict()`. The matrix of
   agents-under-test in arena scenarios is built from these.
-- `tts` — text-to-speech via `Synthesize()`.
-- `stt` — speech-to-text via `Transcribe()`.
-- `embedding` — vector embeddings via `Embed()`.
-- `image` — image generation; Predict-compatible, so eligible for the
+- `tts` is text-to-speech via `Synthesize()`.
+- `stt` is speech-to-text via `Transcribe()`.
+- `embedding` is vector embeddings via `Embed()`.
+- `image` is image generation; Predict-compatible, so eligible for the
   arena matrix alongside `llm`.
-- `inference` — non-LLM classification through one interface,
-  `inference.Provider`: content in, a probability per label out. Powers
+- `rerank` orders documents by relevance to a query via `Rerank()`. Types:
+  `cohere` and `voyageai`.
+- `inference` is non-LLM classification through one interface,
+  `inference.Provider`: content in, a probability per label out. It powers
   checks like `audio_emotion`, `text_toxicity` and `topic_policy`. Types:
-  `huggingface`, `openai` (logprobs), `systemone` (Jev); see
+  `huggingface`, `openai` (logprobs), `systemone` (Jev) and
+  `nvidia-topic-control`; see
   [Inference Providers](https://promptarena.altairalabs.ai/arena/how-to/configure-providers/#inference-providers-audio--text--image-classification--embedding)
   in the configure-providers how-to.
 
-Providers route into role-specific registries at load time. One backend
-can satisfy several roles if it implements multiple interfaces (e.g.
-the HuggingFace inference backend registers as audio, text, image, and
-embedder simultaneously).
+Providers route into role-specific registries at load time. An inference
+backend implements the single `inference.Provider` interface and serves several
+tasks by looking at the content of each request. The HuggingFace inference
+backend, for example, is one `inference.Provider` that handles candidate-label,
+audio and image classification. Embeddings come from a separate provider under
+`role: embedding`.
 
 ## Platform Support
 
-PromptKit supports running models on cloud hyperscaler platforms in addition to direct API access:
+PromptKit runs models on cloud hyperscaler platforms in addition to direct API access. The platform route reaches the same models through the cloud's own authentication, so you hold no vendor API key.
 
-### AWS Bedrock
-- **Authentication**: Uses AWS SDK credential chain (IRSA, IAM roles, env vars)
-- **Models**: Claude models via Anthropic partnership
-- **Benefits**: Enterprise security, VPC integration, no API key management
+AWS Bedrock authenticates through the AWS SDK credential chain (IRSA, IAM roles, `AWS_*` environment variables). It serves Claude models and OpenAI-shaped models. A `gemini` provider on Bedrock is rejected.
 
-### Google Cloud Vertex AI
-- **Authentication**: Uses GCP Application Default Credentials (Workload Identity, service accounts)
-- **Models**: Claude and Gemini models
-- **Benefits**: GCP integration, enterprise compliance, unified billing
+Google Cloud Vertex AI authenticates through GCP Application Default Credentials (Workload Identity, service accounts, `GOOGLE_APPLICATION_CREDENTIALS`). It serves Claude and Gemini models, and OpenAI-type models through Model Garden.
 
-### Azure AI Foundry
-- **Authentication**: Uses Azure AD tokens (Managed Identity, service principals)
-- **Models**: OpenAI models via Azure partnership
-- **Benefits**: Azure integration, enterprise security, compliance
+Azure AI Foundry authenticates through the Azure default credential chain (managed identity, service principals via `AZURE_*` environment variables, the Azure CLI). It serves OpenAI models and Claude models. A `gemini` provider on Azure is rejected.
 
 ## Why Provider Abstraction?
 
-**Problem**: Each provider has different APIs
+Each vendor ships a different API:
 
 ```go
 // OpenAI specific
@@ -94,7 +120,7 @@ anthropic.Messages(...)
 genai.GenerateContent(...)
 ```
 
-**Solution**: Common interface
+PromptKit gives them one interface instead:
 
 ```go
 // Works with any provider
@@ -102,474 +128,79 @@ var provider providers.Provider
 response, err := provider.Predict(ctx, req)
 ```
 
-## Provider Interface
-
-```go
-type Provider interface {
-    ID() string
-    Model() string
-    Predict(ctx context.Context, req PredictionRequest) (PredictionResponse, error)
-    PredictStream(ctx context.Context, req PredictionRequest) (<-chan StreamChunk, error)
-    SupportsStreaming() bool
-    ShouldIncludeRawOutput() bool
-    Close() error
-    CalculateCost(inputTokens, outputTokens, cachedTokens int) types.CostInfo
-}
-```
-
-## Using Providers
-
-### Basic Usage
-
-```go
-// Create provider
-provider := openai.NewProvider("my-openai", "gpt-4o-mini", "", providers.ProviderDefaults{}, false)
-defer provider.Close()
-
-// Send request
-req := providers.PredictionRequest{
-    Messages: []types.Message{
-        {Role: "user", Content: "Hello"},
-    },
-}
-response, err := provider.Predict(ctx, req)
-if err != nil {
-    log.Fatal(err)
-}
-
-fmt.Println(response.Content)
-```
-
-### With Configuration
-
-```go
-req := providers.PredictionRequest{
-    Messages:    messages,
-    MaxTokens:   500,
-    Temperature: 0.7,
-    TopP:        0.9,
-}
-
-response, err := provider.Predict(ctx, req)
-```
-
-### Streaming
-
-```go
-stream, err := provider.PredictStream(ctx, req)
-if err != nil {
-    log.Fatal(err)
-}
-
-for chunk := range stream {
-    if chunk.Error != nil {
-        break
-    }
-    fmt.Print(chunk.Delta)
-}
-```
+Code written against `providers.Provider` changes provider by changing the value behind the interface. The interface, its request and response types and its errors are documented in the [Provider reference](/runtime/reference/providers/). For the steps to create a provider and call it, see [Set up providers](/runtime/how-to/providers/setup-providers/).
 
 ## Credential Configuration
 
-PromptKit supports flexible credential configuration with a resolution chain:
+A provider's credential resolves through a chain, so that an explicit setting beats an implicit one and a deployment can choose where secrets live. The chain tries, in order, `api_key` (an explicit key in configuration), `credential_file` (a key read from a file path), `credential_env` (a key read from a named environment variable), and finally the default environment variables for the provider type, such as `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`.
 
-### Resolution Order
+Each step suits a different deployment. A file path fits secrets mounted by an orchestrator. A named environment variable lets two providers of the same type, such as `openai-prod` and `openai-dev`, use different keys. An inline `api_key` suits local experiments and not production configuration. For the credential fields and YAML examples, see the [runtime config reference](/sdk/reference/runtime-config/).
 
-Credentials are resolved in the following priority order:
-
-1. **`api_key`**: Explicit API key in configuration
-2. **`credential_file`**: Read API key from a file path
-3. **`credential_env`**: Read API key from specified environment variable
-4. **Default env vars**: Fall back to provider-specific defaults (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
-
-### Configuration Examples
-
-```yaml
-# Explicit API key (not recommended for production)
-credential:
-  api_key: "sk-..."
-
-# Read from file (good for secrets management)
-credential:
-  credential_file: /run/secrets/openai-key
-
-# Read from custom env var (useful for multiple providers)
-credential:
-  credential_env: OPENAI_PROD_API_KEY
-```
-
-### Per-Provider Credentials
-
-Configure different credentials for the same provider type:
-
-```yaml
-providers:
-  - id: openai-prod
-    type: openai
-    model: gpt-4o
-    credential:
-      credential_env: OPENAI_PROD_KEY
-
-  - id: openai-dev
-    type: openai
-    model: gpt-4o-mini
-    credential:
-      credential_env: OPENAI_DEV_KEY
-```
-
-### Platform Credentials
-
-For cloud platforms, credentials are handled automatically via SDK credential chains:
-
-```yaml
-# AWS Bedrock - uses IRSA, IAM roles, or AWS_* env vars
-- id: claude-bedrock
-  type: claude
-  model: claude-3-5-sonnet-20241022
-  platform:
-    type: bedrock
-    region: us-west-2
-
-# GCP Vertex AI - uses Workload Identity or GOOGLE_APPLICATION_CREDENTIALS
-- id: claude-vertex
-  type: claude
-  model: claude-3-5-sonnet-20241022
-  platform:
-    type: vertex
-    region: us-central1
-    project: my-gcp-project
-
-# Azure AI - uses Managed Identity or AZURE_* env vars
-- id: gpt4-azure
-  type: openai
-  model: gpt-4o
-  platform:
-    type: azure
-    endpoint: https://my-resource.openai.azure.com
-```
+For cloud platforms, credentials come from the platform's SDK credential chain instead of a key. A provider selects a platform with a `platform` block whose `type` is `bedrock`, `vertex` or `azure`, and whose `region` names the cloud region. Vertex also takes a `project`. Azure takes an `endpoint`, and the same field carries a Model Garden endpoint ID for an OpenAI-type provider on Vertex.
 
 ## Provider Configuration
 
-### Common Parameters
-
-```go
-type PredictionRequest struct {
-    System         string                 // System prompt
-    Messages       []types.Message        // Conversation history
-    Temperature    float32                // Randomness 0-2 (0: provider default)
-    TopP           float32                // Nucleus sampling 0-1 (0: provider default)
-    MaxTokens      int                    // Output limit (0: provider default)
-    Seed           *int                   // Reproducibility (optional)
-    ResponseFormat *ResponseFormat        // Optional response format (JSON mode)
-    Metadata       map[string]any         // Provider-specific extras
-}
-```
-
 ### Temperature
 
-Controls randomness:
+Temperature controls how random the model's output is. Lower values make output more focused and higher values make it more varied.
 
-- **0.0**: Deterministic, same output
-- **0.5**: Balanced
-- **1.0**: Creative (default)
-- **2.0**: Very random
-
-```go
-// Factual tasks
-config := &providers.PredictionRequest{Temperature: 0.2}
-
-// Creative tasks
-config := &providers.PredictionRequest{Temperature: 1.2}
-```
+PromptKit has no temperature default of its own. A `PredictionRequest` with a `Temperature` of 0 counts as unset unless `TemperatureSet` is true, and the provider then substitutes `ProviderDefaults.Temperature`, whose zero value is 0. Claude omits the field in that case and the API applies its own default. Providers that the SDK builds itself default to 0.7. To send a temperature of 0, set `TemperatureSet: true`. Even then the vendor APIs do not guarantee identical output from identical input.
 
 ### Max Tokens
 
-Limits output length:
+Max tokens limits the length of the output. A request with `MaxTokens` at zero uses the provider's `Defaults.MaxTokens`. When that is zero or `providers.MaxTokensUnlimited`, the provider sends no limit and the model's own maximum applies. Claude requires a limit, so it sends 4096 instead and rejects `MaxTokensUnlimited` when the provider is created.
 
-```go
-// Short responses
-config := &providers.PredictionRequest{MaxTokens: 100}
-
-// Long responses
-config := &providers.PredictionRequest{MaxTokens: 4096}
-```
-
-A request with `MaxTokens` at zero uses the provider's `Defaults.MaxTokens`.
-When that is zero or `providers.MaxTokensUnlimited`, the provider sends no
-limit and the model's own maximum applies. Claude requires a limit, so it sends
-4096 instead and rejects `MaxTokensUnlimited` when the provider is created.
+The remaining request fields are listed in the [Provider reference](/runtime/reference/providers/).
 
 ## Multi-Provider Strategies
 
-### Fallback
+Because every provider shares one interface, strategies that span providers are ordinary Go code: fall back to a second provider when the first fails, spread requests across several, or pick a model by the task. [Set up providers](/runtime/how-to/providers/setup-providers/) implements fallback and model selection by task.
 
-Try providers in order:
+## How Calls Are Priced
 
-```go
-providerList := []providers.Provider{primary, secondary, tertiary}
+A provider records what each call cost as a `CostInfo`: the tokens used by
+unit (input, cached input, output and reasoning, plus audio, image and video
+where the provider reports them apart) and the dollar cost of each unit.
 
-var response providers.PredictionResponse
-var err error
+The diagram shows how Claude, OpenAI and Gemini resolve a call's rates.
 
-for _, provider := range providerList {
-    response, err = provider.Predict(ctx, req)
-    if err == nil {
-        break  // Success
-    }
-    log.Printf("Provider %s failed: %v", provider.ID(), err)
-}
+```mermaid
+flowchart TD
+    A["Call completes with token usage"] --> B{"Pricing descriptor set on the provider in code?"}
+    B -- yes --> R["Price each unit with the descriptor"]
+    B -- no --> C{"pricing config sets input_cost_per_1k and output_cost_per_1k?"}
+    C -- yes --> F["Flat rates: input rate on input tokens, output rate on output tokens"]
+    C -- no --> D{"Built-in rate for the model?"}
+    D -- yes --> T["Price with the built-in rates"]
+    D -- no --> Z["Record $0 with a warning per unpriced unit"]
 ```
 
-### Load Balancing
+Claude, OpenAI and Gemini use the first of these that covers the model:
 
-Distribute across providers:
+- A pricing descriptor set on the provider in code.
+- The provider's `pricing` config, used when both `input_cost_per_1k` and `output_cost_per_1k` are set. It applies one input rate and one output rate to every input and output token, whatever its modality (text, audio, image or video), and prices reasoning tokens at the output rate. Cached tokens get no rate, so they are recorded unpriced with a warning.
+- The built-in rates for the model. These are a fallback. Each entry records the date it was checked against the vendor's price list, and vendors change prices without notice.
 
-```go
-providers := []providers.Provider{openai1, openai2, claude}
-current := 0
+A model with none of these is recorded at $0, and a warning names each unpriced unit, once per unit. vLLM has no built-in rates, so it prices from config only and records $0 without a warning when the config is absent.
 
-func GetNextProvider() providers.Provider {
-    provider := providers[current % len(providers)]
-    current++
-    return provider
-}
-```
-
-### Cost-Based Routing
-
-Route by cost:
-
-```go
-func SelectProvider(complexity string) providers.Provider {
-    switch complexity {
-    case "simple":
-        return gpt4oMini  // Cheapest
-    case "complex":
-        return gpt4o      // Best quality
-    case "long_context":
-        return gemini     // Largest context
-    default:
-        return gpt4oMini
-    }
-}
-```
-
-### Quality-Based Routing
-
-Route by quality needs:
-
-```go
-func SelectByQuality(task string) providers.Provider {
-    if task == "code_generation" {
-        return gpt4o  // Best for code
-    } else if task == "long_document" {
-        return claude  // Best for long docs
-    } else {
-        return gpt4oMini  // Good enough
-    }
-}
-```
-
-## Provider Comparison
-
-### Performance
-
-| Provider | Latency | Throughput | Context |
-|----------|---------|------------|---------|
-| GPT-4o-mini | ~500ms | High | 128K |
-| GPT-4o | ~1s | Medium | 128K |
-| Claude Sonnet | ~1s | Medium | 200K |
-| Claude Haiku | ~400ms | High | 200K |
-| Gemini Flash | ~600ms | High | 1M+ |
-| Gemini Pro | ~1.5s | Medium | 1M+ |
-
-### Cost
-
-| Provider | Input (per 1M tokens) | Output (per 1M tokens) |
-|----------|----------------------|------------------------|
-| GPT-4o-mini | $0.15 | $0.60 |
-| GPT-4o | $2.50 | $10.00 |
-| Claude Haiku | $0.25 | $1.25 |
-| Claude Sonnet | $3.00 | $15.00 |
-| Gemini Flash | $0.075 | $0.30 |
-| Gemini Pro | $1.25 | $5.00 |
-
-### Use Cases
-
-**GPT-4o-mini**: General purpose, cost-effective  
-**GPT-4o**: Complex reasoning, code generation  
-**Claude Haiku**: Fast responses, high volume  
-**Claude Sonnet**: Long documents, analysis  
-**Gemini Flash**: Multimodal, cost-effective  
-**Gemini Pro**: Very long context, research  
-
-## Provider Selection Guide
-
-### Choose GPT-4o-mini when:
-- Cost is primary concern
-- Tasks are straightforward
-- High volume needed
-- Quick responses required
-
-### Choose GPT-4o when:
-- Quality is critical
-- Complex reasoning needed
-- Code generation
-- Mathematical tasks
-
-### Choose Claude Sonnet when:
-- Long document analysis
-- Detailed writing
-- Research tasks
-- Need 200K context
-
-### Choose Claude Haiku when:
-- Speed critical
-- Simple tasks
-- High throughput
-- Cost-effective
-
-### Choose Gemini Flash when:
-- Multimodal input
-- Cost-effective
-- Good balance
-- Video processing
-
-### Choose Gemini Pro when:
-- Very long context (1M+ tokens)
-- Research papers
-- Large codebases
-- Book analysis
-
-## Best Practices
-
-### Resource Management
-
-✅ **Close providers**
-```go
-provider := openai.NewProvider("my-openai", "gpt-4o-mini", "", providers.ProviderDefaults{}, false)
-defer provider.Close()  // Essential
-```
-
-✅ **Reuse providers**
-```go
-// Good: One provider, many requests
-provider := createProvider()
-for _, req := range requests {
-    provider.Predict(ctx, req)
-}
-
-// Bad: New provider per request
-for _, req := range requests {
-    provider := createProvider()
-    provider.Predict(ctx, req)
-    provider.Close()
-}
-```
-
-### Error Handling
-
-✅ **Handle provider errors**
-```go
-response, err := provider.Predict(ctx, req)
-if err != nil {
-    if errors.Is(err, ErrRateLimited) {
-        // Wait and retry
-    } else if errors.Is(err, ErrInvalidKey) {
-        // Check credentials
-    } else {
-        // Fallback provider
-    }
-}
-```
-
-### Timeouts
-
-✅ **Set context timeouts**
-```go
-ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-defer cancel()
-
-response, err := provider.Predict(ctx, req)
-```
+Set `pricing` when cost feeds billing or a budget, and always when you pay
+negotiated or regional rates. For current list prices, see the vendors' pages:
+[OpenAI](https://platform.openai.com/docs/pricing),
+[Anthropic](https://platform.claude.com/docs/en/about-claude/pricing) and
+[Google](https://aistudio.google.com/docs/pricing). To track the cost of calls as they happen, see [Monitor costs](/runtime/how-to/observability/monitor-costs/).
 
 ## Testing with Providers
 
-### Mock Provider
+The mock provider makes no API calls, so tests that use it run fast, return predictable responses and work offline. It does not exercise a vendor's behavior, so keep a small set of tests against real providers. For the mock provider's setup, see [Set up providers](/runtime/how-to/providers/setup-providers/).
 
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+## Operating Providers
 
-func TestWithMock(t *testing.T) {
-    mockProvider := mock.NewMockProvider()
-    mockProvider.SetResponse("Test response")
-    
-    response, err := mockProvider.Predict(ctx, req)
-    assert.NoError(t, err)
-    assert.Equal(t, "Test response", response.Content)
-}
-```
-
-### Benefits
-
-- No API calls
-- No costs
-- Fast tests
-- Predictable responses
-- Offline testing
-
-## Monitoring Providers
-
-### Track Usage
-
-```go
-type ProviderMetrics struct {
-    RequestCount   int
-    ErrorCount     int
-    TotalCost      float64
-    TotalTokens    int
-    AvgLatency     time.Duration
-}
-
-func TrackRequest(provider string, response *providers.PredictionResponse, err error) {
-    metrics := GetMetrics(provider)
-    metrics.RequestCount++
-    
-    if err != nil {
-        metrics.ErrorCount++
-    } else {
-        metrics.TotalCost += response.Cost
-        metrics.TotalTokens += response.Usage.TotalTokens
-    }
-}
-```
-
-### Monitor Costs
-
-Track costs using the event bus and provider cost calculation:
-
-```go
-bus := events.NewEventBus()
-bus.Subscribe(events.EventProviderCallCompleted, func(e *events.Event) {
-    data := e.Data.(events.ProviderCallCompletedData)
-    fmt.Printf("Call cost: $%.4f\n", data.Cost)
-})
-```
-
-## Summary
-
-Providers are:
-
-✅ **Abstracted** - Common interface for all LLMs  
-✅ **Flexible** - Easy to switch or combine  
-✅ **Configurable** - Fine-tune behavior  
-✅ **Testable** - Mock for unit tests  
-✅ **Monitorable** - Track usage and costs  
+A provider holds an HTTP client and its connections, so create one per provider configuration and reuse it across requests rather than creating one per request. Closing providers, handling provider errors and setting timeouts around `Predict` are covered in [Set up providers](/runtime/how-to/providers/setup-providers/). The sentinel errors are listed in the [Provider reference](/runtime/reference/providers/).
 
 ## Related Documentation
 
-- [Provider System Explanation](/runtime/explanation/provider-system) - Architecture details
-- [Provider Reference](/runtime/reference/providers) - API documentation
+- [Provider System Explanation](/runtime/explanation/provider-system/) - Architecture details
+- [Provider Reference](/runtime/reference/providers/) - API documentation
 - [Cloud Provider Examples](https://promptarena.altairalabs.ai/arena/examples/) - Bedrock, Vertex, Azure examples
-- [Multi-Provider Fallback](/runtime/how-to/providers/setup-providers/) - Implementation guide
-- [Cost Monitoring](/runtime/how-to/observability/monitor-costs) - Track expenses
+- [Set up providers](/runtime/how-to/providers/setup-providers/) - Implementation guide, including fallback and mocks
+- [Monitor costs](/runtime/how-to/observability/monitor-costs/) - Track expenses
