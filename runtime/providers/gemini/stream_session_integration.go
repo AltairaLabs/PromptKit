@@ -27,6 +27,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -38,7 +39,6 @@ const (
 // Configuration constants
 const (
 	responseChannelSize = 10
-	tokensPerThousand   = 1000.0
 
 	// Reconnection constants
 	reconnectSetupTimeoutSec = 10 // Timeout for setup_complete after reconnect
@@ -61,15 +61,15 @@ type StreamSession struct {
 
 	ws *WebSocketManager
 	// NOSONAR: ctx is required for session lifecycle (background goroutines, reconnection)
-	ctx             context.Context
-	cancel          context.CancelFunc
-	emitCh          chan providers.StreamChunk
-	errCh           chan error
-	mu              sync.Mutex
-	closed          bool
-	sequenceNum     int64
-	inputCostPer1K  float64 // Cost per 1K input tokens
-	outputCostPer1K float64 // Cost per 1K output tokens
+	ctx         context.Context
+	cancel      context.CancelFunc
+	emitCh      chan providers.StreamChunk
+	errCh       chan error
+	mu          sync.Mutex
+	closed      bool
+	sequenceNum int64
+	pricing     *base.PricingDescriptor // nil prices at $0 (see base.PriceUsage)
+	providerID  string                  // provider name stamped on CostInfo
 
 	// Configuration stored for reconnection
 	wsURL    string
@@ -137,6 +137,13 @@ type StreamSessionConfig struct {
 	// Sampling is the prompt's sampling parameters, sent in the setup
 	// message's generationConfig (except the penalties, which Gemini rejects).
 	Sampling *providers.StreamingSampling
+
+	// pricing and providerID are set by the Gemini provider: pricing is its
+	// resolved descriptor (config, then flat per-1K, then the built-in table).
+	// A session built directly from a config falls back to InputCostPer1K /
+	// OutputCostPer1K, then the built-in table for Model.
+	pricing    *base.PricingDescriptor
+	providerID string
 }
 
 // NewStreamSession creates a new streaming session
@@ -195,14 +202,33 @@ func createSession(
 		cancel:            cancel,
 		emitCh:            emitCh,
 		errCh:             make(chan error, 1),
-		inputCostPer1K:    config.InputCostPer1K,
-		outputCostPer1K:   config.OutputCostPer1K,
+		pricing:           sessionPricing(config),
+		providerID:        sessionProviderID(config),
 		wsURL:             wsURL,
 		apiKey:            apiKey,
 		config:            *config,
 		autoReconnect:     config.AutoReconnect,
 		maxReconnectTries: maxReconnectTries,
 	}
+}
+
+// sessionPricing returns the descriptor the provider resolved, or resolves one
+// from the config for a session built without the provider.
+func sessionPricing(config *StreamSessionConfig) *base.PricingDescriptor {
+	if config.pricing != nil {
+		return config.pricing
+	}
+	return base.ResolveLLMPricing(nil,
+		base.FlatPricing{Input: config.InputCostPer1K, Output: config.OutputCostPer1K},
+		geminiPricingTable, config.Model)
+}
+
+// sessionProviderID names the provider on CostInfo, defaulting to "gemini".
+func sessionProviderID(config *StreamSessionConfig) string {
+	if config.providerID != "" {
+		return config.providerID
+	}
+	return "gemini"
 }
 
 // logSetupMessage logs the setup message at debug level

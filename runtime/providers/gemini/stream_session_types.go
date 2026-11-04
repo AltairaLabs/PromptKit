@@ -1,5 +1,7 @@
 package gemini
 
+import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+
 // ServerMessage represents a message from the Gemini server (BidiGenerateContentServerMessage)
 type ServerMessage struct {
 	SetupComplete *SetupComplete `json:"setupComplete,omitempty"`
@@ -8,11 +10,35 @@ type ServerMessage struct {
 	UsageMetadata *UsageMetadata `json:"usageMetadata,omitempty"`
 }
 
-// UsageMetadata contains token usage information
+// UsageMetadata contains token usage information. The *Details fields break
+// the counts down by modality; audio is billed at several times the text rate,
+// so they are what makes a voice session's cost right.
 type UsageMetadata struct {
-	PromptTokenCount   int `json:"promptTokenCount,omitempty"`
-	ResponseTokenCount int `json:"responseTokenCount,omitempty"`
-	TotalTokenCount    int `json:"totalTokenCount,omitempty"`
+	PromptTokenCount           int                  `json:"promptTokenCount,omitempty"`
+	CachedContentTokenCount    int                  `json:"cachedContentTokenCount,omitempty"`
+	ResponseTokenCount         int                  `json:"responseTokenCount,omitempty"`
+	ToolUsePromptTokenCount    int                  `json:"toolUsePromptTokenCount,omitempty"`
+	ThoughtsTokenCount         int                  `json:"thoughtsTokenCount,omitempty"`
+	TotalTokenCount            int                  `json:"totalTokenCount,omitempty"`
+	PromptTokensDetails        []ModalityTokenCount `json:"promptTokensDetails,omitempty"`
+	CacheTokensDetails         []ModalityTokenCount `json:"cacheTokensDetails,omitempty"`
+	ResponseTokensDetails      []ModalityTokenCount `json:"responseTokensDetails,omitempty"`
+	ToolUsePromptTokensDetails []ModalityTokenCount `json:"toolUsePromptTokensDetails,omitempty"`
+}
+
+// tokens maps the Live API usage into canonical units; see usageCounts.tokens.
+func (u *UsageMetadata) tokens() base.TokenUsage {
+	return usageCounts{
+		prompt:         u.PromptTokenCount,
+		cached:         u.CachedContentTokenCount,
+		toolUse:        u.ToolUsePromptTokenCount,
+		response:       u.ResponseTokenCount,
+		thoughts:       u.ThoughtsTokenCount,
+		promptDetails:  u.PromptTokensDetails,
+		cacheDetails:   u.CacheTokensDetails,
+		toolUseDetails: u.ToolUsePromptTokensDetails,
+		output:         u.ResponseTokensDetails,
+	}.tokens()
 }
 
 // SetupComplete indicates setup is complete (empty object per docs)

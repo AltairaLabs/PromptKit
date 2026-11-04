@@ -1267,10 +1267,6 @@ func TestStreamSessionConstants(t *testing.T) {
 	if responseChannelSize != 10 {
 		t.Errorf("Expected responseChannelSize = 10, got %d", responseChannelSize)
 	}
-
-	if tokensPerThousand != 1000.0 {
-		t.Errorf("Expected tokensPerThousand = 1000.0, got %f", tokensPerThousand)
-	}
 }
 
 func TestStreamSessionConfigValidation(t *testing.T) {

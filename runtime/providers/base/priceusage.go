@@ -46,7 +46,7 @@ func PriceUsage(
 // deriveHeadlines fills the flat directional headline fields from the priced
 // Breakdown, preserving TotalCost == InputCostUSD + OutputCostUSD + CachedCostUSD.
 //
-//	InputCostUSD  <- input + cache_write + audio_input
+//	InputCostUSD  <- input + cache_write + audio_input + image_input + video_input
 //	CachedCostUSD <- cache_read
 //	OutputCostUSD <- output + reasoning + audio_output
 //
@@ -59,7 +59,7 @@ func PriceUsage(
 func deriveHeadlines(ci *types.CostInfo) {
 	for _, li := range ci.Breakdown {
 		switch li.Unit {
-		case UnitInputToken, UnitCacheWriteToken, UnitAudioInputToken:
+		case UnitInputToken, UnitCacheWriteToken, UnitAudioInputToken, UnitImageInputToken, UnitVideoInputToken:
 			ci.InputCostUSD += li.USD
 		case UnitCacheReadToken:
 			ci.CachedCostUSD += li.USD

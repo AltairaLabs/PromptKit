@@ -16,8 +16,12 @@ type FlatPricing struct {
 const per1KScale = 1000.0
 
 // ResolveLLMPricing selects the pricing descriptor for a model, in order:
-// explicit config descriptor > flat config pricing > embedded default table >
-// nil (paid provider; PriceUsage will warn on nonzero unpriced units).
+// explicit config descriptor > flat config pricing > embedded default table.
+//
+// A provider that ships a table is a paid one, so a model missing from it
+// resolves to an empty descriptor: PriceUsage then warns about every nonzero
+// unit instead of reporting a silent $0. With no table (a self-hosted server
+// such as vLLM) and no config, it returns nil, which prices at $0 quietly.
 func ResolveLLMPricing(
 	configDesc *PricingDescriptor, flat FlatPricing,
 	table map[string]*PricingDescriptor, model string,
@@ -30,16 +34,26 @@ func ResolveLLMPricing(
 		// splits them out (OpenAI o-series, Gemini thinking), so a flat config
 		// — which does carry a known output rate — must price reasoning too, or
 		// a thinking model under flat config understates cost by the reasoning
-		// amount. (Cache tokens are deliberately NOT priced here: a flat config
+		// amount. A flat config is one input rate and one output rate, so audio,
+		// image and video bill at them too, as they did before providers split
+		// those modalities out. (Cache tokens are NOT priced here: a flat config
 		// carries no provider-specific cache multiplier, so they go loud-unpriced.)
+		in, out := flat.Input/per1KScale, flat.Output/per1KScale
 		return &PricingDescriptor{Source: PricingSourceInline, Items: []PriceItem{
-			{Unit: UnitInputToken, Rate: flat.Input / per1KScale},
-			{Unit: UnitOutputToken, Rate: flat.Output / per1KScale},
-			{Unit: UnitReasoningToken, Rate: flat.Output / per1KScale},
+			{Unit: UnitInputToken, Rate: in},
+			{Unit: UnitAudioInputToken, Rate: in},
+			{Unit: UnitImageInputToken, Rate: in},
+			{Unit: UnitVideoInputToken, Rate: in},
+			{Unit: UnitOutputToken, Rate: out},
+			{Unit: UnitAudioOutputToken, Rate: out},
+			{Unit: UnitReasoningToken, Rate: out},
 		}}
 	}
 	if d, ok := table[normalizeModel(model)]; ok {
 		return d
+	}
+	if table != nil {
+		return &PricingDescriptor{Source: PricingSourceInline}
 	}
 	return nil
 }
