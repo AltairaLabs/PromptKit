@@ -63,10 +63,21 @@ func (u usageCounts) tokens() base.TokenUsage {
 		Input:       nonNegative(u.prompt + u.toolUse - u.cached - audioIn - imageIn - videoIn),
 		CacheRead:   u.cached,
 		AudioInput:  audioIn,
-		ImageInput:  imageIn,
-		VideoInput:  videoIn,
 		Output:      nonNegative(u.response - audioOut),
 		AudioOutput: audioOut,
 		Reasoning:   u.thoughts,
+		Extra:       visualInput(imageIn, videoIn),
+	}
+}
+
+// visualInput carries image and video input as Extra units, nil when neither
+// is present.
+func visualInput(image, video int) map[string]float64 {
+	if image == 0 && video == 0 {
+		return nil
+	}
+	return map[string]float64{
+		base.UnitImageInputToken: float64(image),
+		base.UnitVideoInputToken: float64(video),
 	}
 }

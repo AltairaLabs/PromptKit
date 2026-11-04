@@ -30,7 +30,8 @@ func TestUsageCounts_Tokens(t *testing.T) {
 				output: []ModalityTokenCount{{Modality: "TEXT", TokenCount: 150}, {Modality: "AUDIO", TokenCount: 450}},
 			},
 			want: base.TokenUsage{
-				Input: 100, AudioInput: 600, ImageInput: 200, VideoInput: 100, Output: 150, AudioOutput: 450,
+				Input: 100, AudioInput: 600, Output: 150, AudioOutput: 450,
+				Extra: map[string]float64{base.UnitImageInputToken: 200, base.UnitVideoInputToken: 100},
 			},
 		},
 		{

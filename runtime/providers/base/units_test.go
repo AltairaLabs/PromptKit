@@ -20,7 +20,7 @@ func TestTokenUsage_Quantities_OnlyNonzero(t *testing.T) {
 func TestTokenUsage_Quantities_IncludesAllUnitsAndExtra(t *testing.T) {
 	u := base.TokenUsage{
 		Input: 1, CacheRead: 2, CacheWrite: 3, Output: 4, Reasoning: 5,
-		AudioInput: 6, AudioOutput: 7, ImageInput: 9, VideoInput: 10,
+		AudioInput: 6, AudioOutput: 7,
 		Extra: map[string]float64{"custom_token": 8},
 	}
 	q := u.Quantities()
@@ -32,8 +32,6 @@ func TestTokenUsage_Quantities_IncludesAllUnitsAndExtra(t *testing.T) {
 	assert.Equal(t, 6.0, q[base.UnitAudioInputToken])
 	assert.Equal(t, 7.0, q[base.UnitAudioOutputToken])
 	assert.Equal(t, 8.0, q["custom_token"])
-	assert.Equal(t, 9.0, q[base.UnitImageInputToken])
-	assert.Equal(t, 10.0, q[base.UnitVideoInputToken])
 }
 
 // TestPriceUsage_ImageAndVideoAreInputCost checks the headline split: image and
@@ -44,7 +42,9 @@ func TestPriceUsage_ImageAndVideoAreInputCost(t *testing.T) {
 		{Unit: base.UnitImageInputToken, Rate: 0.001},
 		{Unit: base.UnitVideoInputToken, Rate: 0.002},
 	}}
-	ci := base.PriceUsage(desc, "p", base.ProviderTypeInference, base.TokenUsage{ImageInput: 1000, VideoInput: 1000}, nil, 0)
+	ci := base.PriceUsage(desc, "p", base.ProviderTypeInference, base.TokenUsage{Extra: map[string]float64{
+		base.UnitImageInputToken: 1000, base.UnitVideoInputToken: 1000,
+	}}, nil, 0)
 	assert.InDelta(t, 3.0, ci.InputCostUSD, 1e-9)
 	assert.Zero(t, ci.OutputCostUSD)
 }
