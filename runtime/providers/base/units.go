@@ -13,6 +13,8 @@ const (
 	UnitReasoningToken   = "reasoning_token"    // thinking tokens, priced additively
 	UnitAudioInputToken  = "audio_input_token"  //nolint:gosec // realtime audio in, not a credential
 	UnitAudioOutputToken = "audio_output_token" // realtime audio out
+	UnitImageInputToken  = "image_input_token"  // image input, where a model prices it apart from text
+	UnitVideoInputToken  = "video_input_token"  // video input, where a model prices it apart from text
 )
 
 // TokenUsage is the normalized, provider-agnostic usage a provider hands to
@@ -27,13 +29,15 @@ type TokenUsage struct {
 	Reasoning   int
 	AudioInput  int
 	AudioOutput int
+	ImageInput  int
+	VideoInput  int
 	// Extra carries future/uncommon units keyed by canonical unit name.
 	Extra map[string]float64
 }
 
 // tokenUsageUnitCount is the number of canonical unit fields on TokenUsage,
 // used to pre-size the Quantities map.
-const tokenUsageUnitCount = 7
+const tokenUsageUnitCount = 9
 
 // Quantities converts the usage into the unit-keyed map the pricing engine
 // consumes, omitting zero-valued units.
@@ -51,6 +55,8 @@ func (u TokenUsage) Quantities() map[string]float64 {
 	set(UnitReasoningToken, u.Reasoning)
 	set(UnitAudioInputToken, u.AudioInput)
 	set(UnitAudioOutputToken, u.AudioOutput)
+	set(UnitImageInputToken, u.ImageInput)
+	set(UnitVideoInputToken, u.VideoInput)
 	for k, v := range u.Extra {
 		if v != 0 {
 			q[k] = v

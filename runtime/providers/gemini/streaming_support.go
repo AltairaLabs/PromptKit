@@ -6,6 +6,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -138,14 +139,18 @@ func (p *Provider) buildStreamSessionConfig(req *providers.StreamingInputConfig)
 	return config
 }
 
-// applyPricingConfig sets pricing from provider defaults or model-based defaults
+// applyPricingConfig resolves the session's pricing the same way costFromUsage
+// does for a request: an explicit config descriptor, then flat per-1K config,
+// then the built-in table. A model in none of them prices at $0 with a warning
+// rather than at a guessed rate.
 func (p *Provider) applyPricingConfig(config *StreamSessionConfig) {
-	if p.defaults.Pricing.InputCostPer1K > 0 && p.defaults.Pricing.OutputCostPer1K > 0 {
-		config.InputCostPer1K = p.defaults.Pricing.InputCostPer1K
-		config.OutputCostPer1K = p.defaults.Pricing.OutputCostPer1K
-	} else {
-		config.InputCostPer1K, config.OutputCostPer1K, _ = geminiPricing(p.model)
-	}
+	config.InputCostPer1K = p.defaults.Pricing.InputCostPer1K
+	config.OutputCostPer1K = p.defaults.Pricing.OutputCostPer1K
+	config.pricing = base.ResolveLLMPricing(
+		p.Pricing(),
+		base.FlatPricing{Input: config.InputCostPer1K, Output: config.OutputCostPer1K},
+		geminiPricingTable, p.model)
+	config.providerID = p.ID()
 }
 
 // applyMetadataConfig extracts configuration from request metadata

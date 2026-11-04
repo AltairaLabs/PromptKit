@@ -5,6 +5,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -36,27 +37,12 @@ func (s *StreamSession) handleToolCalls(toolCall *ToolCallMsg) error {
 	return nil
 }
 
-// buildCostInfo creates cost information from usage metadata.
+// buildCostInfo prices usage metadata through the shared pricing engine, by
+// modality, against the descriptor resolved when the session was created.
 func (s *StreamSession) buildCostInfo(usage *UsageMetadata) *types.CostInfo {
 	if usage == nil {
 		return nil
 	}
-
-	inputTokens := usage.PromptTokenCount
-	outputTokens := usage.ResponseTokenCount
-
-	var inputCostUSD, outputCostUSD, totalCost float64
-	if s.inputCostPer1K > 0 && s.outputCostPer1K > 0 {
-		inputCostUSD = float64(inputTokens) / tokensPerThousand * s.inputCostPer1K
-		outputCostUSD = float64(outputTokens) / tokensPerThousand * s.outputCostPer1K
-		totalCost = inputCostUSD + outputCostUSD
-	}
-
-	return &types.CostInfo{
-		InputTokens:   inputTokens,
-		OutputTokens:  outputTokens,
-		InputCostUSD:  inputCostUSD,
-		OutputCostUSD: outputCostUSD,
-		TotalCost:     totalCost,
-	}
+	ci := base.PriceUsage(s.pricing, s.providerID, base.ProviderTypeInference, usage.tokens(), nil, 0)
+	return &ci
 }

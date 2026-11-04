@@ -331,19 +331,28 @@ type geminiUsage struct {
 	CachedContentTokenCount int `json:"cachedContentTokenCount,omitempty"`
 	// ThoughtsTokenCount is Gemini 2.5+ "thinking" token usage. It is billed
 	// on top of CandidatesTokenCount (at the output rate), not a subset of it.
-	ThoughtsTokenCount int `json:"thoughtsTokenCount,omitempty"`
+	ThoughtsTokenCount         int                  `json:"thoughtsTokenCount,omitempty"`
+	ToolUsePromptTokenCount    int                  `json:"toolUsePromptTokenCount,omitempty"`
+	PromptTokensDetails        []ModalityTokenCount `json:"promptTokensDetails,omitempty"`
+	CacheTokensDetails         []ModalityTokenCount `json:"cacheTokensDetails,omitempty"`
+	CandidatesTokensDetails    []ModalityTokenCount `json:"candidatesTokensDetails,omitempty"`
+	ToolUsePromptTokensDetails []ModalityTokenCount `json:"toolUsePromptTokensDetails,omitempty"`
 }
 
-// geminiUsageToTokens maps Gemini's cache-INCLUSIVE prompt accounting into
-// canonical units: uncached input = prompt - cached; thoughts are billed on
-// top of candidates, so they become the reasoning unit.
+// geminiUsageToTokens maps a generateContent usageMetadata into canonical
+// units; see usageCounts.tokens.
 func geminiUsageToTokens(u geminiUsage) base.TokenUsage {
-	return base.TokenUsage{
-		Input:     u.PromptTokenCount - u.CachedContentTokenCount,
-		CacheRead: u.CachedContentTokenCount,
-		Output:    u.CandidatesTokenCount,
-		Reasoning: u.ThoughtsTokenCount,
-	}
+	return usageCounts{
+		prompt:         u.PromptTokenCount,
+		cached:         u.CachedContentTokenCount,
+		toolUse:        u.ToolUsePromptTokenCount,
+		response:       u.CandidatesTokenCount,
+		thoughts:       u.ThoughtsTokenCount,
+		promptDetails:  u.PromptTokensDetails,
+		cacheDetails:   u.CacheTokensDetails,
+		toolUseDetails: u.ToolUsePromptTokensDetails,
+		output:         u.CandidatesTokensDetails,
+	}.tokens()
 }
 
 // costFromUsage prices a geminiUsage through the unit-keyed pricing engine: an
@@ -926,34 +935,6 @@ func countPartsByType(parts []types.ContentPart, partType string) int {
 		}
 	}
 	return count
-}
-
-// geminiPricing returns pricing for Gemini models (input, output, cached per 1K tokens)
-func geminiPricing(model string) (inputPrice, outputPrice, cachedPrice float64) {
-	// Define pricing constants
-	const (
-		proInput     = 0.00125
-		proOutput    = 0.005
-		proCached    = 0.000625
-		flashInput   = 0.000075
-		flashOutput  = 0.0003
-		flashCached  = 0.0000375
-		geminiInput  = 0.0005
-		geminiOutput = 0.0015
-		geminiCached = 0.00025
-	)
-
-	switch model {
-	case idGemini15Pro, idGemini25Pro:
-		return proInput, proOutput, proCached
-	case idGemini15Flash, idGemini25Flash:
-		return flashInput, flashOutput, flashCached
-	case "gemini-pro":
-		return geminiInput, geminiOutput, geminiCached
-	default:
-		// Default to Gemini 1.5 Pro pricing for unknown models
-		return proInput, proOutput, proCached
-	}
 }
 
 // SupportsPromptCaching reports that Gemini 2.5+ models apply implicit prompt
