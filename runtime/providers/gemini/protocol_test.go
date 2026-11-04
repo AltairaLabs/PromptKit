@@ -40,6 +40,17 @@ func TestBuildCostInfo(t *testing.T) {
 		assertUSD(t, "TotalCost", got.TotalCost, 16.0)
 	})
 
+	t.Run("flat per-1K config prices audio at the flat rates", func(t *testing.T) {
+		cfg := &StreamSessionConfig{Model: "gemini-3.8-live", InputCostPer1K: 3.0, OutputCostPer1K: 10.0}
+		s := &StreamSession{pricing: sessionPricing(cfg)}
+		got := s.buildCostInfo(&UsageMetadata{
+			PromptTokenCount: 2000, ResponseTokenCount: 1000,
+			PromptTokensDetails:   []ModalityTokenCount{{Modality: "AUDIO", TokenCount: 2000}},
+			ResponseTokensDetails: []ModalityTokenCount{{Modality: "AUDIO", TokenCount: 1000}},
+		})
+		assertUSD(t, "TotalCost", got.TotalCost, 16.0)
+	})
+
 	t.Run("Live model prices audio at its own rate", func(t *testing.T) {
 		// gemini-3.8-live per 1M: text in 0.75, audio in 3.00, text out 4.50 (thinking too), audio out 12.00.
 		s := &StreamSession{pricing: sessionPricing(&StreamSessionConfig{Model: "gemini-3.8-live"})}

@@ -36,6 +36,12 @@ func TestResolveLLMPricing_Order(t *testing.T) {
 	// flat config also prices reasoning at the output rate, so a thinking model
 	// under flat config does not silently understate cost by the reasoning amount.
 	assert.InDelta(t, 0.002/1000, rateOf(got, base.UnitReasoningToken), 1e-12)
+	// flat config is one input and one output rate for every modality, so a
+	// provider that splits audio, image or video out still prices them.
+	assert.InDelta(t, 0.001/1000, rateOf(got, base.UnitAudioInputToken), 1e-12)
+	assert.InDelta(t, 0.001/1000, rateOf(got, base.UnitImageInputToken), 1e-12)
+	assert.InDelta(t, 0.001/1000, rateOf(got, base.UnitVideoInputToken), 1e-12)
+	assert.InDelta(t, 0.002/1000, rateOf(got, base.UnitAudioOutputToken), 1e-12)
 
 	// no config: table by model
 	got2 := base.ResolveLLMPricing(nil, base.FlatPricing{}, table, "claude-sonnet-4-5")
