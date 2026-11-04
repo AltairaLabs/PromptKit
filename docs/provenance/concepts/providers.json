@@ -1,0 +1,510 @@
+{
+ "page": "docs/src/content/docs/concepts/providers.md",
+ "commit": "e16364fb2e353574937eb70165d503422bdd50f0",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "A provider is an LLM service; the page names OpenAI, Anthropic and Google as examples",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude_tools.go:958",
+    "runtime/providers/gemini/gemini_tools.go:853",
+    "runtime/providers/openai/openai_tools.go:708"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "PromptKit abstracts providers behind a common interface",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:242"
+   ]
+  },
+  {
+   "id": 32,
+   "claim": "Every provider declares a role: field",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/role.go:56",
+    "pkg/config/types.go:171"
+   ]
+  },
+  {
+   "id": 33,
+   "claim": "The llm role is the default role",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/role.go:56-62",
+    "sdk/provider_file.go:48"
+   ]
+  },
+  {
+   "id": 34,
+   "claim": "The llm role is chat completion via Predict()",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:251"
+   ]
+  },
+  {
+   "id": 35,
+   "claim": "The arena matrix of agents-under-test is built from llm-role providers",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 36,
+   "claim": "tts role is text-to-speech via Synthesize()",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base/types.go:108",
+    "runtime/tts/service.go:56"
+   ]
+  },
+  {
+   "id": 37,
+   "claim": "stt role is speech-to-text via Transcribe()",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base/types.go:116",
+    "runtime/stt/openai.go:86"
+   ]
+  },
+  {
+   "id": 38,
+   "claim": "embedding role is vector embeddings via Embed()",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/embedding.go:50",
+    "sdk/provider_file.go:68"
+   ]
+  },
+  {
+   "id": 39,
+   "claim": "image role is image generation, Predict-compatible, and eligible for the arena matrix alongside llm",
+   "verdict": "unverified",
+   "evidence": [
+    "runtime/providers/imagen/factory.go:12",
+    "sdk/provider_file.go:49"
+   ]
+  },
+  {
+   "id": 40,
+   "claim": "inference role uses one interface named inference.Provider",
+   "verdict": "true",
+   "evidence": [
+    "runtime/inference/provider.go:74",
+    "sdk/provider_file.go:70"
+   ]
+  },
+  {
+   "id": 41,
+   "claim": "inference provider takes content in and returns a probability per label out",
+   "verdict": "true",
+   "evidence": [
+    "runtime/inference/provider.go:41-52",
+    "runtime/inference/provider.go:74-76"
+   ]
+  },
+  {
+   "id": 42,
+   "claim": "Checks audio_emotion, text_toxicity and topic_policy are powered by inference providers",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/audio_emotion.go:53",
+    "runtime/evals/handlers/classify_handler_base.go:8",
+    "runtime/evals/handlers/text_toxicity.go:51",
+    "runtime/evals/handlers/topic_policy.go:82"
+   ]
+  },
+  {
+   "id": 43,
+   "claim": "Inference provider types are huggingface, openai (logprobs) and systemone (Jev)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/inference/huggingface/register.go:11",
+    "runtime/inference/openai/provider.go:2",
+    "runtime/inference/openai/register.go:18",
+    "runtime/inference/systemone/register.go:14"
+   ]
+  },
+  {
+   "id": 44,
+   "claim": "Link anchor #inference-providers-audio--text--image-classification--embedding exists in the configure-providers how-to (promptarena repo)",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 45,
+   "claim": "Providers route into role-specific registries at load time",
+   "verdict": "true",
+   "evidence": [
+    "sdk/provider_file.go:36-79",
+    "sdk/provider_introspection.go:32-43"
+   ]
+  },
+  {
+   "id": 46,
+   "claim": "One backend can satisfy several roles by implementing several interfaces",
+   "verdict": "false",
+   "evidence": [
+    "runtime/classify/factory.go:90",
+    "runtime/classify/types.go:27-29",
+    "runtime/inference/provider.go:74"
+   ]
+  },
+  {
+   "id": 47,
+   "claim": "The HuggingFace inference backend registers as audio, text, image and embedder simultaneously",
+   "verdict": "false",
+   "evidence": [
+    "runtime/classify/backends/hf/register.go:15",
+    "runtime/classify/types.go:27-29",
+    "runtime/inference/huggingface/provider.go:1-12"
+   ]
+  },
+  {
+   "id": 48,
+   "claim": "AWS Bedrock authentication uses the AWS SDK credential chain (IRSA, IAM roles, AWS_* env vars)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/aws_integration.go:40",
+    "runtime/credentials/resolver_platform.go:13"
+   ]
+  },
+  {
+   "id": 49,
+   "claim": "Bedrock supports Claude models via Anthropic partnership",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/resolver_platform.go:13",
+    "runtime/providers/claude/claude.go:168"
+   ]
+  },
+  {
+   "id": 50,
+   "claim": "Vertex AI authentication uses GCP Application Default Credentials",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/gcp_integration.go:21-24",
+    "runtime/credentials/resolver_platform.go:15"
+   ]
+  },
+  {
+   "id": 51,
+   "claim": "Vertex AI supports Claude and Gemini models",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude.go:163",
+    "runtime/providers/gemini/gemini.go:130"
+   ]
+  },
+  {
+   "id": 52,
+   "claim": "Azure AI Foundry authentication uses Azure AD tokens (Managed Identity, service principals)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/azure_integration.go:23",
+    "runtime/credentials/resolver_platform.go:17"
+   ]
+  },
+  {
+   "id": 53,
+   "claim": "Azure AI Foundry serves OpenAI models via Azure partnership",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/azure.go:38",
+    "runtime/providers/openai/openai.go:294"
+   ]
+  },
+  {
+   "id": 54,
+   "claim": "Platform type values include bedrock, vertex and azure",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/resolver.go:15-17",
+    "runtime/credentials/resolver_platform.go:12-19",
+    "runtime/credentials/types.go:19"
+   ]
+  },
+  {
+   "id": 55,
+   "claim": "Environment variable prefix AWS_* is read by the AWS credential chain",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/aws_integration.go:34-40"
+   ]
+  },
+  {
+   "id": 56,
+   "claim": "GOOGLE_APPLICATION_CREDENTIALS env var is used for Vertex credentials",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/gcp_integration.go:21-24"
+   ]
+  },
+  {
+   "id": 57,
+   "claim": "AZURE_* env vars are used for Azure credentials",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/azure_integration.go:23"
+   ]
+  },
+  {
+   "id": 58,
+   "claim": "Default env vars OPENAI_API_KEY and ANTHROPIC_API_KEY are fallbacks",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/resolver.go:182-193",
+    "runtime/credentials/resolver.go:41-45"
+   ]
+  },
+  {
+   "id": 59,
+   "claim": "Credential resolution order is api_key, then credential_file, then credential_env, then default env vars",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/resolver.go:116-157",
+    "runtime/credentials/resolver.go:84-100",
+    "runtime/providers/base/factory.go:105"
+   ]
+  },
+  {
+   "id": 65,
+   "claim": "type value claude is a valid provider type",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude_tools.go:958"
+   ]
+  },
+  {
+   "id": 66,
+   "claim": "Provider config field platform with sub-fields type and region",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/types.go:191",
+    "runtime/credentials/types.go:18-22",
+    "sdk/runtime_config.go:610-618"
+   ]
+  },
+  {
+   "id": 67,
+   "claim": "Platform field project is used for vertex",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/resolver_platform.go:15",
+    "runtime/credentials/types.go:24",
+    "runtime/providers/claude/claude.go:163-165"
+   ]
+  },
+  {
+   "id": 68,
+   "claim": "Platform field endpoint is used for azure",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/resolver_platform.go:17",
+    "runtime/credentials/types.go:26",
+    "runtime/providers/openai/openai.go:294"
+   ]
+  },
+  {
+   "id": 69,
+   "claim": "Code sample: openai.CreateChatCompletion(...) is an OpenAI SDK call (illustrative only)",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 70,
+   "claim": "Code sample: anthropic.Messages(...) is an Anthropic SDK call (illustrative only)",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 71,
+   "claim": "Code sample: genai.GenerateContent(...) is a Gemini SDK call (illustrative only)",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 72,
+   "claim": "providers.Provider is the common interface type",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:242"
+   ]
+  },
+  {
+   "id": 73,
+   "claim": "provider.Predict(ctx, req) returns the response (method exists)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:251"
+   ]
+  },
+  {
+   "id": 100,
+   "claim": "Temperature default is 1.0",
+   "verdict": "false",
+   "evidence": [
+    "runtime/providers/claude/claude.go:474",
+    "runtime/providers/claude/claude.go:671-673",
+    "runtime/providers/provider.go:79-87",
+    "sdk/conversation.go:37-40",
+    "sdk/sdk.go:632"
+   ]
+  },
+  {
+   "id": 101,
+   "claim": "Temperature 0.0 gives deterministic output",
+   "verdict": "false",
+   "evidence": [
+    "runtime/providers/claude/claude.go:474",
+    "runtime/providers/provider.go:60-63",
+    "runtime/providers/provider.go:79-87"
+   ]
+  },
+  {
+   "id": 102,
+   "claim": "A request with MaxTokens of zero uses the provider's Defaults.MaxTokens",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude.go:679",
+    "runtime/providers/openai/openai.go:733",
+    "runtime/providers/provider.go:224-234"
+   ]
+  },
+  {
+   "id": 103,
+   "claim": "MaxTokens zero or providers.MaxTokensUnlimited means the provider sends no limit",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/openai/openai.go:733",
+    "runtime/providers/provider.go:204-234"
+   ]
+  },
+  {
+   "id": 104,
+   "claim": "providers.MaxTokensUnlimited is an exported identifier",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:207"
+   ]
+  },
+  {
+   "id": 105,
+   "claim": "Claude sends 4096 as max tokens when no limit is set",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude.go:668",
+    "runtime/providers/claude/claude.go:679-682"
+   ]
+  },
+  {
+   "id": 106,
+   "claim": "Claude provider creation rejects MaxTokensUnlimited",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude.go:688-696",
+    "runtime/providers/claude/claude_tools.go:958-962"
+   ]
+  },
+  {
+   "id": 108,
+   "claim": "CostInfo records tokens by unit: input, cached input, output and reasoning, plus audio, image and video where reported",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base/priceusage.go:23-43",
+    "runtime/providers/base/units.go:8-18",
+    "runtime/providers/gemini/usage_modality.go:65-67",
+    "runtime/types/message.go:242-264"
+   ]
+  },
+  {
+   "id": 109,
+   "claim": "Claude, OpenAI, Gemini and vLLM take rates from the pricing config first, then built-in rates, then record $0",
+   "verdict": "false",
+   "evidence": [
+    "runtime/providers/base/llmpricing.go:25",
+    "runtime/providers/base/llmpricing.go:29",
+    "runtime/providers/base/llmpricing.go:32",
+    "runtime/providers/base/llmpricing.go:52",
+    "runtime/providers/claude/claude.go:955",
+    "runtime/providers/gemini/gemini.go:364",
+    "runtime/providers/openai/openai.go:837",
+    "runtime/providers/vllm/vllm.go:431"
+   ]
+  },
+  {
+   "id": 110,
+   "claim": "pricing config field input_cost_per_1k exists",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/types.go:363",
+    "runtime/providers/claude/claude.go:957",
+    "sdk/runtime_config.go:646-648"
+   ]
+  },
+  {
+   "id": 111,
+   "claim": "pricing config field output_cost_per_1k exists",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/types.go:364",
+    "runtime/providers/claude/claude.go:957",
+    "sdk/runtime_config.go:646-648"
+   ]
+  },
+  {
+   "id": 112,
+   "claim": "pricing config applies one input rate and one output rate to every token regardless of modality",
+   "verdict": "false",
+   "evidence": [
+    "runtime/providers/base/llmpricing.go:32",
+    "runtime/providers/base/llmpricing.go:44",
+    "runtime/providers/base/priceusage.go:39"
+   ]
+  },
+  {
+   "id": 113,
+   "claim": "Built-in rates record the date they were checked against vendor price lists",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base/pricing.go:25",
+    "runtime/providers/claude/pricing_table.go:18-27",
+    "runtime/providers/gemini/pricing_table.go:18-30",
+    "runtime/providers/openai/pricing_table.go:19-26"
+   ]
+  },
+  {
+   "id": 114,
+   "claim": "An unpriced call is recorded at $0 with a warning naming the unpriced unit, once per unit",
+   "verdict": "false",
+   "evidence": [
+    "runtime/providers/base/llmpricing.go:55",
+    "runtime/providers/base/priceusage.go:39",
+    "runtime/providers/base/priceusage.go:81"
+   ]
+  },
+  {
+   "id": 115,
+   "claim": "OpenAI pricing link https://platform.openai.com/docs/pricing",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 116,
+   "claim": "Anthropic pricing link https://platform.claude.com/docs/en/about-claude/pricing",
+   "verdict": "unverified",
+   "evidence": [
+    "runtime/providers/claude/pricing_table.go:19"
+   ]
+  },
+  {
+   "id": 117,
+   "claim": "Google pricing link https://aistudio.google.com/docs/pricing",
+   "verdict": "unverified",
+   "evidence": []
+  }
+ ]
+}
