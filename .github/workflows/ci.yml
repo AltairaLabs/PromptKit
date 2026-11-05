@@ -422,7 +422,7 @@ jobs:
         # The 1300 req/s absolute floor applies only if no base could be built.
         scripts/perf-interleave.sh promptkit 8090 1300
 
-        read -r RSS CPU _ _ < /tmp/perf-head.txt
+        read -r RSS CPU _ _ _ _ < /tmp/perf-head.txt
         echo "Worst head run: ${RSS} MB RSS, ${CPU}% CPU"
 
         # Assert memory ceiling (500 concurrent should stay under 512 MB)
@@ -453,16 +453,26 @@ jobs:
         REQUESTS=5000
         EVENT_STORE_WAIT=1 scripts/perf-interleave.sh promptkit-eventstore 8091 1100 --event-store
 
-        # Worst case over the head runs: highest RSS/CPU/goroutines, fewest
-        # completed events.
-        read -r RSS CPU COMPLETED GOROUTINES < /tmp/perf-head.txt
-        echo "Worst head run: ${RSS} MB RSS, ${CPU}% CPU," \
-          "${COMPLETED}/${REQUESTS} pipeline.completed, ${GOROUTINES} goroutines after the run"
+        # Worst case over the head runs.
+        read -r RSS CPU STARTED DROPPED GOROUTINES ERRORS < /tmp/perf-head.txt
+        echo "Worst head run: ${RSS} MB RSS, ${CPU}% CPU, ${STARTED}/${REQUESTS} pipelines started" \
+          "(${ERRORS} request errors), ${DROPPED} events dropped, ${GOROUTINES} goroutines after the run"
 
-        # pipeline.completed is published after the response ends; a Close that
-        # shut the bus without waiting for it dropped a few percent of them.
-        if [ "$COMPLETED" = "-" ] || [ "$COMPLETED" -lt "$REQUESTS" ]; then
-          echo "::error::Event loss: ${COMPLETED}/${REQUESTS} pipeline.completed reached the event store"
+        # Every pipeline that started must end with exactly one completed or
+        # failed event, published after the response ends; a Close that shut
+        # the bus without waiting for it dropped a few percent of them. This
+        # counts against pipeline.started, not the requests sent: requests
+        # the network refused (e.g. a small listen backlog) never reach the
+        # server and are not lost events.
+        if [ "$STARTED" = "-" ] || [ "$DROPPED" -gt 0 ]; then
+          echo "::error::Event loss: ${DROPPED} of ${STARTED} started pipelines have no completed or failed event"
+          exit 1
+        fi
+        # Still catch a server that started far fewer pipelines than requests
+        # were sent, allowing 10% for requests that never connected.
+        MIN_STARTED=$((REQUESTS * 90 / 100))
+        if [ "$STARTED" -lt "$MIN_STARTED" ]; then
+          echo "::error::Only ${STARTED}/${REQUESTS} pipelines started (minimum ${MIN_STARTED}); harness reported ${ERRORS} request errors"
           exit 1
         fi
 

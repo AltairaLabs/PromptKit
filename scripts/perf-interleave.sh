@@ -11,7 +11,7 @@
 # When the base binary is missing or will not run (say the benchmarks did not
 # exist at the base revision) the check falls back to the absolute
 # <abs-floor> and says so. Worst-case head figures go to $PERF_HEAD_OUT
-# (default /tmp/perf-head.txt) as "<rss> <cpu> <completed> <goroutines>", so
+# (default /tmp/perf-head.txt) as "<rss> <cpu> <started> <dropped> <goroutines> <errors>", so
 # the caller can apply its own ceilings.
 #
 # Env: ROUNDS (default 2), BASE_BIN, HEAD_BIN, EVENT_STORE_WAIT (see perf-run.sh).
@@ -26,6 +26,10 @@ MIN_PCT=${PERF_MIN_PCT:-85}
 SANITY=${PERF_SANITY_RPS:-600}
 OUT=${PERF_HEAD_OUT:-/tmp/perf-head.txt}
 HERE=$(dirname "$0")
+
+# perf-run.sh stops its own server; make a signal here reach it promptly.
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 BASE_RPS="" HEAD_RPS="" HEAD_LINES=""
 use_base=0
@@ -56,14 +60,17 @@ $line"
   echo "round $i head: $(echo "$line" | awk '{print $2}') req/s"
 done
 
-# Worst case across head runs: highest RSS/CPU/goroutines, fewest completed.
+# Worst case across head runs: highest RSS/CPU/dropped/goroutines/errors,
+# fewest started pipelines.
 echo "$HEAD_LINES" | awk 'NF {
   if ($3 != "-" && $3 > rss) rss = $3
   if ($4 != "-" && $4 > cpu) cpu = $4
-  if ($5 != "-" && (c == "" || $5 < c)) c = $5
+  if ($5 != "-" && $5 > d) d = $5
   if ($6 != "-" && $6 > g) g = $6
-} END { print rss+0, cpu+0, (c == "" ? "-" : c), g+0 }' > "$OUT"
-echo "Worst-case head run (rss MB, cpu %, completed, goroutines): $(cat "$OUT")"
+  if ($7 != "-" && (s == "" || $7 < s)) s = $7
+  if ($8 > e) e = $8
+} END { print rss+0, cpu+0, (s == "" ? "-" : s), d+0, g+0, e+0 }' > "$OUT"
+echo "Worst-case head run (rss MB, cpu %, started, dropped, goroutines, request errors): $(cat "$OUT")"
 
 if [ "$use_base" = 1 ]; then
   "$HERE/perf-compare.sh" "$MIN_PCT" "$SANITY" "$BASE_RPS" "$HEAD_RPS"

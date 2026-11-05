@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"syscall"
 	"time"
 )
@@ -102,6 +103,18 @@ func main() {
 	summary.WallClock = wallClock
 	if wallClock > 0 {
 		summary.Throughput = float64(summary.Count-summary.Errors) / wallClock.Seconds()
+	}
+
+	if summary.Errors > 0 {
+		fmt.Printf("Errors: %d of %d requests\n", summary.Errors, summary.Count)
+		kinds := make([]string, 0, len(summary.ErrorsByType))
+		for k := range summary.ErrorsByType {
+			kinds = append(kinds, k)
+		}
+		sort.Slice(kinds, func(i, j int) bool { return summary.ErrorsByType[kinds[i]] > summary.ErrorsByType[kinds[j]] })
+		for _, k := range kinds {
+			fmt.Printf("  %6d  %s\n", summary.ErrorsByType[k], k)
+		}
 	}
 
 	var resources ResourceSnapshot

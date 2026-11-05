@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -99,5 +100,18 @@ func TestCalcJitter_Empty(t *testing.T) {
 	}
 	if calcJitter([]time.Duration{5 * time.Millisecond}) != 0 {
 		t.Error("single interval should return 0 jitter")
+	}
+}
+
+func TestAggregator_ErrorsByType(t *testing.T) {
+	agg := &Aggregator{}
+	agg.Record(RequestResult{Error: fmt.Errorf("do request: Post \"http://a:1/x\": read tcp 1->2: connection reset by peer")})
+	agg.Record(RequestResult{Error: fmt.Errorf("do request: Post \"http://a:2/x\": read tcp 3->4: connection reset by peer")})
+	agg.Record(RequestResult{Error: fmt.Errorf("unexpected status: 500")})
+	agg.Record(RequestResult{})
+	s := agg.Summarize()
+	if s.Errors != 3 || s.ErrorsByType["do request: ... connection reset by peer"] != 2 ||
+		s.ErrorsByType["unexpected status: ... 500"] != 1 {
+		t.Errorf("unexpected breakdown: %v", s.ErrorsByType)
 	}
 }
