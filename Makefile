@@ -259,7 +259,7 @@ test-fast: ## Run tests for changed packages only (fast, for pre-commit)
 		echo "✓ Tests passed"; \
 	fi
 
-verify: lint-diff test-fast ## Run all verification checks (used by CI and pre-commit)
+verify: lint-diff test-fast ## Run all verification checks (lint-diff + test-fast; the pre-commit hook also builds, checks coverage and reference drift)
 	@echo "✓ All verification checks passed!"
 
 promptpack-schema: ## Refresh the embedded PromptPack schema from the published release

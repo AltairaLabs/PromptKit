@@ -84,16 +84,6 @@ else
     echo "  Or visit: https://github.com/securego/gosec"
 fi
 
-# Check for diff-cover
-if command -v diff-cover &> /dev/null; then
-    DIFFCOVER_VERSION=$(diff-cover --version 2>&1 | head -n1 || echo "unknown")
-    echo -e "${GREEN}✓${NC} diff-cover is installed ($DIFFCOVER_VERSION)"
-else
-    echo -e "${YELLOW}⚠${NC} diff-cover is not installed"
-    echo "  Install with: pip install diff-cover"
-    echo "  Or: pip3 install diff-cover"
-fi
-
 # Check for Go
 if command -v go &> /dev/null; then
     GO_VERSION=$(go version | awk '{print $3}')
@@ -113,16 +103,12 @@ echo ""
 echo "Pre-commit hook:"
 echo "  • Lints only changed Go files (fast!)"
 echo "  • Runs tests on affected packages"
-echo "  • Checks coverage on changed lines (≥80%)"
+echo "  • Checks coverage per changed file (≥80%)"
 echo ""
 echo "Commit-msg hook:"
 echo "  • Enforces a DCO Signed-off-by trailer (use 'git commit -s')"
 echo ""
-echo "To skip the pre-commit checks (not recommended):"
-echo "  git commit -s -m \"your message [skip-pre-commit]\""
-echo ""
 echo "To run checks manually:"
 echo "  make verify          # Run all checks"
 echo "  make lint-diff       # Lint changed files only"
-echo "  make test-coverage-diff  # Check coverage on changes"
 echo ""
