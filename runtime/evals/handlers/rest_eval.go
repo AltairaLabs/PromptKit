@@ -38,8 +38,7 @@ var sharedHTTPClient = &http.Client{
 //   - include_messages (bool, optional): include conversation history, default true
 //   - include_tool_calls (bool, optional): include tool call records, default false
 //   - criteria (string, optional): evaluation criteria forwarded in request
-//   - min_score (float64, optional): the check's threshold; Score is 1.0 when
-//     the endpoint's score meets it, the fraction reached otherwise
+//   - min_score (float64, optional): minimum score threshold
 //   - extra (map[string]any, optional): arbitrary data forwarded in request
 type RestEvalHandler struct{}
 
@@ -157,7 +156,7 @@ func executeRestEval(
 		}, nil
 	}
 
-	result := parseExternalResponse(respBody, params)
+	result := parseExternalResponse(respBody)
 	result.Type = evalType
 	return result, nil
 }

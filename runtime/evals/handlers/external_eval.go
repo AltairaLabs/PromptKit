@@ -111,14 +111,9 @@ func buildToolCallViews(evalCtx *evals.EvalContext) []toolCallView {
 }
 
 // parseExternalResponse parses the standard {passed, score, reasoning}
-// response from an external eval endpoint. The endpoint's `passed` is ignored:
-// the score is the measurement.
-//
-// A min_score param is the check's threshold. Score is then 1.0 when the
-// endpoint's score meets it and the fraction of it reached otherwise (see
-// thresholdScore), and the endpoint's own score is reported as
-// Details["raw_score"]. Without one, Score is the endpoint's score.
-func parseExternalResponse(body []byte, params map[string]any) *evals.EvalResult {
+// response from an external eval endpoint. Uses the same pass-determination
+// logic as parseJudgeResponse.
+func parseExternalResponse(body []byte) *evals.EvalResult {
 	var resp externalEvalResponse
 
 	// Extract JSON from response (might be wrapped in text/markdown)
@@ -136,18 +131,13 @@ func parseExternalResponse(body []byte, params map[string]any) *evals.EvalResult
 		}
 	}
 
-	raw := resp.Score
-	result := &evals.EvalResult{
-		Score:       &raw,
+	score := resp.Score
+
+	return &evals.EvalResult{
+		Score:       &score,
 		Explanation: resp.Reasoning,
-		Value:       map[string]any{"score": raw, "reasoning": resp.Reasoning},
+		Value:       map[string]any{"score": score, "reasoning": resp.Reasoning},
 	}
-	if minScore, ok := extractFloat64(params, keyMinScore); ok {
-		score := thresholdScore(raw, minScore)
-		result.Score = &score
-		result.Details = map[string]any{keyRawScore: raw, keyMinScore: minScore}
-	}
-	return result
 }
 
 // parseDuration extracts a duration param with a default value.

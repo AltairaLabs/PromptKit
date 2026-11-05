@@ -24,8 +24,7 @@ const defaultA2AEvalTimeout = 60 * time.Second
 //   - criteria (string, optional): evaluation criteria
 //   - include_messages (bool, optional): include conversation history, default true
 //   - include_tool_calls (bool, optional): include tool call records, default false
-//   - min_score (float64, optional): the check's threshold; Score is 1.0 when
-//     the agent's score meets it, the fraction reached otherwise
+//   - min_score (float64, optional): minimum score threshold
 //   - extra (map[string]any, optional): arbitrary data forwarded in request
 type A2AEvalHandler struct{}
 
@@ -140,7 +139,7 @@ func executeA2AEval(
 		}, nil
 	}
 
-	result := parseExternalResponse([]byte(responseText), params)
+	result := parseExternalResponse([]byte(responseText))
 	result.Type = evalType
 	return result, nil
 }
