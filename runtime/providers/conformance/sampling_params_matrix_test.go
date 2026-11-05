@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,6 +15,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
+
+// samplingRunSeq numbers the runs of the matrix so provider IDs never repeat.
+var samplingRunSeq atomic.Int64
 
 // An explicitly set temperature of 0 reaches the wire as 0, even over a
 // provider's non-zero default, and frequency/presence penalties reach every
@@ -63,14 +68,15 @@ func TestProviders_SamplingParamsReachWireOnAllPaths(t *testing.T) {
 				t.Setenv("GEMINI_API_KEY", "test-key")
 				cs := newCaptureServer(t, tc.reply)
 				spec := tc.spec
-				spec.ID = tc.name + "-" + path + "-sampling" // WarnUnsentParams warns once per ID
+				// WarnUnsentParams warns once per ID per process, so every run gets a fresh ID
+				// (a repeat under -count>1 would otherwise find the warning already spent).
+				spec.ID = fmt.Sprintf("%s-%s-sampling-%d", tc.name, path, samplingRunSeq.Add(1))
 				spec.BaseURL = cs.srv.URL
 				spec.Defaults = providers.ProviderDefaults{MaxTokens: 256, Temperature: 0.7}
 				p, err := providers.CreateProviderFromSpec(spec)
 				require.NoError(t, err)
 				defer func() { _ = p.Close() }()
 
-				providers.ResetWarnOnceStateForTest() // once-per-process warning; keep -count>1 repeatable
 				var logs bytes.Buffer
 				logger.SetOutput(&logs)
 				t.Cleanup(func() { logger.SetOutput(nil) })

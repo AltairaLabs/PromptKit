@@ -3,6 +3,8 @@ package base
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -37,7 +39,10 @@ func computeCostPartial(
 		return 0, nil, nil
 	}
 	breakdown = make([]LineItem, 0, len(info.Quantities))
-	for unit, qty := range info.Quantities {
+	// Walk the units in sorted order: float addition is not associative, so a
+	// map-order sum gives identical inputs totals that differ in the last ulp.
+	for _, unit := range slices.Sorted(maps.Keys(info.Quantities)) {
+		qty := info.Quantities[unit]
 		if qty == 0 {
 			continue
 		}

@@ -12,13 +12,6 @@ import (
 // missing rate cannot flood one line per request. Keyed by provider|capability|unit.
 var unpricedWarnOnce sync.Map
 
-// ResetUnpricedWarningsForTest forgets which unpriced-unit warnings have been
-// emitted, so a test that asserts on the once-per-process warning passes when
-// the test binary runs it more than once (-count>1). Tests only.
-func ResetUnpricedWarningsForTest() {
-	unpricedWarnOnce.Clear()
-}
-
 // PriceUsage prices a normalized TokenUsage against desc, populating the
 // authoritative Quantities+Breakdown and deriving the flat headline view. A
 // nonzero unit with no price (and a non-nil descriptor) is surfaced loudly

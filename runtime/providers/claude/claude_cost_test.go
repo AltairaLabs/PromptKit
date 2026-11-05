@@ -93,13 +93,10 @@ func TestClaudeCost_CalculateCostWrapperMatchesCostFromUsage(t *testing.T) {
 	// Compare the priced fields directly rather than the whole struct: Breakdown
 	// row order comes from a map iteration (computeCostPartial ranges over
 	// Quantities) and is not guaranteed stable across two independent calls.
-	// The totals are float sums taken in that same map order, so they can differ
-	// in the last ulp between calls: compare to a tolerance, not bit-for-bit.
-	const eps = 1e-12
-	assert.InDelta(t, want.TotalCost, got.TotalCost, eps)
-	assert.InDelta(t, want.InputCostUSD, got.InputCostUSD, eps)
-	assert.InDelta(t, want.OutputCostUSD, got.OutputCostUSD, eps)
-	assert.InDelta(t, want.CachedCostUSD, got.CachedCostUSD, eps)
+	assert.Equal(t, want.TotalCost, got.TotalCost)
+	assert.Equal(t, want.InputCostUSD, got.InputCostUSD)
+	assert.Equal(t, want.OutputCostUSD, got.OutputCostUSD)
+	assert.Equal(t, want.CachedCostUSD, got.CachedCostUSD)
 	assert.Equal(t, want.InputTokens, got.InputTokens)
 	assert.Equal(t, want.OutputTokens, got.OutputTokens)
 	assert.Equal(t, want.CachedTokens, got.CachedTokens)
