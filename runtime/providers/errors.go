@@ -9,7 +9,7 @@ import (
 )
 
 // ErrPayloadTooLarge is returned when a request payload exceeds the provider's
-// configured maximum size (MaxRequestPayloadSize).
+// configured maximum size (see BaseProvider.SetMaxPayloadSize).
 var ErrPayloadTooLarge = errors.New("request payload too large")
 
 // ProviderHTTPError wraps a non-2xx HTTP response from a provider API.
@@ -34,21 +34,20 @@ func (e *ProviderHTTPError) Error() string {
 }
 
 // ProviderTransportError wraps a connection-level failure (http2 reset,
-// TCP reset, dial timeout, etc.). These are always transient.
+// TCP reset, dial timeout, etc.). IsTransient reports it as transient.
 type ProviderTransportError struct {
 	Cause    error
 	Provider string
 }
 
 // Error redacts credential-bearing query parameters. The cause is typically a
-// *url.Error, which embeds the full request URL — and every layer that wraps
+// *url.Error, which embeds the full request URL, and every layer that wraps
 // this error reformats the same text, so one failure would otherwise write the
 // credential to the log repeatedly.
 //
-// Unwrap still returns the raw cause: errors.Is/As must keep
-// working against the original *url.Error. Anything that formats the unwrapped
-// cause directly bypasses this, which is why the credential should not be in
-// the URL to begin with.
+// Unwrap returns the raw cause, so errors.Is and errors.As work against the
+// original *url.Error. Code that formats the unwrapped cause directly bypasses
+// the redaction.
 func (e *ProviderTransportError) Error() string {
 	return RedactURLSecrets(fmt.Sprintf("provider transport error: %v", e.Cause))
 }
@@ -60,7 +59,7 @@ func (e *ProviderTransportError) Unwrap() error {
 // IsTransient returns true if err represents a transient provider failure
 // (retryable HTTP status or connection-level error). Uses errors.As to
 // traverse wrapped error chains. Context cancellation and deadline errors
-// are never transient — they represent deliberate caller action.
+// are never transient, and neither is a stream idle timeout.
 func IsTransient(err error) bool {
 	if err == nil {
 		return false

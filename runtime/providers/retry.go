@@ -30,7 +30,7 @@ const (
 	uint64Bits = 64
 )
 
-// DefaultRetryPolicy returns a RetryPolicy with sensible defaults:
+// DefaultRetryPolicy returns the RetryPolicy providers start with:
 // 3 retries, exponential backoff, 500ms initial delay.
 func DefaultRetryPolicy() pipeline.RetryPolicy {
 	return pipeline.RetryPolicy{
@@ -179,10 +179,14 @@ type retryState struct {
 
 // DoWithRetry executes doFn with retry logic according to the given
 // policy. It retries on retryable HTTP status codes (429, 502, 503,
-// 504) and transient network errors. The Retry-After header is honored
-// for 429 responses. On retryable HTTP errors the response body is
-// closed before retrying. The caller is responsible for closing the
-// body of the final returned response.
+// 504) and transient network errors, and never after context
+// cancellation. A Retry-After header on a retryable response replaces the
+// computed backoff delay. The body of a retryable response is closed before
+// retrying. The caller closes the body of a successful response.
+//
+// When every attempt fails with a retryable status, DoWithRetry returns the
+// last response, whose body is already closed, together with a
+// *RetryableHTTPError.
 func DoWithRetry(
 	ctx context.Context,
 	policy pipeline.RetryPolicy,

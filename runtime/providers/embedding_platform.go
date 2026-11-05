@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-// PlatformEmbeddingSpec describes a platform-native embedding provider — one
+// PlatformEmbeddingSpec describes a platform-native embedding provider: one
 // whose request bodies are the cloud's own rather than OpenAI-shaped, so it is
 // selected by provider type and cannot be hosted on the OpenAI path.
 type PlatformEmbeddingSpec struct {
@@ -20,11 +20,8 @@ type PlatformEmbeddingSpec struct {
 // the platform block, resolves the transport, and delegates to Build.
 //
 // Platform-native providers have no API-key mode: without a platform block
-// there is no signer or token source, so every request would go
-// unauthenticated. Failing at construction beats failing once per request.
-//
-// Shared because the enforce-resolve-construct sequence is identical for every
-// such provider; only the hint and the constructor differ.
+// there is no signer or token source, so the factory returns an error at
+// construction instead of sending unauthenticated requests.
 func RegisterPlatformEmbeddingProvider(typeName string, spec PlatformEmbeddingSpec) {
 	RegisterEmbeddingProviderFactory(typeName,
 		func(s EmbeddingProviderSpec) (EmbeddingProvider, error) {

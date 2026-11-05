@@ -11,8 +11,8 @@ import (
 
 // HostFromURL extracts only the host portion (without scheme or path)
 // from a URL string, intended for use as a Prometheus label on
-// streaming metrics. Returns an empty string on parse error — callers
-// treat empty-host labels as "unknown host" rather than failing.
+// streaming metrics. It returns an empty string on a parse error or when the
+// URL has no host; callers treat an empty label as an unknown host.
 func HostFromURL(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {
@@ -22,8 +22,7 @@ func HostFromURL(raw string) string {
 }
 
 // Default values for StreamRetryPolicy. They are small because streaming retry
-// targets transient h2 stream resets, not generic 5xx storms, and the wrong
-// default is "retry aggressively".
+// targets transient h2 stream resets, not generic 5xx storms.
 const (
 	DefaultStreamRetryMaxAttempts  = 2
 	DefaultStreamRetryInitialDelay = 250 * time.Millisecond
@@ -51,19 +50,20 @@ const (
 	StreamRetryWindowAlways StreamRetryWindow = "always"
 )
 
-// StreamRetryPolicy governs bounded retry behavior for streaming requests
-// that fail before any content chunk has been forwarded downstream.
+// StreamRetryPolicy governs bounded retry behavior for streaming requests.
+// With the default window (StreamRetryWindowPreFirstChunk) it retries only
+// failures that occur before any content chunk has been forwarded downstream.
 //
-// The policy is intentionally separate from pipeline.RetryPolicy (which
-// covers non-streaming requests) because the failure classes and safety
-// constraints are different: streaming retries must respect the idempotency
-// window, use full jitter instead of half jitter to break h2 herd resets,
-// and default to far fewer attempts.
+// It is separate from pipeline.RetryPolicy (which covers non-streaming
+// requests) because the failure classes and safety constraints differ:
+// streaming retries respect the idempotency window, use full jitter instead of
+// half jitter to spread h2 herd resets, and default to fewer attempts.
 type StreamRetryPolicy struct {
 	// Enabled turns the retry loop on. Zero value is off.
 	Enabled bool
-	// MaxAttempts is total attempts including the initial request. Values
-	// <1 are normalized to 1 (no retry). Zero falls back to the default.
+	// MaxAttempts is total attempts including the initial request. Zero or a
+	// negative value falls back to DefaultStreamRetryMaxAttempts. A value of 1
+	// makes no retries. The policy has no effect unless Enabled is true.
 	MaxAttempts int
 	// InitialDelay is the base backoff before the first retry. Zero falls
 	// back to the default.
@@ -125,9 +125,8 @@ func (p StreamRetryPolicy) MaxRetryAfterOrDefault() time.Duration {
 // RetryDelay returns how long to wait before retrying after the given attempt
 // (0-based) failed, honoring the server's Retry-After when it sent one: the
 // wait is the longer of Retry-After and the jittered backoff, so a rate limit
-// is not retried while still in force (the non-streaming path does the same).
-// ok is false when Retry-After exceeds MaxRetryAfter — the caller should stop
-// retrying rather than retry early.
+// is not retried while still in force. ok is false when Retry-After exceeds
+// MaxRetryAfter, and the caller should stop retrying rather than retry early.
 func (p StreamRetryPolicy) RetryDelay(attempt int, retryAfter time.Duration) (delay time.Duration, ok bool) {
 	if retryAfter > p.MaxRetryAfterOrDefault() {
 		return 0, false
@@ -163,9 +162,9 @@ func (p StreamRetryPolicy) BackoffFor(attempt int) time.Duration {
 // IsRetryableStreamError returns true if the error looks like a transient
 // streaming failure that is safe to retry from the pre-first-chunk window.
 //
-// This covers a narrower set than isRetryableError in retry.go:
-// we want h2 stream resets, TCP resets, TLS close_notify races, and idle
-// connection reuse failures — but never context cancellation, deadline, or
+// It accepts what IsTransient accepts, retryable network errors, and errors
+// whose text names an h2 stream reset, GOAWAY, TCP reset, broken pipe or
+// unexpected EOF. It never accepts context cancellation, a deadline, or
 // application-layer parse errors.
 func IsRetryableStreamError(err error) bool {
 	if err == nil {
@@ -210,9 +209,7 @@ var streamRetryErrorSubstrings = []string{
 }
 
 // IsRetryableStreamStatus returns true for HTTP status codes that are worth
-// retrying on a streaming request. Mirrors isRetryableStatusCode but is
-// named distinctly so future divergence (e.g. treating 409 as retryable
-// for Responses API) does not mutate non-streaming semantics.
+// retrying on a streaming request: 429, 502, 503 and 504.
 func IsRetryableStreamStatus(code int) bool {
 	switch code {
 	case http.StatusTooManyRequests,

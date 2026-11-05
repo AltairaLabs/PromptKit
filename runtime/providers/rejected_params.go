@@ -38,7 +38,9 @@ var rejectionPatterns = []*regexp.Regexp{
 const geminiPenaltyRejection = "Penalty is not enabled"
 
 // RejectedParams returns the sampling parameters err reports the API rejected
-// for this model, or nil when err is not such a rejection.
+// for this model, or nil when err is not such a rejection. It recognizes OpenAI
+// and Anthropic messages that name the parameter and Gemini's penalty message,
+// and only in an error whose text contains "400".
 func RejectedParams(err error) []string {
 	if err == nil {
 		return nil

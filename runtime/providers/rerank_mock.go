@@ -15,14 +15,12 @@ const mockRerankProviderType = "mock"
 // development.
 //
 // It scores by counting how many of the query's whitespace-separated terms
-// appear in each document, case-insensitively. That is crude: it is not trying
-// to be a good reranker, it is trying to be a *predictable* one, so a test can
-// assert an exact order without pinning a vendor model's
-// behavior. Ties keep the input order, so the result is fully deterministic.
+// appear in each document, case-insensitively. The scoring is crude but
+// predictable, so a test can assert an exact order without pinning a vendor
+// model's behavior. Ties keep the input order, so the result is deterministic.
 //
-// Scores are normalized to 0..1 (matched terms over query terms) purely so
-// they look like the hosted providers' scores; they are not comparable to
-// them, which is true of any two rerankers.
+// Scores are matched terms over query terms, from 0 to 1. They are not
+// comparable to a hosted provider's scores.
 type MockRerankProvider struct {
 	*base.Implementation
 

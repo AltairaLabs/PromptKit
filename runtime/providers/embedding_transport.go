@@ -38,11 +38,12 @@ type EmbeddingTransport struct {
 }
 
 // ResolveEmbeddingTransport decides between the static-API-key path and a
-// hyperscaler-platform path for an embedding provider. It is the single
-// place embedding factories consult, mirroring the chat path's
-// credential/platform handling.
-//
-// spec is a value-semantics builder; callers assemble inline.
+// hyperscaler-platform path for an embedding provider, mirroring the chat
+// path's credential and platform handling. With no spec.Platform it returns
+// the spec's BaseURL and API key. With a platform (azure, bedrock or vertex) it
+// returns an HTTP client that applies the credential per request and the
+// platform's endpoint, or an error when the provider type or platform
+// settings do not fit.
 func ResolveEmbeddingTransport(spec EmbeddingProviderSpec) (EmbeddingTransport, error) {
 	if spec.Platform == "" {
 		return EmbeddingTransport{
@@ -127,7 +128,7 @@ func buildBedrockEmbeddingClient(
 }
 
 // buildVertexEmbeddingClient wires GCP bearer-token auth and resolves the
-// Vertex models base URL. Like Bedrock — and unlike Azure — it returns the
+// Vertex models base URL. Like Bedrock, and unlike Azure, it returns the
 // models collection rather than a per-model URL: Vertex carries the model in
 // the path as /{model}:predict, so the provider appends it and a per-request
 // model override still works.

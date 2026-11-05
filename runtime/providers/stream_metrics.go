@@ -86,9 +86,9 @@ type StreamMetrics struct {
 // into the given registerer under the given namespace. Const labels are
 // applied to every metric.
 //
-// Returns a non-nil *StreamMetrics. Re-registration of the same metric
-// name into the same registry will panic (Prometheus semantic), so the
-// default registration path uses sync.Once via RegisterDefaultStreamMetrics.
+// It returns a non-nil *StreamMetrics. Registering the same metric names
+// into the same registry twice panics (Prometheus semantics); use
+// RegisterDefaultStreamMetrics for a process-wide instance that registers once.
 func NewStreamMetrics(
 	registerer prometheus.Registerer,
 	namespace string,
@@ -331,7 +331,8 @@ func (m *StreamMetrics) ObserveFirstChunkLatency(provider string, d time.Duratio
 // (last attempt failed, no more retries), "budget_exhausted" (retry
 // was rejected because the per-provider retry budget had no tokens), or
 // "retry_after_too_long" (the server's Retry-After exceeded the policy's
-// MaxRetryAfter, so no retry was attempted).
+// MaxRetryAfter, so no retry was attempted), or "mid_stream_reset" (a failure
+// after content was forwarded triggered a Reset and a fresh attempt).
 // Nil-safe.
 func (m *StreamMetrics) RetryAttempt(provider, outcome string) {
 	if m == nil {
@@ -368,10 +369,9 @@ func (m *StreamMetrics) ConcurrencyRejected(provider, reason string) {
 // the gauge then reflects the budget state at the moment of highest
 // interest (right before a retry decision).
 //
-// A nil budget publishes 0, which is intentional: it lets operators
-// distinguish "no budget configured" (gauge absent) from "budget fully
-// drained" (gauge at 0) by gauge presence rather than value. Nil-safe
-// on the receiver.
+// A nil budget publishes nothing, so the gauge is absent when no budget is
+// configured and reads 0 only when a budget is fully drained. Nil-safe on the
+// receiver.
 func (m *StreamMetrics) ObserveRetryBudgetAvailable(provider, host string, budget *RetryBudget) {
 	if m == nil || budget == nil {
 		return
@@ -483,8 +483,8 @@ func (m *StreamMetrics) PacingBehindDeadlineVec() *prometheus.CounterVec {
 	return m.audioPacingBehindDeadline
 }
 
-// RegisterDefaultStreamMetrics during startup; all provider code reads
-// via DefaultStreamMetrics() unconditionally.
+// The process-wide instance installed by RegisterDefaultStreamMetrics. Provider
+// code reads it through DefaultStreamMetrics() unconditionally.
 var (
 	defaultStreamMetrics   *StreamMetrics
 	defaultStreamMetricsMu sync.RWMutex

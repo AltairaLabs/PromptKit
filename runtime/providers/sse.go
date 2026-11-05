@@ -14,7 +14,10 @@ type StreamScanner interface {
 	Err() error
 }
 
-// SSEScanner scans Server-Sent Events (SSE) streams
+// SSEScanner scans Server-Sent Events (SSE) streams. Each Scan advances to the
+// next line that starts with "data:"; other lines, including blank lines and
+// comments, are skipped. A line longer than bufio.MaxScanTokenSize (64 KB)
+// ends the scan with an error.
 type SSEScanner struct {
 	scanner *bufio.Scanner
 	data    string // lazy: only materialized on first Data() call per Scan
@@ -31,7 +34,7 @@ func NewSSEScanner(r io.Reader) *SSEScanner {
 	}
 }
 
-// Scan advances to the next SSE event
+// Scan advances to the next "data:" line and reports whether one was found.
 func (s *SSEScanner) Scan() bool {
 	for s.scanner.Scan() {
 		line := s.scanner.Bytes()
@@ -41,7 +44,7 @@ func (s *SSEScanner) Scan() bool {
 			continue
 		}
 
-		// Look for "data:" prefix — per SSE spec, strip one leading space if present.
+		// Look for the "data:" prefix; per the SSE spec, strip one leading space if present.
 		if bytes.HasPrefix(line, []byte("data:")) {
 			payload := bytes.TrimPrefix(line, []byte("data:"))
 			payload = bytes.TrimPrefix(payload, []byte(" "))

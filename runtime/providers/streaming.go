@@ -81,7 +81,10 @@ type StreamChunk struct {
 	ToolCalls []types.MessageToolCall `json:"tool_calls,omitempty"`
 
 	// FinishReason is nil until stream is complete
-	// Values: "stop", "length", "content_filter", "tool_calls", "error", "validation_failed", "cancelled"
+	// A provider reports the normalized types.FinishReason* constants where it
+	// maps them (for example "stop"). Other values are "error" for a failed
+	// stream, "canceled" or "cancelled" for a canceled one, "validation_failed",
+	// and "pending_tools"; an unmapped provider reason passes through verbatim.
 	FinishReason *string `json:"finish_reason,omitempty"`
 
 	// Interrupted indicates the response was interrupted (e.g., user started speaking)
@@ -98,7 +101,7 @@ type StreamChunk struct {
 	// fresh response. Only emitted when the provider's retry_window is
 	// set to "always" and a mid-stream error triggered a full retry.
 	// The retry costs tokens because the provider generates a new
-	// response from scratch — this is why the default is off.
+	// response from scratch.
 	Reset bool `json:"reset,omitempty"`
 
 	// Error is set if an error occurred during streaming
@@ -155,7 +158,8 @@ func (e *ValidationAbortError) Error() string {
 	return "validation aborted stream: " + e.Reason
 }
 
-// IsValidationAbort checks if an error is a validation abort
+// IsValidationAbort reports whether err is a *ValidationAbortError. It does not
+// unwrap wrapped errors.
 func IsValidationAbort(err error) bool {
 	_, ok := err.(*ValidationAbortError)
 	return ok

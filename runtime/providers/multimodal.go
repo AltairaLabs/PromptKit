@@ -22,7 +22,7 @@ const (
 
 // CapabilitySet converts a declared capability list into a membership set for
 // O(1) lookup. It returns nil for an empty list so callers can distinguish
-// "not declared" (nil → fall back to built-in defaults) from a non-empty
+// "not declared" (nil, fall back to built-in defaults) from a non-empty
 // declaration that is authoritative.
 func CapabilitySet(capabilities []string) map[string]bool {
 	if len(capabilities) == 0 {
@@ -166,7 +166,9 @@ func IsFormatSupported(p Provider, contentType, mimeType string) bool {
 	return false
 }
 
-// ValidateMultimodalMessage checks if a message's multimodal content is supported by the provider
+// ValidateMultimodalMessage checks that the provider supports the image, audio
+// and video parts of a message and their MIME types. Document parts are not
+// checked. It returns an *UnsupportedContentError for the first part that fails.
 func ValidateMultimodalMessage(p Provider, msg types.Message) error {
 	if !msg.IsMultimodal() {
 		return nil // Text-only message, no validation needed
@@ -242,7 +244,7 @@ type UnsupportedContentError struct {
 	Provider    string // Provider ID
 	ContentType string // "image", "audio", "video", or "multimodal"
 	Message     string // Human-readable error message
-	PartIndex   int    // Index of the unsupported content part (if applicable)
+	PartIndex   int    // Index of the unsupported content part; 0 when the error is not about one part
 	MIMEType    string // Specific MIME type that's unsupported (if applicable)
 }
 

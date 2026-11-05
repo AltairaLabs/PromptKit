@@ -1,7 +1,6 @@
-// Package providers contains provider contract test helpers.
-//
-// This file contains exported test helpers that can be used by provider
-// implementations in subpackages to validate their contract compliance.
+// This file contains exported test helpers that provider implementations in
+// subpackages use to validate their contract compliance.
+
 package providers
 
 import (
@@ -47,7 +46,11 @@ const (
 //
 //	func TestOpenAIProviderContract(t *testing.T) {
 //	    provider := NewProvider(...)
-//	    RunProviderContractTests(t, provider)
+//	    providers.RunProviderContractTests(t, providers.ProviderContractTests{
+//	        Provider:                  provider,
+//	        SupportsToolsExpected:     true,
+//	        SupportsStreamingExpected: true,
+//	    })
 //	}
 type ProviderContractTests struct {
 	// Provider instance to test
@@ -61,7 +64,8 @@ type ProviderContractTests struct {
 }
 
 // RunProviderContractTests executes all contract tests against a provider.
-// This should be called from each provider's test file.
+// Call it from each provider's test file. The tool and streaming checks run
+// only when SupportsToolsExpected and SupportsStreamingExpected are set.
 func RunProviderContractTests(t *testing.T, config ProviderContractTests) {
 	t.Run("Contract_ID", func(t *testing.T) {
 		testProviderID(t, config.Provider)
@@ -140,9 +144,9 @@ func testProviderID(t *testing.T, provider Provider) {
 	}
 }
 
-// ValidatePredictReturnsLatency verifies that Predict() returns a response with non-zero latency.
-// This is the critical test that would have caught the production bug!
-// Exported for use in provider-specific regression tests.
+// ValidatePredictReturnsLatency verifies that Predict() returns a response with a
+// positive latency that is no more than ten times the measured elapsed time.
+// It is exported for use in provider-specific regression tests.
 func ValidatePredictReturnsLatency(t *testing.T, provider Provider) {
 	ctx := context.Background()
 	req := PredictionRequest{
@@ -180,10 +184,9 @@ func ValidatePredictReturnsLatency(t *testing.T, provider Provider) {
 	}
 }
 
-// ValidatePredictWithToolsReturnsLatency verifies that PredictWithTools() returns latency.
-// This test is CRITICAL - it would have caught the production bug where
-// PredictWithTools didn't set latency!
-// Exported for use in provider-specific regression tests.
+// ValidatePredictWithToolsReturnsLatency verifies that PredictWithTools() returns
+// a response with a positive latency.
+// It is exported for use in provider-specific regression tests.
 func ValidatePredictWithToolsReturnsLatency(t *testing.T, provider Provider) {
 	toolSupport, ok := provider.(ToolSupport)
 	if !ok {

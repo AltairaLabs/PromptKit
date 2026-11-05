@@ -10,7 +10,7 @@ import (
 )
 
 // FrameDetector extracts the bytes of the first complete "frame" from a
-// streaming response body. The concept of a frame is protocol-specific —
+// streaming response body. The concept of a frame is protocol-specific:
 // SSE uses `data: ...\n\n` boundaries, NDJSON uses line terminators,
 // Gemini's JSON-array streaming uses balanced-brace JSON objects inside
 // a top-level array.
@@ -58,7 +58,7 @@ func defaultFrameDetector() FrameDetector { return SSEFrameDetector{} }
 // that get passed through as part of the frame bytes.
 //
 // This is the framing used by OpenAI Chat Completions, OpenAI Responses
-// API, Claude Messages, VLLM, and most SSE-based LLM providers.
+// API, Claude Messages, vLLM, and most SSE-based LLM providers.
 type SSEFrameDetector struct{}
 
 // Name implements FrameDetector.
@@ -117,11 +117,11 @@ func processSSELine(br *bufio.Reader, buf *bytes.Buffer, line string, sawData *b
 // --- NDJSON ---
 
 // NDJSONFrameDetector detects newline-delimited JSON frames. Each frame
-// is one complete JSON object terminated by a literal `\n`. This is
-// the framing used by Ollama's streaming API (`{"response":"..."}\n`)
-// and several other non-SSE providers that stream raw JSON.
+// is one complete JSON object terminated by a literal `\n`, as in Ollama's
+// native streaming API (`{"response":"..."}\n`) and other non-SSE APIs that
+// stream raw JSON.
 //
-// This detector does NOT validate that the line is parseable JSON —
+// This detector does NOT validate that the line is parseable JSON;
 // it only looks for the line terminator. Upstream producers that
 // emit partial JSON would fail at the downstream parser, not here.
 // This matches the SSE detector's behavior of not interpreting the
@@ -207,17 +207,17 @@ func (JSONArrayFrameDetector) PeekFirstFrame(r io.Reader) ([]byte, error) {
 	br := bufio.NewReader(r)
 	var buf bytes.Buffer
 
-	// Phase 1: skip leading whitespace and consume the opening `[`.
+	// Step 1: skip leading whitespace and consume the opening `[`.
 	if err := consumeJSONArrayOpen(br, &buf); err != nil {
 		return nil, err
 	}
 
-	// Phase 2: scan until we've read a complete object at depth 0.
+	// Step 2: scan until we've read a complete object at depth 0.
 	if err := consumeFirstObject(br, &buf); err != nil {
 		return nil, err
 	}
 
-	// Phase 3: drain any bufio lookahead into the replay slice.
+	// Step 3: drain any bufio lookahead into the replay slice.
 	if err := drainBufferedInto(br, &buf); err != nil {
 		return nil, err
 	}
@@ -318,7 +318,7 @@ func consumeFirstObject(br *bufio.Reader, buf *bytes.Buffer) error {
 }
 
 // isJSONWhitespace reports whether b is a JSON insignificant
-// whitespace character (RFC 8259 §2).
+// whitespace character (RFC 8259 section 2).
 func isJSONWhitespace(b byte) bool {
 	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
 }
