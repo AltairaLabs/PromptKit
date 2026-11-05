@@ -86,6 +86,9 @@ type Provider struct {
 	// overrides it, and the session falls back to ["TEXT"] when neither is set.
 	// See gemini_streaming.go / streaming_support.go (#1667).
 	responseModalities []string
+	// contextWindow, when positive, overrides the built-in context-window table.
+	// Set from additional_config.context_window.
+	contextWindow int
 }
 
 // enableExplicitCaching turns on explicit context caching (#1404) with the given

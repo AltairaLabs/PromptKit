@@ -214,6 +214,8 @@ const (
 // matching — there is no substring/heuristic fallback, so a model absent here
 // prices as $0 with a loud warning rather than silently guessing a wrong
 // constant (see PriceUsage).
+//
+//nolint:goconst // ids are shared with the context-window table by value; each table spells its own keys
 var geminiPricingTable = map[string]*base.PricingDescriptor{
 	// Gemini 1.5
 	idGemini15Pro:          gemini15Pro,

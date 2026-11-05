@@ -49,6 +49,8 @@ type Provider struct {
 	keepAlive string // Ollama-specific: how long to keep model loaded (e.g., "5m")
 	defaults  providers.ProviderDefaults
 	extraBody map[string]any // additional_config.extra_body, merged into every request
+	// contextWindow is additional_config.context_window; 0 means unset.
+	contextWindow int
 }
 
 // Default timeout for Ollama requests (longer for local inference)
@@ -77,12 +79,13 @@ func NewProvider(
 	}
 
 	return &Provider{
-		BaseProvider: baseProvider,
-		model:        model,
-		baseURL:      baseURL,
-		keepAlive:    keepAlive,
-		defaults:     defaults,
-		extraBody:    providers.ExtraBody(id, additionalConfig),
+		BaseProvider:  baseProvider,
+		model:         model,
+		baseURL:       baseURL,
+		keepAlive:     keepAlive,
+		defaults:      defaults,
+		extraBody:     providers.ExtraBody(id, additionalConfig),
+		contextWindow: base.ContextWindowFromConfig(additionalConfig),
 	}
 }
 

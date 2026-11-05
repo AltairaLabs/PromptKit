@@ -42,7 +42,7 @@ The SDK owns the developer-facing API surface: conversation lifecycle, options, 
 
 ### Pipeline Construction
 - **Stage ordering** — StateLoad → Variables → PromptAssembly → Template → ContextBuilder → Provider → StateSave
-- **Compaction wiring** — auto-configure from provider's ContextWindowProvider or default 128K
+- **Compaction wiring** — budget follows the provider's `MaxContextTokens()` (Claude, OpenAI, Gemini from a per-model table; any provider via `additional_config.context_window`); 128K default when the window is unknown (Ollama and vLLM without the override, models absent from the table)
 - **Recording stages** — optional input/output capture for session replay
 - **Mode-specific stages** — duplex (ASM), VAD (audio pipeline), text (standard)
 

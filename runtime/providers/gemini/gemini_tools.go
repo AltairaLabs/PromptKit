@@ -866,6 +866,7 @@ func init() {
 				applyThinkingConfig(tp.Provider, spec)
 				applyAPIModeConfig(tp.Provider, spec)
 				applyStreamingModalitiesConfig(tp.Provider, spec)
+				applyContextWindowConfig(tp.Provider, spec)
 				return tp, nil
 			},
 			func(spec providers.ProviderSpec) (providers.Provider, error) {
@@ -878,6 +879,7 @@ func init() {
 				applyThinkingConfig(tp.Provider, spec)
 				applyAPIModeConfig(tp.Provider, spec)
 				applyStreamingModalitiesConfig(tp.Provider, spec)
+				applyContextWindowConfig(tp.Provider, spec)
 				return tp, nil
 			},
 		),
