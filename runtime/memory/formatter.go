@@ -14,8 +14,7 @@ type ContextFormatter func(memories []*Memory) string
 
 // DefaultContextFormatter is the formatter the retrieval stage uses when
 // no override is supplied. It renders each memory on its own line as
-// "[type] content (confidence: N.N)" — matching the historical
-// hardcoded behavior. Callers should treat the output as opaque text
+// "[type] content (confidence: N.N)". The output is plain text
 // suitable for direct injection into a system prompt.
 func DefaultContextFormatter(memories []*Memory) string {
 	var b strings.Builder

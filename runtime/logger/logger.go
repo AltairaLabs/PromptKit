@@ -7,8 +7,11 @@
 //   - Contextual logging with request tracing
 //   - Level-based verbosity control
 //
-// All exported functions use the global DefaultLogger which can be configured
-// for different output formats and log levels.
+// All exported functions use the global logger, which can be configured for
+// different output formats and log levels. At startup the package reads the
+// LOG_LEVEL environment variable ("trace", "debug", "info", "warn" or "error";
+// default "info") and sets the format to JSON when LOG_FORMAT is "json"
+// (default text). Output goes to standard error.
 package logger
 
 import (
@@ -143,8 +146,8 @@ func ParseLevel(s string) slog.Level {
 
 // SetLevel changes the logging level for all subsequent log operations.
 // This is safe for concurrent use as it replaces the entire logger instance.
-// If a custom logger was set via SetLogger, it is preserved — only the level
-// tracking variable is updated.
+// If a custom logger was set via SetLogger, it is preserved and only the
+// stored level changes.
 func SetLevel(level slog.Level) {
 	currentLevel = level
 	if customHandler != nil {
@@ -172,9 +175,8 @@ func SetVerbose(verbose bool) {
 // The provided logger is also set as the slog default so that any
 // code using slog directly picks it up.
 //
-// Once a custom logger is set, SetLevel and SetVerbose do not recreate
-// the handler — the custom logger is preserved until reset.
-// Pass nil to reset to the built-in default logger.
+// Once a custom logger is set, SetLevel, SetVerbose and Configure leave it
+// in place until it is reset. Pass nil to reset to the built-in default logger.
 func SetLogger(l *slog.Logger) {
 	if l == nil {
 		customHandler = nil
@@ -329,9 +331,9 @@ var (
 // for debugging while hiding the sensitive portion.
 //
 // Supported patterns:
-//   - OpenAI keys (sk-...): Shows first 4 chars
-//   - Google keys (AIza...): Shows first 4 chars
-//   - Bearer tokens (opaque, base64, or dotted JWT): Shows only "Bearer [REDACTED]"
+//   - OpenAI keys (sk- followed by at least 32 alphanumeric characters): shows the first 4 chars
+//   - Google keys (AIza followed by 35 characters): shows the first 4 chars
+//   - Bearer tokens (opaque, base64, or dotted JWT): shows only "Bearer [REDACTED]"
 //
 // This function is safe for concurrent use as it only reads from the compiled patterns.
 func RedactSensitiveData(input string) string {

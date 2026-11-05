@@ -16,12 +16,18 @@
 //
 // # Usage Example
 //
-//	vad := audio.NewAdaptiveVAD(audio.DefaultVADParams())
+//	vad, err := audio.NewAdaptiveVAD(audio.DefaultVADParams())
+//	if err != nil {
+//	    return err
+//	}
 //	detector := audio.NewSilenceDetector(500 * time.Millisecond)
 //
 //	for chunk := range audioStream {
-//	    vad.Analyze(ctx, chunk)
-//	    if detector.DetectTurnEnd(ctx, vad) {
+//	    if _, err := vad.Analyze(ctx, chunk); err != nil {
+//	        return err
+//	    }
+//	    _, _ = detector.ProcessAudio(ctx, chunk)
+//	    if ended, _ := detector.ProcessVADState(ctx, vad.State()); ended {
 //	        // User finished speaking
 //	    }
 //	}

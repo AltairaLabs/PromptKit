@@ -24,7 +24,8 @@ const (
 )
 
 // Tracer returns a named tracer from the given TracerProvider.
-// If tp is nil the global noop provider is used.
+// If tp is nil the global OTel tracer provider is used, which is a no-op
+// provider until the application sets one.
 func Tracer(tp trace.TracerProvider) trace.Tracer {
 	if tp == nil {
 		tp = otel.GetTracerProvider()
@@ -33,7 +34,9 @@ func Tracer(tp trace.TracerProvider) trace.Tracer {
 }
 
 // NewTracerProvider creates a TracerProvider that exports spans via OTLP/HTTP.
-// The caller is responsible for calling Shutdown on the returned provider.
+// endpoint is the full collector URL (for example "http://localhost:4318") and
+// serviceName becomes the service.name resource attribute. The caller is
+// responsible for calling Shutdown on the returned provider.
 func NewTracerProvider(ctx context.Context, endpoint, serviceName string) (*sdktrace.TracerProvider, error) {
 	exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(endpoint))
 	if err != nil {

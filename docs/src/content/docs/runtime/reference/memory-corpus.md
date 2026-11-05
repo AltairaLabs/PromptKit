@@ -11,14 +11,14 @@ sidebar:
 import "github.com/AltairaLabs/PromptKit/runtime/v2/memory/corpus"
 ```
 
-Package corpus provides a reference \[memory.Retriever\] over a fixed set of documents — a knowledge base the host supplies, separate from the \[memory.Store\] the memory tools read and write.
+Package corpus provides a reference \[memory.Retriever\] over a fixed set of documents: a knowledge base the host supplies, separate from the \[memory.Store\] the memory tools read and write.
 
-That separation is the point. The two retrieval paths in PromptKit answer different questions:
+The two retrieval paths in PromptKit answer different questions:
 
-- The memory tools \(memory\_\_remember / memory\_\_recall\) let the model manage facts about the \*subject\* — what the user told it to remember. The model decides when to look, and the store is scoped per subject.
+- The memory tools \(memory\_\_remember / memory\_\_recall\) let the model manage facts about the \*subject\*: what the user told it to remember. The model decides when to look, and the store is scoped per subject.
 - Ambient injection asks a corpus what is relevant to \*this turn\* and puts the answer in the system prompt before the model runs. The model never decides; it sees grounding it did not have to ask for.
 
-Pointing ambient injection at the memory store would collapse the two into one confusing path — the model would find the same rows twice, once by asking and once without. Retrieval for grounding belongs over the host's own content: documentation, a product catalog, a support knowledge base.
+Pointing ambient injection at the memory store would collapse the two into one path, and the model would find the same rows twice, once by asking and once without. Retrieval for grounding belongs over the host's own content: documentation, a product catalog, a support knowledge base.
 
 This implementation scores documents by term overlap with the latest user turn. That is enough to develop and test against, and is not a search engine: production hosts implement \[memory.Retriever\] against a vector index or a real search backend.
 
@@ -47,7 +47,7 @@ const (
 ```
 
 <a name="Document"></a>
-## type [Document](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/corpus/corpus.go#L51-L59>)
+## type [Document](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/corpus/corpus.go#L50-L58>)
 
 Document is one unit of retrievable host content.
 
@@ -64,7 +64,7 @@ type Document struct {
 ```
 
 <a name="Option"></a>
-## type [Option](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/corpus/corpus.go#L68>)
+## type [Option](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/corpus/corpus.go#L67>)
 
 Option configures a [Retriever](<#Retriever>).
 
@@ -73,16 +73,16 @@ type Option func(*Retriever)
 ```
 
 <a name="WithTopK"></a>
-### func [WithTopK](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/corpus/corpus.go#L72>)
+### func [WithTopK](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/corpus/corpus.go#L71>)
 
 ```go
 func WithTopK(n int) Option
 ```
 
-WithTopK caps how many documents are injected. Defaults to 3 — enough to ground an answer without crowding the system prompt.
+WithTopK caps how many documents are injected. It defaults to 3. A value of zero or less injects every matching document.
 
 <a name="Retriever"></a>
-## type [Retriever](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/corpus/corpus.go#L62-L65>)
+## type [Retriever](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/corpus/corpus.go#L61-L64>)
 
 Retriever answers ambient\-injection queries from a fixed document set.
 
@@ -93,7 +93,7 @@ type Retriever struct {
 ```
 
 <a name="New"></a>
-### func [New](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/corpus/corpus.go#L77>)
+### func [New](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/corpus/corpus.go#L76>)
 
 ```go
 func New(docs []Document, opts ...Option) *Retriever
@@ -102,14 +102,14 @@ func New(docs []Document, opts ...Option) *Retriever
 New returns a [Retriever](<#Retriever>) over docs.
 
 <a name="Retriever.RetrieveContext"></a>
-### func \(\*Retriever\) [RetrieveContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/corpus/corpus.go#L91-L93>)
+### func \(\*Retriever\) [RetrieveContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/corpus/corpus.go#L90-L92>)
 
 ```go
 func (r *Retriever) RetrieveContext(_ context.Context, _ map[string]string, messages []types.Message) ([]*memory.Memory, error)
 ```
 
-RetrieveContext implements \[memory.Retriever\]. The query is the latest user turn — what the assistant is about to answer.
+RetrieveContext implements \[memory.Retriever\]. The query is the latest user turn, the one the assistant is about to answer. Documents are ranked by the number of terms they share with it, with declaration order breaking ties.
 
-A turn with no user text, or one sharing no term with any document, returns nothing rather than everything: injecting an unrelated document is worse than injecting none, because the model cannot tell that it was not chosen.
+A turn with no user text, or one sharing no term with any document, returns nothing.
 
 Generated by [gomarkdoc](<https://github.com/princjef/gomarkdoc>)

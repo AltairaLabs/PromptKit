@@ -1,8 +1,8 @@
 package audio
 
-// Chunk represents a chunk of audio data flowing through the runtime —
-// produced by TTS providers, consumed by playback sinks, realtime LLM inputs,
-// and pipeline stages. Carries the bytes plus stream-position metadata.
+// Chunk represents a chunk of audio data flowing through the runtime.
+// TTS providers produce it, and playback sinks, realtime LLM inputs and
+// pipeline stages consume it. It carries the bytes plus stream-position metadata.
 type Chunk struct {
 	// Data is the raw audio bytes.
 	Data []byte

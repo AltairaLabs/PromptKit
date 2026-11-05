@@ -144,11 +144,11 @@ var ErrNotFound = errors.New("conversation not found")
 ```
 
 <a name="BulkWriter"></a>
-## type [BulkWriter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/interface.go#L35-L39>)
+## type [BulkWriter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/interface.go#L34-L38>)
 
-BulkWriter allows replacing the entire conversation state in one operation. Optional and explicitly OUT\-OF\-BAND for hot\-path stages — it exists for admin tools, test seeders, and Session.Clear\-style ops.
+BulkWriter allows replacing the entire conversation state in one operation. It is optional and meant for admin tools, test seeders and Session.Clear\-style operations, not for hot\-path stages.
 
-Pipeline stages must NEVER take a BulkWriter as a config field. Use MessageAppender, MetadataAccessor.MergeMetadata, and SummaryAccessor.SaveSummary for typed, race\-safe writes instead. A reflective test in runtime/pipeline/stage enforces this invariant.
+Pipeline stages do not take a BulkWriter as a config field. They use MessageAppender, MetadataAccessor.MergeMetadata and SummaryAccessor.SaveSummary for typed, race\-safe writes instead.
 
 ```go
 type BulkWriter interface {
@@ -199,7 +199,7 @@ func NewInMemoryIndex(provider providers.EmbeddingProvider, opts ...InMemoryInde
 NewInMemoryIndex creates a new in\-memory message index.
 
 <a name="InMemoryIndex.Delete"></a>
-### func \(\*InMemoryIndex\) [Delete](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/index_memory.go#L161>)
+### func \(\*InMemoryIndex\) [Delete](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/index_memory.go#L162>)
 
 ```go
 func (idx *InMemoryIndex) Delete(_ context.Context, conversationID string) error
@@ -214,18 +214,16 @@ Delete removes all indexed messages for a conversation.
 func (idx *InMemoryIndex) Index(ctx context.Context, conversationID string, turnIndex int, message types.Message) error
 ```
 
-Index adds a message to the search index by computing its embedding.
-
-message passed by value to match MessageIndex interface
+Index adds a message to the search index by computing its embedding. It embeds the message's Content field and skips a message whose Content is empty, such as one built from Parts only.
 
 <a name="InMemoryIndex.Search"></a>
-### func \(\*InMemoryIndex\) [Search](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/index_memory.go#L99>)
+### func \(\*InMemoryIndex\) [Search](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/index_memory.go#L100>)
 
 ```go
 func (idx *InMemoryIndex) Search(ctx context.Context, conversationID, query string, k int) ([]IndexResult, error)
 ```
 
-Search finds the top\-k messages most relevant to the query string.
+Search finds the top\-k messages most relevant to the query string, ranked by cosine similarity. It returns nil for an empty query or k \<= 0.
 
 <a name="InMemoryIndexOption"></a>
 ## type [InMemoryIndexOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/index_memory.go#L39>)
@@ -258,7 +256,7 @@ type IndexResult struct {
     // Message is the full message content.
     Message types.Message
 
-    // Score is the relevance score (higher is more relevant, typically 0.0-1.0).
+    // Score is the relevance score (higher is more relevant). InMemoryIndex reports cosine similarity.
     Score float64
 }
 ```
@@ -297,7 +295,7 @@ Summarize compresses the given messages into a concise summary.
 
 ListAccessor allows storing append\-only collections of opaque items \(JSON\-encoded by the caller\) per conversation. Each list is keyed by a stable name \(e.g. "workflow.history"\).
 
-Stores that implement this interface persist appends incrementally: MemoryStore in a Go slice, RedisStore as a Redis list \(RPUSH\). This keeps per\-write cost O\(new entries\) regardless of how long the collection has grown — the load\-bearing property for long\-running workflows whose History/ArtifactHistory grow without bound.
+Stores that implement this interface persist appends incrementally: MemoryStore in a Go slice, RedisStore as a Redis list \(RPUSH\). This keeps per\-write cost O\(new entries\) regardless of how long the collection has grown, which matters for long\-running workflows whose History and ArtifactHistory grow without bound.
 
 Optional. Callers \(typically the SDK workflow code\) type\-assert; the caller surfaces a clear error when the store doesn't satisfy.
 
@@ -309,7 +307,7 @@ type ListAccessor interface {
     AppendList(ctx context.Context, id, listName string, items [][]byte) error
 
     // LoadList returns all items of the named list, in append order.
-    // Returns (nil, nil) — not an error — when the list is empty or
+    // Returns (nil, nil), not an error, when the list is empty or
     // has never been written. Returns ErrNotFound only when the
     // conversation itself doesn't exist.
     LoadList(ctx context.Context, id, listName string) ([][]byte, error)
@@ -322,7 +320,7 @@ type ListAccessor interface {
 ```
 
 <a name="ListOptions"></a>
-## type [ListOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/interface.go#L42-L61>)
+## type [ListOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/interface.go#L41-L61>)
 
 ListOptions provides filtering and pagination options for listing conversations.
 
@@ -333,18 +331,19 @@ type ListOptions struct {
     UserID string
 
     // Limit is the maximum number of conversation IDs to return.
-    // If 0, a default limit (e.g., 100) should be applied.
+    // If 0, MemoryStore and RedisStore return at most 100.
     Limit int
 
     // Offset is the number of conversations to skip (for pagination).
     Offset int
 
-    // SortBy specifies the field to sort by (e.g., "created_at", "updated_at").
-    // If empty, implementation-specific default sorting is used.
+    // SortBy specifies the field to sort by: SortByCreatedAt or SortByUpdatedAt.
+    // SortByCreatedAt uses the timestamp of the first message (the last access
+    // time when there are none). If empty, the order is unspecified.
     SortBy string
 
     // SortOrder specifies sort direction: "asc" or "desc".
-    // If empty, defaults to "desc" (newest first).
+    // Any value other than "asc" sorts descending (newest first).
     SortOrder string
 }
 ```
@@ -555,7 +554,7 @@ LogLen returns the total message count for the conversation. Returns 0 if the co
 func (s *MemoryStore) LogLoad(ctx context.Context, id string, recent int) ([]types.Message, error)
 ```
 
-LogLoad returns messages for the conversation. If recent \> 0, returns only the last N messages. Returns an empty slice if the conversation doesn't exist.
+LogLoad returns messages for the conversation. If recent \> 0, returns only the last N messages. Returns nil if the conversation doesn't exist or has expired.
 
 <a name="MemoryStore.MergeMetadata"></a>
 ### func \(\*MemoryStore\) [MergeMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/memory.go#L651>)
@@ -656,7 +655,7 @@ WithNoTTL explicitly disables TTL expiration so entries never expire. This overr
 <a name="MessageAppender"></a>
 ## type [MessageAppender](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/interface.go#L79-L83>)
 
-MessageAppender allows appending messages without a full load\+replace\+save cycle. This is an optional interface — stores that implement it enable incremental saves. Pipeline stages type\-assert for this interface and fall back to BulkWriter when unavailable.
+MessageAppender allows appending messages without a full load\+replace\+save cycle. This is an optional interface. Stores that implement it enable incremental saves. Pipeline stages type\-assert for this interface and fall back to BulkWriter when unavailable.
 
 ```go
 type MessageAppender interface {
@@ -693,7 +692,7 @@ MessageLog provides sequence\-based message persistence with idempotent append. 
 
 The sequence number is the message index in the conversation \(0\-based\). AppendMessages with startSeq \< current length skips already\-persisted messages, making retries safe.
 
-Implementations are not required to be safe against concurrent LogAppend calls targeting the same conversation id. Callers must serialize writes per conversation — the ProviderStage tool loop already does this via per\-conversation single\-threading.
+Implementations are not required to be safe against concurrent LogAppend calls targeting the same conversation id. Callers must serialize writes per conversation. The ProviderStage tool loop does this by running single\-threaded per conversation.
 
 ```go
 type MessageLog interface {
@@ -705,7 +704,7 @@ type MessageLog interface {
     // LogLoad returns messages for the conversation.
     // If recent > 0, returns only the last N messages.
     // If recent == 0, returns all messages.
-    // Returns an empty slice (not an error) if the conversation doesn't exist.
+    // Returns no messages (not an error) if the conversation doesn't exist.
     LogLoad(ctx context.Context, id string, recent int) ([]types.Message, error)
 
     // LogLen returns the total message count for the conversation.
@@ -717,7 +716,7 @@ type MessageLog interface {
 <a name="MessageReader"></a>
 ## type [MessageReader](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/interface.go#L66-L74>)
 
-MessageReader allows loading a subset of messages without full state deserialization. This is an optional interface — stores that implement it enable efficient partial reads. Pipeline stages type\-assert for this interface and fall back to Store.Load when unavailable.
+MessageReader allows loading a subset of messages without full state deserialization. This is an optional interface. Stores that implement it enable efficient partial reads. Pipeline stages type\-assert for this interface and fall back to Store.Load when unavailable.
 
 ```go
 type MessageReader interface {
@@ -734,7 +733,7 @@ type MessageReader interface {
 <a name="MetadataAccessor"></a>
 ## type [MetadataAccessor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/interface.go#L91-L102>)
 
-MetadataAccessor allows reading and writing metadata without loading the full state. This is an optional interface — stores that implement it enable efficient metadata operations without the cost of deep\-copying the message history. Pipeline stages type\-assert for this interface; reads fall back to Store.Load when LoadMetadata is unavailable, and writes fall back to BulkWriter when MergeMetadata is unavailable.
+MetadataAccessor allows reading and writing metadata without loading the full state. This is an optional interface. Stores that implement it enable efficient metadata operations without the cost of deep\-copying the message history. Pipeline stages type\-assert for this interface; reads fall back to Store.Load when LoadMetadata is unavailable, and writes fall back to BulkWriter when MergeMetadata is unavailable.
 
 ```go
 type MetadataAccessor interface {

@@ -1,6 +1,3 @@
-// Package tts provides text-to-speech services.
-// This file contains WebSocket streaming implementation for Cartesia TTS.
-// It is excluded from coverage testing due to the difficulty of mocking WebSocket connections.
 package tts
 
 import (
@@ -31,7 +28,7 @@ func (s *CartesiaService) wsDialHeader() (http.Header, error) {
 }
 
 // SynthesizeStream converts text to audio with streaming output via WebSocket.
-// This provides ultra-low latency (<100ms first-byte) for real-time applications.
+// Audio chunks arrive on the returned channel as they are generated.
 func (s *CartesiaService) SynthesizeStream(
 	ctx context.Context, text string, config SynthesisConfig,
 ) (<-chan audio.Chunk, error) {
@@ -55,9 +52,8 @@ func (s *CartesiaService) SynthesizeStream(
 	//
 	// The key travels in the X-API-Key header, not a ?api_key= query parameter.
 	// A credential in a URL ends up inside *url.Error on any dial failure, and
-	// that error is wrapped into a SynthesisError and logged — the same leak
-	// shape as #1871. Verified live: this endpoint accepts the header, with the
-	// version left in the query where it is harmless.
+	// that error is wrapped into a SynthesisError and logged. This endpoint
+	// accepts the header, with the version left in the query where it is harmless.
 	wsURL := fmt.Sprintf("%s?cartesia_version=%s", s.wsURL, cartesiaAPIVersion)
 
 	header, err := s.wsDialHeader()

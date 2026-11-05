@@ -21,16 +21,15 @@ import (
 const instrumentationTracerName = "github.com/AltairaLabs/PromptKit/runtime/v2/storage"
 
 // InstrumentedStorage wraps any MediaStorageService with telemetry —
-// OTel spans on every call, runtime events on success/failure, and
-// (when wired in by the consumer) bytes/latency/error metrics derived
-// from the emitted events.
+// OTel spans on every call, runtime events on success and failure, and
+// (when the consumer wires them in) bytes, latency and error metrics
+// derived from the emitted events.
 //
-// The wrapper is nil-safe at every level: a nil bus or nil inner is a
-// hard error, but missing fields on MediaMetadata never panic.
+// A nil bus disables events, and a nil MediaMetadata is tolerated. Only
+// SetBus and Inner are safe on a nil *InstrumentedStorage.
 //
-// Backend identification (`local`, `s3`, ...) is supplied by the
-// caller at construction time so the same wrapper works regardless of
-// the concrete inner implementation.
+// The caller supplies the backend name (`local`, `s3`, ...) at
+// construction, so the same wrapper works with any inner implementation.
 type InstrumentedStorage struct {
 	inner   MediaStorageService
 	tracer  trace.Tracer
@@ -45,7 +44,7 @@ type InstrumentedStorage struct {
 // concrete implementation (e.g. "local", "s3") and ends up on every
 // emitted event and span.
 //
-// Passing a nil inner returns nil — the wrapper has nothing to wrap.
+// Passing a nil inner returns nil.
 // A nil bus is allowed (events become no-ops); spans still emit via
 // the global tracer provider.
 func NewInstrumentedStorage(inner MediaStorageService, bus events.Bus, backend string) *InstrumentedStorage {
@@ -60,12 +59,9 @@ func NewInstrumentedStorage(inner MediaStorageService, bus events.Bus, backend s
 	}
 }
 
-// SetBus swaps the event bus the wrapper publishes to. Arena
-// constructs the storage before the runtime event bus exists, then
-// late-binds it via this method once the bus is wired up. Safe to
-// call once before the wrapper sees any traffic; safe to call
-// concurrently with operations because the bus pointer is guarded by
-// busMu.
+// SetBus swaps the event bus the wrapper publishes to, for callers that
+// build the storage before the event bus exists. It is safe to call
+// concurrently with operations. Passing nil disables events.
 func (s *InstrumentedStorage) SetBus(bus events.Bus) {
 	if s == nil {
 		return
@@ -81,8 +77,8 @@ func (s *InstrumentedStorage) currentBus() events.Bus {
 	return s.bus
 }
 
-// Inner returns the wrapped MediaStorageService — useful for callers
-// that need to type-assert to a backend-specific interface.
+// Inner returns the wrapped MediaStorageService, for callers that need to
+// type-assert to a backend-specific interface.
 func (s *InstrumentedStorage) Inner() MediaStorageService {
 	if s == nil {
 		return nil
@@ -182,9 +178,9 @@ func (s *InstrumentedStorage) DeleteMedia(ctx context.Context, reference Referen
 	return nil
 }
 
-// GetURL traces and times URL generation. No success event is emitted
-// (URL generation is a metadata operation that doesn't move bytes),
-// but failures still publish an error event so opaque 404s are visible.
+// GetURL traces and times URL generation. It emits no event on success,
+// because URL generation moves no bytes, and publishes an error event on
+// failure.
 func (s *InstrumentedStorage) GetURL(
 	ctx context.Context, reference Reference, expiry time.Duration,
 ) (string, error) {

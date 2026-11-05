@@ -11,8 +11,6 @@ sidebar:
 import "github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 ```
 
-Package tts provides text\-to\-speech services. This file contains WebSocket streaming implementation for Cartesia TTS. It is excluded from coverage testing due to the difficulty of mocking WebSocket connections.
-
 Package tts provides text\-to\-speech services for converting text responses to audio.
 
 The package defines a common Service interface that abstracts TTS providers, enabling voice AI applications to convert text\-only LLM responses to speech.
@@ -24,7 +22,7 @@ The package provides:
 - Service interface for TTS providers
 - SynthesisConfig for voice/format configuration
 - Voice and AudioFormat types for provider capabilities
-- Multiple provider implementations \(OpenAI, ElevenLabs, etc.\)
+- Provider implementations for OpenAI, ElevenLabs and Cartesia
 
 ### Usage
 
@@ -51,10 +49,13 @@ For low\-latency applications, use StreamingService:
 
 ```
 streamer := tts.NewCartesia(os.Getenv("CARTESIA_API_KEY"))
-chunks, err := streamer.SynthesizeStream(ctx, "Hello world", config)
+chunks, err := streamer.SynthesizeStream(ctx, "Hello world", tts.DefaultSynthesisConfig())
+if err != nil {
+    log.Fatal(err)
+}
 for chunk := range chunks {
     // Play audio chunk immediately
-    speaker.Write(chunk)
+    speaker.Write(chunk.Data)
 }
 ```
 
@@ -62,10 +63,9 @@ for chunk := range chunks {
 
 The package includes implementations for:
 
-- OpenAI TTS \(tts\-1, tts\-1\-hd models\)
-- ElevenLabs \(high\-quality voice cloning\)
-- Cartesia \(ultra\-low latency streaming\)
-- Google Cloud Text\-to\-Speech \(multi\-language\)
+- OpenAI TTS \(tts\-1, tts\-1\-hd and gpt\-4o\-mini\-tts models\)
+- ElevenLabs
+- Cartesia \(REST and WebSocket streaming\)
 
 ## Index
 
@@ -212,10 +212,7 @@ const (
 ```go
 const (
 
-    // CartesiaModelSonic is the current Sonic model alias for Cartesia
-    // TTS. Cartesia retired the dated `sonic-YYYY-MM-DD` IDs; "sonic-3"
-    // is the latest generation (better naturalness + faster TTFB than
-    // sonic-2 and the original sonic).
+    // CartesiaModelSonic is the Sonic model ID that CartesiaService uses by default.
     CartesiaModelSonic = "sonic-3"
 )
 ```
@@ -383,7 +380,7 @@ func ResolveCredential(ctx context.Context, providerType string, cfgDir string, 
 ResolveCredential is a thin wrapper around base.ResolveCredential, kept here for back\-compat with callers that resolve TTS\-specific credential configs.
 
 <a name="SynthesizeWithRetry"></a>
-## func [SynthesizeWithRetry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/retry.go#L49-L55>)
+## func [SynthesizeWithRetry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/retry.go#L48-L54>)
 
 ```go
 func SynthesizeWithRetry(ctx context.Context, svc Service, text string, config SynthesisConfig, retry RetryConfig) (io.ReadCloser, error)
@@ -392,7 +389,7 @@ func SynthesizeWithRetry(ctx context.Context, svc Service, text string, config S
 SynthesizeWithRetry calls svc.Synthesize with bounded retry on transient errors. Only errors where SynthesisError.Retryable is true are retried; all others are returned immediately. Uses full jitter backoff to avoid synchronized retries across concurrent callers.
 
 <a name="WithCartesiaWSURL"></a>
-## func [WithCartesiaWSURL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L113>)
+## func [WithCartesiaWSURL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L110>)
 
 ```go
 func WithCartesiaWSURL(url string) func(*CartesiaService)
@@ -434,7 +431,7 @@ func (f AudioFormat) String() string
 String returns the format name.
 
 <a name="CartesiaOption"></a>
-## type [CartesiaOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L110>)
+## type [CartesiaOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L107>)
 
 CartesiaOption configures the Cartesia TTS service. It is a type alias for base.HTTPServiceOption so callers can pass base.WithBaseURL, base.WithClient, base.WithModel, etc. directly. Use WithCartesiaWSURL for Cartesia\-specific options.
 
@@ -443,9 +440,9 @@ type CartesiaOption = base.HTTPServiceOption
 ```
 
 <a name="CartesiaService"></a>
-## type [CartesiaService](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L81-L88>)
+## type [CartesiaService](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L78-L85>)
 
-CartesiaService implements TTS using Cartesia's ultra\-low latency API. Cartesia specializes in real\-time streaming TTS with \<100ms first\-byte latency.
+CartesiaService implements TTS using Cartesia's ultra\-low latency API. It supports REST synthesis \(Synthesize\) and WebSocket streaming \(SynthesizeStream\).
 
 ```go
 type CartesiaService struct {
@@ -456,7 +453,7 @@ type CartesiaService struct {
 ```
 
 <a name="NewCartesia"></a>
-### func [NewCartesia](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L120>)
+### func [NewCartesia](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L117>)
 
 ```go
 func NewCartesia(apiKey string, opts ...CartesiaOption) *CartesiaService
@@ -465,7 +462,7 @@ func NewCartesia(apiKey string, opts ...CartesiaOption) *CartesiaService
 NewCartesia creates a Cartesia TTS service.
 
 <a name="CartesiaService.ApplyHTTPTuning"></a>
-### func \(\*CartesiaService\) [ApplyHTTPTuning](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L93>)
+### func \(\*CartesiaService\) [ApplyHTTPTuning](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L90>)
 
 ```go
 func (s *CartesiaService) ApplyHTTPTuning(t base.HTTPTuning) error
@@ -492,7 +489,7 @@ func (s *CartesiaService) HealthCheck(_ context.Context) error
 HealthCheck reports liveness \(no\-op for TTS services\).
 
 <a name="CartesiaService.ImplName"></a>
-### func \(\*CartesiaService\) [ImplName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L137>)
+### func \(\*CartesiaService\) [ImplName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L134>)
 
 ```go
 func (s *CartesiaService) ImplName() string
@@ -510,7 +507,7 @@ func (s *CartesiaService) Init(_ context.Context) error
 Init performs asynchronous setup \(no\-op for TTS services\).
 
 <a name="CartesiaService.ModelName"></a>
-### func \(\*CartesiaService\) [ModelName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L140>)
+### func \(\*CartesiaService\) [ModelName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L137>)
 
 ```go
 func (s *CartesiaService) ModelName() string
@@ -519,16 +516,16 @@ func (s *CartesiaService) ModelName() string
 ModelName returns the configured model name for cost tracking.
 
 <a name="CartesiaService.PersonaRubric"></a>
-### func \(\*CartesiaService\) [PersonaRubric](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L148>)
+### func \(\*CartesiaService\) [PersonaRubric](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L144>)
 
 ```go
 func (s *CartesiaService) PersonaRubric() string
 ```
 
-PersonaRubric implements [PersonaRubricProvider](<#PersonaRubricProvider>). Returns the emotion\-only rubric: Cartesia's experimental controls accept a narrow vocabulary \(positivity / sadness / anger\), so we advertise only the tags the adapter actually maps. Other tags \(e.g. whispers, pause\) would be dropped by lowerCartesiaMarkup, so we omit them from the rubric to keep persona tokens focused on directives that move audio.
+PersonaRubric implements [PersonaRubricProvider](<#PersonaRubricProvider>). Returns the emotion\-only rubric: the adapter maps only emotion tags \(excited, content, sad, angry\) onto Cartesia's generation config, so only those are advertised. Other tags \(e.g. whispers, pause\) are dropped from the request, so the rubric omits them.
 
 <a name="CartesiaService.SpokenText"></a>
-### func \(\*CartesiaService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L252>)
+### func \(\*CartesiaService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L248>)
 
 ```go
 func (s *CartesiaService) SpokenText(text string, _ SynthesisConfig) string
@@ -537,7 +534,7 @@ func (s *CartesiaService) SpokenText(text string, _ SynthesisConfig) string
 SpokenText reports the text Cartesia will actually speak for the given input: emotion tags become generation config, so the spoken transcript is the text with tags removed. Implements tts.SpokenTextReporter.
 
 <a name="CartesiaService.SupportedFormats"></a>
-### func \(\*CartesiaService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L418>)
+### func \(\*CartesiaService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L414>)
 
 ```go
 func (s *CartesiaService) SupportedFormats() []AudioFormat
@@ -546,7 +543,7 @@ func (s *CartesiaService) SupportedFormats() []AudioFormat
 SupportedFormats returns audio formats supported by Cartesia.
 
 <a name="CartesiaService.SupportedVoices"></a>
-### func \(\*CartesiaService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L407>)
+### func \(\*CartesiaService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L403>)
 
 ```go
 func (s *CartesiaService) SupportedVoices() []Voice
@@ -555,7 +552,7 @@ func (s *CartesiaService) SupportedVoices() []Voice
 SupportedVoices returns a sample of available Cartesia voices.
 
 <a name="CartesiaService.Synthesize"></a>
-### func \(\*CartesiaService\) [Synthesize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L193-L195>)
+### func \(\*CartesiaService\) [Synthesize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L189-L191>)
 
 ```go
 func (s *CartesiaService) Synthesize(ctx context.Context, text string, config SynthesisConfig) (io.ReadCloser, error)
@@ -564,13 +561,13 @@ func (s *CartesiaService) Synthesize(ctx context.Context, text string, config Sy
 Synthesize converts text to audio using Cartesia's REST API. For streaming output, use SynthesizeStream instead.
 
 <a name="CartesiaService.SynthesizeStream"></a>
-### func \(\*CartesiaService\) [SynthesizeStream](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia_interactive.go#L35-L37>)
+### func \(\*CartesiaService\) [SynthesizeStream](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia_interactive.go#L32-L34>)
 
 ```go
 func (s *CartesiaService) SynthesizeStream(ctx context.Context, text string, config SynthesisConfig) (<-chan audio.Chunk, error)
 ```
 
-SynthesizeStream converts text to audio with streaming output via WebSocket. This provides ultra\-low latency \(\<100ms first\-byte\) for real\-time applications.
+SynthesizeStream converts text to audio with streaming output via WebSocket. Audio chunks arrive on the returned channel as they are generated.
 
 <a name="CartesiaService.SynthesizeTTS"></a>
 ### func \(\*CartesiaService\) [SynthesizeTTS](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/base_provider.go#L101>)
@@ -905,7 +902,7 @@ Validate performs synchronous config validation \(no\-op for TTS services\).
 <a name="PersonaRubricProvider"></a>
 ## type [PersonaRubricProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L98-L100>)
 
-PersonaRubricProvider is an optional extension interface that TTS adapters implement to advertise the bracket\-tag rubric an upstream persona / script should splice into its system prompt. Implementations return the empty string when the configured model cannot consume characterization markup — callers MUST treat the empty string as "do not inject any rubric" so we do not waste persona tokens on tags that would be silently dropped.
+PersonaRubricProvider is an optional extension interface that TTS adapters implement to advertise the bracket\-tag rubric an upstream persona / script should splice into its system prompt. Implementations return the empty string when the configured model cannot consume characterization markup. Callers must treat the empty string as "do not inject any rubric", so that persona tokens are not spent on tags that would be silently dropped.
 
 See [github.com/AltairaLabs/PromptKit/runtime/v2/tts/markup](<https://pkg.go.dev/github.com/AltairaLabs/PromptKit/runtime/v2/tts/markup/>) for the canonical rubric strings each adapter may return.
 
@@ -925,9 +922,9 @@ type ProviderSpec = base.CapabilitySpec
 ```
 
 <a name="RetryConfig"></a>
-## type [RetryConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/retry.go#L24-L33>)
+## type [RetryConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/retry.go#L23-L32>)
 
-RetryConfig configures bounded retry for TTS synthesis calls. Defaults are on \(unlike streaming retry\) because TTS calls are one\-shot and idempotent — retry has no content\-duplication risk, and the alternative is silence.
+RetryConfig configures bounded retry for TTS synthesis calls. TTS calls are one\-shot and idempotent, so retry has no content\-duplication risk.
 
 ```go
 type RetryConfig struct {
@@ -943,7 +940,7 @@ type RetryConfig struct {
 ```
 
 <a name="DefaultRetryConfig"></a>
-### func [DefaultRetryConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/retry.go#L36>)
+### func [DefaultRetryConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/retry.go#L35>)
 
 ```go
 func DefaultRetryConfig() RetryConfig
@@ -986,7 +983,7 @@ CreateFromSpec returns a Service implementation for the given spec.
 <a name="SpokenTextReporter"></a>
 ## type [SpokenTextReporter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L72-L76>)
 
-SpokenTextReporter is an optional Service extension: given the input text and config, it returns the exact text that will be submitted to the synthesis engine after PromptKit's bracket\-tag markup is lowered — provider\- and model\-specific \(e.g. OpenAI gpt\-4o\-mini\-tts moves tags to \`instructions\`, so the spoken text is the stripped remainder; ElevenLabs v3 keeps inline tags\). The lowering is pure, so this reports the value without synthesizing. Returns "" when unknown, letting consumers fall back to the LLM text.
+SpokenTextReporter is an optional Service extension: given the input text and config, it returns the exact text that will be submitted to the synthesis engine after PromptKit's bracket\-tag markup is lowered. The result is provider\- and model\-specific \(e.g. OpenAI gpt\-4o\-mini\-tts moves tags to \`instructions\`, so the spoken text is the stripped remainder; ElevenLabs v3 keeps inline tags\). The lowering is pure, so this reports the value without synthesizing. Returns "" when unknown, letting consumers fall back to the LLM text.
 
 ```go
 type SpokenTextReporter interface {
@@ -1023,24 +1020,24 @@ type SynthesisConfig struct {
     // Available voices vary by provider - use SupportedVoices() to list options.
     Voice string
 
-    // Format is the output audio format.
-    // Default is MP3 for most providers.
+    // Format is the output audio format. If the zero value, the provider uses its
+    // default format (MP3 for OpenAI).
     Format AudioFormat
 
-    // Speed is the speech rate multiplier (0.25-4.0, default 1.0).
-    // Not all providers support speed adjustment.
+    // Speed is the speech rate multiplier (default 1.0).
+    // Only OpenAIService reads it.
     Speed float64
 
-    // Pitch adjusts the voice pitch (-20 to 20 semitones, default 0).
-    // Not all providers support pitch adjustment.
+    // Pitch adjusts the voice pitch in semitones (default 0).
+    // No built-in provider reads it.
     Pitch float64
 
     // Language is the language code for synthesis (e.g., "en-US").
-    // Required for some providers, optional for others.
+    // Only CartesiaService sends it.
     Language string
 
-    // Model is the TTS model to use (provider-specific).
-    // For OpenAI: "tts-1" (fast) or "tts-1-hd" (high quality).
+    // Model is the TTS model to use (provider-specific). If empty, the service's
+    // configured model is used. For OpenAI: ModelTTS1, ModelTTS1HD or ModelGPT4oMiniTTS.
     Model string
 }
 ```

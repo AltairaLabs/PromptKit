@@ -28,10 +28,7 @@ const (
 	cartesiaAPIVersion = "2024-06-10"
 	cartesiaRESTURL    = "/tts/bytes"
 
-	// CartesiaModelSonic is the current Sonic model alias for Cartesia
-	// TTS. Cartesia retired the dated `sonic-YYYY-MM-DD` IDs; "sonic-3"
-	// is the latest generation (better naturalness + faster TTFB than
-	// sonic-2 and the original sonic).
+	// CartesiaModelSonic is the Sonic model ID that CartesiaService uses by default.
 	CartesiaModelSonic = "sonic-3"
 
 	// Default timeout for Cartesia requests.
@@ -77,7 +74,7 @@ var cartesiaDefaultPricing = &base.PricingDescriptor{
 }
 
 // CartesiaService implements TTS using Cartesia's ultra-low latency API.
-// Cartesia specializes in real-time streaming TTS with <100ms first-byte latency.
+// It supports REST synthesis (Synthesize) and WebSocket streaming (SynthesizeStream).
 type CartesiaService struct {
 	*base.Implementation    // provides Name, Type, Pricing, Validate, Init, HealthCheck, Close
 	*base.HTTPServiceFields // APIKey, BaseURL, Model, Client
@@ -140,11 +137,10 @@ func (s *CartesiaService) ImplName() string { return providerCartesia }
 func (s *CartesiaService) ModelName() string { return s.Model }
 
 // PersonaRubric implements [PersonaRubricProvider]. Returns the
-// emotion-only rubric: Cartesia's experimental controls accept a narrow
-// vocabulary (positivity / sadness / anger), so we advertise only the
-// tags the adapter actually maps. Other tags (e.g. whispers, pause) would
-// be dropped by lowerCartesiaMarkup, so we omit them from the rubric to
-// keep persona tokens focused on directives that move audio.
+// emotion-only rubric: the adapter maps only emotion tags (excited, content,
+// sad, angry) onto Cartesia's generation config, so only those are advertised.
+// Other tags (e.g. whispers, pause) are dropped from the request, so the
+// rubric omits them.
 func (s *CartesiaService) PersonaRubric() string {
 	return markup.RubricEmotionOnly
 }

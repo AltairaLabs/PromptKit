@@ -25,13 +25,12 @@ type Store interface {
 }
 
 // BulkWriter allows replacing the entire conversation state in one
-// operation. Optional and explicitly OUT-OF-BAND for hot-path stages —
-// it exists for admin tools, test seeders, and Session.Clear-style ops.
+// operation. It is optional and meant for admin tools, test seeders and
+// Session.Clear-style operations, not for hot-path stages.
 //
-// Pipeline stages must NEVER take a BulkWriter as a config field. Use
-// MessageAppender, MetadataAccessor.MergeMetadata, and SummaryAccessor.SaveSummary
-// for typed, race-safe writes instead. A reflective test in
-// runtime/pipeline/stage enforces this invariant.
+// Pipeline stages do not take a BulkWriter as a config field. They use
+// MessageAppender, MetadataAccessor.MergeMetadata and SummaryAccessor.SaveSummary
+// for typed, race-safe writes instead.
 type BulkWriter interface {
 	// Save persists the entire conversation state, overwriting any existing
 	// record. Auto-creates the conversation if it doesn't exist.
@@ -45,23 +44,24 @@ type ListOptions struct {
 	UserID string
 
 	// Limit is the maximum number of conversation IDs to return.
-	// If 0, a default limit (e.g., 100) should be applied.
+	// If 0, MemoryStore and RedisStore return at most 100.
 	Limit int
 
 	// Offset is the number of conversations to skip (for pagination).
 	Offset int
 
-	// SortBy specifies the field to sort by (e.g., "created_at", "updated_at").
-	// If empty, implementation-specific default sorting is used.
+	// SortBy specifies the field to sort by: SortByCreatedAt or SortByUpdatedAt.
+	// SortByCreatedAt uses the timestamp of the first message (the last access
+	// time when there are none). If empty, the order is unspecified.
 	SortBy string
 
 	// SortOrder specifies sort direction: "asc" or "desc".
-	// If empty, defaults to "desc" (newest first).
+	// Any value other than "asc" sorts descending (newest first).
 	SortOrder string
 }
 
 // MessageReader allows loading a subset of messages without full state deserialization.
-// This is an optional interface — stores that implement it enable efficient partial reads.
+// This is an optional interface. Stores that implement it enable efficient partial reads.
 // Pipeline stages type-assert for this interface and fall back to Store.Load when unavailable.
 type MessageReader interface {
 	// LoadRecentMessages returns the last n messages for the given conversation.
@@ -74,7 +74,7 @@ type MessageReader interface {
 }
 
 // MessageAppender allows appending messages without a full load+replace+save cycle.
-// This is an optional interface — stores that implement it enable incremental saves.
+// This is an optional interface. Stores that implement it enable incremental saves.
 // Pipeline stages type-assert for this interface and fall back to BulkWriter when unavailable.
 type MessageAppender interface {
 	// AppendMessages appends messages to the conversation's message history.
@@ -83,7 +83,7 @@ type MessageAppender interface {
 }
 
 // MetadataAccessor allows reading and writing metadata without loading the
-// full state. This is an optional interface — stores that implement it
+// full state. This is an optional interface. Stores that implement it
 // enable efficient metadata operations without the cost of deep-copying the
 // message history. Pipeline stages type-assert for this interface; reads
 // fall back to Store.Load when LoadMetadata is unavailable, and writes fall
@@ -120,8 +120,8 @@ type SummaryAccessor interface {
 // Stores that implement this interface persist appends incrementally:
 // MemoryStore in a Go slice, RedisStore as a Redis list (RPUSH). This
 // keeps per-write cost O(new entries) regardless of how long the
-// collection has grown — the load-bearing property for long-running
-// workflows whose History/ArtifactHistory grow without bound.
+// collection has grown, which matters for long-running workflows whose
+// History and ArtifactHistory grow without bound.
 //
 // Optional. Callers (typically the SDK workflow code) type-assert; the
 // caller surfaces a clear error when the store doesn't satisfy.
@@ -132,7 +132,7 @@ type ListAccessor interface {
 	AppendList(ctx context.Context, id, listName string, items [][]byte) error
 
 	// LoadList returns all items of the named list, in append order.
-	// Returns (nil, nil) — not an error — when the list is empty or
+	// Returns (nil, nil), not an error, when the list is empty or
 	// has never been written. Returns ErrNotFound only when the
 	// conversation itself doesn't exist.
 	LoadList(ctx context.Context, id, listName string) ([][]byte, error)

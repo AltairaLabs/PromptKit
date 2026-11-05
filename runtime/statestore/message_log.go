@@ -17,8 +17,8 @@ import (
 //
 // Implementations are not required to be safe against concurrent LogAppend
 // calls targeting the same conversation id. Callers must serialize writes
-// per conversation — the ProviderStage tool loop already does this via
-// per-conversation single-threading.
+// per conversation. The ProviderStage tool loop does this by running
+// single-threaded per conversation.
 type MessageLog interface {
 	// LogAppend appends messages starting at the given sequence number.
 	// If startSeq < current message count, the first (current - startSeq) input
@@ -28,7 +28,7 @@ type MessageLog interface {
 	// LogLoad returns messages for the conversation.
 	// If recent > 0, returns only the last N messages.
 	// If recent == 0, returns all messages.
-	// Returns an empty slice (not an error) if the conversation doesn't exist.
+	// Returns no messages (not an error) if the conversation doesn't exist.
 	LogLoad(ctx context.Context, id string, recent int) ([]types.Message, error)
 
 	// LogLen returns the total message count for the conversation.

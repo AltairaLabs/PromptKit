@@ -45,16 +45,16 @@ const (
 ```
 
 <a name="NewTracerProvider"></a>
-## func [NewTracerProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/provider.go#L37>)
+## func [NewTracerProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/provider.go#L40>)
 
 ```go
 func NewTracerProvider(ctx context.Context, endpoint, serviceName string) (*sdktrace.TracerProvider, error)
 ```
 
-NewTracerProvider creates a TracerProvider that exports spans via OTLP/HTTP. The caller is responsible for calling Shutdown on the returned provider.
+NewTracerProvider creates a TracerProvider that exports spans via OTLP/HTTP. endpoint is the full collector URL \(for example "http://localhost:4318"\) and serviceName becomes the service.name resource attribute. The caller is responsible for calling Shutdown on the returned provider.
 
 <a name="SetupPropagation"></a>
-## func [SetupPropagation](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/provider.go#L62>)
+## func [SetupPropagation](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/provider.go#L65>)
 
 ```go
 func SetupPropagation()
@@ -63,13 +63,13 @@ func SetupPropagation()
 SetupPropagation configures the global OTel text\-map propagator to handle W3C TraceContext, W3C Baggage, and AWS X\-Ray trace headers.
 
 <a name="Tracer"></a>
-## func [Tracer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/provider.go#L28>)
+## func [Tracer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/provider.go#L29>)
 
 ```go
 func Tracer(tp trace.TracerProvider) trace.Tracer
 ```
 
-Tracer returns a named tracer from the given TracerProvider. If tp is nil the global noop provider is used.
+Tracer returns a named tracer from the given TracerProvider. If tp is nil the global OTel tracer provider is used, which is a no\-op provider until the application sets one.
 
 <a name="AgentInfo"></a>
 ## type [AgentInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/listener.go#L151-L154>)
@@ -140,7 +140,7 @@ func (l *OTelEventListener) StartSession(parentCtx context.Context, sessionID st
 StartSession creates a root span for the given session, optionally parented under the span context in parentCtx. It is idempotent: if a session already exists for the given ID, the previous session span is ended before creating a new one. This allows callers to call StartSession on every Send/Stream with a fresh parent context. The optional agent parameter provides agent identity attributes for the span.
 
 <a name="OTelOption"></a>
-## type [OTelOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/content_capture.go#L50>)
+## type [OTelOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/content_capture.go#L49>)
 
 OTelOption configures an OTelEventListener.
 
@@ -149,7 +149,7 @@ type OTelOption func(*OTelEventListener)
 ```
 
 <a name="WithContentCapture"></a>
-### func [WithContentCapture](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/content_capture.go#L63>)
+### func [WithContentCapture](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/content_capture.go#L62>)
 
 ```go
 func WithContentCapture(enabled bool) OTelOption
@@ -157,7 +157,7 @@ func WithContentCapture(enabled bool) OTelOption
 
 WithContentCapture enables attaching conversation content and tool payloads to spans.
 
-OFF by default. Span structure, timing, token usage, model names and tool NAMES are unaffected — those carry the operational value without the payload, and remain on regardless.
+Content capture is off by default. Span structure, timing, token usage, model names and tool names are unaffected: they carry the operational value without the payload, and remain on regardless.
 
 Enable this only where the trace backend is an appropriate place for customer data. Where tool arguments may carry credentials \(on\-behalf\-of token exchange puts per\-user delegated OAuth tokens there\), wrap the subscriber in events.Redacting rather than reaching for a hook on this listener.
 

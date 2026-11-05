@@ -25,8 +25,8 @@ const (
 )
 
 // dimensionNamePattern is what an exported dimension name must look like:
-// snake_case, at most 64 characters. Nothing is normalized — "Clarity" is
-// dropped, not folded into "clarity" — because a judge that varies the case
+// snake_case, at most 64 characters. Nothing is normalized: "Clarity" is
+// dropped, not folded into "clarity", because a judge that varies the case
 // of a key would otherwise mint one series per spelling.
 var dimensionNamePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,63}$`)
 

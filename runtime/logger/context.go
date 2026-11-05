@@ -1,4 +1,3 @@
-// Package logger provides structured logging with automatic PII redaction.
 package logger
 
 import (
