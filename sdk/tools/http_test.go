@@ -495,15 +495,53 @@ func TestRedactFields_InvalidJSON(t *testing.T) {
 	}
 }
 
+// WithPreRequest must run on the request that is actually sent. Setting the
+// option and never calling it sends the request without the header it adds.
 func TestWithPreRequest(t *testing.T) {
-	cfg := &HTTPToolConfig{}
-	opt := WithPreRequest(func(req *http.Request) error {
-		req.Header.Set("X-Test", "value")
-		return nil
-	})
-	opt(cfg)
-	if cfg.preRequest == nil {
-		t.Error("preRequest should be set")
+	var gotHeader string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeader = r.Header.Get("X-Test")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	cfg := NewHTTPToolConfig(server.URL,
+		WithMethod("GET"),
+		WithPreRequest(func(req *http.Request) error {
+			req.Header.Set("X-Test", "value")
+			return nil
+		}),
+	)
+
+	if _, err := cfg.HandlerCtx()(t.Context(), map[string]any{"q": "x"}); err != nil {
+		t.Fatalf("handler error = %v", err)
+	}
+	if gotHeader != "value" {
+		t.Errorf("X-Test = %q, want the header WithPreRequest set", gotHeader)
+	}
+}
+
+// An error from the pre-request function fails the call and nothing is sent.
+func TestWithPreRequest_ErrorFailsTheCall(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	sentinel := errors.New("token refresh failed")
+	cfg := NewHTTPToolConfig(server.URL,
+		WithPreRequest(func(*http.Request) error { return sentinel }),
+	)
+
+	_, err := cfg.Handler()(map[string]any{})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("err = %v, want the pre-request error", err)
+	}
+	if calls != 0 {
+		t.Errorf("server received %d requests, want 0", calls)
 	}
 }
 

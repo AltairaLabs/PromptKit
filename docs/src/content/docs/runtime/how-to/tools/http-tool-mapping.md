@@ -16,7 +16,7 @@ Map the arguments the model sends to HTTP request components, and shrink API res
 ## Prerequisites
 
 - A tool definition with `mode: live` and a `spec.http` block (see [HTTP Tools SDK](/sdk/how-to/tools/http-tools/)).
-- A `request` block under `spec.http` for every mapping on this page. Without it, a GET sends all arguments as query parameters, a POST, PUT or PATCH sends them as the JSON body, and nothing is templated.
+- A `request` block under `spec.http` for every mapping on this page except a path template. Without one, a GET sends all arguments as query parameters and a POST, PUT or PATCH sends them as the JSON body.
 
 ## Steps
 
@@ -41,7 +41,7 @@ With a `request` block, arguments not listed in `query_params` go in the JSON bo
 
 ### 2. Put arguments in the URL path
 
-Use Go `text/template` syntax in the URL. Add a `request` block, even an empty one, so the executor renders the template:
+Use Go `text/template` syntax in the URL. The executor renders it with or without a `request` block:
 
 ```yaml
 spec:
@@ -51,7 +51,9 @@ spec:
     request: {}
 ```
 
-Arguments used in the path are excluded from the body.
+Arguments used in the path are excluded from the body and the query string.
+
+The template renders whether or not the tool has a `request` block. Without one, the arguments the template does not use go where an unmapped tool sends them: the query string for GET, HEAD and DELETE, and the JSON body for POST, PUT and PATCH.
 
 The URL from the scheme through the host and port must be fixed text, so the model cannot choose where the request goes. A template such as `https://{{.region}}.api.example.com` fails when the tool is called. To reach several hosts, declare one tool per host.
 
@@ -85,7 +87,7 @@ spec:
 
 ### 5. Inject fixed parameters
 
-Static values are not part of the model's input schema:
+Static values are not part of the model's input schema, and they apply on every call, including a call with no arguments:
 
 ```yaml
 spec:
@@ -196,7 +198,6 @@ Call the tool with `{"latitude": 51.5, "longitude": -0.12}`. The runtime logs `H
 
 ## Troubleshoot
 
-- The URL still contains `{{.user_id}}` or the arguments appear in the query string: add a `request` block.
 - An argument is missing from a GET request: list it under `query_params` or put it in the path.
 - The call fails with "URL templates may use arguments in the path and query": remove the template from the scheme, host or port.
 - `JMESPath expression ... failed`: test the expression against the raw response.

@@ -45,20 +45,11 @@ func main() {
 	defer conv.Close()
 
 	// --- Pattern 1: Static API key ---
-	staticCfg := sdktools.NewHTTPToolConfig("https://api.example.com/products",
-		sdktools.WithMethod("GET"),
-		sdktools.WithHeader("X-Api-Key", "pk_live_abc123"),
-		sdktools.WithHeader("Accept", "application/json"),
-	)
-	conv.OnTool("search_products", staticCfg.Handler())
+	conv.OnTool("search_products", productsToolConfig(apiBaseURL).Handler())
 	fmt.Println("Registered search_products with static API key")
 
 	// --- Pattern 2: Environment variable header ---
-	envCfg := sdktools.NewHTTPToolConfig("https://api.example.com/analytics",
-		sdktools.WithMethod("GET"),
-		sdktools.WithHeaderFromEnv("Authorization=ANALYTICS_API_TOKEN"),
-	)
-	conv.OnTool("get_analytics", envCfg.Handler())
+	conv.OnTool("get_analytics", analyticsToolConfig(apiBaseURL).Handler())
 	fmt.Println("Registered get_analytics with env-based auth")
 
 	// --- Pattern 3: Dynamic OAuth with token caching ---
@@ -66,8 +57,45 @@ func main() {
 		clientID:     "my-client-id",
 		clientSecret: "my-client-secret",
 	}
+	conv.OnToolCtx("get_customer", customerToolConfig(apiBaseURL, cache).HandlerCtx())
+	fmt.Println("Registered get_customer with OAuth + token caching")
+	fmt.Println()
 
-	oauthCfg := sdktools.NewHTTPToolConfig("https://api.example.com/customers",
+	// Send a message that would trigger tool use.
+	ctx := context.Background()
+	resp, err := conv.Send(ctx, "Look up customer John Smith")
+	if err != nil {
+		log.Fatalf("Send failed: %v", err)
+	}
+
+	fmt.Printf("Response: %s\n", resp.Text())
+}
+
+// apiBaseURL is the API the tools call. The smoke test points the same tool
+// configs at a local server instead.
+const apiBaseURL = "https://api.example.com"
+
+// productsToolConfig sends a static API key on every request.
+func productsToolConfig(baseURL string) *sdktools.HTTPToolConfig {
+	return sdktools.NewHTTPToolConfig(baseURL+"/products",
+		sdktools.WithMethod("GET"),
+		sdktools.WithHeader("X-Api-Key", "pk_live_abc123"),
+		sdktools.WithHeader("Accept", "application/json"),
+	)
+}
+
+// analyticsToolConfig reads the Authorization header from ANALYTICS_API_TOKEN.
+func analyticsToolConfig(baseURL string) *sdktools.HTTPToolConfig {
+	return sdktools.NewHTTPToolConfig(baseURL+"/analytics",
+		sdktools.WithMethod("GET"),
+		sdktools.WithHeaderFromEnv("Authorization=ANALYTICS_API_TOKEN"),
+	)
+}
+
+// customerToolConfig adds a cached OAuth bearer token to each request and
+// strips sensitive fields from the response.
+func customerToolConfig(baseURL string, cache *tokenCache) *sdktools.HTTPToolConfig {
+	return sdktools.NewHTTPToolConfig(baseURL+"/customers",
 		sdktools.WithMethod("GET"),
 		sdktools.WithTimeout(10000),
 		sdktools.WithPreRequest(func(req *http.Request) error {
@@ -84,19 +112,6 @@ func main() {
 		}),
 		sdktools.WithRedact("ssn", "credit_card"),
 	)
-
-	conv.OnToolCtx("get_customer", oauthCfg.HandlerCtx())
-	fmt.Println("Registered get_customer with OAuth + token caching")
-	fmt.Println()
-
-	// Send a message that would trigger tool use.
-	ctx := context.Background()
-	resp, err := conv.Send(ctx, "Look up customer John Smith")
-	if err != nil {
-		log.Fatalf("Send failed: %v", err)
-	}
-
-	fmt.Printf("Response: %s\n", resp.Text())
 }
 
 // tokenCache manages OAuth token refresh with automatic caching.

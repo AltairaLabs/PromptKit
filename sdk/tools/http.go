@@ -113,6 +113,8 @@ func WithTransform(transform func(args map[string]any) (map[string]any, error)) 
 }
 
 // WithPreRequest adds a function to modify the request before sending.
+// It runs on every request the handler makes, after the URL and headers are
+// set. An error it returns fails the tool call and the request is not sent.
 func WithPreRequest(fn func(req *http.Request) error) HTTPToolOption {
 	return func(c *HTTPToolConfig) {
 		c.preRequest = fn
@@ -152,6 +154,7 @@ func (c *HTTPToolConfig) Handler() func(args map[string]any) (any, error) {
 // The context is propagated to the underlying HTTP executor for tracing and cancellation.
 func (c *HTTPToolConfig) HandlerCtx() func(ctx context.Context, args map[string]any) (any, error) {
 	executor := tools.NewHTTPExecutor()
+	executor.PreRequest = c.preRequest
 
 	return func(ctx context.Context, args map[string]any) (any, error) {
 		return c.executeHandler(ctx, executor, args)

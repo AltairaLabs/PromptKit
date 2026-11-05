@@ -51,7 +51,23 @@ cfg := sdktools.NewHTTPToolConfig("https://api.example.com/data",
 
 The runtime sets `Authorization` to the value of `$API_TOKEN` on each call, and omits the header when the variable is empty.
 
-Credentials that change at runtime, such as OAuth tokens, need a handler that makes the request itself. Register it with `OnToolCtx` and use the `ctx` it receives for the request.
+Use `WithPreRequest` to change the request before it is sent, such as to add an OAuth token that expires:
+
+```go
+cfg := sdktools.NewHTTPToolConfig("https://api.example.com/data",
+    sdktools.WithPreRequest(func(req *http.Request) error {
+        token, err := fetchToken(req.Context())
+        if err != nil {
+            return err
+        }
+        req.Header.Set("Authorization", "Bearer "+token)
+        return nil
+    }),
+)
+conv.OnToolCtx("fetch_data", cfg.HandlerCtx())
+```
+
+The function runs on every request, after the URL and the static and environment headers are set. If it returns an error, the tool call fails with that error and the request is not sent. Register the config with `HandlerCtx` or `OnToolHTTP`.
 
 ## 3. Set a timeout and redact fields
 

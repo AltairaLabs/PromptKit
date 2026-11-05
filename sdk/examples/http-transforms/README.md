@@ -43,10 +43,12 @@ conv.OnTool("lookup_user", cfg.Handler())
 
 ### Pre-Request Hook
 
-Modify the HTTP request before sending (auth, tracing, etc.):
+Modify the HTTP request before sending (auth, tracing, etc.). The URL template puts
+the `user_id` argument in the path:
 
 ```go
-cfg := sdktools.NewHTTPToolConfig("https://api.example.com/orders",
+cfg := sdktools.NewHTTPToolConfig("https://api.example.com/users/{{.user_id}}/orders",
+    sdktools.WithMethod("GET"),
     sdktools.WithPreRequest(func(req *http.Request) error {
         req.Header.Set("X-Correlation-ID", generateID())
         req.Header.Set("Authorization", "Bearer "+getToken())
