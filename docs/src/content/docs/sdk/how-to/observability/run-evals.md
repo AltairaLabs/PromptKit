@@ -31,8 +31,6 @@ verified:
 ---
 Score a conversation snapshot against the evals in a pack with `sdk.Evaluate()`. Messages go in and results come out; no live agent connection is needed.
 
-Evals measure: a result carries a score, not a pass or fail. Only an assertion or guardrail wrapper sets a verdict.
-
 ## Prerequisites
 
 - A pack with `evals`, or a list of `evals.EvalDef` values.
@@ -88,7 +86,7 @@ Evals measure: a result carries a score, not a pass or fail. Only an assertion o
    })
    ```
 
-   2. Choose which trigger class runs with `Trigger`. The default is `every_turn`.
+2. Choose which trigger class runs with `Trigger`. The default is `every_turn`.
 
    | `Trigger` | Runs evals with trigger |
    |---|---|

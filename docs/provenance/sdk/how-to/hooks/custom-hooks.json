@@ -229,6 +229,33 @@
     "runtime/pipeline/stage/stages_provider.go:3075",
     "runtime/pipeline/stage/stages_provider.go:44"
    ]
+  },
+  {
+   "id": 26,
+   "claim": "A ProviderHook whose BeforeCall returns hooks.Deny makes conv.Send return an error matching *hooks.HookDeniedError via errors.As, with HookType provider_before and the given Reason",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/errors.go:8",
+    "runtime/pipeline/stage/stages_provider.go:3010"
+   ]
+  },
+  {
+   "id": 27,
+   "claim": "HookDeniedError.HookName is the fixed string provider_hook, not the hook's Name()",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:3011",
+    "runtime/pipeline/stage/stages_provider.go:43"
+   ]
+  },
+  {
+   "id": 28,
+   "claim": "mock.NewProvider(id, model string, includeRawOutput bool); sdk.WithProvider; sdk.WithSkipSchemaValidation",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/mock/mock.go:35",
+    "sdk/options.go:482"
+   ]
   }
  ]
 }

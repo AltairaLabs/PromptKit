@@ -14,13 +14,19 @@ verified:
     - runtime/hooks/registry.go
     - runtime/hooks/types.go
     - runtime/pipeline/stage/stages_provider.go
+    - runtime/providers/mock/mock.go
     - sdk/conversation.go
     - sdk/options.go
     - sdk/sdk.go
     - sdk/session_hooks.go
 ---
 
-How to implement each PromptKit hook type in Go and register it with an SDK conversation. For subprocess-backed hooks in any language, see [Exec Hooks](/sdk/how-to/hooks/exec-hooks/).
+Implement a PromptKit hook in Go and register it with an SDK conversation. For subprocess-backed hooks in any language, see [Exec Hooks](/sdk/how-to/hooks/exec-hooks/).
+
+## Prerequisites
+
+- An SDK conversation to register the hook on (`sdk.Open`).
+- The hooks package, imported as `github.com/AltairaLabs/PromptKit/runtime/v2/hooks`.
 
 ## Pick a hook type
 
@@ -32,8 +38,6 @@ How to implement each PromptKit hook type in Go and register it with an SDK conv
 | Rewrite a tool's result before the model sees it | [`ToolHook` + `ToolResultRewriter`](#toolhook--toolresultrewriter) |
 | Observe session start/turn/end | [`SessionHook`](#sessionhook) |
 | Push or mutate eval results | [`EvalHook`](#evalhook) |
-
-For the conceptual difference between Decision-based and observational hooks, see [The Hook System](/sdk/explanation/hooks/).
 
 ## ProviderHook
 
@@ -68,7 +72,7 @@ conv, _ := sdk.Open("./app.pack.json", "chat",
 
 ## ProviderHook + ChunkInterceptor
 
-If your hook also implements `ChunkInterceptor`, the registry routes streaming chunks to it. This lets you abort a streaming response mid-flight, saving API costs when the model starts producing something you don't want to ship.
+If your hook also implements `ChunkInterceptor`, the registry routes streaming chunks to it, so you can abort a response mid-stream.
 
 ```go
 type StreamingPIIHook struct {
@@ -126,7 +130,7 @@ Register via `sdk.WithToolHook(&AuditToolHook{logger: slog.Default()})`.
 
 ## ToolHook + ToolResultRewriter
 
-If your tool hook also implements `ToolResultRewriter`, the registry passes the text of each successful tool result through `RewriteResult` before the model sees it. Use it to redact a result, or in a test harness to plant an indirect prompt injection in live tool output.
+If your tool hook also implements `ToolResultRewriter`, the registry passes the text of each successful tool result through `RewriteResult` before the model sees it. Use it to redact a result.
 
 ```go
 type RedactHook struct{ AuditToolHook }
@@ -177,7 +181,7 @@ Register via `sdk.WithSessionHook(&SessionLogger{logger: slog.Default()})`.
 
 ## EvalHook
 
-Observational. The runner hands you a pointer to the result. Mutate it in place (redact, enrich, attach metadata) and the mutated result propagates to the caller and the event bus. There is no allow/deny decision: every registered hook runs for every result.
+Observational. The runner hands you a pointer to the result. Mutate it in place and the change propagates to the caller and the event bus. There is no allow/deny decision: every registered hook runs for every result.
 
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/v2/evals"
@@ -198,19 +202,7 @@ func (h *MetricsEvalHook) OnEvalResult(
 }
 ```
 
-A redacting hook that mutates the result before it leaves the runner:
-
-```go
-type RedactingEvalHook struct{}
-
-func (h *RedactingEvalHook) Name() string { return "redact_explanations" }
-
-func (h *RedactingEvalHook) OnEvalResult(
-    _ context.Context, _ *evals.EvalDef, _ *evals.EvalContext, result *evals.EvalResult,
-) {
-    result.Explanation = ssnPattern.ReplaceAllString(result.Explanation, "[REDACTED]")
-}
-```
+To redact instead, assign to the result in place, for example `result.Explanation = ssnPattern.ReplaceAllString(result.Explanation, "[REDACTED]")`.
 
 Register via `sdk.WithEvalHook(&MetricsEvalHook{exporter: exp})`. A panic inside an eval hook is caught and logged; subsequent hooks still run.
 
@@ -234,7 +226,40 @@ if err != nil {
 
 `HookType` is `"provider_before"` or `"provider_after"`, which tells you which phase fired. Only provider hooks produce a `HookDeniedError`: streaming denials return `*providers.ValidationAbortError`, and tool hook denials reach the model as an error tool result.
 
-## See also
+## Verify
+
+Register a `ProviderHook` that denies, send a message, and check the error:
+
+```go
+type DenyHook struct{}
+
+func (h *DenyHook) Name() string { return "deny_all" }
+
+func (h *DenyHook) BeforeCall(_ context.Context, _ *hooks.ProviderRequest) hooks.Decision {
+    return hooks.Deny("blocked for the check")
+}
+
+func (h *DenyHook) AfterCall(_ context.Context, _ *hooks.ProviderRequest, _ *hooks.ProviderResponse) hooks.Decision {
+    return hooks.Allow
+}
+
+conv, err := sdk.Open("./app.pack.json", "chat",
+    sdk.WithProvider(mock.NewProvider("mock", "mock-model", false)),
+    sdk.WithProviderHook(&DenyHook{}),
+)
+if err != nil {
+    log.Fatal(err)
+}
+defer conv.Close()
+
+_, err = conv.Send(ctx, "Hello")
+var hookErr *hooks.HookDeniedError
+fmt.Println(errors.As(err, &hookErr), hookErr.HookType, hookErr.Reason)
+```
+
+It prints `true provider_before blocked for the check`. `HookName` is the fixed string `provider_hook`, not the hook's own `Name()`.
+
+## Related
 
 - [Hooks Reference](/runtime/reference/hooks/): full interface signatures, types, registry
 - [Exec Hooks](/sdk/how-to/hooks/exec-hooks/): implement hooks as subprocesses in any language
