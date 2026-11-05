@@ -1,5 +1,6 @@
 ---
 title: Retrieval Architecture
+description: Why retrieval has two shapes in an agent, what each costs, and why PromptKit ships interfaces for it rather than an implementation.
 sidebar:
   order: 6
 ---
@@ -11,7 +12,7 @@ An agent that needs knowledge it was not given can obtain it in one of two ways,
 
 **Model-initiated.** The model reads the question, concludes it needs something, and calls a tool. Retrieval happens mid-turn, as part of the tool loop.
 
-**Pipeline-initiated.** The pipeline retrieves before the model runs and puts the result in the system prompt. The model never chooses; the content is already there.
+**Pipeline-initiated.** The pipeline retrieves before the model runs and writes the result into the `memory_context` template variable, which the system template renders. The model never chooses; the content is already there.
 
 Both end with retrieved text in the model's context. Everything else about them differs.
 
@@ -21,7 +22,7 @@ Model-initiated retrieval spends a round trip. The model must generate a tool ca
 
 Its failure mode is silence. If the model does not think to call the tool, no retrieval happens and the answer is ungrounded with no signal that anything was missed. Prompt wording carries real weight here, and smaller models skip the call more often.
 
-Pipeline-initiated retrieval costs nothing extra in provider calls and cannot be skipped: every turn is grounded whether the model would have asked or not. What it gives up is judgment. The query is built from the conversation by fixed logic, so it retrieves the same way for a question it handles well and one it handles badly.
+Pipeline-initiated retrieval costs nothing extra in provider calls and cannot be skipped: every turn is grounded whether the model would have asked or not. A retriever error is logged and the turn proceeds with empty context. What it gives up is judgment. The query is built from the conversation by fixed logic, so it retrieves the same way for a question it handles well and one it handles badly.
 
 Two consequences are easy to miss:
 
@@ -53,7 +54,7 @@ Separate sources keep the responsibilities legible: the corpus grounds answers, 
 
 Relevance is a property of a corpus. What counts as the right document depends on how your content is chunked, what embedding model indexed it, whether the domain wants recall or precision, and how the answer must be cited. A default would be wrong for most corpora while looking authoritative, and hosts would build around it before discovering that.
 
-What PromptKit owns instead is the seam: when retrieval runs, what it is handed, and how its output reaches the prompt. `corpus.Retriever` exists to make that seam testable and to give a working example — term overlap over a fixed document set, adequate for development and honest about being nothing more.
+What PromptKit owns instead is the seam: when retrieval runs, what it is handed, and how its output reaches the prompt. `corpus.Retriever` exists to make that seam testable and to give a working example — term overlap over a fixed document set, adequate for development and nothing more.
 
 The same reasoning applies to `memory.Store` and `memory.Extractor`. Persistence, ranking, and deciding what is worth remembering are all domain judgments; the interfaces are the contract, and platform layers implement them.
 

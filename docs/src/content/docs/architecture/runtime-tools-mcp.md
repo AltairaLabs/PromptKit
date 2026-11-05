@@ -1,161 +1,44 @@
 ---
-title: Runtime Tool & MCP Integration Architecture
+title: Runtime tool and MCP architecture
+description: How a model's tool call becomes a result, how MCP servers plug into the same path, and where the limits on tool use are enforced.
 sidebar:
   order: 7
 ---
-The PromptKit tool system enables LLMs to interact with external systems through a flexible, extensible architecture. Native support for the Model Context Protocol (MCP) allows integration with a growing ecosystem of tool servers while maintaining backward compatibility with standalone tool definitions.
+A tool call passes through policy checks, hooks, schema validation and an executor before the model sees a result. This page explains how the `tools` package routes a call, how Model Context Protocol (MCP) servers join the same path, and where each limit on tool use is enforced.
 
-## Overview
+## How a call is routed
 
-The tool system bridges the gap between LLM reasoning and real-world actions. It provides:
-
-- **Unified Tool Interface**: Consistent abstraction across different execution modes
-- **MCP Integration**: Native support for Model Context Protocol servers
-- **Flexible Execution**: Mock, HTTP, MCP, local, and client executors
-- **Schema Validation**: JSON Schema-based argument and result validation
-- **Kubernetes-Style Configuration**: Familiar YAML manifest format
+The provider stage owns the tool loop. For every tool call in a model response it asks the `tools.Registry` to run the call. The registry validates the arguments, picks an executor from the tool's `Mode`, and validates the result.
 
 ```mermaid
 graph TB
-    subgraph "Application Layer"
-        LLM["LLM / Provider"]
-    end
+    Resp["Provider response with tool calls"]
+    Loop["ProviderStage tool loop"]
+    Reg["tools.Registry"]
+    Val["SchemaValidator"]
+    Mock["MockStaticExecutor / MockScriptedExecutor"]
+    HTTP["HTTPExecutor"]
+    Exec["ExecExecutor"]
+    SDK["SDK local and client executors"]
+    MCPX["MCPExecutor"]
+    Srv["MCP servers"]
 
-    subgraph "Tool System"
-        Registry["Tool Registry"]
-        Validator["Schema Validator"]
-        Executor["Executor Router"]
-    end
-
-    subgraph "Execution Backends"
-        Mock["Mock Executor<br/>Static/Scripted"]
-        HTTP["HTTP Executor<br/>REST APIs"]
-        MCP["MCP Executor<br/>MCP Servers"]
-    end
-
-    subgraph "External Systems"
-        MockData["Mock Data"]
-        API["REST API"]
-        MCPServer1["MCP Server<br/>Filesystem"]
-        MCPServer2["MCP Server<br/>Database"]
-        MCPServerN["MCP Server<br/>Custom"]
-    end
-
-    LLM --> Registry
-    Registry --> Validator
-    Registry --> Executor
-
-    Executor --> Mock
-    Executor --> HTTP
-    Executor --> MCP
-
-    Mock --> MockData
-    HTTP --> API
-    MCP --> MCPServer1
-    MCP --> MCPServer2
-    MCP --> MCPServerN
-
-    style Registry fill:#f9f,stroke:#333,stroke-width:3px
-    style MCP fill:#9f9,stroke:#333,stroke-width:2px
+    Resp --> Loop
+    Loop --> Reg
+    Reg --> Val
+    Reg --> Mock
+    Reg --> HTTP
+    Reg --> Exec
+    Reg --> SDK
+    Reg --> MCPX
+    MCPX --> Srv
 ```
 
-## Core Components
+The registry is the single store of tool descriptors. `NewRegistryWithRepository` reads a `ToolRepository` once, at construction, and copies every descriptor into the registry. Capability tools such as `skill__activate` and the per-state `workflow__transition` register into the same map, so `Unregister` removes a descriptor from every read path. A registry holds one executor per name, and registering a second executor under a name evicts the first. Each conversation therefore derives its own registry with `Child()`.
 
-### Tool Descriptor
+A `ToolDescriptor` carries the tool's name, description, JSON Schema for input and output, a `Mode`, a timeout and the mode-specific configuration. The namespace comes from the name: `mcp__fs__read` has namespace `mcp`. The namespaces `a2a`, `mcp`, `workflow`, `memory`, `skill`, `image` and `video` mark system tools.
 
-The `ToolDescriptor` is the central data structure representing a tool:
-
-```go
-type ToolDescriptor struct {
-    Name         string          // Unique tool identifier
-    Namespace    string          // Optional namespace (e.g., "mcp", "a2a")
-    Description  string          // Human-readable description
-    InputSchema  json.RawMessage // JSON Schema for arguments
-    OutputSchema json.RawMessage // JSON Schema for results
-    Mode         string          // "mock" | "live" | "local" | "mcp" | "client"
-    TimeoutMs    int             // Execution timeout
-
-    // Mock configuration
-    MockResult       json.RawMessage // Static mock data
-    MockParts        []types.ContentPart // Multimodal mock parts
-    MockTemplate     string          // Inline template for dynamic mocks
-    MockResultFile   string          // External file for mock data
-    MockTemplateFile string          // External file for mock template
-
-    // Mode-specific configuration
-    HTTPConfig   *HTTPConfig   // For mode "live"
-    A2AConfig    *A2AConfig    // For A2A agent tools
-    ClientConfig *ClientConfig // For mode "client"
-}
-```
-
-**Kubernetes-Style Manifest**:
-
-```yaml
-apiVersion: promptkit.altairalabs.ai/v1
-kind: Tool
-metadata:
-  name: get-weather
-  namespace: tools
-spec:
-  name: get-weather
-  description: Get current weather for a location
-  mode: live
-  timeout_ms: 5000
-  input_schema:
-    type: object
-    properties:
-      location:
-        type: string
-        description: City name or coordinates
-    required: [location]
-  output_schema:
-    type: object
-    properties:
-      temperature:
-        type: number
-      conditions:
-        type: string
-  http:
-    url: https://api.weather.com/v1/current
-    method: POST
-    headers:
-      Authorization: Bearer ${WEATHER_API_KEY}
-```
-
-### Tool Registry
-
-The `Registry` manages tool lifecycle and execution:
-
-```go
-type Registry struct {
-    tools      map[string]*ToolDescriptor // Every registered descriptor
-    validator  *SchemaValidator           // JSON Schema validator
-    executors  map[string]Executor        // Execution backends
-}
-```
-
-The registry is the single store of descriptors. `NewRegistryWithRepository` reads a `ToolRepository` once, at construction, and copies every descriptor it lists into the registry; the repository is a loader for pack content and is not consulted again. Everything registered afterwards (capability tools such as `skill__activate`, the per-state `workflow__transition`) lives in the same map, so `Unregister` removes a descriptor from every read path.
-
-**Key Operations**:
-
-```go
-// Register a tool
-registry.Register(descriptor)
-
-// Get a tool by name
-tool := registry.Get("get-weather")
-
-// Execute a tool with validation
-result, err := registry.Execute(ctx, "get-weather", args)
-
-// List all available tools
-tools := registry.List()
-```
-
-### Executor Interface
-
-All execution backends implement the `Executor` interface:
+Every backend implements one interface:
 
 ```go
 type Executor interface {
@@ -164,840 +47,179 @@ type Executor interface {
 }
 ```
 
-**Extended Executor Interfaces**:
-- **MultimodalExecutor**: Returns both JSON and content parts (images, audio)
-- **AsyncToolExecutor**: Returns pending status for HITL approval workflows
+Two optional interfaces extend it. A `MultimodalExecutor` also returns content parts (images, audio), and the registry prefers it when an executor implements it. An `AsyncToolExecutor` can return a pending result instead of blocking, which is how approval and deferred client tools work.
 
-```go
-// MultimodalExecutor supports tools returning rich content (images, audio, etc.)
-type MultimodalExecutor interface {
-    Executor
-    ExecuteMultimodal(
-        ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage,
-    ) (json.RawMessage, []types.ContentPart, error)
-}
+The registry chooses the executor by mode. `mock` uses the scripted executor when the tool has a template and the static one otherwise, `live` uses the executor named `http`, and `local`, `client` and `mcp` use the executors with those names. Any other mode names a registered executor directly, which is how `exec` and custom executors plug in. A new registry holds only the two mock executors. The host registers the rest, and the SDK registers `local`, `client` and `exec`, plus `mcp` when you configure an MCP server.
 
-// AsyncToolExecutor supports tools that may require approval before execution
-type AsyncToolExecutor interface {
-    Executor
-    ExecuteAsync(
-        ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage,
-    ) (*ToolExecutionResult, error)
-}
-```
+A pack declares a tool's schema and description but not how it runs. The SDK loads pack tools with mode `local` as a placeholder, and the host binds the real execution mode and any consent policy. Execution mode and consent are hosting concerns, not pack fields.
 
-**Built-in Executors**:
-- **MockStaticExecutor**: Returns pre-defined static responses
-- **MockScriptedExecutor**: Template-based dynamic responses
-- **HTTPExecutor**: Makes HTTP API calls
-- **MCPExecutor**: Delegates to MCP servers
-- **LocalExecutor**: Dispatches to SDK-registered `OnTool()`/`OnToolCtx()` handlers
-- **ClientExecutor**: Handles client-side tools; defers execution when no handler is registered
-
-## Tool Execution Flow
-
-### Standard Execution Pipeline
+## What happens to one call
 
 ```mermaid
 sequenceDiagram
-    participant LLM
-    participant Pipeline
-    participant Registry
-    participant Validator
-    participant Executor
-    participant External
+    participant PS as ProviderStage
+    participant H as Hook registry
+    participant R as tools.Registry
+    participant V as SchemaValidator
+    participant E as Executor
 
-    LLM->>Pipeline: Response with ToolCalls
-    Pipeline->>Registry: Execute(toolName, args)
-    Registry->>Validator: ValidateArgs(args)
-
-    alt Validation Fails
-        Validator-->>Registry: ValidationError
-        Registry-->>Pipeline: Error
-        Pipeline-->>LLM: Tool Error
-    end
-
-    Validator-->>Registry: Valid
-    Registry->>Executor: Execute(descriptor, args)
-    Executor->>External: Perform Action
-    External-->>Executor: Raw Result
-    Executor-->>Registry: Result
-    Registry->>Validator: ValidateOutput(result)
-    Validator-->>Registry: Valid
-    Registry-->>Pipeline: ToolResult
-    Pipeline->>LLM: Continue with Result
+    PS->>PS: Blocklist check
+    PS->>H: RunBeforeToolExecution
+    PS->>PS: ApprovalChecker
+    PS->>R: ExecuteAsync(name, args)
+    R->>V: Coerce and validate args
+    R->>E: Execute (bounded by TimeoutMs)
+    E-->>R: Raw result
+    R->>V: Validate result (not for MCP)
+    R-->>PS: ToolExecutionResult
+    PS->>H: Result rewriters, RunAfterToolExecution
 ```
 
-### Multi-Tool Execution
+A blocklisted tool, a hook denial, an invalid argument set, an executor error or a timeout each produce an error result for that call, not an aborted turn. The model reads the error and can correct itself. The registry coerces string-encoded numbers and booleans to the types the input schema declares before it validates, because models often send `"5"` for an integer.
 
-The Provider Middleware handles parallel tool execution:
+A pending result (approval required, client tool without a handler) holds that call out of the round. The other calls finish, and the loop returns `ErrToolsPending` so the caller can resolve the held calls and resume.
+
+Calls in one model response run concurrently, up to `MaxParallelToolCalls` (default 10). Results return in the order the model issued the calls, and one failure does not cancel the others. The provider stage truncates a result larger than the registry's `MaxToolResultSize` (1 MB by default) and appends a truncation notice.
+
+### Schema validation
+
+The `SchemaValidator` compiles input and output schemas with `gojsonschema` (JSON Schema draft-07) and keeps the compiled forms in an LRU cache. A schema with an external `$ref` is not compiled, and its data is not validated, because compiling it would fetch the reference.
+
+A descriptor registered directly has no timeout unless it sets `TimeoutMs`. A descriptor loaded from a manifest or JSON file gets `DefaultToolTimeout` (30 seconds) when it sets none.
+
+Result validation skips MCP tools. MCP servers are a standard protocol with trusted responses, and their declared schemas often differ from what they return. The `MCPExecutor` instead validates a result's `structuredContent` against the tool's output schema and reports a mismatch as a tool error.
+
+## Execution modes
+
+- `mock` returns canned data for tests. `mock_result` is static, and `mock_template` is a Go `text/template` rendered with the call's arguments.
+- `live` calls an HTTP endpoint through `HTTPExecutor`. It sets headers from config and from environment variables (`headers_from_env` entries take the form `Header-Name=ENV_VAR`), applies the configured timeout, redacts named fields from the response, and wraps a non-JSON body in a result object. A non-2xx status is an error. The executor does not retry.
+- `exec` runs a one-shot subprocess: arguments go to stdin as JSON and the result comes back on stdout.
+- `local` dispatches to handlers you register with `OnTool` or `OnToolCtx`. Pack tools use it by default.
+- `client` fulfills a tool on the caller's device, such as GPS or a camera. With a handler registered through `OnClientTool`, the call runs synchronously. Without one, the executor returns a pending result carrying the consent message and categories from `ClientConfig`. You answer with `SendToolResult` and call `Resume`. Whether and how to ask the user for consent is the host's decision.
+- `mcp` delegates to an MCP server, described next.
+
+## MCP integration
+
+An MCP server contributes tools that look like any other descriptor. The runtime keeps the protocol work in the `mcp` package and the routing in `MCPExecutor`.
 
 ```mermaid
 graph TB
-    subgraph "Round 1"
-        LLM1["LLM Response"]
-        TC1["Tool Call 1<br/>get-weather"]
-        TC2["Tool Call 2<br/>get-time"]
-        TC3["Tool Call 3<br/>search-docs"]
-    end
+    TR["tools.Registry"]
+    MX["MCPExecutor"]
+    MR["mcp.RegistryImpl"]
+    C1["Stdio client"]
+    C2["Streamable HTTP client"]
+    C3["SSE client"]
+    S1["Local subprocess"]
+    S2["Remote server"]
+    S3["Legacy remote server"]
 
-    subgraph "Parallel Execution"
-        E1["Execute Tool 1"]
-        E2["Execute Tool 2"]
-        E3["Execute Tool 3"]
-    end
-
-    subgraph "Result Aggregation"
-        R1["Result 1"]
-        R2["Result 2"]
-        R3["Result 3"]
-        Agg["Aggregate Results"]
-    end
-
-    subgraph "Round 2"
-        LLM2["LLM with Results"]
-        Final["Final Response"]
-    end
-
-    LLM1 --> TC1
-    LLM1 --> TC2
-    LLM1 --> TC3
-
-    TC1 --> E1
-    TC2 --> E2
-    TC3 --> E3
-
-    E1 --> R1
-    E2 --> R2
-    E3 --> R3
-
-    R1 --> Agg
-    R2 --> Agg
-    R3 --> Agg
-
-    Agg --> LLM2
-    LLM2 --> Final
-
-    style Agg fill:#9f9
+    TR --> MX
+    MX --> MR
+    MR --> C1
+    MR --> C2
+    MR --> C3
+    C1 <--> S1
+    C2 <--> S2
+    C3 <--> S3
 ```
 
-**Features**:
-- Parallel execution of independent tools
-- Result aggregation
-- Error handling per tool
-- Configurable timeout and retry
+A `ServerConfig` picks the transport. A `Command` starts a local subprocess and speaks over stdio. A `URL` uses Streamable HTTP and falls back to the older HTTP+SSE transport when the server does not host a Streamable HTTP endpoint. A `transport` setting pins one. The clients are built on the MCP Go SDK.
 
-## Model Context Protocol (MCP) Integration
-
-### MCP Architecture
-
-```mermaid
-graph TB
-    subgraph "PromptKit Runtime"
-        MCPRegistry["MCP Registry"]
-        MCPExecutor["MCP Executor"]
-        ToolRegistry["Tool Registry"]
-    end
-
-    subgraph "MCP Protocol Layer"
-        Client1["MCP Client<br/>Server 1"]
-        Client2["MCP Client<br/>Server 2"]
-        ClientN["MCP Client<br/>Server N"]
-    end
-
-    subgraph "MCP Servers (External Processes)"
-        Server1["Filesystem Server<br/>npx @modelcontextprotocol/server-filesystem"]
-        Server2["Memory Server<br/>Custom MCP Server"]
-        ServerN["Database Server<br/>python mcp_server.py"]
-    end
-
-    ToolRegistry --> MCPRegistry
-    MCPRegistry --> MCPExecutor
-    MCPExecutor --> Client1
-    MCPExecutor --> Client2
-    MCPExecutor --> ClientN
-
-    Client1 <--> |stdio<br/>JSON-RPC| Server1
-    Client2 <--> |stdio<br/>JSON-RPC| Server2
-    ClientN <--> |stdio<br/>JSON-RPC| ServerN
-
-    style MCPRegistry fill:#f9f,stroke:#333,stroke-width:3px
-```
-
-### MCP Client Implementation
-
-The `StdioClient` implements the MCP protocol over stdio:
+You declare a server with an SDK option and let the prompt name the tools it may use:
 
 ```go
-type StdioClient struct {
-    config     ServerConfig      // Server command and args
-    options    ClientOptions     // Timeout, retry config
-    cmd        *exec.Cmd         // Running process
-    stdin      io.WriteCloser    // JSON-RPC request stream
-    stdout     io.ReadCloser     // JSON-RPC response stream
-
-    // JSON-RPC state
-    nextID     atomic.Int64      // Request ID counter
-    pendingReqs sync.Map         // Active requests
-
-    // Lifecycle
-    started    bool
-    closed     bool
-    serverInfo *InitializeResponse
-}
+conv, err := sdk.Open("./assistant.pack.json", "assistant",
+    sdk.WithMCP("filesystem", "npx", "@modelcontextprotocol/server-filesystem", "/data"),
+)
 ```
 
-**Connection Lifecycle**:
+### Discovery
 
 ```mermaid
 sequenceDiagram
-    participant Runtime
-    participant Client
-    participant Process
-    participant Server
+    participant C as sdk.Conversation
+    participant MR as mcp.RegistryImpl
+    participant S as MCP server
+    participant TR as tools.Registry
 
-    Runtime->>Client: NewStdioClient(config)
-    Runtime->>Client: Initialize(ctx)
-
-    Client->>Process: exec.Command(config.Command, config.Args)
-    Process->>Server: Start subprocess
-
-    Client->>Server: initialize (JSON-RPC)
-    Server-->>Client: InitializeResponse
-    Note over Client: Store capabilities
-
-    Client->>Server: initialized (notification)
-    Client-->>Runtime: Ready for use
-
-    loop Tool Operations
-        Runtime->>Client: ListTools()
-        Client->>Server: tools/list (JSON-RPC)
-        Server-->>Client: ToolsListResponse
-        Client-->>Runtime: []Tool
-
-        Runtime->>Client: CallTool(name, args)
-        Client->>Server: tools/call (JSON-RPC)
-        Server-->>Client: ToolCallResponse
-        Client-->>Runtime: Result
-    end
-
-    Runtime->>Client: Close()
-    Client->>Server: Terminate stdin
-    Client->>Process: Wait for exit
-    Client-->>Runtime: Closed
+    C->>TR: Register MCPExecutor
+    C->>MR: ListAllTools
+    MR->>S: Connect, initialize, tools/list
+    S-->>MR: Tool list
+    MR-->>C: Tools by server
+    C->>TR: Register mcp__server__tool descriptors
+    S-->>MR: notifications/tools/list_changed
+    MR->>S: tools/list
+    MR-->>C: OnToolsChanged
+    C->>TR: Replace or remove descriptors
 ```
 
-### MCP Registry
+When the SDK builds the pipeline, it registers the `MCPExecutor` and lists every server's tools in parallel. Each tool becomes a descriptor named `mcp__<server>__<tool>` with mode `mcp`, after the server's `ToolFilter` is applied. If a server cannot be listed, the SDK retries in the background with exponential backoff, from one second up to one minute, so a slow-starting server does not leave the conversation without its tools. When a server reports that its tool list changed, the registry re-reads it and the SDK replaces or removes the descriptors, so the next turn offers the new set.
 
-The `RegistryImpl` manages multiple MCP server connections:
+Registry clients connect lazily. The first `GetClient` for a server starts it, and a client that is no longer alive is replaced on the next use. `RegistryOptions.MaxProcesses` caps concurrent server processes. A client whose connection drops reconnects up to `MaxReconnectAttempts` times (3 by default), and connecting is retried up to `MaxRetries` times. A `tools/call` is never retried, because a tool may have side effects.
 
-```go
-type RegistryImpl struct {
-    servers   map[string]ServerConfig // Server configurations
-    clients   map[string]Client       // Active connections (lazy)
-    toolIndex map[string]string       // tool name -> server name
-}
-```
+MCP tools are not implicit. The model sees one only when the prompt's tool list names it, either exactly or with a wildcard such as `mcp__filesystem__*`. Capability tools (`skill__`, `a2a__`, `workflow__`, `memory__`, `image__`, `video__`) are offered without a listing.
 
-**Key Features**:
+### Execution and results
 
-1. **Lazy Initialization**: Clients are created on first use
-2. **Tool Discovery**: Automatic indexing of tools from all servers
-3. **Health Monitoring**: Automatic reconnection on failure
-4. **Concurrent Access**: Thread-safe operations
+The `MCPExecutor` strips the `mcp__<server>__` prefix, asks the `mcp.Registry` for the client that owns the raw tool name, and calls `CallTool`. The registry's tool index maps a raw tool name to one server, so two servers that expose the same tool name share a single entry and the last listed wins. A context-attached registry (`WithMCPRegistry`) overrides the executor's default, and `RegistryImpl.Fork` gives each concurrent run its own servers while sharing the parent's connections.
 
-**Tool Discovery Flow**:
+The executor turns MCP content into what the model reads:
 
-```mermaid
-sequenceDiagram
-    participant App
-    participant Registry
-    participant Client1
-    participant Client2
-    participant Server1
-    participant Server2
+- `structuredContent`, when present, is the result.
+- Text blocks become text. One block stays a JSON string and several become a JSON array.
+- Images and audio become content parts through `ExecuteMultimodal`, or stay as content blocks in the JSON through plain `Execute`.
+- Resource links and embedded resources become small JSON objects. A binary resource the model cannot take as a part is described, not inlined.
+- A result with `isError` set becomes an execution error carrying the server's text.
 
-    App->>Registry: RegisterServer(config1)
-    App->>Registry: RegisterServer(config2)
+## Tool policy
 
-    App->>Registry: GetClientForTool("read_file")
-
-    Note over Registry: Tool not in index
-
-    Registry->>Client1: GetClient(server1)
-    Registry->>Client1: ListTools()
-    Client1->>Server1: tools/list
-    Server1-->>Client1: [read_file, write_file, ...]
-    Client1-->>Registry: Tools
-
-    Registry->>Client2: GetClient(server2)
-    Registry->>Client2: ListTools()
-    Client2->>Server2: tools/list
-    Server2-->>Client2: [query_db, update_db, ...]
-    Client2-->>Registry: Tools
-
-    Note over Registry: Build tool index<br/>read_file -> server1<br/>query_db -> server2
-
-    Registry-->>App: Client for server1
-
-    App->>Client1: CallTool("read_file", args)
-    Client1->>Server1: tools/call
-    Server1-->>Client1: Result
-    Client1-->>App: Result
-```
-
-### MCP Executor
-
-The `MCPExecutor` bridges the Tool Registry and MCP Registry:
-
-```go
-type MCPExecutor struct {
-    mcpRegistry *mcp.RegistryImpl
-}
-
-func (e *MCPExecutor) Execute(
-    ctx context.Context,
-    descriptor *ToolDescriptor,
-    args json.RawMessage,
-) (json.RawMessage, error) {
-    // Get the MCP client for this tool
-    client, err := e.mcpRegistry.GetClientForTool(ctx, descriptor.Name)
-    if err != nil {
-        return nil, err
-    }
-
-    // Execute via MCP
-    response, err := client.CallTool(ctx, descriptor.Name, args)
-    if err != nil {
-        return nil, err
-    }
-
-    // Convert MCP response to tool result
-    return convertMCPResponse(response)
-}
-```
-
-**MCP Content Types**:
-
-MCP supports rich content in responses:
-
-```go
-type Content struct {
-    Type     string // "text", "image", "resource"
-    Text     string
-    Data     string // Base64 encoded
-    MimeType string
-    URI      string
-}
-```
-
-## Schema Validation
-
-### JSON Schema Support
-
-The `SchemaValidator` validates arguments and results:
-
-```go
-type SchemaValidator struct {
-    compiledSchemas map[string]*gojsonschema.Schema
-}
-
-func (v *SchemaValidator) ValidateArgs(
-    descriptor *ToolDescriptor,
-    args []byte,
-) error {
-    schema := v.compileSchema(descriptor.InputSchema)
-    result, err := schema.Validate(gojsonschema.NewBytesLoader(args))
-    if err != nil {
-        return err
-    }
-    if !result.Valid() {
-        return &ValidationError{
-            Type:   "args_invalid",
-            Tool:   descriptor.Name,
-            Detail: formatValidationErrors(result.Errors()),
-        }
-    }
-    return nil
-}
-```
-
-**Schema Example**:
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "location": {
-      "type": "string",
-      "description": "City name or coordinates",
-      "minLength": 1
-    },
-    "units": {
-      "type": "string",
-      "enum": ["celsius", "fahrenheit"],
-      "default": "celsius"
-    }
-  },
-  "required": ["location"]
-}
-```
-
-**Validation Stages**:
-
-```mermaid
-graph LR
-    Input["Raw Arguments"]
-    ArgValidation["Argument Validation"]
-    Execute["Tool Execution"]
-    ResultValidation["Result Validation"]
-    Output["Validated Result"]
-    Error["Validation Error"]
-
-    Input --> ArgValidation
-    ArgValidation -->|Valid| Execute
-    ArgValidation -->|Invalid| Error
-    Execute --> ResultValidation
-    ResultValidation -->|Valid| Output
-    ResultValidation -->|Invalid| Error
-
-    style Output fill:#9f9
-    style Error fill:#f99
-```
-
-## Execution Modes
-
-### Mock Mode (Static)
-
-**Use Case**: Unit testing, deterministic responses
-
-**Configuration**:
-```yaml
-mode: mock
-mock_result:
-  temperature: 72
-  conditions: "Sunny"
-```
-
-**Executor**: Returns `mock_result` without external calls
-
-### Mock Mode (Scripted)
-
-**Use Case**: Dynamic testing, template-based responses
-
-**Configuration**:
-
-```yaml
-mode: mock
-mock_template: |
-  {
-    "location": "",
-    "temperature": 72,
-    "message": "Weather for "
-  }
-```
-
-**Executor**: Renders template with provided arguments
-
-**Template Syntax**:
-- ``: Substitute argument value
-- Simple string replacement
-- Result must be valid JSON
-
-### Live Mode (HTTP)
-
-**Use Case**: Integration with REST APIs
-
-**Configuration**:
-```yaml
-mode: live
-http:
-  url: https://api.weather.com/v1/current
-  method: POST
-  timeout_ms: 5000
-  headers:
-    Authorization: Bearer ${WEATHER_API_KEY}
-    Content-Type: application/json
-  headers_from_env:
-    - WEATHER_API_KEY
-```
-
-**Features**:
-- Environment variable substitution
-- Custom headers
-- Configurable timeout
-- Automatic retry on transient errors
-- Response redaction for sensitive data
-
-### Local Mode
-
-**Use Case**: SDK tool handlers registered via `OnTool()` / `OnToolCtx()`
-
-Tools loaded from a pack default to `mode: local`. The SDK registers a `localExecutor` that dispatches to the appropriate Go handler function. This is the primary mode for SDK users.
-
-### Client Mode
-
-**Use Case**: Tools executed on the caller's device (GPS, camera, biometrics)
-
-**Configuration**:
-```yaml
-mode: client
-client:
-  consent:
-    required: true
-    message: "This app wants to access your location"
-    decline_strategy: reject
-  categories: [location]
-```
-
-When a handler is registered via `OnClientTool()`, execution is synchronous. When no handler is registered, execution is deferred — the pipeline returns a pending result and the caller provides the result asynchronously via `SendToolResult()`.
-
-### MCP Mode
-
-**Use Case**: Integration with MCP ecosystem
-
-**Configuration**:
-MCP tools are discovered automatically; no explicit configuration needed in tool descriptors.
-
-**MCP Server Configuration**:
-```yaml
-mcp_servers:
-  filesystem:
-    command: npx
-    args:
-      - "@modelcontextprotocol/server-filesystem"
-      - "/home/user/documents"
-    env:
-      NODE_ENV: production
-
-  memory:
-    command: python
-    args:
-      - "-m"
-      - "mcp_memory_server"
-    env:
-      MEMORY_BACKEND: redis
-      REDIS_URL: redis://localhost:6379
-```
-
-## Tool Policy & Governance
-
-### ToolPolicy
-
-Enforces constraints on tool usage:
-
-```go
-type ToolPolicy struct {
-    ToolChoice           string   // "auto" | "required" | "none"
-    MaxRounds            int      // Max tool execution rounds (default: 50)
-    MaxToolCallsPerTurn  int      // Per LLM response
-    MaxParallelToolCalls int      // Max concurrent tool executions (default: 10)
-    MaxCallsPerMinute    int      // Per-tool rate limit (0 = unlimited)
-    MaxCostUSD           float64  // Cost budget in USD (0 = unlimited)
-    Blocklist            []string // Prohibited tools
-}
-```
-
-**Enforcement Points**:
+A `ToolPolicy` can come from the caller's stage configuration and from the prompt's `tool_policy`. The merge only narrows: limits take the smaller non-zero value, and blocklists are the union. Each limit is enforced at a different point of the loop.
 
 ```mermaid
 graph TD
-    Request["LLM Generates Tool Calls"]
-    CheckChoice["Check ToolChoice Policy"]
-    CheckCount["Check MaxToolCallsPerTurn"]
-    CheckBlocklist["Check Blocklist"]
-    CheckCost["Check MaxCostUSD Budget"]
-    Execute["Execute Tools"]
-    Reject["Reject Tool Calls"]
+    Build["Build tools array"]
+    None["tool_choice none: send no tools"]
+    Call["Provider call"]
+    Cost{"Cost over MaxCostUSD?"}
+    Abort["Abort the turn with an error"]
+    Ident{"Identical call repeated?"}
+    Nudge["Return feedback instead of running it"]
+    Budget{"Within MaxToolCallsPerTurn?"}
+    Block{"In Blocklist?"}
+    Reject["Rejection result for the call"]
+    Run["Hooks, approval, execute"]
 
-    Request --> CheckChoice
-    CheckChoice -->|Allowed| CheckCount
-    CheckChoice -->|Denied| Reject
-    CheckCount -->|Within Limit| CheckBlocklist
-    CheckCount -->|Exceeded| Reject
-    CheckBlocklist -->|Allowed| CheckCost
-    CheckBlocklist -->|Blocked| Reject
-    CheckCost -->|Within Budget| Execute
-    CheckCost -->|Exceeded| Reject
-
-    style Execute fill:#9f9
-    style Reject fill:#f99
+    Build --> None
+    Build --> Call
+    Call --> Cost
+    Cost -->|yes| Abort
+    Cost -->|no| Ident
+    Ident -->|yes| Nudge
+    Ident -->|no| Budget
+    Budget -->|over| Reject
+    Budget -->|within| Block
+    Block -->|yes| Reject
+    Block -->|no| Run
 ```
 
-**Auto-Exclusion**: Tools that are rejected by hooks twice within a single tool loop are automatically excluded from the provider's tool list in subsequent rounds. This prevents infinite loops where the LLM repeatedly invokes a rejected tool.
+`ToolChoice` is passed to the provider, and `none` omits tool declarations entirely. `MaxRounds` (default 50) bounds the model-tool cycles in a turn, and exceeding it returns a `MaxRoundsError`. `MaxToolCallsPerTurn` counts calls across all rounds. Once spent, the loop stops offering tools so the next round is the model's answer. `MaxCostUSD` bounds the whole run, because the loop seeds its total with the cost already in the conversation history. The loop checks it after each provider round, so a round that crosses the budget has already been paid for.
 
-### Pending Tool Execution
+A model that repeats the same call with identical arguments three times (`MaxIdenticalToolCalls`) gets one synthetic result telling it to change course, and the turn aborts if it repeats again. `StopOnTool` ends the loop after the round that called the named tool. The blocklist matches exact tool names.
 
-Some tools require external approval or asynchronous completion:
+The loop also excludes a tool from later rounds after its second error result in a turn. This prevents a model from calling a failing or rejected tool until the round limit.
 
-```go
-type ToolExecutionResult struct {
-    Status      ToolExecutionStatus // "complete" | "pending" | "failed"
-    Content     json.RawMessage
-    Error       string
-    PendingInfo *PendingToolInfo    // Set when Status == "pending"
-}
+## Trade-offs
 
-type PendingToolInfo struct {
-    Reason      string              // "requires_approval"
-    Message     string              // Human-readable description
-    ToolName    string
-    Args        json.RawMessage
-    ExpiresAt   *time.Time
-    CallbackURL string
-    Metadata    map[string]interface{}
-}
-```
+- Lazy connection keeps unused MCP servers from starting, and the first call to a server pays the startup cost. The background retry covers a server that was down when the conversation opened.
+- Skipping result validation for MCP tools avoids failing calls on loose server schemas, and the cost is that unstructured results reach the model unchecked.
+- Never retrying `tools/call` protects against duplicated side effects. A flaky server surfaces as tool errors the model must handle.
+- Limits are enforced by the provider stage, not the registry. A host that calls `Registry.Execute` directly gets validation and routing but none of the policy.
 
-**Use Cases**:
-- Human-in-the-loop workflows
-- Approval-gated actions (e.g., financial transactions)
-- Long-running operations
-- External service dependencies
+## Related
 
-## Integration with Pipeline
-
-### Tool Execution in Provider Middleware
-
-```mermaid
-sequenceDiagram
-    participant Pipeline
-    participant ProviderMW
-    participant LLM
-    participant ToolRegistry
-    participant MCP
-
-    Pipeline->>ProviderMW: Process(execCtx)
-    ProviderMW->>LLM: Chat(messages, tools)
-    LLM-->>ProviderMW: Response + Tool Calls
-
-    loop For Each Tool Call
-        ProviderMW->>ToolRegistry: Execute(toolName, args)
-        ToolRegistry->>MCP: CallTool(name, args)
-        MCP-->>ToolRegistry: Result
-        ToolRegistry-->>ProviderMW: ToolResult
-    end
-
-    ProviderMW->>ProviderMW: Append Tool Results
-    ProviderMW->>LLM: Chat(messages + results)
-    LLM-->>ProviderMW: Final Response
-    ProviderMW-->>Pipeline: Complete
-```
-
-### Tool Discovery at Runtime
-
-```mermaid
-graph TB
-    subgraph "Initialization"
-        Config["Load Configuration"]
-        RegMCP["Register MCP Servers"]
-        RegTools["Register Static Tools"]
-    end
-
-    subgraph "Runtime Discovery"
-        ListMCP["List MCP Tools"]
-        ListStatic["List Static Tools"]
-        Merge["Merge Tool Lists"]
-    end
-
-    subgraph "Execution"
-        ProviderBuild["Provider.BuildTooling()"]
-        LLMCall["LLM with Tools"]
-    end
-
-    Config --> RegMCP
-    Config --> RegTools
-
-    RegMCP --> ListMCP
-    RegTools --> ListStatic
-
-    ListMCP --> Merge
-    ListStatic --> Merge
-
-    Merge --> ProviderBuild
-    ProviderBuild --> LLMCall
-
-    style Merge fill:#9f9
-```
-
-**Key Points**:
-- MCP tools discovered at runtime
-- Static tools loaded from configuration
-- Combined tool list provided to LLM
-- Provider transforms to native format
-
-## Testing Strategies
-
-### Unit Testing with Mocks
-
-```go
-// Create registry with mock executor
-registry := tools.NewRegistry()
-descriptor := &tools.ToolDescriptor{
-    Name: "test-tool",
-    Mode: "mock",
-    MockResult: json.RawMessage(`{"status": "ok"}`),
-    InputSchema: /* ... */,
-}
-registry.Register(descriptor)
-
-// Execute
-result, err := registry.Execute(ctx, "test-tool", args)
-```
-
-### Integration Testing with Mock MCP
-
-```go
-// Create mock MCP server
-mockServer := mcp.NewMockServer()
-mockServer.AddTool(mcp.Tool{
-    Name: "test-tool",
-    InputSchema: /* ... */,
-})
-mockServer.SetResponse("test-tool", response)
-
-// Use in tests
-client := mcp.NewStdioClient(mockServer.Config())
-result, err := client.CallTool(ctx, "test-tool", args)
-```
-
-### End-to-End Testing
-
-Use real MCP servers in test environment:
-- Filesystem server with test data
-- Memory server with ephemeral storage
-- Custom test servers for specific scenarios
-
-## Performance Considerations
-
-### Connection Pooling
-
-MCP clients maintain persistent connections:
-- Reuse stdio connections across calls
-- Lazy initialization on first use
-- Automatic reconnection on failure
-
-### Concurrent Execution
-
-Tools execute in parallel when possible:
-```go
-var wg sync.WaitGroup
-results := make([]*tools.ToolResult, len(toolCalls))
-
-for i, call := range toolCalls {
-    wg.Add(1)
-    go func(i int, call types.MessageToolCall) {
-        defer wg.Done()
-        results[i], _ = registry.Execute(ctx, call.Name, call.Args)
-    }(i, call)
-}
-
-wg.Wait()
-```
-
-### Caching
-
-Implement caching for deterministic tools:
-- Cache key: hash(toolName + args)
-- TTL-based expiration
-- Optional cache bypass
-
-### Timeouts
-
-Multiple timeout layers:
-1. **Per-Tool Timeout**: `ToolDescriptor.TimeoutMs`
-2. **HTTP Timeout**: `HTTPConfig.TimeoutMs`
-3. **MCP Request Timeout**: `ClientOptions.RequestTimeout`
-4. **Pipeline Timeout**: `ExecutionContext.Context`
-
-## Error Handling
-
-### Error Types
-
-```go
-// Validation error
-type ValidationError struct {
-    Type   string // "args_invalid" | "result_invalid"
-    Tool   string
-    Detail string
-    Path   string
-}
-
-// Execution error
-type ExecutionError struct {
-    Tool    string
-    Phase   string // "execute" | "validate" | "connect"
-    Message string
-    Cause   error
-}
-
-// MCP error
-type MCPError struct {
-    Server  string
-    Code    int    // JSON-RPC error code
-    Message string
-}
-```
-
-### Retry Strategy
-
-```mermaid
-graph TD
-    Execute["Execute Tool"]
-    Success["Success"]
-    Error["Error"]
-    Retryable{"Retryable?"}
-    Attempts{"Attempts < Max?"}
-    Backoff["Exponential Backoff"]
-    Fail["Return Error"]
-
-    Execute --> Success
-    Execute --> Error
-    Error --> Retryable
-    Retryable -->|Yes| Attempts
-    Retryable -->|No| Fail
-    Attempts -->|Yes| Backoff
-    Attempts -->|No| Fail
-    Backoff --> Execute
-
-    style Success fill:#9f9
-    style Fail fill:#f99
-```
-
-**Retryable Conditions**:
-- Network timeouts
-- MCP server unavailable
-- HTTP 429 (rate limit)
-- HTTP 5xx (server errors)
-
-## Best Practices
-
-1. **Use JSON Schema**: Validate all tool inputs and outputs
-2. **Set Timeouts**: Prevent hanging on slow tools
-3. **Implement Idempotency**: Design tools to handle retries safely
-4. **Monitor MCP Health**: Track connection status and latency
-5. **Cache When Possible**: Reduce redundant tool calls
-6. **Test with Mocks**: Use mock mode for fast, deterministic tests
-7. **Handle Errors Gracefully**: Provide clear error messages to LLM
-8. **Document Tools Well**: Good descriptions improve LLM tool selection
-9. **Use Tool Policies**: Enforce governance and safety constraints
-10. **Version Tool Schemas**: Support schema evolution
-
-## Future Enhancements
-
-- **MCP Resource Support**: Access read-only resources from servers
-- **MCP Prompt Support**: Use server-provided prompts
-- **Streaming Tool Execution**: Progressive result delivery
-- **Tool Composition**: Chain tools together
-- **Tool Marketplace**: Discover and share tool definitions
-- **Advanced Caching**: Semantic caching for similar requests
-- **Tool Analytics**: Track usage, performance, and costs
-- **Tool Sandboxing**: Execute untrusted tools safely
-
----
-
-**Related Documentation**:
-- [Runtime Pipeline Architecture](/architecture/runtime-pipeline/)
-- [Provider System Architecture](/architecture/runtime-providers/)
-- [System Overview](/architecture/system-overview/)
-- [MCP Specification](https://modelcontextprotocol.org/)
+- [Runtime pipeline architecture](/architecture/runtime-pipeline/)
+- [Provider system architecture](/architecture/runtime-providers/)
+- [System overview](/architecture/system-overview/)
+- [MCP specification](https://modelcontextprotocol.io/)

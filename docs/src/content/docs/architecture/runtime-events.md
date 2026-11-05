@@ -2,296 +2,209 @@
 title: Runtime Event System
 sidebar:
   order: 3
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/events/bus.go
+    - runtime/events/emitter.go
+    - runtime/events/types.go
+    - runtime/pipeline/stage/audio_offbus_regression_test.go
+    - runtime/pipeline/stage/builder.go
+    - runtime/pipeline/stage/event_route_boundary_test.go
+    - runtime/pipeline/stage/pipeline.go
+    - runtime/pipeline/stage/stages_message_broadcast_test.go
+    - runtime/pipeline/stage/stages_provider.go
+    - sdk/agui/adapter.go
+    - sdk/hooks/events.go
+    - sdk/options.go
+    - sdk/sdk.go
 ---
 
-The PromptKit runtime event system provides comprehensive observability into pipeline execution through a unified pub/sub architecture. This enables real-time monitoring, debugging, and integration with external observability platforms.
+The runtime reports what it does through events: pipeline and stage lifecycle, provider calls, tool calls, validation, evals and messages. Events carry metadata about execution progress, performance and errors. They do not carry the content stream of an LLM response.
 
-## Overview
+## How events flow
 
-The event system emits detailed lifecycle events for every stage of pipeline execution, from initial request through final response. Unlike content streaming (which forwards LLM response chunks), events provide metadata about execution progress, performance metrics, and errors.
+Producers publish through an `Emitter` to an `EventBus`. The bus delivers each event to every matching listener.
 
 ```mermaid
 graph TB
-    subgraph "Event Flow"
-        Pipeline["Pipeline Execution"]
-        Middleware["Middleware Chain"]
-        Provider["LLM Provider"]
-        
-        Pipeline --> Bus["Event Bus"]
-        Middleware --> Bus
-        Provider --> Bus
-        
-        Bus --> TUI["Arena TUI"]
-        Bus --> SDK["SDK Listeners"]
-        Bus --> Custom["Custom Handlers"]
-    end
-    
-    style Bus fill:#f9f,stroke:#333,stroke-width:3px
+    Pipeline["stage.Pipeline"] --> Emitter["events.Emitter"]
+    Provider["Provider stage"] --> Emitter
+    Hooks["Hook stages"] --> Emitter
+    Emitter --> Bus["events.EventBus"]
+    Bus --> SDK["hooks.On / hooks.OnEvent"]
+    Bus --> Telemetry["runtime/telemetry, runtime/metrics"]
+    Bus --> Custom["Custom listeners"]
 ```
 
-## Core Components
+## Event bus
 
-### Event Bus
-
-The `EventBus` is a thread-safe pub/sub system that distributes events to registered listeners:
+`EventBus` implements the `Bus` interface (`Publish`, `Subscribe`, `SubscribeAll`, `Close`). Listeners are plain functions:
 
 ```go
-// Create an event bus
 bus := events.NewEventBus()
+defer bus.Close()
 
-// Subscribe to specific event types
 bus.Subscribe(events.EventPipelineStarted, func(e *events.Event) {
-    log.Printf("Pipeline started: %s", e.ConversationID)
+    log.Printf("pipeline started: %s", e.ConversationID)
 })
 
-// Subscribe to all events
 bus.SubscribeAll(func(e *events.Event) {
     metrics.RecordEvent(e.Type)
 })
 ```
 
-**Key Features:**
-- **Asynchronous Delivery**: Events are delivered in goroutines to avoid blocking pipeline execution
-- **Type-Safe Subscriptions**: Subscribe to specific event types or all events
-- **Panic Recovery**: Listener panics are caught to prevent cascading failures
-- **Thread-Safe**: Safe for concurrent use across multiple goroutines
+`Subscribe` and `SubscribeAll` return an unsubscribe function. A listener that panics is recovered and the bus keeps delivering.
 
-### Event Emitter
+## Emitter
 
-The `Emitter` provides convenient methods for emitting events with consistent metadata:
+The `Emitter` wraps a bus with typed methods and fills in the identifying fields of each event:
 
 ```go
-// Create an emitter with context identifiers
-emitter := events.NewEmitter(bus, runID, sessionID, conversationID)
+emitter := events.NewEmitter(bus, executionID, sessionID, conversationID)
 
-// Emit typed events
-emitter.PipelineStarted(middlewareCount)
-emitter.ProviderCallCompleted(&events.ProviderCallCompletedData{Provider: provider, Model: model, Duration: duration})
-emitter.MiddlewareFailed(name, index, err, duration)
+emitter.ProviderCallCompleted(&events.ProviderCallCompletedData{
+    Provider: provider, Model: model, Duration: duration,
+})
 ```
 
-The emitter automatically populates:
-- `Timestamp`: When the event occurred
-- `Sequence`: Monotonic counter assigned at publish time (for consumer-side ordering)
-- `RunID`, `SessionID`, `ConversationID`: Context identifiers
-- `UserID`: Pseudonymous user identifier (set via `emitter.WithUserID()`)
-- `Type`: Specific event type
-- `Data`: Type-specific payload
+An `Event` has these fields:
 
-### Event Types
+- `Type` and `Data` (the type-specific payload).
+- `Timestamp`, set by the emitter.
+- `Sequence`, a monotonic per-bus counter set when the event is published.
+- `ExecutionID`, `SessionID`, `ConversationID`, set by the emitter.
+- `UserID`, a pseudonymous identifier set with `emitter.WithUserID()`.
 
-Events are organized into several categories:
+## Event types
 
-#### Pipeline Lifecycle
+### Pipeline and stage lifecycle
 
-- `pipeline.started` - Pipeline execution begins
-- `pipeline.completed` - Pipeline execution succeeds
-- `pipeline.failed` - Pipeline execution fails
+- `pipeline.started`, `pipeline.completed`, `pipeline.failed`
+- `stage.started`, `stage.completed`, `stage.failed`
 
-#### Middleware Execution
+### Provider and tool calls
 
-- `middleware.started` - Middleware begins processing
-- `middleware.completed` - Middleware finishes successfully  
-- `middleware.failed` - Middleware encounters an error
+- `provider.call.started`, `provider.call.completed` (tokens, cost, duration), `provider.call.failed`
+- `tool.call.started`, `tool.call.completed`, `tool.call.failed`
 
-#### Provider Operations
+### Client tools
 
-- `provider.call.started` - LLM API call begins
-- `provider.call.completed` - LLM API call succeeds (includes tokens, cost, duration)
-- `provider.call.failed` - LLM API call fails
+A client-mode tool is fulfilled on the caller's device. Two events track its deferred execution:
 
-#### Tool Execution
+- `tool.client.request`: the tool returned `ToolStatusPending` and awaits the caller.
+- `tool.client.resolved`: the caller fulfilled, rejected or errored the tool, emitted during `Resume` or `ResumeStream`.
 
-- `tool.call.started` - Tool execution begins
-- `tool.call.completed` - Tool execution succeeds (status: `"complete"`, `"pending"`, etc.)
-- `tool.call.failed` - Tool execution fails
+The full lifecycle of a deferred client tool:
 
-#### Client Tool Lifecycle
+1. `tool.call.started`
+2. `tool.client.request`, with the consent message and categories
+3. `tool.call.completed` with status `"pending"`
+4. The caller fulfills via `SendToolResult` or `RejectClientTool`.
+5. `tool.client.resolved` with status `"fulfilled"`, `"rejected"` or `"error"`
 
-Client-mode tools (fulfilled on the caller's device) emit additional events to track the deferred execution lifecycle:
+A client tool with a synchronous handler registered through `OnClientTool` emits only `tool.call.started` and `tool.call.completed` with status `"complete"`.
 
-- `tool.client.request` - Client tool awaiting caller fulfillment (emitted when the tool returns `ToolStatusPending`)
-- `tool.client.resolved` - Client tool resolved by the caller (emitted during `Resume`/`ResumeStream`)
+### Validation
 
-The full lifecycle for a deferred client tool:
+- `validation.started`, `validation.passed`, `validation.failed`
 
-1. `tool.call.started` — tool execution begins
-2. `tool.client.request` — tool is pending, awaiting caller (includes consent message, categories)
-3. `tool.call.completed` (status: `"pending"`) — matches the started event
-4. *(Caller fulfills via `SendToolResult` / `RejectClientTool`)*
-5. `tool.client.resolved` (status: `"fulfilled"` | `"rejected"` | `"error"`) — emitted during `Resume`
+Guardrail hooks in the provider stage emit `validation.passed` or `validation.failed`. The `ValidationEventData` payload includes:
 
-For synchronous client tools (handler registered via `OnClientTool`), only `tool.call.started` and `tool.call.completed` (status: `"complete"`) are emitted — no client-specific events.
+- `Direction`: `"input"` (before the call) or `"output"` (after it).
+- `Enforced`: whether the guardrail modified the content or blocked the call.
+- `Score`: the evaluation score.
 
-#### Validation
+### Eval results
 
-- `validation.started` - Validation begins
-- `validation.passed` - Validation succeeds
-- `validation.failed` - Validation fails (includes violations, enforcement status, score)
+- `eval.completed`: an eval, assertion or guardrail produced a result.
+- `eval.failed`: the eval handler returned an error.
 
-Guardrail hooks in the provider stage emit `validation.passed` or `validation.failed` events automatically. The `ValidationEventData` payload includes:
+`EvalEventData` carries these fields, which a consumer must not conflate:
 
-- `Direction` — `"input"` (pre-call) or `"output"` (post-call)
-- `Enforced` — whether content was modified (truncated or replaced) or the call was blocked
-- `Score` — evaluation score (0.0–1.0)
+- `Kind` is the role: `eval`, `assertion` or `guardrail`.
+- `Passed` is a pointer that is set only for an assertion or a guardrail.
+- `Value`, `MetricValue` and `Score` are what the eval measured.
+- `TurnIndex` is the turn it evaluated. Turn 0 is a real turn, so the field has no `omitempty`.
 
-#### Eval Results
+An eval measures and returns a value; it does not pass or fail, so its `Passed` is always nil. Only an assertion (score against thresholds) or a guardrail (the same shape, gating rather than reporting) states a verdict. A nil `Passed` on `Kind: eval` means that this kind of result has no pass or fail. Do not derive the boolean from `Score`: the `1.0` threshold is the assertion's default, and applying it to an eval nobody asserted on reports a 0.9 judge score as a failure.
 
-- `eval.completed` - An eval, assertion or guardrail produced a result
-- `eval.failed` - The handler errored
+`Value` is the handler's own output, such as a rubric's per-criterion map or a classifier's label. It is bounded by `events.MaxEvalValueBytes`. A value too large to carry is dropped and `ValueOmitted` is set, so a consumer can tell that from an eval that produced none. Producers set it with `SetValue`.
 
-`EvalEventData` carries three things a consumer must not conflate:
+### Prompt templates
 
-| Field | Meaning |
-|-------|---------|
-| `Kind` | The ROLE: `eval`, `assertion` or `guardrail` |
-| `Passed` | The boolean — **only** ever set for an assertion or a guardrail |
-| `Value` / `MetricValue` / `Score` | What the eval measured |
-| `TurnIndex` | The turn it evaluated (turn 0 is real — the field has no `omitempty`) |
+- `prompt.template.started`, `prompt.template.rendered`, `prompt.template.failed`
 
-An **eval** measures and returns a value; it does not pass or fail, and its
-`Passed` is always nil. Only a role that coerces that measurement to a
-boolean, an **assertion** (score against thresholds) or a **guardrail** (the
-same shape, gating rather than reporting), states one.
-
-Do not derive the boolean yourself. `Passed` was once computed from
-`score >= 1.0`, which reported an `llm_judge` scoring 0.9 as FAILED: that
-threshold is the *assertion's default*, applied to something nobody asserted on.
-A nil `Passed` on `Kind: eval` means "this kind of thing has no pass/fail", not
-"it failed" and not "we don't know".
-
-`Value` is the handler's own output — a rubric's per-criterion map, a
-classifier's label, a reasoning service's JSON. It is bounded by
-`events.MaxEvalValueBytes`; a value too large to carry is dropped and
-`ValueOmitted` is set, so a consumer can tell that from an eval that produced
-none. Producers set it with `SetValue`, never by assignment.
-
-#### Prompt Template
-
-- `prompt.template.started` - Template rendering begins (includes raw template, variable count, model override)
-- `prompt.template.rendered` - Template rendering succeeds (includes rendered prompt, prompt hash, variables used/unused, fragments, render passes)
-- `prompt.template.failed` - Template rendering fails (includes error, unresolved placeholders)
-
-The `TemplateRenderedData` payload includes:
-
-- `TaskType` — which prompt was rendered
-- `SystemPrompt` — the final rendered system prompt
-- `PromptHash` — SHA-256 hash for deduplication/comparison
-- `VariablesUsed` — variables that were actually substituted (key→value)
-- `UnusedVariables` — variables available but not referenced in the template
-- `FragmentsUsed` — fragment names that contributed variables
-- `RenderPasses` — number of recursive substitution passes needed
+`TemplateRenderedData` carries `TaskType`, the rendered `SystemPrompt`, a SHA-256 `PromptHash`, `VariablesUsed`, `UnusedVariables`, `FragmentsUsed` and `RenderPasses`:
 
 ```go
 bus.Subscribe(events.EventTemplateRendered, func(e *events.Event) {
     data := e.Data.(*events.TemplateRenderedData)
-    log.Printf("Prompt rendered: task=%s hash=%s vars_used=%d passes=%d",
+    log.Printf("rendered task=%s hash=%s vars=%d passes=%d",
         data.TaskType, data.PromptHash[:8], len(data.VariablesUsed), data.RenderPasses)
 })
 ```
 
-#### Context & State
+### Context and state
 
-- `context.built` - Message context assembled (includes token counts)
-- `context.token_budget_exceeded` - Token budget exceeded
-- `context.compacted` - Context compactor folded stale tool results during a tool loop round. Payload: `ContextCompactionData` with `Round`, `OriginalTokens`, `CompactedTokens`, `MessagesFolded`, `BudgetTokens`.
-- `state.loaded` - Conversation state loaded
-- `state.saved` - Conversation state saved
+- `context.built`, `context.token_budget_exceeded`
+- `context.compacted`: the compactor folded stale tool results during a tool-loop round (`ContextCompactionData`).
+- `state.loaded`, `state.saved`
 
-#### Streaming
+### Streaming, conversation and reasoning
 
-- `stream.interrupted` - Stream was interrupted (includes reason)
+- `stream.interrupted`
+- `conversation.started`
+- `reasoning.delta` and `reasoning.completed` carry the model's reasoning. They are not conversational content.
 
-#### Conversation Lifecycle
+### Messages
 
-- `conversation.started` - New conversation started (includes assembled system prompt)
+- `message.created`: a message joined the conversation (role, content, index, tool calls and results).
+- `message.updated`: metadata arrived after completion (latency, token counts, cost).
 
-#### Message Events
-
-- `message.created` - New message added to conversation (includes role, content, index, tool calls/results)
-- `message.updated` - Message metadata updated (includes latency, token counts, cost after completion)
-
-`message.created` is carried by **two routes with different guarantees**, and
-which one a consumer is on changes what it receives:
+Two producers carry `message.created`, with different guarantees:
 
 | Producer | Delivery | Binary content parts | Requires |
 |----------|----------|----------------------|----------|
-| `MessageBroadcastStage` → EventBus | async, **lossy** | stripped to metadata | an event bus |
-| `RecordingStage` → `EventStore.Append` | synchronous, **lossless** | retained in full | `WithRecording()` + an `EventStore` |
+| `MessageBroadcastStage` to the bus | async, lossy | stripped to metadata | an event bus |
+| `RecordingStage` to `EventStore.Append` | synchronous, lossless | retained in full | `sdk.WithRecording` and an `EventStore` |
 
-Both build the payload with `events.NewMessageCreatedData`, so `Parts` is the
-only difference. `Index` is transcript-absolute on both. The bus delivers to
-each listener in the order it accepted events, which for concurrent publishers
-need not be transcript order, so subscribers should order by `Index` rather
-than by arrival.
+Both build the payload with `events.NewMessageCreatedData`, so `Parts` is the only difference, and `Index` is transcript-absolute on both. Subscribers order by `Index`, not by arrival.
 
 :::tip[Read `GetContent()`, not `.Content`]
-A user message carries its text in `Parts` with `Content` empty; an assistant
-reply is the reverse. `GetContent()` applies the canonical precedence — tool
-result, then text parts, then `Content`.
+A user message carries its text in `Parts` with `Content` empty; an assistant reply is the reverse. `GetContent()` applies the canonical precedence: tool result, then text parts, then `Content`.
 :::
 
-:::note[Fragments have their own types]
-`message.created` once doubled as the carrier for things that are not messages.
-Those now have dedicated types on the recording route:
+Fragments of a message have their own types on the recording route: `message.text.delta` for a streaming text fragment, `image.input` and `image.output` for images, and `video.frame` for video frames.
 
-| Recorded thing | Event |
-|---|---|
-| streaming text fragment | `message.text.delta` |
-| image | `image.input` / `image.output` |
-| video frame | `video.frame` |
+### Custom events
 
-Recordings written before this change still hold the old shapes, so a reader
-that must handle historical sessions should tolerate both.
-:::
-
-#### Custom Events
-
-Middleware can emit custom events for domain-specific observability:
+`EmitCustom` publishes an event of any type with a `CustomEventData` payload:
 
 ```go
-emitter.EmitCustom("middleware.cache.hit", events.CustomEventData{
-    MiddlewareName: "cache",
-    EventName: "cache_hit",
-    Data: map[string]interface{}{
-        "cache_key": key,
-        "response_size": size,
-    },
-    Message: "Response retrieved from cache",
-})
+emitter.EmitCustom(
+    events.EventType("app.cache.hit"),
+    "cache", "cache_hit",
+    map[string]interface{}{"cache_key": key, "response_size": size},
+    "Response retrieved from cache",
+)
 ```
+
+The second argument fills `CustomEventData.MiddlewareName`, which names the component that emitted the event.
 
 ### Ordering and nesting
 
-This page lists event *types*; it does not restate their order. Provider and
-tool events are emitted inside a round loop that can repeat many times per turn, and a
-turn can run several provider stages. See [The Hook System](/sdk/explanation/hooks/#execution-ordering)
-for the canonical timeline showing where each event sits relative to the hooks.
+This page lists event types, not their order. Provider and tool events are emitted inside a round loop that can repeat many times per turn, and a turn can run several provider stages. [The Hook System](/sdk/explanation/hooks/#execution-ordering) shows where each event sits relative to the hooks.
 
-## Integration Points
+## Where events are wired
 
-### Pipeline Integration
+### Pipeline
 
-The pipeline automatically creates an emitter and passes it through the execution context:
-
-```go
-// Pipeline creates emitter
-emitter := events.NewEmitter(p.eventBus, runID, sessionID, conversationID)
-builder := stage.NewPipelineBuilder().WithEventEmitter(emitter)
-
-// Emits lifecycle events
-emitter.PipelineStarted(len(p.middleware))
-// ... execute middleware
-emitter.PipelineCompleted(duration, cost, inputTokens, outputTokens, messageCount)
-```
-
-### Stage Integration
-
-The pipeline emits `stage.started`, `stage.completed` and `stage.failed` for each stage. Subscribe to the bus to observe them:
+A pipeline built with an emitter emits `pipeline.started`, `pipeline.completed` and `pipeline.failed`, and `stage.started`, `stage.completed` and `stage.failed` for each stage:
 
 ```go
 bus := events.NewEventBus()
-emitter := events.NewEmitter(bus, runID, sessionID, conversationID)
+emitter := events.NewEmitter(bus, executionID, sessionID, conversationID)
 
 bus.Subscribe(events.EventStageCompleted, func(e *events.Event) {
     data := e.Data.(*events.StageCompletedData)
@@ -304,273 +217,83 @@ pipe, err := stage.NewPipelineBuilder().
     Build()
 ```
 
-A stage that needs its own events takes the emitter in its constructor, as `NewProviderStageWithEmitter` does for provider-call events.
+A pipeline without an emitter emits nothing. A stage that needs its own events takes the emitter in its constructor, as `NewProviderStageWithEmitter` does for provider-call events.
 
-### SDK Integration
+### SDK
 
-The SDK exposes event listeners via the `hooks` package:
+`sdk.WithEventBus` supplies a shared bus; the conversation creates one otherwise. The `hooks` package subscribes to a conversation's bus:
 
 ```go
-conv, _ := sdk.Open("./assistant.pack.json", "chat",
-    sdk.WithModel("gpt-4o-mini"),
-)
+conv, _ := sdk.Open("./assistant.pack.json", "chat", sdk.WithModel("gpt-4o-mini"))
 defer conv.Close()
 
-// Subscribe to all events
 hooks.OnEvent(conv, func(e *events.Event) {
     fmt.Printf("[%s] %s\n", e.Type, e.Timestamp)
 })
 
-// Subscribe to a specific event type
 hooks.On(conv, events.EventToolCallStarted, func(e *events.Event) {
-    fmt.Printf("Tool call: %+v\n", e.Data)
+    fmt.Printf("tool call: %+v\n", e.Data)
 })
 ```
 
-### Arena TUI Integration
+## Use cases
 
-The Arena TUI uses an event adapter to convert events to bubbletea messages:
-
-```go
-// Subscribe to events and convert to TUI messages
-adapter := tui.NewEventAdapter(bus, program)
-adapter.Start()
-```
-
-## Use Cases
-
-### Production Monitoring
-
-Integrate with observability platforms:
+Cost tracking subscribes to `provider.call.completed` and sums `Cost`:
 
 ```go
-bus.SubscribeAll(func(e *events.Event) {
-    // Send to Datadog, New Relic, etc.
-    datadog.SendEvent(map[string]interface{}{
-        "type": string(e.Type),
-        "timestamp": e.Timestamp,
-        "conversation_id": e.ConversationID,
-        "data": e.Data,
-    })
-})
-```
-
-### Cost Tracking
-
-Monitor LLM costs in real-time:
-
-```go
-var totalCost float64
-var mu sync.Mutex
+var (
+    mu        sync.Mutex
+    totalCost float64
+)
 
 bus.Subscribe(events.EventProviderCallCompleted, func(e *events.Event) {
     data := e.Data.(*events.ProviderCallCompletedData)
     mu.Lock()
     totalCost += data.Cost
     mu.Unlock()
-
-    log.Printf("Call cost: $%.4f | Total: $%.4f", data.Cost, totalCost)
 })
 ```
 
-### Performance Profiling
+Production monitoring subscribes to everything and forwards it to an observability platform. Debug tracing collects events in a slice and dumps them when a run fails. The `runtime/telemetry` and `runtime/metrics` packages are listeners of this kind.
 
-Track middleware execution times:
-
-```go
-type MiddlewareStats struct {
-    Name string
-    TotalDuration time.Duration
-    CallCount int
-}
-
-stats := make(map[string]*MiddlewareStats)
-
-bus.Subscribe(events.EventMiddlewareCompleted, func(e *events.Event) {
-    data := e.Data.(*events.MiddlewareCompletedData)
-    
-    if _, ok := stats[data.Name]; !ok {
-        stats[data.Name] = &MiddlewareStats{Name: data.Name}
-    }
-    
-    stats[data.Name].TotalDuration += data.Duration
-    stats[data.Name].CallCount++
-})
-```
-
-### Debug Tracing
-
-Capture execution traces for debugging:
-
-```go
-var trace []*events.Event
-
-bus.SubscribeAll(func(e *events.Event) {
-    trace = append(trace, e)
-})
-
-// On error, dump trace
-if err != nil {
-    log.Printf("Execution trace:")
-    for _, e := range trace {
-        log.Printf("  [%s] %s: %+v", e.Timestamp, e.Type, e.Data)
-    }
-}
-```
-
-## Design Principles
+## Design
 
 ### Asynchronous and lossy
 
-`Publish` hands the event to a buffered channel. One dispatcher goroutine
-drains it and offers each event to every matching listener's own bounded queue,
-and each listener runs on its own goroutine. `Publish` never blocks the
-pipeline, and it **returns `false` when the event was dropped** because the
-buffer was full:
+`Publish` hands the event to a buffered channel and returns. One dispatcher goroutine takes each event in publish order and offers it to every matching listener's own bounded queue. Each listener runs on its own goroutine. The bus has no worker pool.
 
-```go
-func (eb *EventBus) Publish(event *Event) bool {
-    event.Sequence = eb.seq.Add(1)
+`Publish` never blocks the pipeline. It returns `false` when the event was dropped because the buffer was full, or because the bus is closed.
 
-    select {
-    case eb.eventCh <- event:
-        return true
-    default:
-        // Buffer full: drop rather than block the caller. Logged, rate-limited.
-        return false
-    }
-}
-```
+Two consequences shape every consumer:
 
-Two consequences a consumer must design around:
+- Delivery is not guaranteed. A listener whose queue is full misses the event, and `DroppedCount` counts the miss. A listener stuck in a call past the subscriber timeout misses events while it is stuck, and one that exceeds the timeout three times is disabled; those misses are logged, not counted. A slow listener delays only itself. Anything that must be complete, such as a transcript or an audit trail, reads the state store or a recording, not the bus.
+- Each listener sees events in the order the bus accepted them. With concurrent publishers that need not be the order they were emitted in. `Event.Sequence` orders events on one bus; for conversation position use `MessageCreatedData.Index`.
 
-- **Delivery is not guaranteed.** Under burst, events are dropped so
-  observability never stalls the pipeline. A listener whose queue is full
-  misses the event, and that miss counts toward `DroppedCount`. A listener
-  stuck in a call past the subscriber timeout misses events while it is stuck,
-  and one that exceeds the timeout three times is disabled; those misses are
-  logged, not counted. A slow listener delays only itself. Anything that must be complete (a transcript, an audit
-  trail) reads the state store or a recording, not the bus.
-- **Each listener sees events in the order the bus accepted them.** With
-  concurrent publishers that need not be the order they were emitted in.
-  `Event.Sequence` is a monotonic per-bus counter; for conversation position
-  use `MessageCreatedData.Index`, which is transcript-absolute.
+Tune the bus with `events.WithEventBufferSize` (the channel and each listener queue, default 1000) and `events.WithSubscriberTimeout` (default 5 seconds), or with the `PROMPTKIT_EVENT_BUS_BUFFER_SIZE` and `PROMPTKIT_EVENT_BUS_SUBSCRIBER_TIMEOUT` environment variables.
 
-### No BINARY on the bus, ever
+### No binary on the bus
 
-Events never carry binary payloads — audio samples, image and video bytes,
-base64 blobs. This is a hard rule, not a preference: a megabyte of base64 per
-turn would swamp a bus whose whole job is to stay out of the pipeline's way.
+Events never carry binary payloads: audio samples, image and video bytes, base64 blobs. A megabyte of base64 per turn would swamp a bus whose job is to stay out of the pipeline's way.
 
-**Text and structured content are a different matter.** Message content, an
-eval's structured value, a judge's reasoning — these are the substance a live
-consumer needs, and withholding them would make the bus useless for the things
-it exists to serve. They travel, subject to two conditions: a size bound, so one
-pathological payload cannot swamp the channel, and redaction, because they carry
-customer data. An omitted-because-too-large payload always says so, so a
-consumer can tell it from one that was never there.
+Text and structured content travel, subject to a size bound and to redaction, because they carry customer data. A payload omitted for size says so, so a consumer can tell it from one that was never there.
 
-Handling binary is precisely what the **opt-in recording route** exists for.
-`RecordingStage` writes straight to an `EventStore` and never publishes, so
-turning recording on does not start putting payloads on the bus.
+Binary belongs to the recording route. `RecordingStage` writes straight to an `EventStore` and never publishes, so turning recording on puts no payloads on the bus. `events.Emitter`, the only publisher, has no method that accepts raw bytes. A bus subscriber sees MIME type, dimensions, size and URL references. `TestMessageBroadcastStage_NeverPutsBinaryOnTheBus` and `TestAudioTelemetry_NeverPublishesToBus` guard the rule.
 
-The API enforces it structurally: `events.Emitter`, the only thing that
-publishes, has no method that accepts raw bytes, and `BinaryPayload` is
-constructed only by the recording stage and the blob store. A bus subscriber
-sees MIME type, dimensions, size and URL references; never the bytes.
+### Opt-in
 
-Guarded by `TestMessageBroadcastStage_NeverPutsBinaryOnTheBus`, its
-recording-side sibling, and `TestAudioTelemetry_NeverPublishesToBus`.
+A pipeline without an emitter emits nothing, so observability costs nothing until you configure it.
 
-### Fail-Safe
+## Adding an event
 
-Listener panics are caught to prevent cascading failures:
+Four decisions, in order. Each has been got wrong before, silently: the code compiled, the tests passed, and a consumer received nothing or the wrong thing.
 
-```go
-func safeInvoke(listener Listener, event *Event) {
-    defer func() {
-        if r := recover(); r != nil {
-            log.Printf("Event listener panic: %v", r)
-        }
-    }()
-    listener(event)
-}
-```
+1. Pick the route. The bus (`Emitter` to `EventBus`) is asynchronous, lossy, metadata only and available wherever an emitter is configured. Recording (`RecordingStage` to `EventStore`) is synchronous, lossless, retains binary and needs `sdk.WithRecording` and an `EventStore`. An event may take both, as `message.created` does, but then both producers build the payload through one shared constructor, as `events.NewMessageCreatedData` does, so the two cannot drift.
+2. Keep binary off the bus. Text and structured content may go on it, bounded and redactable; raw bytes go on the recording route.
+3. Name it for what it is. A fragment is not a message: a token or a JSON blob of image metadata under `message.created` leaves a consumer reading `Content` unable to tell message text from half a word. Video frames recorded under the wrong type are invisible to `media_timeline`, which filters on `video.frame`. Give a new kind of thing its own type.
+4. Check who can receive it. `runtime/pipeline/stage/event_route_boundary_test.go` lists the types an ordinary consumer receives and the types that reach only a store. A type missing from the lists, or on the wrong side, fails the test. "Nothing in this repo calls it" is not evidence that a producer or consumer is unused: PromptKit ships libraries, and its largest consumer is a separate repository.
 
-### Opt-In
+## Related
 
-The event system is optional - if no `EventEmitter` is provided, no events are emitted (zero overhead).
-
-## Adding a new event
-
-Four decisions, in order. Each of them has been got wrong at least once, and
-each mistake was silent — the code compiled, the tests passed, and a consumer
-received nothing or the wrong thing.
-
-### 1. Which route does it take?
-
-| | Bus (`Emitter` → `EventBus`) | Recording (`RecordingStage` → `EventStore`) |
-|---|---|---|
-| Delivery | async, worker-pooled, **lossy** | synchronous, **lossless** |
-| Payload | metadata only | full binary retained |
-| Availability | wherever an emitter is configured | opt-in: `WithRecording` + an `EventStore` |
-| Purpose | observability, live views | replay, audit |
-
-An event may take **both** (`message.created` does), but then both producers
-must build the payload through **one shared constructor**, so the two cannot
-drift. `events.NewMessageCreatedData` is the worked example; before it existed,
-the recording route silently omitted `Index` while the bus route set it.
-
-### 2. Does it carry binary?
-
-Then it does not go on the bus — see *No binary on the bus* above. Text and
-structured content may, bounded and redactable; raw bytes may not, and the
-recording route exists for them.
-
-### 3. Is it actually the thing the type name says?
-
-A fragment is not a message. `message.created` once carried a streaming token,
-and JSON blobs of image and video metadata, alongside real messages — so a
-consumer reading `Content` got message text, half a word, or a description of a
-JPEG, with no way to tell which. Worse, `media_timeline` filters on
-`video.frame`, so frames recorded under the wrong type were invisible to it.
-
-Give it its own type. `message.text.delta`, `image.input` / `image.output` and
-`video.frame` exist for exactly this reason.
-
-### 4. Who can actually receive it?
-
-`runtime/pipeline/stage/event_route_boundary_test.go` holds two lists: the types
-an ordinary consumer receives, and the types that reach only a store. Adding a
-type without listing it, or listing it on the wrong side, fails that test.
-
-Check the list before assuming a consumer can subscribe to your event. And note
-that "nothing in this repo calls it" is **not** evidence a producer or consumer
-is unused — PromptKit ships libraries, and its largest consumer is a separate
-repository.
-
-## Performance Considerations
-
-- **Memory**: Events are ephemeral - not persisted by default
-- **Concurrency**: Event bus uses read-write locks for optimal performance
-- **Overhead**: Minimal when no listeners registered (~0ns per event)
-- **Throughput**: Tested at >100k events/sec on modern hardware
-
-## Future Enhancements
-
-Potential future additions include:
-
-1. **Event Filtering**: Predicate-based filtering at bus level
-2. **Event Replay**: Capture and replay for debugging
-3. **Event Persistence**: Optional logging to structured storage
-4. **Event Aggregation**: Built-in metrics aggregation
-5. **Remote Streaming**: OpenTelemetry, StatsD integration
-6. **Event-driven Automation**: Circuit breakers, rate limiting
-
-## References
-
-- **Implementation**: `runtime/events/` package
-- **Pipeline Integration**: `runtime/pipeline/pipeline.go`
-- **Middleware Examples**: `runtime/pipeline/middleware/`
-- **SDK Integration**: `sdk/conversation.go`
-- **Example Program**: `sdk/examples/events/`
+- `runtime/events/` holds the bus, emitter and payload types.
+- `runtime/pipeline/stage/pipeline.go` emits the pipeline and stage events.
+- [The Hook System](/sdk/explanation/hooks/) shows event ordering relative to hooks.

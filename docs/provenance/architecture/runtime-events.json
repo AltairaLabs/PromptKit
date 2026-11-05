@@ -1,0 +1,156 @@
+{
+ "page": "docs/src/content/docs/architecture/runtime-events.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "c1",
+   "claim": "The bus has one dispatcher goroutine and a goroutine per listener; no worker pool",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/bus.go:243-251"
+   ]
+  },
+  {
+   "id": "c10",
+   "claim": "Subscriber timeout default 5s; three timeouts disable a listener; buffer default 1000",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/bus.go:14-21",
+    "runtime/events/bus.go:144"
+   ]
+  },
+  {
+   "id": "c11",
+   "claim": "PROMPTKIT_EVENT_BUS_BUFFER_SIZE and _SUBSCRIBER_TIMEOUT env vars",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/bus.go:35-46"
+   ]
+  },
+  {
+   "id": "c12",
+   "claim": "MaxEvalValueBytes, ValueOmitted, SetValue; Kind/Passed/TurnIndex semantics",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:1178-1205",
+    "runtime/events/types.go:830-922"
+   ]
+  },
+  {
+   "id": "c13",
+   "claim": "sdk hooks.On/OnEvent subscribe on a conversation; WithEventBus supplies a shared bus, else one is created",
+   "verdict": "true",
+   "evidence": [
+    "sdk/hooks/events.go:41-53",
+    "sdk/options.go:1096",
+    "sdk/sdk.go:705-713"
+   ]
+  },
+  {
+   "id": "c14",
+   "claim": "NewProviderStageWithEmitter and WithEventEmitter exist",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/builder.go:47",
+    "runtime/pipeline/stage/stages_provider.go:288"
+   ]
+  },
+  {
+   "id": "c15",
+   "claim": "Arena TUI NewEventAdapter(bus, program)",
+   "verdict": "dead",
+   "evidence": [
+    "sdk/agui/adapter.go:164"
+   ]
+  },
+  {
+   "id": "c16",
+   "claim": "sdk/examples/events example program; >100k events/sec; read-write locks; ~0ns",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": "c17",
+   "claim": "Guard tests TestMessageBroadcastStage_NeverPutsBinaryOnTheBus and TestAudioTelemetry_NeverPublishesToBus exist",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/audio_offbus_regression_test.go:19",
+    "runtime/pipeline/stage/stages_message_broadcast_test.go:357"
+   ]
+  },
+  {
+   "id": "c18",
+   "claim": "event_route_boundary_test.go lists bus-reachable and store-only types",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/event_route_boundary_test.go"
+   ]
+  },
+  {
+   "id": "c2",
+   "claim": "Publish returns false when dropped (buffer full) or closed",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/bus.go:575-605"
+   ]
+  },
+  {
+   "id": "c3",
+   "claim": "Listener panics are recovered",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/bus.go:700-703"
+   ]
+  },
+  {
+   "id": "c4",
+   "claim": "Emitter sets Timestamp, ExecutionID, SessionID, ConversationID, UserID; Sequence is set by the bus",
+   "verdict": "false",
+   "evidence": [
+    "runtime/events/bus.go:587-588",
+    "runtime/events/emitter.go:75-88"
+   ]
+  },
+  {
+   "id": "c5",
+   "claim": "NewEmitter(bus, executionID, sessionID, conversationID)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/emitter.go:24"
+   ]
+  },
+  {
+   "id": "c6",
+   "claim": "middleware.started/completed/failed events and MiddlewareStats are emitted by the pipeline",
+   "verdict": "dead",
+   "evidence": [
+    "runtime/events/types.go:25-30",
+    "runtime/pipeline/stage/pipeline.go:126"
+   ]
+  },
+  {
+   "id": "c7",
+   "claim": "stage.started/completed/failed emitted per stage",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:768-795"
+   ]
+  },
+  {
+   "id": "c8",
+   "claim": "EmitCustom signature (eventType, middlewareName, eventName, data, message)",
+   "verdict": "false",
+   "evidence": [
+    "runtime/events/emitter.go:536-548"
+   ]
+  },
+  {
+   "id": "c9",
+   "claim": "DroppedCount counts publish drops and full listener queues; stuck/disabled misses are logged only",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/bus.go:607-614"
+   ]
+  }
+ ]
+}
