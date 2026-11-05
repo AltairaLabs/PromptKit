@@ -58,6 +58,8 @@ type ImageResizeConfig struct {
 	Quality int
 
 	// Format is the output format ("jpeg", "png", "" = preserve original).
+	// Only JPEG and PNG can be encoded: any other format, requested or
+	// preserved (GIF, WebP), is written as JPEG and reported as such.
 	Format string
 
 	// PreserveAspectRatio maintains the original aspect ratio when resizing.
@@ -142,10 +144,7 @@ func ResizeImage(data []byte, config ImageResizeConfig) (*ResizeResult, error) {
 	}
 
 	// Determine output format
-	outputFormat := config.Format
-	if outputFormat == "" {
-		outputFormat = format
-	}
+	outputFormat := encodableFormat(config.Format, format)
 
 	// Encode the image
 	quality := config.Quality
@@ -226,6 +225,20 @@ func resizeImageInternal(src image.Image, width, height int) image.Image {
 	// Use CatmullRom for high-quality downscaling (similar to Lanczos)
 	draw.CatmullRom.Scale(dst, dst.Bounds(), src, src.Bounds(), draw.Over, nil)
 	return dst
+}
+
+// encodableFormat returns the format ResizeImage will actually write. Only PNG
+// and JPEG can be encoded; every other format (GIF, WebP, unknown) is written
+// as JPEG, so the reported format and MIME type describe the bytes produced.
+func encodableFormat(requested, original string) string {
+	f := requested
+	if f == "" {
+		f = original
+	}
+	if f == FormatPNG {
+		return FormatPNG
+	}
+	return FormatJPEG
 }
 
 // encodeImage encodes an image to the specified format.
