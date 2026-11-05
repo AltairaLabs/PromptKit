@@ -1,0 +1,175 @@
+{
+ "page": "docs/src/content/docs/runtime/how-to/tools/http-tool-mapping.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "query_params routes listed args to the query string",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/http_mapping.go:89"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "By default all LLM arguments are sent as the JSON body",
+   "verdict": "false",
+   "evidence": [
+    "runtime/tools/http_executor.go:227",
+    "runtime/tools/http_executor.go:236",
+    "runtime/tools/http_executor.go:357"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Request becomes GET /search?query=London&limit=5",
+   "verdict": "false",
+   "evidence": [
+    "runtime/tools/http_executor.go:273"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "URL path args use Go text/template and are excluded from the body",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/http_mapping.go:199",
+    "runtime/tools/http_mapping.go:66"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Path template renders without a request block (example has none)",
+   "verdict": "false",
+   "evidence": [
+    "runtime/tools/http_executor.go:227"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "URL scheme through host and port must be fixed text; templated host fails at call time",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/http_executor.go:299",
+    "runtime/tools/http_executor.go:330"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "header_params templates route args to headers and exclude them from the body",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/http_executor.go:371",
+    "runtime/tools/http_mapping.go:204"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "body_mapping JMESPath reshapes the request body; example output",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/http_mapping.go:110"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "exclude omits listed args",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/http_mapping.go:211"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Static parameters are invisible to the input schema",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/types.go:191"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "static_query example request is GET /search?name=London&count=1&language=en&format=json",
+   "verdict": "false",
+   "evidence": [
+    "runtime/tools/http_executor.go:273"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "static_headers set literal headers",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/http_executor.go:376"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "static_body merges into the JSON body for POST/PUT/PATCH",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/http_executor.go:351"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "Static body fields do not override LLM-provided fields with the same key",
+   "verdict": "false",
+   "evidence": [
+    "runtime/tools/http_executor.go:341",
+    "runtime/tools/http_executor.go:353"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "response.body_mapping JMESPath filters the response",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/http_executor.go:514"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "Common JMESPath patterns table",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/http_mapping.go:225"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "multimodal.enabled returns binary responses as a ContentPart with base64 data",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/http_executor.go:553",
+    "runtime/tools/http_multimodal.go:117"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "Empty accept_types auto-detects image/audio/video types",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/http_multimodal.go:48"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "Complete weather example maps query, static params and response",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/http_executor.go:227",
+    "runtime/tools/http_executor.go:514"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "accept_types sets the Accept header; JSON result is a type/content_type/size_bytes summary",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/http_executor.go:584",
+    "runtime/tools/http_multimodal.go:126"
+   ]
+  }
+ ]
+}

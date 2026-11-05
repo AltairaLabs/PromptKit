@@ -1,73 +1,33 @@
 ---
-title: Export Traces with OTLP
+title: Export traces with OTLP
+description: Send PromptKit session traces to any OpenTelemetry-compatible backend.
 sidebar:
   order: 9
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/a2a/client.go
+    - runtime/events/bus.go
+    - runtime/events/redact.go
+    - runtime/telemetry/content_capture.go
+    - runtime/telemetry/listener.go
+    - runtime/telemetry/provider.go
+    - sdk/conversation.go
+    - sdk/options.go
+    - sdk/sdk.go
+    - server/a2a/handler_send.go
+    - server/a2a/server.go
 ---
-Send PromptKit session traces to any OpenTelemetry-compatible backend.
+Send PromptKit session traces to an OpenTelemetry-compatible backend over OTLP/HTTP.
 
 ## Prerequisites
 
-- A running OTLP-compatible collector or backend (e.g., [Jaeger](https://www.jaegertracing.io/), [Grafana Tempo](https://grafana.com/oss/tempo/), [Honeycomb](https://www.honeycomb.io/), or the [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/))
-- PromptKit application using the SDK
+- A collector or backend that accepts OTLP/HTTP, such as [Jaeger](https://www.jaegertracing.io/), [Grafana Tempo](https://grafana.com/oss/tempo/), [Honeycomb](https://www.honeycomb.io/) or the [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/).
+- An application that opens conversations with the SDK.
 
-## Quick Start with the SDK
+## 1. Create a tracer provider
 
-The simplest way to export traces is via the `WithTracerProvider` SDK option. The SDK automatically wires an `OTelEventListener` into the EventBus — no manual setup needed.
-
-```go
-package main
-
-import (
-    "context"
-    "log"
-
-    "go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-    "go.opentelemetry.io/otel/sdk/resource"
-    sdktrace "go.opentelemetry.io/otel/sdk/trace"
-    semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
-
-    "github.com/AltairaLabs/PromptKit/sdk/v2"
-)
-
-func main() {
-    ctx := context.Background()
-
-    // Set up an OTLP exporter pointing at your backend.
-    exporter, err := otlptracehttp.New(ctx,
-        otlptracehttp.WithEndpointURL("http://localhost:4318/v1/traces"),
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    // Create a TracerProvider with the exporter.
-    tp := sdktrace.NewTracerProvider(
-        sdktrace.WithBatcher(exporter),
-        sdktrace.WithResource(resource.NewSchemaless(
-            semconv.ServiceName("my-chat-app"),
-        )),
-    )
-    defer tp.Shutdown(ctx)
-
-    // Open a conversation with tracing enabled.
-    conv, err := sdk.Open("./app.pack.json", "chat",
-        sdk.WithTracerProvider(tp),
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer conv.Close()
-
-    resp, _ := conv.Send(ctx, "What's the weather in London?")
-    log.Println(resp.Text())
-}
-```
-
-Open your tracing UI (e.g., Jaeger at `http://localhost:16686`) and search for traces. You'll see provider, tool, and message spans with full attribute detail.
-
-### Using the built-in helper
-
-If you don't need custom exporter configuration, `telemetry.NewTracerProvider` creates a ready-to-use provider:
+`telemetry.NewTracerProvider` builds a provider that exports spans over OTLP/HTTP to the endpoint you give it:
 
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/v2/telemetry"
@@ -80,74 +40,34 @@ if err != nil {
     log.Fatal(err)
 }
 defer tp.Shutdown(ctx)
+```
 
-conv, _ := sdk.Open("./app.pack.json", "chat",
-    sdk.WithTracerProvider(tp),
+To set headers, a resource or a sampler, build the provider with the OpenTelemetry SDK instead:
+
+```go
+exporter, err := otlptracehttp.New(ctx,
+    otlptracehttp.WithEndpointURL("http://localhost:4318/v1/traces"),
 )
-```
+if err != nil {
+    log.Fatal(err)
+}
 
-## Manual Listener Setup
-
-For advanced use cases (e.g., injecting a parent trace context), wire the listener manually:
-
-```go
-import (
-    "github.com/AltairaLabs/PromptKit/runtime/v2/events"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/telemetry"
+tp := sdktrace.NewTracerProvider(
+    sdktrace.WithBatcher(exporter),
+    sdktrace.WithResource(resource.NewSchemaless(
+        semconv.ServiceName("my-chat-app"),
+    )),
 )
-
-tracer := telemetry.Tracer(tp)
-listener := telemetry.NewOTelEventListener(tracer)
-
-// Create a root session span, optionally parented under an inbound trace.
-listener.StartSession(parentCtx, sessionID)
-
-// Wire into the EventBus.
-bus := events.NewEventBus()
-bus.SubscribeAll(listener.OnEvent)
-
-// ... run your conversation with this bus ...
-
-listener.EndSession(sessionID)
+defer tp.Shutdown(ctx)
 ```
 
-## Propagate Trace Context Across Services
+### Authenticate with a hosted backend
 
-If your PromptKit application is called from another service (e.g., via A2A), you can link the PromptKit session trace to the caller's trace using standard OTel propagation.
-
-### Setup propagation (once at startup)
+Pass the API key as an exporter header:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/telemetry"
-
-telemetry.SetupPropagation()
-```
-
-This configures the global propagator for W3C Trace Context, W3C Baggage, and AWS X-Ray headers.
-
-### Server side (extract inbound context)
-
-The A2A server uses `otelhttp` middleware, which automatically extracts trace context from inbound HTTP requests. When `WithTracerProvider` is configured, spans from the conversation appear as children of the caller's trace.
-
-### Client side (inject outbound context)
-
-The A2A client automatically injects trace context into outbound HTTP requests using the global propagator:
-
-```go
-import "go.opentelemetry.io/otel"
-
-// The propagator injects traceparent/tracestate/X-Amzn-Trace-Id headers.
-otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
-```
-
-## Authenticate with Your Backend
-
-Most hosted backends require an API key. Configure authentication on the OTLP exporter:
-
-### Honeycomb
-
-```go
-exporter, _ := otlptracehttp.New(ctx,
+// Honeycomb
+exporter, err := otlptracehttp.New(ctx,
     otlptracehttp.WithEndpointURL("https://api.honeycomb.io/v1/traces"),
     otlptracehttp.WithHeaders(map[string]string{
         "x-honeycomb-team": os.Getenv("HONEYCOMB_API_KEY"),
@@ -155,10 +75,9 @@ exporter, _ := otlptracehttp.New(ctx,
 )
 ```
 
-### Grafana Cloud
-
 ```go
-exporter, _ := otlptracehttp.New(ctx,
+// Grafana Cloud
+exporter, err := otlptracehttp.New(ctx,
     otlptracehttp.WithEndpointURL("https://otlp-gateway-prod-us-east-0.grafana.net/otlp/v1/traces"),
     otlptracehttp.WithHeaders(map[string]string{
         "Authorization": "Basic " + base64.StdEncoding.EncodeToString(
@@ -168,70 +87,64 @@ exporter, _ := otlptracehttp.New(ctx,
 )
 ```
 
-## What Gets Exported
+## 2. Open a conversation with the provider
 
-The listener converts runtime events into typed OTel spans following the [GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/). Each span carries a `gen_ai.operation.name` attribute that identifies its semantic type.
+`WithTracerProvider` subscribes an `OTelEventListener` to the conversation's event bus. Without it, the SDK creates no spans.
 
-| Runtime Event | OTel Span | `gen_ai.operation.name` | Key Attributes |
-|---------------|-----------|------------------------|----------------|
-| Session start/end | `promptkit invoke_agent` (Server) | `invoke_agent` | `gen_ai.conversation.id`, `gen_ai.agent.name`, `gen_ai.agent.id` |
-| `provider.call.*` | `{system} chat` (Client) | `chat` | `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.*`, `promptkit.provider.cost` |
-| `pipeline.*` | `promptkit.pipeline` (Internal) | — | `promptkit.pipeline.cost`, token counts |
-| `message.created` | Span event on provider span | — | `gen_ai.message.content`†, `gen_ai.tool_calls`† |
-| `tool.call.*` | `execute_tool` (Internal) | `execute_tool` | `gen_ai.tool.name`, `gen_ai.tool.call.id`, `gen_ai.tool.call.arguments`†, `gen_ai.tool.type` |
-| `middleware.*` | `promptkit.middleware.{name}` (Internal) | — | `promptkit.middleware.name`, `promptkit.middleware.index` |
-| `validation.*` | `promptkit.eval.{name}` (Internal) | — | `gen_ai.evaluation.name`, `gen_ai.evaluation.score`, `promptkit.guardrail` |
-| `eval.*` | `promptkit.eval.{evalID}` (Internal, instant) | — | `gen_ai.evaluation.name`, `gen_ai.evaluation.score`, `gen_ai.evaluation.explanation` |
-| `workflow.transitioned` | `promptkit.workflow.transition` (instant) | — | `promptkit.workflow.from_state`, `promptkit.workflow.to_state` |
-| `workflow.completed` | `promptkit.workflow.completed` (instant) | — | `promptkit.workflow.final_state`, `promptkit.workflow.transition_count` |
+```go
+conv, err := sdk.Open("./app.pack.json", "chat",
+    sdk.WithTracerProvider(tp),
+)
+if err != nil {
+    log.Fatal(err)
+}
+defer conv.Close()
 
-### Semantic conventions
+resp, err := conv.Send(ctx, "What's the weather in London?")
+if err != nil {
+    log.Fatal(err)
+}
+log.Println(resp.Text())
+```
 
-Spans follow the [OpenTelemetry GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/):
+To export Prometheus metrics from the same conversation, add `sdk.WithMetrics(collector, nil)` to the options. See [Prometheus metrics](/runtime/how-to/observability/prometheus-metrics/).
 
-- **Session spans** use `invoke_agent` from the [GenAI Agent Spans](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/) spec
-- **Provider spans** use `chat` from the [GenAI Client Spans](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/) spec with `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.*`, and `gen_ai.response.finish_reason`
-- **Tool spans** use `execute_tool` from the [GenAI Agent Spans](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/) spec with `gen_ai.tool.name`, `gen_ai.tool.call.id`, and `gen_ai.tool.call.arguments`†
-- **Eval and guardrail spans** use [GenAI Evaluation Attributes](https://opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/) (`gen_ai.evaluation.name`, `gen_ai.evaluation.score`, `gen_ai.evaluation.explanation`). Guardrails are distinguished by `promptkit.guardrail = true`
-- **Message events** are named `gen_ai.<role>.message` following the [GenAI span events spec](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/)
-- **PromptKit-specific attributes** are namespaced under `promptkit.*` (e.g., `promptkit.provider.cost`, `promptkit.workflow.from_state`)
+## 3. Link traces across services
 
-## Content attributes are opt-in
+`Send` and `Stream` parent the session span under the span in the `ctx` you pass. To join a caller's trace, configure the propagator once at startup:
 
-Attributes marked † above carry **conversation content** and are **not exported
-by default**:
+```go
+telemetry.SetupPropagation()
+```
+
+This sets the global propagator to W3C Trace Context, W3C Baggage and AWS X-Ray.
+
+- The A2A server wraps its handler in `otelhttp`, which extracts inbound trace context, so conversation spans appear under the caller's trace.
+- The A2A client injects trace context into outbound requests with the global propagator.
+
+## 4. Capture content (optional)
+
+Spans carry structure, timing, token usage, model and tool names. They do not carry content unless you opt in. These attributes are off by default:
 
 | Attribute | Carries |
 |-----------|---------|
-| `gen_ai.tool.call.arguments` | whatever the model passed to your tool |
-| `gen_ai.tool_calls` | full tool-call payloads |
+| `gen_ai.tool.call.arguments` | arguments the model passed to a tool |
+| `gen_ai.tool_calls` | tool-call payloads on a message |
 | `gen_ai.tool_result` | tool return values |
 | `gen_ai.message.content` | raw message content |
 
-Everything else (span structure, timing, token usage, model, provider and tool
-**names**) is exported regardless. That is the operational signal without the
-payload.
-
-The reason is that tool arguments are composed by the model and carry whatever
-your tools accept: order ids, email addresses, free text. With on-behalf-of
-token exchange they carry live delegated OAuth credentials. Exporting a trace
-sends all of it to your APM, across whatever trust boundary that sits behind.
-The [OpenTelemetry GenAI conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/)
-treat content capture as opt-in for the same reason.
-
-### Enabling capture
+Tool arguments can contain identifiers, free text and delegated credentials. Enable capture only where the backend is an appropriate place for that data:
 
 ```go
-conv, err := sdk.Open(pack, prompt,
+conv, err := sdk.Open("./app.pack.json", "chat",
     sdk.WithTracerProvider(tp),
     sdk.WithTelemetryContentCapture(true),
 )
 ```
 
-### Scrubbing what you capture
+### Scrub captured content
 
-`WithEventRedactor` runs at the event bus, so one policy covers the tracer, a
-configured event store and the metrics collector as well as spans:
+`WithEventRedactor` runs a policy for every subscriber of the conversation's bus: the tracer, a configured event store and the metrics collector. Each subscriber receives its own redacted copy.
 
 ```go
 sdk.WithEventRedactor(func(field, value string) string {
@@ -242,41 +155,11 @@ sdk.WithEventRedactor(func(field, value string) string {
 }),
 ```
 
-Each subscriber receives its own redacted copy; the underlying event is
-untouched, so wrapping the tracer does not strip a store that should keep the
-original.
+`WithTelemetryContentCapture` only gates spans: an event store you configure still receives raw events unless you set a redactor. Neither setting applies to `WithRecording`. `RecordingStage` writes to its store without a bus hop, so recordings keep full fidelity. The [telemetry-redaction example](https://github.com/AltairaLabs/PromptKit/tree/main/sdk/examples/telemetry-redaction) shows each configuration.
 
-:::caution
-The capture gate is a **tracing** control. It keeps payloads off spans and does
-nothing for other consumers — an `EventStore` you wire still receives raw
-events. Use `WithEventRedactor` for those. `WithRecording` is
-unaffected by both: `RecordingStage` writes straight to its store without a bus
-hop, so recordings keep full fidelity.
-:::
+## 5. Route through an OpenTelemetry Collector (optional)
 
-The runnable
-[telemetry-redaction example](https://github.com/AltairaLabs/PromptKit/tree/main/sdk/examples/telemetry-redaction)
-shows all three configurations side by side.
-
-## Event Ordering
-
-Runtime events are dispatched to subscribers, including the OTel listener, through a worker
-pool, not strictly in publish order, so a `*.completed` event can be delivered before its matching
-`*.started` event under concurrent load. The listener handles this transparently: early
-completions are buffered and applied once the matching start event arrives, so spans still end up
-correctly nested regardless of delivery order.
-
-## Export to the OpenTelemetry Collector
-
-If you run an [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/), point the exporter at its OTLP HTTP receiver (default port 4318):
-
-```go
-exporter, _ := otlptracehttp.New(ctx,
-    otlptracehttp.WithEndpointURL("http://localhost:4318/v1/traces"),
-)
-```
-
-The Collector can then fan out to multiple backends. Example `otel-collector-config.yaml`:
+Point the exporter at the Collector's OTLP/HTTP receiver (port 4318 by default) and let it fan out:
 
 ```yaml
 receivers:
@@ -302,36 +185,55 @@ service:
       exporters: [otlp/jaeger, otlp/tempo]
 ```
 
-## Combine with Prometheus Metrics
+## 6. Wire the listener yourself (optional)
 
-OTLP traces and Prometheus metrics are complementary. Use both for full observability:
+If you manage the event bus, subscribe the listener directly. Pass your own parent context to `StartSession` to nest the session under an existing trace:
 
 ```go
-import (
-    "github.com/prometheus/client_golang/prometheus"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/metrics"
-    "github.com/AltairaLabs/PromptKit/sdk/v2"
-)
+tracer := telemetry.Tracer(tp)
+listener := telemetry.NewOTelEventListener(tracer, telemetry.WithContentCapture(false))
+defer listener.Close()
 
-reg := prometheus.NewRegistry()
-collector := metrics.NewCollector(metrics.CollectorOpts{
-    Registerer: reg,
-    Namespace:  "myapp",
-})
+listener.StartSession(parentCtx, sessionID)
 
-// Both traces and metrics in one call
-conv, _ := sdk.Open("./app.pack.json", "chat",
-    sdk.WithTracerProvider(tp),
-    sdk.WithMetrics(collector, nil),
-)
+bus := events.NewEventBus()
+bus.SubscribeAll(listener.OnEvent)
+
+// ... run your conversation with this bus ...
+
+listener.EndSession(sessionID)
 ```
 
-- **Prometheus** gives you dashboards, alerts, and aggregate metrics (p99 latency, error rates, token costs)
-- **OTLP traces** give you per-session drill-down (which tool was slow, what the LLM said, workflow path)
+To redact, subscribe `events.Redacting(listener.OnEvent, policy)` instead of `listener.OnEvent`.
 
-## See Also
+## Verify
 
-- [Telemetry Reference](/runtime/reference/telemetry/) — full API reference and attribute tables
-- [Prometheus Metrics](/runtime/how-to/observability/prometheus-metrics/) — Prometheus-based monitoring
-- [SDK Observability](/sdk/explanation/observability/) — event system architecture
-- [Monitor Events](/sdk/how-to/observability/monitor-events/) — SDK event hooks
+Send a message, then search your tracing UI (Jaeger listens on `http://localhost:16686`) for the service name. The trace has one root span per session and these children:
+
+| Runtime event | Span | `gen_ai.operation.name` | Key attributes |
+|---------------|------|-------------------------|----------------|
+| Session start and end | `promptkit invoke_agent` (server) | `invoke_agent` | `gen_ai.conversation.id`, `gen_ai.agent.name`, `gen_ai.agent.id` |
+| `pipeline.*` | `promptkit.pipeline` | none | `promptkit.pipeline.cost`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` |
+| `provider.call.*` | `{provider} chat` (client) | `chat` | `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.*`, `gen_ai.response.finish_reason`, `promptkit.provider.cost` |
+| `tool.call.*` | `execute_tool` | `execute_tool` | `gen_ai.tool.name`, `gen_ai.tool.call.id`, `gen_ai.tool.type` |
+| `message.created` | span event `gen_ai.<role>.message` on the provider span | none | content attributes, only with capture on |
+| `middleware.*` | `promptkit.middleware.{name}` | none | `promptkit.middleware.name`, `promptkit.middleware.index` |
+| `validation.*` | `promptkit.eval.{name}` | none | `gen_ai.evaluation.name`, `gen_ai.evaluation.score`, `promptkit.guardrail` |
+| `eval.*` | `promptkit.eval.{evalID}` (instant) | none | `gen_ai.evaluation.name`, `gen_ai.evaluation.score`, `gen_ai.evaluation.explanation` |
+| `workflow.transitioned` | `promptkit.workflow.transition` (instant) | none | `promptkit.workflow.from_state`, `promptkit.workflow.to_state` |
+| `workflow.completed` | `promptkit.workflow.completed` (instant) | none | `promptkit.workflow.final_state`, `promptkit.workflow.transition_count` |
+| `composition.*` | `promptkit.composition`, `promptkit.composition.step` | none | `promptkit.composition.name`, `promptkit.composition.step_id` |
+
+`gen_ai.tool.call.arguments` also appears on tool spans when capture is on. Attribute names follow the [OpenTelemetry GenAI conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/). PromptKit-specific attributes use the `promptkit.*` prefix.
+
+## Troubleshoot
+
+- No spans arrive: the provider batches exports, so call `tp.Shutdown(ctx)` before the process exits.
+- Tool arguments or message content are missing: content capture is off. Enable it in step 4.
+
+## Related
+
+- [Telemetry reference](/runtime/reference/telemetry/)
+- [Prometheus metrics](/runtime/how-to/observability/prometheus-metrics/)
+- [SDK observability](/sdk/explanation/observability/)
+- [Monitor events](/sdk/how-to/observability/monitor-events/)

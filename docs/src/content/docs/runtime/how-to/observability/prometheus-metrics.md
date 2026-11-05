@@ -1,137 +1,85 @@
 ---
 title: Expose Prometheus Metrics
-description: Monitor PromptKit pipelines with Prometheus and Grafana
+description: Expose PromptKit pipeline, provider, tool and audio metrics to Prometheus and chart them in Grafana
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/events/types.go
+    - runtime/metrics/collector.go
+    - runtime/metrics/eventbus_health.go
+    - runtime/metrics/grafana/pipeline-dashboard.json
+    - runtime/pipeline/stage/stages_pacing.go
+    - runtime/providers/stream_metrics.go
+    - sdk/evaluate.go
+    - sdk/options.go
+    - sdk/sdk.go
 ---
 
-PromptKit provides built-in Prometheus metrics for monitoring pipeline performance, LLM provider usage, and costs in production environments.
+Expose pipeline, provider and cost metrics from your application to Prometheus.
 
-## Quick Start
+## Prerequisites
 
-```go
-package main
+- An application that opens conversations with `sdk.Open`
+- `github.com/prometheus/client_golang`
+- A Prometheus server that can reach your application
 
-import (
-    "net/http"
+## 1. Create a collector and expose it
 
-    "github.com/prometheus/client_golang/prometheus"
-    "github.com/prometheus/client_golang/prometheus/promhttp"
-
-    "github.com/AltairaLabs/PromptKit/runtime/v2/metrics"
-    "github.com/AltairaLabs/PromptKit/sdk/v2"
-)
-
-func main() {
-    // 1. Create a collector — registers pipeline metrics once per process
-    reg := prometheus.NewRegistry()
-    collector := metrics.NewCollector(metrics.CollectorOpts{
-        Registerer:  reg,
-        Namespace:   "myapp",
-        ConstLabels: prometheus.Labels{"env": "prod"},
-    })
-
-    // 2. Attach to conversations via sdk.WithMetrics()
-    conv, _ := sdk.Open("./app.pack.json", "chat",
-        sdk.WithMetrics(collector, nil),
-    )
-    defer conv.Close()
-
-    // 3. Expose via your own HTTP server
-    http.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
-    http.ListenAndServe(":9090", nil)
-}
-```
-
-## Available Metrics
-
-### Pipeline Metrics
-
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `{ns}_pipeline_duration_seconds` | Histogram | `status` | Total pipeline execution duration |
-| `{ns}_provider_request_duration_seconds` | Histogram | `provider`, `model` | LLM API call duration |
-| `{ns}_provider_requests_total` | Counter | `provider`, `model`, `status` | Total provider API calls |
-| `{ns}_provider_input_tokens_total` | Counter | `provider`, `model` | Input tokens sent to provider |
-| `{ns}_provider_output_tokens_total` | Counter | `provider`, `model` | Output tokens received from provider |
-| `{ns}_provider_cached_tokens_total` | Counter | `provider`, `model` | Cached tokens in provider calls |
-| `{ns}_provider_cost_total` | Counter | `provider`, `model` | Total cost in USD |
-| `{ns}_tool_call_duration_seconds` | Histogram | `tool` | Tool call execution duration |
-| `{ns}_tool_calls_total` | Counter | `tool`, `status` | Tool calls by outcome: `status` is `error` when the call failed (an executor error, or a tool that ran and failed, such as an HTTP error or timeout), otherwise `success` |
-| `{ns}_validation_duration_seconds` | Histogram | `validator`, `validator_type` | Validation check duration |
-| `{ns}_validations_total` | Counter | `validator`, `validator_type`, `status` | Validation results (passed/failed) |
-
-Where `{ns}` is the configured namespace (default: `promptkit`).
-
-### Realtime Audio Health Metrics
-
-For duplex/voice pipelines, PromptKit emits **direct-update** health metrics — incremented inline at the source and kept **off the event bus**, so they stay accurate under the burst load that causes the bus to drop events. The audio counters are registered automatically by `NewCollector`; the event-bus saturation counter needs one extra line.
-
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `{ns}_audio_frame_underruns_total` | Counter | `direction` | Consumer pulls short-filled with silence (stutter) |
-| `{ns}_audio_frame_underrun_samples_total` | Counter | `direction` | Magnitude of starvation (silence samples) |
-| `{ns}_audio_frame_drops_total` | Counter | `direction`, `reason` | Audio samples dropped (`reason=overflow`) |
-| `{ns}_audio_pacing_behind_deadline_total` | Counter | `direction` | Pacing fell behind real time |
-| `{ns}_eventbus_events_dropped_total` | Counter | — | Event-bus backpressure: events published while its buffer was full, or offered to a listener whose own queue was full (once per listener) |
-
-```go
-// Audio counters register automatically with NewCollector.
-// Register the event-bus saturation collector against your bus:
-reg.MustRegister(metrics.NewEventBusHealthCollector(bus, "myapp", nil))
-```
-
-#### Why these are off the event bus
-
-Every other metric on this page is derived from events. These are not, and the
-difference matters precisely when you need them.
-
-The event bus drops events when its buffer is full, counting the casualties in
-`DroppedCount()`. That is the correct behavior, because a realtime audio pipeline must
-not block on telemetry, but it means bus-derived metrics under-report exactly
-during the burst that caused the drop. An audio underrun metric that loses
-counts when audio is struggling measures the wrong thing at the only moment it
-is being read.
-
-So these four counters are incremented inline at the point of failure, with no
-event in between. They stay accurate while the bus is shedding load. The
-event-bus backpressure counter (`{ns}_eventbus_events_dropped_total`) is the
-companion signal: pull-based, read from `DroppedCount()` at scrape time, no
-goroutine and no per-event work. A rise there tells you how much to distrust
-every *other* metric on this page — which is why it is worth registering even
-though it costs an extra line.
-
-#### Label semantics
-
-`direction` is `input` (audio arriving from the user) or `output` (audio being
-played back). Nothing else appears in it.
-
-There is **no stream, session, or conversation label**. A realtime
-deployment opens one session per call, so a session-labeled counter grows a new
-time series per call and never stops — the classic unbounded-cardinality
-failure, which takes the whole Prometheus instance down rather than only this
-metric. Aggregate health is the question these answer: *is audio breaking up
-right now, in which direction*. Attributing a stutter to one specific call is a
-tracing question, and the span carries the session ID.
-
-`reason` appears only on `{ns}_audio_frame_drops_total`, and is `overflow` — the
-producer outran the buffer. It is a label rather than a separate metric so that
-a second cause can be added later without breaking a dashboard.
-
-Read them as a pair rather than individually: `audio_frame_underruns_total`
-counts stutter *events* and `audio_frame_underrun_samples_total` their
-*magnitude*, so a rising underrun count with flat samples is many tiny gaps,
-while the reverse is a few long silences. The first is usually pacing jitter and
-the second usually a stalled producer.
-
-### Eval Metrics
-
-Pack-defined eval metrics (from `EvalDef.Metric`) are also recorded through the same collector under the `{ns}_eval_` sub-namespace. For example, a metric named `response_quality_score` with namespace `myapp` becomes `myapp_eval_response_quality_score`. This separates eval metrics from pipeline metrics, making it easy to query all evals with a pattern like `myapp_eval_.*`. See [Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/#metrics--prometheus) for metric types and label configuration.
-
-## Standalone Eval Metrics
-
-For eval-only consumers (e.g. workers using `sdk.Evaluate()` without a live pipeline), use `NewEvalOnlyCollector` and pass it via `MetricsCollector` on `EvaluateOpts`:
+Create one collector per process, attach it to each conversation with `sdk.WithMetrics`, and serve the registry over HTTP:
 
 ```go
 reg := prometheus.NewRegistry()
+collector := metrics.NewCollector(metrics.CollectorOpts{
+    Registerer:  reg,
+    Namespace:   "myapp",
+    ConstLabels: prometheus.Labels{"env": "prod"},
+})
+
+conv, err := sdk.Open("./app.pack.json", "chat", sdk.WithMetrics(collector, nil))
+if err != nil {
+    log.Fatal(err)
+}
+defer conv.Close()
+
+http.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
+log.Fatal(http.ListenAndServe(":9090", nil))
+```
+
+`Namespace` prefixes every metric name and defaults to `promptkit`. `Registerer` defaults to `prometheus.DefaultRegisterer`. In the rest of this page, `{ns}` stands for the namespace.
+
+## 2. Label metrics per tenant
+
+To share one endpoint between tenants or prompts, declare the label names on the collector and supply their values for each conversation:
+
+```go
+collector := metrics.NewCollector(metrics.CollectorOpts{
+    Registerer:     reg,
+    Namespace:      "myapp",
+    InstanceLabels: []string{"tenant", "prompt_name"},
+})
+
+conv, err := sdk.Open(pack, "support", sdk.WithMetrics(collector, map[string]string{
+    "tenant": "acme", "prompt_name": "support",
+}))
+```
+
+The keys of the map must match `InstanceLabels`. Their order does not matter.
+
+## 3. Watch event-bus drops (voice pipelines)
+
+`NewCollector` registers the audio health counters. Register the event-bus counter yourself, against the bus your conversations publish on:
+
+```go
+reg.MustRegister(metrics.NewEventBusHealthCollector(bus, "myapp", nil))
+```
+
+The audio counters and the event-bus counter are updated at their source, so they stay accurate when the bus drops events under load. The pipeline, provider, tool and validation metrics are derived from events and under-report while the bus drops. A rising `{ns}_eventbus_events_dropped_total` tells you to distrust them.
+
+## 4. Record eval metrics without a pipeline
+
+A worker that only calls `sdk.Evaluate` needs the eval metrics, not the pipeline metrics. Use `NewEvalOnlyCollector` and pass it in `EvaluateOpts`:
+
+```go
 collector := metrics.NewEvalOnlyCollector(metrics.CollectorOpts{
     Registerer:     reg,
     Namespace:      "myapp",
@@ -146,77 +94,11 @@ results, err := sdk.Evaluate(ctx, sdk.EvaluateOpts{
 })
 ```
 
-`NewEvalOnlyCollector` is equivalent to `NewCollector` with `DisablePipelineMetrics: true` — it skips registration of provider, tool, pipeline, and validation metrics.
+Pack-defined eval metrics are named `{ns}_eval_<metric>`. A metric that already starts with `{ns}_eval_` keeps its name. Query them all with `{__name__=~"myapp_eval_.*"}`. See the [eval framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/#metrics--prometheus) for metric types.
 
-## Multi-Tenant Setup
+## 5. Configure the scrape
 
-When multiple conversations share one Prometheus endpoint, use instance labels to distinguish them:
-
-```go
-collector := metrics.NewCollector(metrics.CollectorOpts{
-    Registerer:     reg,
-    Namespace:      "myapp",
-    InstanceLabels: []string{"tenant", "prompt_name"},
-})
-
-conv1, _ := sdk.Open(pack, "support", sdk.WithMetrics(collector, map[string]string{
-    "tenant": "acme", "prompt_name": "support",
-}))
-conv2, _ := sdk.Open(pack, "sales", sdk.WithMetrics(collector, map[string]string{
-    "tenant": "globex", "prompt_name": "sales",
-}))
-```
-
-## CollectorOpts Reference
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `Registerer` | `prometheus.Registerer` | Registry to register into (default: `DefaultRegisterer`) |
-| `Namespace` | `string` | Metric name prefix (default: `"promptkit"`) |
-| `ConstLabels` | `prometheus.Labels` | Process-level constant labels (env, region) |
-| `InstanceLabels` | `[]string` | Label names that vary per conversation (tenant, prompt_name). Sorted internally — `Bind()` label order doesn't matter. |
-| `DisablePipelineMetrics` | `bool` | Disable operational metrics (use for eval-only consumers, or use `NewEvalOnlyCollector`) |
-| `DisableEvalMetrics` | `bool` | Disable eval result metrics |
-
-## Label Architecture
-
-Labels on a metric observation come from three layers, applied in order:
-
-| Layer | Set at | Scope | Examples |
-|-------|--------|-------|----------|
-| Const labels | `CollectorOpts.ConstLabels` | Process-wide, baked into the metric descriptor | `env`, `region` |
-| Instance labels | `InstanceLabels` + `Bind()` / `MetricsInstanceLabels` | Per-conversation | `tenant`, `prompt_name` |
-| Event labels | Automatic, per observation | Per-metric-observation | `provider`, `model`, `status`, `tool` |
-
-`InstanceLabels` are sorted internally when the collector is created, so the key order passed to
-`Bind()` doesn't matter — values are looked up by name, not position.
-
-Eval metric names are auto-prefixed with `{namespace}_eval_`, and the prefix is idempotent — a
-name that already starts with it isn't doubled. This keeps eval metrics queryable separately from
-pipeline metrics (`{namespace}_pipeline_...`) with a pattern like `{namespace}_eval_.*`.
-
-## Grafana Dashboard
-
-PromptKit includes a pre-built Grafana dashboard at `runtime/metrics/grafana/pipeline-dashboard.json`.
-
-### Import Dashboard
-
-1. Open Grafana and navigate to **Dashboards > Import**
-2. Upload the `pipeline-dashboard.json` file or paste its contents
-3. Select your Prometheus data source
-4. Click **Import**
-
-### Dashboard Panels
-
-The dashboard includes:
-
-- **Pipeline Overview**: Completion rate, error rate, p95 duration, total cost, total tokens
-- **Provider Metrics**: API latency percentiles, request rate, token consumption, cost breakdown
-- **Tool & Validation**: Tool call duration, validation pass/fail rates
-
-## Prometheus Scrape Configuration
-
-Add to your `prometheus.yml`:
+Add the endpoint to `prometheus.yml`:
 
 ```yaml
 scrape_configs:
@@ -226,9 +108,15 @@ scrape_configs:
     scrape_interval: 15s
 ```
 
-## Example Alerts
+## 6. Import the Grafana dashboard
 
-Create alerts in Prometheus Alertmanager:
+1. In Grafana, open Dashboards, then Import.
+2. Upload `runtime/metrics/grafana/pipeline-dashboard.json`.
+3. Select your Prometheus data source and click Import.
+
+The dashboard charts pipeline throughput, errors and duration, provider latency, tokens and cost, and tool and validation results. Its queries use the default `promptkit` namespace.
+
+## 7. Add alerts
 
 ```yaml
 groups:
@@ -245,7 +133,6 @@ groups:
           severity: warning
         annotations:
           summary: "High pipeline error rate"
-          description: "More than 10% of pipelines are failing"
 
       - alert: HighProviderLatency
         expr: |
@@ -257,8 +144,7 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "High provider latency"
-          description: "p95 provider latency exceeds 30 seconds"
+          summary: "p95 provider latency exceeds 30 seconds"
 
       - alert: HighTokenConsumption
         expr: |
@@ -270,13 +156,44 @@ groups:
         labels:
           severity: info
         annotations:
-          summary: "High token consumption"
-          description: "Over 1M tokens consumed in the last hour"
+          summary: "Over 1M tokens consumed in the last hour"
 ```
 
-## See Also
+## Verify
 
-- [Metrics Reference](/runtime/reference/metrics/) — Complete catalog of all emitted metrics, label architecture, and API reference
-- [Monitor Events](/sdk/how-to/observability/monitor-events/) — Event-based observability and metrics setup
-- [Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/) — Eval architecture and metric types
-- [Run Evals](/sdk/how-to/observability/run-evals/) — Programmatic eval execution via SDK
+Fetch the endpoint after a conversation sends a message:
+
+```bash
+curl -s localhost:9090/metrics | grep myapp_provider_requests_total
+```
+
+The output has a `myapp_provider_requests_total` series per provider, model, source and status.
+
+## Metrics
+
+All names carry the `{ns}_` prefix. Const labels and instance labels appear on every series.
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `pipeline_duration_seconds` | Histogram | `status` (`success`, `error`) | Duration of each pipeline execution |
+| `provider_request_duration_seconds` | Histogram | `provider`, `model`, `source` | Duration of each provider API call |
+| `provider_requests_total` | Counter | `provider`, `model`, `source`, `status` (`success`, `error`) | Provider API calls |
+| `provider_input_tokens_total`, `provider_output_tokens_total`, `provider_cached_tokens_total` | Counter | `provider`, `model`, `source` | Input, output and cached tokens in provider calls |
+| `provider_cost_total` | Counter, USD | `provider`, `model`, `source` | Cost of provider calls |
+| `tool_call_duration_seconds` | Histogram | `tool` | Duration of each tool call |
+| `tool_calls_total` | Counter | `tool`, `status` (`error` when the call failed, otherwise `success`) | Tool calls |
+| `validation_duration_seconds` | Histogram | `validator`, `validator_type` | Duration of each validation check |
+| `validations_total` | Counter | `validator`, `validator_type`, `status` (`passed`, `failed`) | Validation checks |
+| `audio_frame_underruns_total` | Counter | `direction` | Pulls from the audio buffer that were short-filled with silence because it was starved |
+| `audio_frame_underrun_samples_total` | Counter | `direction` | Silence samples substituted on underrun |
+| `audio_frame_drops_total` | Counter | `direction`, `reason` (`overflow`) | Audio samples dropped because the producer exceeded buffer capacity |
+| `audio_pacing_behind_deadline_total` | Counter | `direction` | Times audio pacing was already past a chunk's playback deadline when it forwarded it |
+| `eventbus_events_dropped_total` | Counter | none | Events dropped because the bus buffer or a listener queue was full, counted once per listener |
+
+`source` is `agent` for pipeline calls, `judge` for LLM judge evals and `selfplay` for self-play generation. `direction` is `input` or `output`. The collector also records `tts_`, `stt_`, `embedding_`, `image_gen_` and `inference_` families, each with `request_duration_seconds`, `requests_total` and `cost_total` series and the same `provider`, `model` and `source` labels.
+
+## Related
+
+- [Metrics reference](/runtime/reference/metrics/): the `metrics` package API
+- [Monitor events](/sdk/how-to/observability/monitor-events/)
+- [Run evals](/sdk/how-to/observability/run-evals/)

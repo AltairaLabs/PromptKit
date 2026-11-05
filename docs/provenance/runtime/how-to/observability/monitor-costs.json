@@ -1,0 +1,169 @@
+{
+ "page": "docs/src/content/docs/runtime/how-to/observability/monitor-costs.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "stage.StreamPipeline.ExecuteSync(ctx, elems...) returns *ExecutionResult with CostInfo types.CostInfo",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:886",
+    "runtime/pipeline/stage/pipeline.go:907-914"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "CostInfo has InputTokens, OutputTokens, CachedTokens, InputCostUSD, OutputCostUSD, CachedCostUSD, TotalCost, Quantities, Breakdown",
+   "verdict": "true",
+   "evidence": [
+    "runtime/types/message.go:242-264"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "TotalCost == InputCostUSD + OutputCostUSD + CachedCostUSD",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base/priceusage.go:46-48"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "InputTokens and OutputTokens add up every modality (input: text, audio, image, video; output: text, audio, image); CachedTokens counts cache reads; cache-write and reasoning token counts appear only in Quantities, and their cost is included in InputCostUSD and OutputCostUSD",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base/priceusage.go:57-60",
+    "runtime/providers/base/priceusage.go:61-75",
+    "runtime/providers/base/priceusage.go:76-79"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Breakdown lines carry Provider, Capability, Unit, Quantity, USD",
+   "verdict": "true",
+   "evidence": [
+    "runtime/types/message.go:269-276"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "sdk Response exposes InputTokens(), OutputTokens(), TokensUsed(), Cost()",
+   "verdict": "true",
+   "evidence": [
+    "sdk/response.go:155-185"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "base.AggregateCost merges CostInfo values, sums quantities and breakdown lines and re-derives headlines; callers should not sum by hand",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base/aggregate.go:41-88"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Pipeline result aggregates assistant-message cost with AggregateCost",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:946-950"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "metrics.Collector attached via sdk.WithMetrics increments a provider_cost_total counter per provider call, plus tts/stt/embedding/image_gen/inference cost counters",
+   "verdict": "true",
+   "evidence": [
+    "runtime/metrics/collector.go:324-326",
+    "runtime/metrics/collector.go:378-477",
+    "runtime/metrics/collector.go:652-654",
+    "sdk/options.go:1287"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "OTel listener sets promptkit.provider.cost on provider spans and promptkit.pipeline.cost on the pipeline span",
+   "verdict": "true",
+   "evidence": [
+    "runtime/telemetry/listener.go:386",
+    "runtime/telemetry/listener.go:432"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "A nonzero unit without a price logs 'cost: nonzero token unit has no pricing; cost understated' once per (provider, capability, unit); a nil descriptor records zero without a warning",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base/priceusage.go:11-13",
+    "runtime/providers/base/priceusage.go:39-41",
+    "runtime/providers/base/priceusage.go:84-93"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "Costs come from a pricing descriptor, the provider's pricing config, or built-in rates; built-in rates are a fallback",
+   "verdict": "unverified",
+   "evidence": [
+    "runtime/providers/base/priceusage.go:21-44"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "providers.ProviderDefaults has a MaxTokens field",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:214"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "mock.NewProvider reports nonzero tokens and cost per call",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/mock/mock.go:128-152"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "Snippets (steps 1-4) compile and run against mock provider and a pipeline; budget check stops after the limit",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/builder.go:20",
+    "runtime/pipeline/stage/stages_provider.go:276"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "Original: result.CostInfo has InputTokens/OutputTokens ('token counts and costs are on CostInfo')",
+   "verdict": "true",
+   "evidence": [
+    "runtime/types/message.go:242-249"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "Original: complete example calls openai.NewProvider(id, model, baseURL, defaults, includeRawOutput) and stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{})",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:276-281",
+    "runtime/providers/openai/openai.go:199"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "Original: 'Output costs ~3x more' / 'Cheapest: GPT-4o-mini' / 'Balanced: Claude Haiku' model-ranking claims",
+   "verdict": "unverified",
+   "evidence": [
+    "runtime/providers/openai/pricing_table.go"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "Original: Troubleshoot 'Tool calls may incur additional token costs' / 'Some providers may have additional fees'",
+   "verdict": "unverified",
+   "evidence": [
+    "runtime/providers/base/priceusage.go:21-44"
+   ]
+  }
+ ]
+}

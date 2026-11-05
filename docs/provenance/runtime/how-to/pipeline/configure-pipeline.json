@@ -1,0 +1,198 @@
+{
+ "page": "docs/src/content/docs/runtime/how-to/pipeline/configure-pipeline.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "openai.NewProvider(id, model, baseURL, ProviderDefaults, includeRawOutput)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/openai/openai.go:199"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "claude.NewProvider and gemini.NewProvider take the same arguments",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude.go:134",
+    "runtime/providers/gemini/gemini.go:104"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "stage.NewPipelineBuilder().Chain(...).Build() and NewPipelineBuilderWithConfig",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/builder.go:125",
+    "runtime/pipeline/stage/builder.go:20",
+    "runtime/pipeline/stage/builder.go:29",
+    "runtime/pipeline/stage/builder.go:72"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "NewProviderStage(provider, toolRegistry, toolPolicy, config); nil tools and policy allowed",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:276"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "ProviderConfig has MaxTokens, Temperature, TopP, Seed and Streaming",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:126",
+    "runtime/pipeline/stage/stages_provider.go:171"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "pipe.Execute(ctx, input) returns a channel of StreamElement with Text and Error; pipe.Shutdown(ctx) exists",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:56",
+    "runtime/pipeline/stage/pipeline.go:994"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "Default channel buffer is 16 (original) / 32 (rewrite)",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/config.go:17"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Default idle timeout 30s; no execution timeout; graceful shutdown 10s",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/config.go:25",
+    "runtime/pipeline/stage/config.go:29",
+    "runtime/pipeline/stage/config.go:31"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "PipelineConfig With* methods: ChannelBufferSize, IdleTimeout, ExecutionTimeout, GracefulShutdownTimeout",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/config.go:114",
+    "runtime/pipeline/stage/config.go:126",
+    "runtime/pipeline/stage/config.go:132",
+    "runtime/pipeline/stage/config.go:138"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Prompt assembly, template and provider stages built without a TurnState deliver the system prompt (original snippets)",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/stages_core.go:83",
+    "runtime/pipeline/stage/stages_provider.go:539",
+    "runtime/pipeline/stage/stages_utilities.go:206"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "NewPromptAssemblyStageWithTurnState, NewTemplateStageWithTurnState, NewProviderStageWithTurnState share a TurnState and the system prompt reaches the provider",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_core.go:50",
+    "runtime/pipeline/stage/stages_provider.go:315",
+    "runtime/pipeline/stage/stages_utilities.go:162"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "guardrails.NewGuardrailHook, hooks.NewRegistry, hooks.WithProviderHook; hook registry is the sixth NewProviderStageWithTurnState argument",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/guardrails/factory.go:162",
+    "runtime/hooks/registry.go:52",
+    "runtime/hooks/registry.go:79",
+    "runtime/pipeline/stage/stages_provider.go:315"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "statestore.NewMemoryStore and NewRedisStore(*redis.Client); pipeline.StateStoreConfig{Store, ConversationID}",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/types.go:175",
+    "runtime/statestore/memory.go:170",
+    "runtime/statestore/redis.go:77"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "Load stages copy ConversationID and UserID from StateStoreConfig into TurnState",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_core.go:188"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "Provider stage copies TurnState.ProviderRequestMetadata into PredictionRequest.Metadata; no built-in provider reads session_id/tenant_id/user_id",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:545",
+    "runtime/providers/openai/realtime_session_integration.go:205"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "Voice stages: NewAudioTurnStage(AudioTurnConfig{...EmitEndOfTurn, InterruptionHandler}), DefaultSTTStageConfig, DefaultTTSStageWithInterruptionConfig, NewTTSStageWithInterruption, audio.NewInterruptionHandler",
+   "verdict": "true",
+   "evidence": [
+    "runtime/audio/interruption.go:72",
+    "runtime/pipeline/stage/stages_speech.go:115",
+    "runtime/pipeline/stage/stages_speech.go:717",
+    "runtime/pipeline/stage/stages_speech.go:933",
+    "runtime/pipeline/stage/stages_speech.go:958"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "NewDuplexProviderStageWithTurnState(provider StreamInputSupport, *StreamingInputConfig, emitter, turnState)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_duplex_provider_session.go:176"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "Idle timeout resets on provider call, round, chunk; held open while a tool runs",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/config.go:52"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "Requires Go 1.21+ (original) / 1.26 (rewrite)",
+   "verdict": "false",
+   "evidence": []
+  },
+  {
+   "id": 20,
+   "claim": "mock.NewProviderWithRepository and NewInMemoryMockRepository emit configured text through the pipeline",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/mock/mock.go:52",
+    "runtime/providers/mock/mock_repository.go:602"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "Every Go snippet compiles against the current API",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/builder.go:72"
+   ]
+  }
+ ]
+}

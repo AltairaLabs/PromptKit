@@ -1,567 +1,170 @@
 ---
-title: Handle Errors
+title: Handle errors
+description: Detect, classify and recover from a failed pipeline turn.
 sidebar:
   order: 5
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/pipeline/stage/builder.go
+    - runtime/pipeline/stage/config.go
+    - runtime/pipeline/stage/errors.go
+    - runtime/pipeline/stage/pipeline.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/providers/errors.go
+    - runtime/providers/stream_retry.go
 ---
-Implement robust error handling for production pipelines.
 
-## Goal
+Detect why a pipeline turn failed, and retry it or fall back to another provider.
 
-Handle errors gracefully and implement retry logic.
+## Prerequisites
 
-## Quick Start
+- A built `*stage.StreamPipeline` with a provider stage. See [Configure a pipeline](/runtime/how-to/pipeline/configure-pipeline/).
+
+The snippets use this helper:
 
 ```go
-// send runs one message through the pipeline and returns the accumulated result.
-func send(ctx context.Context, pipe *stage.StreamPipeline, role, content string) (*stage.ExecutionResult, error) {
-    msg := types.Message{Role: role}
-    msg.AddTextPart(content)
-    return pipe.ExecuteSync(ctx, stage.NewMessageElement(&msg))
+func send(ctx context.Context, pipe *stage.StreamPipeline, content string) (*stage.ExecutionResult, error) {
+	msg := types.Message{Role: "user"}
+	msg.AddTextPart(content)
+	return pipe.ExecuteSync(ctx, stage.NewMessageElement(&msg))
 }
+```
 
-result, err := send(ctx, pipe, "user", "Your message")
+## 1. Read the error
+
+A stage that returns an error ends the turn. `ExecuteSync` returns that error with a result holding whatever the pipeline emitted before the failure. The result is nil only when the pipeline could not start.
+
+```go
+result, err := send(ctx, pipe, "Your message")
 if err != nil {
-    // Check error type
-    if isRateLimitError(err) {
-        log.Println("Rate limited, retry later")
-    } else if isTimeoutError(err) {
-        log.Println("Request timed out")
-    } else {
-        log.Printf("Error: %v", err)
-    }
+	var stageErr *stage.StageError
+	if errors.As(err, &stageErr) {
+		log.Printf("stage %q (%s) failed: %v", stageErr.StageName, stageErr.StageType, stageErr.Err)
+	}
+	if result != nil && result.Response != nil {
+		log.Printf("partial response: %s", result.Response.Content)
+	}
+	return err
 }
 ```
 
-## Common Error Types
+A stage that returns an error without emitting it (a validation or template stage, for example) reaches you as a `*stage.StageError`. The provider stage emits its own error, so a provider failure reaches you as the provider's error, without the wrapper. Match on the cause with `errors.Is` and `errors.As`, which work in both cases.
 
-### Timeout Errors
+## 2. Classify the error
 
 ```go
-import "context"
-
-// Set timeout
-ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-defer cancel()
-
-result, err := send(ctx, pipe, "user", "Your message")
-if err != nil {
-    if errors.Is(err, context.DeadlineExceeded) {
-        log.Println("Request timed out")
-        // Retry with longer timeout or simplify request
-    }
+var httpErr *providers.ProviderHTTPError
+switch {
+case errors.Is(err, context.DeadlineExceeded):
+	// The context deadline or the pipeline's ExecutionTimeout passed.
+case errors.Is(err, stage.ErrMaxRoundsExceeded):
+	// The model was still calling tools at the round limit. Send another message to continue.
+case errors.As(err, &httpErr) && (httpErr.StatusCode == http.StatusUnauthorized || httpErr.StatusCode == http.StatusForbidden):
+	// Check the API key. Do not retry.
+case providers.IsTransient(err):
+	// 429, 502, 503, 504 or a connection failure. Retry.
 }
 ```
 
-### Rate Limit Errors
+`providers.IsTransient` is false for context cancellation and deadlines, and for stream idle timeouts.
+
+## 3. Retry transient failures
+
+Retry only errors that `providers.IsTransient` accepts, and stop when the context is done:
 
 ```go
-resp, err := provider.Predict(ctx, req)
-if err != nil {
-    if strings.Contains(err.Error(), "rate_limit") {
-        log.Println("Rate limited")
-        // Wait and retry
-        time.Sleep(5 * time.Second)
-        resp, err = provider.Predict(ctx, req)
-    }
+func sendWithRetry(ctx context.Context, pipe *stage.StreamPipeline, content string, maxAttempts int) (*stage.ExecutionResult, error) {
+	var err error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		var result *stage.ExecutionResult
+		result, err = send(ctx, pipe, content)
+		if err == nil {
+			return result, nil
+		}
+		if !providers.IsTransient(err) {
+			return result, err
+		}
+		select {
+		case <-time.After(time.Duration(1<<attempt) * time.Second):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return nil, fmt.Errorf("failed after %d attempts: %w", maxAttempts, err)
 }
 ```
 
-### Authentication Errors
+A provider's `ProviderHTTPError.RetryAfter` holds the delay a `Retry-After` header asked for. Use it instead of the computed backoff when it is non-zero.
+
+## 4. Fall back to another provider (optional)
+
+Build one pipeline per provider and try them in order:
 
 ```go
-resp, err := provider.Predict(ctx, req)
-if err != nil {
-    if strings.Contains(err.Error(), "authentication") ||
-       strings.Contains(err.Error(), "invalid_api_key") {
-        log.Fatal("Invalid API key - check environment variable")
-    }
+func sendWithFallback(ctx context.Context, pipes []*stage.StreamPipeline, content string) (*stage.ExecutionResult, error) {
+	var errs []error
+	for _, pipe := range pipes {
+		result, err := send(ctx, pipe, content)
+		if err == nil {
+			return result, nil
+		}
+		errs = append(errs, err)
+	}
+	return nil, errors.Join(errs...)
 }
 ```
 
-### Tool Execution Errors
+## 5. Handle errors while streaming (optional)
+
+`Execute` returns an error only when it cannot start (for example, while the pipeline shuts down). A failure during the turn arrives as the last element on the output channel, with `Error` set:
 
 ```go
-result, err := send(ctx, pipe, "user", "Use the search tool")
-if err != nil {
-    if strings.Contains(err.Error(), "tool") {
-        log.Printf("Tool error: %v", err)
-        // Check tool configuration
-        // Verify tool is registered
-        // Test tool separately
-    }
-}
-```
-
-## Retry Strategies
-
-### Exponential Backoff
-
-```go
-func executeWithRetry(pipe *stage.StreamPipeline, ctx context.Context, role, content string, maxRetries int) (*stage.ExecutionResult, error) {
-    var result *stage.ExecutionResult
-    var err error
-    
-    for i := 0; i < maxRetries; i++ {
-        result, err = send(ctx, pipe, role, content)
-        if err == nil {
-            return result, nil
-        }
-        
-        // Check if retryable
-        if !isRetryableError(err) {
-            return nil, err
-        }
-        
-        // Exponential backoff
-        backoff := time.Duration(1<<uint(i)) * time.Second
-        log.Printf("Retry %d/%d after %v: %v", i+1, maxRetries, backoff, err)
-        time.Sleep(backoff)
-    }
-    
-    return nil, fmt.Errorf("failed after %d retries: %w", maxRetries, err)
-}
-
-func isRetryableError(err error) bool {
-    errStr := err.Error()
-    return strings.Contains(errStr, "rate_limit") ||
-           strings.Contains(errStr, "timeout") ||
-           strings.Contains(errStr, "503") ||
-           strings.Contains(errStr, "502")
-}
-```
-
-### Fixed Retry Delay
-
-```go
-func executeWithFixedRetry(pipe *stage.StreamPipeline, ctx context.Context, role, content string, maxRetries int, delay time.Duration) (*stage.ExecutionResult, error) {
-    for i := 0; i < maxRetries; i++ {
-        result, err := send(ctx, pipe, role, content)
-        if err == nil {
-            return result, nil
-        }
-        
-        if i < maxRetries-1 {
-            log.Printf("Attempt %d failed, retrying in %v: %v", i+1, delay, err)
-            time.Sleep(delay)
-        }
-    }
-    
-    return nil, fmt.Errorf("failed after %d retries", maxRetries)
-}
-```
-
-## Provider Fallback
-
-### Multi-Provider Strategy
-
-```go
-type ProviderPool struct {
-    providers []providers.Provider
-    current   int
-}
-
-func (p *ProviderPool) Execute(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
-    var lastErr error
-
-    // Try each provider
-    for i := 0; i < len(p.providers); i++ {
-        provider := p.providers[(p.current+i)%len(p.providers)]
-
-        resp, err := provider.Predict(ctx, req)
-        if err == nil {
-            // Success - update current
-            p.current = (p.current + i) % len(p.providers)
-            return resp, nil
-        }
-
-        lastErr = err
-        log.Printf("Provider %d failed: %v", i, err)
-    }
-
-    return providers.PredictionResponse{}, fmt.Errorf("all providers failed: %w", lastErr)
-}
-```
-
-### With Circuit Breaker
-
-```go
-type CircuitBreaker struct {
-    failures    int
-    maxFailures int
-    timeout     time.Duration
-    lastFailure time.Time
-}
-
-func (cb *CircuitBreaker) Call(fn func() error) error {
-    // Check if circuit is open
-    if cb.failures >= cb.maxFailures {
-        if time.Since(cb.lastFailure) < cb.timeout {
-            return fmt.Errorf("circuit breaker open")
-        }
-        // Reset after timeout
-        cb.failures = 0
-    }
-    
-    // Call function
-    err := fn()
-    if err != nil {
-        cb.failures++
-        cb.lastFailure = time.Now()
-        return err
-    }
-    
-    // Success - reset
-    cb.failures = 0
-    return nil
-}
-
-// Usage
-cb := &CircuitBreaker{maxFailures: 3, timeout: 30 * time.Second}
-err := cb.Call(func() error {
-    _, err := provider.Predict(ctx, req)
-    return err
-})
-```
-
-## Partial Results
-
-### Handle Incomplete Responses
-
-```go
-result, err := send(ctx, pipe, "user", "Generate a long document")
-if err != nil {
-    if strings.Contains(err.Error(), "timeout") && result != nil {
-        // Use partial result
-        log.Println("Request timed out, using partial response")
-        log.Printf("Partial: %s", result.Response.Content)
-        return result, nil
-    }
-    return nil, err
-}
-```
-
-### Streaming with Error Recovery
-
-```go
-msg := types.Message{Role: "user"}
-msg.AddTextPart("Long request")
-input := make(chan stage.StreamElement, 1)
-input <- stage.NewMessageElement(&msg)
-close(input)
-
 output, err := pipe.Execute(ctx, input)
 if err != nil {
-    return err
+	return err
 }
-
 var accumulated string
 for elem := range output {
-    if elem.Error != nil {
-        log.Printf("Stream error: %v", elem.Error)
-        // Use accumulated content
-        if len(accumulated) > 0 {
-            log.Printf("Recovered partial content: %s", accumulated)
-            return nil
-        }
-        return elem.Error
-    }
-
-    if elem.Text != nil {
-        accumulated += *elem.Text
-    }
+	if elem.Text != nil {
+		accumulated += *elem.Text
+	}
+	if elem.Error != nil {
+		log.Printf("partial %q, error: %v", accumulated, elem.Error)
+		return elem.Error
+	}
 }
 ```
 
-## Error Monitoring
+## 6. Bound a turn (optional)
 
-### Log Structured Errors
+Two pipeline settings bound a turn. When `ExecutionTimeout` passes, the running stage fails with `context.DeadlineExceeded`.
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/logger"
-
-func executeWithLogging(pipe *stage.StreamPipeline, ctx context.Context, sessionID, role, content string) (*stage.ExecutionResult, error) {
-    start := time.Now()
-    result, err := send(ctx, pipe, role, content)
-    duration := time.Since(start)
-    
-    if err != nil {
-        logger.Error("Pipeline execution failed",
-            "session_id", sessionID,
-            "role", role,
-            "duration", duration,
-            "error", err,
-        )
-        return nil, err
-    }
-    
-    logger.Info("Pipeline execution succeeded",
-        "session_id", sessionID,
-        "duration", duration,
-        "tokens", result.CostInfo.InputTokens+result.CostInfo.OutputTokens,
-        "cost", result.CostInfo.TotalCost,
-    )
-    
-    return result, nil
-}
+cfg := stage.DefaultPipelineConfig().
+	WithExecutionTimeout(2 * time.Minute). // hard ceiling per execution; disabled by default
+	WithIdleTimeout(30 * time.Second)      // inactivity limit; 30 seconds by default
+pipe, err := stage.NewPipelineBuilderWithConfig(cfg).Chain(providerStage).Build()
 ```
 
-### Error Metrics
+## Verify
 
-```go
-type ErrorMetrics struct {
-    timeouts       int64
-    rateLimits     int64
-    authErrors     int64
-    toolErrors     int64
-    otherErrors    int64
-    totalRequests  int64
-    successRequests int64
-}
+Point the pipeline at a provider that fails, such as an invalid API key. `send` returns a non-nil error, and the classification switch takes the `401` branch. Then run a valid request and confirm `err` is nil.
 
-func (m *ErrorMetrics) RecordError(err error) {
-    atomic.AddInt64(&m.totalRequests, 1)
-    
-    if err == nil {
-        atomic.AddInt64(&m.successRequests, 1)
-        return
-    }
-    
-    errStr := err.Error()
-    switch {
-    case strings.Contains(errStr, "timeout"):
-        atomic.AddInt64(&m.timeouts, 1)
-    case strings.Contains(errStr, "rate_limit"):
-        atomic.AddInt64(&m.rateLimits, 1)
-    case strings.Contains(errStr, "authentication"):
-        atomic.AddInt64(&m.authErrors, 1)
-    case strings.Contains(errStr, "tool"):
-        atomic.AddInt64(&m.toolErrors, 1)
-    default:
-        atomic.AddInt64(&m.otherErrors, 1)
-    }
-}
+## Troubleshoot
 
-func (m *ErrorMetrics) Report() {
-    total := atomic.LoadInt64(&m.totalRequests)
-    success := atomic.LoadInt64(&m.successRequests)
-    successRate := float64(success) / float64(total) * 100
-    
-    log.Printf("Error Metrics:")
-    log.Printf("  Total: %d", total)
-    log.Printf("  Success: %d (%.2f%%)", success, successRate)
-    log.Printf("  Timeouts: %d", atomic.LoadInt64(&m.timeouts))
-    log.Printf("  Rate Limits: %d", atomic.LoadInt64(&m.rateLimits))
-    log.Printf("  Auth Errors: %d", atomic.LoadInt64(&m.authErrors))
-    log.Printf("  Tool Errors: %d", atomic.LoadInt64(&m.toolErrors))
-    log.Printf("  Other: %d", atomic.LoadInt64(&m.otherErrors))
-}
-```
+Persistent timeouts: raise `ExecutionTimeout` or the context deadline, or lower `MaxTokens` in the provider defaults.
 
-## Complete Example
+Frequent rate-limit errors: add the retry above, and lower `WithMaxConcurrentPipelines`.
 
-```go
-package main
+A turn fails with `ErrTemplateUnresolved`: the system prompt references a variable nothing supplied. The error names the variable. Supply it, or remove it from the prompt.
 
-import (
-    "context"
-    "fmt"
-    "log"
-    "strings"
-    "time"
-    
-    "github.com/AltairaLabs/PromptKit/runtime/v2/providers"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/claude"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/types"
-)
+Release resources when you finish with them: call `provider.Close()` and `pipe.Shutdown(ctx)`.
 
-func main() {
-    // Create providers
-    openaiProvider := openai.NewProvider(
-        "openai", "gpt-4o-mini", "", providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000}, false,
-    )
-    defer openaiProvider.Close()
+## Related
 
-    claudeProvider := claude.NewProvider(
-        "claude", "claude-3-5-haiku-20241022", "", providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 4096}, false,
-    )
-    defer claudeProvider.Close()
-
-    // Provider pool with fallback
-    providerList := []providers.Provider{openaiProvider, claudeProvider}
-
-    req := providers.PredictionRequest{
-        Messages:    []types.Message{{Role: "user", Content: "Hello!"}},
-        Temperature: 0.7,
-        MaxTokens:   2000,
-    }
-
-    // Try each provider with retry
-    var resp providers.PredictionResponse
-    var err error
-
-    for _, provider := range providerList {
-        resp, err = predictWithRetry(provider, context.Background(), req, 3)
-        if err == nil {
-            break
-        }
-
-        log.Printf("Provider %s failed: %v", provider.ID(), err)
-    }
-
-    if err != nil {
-        log.Fatal("All providers failed")
-    }
-
-    log.Printf("Success: %s", resp.Content)
-}
-
-func predictWithRetry(provider providers.Provider, ctx context.Context, req providers.PredictionRequest, maxRetries int) (providers.PredictionResponse, error) {
-    for i := 0; i < maxRetries; i++ {
-        resp, err := provider.Predict(ctx, req)
-        if err == nil {
-            return resp, nil
-        }
-
-        if !isRetryableError(err) {
-            return providers.PredictionResponse{}, err
-        }
-
-        if i < maxRetries-1 {
-            backoff := time.Duration(1<<uint(i)) * time.Second
-            log.Printf("Retry %d/%d after %v", i+1, maxRetries, backoff)
-            time.Sleep(backoff)
-        }
-    }
-
-    return providers.PredictionResponse{}, fmt.Errorf("failed after %d retries", maxRetries)
-}
-
-func isRetryableError(err error) bool {
-    errStr := err.Error()
-    return strings.Contains(errStr, "rate_limit") ||
-           strings.Contains(errStr, "timeout") ||
-           strings.Contains(errStr, "503")
-}
-```
-
-## Troubleshooting
-
-### Issue: Persistent Timeouts
-
-**Problem**: Requests consistently timing out.
-
-**Solutions**:
-
-1. Increase timeout:
-   ```go
-   ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-   defer cancel()
-   ```
-
-2. Reduce response size:
-   ```go
-   // Set lower MaxTokens in ProviderDefaults
-   ```
-
-3. Simplify prompt:
-   ```go
-   // Break complex request into smaller parts
-   ```
-
-### Issue: Rate Limits
-
-**Problem**: Frequent rate limit errors.
-
-**Solutions**:
-
-1. Add retry with backoff (see examples above)
-
-2. Reduce concurrency:
-   ```go
-   config := stage.DefaultPipelineConfig().
-       WithMaxConcurrentPipelines(1)  // Sequential
-   ```
-
-3. Use rate limiter:
-   ```go
-   limiter := rate.NewLimiter(rate.Limit(10), 1)  // 10 req/sec
-   limiter.Wait(ctx)
-   result, err := send(ctx, pipe, "user", content)
-   ```
-
-### Issue: Memory Leaks
-
-**Problem**: Memory grows over time.
-
-**Solutions**:
-
-1. Always close resources:
-   ```go
-   defer provider.Close()
-   defer pipe.Shutdown(ctx)
-   ```
-
-2. Clean up state:
-   ```go
-   // Limit message history
-   if len(messages) > 50 {
-       messages = messages[len(messages)-50:]
-   }
-   ```
-
-## Best Practices
-
-1. **Set timeouts on all requests**:
-   ```go
-   ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-   defer cancel()
-   ```
-
-2. **Implement retry logic for transient errors**:
-   ```go
-   result, err := executeWithRetry(pipe, ctx, "user", content, 3)
-   ```
-
-3. **Use multiple providers for redundancy**:
-   ```go
-   providerList := []providers.Provider{openaiProvider, claudeProvider, geminiProvider}
-   ```
-
-4. **Log errors with context**:
-   ```go
-   logger.Error("Request failed", "session", sessionID, "error", err)
-   ```
-
-5. **Monitor error rates**:
-   ```go
-   metrics.RecordError(err)
-   if metrics.ErrorRate() > 0.1 {
-       alert("High error rate")
-   }
-   ```
-
-6. **Handle partial results**:
-   ```go
-   if err != nil && result != nil {
-       // Use partial content
-   }
-   ```
-
-7. **Fail fast on non-retryable errors**:
-   ```go
-   if strings.Contains(err.Error(), "authentication") {
-       log.Fatal("Invalid API key")
-   }
-   ```
-
-## Next Steps
-
-- [Streaming Responses](/runtime/how-to/pipeline/streaming-responses/) - Handle streams
-- [Monitor Costs](/runtime/how-to/observability/monitor-costs/) - Track usage
-- [Setup Providers](/runtime/how-to/providers/setup-providers/) - Provider config
-
-## See Also
-
-- [Pipeline Reference](/runtime/reference/pipeline/) - Error details
-- [Providers Reference](/runtime/reference/providers/) - Provider errors
+- [Stream responses](/runtime/how-to/pipeline/streaming-responses/)
+- [Monitor costs](/runtime/how-to/observability/monitor-costs/)
+- [Set up providers](/runtime/how-to/providers/setup-providers/)
+- [Pipeline reference](/runtime/reference/pipeline/)
+- [Providers reference](/runtime/reference/providers/)

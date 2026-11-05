@@ -2,48 +2,61 @@
 title: Runtime Reference
 sidebar:
   order: 0
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/evals/types.go
+    - runtime/hooks/guardrails/adapter.go
+    - runtime/logger/logger.go
+    - runtime/mcp/registry.go
+    - runtime/mcp/types.go
+    - runtime/memory/types.go
+    - runtime/pipeline/stage/pipeline.go
+    - runtime/pipeline/stage/stage.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/types.go
+    - runtime/providers/claude/claude.go
+    - runtime/providers/claude/claude_tools.go
+    - runtime/providers/gemini/gemini.go
+    - runtime/providers/ollama/ollama.go
+    - runtime/providers/openai/openai.go
+    - runtime/providers/provider.go
+    - runtime/providers/streaming.go
+    - runtime/providers/vllm/vllm.go
+    - runtime/telemetry/listener.go
 ---
-Complete API reference for the PromptKit Runtime components.
+Index of the PromptKit runtime API reference. The runtime is the Go module `github.com/AltairaLabs/PromptKit/runtime/v2`: a stage-based streaming pipeline, provider integrations (OpenAI, Claude, Gemini, Vertex, Bedrock, Ollama, vLLM and others), tool execution with MCP, state persistence, hooks and guardrails, and observability.
 
-## Overview
-
-The PromptKit Runtime provides the core execution engine for LLM interactions. It handles:
-
-- **Pipeline Execution**: Stage-based processing with streaming support
-- **Provider Integration**: Multi-LLM support (OpenAI, Anthropic, Google Gemini)
-- **Tool Execution**: Function calling with MCP integration
-- **State Management**: Conversation persistence and caching
-- **Validation**: Content and response validation
-- **Configuration**: Flexible runtime configuration
-
-## Quick Reference
-
-### Core Components
+## Components
 
 | Component | Description | Reference |
 |-----------|-------------|-----------|
-| **Pipeline** | Stage-based execution engine | [pipeline.md](/runtime/reference/pipeline/) |
-| **Providers** | LLM provider implementations | [providers.md](/runtime/reference/providers/) |
-| **Tools** | Function calling | [tools.md](/runtime/reference/tools/) |
-| **MCP** | Model Context Protocol integration | [mcp.md](/runtime/reference/mcp/) |
-| **Hooks** | Provider/tool/session hooks and guardrails | [hooks.md](/runtime/reference/hooks/) |
-| **State Store** | Conversation persistence | [statestore.md](/runtime/reference/statestore/) |
-| **Storage** | Media storage backends | [storage.md](/runtime/reference/storage/) |
-| **Types** | Core data structures | [types.md](/runtime/reference/types/) |
-| **A2A** | Client, types, tool bridge, mock | [a2a.md](/runtime/reference/a2a/) |
-| **Logging** | Structured logging with context | [logging.md](/runtime/reference/logging/) |
-| **Metrics** | Prometheus metrics collection | [metrics.md](/runtime/reference/metrics/) |
-| **Telemetry** | OpenTelemetry trace export | [telemetry.md](/runtime/reference/telemetry/) |
-| **Streaming** | Duplex response state machine, audio streaming, tool execution | [streaming.md](/runtime/reference/streaming/) |
-| **TTS** | Text-to-speech service interface and providers | [tts.md](/runtime/reference/tts/) |
-| **Audio** | VAD, turn detection, interruption handling | [audio.md](/runtime/reference/audio/) |
-| **Variables** | Dynamic variable resolution for prompt templates | [variables.md](/runtime/reference/variables/) |
+| Pipeline | Stage-based execution engine | [Pipeline](/runtime/reference/pipeline/) |
+| Providers | LLM provider implementations | [Providers](/runtime/reference/providers/) |
+| Tools | Function calling | [Tools](/runtime/reference/tools/) |
+| MCP | Model Context Protocol integration | [MCP](/runtime/reference/mcp/) |
+| Hooks | Provider, tool and session hooks, and guardrails | [Hooks](/runtime/reference/hooks/) |
+| State store | Conversation persistence | [State Store](/runtime/reference/statestore/) |
+| Storage | Media storage backends | [Storage](/runtime/reference/storage/) |
+| Types | Core data structures | [Types](/runtime/reference/types/) |
+| A2A | Client, types, tool bridge, mock | [A2A](/runtime/reference/a2a/) |
+| Evals | Evaluation framework for PromptPack | [Evals](/runtime/reference/evals/) |
+| Memory | Cross-session agentic memory | [Memory](/runtime/reference/memory/) |
+| Memory corpus | Retriever over a fixed document set | [Memory Corpus](/runtime/reference/memory-corpus/) |
+| Logging | Structured logging with context | [Logging](/runtime/reference/logging/) |
+| Metrics | Prometheus metrics collection | [Metrics](/runtime/reference/metrics/) |
+| Telemetry | OpenTelemetry trace export | [Telemetry](/runtime/reference/telemetry/) |
+| Streaming | Duplex response state machine, audio streaming, tool execution | [Streaming](/runtime/reference/streaming/) |
+| TTS | Text-to-speech service interface and providers | [TTS](/runtime/reference/tts/) |
+| Audio | VAD, turn detection, interruption handling | [Audio](/runtime/reference/audio/) |
+| Variables | Dynamic variable resolution for prompt templates | [Variables](/runtime/reference/variables/) |
 
-### Import Paths
+## Import paths
 
 ```go
 import (
     "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
     "github.com/AltairaLabs/PromptKit/runtime/v2/providers"
     "github.com/AltairaLabs/PromptKit/runtime/v2/tools"
     "github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
@@ -56,233 +69,132 @@ import (
 )
 ```
 
-## Basic Usage
+## Provider calls
 
-### Simple Provider Usage
+`Predict` returns a complete response. `PredictStream` returns a channel of `StreamChunk` values.
 
 ```go
+package main
+
 import (
     "context"
+    "fmt"
+    "log"
+
     "github.com/AltairaLabs/PromptKit/runtime/v2/providers"
     "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
     "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-// Create provider
-provider := openai.NewProvider(
-    "openai",
-    "gpt-4o-mini",
-    "", // default baseURL (uses env var for API key)
-    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 1500},
-    false, // includeRawOutput
-)
-defer provider.Close()
+func main() {
+    provider := openai.NewProvider(
+        "openai",
+        "gpt-4o-mini",
+        "", // default base URL; the API key comes from the environment
+        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 1500},
+        false, // includeRawOutput
+    )
+    defer provider.Close()
 
-// Execute prediction
-ctx := context.Background()
-resp, err := provider.Predict(ctx, providers.PredictionRequest{
-    Messages: []types.Message{
-        {Role: "user", Content: "Hello!"},
-    },
-    Temperature: 0.7,
-    MaxTokens:   1500,
-})
-if err != nil {
-    log.Fatal(err)
+    ctx := context.Background()
+    req := providers.PredictionRequest{
+        Messages: []types.Message{{Role: "user", Content: "Hello!"}},
+    }
+
+    resp, err := provider.Predict(ctx, req)
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(resp.Content)
+
+    streamChan, err := provider.PredictStream(ctx, req)
+    if err != nil {
+        log.Fatal(err)
+    }
+    for chunk := range streamChan {
+        if chunk.Error != nil {
+            log.Printf("Error: %v\n", chunk.Error)
+            break
+        }
+        if chunk.Delta != "" {
+            fmt.Print(chunk.Delta)
+        }
+        if chunk.FinishReason != nil {
+            fmt.Printf("\nfinish reason: %s\n", *chunk.FinishReason)
+        }
+    }
 }
-
-fmt.Println(resp.Content)
 ```
 
-### With MCP Tools
+### Provider defaults
+
+`providers.ProviderDefaults` sets request parameters that apply when a request leaves the field at zero.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Temperature` | `float32` | Sampling temperature |
+| `TopP` | `float32` | Nucleus sampling threshold |
+| `MaxTokens` | `int` | Output-token limit. Zero or `providers.MaxTokensUnlimited` sends no limit, except on Claude, where zero falls back to 4096 |
+| `Pricing` | `providers.Pricing` | `InputCostPer1K` and `OutputCostPer1K` for cost calculation |
+| `DisablePromptCaching` | `bool` | Disables Anthropic prompt caching |
+
+## MCP servers
 
 ```go
-import (
-    "github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
-)
-
-// Register MCP server
 mcpRegistry := mcp.NewRegistry()
 defer mcpRegistry.Close()
 
-mcpRegistry.RegisterServer(mcp.ServerConfig{
+err := mcpRegistry.RegisterServer(mcp.ServerConfig{
     Name:    "filesystem",
     Command: "npx",
     Args:    []string{"-y", "@modelcontextprotocol/server-filesystem", "/allowed"},
 })
-
-// Discover tools
-ctx := context.Background()
-serverTools, err := mcpRegistry.ListAllTools(ctx)
 if err != nil {
     log.Fatal(err)
 }
 
+serverTools, err := mcpRegistry.ListAllTools(ctx)
+if err != nil {
+    log.Fatal(err)
+}
 for serverName, tools := range serverTools {
     log.Printf("Server %s has %d tools\n", serverName, len(tools))
 }
 ```
 
-### Streaming Execution
+## Tool policy
 
-```go
-// Execute with streaming
-streamChan, err := provider.PredictStream(ctx, providers.PredictionRequest{
-    Messages:    []types.Message{{Role: "user", Content: "Write a story"}},
-    Temperature: 0.7,
-    MaxTokens:   1500,
-})
-if err != nil {
-    log.Fatal(err)
-}
+`pipeline.ToolPolicy` constrains tool use in the provider stage. Pass it as the third argument to `stage.NewProviderStage`.
 
-// Process chunks
-for chunk := range streamChan {
-    if chunk.Error != nil {
-        log.Printf("Error: %v\n", chunk.Error)
-        break
-    }
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `ToolChoice` | `string` | `"auto"` | `"auto"`, `"required"`, `"none"` or a tool name |
+| `MaxRounds` | `int` | 50 | Maximum LLM-to-tool rounds per turn |
+| `MaxToolCallsPerTurn` | `int` | 0 (no cap) | Maximum tool calls across all rounds of a turn |
+| `MaxParallelToolCalls` | `int` | 10 | Maximum concurrent tool executions |
+| `MaxCostUSD` | `float64` | 0 (unlimited) | Cumulative cost budget; the turn fails with an error once exceeded |
+| `Blocklist` | `[]string` | none | Tool names the stage refuses to execute; the model receives a "blocked by policy" result |
+| `MaxIdenticalToolCalls` | `int` | 3 | The call that repeats the same tool and arguments this many times is skipped; the model receives a stop-repeating result; a second loop after that fails the turn |
+| `StopOnTool` | `string` | none | Ends the tool loop after the round in which this tool was called |
 
-    if chunk.Delta != "" {
-        fmt.Print(chunk.Delta)
-    }
-
-    if chunk.FinishReason != nil {
-        fmt.Printf("\n\nStream complete: %s\n", *chunk.FinishReason)
-    }
-}
-```
-
-## Configuration
-
-### Provider Configuration
-
-```go
-defaults := providers.ProviderDefaults{
-    Temperature: 0.7,
-    TopP:        0.95,
-    MaxTokens:   2000,
-    Pricing: providers.Pricing{
-        InputCostPer1K:  0.00015,  // $0.15 per 1M tokens
-        OutputCostPer1K: 0.0006,   // $0.60 per 1M tokens
-    },
-}
-
-provider := openai.NewProvider("openai", "gpt-4o-mini", "", defaults, false)
-```
-
-### Tool Policy
+A prompt's `tool_policy` narrows these limits. `MaxRounds` and `MaxToolCallsPerTurn` take the smaller non-zero value, `Blocklist` is the union, and the caller's `ToolChoice` wins when set.
 
 ```go
 policy := &pipeline.ToolPolicy{
-    ToolChoice:           "auto",     // "auto", "required", "none", or specific tool
-    MaxRounds:            5,          // Max tool execution rounds (default: 50)
-    MaxToolCallsPerTurn:  10,         // Max tools per LLM response
-    MaxParallelToolCalls: 5,          // Max concurrent tool executions (default: 10)
-    MaxCostUSD:           1.00,       // Stop after $1 spent (0 = unlimited)
-    Blocklist:            []string{"dangerous_tool"},  // Blocked tools
+    ToolChoice:           "auto",
+    MaxRounds:            5,
+    MaxToolCallsPerTurn:  10,
+    MaxParallelToolCalls: 5,
+    MaxCostUSD:           1.00,
+    Blocklist:            []string{"dangerous_tool"},
 }
 ```
 
-## Error Handling
+## Related
 
-### Provider Errors
-
-```go
-resp, err := provider.Predict(ctx, req)
-if err != nil {
-    switch {
-    case errors.Is(err, context.DeadlineExceeded):
-        log.Println("Request timeout")
-    default:
-        log.Printf("Provider error: %v", err)
-    }
-}
-```
-
-### Tool Errors
-
-```go
-// MCP tool call errors
-response, err := client.CallTool(ctx, "read_file", args)
-if err != nil {
-    log.Printf("Tool execution failed: %v", err)
-}
-```
-
-## Best Practices
-
-### Resource Management
-
-```go
-// Always close resources
-defer provider.Close()
-defer mcpRegistry.Close()
-```
-
-### Context Cancellation
-
-```go
-// Use context for cancellation
-ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-defer cancel()
-
-resp, err := provider.Predict(ctx, req)
-```
-
-### Streaming Cleanup
-
-```go
-// Always drain streaming channels
-streamChan, err := provider.PredictStream(ctx, req)
-if err != nil {
-    return err
-}
-
-for chunk := range streamChan {
-    // Process chunks
-    if chunk.Error != nil {
-        break
-    }
-}
-```
-
-## Performance Considerations
-
-### Concurrency Control
-
-- Configure `MaxConcurrentExecutions` based on provider rate limits
-- Use semaphores to prevent overwhelming providers
-- Consider graceful degradation under load
-
-### Streaming vs Non-Streaming
-
-- **Use streaming** for interactive applications (chatbots, UIs)
-- **Use non-streaming** for batch processing, testing, analytics
-- Streaming has ~10% overhead but better UX
-
-### Tool Execution
-
-- MCP tools run in separate processes (stdio overhead)
-- Consider tool execution timeouts
-- Use repository executors for fast in-memory tools
-
-### Memory Management
-
-- Pipeline creates fresh `ExecutionContext` per call (prevents contamination)
-- Large conversation histories can increase memory usage
-- Consider state store cleanup strategies
-
-## See Also
-
-- [Pipeline Reference](/runtime/reference/pipeline/) - Detailed pipeline API
-- [Provider Reference](/runtime/reference/providers/) - Provider implementations
-- [Tools Reference](/runtime/reference/tools/) - Tool registry and execution
-- [MCP Reference](/runtime/reference/mcp/) - Model Context Protocol integration
-- [Types Reference](/runtime/reference/types/) - Core data structures
-
-## Next Steps
-
-- [How-To Guides](/runtime/how-to/) - Task-focused guides
-- [Tutorials](/runtime/tutorials/) - Learn by building
-- [Explanation](/runtime/explanation/) - Architecture and concepts
+- [Pipeline](/runtime/reference/pipeline/): stage and pipeline API
+- [Providers](/runtime/reference/providers/): provider implementations
+- [Tools](/runtime/reference/tools/): tool registry and execution
+- [MCP](/runtime/reference/mcp/): Model Context Protocol integration
+- [Types](/runtime/reference/types/): core data structures
+- [How-to guides](/runtime/how-to/), [tutorials](/runtime/tutorials/) and [explanation](/runtime/explanation/)

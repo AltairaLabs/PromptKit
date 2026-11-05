@@ -1,169 +1,102 @@
 ---
-title: Use Tool Bridge
-description: Register A2A agent skills as local tools for LLM tool calling
+title: Use the A2A tool bridge
+description: Register a remote A2A agent's skills as tools the model can call
 sidebar:
   order: 10
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/a2a/bridge.go
+    - runtime/a2a/client.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/tools/types.go
+    - sdk/capability_a2a.go
+    - sdk/options.go
 ---
 
-The Tool Bridge converts an A2A agent's skills into `ToolDescriptor` entries so they can be used through the standard tool registry — enabling LLMs to call remote agents as if they were local tools.
+Let the model call a remote A2A agent by registering each of the agent's skills as a tool.
 
----
+## Prerequisites
 
-## Overview
+- The URL of an A2A agent. For tests, use the [mock server](/runtime/how-to/a2a/use-a2a-mock-server/).
+- A pack with a prompt to attach the tools to.
 
-```mermaid
-flowchart LR
-    D["client.Discover()"] --> S["Agent Skills"]
-    S --> TD["ToolDescriptors"]
-    TD --> R["Tool Registry"]
-    R --> LLM["LLM tool calling"]
+## Steps
 
-    style D fill:#e3f2fd
-    style R fill:#e8f5e9
-```
+1. Create a client, build a bridge, and register the agent. `RegisterAgent` fetches the agent card and creates one tool descriptor per skill.
 
-1. The bridge calls `Discover()` to fetch the agent card
-2. Each skill is converted to a `ToolDescriptor`
-3. Descriptors are registered in the tool registry
-4. The LLM can invoke them during tool-calling rounds
+   ```go
+   client := a2a.NewClient("http://localhost:9999")
+   bridge := a2a.NewToolBridge(client)
 
----
+   tools, err := bridge.RegisterAgent(ctx)
+   if err != nil {
+       log.Fatal(err)
+   }
+   for _, t := range tools {
+       fmt.Printf("Registered: %s: %s\n", t.Name, t.Description)
+   }
+   ```
 
-## Register an A2A Agent as a Tool
+   Each tool is named `a2a__{agentName}__{skillId}`. Both parts are lowercased and every run of non-alphanumeric characters becomes one underscore.
 
-```go
-package main
+   | Agent name | Skill ID | Tool name |
+   |---|---|---|
+   | Research Agent | search_papers | `a2a__research_agent__search_papers` |
+   | Code Helper | lint-code | `a2a__code_helper__lint_code` |
 
-import (
-    "context"
-    "fmt"
-    "log"
+2. Pass the bridge to the SDK.
 
-    "github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
-    "github.com/AltairaLabs/PromptKit/sdk/v2"
-)
+   ```go
+   conv, err := sdk.Open("assistant.pack.json", "chat",
+       sdk.WithA2ATools(bridge),
+   )
+   if err != nil {
+       log.Fatal(err)
+   }
+   defer conv.Close()
 
-func main() {
-    ctx := context.Background()
+   resp, err := conv.Send(ctx, "Search for papers about quantum computing")
+   if err != nil {
+       log.Fatal(err)
+   }
+   fmt.Println(resp.Text())
+   ```
 
-    // Point a client at the remote agent.
-    client := a2a.NewClient("http://localhost:9999")
+   The SDK offers `a2a__` tools to the model without an `allowed_tools` entry. Each `WithA2ATools` call adds its bridge, so you can pass several. If two bridges register the same tool name, `sdk.Open` fails with an error naming both.
 
-    // Create the bridge and register the agent's skills.
-    bridge := a2a.NewToolBridge(client)
-    tools, err := bridge.RegisterAgent(ctx)
-    if err != nil {
-        log.Fatal(err)
-    }
+3. To use several agents, register each with `WithA2AAgent` instead. The SDK fetches each agent card when the conversation opens.
 
-    for _, t := range tools {
-        fmt.Printf("Registered: %s — %s\n", t.Name, t.Description)
-    }
+   ```go
+   conv, err := sdk.Open("assistant.pack.json", "chat",
+       sdk.WithA2AAgent(sdk.NewA2AAgent("http://localhost:9999")),
+       sdk.WithA2AAgent(sdk.NewA2AAgent("http://localhost:9998").
+           WithAuthFromEnv("Bearer", "TRANSLATOR_TOKEN").
+           Required()),
+   )
+   ```
 
-    // Use the bridge with the SDK.
-    conv, err := sdk.Open("assistant.pack.json", "chat",
-        sdk.WithA2ATools(bridge),
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer conv.Close()
+   If an agent cannot be reached, the conversation opens without its tools. `Required()` makes the open fail instead.
 
-    resp, err := conv.Send(ctx, "Search for papers about quantum computing")
-    if err != nil {
-        log.Fatal(err)
-    }
-    fmt.Println(resp.Text())
-}
-```
+## Verify
 
----
+`RegisterAgent` returns one descriptor per skill, and the loop in step 1 prints each tool name. Each tool takes a required `query` string argument and returns a `response` string.
 
-## Naming Convention
+The bridge adds fields from the skill's modes (falling back to the card's default modes):
 
-Tool names follow the pattern:
+| Mode | Added field |
+|---|---|
+| Input `image/*` | `image_url`, `image_data` arguments |
+| Input `audio/*` | `audio_data` argument |
+| Output `image/*` or `audio/*` | `media_url`, `media_type` result fields |
 
-```
-a2a__{agentName}__{skillId}
-```
+## Troubleshoot
 
-Both the agent name and skill ID are sanitized: lowercased, with non-alphanumeric runs replaced by underscores. For example:
+- `a2a bridge: discover` error: the agent card is unreachable at `/.well-known/agent-card.json` (or the legacy `/.well-known/agent.json`). Check the URL.
+- `sdk.Open` fails with `tool names must be unique across A2A bridges`: two bridges registered the same tool name, which happens when both point at agents with the same name and skill ID. Rename one agent or drop one bridge.
 
-| Agent Name | Skill ID | Tool Name |
-|------------|----------|-----------|
-| Research Agent | search_papers | `a2a__research_agent__search_papers` |
-| Code Helper | lint-code | `a2a__code_helper__lint_code` |
+## Related
 
-This naming is important for `allowed_tools` in prompt configs — you reference the tool by its generated name.
-
----
-
-## Use with Prompt Config
-
-To enable A2A tools in a prompt config, list them in `allowed_tools`:
-
-```yaml
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: PromptConfig
-spec:
-  allowed_tools:
-    - a2a__research_agent__search_papers
-  system_template: |
-    You are a helpful assistant with access to research tools.
-    When asked to search for papers, use the available tools.
-```
-
-The tool calling pipeline automatically invokes the A2A agent when the LLM decides to call the tool.
-
----
-
-## Multi-Agent Composition
-
-Register multiple agents on the same bridge. Each `RegisterAgent` call appends to the bridge's internal tool list:
-
-```go
-bridge := a2a.NewToolBridge(researchClient)
-bridge.RegisterAgent(ctx) // adds research agent tools
-
-// Point the bridge at another agent.
-bridge2 := a2a.NewToolBridge(translationClient)
-bridge2.RegisterAgent(ctx)
-```
-
-Or discover from multiple agents and combine:
-
-```go
-bridge := a2a.NewToolBridge(client1)
-bridge.RegisterAgent(ctx) // agent 1 tools
-
-// The bridge only works with one client, so create a second bridge.
-bridge2 := a2a.NewToolBridge(client2)
-bridge2.RegisterAgent(ctx) // agent 2 tools
-
-// Use both with SDK.
-conv, _ := sdk.Open("assistant.pack.json", "chat",
-    sdk.WithA2ATools(bridge),
-    sdk.WithA2ATools(bridge2),
-)
-```
-
-Each `WithA2ATools` call adds its bridge. If two bridges register the same tool name, `sdk.Open` fails with an error naming both.
-
----
-
-## Input/Output Schema Generation
-
-The bridge automatically generates JSON Schemas for each tool based on the skill's input/output modes:
-
-- **Text** — always includes a `query` field (required)
-- **Image** input modes (`image/*`) — adds `image_url` and `image_data` fields
-- **Audio** input modes (`audio/*`) — adds `audio_data` field
-- **Media** output modes — adds `media_url` and `media_type` fields
-
----
-
-## Next Steps
-
-- [Use Mock Server](/runtime/how-to/a2a/use-a2a-mock-server/) — test tool bridge without a real agent
-- [Test A2A Agents in Arena](https://promptarena.altairalabs.ai/arena/how-to/test-a2a-agents/) — end-to-end testing with Arena
-- [Runtime A2A Reference](/runtime/reference/a2a/) — `ToolBridge` API details
+- [Use the A2A mock server](/runtime/how-to/a2a/use-a2a-mock-server/)
+- [Test A2A agents in Arena](https://promptarena.altairalabs.ai/arena/how-to/test-a2a-agents/)
+- [Runtime A2A reference](/runtime/reference/a2a/)

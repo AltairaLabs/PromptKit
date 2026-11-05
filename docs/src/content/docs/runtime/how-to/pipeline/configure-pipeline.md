@@ -1,51 +1,60 @@
 ---
 title: Configure Pipeline
+description: Build a stage-based runtime pipeline, tune its timeouts and buffers, and add prompt assembly, hooks, state and voice stages
 sidebar:
   order: 1
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/audio/interruption.go
+    - runtime/hooks/guardrails/factory.go
+    - runtime/hooks/registry.go
+    - runtime/pipeline/stage/builder.go
+    - runtime/pipeline/stage/config.go
+    - runtime/pipeline/stage/pipeline.go
+    - runtime/pipeline/stage/stages_core.go
+    - runtime/pipeline/stage/stages_duplex_provider_session.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/stages_speech.go
+    - runtime/pipeline/stage/stages_utilities.go
+    - runtime/pipeline/types.go
+    - runtime/providers/claude/claude.go
+    - runtime/providers/gemini/gemini.go
+    - runtime/providers/mock/mock.go
+    - runtime/providers/mock/mock_repository.go
+    - runtime/providers/openai/openai.go
+    - runtime/providers/openai/realtime_session_integration.go
+    - runtime/statestore/memory.go
+    - runtime/statestore/redis.go
 ---
-Set up and configure Runtime pipeline for LLM execution.
 
-## Goal
-
-Create a functional stage-based pipeline with proper configuration for your use case.
+Build a stage-based pipeline that sends a message to an LLM provider, then tune it and add the stages your application needs.
 
 ## Prerequisites
 
-- Go 1.21+
-- API key for LLM provider (OpenAI, Claude, or Gemini)
-- Basic understanding of streaming pipelines
+- Go 1.26 or later
+- An API key for your LLM provider
+- A `prompt.Registry` if you assemble prompts from templates
 
-## Basic Pipeline
-
-### Step 1: Import Dependencies
-
-```go
-import (
-    "context"
-    "log"
-
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
-)
-```
-
-### Step 2: Create Provider
+## 1. Create a provider
 
 ```go
 provider := openai.NewProvider(
     "openai",
     "gpt-4o-mini",
-    "",  // Use default base URL
+    "", // default base URL
     providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
-    false,  // Don't include raw output
+    false, // omit raw provider output
 )
 defer provider.Close()
 ```
 
-### Step 3: Build Pipeline
+`claude.NewProvider` and `gemini.NewProvider` take the same arguments.
+
+## 2. Build the pipeline
 
 ```go
-pipeline, err := stage.NewPipelineBuilder().
+pipe, err := stage.NewPipelineBuilder().
     Chain(
         stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{
             MaxTokens:   1500,
@@ -53,103 +62,79 @@ pipeline, err := stage.NewPipelineBuilder().
         }),
     ).
     Build()
+if err != nil {
+    log.Fatal(err)
+}
+defer pipe.Shutdown(context.Background())
 ```
 
-### Step 4: Execute
+`NewProviderStage` takes a tool registry and a tool policy; pass `nil` for both when the pipeline calls no tools.
+
+## 3. Run it
 
 ```go
-ctx := context.Background()
-
-// Create input element
 msg := types.Message{Role: "user"}
 msg.AddTextPart("What is 2+2?")
+
 input := make(chan stage.StreamElement, 1)
 input <- stage.NewMessageElement(&msg)
 close(input)
 
-// Execute pipeline
-output, err := pipeline.Execute(ctx, input)
+output, err := pipe.Execute(ctx, input)
 if err != nil {
-    log.Fatalf("Execution failed: %v", err)
+    log.Fatalf("execute: %v", err)
 }
-
-// Collect response
 for elem := range output {
+    if elem.Error != nil {
+        log.Fatalf("pipeline: %v", elem.Error)
+    }
     if elem.Text != nil {
-        log.Printf("Response: %s\n", *elem.Text)
+        log.Printf("response: %s", *elem.Text)
     }
 }
 ```
 
-## Configuration Options
+## 4. Tune the pipeline
 
-### Pipeline Configuration
+`DefaultPipelineConfig` sets a channel buffer of 32, an idle timeout of 30 seconds, no execution timeout and a graceful shutdown timeout of 10 seconds.
 
 ```go
 config := stage.DefaultPipelineConfig().
-    WithChannelBufferSize(32).              // Inter-stage channel buffer
-    WithIdleTimeout(60 * time.Second).      // Cancel after 60s of inactivity (default: 30s)
-    WithGracefulShutdownTimeout(10 * time.Second) // Shutdown grace period
+    WithChannelBufferSize(64).
+    WithIdleTimeout(60 * time.Second).
+    WithExecutionTimeout(5 * time.Minute). // hard wall-clock limit
+    WithGracefulShutdownTimeout(15 * time.Second)
 
-pipeline, err := stage.NewPipelineBuilderWithConfig(config).
+pipe, err := stage.NewPipelineBuilderWithConfig(config).
     Chain(stages...).
     Build()
 ```
 
-### Provider Stage Configuration
+Set sampling options per provider stage on `stage.ProviderConfig` (`MaxTokens`, `Temperature`, `TopP`, `Seed` and others).
+
+## 5. Add prompt assembly
+
+Create one `TurnState` and give it to every stage that reads or writes it. Without it, the prompt assembly and template stages discard the system prompt, and the provider never sees it.
 
 ```go
-providerConfig := &stage.ProviderConfig{
-    MaxTokens:    2000,       // Maximum response tokens
-    Temperature:  0.7,        // Randomness (0-2)
-    Seed:         &seed,      // Reproducibility
-}
-```
+turnState := stage.NewTurnState()
 
-### Custom Provider Settings
-
-```go
-customDefaults := providers.ProviderDefaults{
-    Temperature: 0.8,
-    TopP:        0.95,
-    MaxTokens:   4000,
-    Pricing: providers.Pricing{
-        InputCostPer1K:  0.00015,
-        OutputCostPer1K: 0.0006,
-    },
-}
-
-provider := openai.NewProvider(
-    "custom-openai",
-    "gpt-4o-mini",
-    "",
-    customDefaults,
-    false,
-)
-```
-
-## Multiple Stages
-
-### Adding Prompt Assembly
-
-```go
-pipeline, err := stage.NewPipelineBuilder().
+pipe, err := stage.NewPipelineBuilder().
     Chain(
-        stage.NewPromptAssemblyStage(promptRegistry, "chat", variables),
-        stage.NewTemplateStage(),
-        stage.NewProviderStage(provider, nil, nil, config),
+        stage.NewPromptAssemblyStageWithTurnState(promptRegistry, "chat", variables, turnState),
+        stage.NewTemplateStageWithTurnState(nil, turnState),
+        stage.NewProviderStageWithTurnState(provider, nil, nil, providerConfig, nil, nil, turnState),
     ).
     Build()
 ```
 
-### Adding Guardrail Hooks
+The `nil` arguments are the event emitter and, for the provider stage, the hook registry.
+
+## 6. Add guardrail hooks
+
+Build the hook registry and pass it to the provider stage:
 
 ```go
-import (
-    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
-)
-
 bannedWords, err := guardrails.NewGuardrailHook("banned_words", map[string]any{
     "words": []any{"inappropriate"},
 })
@@ -168,69 +153,52 @@ hookRegistry := hooks.NewRegistry(
     hooks.WithProviderHook(maxLength),
 )
 
-pipeline, err := stage.NewPipelineBuilder().
-    Chain(
-        stage.NewPromptAssemblyStage(promptRegistry, "chat", variables),
-        stage.NewProviderStageWithHooks(provider, nil, nil, config, nil, hookRegistry),
-    ).
-    Build()
+providerStage := stage.NewProviderStageWithTurnState(
+    provider, nil, nil, providerConfig, nil, hookRegistry, turnState,
+)
 ```
 
-### Adding State Persistence
+## 7. Persist conversation state
+
+Load history before prompt assembly and save after the provider. `statestore.NewRedisStore` takes a `*redis.Client` for shared storage.
 
 ```go
-import (
-    "github.com/redis/go-redis/v9"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
-)
-
-redisClient := redis.NewClient(&redis.Options{
-    Addr: "localhost:6379",
-})
-
-store := statestore.NewRedisStore(redisClient)
-
 stateConfig := &pipeline.StateStoreConfig{
-    Store:          store,
+    Store:          statestore.NewMemoryStore(),
     ConversationID: "session-123",
 }
 
-pipeline, err := stage.NewPipelineBuilder().
+pipe, err := stage.NewPipelineBuilder().
     Chain(
-        stage.NewStateStoreLoadStage(stateConfig),
-        stage.NewPromptAssemblyStage(promptRegistry, "chat", variables),
-        stage.NewProviderStage(provider, nil, nil, config),
+        stage.NewStateStoreLoadStageWithTurnState(stateConfig, turnState),
+        stage.NewPromptAssemblyStageWithTurnState(promptRegistry, "chat", variables, turnState),
+        stage.NewTemplateStageWithTurnState(nil, turnState),
+        providerStage,
         stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),
     ).
     Build()
 ```
 
-## Pipeline Modes
+The load stage copies `ConversationID` and `UserID` from `StateStoreConfig` into `TurnState.ConversationID` and `TurnState.UserID`.
 
-### Text Mode (Default)
+## 8. Pass session metadata
 
-Standard request/response pipeline:
+The provider stage copies `TurnState.ProviderRequestMetadata` into `PredictionRequest.Metadata` on every call:
 
 ```go
-pipeline, err := stage.NewPipelineBuilder().
-    Chain(
-        stage.NewStateStoreLoadStage(stateConfig),
-        stage.NewPromptAssemblyStage(promptRegistry, task, vars),
-        stage.NewTemplateStage(),
-        stage.NewProviderStage(provider, tools, policy, config),
-        stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),
-    ).
-    Build()
+turnState.ProviderRequestMetadata = map[string]interface{}{
+    "session_id": sessionID,
+    "tenant_id":  tenantID,
+}
 ```
 
-### VAD Mode (Voice with Text LLM)
+No built-in provider reads these keys; a custom provider can.
 
-For voice applications using text-based LLMs:
+## 9. Choose a voice mode
+
+For a text LLM with speech in and out (VAD mode), chain the audio turn, STT and TTS stages around the provider stage. One interruption handler shared by the three stages decides when the caller's speech interrupts the reply.
 
 ```go
-// One handler, shared by the turn, STT and TTS stages, decides when the
-// caller's speech interrupts the reply (barge-in).
 interruptionHandler := audio.NewInterruptionHandler(audio.InterruptionImmediate, nil)
 
 audioTurn, err := stage.NewAudioTurnStage(stage.AudioTurnConfig{
@@ -238,7 +206,7 @@ audioTurn, err := stage.NewAudioTurnStage(stage.AudioTurnConfig{
     MinSpeechDuration:   200 * time.Millisecond,
     MaxTurnDuration:     30 * time.Second,
     SampleRate:          16000,
-    EmitEndOfTurn:       true, // fire the model once per turn, not at session close
+    EmitEndOfTurn:       true, // run the model once per turn
     InterruptionHandler: interruptionHandler,
 })
 if err != nil {
@@ -246,339 +214,60 @@ if err != nil {
 }
 
 sttConfig := stage.DefaultSTTStageConfig()
-sttConfig.Language = "en"
 sttConfig.InterruptionHandler = interruptionHandler
 
 ttsConfig := stage.DefaultTTSStageWithInterruptionConfig()
 ttsConfig.Voice = "alloy"
 ttsConfig.InterruptionHandler = interruptionHandler
 
-providerConfig.Streaming = true // one tool loop per EndOfTurn, history kept across turns
+providerConfig.Streaming = true // one tool loop per end of turn
 
-pipeline, err := stage.NewPipelineBuilder().
+pipe, err := stage.NewPipelineBuilder().
     Chain(
         audioTurn,
         stage.NewSTTStage(sttService, sttConfig),
-        stage.NewStateStoreLoadStage(stateConfig),
-        stage.NewPromptAssemblyStage(promptRegistry, task, vars),
-        stage.NewProviderStage(provider, tools, policy, providerConfig),
+        stage.NewStateStoreLoadStageWithTurnState(stateConfig, turnState),
+        stage.NewPromptAssemblyStageWithTurnState(promptRegistry, "chat", variables, turnState),
+        stage.NewTemplateStageWithTurnState(nil, turnState),
+        stage.NewProviderStageWithTurnState(provider, nil, nil, providerConfig, nil, nil, turnState),
         stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),
         stage.NewTTSStageWithInterruption(ttsService, ttsConfig),
     ).
     Build()
 ```
 
-### ASM Mode (Duplex Streaming)
-
-For native multimodal LLMs like Gemini Live:
+For a native duplex model such as Gemini Live, replace the audio, STT, provider and TTS stages with a duplex provider stage. The provider must implement `providers.StreamInputSupport`:
 
 ```go
-// provider implements providers.StreamInputSupport (for example, Gemini Live)
-pipeline, err := stage.NewPipelineBuilder().
-    Chain(
-        stage.NewStateStoreLoadStage(stateConfig),
-        stage.NewPromptAssemblyStage(promptRegistry, task, vars),
-        stage.NewDuplexProviderStage(provider, &providers.StreamingInputConfig{}),
-        stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),
-    ).
-    Build()
-```
-
-## Environment-Based Configuration
-
-### Production Configuration
-
-```go
-func NewProductionPipeline() (*stage.StreamPipeline, error) {
-    // Get API key from environment
-    apiKey := os.Getenv("OPENAI_API_KEY")
-    if apiKey == "" {
-        return nil, fmt.Errorf("OPENAI_API_KEY not set")
-    }
-
-    // Configure provider
-    provider := openai.NewProvider(
-        "openai-prod",
-        "gpt-4o-mini",
-        "",
-        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
-        false,
-    )
-
-    // Production pipeline config
-    config := stage.DefaultPipelineConfig().
-        WithChannelBufferSize(32).
-        WithExecutionTimeout(60 * time.Second).
-        WithGracefulShutdownTimeout(15 * time.Second)
-
-    // Build pipeline
-    return stage.NewPipelineBuilderWithConfig(config).
-        Chain(
-            stage.NewPromptAssemblyStage(promptRegistry, "chat", nil),
-            stage.NewTemplateStage(),
-                stage.NewProviderStage(provider, toolRegistry, toolPolicy, &stage.ProviderConfig{
-                MaxTokens:   1500,
-                Temperature: 0.7,
-            }),
-        ).
-        Build()
-}
-```
-
-### Development Configuration
-
-```go
-func NewDevelopmentPipeline() (*stage.StreamPipeline, error) {
-    // Use mock provider for testing
-    provider := mock.NewProvider("mock", "test-model", true)
-
-    // Relaxed config for development
-    config := stage.DefaultPipelineConfig().
-        WithChannelBufferSize(8).
-        WithExecutionTimeout(10 * time.Second)
-
-    return stage.NewPipelineBuilderWithConfig(config).
-        Chain(
-            stage.NewDebugStage("input"),  // Log all elements
-            stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{
-                MaxTokens:   500,
-                Temperature: 1.0,
-            }),
-        ).
-        Build()
-}
-```
-
-## Common Patterns
-
-### Pipeline Factory
-
-```go
-type PipelineConfig struct {
-    ProviderType string
-    Model        string
-    MaxTokens    int
-    Temperature  float32
-    EnableState  bool
-    EnableDebug  bool
-}
-
-func NewPipelineFromConfig(cfg PipelineConfig) (*stage.StreamPipeline, error) {
-    var provider providers.Provider
-
-    switch cfg.ProviderType {
-    case "openai":
-        provider = openai.NewProvider(
-            "openai", cfg.Model, "",
-            providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
-            false,
-        )
-    case "claude":
-        provider = claude.NewProvider(
-            "claude", cfg.Model, "",
-            providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 4096},
-            false,
-        )
-    default:
-        return nil, fmt.Errorf("unknown provider: %s", cfg.ProviderType)
-    }
-
-    // Build stage list
-    stages := []stage.Stage{}
-
-    if cfg.EnableDebug {
-        stages = append(stages, stage.NewDebugStage("input"))
-    }
-
-    if cfg.EnableState {
-        stages = append(stages, stage.NewStateStoreLoadStage(stateConfig))
-    }
-
-    stages = append(stages, stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{
-        MaxTokens:   cfg.MaxTokens,
-        Temperature: cfg.Temperature,
-    }))
-
-    if cfg.EnableState {
-        stages = append(stages, stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}))
-    }
-
-    return stage.NewPipelineBuilder().
-        Chain(stages...).
-        Build()
-}
-```
-
-### Synchronous Execution Helper
-
-```go
-func ExecuteSync(ctx context.Context, pipeline *stage.StreamPipeline, message string) (*types.Message, error) {
-    // Create input
-    msg := types.Message{Role: "user"}
-    msg.AddTextPart(message)
-    input := make(chan stage.StreamElement, 1)
-    input <- stage.NewMessageElement(&msg)
-    close(input)
-
-    // Execute
-    output, err := pipeline.Execute(ctx, input)
-    if err != nil {
-        return nil, err
-    }
-
-    // Collect response
-    var response *types.Message
-    for elem := range output {
-        if elem.Message != nil {
-            response = elem.Message
-        }
-        if elem.Error != nil {
-            return nil, elem.Error
-        }
-    }
-
-    return response, nil
-}
-```
-
-## Session Metadata
-
-Put session-level context in `TurnState.ProviderRequestMetadata` and build the provider stage with `NewProviderStageWithTurnState`. The stage copies the map into `PredictionRequest.Metadata` on every call:
-
-```go
-turnState := stage.NewTurnState()
-turnState.ProviderRequestMetadata = map[string]interface{}{
-    "session_id": sessionID,
-    "tenant_id":  tenantID,
-    "user_id":    userID,
-}
-
-providerStage := stage.NewProviderStageWithTurnState(
-    provider, nil, nil, &stage.ProviderConfig{}, nil, nil, turnState,
+duplex := stage.NewDuplexProviderStageWithTurnState(
+    provider, &providers.StreamingInputConfig{}, nil, turnState,
 )
-pipe, err := stage.NewPipelineBuilder().Chain(providerStage).Build()
 ```
 
-Providers receive these values in `PredictionRequest.Metadata`. No built-in model provider reads `session_id`, `tenant_id` or `user_id` there; only the mock provider reads its own scenario keys. Use this map when you write a custom provider that reads these keys. For conversation and user identity inside the pipeline, set `ConversationID` and `UserID` on the `StateStoreConfig`; the load stages copy them into the typed `TurnState.ConversationID` and `TurnState.UserID` fields.
+## Verify
 
-## Testing Configuration
-
-### Test Pipeline
+Swap in the mock provider and run step 3. The pipeline prints the mock response without calling an API:
 
 ```go
-func TestPipeline(t *testing.T) {
-    // Create mock provider
-    provider := mock.NewProviderWithRepository("test", "test-model", false,
-        mock.NewInMemoryMockRepository("test output"))
-
-    // Simple test pipeline
-    pipeline, err := stage.NewPipelineBuilder().
-        Chain(
-            stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{
-                MaxTokens: 100,
-            }),
-        ).
-        Build()
-
-    // Create input
-    msg := types.Message{Role: "user"}
-    msg.AddTextPart("test input")
-    input := make(chan stage.StreamElement, 1)
-    input <- stage.NewMessageElement(&msg)
-    close(input)
-
-    // Execute
-    output, err := pipeline.Execute(context.Background(), input)
-    if err != nil {
-        t.Fatalf("execution failed: %v", err)
-    }
-
-    // Check output
-    for elem := range output {
-        if elem.Message != nil {
-            content := elem.Message.GetContent()
-            if content != "test output" {
-                t.Errorf("unexpected response: %s", content)
-            }
-        }
-    }
-}
+provider := mock.NewProviderWithRepository("test", "test-model", false,
+    mock.NewInMemoryMockRepository("test output"))
 ```
 
 ## Troubleshooting
 
-### Issue: Timeout Errors
-
-**Problem**: Pipeline executions timing out.
-
-**Solution**: Increase the idle timeout. It resets on each activity (provider call, round completion, streaming chunk) and is held open for as long as a tool call is running, so a slow tool does not trip it (bound those with the tool's own `TimeoutMs`):
+If executions time out, raise the idle timeout. It resets on each provider call, round completion and streaming chunk, and stays open while a tool call runs, so a slow tool does not trip it. Bound slow tools with the tool's own `TimeoutMs`. For a hard limit, use `WithExecutionTimeout`.
 
 ```go
-config := stage.DefaultPipelineConfig().
-    WithIdleTimeout(120 * time.Second)  // Increase from default 30s
+config := stage.DefaultPipelineConfig().WithIdleTimeout(120 * time.Second)
 ```
 
-For a hard wall-clock limit, use `WithExecutionTimeout` (disabled by default).
+If a slow consumer blocks producers, raise `WithChannelBufferSize`.
 
-### Issue: Backpressure
+## Related
 
-**Problem**: Slow consumers causing producer blocking.
-
-**Solution**: Increase channel buffer size:
-
-```go
-config := stage.DefaultPipelineConfig().
-    WithChannelBufferSize(64)  // Increase from default 16
-```
-
-### Issue: Memory Growth
-
-**Problem**: Memory usage increasing over time.
-
-**Solution**: Ensure proper cleanup:
-
-```go
-defer provider.Close()
-defer mcpRegistry.Close()
-```
-
-## Best Practices
-
-1. **Always use defer for cleanup**:
-   ```go
-   defer pipeline.Shutdown(context.Background())
-   ```
-
-2. **Set appropriate timeouts**:
-   ```go
-   ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-   defer cancel()
-   ```
-
-3. **Use environment variables for secrets**:
-   ```go
-   apiKey := os.Getenv("OPENAI_API_KEY")
-   ```
-
-4. **Configure based on environment**:
-   ```go
-   if os.Getenv("ENV") == "production" {
-       config = config.WithExecutionTimeout(60 * time.Second)
-   }
-   ```
-
-5. **Order stages correctly**:
-   - State load before prompt assembly
-   - State save after provider
-
-## Next Steps
-
-- [Setup Providers](/runtime/how-to/providers/setup-providers/) - Configure specific providers
-- [Handle Errors](/runtime/how-to/pipeline/handle-errors/) - Robust error handling
-- [Streaming Responses](/runtime/how-to/pipeline/streaming-responses/) - Real-time output
-
-## See Also
-
-- [Pipeline Reference](/runtime/reference/pipeline/) - Complete API
-- [Pipeline Tutorial](/runtime/tutorials/01-first-pipeline/) - Step-by-step guide
-- [Stage Design](/runtime/explanation/stage-design/) - Architecture explanation
+- [Set up providers](/runtime/how-to/providers/setup-providers/)
+- [Handle errors](/runtime/how-to/pipeline/handle-errors/)
+- [Stream responses](/runtime/how-to/pipeline/streaming-responses/)
+- [Pipeline reference](/runtime/reference/pipeline/)
+- [Pipeline tutorial](/runtime/tutorials/01-first-pipeline/)
+- [Stage design](/runtime/explanation/stage-design/)

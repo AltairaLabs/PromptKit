@@ -1,0 +1,277 @@
+{
+ "page": "docs/src/content/docs/runtime/how-to/tools/integrate-mcp.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Three transports selected by ServerConfig fields: stdio (Command), Streamable HTTP (URL), HTTP+SSE (TransportName sse)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/registry.go:102",
+    "runtime/mcp/types.go:386"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "If the server refuses the Streamable HTTP POST with 400, 404 or 405, the client falls back to HTTP+SSE",
+   "verdict": "false",
+   "evidence": [
+    "runtime/mcp/client.go:229",
+    "runtime/mcp/client.go:233"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "With TransportSSE, URL is the SSE endpoint; a URL that does not serve the stream is retried with /sse appended and a warning is logged",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/client.go:257",
+    "runtime/mcp/client.go:262",
+    "runtime/mcp/client.go:266"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Client asks server/discover first; 2026-07-28 servers are stateless, others get the initialize handshake; HTTP+SSE never sends discovery",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/client.go:146",
+    "runtime/mcp/client.go:254"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Stdio server that never answers discovery is restarted with the handshake after EraProbeTimeout (3s default)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/client.go:149",
+    "runtime/mcp/client.go:160",
+    "runtime/mcp/options.go:71"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "DisableModernProtocol skips the discovery probe",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/client.go:146",
+    "runtime/mcp/options.go:39"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "mcp.NewRegistry, RegisterServer(ServerConfig{Name,Command,Args,Env}), ListAllTools, Close",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/registry.go:159",
+    "runtime/mcp/registry.go:425",
+    "runtime/mcp/registry.go:82"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "tools.NewMCPExecutor(registry); toolRegistry.RegisterExecutor; Register ToolDescriptor Mode mcp",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/mcp_executor.go:42",
+    "runtime/tools/registry.go:166",
+    "runtime/tools/registry.go:398"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "stage.NewProviderStage(provider, toolRegistry, &pipeline.ToolPolicy{ToolChoice,MaxRounds,MaxToolCallsPerTurn}, config)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:276",
+    "runtime/pipeline/types.go:16"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Filesystem server tools: read_file, write_file, list_directory, create_directory, delete_file",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 11,
+   "claim": "Memory server tools: store_memory, retrieve_memory",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 12,
+   "claim": "toolRegistry.Execute(toolDescriptor, args) returns result",
+   "verdict": "false",
+   "evidence": [
+    "runtime/tools/registry.go:452"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "RequestTimeout applies to every request on every transport; ServerConfig.TimeoutMs overrides it; MaxRetries/RetryDelay double on each retry",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/client.go:127",
+    "runtime/mcp/options.go:15",
+    "runtime/mcp/registry.go:95"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "A request past RequestTimeout is canceled with ErrServerUnresponsive; timeout paused during elicitation",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/client.go:473",
+    "runtime/mcp/client.go:520"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "Progress notifications restart a tools/call timeout; caller context still bounds the call",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/client.go:273",
+    "runtime/mcp/client.go:487"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "Retries apply only to connecting; server errors and refused authorization are not retried; tools/call never retried",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/client.go:123",
+    "runtime/mcp/client.go:136",
+    "runtime/mcp/client.go:442"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "Lost connection reconnects on next request up to MaxReconnectAttempts",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/client.go:551",
+    "runtime/mcp/client.go:575"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "ElicitationHandler advertises elicitation only when set; form mode only; defaults filled; same handler answers input_required",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/client_test.go:198",
+    "runtime/mcp/elicitation.go:59",
+    "runtime/mcp/elicitation.go:94",
+    "runtime/mcp/options.go:36"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "Authorizer interface (Authorize, Challenge), AuthChallenge fields, three challenges then *AuthError",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/auth.go:21",
+    "runtime/mcp/auth.go:68",
+    "runtime/mcp/auth.go:84"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "sdk.WithMCPAuthorizer(func(server string) mcp.Authorizer) and sdk.WithMCPElicitation",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:2231",
+    "sdk/options.go:2242"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "RegistryOptions.ConfigureClient sets Authorizer and ElicitationHandler per server",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/registry.go:27"
+   ]
+  },
+  {
+   "id": 22,
+   "claim": "OnToolsChanged runs on its own goroutine with the full list; keeps old tools if re-read fails",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/client.go:396",
+    "runtime/mcp/registry.go:32",
+    "runtime/mcp/registry.go:568"
+   ]
+  },
+  {
+   "id": 23,
+   "claim": "SDK updates conversation and forks next turn; mcp__<server>__* entries",
+   "verdict": "true",
+   "evidence": [
+    "sdk/mcp_tool_sync.go:129",
+    "sdk/mcp_tool_sync.go:141"
+   ]
+  },
+  {
+   "id": 24,
+   "claim": "EnableGracefulDegradation default returns no tools on failed tools/list and ListAllTools omits the server, with a warning",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/client.go:425",
+    "runtime/mcp/options.go:60",
+    "runtime/mcp/registry.go:456"
+   ]
+  },
+  {
+   "id": 25,
+   "claim": "SDK turns degradation off; retries unlisted servers 1s to 1min until answered or conversation closes",
+   "verdict": "true",
+   "evidence": [
+    "sdk/mcp_tool_sync.go:18",
+    "sdk/mcp_tool_sync.go:72",
+    "sdk/sdk.go:1118"
+   ]
+  },
+  {
+   "id": 26,
+   "claim": "registry.GetToolSchema(ctx, name) returns the Tool",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/registry.go:589"
+   ]
+  },
+  {
+   "id": 27,
+   "claim": "Error check strings.Contains(err.Error(), \"not found\") detects an unregistered server",
+   "verdict": "false",
+   "evidence": [
+    "runtime/mcp/registry.go:228"
+   ]
+  },
+  {
+   "id": 28,
+   "claim": "*mcp.RPCError for protocol errors; IsError for tool failures",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/client.go:588",
+    "runtime/mcp/types.go:459"
+   ]
+  },
+  {
+   "id": 29,
+   "claim": "ListAllTools empty: force initialization with GetClient",
+   "verdict": "false",
+   "evidence": [
+    "runtime/mcp/client.go:425",
+    "runtime/mcp/registry.go:483"
+   ]
+  },
+  {
+   "id": 30,
+   "claim": "Env: map in ServerConfig sets server process environment",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/client.go:338"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,277 @@
+{
+ "page": "docs/src/content/docs/runtime/how-to/observability/export-traces-otlp.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "WithTracerProvider wires an OTelEventListener into the conversation's event bus; without it no spans are created",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1260-1265",
+    "sdk/sdk.go:753-758"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "telemetry.NewTracerProvider(ctx, endpoint, serviceName) builds a provider exporting over OTLP/HTTP; caller calls Shutdown",
+   "verdict": "true",
+   "evidence": [
+    "runtime/telemetry/provider.go:37-58"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Custom provider via otlptracehttp.New + sdktrace.NewTracerProvider with WithBatcher/WithResource compiles",
+   "verdict": "true",
+   "evidence": [
+    "runtime/telemetry/provider.go:37-58"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Honeycomb and Grafana Cloud endpoint URLs and header names",
+   "verdict": "unverified",
+   "evidence": [
+    "runtime/telemetry/provider.go:37"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Send/Stream parent the session span under the span in the ctx passed",
+   "verdict": "true",
+   "evidence": [
+    "runtime/telemetry/listener.go:162-189",
+    "sdk/conversation.go:1546-1555"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "SetupPropagation sets the global propagator to W3C Trace Context, W3C Baggage and AWS X-Ray",
+   "verdict": "true",
+   "evidence": [
+    "runtime/telemetry/provider.go:62-68"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "The A2A server wraps its handler in otelhttp, extracting inbound trace context; conversation spans appear under the caller's trace",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/handler_send.go:39",
+    "server/a2a/server.go:325",
+    "server/a2a/server.go:845"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "The A2A client injects trace context into outbound requests with the global propagator",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/client.go:481",
+    "runtime/a2a/client.go:700"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Content attributes gen_ai.tool.call.arguments, gen_ai.tool_calls, gen_ai.tool_result, gen_ai.message.content are off by default",
+   "verdict": "true",
+   "evidence": [
+    "runtime/telemetry/content_capture.go:63-74",
+    "runtime/telemetry/listener.go:95-97"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "WithTelemetryContentCapture(true) enables content on spans",
+   "verdict": "true",
+   "evidence": [
+    "runtime/telemetry/content_capture.go:42-47",
+    "sdk/options.go:3866-3871"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "WithEventRedactor applies a policy to every bus subscriber (tracer, event store, metrics collector), each getting its own redacted copy",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/redact.go:49-64",
+    "sdk/sdk.go:729-764"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "events.FieldToolCallArgs is the redactor field name for tool arguments",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/redact.go:28"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "The content gate only affects spans: an event store still receives raw events unless a redactor is set",
+   "verdict": "true",
+   "evidence": [
+    "runtime/telemetry/content_capture.go:29-30",
+    "sdk/sdk.go:735-751"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "Original page: 'The capture gate ... an EventStore you wire still receives raw events. Use WithEventRedactor for those' (implies redactor is the only remedy and gate alone leaves store raw)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:750"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "WithRecording is unaffected by gate and redactor: RecordingStage writes to its store without a bus hop",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:3883-3886",
+    "sdk/sdk.go:737-749"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "Collector OTLP/HTTP receiver default port 4318",
+   "verdict": "unverified",
+   "evidence": [
+    "runtime/telemetry/provider.go:37"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "Manual setup: telemetry.Tracer(tp), NewOTelEventListener(tracer, opts...), StartSession(parentCtx, sessionID), bus.SubscribeAll(listener.OnEvent), EndSession; Close stops the cleanup goroutine",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/bus.go:571",
+    "runtime/telemetry/listener.go:162-202",
+    "runtime/telemetry/listener.go:87-113",
+    "runtime/telemetry/provider.go:28-33"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "telemetry.WithContentCapture(bool) option for the listener",
+   "verdict": "true",
+   "evidence": [
+    "runtime/telemetry/content_capture.go:63-65"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "events.Redacting(listener.OnEvent, policy) wraps a subscriber with a redactor",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/redact.go:57-64"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "Session span 'promptkit invoke_agent' (server kind) with gen_ai.operation.name invoke_agent, gen_ai.conversation.id, gen_ai.agent.name, gen_ai.agent.id",
+   "verdict": "true",
+   "evidence": [
+    "runtime/telemetry/listener.go:162-189"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "pipeline.* -> span promptkit.pipeline with promptkit.pipeline.cost and gen_ai.usage token attributes",
+   "verdict": "true",
+   "evidence": [
+    "runtime/telemetry/listener.go:373-390"
+   ]
+  },
+  {
+   "id": 22,
+   "claim": "provider.call.* -> span '{provider} chat' (client) with gen_ai.system, gen_ai.request.model, gen_ai.usage.*, gen_ai.response.finish_reason, promptkit.provider.cost",
+   "verdict": "true",
+   "evidence": [
+    "runtime/telemetry/listener.go:402-435"
+   ]
+  },
+  {
+   "id": 23,
+   "claim": "tool.call.* -> span execute_tool with gen_ai.tool.name, gen_ai.tool.call.id, gen_ai.tool.type; arguments only with capture on",
+   "verdict": "true",
+   "evidence": [
+    "runtime/telemetry/listener.go:447-477"
+   ]
+  },
+  {
+   "id": 24,
+   "claim": "message.created -> span event gen_ai.<role>.message on the provider span (session root if none)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/telemetry/listener.go:537-575"
+   ]
+  },
+  {
+   "id": 25,
+   "claim": "middleware.* -> promptkit.middleware.{name} with name and index attributes",
+   "verdict": "true",
+   "evidence": [
+    "runtime/telemetry/listener.go:506-525"
+   ]
+  },
+  {
+   "id": 26,
+   "claim": "validation.* -> promptkit.eval.{name} with gen_ai.evaluation.name/score and promptkit.guardrail",
+   "verdict": "true",
+   "evidence": [
+    "runtime/telemetry/listener.go:616-656"
+   ]
+  },
+  {
+   "id": 27,
+   "claim": "eval.* -> instant span promptkit.eval.{evalID} with gen_ai.evaluation.name/score/explanation",
+   "verdict": "true",
+   "evidence": [
+    "runtime/telemetry/listener.go:676-718"
+   ]
+  },
+  {
+   "id": 28,
+   "claim": "workflow.transitioned / workflow.completed -> instant spans with from_state/to_state and final_state/transition_count",
+   "verdict": "true",
+   "evidence": [
+    "runtime/telemetry/listener.go:579-612"
+   ]
+  },
+  {
+   "id": 29,
+   "claim": "composition.* -> promptkit.composition and promptkit.composition.step spans with name and step_id attributes (omitted from the original page)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/telemetry/listener.go:791-843"
+   ]
+  },
+  {
+   "id": 30,
+   "claim": "Original page: events are dispatched through a worker pool, not strictly in publish order, so *.completed can arrive before *.started under load",
+   "verdict": "false",
+   "evidence": [
+    "runtime/events/bus.go:108-110",
+    "runtime/events/bus.go:322-324",
+    "runtime/events/bus.go:39-42"
+   ]
+  },
+  {
+   "id": 31,
+   "claim": "Original page: the SDK 'automatically wires an OTelEventListener' with 'full attribute detail' including message content and tool arguments by default",
+   "verdict": "false",
+   "evidence": [
+    "runtime/telemetry/listener.go:95-97"
+   ]
+  },
+  {
+   "id": 33,
+   "claim": "Spans nest under the session span (root) with the pipeline span as parent of provider/tool/middleware spans",
+   "verdict": "true",
+   "evidence": [
+    "runtime/telemetry/listener.go:274-288"
+   ]
+  }
+ ]
+}

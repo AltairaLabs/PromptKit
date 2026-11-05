@@ -3,41 +3,53 @@ title: Runtime
 description: Core framework powering all PromptKit tools
 sidebar:
   order: 0
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/credentials/resolver.go
+    - runtime/pipeline/stage/builder.go
+    - runtime/pipeline/stage/element.go
+    - runtime/pipeline/stage/pipeline.go
+    - runtime/pipeline/stage/stage.go
+    - runtime/pipeline/stage/stages_duplex_provider_session.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/stages_save.go
+    - runtime/providers/openai/openai.go
+    - runtime/providers/provider.go
+    - runtime/storage/instrumented.go
+    - runtime/storage/interfaces.go
+    - runtime/tools/types.go
+    - runtime/types/message.go
+    - sdk/internal/pipeline/builder.go
+    - sdk/internal/pipeline/builder_vad.go
 ---
-**Core framework powering all PromptKit tools**
+The runtime is the Go library layer under the SDK. It owns providers, the streaming pipeline, tool execution, hooks and the shared types.
 
----
+## What the runtime provides
 
-## What is the Runtime?
+- Provider interfaces for implementing custom LLM providers
+- A streaming pipeline built from composable stages
+- Type definitions used across PromptKit
+- A tool execution framework with MCP integration
+- The A2A protocol for agent-to-agent communication and tool delegation
+- Hooks and guardrails for input and output checks
 
-The Runtime is the foundational layer that provides:
+## Who should use the runtime
 
-- **Provider interfaces** for implementing custom LLM providers
-- **Pipeline architecture** for streaming request/response processing
-- **Stage system** for extensible, composable processing layers
-- **Type definitions** used across all PromptKit tools
-- **Tool execution** framework for MCP integration
-- **A2A protocol** for agent-to-agent communication and tool delegation
-- **Hooks & guardrails** for input/output checking
+Use the runtime directly to:
 
----
+- Build a custom provider for a new LLM service
+- Write custom stages for specialized processing
+- Add guardrails with custom hooks for domain-specific checks
+- Integrate MCP servers with custom tools
+- Customize pipelines
+- Contribute to PromptKit
 
-## Who Should Use Runtime?
+Most applications should use the [SDK](/sdk/) instead.
 
-The Runtime is for advanced users who want to:
+## Quick start
 
-- **Build custom providers** for new LLM services
-- **Create custom stages** for specialized processing
-- **Extend guardrails with custom hooks** for domain-specific checks
-- **Integrate MCP servers** with custom tools
-- **Understand internals** for contributions
-- **Customize pipelines** for unique requirements
-
-> **Note**: Most users should use the [SDK](/sdk/) instead. Use Runtime directly only if you're extending PromptKit.
-
----
-
-## Quick Start
+This program builds a one-stage pipeline around an OpenAI provider and prints the streamed reply:
 
 ```go
 package main
@@ -89,130 +101,30 @@ func main() {
 }
 ```
 
-**Next**: [Build Your First Pipeline Tutorial](/runtime/tutorials/01-first-pipeline/)
-
----
-
-## Documentation by Type
-
-### Tutorials (Learn by Doing)
-
-Step-by-step guides for extending Runtime:
-
-1. [First Pipeline](/runtime/tutorials/01-first-pipeline/) - Build your first pipeline
-2. [Multi-Turn Conversations](/runtime/tutorials/02-multi-turn/) - State management
-3. [MCP Integration](/runtime/tutorials/03-mcp-integration/) - Add MCP tools
-4. [Validation & Guardrails](/runtime/tutorials/04-validation-guardrails/) - Content safety
-5. [Production Deployment](/runtime/tutorials/05-production-deployment/) - Deploy pipelines
-6. [Advanced Patterns](/runtime/tutorials/06-advanced-patterns/) - Complex pipelines
-7. [A2A Client](/runtime/tutorials/07-a2a-client/) - Discover agents and send messages
-
-### How-To Guides (Accomplish Specific Tasks)
-
-Focused guides for specific Runtime tasks:
-
-- [Configure Pipeline](/runtime/how-to/pipeline/configure-pipeline/) - Pipeline setup
-- [Setup Providers](/runtime/how-to/providers/setup-providers/) - Provider configuration
-- [Handle Errors](/runtime/how-to/pipeline/handle-errors/) - Error handling
-- [Streaming Responses](/runtime/how-to/pipeline/streaming-responses/) - Real-time output
-- [Manage State](/runtime/how-to/state/manage-state/) - Conversation persistence
-- [Integrate MCP](/runtime/how-to/tools/integrate-mcp/) - MCP server integration
-- [Monitor Costs](/runtime/how-to/observability/monitor-costs/) - Cost tracking
-- [Use A2A Tool Bridge](/runtime/how-to/a2a/use-a2a-tool-bridge/) - Register agents as tools
-- [Use A2A Mock Server](/runtime/how-to/a2a/use-a2a-mock-server/) - Deterministic testing
-
-### Explanation (Understand the Concepts)
-
-Deep dives into Runtime architecture:
-
-- [Pipeline Architecture](/runtime/explanation/pipeline-architecture/) - Stage-based streaming
-- [Stage Design](/runtime/explanation/stage-design/) - Composable stage patterns
-- [Provider System](/runtime/explanation/provider-system/) - LLM provider abstraction
-- [State Management](/runtime/explanation/state-management/) - Conversation persistence
-
-### Reference (Look Up Details)
-
-Complete API documentation:
-
-- [Pipeline API](/runtime/reference/pipeline/) - Stage and pipeline interfaces
-- [Providers API](/runtime/reference/providers/) - Provider interfaces
-- [Types API](/runtime/reference/types/) - Core type definitions
-- [Tools API](/runtime/reference/tools/) - Tool execution
-- [MCP API](/runtime/reference/mcp/) - Model Context Protocol integration
-- [Hooks & Guardrails API](/runtime/reference/hooks/) - Hook and guardrail interfaces
-- [Storage API](/runtime/reference/storage/) - State storage
-- [A2A API](/runtime/reference/a2a/) - Client, types, tool bridge, mock
-
----
-
-## Key Concepts
-
-### Stage Interface
-
-Implement custom processing stages:
-
-```go
-type Stage interface {
-    Name() string
-    Type() StageType
-    Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
-}
-```
-
-### Pipeline Architecture
-
-Streaming request processing flow:
-
-```
-Input → [Stage 1] → [Stage 2] → [Stage N] → Output
-```
-
-Each stage runs in its own goroutine, enabling concurrent streaming.
-
-### Stage Types
-
-Different stage behaviors:
-
-| Type | Pattern | Example |
-|------|---------|---------|
-| Transform | 1:1 or 1:N | Validation, enrichment |
-| Accumulate | N:1 | VAD buffering, collection |
-| Generate | 0:N | LLM streaming, TTS |
-| Sink | N:0 | State save, metrics |
-
-### Tool Execution
-
-MCP tool integration:
-
-```go
-type Executor interface {
-    Execute(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error)
-    Name() string
-}
-```
-
----
+The provider reads its API key from `OPENAI_API_KEY` (or `OPENAI_TOKEN`). Next: [Build your first pipeline](/runtime/tutorials/01-first-pipeline/).
 
 ## Architecture
 
+The SDK assembles runtime stages into a pipeline. The provider stage calls the LLM provider, runs tools and invokes hooks.
+
 ```mermaid
 graph TB
-    subgraph "SDK Layer"
+    subgraph "SDK layer"
         SDK[SDK]
     end
 
-    subgraph "Runtime Layer"
+    subgraph "Runtime layer"
         Pipeline[Pipeline]
         Stages[Stages]
         Providers[Providers]
-        Tools[Tool Execution]
+        Tools[Tool execution]
         Hooks[Hooks]
     end
 
-    subgraph "External Services"
+    subgraph "External services"
         OpenAI[OpenAI]
         Anthropic[Anthropic]
-        MCP[MCP Servers]
+        MCP[MCP servers]
     end
 
     SDK --> Pipeline
@@ -224,174 +136,79 @@ graph TB
     Providers --> OpenAI
     Providers --> Anthropic
     Tools --> MCP
-
-    style Runtime Layer fill:#f3e5f5
 ```
 
----
+## Pipeline topologies
 
-## Use Cases
+The SDK builds one of three pipelines from runtime stages. The table lists the core stages of each; the SDK adds others (prompt templating, context building, recording) when configured.
 
-### For Framework Contributors
+| Mode | Input | Core stages |
+|------|-------|-------------|
+| Text | Messages | StateStoreLoad, PromptAssembly, Provider, IncrementalSave |
+| VAD | Audio | AudioTurn, STT, Provider, TTS |
+| ASM | Audio or text | DuplexProvider |
 
-- Add new provider support
-- Implement new stage types
-- Extend hooks and guardrails
-- Improve core functionality
+VAD mode pairs voice activity detection with a text LLM. ASM mode streams audio to and from a multimodal LLM in real time. See [pipeline architecture](/runtime/explanation/pipeline-architecture/) for how stages run.
 
-### For Advanced Developers
+## Documentation by type
 
-- Build custom providers for internal APIs
-- Create domain-specific stages
-- Integrate proprietary LLM services
-- Implement custom tool execution
+### Tutorials
 
-### For System Integrators
+1. [First pipeline](/runtime/tutorials/01-first-pipeline/): build your first pipeline
+2. [Multi-turn conversations](/runtime/tutorials/02-multi-turn/): state management
+3. [MCP integration](/runtime/tutorials/03-mcp-integration/): add MCP tools
+4. [Validation and guardrails](/runtime/tutorials/04-validation-guardrails/): content safety
+5. [Production deployment](/runtime/tutorials/05-production-deployment/): deploy pipelines
+6. [Advanced patterns](/runtime/tutorials/06-advanced-patterns/): complex pipelines
+7. [A2A client](/runtime/tutorials/07-a2a-client/): discover agents and send messages
 
-- Bridge PromptKit with existing systems
-- Customize request/response handling
-- Add organization-specific features
-- Extend for compliance requirements
+### How-to guides
 
----
+- [Configure a pipeline](/runtime/how-to/pipeline/configure-pipeline/)
+- [Set up providers](/runtime/how-to/providers/setup-providers/)
+- [Handle errors](/runtime/how-to/pipeline/handle-errors/)
+- [Stream responses](/runtime/how-to/pipeline/streaming-responses/)
+- [Manage state](/runtime/how-to/state/manage-state/)
+- [Integrate MCP](/runtime/how-to/tools/integrate-mcp/)
+- [Map HTTP tools](/runtime/how-to/tools/http-tool-mapping/)
+- [Monitor costs](/runtime/how-to/observability/monitor-costs/)
+- [Export traces over OTLP](/runtime/how-to/observability/export-traces-otlp/)
+- [Collect Prometheus metrics](/runtime/how-to/observability/prometheus-metrics/)
+- [Redact secrets from logs](/runtime/how-to/observability/redact-log-secrets/)
+- [Use the A2A tool bridge](/runtime/how-to/a2a/use-a2a-tool-bridge/)
+- [Use the A2A mock server](/runtime/how-to/a2a/use-a2a-mock-server/)
 
-## Pipeline Modes
+### Explanation
 
-Runtime supports three pipeline configurations:
+- [Pipeline architecture](/runtime/explanation/pipeline-architecture/): stage-based streaming
+- [Stage design](/runtime/explanation/stage-design/): composable stage patterns
+- [Provider system](/runtime/explanation/provider-system/): LLM provider abstraction
+- [State management](/runtime/explanation/state-management/): conversation persistence
+- [Media storage](/runtime/explanation/media-storage/)
+- [Retrieval architecture](/runtime/explanation/retrieval-architecture/)
 
-### Text Mode
+### Reference
 
-Standard HTTP-based LLM interactions:
+The [reference index](/runtime/reference/) lists every page. The main ones:
 
-```
-Message → StateStoreLoad → PromptAssembly → Provider → StateStoreSave → Response
-```
+- [Pipeline](/runtime/reference/pipeline/): stage and pipeline interfaces
+- [Providers](/runtime/reference/providers/): provider interfaces
+- [Types](/runtime/reference/types/): core type definitions
+- [Tools](/runtime/reference/tools/): tool execution
+- [MCP](/runtime/reference/mcp/): Model Context Protocol integration
+- [Hooks and guardrails](/runtime/reference/hooks/): hook and guardrail interfaces
+- [State store](/runtime/reference/statestore/): conversation persistence
+- [Storage](/runtime/reference/storage/): media storage
+- [A2A](/runtime/reference/a2a/): client, types, tool bridge, mock
 
-### VAD Mode (Voice Activity Detection)
+## Getting help
 
-For voice applications using text-based LLMs:
+- Start with the [first pipeline tutorial](/runtime/tutorials/01-first-pipeline/).
+- Report bugs and ask questions on [GitHub Issues](https://github.com/AltairaLabs/PromptKit/issues).
+- Read the [contribution guide](/contributors/contributing/) before sending changes.
 
-```
-Audio → AudioTurn → STT → Provider → TTS → Audio
-```
+## Related
 
-### ASM Mode (Audio Streaming)
-
-For native multimodal LLMs with real-time audio:
-
-```
-Audio/Text → DuplexProvider → Audio/Text
-```
-
----
-
-## Core Types
-
-### StreamElement
-
-```go
-type StreamElement struct {
-    // Content types (at most one is set)
-    Text      *string
-    Audio     *AudioData
-    Video     *VideoData
-    Image     *ImageData
-    Message   *types.Message
-    ToolCall  *types.MessageToolCall
-    Part      *types.ContentPart
-    MediaData *types.MediaContent
-
-    // Metadata
-    Sequence  int64
-    Timestamp time.Time
-    Source    string
-    Priority  Priority        // Low, Normal, High, Critical
-    Meta      ElementMetadata // Typed per-element coordination data
-
-    // Control signals
-    EndOfStream bool
-    EndOfTurn   bool
-    Interrupt   bool
-    Error       error
-}
-```
-
-### Message
-
-```go
-type Message struct {
-    Role    string
-    Content string
-    Parts   []ContentPart
-}
-```
-
-### Provider Response
-
-```go
-type PredictionResponse struct {
-    Content   string
-    Parts     []types.ContentPart
-    CostInfo  *types.CostInfo
-    Latency   time.Duration
-    ToolCalls []types.MessageToolCall
-    // ...
-}
-```
-
----
-
-## Design Principles
-
-### Streaming First
-
-Runtime is designed for streaming from the ground up:
-
-- Channel-based data flow
-- Concurrent stage execution
-- Backpressure support
-- True streaming (not simulated)
-
-### Extensibility
-
-Runtime is designed to be extended without modifying core code:
-
-- Plugin-based provider system
-- Composable stages
-- Flexible hooks
-- Open for extension, closed for modification
-
-### Performance
-
-Optimized for production use:
-
-- Minimal allocations
-- Efficient streaming
-- Context-aware cancellation
-- Connection pooling
-
-### Type Safety
-
-Leverage Go's type system:
-
-- Strong typing throughout
-- Interface-based design
-- Compile-time checks
-- Clear contracts
-
----
-
-## Getting Help
-
-- **Quick Start**: [First Pipeline Tutorial](/runtime/tutorials/01-first-pipeline/)
-- **Questions**: [GitHub Discussions](https://github.com/AltairaLabs/PromptKit/issues)
-- **Issues**: [Report a Bug](https://github.com/AltairaLabs/PromptKit/issues)
-- **Contributing**: [Contribution Guide](/contributors/contributing/)
-
----
-
-## Related Documentation
-
-- **SDK**: [Built on top of Runtime](/sdk/)
-- **Arena**: [Uses Runtime for testing](https://promptarena.altairalabs.ai/arena/)
-- **Architecture**: [System Design](/architecture/)
+- [SDK](/sdk/) builds on the runtime
+- [PromptArena](https://promptarena.altairalabs.ai/arena/) uses the runtime for testing
+- [Architecture](/architecture/) covers the system design
