@@ -1,301 +1,133 @@
 ---
-title: ci cd quickref
-description: DevOps and release management documentation
+title: CI/CD quick reference
+description: Commands for running PromptKit's CI checks locally, watching workflow runs and triggering workflows.
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - .github/workflows/ci.yml
+    - .github/workflows/docs-checks.yml
+    - .github/workflows/docs-freshness.yml
+    - .github/workflows/docs.yml
+    - .github/workflows/mcp-conformance.yml
+    - .github/workflows/promptpack-schema-sync.yml
+    - .github/workflows/release.yml
+    - .github/workflows/schemas.yml
+    - .golangci.yml
+    - Makefile
 ---
-Quick commands and workflows for common CI/CD tasks.
+Commands for the CI/CD tasks you repeat most. The [pipelines reference](/devops/ci-cd-pipelines/) describes each workflow.
 
-## Running CI Checks Locally
+## Run the checks locally
 
-Before pushing code, run the same checks that CI runs:
-
-```bash
-# Full CI suite
-make test          # Run all tests
-make test-race     # Run tests with race detector
-make lint          # Run linting
-make build         # Build all components
-make coverage      # Generate coverage report
-
-# Individual components
-cd runtime && go test ./...
-cd sdk && go test ./...
-```
-
-## Checking CI Status
-
-### View Current Runs
-```bash
-# Using GitHub CLI
-gh run list --limit 10
-
-# View specific workflow
-gh run list --workflow=ci.yml
-
-# Watch a run in progress
-gh run watch
-```
-
-### View Logs
-```bash
-# Get latest run logs
-gh run view --log
-
-# Get specific run
-gh run view <run-id> --log
-
-# Download logs
-gh run download <run-id>
-```
-
-## Triggering Workflows
-
-### Manual Trigger (Documentation)
-```bash
-# Trigger docs build manually
-gh workflow run docs.yml
-```
-
-### Library Release Workflow
-```bash
-# Cut a library release (tags runtime, pkg, sdk)
-gh workflow run release.yml -f version=v1.0.0 -f phase=full
-```
-
-## Common CI Issues & Fixes
-
-### Test Failures
-
-**Issue:** Tests fail on CI but pass locally
-```bash
-# Run with same conditions as CI
-go test -race -v ./...
-
-# Check for timing issues
-go test -count=10 ./...
-```
-
-### Coverage Issues
-
-**Issue:** Coverage report not generated
-```bash
-# Generate locally to debug
-make coverage
-
-# Check merged coverage
-cat coverage.out | head -20
-```
-
-### Linting Failures
-
-**Issue:** Linter catches issues
-```bash
-# Run all linters locally
-make lint
-
-# Auto-fix formatting
-go fmt ./...
-
-# Check specific issues
-go vet ./...
-golangci-lint run
-```
-
-### Build Failures
-
-**Issue:** Build fails on CI
-```bash
-# Clean and rebuild
-make clean
-make build
-
-# Check for workspace sync issues
-go work sync
-```
-
-## SonarCloud Integration
-
-### Viewing Results
-
-- Dashboard: https://sonarcloud.io/project/overview?id=AltairaLabs_PromptKit
-- Coverage: Check "Coverage" tab
-- Quality Gate: View overall project quality
-
-### Local Analysis
+There is no root Go module, so run the Makefile targets. They iterate `runtime`, `sdk`, `pkg` and `server/a2a`.
 
 ```bash
-# Run SonarScanner locally (requires SONAR_TOKEN)
-export SONAR_TOKEN=your_token_here
-make sonar-scan
-
-# Quick check: coverage + sonar
-make sonar-quick
+make verify        # lint-diff + test-fast on changed modules
+make test          # all tests
+make test-race     # all tests with the race detector
+make build         # build every module
+make coverage      # coverage profiles, merged into coverage.out
+make lint          # go vet, go fmt, golangci-lint, gosec, message-pattern check
 ```
 
-## Documentation Pipeline
+`make lint` runs `go fmt`, which rewrites files. Use `make lint-diff` to lint only changed code. Both require the `golangci-lint` version CI pins; `scripts/check-lint-version.sh` reports a mismatch.
 
-### Testing Docs Locally
+For one package, use `go -C`:
 
 ```bash
-# Install Jekyll dependencies (first time)
-cd docs
-gem install bundler
-bundle install
-
-# Serve locally
-bundle exec jekyll serve
-
-# View at: http://localhost:4000
+go -C runtime test ./evals/... -count=1
+go -C sdk test -race ./...
 ```
 
-### Forcing Docs Rebuild
+`make build` and `make test` skip the nested example modules under `sdk/examples` and `server/a2a/examples`. CI vets and tests them, so run `go -C <example-dir> vet ./...` for any example you changed.
+
+## Reproduce a specific CI failure
+
+| Failing job or step | Local command |
+|---|---|
+| `Test & Coverage` | `go -C runtime test -race ./...`, and the same for `sdk`, `pkg` and `server/a2a` |
+| `SDK Integration Tests` | `go -C sdk test -race -count=1 ./integration/...` |
+| `Lint` | `golangci-lint run ./...` inside the failing module directory, with the pinned version |
+| `Build` | `make build`, then the guard scripts under `scripts/` that the job names |
+| `Weak Assertion Guard` | `make check-weak-assertions` |
+| `Reference Drift Check` | `make docs-reference docs-sdk-reference`, then commit the regenerated pages |
+| `check-packspec` | `make packspec-check module-dep-skew-check modules-standalone-check spec-version-check` |
+| `check-promptpack-schema` | `make promptpack-schema-check` |
+| `Docs Checks` | `make docs-voice` and `make docs-scripts-test` |
+| Release `validate` | `make api-compat-check VERSION=vX.Y.Z` |
+
+## Watch runs
 
 ```bash
-# Trigger manual deploy
-gh workflow run docs.yml
-
-# Or push a docs change
-echo "<!-- trigger -->" >> docs/README.md
-git add docs/README.md
-git commit -m "docs: trigger rebuild"
-git push
+gh run list --workflow=ci.yml --limit 10   # recent CI runs
+gh run watch <run-id> --exit-status        # follow one run
+gh run view <run-id> --log-failed          # logs of failed steps only
+gh run list --status failure               # failures across workflows
+gh run download <run-id>                   # artifacts such as coverage-report
+gh pr checks                               # checks on the current pull request
 ```
 
-## Monitoring & Debugging
+## Trigger workflows
 
-### Check Workflow Status
+Workflows with `workflow_dispatch`: `docs.yml`, `docs-checks.yml`, `docs-freshness.yml`, `schemas.yml`, `promptpack-schema-sync.yml`, `mcp-conformance.yml` and `release.yml`.
 
 ```bash
-# List recent runs with status
-gh run list --limit 20
+# Publish the documentation without a release
+gh workflow run docs.yml -f reason="refresh after docs fix"
 
-# Show only failures
-gh run list --status failure
-
-# Watch specific workflow
-gh run watch --workflow=ci.yml
+# Release the library modules
+gh workflow run release.yml -f version=v2.16.2 -f phase=full
 ```
 
-### Download Artifacts
+`release.yml` also accepts `phase=libs-only`, `phase=tools-only`, `skip_tests=true` and `ignore_previous_release_check=true`. See [Releases](/devops/ci-cd-pipelines/#releases-releaseyml).
+
+## SonarCloud
+
+The dashboard is at <https://sonarcloud.io/project/overview?id=AltairaLabs_PromptKit>. To scan locally:
 
 ```bash
-# List artifacts from a run
-gh run view <run-id> --json artifacts
-
-# Download specific artifact
-gh run download <run-id> -n release-checklist
+export SONAR_TOKEN=<your-token>
+make sonar-quick   # make coverage, then make sonar-scan
 ```
 
-### Re-run Failed Jobs
+## Documentation
 
 ```bash
-# Re-run failed jobs only
-gh run rerun <run-id> --failed
-
-# Re-run entire workflow
-gh run rerun <run-id>
+make docs-install   # first time: Astro dependencies and gomarkdoc
+make docs-serve     # development server
+make docs-build     # full build into docs/dist, as CI does
+make docs-voice     # prose rules from docs/STYLE.md
 ```
 
-## Quality Metrics
+## Broken main
 
-### Check Coverage
+Pull requests are the only way to change `main`, so fix a broken `main` with a pull request:
 
-```bash
-# Generate and view coverage locally
-make coverage
-go tool cover -html=coverage.out
+1. Find the breaking commit with `git log` and the failing run.
+2. Open a pull request that reverts it (`git revert <sha>`) or fixes it.
+3. Merge once the required checks pass.
+
+## Linter false positives
+
+Suppress a finding on the line that causes it, name the rule and give the reason:
+
+```go
+//nolint:staticcheck // SA1019: the deprecated call is the only way to reach the old API
 ```
 
-### View Test Results
+## Configuration files
 
-After CI run:
-1. Go to Actions tab
-2. Click on workflow run
-3. Click "Test Results" or "Coverage Test Results"
-4. View detailed test report
+| File | Purpose |
+|---|---|
+| `.github/workflows/` | The eleven workflows |
+| `.github/CODEOWNERS` | Review ownership |
+| `.golangci.yml` | Linter configuration |
+| `sonar-project.properties` | SonarCloud sources, exclusions and coverage paths |
+| `Makefile` | Local build, test and docs targets |
 
-### Code Quality
+## Related
 
-- **Go Report Card:** https://goreportcard.com/report/github.com/AltairaLabs/PromptKit
-- **SonarCloud:** https://sonarcloud.io/project/overview?id=AltairaLabs_PromptKit
-
-## Emergency Procedures
-
-### CI is Down
-
-1. Check GitHub Status: https://www.githubstatus.com/
-2. Run tests locally: `make test-race`
-3. If urgent, can bypass with admin approval
-4. Document in PR why CI was bypassed
-
-### False Positive in Linter
-
-```bash
-# Disable specific rule (use sparingly)
-//nolint:rulename
-
-# Document why in comment
-// nolint:staticcheck // SA1019: using deprecated method for compatibility
-```
-
-### Broken Main Branch
-
-1. Identify breaking commit
-2. Revert or fix forward
-3. Create hotfix PR
-4. Fast-track review
-
-```bash
-# Revert last commit
-git revert HEAD
-git push origin main
-
-# Or fix forward
-git checkout -b hotfix/fix-ci
-# make fixes
-git push origin hotfix/fix-ci
-# create PR
-```
-
-## Useful GitHub CLI Commands
-
-```bash
-# Install GitHub CLI
-brew install gh  # macOS
-# or visit: https://cli.github.com/
-
-# Authenticate
-gh auth login
-
-# Common commands
-gh pr status          # Check PR status
-gh pr checks          # View CI checks on current PR
-gh run list           # List workflow runs
-gh run view           # View run details
-gh workflow list      # List all workflows
-```
-
-## Configuration Files
-
-Key files for CI/CD:
-
-```
-.github/workflows/
-├── ci.yml              # Main CI pipeline
-├── docs.yml            # Documentation deployment
-└── release.yml         # Library release workflow
-
-Makefile                # Local build commands
-sonar-project.properties # SonarCloud config
-codecov.yml             # Coverage config (if used)
-.golangci.yml           # Linter configuration
-```
-
-## Further Reading
-
-- [CI/CD Pipeline Documentation](/devops/ci-cd-pipelines/) - Detailed pipeline documentation
-- [GitHub Actions Docs](https://docs.github.com/en/actions) - Official documentation
-- [SonarCloud Docs](https://docs.sonarcloud.io/) - Code quality analysis
-
----
-
-*Last Updated: 2 November 2025*
+- [CI/CD pipelines](/devops/ci-cd-pipelines/)
+- [CI/CD diagrams](/devops/ci-cd-diagrams/)
+- [Branch protection quick reference](/devops/branch-protection-quickref/)
+- [GitHub Actions documentation](https://docs.github.com/en/actions)

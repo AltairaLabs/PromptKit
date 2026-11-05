@@ -1,161 +1,128 @@
 ---
-title: uranch protection quickref
-description: DevOps and release management documentation
+title: Branch protection quick reference
+description: What the main branch ruleset means for a contributor, and how to fix the checks that block a pull request.
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - .github/workflows/ci.yml
+    - .github/workflows/cla.yml
+    - .github/workflows/dependabot-gate.yml
+    - .github/workflows/release.yml
+    - Makefile
+    - scripts/commit-msg.sh
+    - scripts/install-hooks.sh
+    - scripts/setup-branch-protection.sh
 ---
-Quick guide for developers working with protected branches.
+A ruleset protects `main`. This page lists what it means for your pull request. [Branch protection](/devops/branch-protection/) has the full settings.
 
-## 🚫 What You Can't Do
+## What the ruleset enforces
 
-- Push directly to `main` branch
-- Force push to any protected branch
-- Delete protected branches or tags
-- Bypass CI checks
-- Merge without required reviews
+- No direct pushes to `main`: changes arrive through a pull request.
+- No force pushes to `main` and no deletion of `main`.
+- Three required checks: `CLAAssistant`, `DCO` and `SonarCloud Analysis`.
 
-## ✅ What You Should Do
+The ruleset requires no approving review, no code owner review, no signed (GPG or SSH) commits and no conversation resolution. It does not require the branch to be up to date.
 
-### Making Changes
+## Make a change
 
-1. **Create a feature branch** from `main`:
+1. Install the git hooks once per clone:
+
    ```bash
-   git checkout main
+   ./scripts/install-hooks.sh
+   ```
+
+2. Create a branch from `main`:
+
+   ```bash
+   git switch main
    git pull origin main
-   git checkout -b feature/your-feature-name
+   git switch -c feat/your-change
    ```
 
-2. **Make your changes** and commit:
+3. Run golangci-lint and the tests on your changed modules:
+
    ```bash
-   git add .
-   git commit -s -m "feat: your descriptive message"
+   make verify
    ```
-   
-   **Note**: `-s` flag signs your commit (required!)
 
-3. **Push to your fork**:
+4. Commit with a sign-off and a conventional commit message:
+
    ```bash
-   git push origin feature/your-feature-name
+   git commit -s -m "feat: describe the change"
    ```
 
-4. **Open a Pull Request** on GitHub
+5. Push the branch and open a pull request against `main`:
 
-### PR Requirements Checklist
+   ```bash
+   git push -u origin feat/your-change
+   gh pr create
+   ```
 
-Before your PR can be merged:
+6. Wait for the required checks, then merge. The project convention is a squash merge:
 
-- [ ] All CI checks pass (test, lint, build, coverage)
-- [ ] At least 1 approving review from a maintainer
-- [ ] All review comments are resolved
-- [ ] Commits are signed (DCO)
-- [ ] Branch is up-to-date with `main`
+   ```bash
+   gh pr merge --squash
+   ```
 
-### Required Status Checks
+## Required checks
 
-Your PR must pass these automated checks:
+| Check | Passes when | Fix |
+|---|---|---|
+| `CLAAssistant` | You signed the contributor license agreement | Comment `I have read the CLA Document and I hereby sign the CLA` on the pull request, or comment `recheck` after signing |
+| `DCO` | Every commit has a `Signed-off-by:` trailer matching its author | See below |
+| `SonarCloud Analysis` | The SonarCloud quality gate passes, or the pull request touches only ignored paths or comes from Dependabot | Open the SonarCloud link on the check and fix the new issues or the coverage on new lines |
 
-| Check | Description | Fix If Failing |
-|-------|-------------|----------------|
-| `test` | Unit tests | Run `make test` locally |
-| `lint` | Code linting | Run `make lint` locally |
-| `build` | Build verification | Run `make build` locally |
-| `coverage` | Coverage + SonarCloud | Check test coverage |
+`Lint`, `Test & Coverage`, `Build`, `SDK Integration Tests`, `Weak Assertion Guard` and `Performance Regression Check` do not block a merge, but `SonarCloud Analysis` needs the `Test & Coverage` and `Lint` jobs to succeed. See [CI/CD pipelines](/devops/ci-cd-pipelines/).
 
-### Getting Your PR Merged
+## Fix a missing sign-off
 
-1. **Wait for CI** - All checks must pass
-2. **Request review** - Tag appropriate reviewers (see CODEOWNERS)
-3. **Address feedback** - Respond to all review comments
-4. **Resolve conflicts** - Keep branch up-to-date with main
-5. **Get approval** - At least 1 approval required
-6. **Merge** - Squash merge (recommended) or rebase
-
-## 🔧 Common Issues
-
-### "Commits must be signed"
-
-Your commits need a DCO sign-off:
+Sign the last commit:
 
 ```bash
-# Sign existing commits
-git rebase --exec 'git commit --amend --no-edit -n -s' -i origin/main
-
-# Force push to your branch
+git commit --amend -s --no-edit
 git push --force-with-lease
 ```
 
-### "Branch is out of date"
-
-Update your branch with latest main:
+Sign every commit on the branch:
 
 ```bash
-git checkout main
-git pull origin main
-git checkout your-branch
-git rebase main
+git rebase --signoff origin/main
 git push --force-with-lease
 ```
 
-### "CI checks failing"
+The sign-off email must match the commit author.
 
-Run tests locally before pushing:
+## Update a branch
+
+The ruleset does not require an up-to-date branch. To pick up changes from `main` anyway:
 
 ```bash
-# Run all checks
+git fetch origin
+git rebase origin/main
+git push --force-with-lease
+```
+
+## Reproduce failing jobs
+
+```bash
 make test
-make lint
+make test-race
+make lint-diff
 make build
-
-# Fix linting issues automatically
-make fmt
 ```
 
-### "Need code owner review"
+`make lint` runs `go fmt`, which rewrites files. See the [CI/CD quick reference](/devops/ci-cd-quickref/) for a command per failing job.
 
-Some files require review from specific teams (see `.github/CODEOWNERS`):
+## Tags
 
-- Runtime changes → Runtime team
-- SDK changes → SDK team  
-- CI/CD changes → DevOps team
-- Documentation → Docs team
+The release workflow creates the version tags (`vX.Y.Z`, `runtime/vX.Y.Z`, `pkg/vX.Y.Z`, `sdk/vX.Y.Z`, `server/a2a/vX.Y.Z`). Do not create them by hand. See [Releases](/devops/ci-cd-pipelines/#releases-releaseyml).
 
-The appropriate reviewers will be automatically assigned.
+## Urgent fixes
 
-### "Conversation not resolved"
+The ruleset has no user or admin bypass. Open a pull request that fixes or reverts the change and merge it once the required checks pass.
 
-All review comments must be marked as resolved:
+## Related
 
-1. Address the comment (make changes or respond)
-2. Click "Resolve conversation" button
-3. Wait for reviewer to confirm
-
-## 🏷️ Tags
-
-Version tags are protected and immutable:
-
-- Created automatically by release workflow
-- Cannot be deleted once created
-- Cannot be moved to different commit
-- Pattern: `v*`, `runtime/v*`, `sdk/v*`, etc.
-
-## 🆘 Emergency Procedures
-
-For critical production issues:
-
-1. Contact a repository admin
-2. Admin can temporarily adjust protections
-3. Emergency fix must be documented
-4. Post-incident review required
-5. Retroactive PR created
-
-## 📚 More Information
-
-- Full guide: [branch-protection](/devops/branch-protection/)
-- Contributing: [Contributing Guidelines](/contributors/contributing/)
-- CI/CD pipelines: [ci-cd-pipelines](/devops/ci-cd-pipelines/)
-
-## 💡 Tips
-
-- **Smaller PRs** are reviewed faster
-- **Clear descriptions** help reviewers understand context
-- **Passing CI locally** before pushing saves time
-- **Signing commits upfront** avoids rework
-- **Descriptive commit messages** help with changelog generation
+- [Branch protection](/devops/branch-protection/)
+- [Contributing](/contributors/contributing/)
+- [CI/CD pipelines](/devops/ci-cd-pipelines/)

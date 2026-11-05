@@ -1,376 +1,214 @@
 ---
-title: ci cd pipelines
-description: DevOps and release management documentation
+title: CI/CD pipelines
+description: Every GitHub Actions workflow in the PromptKit repository, what triggers it and what it checks.
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - .github/workflows/ci.yml
+    - .github/workflows/cla.yml
+    - .github/workflows/dependabot-gate.yml
+    - .github/workflows/docs-checks.yml
+    - .github/workflows/docs-freshness.yml
+    - .github/workflows/docs.yml
+    - .github/workflows/mcp-conformance.yml
+    - .github/workflows/promptpack-schema-sync.yml
+    - .github/workflows/reference-drift.yml
+    - .github/workflows/release.yml
+    - .github/workflows/schemas.yml
+    - Makefile
+    - scripts/check-no-audio-device-leak.sh
+    - scripts/check-weak-assertions.sh
+    - scripts/perf-compare.sh
+    - scripts/perf-interleave.sh
+    - scripts/perf-run.sh
 ---
-This document describes all GitHub Actions workflows configured for the PromptKit repository.
-
-## Overview
-
-PromptKit uses GitHub Actions for:
-- **Continuous Integration** - Automated testing, linting, and quality checks
-- **Documentation Deployment** - Automatic GitHub Pages updates
-
-### Recent CI Optimizations (Nov 2025)
-
-The CI pipeline has been optimized for efficiency and completeness:
-
-- ✅ **Eliminated duplicate test execution** - Reduced from 3 test runs to 2 (normal + race detector)
-- ✅ **Complete module coverage** - Tests all library modules including `runtime`, `sdk`, and `pkg`
-- ✅ **Single test result publication** - Coverage job now handles test reporting (removed duplicate from test job)
-- ✅ **Enhanced linting feedback** - golangci-lint GitHub Action provides inline PR annotations
-- ✅ **Faster CI feedback** - Reduced redundant overhead while maintaining thorough testing
-
-These improvements ensure comprehensive testing across the entire monorepo while minimizing CI execution time.
-
-## Active Workflows
-
-### 1. CI Pipeline (`ci.yml`)
-
-**Purpose:** Run tests, coverage, linting, and builds on every code change.
-
-**Triggers:**
-- Push to `main` branch (excluding docs and markdown files)
-- Pull requests to `main` branch (excluding docs and markdown files)
-
-**Jobs:**
-
-#### Test Job
-- **Runs on:** Ubuntu Latest
-- **Go Version:** 1.25.1
-- **Steps:**
-  1. Checkout code
-  2. Set up Go
-  3. Install dependencies (`make install`)
-  4. Install `gotestsum` for enhanced test reporting
-  5. Run tests (`make test`)
-  6. Run tests with race detector (`make test-race`)
-
-**Test Packages:**
-- `./runtime/...` - Core runtime components
-- `./sdk/...` - SDK library
-- `./pkg/...` - Shared configuration and utilities
-
-**Note:** This job runs tests twice (normal + race detector) for fast feedback. Test result publishing is handled by the Coverage job to avoid duplication.
-
-#### Coverage Job
-- **Runs on:** Ubuntu Latest
-- **Go Version:** 1.25.1
-- **Steps:**
-  1. Checkout code (full depth for SonarCloud)
-  2. Set up Go
-  3. Install `gotestsum`
-  4. Generate coverage reports with JUnit output for all modules
-  5. Merge coverage files into single `coverage.out`
-  6. Publish test results to GitHub Checks (single publication point)
-  7. Verify coverage file
-  8. Run SonarCloud scan
-
-**Coverage Packages:**
-- `./runtime/...` - Core runtime components
-- `./sdk/...` - SDK library
-- `./pkg/...` - Shared configuration and utilities
-
-**SonarCloud Integration:**
-- Analyzes code quality, security, and coverage
-- Results visible at: <https://sonarcloud.io/project/overview?id=AltairaLabs_PromptKit>
-- Requires: `SONAR_TOKEN` secret
-
-#### Lint Job
-- **Runs on:** Ubuntu Latest
-- **Go Version:** 1.25.1
-- **Steps:**
-  1. Checkout code
-  2. Set up Go
-  3. Run golangci-lint with GitHub Action
-
-**Linting Features:**
-- Inline PR annotations for issues
-- Annotations in file diffs
-- Results in PR checks tab
-- Only shows new issues in PRs (`only-new-issues: true`)
-- Comprehensive linting via `golangci-lint`
-
-**Configuration:** Uses `.golangci.yml` in repository root
-
-#### Build Job
-- **Runs on:** Ubuntu Latest
-- **Go Version:** 1.25.1
-- **Steps:**
-  1. Checkout code
-  2. Set up Go
-  3. Build runtime components (`make build`)
-
-**Permissions Required:**
-```yaml
-permissions:
-  contents: read
-  actions: read
-  checks: write
-  pull-requests: write
-```
-
----
-
-### 2. Documentation Pipeline (`docs.yml`)
-
-**Purpose:** Deploy documentation to GitHub Pages.
-
-**Triggers:**
-- Push to `main` branch with changes to:
-  - `docs/**` directory
-  - `README.md`
-  - `CONTRIBUTING.md`
-  - `CODE_OF_CONDUCT.md`
-  - `GOVERNANCE.md`
-  - `SECURITY.md`
-  - `.github/workflows/docs.yml`
-- Manual trigger (`workflow_dispatch`)
-
-**Jobs:**
-
-#### Build Job
-- **Runs on:** Ubuntu Latest
-- **Ruby Version:** 3.1
-- **Steps:**
-  1. Checkout code
-  2. Setup Ruby with bundler cache
-  3. Setup GitHub Pages
-  4. Install Jekyll dependencies
-  5. Build Jekyll site with production environment
-  6. Upload site artifact
-
-**Jekyll Configuration:**
-- **Source:** `docs/` directory
-- **Output:** `docs/_site/`
-- **Environment:** Production
-- **Base Path:** Configured from GitHub Pages settings
-
-#### Deploy Job
-- **Runs on:** Ubuntu Latest
-- **Depends on:** Build job
-- **Environment:** `github-pages`
-- **Steps:**
-  1. Deploy artifact to GitHub Pages
-
-**Permissions Required:**
-```yaml
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-```
-
-**Concurrency:**
-- Group: `pages`
-- Cancel in progress: `false` (ensures complete deployments)
-
-**Live Site:** https://altairalabs.github.io/PromptKit
-
----
-
-## Secrets Required
-
-The following secrets must be configured in GitHub repository settings:
-
-| Secret | Purpose | Required For |
-|--------|---------|--------------|
-| `SONAR_TOKEN` | SonarCloud authentication | CI Coverage job |
-| `GITHUB_TOKEN` | GitHub API access | Automatically provided by GitHub Actions |
-
-**Setting Secrets:**
-1. Go to: Repository Settings → Secrets and variables → Actions
-2. Click "New repository secret"
-3. Add the secret name and value
-
----
-
-## Environment Configuration
-
-### Go Version
-
-All workflows use **Go 1.25.1**. Update in all workflow files when upgrading:
-
-```yaml
-- name: Set up Go
-  uses: actions/setup-go@v5
-  with:
-    go-version: '1.25.1'
-```
-
-### Test Reporting
-
-Test results are published to GitHub Checks using:
-- **Tool:** `gotestsum`
-- **Format:** JUnit XML
-- **Reporter:** `dorny/test-reporter@v1.9.1`
-
-### Code Quality
-
-SonarCloud integration provides:
-- Coverage reports
-- Code smells detection
-- Security vulnerability scanning
-- Technical debt analysis
-
-**Configuration:** `sonar-project.properties` in root
-
----
-
-## Workflow Dependencies
-
-```mermaid
-graph TD
-    A[Push to main] --> B{Changed files?}
-    B -->|Code changes| C[CI Pipeline]
-    B -->|Doc changes| D[Docs Pipeline]
-    C --> E[Test Job]
-    C --> F[Coverage Job]
-    C --> G[Lint Job]
-    C --> H[Build Job]
-    F --> I[SonarCloud]
-    D --> J[Jekyll Build]
-    J --> K[GitHub Pages Deploy]
-```
-
----
-
-## Adding a New Workflow
-
-To add a new GitHub Actions workflow:
-
-1. Create workflow file in `.github/workflows/`
-2. Define trigger conditions
-3. Specify required permissions
-4. Define jobs and steps
-5. Test with a pull request
-6. Document in this file
-
-**Template:**
-```yaml
-name: My Workflow
-
-on:
-  push:
-    branches: [ main ]
-
-permissions:
-  contents: read
-
-jobs:
-  my-job:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Do something
-        run: echo "Hello"
-```
-
----
-
-## Debugging Failed Workflows
-
-### Viewing Logs
-
-1. Go to **Actions** tab in GitHub
-2. Click on the failed workflow run
-3. Click on the failed job
-4. Expand failed step to see logs
-
-### Common Issues
-
-**Test Failures:**
-- Check test logs in the Test Results section
-- Run tests locally: `make test-race`
-- Check for race conditions
-
-**Coverage Issues:**
-- Verify coverage files exist: `ls -la *.out`
-- Run locally: `make coverage`
-- Check SonarCloud dashboard for details
-
-**Build Failures:**
-- Verify Go version matches locally: `go version`
-- Check dependencies: `make install`
-- Test build locally: `make build`
-
-**Documentation Build Failures:**
-- Test Jekyll locally: `cd docs && bundle exec jekyll serve`
-- Check Gemfile dependencies
-- Verify markdown syntax
-
----
-
-## Local Testing
-
-Before pushing changes, test locally:
+PromptKit ships four Go modules: `runtime`, `pkg`, `sdk` and `server/a2a`. Eleven workflows in `.github/workflows/` test them, check generated artifacts, deploy the documentation and release the modules. The CLIs and their binaries release from the `promptarena` repository.
+
+## Workflows
+
+| File | Triggers | Jobs |
+|---|---|---|
+| `ci.yml` | Push to `main` and pull requests to `main`, except changes that touch only the ignored paths below | `test`, `sonarcloud`, `integration-tests`, `lint`, `build`, `weak-assertions`, `perf-regression` |
+| `dependabot-gate.yml` | Pull requests to `main` | `sonarcloud` |
+| `cla.yml` | Pull request opened, closed or synchronized; issue comments | `CLAAssistant` |
+| `docs.yml` | Release published, manual dispatch, pull requests touching docs sources | `build`, `deploy` |
+| `docs-checks.yml` | Pull requests to `main`, manual dispatch | `docs-checks` |
+| `docs-freshness.yml` | Mondays 07:00 UTC, manual dispatch | `report` |
+| `reference-drift.yml` | Push to `main` and pull requests touching Go sources or generated reference pages | `reference-drift` |
+| `schemas.yml` | Daily 06:00 UTC, manual dispatch, push and pull requests touching the PromptPack schema or any `go.mod` | `check-promptpack-schema`, `check-packspec` |
+| `promptpack-schema-sync.yml` | Daily 06:00 UTC, manual dispatch, `promptpack-release` repository dispatch | `sync` |
+| `mcp-conformance.yml` | Push and pull requests touching the MCP client, manual dispatch | `spec-parity`, `mirror`, `official-suite` |
+| `release.yml` | Manual dispatch | `validate`, `tag-dependencies`, `update-tools`, `create-release`, `verify-docs`, `notify-downstream`, `summary` |
+
+`ci.yml` ignores `docs/**`, `*.md`, `LICENSE`, `.gitignore`, `.github/workflows/docs.yml`, `.github/workflows/release.yml`, `.github/CODEOWNERS` and `scripts/setup-branch-protection.sh`.
+
+## CI (`ci.yml`)
+
+All jobs run on `ubuntu-latest` with Go 1.26.0.
+
+### Test and coverage
+
+The `test` job (reported as `Test & Coverage (1.26.0)`) runs these steps:
+
+1. Install the ALSA development headers, then `make install`.
+2. Run `gotestsum` with `-race` and a coverage profile over `./runtime/...`, `./sdk/...`, `./pkg/...`, `./server/a2a/...` and `./sdk/integration/...`.
+3. Merge the profiles into `coverage.out` and rewrite module paths to repository-relative paths for SonarCloud.
+4. Run `go vet` in every nested example module under `sdk/examples` and `server/a2a/examples`, then `go test` in those with tests. A module whose packages sit behind build tags is reported as skipped.
+5. Publish the JUnit results as `Test Results` and upload the `coverage-report` artifact (5 days).
+
+### Integration tests
+
+`integration-tests` (reported as `SDK Integration Tests`) runs `./sdk/integration/...` with `-race -count=1` and publishes the results.
+
+### Lint
+
+`lint` runs `golangci-lint` v2.14.0 once per module (`./runtime`, `./sdk`, `./pkg`, `./server/a2a`) with the repository's `.golangci.yml`. Any issue in a module fails the job. It also writes a checkstyle report and uploads it as `golangci-lint-<module>` for SonarCloud. Dependabot pull requests skip it.
+
+### SonarCloud
+
+`sonarcloud` (reported as `SonarCloud Analysis`) needs `test` and `lint`. It downloads the coverage and lint artifacts and runs the SonarCloud scan with `SONAR_TOKEN`. Dependabot pull requests skip it. Settings live in `sonar-project.properties`.
+
+### Build
+
+`build` runs `make build`, then four guards:
+
+| Script | Checks |
+|---|---|
+| `scripts/check-no-audio-device-leak.sh` | `runtime/providers/base`, `pkg/config` and `sdk` do not import the `purego` audio device binding |
+| `scripts/test-verify-published-gomod.sh` | Fixture tests for the published `go.mod` release guard |
+| `scripts/test-api-compat-allowlist.sh` | Fixture tests for the API-compatibility allowlist |
+| `scripts/check-runtime-is-leaf.sh` | `runtime` requires no sibling module |
+
+### Weak assertion guard
+
+`weak-assertions` runs on pull requests only. It runs `scripts/check-weak-assertions.sh` against the pull request's base commit and fails on new tests whose assertions cannot fail. Tests that already existed at the base do not count.
+
+### Performance regression check
+
+`perf-regression` benchmarks a mock-upstream chat server and skips Dependabot pull requests. It builds the benchmark server at the head commit and at the base commit on the same runner. For a pull request the base is the pull request's base commit; for a push it is the commit before the push.
+
+`scripts/perf-interleave.sh` alternates base and head runs for 2 rounds, each with 500 concurrent clients and 5000 requests. It fails when:
+
+- the median head throughput is below 85% of the median base throughput;
+- the median head throughput is below 600 requests per second.
+
+If the base revision cannot be built, the check falls back to the absolute floor in the table below. `scripts/perf-compare.sh` does the comparison.
+
+The job then applies absolute ceilings to the worst head run:
+
+| Run | Fallback floor (requests per second) | Memory ceiling | CPU ceiling |
+|---|---|---|---|
+| Plain | 1300 | 512 MB RSS | 150% |
+| With an event store subscribed | 1100 | 512 MB RSS | 175% |
+
+The event-store run also fails when any started pipeline lacks a completed or failed event, when fewer than 90% of the requests start a pipeline, or when 2000 or more goroutines remain after the run.
+
+## Dependabot gate (`dependabot-gate.yml`)
+
+The job is named `SonarCloud Analysis` to match the required status check. It runs only when the pull request branch starts with `dependabot/` and does nothing but report success, because `ci.yml` skips SonarCloud for Dependabot.
+
+## CLA (`cla.yml`)
+
+`CLAAssistant` records contributor license agreement signatures in the `AltairaLabs/cla-signatures` repository. A contributor signs by commenting on the pull request; a `recheck` comment reruns the check. Bot accounts are allowlisted. The workflow uses `PERSONAL_ACCESS_TOKEN`.
+
+## Documentation
+
+### Deploy (`docs.yml`)
+
+The `build` job:
+
+1. Sets up Node 22, Go 1.26.0, `gomarkdoc` and D2.
+2. Installs the docs dependencies with `make docs-install`. A `NODE_AUTH_TOKEN` secret reads a private GitHub Packages dependency.
+3. Checks the Mermaid diagrams (`npm run check:mermaid`).
+4. Builds the site with `make docs-build`.
+5. Checks links (`check-links`) and hardcoded documentation URLs (`check-doc-urls`).
+6. Uploads `docs/dist` as the Pages artifact.
+
+The `deploy` job publishes the artifact to GitHub Pages and runs for every trigger except pull requests. A pull request runs `build` only, so a docs change is checked before merge and published at the next release or manual dispatch. The `pages` concurrency group never cancels a running deployment.
+
+The site is served at `https://promptkit.altairalabs.ai`. To publish without a release, run `gh workflow run docs.yml -f reason="..."`.
+
+### Checks (`docs-checks.yml`)
+
+`docs-checks` runs on every pull request. It tests the docs scripts, runs `scripts/check-docs-voice.sh` (which fails only for directories listed in `scripts/docs-voice-enforced.txt`) and lists in the job summary the pages that cite code the pull request changes. The staleness list is a warning.
+
+### Freshness (`docs-freshness.yml`)
+
+`report` runs weekly and creates or updates one open issue labeled `docs-freshness`. The issue lists stale pages and public surface that no page cites. Run `/docs-review --stale` to fix what it lists.
+
+## Generated artifacts
+
+### Reference drift (`reference-drift.yml`)
+
+`Reference Drift Check` runs `make docs-reference-check` and `make docs-sdk-reference-check`. It runs on changes to the Go sources and to the generated pages, so a hand edit of a generated page fails even when `ci.yml` is skipped. Regenerate with `make docs-reference` and `make docs-sdk-reference`.
+
+### Schemas (`schemas.yml`)
+
+| Job | Runs on | Command |
+|---|---|---|
+| `check-promptpack-schema` | Push and pull requests only | `make promptpack-schema-check`: the embedded schema equals the published PromptPack release |
+| `check-packspec` | Every trigger | `make packspec-check`, `make module-dep-skew-check`, `make modules-standalone-check`, `make spec-version-check` |
+
+### PromptPack schema sync (`promptpack-schema-sync.yml`)
+
+`sync` fetches the published PromptPack schema. When it differs from `runtime/prompt/schema/promptpack.schema.json`, the job regenerates the pack types, restates the spec version, runs the spec-parity tests and opens a `chore/promptpack-schema-v<version>` pull request. It never merges the pull request. The PR body says whether the parity guards passed.
+
+### MCP conformance (`mcp-conformance.yml`)
+
+| Job | Checks |
+|---|---|
+| `spec-parity` | `TestMCPSpec*` in `runtime/mcp`: wire types and the "Spec support" section of the MCP how-to match the claimed protocol revision |
+| `mirror` | `make mcp-schema-check`: the mirrored MCP schemas equal the published ones |
+| `official-suite` | `make mcp-conformance`: the MCP client against `@modelcontextprotocol/conformance` |
+
+## Releases (`release.yml`)
+
+The workflow is dispatched by hand with these inputs:
+
+| Input | Values |
+|---|---|
+| `version` | A semantic version such as `v2.16.2`; a missing leading `v` is added |
+| `phase` | `full` (default), `libs-only` or `tools-only` |
+| `skip_tests` | Skip `make test` and `make test-race` in `validate` |
+| `ignore_previous_release_check` | Release even if the previous release's published `go.mod` files are bad |
 
 ```bash
-# Run full CI suite locally
-make test
-make test-race
-make lint
-make build
-make coverage
-
-# Build documentation locally
-cd docs
-bundle install
-bundle exec jekyll serve
+gh workflow run release.yml -f version=v2.16.2 -f phase=full
 ```
 
----
+| Job | Phases | What it does |
+|---|---|---|
+| `validate` | all | Checks the version format, that it is newer than the latest `runtime/v*` tag (not for `tools-only`), and that the previous release's published `go.mod` files are clean. Runs the tests unless skipped. Runs `module-dep-skew-check`, `modules-standalone-check` and `scripts/check-api-compatibility.sh`, which fails when the API changes do not fit the version |
+| `tag-dependencies` (Tag Libraries) | `full`, `libs-only` | Checks `runtime` is a leaf module. Tags the root `vX.Y.Z` and `runtime/vX.Y.Z` from `main`. On a `release/libs/vX.Y.Z` branch, sets `pkg`'s `runtime` requirement to the new version, drops its `replace` and tags `pkg/vX.Y.Z`. Verifies the published `go.mod` files through the Go proxy |
+| `update-tools` (Update and Tag SDK Modules) | `full`, `tools-only` | On a `release/tools/vX.Y.Z` branch, sets the `server/a2a` and `sdk` requirements to the new version, drops their `replace` directives and tags `server/a2a/vX.Y.Z` and `sdk/vX.Y.Z`. Verifies the published `go.mod` files |
+| `create-release` | `full` | Creates a draft GitHub release with generated notes, attaches an SPDX SBOM (`promptkit-vX.Y.Z.spdx.json`) and attests its provenance |
+| `verify-docs` | `full` | Publishes the draft release with `HOMEBREW_TAP_TOKEN`, which triggers `docs.yml`, then waits for that run and fails if it fails |
+| `notify-downstream` | `full` | Waits until the four modules resolve through `proxy.golang.org` and `sum.golang.org`, then sends a `promptkit-release` dispatch to the `promptarena-deploy-agentcore`, `PromptArena-deploy-omnia`, `promptarena-deploy-vertex` and `promptarena-deploy-foundry` repositories using `DOWNSTREAM_DISPATCH_TOKEN` |
+| `summary` | all | Writes the job results and the `go get` commands to the run summary |
 
-## Pipeline Metrics
+A published tag cannot be repaired. If a tag carries a bad `go.mod`, release again with a higher version and `ignore_previous_release_check=true`. To finish tagging `sdk` and `server/a2a` after `runtime` and `pkg` were tagged, run `phase=tools-only` with the same version.
 
-Monitor pipeline health:
+## Secrets
 
-- **Build Success Rate:** Target > 95%
-- **Average Duration:** ~5-10 minutes for CI
-- **Coverage Threshold:** Tracked by SonarCloud
-- **Documentation Deploy Time:** ~2-3 minutes
+| Secret | Used by |
+|---|---|
+| `GITHUB_TOKEN` | Provided by Actions to every workflow |
+| `SONAR_TOKEN` | `ci.yml` SonarCloud scan |
+| `NODE_AUTH_TOKEN` | `docs.yml` private package install |
+| `PERSONAL_ACCESS_TOKEN` | `cla.yml`, `promptpack-schema-sync.yml` |
+| `HOMEBREW_TAP_TOKEN` | `release.yml` publishing the release, so that the published event starts `docs.yml` |
+| `DOWNSTREAM_DISPATCH_TOKEN` | `release.yml` dispatches to the adapter repositories |
 
-**View Metrics:**
-- GitHub Actions Insights tab
-- SonarCloud dashboard
-- Go Report Card: https://goreportcard.com/report/github.com/AltairaLabs/PromptKit
+## Debugging a failed run
 
----
+1. Open the run in the Actions tab and expand the failing step.
+2. Reproduce with the step's own command. The `test` job runs with `-race`; the integration job also passes `-count=1`.
+3. For lint failures, install `golangci-lint` v2.14.0; `make lint` checks the version.
+4. For `Reference Drift Check`, run `make docs-reference docs-sdk-reference` and commit the result.
 
-## Maintenance Schedule
+## Related
 
-### Monthly
-- Review and update Go version if needed
-- Update GitHub Actions to latest versions
-- Check for deprecated action warnings
-
-### Quarterly
-- Review SonarCloud quality gate rules
-- Audit secrets and permissions
-- Update Ruby version for docs build
-
-### Annually
-- Review and update all third-party actions
-- Evaluate new testing/quality tools
-- Document lessons learned
-
----
-
-## Related Documentation
-
-- [Contributing Guide](/contributors/contributing/) - Development workflow
-
----
-
-## Support
-
-For CI/CD issues:
-
-1. Check [GitHub Actions Status](https://www.githubstatus.com/)
-2. Review workflow logs
-3. Test locally with make commands
-4. Create issue with workflow run link
-5. Tag `@maintainers` for urgent issues
-
----
-
-*Last Updated: 2 November 2025*
+- [CI/CD quick reference](/devops/ci-cd-quickref/)
+- [CI/CD diagrams](/devops/ci-cd-diagrams/)
+- [Branch protection](/devops/branch-protection/)
+- [Contributing](/contributors/contributing/)

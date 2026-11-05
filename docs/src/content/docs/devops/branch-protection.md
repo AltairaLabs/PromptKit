@@ -1,226 +1,91 @@
 ---
-title: uranch protection
-description: DevOps and release management documentation
+title: Branch protection
+description: The repository ruleset that protects main in PromptKit, the status checks it requires and how to read it.
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - .github/workflows/ci.yml
+    - .github/workflows/cla.yml
+    - .github/workflows/dependabot-gate.yml
+    - .github/workflows/release.yml
+    - scripts/commit-msg.sh
+    - scripts/setup-branch-protection.sh
 ---
-This document describes the branch protection rules configured for the PromptKit repository to ensure code quality, security, and stability.
-
-## Protected Branches
-
-### `main` Branch
-
-The `main` branch contains production-ready code and must be protected with the following rules:
-
-#### Required Status Checks
-
-All status checks must pass before merging:
-
-**CI Workflow (`ci.yml`):**
-- ✅ `test` - Unit tests with Go 1.25.1
-- ✅ `lint` - Linting across all modules (runtime, sdk, pkg, server/a2a)
-- ✅ `build` - Build verification for all components
-- ✅ `coverage` - Coverage reporting and SonarCloud analysis
-
-#### Pull Request Requirements
-
-- **Require pull request reviews before merging**: ✅ Enabled
-  - **Required approving reviews**: 1 minimum
-  - **Dismiss stale pull request approvals when new commits are pushed**: ✅ Enabled
-  - **Require review from Code Owners**: ✅ Enabled (if CODEOWNERS file exists)
-  - **Allow specified actors to bypass pull request requirements**: ❌ Disabled
-  
-- **Require conversation resolution before merging**: ✅ Enabled
-  - All review comments must be resolved
-
-- **Require signed commits**: ✅ Enabled
-  - All commits must be signed with GPG/SSH keys
-  - Enforces DCO (Developer Certificate of Origin)
-
-- **Require linear history**: ✅ Enabled
-  - No merge commits allowed
-  - Use squash or rebase merge only
-
-#### Additional Protections
-
-- **Require status checks to pass before merging**: ✅ Enabled
-  - **Require branches to be up to date before merging**: ✅ Enabled
-  - All required checks listed above must pass
-
-- **Require deployments to succeed before merging**: ❌ Disabled
-  - No deployment checks for main branch
-
-- **Lock branch**: ❌ Disabled
-  - Allow pushes via PRs
-
-- **Do not allow bypassing the above settings**: ✅ Enabled
-  - Even administrators must follow these rules
-
-- **Restrict who can push to matching branches**: ✅ Enabled
-  - Restrict pushes that create matching branches: ✅ Enabled
-  - Only GitHub Actions and maintainers can push
-  - **Allowed actors**: 
-    - `github-actions[bot]` (for automated releases)
-    - Repository maintainers/admins (emergency only)
-
-- **Allow force pushes**: ❌ Disabled
-  - No force pushes allowed
-
-- **Allow deletions**: ❌ Disabled
-  - Branch cannot be deleted
-
-### Tag Protection (`v*`, `runtime/v*`, `sdk/v*`, etc.)
-
-Tags are immutable version markers and must be protected.
-
-#### Tag Protection Rules
-
-- **Pattern**: `v*`, `runtime/v*`, `sdk/v*`, `pkg/v*`, `server/a2a/v*`
-- **Restrict tag creation**: ✅ Enabled
-  - Only release managers and `github-actions[bot]`
-- **Allow deletions**: ❌ Disabled
-- **Allow updates**: ❌ Disabled
-
-## CODEOWNERS Configuration
-
-Create a `.github/CODEOWNERS` file to automatically assign reviewers:
-
-```
-# Global owners
-*                                   @AltairaLabs/maintainers
-
-# Runtime and core components
-/runtime/**                         @AltairaLabs/runtime-team
-/pkg/**                             @AltairaLabs/runtime-team
-
-# SDK
-/sdk/**                             @AltairaLabs/sdk-team
-
-# Tools
-
-# CI/CD and infrastructure
-/.github/workflows/**               @AltairaLabs/devops-team
-/.github/BRANCH_PROTECTION.md       @AltairaLabs/maintainers
-/.goreleaser.yml                    @AltairaLabs/devops-team
-/Makefile                           @AltairaLabs/devops-team
-
-# Documentation
-/docs/**                            @AltairaLabs/docs-team
-/*.md                               @AltairaLabs/docs-team
-
-# Security
-/SECURITY.md                        @AltairaLabs/security-team
-/CODE_OF_CONDUCT.md                 @AltairaLabs/maintainers
-```
-
-## Setting Up Branch Protection
-
-### Via GitHub UI
-
-1. Navigate to **Settings** → **Branches**
-2. Click **Add branch protection rule**
-3. Enter branch name pattern (e.g., `main`)
-4. Configure settings as specified above
-5. Click **Create** or **Save changes**
-
-### Via GitHub CLI
+A repository ruleset named `Protect Main` protects the default branch (`main`). The repository has no classic branch protection rule and no ruleset for tags. Read the live settings with the GitHub CLI:
 
 ```bash
-# Install GitHub CLI if not already installed
-# brew install gh
-
-# Protect main branch
-gh api repos/{owner}/{repo}/branches/main/protection \
-  --method PUT \
-  -H "Accept: application/vnd.github+json" \
-  -f required_status_checks[strict]=true \
-  -f required_status_checks[contexts][]=test \
-  -f required_status_checks[contexts][]=lint \
-  -f required_status_checks[contexts][]=build \
-  -f required_status_checks[contexts][]=coverage \
-  -f required_pull_request_reviews[required_approving_review_count]=1 \
-  -f required_pull_request_reviews[dismiss_stale_reviews]=true \
-  -f required_pull_request_reviews[require_code_owner_reviews]=true \
-  -f required_conversation_resolution=true \
-  -f required_signatures=true \
-  -f required_linear_history=true \
-  -f restrictions[users][]=github-actions[bot] \
-  -f allow_force_pushes=false \
-  -f allow_deletions=false \
-  -f enforce_admins=true
+gh api repos/AltairaLabs/PromptKit/rulesets
+gh api repos/AltairaLabs/PromptKit/rulesets/9963634
+gh api repos/AltairaLabs/PromptKit/rules/branches/main
 ```
 
-## Enforcement and Exceptions
+## Ruleset rules
 
-### Emergency Procedures
+| Rule | Setting |
+|---|---|
+| Enforcement | Active |
+| Target | The default branch |
+| Restrict deletions | Enabled |
+| Block force pushes (non-fast-forward) | Enabled |
+| Restrict creation | Enabled |
+| Require a pull request | Enabled, 0 required approvals |
+| Dismiss stale approvals on push | Disabled |
+| Require code owner review | Disabled |
+| Require last-push approval | Disabled |
+| Require conversation resolution | Disabled |
+| Allowed merge methods | Merge, squash and rebase |
+| Require status checks | Enabled; branches need not be up to date |
+| Require signed commits | Not in the ruleset |
+| Require linear history | Not in the ruleset |
 
-In case of critical production issues:
+One GitHub App integration is a bypass actor with mode `always`. Repository admins are not bypass actors, so an admin cannot push to `main` or skip the required checks. Every change reaches `main` through a pull request.
 
-1. Emergency fixes can be pushed directly by maintainers with admin access
-2. Post-incident review required within 24 hours
-3. Retroactive PR must be created documenting the change
-4. Document in `SECURITY.md` if security-related
+The repository setting "Automatically delete head branches" is on, and all three merge methods are allowed. The project convention is a squash merge.
 
-### Temporary Rule Modifications
+## Required status checks
 
-For special cases (e.g., initial setup, major refactoring):
+| Check | Reported by |
+|---|---|
+| `CLAAssistant` | `cla.yml` |
+| `DCO` | The DCO status check, which fails a pull request that has a commit without a matching `Signed-off-by:` trailer |
+| `SonarCloud Analysis` | The `sonarcloud` job in `ci.yml`, or the job of the same name in `dependabot-gate.yml` |
 
-1. Require approval from 2+ maintainers
-2. Document reason in GitHub issue
-3. Set time-bound re-enablement
-4. Announce in team channels
+The other CI jobs (`Test & Coverage`, `Lint`, `Build`, `SDK Integration Tests`, `Weak Assertion Guard`, `Performance Regression Check`) are not required by the ruleset. They run on every code pull request, but only the three checks above block a merge.
 
-## Monitoring and Compliance
+`ci.yml` does not run for changes that touch only docs, markdown or the other ignored paths. A required check that never reports would block such a pull request. `dependabot-gate.yml` runs on every pull request to `main`; its `SonarCloud Analysis` job is skipped unless the branch starts with `dependabot/`, and GitHub counts a skipped job as passing. This satisfies the requirement for docs-only pull requests.
 
-### Regular Audits
+## Commit sign-off
 
-- **Monthly**: Review branch protection settings
-- **Quarterly**: Audit access permissions and team assignments
-- **After each release**: Verify tag protections are working
+Every commit needs a DCO sign-off: a `Signed-off-by: Name <email>` trailer whose email matches the commit author. Create it with `git commit -s`. The `commit-msg` hook in `scripts/commit-msg.sh` rejects a commit without the trailer. The ruleset does not require GPG or SSH signatures.
 
-### Alerts
+## Code owners
 
-Configure GitHub Actions to alert on:
-- Failed CI checks on protected branches
-- Unauthorized push attempts
-- Branch protection rule changes
+`.github/CODEOWNERS` assigns `@AltairaLabs/maintainers` to these paths:
 
-### Metrics to Track
+| Area | Paths |
+|---|---|
+| Modules | `/runtime/`, `/pkg/`, `/sdk/`, `/server/a2a/`, `/examples/`, `/scripts/` |
+| CI and build | `/.github/workflows/`, `/.github/CODEOWNERS`, `/docs/devops/branch-protection*.md`, `/Makefile`, `go.work`, `**/go.mod`, `**/go.sum` |
+| Documentation | `/docs/`, `/*.md` |
+| Governance | `/SECURITY.md`, `/CODE_OF_CONDUCT.md`, `/GOVERNANCE.md`, `/LICENSE`, `/CONTRIBUTING.md` |
 
-- PR merge time
-- Number of reviews per PR
-- CI failure rate
-- Branch protection violations
+The ruleset does not require code owner review, so ownership assigns reviewers without blocking a merge.
 
-## FAQ
+## Tags
 
-**Q: Can I push directly to `main`?**  
-A: No. All changes must go through pull requests with required reviews and passing CI checks.
+No ruleset targets tags. The release workflow creates `vX.Y.Z`, `runtime/vX.Y.Z`, `pkg/vX.Y.Z`, `sdk/vX.Y.Z` and `server/a2a/vX.Y.Z` with `github-actions[bot]`. Go proxies cache published module versions, so a tag cannot be repaired after the proxy has served it. See [Releases](/devops/ci-cd-pipelines/#releases-releaseyml).
 
-**Q: What if CI is failing due to external service issues?**  
-A: Contact a maintainer. Branch protection can be temporarily disabled in emergencies, but this requires approval and documentation.
+## Changing the ruleset
 
-**Q: How do I get my PR merged faster?**  
-A: Ensure all tests pass, address review comments promptly, and follow the contribution guidelines. Smaller, focused PRs are reviewed faster.
+Edit `Protect Main` under Settings, Rules, Rulesets. A change to the required checks must name the job as GitHub reports it: a job's `name:` in the workflow, not its key. Renaming a required job in a workflow without updating the ruleset blocks every pull request.
 
-**Q: Can I create a release without these checks?**  
-A: No. The release automation workflow (`release.yml`) runs through GitHub Actions with proper permissions. Manual releases must follow the documented process.
+:::caution
+`scripts/setup-branch-protection.sh` creates classic branch protection that requires the checks `test`, `lint`, `build` and `coverage`, one approving review, signed commits and linear history. No workflow reports those check names, so running the script against the repository would block every pull request.
+:::
 
-**Q: What happens if I forget to sign my commits?**  
-A: Your PR will be blocked. You'll need to sign the commits retroactively using `git rebase --exec 'git commit --amend --no-edit -n -S'` and force push to your branch.
+## Related
 
-## Related Documentation
-
-- [Contributing Guidelines](/contributors/contributing/)
-- [CI/CD Pipelines](/devops/ci-cd-pipelines/)
-- [Security Policy](/contributors/contributing/)
-- [Code of Conduct](/contributors/contributing/)
-
-## Updates to This Document
-
-This document should be updated when:
-- Branch protection rules change
-- New protected branch patterns are added
-- CI/CD workflows are modified
-- Team structure changes
-
-**Last Updated**: 2025-11-02  
-**Approved By**: Repository Maintainers
+- [Branch protection quick reference](/devops/branch-protection-quickref/)
+- [CI/CD pipelines](/devops/ci-cd-pipelines/)
+- [Contributing](/contributors/contributing/)
+- [Governance](/contributors/governance/)

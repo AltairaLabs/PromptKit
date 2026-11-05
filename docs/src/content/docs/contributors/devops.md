@@ -2,58 +2,53 @@
 title: DevOps & Infrastructure
 sidebar:
   order: 5
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - .github/workflows/ci.yml
+    - .github/workflows/release.yml
 ---
 
-This section contains documentation for maintainers and contributors about the project's DevOps infrastructure, CI/CD pipelines, release processes, and development workflows.
+This section is for maintainers and contributors. It covers the CI/CD pipelines, the release process and branch protection.
 
-## Quick References
+## CI/CD
 
-- [CI/CD Quick Reference](/devops/ci-cd-quickref/) - Fast lookup for common CI/CD tasks
-- [Branch Protection Quick Reference](/devops/branch-protection-quickref/) - Branch protection rules summary
+- [CI/CD quick reference](/devops/ci-cd-quickref/): lookup for common CI/CD tasks
+- [CI/CD pipelines overview](/devops/ci-cd-pipelines/): the automated workflows
+- [CI/CD architecture diagrams](/devops/ci-cd-diagrams/): the CI/CD system as diagrams
 
-## CI/CD Pipelines
+The workflow definitions are in `.github/workflows/`.
 
-- [CI/CD Pipelines Overview](/devops/ci-cd-pipelines/) - Comprehensive guide to our automated workflows
-- [CI/CD Architecture Diagrams](/devops/ci-cd-diagrams/) - Visual representation of our CI/CD system
+## Release management
 
-## Release Management
-
-PromptKit ships libraries only (`runtime`, `pkg`, `sdk`). Releases are cut by
-the automated `release.yml` GitHub Actions workflow, which tags the library
-modules and publishes them to the Go module proxy:
+The `release.yml` workflow is the only way to cut a release. Do not run `gh release create` or push tags by hand.
 
 ```bash
-gh workflow run release.yml -f version=v1.3.9 -f phase=full
+gh workflow run release.yml -f version=v2.16.2 -f phase=full
 ```
 
-The Arena and PackC CLIs release from their own repository; see the
-[PromptArena docs](https://promptarena.altairalabs.ai/) for their release
-process.
+[CI/CD pipelines](/devops/ci-cd-pipelines/#releases-releaseyml) lists the inputs, phases and jobs.
 
-## Branch Protection
+The Arena and PackC CLIs release from their own repository. See the [PromptArena docs](https://promptarena.altairalabs.ai/).
 
-- [Branch Protection Rules](/devops/branch-protection/) - Detailed branch protection documentation
-- [Branch Protection Setup](/devops/branch-protection-quickref/) - Quick reference for branch protection
+## Branch protection
 
-## For Maintainers
+- [Branch protection rules](/devops/branch-protection/): the rules in detail
+- [Branch protection quick reference](/devops/branch-protection-quickref/): a summary
 
-This documentation is primarily for project maintainers who need to:
+## For maintainers
 
-- Configure and manage CI/CD pipelines
-- Handle releases and versioning
-- Set up branch protection rules
-- Troubleshoot build and deployment issues
-- Maintain project infrastructure
+You configure the CI/CD pipelines, run releases, set branch protection rules and troubleshoot build failures.
 
-## For Contributors
+## For contributors
 
-Contributors should be familiar with:
+Read these two pages to know what runs on your pull request:
 
-- [CI/CD Pipelines](/devops/ci-cd-pipelines/) - Understanding what checks run on PRs
-- [Branch Protection](/devops/branch-protection/) - What rules apply to contributions
+- [CI/CD pipelines](/devops/ci-cd-pipelines/)
+- [Branch protection](/devops/branch-protection/)
 
-## Getting Help
+## Getting help
 
-- Check the [CI/CD Quick Reference](/devops/ci-cd-quickref/) for common issues
-- Review existing GitHub Actions workflows in `.github/workflows/`
-- Ask maintainers in GitHub issues or discussions
+- Check the [CI/CD quick reference](/devops/ci-cd-quickref/) for common issues.
+- Read the workflows in `.github/workflows/`.
+- Ask the maintainers in a GitHub issue.

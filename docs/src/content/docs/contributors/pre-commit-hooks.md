@@ -2,128 +2,91 @@
 title: Pre-Commit Hooks
 sidebar:
   order: 4
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - .github/workflows/ci.yml
+    - .github/workflows/reference-drift.yml
+    - Makefile
+    - scripts/commit-msg.sh
+    - scripts/install-hooks.sh
+    - scripts/pre-commit.sh
 ---
 
-PromptKit uses pre-commit hooks to maintain code quality. The hooks run automatically before each commit and only check **changed code**, making them fast and developer-friendly.
+PromptKit ships two git hooks. `pre-commit` checks the Go code you changed, and `commit-msg` enforces the DCO sign-off. Both run on every commit and look only at what the commit touches.
 
-## Quick Setup
+## Setup
 
-```bash
-# Install required tools
-brew install golangci-lint gosec
-pip3 install diff-cover
-
-# Enable the hook (one-time)
-chmod +x .git/hooks/pre-commit
-```
-
-Or use the installation script:
+Install the hooks once after cloning:
 
 ```bash
 ./scripts/install-hooks.sh
 ```
 
-## What Gets Checked
+The script copies `scripts/pre-commit.sh` and `scripts/commit-msg.sh` into `.git/hooks/` and reports which tools are missing. The installed copies are not tracked, so rerun the script after the sources change.
 
-The pre-commit hook runs four checks:
+Install golangci-lint at the version pinned in `.github/workflows/ci.yml`. `scripts/check-lint-version.sh` fails the lint step on any other version, and prints the `go install` command for the pinned one. `gosec` is optional.
 
-1. **Linting** - Only on changed Go files using `golangci-lint --new-from-rev=HEAD`
-2. **Security** - Security scanning with `gosec` on changed code (if installed)
-3. **Tests** - Only for packages with changes
-4. **Coverage** - Requires ≥80% test coverage on changed lines only (via `diff-cover`)
+## What the pre-commit hook checks
 
-**Speed**: Typically 15-35 seconds (vs. 2-4 minutes for full repo checks)
+The hook exits immediately when no Go files are staged. Otherwise it resolves each staged file to its nearest `go.mod` and runs lint, build and tests per changed module, and the other steps once:
 
-## Usage
+| Step | What it does |
+|---|---|
+| Lint | `golangci-lint run --new-from-rev=HEAD`, after the version check |
+| Build | `go build -o /dev/null ./...` |
+| Reference drift | `make docs-reference-check` and `make docs-sdk-reference-check`, only when staged source feeds the generated API reference |
+| Weak assertions | `scripts/check-weak-assertions.sh HEAD`, only when `_test.go` files are staged |
+| Tests and coverage | `go test` with a coverage profile, then at least 80% statement coverage per staged non-test Go file |
 
-### Normal Workflow
+The coverage check skips test files, files under `examples/` and `tests/`, `benchmarks/`, `tools/`, and a short allowlist of live-I/O files (`COVERAGE_EXEMPT_FILES` in `scripts/pre-commit.sh`, mirrored in `sonar.coverage.exclusions`). A file name ending in `_integration.go` or `_interactive.go` does not exempt a file. Extract the pure logic into a covered file instead.
 
-Commit as usual. The hook runs automatically:
-
-```bash
-git add .
-git commit -m "feat: add new feature"
-```
-
-### Skipping the Hook
-
-For emergencies or work-in-progress commits, include `[skip-pre-commit]` in your message:
+If the reference drift step fails, regenerate and stage the pages:
 
 ```bash
-git commit -m "wip: experimental changes [skip-pre-commit]"
+make docs-reference && make docs-sdk-reference
+git add docs/src/content/docs
 ```
 
-**Note**: CI will still run full checks on your PR.
+## What the commit-msg hook checks
 
-### Manual Verification
+The hook requires a `Signed-off-by: Name <email>` trailer whose email matches the commit author. Merge commits are skipped. Commit with `git commit -s`, or fix the last commit with `git commit --amend -s --no-edit`.
 
-Run the same checks manually before pushing:
+## Run the checks manually
 
 ```bash
-make verify                 # Run all checks (recommended)
-make lint-diff              # Lint changed files only
-make test-coverage-diff     # Check coverage on changes
+make verify        # lint-diff + test-fast on changed modules; not the whole hook
+make lint-diff     # golangci-lint on changed code, then gosec if installed
+make test-fast     # tests for modules with changes
 ```
 
-## How It Works
+`make verify` compares against `HEAD`, so it reports nothing on a clean tree. It skips the hook's build, coverage, weak-assertion and reference-drift steps.
 
-The pre-commit system only checks code you've changed:
+## CI
 
-- **Linting**: Uses `--new-from-rev=HEAD` to only report issues in new/modified lines
-- **Coverage**: Uses `diff-cover` to calculate coverage percentage for changed lines only
+CI runs the equivalent checks on every pull request that touches files outside its ignored paths (`.github/workflows/ci.yml`): `test`, `lint`, `build`, `weak-assertions`, `integration-tests`, `perf-regression` and a SonarCloud analysis. The reference drift check runs in `reference-drift.yml`. SonarCloud enforces 80% coverage on new and changed lines.
 
-This means:
-- ✅ You're never blocked by legacy code issues
-- ✅ All new code must pass quality checks
-- ✅ Coverage improves gradually over time
-
-## CI Integration
-
-GitHub Actions runs the same checks in the `verify` job:
-
-- Downloads coverage from the test job
-- Runs `diff-cover` against the PR base branch
-- Posts results as a PR comment
-- Fails the PR if coverage on changed lines is below 80%
+Passing the hook does not skip CI, and a failure in the hook will also fail in CI. Fix the findings, including ones in pre-existing code in files you changed.
 
 ## Troubleshooting
 
-### Hook Not Running
+### The hook does not run
 
-```bash
-chmod +x .git/hooks/pre-commit
-```
+The installed hook is missing or not executable. Rerun `./scripts/install-hooks.sh`.
 
-### Missing Tools
+### golangci-lint version mismatch
 
-```bash
-# golangci-lint
-brew install golangci-lint
+Install the pinned version with the command `scripts/check-lint-version.sh` prints.
 
-# gosec (security scanner)
-brew install gosec
+### Coverage check fails
 
-# diff-cover
-pip3 install diff-cover
-```
-
-### Coverage Check Fails
-
-The hook shows which lines need test coverage. Options:
-
-1. Add tests for the changed lines (recommended)
-2. Use `[skip-pre-commit]` if the code is truly not testable
-3. Run `make test-coverage-diff` to see a detailed report
+The hook lists each file with its coverage. Add tests for the uncovered statements, then commit again. Run `make coverage` for a full report.
 
 ## Configuration
 
-### Changing Coverage Threshold
-
-Edit the `--fail-under` value in:
-- `Makefile` (test-coverage-diff target)
-- `.git/hooks/pre-commit`
-- `.github/workflows/ci.yml` (verify job)
-
-### Disabling Specific Linters
-
-Edit `.golangci.yml` to disable linters that don't fit your workflow.
+| To change | Edit |
+|---|---|
+| Linter set | `.golangci.yml` |
+| Per-file coverage threshold | `COVERAGE_THRESHOLD` in `scripts/pre-commit.sh`, plus the SonarCloud quality gate |
+| Coverage exemptions | `COVERAGE_EXEMPT_FILES` in `scripts/pre-commit.sh` and `sonar.coverage.exclusions` in `sonar-project.properties` |
+| Pinned linter version | the `golangci-lint-action` step in `.github/workflows/ci.yml` |

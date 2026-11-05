@@ -1,0 +1,30 @@
+{
+ "page": "docs/src/content/docs/contributors/governance.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "g1",
+   "claim": "Arena and PackC live in the separate promptarena repository; Makefile builds only runtime, sdk, pkg, server/a2a",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:35",
+    "Makefile:37",
+    "Makefile:39"
+   ]
+  },
+  {
+   "id": "g2",
+   "claim": "Merges require review approval via branch protection",
+   "verdict": "true",
+   "evidence": [
+    "scripts/setup-branch-protection.sh:61"
+   ]
+  },
+  {
+   "id": "g3",
+   "claim": "Process claims (committers, maintainer nomination, 6 month record, 2 week change period)",
+   "verdict": "unverified",
+   "evidence": []
+  }
+ ]
+}
