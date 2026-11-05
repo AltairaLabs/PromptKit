@@ -18,7 +18,8 @@ import (
 type EmbeddingProviderSpec struct {
 	// ID is a stable identifier; informational only at this layer.
 	ID string
-	// Type selects the implementation: openai, gemini, voyageai, ollama.
+	// Type selects the implementation: openai, gemini, voyageai, ollama,
+	// huggingface, bedrock or vertex.
 	Type string
 	// Model overrides the provider's default embedding model. Empty
 	// uses the per-provider default.
@@ -46,8 +47,8 @@ type EmbeddingProviderSpec struct {
 
 // EmbeddingProviderFactory builds an EmbeddingProvider from a spec.
 // Per-provider packages register one of these via init() so the
-// providers package never needs to import them (avoiding a cycle —
-// the implementations already import providers for the interface).
+// providers package never needs to import them (the implementations already
+// import providers for the interface).
 type EmbeddingProviderFactory func(spec EmbeddingProviderSpec) (EmbeddingProvider, error)
 
 var (
@@ -57,8 +58,8 @@ var (
 
 // RegisterEmbeddingProviderFactory registers a factory for the given
 // provider type. Typically called from per-provider package init().
-// Re-registration overwrites silently — matching RegisterProviderFactory
-// for chat providers.
+// Re-registration overwrites silently, as RegisterProviderFactory does for
+// chat providers.
 func RegisterEmbeddingProviderFactory(providerType string, factory EmbeddingProviderFactory) {
 	embeddingFactoriesMu.Lock()
 	defer embeddingFactoriesMu.Unlock()
@@ -81,12 +82,11 @@ func RegisteredEmbeddingProviderTypes() []string {
 }
 
 // CreateEmbeddingProviderFromSpec returns an EmbeddingProvider
-// implementation for the given spec. Mirrors CreateProviderFromSpec
-// for chat providers but is intentionally slimmer: embedding providers
-// don't stream, so only spec.Tuning (headers, request timeout, transport)
-// is applied after construction.
-//
-// spec is a value-semantics builder; callers assemble inline.
+// implementation for the given spec. Like CreateProviderFromSpec for chat
+// providers, it calls the registered factory, then applies spec.Tuning
+// (headers, request timeout, transport) when it is set. It returns an error
+// when no factory is registered for spec.Type, and when Tuning is set for a
+// provider that is not base.HTTPTunable.
 func CreateEmbeddingProviderFromSpec(spec EmbeddingProviderSpec) (EmbeddingProvider, error) {
 	embeddingFactoriesMu.RLock()
 	factory, ok := embeddingFactories[spec.Type]
@@ -124,8 +124,8 @@ func ResolveEmbeddingCredential(ctx context.Context, providerType string,
 // APIKeyFromCredential returns the raw API key from an APIKey
 // credential, or "" for any other credential shape (or nil).
 // Embedding providers only need the key string, not the full
-// header-application machinery — exposed here so per-provider
-// init() functions can build their factory closures.
+// header-application machinery. Per-provider init() functions use it to
+// build their factory closures.
 func APIKeyFromCredential(c credentials.Credential) string {
 	if c == nil {
 		return ""

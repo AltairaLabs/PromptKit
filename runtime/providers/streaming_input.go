@@ -13,7 +13,7 @@ import (
 //
 // Example usage:
 //
-//	session, err := provider.CreateStreamSession(ctx, StreamInputRequest{
+//	session, err := provider.CreateStreamSession(ctx, &StreamingInputConfig{
 //	    Config: types.StreamingMediaConfig{
 //	        Type:       types.ContentTypeAudio,
 //	        ChunkSize:  8192,
@@ -305,7 +305,7 @@ func (r VideoResolution) String() string {
 	return fmt.Sprintf("%dx%d", r.Width, r.Height)
 }
 
-// Validate checks if the StreamInputRequest is valid
+// Validate checks that the streaming media Config is valid.
 func (r *StreamingInputConfig) Validate() error {
 	return r.Config.Validate()
 }

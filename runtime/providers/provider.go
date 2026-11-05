@@ -1,14 +1,23 @@
-// Package providers implements multi-LLM provider support with unified interfaces.
+// Package providers defines the interfaces and shared machinery behind PromptKit's
+// model providers.
 //
-// This package provides a common abstraction for predict-based LLM providers including
-// OpenAI, Anthropic Claude, and Google Gemini. It handles:
-//   - Predict completion requests with streaming support
-//   - Tool/function calling with provider-specific formats
-//   - Cost tracking and token usage calculation
-//   - Rate limiting and error handling
+// It gives chat (predict) providers one abstraction, Provider, with ToolSupport for
+// function calling and StreamInputSupport for realtime audio and video. Embedding
+// and rerank providers have their own interfaces, EmbeddingProvider and
+// RerankProvider. The concrete providers (openai, claude, gemini, ollama, vllm,
+// bedrock, vertex, voyageai, cohere and others) live in subpackages and register
+// themselves with RegisterProviderFactory, RegisterEmbeddingProviderFactory and
+// RegisterRerankProviderFactory.
 //
-// All providers implement the Provider interface for basic predict, and ToolSupport
-// interface for function calling capabilities.
+// The package provides:
+//   - PredictionRequest and PredictionResponse, the request and response types
+//   - CreateProviderFromSpec, which builds a provider from a ProviderSpec
+//   - BaseProvider, which carries HTTP clients, retry, rate limiting, stream
+//     concurrency limits and request helpers for provider implementations
+//   - Streaming types (StreamChunk, StreamInputSession), pre-first-chunk stream
+//     retry, and Prometheus stream metrics
+//   - Multimodal capability checks and media loading
+//   - Typed errors (ProviderHTTPError, ProviderTransportError) and IsTransient
 package providers
 
 import (
@@ -140,7 +149,7 @@ func (r *PredictionRequest) setsParam(param string) bool {
 // Ordering: existing System content first, then system-role message content
 // in original order, separated by double newlines.
 //
-// This method is idempotent — calling it on an already-normalized request
+// This method is idempotent: calling it on an already-normalized request
 // (no system-role messages in Messages) is a no-op.
 func (r *PredictionRequest) NormalizeMessages() {
 	var systemParts []string
@@ -195,7 +204,9 @@ type PredictionResponse struct {
 	FinishReason string `json:"finish_reason,omitempty"`
 }
 
-// Pricing defines cost per 1K tokens for input and output
+// Pricing holds flat cost-per-1K-token rates for input and output. When both
+// are positive they take precedence over a provider's built-in per-model price
+// table, which serves as a fallback and is not an authoritative price list.
 type Pricing struct {
 	InputCostPer1K  float64
 	OutputCostPer1K float64
@@ -242,7 +253,7 @@ func ResolveMaxTokens(requested int, defaults ProviderDefaults) int {
 type Provider interface {
 	base.Provider // adds Name, Type, Pricing, Validate, Init, HealthCheck, Close
 
-	// ID returns the provider ID. Deprecated alias for Name(); kept for back-compat.
+	// ID returns the provider ID. It is an alias for Name.
 	ID() string
 
 	// Model returns the model name/identifier used by this provider.
@@ -277,8 +288,9 @@ func AssertInferenceProvider(p base.Provider) (InferenceProvider, error) {
 
 // ContextWindowProvider is an optional interface for providers that can report
 // their context window size. The compactor budget is auto-configured from it
-// when a provider implements it; otherwise the compactor falls back to
-// stage.DefaultBudgetTokens. No built-in provider implements it today.
+// when a provider implements it and returns a positive value; otherwise the
+// compactor falls back to stage.DefaultBudgetTokens. The openai, claude, gemini
+// and ollama providers implement it.
 type ContextWindowProvider interface {
 	MaxContextTokens() int
 }
@@ -306,15 +318,11 @@ type ToolDescriptor struct {
 type ToolResult = types.MessageToolResult
 
 // ProviderTools represents provider-specific tool configuration.
-// Each provider returns its own native format:
-//   - OpenAI: []openAITool
-//   - Claude: []claudeTool
-//   - Gemini: geminiToolWrapper
-//   - Ollama: []ollamaTool
-//   - vLLM: []vllmTool
-//   - Mock: []*ToolDescriptor
+// Each provider returns its own native format, an unexported type that callers
+// treat as opaque. A provider may return nil when given no descriptors.
 //
-// The value returned by BuildTooling should be passed directly to PredictWithTools.
+// Pass the value returned by BuildTooling directly to PredictWithTools or
+// PredictStreamWithTools.
 type ProviderTools = any
 
 // ToolSupport interface for providers that support tool/function calling

@@ -30,7 +30,7 @@ type BaseEmbeddingProvider struct {
 	HTTPClient    *http.Client
 	// Dimensions is the vector length the configured model produces: the
 	// size the caller declared, else the size of a model the provider knows.
-	// It is 0 when neither applies — the provider then takes the length of
+	// It is 0 when neither applies, and the provider then takes the length of
 	// the first vector it gets back rather than guessing one.
 	Dimensions int
 	ProviderID string
@@ -183,7 +183,7 @@ type HTTPRequestConfig struct {
 	UseAPIKey   bool   // If true, adds Authorization: Bearer <APIKey> header
 	ContentType string // Defaults to application/json
 	// Headers are set on the request before it is sent. Providers that
-	// authenticate with a non-Bearer scheme use this — notably Gemini, whose
+	// authenticate with a non-Bearer scheme use this, notably Gemini, whose
 	// key goes in x-goog-api-key so it never enters the URL and therefore
 	// never reaches a log through *url.Error.
 	Headers map[string]string
@@ -201,13 +201,11 @@ func (b *BaseEmbeddingProvider) DoEmbeddingRequest(
 // DoAncillaryJSONRequest POSTs a JSON body for one of the ancillary provider
 // roles (embedding, rerank) and returns the raw response body.
 //
-// Shared by both rather than copied, because the error handling is the part
-// worth getting right once: a transport failure is wrapped as
-// ProviderTransportError, not a bare fmt.Errorf, because that is the type
-// whose Error() redacts credential-bearing query parameters. A plain wrap
-// formats the raw *url.Error (full URL included) straight into the message,
-// which can put a live key in the logs. It also makes these
-// failures classifiable by IsTransient, like every other provider path.
+// A transport failure returns a *ProviderTransportError, whose Error()
+// redacts credential-bearing query parameters and which IsTransient classifies
+// as transient. A non-200 status returns a *ProviderHTTPError. The request
+// sets Authorization to "Bearer <apiKey>" only when cfg.UseAPIKey is true and
+// apiKey is not empty.
 func DoAncillaryJSONRequest(
 	ctx context.Context,
 	client *http.Client,
@@ -256,8 +254,10 @@ func DoAncillaryJSONRequest(
 	return body, nil
 }
 
-// ExtractOrderedEmbeddings extracts embeddings from indexed response data
-// and places them in the correct order. Returns an error if count doesn't match.
+// ExtractOrderedEmbeddings places each item's embedding at the position
+// getIndex reports, in a slice of expectedCount entries. Items whose index is
+// outside [0, expectedCount) are dropped, and a position no item fills stays
+// nil. The error result is always nil.
 func ExtractOrderedEmbeddings[T any](
 	data []T,
 	getIndex func(T) int,

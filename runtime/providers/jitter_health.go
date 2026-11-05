@@ -2,8 +2,8 @@ package providers
 
 // jitterHealthCounters is the read side of a realtime audio buffer's health
 // counters, satisfied by *runtime/audio.JitterBuffer. It is declared here as an
-// interface so this package need not import runtime/audio — keeping the audio
-// package Prometheus-free (the metric wiring lives one layer up, here).
+// interface so this package need not import runtime/audio, which keeps the
+// audio package free of Prometheus.
 type jitterHealthCounters interface {
 	Underruns() int64
 	UnderrunSamples() int64
@@ -15,10 +15,9 @@ type jitterHealthCounters interface {
 // per buffer and calls Report once per pull/tick; it remembers the last-seen
 // cumulative values so repeated calls never double-count.
 //
-// This is the reusable seam between any realtime audio consumer and the off-bus
-// StreamMetrics layer — the PortAudio sample uses it, and so does the pipeline
-// integration test. The zero value is ready to use. Not safe for concurrent
-// use: call Report from the single consumer goroutine.
+// It connects a realtime audio consumer to the off-bus StreamMetrics layer.
+// The zero value is ready to use. It is not safe for concurrent use: call
+// Report from the single consumer goroutine.
 type JitterHealthReporter struct {
 	prevUnderruns       int64
 	prevUnderrunSamples int64

@@ -10,7 +10,7 @@ import (
 //
 // Unlike embedding, which scores each text on its own and leaves the comparison
 // to the caller, a reranker reads the query and a document together. That is
-// what makes it more accurate — and why its output cannot be cached per
+// what makes it more accurate, and why its output cannot be cached per
 // document the way a vector can.
 type RerankRequest struct {
 	// Query is the text documents are ranked against. Required.
@@ -87,8 +87,8 @@ type RerankProvider interface {
 	// context cancellation and deadlines.
 	//
 	// An empty Documents slice returns an empty result and no error: having
-	// nothing to rank is a normal outcome of an upstream search, not a
-	// failure worth propagating.
+	// nothing to rank is a normal outcome of an upstream search. An empty
+	// Query is an error.
 	Rerank(ctx context.Context, req RerankRequest) (RerankResponse, error)
 
 	// MaxDocuments reports the most candidates one call accepts. Callers

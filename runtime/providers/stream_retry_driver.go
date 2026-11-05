@@ -29,8 +29,7 @@ type StreamRetryResult struct {
 }
 
 // StreamRetryRequest bundles the dependencies for a streaming retry
-// attempt. This exists so OpenStreamWithRetryRequest can grow new
-// parameters (budget, host label, etc.) without breaking every call site.
+// attempt: the policy, budget, metric labels, request factory and HTTP client.
 type StreamRetryRequest struct {
 	Policy       StreamRetryPolicy
 	Budget       *RetryBudget // nil means unbounded retries
@@ -41,10 +40,10 @@ type StreamRetryRequest struct {
 	Client       *http.Client
 	// FrameDetector identifies the first complete protocol frame on
 	// the response body so the retry driver knows when the stream is
-	// "established" and retry must not fire. Nil defaults to
-	// SSEFrameDetector — set to NDJSONFrameDetector for Ollama,
-	// JSONArrayFrameDetector for Gemini, or any custom FrameDetector
-	// implementation for new protocols.
+	// established and retry must not fire. Nil defaults to
+	// SSEFrameDetector. Use NDJSONFrameDetector for newline-delimited JSON,
+	// JSONArrayFrameDetector for Gemini, or a custom FrameDetector
+	// for other protocols.
 	FrameDetector FrameDetector
 }
 
@@ -82,11 +81,11 @@ func OpenStreamWithRetry(
 	})
 }
 
-// OpenStreamWithRetryRequest is the full-featured form of OpenStreamWithRetry
-// that accepts a budget and host label. Retries beyond the initial attempt
+// OpenStreamWithRetryRequest is the full form of OpenStreamWithRetry that
+// accepts a budget and host label. Retries beyond the initial attempt
 // must acquire a token from req.Budget (if non-nil) before re-dialing; an
 // empty budget causes the function to return the last error immediately
-// (fail-fast) rather than waiting for token refill.
+// rather than waiting for token refill. It returns an error when req is nil.
 //
 //nolint:gocognit // Retry loop with classification, backoff, budget, and metric emission
 func OpenStreamWithRetryRequest(ctx context.Context, req *StreamRetryRequest) (*StreamRetryResult, error) {
@@ -152,12 +151,10 @@ func OpenStreamWithRetryRequest(ctx context.Context, req *StreamRetryRequest) (*
 		}
 
 		// Before we commit to a retry, take a token from the budget.
-		// Empty budget = fail fast. This is the load-bearing line of
-		// Phase 2: when an upstream connection reset kills 100 streams
-		// at once, the budget ensures only ~burst of them re-dial and
-		// the rest fail fast with the original error, preserving the
-		// upstream's remaining capacity for the retries that win the
-		// race.
+		// An empty budget fails fast: when an upstream connection reset
+		// kills 100 streams at once, only about burst of them re-dial and
+		// the rest fail with the original error, preserving the
+		// upstream's remaining capacity.
 		if !req.Budget.TryAcquire() {
 			metrics.RetryAttempt(req.ProviderName, "budget_exhausted")
 			metrics.ObserveRetryBudgetAvailable(req.ProviderName, req.Host, req.Budget)

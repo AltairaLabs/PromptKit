@@ -1,4 +1,3 @@
-// Package providers implements multi-LLM provider support with unified interfaces.
 package providers
 
 import "context"
@@ -31,18 +30,22 @@ type EmbeddingUsage struct {
 }
 
 // EmbeddingProvider generates text embeddings for semantic similarity operations.
-// Implementations exist for OpenAI, Gemini, and other embedding APIs.
+// Implementations exist for OpenAI, Gemini, Voyage AI, Hugging Face, Ollama,
+// Bedrock and Vertex AI.
 //
 // Embeddings are dense vector representations of text that capture semantic meaning.
 // Similar texts will have embeddings with high cosine similarity scores.
 //
 // Example usage:
 //
-//	provider, _ := openai.NewEmbeddingProvider()
+//	provider, err := openai.NewEmbeddingProvider()
+//	if err != nil {
+//	    return err
+//	}
 //	resp, err := provider.Embed(ctx, providers.EmbeddingRequest{
 //	    Texts: []string{"Hello world", "Hi there"},
 //	})
-//	similarity := CosineSimilarity(resp.Embeddings[0], resp.Embeddings[1])
+//	similarity := stage.CosineSimilarity(resp.Embeddings[0], resp.Embeddings[1])
 type EmbeddingProvider interface {
 	// Embed generates embeddings for the given texts.
 	// The response contains one embedding vector per input text, in the same order.
@@ -52,7 +55,7 @@ type EmbeddingProvider interface {
 	// EmbeddingDimensions returns the dimensionality of embedding vectors:
 	// the size configured for the provider, else the known size of its model,
 	// else the size observed on the first Embed call. It returns 0 when none
-	// of these is available yet — embed one text first if you need the size
+	// of these is available yet. Embed one text first if you need the size
 	// before storing vectors.
 	EmbeddingDimensions() int
 

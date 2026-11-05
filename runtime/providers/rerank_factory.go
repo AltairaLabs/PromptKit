@@ -41,9 +41,8 @@ type RerankProviderSpec struct {
 }
 
 // RerankProviderFactory builds a RerankProvider from a spec. Per-provider
-// packages register one via init() so this package never imports them — the
-// implementations already import it for the interface, and the reverse would
-// be a cycle.
+// packages register one via init() so this package never imports them (the
+// implementations already import it for the interface).
 type RerankProviderFactory func(spec RerankProviderSpec) (RerankProvider, error)
 
 var (
@@ -74,12 +73,11 @@ func RegisteredRerankProviderTypes() []string {
 	return types
 }
 
-// CreateRerankProviderFromSpec builds a rerank provider for spec.Type.
-//
-// This is the seam worth testing a new backend through: a factory that was
-// never registered (an import missing, an init() that did not run) produces
-// exactly this error, and a constructor test would not catch it because it
-// calls the constructor directly.
+// CreateRerankProviderFromSpec builds a rerank provider for spec.Type. It
+// returns an error naming the registered types when none is registered for
+// spec.Type, which happens when the provider's package is not imported. It
+// applies spec.Tuning after construction and returns an error when Tuning is
+// set for a provider that is not base.HTTPTunable.
 func CreateRerankProviderFromSpec(spec RerankProviderSpec) (RerankProvider, error) {
 	rerankFactoriesMu.RLock()
 	factory, ok := rerankFactories[spec.Type]
@@ -129,11 +127,8 @@ type RerankTransport struct {
 // ResolveRerankTransport turns a spec's credential into the base URL and API
 // key a vendor constructor needs.
 //
-// Platform-hosted reranking (Azure/Bedrock/Vertex) is not wired: no hyperscaler
-// exposes a first-party rerank endpoint the way they do embeddings, so rather
-// than guess at an endpoint shape this rejects the combination outright. A
-// declared-but-unroutable platform would otherwise fall through to the direct
-// API path and fail later with a confusing auth error.
+// Platform-hosted reranking (Azure, Bedrock, Vertex) is not supported: a spec
+// with a Platform returns an error.
 func ResolveRerankTransport(spec RerankProviderSpec) (RerankTransport, error) {
 	if spec.Platform != "" {
 		return RerankTransport{}, fmt.Errorf(

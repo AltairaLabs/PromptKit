@@ -73,11 +73,9 @@ func (b *BaseRerankProvider) ResolveModel(reqModel string) string {
 // RerankWithEmptyCheck short-circuits the degenerate requests every vendor
 // would otherwise have to guard against, and delegates the rest.
 //
-// No documents is NOT an error: an upstream search returning nothing is a
-// normal outcome, and making it an error would force every caller to
-// distinguish "search found nothing" from "the reranker is down". An empty
-// query IS an error — ranking against nothing is meaningless, and silently
-// returning the input order would look like the reranker had run.
+// No documents is not an error: it returns an empty result carrying the
+// resolved model. An empty query is an error, as is a document list longer
+// than MaxDocs when MaxDocs is positive.
 func (b *BaseRerankProvider) RerankWithEmptyCheck(
 	ctx context.Context,
 	req RerankRequest,
@@ -100,8 +98,8 @@ func (b *BaseRerankProvider) RerankWithEmptyCheck(
 
 // DoRerankRequest performs the vendor's HTTP call. It shares
 // DoAncillaryJSONRequest with the embedding path so both roles wrap transport
-// failures the same way — which matters, because that wrapping is what redacts
-// credential-bearing URLs and makes failures classifiable by IsTransient.
+// failures the same way, which redacts credential-bearing URLs and makes
+// failures classifiable by IsTransient.
 func (b *BaseRerankProvider) DoRerankRequest(
 	ctx context.Context, cfg HTTPRequestConfig,
 ) ([]byte, error) {

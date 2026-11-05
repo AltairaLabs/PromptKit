@@ -18,12 +18,13 @@ const (
 	DefaultGeminiBaseURL = "https://generativelanguage.googleapis.com/v1beta"
 )
 
-// Registry manages available inference providers, backed by a (name, capability)-keyed
-// base.Registry for typed lookups and a legacy ID-keyed map for back-compat.
+// Registry manages available inference providers. It keeps an ID-keyed map for
+// Get and List, and a base.Registry keyed by (name, capability) for typed lookups.
 //
-// Back-compat contract: Register(provider) and Get(id) continue to work as before,
-// keyed by provider.ID(). The typed API (Base, GetByType, GetAll) delegates to the
-// underlying base.Registry which is keyed by (provider.Name(), provider.Type()).
+// Register and Get key on provider.ID(). The typed API (Base, GetByType, GetAll)
+// delegates to the underlying base.Registry, which keys on
+// (provider.Name(), provider.Type()). Registry is not safe for concurrent
+// Register, Get and Close calls.
 type Registry struct {
 	// providers is the legacy ID-keyed map preserved for back-compat with
 	// existing call sites that use Get(id) and List().
@@ -52,9 +53,9 @@ func RegisterProviderFactory(providerType string, factory ProviderFactory) {
 }
 
 // RegisteredProviderTypes returns the completion (chat) provider types with a
-// registered factory, sorted. This is the registry CreateProviderFromSpec
-// resolves against for the llm, image and video roles alike — a type listed
-// here will construct for any of them.
+// registered factory, sorted. CreateProviderFromSpec resolves against this
+// registry for the llm, image and video roles alike, so a type listed here
+// constructs for any of them.
 func RegisteredProviderTypes() []string {
 	providerFactoriesMu.RLock()
 	defer providerFactoriesMu.RUnlock()
@@ -80,16 +81,15 @@ func (r *Registry) Base() *base.Registry {
 	return r.base
 }
 
-// Register adds a provider to the registry, keyed by provider.ID() for
-// back-compat. It also registers into the typed base.Registry (keyed by
-// provider.Name() + provider.Type()); duplicate base registrations are silently
-// accepted — the base entry is replaced to match the legacy overwrite semantics.
+// Register adds a provider to the registry, keyed by provider.ID(). A second
+// provider with the same ID replaces the first for Get and List. It also
+// registers into the typed base.Registry (keyed by provider.Name() and
+// provider.Type()), which keeps the first provider registered under a
+// (name, type) pair: GetByType and GetAll do not see a replacement.
 func (r *Registry) Register(provider Provider) {
 	r.providers[provider.ID()] = provider
-	// Best-effort registration into the typed registry. Swallow duplicate errors
-	// so that callers which rely on Register silently overwriting a prior entry
-	// continue to work unchanged. Subsequent typed lookups via GetByType/GetAll
-	// will see the latest provider for a given (name, type) pair.
+	// The typed registry rejects a duplicate (name, type); the error is
+	// discarded so Register never fails.
 	_ = r.base.Register(provider)
 }
 
@@ -121,8 +121,9 @@ func (r *Registry) List() []string {
 	return ids
 }
 
-// Close closes all registered providers and cleans up their resources.
-// Returns the first error encountered, if any.
+// Close closes the registered providers in unspecified order and stops at the
+// first error, which it returns. The providers after the failing one stay
+// open.
 func (r *Registry) Close() error {
 	for _, provider := range r.providers {
 		if err := provider.Close(); err != nil {
@@ -139,7 +140,8 @@ type ProviderSpec struct {
 	Model   string
 	BaseURL string
 	// Headers contains custom HTTP headers to include in every request.
-	// Applied after built-in provider headers; collisions cause an error.
+	// A header that collides with one the provider sets itself (compared
+	// case-insensitively) makes the request fail with an error.
 	Headers          map[string]string
 	Defaults         ProviderDefaults
 	IncludeRawOutput bool
@@ -157,71 +159,59 @@ type ProviderSpec struct {
 	// Only set when Platform is non-empty.
 	PlatformConfig *PlatformConfig
 
-	// UnsupportedParams lists model parameters not supported by this provider model.
-	// For example, o-series OpenAI models don't support "temperature", "top_p", or "max_tokens".
+	// UnsupportedParams lists sampling parameters the model does not take
+	// (for example "temperature" or "top_p"). The provider does not send them.
 	UnsupportedParams []string
 
 	// Capabilities lists the modalities/features the configured model supports
 	// (e.g. "text", "vision", "audio", "video", "tools", "json"). When set, it
 	// is the source of truth for multimodal support, replacing per-model
-	// hardcoding inside providers. Empty means "not declared" — providers fall
-	// back to their built-in defaults.
+	// hardcoding inside providers. Empty means "not declared", and providers
+	// fall back to their built-in defaults.
 	Capabilities []string
 
 	// RequestTimeout caps the wall-clock duration of request/response HTTP
-	// calls (Predict, embeddings). Zero falls back to
-	// httputil.DefaultProviderTimeout. Does not apply to SSE streaming
-	// calls, which are unbounded by wall-clock and governed by
-	// StreamIdleTimeout + context cancellation. Pre-parsed from
-	// config.Provider.RequestTimeout by the arena loader.
+	// calls (Predict, embeddings). Zero keeps the provider's default timeout.
+	// Does not apply to SSE streaming calls, which are unbounded by wall-clock
+	// and governed by StreamIdleTimeout and context cancellation.
 	RequestTimeout time.Duration
 
 	// StreamIdleTimeout bounds how long an SSE streaming body may remain
-	// silent before it is aborted; timer resets on every byte. Zero falls
-	// back to DefaultStreamIdleTimeout. Pre-parsed from
-	// config.Provider.StreamIdleTimeout by the arena loader.
+	// silent before it is aborted; the timer resets on every read that returns
+	// data. Zero falls back to DefaultStreamIdleTimeout.
 	StreamIdleTimeout time.Duration
 
 	// StreamRetry configures bounded retry for streaming requests that
-	// fail in the pre-first-chunk window. Zero value (disabled) leaves
-	// the provider with no streaming retry. Pre-parsed from
-	// config.Provider.StreamRetry by the arena loader.
+	// fail in the pre-first-chunk window. The zero value (disabled) leaves
+	// the provider with no streaming retry.
 	StreamRetry StreamRetryPolicy
 
 	// StreamRetryBudget is a pre-constructed token bucket that
 	// rate-limits retry attempts across all in-flight requests on this
-	// provider. Nil means "unbounded retries" (only MaxAttempts caps
-	// them). Pre-parsed from config.Provider.StreamRetry.Budget by the
-	// arena loader. Each provider instance gets its own budget so one
-	// misbehaving model cannot starve retry capacity for others.
+	// provider. Nil means unbounded retries (only MaxAttempts caps them).
+	// It is applied only when StreamRetry.Enabled is true. Each provider
+	// instance gets its own budget, so one misbehaving model cannot starve
+	// retry capacity for others.
 	StreamRetryBudget *RetryBudget
 
 	// StreamMaxConcurrent caps the number of concurrent streaming
-	// requests the provider will have in flight. Zero means unlimited
-	// (backwards-compatible default). Pre-parsed from
-	// config.Provider.StreamMaxConcurrent by the arena loader. Applied
-	// via SetStreamSemaphore on providers that implement the
-	// streamConcurrencyConfigurable interface.
+	// requests the provider will have in flight. Zero means unlimited. It is
+	// applied through SetStreamSemaphore on providers that embed BaseProvider.
 	StreamMaxConcurrent int
 
 	// StorageService resolves MediaContent.StorageReference values at
 	// request-build time (to a model-fetchable URL via GetURL, or bytes via
-	// RetrieveMedia). Applied via SetMediaStorageService on providers
-	// implementing MediaStorageConfigurable. Nil = disabled.
+	// RetrieveMedia). It is applied through SetMediaStorageService on providers
+	// implementing MediaStorageConfigurable. Nil disables storage references.
 	StorageService storage.MediaStorageService
 
 	// HTTPTransport configures the per-provider HTTP connection pool.
 	// Zero-valued fields fall back to package-level defaults
-	// (DefaultMaxConnsPerHost, etc.). Applied via SetHTTPTransport on
-	// providers that implement the httpTransportConfigurable interface,
-	// replacing the default pooled transport the factory constructed.
-	//
-	// See AltairaLabs/PromptKit#873 for motivation: at higher concurrency
-	// than the repo was originally sized for, the hardcoded
-	// MaxConnsPerHost: 100 becomes the wall before PromptKit's own
-	// machinery does. Raising this (paired with operator awareness of
-	// the upstream's SETTINGS_MAX_CONCURRENT_STREAMS) is the primary
-	// lever on realistic single-process concurrent-stream capacity.
+	// (DefaultMaxConnsPerHost, etc.). It is applied through SetHTTPTransport on
+	// providers that embed BaseProvider, replacing the default pooled
+	// transport the factory constructed. MaxConnsPerHost, together with the
+	// upstream's SETTINGS_MAX_CONCURRENT_STREAMS, bounds the concurrent
+	// streams one process can hold open to a host.
 	HTTPTransport HTTPTransportOptions
 
 	// MessageMetadataTemplate renders a message's application metadata
@@ -334,7 +324,7 @@ type MediaSettings struct {
 // provider's clients and state; only the media settings differ, so a host
 // that shares one provider across conversations keeps each one's store and
 // network policy its own. Setting them on the shared provider
-// (MediaStorageConfigurable) let the last conversation opened decide for all.
+// (MediaStorageConfigurable) lets the last conversation opened decide for all.
 type MediaScoped interface {
 	WithMediaSettings(MediaSettings) Provider
 }
@@ -358,7 +348,12 @@ func openAIBuildsPlatformBaseURL(platform string) bool {
 }
 
 // CreateProviderFromSpec creates a provider implementation from a spec.
-// Returns an error if the provider type is unsupported.
+// It fills in spec.BaseURL with the type's default (OpenAI, Gemini, Claude,
+// Ollama and vLLM have one) when it is empty, calls the factory registered for
+// spec.Type, then applies the spec's timeouts, stream retry and concurrency
+// settings, HTTP transport, custom headers, media storage and message
+// metadata template to the provider. It returns an UnsupportedProviderError
+// when no factory is registered for spec.Type.
 func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 	baseURL := defaultBaseURLForSpec(&spec)
 
@@ -505,7 +500,9 @@ func applyTransportConfig(provider Provider, spec *ProviderSpec) {
 	}
 }
 
-// UnsupportedProviderError is returned when a provider type is not recognized
+// UnsupportedProviderError is returned when no factory is registered for a
+// provider type. When the type names a hosting platform (bedrock, vertex or
+// azure), the message says which vendor types to use instead.
 type UnsupportedProviderError struct {
 	ProviderType string
 }
@@ -536,11 +533,9 @@ func (e *UnsupportedProviderError) Error() string {
 }
 
 // UnsupportedProviderPlatformError is returned when a provider type is
-// recognized but the requested platform is not a real partner endpoint
-// for that vendor (e.g. openai+vertex — Vertex does not host OpenAI
-// models natively). The error fires at provider construction so the
-// failure is config-time rather than first-request, giving operators a
-// fast and explicit signal that the combination is unavailable.
+// recognized but the requested platform does not host that vendor's models
+// (for example openai on vertex). It is returned at provider construction, so
+// the failure surfaces at configuration time rather than on the first request.
 type UnsupportedProviderPlatformError struct {
 	ProviderType string
 	Platform     string
@@ -555,10 +550,8 @@ func (e *UnsupportedProviderPlatformError) Error() string {
 
 // RejectPlatforms wraps a ProviderFactory so it returns an
 // UnsupportedProviderPlatformError when spec.Platform is in rejected.
-// Used by per-provider init() to fail fast on (provider, platform) pairs
-// the underlying vendor doesn't host. Pairs that are real partner
-// endpoints either route through inner with a custom URL builder, or
-// fall through unchanged when the spec carries no platform.
+// Per-provider init() functions use it to fail fast on (provider, platform)
+// pairs the underlying vendor does not host.
 func RejectPlatforms(rejected map[string]bool, inner ProviderFactory) ProviderFactory {
 	return func(spec ProviderSpec) (Provider, error) {
 		if rejected[spec.Platform] {
@@ -571,17 +564,17 @@ func RejectPlatforms(rejected map[string]bool, inner ProviderFactory) ProviderFa
 	}
 }
 
-// HasCredential returns true if the spec has a real (non-empty, non-"none") credential.
-// Use this in factory functions to decide between credential-based and env-var-based constructors.
+// HasCredential returns true if the spec has a credential whose type is not
+// "none". Factory functions use it to choose between credential-based and
+// environment-variable-based constructors.
 func (s *ProviderSpec) HasCredential() bool {
 	return s.Credential != nil && s.Credential.Type() != "none"
 }
 
-// CredentialFactory builds a ProviderFactory that routes between a credential-based
-// constructor and an env-var-based constructor. This eliminates the duplicated
-// init() pattern across provider packages.
+// CredentialFactory builds a ProviderFactory that calls withCred when the spec
+// has a credential (HasCredential) and withoutCred otherwise.
 //
-// Usage in provider init():
+// Example, in a provider's init():
 //
 //	providers.RegisterProviderFactory("claude", providers.CredentialFactory(
 //	    func(spec providers.ProviderSpec) (providers.Provider, error) {

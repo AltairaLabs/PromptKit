@@ -20,13 +20,12 @@ const (
 	defaultHTTPTimeout     = 30 * time.Second // Default timeout for HTTP requests
 	defaultMaxURLSizeBytes = 50 * 1024 * 1024 // 50MB default max size for URL content
 
-	// MaxAggregateMediaSize is the maximum total size of all media items in a single
-	// request (100MB). This prevents excessive memory usage when processing messages
-	// with many media attachments.
+	// MaxAggregateMediaSize is the maximum total size of all file and URL media
+	// one MediaLoader loads (100MB).
 	MaxAggregateMediaSize int64 = 100 * 1024 * 1024
 
-	// MaxMediaItems is the maximum number of media items allowed per message/request.
-	// This prevents abuse and excessive resource consumption.
+	// MaxMediaItems is the maximum number of media items one MediaLoader loads.
+	// GetBase64Data returns an error once the limit is reached.
 	MaxMediaItems = 20
 
 	// largeFileWarningThreshold is the size above which a warning is logged about
@@ -60,7 +59,8 @@ type MediaLoaderConfig struct {
 	// HTTPTimeout for URL fetching (default: 30s)
 	HTTPTimeout time.Duration
 
-	// MaxURLSizeBytes is the maximum size for URL-based media (default: 50MB)
+	// MaxURLSizeBytes is the maximum size for URL-based media and for a local
+	// file (default: 50MB)
 	MaxURLSizeBytes int64
 
 	// AllowPrivateNetworks lets URL media be fetched from loopback, private,
@@ -142,8 +142,8 @@ func (ml *MediaLoader) GetBase64Data(ctx context.Context, media *types.MediaCont
 // be represented as one. ok is false when the source cannot be a fetchable URL
 // (inline data, local file path, a non-remote storage URL such as file://, or a
 // storage reference with no store configured); callers then fall back to
-// GetBase64Data. URL expiry/caching is entirely the store's concern — we pass 0
-// so the store chooses its own policy.
+// GetBase64Data. The loader passes an expiry of 0 to the store, so the store
+// chooses its own URL expiry policy.
 func (ml *MediaLoader) ResolveURL(ctx context.Context, media *types.MediaContent) (string, bool, error) {
 	if media == nil {
 		return "", false, nil

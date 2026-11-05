@@ -33,7 +33,7 @@ const (
 	// per upstream host. Zero means unlimited, matching Go's stdlib
 	// http.Transport default. Real LLM providers enforce rate limits
 	// server-side; a client-side connection cap adds a hidden throughput
-	// ceiling that's hard to debug (see #916).
+	// ceiling that's hard to debug.
 	DefaultMaxConnsPerHost     = 0
 	DefaultIdleConnTimeout     = 90 * time.Second
 	DefaultTLSHandshakeTimeout = 10 * time.Second
@@ -60,16 +60,15 @@ const (
 )
 
 // HTTPTransportOptions configures the connection pool for a pooled
-// HTTP transport. Zero values mean unlimited for connection counts
-// (matching Go's http.Transport) and fall back to DefaultIdleConnTimeout
-// for the timeout. Negative values fall back to package-level defaults.
+// HTTP transport. A zero MaxConnsPerHost means unlimited (matching Go's
+// http.Transport); a zero MaxIdleConnsPerHost or IdleConnTimeout falls back to
+// its package default (DefaultMaxIdleConnsPerHost, DefaultIdleConnTimeout).
 //
-// These are the single-process h2 pool controls that bound how many
-// concurrent streams a provider can multiplex to a single upstream
-// host. In combination
-// with the upstream's advertised SETTINGS_MAX_CONCURRENT_STREAMS
-// (RFC 7540 §6.5.2), MaxConnsPerHost is the wall that determines the
-// realistic steady-state ceiling for concurrent streams per process.
+// These are the single-process pool controls that bound how many concurrent
+// streams a provider can multiplex to one upstream host. Together with the
+// upstream's advertised SETTINGS_MAX_CONCURRENT_STREAMS (RFC 7540 section
+// 6.5.2), MaxConnsPerHost sets the steady-state ceiling for concurrent streams
+// per process.
 type HTTPTransportOptions struct {
 	// MaxConnsPerHost caps the total TCP connections the transport may
 	// open to any single host (in-use + idle). Zero means unlimited
@@ -295,7 +294,7 @@ func (b *BaseProvider) SupportsStreaming() bool {
 
 // GetHTTPClient returns the underlying HTTP client for request/response
 // calls. This client has a finite Timeout (the request_timeout) and MUST
-// NOT be used for SSE streaming — use GetStreamingHTTPClient for that.
+// NOT be used for SSE streaming. Use GetStreamingHTTPClient for that.
 func (b *BaseProvider) GetHTTPClient() *http.Client {
 	return b.client
 }
@@ -340,12 +339,10 @@ func (b *BaseProvider) SetHTTPTimeout(timeout time.Duration) {
 // connection pooling is effective across request/response and streaming
 // traffic to the same upstream.
 //
-// This is the hook CreateProviderFromSpec uses to apply per-provider
-// connection pool config (see ProviderSpec.HTTPTransport).
-// Provider factories are not aware of this
-// plumbing — they create their client with the default pooled transport
-// and the spec wiring replaces it after construction when the operator
-// has configured overrides.
+// CreateProviderFromSpec calls it to apply per-provider connection pool
+// config (see ProviderSpec.HTTPTransport). Provider factories create their
+// client with the default pooled transport and the spec wiring replaces it
+// after construction.
 //
 // A nil transport resets both clients to Go's http.DefaultTransport via
 // the http.Client zero-value behavior. Passing nil is not the typical
@@ -470,7 +467,7 @@ func (b *BaseProvider) SetStreamIdleTimeout(d time.Duration) {
 }
 
 // StreamRetryPolicy returns the configured streaming-retry policy. The zero
-// value (retry disabled) is the default — callers must opt in via config.
+// value (retry disabled) is the default.
 func (b *BaseProvider) StreamRetryPolicy() StreamRetryPolicy {
 	return b.streamRetryPolicy
 }
@@ -501,8 +498,7 @@ func (b *BaseProvider) StreamSemaphore() *StreamSemaphore {
 }
 
 // SetStreamSemaphore installs a semaphore that caps concurrent streaming
-// requests. Passing nil (or a zero-limit semaphore) restores unlimited
-// concurrency.
+// requests. Passing nil restores unlimited concurrency.
 func (b *BaseProvider) SetStreamSemaphore(sem *StreamSemaphore) {
 	b.streamSemaphore = sem
 }
@@ -515,8 +511,8 @@ func (b *BaseProvider) SetStreamSemaphore(sem *StreamSemaphore) {
 // promptkit_stream_concurrency_rejections_total counter so operators
 // can see saturation.
 //
-// Nil semaphore is a no-op — returns nil without blocking or emitting
-// metrics, so callers can invoke this unconditionally.
+// With no semaphore configured it returns nil without blocking or emitting
+// metrics, so callers can invoke it unconditionally.
 func (b *BaseProvider) AcquireStreamSlot(ctx context.Context) error {
 	if b.streamSemaphore == nil {
 		return nil
@@ -546,30 +542,32 @@ func (b *BaseProvider) ReleaseStreamSlot() {
 // existing stream parser.
 type StreamConsumer func(ctx context.Context, body io.ReadCloser, outChan chan<- StreamChunk)
 
-// RunStreamingRequest is the single entry point every streaming-capable
-// provider should delegate through. It composes the three layers of
-// back-pressure (semaphore, budget, retry) with in-flight gauge
-// bookkeeping and the "release on all exit paths" defer pattern into
-// one helper, so individual provider streaming functions don't have to
-// re-implement the same ~60 lines of acquire/release/metric scaffolding.
+// RunStreamingRequest is the entry point streaming-capable providers delegate
+// through. It combines the concurrent-stream semaphore, the retry budget and
+// pre-first-chunk retry with in-flight gauge bookkeeping, so a provider's
+// streaming function supplies only the request and a consumer that parses the
+// provider-specific stream framing.
 //
-// The caller constructs the retry request (policy/budget/host/request
-// factory/etc.) and provides a consumer that knows how to parse the
-// provider-specific stream framing. On success, this function:
+// It:
 //
-//  1. Acquires a concurrent-stream slot (blocks on ctx; nil semaphore
+//  1. Acquires a concurrent-stream slot (blocks on ctx; a nil semaphore
 //     is a no-op).
-//  2. Increments streams_in_flight and provider_calls_in_flight gauges.
-//  3. Delegates to OpenStreamWithRetryRequest with the given req.
-//  4. Spawns a goroutine that invokes the consumer on the result body
-//     and, on consumer return, decrements the gauges and releases the
-//     semaphore slot.
+//  2. Increments the streams_in_flight and provider_calls_in_flight gauges.
+//  3. Opens the stream with OpenStreamWithRetryRequest and req.
+//  4. Starts a goroutine that runs the consumer on the response body and
+//     releases the semaphore slot when the consumer returns.
+//  5. Starts a relay goroutine that forwards the consumer's chunks to the
+//     returned channel, decrements the gauges and closes the channel when the
+//     stream ends.
 //
-// On any error path before the goroutine is spawned, all acquired
-// resources are released correctly via the deferred cleanup flags.
+// When req.Policy enables StreamRetryWindowAlways and the stream fails after
+// content was forwarded, the relay sends a chunk with Reset set, opens a new
+// stream and forwards that stream's chunks instead, if the retry budget has a
+// token and the context is not canceled.
 //
-// Callers must set req.ProviderName to b.ID() — this is not done
-// automatically to avoid hiding the coupling.
+// On an error before the goroutines start, it releases the slot and gauges.
+//
+// Callers must set req.ProviderName to b.ID().
 func (b *BaseProvider) RunStreamingRequest(
 	ctx context.Context,
 	req *StreamRetryRequest,
@@ -610,12 +608,9 @@ func (b *BaseProvider) RunStreamingRequest(
 	//
 	// The relay goroutine counts content chunks and observes the
 	// stream_error_chunks_forwarded histogram on the terminal error
-	// chunk. This is the load-bearing measurement for the Phase 4
-	// dedup-resume decision (see AltairaLabs/PromptKit#864): a
-	// distribution concentrated at 0 means Phase 1 pre-first-chunk
-	// retry is catching everything that matters; mass at ≥1 means
-	// mid-stream failures are leaking through the safe-retry window
-	// and Phase 4 would be worth building.
+	// chunk. A distribution concentrated at 0 means pre-first-chunk retry
+	// covers the failures; mass at 1 or more means mid-stream failures
+	// leak past the safe-retry window.
 	innerChan := make(chan StreamChunk, DefaultStreamBufferSize)
 	outChan := make(chan StreamChunk, DefaultStreamBufferSize)
 
@@ -691,7 +686,7 @@ func (b *BaseProvider) relayStream(
 	}
 
 	// Mid-stream retry: if the policy allows it, content was
-	// forwarded (so Phase 1 couldn't catch this), and the budget
+	// forwarded (so pre-first-chunk retry could not catch this), and the budget
 	// has a token, emit Reset and retry from scratch.
 	// Never for a canceled stream: the retry cannot succeed, and its Reset
 	// chunk would wipe the partial output the caller has already seen.
@@ -1002,14 +997,13 @@ func maskHeadersForLog(headers RequestHeaders) map[string]string {
 
 // MakeRawRequest performs an HTTP POST request with pre-marshaled body.
 // It automatically retries on transient errors (429, 502, 503, 504 and
-// network errors) according to the provider's RetryPolicy.
+// network errors) according to the provider's RetryPolicy. A final status
+// other than 200 returns an error that includes the status code and body.
 //
-// Any provider-level custom headers configured via SetCustomHeaders are
-// merged into the outgoing request headers up front, with a
-// case-insensitive collision check against the built-in headers the
-// caller passed. Collisions are deterministic client-side errors so
-// they fail fast before the retry loop runs — a misconfigured gateway
-// header should not burn retry budget.
+// Custom headers set with SetCustomHeaders are merged into the outgoing
+// request headers up front, with a case-insensitive collision check against
+// the headers the caller passed. A collision fails before the retry loop runs,
+// so it does not consume retries.
 func (b *BaseProvider) MakeRawRequest(
 	ctx context.Context,
 	url string,
