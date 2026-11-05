@@ -1,0 +1,76 @@
+{
+ "page": "docs/src/content/docs/runtime/explanation/media-storage.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "FileStore deduplicates with SHA-256 when EnableDeduplication is set",
+   "verdict": "true",
+   "evidence": [
+    "runtime/storage/local/filestore.go:216",
+    "runtime/storage/local/filestore.go:62"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "Index persisted as .dedup_index.json in base dir, loaded at open",
+   "verdict": "true",
+   "evidence": [
+    "runtime/storage/local/filestore.go:182",
+    "runtime/storage/local/filestore.go:792"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Hit increments ref count and writes no copy",
+   "verdict": "true",
+   "evidence": [
+    "runtime/storage/local/filestore.go:221-222",
+    "runtime/storage/local/filestore.go:282"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "DeleteMedia decrements while count >1, removes file and index entry at last",
+   "verdict": "true",
+   "evidence": [
+    "runtime/storage/local/filestore.go:564-600"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Ref counts are in memory only; index records hash-to-path",
+   "verdict": "false",
+   "evidence": [
+    "runtime/storage/local/filestore.go:806",
+    "runtime/storage/local/filestore.go:98"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "Index locking is an in-process mutex, not cross-process",
+   "verdict": "false",
+   "evidence": [
+    "runtime/storage/local/filestore.go:94"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "Flush persists pending index changes",
+   "verdict": "true",
+   "evidence": [
+    "runtime/storage/local/filestore.go:836-843"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Writes go to a temp file then rename (atomic)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/storage/local/filestore.go:396",
+    "runtime/storage/local/filestore.go:452",
+    "runtime/storage/local/filestore.go:749-758"
+   ]
+  }
+ ]
+}

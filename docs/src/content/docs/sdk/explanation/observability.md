@@ -2,275 +2,121 @@
 title: Observability
 sidebar:
   order: 2
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/events/blob_store.go
+    - runtime/events/bus.go
+    - runtime/events/composition_events.go
+    - runtime/events/emitter.go
+    - runtime/events/message_created_data.go
+    - runtime/events/redact.go
+    - runtime/events/store.go
+    - runtime/events/types.go
+    - runtime/pipeline/stage/stages_message_broadcast.go
+    - sdk/conversation.go
+    - sdk/eval_middleware.go
+    - sdk/hooks/events.go
+    - sdk/internal/pipeline/builder.go
+    - sdk/options.go
+    - sdk/sdk.go
 ---
-Understanding the event system in SDK.
+How the SDK reports what a conversation is doing, and which route an event takes to reach a consumer.
 
 ## Overview
 
-SDK uses an event-based observability system through the `hooks` package (in `sdk/hooks`) and the `events` package (in `runtime/events`). Events are emitted at key points during execution, allowing you to monitor, debug, audit, and evaluate your applications.
+The SDK emits events at each step of a conversation: pipeline and stage lifecycle, provider calls, tool calls, validation, messages, evals, media. The event types live in `runtime/events`. The helpers in `sdk/hooks` subscribe to them.
 
-The system is built around an **EventBus** that supports pluggable persistence (`EventStore`), binary media storage (`BlobStore`), and fan-out to multiple listeners — including the evals framework.
+Events reach consumers by two routes with different guarantees. Choosing between them is the main design decision in this system.
 
-## Event Types
+## The two routes
 
-Events are defined as `events.EventType` in the `runtime/events` package. There are 34 event types across 10 categories:
+The diagram shows where an event goes after it is produced.
 
-### Pipeline Events
-
-```go
-EventPipelineStarted   EventType = "pipeline.started"
-EventPipelineCompleted EventType = "pipeline.completed"
-EventPipelineFailed    EventType = "pipeline.failed"
+```mermaid
+flowchart LR
+  EM["events.Emitter"] --> BUS["EventBus"]
+  BUS --> HK["hooks.On / OnEvent handlers"]
+  BUS --> ES["EventStore.OnEvent"]
+  BUS --> OT["telemetry OTel listener"]
+  BUS --> MC["metrics collector"]
+  RS["RecordingStage"] --> ES2["EventStore.Append"]
 ```
 
-### Middleware Events
+The first route, `Emitter` to `EventBus`, carries nearly every event. The bus is asynchronous and lossy: `Publish` never blocks, and drops the event if the bus buffer is full. Each subscriber runs on its own goroutine with its own queue, receives events in publish order, and delays only itself. A subscriber that stays stuck past the subscriber timeout is eventually disabled.
 
-```go
-EventMiddlewareStarted   EventType = "middleware.started"
-EventMiddlewareCompleted EventType = "middleware.completed"
-EventMiddlewareFailed    EventType = "middleware.failed"
-```
+The second route, `RecordingStage` to `EventStore.Append`, is opt-in, synchronous and lossless. It bypasses the bus, so it can keep full binary data for session replay.
 
-### Stage Events
+`sdk.Open` creates an `EventBus` when you do not pass one with `WithEventBus`, and closes it with the conversation. A bus you supply outlives the conversation; the SDK removes only the subscribers it added. Pass the same bus to several conversations to observe them together.
 
-```go
-EventStageStarted   EventType = "stage.started"
-EventStageCompleted EventType = "stage.completed"
-EventStageFailed    EventType = "stage.failed"
-```
+## Event categories
 
-### Provider Events
+Event types are `events.EventType` constants in `runtime/events`. They group into:
 
-```go
-EventProviderCallStarted   EventType = "provider.call.started"
-EventProviderCallCompleted EventType = "provider.call.completed"
-EventProviderCallFailed    EventType = "provider.call.failed"
-```
+| Category | Examples |
+|----------|----------|
+| Pipeline and stage | `pipeline.started`, `stage.completed` |
+| Provider | `provider.call.started`, `provider.call.completed` |
+| Tool | `tool.call.started`, `tool.client.request` |
+| Validation | `validation.passed`, `validation.failed` |
+| Context and state | `context.built`, `context.compacted`, `state.saved` |
+| Message | `message.created`, `message.text.delta`, `reasoning.completed` |
+| Multimodal | `audio.input`, `image.output`, `video.frame` |
+| Eval | `eval.completed`, `eval.failed` |
+| Workflow and composition | `workflow.transitioned`, `composition.step.completed` |
+| Other calls | `tts.call.completed`, `embedding.call.completed`, `media.stored` |
 
-### Tool Events
+The [runtime events architecture page](/architecture/runtime-events/) describes the event types and their payload structs.
 
-```go
-EventToolCallStarted   EventType = "tool.call.started"
-EventToolCallCompleted EventType = "tool.call.completed"
-EventToolCallFailed    EventType = "tool.call.failed"
-```
+## Persistence
 
-### Validation Events
+An `EventStore` persists events for later query and replay. `FileEventStore` is the built-in implementation. It writes one JSONL file per session and filters by session, conversation, execution, type and time range.
 
-```go
-EventValidationStarted EventType = "validation.started"
-EventValidationPassed  EventType = "validation.passed"
-EventValidationFailed  EventType = "validation.failed"
-```
+`WithEventStore` subscribes the store's `OnEvent` method to the bus, so bus events reach it on the lossy route. Events without a session ID are skipped.
 
-### Context & State Events
+For multimodal recordings, a `BlobStore` keeps large binary payloads (audio, video, images) apart from the event stream, and events carry a reference.
 
-```go
-EventContextBuilt          EventType = "context.built"
-EventTokenBudgetExceeded   EventType = "context.token_budget_exceeded"
-EventContextCompacted      EventType = "context.compacted"
-EventStateLoaded           EventType = "state.loaded"
-EventStateSaved            EventType = "state.saved"
-```
+## Message events take both routes
 
-### Message Events
+`message.created` is the one event that travels both routes.
 
-```go
-EventMessageCreated EventType = "message.created"
-EventMessageUpdated EventType = "message.updated"
-EventConversationStarted EventType = "conversation.started"
-```
+`MessageBroadcastStage` publishes it on the bus as each complete message arrives. The SDK adds this stage whenever the conversation has an event bus, with no store, recording or state store required. Subscribing to `message.created` is the supported way to watch a conversation unfold.
 
-### Multimodal Events
+`RecordingStage` writes the same event type directly to the `EventStore`. `WithRecording` adds an input stage after template assembly and an output stage after the provider, and takes effect only when `WithEventStore` is also set. When a store and recording are both configured, the SDK stops the store receiving the bus copy of `message.created`, so each message appears in the recording once.
 
-```go
-EventAudioInput         EventType = "audio.input"
-EventAudioOutput        EventType = "audio.output"
-EventAudioTranscription EventType = "audio.transcription"
-EventVideoFrame         EventType = "video.frame"
-EventScreenshot         EventType = "screenshot"
-EventImageInput         EventType = "image.input"
-EventImageOutput        EventType = "image.output"
-```
+Both routes build the payload with `events.NewMessageCreatedData`, so they carry the same data with one difference:
 
-### Stream Events
-
-```go
-EventStreamInterrupted EventType = "stream.interrupted"
-```
-
-## EventBus Architecture
-
-The `EventBus` is the central event dispatch mechanism. It accepts published events and fans them out to registered listeners.
-
-```
-Publisher ──► EventBus ──┬──► EventStore (sync persist)
-                         ├──► Listener A (async)
-                         ├──► Listener B (async)
-                         └──► Listener C (async)
-```
-
-**Key behaviors:**
-
-- **Sync persistence**: When an `EventStore` is configured, events are persisted _before_ listener dispatch. This guarantees durability.
-- **Async listeners**: Listeners are invoked in goroutines after persistence. Each listener call is wrapped in panic recovery.
-- **Type-filtered subscriptions**: `Subscribe(eventType, listener)` registers for a specific event type. `SubscribeAll(listener)` receives every event.
-
-```go
-bus := events.NewEventBus()
-
-// Optional: persist events to disk
-store, _ := events.NewFileEventStore("./recordings")
-bus.SubscribeAll(store.OnEvent)
-
-// Subscribe to specific events
-bus.Subscribe(events.EventProviderCallCompleted, func(e *events.Event) {
-    log.Printf("Provider call took %v", e.Data.(*events.ProviderCallCompletedData).Duration)
-})
-
-// Subscribe to all events
-bus.SubscribeAll(func(e *events.Event) {
-    log.Printf("[%s] %s", e.Timestamp.Format("15:04:05"), e.Type)
-})
-```
-
-### Recording & EventStore
-
-The `EventStore` interface provides pluggable event persistence:
-
-```go
-type EventStore interface {
-    Append(ctx context.Context, event *Event) error
-    Query(ctx context.Context, filter *EventFilter) ([]*Event, error)
-    Stream(ctx context.Context, sessionID string) (<-chan *Event, error)
-    Close() error
-}
-```
-
-**FileEventStore** is the built-in implementation. It persists events as JSONL (one file per session) and supports querying by session, conversation, event type, and time range.
-
-For multimodal recordings, **BlobStore** handles large binary payloads (audio, video, images) separately from the event stream:
-
-```go
-type BlobStore interface {
-    Store(ctx context.Context, sessionID string, data []byte, mimeType string) (*BinaryPayload, error)
-    Load(ctx context.Context, ref string) ([]byte, error)
-    Close() error
-}
-```
-
-**MessageBroadcastStage** publishes `message.created` on the EventBus as each complete message arrives. It is added whenever an event bus is configured (no `EventStore`, no `WithRecording()`, no state store), so subscribing to `message.created` is the supported way to watch a conversation unfold.
-
-**RecordingStage** writes the same event type **directly to the EventStore, bypassing the EventBus**. That is what lets it keep full binary data for session replay, and why it is synchronous and lossless where the bus is async and lossy. RecordingStages observe without modifying data, making them safe to insert at any position.
-
-:::caution[Binary never goes on the bus]
-Not "usually", and not "only when recording is off" — always. Handling binary is
-what the opt-in recording route is *for*, and that route never publishes, so
-enabling recording does not start putting media on the bus.
-
-This is about **bytes, not content**. Message text, an eval's structured value,
-a judge's reasoning all travel on the bus — a live consumer that received a
-score with no idea what was measured would be useless. What they do not carry is
-audio samples or image data: for media you get the MIME type, dimensions, size
-and a URL reference, and the payload stays behind the recording route.
-
-If you are adding an event, read
-[Adding a new event](/architecture/runtime-events/#adding-a-new-event) first —
-it covers this and the three other decisions that have been got wrong silently.
-:::
-
-:::note[Two routes, different guarantees]
-Events reach consumers two ways, and which route a type takes is not visible
-from its name:
-
-| Route | Delivery | Reaches |
-|-------|----------|---------|
-| `Emitter` → `EventBus` | async, worker-pooled, **lossy** | bus subscribers |
-| `RecordingStage` → `EventStore.Append` | synchronous, **lossless**, opt-in | the store only |
-
-`message.created` takes **both** routes, and both build their payload with
-`events.NewMessageCreatedData`, so they carry the same data with exactly one
-deliberate difference:
-
-| | Binary content parts | Needs |
+| Route | Binary content parts | Needs |
 |---|---|---|
 | Bus (`MessageBroadcastStage`) | stripped to metadata | an event bus |
-| Store (`RecordingStage`) | retained in full | `WithRecording()` + an `EventStore` |
+| Store (`RecordingStage`) | retained in full | `WithRecording()` and an `EventStore` |
 
-Two things a consumer needs to know:
+Two consequences follow:
 
-- **The bus is lossy.** A live view can miss a message under burst. The state
-  store remains the source of truth for a transcript.
-- **Arrival order is not publish order.** The bus dispatches through a worker
-  pool. Read `MessageCreatedData.Index`, which is transcript-absolute, rather
-  than relying on the order events turn up in.
+- The bus is lossy, so a live view can miss a message under burst. The state store remains the source of truth for a transcript.
+- `MessageCreatedData.Index` is the message's position in the transcript. Read it instead of counting arrivals, because a dropped message leaves a gap.
 
-The remaining trap is not which route a *type* takes but which route a *field*
-lands on. That shipped once, in v1.5.12: an accumulated reasoning trace was put
-on `message.created` when only the recording route existed, and reached nobody.
-Bus-delivered reasoning arrives as `reasoning.completed`.
+:::caution[Binary never goes on the bus]
+Audio samples and image data never travel on the bus, whether or not recording is on. For media, bus events carry the MIME type, dimensions, size and a URL reference.
+
+This is about bytes, not content. Message text, an eval's structured value and a judge's reasoning all travel on the bus.
 :::
 
-To subscribe:
+Before adding an event, read [Adding an event](/architecture/runtime-events/#adding-an-event).
 
-```go
-bus := events.NewEventBus()
-bus.Subscribe(events.EventMessageCreated, func(e *events.Event) {
-    if d, ok := e.Data.(*events.MessageCreatedData); ok {
-        fmt.Printf("[%d] %s: %s\n", d.Index, d.Role, d.Content)
-    }
-})
+## Evals
 
-conv, _ := sdk.Open("./app.pack.json", "assistant", sdk.WithEventBus(bus))
-```
+The SDK runs pack evals through an eval middleware attached to the conversation, not through a bus listener. Turn evals dispatch asynchronously after each assistant turn. Session evals run synchronously when the conversation closes. Each result is published as `eval.completed` or `eval.failed` on the conversation's bus, and written to the metrics collector when you configure one.
 
-To enable RecordingStages via the SDK, use `WithRecording()`:
+An eval result is an event like any other, so the redactor covers it.
 
-```go
-conv, _ := sdk.Open("./app.pack.json", "assistant",
-    sdk.WithRecording(nil), // defaults: audio=true, video=false, images=true
-)
-```
+## Content and redaction
 
-This inserts an input RecordingStage (after template assembly) and an output RecordingStage (before state store save). For manual pipeline construction:
+Events carry customer data: tool arguments the model composed, tool results, message text, and the output of any eval that judged them. Two options control exposure, and they cover different consumers.
 
-```go
-// NewRecordingStage takes an EventStore, not an EventBus — recording bypasses
-// the bus entirely.
-pipeline, err := stage.NewPipelineBuilder().
-    Chain(
-        stage.NewRecordingStage(eventStore, stage.RecordingStageConfig{Position: "input"}),
-        stage.NewProviderStage(provider, tools, policy, config),
-        stage.NewRecordingStage(eventStore, stage.RecordingStageConfig{Position: "output"}),
-    ).
-    Build()
-```
+`WithTelemetryContentCapture(bool)` is off by default and applies to OpenTelemetry spans only. Span structure, timing, token usage and tool names are always exported.
 
-### Eval Integration
-
-The `EventBusEvalListener` subscribes to `message.created` events on the EventBus and automatically triggers pack evals:
-
-```
-EventBus ──► EventBusEvalListener ──► SessionAccumulator ──► EvalDispatcher ──► EvalRunner
-```
-
-1. **SessionAccumulator** accumulates messages per session, building conversation context incrementally
-2. On each **assistant message**, turn evals are dispatched asynchronously
-3. On **session close**, session-level evals run synchronously
-4. Results flow to configured `ResultWriters` (MetricCollector, metadata attachment)
-
-This pattern enables evals without explicit SDK middleware — events from RecordingStage or any other publisher are automatically evaluated. See [Arena Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/) for details.
-
-### Content and redaction
-
-Events carry customer data — tool arguments the model composed, tool results,
-message text, and the output of any eval that judged them. Two controls, doing
-different jobs:
-
-| Option | Scope | Default |
-|--------|-------|---------|
-| `WithTelemetryContentCapture(bool)` | OTel spans only | **off** |
-| `WithEventRedactor(policy)` | every bus subscriber | none |
+`WithEventRedactor(policy)` rewrites content before it reaches the SDK's own observability consumers: the event store, the OTel listener and the metrics collector.
 
 ```go
 sdk.WithEventRedactor(func(field, value string) string {
@@ -278,170 +124,50 @@ sdk.WithEventRedactor(func(field, value string) string {
         return scrub(value)
     }
     return value
-}),
+})
 ```
 
-The redactor is handed a field name, so a policy can be as coarse or as narrow
-as it needs: `FieldMessageContent`, `FieldToolCallArgs`, `FieldToolResult`,
-`FieldContentPart`, and, for eval events, `FieldEvalValue`,
-`FieldEvalExplanation`, `FieldEvalDetails` and `FieldEvalEvidence`. An eval's
-output quotes what it judged (a judge restates the answer, a violation's
-evidence *is* the offending span), so it is redacted like any other content.
-Nested strings inside a value or a details map are rewritten too, which is where
-the quoted text usually lives.
+The policy receives a field name, so it can be as coarse or as narrow as you need: `FieldMessageContent`, `FieldMessageMetadata`, `FieldToolCallArgs`, `FieldToolResult`, `FieldContentPart`, and for eval events `FieldEvalValue`, `FieldEvalExplanation`, `FieldEvalDetails` and `FieldEvalEvidence`. An eval's output quotes what it judged, so it counts as content. Nested strings inside a value or details map are rewritten too.
 
-Measurements are left alone: score, metric value, pass/fail, kind and timings
-are facts *about* content rather than content, and scrubbing them would leave an
-audit unable to tell a blocked guardrail from a passing one.
+Measurements are left alone. Score, metric value, pass/fail, kind and timings describe content without containing it, and scrubbing them would leave an audit unable to tell a blocked guardrail from a passing one.
 
-`Redacting` wraps each subscriber and hands it its own **copy**, so redacting
-for the tracer does not strip a store that should keep the original. Redaction
-is applied per consumer rather than at emit time, because consumers have
-different entitlements: recording is meant to hold content, a trace exported to
-a third-party APM is not.
+`events.Redacting` wraps a subscriber so that it receives its own copy of each event. Redacting for the tracer therefore does not strip a store that should keep the original. Redaction applies per consumer rather than at emit time, because consumers have different entitlements: a recording is meant to hold content, and a trace exported to a third-party APM is not.
 
-`WithRecording()` is unaffected by both, since `RecordingStage` never touches the
-bus.
+Two things sit outside the option:
 
-See the runnable
-[telemetry-redaction example](https://github.com/AltairaLabs/PromptKit/tree/main/sdk/examples/telemetry-redaction).
+- `RecordingStage` never touches the bus, so `WithRecording` output is not redacted. Redact in the store you supply if you need that.
+- Handlers you register with `hooks.On` or `bus.Subscribe` receive the original events. Wrap them with `events.Redacting` to give them a redacted copy.
 
-## Event Flow
+The [telemetry-redaction example](https://github.com/AltairaLabs/PromptKit/tree/main/sdk/examples/telemetry-redaction) is runnable.
 
-The diagram traces the events one `Send` emits, and where each one goes.
+## Subscribing
 
-```mermaid
-flowchart TD
-  SEND["conv.Send(ctx, #quot;Hello#quot;)"] --> PS["PipelineStarted"]
-  PS --> BUS1["EventBus"] --> L["Listeners"]
-  PS --> MS["MiddlewareStarted"]
-  MS --> BUS2["EventBus"]
-  MS --> PCS["ProviderCallStarted"]
-  PCS --> BUS3["EventBus"]
-  PCS --> PCC["ProviderCallCompleted"]
-  PCC --> BUS4["EventBus"]
-  PCC -->|"if tool call"| TCS["ToolCallStarted"]
-  TCS --> BUS5["EventBus"]
-  TCS --> HX["Handler executes"]
-  HX --> TCC["ToolCallCompleted"]
-  TCC --> BUS6["EventBus"]
-  TCC --> MC["MessageCreated"]
-  PCC --> MC
-  MC --> BUS7["EventBus"]
-  BUS7 --> ES["EventStore (persist)"]
-  BUS7 --> EL["EvalListener (trigger evals)"]
-  MC --> PCO["PipelineCompleted"]
-  PCO --> BUS8["EventBus"]
-  PCO --> RR["Return Response"]
-```
-
-## Subscribing to Events
+`hooks.On` and `hooks.OnEvent` subscribe to a conversation's bus. Typed helpers (`OnToolCall`, `OnProviderCall`, `OnValidationFailed`, `OnPipelineComplete`) unpack the payload for common cases. A handler registered this way stops when the conversation closes, even on a bus you supplied.
 
 ```go
-import (
-    "github.com/AltairaLabs/PromptKit/sdk/v2/hooks"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/events"
-)
-
-// Subscribe to a specific event type
 hooks.On(conv, events.EventProviderCallCompleted, func(e *events.Event) {
-    log.Printf("Provider call completed")
+    d := e.Data.(*events.ProviderCallCompletedData)
+    log.Printf("%s: %d in, %d out, %v", d.Model, d.InputTokens, d.OutputTokens, d.Duration)
 })
 
-// Subscribe to all events
-hooks.OnEvent(conv, func(e *events.Event) {
-    log.Printf("Event: %s", e.Type)
-})
-
-// Subscribe to tool calls specifically
 hooks.OnToolCall(conv, func(name string, args map[string]any) {
-    log.Printf("Tool: %s", name)
-})
-
-// Subscribe to provider calls
-hooks.OnProviderCall(conv, func(model string, inputTokens, outputTokens int, cost float64) {
-    log.Printf("Model %s: %d in, %d out, $%.4f", model, inputTokens, outputTokens, cost)
+    log.Printf("tool %s", name)
 })
 ```
 
-## Event Structure
+Every event has the same envelope: `Type`, `Timestamp`, `Sequence`, `ExecutionID`, `SessionID`, `ConversationID`, `UserID` and a type-specific `Data` payload. The bus stamps `Sequence` on publish, so a consumer can order events from several listeners.
 
-```go
-// From runtime/events package
-type Event struct {
-    Type           EventType
-    Timestamp      time.Time
-    RunID          string
-    SessionID      string
-    ConversationID string
-    Data           EventData  // Type-specific payload
-}
-```
+A handler runs on its own goroutine, concurrently with your code and with other handlers. Calls to one handler are serialized and arrive in publish order. Guard state shared with other code.
 
-Each event type has a corresponding `Data` struct. For example, `ProviderCallCompletedData` includes `Duration`, `InputTokens`, `OutputTokens`, `Cost`, and `FinishReason`.
+## Trade-offs
 
-## Use Cases
+The bus keeps observability off the hot path: a slow dashboard cannot stall a turn, and a burst costs dropped events rather than latency. The price is that bus consumers cannot be an audit log. Use the recording route when you need every event with full fidelity, and the state store when you need the transcript.
 
-### Logging
+Splitting redaction from recording keeps one policy from degrading the other. The cost is that you own the redaction of anything on the recording route.
 
-```go
-func attachLogger(conv *sdk.Conversation) {
-    hooks.OnEvent(conv, func(e *events.Event) {
-        log.Printf("[%s] %s",
-            e.Timestamp.Format("15:04:05"),
-            e.Type,
-        )
-    })
-}
-```
+## See also
 
-### Metrics
-
-```go
-type Metrics struct {
-    ToolCalls int64
-    Errors    int64
-    mu        sync.Mutex
-}
-
-func (m *Metrics) Attach(conv *sdk.Conversation) {
-    hooks.On(conv, events.EventToolCallStarted, func(e *events.Event) {
-        m.mu.Lock()
-        m.ToolCalls++
-        m.mu.Unlock()
-    })
-
-    hooks.On(conv, events.EventToolCallFailed, func(e *events.Event) {
-        m.mu.Lock()
-        m.Errors++
-        m.mu.Unlock()
-    })
-}
-```
-
-### Debugging
-
-```go
-func enableDebug(conv *sdk.Conversation) {
-    hooks.OnEvent(conv, func(e *events.Event) {
-        log.Printf("[DEBUG] %s: %s", e.Timestamp.Format("15:04:05"), e.Type)
-    })
-
-    hooks.OnToolCall(conv, func(name string, args map[string]any) {
-        log.Printf("[DEBUG] Tool: %s(%v)", name, args)
-    })
-}
-```
-
-## Thread Safety
-
-Event handlers are called asynchronously in a separate goroutine (see `EventBus.Publish` in `runtime/events/bus.go`). Use appropriate synchronization if handlers access shared state, as they run concurrently with the calling code.
-
-## See Also
-
-- [How-To: Monitor Events](/sdk/how-to/observability/monitor-events/)
-- [How-To: Export Traces with OTLP](/runtime/how-to/observability/export-traces-otlp) — send session traces to OpenTelemetry backends
-- [Telemetry Reference](/runtime/reference/telemetry) — OTLP exporter API, span attributes, and semantic conventions
-- [Arena Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/)
-- [Session Recording](https://promptarena.altairalabs.ai/arena/explanation/session-recording/)
-- [Tutorial 6: Observability](/sdk/tutorials/06-media-storage/)
+- [How-to: monitor events](/sdk/how-to/observability/monitor-events/)
+- [How-to: export traces with OTLP](/runtime/how-to/observability/export-traces-otlp)
+- [Telemetry reference](/runtime/reference/telemetry)
+- [Runtime events architecture](/architecture/runtime-events/)

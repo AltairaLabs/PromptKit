@@ -1,412 +1,170 @@
 ---
 title: Provider System
+description: How Runtime abstracts LLM services behind one interface, what each provider translates, and where multi-provider logic belongs.
 sidebar:
   order: 2
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/providers/base_provider.go
+    - runtime/providers/claude/claude.go
+    - runtime/providers/claude/claude_tools.go
+    - runtime/providers/gemini/gemini.go
+    - runtime/providers/gemini/gemini_tools.go
+    - runtime/providers/imagen/factory.go
+    - runtime/providers/mock/mock.go
+    - runtime/providers/ollama/ollama_tools.go
+    - runtime/providers/openai/openai.go
+    - runtime/providers/openai/openai_responses_integration.go
+    - runtime/providers/openai/openai_tools.go
+    - runtime/providers/provider.go
+    - runtime/providers/registry.go
+    - runtime/providers/replay/factory.go
+    - runtime/providers/retry.go
+    - runtime/providers/vllm/factory.go
 ---
-Understanding how Runtime abstracts LLM providers.
+Runtime talks to Claude, OpenAI, Gemini, Ollama and vLLM through one Go interface. This page explains how that abstraction is built, what it hides, and what it leaves to your application.
 
-## Overview
+## How it works
 
-Runtime uses a **provider abstraction** to work with multiple LLM services (OpenAI, Anthropic Claude, Google Gemini) through a unified interface.
-
-## Core Concept
-
-All providers implement the same interface:
+Every chat provider implements `providers.Provider`. The pipeline's provider stage holds that interface and never sees a vendor type.
 
 ```go
 type Provider interface {
+    base.Provider // Name, Type, Pricing, Validate, Init, HealthCheck, Close
+
     ID() string
     Model() string
     Predict(ctx context.Context, req PredictionRequest) (PredictionResponse, error)
     PredictStream(ctx context.Context, req PredictionRequest) (<-chan StreamChunk, error)
     SupportsStreaming() bool
     ShouldIncludeRawOutput() bool
-    Close() error
     CalculateCost(inputTokens, outputTokens, cachedTokens int) types.CostInfo
 }
 ```
 
-This allows code like:
+Code written against this interface runs unchanged on any provider:
 
 ```go
-// Same code works with any provider
 resp, err := provider.Predict(ctx, req)
 ```
 
-## Why Provider Abstraction?
+The diagram shows how a provider reaches the pipeline. A `ProviderSpec` names a type, `CreateProviderFromSpec` looks up the factory that type's package registered in `init()`, and the factory returns a `providers.Provider`.
 
-### Problem: Vendor Lock-In
-
-Without abstraction:
-
-```go
-// Tied to OpenAI
-response := openai.ChatCompletion(...)
-
-// Want to switch to Claude? Rewrite everything
-response := anthropic.Messages(...)
-
-// Different APIs, different parameters, different response formats
+```mermaid
+flowchart LR
+    Spec[ProviderSpec] --> Create[CreateProviderFromSpec]
+    Create --> Factories[(provider factories)]
+    Factories --> Provider{{providers.Provider}}
+    Provider --> Stage[stage.ProviderStage]
+    Claude[claude] -.registers.-> Factories
+    OpenAI[openai] -.registers.-> Factories
+    Gemini[gemini] -.registers.-> Factories
+    Ollama[ollama / vllm] -.registers.-> Factories
+    Mock[mock / replay] -.registers.-> Factories
 ```
 
-### Solution: Common Interface
+Import `providers/all` to register every factory, or import a single provider package to register only that type. The registered chat types are `claude`, `openai`, `gemini`, `ollama`, `vllm`, `mock` and `replay`; `imagen` registers an image provider. An unknown type fails with `UnsupportedProviderError`.
 
-With abstraction:
+Bedrock, Vertex and Azure are hosting platforms, not provider types. Set `ProviderSpec.Platform` to host a `claude`, `gemini` or `openai` model on one of them. A combination the platform vendor does not offer fails at construction with `UnsupportedProviderPlatformError`.
 
-```go
-// Works with any provider
-var provider providers.Provider
+## One request, one response
 
-// OpenAI
-provider = openai.NewProvider(...)
+`PredictionRequest` carries a `System` string, the `Messages`, and the sampling fields (`Temperature`, `TopP`, `MaxTokens`, `Seed`, `TopK`, the penalties and `ResponseFormat`). `NormalizeMessages` folds any system-role messages into `System`, so a provider reads the system prompt from one place.
 
-// Or Claude
-provider = claude.NewProvider(...)
+`PredictionResponse` returns the content and any tool calls, plus cost information, latency, reasoning and a normalized `FinishReason`.
 
-// Or Gemini
-provider = gemini.NewProvider(...)
+A provider whose API takes no `top_k` or no penalties drops the field and logs one warning per provider and parameter. OpenAI's Chat Completions API takes `seed`; its Responses API has no `seed` parameter, so a seed set on that path is dropped with a warning.
 
-// Same code!
-resp, err := provider.Predict(ctx, req)
-```
+### Defaults
 
-## Benefits
-
-**1. Provider Independence**
-- Switch providers without code changes
-- Test with different models easily
-- Compare provider performance
-
-**2. Fallback Strategies**
-- Try multiple providers automatically
-- Graceful degradation
-- Increased reliability
-
-**3. Cost Optimization**
-- Route to cheapest provider
-- Use expensive models only when needed
-- Track costs across providers
-
-**4. Testing**
-- Mock providers for unit tests
-- Predictable test behavior
-- No API calls in tests
-
-## Provider Interface
-
-### Predict Method
-
-Synchronous prediction:
-
-```go
-Predict(ctx context.Context, req PredictionRequest) (PredictionResponse, error)
-```
-
-**Parameters**:
-- `ctx`: Timeout and cancellation
-- `req`: Prediction request with messages, temperature, max tokens, etc.
-
-**Returns**:
-- `PredictionResponse`: LLM's response with content, cost info, and tool calls
-- `error`: Any errors
-
-### PredictStream Method
-
-Streaming prediction:
-
-```go
-PredictStream(ctx context.Context, req PredictionRequest) (<-chan StreamChunk, error)
-```
-
-Returns a channel of stream chunks for real-time output.
-
-### Lifecycle Methods
-
-```go
-ID() string      // Returns provider identifier
-Model() string   // Returns model name
-Close() error    // Cleanup resources
-```
-
-## Provider Configuration
-
-Unified config works across all providers:
-
-```go
-type ProviderConfig struct {
-    MaxTokens     int      // Output limit
-    Temperature   float64  // Randomness (0.0-2.0)
-    TopP          float64  // Nucleus sampling
-    Seed          *int     // Reproducibility
-    StopSequences []string // Stop generation
-}
-```
-
-### Provider Defaults
-
-All providers accept a `ProviderDefaults` struct:
+A `ProviderDefaults` fills each field the request leaves at zero:
 
 ```go
 defaults := providers.ProviderDefaults{
     Temperature: 0.7,
     TopP:        0.95,
     MaxTokens:   2000,
-    Pricing: providers.Pricing{
-        InputCostPer1K:  0.00015,
-        OutputCostPer1K: 0.0006,
-    },
 }
 ```
 
-A default applies when the request leaves the field at zero. The provider
-resolves each value in this order:
+A provider resolves each value in this order:
 
 1. The request's value. In the SDK, that is the prompt's `parameters`.
 2. The provider's `ProviderDefaults`.
 3. No output-token limit, so the model's own maximum applies.
 
-`MaxTokens: providers.MaxTokensUnlimited` (`-1`) states the third step
-explicitly. Claude's Messages API requires `max_tokens` on every request, so a
-Claude provider sends 4096 at step 3 and rejects `MaxTokensUnlimited` at
-construction.
+`MaxTokens: providers.MaxTokensUnlimited` (`-1`) states the third step explicitly. Claude's Messages API requires `max_tokens` on every request, so a Claude provider sends 4096 at step 3 and rejects `MaxTokensUnlimited` at construction.
 
-## Implementation Details
+## The translation layer
 
-### OpenAI Provider
+Each provider converts Runtime's `types.Message` and tool descriptors into its vendor's wire format, and converts the response back. Roles and content shapes differ:
 
-**Models**: GPT-4o, GPT-4o-mini, GPT-4-turbo, GPT-3.5-turbo
+| Runtime | OpenAI | Claude | Gemini |
+|---|---|---|---|
+| `assistant` role | `assistant` | `assistant` | `model` |
+| Message content | `content` | `content` blocks, each with a `type` | `parts`, each with `text` |
+| System prompt | system message | top-level system field | top-level system instruction |
 
-**Features**:
-- Function calling
-- JSON mode
-- Vision (image inputs)
-- Streaming
-- Reproducible outputs (seed) — Chat Completions only; the Responses API has no `seed` parameter, and a seed set on that path is dropped with a warning
+Tool definitions differ in the same way. Runtime hands every provider a `ToolDescriptor` (name, description, JSON Schema) and the provider builds its native form:
 
-**Pricing**: Per-token, varies by model
-
-**API**: REST over HTTPS
-
-### Claude Provider (Anthropic)
-
-**Models**: Claude 3.5 Sonnet, Claude 3.5 Haiku, Claude 3 Opus
-
-**Features**:
-- Function calling
-- Vision (image inputs)
-- Long context (200K tokens)
-- Streaming
-- System prompts
-
-**Pricing**: Per-token, varies by model
-
-**API**: REST over HTTPS
-
-### Gemini Provider (Google)
-
-**Models**: Gemini 1.5 Pro, Gemini 1.5 Flash
-
-**Features**:
-- Function calling
-- Vision and video inputs
-- Long context (1M+ tokens)
-- Streaming
-- Multimodal understanding
-
-**Pricing**: Per-token, free tier available
-
-**API**: REST over HTTPS
-
-## Message Format
-
-Runtime uses a common message format:
-
-```go
-type Message struct {
-    Role       string
-    Content    string
-    ToolCalls  []MessageToolCall
-    ToolCallID string
-}
-```
-
-**Roles**:
-- `system`: System instructions
-- `user`: User messages
-- `assistant`: AI responses
-- `tool`: Tool execution results
-
-### Translation Layer
-
-Each provider translates to its native format:
-
-**Runtime → OpenAI**:
-```go
-{Role: "user", Content: "Hello"}
-→
-{role: "user", content: "Hello"}
-```
-
-**Runtime → Claude**:
-```go
-{Role: "user", Content: "Hello"}
-→
-{role: "user", content: "Hello"}
-```
-
-**Runtime → Gemini**:
-```go
-{Role: "user", Content: "Hello"}
-→
-{role: "user", parts: [{text: "Hello"}]}
-```
-
-This translation is invisible to users.
-
-## Tool Support
-
-All providers support function calling:
-
-### Tool Definition
-
-```go
-type ToolDef struct {
-    Name        string
-    Description string
-    Parameters  json.RawMessage  // JSON schema
-}
-```
-
-### Provider-Specific Formats
-
-**OpenAI**:
 ```json
-{
-  "type": "function",
-  "function": {
-    "name": "get_weather",
-    "description": "Get current weather",
-    "parameters": { ... }
-  }
-}
+{ "type": "function", "function": { "name": "get_weather", "description": "...", "parameters": { } } }
 ```
 
-**Claude**:
 ```json
-{
-  "name": "get_weather",
-  "description": "Get current weather",
-  "input_schema": { ... }
-}
+{ "name": "get_weather", "description": "...", "input_schema": { } }
 ```
 
-**Gemini**:
 ```json
-{
-  "name": "get_weather",
-  "description": "Get current weather",
-  "parameters": { ... }
-}
+{ "function_declarations": [ { "name": "get_weather", "description": "...", "parameters": { } } ] }
 ```
 
-Runtime handles conversion automatically.
+The first shape is OpenAI's, the second Claude's, the third Gemini's. Callers see none of it.
 
-## Design Decisions
+## Design decisions
 
-### Why Common Interface?
+### A common interface
 
-**Decision**: All providers implement the same interface
+All providers implement the same interface. That makes provider-agnostic code possible, simplifies testing and keeps vendor APIs out of the pipeline.
 
-**Rationale**:
-- Enables provider-agnostic code
-- Simplifies switching and testing
-- Reduces coupling to vendor APIs
+The trade-off is that a vendor-specific feature has no place in the interface until enough providers share it. Provider-specific behavior goes through `ProviderSpec` fields such as `AdditionalConfig`, `Platform` and `Headers`.
 
-**Trade-off**: Can't expose provider-specific features directly. Instead, features are added to the interface when widely supported.
+### One instance per service
 
-### Why Separate Providers?
+A provider instance represents one model on one service. Each instance owns its HTTP client, its credentials and its configuration. `providers.Registry` stores instances by ID when a host holds several, but it does not choose between them.
 
-**Decision**: One provider instance per LLM service
+### Direct translation
 
-**Rationale**:
-- Clear resource ownership
-- Independent configuration
-- Separate connection pools
-- Explicit lifecycle management
+Each provider translates directly to its vendor format, with no shared adapter layer in between. The result is fewer layers and simpler debugging, and the translation code is repeated in each provider package. The repetition is small, because the translation is straightforward.
 
-**Alternative considered**: Multi-provider registry was considered but rejected as too complex.
+## Multi-provider patterns
 
-### Why Not Adapter Pattern?
+Runtime has no built-in fallback, load balancing or routing. The interface makes each one a short function in your application, where the policy (which errors fall through, how to weigh cost against quality) belongs.
 
-**Decision**: Providers translate directly, no adapter layer
-
-**Rationale**:
-- Simpler implementation
-- Fewer layers
-- Better performance
-- Easier debugging
-
-**Trade-off**: Translation code lives in each provider. This is acceptable as translation is straightforward.
-
-## Multi-Provider Patterns
-
-### Fallback Strategy
-
-Try providers in order:
+A fallback tries providers in order:
 
 ```go
-providers := []providers.Provider{primary, secondary, tertiary}
-
-for _, provider := range providerList {
-    resp, err := provider.Predict(ctx, req)
-    if err == nil {
-        return resp, nil
+func predictWithFallback(
+    ctx context.Context, req providers.PredictionRequest, candidates ...providers.Provider,
+) (providers.PredictionResponse, error) {
+    var errs []error
+    for _, p := range candidates {
+        resp, err := p.Predict(ctx, req)
+        if err == nil {
+            return resp, nil
+        }
+        errs = append(errs, fmt.Errorf("%s: %w", p.ID(), err))
     }
-    log.Printf("Provider %s failed: %v", provider.ID(), err)
-}
-
-return nil, errors.New("all providers failed")
-```
-
-### Load Balancing
-
-Distribute across providers:
-
-```go
-type LoadBalancer struct {
-    providers []providers.Provider
-    current   int
-}
-
-func (lb *LoadBalancer) Execute(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
-    provider := lb.providers[lb.current % len(lb.providers)]
-    lb.current++
-    return provider.Predict(ctx, req)
+    return providers.PredictionResponse{}, errors.Join(errs...)
 }
 ```
 
-### Cost-Based Routing
+Load balancing and cost-based routing have the same shape: pick a `providers.Provider` by a rule, then call `Predict`. Each provider already retries transient HTTP failures, so fall through to the next provider on errors that outlast those retries.
 
-Route to cheapest provider:
+## Testing with the mock provider
 
-```go
-func selectProvider(taskComplexity string) providers.Provider {
-    switch taskComplexity {
-    case "simple":
-        return openaiMini  // Cheapest
-    case "complex":
-        return claude      // Best quality
-    case "long_context":
-        return gemini      // Largest context
-    default:
-        return openaiMini
-    }
-}
-```
-
-## Testing with Mock Provider
-
-Runtime includes a mock provider:
+The mock provider answers without an API call, so tests are fast, free and deterministic:
 
 ```go
 mockProvider := mock.NewProvider("mock", "mock-model", false)
@@ -414,48 +172,24 @@ mockProvider := mock.NewProvider("mock", "mock-model", false)
 resp, _ := mockProvider.Predict(ctx, providers.PredictionRequest{
     Messages: []types.Message{{Role: "user", Content: "Hi"}},
 })
-fmt.Println(resp.Content)
+fmt.Println(resp.Content) // Mock response from mock model mock-model
 ```
 
-**Benefits**:
-- No API calls
-- Predictable responses
-- Fast tests
-- No cost
+The `replay` provider serves recorded responses for deterministic runs against real conversations.
 
-## Performance Considerations
+## Resource handling
 
-### Connection Reuse
-
-Providers maintain HTTP connection pools:
+A provider owns an HTTP client with a connection pool. Create one provider and reuse it across requests so the pool is reused, and call `Close` when you are done:
 
 ```go
-// Good: Reuse provider
-provider := openai.NewProvider(...)
-defer provider.Close()
-
-for _, prompt := range prompts {
-    provider.Predict(ctx, req)  // Reuses connections
+provider, err := providers.CreateProviderFromSpec(spec)
+if err != nil {
+    return err
 }
+defer provider.Close()
 ```
 
-### Resource Cleanup
-
-Always close providers:
-
-```go
-provider := openai.NewProvider(...)
-defer provider.Close()  // Essential!
-```
-
-Without closing:
-- Connection leaks
-- Goroutine leaks
-- Memory growth
-
-### Timeout Management
-
-Use contexts for timeouts:
+`Close` closes the client's idle connections. Bound each call with a context deadline:
 
 ```go
 ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -464,40 +198,8 @@ defer cancel()
 resp, err := provider.Predict(ctx, req)
 ```
 
-## Future Extensibility
+## Related topics
 
-The provider interface can be extended to support:
-
-**New Features**:
-- Audio generation
-- Image generation
-- Embeddings
-- Fine-tuned models
-
-**New Providers**:
-- Mistral
-- Cohere
-- Local models (Ollama)
-- Custom endpoints
-
-## Summary
-
-Provider abstraction provides:
-
-✅ **Vendor Independence**: Switch providers easily  
-✅ **Unified API**: Same code for all providers  
-✅ **Fallback Support**: Try multiple providers  
-✅ **Testing**: Mock providers for tests  
-✅ **Extensibility**: Add providers without breaking changes  
-
-## Related Topics
-
-- [Pipeline Architecture](/runtime/explanation/pipeline-architecture/) - How providers fit in pipelines
-- [Tool Integration](/runtime/reference/tools/) - Function calling across providers
-- [Providers Reference](/runtime/reference/providers/) - Complete API
-
-## Further Reading
-
-- Strategy pattern (Gang of Four)
-- Adapter pattern for API translation
-- Repository pattern for provider management
+- [Pipeline Architecture](/runtime/explanation/pipeline-architecture/): how providers fit in pipelines
+- [Tools reference](/runtime/reference/tools/): function calling across providers
+- [Providers reference](/runtime/reference/providers/): the complete API

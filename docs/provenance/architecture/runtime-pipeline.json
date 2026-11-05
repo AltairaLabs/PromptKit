@@ -1,0 +1,123 @@
+{
+ "page": "docs/src/content/docs/architecture/runtime-pipeline.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Default channel buffer is 32",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/config.go:17"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "Idle timeout default 30s; execution timeout off; graceful shutdown 10s",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/config.go:25",
+    "runtime/pipeline/stage/config.go:29",
+    "runtime/pipeline/stage/config.go:31"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Default max 50 tool rounds; MaxRoundsError matches ErrMaxRoundsExceeded",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/errors.go:119",
+    "runtime/pipeline/stage/stages_provider.go:33"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Tool calls run in parallel up to 10 by default",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:2711",
+    "runtime/pipeline/stage/stages_provider.go:34"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "A tool with errored result twice is excluded from later rounds",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:3541"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "A failing stage ends the turn via input-gate turn-failure signal; provider skips model; nothing canceled; error reaches caller as last output element",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:136",
+    "runtime/pipeline/stage/pipeline.go:162",
+    "runtime/pipeline/stage/pipeline.go:353",
+    "runtime/pipeline/stage/stages_provider.go:498"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "ExecuteSync returns last error element and collected messages",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:954"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "TemplateStage fails with ErrTemplateUnresolved and does not substitute message content",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:198",
+    "runtime/pipeline/stage/stages_utilities.go:251"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Text/VAD/ASM stage chains",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pipeline/builder.go:443",
+    "sdk/internal/pipeline/builder_vad.go:72"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Build rejects empty, duplicate names, cycles, fan-in into non-MultiInputStage",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/builder.go:185"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "RouterStage pipelines support one Execute at a time",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:649",
+    "runtime/pipeline/stage/stage.go:79"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "StreamElement fields incl. Reasoning; hooks interfaces; MaxCostUSD per run",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/hooks.go:10",
+    "runtime/pipeline/stage/element.go:77",
+    "runtime/pipeline/stage/stages_provider.go:1570"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "Pipeline emits pipeline.failed on error",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:23",
+    "runtime/pipeline/stage/pipeline.go:604"
+   ]
+  }
+ ]
+}

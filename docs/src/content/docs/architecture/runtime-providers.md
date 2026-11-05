@@ -1,401 +1,194 @@
 ---
 title: Runtime Provider System Architecture
+description: How the runtime puts OpenAI, Claude, Gemini and other LLM APIs behind one Go interface, and what the provider layer handles for every call.
 sidebar:
   order: 6
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/pipeline/stage/compactor.go
+    - runtime/providers/base_provider.go
+    - runtime/providers/claude/claude.go
+    - runtime/providers/claude/claude_multimodal.go
+    - runtime/providers/claude/claude_streaming.go
+    - runtime/providers/errors.go
+    - runtime/providers/gemini/gemini.go
+    - runtime/providers/gemini/gemini_multimodal.go
+    - runtime/providers/gemini/gemini_tools.go
+    - runtime/providers/gemini/interactions_mode.go
+    - runtime/providers/gemini/streaming_support.go
+    - runtime/providers/mock/mock.go
+    - runtime/providers/mock/mock_repository.go
+    - runtime/providers/mock/mock_streaming.go
+    - runtime/providers/openai/openai.go
+    - runtime/providers/openai/openai_multimodal.go
+    - runtime/providers/openai/openai_responses_integration.go
+    - runtime/providers/openai/streaming_support_integration.go
+    - runtime/providers/provider.go
+    - runtime/providers/registry.go
+    - runtime/providers/rejected_params.go
+    - runtime/providers/retry.go
+    - runtime/providers/sse.go
+    - runtime/providers/stream_retry.go
+    - runtime/providers/streaming.go
+    - runtime/providers/streaming_input.go
+    - runtime/types/content.go
 ---
-The PromptKit provider system provides a unified abstraction for interacting with multiple LLM providers while handling provider-specific details transparently. This architecture enables switching between providers and facilitates multi-provider testing and comparison.
+This page explains how the runtime reaches many LLM APIs through one Go interface: the interfaces, how a provider is created, what an adapter translates, and what the shared layer does for streaming, retries and cost. For what a provider is and how to configure one, see [Providers](/concepts/providers/).
 
-## Overview
+## One interface, many adapters
 
-The provider system abstracts away the differences between various LLM APIs (OpenAI, Anthropic, Google Gemini, etc.) behind a consistent interface. This allows the runtime to work with any provider without changing application code.
-
-```mermaid
-graph TB
-    subgraph "Application Layer"
-        SDK["SDK / Arena"]
-    end
-
-    subgraph "Runtime Layer"
-        Pipeline["Pipeline"]
-        Registry["Provider Registry"]
-    end
-
-    subgraph "Provider Implementations"
-        OpenAI["OpenAI Provider<br/>GPT-4, GPT-3.5"]
-        Anthropic["Anthropic Provider<br/>Claude 3 Family"]
-        Gemini["Gemini Provider<br/>Gemini Pro/Ultra"]
-        Mock["Mock Provider<br/>Testing"]
-    end
-
-    subgraph "External APIs"
-        OpenAI_API["OpenAI API"]
-        Anthropic_API["Anthropic API"]
-        Google_API["Google AI API"]
-    end
-
-    SDK --> Pipeline
-    Pipeline --> Registry
-    Registry --> OpenAI
-    Registry --> Anthropic
-    Registry --> Gemini
-    Registry --> Mock
-
-    OpenAI --> OpenAI_API
-    Anthropic --> Anthropic_API
-    Gemini --> Google_API
-
-    style Registry fill:#f9f,stroke:#333,stroke-width:3px
-```
-
-## Core Interfaces
-
-### Provider Interface
-
-The base `Provider` interface defines the minimal contract all providers must implement:
-
-```go
-type Provider interface {
-    // Identity
-    ID() string
-    Model() string
-
-    // Prediction operations
-    Predict(ctx context.Context, req PredictionRequest) (PredictionResponse, error)
-    PredictStream(ctx context.Context, req PredictionRequest) (<-chan StreamChunk, error)
-    SupportsStreaming() bool
-
-    // Cost calculation
-    CalculateCost(inputTokens, outputTokens, cachedTokens int) types.CostInfo
-
-    // Configuration
-    ShouldIncludeRawOutput() bool
-
-    // Lifecycle
-    Close() error
-}
-```
-
-**Key Responsibilities**:
-- **Identity**: Unique provider identification and model name
-- **Predict**: Execute prediction requests (blocking)
-- **Streaming**: Execute streaming prediction requests
-- **Cost**: Calculate provider-specific costs
-- **Configuration**: Runtime behavior flags
-- **Lifecycle**: Resource cleanup
-
-### ToolSupport Interface
-
-Providers that support tool/function calling extend the base interface:
-
-```go
-type ToolSupport interface {
-    Provider // Extends base Provider
-
-    // Convert tool descriptors to provider-native format
-    BuildTooling(descriptors []*ToolDescriptor) (ProviderTools, error)
-
-    // Execute prediction with tool support
-    PredictWithTools(
-        ctx context.Context,
-        req PredictionRequest,
-        tools ProviderTools,
-        toolChoice string,
-    ) (PredictionResponse, []types.MessageToolCall, error)
-
-    // Execute streaming prediction with tool support
-    PredictStreamWithTools(
-        ctx context.Context,
-        req PredictionRequest,
-        tools ProviderTools,
-        toolChoice string,
-    ) (<-chan StreamChunk, error)
-}
-```
-
-**Why Separate?**: Not all providers support tools. This optional interface allows capability detection and graceful fallbacks.
-
-### StreamingInputSupport Interface
-
-For providers that support streaming input (audio, video, etc.):
-
-```go
-type StreamingInputSupport interface {
-    Provider // Extends base Provider
-
-    // Execute chat with streaming media input
-    ChatStreamWithMedia(
-        ctx context.Context,
-        req ChatRequest,
-        mediaStream <-chan types.MediaContent,
-    ) (<-chan StreamChunk, error)
-}
-```
-
-**Use Cases**:
-- Real-time audio transcription
-- Video stream processing
-- Live multimodal interactions
-
-## Request & Response Types
-
-### PredictionRequest
-
-Unified request format across all providers:
-
-```go
-type PredictionRequest struct {
-    System         string                 // System prompt
-    Messages       []types.Message        // Conversation history
-    Temperature    float32                // Sampling temperature
-    TopP           float32                // Nucleus sampling
-    MaxTokens      int                    // Maximum response length
-    Seed           *int                   // Reproducibility seed
-    ResponseFormat *ResponseFormat        // Optional response format (JSON mode)
-    Metadata       map[string]any         // Provider-specific extras
-}
-```
-
-**Design Principles**:
-- **Provider Agnostic**: Works with all providers
-- **Extensible**: Metadata field for provider-specific options
-- **Type Safe**: Structured fields prevent errors
-
-### PredictionResponse
-
-Unified response format:
-
-```go
-type PredictionResponse struct {
-    Content    string                  // Response text
-    Parts      []types.ContentPart     // Multimodal content parts (text, image, audio, video)
-    ToolCalls  []types.MessageToolCall // Tool invocations
-    CostInfo   *types.CostInfo         // Token usage & cost
-    Latency    time.Duration           // Response time
-    Raw        []byte                  // Raw API response (debug)
-    RawRequest any                     // Raw API request (debug)
-}
-```
-
-**Key Features**:
-- **Multimodal**: Rich content parts beyond text
-- **Cost Tracking**: Built-in cost calculation
-- **Performance Metrics**: Latency measurement
-- **Debugging**: Optional raw data capture
-- **Tool Support**: Unified tool call format
-
-### StreamChunk
-
-For streaming responses:
-
-```go
-type StreamChunk struct {
-    Content      string                  // Accumulated content
-    Delta        string                  // New content in this chunk
-    TokenCount   int                     // Total tokens so far
-    DeltaTokens  int                     // Tokens in this delta
-    ToolCalls    []types.MessageToolCall // Tool calls (if any)
-    FinishReason *string                 // Completion reason
-    Error        error                   // Error (if failed)
-    CostInfo     *types.CostInfo         // Final chunk only
-}
-```
-
-**Streaming Design**:
-- **Incremental Updates**: Delta-based content delivery
-- **Progress Tracking**: Token counts for UI updates
-- **Error Handling**: In-band error signaling
-- **Final Summary**: Cost info in last chunk
-
-## Provider Registry
-
-The `Registry` manages provider instances and provides discovery:
+Each vendor API differs in message layout, tool format, streaming wire format and error shape. The `providers` package defines one `Provider` interface and one set of request and response types. Each vendor gets an adapter package that translates between them. The pipeline's provider stage and your own code talk to `providers.Provider` and never to a vendor type.
 
 ```mermaid
 graph TB
-    subgraph "Registry"
-        ProviderMap["Provider Map<br/>(ID -> Provider)"]
-        FactoryMap["Factory Map<br/>(Type -> Factory)"]
-    end
-
-    subgraph "Registration"
-        RegFactory["RegisterProviderFactory()"]
-        CreateProvider["CreateProviderFromSpec()"]
-    end
-
-    subgraph "Usage"
-        Register["Register(provider)"]
-        Get["Get(id)"]
-        List["List()"]
-        Close["Close()"]
-    end
-
-    RegFactory --> FactoryMap
-    CreateProvider --> FactoryMap
-    CreateProvider --> ProviderMap
-    Register --> ProviderMap
-    Get --> ProviderMap
-    List --> ProviderMap
-    Close --> ProviderMap
-
-    style ProviderMap fill:#9f9
-    style FactoryMap fill:#9f9
+    Caller["SDK, pipeline ProviderStage or your code"] --> Iface["providers.Provider"]
+    Spec["ProviderSpec"] --> Create["CreateProviderFromSpec"]
+    Create --> Factories["factory map: type to ProviderFactory"]
+    Factories --> OpenAI["openai"]
+    Factories --> Claude["claude"]
+    Factories --> Gemini["gemini"]
+    Factories --> Local["ollama, vllm"]
+    Factories --> Test["mock, replay"]
+    OpenAI --> Iface
+    Claude --> Iface
+    Gemini --> Iface
 ```
 
-### Provider Lifecycle
+The trade-off is the lowest common denominator. A request carries the fields most APIs share, and anything vendor-specific travels in `Metadata` or in the provider's `AdditionalConfig`. Features that only some providers have sit behind optional interfaces instead of widening `Provider`.
+
+## Core interfaces
+
+`Provider` is the base contract. It embeds `base.Provider` (name, type, pricing descriptor, validation, init, health check, close) and adds `ID`, `Model`, `Predict`, `PredictStream`, `SupportsStreaming`, `ShouldIncludeRawOutput` and `CalculateCost`.
+
+Capabilities beyond a single prediction are separate interfaces. You detect them with a type assertion:
+
+| Interface | Adds | Implemented by |
+|---|---|---|
+| `ToolSupport` | `BuildTooling`, `PredictWithTools`, `PredictStreamWithTools` | the `claude`, `gemini`, `openai`, `ollama`, `vllm` and `mock` tool providers |
+| `StreamInputSupport` | `CreateStreamSession`, `SupportsStreamInput`, `GetStreamingCapabilities` | `gemini` (Live API), `openai` (Realtime), `mock` |
+| `ContextWindowProvider` | `MaxContextTokens`, which sizes the compactor | any provider that reports its context window |
+| `MessageMetadataTemplater` | `MessageMetadataTemplate`, the text appended to each message's metadata | every chat provider |
+| `MediaScoped` | `WithMediaSettings`, a per-conversation view of a shared provider | providers that resolve media |
+
+`BuildTooling` returns a provider-native value (`ProviderTools`) that you pass back to `PredictWithTools`. The runtime never inspects it.
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+)
+
+func main() {
+	provider, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+		ID: "demo", Type: "mock", Model: "mock-model",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	registry := providers.NewRegistry()
+	registry.Register(provider)
+	defer registry.Close()
+
+	p, _ := registry.Get("demo")
+	if _, ok := p.(providers.ToolSupport); ok {
+		fmt.Println("supports tools")
+	}
+	if _, ok := p.(providers.StreamInputSupport); ok {
+		fmt.Println("supports streaming input")
+	}
+
+	resp, err := p.Predict(context.Background(), providers.PredictionRequest{
+		System:   "You are terse.",
+		Messages: []types.Message{{Role: "user", Content: "Hello"}},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(resp.Content)
+}
+```
+
+The program prints `supports tools`, `supports streaming input` and `Mock response from demo model mock-model`.
+
+## Requests and responses
+
+`PredictionRequest` carries `System`, `Messages`, `Temperature` (with `TemperatureSet`), `TopP`, `MaxTokens`, `TopK`, `FrequencyPenalty`, `PresencePenalty`, `Seed`, `ResponseFormat` and `Metadata`. Three behaviors of the shared layer keep adapters thin:
+
+- `NormalizeMessages` moves system-role messages into `System` before the adapter runs, because some APIs reject or drop a `system` role.
+- A parameter the API does not take is dropped, and `WarnUnsentParams` logs it once per provider and parameter.
+- When an API answers a 400 that names a sampling parameter its model rejects, the provider records the parameter as rejected, stops sending it and repeats the call. The `unsupported_params` provider setting declares the same thing up front.
+
+`PredictionResponse` returns `Content`, multimodal `Parts`, `ToolCalls`, `CostInfo`, `Latency`, `Reasoning`, a normalized `FinishReason` and, when raw output is enabled, `Raw` and `RawRequest`.
+
+`StreamChunk` has these fields:
+
+- `Content` holds the accumulated text and `Delta` the new text. `TokenCount` and `DeltaTokens` count tokens.
+- `Reasoning` carries reasoning tokens, which are never part of the content.
+- `FinishReason` is nil until the stream ends. `CostInfo` is set only on that final chunk.
+- `Error` signals a failure in-band, on the channel.
+- `Reset` tells the consumer to discard everything accumulated so far because the stream restarted.
+
+## Creating providers and the registry
+
+Each adapter package registers a factory for its type in an `init` function, so importing `providers/claude` makes the `claude` type available. `providers/all` imports every adapter at once. `CreateProviderFromSpec` looks up the factory, and an unknown type returns `UnsupportedProviderError`. A hosting platform such as `bedrock` is not a type: the error says to set the vendor as the type and the platform in the spec.
 
 ```mermaid
 sequenceDiagram
     participant App
-    participant Registry
+    participant Spec as CreateProviderFromSpec
     participant Factory
     participant Provider
+    participant Registry
 
-    App->>Registry: CreateProviderFromSpec(spec)
-    Registry->>Factory: factory(spec)
-    Factory->>Provider: new(config)
-    Provider-->>Factory: provider instance
-    Factory-->>Registry: provider instance
-    Registry->>Registry: Register(provider)
-    Registry-->>App: provider
-
-    Note over App,Provider: Provider is ready for use
-
+    App->>Spec: ProviderSpec
+    Spec->>Spec: fill default base URL for the type
+    Spec->>Factory: factory(spec)
+    Factory-->>Spec: Provider
+    Spec->>Provider: apply timeouts, stream retry, transport, headers, media store
+    Spec-->>App: Provider
+    App->>Registry: Register(provider)
     App->>Registry: Get(id)
-    Registry-->>App: provider
-
-    App->>Provider: Predict(request)
-    Provider-->>App: response
-
+    Registry-->>App: Provider
     App->>Registry: Close()
     Registry->>Provider: Close()
-    Provider-->>Registry: cleaned up
 ```
 
-### ProviderSpec
+After the factory returns, `CreateProviderFromSpec` applies the spec's optional settings through small interfaces such as `timeoutConfigurable` and `streamRetryConfigurable`. Factories therefore stay short, and any provider that embeds `BaseProvider` picks up timeouts, stream retry, the concurrent-stream cap, the HTTP transport, custom headers and the media store without per-adapter code.
 
-Configuration for creating providers:
+`Registry` is a map of providers keyed by `ID()`. `Register`, `Get`, `List` and `Close` work on that map, and `GetByType` and `GetAll` look up ancillary providers (TTS, STT, embedding, image, video, rerank) by capability. `CreateProviderFromSpec` does not register what it builds. You call `Register` yourself. The registry is not safe for concurrent use.
 
-```go
-type ProviderSpec struct {
-    ID               string                 // Unique identifier
-    Type             string                 // Provider type (openai, claude, etc.)
-    Model            string                 // Model name
-    BaseURL          string                 // API endpoint (optional)
-    Defaults         ProviderDefaults       // Default parameters
-    IncludeRawOutput bool                   // Include raw API responses
-    AdditionalConfig map[string]interface{} // Provider-specific config
-}
-```
+## What an adapter translates
 
-**Factory Pattern**: Each provider type registers a factory function:
+Adapters own the places where vendors differ:
 
-```go
-func init() {
-    RegisterProviderFactory("openai", func(spec ProviderSpec) (Provider, error) {
-        return openai.NewProvider(spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput), nil
-    })
-}
-```
+- OpenAI calls either the Chat Completions API or the Responses API, chosen by the provider's `api_mode`. It sends `seed` on Chat Completions and not on Responses.
+- Claude sends the system prompt as separate system blocks and turns tools into `input_schema` definitions. It turns on prompt caching unless `DisablePromptCaching` is set. The Messages API requires an output limit, so Claude falls back to 4096 tokens.
+- Gemini sends the system prompt as `systemInstruction` and tools as `function_declarations`. It supports a Live API for streaming input and an Interactions API mode.
+- Ollama and vLLM call servers you run. The factory defaults their base URLs to `localhost`.
 
-## Provider Implementations
-
-### OpenAI Provider
-
-**Supported Models**:
-- GPT-4 (all variants)
-- GPT-3.5 Turbo
-- GPT-4 Turbo
-
-**Features**:
-- ✅ Streaming
-- ✅ Tool calling
-- ✅ Seed-based reproducibility
-- ✅ JSON mode
-- ✅ Vision (multimodal)
-
-**Special Handling**:
-- Token counting via tiktoken
-- Exponential backoff on rate limits
-- Automatic retry on transient errors
-
-### Anthropic Provider
-
-**Supported Models**:
-- Claude 3 Opus
-- Claude 3.5 Sonnet
-- Claude 3 Haiku
-
-**Features**:
-- ✅ Streaming
-- ✅ Tool calling
-- ✅ Extended context (200K tokens)
-- ✅ Vision (multimodal)
-- ✅ Prompt caching
-
-**Special Handling**:
-- Message role constraints (alternating user/assistant)
-- System prompt as separate parameter
-- Tool use pattern (tool_use blocks)
-
-### Google Gemini Provider
-
-**Supported Models**:
-- Gemini Pro
-- Gemini Ultra
-- Gemini Pro Vision
-
-**Features**:
-- ✅ Streaming
-- ✅ Tool calling
-- ✅ Multimodal (audio, video, images)
-- ✅ Live API (streaming input)
-
-**Special Handling**:
-- Content parts structure
-- Safety settings configuration
-- Multimodal content encoding
-
-### Mock Provider
-
-**Purpose**: Testing and development
-
-**Features**:
-- ✅ Configurable responses
-- ✅ Simulated latency
-- ✅ Error injection
-- ✅ Tool call simulation
-
-**Use Cases**:
-- Unit testing
-- Integration testing
-- Offline development
-- Scenario reproduction
-
-## Streaming Architecture
-
-### Non-Streaming Flow
+Media is the clearest example. A message holds `ContentPart` values whose `MediaContent` is inline base64, a file path, a URL or a storage reference. `MediaLoader` resolves any of these, and each adapter encodes the result for its API.
 
 ```mermaid
-sequenceDiagram
-    participant Client
-    participant Provider
-    participant API
-
-    Client->>Provider: Predict(request)
-    Provider->>API: HTTP POST
-    Note over API: Processing...
-    API-->>Provider: Complete Response
-    Provider->>Provider: Parse & Transform
-    Provider-->>Client: PredictionResponse
+graph LR
+    Part["types.ContentPart<br/>text, image, audio, video"] --> OpenAIA["openai: image_url, URL or data URI"]
+    Part --> ClaudeA["claude: content block, source base64 or url"]
+    Part --> GeminiA["gemini: inlineData part"]
 ```
 
-**Characteristics**:
-- Simple request/response
-- Complete result before return
-- Higher perceived latency
-- Easier error handling
+Tools follow the same pattern. A `ToolDescriptor` (name, description, input and output schema) is the common form, and `BuildTooling` converts it to the vendor's tool format.
 
-### Streaming Flow
+## Streaming
+
+`PredictStream` returns a channel of `StreamChunk` and closes it when the stream ends. Providers read server-sent events with `SSEScanner`, which yields the payload of each `data:` line. Bedrock uses its own event-stream framing behind the same `StreamScanner` interface.
 
 ```mermaid
 sequenceDiagram
@@ -404,388 +197,73 @@ sequenceDiagram
     participant API
 
     Client->>Provider: PredictStream(request)
-    Provider->>API: HTTP POST (Accept: text/event-stream)
-    Provider-->>Client: StreamChunk channel
-
-    loop For each chunk
-        API->>Provider: SSE Event
-        Provider->>Provider: Parse Event
-        Provider->>Client: StreamChunk
+    Provider->>API: HTTP POST, streaming
+    Provider-->>Client: chunk channel
+    loop each event
+        API->>Provider: SSE data
+        Provider->>Client: StreamChunk with Delta
     end
-
-    API->>Provider: [DONE]
-    Provider->>Client: Final Chunk (with CostInfo)
-    Provider->>Client: Close channel
+    Provider->>Client: final chunk with FinishReason and CostInfo
+    Provider->>Client: close channel
 ```
 
-**Characteristics**:
-- Progressive content delivery
-- Lower perceived latency
-- Real-time UI updates
-- Complex error handling (mid-stream failures)
+Streaming differs from a plain call in three ways.
 
-### SSE Parser
+A stalled stream is cut off. If no bytes arrive for `DefaultStreamIdleTimeout` (30 seconds, configurable per provider), the response body closes. Reasoning chunks count as activity.
 
-PromptKit includes a robust SSE (Server-Sent Events) parser:
+Request timeouts do not apply to streams. A streaming call lasts as long as the model keeps sending data, and context cancellation ends it.
 
-```go
-// Parse SSE stream and emit events
-parser := NewSSEParser(reader)
-for {
-    event, err := parser.Next()
-    if err == io.EOF {
-        break
-    }
-    if err != nil {
-        return err
-    }
+Retries are opt-in. With `StreamRetryPolicy` enabled, a failure before the first content chunk retries with full-jitter backoff, up to two attempts by default. The `always` window also retries after content has been sent: the provider emits a chunk with `Reset` set and starts over, which costs tokens. A server `Retry-After` longer than `MaxRetryAfter` stops the retry.
 
-    // Process event.Data
-    chunk := parseProviderChunk(event.Data)
-    chunkChan <- chunk
-}
-```
+The runtime can also cap the number of streams in flight per provider (`StreamMaxConcurrent`) and share a retry budget across requests.
 
-**Features**:
-- Handles chunked transfer encoding
-- Robust newline parsing
-- Error recovery
-- Multiple provider formats
+## Errors and retries
 
-## Cost Calculation
-
-Each provider implements cost calculation based on token usage:
-
-```mermaid
-graph LR
-    subgraph "Input"
-        Tokens["Token Counts<br/>Input: 1000<br/>Output: 500<br/>Cached: 200"]
-        Pricing["Pricing Model<br/>Input: $0.01/1K<br/>Output: $0.03/1K<br/>Cache: $0.001/1K"]
-    end
-
-    subgraph "Calculation"
-        Calc["CalculateCost()"]
-    end
-
-    subgraph "Output"
-        CostInfo["CostInfo<br/>Input: $0.01<br/>Output: $0.015<br/>Cache: $0.0002<br/>Total: $0.0252"]
-    end
-
-    Tokens --> Calc
-    Pricing --> Calc
-    Calc --> CostInfo
-
-    style CostInfo fill:#9f9
-```
-
-**Cost Tracking Features**:
-- Per-request cost breakdown
-- Cached token discounts (Anthropic)
-- Aggregation across conversations
-- Multi-provider cost comparison
-
-## Multimodal Support
-
-### Content Types
-
-PromptKit supports rich content beyond text:
-
-```go
-type MessageContent interface {
-    ContentType() string
-}
-
-type TextContent struct {
-    Text string
-}
-
-type MediaContent struct {
-    Type     string // "image", "audio", "video"
-    MimeType string // "image/jpeg", "audio/mp3", etc.
-    Data     []byte // Raw data
-    URL      string // Or URL reference
-}
-```
-
-### Provider-Specific Encoding
-
-```mermaid
-graph TB
-    subgraph "Unified Content"
-        TextContent["TextContent"]
-        MediaContent["MediaContent<br/>Image/Audio/Video"]
-    end
-
-    subgraph "Provider Adapters"
-        OpenAIAdapter["OpenAI Adapter<br/>base64 encoding"]
-        AnthropicAdapter["Anthropic Adapter<br/>content blocks"]
-        GeminiAdapter["Gemini Adapter<br/>inline data"]
-    end
-
-    subgraph "Provider APIs"
-        OpenAI_API["OpenAI API"]
-        Anthropic_API["Anthropic API"]
-        Gemini_API["Gemini API"]
-    end
-
-    TextContent --> OpenAIAdapter
-    TextContent --> AnthropicAdapter
-    TextContent --> GeminiAdapter
-
-    MediaContent --> OpenAIAdapter
-    MediaContent --> AnthropicAdapter
-    MediaContent --> GeminiAdapter
-
-    OpenAIAdapter --> OpenAI_API
-    AnthropicAdapter --> Anthropic_API
-    GeminiAdapter --> Gemini_API
-```
-
-**Provider Differences**:
-- **OpenAI**: Base64-encoded images in content array
-- **Anthropic**: Separate content blocks with source
-- **Gemini**: Inline data with blob structure
-
-## Error Handling & Resilience
-
-### Error Types
-
-```go
-// Provider-specific errors
-type ProviderError struct {
-    Provider string
-    Type     string // "rate_limit", "auth", "invalid_request", "timeout"
-    Message  string
-    Retryable bool
-}
-
-// Network errors
-type NetworkError struct {
-    Operation string
-    Err       error
-}
-
-// Unsupported provider
-type UnsupportedProviderError struct {
-    ProviderType string
-}
-```
-
-### Retry Strategy
+Non-streaming calls go through `DoWithRetry`. Its default policy is three retries with exponential backoff from 500 ms, up to 60 seconds, plus up to 50% jitter. A `Retry-After` header replaces the computed delay.
 
 ```mermaid
 graph TD
-    Request["Execute Request"]
-    Success["Success"]
-    Error["Error Occurred"]
-    Retryable{"Retryable?"}
-    Attempts{"Max Attempts?"}
-    Backoff["Exponential Backoff"]
-    Fail["Return Error"]
-
-    Request --> Success
-    Request --> Error
-    Error --> Retryable
-    Retryable -->|Yes| Attempts
-    Retryable -->|No| Fail
-    Attempts -->|No| Backoff
-    Attempts -->|Yes| Fail
-    Backoff --> Request
-
-    style Success fill:#9f9
-    style Fail fill:#f99
+    Request["send request"] --> Result{"result"}
+    Result -->|"2xx"| Done["return response"]
+    Result -->|"429, 502, 503, 504 or network error"| Left{"retries left?"}
+    Result -->|"other status or context error"| Fail["return error"]
+    Left -->|yes| Wait["wait: Retry-After or backoff"]
+    Left -->|no| Fail
+    Wait --> Request
 ```
 
-**Retryable Errors**:
-- Rate limits (429)
-- Transient network failures
-- Server errors (500, 502, 503, 504)
+The runtime does not retry a 500, a 400-class error or a cancelled context. Errors keep their structure so callers can classify them:
 
-**Non-Retryable Errors**:
-- Authentication failures (401, 403)
-- Invalid requests (400)
-- Not found (404)
-- Content policy violations
+- `ProviderHTTPError` carries the status, body and `RetryAfter` of a non-2xx response. Its message redacts credentials in the URL.
+- `ProviderTransportError` wraps connection-level failures.
+- `RetryableHTTPError` reports that retries ran out on a retryable status.
+- `ErrPayloadTooLarge` reports a request over the provider's size limit.
 
-## Configuration & Defaults
+`IsTransient` is true for a retryable HTTP status or a transport error. It is false for context cancellation and for a stream idle timeout, because a stall is a deadline and not a blip.
 
-### ProviderDefaults
+A per-provider rate limiter (`SetRateLimit`) delays requests before they are sent, and connection pooling is built into the base provider's transport, tunable through `HTTPTransportOptions`.
 
-Each provider carries the defaults from its spec:
+## Defaults and cost
 
-```go
-type ProviderDefaults struct {
-    Temperature          float32
-    TopP                 float32
-    MaxTokens            int
-    Pricing              Pricing
-    DisablePromptCaching bool
-}
-```
+Output-token and sampling defaults resolve in this order:
 
-**Override Hierarchy**:
-1. Request-level parameters (highest priority). The SDK fills these from the prompt's `parameters` only.
-2. Provider defaults (from spec), applied to request fields left at zero.
-3. No output-token limit (lowest priority): the field is left off the request and the model's own maximum applies.
+1. The request's own positive value. The SDK fills request fields from the prompt's `parameters` only.
+2. The provider's `ProviderDefaults`, applied to request fields left at zero.
+3. No limit: the field is left off the request and the model's own maximum applies.
 
-`providers.ResolveMaxTokens` implements steps 1 to 3 for every provider.
-`MaxTokens: providers.MaxTokensUnlimited` (`-1`) selects step 3 explicitly.
-Claude's API requires `max_tokens`, so the Claude provider sends 4096 at step 3
-and its factory rejects `MaxTokensUnlimited`.
+`providers.ResolveMaxTokens` implements this for every provider, and `MaxTokensUnlimited` (`-1`) selects the third step. Claude's factory rejects `MaxTokensUnlimited`.
 
-## Tool Calling Integration
+Every provider reports cost as a `types.CostInfo` on the response, or on the final stream chunk. `CalculateCost(inputTokens, outputTokens, cachedTokens)` is the legacy entry point. The adapters price full usage, including reasoning, audio, image and cache-write units, through the unit-keyed pricing engine in `providers/base`. A descriptor set in code wins over a flat per-1K config, which wins over the built-in per-model table. [How calls are priced](/concepts/providers/#how-calls-are-priced) describes the resolution and its fallbacks.
 
-### Tool Descriptor Format
+## Testing with the mock provider
 
-Unified tool representation:
+The `mock` provider makes no API calls. It answers from a `ResponseRepository`: an in-memory one with a default response and per-scenario, per-turn overrides, or a file-backed one that also scripts tool calls and multimodal parts. Its streaming sessions can simulate an interruption on a chosen turn and a provider that closes the connection. It reports token counts estimated from text length. The `replay` provider serves recorded sessions for deterministic runs.
 
-```go
-type ToolDescriptor struct {
-    Name         string          // Function name
-    Description  string          // What the tool does
-    InputSchema  json.RawMessage // JSON Schema for arguments
-    OutputSchema json.RawMessage // JSON Schema for results
-}
-```
+## Related pages
 
-### Provider-Specific Transformation
-
-```mermaid
-graph LR
-    subgraph "Unified Format"
-        ToolDesc["ToolDescriptor<br/>JSON Schema"]
-    end
-
-    subgraph "BuildTooling()"
-        OpenAIBuild["OpenAI<br/>functions array"]
-        AnthropicBuild["Anthropic<br/>tools array"]
-        GeminiBuild["Gemini<br/>function_declarations"]
-    end
-
-    ToolDesc --> OpenAIBuild
-    ToolDesc --> AnthropicBuild
-    ToolDesc --> GeminiBuild
-
-    style ToolDesc fill:#9f9
-```
-
-**Example Transformation**:
-```go
-// Unified format
-tool := &ToolDescriptor{
-    Name: "get_weather",
-    Description: "Get weather for a location",
-    InputSchema: /* JSON Schema */,
-}
-
-// OpenAI format
-openaiTool := {
-    "type": "function",
-    "function": {
-        "name": "get_weather",
-        "description": "Get weather for a location",
-        "parameters": /* JSON Schema */,
-    },
-}
-
-// Anthropic format
-claudeTool := {
-    "name": "get_weather",
-    "description": "Get weather for a location",
-    "input_schema": /* JSON Schema */,
-}
-```
-
-## Performance Optimization
-
-### Connection Pooling
-
-```go
-httpClient := &http.Client{
-    Transport: &http.Transport{
-        MaxIdleConns:        100,
-        MaxIdleConnsPerHost: 10,
-        IdleConnTimeout:     90 * time.Second,
-    },
-}
-```
-
-**Benefits**:
-- Reuse TCP connections
-- Reduce TLS handshake overhead
-- Improve request latency
-
-### Response Caching
-
-Providers can implement optional caching:
-- Prompt caching (Anthropic)
-- Deterministic responses (seed-based)
-- Semantic caching (application-level)
-
-### Batch Processing
-
-Future enhancement for batch operations:
-- Multiple requests in single API call
-- Reduced per-request overhead
-- Better resource utilization
-
-## Testing & Observability
-
-### Mock Provider
-
-Full-featured mock for testing:
-
-```go
-mock := NewMockProvider("test-provider")
-mock.AddResponse("Hello", nil)
-mock.AddToolCall("get_weather", args, result)
-mock.SetLatency(100 * time.Millisecond)
-
-response, err := mock.Predict(ctx, request)
-```
-
-### Logging Integration
-
-Providers integrate with the runtime logger:
-
-```go
-logger.LLMCall(provider.ID(), "user", len(messages), temperature)
-logger.LLMResponse(provider.ID(), "assistant", inputTokens, outputTokens, cost)
-logger.LLMError(provider.ID(), "assistant", err)
-```
-
-### Metrics
-
-Key metrics to monitor:
-- **Latency**: P50, P95, P99 response times
-- **Token Usage**: Input/output tokens per request
-- **Cost**: Spend per provider/model
-- **Error Rate**: Failed requests by error type
-- **Throughput**: Requests per second
-
-## Best Practices
-
-1. **Use Registry**: Let the registry manage provider instances
-2. **Handle Errors Gracefully**: Implement retries with exponential backoff
-3. **Monitor Costs**: Track token usage and spending
-4. **Test with Mock**: Use mock provider for fast, deterministic tests
-5. **Stream When Possible**: Provide better user experience
-6. **Close Resources**: Always call Close() to clean up connections
-7. **Respect Rate Limits**: Implement proper backoff strategies
-8. **Validate Input**: Check message formats before sending to provider
-
-## Future Enhancements
-
-- **Circuit Breaker**: Automatic failure detection and recovery
-- **Provider Fallbacks**: Automatic failover to backup providers
-- **Load Balancing**: Distribute requests across provider instances
-- **Request Deduplication**: Cache identical requests
-- **Cost Optimization**: Automatic model selection based on budget
-- **A/B Testing**: Split traffic between providers for comparison
-
----
-
-**Related Documentation**:
+- [Providers](/concepts/providers/)
+- [Provider System Explanation](/runtime/explanation/provider-system/)
+- [Provider reference](/runtime/reference/providers/)
+- [Set up providers](/runtime/how-to/providers/setup-providers/)
 - [Runtime Pipeline Architecture](/architecture/runtime-pipeline/)
 - [Tool & MCP Integration Architecture](/architecture/runtime-tools-mcp/)
-- [System Overview](/architecture/system-overview/)

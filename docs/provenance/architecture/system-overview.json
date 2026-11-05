@@ -1,0 +1,56 @@
+{
+ "page": "docs/src/content/docs/architecture/system-overview.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "c1",
+   "claim": "Module imports: sdk -> pkg, runtime, server/a2a; pkg -> runtime; server/a2a -> runtime; runtime imports no sibling",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": "c2",
+   "claim": "sdk/agui imports sdk and runtime; sdk/hooks imports runtime",
+   "verdict": "true",
+   "evidence": [
+    "sdk/agui/adapter.go:14-16"
+   ]
+  },
+  {
+   "id": "c3",
+   "claim": "Provider subpackages openai, claude, gemini, vertex, bedrock, ollama, vllm, mock",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": "c4",
+   "claim": "Conversation has Send and Stream",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:275",
+    "sdk/streaming.go:121"
+   ]
+  },
+  {
+   "id": "c5",
+   "claim": "statestore has memory and Redis stores",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/memory.go:170",
+    "runtime/statestore/redis.go:77"
+   ]
+  },
+  {
+   "id": "c6",
+   "claim": "stage pipeline imports prompt, providers, tools, statestore, hooks, events; runtime/hooks imports evals",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": "c7",
+   "claim": "Arena CLI and PackC are in the promptarena repository",
+   "verdict": "unverified",
+   "evidence": []
+  }
+ ]
+}

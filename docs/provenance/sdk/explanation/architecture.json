@@ -1,0 +1,156 @@
+{
+ "page": "docs/src/content/docs/sdk/explanation/architecture.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "sdk.Open validates against PromptPack schema unless skipped",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pack/load.go:52"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "Packs cached by absolute path",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:414",
+    "sdk/sdk.go:434"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "packloader.New().Load(...) snippet / PackLoader component",
+   "verdict": "false",
+   "evidence": [
+    "sdk/internal/pack/load.go:31"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Event struct fields (RunID, ...)",
+   "verdict": "false",
+   "evidence": [
+    "runtime/events/types.go:175"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Event order pipeline/provider/tool/completed/failed",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:19",
+    "runtime/pipeline/stage/pipeline.go:126",
+    "runtime/pipeline/stage/stages_provider.go:2941"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "EvalDispatcher, InProcDispatcher, EventDispatcher, NoOpDispatcher, EventBusEvalListener, MetadataResultWriter, MetricCollector",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/metrics.go:23",
+    "runtime/evals/runner.go:20"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "EvalRunner runs handlers with timeout and panic recovery",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/runner.go:295",
+    "runtime/evals/runner.go:307"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Handlers contains, regex, json_valid, tools_called, llm_judge exist",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/contains.go:16",
+    "runtime/evals/handlers/json_valid.go:16",
+    "runtime/evals/handlers/llm_judge.go:26",
+    "runtime/evals/handlers/regex.go:16",
+    "runtime/evals/handlers/tools_called.go:40"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Triggers every_turn, on_session_complete, sample_turns, sample_sessions, hash sampling",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/trigger.go:23",
+    "runtime/evals/types.go:29"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Turn evals async on Send, session evals sync on Close",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:337",
+    "sdk/eval_middleware.go:256",
+    "sdk/eval_middleware.go:291"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "Arena uses PackEvalHook",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 12,
+   "claim": "eval.completed / eval.failed events",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:126"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "SetVar write lock / GetVar read lock; Conversation safe for concurrent use",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:76",
+    "sdk/session/duplex_session.go:646"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "Conversation methods Send Stream SetVar GetVar OnTool Messages Clear Close",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1359",
+    "sdk/conversation.go:275",
+    "sdk/streaming.go:121"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "OnTool/OnToolAsync/ResolveTool/RejectTool/Continue flow",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:171",
+    "sdk/conversation_tools.go:235",
+    "sdk/conversation_tools.go:334"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "Pipeline built once at Open; system prompt renders once per turn",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:235",
+    "sdk/sdk.go:850"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "5 lines to hello world",
+   "verdict": "unverified",
+   "evidence": []
+  }
+ ]
+}

@@ -1,0 +1,200 @@
+{
+ "page": "docs/src/content/docs/sdk/explanation/observability.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "c1",
+   "claim": "sdk.Open creates an EventBus when none supplied; closes with conversation",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:703-728"
+   ]
+  },
+  {
+   "id": "c10",
+   "claim": "MessageBroadcastStage added whenever a bus/emitter is configured",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pipeline/builder.go:522-530"
+   ]
+  },
+  {
+   "id": "c11",
+   "claim": "WithRecording adds input stage after template assembly and output stage before state save; needs EventStore",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pipeline/builder.go:509-514",
+    "sdk/internal/pipeline/builder.go:551-556",
+    "sdk/options.go:1165-1166"
+   ]
+  },
+  {
+   "id": "c12",
+   "claim": "WithRecording(nil) alone enables recording (original snippet)",
+   "verdict": "false",
+   "evidence": [
+    "sdk/conversation.go:730",
+    "sdk/options.go:1165-1166"
+   ]
+  },
+  {
+   "id": "c13",
+   "claim": "Bus and store copies of message.created built with NewMessageCreatedData; bus strips binary",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/message_created_data.go:30",
+    "runtime/pipeline/stage/stages_message_broadcast.go:9-30"
+   ]
+  },
+  {
+   "id": "c14",
+   "claim": "With store+recording, store skips bus message.created",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:735-750"
+   ]
+  },
+  {
+   "id": "c15",
+   "claim": "EventBusEvalListener subscribes message.created and triggers evals",
+   "verdict": "dead",
+   "evidence": [
+    "sdk/conversation.go:1711-1716",
+    "sdk/eval_middleware.go:196-221",
+    "sdk/eval_middleware.go:252-297"
+   ]
+  },
+  {
+   "id": "c16",
+   "claim": "WithEventRedactor covers every bus subscriber",
+   "verdict": "false",
+   "evidence": [
+    "sdk/options.go:3873-3886",
+    "sdk/sdk.go:729-764"
+   ]
+  },
+  {
+   "id": "c17",
+   "claim": "WithTelemetryContentCapture OTel spans only, off by default",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:3843-3871"
+   ]
+  },
+  {
+   "id": "c18",
+   "claim": "Redactor field names list",
+   "verdict": "false",
+   "evidence": [
+    "runtime/events/redact.go:25-39"
+   ]
+  },
+  {
+   "id": "c19",
+   "claim": "Redacting hands each subscriber its own copy; measurements untouched; RecordingStage unaffected",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/redact.go:49-85"
+   ]
+  },
+  {
+   "id": "c2",
+   "claim": "Bus is async, lossy: Publish drops when buffer full; per-listener goroutine in publish order; stuck listener disabled",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/bus.go:129-144",
+    "runtime/events/bus.go:575-605"
+   ]
+  },
+  {
+   "id": "c20",
+   "claim": "hooks.On/OnEvent/OnToolCall/OnProviderCall signatures",
+   "verdict": "true",
+   "evidence": [
+    "sdk/hooks/events.go:41-109"
+   ]
+  },
+  {
+   "id": "c21",
+   "claim": "hooks handlers stop with conversation",
+   "verdict": "true",
+   "evidence": [
+    "sdk/hooks/events.go:13-32"
+   ]
+  },
+  {
+   "id": "c22",
+   "claim": "Handlers run in a separate goroutine",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/bus.go:563-573"
+   ]
+  },
+  {
+   "id": "c23",
+   "claim": "ProviderCallCompletedData has Duration, InputTokens, OutputTokens, Model",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:297-310"
+   ]
+  },
+  {
+   "id": "c3",
+   "claim": "Bus uses a worker pool; arrival order is not publish order",
+   "verdict": "false",
+   "evidence": [
+    "runtime/events/bus.go:105-110",
+    "runtime/events/bus.go:563-573"
+   ]
+  },
+  {
+   "id": "c4",
+   "claim": "EventStore persisted synchronously before listener dispatch",
+   "verdict": "false",
+   "evidence": [
+    "sdk/sdk.go:735-751"
+   ]
+  },
+  {
+   "id": "c5",
+   "claim": "EventStore interface has 4 methods Append/Query/Stream/Close",
+   "verdict": "false",
+   "evidence": [
+    "runtime/events/store.go:34-56"
+   ]
+  },
+  {
+   "id": "c6",
+   "claim": "BlobStore interface has Store/Load/Close",
+   "verdict": "false",
+   "evidence": [
+    "runtime/events/blob_store.go:23-44"
+   ]
+  },
+  {
+   "id": "c7",
+   "claim": "34 event types in 10 categories",
+   "verdict": "false",
+   "evidence": [
+    "runtime/events/composition_events.go:9-19",
+    "runtime/events/types.go:19-166"
+   ]
+  },
+  {
+   "id": "c8",
+   "claim": "Event has RunID field",
+   "verdict": "false",
+   "evidence": [
+    "runtime/events/types.go:175-185"
+   ]
+  },
+  {
+   "id": "c9",
+   "claim": "Pipeline emits MiddlewareStarted in the Send flow",
+   "verdict": "dead",
+   "evidence": [
+    "runtime/events/emitter.go:163"
+   ]
+  }
+ ]
+}

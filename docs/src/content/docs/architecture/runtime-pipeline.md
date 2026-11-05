@@ -2,46 +2,55 @@
 title: Runtime Pipeline
 sidebar:
   order: 2
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/events/types.go
+    - runtime/hooks/hooks.go
+    - runtime/pipeline/stage/builder.go
+    - runtime/pipeline/stage/config.go
+    - runtime/pipeline/stage/element.go
+    - runtime/pipeline/stage/errors.go
+    - runtime/pipeline/stage/pipeline.go
+    - runtime/pipeline/stage/stage.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/stages_utilities.go
+    - sdk/internal/pipeline/builder.go
+    - sdk/internal/pipeline/builder_vad.go
 ---
-The PromptKit runtime pipeline is a stage-based streaming execution engine that processes LLM interactions through a composable DAG (Directed Acyclic Graph) of processing stages. This architecture provides flexibility, extensibility, true streaming execution, and concurrent processing.
+The runtime pipeline turns a user message into a model reply, and decides what happens when part of that fails. It is a streaming execution engine: a directed acyclic graph of stages that pass `StreamElement` values over channels, with each stage running in its own goroutine.
 
-## Overview
+## How a turn flows
 
-The pipeline system uses a reactive streams pattern where data flows through stages as `StreamElement` objects. Each stage runs in its own goroutine and communicates via channels, enabling true streaming with backpressure support.
+A text turn passes through six stages. Solid arrows are channels that carry elements. Dotted arrows are writes and reads of `TurnState`, the per-turn data that does not travel on elements.
 
 ```mermaid
-graph TB
-    subgraph "Stage Pipeline Execution"
-        Input["Input Element"]
-        S1["Stage 1<br/>StateStoreLoad"]
-        S2["Stage 2<br/>PromptAssembly"]
-        S3["Stage 3<br/>Template"]
-        S4["Stage 4<br/>Provider<br/>(hooks: validation,<br/>guardrails)"]
-        S5["Stage 5<br/>IncrementalSave"]
-        Output["Output Element"]
-    end
-
-    Input --> S1
-    S1 --> S2
-    S2 --> S3
-    S3 --> S4
-    S4 --> S5
-    S5 --> Output
-
-    style S4 fill:#f9f,stroke:#333,stroke-width:3px
+graph LR
+    Load["StateStoreLoad"] --> Vars["VariableProvider"]
+    Vars --> Assembly["PromptAssembly"]
+    Assembly --> Tmpl["Template"]
+    Tmpl --> Provider["Provider"]
+    Provider --> Save["IncrementalSave"]
+    TurnState[("TurnState")]
+    Vars -.->|"Variables"| TurnState
+    Assembly -.->|"Template, AllowedTools"| TurnState
+    Tmpl -.->|"SystemPrompt"| TurnState
+    TurnState -.->|"SystemPrompt, AllowedTools"| Provider
 ```
 
-Validation does not have its own stage. It runs as `ProviderHook` chains (`BeforeCall`, `AfterCall`, `ChunkInterceptor`) invoked from inside `ProviderStage`, plus `ToolHook` chains around tool execution. See [Hook authoring layers](#) below.
+Each stage reads from an input channel and writes to an output channel. The channels are buffered, so a slow consumer slows its producer and memory stays bounded.
 
-## Core Concepts
+`TurnState` holds what a turn needs but an element cannot carry: the loaded prompt template, the allowed tools, the variables, the rendered system prompt, and the turn index. An earlier stage writes it before it forwards the element that a later stage reads, so the channel hand-off orders the access.
 
-### StreamElement
+Validation has no stage of its own. Hooks run inside the provider stage, because accumulating output to validate it would defeat streaming. See [Hooks](#hooks).
 
-The fundamental unit of data flowing through the pipeline. Each element can carry multiple content types:
+## StreamElement
+
+A `StreamElement` carries one kind of content plus control signals:
 
 ```go
 type StreamElement struct {
-    // Content types (at most one is set)
+    // Content (at most one is set)
     Text      *string
     Audio     *AudioData
     Video     *VideoData
@@ -56,32 +65,28 @@ type StreamElement struct {
     Timestamp time.Time
     Source    string
     Priority  Priority        // Low, Normal, High, Critical
-    Meta      ElementMetadata // Typed per-element coordination data
+    Reasoning *ReasoningDelta // live model reasoning, never persisted as content
+    Meta      ElementMetadata // typed per-element coordination data
 
     // Control signals
-    EndOfStream bool
-    EndOfTurn   bool
-    Interrupt   bool
+    EndOfStream bool // session over
+    EndOfTurn   bool // one turn's input is complete; the stream stays open
+    Interrupt   bool // barge-in: cancel in-flight generation and playback
     Error       error
 }
 ```
 
-Helper functions for creating elements:
+Constructors build the common shapes:
 
 ```go
 textElem := stage.NewTextElement("Hello")
 msgElem := stage.NewMessageElement(&types.Message{Role: "user", Content: "Hello"})
-audioElem := stage.NewAudioElement(&stage.AudioData{
-    Samples:    audioBytes,
-    SampleRate: 16000,
-    Format:     stage.AudioFormatPCM16,
-})
 errorElem := stage.NewErrorElement(err)
 ```
 
-### Stage Interface
+## Stages
 
-A stage is a processing unit that transforms streaming elements:
+A stage transforms a stream of elements:
 
 ```go
 type Stage interface {
@@ -91,22 +96,108 @@ type Stage interface {
 }
 ```
 
-**Stage Types:**
-- `Transform`: 1:1 or 1:N transformation (validation, enrichment)
-- `Accumulate`: N:1 accumulation (VAD buffering, message collection)
-- `Generate`: 0:N generation (LLM streaming, TTS)
-- `Sink`: N:0 terminal stage (state store save, metrics)
-- `Bidirectional`: Full duplex (WebSocket session)
+`Type()` describes the stage's shape: `Transform` (1:1 or 1:N), `Accumulate` (N:1), `Generate` (0:N), `Sink` (N:0) or `Bidirectional` (full duplex). A stage must close its output channel when it returns, on every path.
 
-Each stage:
-- Runs in its own goroutine
-- Receives elements from input channel
-- Sends processed elements to output channel
-- Must close output channel when done
+A stage with several upstreams implements `MultiInputStage`, and a stage that routes to named downstreams implements `MultiOutputStage`.
 
-### PipelineBuilder
+### Core stages
 
-Constructs the pipeline DAG using a fluent API:
+| Stage | What it does |
+|---|---|
+| `StateStoreLoadStage` | Loads the conversation history, tags each message `Meta.FromHistory`, emits it before the current input, and derives the turn index from the persisted transcript. |
+| `VariableProviderStage` | Merges static variables and the output of each `variables.Provider` into `TurnState.Variables`. A failing provider fails the turn. |
+| `PromptAssemblyStage` | Loads the raw prompt template for the task type and publishes the template, its allowed tools and its validator configs to `TurnState`. It does not render. |
+| `TemplateStage` | Renders the system prompt once per turn from the template, its default and fragment variables, and `TurnState.Variables`. A variable nothing supplied fails the turn with `ErrTemplateUnresolved`. Message content is not substituted. |
+| `ProviderStage` | Calls the model, runs the tool loop, and runs the hooks. |
+| `IncrementalSaveStage` | Persists the messages this turn produced, through `MessageAppender` when the store implements it and through a full save otherwise. |
+
+### Provider stage
+
+`ProviderStage` is the one stage that talks to the model. In its default (unary) mode it reads its input to the end, then calls the model. In streaming mode, used by the voice topologies, it fires the tool loop on each `EndOfTurn` element and stays open.
+
+```go
+providerStage := stage.NewProviderStage(
+    provider,
+    toolRegistry,
+    toolPolicy,
+    &stage.ProviderConfig{MaxTokens: 1000, Temperature: 0.7},
+)
+```
+
+The tool loop is a sequence of rounds:
+
+```mermaid
+sequenceDiagram
+    participant Provider Stage
+    participant LLM
+    participant Tool Registry
+
+    Provider Stage->>LLM: Chat(messages, tools)
+    LLM-->>Provider Stage: Response + Tool Calls
+
+    loop Each tool call in the round
+        Provider Stage->>Tool Registry: Execute(toolName, args)
+        Tool Registry-->>Provider Stage: Tool Result
+    end
+
+    Provider Stage->>LLM: Chat(messages + results, tools)
+    LLM-->>Provider Stage: Final Response
+```
+
+- Tool calls within a round run in parallel, up to 10 at a time by default.
+- A turn runs at most 50 rounds by default. `ToolPolicy.MaxRounds` and the prompt's own policy lower it. Reaching the limit returns a `MaxRoundsError` that matches `ErrMaxRoundsExceeded`.
+- `ToolPolicy` also carries a blocklist, a `ToolChoice`, and `MaxCostUSD`, which bounds the whole run rather than one turn.
+- A tool whose result carries an error twice is left out of the tool list for the remaining rounds.
+- A compactor folds stale tool results between rounds so the context does not overflow.
+
+### Hooks
+
+Hooks intercept the provider and its tools without being stages. A `ProviderHook` has `BeforeCall` and `AfterCall`. It can also implement `ChunkInterceptor` to inspect each streamed chunk and abort early with a `HookDeniedError`. A `ToolHook` wraps tool execution with `BeforeExecution` and `AfterExecution`, and can implement `ToolResultRewriter` to rewrite a result before the model sees it.
+
+Every hook lives on one `hooks.Registry`, whether it came from a pack `validators` block, an eval handler wrapped by `GuardrailHookAdapter`, or a `WithProviderHook` or `WithToolHook` option.
+
+### Speech and streaming stages
+
+- `AudioTurnStage` combines voice activity detection, turn boundaries, audio accumulation and interruption detection. `STTStage` transcribes audio elements. `TTSStage` and `TTSStageWithInterruption` synthesize speech, and the interruption variant supports barge-in. `AudioResampleStage` normalizes sample rates.
+- `DuplexProviderStage` holds one bidirectional session with a native audio model such as the Gemini Live API.
+
+### Routing and utility stages
+
+- `RouterStage` sends each element to the downstream names a function returns. `MergeStage` fans several inputs into one and stamps `Meta.MergeInputIndex`.
+- `MetricsStage` wraps another stage and records element counts, errors and forwarding latency.
+- `ContextBuilderStage` enforces a token budget with `TruncateOldest`, `TruncateLeastRelevant`, `TruncateSummarize` or `TruncateFail`.
+- `MediaExternalizerStage` moves large inline media to storage and leaves a reference.
+- `DebugStage` logs each element as JSON at debug level.
+
+The full list, with constructors and configs, is in the [pipeline reference](/runtime/reference/pipeline/).
+
+## Pipeline modes
+
+The SDK assembles one of three chains. Optional stages appear when their option is set: memory retrieval before `Template`, a token-budget `ContextBuilder`, image and frame-rate preprocessing, recording, memory extraction and message broadcast around the provider.
+
+Text mode, for HTTP-based models:
+
+```text
+StateStoreLoad → VariableProvider → PromptAssembly → Template → Provider → IncrementalSave
+```
+
+VAD mode, for voice with a text model:
+
+```text
+StateStoreLoad → VariableProvider → PromptAssembly → Template → AudioTurn → STT → Provider → TTS → IncrementalSave
+```
+
+ASM mode, for models that take audio directly:
+
+```text
+StateStoreLoad → VariableProvider → PromptAssembly → Template → DuplexProvider → IncrementalSave
+```
+
+A context window or retrieval index swaps `StateStoreLoad` for `ContextAssembly`, and a pipeline without a state store has neither the load nor the save stage.
+
+## Running a pipeline
+
+`PipelineBuilder` wires the graph. `Chain` builds a line, `Connect`, `Branch` and `Merge` build other shapes, and `Build` rejects an empty graph, duplicate stage names, cycles, and a stage with several upstreams that is not a `MultiInputStage`.
 
 ```go
 pipeline, err := stage.NewPipelineBuilder().
@@ -119,442 +210,84 @@ pipeline, err := stage.NewPipelineBuilder().
     Build()
 ```
 
-### StreamPipeline
-
-The executable pipeline that:
-- Manages goroutine lifecycle
-- Creates channels between stages
-- Handles errors and shutdown
-- Emits events for observability
+`Execute` streams, and `ExecuteSync` collects:
 
 ```go
-// Streaming execution
 output, err := pipeline.Execute(ctx, input)
 for elem := range output {
     // Process elements as they arrive
 }
 
-// Synchronous execution (convenience wrapper)
 result, err := pipeline.ExecuteSync(ctx, elements...)
+// result.Response is the final assistant message
+// result.Messages holds every message the turn produced
 ```
 
-## Standard Stages
-
-### Core Stages
-
-#### 1. StateStoreLoadStage
-
-**Purpose**: Loads conversation history from persistent storage.
-
-**Behavior**:
-- Retrieves previous messages for the conversation ID
-- Marks historical messages with `from_history` metadata
-- Prepends history to current conversation
-
-**Configuration**:
-```go
-stateConfig := &pipeline.StateStoreConfig{
-    Store:          stateStore,
-    ConversationID: "session-123",
-}
-loadStage := stage.NewStateStoreLoadStage(stateConfig)
-```
-
-#### 2. PromptAssemblyStage
-
-**Purpose**: Loads and assembles prompts from the registry with variable substitution.
-
-**Behavior**:
-- Loads prompt configuration by task type
-- Applies variable substitution to templates
-- Extracts validator configurations
-- Sets `system_prompt` and `allowed_tools` in metadata
-
-**Configuration**:
-```go
-assemblyStage := stage.NewPromptAssemblyStage(
-    promptRegistry,
-    "customer-support",  // task type
-    map[string]string{   // variables
-        "customer_name": "Alice",
-    },
-)
-```
-
-#### 3. TemplateStage
-
-**Purpose**: Processes template variables in content.
-
-**Behavior**:
-- Substitutes `{{variable}}` patterns with values
-- Processes both system prompt and message content
-- Reads variables from element metadata
-
-#### 4. ProviderStage
-
-**Purpose**: Executes LLM calls with streaming and tool support.
-
-**Behavior**:
-- Calls the configured LLM provider
-- Handles multi-round tool execution loops (default: up to 50 rounds)
-- Supports both streaming and non-streaming modes
-- Enforces tool policies (blocklist, ToolChoice, cost budget)
-- Context compactor folds stale tool results between rounds to prevent context overflow
-- Tools rejected by hooks twice are auto-excluded from subsequent rounds
-- Tracks token usage, latency, and cumulative cost
-
-**Configuration**:
-```go
-providerConfig := &stage.ProviderConfig{
-    MaxTokens:   1000,
-    Temperature: 0.7,
-}
-providerStage := stage.NewProviderStage(
-    provider,
-    toolRegistry,
-    toolPolicy,
-    providerConfig,
-)
-```
-
-#### 5. IncrementalSaveStage
-
-**Purpose**: Persists new messages produced by the turn.
-
-**Behavior**:
-- Saves only the new messages via `MessageAppender` when the state store implements it
-- Falls back to a full state save when it does not
-
-#### Validation (not a stage)
-
-Validation is not a pipeline stage, because an accumulating-then-validating pattern is incompatible with streaming. Validation runs as `ProviderHook` chains invoked from inside `ProviderStage`:
-
-- `BeforeCall` — input validation before the provider is called
-- `AfterCall` — output validation after the response
-- `ChunkInterceptor` — per-chunk validation for streaming, with the ability to abort via `HookDeniedError`
-
-Tool execution is wrapped by `ToolHook.BeforeExecution` / `AfterExecution`. All hooks live on a single `hooks.Registry` regardless of whether they originated from a pack `validators` block, an eval handler wrapped via `GuardrailHookAdapter`, or a user-registered `WithProviderHook` / `WithToolHook` call.
-
-### Streaming/Speech Stages
-
-#### VADAccumulatorStage
-
-**Purpose**: Voice activity detection and audio buffering.
-
-**Behavior**:
-- Buffers audio chunks until speech ends
-- Detects speech start/stop using VAD
-- Transcribes buffered audio to text
-
-#### AudioTurnStage
-
-**Purpose**: Comprehensive turn detection for voice applications.
-
-**Behavior**:
-- Voice activity detection (VAD)
-- Turn boundary detection
-- Audio accumulation
-- Interruption detection (shared with TTS)
-
-**Configuration**:
-```go
-config := stage.AudioTurnConfig{
-    SilenceDuration:   800 * time.Millisecond,
-    MinSpeechDuration: 200 * time.Millisecond,
-    MaxTurnDuration:   30 * time.Second,
-    SampleRate:        16000,
-}
-turnStage, _ := stage.NewAudioTurnStage(config)
-```
-
-#### STTStage
-
-**Purpose**: Speech-to-text transcription.
-
-**Behavior**:
-- Transcribes audio elements to text
-- Configurable language and minimum audio length
-- Skips empty or too-short audio
-
-#### TTSStage / TTSStageWithInterruption
-
-**Purpose**: Text-to-speech synthesis.
-
-**Behavior**:
-- Synthesizes audio for text elements
-- `TTSStageWithInterruption` supports barge-in detection
-- Configurable voice and speed
-
-#### DuplexProviderStage
-
-**Purpose**: Bidirectional WebSocket streaming for native audio LLMs.
-
-**Behavior**:
-- Concurrent input/output forwarding
-- StreamElement to StreamChunk conversion
-- Used with Gemini Live API and similar
-
-### Advanced Stages
-
-#### RouterStage
-
-**Purpose**: Dynamic routing to multiple output paths.
-
-**Behavior**:
-- Routes elements based on configurable functions
-- Multiple output channel support
-- Thread-safe output management
-
-#### MergeStage
-
-**Purpose**: Fan-in pattern for combining multiple streams.
-
-**Behavior**:
-- Merges N input channels to 1 output
-- Adds `merge_input_index` metadata
-- Concurrent processing of inputs
-
-#### MetricsStage
-
-**Purpose**: Per-stage performance monitoring.
-
-**Behavior**:
-- Tracks latency (min/max/avg)
-- Tracks throughput and error counts
-- Transparent wrapper pattern
-
-#### TracingStage
-
-**Purpose**: Distributed tracing support.
-
-**Behavior**:
-- Generates trace IDs
-- Records per-stage timing
-- Propagates trace context through pipeline
-
-### Utility Stages
-
-#### DebugStage
-
-**Purpose**: Pipeline debugging and inspection.
-
-**Behavior**:
-- Logs element details as JSON
-- Configurable output destination
-- Useful for development
-
-#### VariableProviderStage
-
-**Purpose**: Dynamic variable resolution.
-
-**Behavior**:
-- Resolves variables from multiple providers
-- Adds resolved values to metadata
-- Supports async variable sources
-
-#### MediaExternalizerStage
-
-**Purpose**: External storage for large media content.
-
-**Behavior**:
-- Uploads large media to external storage
-- Replaces inline data with URLs
-- Configurable size thresholds
-
-#### ContextBuilderStage
-
-**Purpose**: Token budget management.
-
-**Behavior**:
-- Enforces token limits on conversation context
-- Supports truncation strategies (sliding window, summarization)
-- Prevents context overflow
-
-## Pipeline Modes
-
-The SDK supports three pipeline configurations for different use cases:
-
-### Text Mode
-
-Standard HTTP-based LLM interactions:
-
-```
-Input → StateStoreLoad → VariableProvider → PromptAssembly → Template → Provider → IncrementalSave → Output
-```
-
-**Use Cases**: Chat applications, content generation, text processing
-
-### VAD Mode (Voice Activity Detection)
-
-For voice applications without native audio LLM support:
-
-```
-Input → StateStoreLoad → VariableProvider → PromptAssembly → Template → AudioTurn → STT → Provider → TTS → IncrementalSave → Output
-```
-
-**Use Cases**: Voice assistants using text-based LLMs, telephony integrations
-
-### ASM Mode (Audio Streaming Mode)
-
-For native multimodal LLMs with real-time audio:
-
-```
-Input → StateStoreLoad → VariableProvider → PromptAssembly → Template → DuplexProvider → IncrementalSave → Output
-```
-
-**Use Cases**: Gemini Live API, real-time voice conversations
-
-## Execution Modes
-
-### Streaming Execution
-
-Elements flow through the pipeline as they're produced:
-
-```mermaid
-sequenceDiagram
-    participant Client
-    participant Pipeline
-    participant Stage1
-    participant Provider
-    participant Stage2
-
-    Client->>Pipeline: Execute(input)
-    Pipeline->>Stage1: Start goroutine
-    Pipeline->>Provider: Start goroutine
-    Pipeline->>Stage2: Start goroutine
-
-    loop For each input element
-        Client->>Stage1: element via channel
-        Stage1->>Provider: processed element
-        Provider->>Stage2: streaming chunks
-        Stage2->>Client: output chunks
-    end
-```
-
-**Use Cases**: Interactive chat, real-time applications, progressive display
-
-### Synchronous Execution
-
-Convenience wrapper that collects all output:
-
-```go
-result, err := pipeline.ExecuteSync(ctx, inputElement)
-// result.Response contains the final response
-// result.Messages contains all messages
-```
-
-**Use Cases**: Batch processing, testing, simple request/response
-
-## Multi-Round Tool Execution
-
-The ProviderStage handles complex tool calling scenarios:
-
-```mermaid
-sequenceDiagram
-    participant Pipeline
-    participant Provider Stage
-    participant LLM
-    participant Tool Registry
-
-    Pipeline->>Provider Stage: element with message
-    Provider Stage->>LLM: Chat(messages, tools)
-    LLM-->>Provider Stage: Response + Tool Calls
-
-    loop Each Tool Call
-        Provider Stage->>Tool Registry: Execute(toolName, args)
-        Tool Registry-->>Provider Stage: Tool Result
-    end
-
-    Provider Stage->>Provider Stage: Append Tool Results
-    Provider Stage->>LLM: Chat(messages + results, tools)
-    LLM-->>Provider Stage: Final Response
-    Provider Stage-->>Pipeline: Output elements
-```
-
-**Features**:
-- Automatic tool call detection
-- Parallel tool execution
-- Round limit enforcement (default: 50 rounds)
-- Tool policy enforcement
-
-## Configuration
-
-### Pipeline Configuration
+Timeouts and buffering come from `PipelineConfig`:
 
 ```go
 config := stage.DefaultPipelineConfig().
-    WithChannelBufferSize(32).           // Larger buffers for throughput
+    WithChannelBufferSize(64).
     WithExecutionTimeout(60 * time.Second).
-    WithIdleTimeout(45 * time.Second)    // Cancel after inactivity
+    WithIdleTimeout(45 * time.Second)
 
 pipeline, err := stage.NewPipelineBuilderWithConfig(config).
     Chain(stages...).
     Build()
 ```
 
-### Default Configuration Values
+The channel buffer holds 32 elements by default. The execution timeout is off by default. The idle timeout is 30 seconds. It resets on every streamed chunk, finished round and finished tool call, and stays open while a tool runs. `Shutdown` waits up to the graceful shutdown timeout (10 seconds by default) for in-flight executions, and `Execute` on a pipeline that is shutting down returns `ErrPipelineShuttingDown`.
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| ChannelBufferSize | 16 | Buffer size for inter-stage channels |
-| ExecutionTimeout | 0 (disabled) | Maximum pipeline execution time (wall-clock) |
-| IdleTimeout | 30s | Cancels pipeline after inactivity (resets on each provider call, tool execution, or streaming chunk) |
-| GracefulShutdownTimeout | 10s | Timeout for graceful shutdown |
-| MaxConcurrentPipelines | 100 | Concurrent executions allowed by a pipeline pool |
+## When a stage fails
 
-## Error Handling
+A stage fails the turn by returning an error from `Process`. The pipeline wraps the error in a `StageError` that names the stage, emits a stage-failed event, and records the first failure. A context error that is only the cancellation of the pipeline's own context, a caller cancel or a timeout, is not a failure.
 
-### Error Propagation
+The pipeline does not cancel anything. The other stages keep running and drain, so the messages the turn already produced still reach `IncrementalSaveStage` and persist.
 
-Errors can be sent as error elements or returned from Process:
+A failing stage closes its output like any stage that returns. A closed channel alone cannot tell the next stage whether its input is complete or cut short, and a provider stage that treats a cut-short input as complete calls the model without its system prompt. The pipeline closes that gap in-band:
 
-```go
-func (s *MyStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
-    defer close(output)
+```mermaid
+sequenceDiagram
+    participant Template
+    participant Gate as Input gate
+    participant Provider
+    participant Save as IncrementalSave
+    participant Caller
 
-    for elem := range input {
-        if err := s.process(elem); err != nil {
-            // Option 1: Send error element and continue
-            output <- stage.NewErrorElement(err)
-            continue
-
-            // Option 2: Return error to stop pipeline
-            // return err
-        }
-        output <- elem
-    }
-    return nil
-}
+    Template->>Template: render fails, returns error
+    Template-->>Gate: output closes
+    Gate->>Gate: wait for Template to return, read its error
+    Gate->>Provider: turn-failure signal as last element
+    Provider->>Provider: skip the model call
+    Provider-->>Save: forward the error element
+    Save->>Save: persist messages already produced
+    Save-->>Caller: error element, then output closes
 ```
 
-### Context Cancellation
+Every stage after the root has an input gate. It forwards elements untouched. When the upstream channel closes, it waits for the upstream stage to return. If that stage failed, and the error did not already travel on the channel, the gate appends an error element that wraps the `StageError` as the last element of the input. A shared channel read by several downstream stages gets one distributor that signals every reader still running.
 
-All stages should respect context cancellation:
+Stages react to the signal as follows:
 
-```go
-select {
-case output <- elem:
-    // Element sent successfully
-case <-ctx.Done():
-    return ctx.Err()  // Pipeline cancelled
-}
-```
+- The unary `ProviderStage` collects it with the rest of its input, skips the model call, and forwards the error.
+- `TemplateStage` passes it on without rendering, and `ContextBuilderStage` passes the messages on without truncating them.
+- `IncrementalSaveStage` saves what it collected and forwards the error, and `RecordingStage` does not record it as content.
+- Any other stage forwards an error element like any other element.
 
-## Creating Custom Stages
+The caller receives the failure as the last element of the output channel, with the error in `Error`. `ExecuteSync` returns it as its error, together with the messages collected so far. `errors.As` finds the `*StageError`, and `errors.Is` reaches the cause. The pipeline reports `pipeline.failed` instead of `pipeline.completed`.
 
-### Basic Pattern
+A stage can also report a problem without failing the turn by sending `NewErrorElement` and carrying on. The consumer sees the element, and `ExecuteSync` returns the last error element it saw as its error.
+
+## Custom stages
+
+Embed `BaseStage`, close the output, and check the context whenever you send:
 
 ```go
 type MyStage struct {
     stage.BaseStage
-    config MyConfig
 }
 
-func NewMyStage(config MyConfig) *MyStage {
-    return &MyStage{
-        BaseStage: stage.NewBaseStage("my_stage", stage.StageTypeTransform),
-        config:    config,
-    }
+func NewMyStage() *MyStage {
+    return &MyStage{BaseStage: stage.NewBaseStage("my_stage", stage.StageTypeTransform)}
 }
 
 func (s *MyStage) Process(
@@ -562,16 +295,14 @@ func (s *MyStage) Process(
     input <-chan stage.StreamElement,
     output chan<- stage.StreamElement,
 ) error {
-    defer close(output)  // Always close output when done
+    defer close(output) // always close output when done
 
     for elem := range input {
-        // Transform the element
         if elem.Text != nil {
-            transformed := strings.ToUpper(*elem.Text)
-            elem.Text = &transformed
+            upper := strings.ToUpper(*elem.Text)
+            elem.Text = &upper
         }
 
-        // Send to output with cancellation check
         select {
         case output <- elem:
         case <-ctx.Done():
@@ -583,82 +314,19 @@ func (s *MyStage) Process(
 }
 ```
 
-### Stage Type Guidelines
+Keep a stage to one responsibility, pass per-turn state through `TurnState` rather than a package variable, and test it alone by feeding it a channel. `NewStageFunc`, `NewMapStage` and `NewFilterStage` wrap a function when a type is more than the job needs.
 
-| Stage Type | Input | Output | Use When |
-|------------|-------|--------|----------|
-| Transform | 1 | 1 or more | Modifying or enriching elements |
-| Accumulate | Many | 1 | Buffering until condition met |
-| Generate | 0 or 1 | Many | Producing streaming output |
-| Sink | Many | 0 | Terminal processing (save, log) |
-| Bidirectional | Varies | Varies | Full duplex communication |
+## Trade-offs
 
-## Performance Considerations
+- Stages run concurrently, so a slow stage throttles the ones before it through full channels. Buffer size trades memory for jitter tolerance, and audio pipelines use a larger buffer.
+- Failure travels in-band instead of through cancellation. This keeps the persistence stages working on a failed turn, at the cost that every stage that acts on its input's end must recognize the signal.
+- Stage order matters when a stage writes `TurnState`. A variable written after `Template` has rendered is invisible to the prompt, so memory retrieval sits before it.
+- `RouterStage` registers its outputs on the stage instance, so a pipeline that contains one supports one `Execute` at a time.
 
-### Optimization Strategies
+## Related
 
-1. **Stage Ordering**: Place fast-failing stages early
-2. **Channel Buffer Sizing**: Balance memory vs. throughput
-3. **Concurrent Execution**: Stages run in parallel by default
-4. **Backpressure**: Slow consumers naturally slow producers
-
-### Monitoring Metrics
-
-Key metrics to track:
-- **Stage Duration**: Time spent in each stage
-- **Element Throughput**: Elements per second
-- **Error Rates**: Failures by stage and type
-- **Channel Utilization**: Buffer fill levels
-
-## Integration with Other Components
-
-```mermaid
-graph TB
-    subgraph "Pipeline System"
-        Pipeline
-        Stages
-    end
-
-    subgraph "Provider System"
-        ProviderRegistry
-        Provider
-    end
-
-    subgraph "Tool System"
-        ToolRegistry
-        MCPClient
-    end
-
-    subgraph "State System"
-        StateStore
-    end
-
-    Pipeline --> Stages
-    Stages --> Provider
-    Stages --> ToolRegistry
-    Stages --> StateStore
-    ProviderRegistry --> Provider
-    ToolRegistry --> MCPClient
-```
-
-The pipeline integrates with:
-- **Provider System**: For LLM interactions (see [Provider Architecture](/architecture/runtime-providers/))
-- **Tool System**: For tool execution (see [Tool & MCP Architecture](/architecture/runtime-tools-mcp/))
-- **State System**: For conversation persistence
-- **Hook System**: For pre/post-call validation, guardrails, and tool gating (runs inside `ProviderStage`)
-
-## Best Practices
-
-1. **Always Close Output**: Use `defer close(output)` at the start of Process
-2. **Respect Context**: Check `ctx.Done()` in long-running operations
-3. **Use Metadata**: Pass state between stages via element metadata
-4. **Handle Errors Gracefully**: Decide between error elements and fatal errors
-5. **Keep Stages Focused**: Each stage should have a single responsibility
-6. **Test Independently**: Unit test each stage with mock channels
-
----
-
-**Related Documentation**:
-- [Provider System Architecture](/architecture/runtime-providers/)
-- [Tool & MCP Integration Architecture](/architecture/runtime-tools-mcp/)
-- [System Overview](/architecture/system-overview/)
+- [Pipeline reference](/runtime/reference/pipeline/)
+- [Stage design](/runtime/explanation/stage-design/)
+- [Provider system architecture](/architecture/runtime-providers/)
+- [Tool and MCP architecture](/architecture/runtime-tools-mcp/)
+- [System overview](/architecture/system-overview/)

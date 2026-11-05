@@ -1,0 +1,47 @@
+{
+ "page": "docs/src/content/docs/runtime/explanation/index.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Text-mode stage order statestore_load, variable_provider, prompt_assembly, template, provider, incremental_save",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pipeline/builder.go:458-533"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "Provider fallback: try multiple providers automatically",
+   "verdict": "dead",
+   "evidence": [
+    "runtime/providers/provider.go"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Three modes text, VAD, ASM",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pipeline/builder.go:675-686"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Each stage runs in its own goroutine joined by channels",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:263-299"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Tools registry, executor, MCP integration",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/registry.go:81",
+    "runtime/tools/types.go:393"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,245 @@
+{
+ "page": "docs/src/content/docs/runtime/explanation/stage-design.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Stage interface has Name, Type, Process(ctx,input,output)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stage.go:49"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "Each stage runs in its own goroutine",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:298"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Chain connects stages in sequence via channels",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/builder.go:72"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "StreamElement carries one content type plus Sequence/EndOfStream/EndOfTurn/Interrupt",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/element.go:77"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Constructors NewAudioTurnStage(cfg) (stage,error), NewSTTStage, NewStateStoreLoadStage, NewProviderStage, NewIncrementalSaveStage, NewTTSStage compile",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_core.go:166",
+    "runtime/pipeline/stage/stages_provider.go:276",
+    "runtime/pipeline/stage/stages_save.go:60",
+    "runtime/pipeline/stage/stages_speech.go:115",
+    "runtime/pipeline/stage/stages_speech.go:742",
+    "runtime/pipeline/stage/stages_tts.go:52"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "Validation is not a stage; runs as ProviderHook/ToolHook/ChunkInterceptor invoked from ProviderStage",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/hooks.go:10",
+    "runtime/pipeline/stage/stages_provider.go:2498",
+    "runtime/pipeline/stage/stages_provider.go:3068"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "Pack validators, WithGuardrail and WithProviderHook/WithToolHook converge on one hooks.Registry",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1812",
+    "sdk/options.go:434",
+    "sdk/sdk.go:1541"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "final_turn withholds schema from tool rounds, re-asks under schema; one extra provider call; every_round restores",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/structured_output_mode.go:186",
+    "runtime/pipeline/stage/structured_output_mode.go:92",
+    "sdk/options.go:3227"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "NewProviderStageWithHooks(provider,tools,policy,config,emitter,hookRegistry)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:301"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "banned_words guardrail param is 'words'",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/handlers/content_excludes.go:36",
+    "runtime/evals/handlers/register.go:145"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "Build rejects no stages, duplicate names, unknown edge stages, cycles, unsupported fan-in",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/builder.go:185"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "StageType values Transform/Accumulate/Generate/Sink/Bidirectional",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stage.go:99"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "Type is used for events and errors only",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:768",
+    "runtime/pipeline/stage/pipeline.go:806"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "Stage-type examples: AudioTurnStage accumulate, ProviderStage generate, IncrementalSaveStage sink, DuplexProviderStage bidirectional, STT/Template transform, ContextBuilder accumulate",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_duplex_provider_session.go:152",
+    "runtime/pipeline/stage/stages_provider.go:333",
+    "runtime/pipeline/stage/stages_save.go:62",
+    "runtime/pipeline/stage/stages_speech.go:160",
+    "runtime/pipeline/stage/stages_utilities.go:734"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "VADAccumulatorStage and TracingStage are built-in stages",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/stages_advanced.go:285"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "PriorityChannel is a stage",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/stages_advanced.go:349"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "MessageBroadcastStage publishes message.created; RecordingStage writes to EventStore",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_message_broadcast.go:85",
+    "runtime/pipeline/stage/stages_recording.go:114"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "IncrementalSaveStage uses MessageAppender else BulkWriter full save",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_save.go:164",
+    "runtime/pipeline/stage/stages_save.go:236"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "Branch(from,to...) copies output to every branch",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/builder.go:98",
+    "runtime/pipeline/stage/pipeline.go:278"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "Original Branch example with only ProviderStage in Chain builds",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/builder.go:205"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "RouterStage routes to names returned by RouterFunc; MultiOutputStage single-Execute caveat",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stage.go:74",
+    "runtime/pipeline/stage/stages_advanced.go:14"
+   ]
+  },
+  {
+   "id": 22,
+   "claim": "NewMergeStage(name, inputCount)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_advanced.go:115"
+   ]
+  },
+  {
+   "id": 23,
+   "claim": "NewPipelineBuilderWithConfig, DefaultPipelineConfig().WithChannelBufferSize; default buffer 32",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/builder.go:29",
+    "runtime/pipeline/stage/config.go:114",
+    "runtime/pipeline/stage/config.go:17"
+   ]
+  },
+  {
+   "id": 24,
+   "claim": "Slow consumers throttle producers via channel blocking; stages run concurrently",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:298"
+   ]
+  },
+  {
+   "id": 25,
+   "claim": "Execute(ctx,input) returns (output channel, error); NewErrorElement exists",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/element.go:379",
+    "runtime/pipeline/stage/pipeline.go:56"
+   ]
+  },
+  {
+   "id": 26,
+   "claim": "Prompt caching covers the input side of the re-ask",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 27,
+   "claim": "A stage that returns an error fails the turn; the error reaches the caller as the last output element",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:136",
+    "runtime/pipeline/stage/pipeline.go:162"
+   ]
+  }
+ ]
+}
