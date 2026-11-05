@@ -160,6 +160,10 @@ func (e *Emitter) PipelineFailed(err error, duration time.Duration) {
 }
 
 // MiddlewareStarted emits the middleware.started event.
+//
+// Deprecated: the middleware chain no longer exists, so nothing in PromptKit
+// emits this; it will be removed in v3. Pipeline stages report through
+// StageStarted, StageCompleted and StageFailed.
 func (e *Emitter) MiddlewareStarted(name string, index int) {
 	e.emit(EventMiddlewareStarted, &MiddlewareStartedData{
 		Name:  name,
@@ -168,6 +172,9 @@ func (e *Emitter) MiddlewareStarted(name string, index int) {
 }
 
 // MiddlewareCompleted emits the middleware.completed event.
+//
+// Deprecated: the middleware chain no longer exists; it will be removed in
+// v3. Use StageCompleted.
 func (e *Emitter) MiddlewareCompleted(name string, index int, duration time.Duration) {
 	e.emit(EventMiddlewareCompleted, &MiddlewareCompletedData{
 		Name:     name,
@@ -177,6 +184,9 @@ func (e *Emitter) MiddlewareCompleted(name string, index int, duration time.Dura
 }
 
 // MiddlewareFailed emits the middleware.failed event.
+//
+// Deprecated: the middleware chain no longer exists; it will be removed in
+// v3. Use StageFailed.
 func (e *Emitter) MiddlewareFailed(name string, index int, err error, duration time.Duration) {
 	e.emit(EventMiddlewareFailed, &MiddlewareFailedData{
 		Name:     name,

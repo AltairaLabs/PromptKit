@@ -435,16 +435,22 @@ type MockMediaSpec struct {
 
 // ToolClientConfig defines configuration for client-side tool execution (schema generation)
 type ToolClientConfig struct {
-	Consent        *ToolConsentConfig `json:"consent,omitempty" yaml:"consent,omitempty"`
-	TimeoutMs      int                `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
-	Categories     []string           `json:"categories,omitempty" yaml:"categories,omitempty"`
-	ValidateOutput bool               `json:"validate_output,omitempty" yaml:"validate_output,omitempty"`
+	Consent    *ToolConsentConfig `json:"consent,omitempty" yaml:"consent,omitempty"`
+	TimeoutMs  int                `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
+	Categories []string           `json:"categories,omitempty" yaml:"categories,omitempty"`
+	// ValidateOutput checks a caller-supplied result for a deferred call
+	// against the tool's output_schema; see tools.ClientConfig.ValidateOutput.
+	ValidateOutput bool `json:"validate_output,omitempty" yaml:"validate_output,omitempty"`
 }
 
 // ToolConsentConfig defines consent requirements for client-side tools (schema generation)
 type ToolConsentConfig struct {
-	Required        bool   `json:"required" yaml:"required"`
-	Message         string `json:"message,omitempty" yaml:"message,omitempty"`
+	// Deprecated: never read; it will be removed in v3. Consent is a hosting
+	// concern; see tools.ConsentConfig.Required.
+	Required bool   `json:"required" yaml:"required"`
+	Message  string `json:"message,omitempty" yaml:"message,omitempty"`
+	// Deprecated: never read; it will be removed in v3. The host answers a
+	// declined call itself; see tools.ConsentConfig.DeclineStrategy.
 	DeclineStrategy string `json:"decline_strategy,omitempty" yaml:"decline_strategy,omitempty"`
 }
 

@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -476,7 +477,8 @@ func findPrompt(p *pack.Pack, promptName string, cfg *config) (*pack.Prompt, err
 		for name := range p.Prompts {
 			available = append(available, name)
 		}
-		return nil, fmt.Errorf("prompt %q not found in pack (available: %v)", promptName, available)
+		return nil, markSentinel(
+			fmt.Errorf("prompt %q not found in pack (available: %v)", promptName, available), ErrPromptNotFound)
 	}
 	return prompt, nil
 }
@@ -513,6 +515,9 @@ func resolveProvider(cfg *config) (providers.Provider, error) {
 
 	detected, err := provider.Detect(cfg.apiKey, cfg.model)
 	if err != nil {
+		if errors.Is(err, provider.ErrNotDetected) {
+			err = markSentinel(err, ErrProviderNotDetected)
+		}
 		return nil, fmt.Errorf("failed to detect provider: %w", err)
 	}
 	registerAgentProvider(cfg, detected)
@@ -1551,7 +1556,7 @@ func resolvePackPath(packPath string) (string, error) {
 	// Handle absolute paths
 	if filepath.IsAbs(packPath) {
 		if _, err := os.Stat(packPath); err != nil {
-			return "", fmt.Errorf("pack file not found: %s", packPath)
+			return "", fmt.Errorf("%w: %s", ErrPackNotFound, packPath)
 		}
 		return packPath, nil
 	}
@@ -1563,7 +1568,7 @@ func resolvePackPath(packPath string) (string, error) {
 	}
 
 	if _, err := os.Stat(absPath); err != nil {
-		return "", fmt.Errorf("pack file not found: %s", absPath)
+		return "", fmt.Errorf("%w: %s", ErrPackNotFound, absPath)
 	}
 
 	return absPath, nil

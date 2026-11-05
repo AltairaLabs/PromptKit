@@ -83,6 +83,8 @@ An `Event` has these fields:
 - `pipeline.started`, `pipeline.completed`, `pipeline.failed`
 - `stage.started`, `stage.completed`, `stage.failed`
 
+The `middleware.started`, `middleware.completed` and `middleware.failed` types and the `Emitter.Middleware*` methods are deprecated, and nothing emits them. Subscribe to the stage events instead. Recorded middleware events still load.
+
 ### Provider and tool calls
 
 - `provider.call.started`, `provider.call.completed` (tokens, cost, duration), `provider.call.failed`

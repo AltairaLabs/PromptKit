@@ -23,10 +23,20 @@ const (
 	EventPipelineFailed EventType = "pipeline.failed"
 
 	// EventMiddlewareStarted marks middleware start.
+	//
+	// Deprecated: the middleware chain no longer exists, so nothing in
+	// PromptKit emits it; it will be removed in v3. Subscribe to
+	// EventStageStarted. Recorded middleware events still load.
 	EventMiddlewareStarted EventType = "middleware.started"
 	// EventMiddlewareCompleted marks middleware completion.
+	//
+	// Deprecated: nothing emits it; it will be removed in v3. Subscribe to
+	// EventStageCompleted.
 	EventMiddlewareCompleted EventType = "middleware.completed"
 	// EventMiddlewareFailed marks middleware failure.
+	//
+	// Deprecated: nothing emits it; it will be removed in v3. Subscribe to
+	// EventStageFailed.
 	EventMiddlewareFailed EventType = "middleware.failed"
 
 	// EventStageStarted marks stage start (for new streaming architecture).

@@ -63,7 +63,7 @@ conv, err := sdk.Open("./app.pack.json", "assistant",
 )
 ```
 
-`tools` is `github.com/AltairaLabs/PromptKit/runtime/v2/tools`. The consent message reaches your code as `ConsentMsg`, and `Categories` as `Categories`, on the request and on pending calls.
+`tools` is `github.com/AltairaLabs/PromptKit/runtime/v2/tools`. The consent message reaches your code as `ConsentMsg`, and `Categories` as `Categories`, on the request and on pending calls. Consent is the host's job: the SDK does not ask for it. When the user declines, return an error from the handler, or call `RejectClientTool` for a deferred call. `client.consent.required` and `client.consent.decline_strategy` are deprecated, nothing reads them, and they will be removed in v3.
 
 ### 3. Answer the call
 
@@ -143,6 +143,25 @@ err = conv.SendToolResultMultimodal(ctx, tool.CallID, []types.ContentPart{
 ```
 
 A handler can return the same `[]types.ContentPart` directly. Any other return value is serialized as JSON text.
+
+### 6. Validate deferred results (optional)
+
+A result returned by an `OnClientTool` handler is checked against the tool's `output_schema` before the model sees it. A result passed to `SendToolResult` is not, unless the tool sets `client.validate_output`:
+
+```yaml
+tools:
+  get_location:
+    mode: client
+    output_schema:
+      type: object
+      properties:
+        city: { type: string }
+      required: [city]
+    client:
+      validate_output: true
+```
+
+With it set, `Resume` checks each JSON result against the schema. A result that does not match reaches the model as a failed call, with the validation error in place of the result. Multimodal results sent with `SendToolResultMultimodal` are not checked.
 
 ## Serve client tools over A2A
 

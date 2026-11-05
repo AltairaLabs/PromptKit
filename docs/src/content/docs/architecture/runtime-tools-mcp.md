@@ -232,6 +232,8 @@ graph TD
 
 A model that repeats the same call with identical arguments three times (`MaxIdenticalToolCalls`) gets one synthetic result telling it to change course, and the turn aborts if it repeats again. `StopOnTool` ends the loop after the round that called the named tool. The blocklist matches exact tool names.
 
+`MaxCallsPerMinute` counts each tool's calls in a sliding one-minute window per conversation. The provider stage holds the window, so it spans the turns of a conversation that stage runs. The check runs after the blocklist and the before-tool hooks. A call over the limit is not executed, and the model gets a tool result saying the tool's limit is reached, the same shape as a blocked call.
+
 The loop also excludes a tool from later rounds after its second error result in a turn. This prevents a model from calling a failing or rejected tool until the round limit.
 
 ## Trade-offs
