@@ -207,8 +207,8 @@ Skills register three tools in the `skill__` namespace:
 
 | Tool | Input | Output |
 |------|-------|--------|
-| `skill__activate` | `{"skill": "name"}` | Instructions text + list of added tools |
-| `skill__deactivate` | `{"skill": "name"}` | List of removed tools |
+| `skill__activate` | `{"name": "skill-name"}` | Instructions text + list of added tools |
+| `skill__deactivate` | `{"name": "skill-name"}` | List of removed tools |
 | `skill__read_resource` | `{"skill_name": "name", "path": "file.md"}` | File content |
 
 The `skill__activate` tool description includes the discovery skill index — a list of available skills with their names and descriptions.

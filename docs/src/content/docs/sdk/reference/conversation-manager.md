@@ -4378,7 +4378,7 @@ func WithSkillSource(src skills.SkillSource) Option
 
 WithSkillSource registers a \[skills.SkillSource\] verbatim. Use this when you need anything beyond a plain directory path — most commonly:
 
-- MountAs, to present skills to the workflow filter under a virtual prefix without moving the files. A skill at "./agentskills/billing/pci" mounted as "skills" appears at virtual path "skills/billing/pci", so a workflow state with \`skills: "skills/\*"\` will match it. ReadResource still uses the real on\-disk path; MountAs only affects display and glob matching.
+- MountAs, to present skills to the workflow filter under a virtual prefix without moving the files. A skill at "./agentskills/billing/pci" mounted as "skills" appears at virtual path "skills/billing/pci", so a workflow state with \`skills: "skills/billing/\*"\` will match it. ReadResource still uses the real on\-disk path; MountAs only affects display and glob matching.
 - Preload, to inject the skill's instructions into the system prompt at session start instead of waiting for the model to call skill\_\_activate.
 - Inline skills, where Name \+ Description \+ Instructions are provided directly instead of being read from a SKILL.md file.
 
