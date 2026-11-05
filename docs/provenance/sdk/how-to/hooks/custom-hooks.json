@@ -1,0 +1,261 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/hooks/custom-hooks.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Deny aborts with *hooks.HookDeniedError",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:3010",
+    "runtime/pipeline/stage/stages_provider.go:3073"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "hooks.Enforced: you mutated the request/response in place and the pipeline continues with the modified content",
+   "verdict": "false",
+   "evidence": [
+    "runtime/hooks/types.go:78",
+    "runtime/pipeline/stage/stages_provider.go:3017",
+    "runtime/pipeline/stage/stages_provider.go:3081"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "sdk.WithProviderHook",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1782"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "A hook that also implements ChunkInterceptor gets OnChunk for streaming chunks",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/hooks.go:19",
+    "runtime/pipeline/stage/stages_provider.go:2495"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "A streaming denial surfaces as *providers.ValidationAbortError, not *hooks.HookDeniedError",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:2522"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "AfterExecution runs after the result is built so it can't change it",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:2876",
+    "runtime/pipeline/stage/stages_provider.go:3371"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "Tool BeforeExecution deny gates the call",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:2776",
+    "runtime/pipeline/stage/stages_provider.go:2778"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "sdk.WithToolHook",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1947"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Registry passes text of each successful tool result through RewriteResult before the model sees it",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/registry.go:222",
+    "runtime/pipeline/stage/stages_provider.go:3436"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Rewriters run in registration order, each on the previous output",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/registry.go:226"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "Whole text of plain result before size limit; limit applies to returned; multimodal one text part at a time; media left; no text not rewritten",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:3436",
+    "runtime/pipeline/stage/stages_provider.go:3443",
+    "runtime/pipeline/stage/stages_provider.go:3463"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "Model, tool.call.completed and AfterExecution see the rewritten result",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:2860",
+    "runtime/pipeline/stage/stages_provider.go:2876",
+    "runtime/pipeline/stage/stages_provider.go:3367"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "Failed call isn't rewritten; rewriter error fails the call: error result to model, tool.call.failed, original not passed on",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:2857",
+    "runtime/pipeline/stage/stages_provider.go:2899",
+    "runtime/pipeline/stage/stages_provider.go:3404"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "Parallel tool calls rewritten concurrently",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/hooks.go:40"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "Client tools, calls resumed after approval, duplex sessions are not rewritten",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/hooks.go:38",
+    "runtime/pipeline/stage/stages_provider.go:3379"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "SessionHook returns plain error; non-nil errors propagate to the caller",
+   "verdict": "false",
+   "evidence": [
+    "runtime/hooks/registry.go:244",
+    "sdk/session_hooks.go:83",
+    "sdk/session_hooks.go:93"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "OnSessionStart/Update/End with SessionEvent{SessionID,ConversationID,TurnIndex}",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/types.go:149",
+    "sdk/conversation.go:1709",
+    "sdk/sdk.go:381"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "OnSessionUpdate fires after each turn",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:335"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "On end, turns = e.TurnIndex+1",
+   "verdict": "false",
+   "evidence": [
+    "sdk/conversation.go:335",
+    "sdk/session_hooks.go:100",
+    "sdk/session_hooks.go:68"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "sdk.WithSessionHook",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1990"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "Eval hook mutates result in place; mutated result propagates to the caller and the event bus; every hook runs for every result",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/hooks.go:13",
+    "runtime/evals/runner.go:184",
+    "runtime/evals/runner.go:359"
+   ]
+  },
+  {
+   "id": 22,
+   "claim": "OnEvalResult(ctx, *evals.EvalDef, *evals.EvalContext, *evals.EvalResult); fields Score, DurationMs, Explanation",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/hooks.go:27",
+    "runtime/evals/types.go:362",
+    "runtime/evals/types.go:389"
+   ]
+  },
+  {
+   "id": 23,
+   "claim": "sdk.WithEvalHook; panic in eval hook is caught and logged, later hooks still run",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/runner.go:370",
+    "sdk/options.go:3654"
+   ]
+  },
+  {
+   "id": 24,
+   "claim": "Denial wrapped in *hooks.HookDeniedError, detect with errors.As; fields HookName, HookType, Reason",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/errors.go:8"
+   ]
+  },
+  {
+   "id": 25,
+   "claim": "HookType is one of provider_before, provider_after, chunk, tool_before, tool_after",
+   "verdict": "false",
+   "evidence": [
+    "runtime/hooks/errors.go:10",
+    "runtime/pipeline/stage/stages_provider.go:3012",
+    "runtime/pipeline/stage/stages_provider.go:3075",
+    "runtime/pipeline/stage/stages_provider.go:44"
+   ]
+  },
+  {
+   "id": 26,
+   "claim": "A ProviderHook whose BeforeCall returns hooks.Deny makes conv.Send return an error matching *hooks.HookDeniedError via errors.As, with HookType provider_before and the given Reason",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/errors.go:8",
+    "runtime/pipeline/stage/stages_provider.go:3010"
+   ]
+  },
+  {
+   "id": 27,
+   "claim": "HookDeniedError.HookName is the fixed string provider_hook, not the hook's Name()",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:3011",
+    "runtime/pipeline/stage/stages_provider.go:43"
+   ]
+  },
+  {
+   "id": 28,
+   "claim": "mock.NewProvider(id, model string, includeRawOutput bool); sdk.WithProvider; sdk.WithSkipSchemaValidation",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/mock/mock.go:35",
+    "sdk/options.go:482"
+   ]
+  }
+ ]
+}

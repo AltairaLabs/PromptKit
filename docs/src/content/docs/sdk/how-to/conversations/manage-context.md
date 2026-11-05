@@ -1,284 +1,159 @@
 ---
 title: Manage Context
+description: Keep long conversations inside the model's context window with a token budget, relevance truncation, a hot window, retrieval, summaries and tool-result compaction.
 sidebar:
   order: 5
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/events/types.go
+    - runtime/pipeline/stage/compactor.go
+    - runtime/pipeline/stage/compactor_fold.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/stages_utilities.go
+    - runtime/providers/claude/context_window_table.go
+    - runtime/providers/gemini/embedding.go
+    - runtime/providers/ollama/context_window.go
+    - runtime/providers/openai/embedding.go
+    - runtime/providers/voyageai/embedding.go
+    - runtime/statestore/interface.go
+    - runtime/statestore/memory.go
+    - runtime/statestore/redis.go
+    - sdk/conversation.go
+    - sdk/internal/pipeline/builder.go
+    - sdk/options.go
+    - sdk/sdk.go
 ---
-Learn how to configure context management and truncation for long conversations.
+Keep a long conversation inside the model's context window.
 
-## Overview
+## Prerequisites
 
-When conversations grow long, they may exceed the LLM's context window. The SDK provides context management options:
+- A pack and a provider key. See [Open a Conversation](/sdk/how-to/conversations/initialize/).
+- For relevance truncation or retrieval: an embedding provider (see [Create an embedding provider](#create-an-embedding-provider)).
+- For the hot window, retrieval and summaries: a state store, for example `statestore.NewMemoryStore()` or `statestore.NewRedisStore(client)`.
 
-- **Token budget** - Maximum tokens for context
-- **Truncation strategy** - How to reduce context when over budget
-- **Relevance truncation** - Use embeddings to keep relevant messages
+## Truncate to a token budget
 
-## Set Token Budget
+1. Set a budget. When the history exceeds it, the SDK drops the oldest messages first (the `"sliding"` strategy, the default). With no budget, nothing is truncated:
 
-Limit the total tokens used for context:
+   ```go
+   conv, err := sdk.Open("./app.pack.json", "chat",
+       sdk.WithTokenBudget(8000),
+   )
+   ```
+
+2. To keep the messages most similar to the latest user message instead, use relevance truncation:
+
+   ```go
+   conv, err := sdk.Open("./app.pack.json", "chat",
+       sdk.WithTokenBudget(8000),
+       sdk.WithRelevanceTruncation(&sdk.RelevanceConfig{
+           EmbeddingProvider:    embProvider,
+           MinRecentMessages:    3,
+           SimilarityThreshold:  0.3,
+           AlwaysKeepSystemRole: true,
+       }),
+   )
+   ```
+
+   `MinRecentMessages` (default 3) always keeps the newest messages. `SimilarityThreshold` (default 0) drops messages scoring below it first. `AlwaysKeepSystemRole` (default `false`) keeps system-role messages whatever their score.
+
+3. Change what messages are compared against with `QuerySource`:
+
+   | `QuerySource` | Compared against |
+   |---|---|
+   | `"last_user"` (default) | The most recent user message |
+   | `"last_n"` | The last `LastNCount` messages (default 3) |
+   | `"custom"` | The text in `CustomQuery` |
+
+   If the embedding call fails, the SDK falls back to dropping the oldest messages.
+
+## Load a hot window of recent messages
+
+Use these options with a state store instead of loading the full history on every turn. `WithContextWindow` requires `WithStateStore`; set `WithConversationID` to resume the same history later.
+
+1. Load only the last N messages. When the store implements `statestore.MessageReader` and `statestore.MessageAppender` (as `RedisStore` and `MemoryStore` do), the SDK loads the tail and appends new messages. Otherwise it loads and saves the whole history:
+
+   ```go
+   conv, err := sdk.Open("./app.pack.json", "chat",
+       sdk.WithStateStore(store),
+       sdk.WithConversationID("session-123"),
+       sdk.WithContextWindow(20),
+   )
+   ```
+
+2. Add semantic retrieval. Each turn, the SDK embeds the user's message and inserts the best matches from older messages, in chronological order between the summaries and the hot window. `WithContextRetrieval` requires `WithContextWindow`:
+
+   ```go
+   sdk.WithContextRetrieval(embProvider, 5), // top 5 matches
+   ```
+
+3. Add summaries. When the message count passes the threshold, the SDK summarizes the oldest unsummarized batch with `summaryProvider` and prepends the summaries as system messages. `WithAutoSummarize` requires `WithContextWindow`. A cheaper model works for the summary provider:
+
+   ```go
+   sdk.WithAutoSummarize(summaryProvider, 50, 10), // threshold 50 messages, batches of 10
+   ```
+
+All three together:
 
 ```go
-conv, _ := sdk.Open("./app.pack.json", "chat",
-    sdk.WithTokenBudget(8000),
-)
+func openLongConversation(
+    store statestore.Store,
+    embProvider providers.EmbeddingProvider,
+    summaryProvider providers.Provider,
+) (*sdk.Conversation, error) {
+    return sdk.Open("./app.pack.json", "chat",
+        sdk.WithStateStore(store),
+        sdk.WithConversationID("session-123"),
+        sdk.WithContextWindow(20),
+        sdk.WithContextRetrieval(embProvider, 5),
+        sdk.WithAutoSummarize(summaryProvider, 50, 10),
+    )
+}
 ```
 
-When the conversation exceeds this budget, older messages are truncated.
+`statestore` and `providers` are packages under `github.com/AltairaLabs/PromptKit/runtime/v2`.
 
-## Truncation Strategies
+## Control tool-result compaction
 
-### Sliding Window (Default)
+During multi-round tool execution, the context compactor runs between rounds and folds stale tool results into summaries such as `[file_read: package main... — 12000 bytes compacted]`. It is on by default:
 
-Removes oldest messages first:
+- It triggers when the estimated context exceeds 70% of the provider's context window. The window comes from the provider when it implements `providers.ContextWindowProvider`, otherwise 128,000 tokens. The Claude, OpenAI and Gemini providers report a limit for each model in their pricing tables, and `additional_config.context_window` overrides it. Ollama and vLLM report a limit only through that setting. A model the table does not list reports 0, so the compactor keeps the 128,000 default.
+- It folds the oldest tool results first and keeps the 4 most recent messages as written.
+- It leaves error results, system messages and non-tool messages unchanged.
+- It emits a `context.compacted` event with the token counts.
 
-```go
-conv, _ := sdk.Open("./app.pack.json", "chat",
-    sdk.WithTokenBudget(8000),
-    sdk.WithTruncation("sliding"),
-)
-```
-
-### Relevance-Based
-
-Keeps semantically relevant messages using embeddings:
+To turn it off:
 
 ```go
-import (
-    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
-    "github.com/AltairaLabs/PromptKit/sdk/v2"
-)
-
-// Create embedding provider
-embProvider, _ := openai.NewEmbeddingProvider()
-
-conv, _ := sdk.Open("./app.pack.json", "chat",
-    sdk.WithTokenBudget(8000),
-    sdk.WithRelevanceTruncation(&sdk.RelevanceConfig{
-        EmbeddingProvider:   embProvider,
-        MinRecentMessages:   3,
-        SimilarityThreshold: 0.3,
-    }),
-)
-```
-
-## Long Conversation Context
-
-For applications with persistent state (a state store), you can use a three-tier approach instead of truncation to manage long conversations efficiently:
-
-1. **Hot window** — load only the most recent N messages
-2. **Semantic retrieval** — find relevant older messages using embeddings
-3. **Auto-summarization** — compress old turns into summaries
-
-These options use `ContextAssemblyStage` and `IncrementalSaveStage` internally, avoiding the need to load and save the full conversation history on every turn.
-
-### Context Window (Hot Window)
-
-Load only the last N messages instead of the full history:
-
-```go
-conv, _ := sdk.Open("./app.pack.json", "chat",
-    sdk.WithStateStore(store),
-    sdk.WithConversationID("session-123"),
-    sdk.WithContextWindow(20), // Keep last 20 messages
-)
-```
-
-Requires `WithStateStore` and `WithConversationID`. When the store implements the optional `MessageReader` and `MessageAppender` interfaces (as `RedisStore` and `MemoryStore` do), only the tail of the conversation is loaded and new messages are appended incrementally. Falls back to full `Load`/`Save` otherwise.
-
-### Semantic Retrieval
-
-On each turn, embed the user's message and search older messages (outside the hot window) for semantic matches:
-
-```go
-embProvider, _ := openai.NewEmbeddingProvider()
-
-conv, _ := sdk.Open("./app.pack.json", "chat",
-    sdk.WithStateStore(store),
-    sdk.WithConversationID("session-123"),
-    sdk.WithContextWindow(20),
-    sdk.WithContextRetrieval(embProvider, 5), // Retrieve top 5 matches
-)
-```
-
-Retrieved messages are inserted chronologically between summaries and the hot window. Requires `WithContextWindow` to be set.
-
-### Auto-Summarization
-
-When the message count exceeds a threshold, compress the oldest unsummarized batch into a summary:
-
-```go
-conv, _ := sdk.Open("./app.pack.json", "chat",
-    sdk.WithStateStore(store),
-    sdk.WithConversationID("session-123"),
-    sdk.WithContextWindow(20),
-    sdk.WithAutoSummarize(summaryProvider, 50, 10), // threshold=50, batchSize=10
-)
-```
-
-Summaries are prepended to the context as system messages. You can use a cheaper or faster model for the summary provider (e.g., `gpt-4o-mini`) to minimize cost.
-
-### Combining All Three
-
-Use all three tiers together for the most efficient long conversation handling:
-
-```go
-import (
-    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
-    "github.com/AltairaLabs/PromptKit/sdk/v2"
-)
-
-store := statestore.NewMemoryStore()
-embProvider, _ := openai.NewEmbeddingProvider()
-summaryProvider := // your LLM provider for summarization
-
-conv, _ := sdk.Open("./app.pack.json", "chat",
-    sdk.WithStateStore(store),
-    sdk.WithConversationID("session-123"),
-    sdk.WithContextWindow(20),
-    sdk.WithContextRetrieval(embProvider, 5),
-    sdk.WithAutoSummarize(summaryProvider, 50, 10),
-)
-```
-
-## Context Compaction (Tool Loops)
-
-During multi-round tool execution, tool results accumulate and can exhaust the context window. The **context compactor** runs automatically between rounds and folds stale tool results into compact summaries (e.g., `[file_read: package main... — 12000 bytes compacted]`).
-
-Compaction is **on by default**. It:
-- Triggers when estimated context exceeds 70% of the token budget
-- Folds oldest tool results first, preserving the most recent 4 messages
-- Never modifies error results, system messages, or non-tool messages
-- Emits a `context.compacted` event with token count details
-
-The token budget is auto-detected from the provider if it implements `ContextWindowProvider`, otherwise defaults to 128K tokens.
-
-To disable compaction:
-
-```go
-conv, _ := sdk.Open("./app.pack.json", "chat",
+conv, err := sdk.Open("./app.pack.json", "chat",
     sdk.WithCompaction(false),
 )
 ```
 
-## Embedding Providers
+## Create an embedding provider
 
-### OpenAI
+Each constructor reads its API key from the environment.
+
+| Package | Constructor | Default model | Key variable |
+|---|---|---|---|
+| `providers/openai` | `openai.NewEmbeddingProvider()` | `text-embedding-3-small` | `OPENAI_API_KEY` |
+| `providers/gemini` | `gemini.NewEmbeddingProvider()` | `gemini-embedding-001` | `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
+| `providers/voyageai` | `voyageai.NewEmbeddingProvider()` | `voyage-3.5` | `VOYAGE_API_KEY` |
+
+Choose another model with `openai.WithEmbeddingModel`, `gemini.WithGeminiEmbeddingModel` or `voyageai.WithModel`:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
-
-// Default model (text-embedding-3-small)
-embProvider, _ := openai.NewEmbeddingProvider()
-
-// Custom model
-embProvider, _ := openai.NewEmbeddingProvider(
-    openai.WithEmbeddingModel("text-embedding-3-large"),
+embProvider, err := openai.NewEmbeddingProvider(
+    openai.WithEmbeddingModel(openai.EmbeddingModel3Large),
 )
 ```
 
-### Gemini
+`voyageai.WithInputType(voyageai.InputTypeQuery)` sets the Voyage input type hint.
 
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
+## Verify
 
-// Default model (text-embedding-004)
-embProvider, _ := gemini.NewEmbeddingProvider()
-
-// Custom model
-embProvider, _ := gemini.NewEmbeddingProvider(
-    gemini.WithGeminiEmbeddingModel("embedding-001"),
-)
-```
-
-### Voyage AI
-
-Recommended by Anthropic for Claude-based systems:
-
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/voyageai"
-
-// Default model (voyage-3.5)
-embProvider, _ := voyageai.NewEmbeddingProvider()
-
-// Code-optimized model
-embProvider, _ := voyageai.NewEmbeddingProvider(
-    voyageai.WithModel("voyage-code-3"),
-)
-
-// With input type hint for retrieval
-embProvider, _ := voyageai.NewEmbeddingProvider(
-    voyageai.WithInputType(voyageai.InputTypeQuery),
-)
-```
-
-## RelevanceConfig Options
-
-```go
-&sdk.RelevanceConfig{
-    // Required: embedding provider
-    EmbeddingProvider: embProvider,
-
-    // Always keep N most recent messages (default: 3)
-    MinRecentMessages: 3,
-
-    // Never truncate system messages (default: true)
-    AlwaysKeepSystemRole: true,
-
-    // Minimum similarity score to keep (default: 0.0)
-    SimilarityThreshold: 0.3,
-
-    // What to compare messages against (default: "last_user")
-    QuerySource: "last_user",  // or "last_n", "custom"
-
-    // For QuerySource "last_n": how many messages
-    LastNCount: 3,
-
-    // For QuerySource "custom": the query text
-    CustomQuery: "customer billing issue",
-}
-```
-
-## Query Source Options
-
-Control what the relevance is computed against:
-
-### Last User Message (Default)
-
-Compare against the most recent user message:
-
-```go
-&sdk.RelevanceConfig{
-    EmbeddingProvider: embProvider,
-    QuerySource:       "last_user",
-}
-```
-
-### Last N Messages
-
-Compare against multiple recent messages:
-
-```go
-&sdk.RelevanceConfig{
-    EmbeddingProvider: embProvider,
-    QuerySource:       "last_n",
-    LastNCount:        5,
-}
-```
-
-### Custom Query
-
-Compare against a specific query:
-
-```go
-&sdk.RelevanceConfig{
-    EmbeddingProvider: embProvider,
-    QuerySource:       "custom",
-    CustomQuery:       "technical support for billing",
-}
-```
-
-## Complete Example
+Run a conversation with a budget and relevance truncation:
 
 ```go
 package main
@@ -295,20 +170,17 @@ import (
 func main() {
     ctx := context.Background()
 
-    // Create embedding provider for relevance truncation
     embProvider, err := openai.NewEmbeddingProvider()
     if err != nil {
         log.Fatal(err)
     }
 
-    // Open conversation with context management
     conv, err := sdk.Open("./app.pack.json", "chat",
         sdk.WithTokenBudget(8000),
         sdk.WithRelevanceTruncation(&sdk.RelevanceConfig{
-            EmbeddingProvider:    embProvider,
-            MinRecentMessages:    3,
-            SimilarityThreshold:  0.3,
-            AlwaysKeepSystemRole: true,
+            EmbeddingProvider:   embProvider,
+            MinRecentMessages:   3,
+            SimilarityThreshold: 0.3,
         }),
     )
     if err != nil {
@@ -316,16 +188,11 @@ func main() {
     }
     defer conv.Close()
 
-    // Simulate a long conversation
-    messages := []string{
+    for _, msg := range []string{
         "I'm having trouble with my account billing",
-        "The charge appeared on December 15th",
-        "What's the weather like today?",  // Unrelated - may be truncated
-        "Can you look up my order history?",
-        "Back to my billing - can you help fix it?",
-    }
-
-    for _, msg := range messages {
+        "What's the weather like today?",
+        "Back to my billing: can you help fix it?",
+    } {
         resp, err := conv.Send(ctx, msg)
         if err != nil {
             log.Fatal(err)
@@ -335,31 +202,11 @@ func main() {
 }
 ```
 
-## Performance Tips
+The program prints a reply for each message.
 
-1. **Cache embeddings**: Enabled by default in RelevanceConfig
-2. **Use smaller models**: `text-embedding-3-small` is faster than `large`
-3. **Set appropriate threshold**: Higher threshold = fewer messages = faster
-4. **Batch requests**: The SDK batches embedding requests automatically
+## Related
 
-## Environment Variables
-
-Set API keys for embedding providers:
-
-```bash
-# OpenAI
-export OPENAI_API_KEY=sk-...
-
-# Gemini
-export GEMINI_API_KEY=...
-
-# Voyage AI
-export VOYAGE_API_KEY=...
-```
-
-## See Also
-
-- [Open a Conversation](/sdk/how-to/conversations/initialize/) - Basic setup
-- [Manage Variables](/sdk/how-to/conversations/manage-state/) - Template variables
-- [Long Conversation Example](/sdk/examples/long-conversation/) - Full working demo
-- [Arena Context Management](https://promptarena.altairalabs.ai/arena/how-to/manage-context/) - YAML configuration
+- [Open a Conversation](/sdk/how-to/conversations/initialize/)
+- [Manage Variables](/sdk/how-to/conversations/manage-state/)
+- [Long Conversation Example](/sdk/examples/long-conversation/)
+- [Arena Context Management](https://promptarena.altairalabs.ai/arena/how-to/manage-context/): the YAML configuration

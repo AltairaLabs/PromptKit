@@ -1,101 +1,101 @@
 ---
 title: Preprocess Images
+description: Resize and compress images in the SDK before they reach the provider
 sidebar:
   order: 7
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/media/image.go
+    - runtime/pipeline/stage/stages_image_preprocess.go
+    - sdk/examples/image-preprocessing/main.go
+    - sdk/internal/pipeline/builder.go
+    - sdk/options.go
 ---
 
-Learn how to automatically resize and optimize images before sending to LLM providers.
+Resize and compress images automatically before the SDK sends them to the provider, so large photos stay within provider size limits and use fewer tokens.
 
-## Why Preprocess Images?
+## Prerequisites
 
-Large images can cause issues with LLM providers:
-- **Token limits**: Large images consume more tokens, leaving less room for conversation
-- **Size limits**: Some providers reject images over certain sizes
-- **Latency**: Larger images take longer to process
-- **Cost**: More tokens = higher API costs
+- A conversation that sends images, for example with `sdk.WithImageFile`.
+- A vision-capable provider.
 
-The SDK can automatically resize and optimize images before sending them.
+## Enable preprocessing
 
-## Enable Image Preprocessing
+Pick one of three ways.
 
-### With Default Settings
+1. Use the defaults (max 1024x1024, quality 85):
 
-Enable preprocessing with sensible defaults (max 1024x1024, 85% quality):
+   ```go
+   conv, err := sdk.Open("./vision.pack.json", "analyst",
+       sdk.WithImagePreprocessing(nil),
+   )
+   ```
+
+2. Set only the dimensions:
+
+   ```go
+   conv, err := sdk.Open("./vision.pack.json", "analyst",
+       sdk.WithAutoResize(2048, 2048), // max 2048x2048, other settings default
+   )
+   ```
+
+3. Control everything. Start from `stage.DefaultImagePreprocessConfig()` and override what you need:
+
+   ```go
+   import "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+
+   cfg := stage.DefaultImagePreprocessConfig()
+   cfg.Resize.MaxWidth = 2048
+   cfg.Resize.MaxHeight = 2048
+   cfg.Resize.MaxSizeBytes = 5 * 1024 * 1024 // 5MB limit
+   cfg.Resize.Quality = 90
+
+   conv, err := sdk.Open("./vision.pack.json", "analyst",
+       sdk.WithImagePreprocessing(&cfg),
+   )
+   ```
+
+Starting from the defaults matters. A `stage.ImagePreprocessConfig` literal has zero values for every field you omit: `EnableResize` is false (nothing is processed), `PreserveAspectRatio` is false (images are squashed to the maximum dimensions), and `SkipIfSmaller` is false (every image is re-encoded).
+
+## Configuration fields
+
+The defaults apply to `WithImagePreprocessing(nil)`, `WithAutoResize` and `stage.DefaultImagePreprocessConfig()`.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `Resize.MaxWidth` | 1024 | Maximum width in pixels (0 = no limit) |
+| `Resize.MaxHeight` | 1024 | Maximum height in pixels (0 = no limit) |
+| `Resize.MaxSizeBytes` | 0 | Maximum encoded size in bytes (0 = no limit) |
+| `Resize.Quality` | 85 | JPEG quality, 1-100 |
+| `Resize.Format` | `""` | Output format: `"jpeg"`, `"png"`, or empty to keep the original |
+| `Resize.PreserveAspectRatio` | true | Keep the original aspect ratio |
+| `Resize.SkipIfSmaller` | true | Leave images within the limits untouched |
+| `EnableResize` | true | Turn processing on or off |
+
+## Choose the output format
+
+The SDK decodes JPEG, PNG, GIF and WebP input. It encodes JPEG or PNG output. With `Format` empty, a resized PNG stays PNG and any other input is re-encoded as JPEG. Set `Format` to `"jpeg"` or `"png"` when you accept GIF or WebP input, so the bytes and the MIME type agree.
+
+## Compress for constrained clients
+
+For tight bandwidth, lower the dimensions and cap the size. When an image is still over `MaxSizeBytes` after resizing, the SDK lowers the quality in steps (down to a floor of 10) until it fits:
 
 ```go
-conv, err := sdk.Open("./vision.pack.json", "analyst",
-    sdk.WithImagePreprocessing(nil),
+cfg := stage.DefaultImagePreprocessConfig()
+cfg.Resize.MaxWidth = 512
+cfg.Resize.MaxHeight = 512
+cfg.Resize.MaxSizeBytes = 100 * 1024 // 100KB limit
+cfg.Resize.Quality = 70
+
+conv, err := sdk.Open("./mobile.pack.json", "assistant",
+    sdk.WithImagePreprocessing(&cfg),
 )
 ```
 
-### With Custom Dimensions
+## Send an image
 
-For simple dimension limits, use the convenience option:
-
-```go
-conv, err := sdk.Open("./vision.pack.json", "analyst",
-    sdk.WithAutoResize(2048, 2048), // Max 2048x2048
-)
-```
-
-### With Full Configuration
-
-For complete control over preprocessing:
-
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
-
-conv, err := sdk.Open("./vision.pack.json", "analyst",
-    sdk.WithImagePreprocessing(&stage.ImagePreprocessConfig{
-        Resize: stage.ImageResizeStageConfig{
-            MaxWidth:            2048,
-            MaxHeight:           2048,
-            MaxSizeBytes:        5 * 1024 * 1024, // 5MB limit
-            Quality:             90,
-            PreserveAspectRatio: true,
-            SkipIfSmaller:       true,
-        },
-        EnableResize: true,
-    }),
-)
-```
-
-## Configuration Options
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `MaxWidth` | 1024 | Maximum width in pixels |
-| `MaxHeight` | 1024 | Maximum height in pixels |
-| `MaxSizeBytes` | 0 | Maximum file size (0 = no limit) |
-| `Quality` | 85 | JPEG/WebP quality (1-100) |
-| `PreserveAspectRatio` | true | Maintain original aspect ratio |
-| `SkipIfSmaller` | true | Don't process images within limits |
-| `EnableResize` | true | Enable/disable processing |
-
-## How It Works
-
-When preprocessing is enabled:
-
-1. Images in your message are decoded
-2. If dimensions exceed limits, the image is resized
-3. Aspect ratio is preserved (if configured)
-4. Image is re-encoded with the specified quality
-5. If still over `MaxSizeBytes`, quality is reduced iteratively
-6. Processed image replaces the original in the message
-
-## Supported Formats
-
-**Input formats:**
-- JPEG
-- PNG
-- GIF
-- WebP
-
-**Output formats:**
-- JPEG (default)
-- PNG
-
-## Example: High-Resolution Photo Analysis
+Preprocessing is automatic. Send the image as usual:
 
 ```go
 package main
@@ -109,7 +109,6 @@ import (
 )
 
 func main() {
-    // Enable preprocessing for large photos
     conv, err := sdk.Open("./photo.pack.json", "analyst",
         sdk.WithAutoResize(2048, 2048),
     )
@@ -118,10 +117,7 @@ func main() {
     }
     defer conv.Close()
 
-    ctx := context.Background()
-
-    // Send a large image - it will be automatically resized
-    resp, err := conv.Send(ctx, "Describe this photo in detail",
+    resp, err := conv.Send(context.Background(), "Describe this photo in detail",
         sdk.WithImageFile("/path/to/large-photo.jpg"),
     )
     if err != nil {
@@ -132,36 +128,20 @@ func main() {
 }
 ```
 
-## Example: Mobile App with Bandwidth Constraints
+The preprocessing stage runs after the template stage (and the context builder, when you set a token budget) and before the provider stage. It decodes each image that has inline data or a file path, resizes it if it exceeds the limits, re-encodes it, and replaces the original in the message. Images supplied by URL are sent unchanged.
 
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+## Verify
 
-// Aggressive compression for mobile
-conv, err := sdk.Open("./mobile.pack.json", "assistant",
-    sdk.WithImagePreprocessing(&stage.ImagePreprocessConfig{
-        Resize: stage.ImageResizeStageConfig{
-            MaxWidth:     512,
-            MaxHeight:    512,
-            MaxSizeBytes: 100 * 1024, // 100KB limit
-            Quality:      70,
-        },
-        EnableResize: true,
-    }),
-)
-```
+Enable debug logging and send an image larger than your limits. The runtime logs `ImagePreprocessStage: resized image in message` with the original and new sizes and the new dimensions. The stage logs only the first resize it performs. An image already within the limits produces no log line and goes through untouched.
 
-## Pipeline Integration
+## Troubleshoot
 
-Image preprocessing runs as a pipeline stage before the provider stage:
+- Images are unchanged: the config has `EnableResize` false, or the images are URLs. Start from `stage.DefaultImagePreprocessConfig()` and send files or bytes.
+- Images look stretched: `PreserveAspectRatio` is false in your config.
+- The log shows `Image preprocessing failed`: the image could not be decoded or read. Check that it is one of the supported formats.
 
-```
-StateStoreLoad → PromptAssembly → Template → ContextBuilder → ImagePreprocess → Provider → StateStoreSave
-```
+## Related
 
-This means images are processed after context management but before sending to the LLM.
-
-## See Also
-
-- [Multimodal Example](/sdk/examples/multimodal/)
-- [Send Messages](/sdk/how-to/conversations/send-messages/)
+- [Multimodal example](/sdk/examples/multimodal/)
+- [Image preprocessing example](/sdk/examples/image-preprocessing/)
+- [Send messages](/sdk/how-to/conversations/send-messages/)

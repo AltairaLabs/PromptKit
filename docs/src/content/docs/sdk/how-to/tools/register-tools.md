@@ -1,290 +1,28 @@
 ---
-title: Register Tools
+title: Register tools
+description: Give the model Go functions to call with OnTool, typed handlers, custom executors and human approval.
 sidebar:
   order: 3
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - sdk/a2a.go
+    - sdk/conversation.go
+    - sdk/conversation_tools.go
+    - sdk/options.go
+    - sdk/sdk.go
+    - sdk/tools/pending.go
+    - sdk/tools/redis.go
+    - sdk/tools/typed.go
 ---
-Learn how to add function calling with `OnTool()`.
+Register Go handlers for the tools your pack declares, so the model can call them during a conversation.
 
-## Basic Tool Registration
+## Prerequisites
 
-```go
-conv.OnTool("get_time", func(args map[string]any) (any, error) {
-    return time.Now().Format(time.RFC3339), nil
-})
-```
+- A conversation from `sdk.Open`.
+- Each tool declared in the pack and listed in the prompt's `tools`.
 
-## Handler Signature
-
-```go
-func(args map[string]any) (any, error)
-```
-
-- **args**: Parameters from the LLM (matches tool schema)
-- **return**: Any JSON-serializable value, or error
-
-## Accessing Arguments
-
-```go
-conv.OnTool("search", func(args map[string]any) (any, error) {
-    // String argument
-    query, _ := args["query"].(string)
-    
-    // Number argument (JSON numbers are float64)
-    limit, _ := args["limit"].(float64)
-    
-    // Boolean argument
-    exact, _ := args["exact"].(bool)
-    
-    return searchResults(query, int(limit), exact), nil
-})
-```
-
-## Return Values
-
-### Return Map
-
-```go
-conv.OnTool("get_user", func(args map[string]any) (any, error) {
-    return map[string]any{
-        "id":    "123",
-        "name":  "Alice",
-        "email": "alice@example.com",
-    }, nil
-})
-```
-
-### Return Struct
-
-```go
-type User struct {
-    ID    string `json:"id"`
-    Name  string `json:"name"`
-    Email string `json:"email"`
-}
-
-conv.OnTool("get_user", func(args map[string]any) (any, error) {
-    return User{
-        ID:    "123",
-        Name:  "Alice",
-        Email: "alice@example.com",
-    }, nil
-})
-```
-
-### Return Slice
-
-```go
-conv.OnTool("list_items", func(args map[string]any) (any, error) {
-    return []string{"item1", "item2", "item3"}, nil
-})
-```
-
-## With Context
-
-Use `OnToolCtx` when you need the context:
-
-```go
-conv.OnToolCtx("fetch_data", func(ctx context.Context, args map[string]any) (any, error) {
-    // Use context for HTTP calls, database queries, etc.
-    url := args["url"].(string)
-    
-    req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
-    resp, err := http.DefaultClient.Do(req)
-    if err != nil {
-        return nil, err
-    }
-    defer resp.Body.Close()
-    
-    // Process response...
-    return result, nil
-})
-```
-
-## Multiple Tools
-
-Register multiple tools at once:
-
-```go
-conv.OnTools(map[string]sdk.ToolHandler{
-    "get_time": func(args map[string]any) (any, error) {
-        return time.Now().Format(time.RFC3339), nil
-    },
-    "get_weather": func(args map[string]any) (any, error) {
-        city := args["city"].(string)
-        return map[string]any{"city": city, "temp": 22}, nil
-    },
-    "search": func(args map[string]any) (any, error) {
-        query := args["query"].(string)
-        return []string{"result1", "result2"}, nil
-    },
-})
-```
-
-## Typed Handlers
-
-For type-safe tool arguments, use `tools.OnTyped`:
-
-```go
-import sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
-
-type SearchArgs struct {
-    Query      string `map:"query"`
-    MaxResults int    `map:"max_results"`
-}
-
-sdktools.OnTyped(conv, "search", func(args SearchArgs) (any, error) {
-    return searchAPI(args.Query, args.MaxResults), nil
-})
-```
-
-## HTTP Tools
-
-Register tools that call external APIs:
-
-```go
-import sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
-
-conv.OnToolHTTP("create_ticket", sdktools.NewHTTPToolConfig(
-    "https://api.example.com/tickets",
-    sdktools.WithMethod("POST"),
-    sdktools.WithHeader("Authorization", "Bearer "+apiKey),
-))
-```
-
-See [HTTP Tools](/sdk/how-to/tools/http-tools/) for the full builder API.
-
-## Custom Executors
-
-Register a runtime `tools.Executor` implementation directly:
-
-```go
-conv.OnToolExecutor("custom_tool", &MyCustomExecutor{})
-```
-
-The executor must implement `runtime/tools.Executor`.
-
-### Executors for conversations you never hold
-
-`OnToolExecutor` needs a conversation. Constructors that own the conversation
-lifecycle (`A2AOpener` above all, which opens one per context ID internally)
-never hand one back, so pass the executor as an option instead:
-
-```go
-opener := sdk.A2AOpener(packPath, promptName,
-    sdk.WithToolExecutor("search", myExecutor),
-    sdk.WithToolExecutor("fetch", myExecutor),
-)
-```
-
-`WithToolExecutor` is `OnToolExecutor` applied at open time and works with any
-constructor taking options. Use it when the tool path must be the same whichever
-protocol a caller arrives on — policy checks, credential injection, audit.
-
-## Async Tools (HITL)
-
-Register tools that require human approval before execution. When the check
-returns a non-empty `PendingResult`, the standard pipeline **holds the call
-pending** instead of executing it — on the unary `Send` path, the WithIngestion
-streaming-duplex path, and the realtime duplex path alike.
-
-```go
-conv.OnToolAsync("process_refund",
-    func(args map[string]any) sdktools.PendingResult {
-        amount := args["amount"].(float64)
-        if amount > 1000 {
-            return sdktools.PendingResult{
-                Reason:  "high_value_refund",
-                Message: fmt.Sprintf("Refund of $%.2f requires approval", amount),
-            }
-        }
-        return sdktools.PendingResult{} // proceed immediately
-    },
-    func(args map[string]any) (any, error) {
-        return refundAPI.Process(args)
-    },
-)
-
-resp, _ := conv.Send(ctx, "Process refund for order #123")
-for _, pending := range resp.PendingTools() {
-    conv.ResolveTool(ctx, pending.ID) // or conv.RejectTool(ctx, pending.ID, "reason")
-}
-resp, _ = conv.Continue(ctx)
-```
-
-Approve with edits — the reviewer corrects an argument before it runs. Overrides
-shallow-merge over the arguments the model proposed:
-
-```go
-conv.ResolveToolWithArgs(ctx, pending.ID, map[string]any{"amount": 500})
-```
-
-To approve from a web service, resolve the call in a handler. A successful request returns status 200; if `ResolveTool` fails, the handler returns 409 with the error text:
-
-```go
-http.HandleFunc("/approve", func(w http.ResponseWriter, r *http.Request) {
-    id := r.URL.Query().Get("id")
-    if _, err := conv.ResolveTool(r.Context(), id); err != nil {
-        http.Error(w, err.Error(), http.StatusConflict)
-    }
-})
-```
-
-Once every held call is resolved or rejected, call `conv.Continue(ctx)` for the model's reply.
-
-### Durable approvals across restarts and instances
-
-By default, held calls live in an in-process store — they do not survive a
-restart, and only the process that held them can resolve them. For production
-HITL (a reviewer approving from another service, or approvals that must outlive a
-redeploy), inject a durable store with `WithPendingStore`:
-
-```go
-import (
-    "github.com/redis/go-redis/v9"
-    sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
-)
-
-store := sdktools.NewRedisPendingStore(
-    redis.NewClient(&redis.Options{Addr: "localhost:6379"}),
-)
-conv, _ := sdk.Open("./assist.pack.json", "assist", sdk.WithPendingStore(store))
-```
-
-Two things follow from durability:
-
-- **Recover the handler by name.** A persisted call cannot carry the Go execution
-  closure, so a process resolving a call it did not create must register the same
-  `OnToolAsync` handlers first — the handler is looked up by tool name at resolve
-  time.
-- **Resolution is single-winner.** `ResolveTool` / `RejectTool` claim the call
-  atomically (Redis `GETDEL`), so two instances of the same agent cannot
-  double-resolve one call. The loser gets `sdktools.ErrPendingAlreadyResolved`.
-
-`PendingTools(ctx)` lists a conversation's held calls from the store, including
-ones that survived a restart.
-
-## Error Handling
-
-Return errors to inform the LLM:
-
-```go
-conv.OnTool("get_user", func(args map[string]any) (any, error) {
-    userID := args["user_id"].(string)
-    
-    user, err := db.GetUser(userID)
-    if err != nil {
-        return nil, fmt.Errorf("user not found: %s", userID)
-    }
-    
-    return user, nil
-})
-```
-
-The LLM receives the error and can inform the user appropriately.
-
-## Define Tools in Pack
-
-Tools must be defined in your pack file:
+## 1. Declare the tool in the pack
 
 ```json
 {
@@ -311,55 +49,184 @@ Tools must be defined in your pack file:
 }
 ```
 
-## Complete Example
+## 2. Register a handler
+
+A handler takes the model's arguments and returns any JSON-serializable value or an error:
 
 ```go
-package main
-
-import (
-    "context"
-    "fmt"
-    "log"
-    "time"
-
-    "github.com/AltairaLabs/PromptKit/sdk/v2"
-)
-
-func main() {
-    conv, _ := sdk.Open("./tools.pack.json", "assistant")
-    defer conv.Close()
-
-    // Register tools
-    conv.OnTool("get_time", func(args map[string]any) (any, error) {
-        tz := "UTC"
-        if t, ok := args["timezone"].(string); ok {
-            tz = t
-        }
-        return map[string]any{
-            "time":     time.Now().Format("15:04:05"),
-            "timezone": tz,
-        }, nil
-    })
-
-    conv.OnTool("get_weather", func(args map[string]any) (any, error) {
-        city, _ := args["city"].(string)
-        return map[string]any{
-            "city":       city,
-            "temp":       22.5,
-            "conditions": "Sunny",
-        }, nil
-    })
-
-    // Use tools
-    ctx := context.Background()
-    resp, _ := conv.Send(ctx, "What's the weather in London?")
-    fmt.Println(resp.Text())
-}
+conv.OnTool("get_time", func(args map[string]any) (any, error) {
+    tz := "UTC"
+    if t, ok := args["timezone"].(string); ok {
+        tz = t
+    }
+    return map[string]any{"time": time.Now().Format("15:04:05"), "timezone": tz}, nil
+})
 ```
 
-## See Also
+JSON numbers arrive as `float64`:
 
-- [HTTP Tools](/sdk/how-to/tools/http-tools/) — builder API for HTTP tool handlers
-- [Exec Tools](/sdk/how-to/tools/exec-tools/) — bind tools to external subprocesses (Python, Node.js, etc.)
-- [Client-Side Tools](/sdk/how-to/tools/client-tools/) — tools that run on the caller's device
-- [Tutorial 3: Tools](/sdk/tutorials/03-tool-integration/) — step-by-step walkthrough
+```go
+query, _ := args["query"].(string)
+limit, _ := args["limit"].(float64)
+exact, _ := args["exact"].(bool)
+```
+
+A struct, map or slice return value is serialized to JSON for the model. A returned error goes to the model as the tool result, so it can explain the failure to the user:
+
+```go
+return nil, fmt.Errorf("user not found: %s", userID)
+```
+
+Register several handlers at once with `OnTools`:
+
+```go
+conv.OnTools(map[string]sdk.ToolHandler{
+    "get_time":    getTime,
+    "get_weather": getWeather,
+})
+```
+
+## 3. Use the request context
+
+`OnToolCtx` passes the pipeline context for cancellation, deadlines and tracing:
+
+```go
+conv.OnToolCtx("fetch_data", func(ctx context.Context, args map[string]any) (any, error) {
+    url, _ := args["url"].(string)
+    req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+    if err != nil {
+        return nil, err
+    }
+    resp, err := http.DefaultClient.Do(req)
+    if err != nil {
+        return nil, err
+    }
+    defer resp.Body.Close()
+    body, err := io.ReadAll(resp.Body)
+    if err != nil {
+        return nil, err
+    }
+    return string(body), nil
+})
+```
+
+## 4. Call an HTTP API or a custom executor
+
+Bind a tool to an HTTP endpoint without writing a handler:
+
+```go
+import sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
+
+conv.OnToolHTTP("create_ticket", sdktools.NewHTTPToolConfig(
+    "https://api.example.com/tickets",
+    sdktools.WithMethod("POST"),
+))
+```
+
+See [HTTP tools](/sdk/how-to/tools/http-tools/) for authentication and reshaping.
+
+Register a runtime `tools.Executor` directly with `OnToolExecutor`:
+
+```go
+conv.OnToolExecutor("custom_tool", &MyCustomExecutor{})
+```
+
+`OnToolExecutor` needs a conversation. Constructors that open conversations internally, such as `sdk.A2AOpener` (one per context ID), never return one. Pass the executor as an option instead:
+
+```go
+opener := sdk.A2AOpener(packPath, promptName,
+    sdk.WithToolExecutor("search", myExecutor),
+    sdk.WithToolExecutor("fetch", myExecutor),
+)
+```
+
+`WithToolExecutor` applies the executor when the conversation opens and works with any constructor that takes options. Use it when the tool path must be identical whichever protocol the caller arrives on: policy checks, credential injection, audit.
+
+## 5. Require approval before a tool runs
+
+`OnToolAsync` takes a check function and an execution function. When the check returns a non-empty `PendingResult`, the pipeline holds the call instead of executing it. This applies to `Send`, to duplex sessions built with `WithIngestion`, and to realtime duplex sessions.
+
+```go
+conv.OnToolAsync("process_refund",
+    func(args map[string]any) sdktools.PendingResult {
+        amount, _ := args["amount"].(float64)
+        if amount > 1000 {
+            return sdktools.PendingResult{
+                Reason:  "high_value_refund",
+                Message: fmt.Sprintf("Refund of $%.2f requires approval", amount),
+            }
+        }
+        return sdktools.PendingResult{} // proceed immediately
+    },
+    func(args map[string]any) (any, error) {
+        return refundAPI.Process(args)
+    },
+)
+
+resp, _ := conv.Send(ctx, "Process refund for order #123")
+for _, pending := range resp.PendingTools() {
+    conv.ResolveTool(ctx, pending.ID) // or conv.RejectTool(ctx, pending.ID, "reason")
+}
+resp, _ = conv.Continue(ctx)
+```
+
+Once every held call is resolved or rejected, `conv.Continue(ctx)` returns the model's reply.
+
+To approve with edits, pass overrides that shallow-merge over the arguments the model proposed:
+
+```go
+conv.ResolveToolWithArgs(ctx, pending.ID, map[string]any{"amount": 500})
+```
+
+To approve from a web service, resolve the call in a handler:
+
+```go
+http.HandleFunc("/approve", func(w http.ResponseWriter, r *http.Request) {
+    id := r.URL.Query().Get("id")
+    if _, err := conv.ResolveTool(r.Context(), id); err != nil {
+        http.Error(w, err.Error(), http.StatusConflict)
+    }
+})
+```
+
+### Persist approvals across restarts and instances
+
+Held calls live in an in-process store by default. They do not survive a restart, and only the process that held them can resolve them. For a reviewer approving from another service, or approvals that outlive a redeploy, inject a durable store with `WithPendingStore`:
+
+```go
+import (
+    "github.com/redis/go-redis/v9"
+    sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
+)
+
+store := sdktools.NewRedisPendingStore(
+    redis.NewClient(&redis.Options{Addr: "localhost:6379"}),
+)
+conv, _ := sdk.Open("./assist.pack.json", "assist", sdk.WithPendingStore(store))
+```
+
+- A persisted call carries no Go closure. A process that resolves a call it did not create must register the same `OnToolAsync` handlers first. The runtime looks the handler up by tool name at resolve time.
+- `ResolveTool` and `RejectTool` claim the call atomically (Redis `GETDEL`), so two instances cannot resolve one call twice. The loser gets `sdktools.ErrPendingAlreadyResolved`.
+
+`conv.PendingTools(ctx)` lists the conversation's held calls from the store, including ones that survived a restart.
+
+## Verify
+
+Send a message that makes the model call the tool:
+
+```go
+resp, err := conv.Send(ctx, "What time is it in UTC?")
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println(resp.Text())
+```
+
+The reply uses the value your handler returned.
+
+## Related
+
+- [HTTP tools](/sdk/how-to/tools/http-tools/): builder API for HTTP tool handlers
+- [Exec tools](/sdk/how-to/tools/exec-tools/): bind tools to external subprocesses
+- [Client-side tools](/sdk/how-to/tools/client-tools/): tools that run on the caller's device
+- [Tutorial 3: tools](/sdk/tutorials/03-tool-integration/): step-by-step walkthrough

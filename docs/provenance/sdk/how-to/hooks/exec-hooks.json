@@ -1,0 +1,140 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/hooks/exec-hooks.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "c1",
+   "claim": "Hook payload keys inside request/response/event are PascalCase Go field names; envelope keys lowercase",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/exec_hooks.go:37-43",
+    "runtime/hooks/types.go:57-155"
+   ]
+  },
+  {
+   "id": "c10",
+   "claim": "enforced:true response continues pipeline with metadata attached",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/exec_hooks.go:152-157",
+    "runtime/hooks/types.go:11-39"
+   ]
+  },
+  {
+   "id": "c11",
+   "claim": "Session hook filter mode returns error on process failure; stdout ignored",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/exec_hooks.go:288-311"
+   ]
+  },
+  {
+   "id": "c12",
+   "claim": "env: bare name forwards host value, KEY=value literal",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/sandbox/direct/direct.go:105-129"
+   ]
+  },
+  {
+   "id": "c13",
+   "claim": "Relative command resolves against process working directory",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/execconfig/execconfig.go:38-41"
+   ]
+  },
+  {
+   "id": "c14",
+   "claim": "sandbox field selects spec.sandboxes entry",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/exec_build.go:56-63"
+   ]
+  },
+  {
+   "id": "c15",
+   "claim": "Old page: ack:true session response is meaningful",
+   "verdict": "false",
+   "evidence": [
+    "runtime/hooks/exec_hooks.go:46-52"
+   ]
+  },
+  {
+   "id": "c16",
+   "claim": "BuildExecHooks(rc.Spec.Hooks, nil) builds hooks from config; denial reason carries process error",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/exec_build.go:50-88",
+    "runtime/hooks/exec_hooks.go:135-142"
+   ]
+  },
+  {
+   "id": "c2",
+   "claim": "Old examples used snake_case keys (messages, name, args, session_id) inside request/event",
+   "verdict": "false",
+   "evidence": [
+    "runtime/hooks/types.go:58-155"
+   ]
+  },
+  {
+   "id": "c3",
+   "claim": "mode is optional and defaults to filter",
+   "verdict": "false",
+   "evidence": [
+    "pkg/config/runtime_config.go:845-866",
+    "runtime/hooks/exec_hooks.go:71-74"
+   ]
+  },
+  {
+   "id": "c4",
+   "claim": "timeout default 10s; eval hooks 5s",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/exec_hook.go:16",
+    "runtime/hooks/exec_hooks.go:14"
+   ]
+  },
+  {
+   "id": "c5",
+   "claim": "Filter mode denies on allow:false, crash, timeout, invalid JSON",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/exec_hooks.go:126-158"
+   ]
+  },
+  {
+   "id": "c6",
+   "claim": "Observe mode swallows failures and continues",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/exec_hooks.go:162-172"
+   ]
+  },
+  {
+   "id": "c7",
+   "claim": "Hook with no phases never fires",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/exec_hooks.go:98-100"
+   ]
+  },
+  {
+   "id": "c8",
+   "claim": "Phases per hook type",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/exec_hooks.go:191"
+   ]
+  },
+  {
+   "id": "c9",
+   "claim": "Eval hooks ignore mode/phases, stdout discarded, errors logged, run after handler before emit",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/exec_hook.go:83-124",
+    "runtime/evals/runner.go:184-185"
+   ]
+  }
+ ]
+}

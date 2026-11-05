@@ -1,116 +1,102 @@
 ---
 title: Send Messages
+description: Send messages, stream replies, read history, handle errors and attach metadata to a turn.
 sidebar:
   order: 2
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - pkg/config/types.go
+    - runtime/events/redact.go
+    - runtime/events/types.go
+    - runtime/pipeline/stage/message_metadata_template.go
+    - runtime/providers/registry.go
+    - runtime/types/message.go
+    - sdk/conversation.go
+    - sdk/errors.go
+    - sdk/json_input.go
+    - sdk/message_metadata.go
+    - sdk/options.go
+    - sdk/response.go
+    - sdk/streaming.go
 ---
-Learn how to send messages and receive responses.
+Send a message to a conversation and read the reply, as a whole or as a stream.
 
-## Basic Send
+## Prerequisites
+
+An open conversation (`conv`). See [Open a Conversation](/sdk/how-to/conversations/initialize/).
+
+## Send a message
+
+1. Call `Send` and print the text:
+
+   ```go
+   ctx := context.Background()
+   resp, err := conv.Send(ctx, "What is the capital of France?")
+   if err != nil {
+       log.Fatal(err)
+   }
+   fmt.Println(resp.Text())
+   ```
+
+   The conversation keeps its history, so the next `Send` sees earlier turns.
+
+2. Check the response for tool calls and for tool calls waiting on approval:
+
+   ```go
+   for _, call := range resp.ToolCalls() {
+       fmt.Printf("Tool: %s\n", call.Name)
+   }
+   for _, p := range resp.PendingTools() {
+       fmt.Printf("Awaiting approval: %s\n", p.Name)
+   }
+   ```
+
+3. Pass a `*types.Message` instead of a string when you build the message yourself. `Send` accepts a string or a `*types.Message`:
+
+   ```go
+   msg := &types.Message{Role: "user", Content: "Hello!"}
+   resp, err := conv.Send(ctx, msg)
+   ```
+
+   `types` is `github.com/AltairaLabs/PromptKit/runtime/v2/types`.
+
+## Stream a reply
+
+Range over `Stream`. Text chunks carry `Text`, the final chunk has type `sdk.ChunkDone` and holds the complete response in `Message`, and a failure arrives as a chunk with `Error` set:
 
 ```go
-ctx := context.Background()
-resp, err := conv.Send(ctx, "What is the capital of France?")
-if err != nil {
-    log.Fatal(err)
-}
-
-fmt.Println(resp.Text())  // "The capital of France is Paris."
-```
-
-## Response Methods
-
-### Get Text
-
-```go
-text := resp.Text()
-```
-
-### Check for Tool Calls
-
-```go
-if resp.HasToolCalls() {
-    for _, call := range resp.ToolCalls() {
-        fmt.Printf("Tool: %s\n", call.Name)
-    }
-}
-```
-
-### Check for Pending Approvals
-
-```go
-pending := resp.PendingTools()
-if len(pending) > 0 {
-    // Handle HITL approvals
-}
-```
-
-## Streaming
-
-### Basic Stream
-
-```go
+var full string
 for chunk := range conv.Stream(ctx, "Tell me a story") {
     if chunk.Error != nil {
-        log.Printf("Error: %v", chunk.Error)
+        log.Printf("stream failed: %v", chunk.Error)
         break
     }
     if chunk.Type == sdk.ChunkDone {
         break
     }
+    full += chunk.Text
     fmt.Print(chunk.Text)
 }
 ```
 
-### Collect Full Response
+## Read and clear history
 
 ```go
-var fullText string
-for chunk := range conv.Stream(ctx, "Write a poem") {
-    if chunk.Type == sdk.ChunkDone {
-        break
-    }
-    if chunk.Error != nil {
-        break
-    }
-    fullText += chunk.Text
-    fmt.Print(chunk.Text)  // Show progress
+for _, msg := range conv.Messages(ctx) {
+    fmt.Printf("[%s] %s\n", msg.Role, msg.GetContent())
+}
+
+if err := conv.Clear(); err != nil {
+    log.Fatal(err)
 }
 ```
 
-## Multi-Turn Context
+`Messages` returns a copy. `Clear` removes the messages and keeps the system prompt and variables.
 
-The SDK maintains conversation history:
+## Set a timeout
 
-```go
-// Turn 1
-resp1, _ := conv.Send(ctx, "My name is Alice")
-
-// Turn 2 - context remembered
-resp2, _ := conv.Send(ctx, "What's my name?")
-fmt.Println(resp2.Text())  // "Your name is Alice."
-```
-
-## Message History
-
-### Get All Messages
-
-```go
-ctx := context.Background()
-messages := conv.Messages(ctx)
-for _, msg := range messages {
-    fmt.Printf("[%s] %s\n", msg.Role, msg.Content)
-}
-```
-
-### Clear History
-
-```go
-_ = conv.Clear()  // Starts fresh, returns error
-```
-
-## Timeouts
-
-### With Context Timeout
+Pass a context with a deadline:
 
 ```go
 ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -118,49 +104,27 @@ defer cancel()
 
 resp, err := conv.Send(ctx, "Tell me a long story")
 if errors.Is(err, context.DeadlineExceeded) {
-    log.Println("Request timed out")
+    log.Println("request timed out")
 }
 ```
 
-## Error Handling
+If the model's stream fails after it has started replying, `Send` returns the error and a non-nil `Response` holding the partial reply, with finish reason `types.FinishReasonInterrupted`.
+
+## Handle errors
 
 ```go
 resp, err := conv.Send(ctx, message)
-if err != nil {
-    switch {
-    case errors.Is(err, sdk.ErrConversationClosed):
-        log.Fatal("Conversation was closed")
-    case errors.Is(err, sdk.ErrProviderNotDetected):
-        log.Printf("Provider not detected: %v", err)
-    case errors.Is(err, context.DeadlineExceeded):
-        log.Println("Request timed out")
-    default:
-        log.Printf("Send failed: %v", err)
-    }
+switch {
+case errors.Is(err, sdk.ErrConversationClosed):
+    log.Fatal("conversation was closed")
+case errors.Is(err, context.DeadlineExceeded):
+    log.Println("request timed out")
+case err != nil:
+    log.Printf("send failed: %v", err)
 }
 ```
 
-## Sending Structured Messages
-
-### String Message
-
-```go
-resp, _ := conv.Send(ctx, "Hello!")
-```
-
-### Message Type
-
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/types"
-
-msg := types.Message{
-    Role:    "user",
-    Content: "Hello!",
-}
-resp, _ := conv.Send(ctx, &msg)
-```
-
-## Attach Metadata to a Turn
+## Attach metadata to a turn
 
 `WithMessageMetadata` attaches key-value data to the user message of one `Send` or `Stream` call. Use it for what your application knows about the turn that is not chat text, such as the shapes selected on a canvas:
 
@@ -172,9 +136,7 @@ resp, err := conv.Send(ctx, "Align these",
     }))
 ```
 
-By default the model never receives the metadata. To show it to the model, see [Show Metadata to the Model](#show-metadata-to-the-model).
-
-The metadata is stored on the user message, so it appears in `Messages()`, the state store, and the evals that read them. Read it back with `Metadata()`:
+The model does not receive the metadata unless you set a template (next section). The metadata is stored on the user message, so it appears in `Messages()`, the state store, and the evals that read them. Read it back with `Metadata()`:
 
 ```go
 for _, m := range conv.Messages(ctx) {
@@ -186,11 +148,9 @@ for _, m := range conv.Messages(ctx) {
 
 The message's `message.created` event carries it as `Metadata`, on the event bus and in the event store. A subscriber wrapped in `events.Redacting` receives it with its strings passed through the redactor as the `message.metadata` field.
 
-Values must be JSON-serializable, or `Send` returns an error. The SDK keeps them in decoded JSON form, the form a state store returns: a number reads back as `float64`, a slice as `[]any`, and a struct or typed map as `map[string]any`. `Metadata()` returns a copy, so changing it does not change the message.
+Values must be JSON-serializable, or `Send` returns an error. The SDK keeps them in decoded JSON form, the form a state store returns: a number reads back as `float64`, a slice as `[]any`, and a struct or typed map as `map[string]any`. `Metadata()` returns a copy, so changing it does not change the message. When you pass a `*types.Message` to `Send`, the metadata goes on a copy, so reusing your message for the next turn carries no metadata over.
 
-When you pass a `*types.Message` to `Send`, the metadata goes on a copy, not on your message. Reusing your message for the next turn carries no metadata over.
-
-### Show Metadata to the Model
+### Show metadata to the model
 
 Set `MessageMetadataTemplate` on the provider to render the metadata as text the model reads. Each `{{key}}` is filled from the message's metadata:
 
@@ -209,17 +169,15 @@ With the `Send` call above, the model receives the user message followed by:
 <context>Selected: ["s1","s2","s3"]</context>
 ```
 
-The template lives on the provider, not in the pack, because the wording a model responds to best differs by provider and model.
-
 - A string value is inserted as is, and any other value as compact JSON. A key the message does not carry renders as empty.
-- Every message in the history that has metadata is rendered, including earlier turns. What the model sees for earlier turns does not change, so provider prompt caching keeps working.
+- Every message in the history that has metadata is rendered, including earlier turns.
 - The rendered text is added to the request only. `Messages()`, the state store and `message.created` keep the user's own text.
 - A provider built with `providers.CreateProviderFromSpec` takes the same template as `providers.ProviderSpec.MessageMetadataTemplate`.
 - In a provider file or a [RuntimeConfig](/sdk/reference/runtime-config/) provider entry, the field is `message_metadata_template`.
 
 To give the model structured input that fills the pack's template variables instead, use `WithJSONInput`.
 
-## Complete Example
+## Verify
 
 ```go
 package main
@@ -233,33 +191,26 @@ import (
 )
 
 func main() {
-    conv, _ := sdk.Open("./app.pack.json", "chat")
+    conv, err := sdk.Open("./app.pack.json", "chat")
+    if err != nil {
+        log.Fatal(err)
+    }
     defer conv.Close()
 
     ctx := context.Background()
-
-    // Multi-turn conversation
-    questions := []string{
-        "What is machine learning?",
-        "How is it different from AI?",
-        "Give me an example.",
-    }
-
-    for _, q := range questions {
-        fmt.Printf("Q: %s\n", q)
-        
+    for _, q := range []string{"My name is Alice", "What is my name?"} {
         resp, err := conv.Send(ctx, q)
         if err != nil {
-            log.Printf("Error: %v", err)
-            continue
+            log.Fatal(err)
         }
-        
-        fmt.Printf("A: %s\n\n", resp.Text())
+        fmt.Printf("Q: %s\nA: %s\n\n", q, resp.Text())
     }
 }
 ```
 
-## See Also
+The second answer uses the first turn, which shows the conversation keeps its history.
+
+## Related
 
 - [Open a Conversation](/sdk/how-to/conversations/initialize/)
 - [Register Tools](/sdk/how-to/tools/register-tools/)

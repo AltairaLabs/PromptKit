@@ -1,19 +1,28 @@
 ---
-title: Override Capability Tool Definitions
+title: Override capability tool definitions
+description: Patch the description and schemas of tools that memory, workflow, A2A and skills register.
 sidebar:
   order: 4
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/memory/store.go
+    - runtime/memory/tools.go
+    - sdk/capability_memory.go
+    - sdk/conversation.go
+    - sdk/conversation_tools.go
+    - sdk/options.go
+    - sdk/tool_descriptor_override.go
 ---
 
-Capabilities like memory, workflow, and A2A register their tools with hard-coded descriptors (description, input/output schema). When you need to customize those (for example, to add a domain-specific parameter that downstream consumers rely on), you don't need to fork PromptKit. Use `WithToolDescriptorOverride` to patch the descriptor after the capability registers it.
+Capabilities such as memory, workflow and A2A register their tools with built-in descriptors (description, input schema, output schema). Use `WithToolDescriptorOverride` to patch a descriptor after the capability registers it, for example to add a domain-specific parameter or constrain a value with an `enum`.
 
-## When to use this
+## Prerequisites
 
-- The default tool description doesn't fit your deployment's wording or policy.
-- You need to add or constrain an input parameter (e.g. an `enum` validating allowed values).
-- You want to relabel the namespace or augment the output schema.
-- Consumer code (Omnia, internal services) reads a non-standard parameter and the LLM should know to set it.
+- A conversation that uses a capability whose tool you want to change, such as `sdk.WithMemory`.
+- The tool's registered name, such as `memory__remember` (the constant `memory.RememberToolName`).
 
-## Basic example
+## 1. Patch the description
 
 ```go
 import (
@@ -31,13 +40,13 @@ conv, err := sdk.Open(packPath, "chat",
 )
 ```
 
-The patch function receives a clone of the descriptor that the capability registered. Mutate fields in place; the SDK re-registers the patched descriptor before the first `Send()`.
+The patch function receives a clone of the registered descriptor. Mutate its fields in place.
 
-## Replacing the input schema
+## 2. Replace the input schema
+
+Assign a new `json.RawMessage` to `InputSchema`:
 
 ```go
-import "encoding/json"
-
 categorySchema := json.RawMessage(`{
     "type": "object",
     "properties": {
@@ -56,9 +65,9 @@ sdk.WithToolDescriptorOverride(memory.RememberToolName,
     })
 ```
 
-## Composing overrides
+## 3. Compose overrides
 
-Multiple overrides for the same tool compose in registration order — the second sees the descriptor already mutated by the first:
+Overrides for the same tool apply in the order you pass them. The second sees the descriptor the first mutated:
 
 ```go
 sdk.WithToolDescriptorOverride("memory__remember",
@@ -68,35 +77,9 @@ sdk.WithToolDescriptorOverride("memory__remember",
 // Final description: "step 1 | step 2"
 ```
 
-## Tolerance to version skew
+## 4. Read the new parameter in your host
 
-If you reference a tool name that doesn't exist in the registry (for example, a tool that a newer PromptKit release renames or removes), the override is logged at WARN level and skipped. Other overrides still apply. This means override lists survive PromptKit upgrades without breaking the consumer build.
-
-```
-WARN tool descriptor override skipped: tool not registered  name=memory__remember
-```
-
-A renamed tool is not the only thing that produces this. The capability that owns the tool may have declined to register it, in which case the tool name is still correct for your PromptKit version and the override is a symptom rather than the cause. Check the capability's own preconditions first — they are logged at WARN by the capability itself, immediately before this line:
-
-```
-WARN memory tools skipped: scope has no subject key
-     expected_key=user_id scope_keys=[agent_id,virtual_user_id,workspace_id]
-```
-
-Memory registers its tools only when the scope carries a subject; see [`WithMemorySubjectKey`](/sdk/reference/conversation-manager/#WithMemorySubjectKey) when your scope map spells that key differently. `WithMemoryToolsDisabled` suppresses them outright. Skills register nothing without a discovered skill source, and A2A registers nothing when the pack declares no matching agent.
-
-## How it works
-
-`WithToolDescriptorOverride` does not subvert the capability — the capability still registers its tools with their defaults. Once all capabilities have run `RegisterTools`, the SDK iterates the configured overrides and:
-
-1. Looks up each tool by name in the registry. If absent, logs and skips.
-2. Clones the descriptor (so mutations don't leak into shared registry state).
-3. Calls the patch function on the clone.
-4. Re-registers the patched descriptor (`Registry.Register` is last-write-wins, so this replaces the original).
-
-## Getting a new parameter to the host
-
-Adding a field to the input schema makes the model send it. Whether anything downstream can read it depends on the tool: the executor decodes the arguments it knows about, and several route what is left over to the host rather than dropping it.
+Adding a field to the input schema makes the model send it. Whether your code can read it depends on the tool. The executor decodes the arguments it knows about, and several route the remaining top-level arguments to the host:
 
 | Tool | Unknown top-level args arrive in |
 |---|---|
@@ -106,14 +89,41 @@ Adding a field to the input schema makes the model send it. Whether anything dow
 | `memory__forget` | `DeleteOptions.Extras`, for stores implementing `memory.ExtrasDeleter` |
 | A2A outgoing tools | `Message.Metadata` on the wire to the remote agent |
 | `workflow__transition` | `TransitionResult.HostExtras`, readable on the `workflow.transitioned` event |
-| `workflow__set_artifact`, the skills tools | nowhere — the field reaches the model but not you |
+| `workflow__set_artifact`, the skills tools | nowhere: the model sees the field but your code does not |
 
-[Memory and Grounding](/sdk/how-to/conversations/use-memory/#backend-specific-arguments) works the memory case through end to end.
+[Memory and grounding](/sdk/how-to/conversations/use-memory/#backend-specific-arguments) walks through the memory case.
 
-For the tools in the last row, extending the schema is a documentation change only: the model will populate the field and the value is discarded. File an issue if you need one of them, so the observation point can be designed rather than guessed.
+Overrides change the descriptor only. The executor stays the one the capability registered, and other tools and the capability lifecycle are unaffected.
 
-## Does not affect
+## Verify
 
-- The executor that handles the tool. The executor remains the one the capability registered — it gains no new typed behavior, only the passthrough above.
-- Other tools — patches operate on a clone of one descriptor.
-- Capability lifecycle (Init, Close).
+Print the descriptor the conversation registered:
+
+```go
+registry := conv.ToolRegistry()
+fmt.Println(registry.Get(memory.RememberToolName).Description)
+```
+
+The output is your patched description.
+
+## Troubleshoot
+
+An override for a tool name that is not in the registry is skipped with a warning. Other overrides still apply, so an override list survives upgrades that rename or remove a tool:
+
+```text
+WARN tool descriptor override skipped: tool not registered  name=memory__remember
+```
+
+The name can also be correct while the capability declined to register the tool. The capability logs its own reason at WARN, immediately before the override warning:
+
+```text
+WARN memory tools skipped: scope has no subject key
+     expected_key=user_id scope_keys=[agent_id,virtual_user_id,workspace_id]
+```
+
+Memory registers its tools only when the scope carries a subject. If your scope spells that key differently, declare it with [`WithMemorySubjectKey`](/sdk/reference/conversation-manager/#WithMemorySubjectKey). Pass `WithMemoryToolsDisabled` to `WithMemory` to suppress the tools. Skills register nothing without a discovered skill source, and A2A registers nothing when the pack declares no matching agent.
+
+## Related
+
+- [Memory and grounding](/sdk/how-to/conversations/use-memory/)
+- [Register tools](/sdk/how-to/tools/register-tools/)

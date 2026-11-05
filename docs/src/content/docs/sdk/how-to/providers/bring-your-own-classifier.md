@@ -3,121 +3,150 @@ title: Bring Your Own Inference Provider
 description: Plug a custom classifier (ONNX, a model server, a cloud API) into the SDK as an inference provider
 sidebar:
   order: 21
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/evals/handlers/audio_emotion.go
+    - runtime/evals/handlers/judge_required.go
+    - runtime/evals/handlers/provider_binding.go
+    - runtime/evals/handlers/topic_policy.go
+    - runtime/events/types.go
+    - runtime/inference/factory.go
+    - runtime/inference/instrument.go
+    - runtime/inference/provider.go
+    - runtime/metrics/collector.go
+    - runtime/prompt/schema/promptpack.schema.json
+    - runtime/providers/base/factory.go
+    - sdk/binding.go
+    - sdk/examples/onnx-audio-emotion/audio.go
+    - sdk/examples/onnx-audio-emotion/main.go
+    - sdk/options.go
+    - sdk/provider_keys.go
+    - sdk/requires.go
 ---
 
-Inference-backed checks (`audio_emotion`, `image_moderation`, `text_toxicity`, `topic_policy` and friends) call **one interface**, `inference.Provider`, never a specific backend. That means you can plug in *any* classifier: a local ONNX model, a hosted model server, a cloud API, Core ML, whatever. The runtime stays dependency-light; the native code lives in your module.
+Run inference-backed checks (`audio_emotion`, `image_moderation`, `text_toxicity`, `topic_policy` and the other classifier-backed types) on your own classifier: a local ONNX model, a hosted model server, a cloud API or Core ML. Every such check calls one interface, `inference.Provider`, so the runtime stays free of native dependencies and your module holds the native code.
 
-## The interface
+## Prerequisites
 
-A provider is any value implementing:
+- A pack with a check that uses an inference provider.
+- A classifier you can call from Go.
 
-```go
-type Provider interface {
-    Infer(ctx context.Context, req inference.Request) (inference.Response, error)
-}
+## 1. Implement the provider
 
-type Request struct {
-    Model  string          // the check's model param
-    Inputs []types.Message // the content under judgment: text, or media parts
-    Labels []string        // candidate answers for a zero-shot model; empty = the model's own labels
-    Prompt string          // instruction text, for backends that take one (topic_policy sends one)
-    Params map[string]any  // API-level tweaks, e.g. "multi_label": true
-}
-
-type Response struct {
-    Scores []inference.LabelScore // {Label string; Score float64}, highest first
-    // Model, Usage, Raw …
-}
-```
-
-A check reads the probability of the label it cares about — `audio_emotion` with `expected_label: "angry"` reads that label's score, and `topic_policy` compares `on-topic` with `off-topic`.
-
-Audio and image checks deliver the media as an inline part on the first input message; audio arrives at the target rate (SER models want **16 kHz mono**), so your provider owns decode/normalize/run, not resampling.
-
-## Registering it
-
-### In-process instance — `WithClassifier`
-
-The direct path. Construct your provider and register it under an id:
+A provider is any value with an `Infer` method:
 
 ```go
-provider, _ := newMyClassifier(...)          // implements inference.Provider
-conv, _ := sdk.Open("caller.pack.json", "assistant",
-    sdk.WithClassifier("my-ser", provider),
+import (
+    "context"
+
+    "github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 )
-```
 
-`WithClassifier` does no credential resolution — it's the escape hatch for in-process classifiers and test doubles. Calls through it report the `inference_*` metrics like any other provider.
+type myClassifier struct{ model string }
 
-### Config-driven — `WithInferenceProvider` + a factory
-
-If you'd rather select the provider from config (`type:`/`model:`/credentials), register a factory once and declare a provider spec:
-
-```go
-inference.RegisterFactory("my-onnx", func(spec inference.ProviderSpec) (inference.Provider, error) {
-    return newMyClassifier(spec.Model, spec.AdditionalConfig)
-})
-
-conv, _ := sdk.Open("caller.pack.json", "assistant",
-    sdk.WithInferenceProvider(sdk.ProviderSpec{ID: "my-ser", Type: "my-onnx", Model: "…"}),
-)
-```
-
-A `type` names one API: register a new type only for an API no existing type speaks.
-
-## Wiring it to a check
-
-A check names the provider it needs by a **logical name the pack itself
-declares** — never a model, an endpoint, or an id that only means something in
-your deployment. The pack asks; you decide what answers.
-
-Declare it:
-
-```json
-{
-  "requires": {
-    "providers": [
-      {
-        "key": "emotion-classifier",
-        "role": "inference",
-        "description": "speech-emotion classifier scoring the caller's audio",
-        "required": true
-      }
-    ]
-  }
+func (c *myClassifier) Infer(ctx context.Context, req inference.Request) (inference.Response, error) {
+    // Run req.Inputs through the model and return one score per label, highest first.
+    return inference.Response{
+        Model: c.model,
+        Scores: []inference.LabelScore{
+            {Label: "angry", Score: 0.9},
+            {Label: "neutral", Score: 0.1},
+        },
+    }, nil
 }
 ```
 
-Point the check at it:
+`inference.Request` carries these fields:
 
-```json
-{
-  "id": "caller_anger",
-  "type": "audio_emotion",
-  "trigger": "every_turn",
-  "params": {
-    "model": "wav2vec2-ser",
-    "expected_label": "angry",
-    "message_role": "user",
-    "provider": "emotion-classifier"
-  }
-}
-```
+| Field | Meaning |
+|---|---|
+| `Model` | The check's `model` param |
+| `Inputs` | `[]types.Message` under judgment: text, or media parts |
+| `Labels` | Candidate answers for a zero-shot model; empty means the model's own labels |
+| `Prompt` | Instruction text for backends that take one (`topic_policy` sends one) |
+| `Params` | API-level tweaks, such as `"multi_label": true` |
 
-Bind that name when you open the conversation:
+A check reads the score of the label it cares about. `audio_emotion` with `expected_label: "angry"` reads that label's score, and `topic_policy` compares `on-topic` with `off-topic`. `inference.Response.Score(label)` looks a label up case-insensitively.
+
+Audio and image checks send the media as an inline base64 part on the first input message, with the part's MIME type. The check passes the stored bytes unchanged and does not resample. A provider whose model needs 16 kHz mono PCM must decode the input and reject or convert anything else.
+
+## 2. Register it
+
+Register an instance with `WithClassifier`. It does no credential resolution, which makes it the route for in-process classifiers and test doubles:
 
 ```go
+provider, _ := newMyClassifier("wav2vec2-ser") // implements inference.Provider
 conv, _ := sdk.Open("caller.pack.json", "assistant",
     sdk.WithClassifier("emotion-classifier", provider),
 )
 ```
 
-Swapping providers is a one-line change on your side; the pack does not move.
-A check whose name is undeclared, unbound, or bound to something that cannot do
-the job fails at `Open()` and says which of the three it is.
+To select the provider from configuration (`type`, `model`, credentials), register a factory once and declare a provider spec:
 
-Observe results with an [eval hook](/sdk/how-to/observability/run-evals/) (`sdk.WithEvalHook`) or your metrics recorder.
+```go
+inference.RegisterFactory("my-onnx", func(spec inference.ProviderSpec) (inference.Provider, error) {
+    return newMyClassifier(spec.Model)
+})
 
-## Worked example
+conv, _ := sdk.Open("caller.pack.json", "assistant",
+    sdk.WithInferenceProvider(sdk.ProviderSpec{
+        ID: "emotion-classifier", Type: "my-onnx", Model: "wav2vec2-ser",
+    }),
+)
+```
 
-The [`onnx-audio-emotion`](https://github.com/AltairaLabs/promptkit/tree/main/sdk/examples/onnx-audio-emotion) SDK example implements `inference.Provider` with an ONNX wav2vec2 model, registers it via `WithClassifier`, and scores caller audio with `audio_emotion` — offline, no token. Its cgo/ONNX dependency lives entirely in that standalone example module, so the runtime stays CGO-free. Keep native inference providers in the consumer, not the runtime.
+A `type` names one vendor API. Register a new type only for an API no existing type speaks.
+
+## 3. Wire it to a check
+
+A check names its provider by a logical name that the pack declares, never by a model, an endpoint or an ID that only means something in your deployment. The pack asks and you decide what answers.
+
+1. Declare the name in the pack's `requires` block:
+
+   ```json
+   {
+     "requires": {
+       "providers": [
+         {
+           "key": "emotion-classifier",
+           "role": "inference",
+           "description": "speech-emotion classifier scoring the caller's audio",
+           "required": true
+         }
+       ]
+     }
+   }
+   ```
+
+2. Point the check at the name with `params.provider`:
+
+   ```json
+   {
+     "id": "caller_anger",
+     "type": "audio_emotion",
+     "trigger": "every_turn",
+     "params": {
+       "model": "wav2vec2-ser",
+       "expected_label": "angry",
+       "message_role": "user",
+       "provider": "emotion-classifier"
+     }
+   }
+   ```
+
+3. Bind the same name when you open the conversation, with `WithClassifier` or `WithInferenceProvider` as in step 2. The ID you register under is the logical name.
+
+To swap the classifier, change the registration. The pack does not change.
+
+## Verify
+
+`sdk.Open()` returns without error once the name resolves. A check in a prompt's `evals` or `validators` whose name is undeclared, unbound or bound to something that cannot do the job makes `Open()` fail with an error that names the check and the key. A required provider you did not bind also fails `Open()`.
+
+Results arrive through the conversation's evals. Observe them with an [eval hook](/sdk/how-to/observability/run-evals/) (`sdk.WithEvalHook`) or a metrics recorder. Calls through a registered provider emit `inference.call.completed` and `inference.call.failed` events and report the `inference_*` metrics.
+
+## Related
+
+- [Run evals](/sdk/how-to/observability/run-evals/)
+- [Checks reference](/reference/checks/): parameters for each inference-backed check
+- [`onnx-audio-emotion`](https://github.com/AltairaLabs/promptkit/tree/main/sdk/examples/onnx-audio-emotion): an `inference.Provider` backed by an ONNX wav2vec2 model, registered with `WithClassifier` and scored with `audio_emotion`. It runs offline with no token. Its cgo and ONNX dependency lives in that standalone module, so the runtime stays CGO-free.

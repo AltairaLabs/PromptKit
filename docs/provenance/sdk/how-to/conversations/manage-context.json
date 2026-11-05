@@ -1,0 +1,356 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/conversations/manage-context.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "sdk.WithTokenBudget(n) sets the max tokens for context",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1595"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "older messages are truncated when history exceeds the budget",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pipeline/builder.go:559",
+    "sdk/internal/pipeline/builder.go:763"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "sliding window removes oldest first and is the default strategy",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pipeline/builder.go:782",
+    "sdk/options.go:1606"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "sdk.WithTruncation(\"sliding\")",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1616"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "sdk.WithRelevanceTruncation(&sdk.RelevanceConfig{...}) sets strategy to relevance",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1680"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "openai.NewEmbeddingProvider() returns (provider, error)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/openai/embedding.go:120"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "MinRecentMessages default 3",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:1051",
+    "sdk/conversation.go:1891"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "SimilarityThreshold default 0.0",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:1095",
+    "sdk/options.go:1640"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "AlwaysKeepSystemRole default true",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:1064",
+    "sdk/conversation.go:1872",
+    "sdk/options.go:1636"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "QuerySource values last_user (default), last_n, custom",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1879"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "LastNCount default 3 (for last_n)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:1108"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "CustomQuery is the text compared for custom",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:1104"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "Cache embeddings: enabled by default in RelevanceConfig",
+   "verdict": "dead",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:653"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "text-embedding-3-small is faster than large",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 15,
+   "claim": "The SDK batches embedding requests automatically",
+   "verdict": "unverified",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:1074"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "When the embedding call fails relevance truncation falls back to oldest",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:1076"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "sdk.WithContextWindow(n) requires WithStateStore",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1703",
+    "sdk/sdk.go:401"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "Requires WithConversationID",
+   "verdict": "false",
+   "evidence": [
+    "sdk/sdk.go:401",
+    "sdk/sdk.go:842"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "MessageReader/MessageAppender: tail loaded, new messages appended; RedisStore and MemoryStore implement them; otherwise full Load/Save",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/interface.go:66",
+    "runtime/statestore/interface.go:79",
+    "runtime/statestore/memory.go:408",
+    "runtime/statestore/redis.go:966",
+    "sdk/internal/pipeline/builder.go:749"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "sdk.WithContextRetrieval(embProvider, topK) requires WithContextWindow",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1725",
+    "sdk/sdk.go:404"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "retrieved messages inserted chronologically between summaries and the hot window",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1712"
+   ]
+  },
+  {
+   "id": 22,
+   "claim": "sdk.WithAutoSummarize(provider, threshold, batchSize) requires WithContextWindow",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1752",
+    "sdk/sdk.go:407"
+   ]
+  },
+  {
+   "id": 23,
+   "claim": "summaries are prepended to context as system messages",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1743"
+   ]
+  },
+  {
+   "id": 24,
+   "claim": "compaction folds stale tool results to summaries like [name: preview... \u2014 N bytes compacted]",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/compactor_fold.go:82"
+   ]
+  },
+  {
+   "id": 25,
+   "claim": "compaction is on by default",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pipeline/builder.go:717",
+    "sdk/options.go:1320"
+   ]
+  },
+  {
+   "id": 26,
+   "claim": "triggers above 70% of the budget",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/compactor.go:11",
+    "runtime/pipeline/stage/compactor.go:142"
+   ]
+  },
+  {
+   "id": 27,
+   "claim": "folds oldest tool results first, preserving the 4 most recent messages",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/compactor.go:12",
+    "runtime/pipeline/stage/compactor.go:176"
+   ]
+  },
+  {
+   "id": 28,
+   "claim": "never modifies error results, system messages, or non-tool messages",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/compactor_fold.go:30",
+    "runtime/pipeline/stage/compactor_fold.go:33"
+   ]
+  },
+  {
+   "id": 29,
+   "claim": "emits a context.compacted event",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:148",
+    "runtime/pipeline/stage/stages_provider.go:1159"
+   ]
+  },
+  {
+   "id": 30,
+   "claim": "budget auto-detected from the provider via ContextWindowProvider, else 128K; Claude, OpenAI and Gemini report per-model limits, additional_config.context_window overrides, Ollama/vLLM only via that setting, unknown model reports 0",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/compactor.go:14",
+    "runtime/pipeline/stage/compactor.go:98",
+    "runtime/providers/claude/context_window_table.go:65",
+    "runtime/providers/ollama/context_window.go:5"
+   ]
+  },
+  {
+   "id": 31,
+   "claim": "sdk.WithCompaction(false) disables compaction",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pipeline/builder.go:717",
+    "sdk/options.go:1320"
+   ]
+  },
+  {
+   "id": 32,
+   "claim": "OpenAI default embedding model text-embedding-3-small; WithEmbeddingModel option",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/openai/embedding.go:16",
+    "runtime/providers/openai/embedding.go:62"
+   ]
+  },
+  {
+   "id": 33,
+   "claim": "Gemini default embedding model text-embedding-004",
+   "verdict": "false",
+   "evidence": [
+    "runtime/providers/gemini/embedding.go:19",
+    "runtime/providers/gemini/embedding.go:24"
+   ]
+  },
+  {
+   "id": 34,
+   "claim": "gemini.WithGeminiEmbeddingModel(\"embedding-001\")",
+   "verdict": "false",
+   "evidence": [
+    "runtime/providers/gemini/embedding.go:35",
+    "runtime/providers/gemini/embedding.go:41"
+   ]
+  },
+  {
+   "id": 35,
+   "claim": "Voyage AI is recommended by Anthropic for Claude-based systems",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 36,
+   "claim": "voyageai default model voyage-3.5; WithModel; voyage-code-3; WithInputType(InputTypeQuery)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/voyageai/embedding.go:122",
+    "runtime/providers/voyageai/embedding.go:18",
+    "runtime/providers/voyageai/embedding.go:30",
+    "runtime/providers/voyageai/embedding.go:50",
+    "runtime/providers/voyageai/embedding.go:77"
+   ]
+  },
+  {
+   "id": 37,
+   "claim": "OPENAI_API_KEY for OpenAI embeddings",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/openai/embedding.go:144"
+   ]
+  },
+  {
+   "id": 38,
+   "claim": "GEMINI_API_KEY for Gemini embeddings",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/gemini/embedding.go:164"
+   ]
+  },
+  {
+   "id": 39,
+   "claim": "VOYAGE_API_KEY for Voyage embeddings",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/voyageai/embedding.go:153"
+   ]
+  },
+  {
+   "id": 40,
+   "claim": "Arena context management how-to at promptarena.altairalabs.ai/arena/how-to/manage-context/",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 41,
+   "claim": "Long Conversation example page /sdk/examples/long-conversation/",
+   "verdict": "true",
+   "evidence": []
+  }
+ ]
+}

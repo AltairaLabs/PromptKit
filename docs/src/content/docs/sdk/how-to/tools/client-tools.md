@@ -1,84 +1,123 @@
 ---
 title: Register Client-Side Tools
+description: Run tools on the caller's device, answering a tool call with a handler or by suspending the turn
 sidebar:
   order: 5
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/a2a/types.go
+    - runtime/tools/registry.go
+    - runtime/tools/types.go
+    - sdk/client_tools.go
+    - sdk/internal/pack/load.go
+    - sdk/response.go
+    - sdk/streaming.go
+    - sdk/tool_descriptor_override.go
+    - server/a2a/server.go
 ---
-Tools that execute on the client rather than the server -- GPS, camera, biometrics, local file access, etc. Defined with `mode: client` in your tool YAML.
 
-## Define a Client Tool
+Run a tool on the client (GPS, camera, biometrics, local files) and return its result to the model.
 
-```yaml
-tools:
-  get_location:
-    name: get_location
-    description: Get the user's current GPS location
-    mode: client
-    client:
-      consent:
-        required: true
-        message: "This app wants to access your location"
-        decline_strategy: reject
-    parameters:
-      type: object
-      properties: {}
+## Prerequisites
+
+- A pack that declares the tool and lists it in the prompt's `tools`.
+- An open conversation (see [Register Tools](/sdk/how-to/tools/register-tools/)).
+
+## Steps
+
+### 1. Declare the tool in the pack
+
+A pack describes a tool's interface: name, description and parameters.
+
+```json
+{
+  "prompts": {
+    "assistant": { "id": "assistant", "system_template": "...", "tools": ["get_location"] }
+  },
+  "tools": {
+    "get_location": {
+      "name": "get_location",
+      "description": "Get the user's current GPS location",
+      "parameters": { "type": "object", "properties": {} }
+    }
+  }
+}
 ```
 
-## Synchronous Handler (OnClientTool)
+The pack loader registers every pack tool with mode `local` and does not read a `mode` or `client` key. Calls to a `local` tool go to `OnTool` handlers, not `OnClientTool` handlers.
 
-Register a handler that runs immediately when the LLM invokes the tool:
+### 2. Mark the tool as client-side
+
+Set the descriptor's mode and consent details with `WithToolDescriptorOverride`:
+
+```go
+conv, err := sdk.Open("./app.pack.json", "assistant",
+    sdk.WithToolDescriptorOverride("get_location", func(d *tools.ToolDescriptor) {
+        d.Mode = "client"
+        d.ClientConfig = &tools.ClientConfig{
+            Consent:    &tools.ConsentConfig{Message: "This app wants to access your location"},
+            Categories: []string{"location"},
+        }
+    }),
+)
+```
+
+`tools` is `github.com/AltairaLabs/PromptKit/runtime/v2/tools`. The consent message reaches your code as `ConsentMsg`, and `Categories` as `Categories`, on the request and on pending calls.
+
+### 3. Answer the call
+
+To answer with a handler, register it with `OnClientTool`. It runs when the model calls the tool, and the pipeline sends its result to the model:
 
 ```go
 conv.OnClientTool("get_location", func(ctx context.Context, req sdk.ClientToolRequest) (any, error) {
     return map[string]any{"lat": 40.7128, "lon": -74.0060}, nil
 })
 
-resp, _ := conv.Send(ctx, "Where am I?")
-fmt.Println(resp.Text()) // "You're in New York City!"
+resp, err := conv.Send(ctx, "Where am I?")
+fmt.Println(resp.Text())
 ```
 
-The pipeline handles the tool call automatically -- the LLM receives the result and continues generating.
-
-## Deferred Mode
-
-When no handler is registered, the pipeline suspends and returns pending tool calls to the caller:
+To answer later, register no handler. The turn suspends and `Send` returns the pending calls:
 
 ```go
-resp, _ := conv.Send(ctx, "Where am I?")
+resp, err := conv.Send(ctx, "Where am I?")
 
 if resp.HasPendingClientTools() {
     for _, tool := range resp.ClientTools() {
         fmt.Printf("Tool: %s (consent: %s)\n", tool.ToolName, tool.ConsentMsg)
 
-        // Fulfill the tool call
-        conv.SendToolResult(ctx, tool.CallID, map[string]any{
+        // Fulfill the call, or reject it with
+        // conv.RejectClientTool(ctx, tool.CallID, "User denied location access")
+        err := conv.SendToolResult(ctx, tool.CallID, map[string]any{
             "lat": 40.7128,
             "lon": -74.0060,
         })
-
-        // Or reject it
-        // conv.RejectClientTool(ctx, tool.CallID, "User denied location access")
+        if err != nil {
+            log.Fatal(err)
+        }
     }
 
-    // Resume to get the final response
-    resp, _ = conv.Resume(ctx)
+    // Resume once every pending call has a result.
+    resp, err = conv.Resume(ctx)
     fmt.Println(resp.Text())
 }
 ```
 
-## Streaming Deferred Mode
+### 4. Stream deferred calls
 
-Use `ResumeStream` after fulfilling tool calls during streaming:
+When streaming, a `ChunkClientTool` chunk carries the pending call. Answer it, then call `ResumeStream`:
 
 ```go
 for chunk := range conv.Stream(ctx, "Where am I?") {
     if chunk.Type == sdk.ChunkClientTool {
-        // Fulfill the tool call
-        conv.SendToolResult(ctx, chunk.ClientTool.CallID, map[string]any{
+        err := conv.SendToolResult(ctx, chunk.ClientTool.CallID, map[string]any{
             "lat": 40.7128,
             "lon": -74.0060,
         })
-
-        // Resume streaming for the final response
+        if err != nil {
+            log.Fatal(err)
+        }
         for resumeChunk := range conv.ResumeStream(ctx) {
             fmt.Print(resumeChunk.Text)
         }
@@ -88,19 +127,26 @@ for chunk := range conv.Stream(ctx, "Where am I?") {
 }
 ```
 
-## Consent Configuration
+### 5. Return images or audio (optional)
 
-Control consent prompts in the tool YAML:
+Pass `[]types.ContentPart` to `SendToolResultMultimodal`:
 
-| Field | Description |
-|-------|-------------|
-| `client.consent.required` | If `true`, consent metadata is surfaced before execution |
-| `client.consent.message` | Message to display to the user |
-| `client.consent.decline_strategy` | What happens if declined: `reject` (return error) or `skip` (omit tool result) |
+```go
+chartPNG, err := generateChart(tool.Args)
+if err != nil {
+    log.Fatal(err)
+}
+err = conv.SendToolResultMultimodal(ctx, tool.CallID, []types.ContentPart{
+    types.NewTextPart("Monthly sales chart for Q1 2026"),
+    types.NewImagePartFromData(base64.StdEncoding.EncodeToString(chartPNG), "image/png", nil),
+})
+```
 
-## A2A Integration
+A handler can return the same `[]types.ContentPart` directly. Any other return value is serialized as JSON text.
 
-When serving via an A2A server, client tool suspension surfaces as an input-required task state. Tool metadata appears in the status message parts. The examples below are in A2A 0.3's shape; a 1.0 caller sees `TASK_STATE_INPUT_REQUIRED`, `ROLE_AGENT` and the `SendMessage` method, with the same metadata:
+## Serve client tools over A2A
+
+An A2A server reports a suspended turn as an input-required task. Each pending call is a status message part whose metadata carries the call. The example uses A2A 0.3 names; a 1.0 caller sees `TASK_STATE_INPUT_REQUIRED`, `ROLE_AGENT` and the `SendMessage` method with the same metadata:
 
 ```json
 {
@@ -124,7 +170,7 @@ When serving via an A2A server, client tool suspension surfaces as an input-requ
 }
 ```
 
-The A2A client sends tool results back via `message/send` on the same task: the message carries the input-required task's `taskId`, and each result is a data part whose `data` is the result and whose metadata names the `tool_call_id`. The task resumes and goes back to `working`; the context is taken from the task.
+The caller answers with `message/send` on the same task. The message carries the task's `taskId`, and each result is a data part whose metadata names the `tool_call_id`:
 
 ```json
 {
@@ -147,64 +193,25 @@ The A2A client sends tool results back via `message/send` on the same task: the 
 }
 ```
 
-A result in the part's metadata as `tool_result` takes precedence over its `data`. A message without a `taskId` still resumes the conversation, but under a new task, leaving the input-required one behind.
+The task returns to `working` and the context comes from the task. A result in the part's metadata as `tool_result` takes precedence over `data`. A message without a `taskId` still resumes the conversation, under a new task, and leaves the input-required one behind.
 
-To reject a tool, put `"rejected": "reason"` in the part's metadata instead of a result:
+To reject a call, set `"rejected": "reason"` in the part's metadata instead of a result.
 
-```json
-{
-  "kind": "data",
-  "data": {},
-  "metadata": {
-    "tool_call_id": "call_abc123",
-    "rejected": "User denied location access"
-  }
-}
-```
+## Verify
 
-## Multimodal Tool Results
+- Handler mode: the handler runs and `resp.Text()` holds an answer that uses its result.
+- Deferred mode: `resp.HasPendingClientTools()` is `true` after `Send`, and `false` after `Resume`.
 
-Use `SendToolResultMultimodal()` to return rich content (images, audio, etc.) from client tools alongside text.
+## Troubleshoot
 
-### Returning an Image with Text
+| Symptom | Cause |
+|---|---|
+| The handler never runs and the model never sees the result | The tool still has mode `local`. Apply the override from step 2. |
+| `no resolved tool results to resume with` | `Resume` ran before `SendToolResult`, `SendToolResultMultimodal` or `RejectClientTool`. |
+| The model does not call the tool | The prompt's `tools` list does not include it. |
 
-```go
-resp, _ := conv.Send(ctx, "Generate a chart of monthly sales")
-
-if resp.HasPendingClientTools() {
-    for _, tool := range resp.ClientTools() {
-        // Generate the chart image
-        chartPNG, _ := generateChart(tool.Arguments)
-
-        // Return multimodal result with text and image
-        conv.SendToolResultMultimodal(ctx, tool.CallID, []types.ContentPart{
-            types.NewTextPart("Monthly sales chart for Q1 2026"),
-            types.NewImagePartFromData(base64.StdEncoding.EncodeToString(chartPNG), "image/png", nil),
-        })
-    }
-
-    resp, _ = conv.Resume(ctx)
-    fmt.Println(resp.Text()) // LLM describes the chart
-}
-```
-
-### Synchronous Multimodal Handler
-
-For synchronous handlers, return `[]types.ContentPart` directly:
-
-```go
-conv.OnClientTool("capture_photo", func(ctx context.Context, req sdk.ClientToolRequest) (any, error) {
-    photoBytes, _ := capturePhoto()
-    return []types.ContentPart{
-        types.NewTextPart("Photo captured at entrance"),
-        types.NewImagePartFromData(base64.StdEncoding.EncodeToString(photoBytes), "image/jpeg", nil),
-    }, nil
-})
-```
-
-When the handler returns `[]types.ContentPart`, the SDK automatically constructs a multimodal `MessageToolResult`. For any other return type, the result is serialized as JSON text.
-
-## See Also
+## Related
 
 - [Register Tools](/sdk/how-to/tools/register-tools/)
+- [Override capability tools](/sdk/how-to/tools/override-capability-tools/)
 - [Send Messages](/sdk/how-to/conversations/send-messages/)

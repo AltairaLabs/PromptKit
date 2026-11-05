@@ -1,15 +1,38 @@
 ---
 title: Configure MCP Servers
-description: Connect MCP tool servers to your conversation using the SDK builder pattern
+description: Connect MCP tool servers to a conversation with WithMCP and the MCPServerBuilder
 sidebar:
   order: 6
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/mcp/client.go
+    - runtime/mcp/registry.go
+    - runtime/mcp/types.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/prompt/pack.go
+    - runtime/prompt/registry.go
+    - runtime/tools/registry.go
+    - runtime/tools/types.go
+    - sdk/conversation_tools.go
+    - sdk/mcp_tool_sync.go
+    - sdk/options.go
 ---
 
-Add [Model Context Protocol](https://modelcontextprotocol.io) servers to a conversation so the LLM can call their tools.
+Add [Model Context Protocol](https://modelcontextprotocol.io) servers to a conversation so the model can call their tools.
 
----
+## Prerequisites
 
-## Quick Start
+- A pack with a prompt to open (see [Register Tools](/sdk/how-to/tools/register-tools/)).
+- The server's command on your `PATH`. The examples use `npx`.
+
+:::caution
+`WithMCP` and the builder start the command as a subprocess without sandboxing or validation. Take the command and arguments from trusted sources only.
+:::
+
+## Steps
+
+### 1. Add a server
 
 ```go
 import "github.com/AltairaLabs/PromptKit/sdk/v2"
@@ -23,13 +46,11 @@ if err != nil {
 defer conv.Close()
 ```
 
-`WithMCP` registers all tools from the server. For finer control, use the builder pattern.
+`WithMCP` registers every tool the server lists.
 
----
+### 2. Configure the server (optional)
 
-## Builder Pattern
-
-Use `NewMCPServer` when you need environment variables, timeouts, working directories, or tool filtering.
+Use `NewMCPServer` for environment variables, timeouts, working directories or tool filtering:
 
 ```go
 import (
@@ -49,36 +70,17 @@ conv, err := sdk.Open("./app.pack.json", "assistant",
 )
 ```
 
-### Builder Methods
-
 | Method | Description |
 |--------|-------------|
 | `WithEnv(key, value)` | Add an environment variable to the server process |
-| `WithArgs(args...)` | Append additional command arguments |
-| `WithWorkingDir(dir)` | Set the working directory for the server process |
-| `WithTimeout(ms)` | Set per-request timeout in milliseconds |
-| `WithToolFilter(filter)` | Control which tools are exposed to the LLM |
+| `WithArgs(args...)` | Append command arguments |
+| `WithWorkingDir(dir)` | Set the server process's working directory |
+| `WithTimeout(ms)` | Set the per-request timeout in milliseconds |
+| `WithToolFilter(filter)` | Choose which of the server's tools the conversation registers |
 
----
+### 3. Filter tools (optional)
 
-## Tool Filtering
-
-Use `ToolFilter` to limit which tools the LLM can see. This is useful when a server exposes many tools but you only need a few.
-
-### Allowlist
-
-Only expose specific tools:
-
-```go
-server := sdk.NewMCPServer("everything", "npx", "@modelcontextprotocol/server-everything").
-    WithToolFilter(&mcp.ToolFilter{
-        Allowlist: []string{"echo", "get-sum"},
-    })
-```
-
-### Blocklist
-
-Expose all tools except specific ones:
+An `Allowlist` registers only the named tools. A `Blocklist` registers every tool except the named ones:
 
 ```go
 server := sdk.NewMCPServer("db", "python", "mcp_server.py").
@@ -87,13 +89,32 @@ server := sdk.NewMCPServer("db", "python", "mcp_server.py").
     })
 ```
 
-If both are set, allowlist takes precedence.
+A trailing `*` in an entry matches a prefix, so `read_*` matches `read_file`. When both lists are set, the allowlist applies and the blocklist is ignored.
 
----
+### 4. List the tools in your prompt
 
-## Multiple Servers
+The SDK registers each tool as `mcp__{serverName}__{toolName}`:
 
-Register multiple MCP servers in a single conversation:
+| Server name | Tool name | Registered as |
+|-------------|-----------|---------------|
+| `github` | `search_repositories` | `mcp__github__search_repositories` |
+| `filesystem` | `read_file` | `mcp__filesystem__read_file` |
+
+The model sees an MCP tool only when the prompt lists it. In a pack, add the names, or a wildcard, to the prompt's `tools` array. A prompt config file uses `allowed_tools`:
+
+```yaml
+spec:
+  allowed_tools:
+    - mcp__github__search_repositories
+    - mcp__github__get_file_contents
+    - mcp__filesystem__*
+```
+
+`mcp__{serverName}__*` offers every tool of one server, and `mcp__*` offers every MCP tool.
+
+### 5. Add more servers (optional)
+
+Pass one option per server:
 
 ```go
 github := sdk.NewMCPServer("github", "npx", "@modelcontextprotocol/server-github").
@@ -108,78 +129,30 @@ conv, err := sdk.Open("./app.pack.json", "assistant",
 )
 ```
 
-Tool names are namespaced as `mcp__{serverName}__{toolName}` to avoid collisions.
+The server name keeps tool names apart.
 
----
+## Verify
 
-## Tool Naming
-
-MCP tools registered through the SDK follow this naming pattern:
-
-```
-mcp__{serverName}__{toolName}
-```
-
-| Server Name | Tool Name | Registered As |
-|-------------|-----------|---------------|
-| `github` | `search_repositories` | `mcp__github__search_repositories` |
-| `filesystem` | `read_file` | `mcp__filesystem__read_file` |
-
-Reference these names in your prompt config's `allowed_tools` if you want to restrict which tools are available:
-
-```yaml
-spec:
-  allowed_tools:
-    - mcp__github__search_repositories
-    - mcp__github__get_file_contents
-```
-
----
-
-## Complete Example
+List the registered tools after opening the conversation:
 
 ```go
-package main
-
-import (
-    "context"
-    "fmt"
-    "log"
-    "os"
-
-    "github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
-    "github.com/AltairaLabs/PromptKit/sdk/v2"
-)
-
-func main() {
-    server := sdk.NewMCPServer("everything", "npx",
-        "@modelcontextprotocol/server-everything").
-        WithTimeout(10000).
-        WithToolFilter(&mcp.ToolFilter{
-            Allowlist: []string{"echo", "get-sum"},
-        })
-
-    conv, err := sdk.Open("./app.pack.json", "assistant",
-        sdk.WithMCPServer(server),
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer conv.Close()
-
-    ctx := context.Background()
-    resp, err := conv.Send(ctx, "What is 17 + 25?")
-    if err != nil {
-        log.Fatal(err)
-    }
-    fmt.Println(resp.Text())
+for _, name := range conv.ToolRegistry().List() {
+    fmt.Println(name)
 }
 ```
 
----
+Each MCP tool appears as `mcp__{serverName}__{toolName}`. A tool that is registered but missing from the prompt's `tools` is never offered to the model.
 
-## Next Steps
+## Troubleshoot
 
-- [Integrate MCP (Runtime)](/runtime/how-to/tools/integrate-mcp/) — low-level MCP registry and pipeline integration
-- [Register Tools](/sdk/how-to/tools/register-tools/) — add custom Go tools alongside MCP tools
-- [HTTP Tools](/sdk/how-to/tools/http-tools/) — call REST APIs as tools
+| Symptom | Cause |
+|---|---|
+| No `mcp__` tools in the registry | The server could not list its tools when the conversation opened. The SDK logs a warning and retries in the background until the server answers. |
+| Tools are registered but the model never calls them | The prompt does not list them. Add the names or an `mcp__{serverName}__*` entry (step 4). |
+| A tool is missing | The server's `ToolFilter` excludes it. |
+
+## Related
+
+- [Integrate MCP (Runtime)](/runtime/how-to/tools/integrate-mcp/): the MCP registry and pipeline integration
+- [Register Tools](/sdk/how-to/tools/register-tools/): add custom Go tools alongside MCP tools
+- [HTTP Tools](/sdk/how-to/tools/http-tools/): call REST APIs as tools

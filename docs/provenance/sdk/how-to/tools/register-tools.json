@@ -1,0 +1,146 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/tools/register-tools.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "c1",
+   "claim": "OnTool handler signature is func(args map[string]any) (any, error)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:235",
+    "sdk/conversation_tools.go:33"
+   ]
+  },
+  {
+   "id": "c10",
+   "claim": "OnToolAsync takes a check func and exec func; a non-empty PendingResult holds the call",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:171-196",
+    "sdk/sdk.go:1034-1058"
+   ]
+  },
+  {
+   "id": "c11",
+   "claim": "The hold applies to Send, WithIngestion streaming-duplex and realtime duplex paths",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": "c12",
+   "claim": "ResolveTool/RejectTool/Continue/ResolveToolWithArgs semantics; overrides shallow-merge",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:235-322"
+   ]
+  },
+  {
+   "id": "c13",
+   "claim": "Default pending store is in-process; WithPendingStore injects a durable one",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:198-206",
+    "sdk/options.go:966"
+   ]
+  },
+  {
+   "id": "c14",
+   "claim": "A resolving process must register the same OnToolAsync handler; recovered by tool name",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:208-220",
+    "sdk/conversation_tools.go:279-282"
+   ]
+  },
+  {
+   "id": "c15",
+   "claim": "Resolve/Reject claim atomically via Redis GETDEL; loser gets sdktools.ErrPendingAlreadyResolved",
+   "verdict": "true",
+   "evidence": [
+    "sdk/tools/pending.go:34",
+    "sdk/tools/redis.go:139-142"
+   ]
+  },
+  {
+   "id": "c16",
+   "claim": "conv.PendingTools(ctx) lists held calls from the store, surviving restarts",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:455-460"
+   ]
+  },
+  {
+   "id": "c17",
+   "claim": "A returned error is delivered to the model as the tool result",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": "c2",
+   "claim": "JSON numbers arrive as float64",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": "c3",
+   "claim": "OnToolCtx passes a context.Context",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:243",
+    "sdk/conversation_tools.go:47"
+   ]
+  },
+  {
+   "id": "c4",
+   "claim": "OnTools registers a map of handlers",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:63-69"
+   ]
+  },
+  {
+   "id": "c5",
+   "claim": "tools.OnTyped(conv, ...) registers a typed handler with the conversation",
+   "verdict": "false",
+   "evidence": [
+    "sdk/conversation.go:235",
+    "sdk/tools/typed.go:111",
+    "sdk/tools/typed.go:123-129"
+   ]
+  },
+  {
+   "id": "c6",
+   "claim": "A field without a map tag is keyed by its lowercase name",
+   "verdict": "false",
+   "evidence": [
+    "sdk/tools/typed.go:72-75"
+   ]
+  },
+  {
+   "id": "c7",
+   "claim": "OnToolHTTP registers an HTTP tool from NewHTTPToolConfig with WithMethod/WithHeader",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:84-91"
+   ]
+  },
+  {
+   "id": "c8",
+   "claim": "OnToolExecutor registers a runtime tools.Executor",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:102-146"
+   ]
+  },
+  {
+   "id": "c9",
+   "claim": "WithToolExecutor is OnToolExecutor applied at open time; works with A2AOpener and any constructor taking options",
+   "verdict": "true",
+   "evidence": [
+    "sdk/a2a.go:10",
+    "sdk/options.go:1069-1083",
+    "sdk/sdk.go:263"
+   ]
+  }
+ ]
+}

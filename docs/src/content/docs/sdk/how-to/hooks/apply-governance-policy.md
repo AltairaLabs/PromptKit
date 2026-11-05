@@ -1,7 +1,28 @@
 ---
 title: Apply Governance Policy in Your Host
+description: Enforce your own policy over a pack's governance declarations at admission, tool calls, model calls, validators, evals and workflow transitions.
 sidebar:
   order: 9
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/evals/hooks.go
+    - runtime/evals/runner.go
+    - runtime/events/types.go
+    - runtime/hooks/guardrails/adapter.go
+    - runtime/hooks/types.go
+    - runtime/packspec/types.go
+    - runtime/prompt/pack.go
+    - runtime/tools/types.go
+    - runtime/workflow/authorizer.go
+    - runtime/workflow/transition_executor.go
+    - sdk/agent_resolver.go
+    - sdk/conversation_tools.go
+    - sdk/governance.go
+    - sdk/internal/pack/validate.go
+    - sdk/options.go
+    - sdk/template.go
+    - sdk/validate_pack.go
 ---
 
 Enforce your own governance policy over a pack's declarations at each point where your host decides: admission, tool calls, model calls, validators, evals and workflow transitions.

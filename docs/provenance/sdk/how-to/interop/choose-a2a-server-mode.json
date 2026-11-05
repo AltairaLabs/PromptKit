@@ -1,0 +1,212 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/interop/choose-a2a-server-mode.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "NewServer takes a ConversationOpener; NewStatelessServer takes a MessageHandler",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/handler.go:93",
+    "server/a2a/server.go:269"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "NewServer opens a conversation per contextID, caches it, reuses it, expires it on a TTL",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/server.go:1229",
+    "server/a2a/server.go:167"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "NewStatelessServer keeps nothing between calls; handler sees contextID and the HTTP request's context",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/handler.go:28-39"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Both modes serve the same protocol: JSON-RPC methods, task lifecycle, SSE streaming, agent card",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/handler.go:11-26"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "sdk.A2AOpener(pack, prompt) returns an opener; WithCard, WithPort, WithTaskStore options",
+   "verdict": "true",
+   "evidence": [
+    "sdk/a2a.go:10",
+    "server/a2a/server.go:101"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "Two callers presenting the same contextID share a conversation unless WithTaskOwner scopes tasks",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/server.go:1235-1241"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "sdk.NewA2AServer and sdk.WithA2A* options wrap NewServer and its options",
+   "verdict": "false",
+   "evidence": [
+    "sdk/a2a_exports.go:22",
+    "sdk/a2a_exports.go:44-87"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Tasks live in memory by default; implement a2aserver.TaskStore (sdk.A2ATaskStore) and pass WithTaskStore",
+   "verdict": "true",
+   "evidence": [
+    "sdk/a2a_exports.go:13",
+    "server/a2a/server.go:116"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Handler() returns http.Handler serving agent card, POST /a2a, /healthz, /readyz",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/server.go:318-326"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Card at /.well-known/agent-card.json; a card with no interfaces points at /a2a on that host",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/client.go:266",
+    "server/a2a/protocol.go:129-140"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "WithCardProvider option exists",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/server.go:106"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "Event kinds EventText, EventMedia, EventClientTool, EventPending, EventDone; Error set fails the turn; EventClientTool moves task to input_required",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/conversation.go:44-67",
+    "server/a2a/handler.go:142-177",
+    "server/a2a/server.go:1016-1023"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "message/send: text is concatenation of text events; parts one per text run and one per media event",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/handler.go:188-209"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "ToolResultHandler lets caller tool results come back; stateless server without it refuses tool-result messages",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/handler.go:55-63",
+    "server/a2a/handler_send.go:25-29"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "WithTaskOwner: GetTask, CancelTask, SubscribeToTask answer TaskNotFound for others; ListTasks returns caller's tasks, works without contextId; empty owner refused with 401",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/ownership.go:39-51",
+    "server/a2a/server.go:1155-1164",
+    "server/a2a/server.go:583-588"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "Without WithTaskOwner ListTasks requires a contextId",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/server.go:1160-1164"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "With NewServer another caller naming a contextId is refused, also after cache eviction while tasks remain",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/ownership.go:112-132",
+    "server/a2a/server.go:1236"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "Task store must implement OwnedTaskStore (CreateOwned, Owner); in-memory store does; TaskQuerier must filter by TaskQuery.Owner",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/ownership.go:26-37"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "NewServer panics if WithTaskOwner is given a store that cannot record owners",
+   "verdict": "false",
+   "evidence": [
+    "server/a2a/handler.go:93-96",
+    "server/a2a/ownership.go:68-75",
+    "server/a2a/server.go:297"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "CancelTask marks canceled in store then stops turn via TaskCanceler; SubscribeToTask via TaskEventBus; both default in-process",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/ownership.go:140-164",
+    "server/a2a/server.go:1120-1137"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "WithTaskEventBus, WithTaskCanceler options; TaskCanceler.Listen called once at start-up with a function that is a no-op for tasks not running locally",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/ownership.go:154-176",
+    "server/a2a/server.go:304"
+   ]
+  },
+  {
+   "id": 22,
+   "claim": "TaskEvent is version-neutral JSON, each subscriber encodes it for its own protocol version and request id",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/task_events.go:21-30"
+   ]
+  },
+  {
+   "id": 23,
+   "claim": "links /sdk/tutorials/10-a2a-server/ and /sdk/reference/a2a-server/ exist; reference lists all options",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 24,
+   "claim": "Go snippets compile against current API",
+   "verdict": "true",
+   "evidence": [
+    "sdk/a2a_exports.go:38"
+   ]
+  }
+ ]
+}

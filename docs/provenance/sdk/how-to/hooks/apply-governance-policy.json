@@ -1,0 +1,216 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/hooks/apply-governance-policy.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "PackTemplate.Pack() returns the loaded pack itself",
+   "verdict": "true",
+   "evidence": [
+    "sdk/template.go:120"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "An eval hook's def shares its extensions with the pack",
+   "verdict": "unverified",
+   "evidence": [
+    "runtime/evals/runner.go:184"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Conversation.Governance() returns declaration resolved against pack's when opened as agent",
+   "verdict": "true",
+   "evidence": [
+    "sdk/governance.go:32"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Governance.ApprovedEnvironments is []string",
+   "verdict": "true",
+   "evidence": [
+    "runtime/packspec/types.go:970"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "sdk.Open fails when an obligation, review or control names something undeclared",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pack/validate.go:270"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "sdk.ValidatePack reports the same errors plus warnings for undeclared vocabulary prefixes",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/pack.go:661",
+    "sdk/validate_pack.go:142"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "ToolDescriptor.Declaration carries action_scope and extensions",
+   "verdict": "true",
+   "evidence": [
+    "runtime/packspec/types.go:2490",
+    "runtime/tools/types.go:147"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "ActionScope.Reversibility == \"irreversible\"",
+   "verdict": "true",
+   "evidence": [
+    "runtime/packspec/types.go:34"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "sdk.WithToolExecutor(name, executor) or Conversation.OnToolExecutor",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:102",
+    "sdk/options.go:1069"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "hooks.ToolRequest.Declaration carries the same value the executor receives",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/types.go:136"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "sdk.WithToolHook registers a ToolHook",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1947"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "A2A executor via sdk.WithA2AToolExecutor receives callee definition on ToolDescriptor.Agent; remote-card tools carry no Agent",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/types.go:149",
+    "sdk/agent_resolver.go:178",
+    "sdk/options.go:2286"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "hooks.ProviderRequest.Prompt carries the prompt; after a workflow handoff it is the destination state's",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/types.go:76"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "sdk.WithProviderHook",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1782"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "validation.started/passed/failed events carry ValidationEventData.Validator with id and extensions",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:416",
+    "runtime/events/types.go:54"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "events.NewEventBus, Subscribe(events.EventValidationFailed, func(*events.Event)), sdk.WithEventBus",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1096"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "A validator's handler never receives its declaration",
+   "verdict": "unverified",
+   "evidence": [
+    "runtime/hooks/guardrails/adapter.go:496"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "sdk.WithEvalHook receives whole eval definition as def of OnEvalResult",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/hooks.go:27",
+    "sdk/options.go:3654"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "workflow.TransitionAuthorizer / sdk.WithTransitionAuthorizer called before every transition, model- or host-fired",
+   "verdict": "true",
+   "evidence": [
+    "runtime/workflow/authorizer.go:11",
+    "sdk/options.go:1973"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "The request carries state names, both states' declarations and the event",
+   "verdict": "true",
+   "evidence": [
+    "runtime/workflow/authorizer.go:27"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "Refused model-requested transition returns tool result status transition_refused with error text as reason; workflow stays",
+   "verdict": "true",
+   "evidence": [
+    "runtime/workflow/transition_executor.go:124"
+   ]
+  },
+  {
+   "id": 22,
+   "claim": "Refused host-fired Transition returns the error",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1962"
+   ]
+  },
+  {
+   "id": 23,
+   "claim": "Authorizer must not call back; host-fired transition deadlocks",
+   "verdict": "true",
+   "evidence": [
+    "runtime/workflow/authorizer.go:18"
+   ]
+  },
+  {
+   "id": 24,
+   "claim": "Model-requested transition authorized at workflow__transition and committed at turn end; max_visits redirect not re-authorized",
+   "verdict": "true",
+   "evidence": [
+    "runtime/workflow/authorizer.go:29",
+    "runtime/workflow/transition_executor.go:89"
+   ]
+  },
+  {
+   "id": 25,
+   "claim": "Seams pass nil for capability tools, MCP tools, handlers with no pack entry, guardrails from sdk.WithGuardrail",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:414",
+    "runtime/hooks/types.go:135"
+   ]
+  }
+ ]
+}

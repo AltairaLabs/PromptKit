@@ -1,17 +1,46 @@
 ---
 title: Configure Embedding Providers Declaratively
-description: Configure embedding providers for RAG and selectors from RuntimeConfig YAML
+description: Declare embedding providers in RuntimeConfig YAML and wire them into an SDK conversation
 sidebar:
   order: 19
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - pkg/config/runtime_config.go
+    - runtime/credentials/resolver.go
+    - runtime/pipeline/stage/stages_context.go
+    - runtime/providers/base_embedding.go
+    - runtime/providers/bedrock/embedding_register.go
+    - runtime/providers/embedding_factory.go
+    - runtime/providers/embedding_platform.go
+    - runtime/providers/gemini/embedding.go
+    - runtime/providers/huggingface/embedding_register.go
+    - runtime/providers/openai/embedding.go
+    - runtime/providers/vertex/embedding_register.go
+    - runtime/providers/voyageai/embedding.go
+    - runtime/providers/voyageai/embedding_register.go
+    - sdk/options.go
+    - sdk/provider_file.go
+    - sdk/runtime_config.go
+    - sdk/sdk.go
 ---
 
-Embedding providers can be declared in `RuntimeConfig` the same way chat providers are, so a consumer who wants RAG retrieval or an embedding-backed selector does not have to import the provider package and pass an instance to `WithContextRetrieval`.
+Declare an embedding provider in a `RuntimeConfig` file so selectors and context retrieval receive it without you constructing the provider in Go.
 
-## Quick Start
+## Prerequisites
 
-Declare the provider under `spec.providers` with `role: embedding`:
+- A pack and a RuntimeConfig file loaded with `WithRuntimeConfig` (see [Use a RuntimeConfig](/sdk/how-to/conversations/use-runtime-config/)).
+- The provider's API key in an environment variable.
+
+## Steps
+
+### 1. Declare the provider
+
+Add an entry to `spec.providers` with `role: embedding`:
 
 ```yaml
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: RuntimeConfig
 spec:
   providers:
     - id: rag
@@ -31,71 +60,71 @@ spec:
         input_type: query
 ```
 
+The `type` is one of the values `sdk.RegisteredProviderTypes()["embedding"]` returns:
+
+| `type` | Notes |
+|---|---|
+| `openai` | |
+| `gemini` | |
+| `voyageai` | |
+| `ollama` | |
+| `huggingface` | |
+| `bedrock` | Requires a `platform` block |
+| `vertex` | Requires a `platform` block |
+
+### 2. Tune the provider (optional)
+
+`additional_config` carries provider-specific keys:
+
+| Key | Applies to | Effect |
+|---|---|---|
+| `dimensions` | every type | Vector size to request. The provider sends it to the API as `dimensions`, `outputDimensionality` or `output_dimension`, and fails any response whose vectors have a different length. |
+| `input_type` | `voyageai` | `query` or `document`. |
+
+Without `dimensions`, the provider reports the size of a model it knows. For any other model it reports `0` until the first response arrives.
+
+### 3. Open the conversation
+
+An embedding provider declared in YAML becomes the conversation's default retrieval provider, so `Open` also requires a state store and a context window:
+
 ```go
-conv, _ := sdk.Open("./pack.json", "chat",
+conv, err := sdk.Open("./pack.json", "chat",
     sdk.WithRuntimeConfig("./runtime.yaml"),
+    sdk.WithStateStore(statestore.NewMemoryStore()),
+    sdk.WithContextWindow(20),
 )
 ```
 
-The first declared entry becomes the default RAG provider unless `WithContextRetrieval` set one programmatically, and it retrieves the top 3 matching older messages. Retrieval also needs a context window and a state store: a `state_store` block in the same file supplies the store, but a runtime config has no context window field, so pass `sdk.WithContextWindow(n)`. `Open` names whichever of the two is missing. The same instance is supplied to in-process `selection.Selector` implementations via `SelectorContext.Embeddings` on `Init`, so a cosine-similarity selector and the RAG retrieval pipeline share a single embedding pool — one connection pool, one rate-limit bucket, one set of credentials.
+The first declared entry becomes the default retrieval provider and retrieves the top 3 matching older messages. A `state_store` block in the same file supplies the store, but a runtime config has no context window field, so pass `sdk.WithContextWindow(n)`. Selectors registered on the conversation receive the same instance as `SelectorContext.Embeddings` in `Init`, so a cosine-similarity selector and context retrieval share one embedding pool: one connection pool, one rate-limit bucket, one set of credentials.
 
-## The `embedding_providers:` block
+`WithContextRetrieval(provider, topK)` overrides the declared default, including the count of 3, whichever order you apply the options in.
 
-Before role routing, embedding providers had their own top-level block:
+## Verify
 
-```yaml
-spec:
-  embedding_providers:
-    - id: rag
-      type: openai
-      model: text-embedding-3-small
-      credential:
-        credential_env: OPENAI_API_KEY
+`ValidateOptions` applies the options without opening a conversation, so it builds every declared provider:
+
+```go
+err := sdk.ValidateOptions(
+    sdk.WithRuntimeConfig("./runtime.yaml"),
+    sdk.WithStateStore(statestore.NewMemoryStore()),
+    sdk.WithContextWindow(20),
+)
 ```
 
-It still works and behaves identically. It is deprecated in favor of
-`role: embedding` and is removed in v3. Declaring the same ID in both
-spellings is rejected rather than silently resolved.
+A `nil` result means every provider builds. It resolves credentials but does not call the provider, so a wrong key still passes.
 
-## Supported Types
+## Troubleshoot
 
-| `type` value | Underlying package |
+| Error | Cause |
 |---|---|
-| `openai` | `runtime/providers/openai` |
-| `gemini` | `runtime/providers/gemini` |
-| `voyageai` | `runtime/providers/voyageai` |
-| `ollama` | `runtime/providers/ollama` |
+| `unsupported embedding provider type: <type>` | The `type` has no registered factory. `LoadRuntimeConfig` does not check it; the error appears when `Open` or `ValidateOptions` applies the option. |
+| `an embedding provider is configured for retrieval ... which also requires WithContextWindow and WithStateStore` | An embedding provider is declared and the conversation lacks a context window, a state store, or both. The message names the missing options. |
+| `duplicate provider id within role "embedding"` | Two embedding entries share an effective ID (the `id`, or the `type` when `id` is empty). `LoadRuntimeConfig` reports it, and also rejects an entry with no `type`. |
+| `embedding provider "<id>": duplicate ID` | The same ID appears under `role: embedding` and in the top-level `embedding_providers:` block. |
 
-`additional_config` carries provider-specific extras. Honored keys:
-
-- **All types** — `dimensions` (int): the vector size you want. It is sent to
-  the API (`dimensions`, `outputDimensionality` or `output_dimension`), which
-  shortens the vector where the model supports it. Every response is checked
-  against it, so a model that cannot produce that size fails loudly instead of
-  returning vectors your storage was not sized for.
-- **VoyageAI** — `input_type` (`query` | `document`)
-
-Without `dimensions`, the provider reports the size of a model it knows, and
-for any other model (typically one behind an OpenAI-compatible server)
-reports `0` until the first response gives the real size. It never guesses.
-
-## Programmatic Path Still Works
-
-`WithContextRetrieval(provider, topK)` is unchanged. When set, it wins over the YAML default, including the default count of 3. This mirrors how chat providers behave: programmatic options take precedence over RuntimeConfig defaults.
-
-## Validation
-
-`LoadRuntimeConfig` rejects:
-
-- Missing `type`.
-- A `type` outside the supported set.
-- Two entries with the same effective ID (explicit ID, or `type` when ID is omitted).
+The top-level `embedding_providers:` block takes the same entries without `role` and behaves the same. It is deprecated and removed in v3; move its entries to `spec.providers` with `role: embedding`.
 
 ## Related
 
 - [Use a RuntimeConfig](/sdk/how-to/conversations/use-runtime-config/)
-- [Plug in an external selector](/sdk/how-to/) — selectors receive embedding providers via `SelectorContext.Embeddings`.
-
-## See also
-
-TTS and STT providers follow the same pattern, declared at the same level with `role: tts` / `role: stt` — see [declarative TTS and STT providers](/sdk/how-to/providers/declarative-tts-stt-providers/).
+- [Declarative TTS and STT providers](/sdk/how-to/providers/declarative-tts-stt-providers/): the same pattern with `role: tts` and `role: stt`.

@@ -1,0 +1,176 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/conversations/initialize.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "sdk.Open(packPath, promptName, opts...) returns (*Conversation, error)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:84"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "first argument is a relative or absolute pack path",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:1547"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "second argument is a prompt name under prompts in the pack",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:470"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "sdk.WithModel overrides the pack's model",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:453"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "sdk.WithGuardrail with guardrails.Input/Output(evalType, params)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/guardrails/spec.go:55",
+    "runtime/hooks/guardrails/spec.go:60",
+    "sdk/options.go:1812"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "banned_words guardrail takes params {\"words\": []any{...}}",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/normalize.go:13",
+    "runtime/evals/normalize.go:26"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "guardrails.Output(\"length\", {\"max_characters\": 2000})",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/length.go:73"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "sdk.WithToolHook and sdk.WithSessionHook register hooks",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1947",
+    "sdk/options.go:1990"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Hooks reference page exists at /runtime/reference/hooks/",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 10,
+   "claim": "one of OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY is required for auto-detection",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/provider/detect.go:50",
+    "sdk/internal/provider/detect.go:53",
+    "sdk/internal/provider/detect.go:91"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "errors.Is(err, sdk.ErrPackNotFound) matches a missing pack file",
+   "verdict": "dead",
+   "evidence": [
+    "sdk/errors.go:23",
+    "sdk/sdk.go:1551"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "errors.Is(err, sdk.ErrPromptNotFound) matches a missing prompt",
+   "verdict": "dead",
+   "evidence": [
+    "sdk/errors.go:20",
+    "sdk/sdk.go:476"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "errors.Is(err, sdk.ErrProviderNotDetected) matches when no provider is found",
+   "verdict": "dead",
+   "evidence": [
+    "sdk/errors.go:26",
+    "sdk/sdk.go:513"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "Always close; conv.Close() releases the conversation",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1575"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "conv.SetVar(name, value string)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1265"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "conv.Send(ctx, string) returns (*Response, error); resp.Text()",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:275",
+    "sdk/response.go:99"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "Open error for missing pack: 'failed to resolve pack path: pack file not found: <path>'",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:1563",
+    "sdk/sdk.go:430"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "Open error for no provider: 'failed to detect provider: no provider detected: set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY'",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/provider/detect.go:91",
+    "sdk/sdk.go:513"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "Open error for bad prompt: 'prompt \"x\" not found in pack (available: [...])'",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:476"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "An input guardrail that matches blocks the LLM call and returns a canned assistant reply",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1789"
+   ]
+  }
+ ]
+}

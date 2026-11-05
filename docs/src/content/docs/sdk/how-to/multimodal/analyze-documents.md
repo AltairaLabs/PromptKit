@@ -1,361 +1,128 @@
 ---
-title: Analyze Documents
-description: How to send PDF documents to LLMs for analysis
+title: Analyze documents
+description: How to send PDF documents to an LLM for analysis
 sidebar:
   order: 50
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/providers/base_provider.go
+    - runtime/providers/claude/claude_multimodal.go
+    - runtime/providers/gemini/gemini_multimodal.go
+    - runtime/providers/media_loader.go
+    - runtime/providers/openai/openai_multimodal.go
+    - runtime/types/content.go
+    - sdk/hooks/events.go
+    - sdk/options.go
+    - sdk/streaming.go
 ---
 
-Send PDF documents to LLMs for analysis, summarization, comparison, and information extraction.
+Attach PDF documents to a message so the model can summarize, compare or extract information from them.
+
+## Prerequisites
+
+- A pack with a prompt to open, such as `document-analyzer`.
+- A provider that accepts documents: Claude or Gemini. Both declare PDF as their only document format.
 
-## Quick Start
+## Steps
 
-```go
-package main
+1. Open the conversation and attach a PDF by path:
+
+   ```go
+   package main
+
+   import (
+       "context"
+       "fmt"
+       "log"
+
+       "github.com/AltairaLabs/PromptKit/sdk/v2"
+   )
+
+   func main() {
+       conv, err := sdk.Open("./app.pack.json", "document-analyzer")
+       if err != nil {
+           log.Fatal(err)
+       }
+       defer conv.Close()
+
+       resp, err := conv.Send(context.Background(), "Summarize this document",
+           sdk.WithDocumentFile("./report.pdf"),
+       )
+       if err != nil {
+           log.Fatal(err)
+       }
+       fmt.Println(resp.Text())
+   }
+   ```
+
+   `WithDocumentFile` infers the MIME type from the file extension and reads the file when the provider call is built.
+
+2. To send a PDF you already hold in memory, use `WithDocumentData` with the MIME type:
+
+   ```go
+   resp, err := conv.Send(ctx, "Summarize this",
+       sdk.WithDocumentData(pdfBytes, "application/pdf"),
+   )
+   ```
+
+3. To compare documents, or to combine a document with other media, pass several options. A single message accepts up to 20 media items.
+
+   ```go
+   resp, err := conv.Send(ctx, "List all changes between version 1 and version 2",
+       sdk.WithDocumentFile("./v1.pdf"),
+       sdk.WithDocumentFile("./v2.pdf"),
+   )
+
+   resp, err = conv.Send(ctx, "Does the diagram match the spec?",
+       sdk.WithDocumentFile("./spec.pdf"),
+       sdk.WithImageFile("./architecture.png"),
+   )
+   ```
+
+4. For long analyses, stream the answer:
+
+   ```go
+   for chunk := range conv.Stream(ctx, "Analyze each section in detail",
+       sdk.WithDocumentFile("./report.pdf"),
+   ) {
+       if chunk.Error != nil {
+           log.Fatal(chunk.Error)
+       }
+       if chunk.Type == sdk.ChunkDone {
+           break
+       }
+       fmt.Print(chunk.Text)
+   }
+   ```
+
+5. Documents consume many input tokens. Read usage from the provider-call event:
+
+   ```go
+   hooks.OnProviderCall(conv, func(model string, inputTokens, outputTokens int, cost float64) {
+       log.Printf("%s: %d in, %d out", model, inputTokens, outputTokens)
+   })
+   ```
+
+   This needs `github.com/AltairaLabs/PromptKit/sdk/v2/hooks`. See [Monitor events](/sdk/how-to/observability/monitor-events/).
+
+## Verify
+
+Ask a question only the document can answer, such as "What is the refund policy described in this document?". The reply quotes the document. Check that the provider-call handler logs a high input-token count for the turn.
+
+## Troubleshoot
+
+| Error text | Cause |
+|---|---|
+| `claude only supports PDF documents, got: <mime>` | The attachment is not a PDF. Convert it before sending. |
+| `unknown content type: document` | The OpenAI provider does not accept documents. Use Claude or Gemini. |
+| `file size N bytes exceeds maximum M bytes for <path>` | The file is over the 50 MB per-file limit the media loader applies. |
+| `media item limit exceeded` | The message carries more than 20 media items. |
 
-import (
-    "context"
-    "fmt"
-    "log"
+The providers declare their own document size limits: 32 MB for Claude and 20 MB for Gemini. A larger file within the 50 MB loader limit reaches the provider, which rejects it.
 
-    "github.com/AltairaLabs/PromptKit/sdk/v2"
-)
+## Related
 
-func main() {
-    ctx := context.Background()
-
-    conv, err := sdk.Open("./app.pack.json", "document-analyzer")
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer conv.Close()
-
-    // Analyze a PDF document
-    resp, err := conv.Send(ctx, "Summarize this document",
-        sdk.WithDocumentFile("./report.pdf"),
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    fmt.Println(resp.Text())
-}
-```
-
-## Supported Formats
-
-The SDK supports **PDF documents only**.
-
-| Format | MIME Type | Status |
-|--------|-----------|--------|
-| PDF | `application/pdf` | ✅ Supported |
-| Word (.docx) | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` | ❌ Not supported |
-| Text (.txt) | `text/plain` | ❌ Not supported |
-
-## Provider Support
-
-Document analysis support varies by provider:
-
-| Provider | Max Size | Models | Notes |
-|----------|----------|--------|-------|
-| **Claude** | 32MB | Haiku, Sonnet, Opus | Best for complex documents |
-| **Gemini** | 20MB | Flash, Pro | Good for quick analysis |
-| **OpenAI** | Varies | GPT-4V | Check model documentation |
-
-### Recommended Models
-
-```go
-// Claude Haiku - fast, cost-effective
-conv, _ := sdk.Open("./app.pack.json", "doc-analyzer",
-    sdk.WithModel("claude-3-5-haiku-20241022"),
-)
-
-// Gemini Flash - very fast
-conv, _ := sdk.Open("./app.pack.json", "doc-analyzer",
-    sdk.WithModel("gemini-2.0-flash"),
-)
-```
-
-## Input Methods
-
-### From File Path
-
-Most common approach - load PDF from disk:
-
-```go
-resp, err := conv.Send(ctx, "What are the key findings?",
-    sdk.WithDocumentFile("./research-paper.pdf"),
-)
-```
-
-### From Raw Bytes
-
-Load PDF data from memory (e.g., from database, API response):
-
-```go
-pdfBytes, err := os.ReadFile("./document.pdf")
-if err != nil {
-    log.Fatal(err)
-}
-
-resp, err := conv.Send(ctx, "Summarize this",
-    sdk.WithDocumentData(pdfBytes, "application/pdf"),
-)
-```
-
-### Multiple Documents
-
-Attach multiple PDFs for comparison or analysis:
-
-```go
-resp, err := conv.Send(ctx, "Compare these two contracts",
-    sdk.WithDocumentFile("./contract_v1.pdf"),
-    sdk.WithDocumentFile("./contract_v2.pdf"),
-)
-```
-
-### Mixed Media
-
-Combine documents with images for comprehensive analysis:
-
-```go
-resp, err := conv.Send(ctx, "Analyze the document and diagram",
-    sdk.WithDocumentFile("./spec.pdf"),
-    sdk.WithImageFile("./architecture.png"),
-)
-```
-
-## Common Use Cases
-
-### Document Summarization
-
-```go
-resp, err := conv.Send(ctx, 
-    "Provide a concise 3-paragraph summary of the key points",
-    sdk.WithDocumentFile("./report.pdf"),
-)
-```
-
-### Information Extraction
-
-```go
-resp, err := conv.Send(ctx,
-    "Extract all dates, names, and financial figures into a structured format",
-    sdk.WithDocumentFile("./invoice.pdf"),
-)
-```
-
-### Document Comparison
-
-```go
-resp, err := conv.Send(ctx,
-    "List all changes between version 1 and version 2",
-    sdk.WithDocumentFile("./v1.pdf"),
-    sdk.WithDocumentFile("./v2.pdf"),
-)
-```
-
-### Question Answering
-
-```go
-resp, err := conv.Send(ctx,
-    "What is the refund policy described in this document?",
-    sdk.WithDocumentFile("./terms.pdf"),
-)
-```
-
-### Translation
-
-```go
-resp, err := conv.Send(ctx,
-    "Translate this document to Spanish, preserving formatting",
-    sdk.WithDocumentFile("./contract.pdf"),
-)
-```
-
-## Error Handling
-
-### File Size Limits
-
-```go
-resp, err := conv.Send(ctx, "Summarize",
-    sdk.WithDocumentFile("./large.pdf"),
-)
-if err != nil {
-    if strings.Contains(err.Error(), "size exceeds") {
-        log.Fatal("PDF too large - max 32MB for Claude, 20MB for Gemini")
-    }
-    log.Fatal(err)
-}
-```
-
-### File Not Found
-
-```go
-resp, err := conv.Send(ctx, "Analyze",
-    sdk.WithDocumentFile("./missing.pdf"),
-)
-if err != nil {
-    if os.IsNotExist(err) {
-        log.Fatal("PDF file not found")
-    }
-    log.Fatal(err)
-}
-```
-
-### Unsupported Format
-
-```go
-// Currently only PDFs are supported
-resp, err := conv.Send(ctx, "Analyze",
-    sdk.WithDocumentData(wordBytes, "application/msword"), // ❌ Not supported yet
-)
-```
-
-## Best Practices
-
-### 1. Optimize PDF Size
-
-Keep documents under size limits:
-
-```go
-// Check file size before sending
-info, _ := os.Stat("document.pdf")
-sizeInMB := float64(info.Size()) / (1024 * 1024)
-
-if sizeInMB > 30 {
-    log.Printf("Warning: Large PDF (%.1fMB) - may fail with some providers", sizeInMB)
-}
-```
-
-### 2. Use Specific Prompts
-
-Be explicit about what you want:
-
-```go
-// ❌ Too vague
-conv.Send(ctx, "Tell me about this", sdk.WithDocumentFile("./doc.pdf"))
-
-// ✅ Specific and actionable
-conv.Send(ctx, "Extract the table on page 3 and convert to CSV format",
-    sdk.WithDocumentFile("./doc.pdf"))
-```
-
-### 3. Handle Streaming for Large Responses
-
-For detailed analysis, use streaming:
-
-```go
-for chunk := range conv.Stream(ctx, 
-    "Provide a detailed analysis of each section",
-    sdk.WithDocumentFile("./report.pdf"),
-) {
-    if chunk.Error != nil {
-        log.Fatal(chunk.Error)
-    }
-    if chunk.Type == sdk.ChunkDone {
-        break
-    }
-    fmt.Print(chunk.Text)
-}
-```
-
-### 4. Consider Token Costs
-
-Documents can use many tokens:
-
-```go
-import (
-    "github.com/AltairaLabs/PromptKit/sdk/v2/hooks"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/events"
-)
-
-// Monitor provider calls for cost tracking
-hooks.OnProviderCall(conv, func(model string, inputTokens, outputTokens int, cost float64) {
-    log.Printf("Model %s: %d in, %d out, $%.4f", model, inputTokens, outputTokens, cost)
-})
-
-resp, err := conv.Send(ctx, "Analyze",
-    sdk.WithDocumentFile("./long-document.pdf"),
-)
-```
-
-### 5. Test with Mock Provider First
-
-Use Arena to test document flows without API costs:
-
-```yaml
-# config.arena.yaml
-providers:
-  - mock-docs.provider.yaml
-
-scenarios:
-  - document-test.scenario.yaml
-```
-
-## Pack Configuration
-
-Configure document analysis in your pack:
-
-```json
-{
-  "prompts": {
-    "document-analyzer": {
-      "id": "document-analyzer",
-      "name": "Document Analyzer",
-      "system_template": "You are an expert document analyst. Provide clear, structured analysis of PDF documents.",
-      "parameters": {
-        "temperature": 0.3,
-        "max_tokens": 4096
-      }
-    }
-  },
-  "provider": {
-    "name": "claude",
-    "model": "claude-3-5-haiku-20241022"
-  }
-}
-```
-
-## Testing with Arena
-
-Create automated tests for document analysis:
-
-```yaml
-# scenarios/pdf-summary.scenario.yaml
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Scenario
-metadata:
-  name: pdf-summary
-spec:
-  variables:
-    user_question: "Summarize the key points"
-  media:
-    - type: document
-      source: test-docs/sample.pdf
-  assertions:
-    - type: contains
-      value: "summary"
-```
-
-Run tests:
-
-```bash
-promptarena run config.arena.yaml --scenario pdf-summary
-```
-
-See the [Document Analysis Example](https://promptarena.altairalabs.ai/arena/examples/document-analysis/) for a complete working example.
-
-## Limitations
-
-- **Format**: Only PDF documents are supported
-- **Size**: 32MB max for Claude, 20MB for Gemini
-- **Text Extraction**: OCR quality depends on PDF structure
-- **Images in PDFs**: Embedded images are processed by the model
-- **Formatting**: Complex layouts may not be perfectly preserved
-
-## See Also
-
-- [Multimodal Example](/sdk/examples/multimodal/) - Images, audio, video
-- [Document Analysis Arena Example](https://promptarena.altairalabs.ai/arena/examples/document-analysis/)
-- [Arena Scenario Format](https://promptarena.altairalabs.ai/arena/reference/scenario-format/)
-- [SDK Reference](/sdk/reference/)
+- [Preprocess images](/sdk/how-to/multimodal/preprocess-images/)
+- [Multimodal example](/sdk/examples/multimodal/)
+- [SDK reference](/sdk/reference/)

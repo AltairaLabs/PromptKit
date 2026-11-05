@@ -1,0 +1,156 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/tools/client-tools.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "A client tool is defined with mode: client in the tool YAML",
+   "verdict": "false",
+   "evidence": [
+    "runtime/tools/registry.go:615",
+    "sdk/internal/pack/load.go:129",
+    "sdk/internal/pack/load.go:133",
+    "sdk/tool_descriptor_override.go:116"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "client.consent.required: if true, consent metadata is surfaced before execution",
+   "verdict": "dead",
+   "evidence": [
+    "runtime/tools/types.go:298",
+    "sdk/client_tools.go:433"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "client.consent.decline_strategy accepts reject or skip",
+   "verdict": "dead",
+   "evidence": [
+    "runtime/tools/types.go:301",
+    "runtime/tools/types.go:306"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "client.consent.message is the consent message shown to the user",
+   "verdict": "true",
+   "evidence": [
+    "sdk/client_tools.go:178",
+    "sdk/client_tools.go:433"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "OnClientTool(name, func(ctx, sdk.ClientToolRequest)(any, error)) runs immediately and the pipeline sends the result to the model",
+   "verdict": "true",
+   "evidence": [
+    "sdk/client_tools.go:131",
+    "sdk/client_tools.go:153",
+    "sdk/client_tools.go:64"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "With no handler the pipeline suspends and returns pending calls via HasPendingClientTools/ClientTools (ToolName, ConsentMsg, CallID)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/client_tools.go:168",
+    "sdk/response.go:224",
+    "sdk/response.go:238"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "SendToolResult, RejectClientTool and Resume complete a deferred call",
+   "verdict": "true",
+   "evidence": [
+    "sdk/client_tools.go:201",
+    "sdk/client_tools.go:249",
+    "sdk/client_tools.go:272"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "ChunkClientTool carries chunk.ClientTool.CallID and ResumeStream resumes the stream",
+   "verdict": "true",
+   "evidence": [
+    "sdk/client_tools.go:314",
+    "sdk/streaming.go:460"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "A2A: client tool suspension surfaces as an input-required task with tool metadata on status message parts",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/server.go:1022",
+    "server/a2a/server.go:1071"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "A 1.0 caller sees TASK_STATE_INPUT_REQUIRED, ROLE_AGENT and SendMessage",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/types.go:116",
+    "runtime/a2a/types.go:15",
+    "runtime/a2a/types.go:205"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "The caller sends results via message/send with taskId; each result is a data part with metadata tool_call_id; the task returns to working",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/server.go:671",
+    "server/a2a/server.go:754",
+    "server/a2a/server.go:790"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "Metadata tool_result takes precedence over data",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/server.go:765"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "A message without taskId resumes the conversation under a new task and leaves the input-required one behind",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/server.go:810",
+    "server/a2a/server.go:821"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "Metadata rejected: reason rejects the call",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/server.go:762",
+    "server/a2a/server.go:795"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "SendToolResultMultimodal(ctx, callID, []types.ContentPart) returns rich content; the snippet reads tool.Arguments",
+   "verdict": "false",
+   "evidence": [
+    "sdk/client_tools.go:228",
+    "sdk/response.go:246"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "A handler returning []types.ContentPart produces a multimodal result; other return values are serialized as JSON text",
+   "verdict": "true",
+   "evidence": [
+    "sdk/client_tools.go:480",
+    "sdk/client_tools.go:488"
+   ]
+  }
+ ]
+}

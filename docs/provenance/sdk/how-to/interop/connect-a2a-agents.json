@@ -1,0 +1,119 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/interop/connect-a2a-agents.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "sdk.NewA2AAgent(url).WithAuth(scheme, token) and sdk.WithA2AAgent(agent) option on sdk.Open",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:2326",
+    "sdk/options.go:2425"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "The SDK calls /.well-known/agent-card.json to discover skills and registers each skill as a tool; done at Open (startup)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/client.go:266",
+    "sdk/capability_a2a.go:156-192",
+    "sdk/capability_a2a.go:75-77"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Builder methods WithAuth, WithAuthFromEnv, WithHeader, WithHeaderFromEnv, WithTimeout(ms), WithRetryPolicy(max, initialMs, maxMs), WithSkillFilter",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:2334-2383"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "WithHeaderFromEnv uses \"Header-Name=ENV_VAR_NAME\"; unset env var skips the header",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:1461-1478"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "WithAuthFromEnv reads token at startup; unset var connects without auth",
+   "verdict": "true",
+   "evidence": [
+    "sdk/capability_a2a.go:75",
+    "sdk/sdk.go:1439-1449"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "tools.A2ASkillFilter{Allowlist, Blocklist}; allowlist takes precedence when both set",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/types.go:249-273"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "Multiple WithA2AAgent options register multiple agents",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:2425-2434",
+    "sdk/sdk.go:1409-1413"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Tool name is a2a__{agentName}__{skillId}; sanitized: lowercased, non-alphanumeric runs replaced by underscores; table examples",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/bridge.go:102",
+    "runtime/a2a/bridge.go:203-212"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Reference tool names in allowed_tools (spec.allowed_tools YAML) to control LLM access",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:3666-3675",
+    "runtime/tools/types.go:83-91"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Legacy: a2a.NewClient, a2a.NewToolBridge, bridge.RegisterAgent(ctx), sdk.WithA2ATools(bridge)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/bridge.go:24",
+    "runtime/a2a/bridge.go:43",
+    "runtime/a2a/client.go:231",
+    "sdk/options.go:2264"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "Builder pattern handles auth, headers, retries and skill filtering automatically",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/bridge.go:28-37",
+    "sdk/sdk.go:1422-1435"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "Complete example compiles and uses WithTimeout(5000), WithRetryPolicy(3,100,2000)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:2363-2376"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "Links: /runtime/how-to/a2a/use-a2a-tool-bridge/, /sdk/how-to/tools/register-tools/ exist",
+   "verdict": "true",
+   "evidence": []
+  }
+ ]
+}

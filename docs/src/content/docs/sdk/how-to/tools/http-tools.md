@@ -1,69 +1,77 @@
 ---
-title: Call HTTP Tools
+title: Call HTTP tools
+description: Bind a tool to an HTTP API with OnToolHTTP and the HTTPToolConfig builder.
 sidebar:
   order: 4
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/tools/http_executor.go
+    - sdk/conversation_tools.go
+    - sdk/tools/http.go
 ---
-Make HTTP API calls from tool handlers using `OnToolHTTP` and `HTTPToolConfig`.
+Make a tool call an HTTP API with `OnToolHTTP` and `tools.NewHTTPToolConfig`, adding authentication and reshaping arguments and responses.
 
-## Basic HTTP Tool
+## Prerequisites
+
+- A conversation from `sdk.Open`, and a tool declared in the pack. See [Register tools](/sdk/how-to/tools/register-tools/).
+- The import `sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"`.
+
+## 1. Register the tool
 
 ```go
-cfg := tools.NewHTTPToolConfig("https://api.example.com/search",
-    tools.WithMethod("GET"),
+cfg := sdktools.NewHTTPToolConfig("https://api.example.com/search",
+    sdktools.WithMethod("GET"),
 )
 
-conv.OnTool("search", cfg.Handler())
+conv.OnToolHTTP("search", cfg)
 ```
 
-## Adding Authentication
+The method defaults to `POST`. A `POST`, `PUT` or `PATCH` call sends the model's arguments as a JSON body. Any other method sends them as query parameters. The JSON response goes back to the model. A non-2xx status returns an error to the model.
 
-### Static Headers
+`OnToolHTTP` registers a context-aware handler. To register the handler yourself, use `conv.OnTool("search", cfg.Handler())` or `conv.OnToolCtx("search", cfg.HandlerCtx())`.
+
+## 2. Add authentication
+
+Set a static header:
 
 ```go
-cfg := tools.NewHTTPToolConfig("https://api.example.com/data",
-    tools.WithHeader("Authorization", "Bearer my-token"),
-    tools.WithHeader("X-Api-Key", "abc123"),
+cfg := sdktools.NewHTTPToolConfig("https://api.example.com/data",
+    sdktools.WithHeader("X-Api-Key", "abc123"),
 )
 ```
 
-### Headers from Environment Variables
+Read a header value from an environment variable, in the form `Header-Name=ENV_VAR`:
 
 ```go
-cfg := tools.NewHTTPToolConfig("https://api.example.com/data",
-    tools.WithHeaderFromEnv("Authorization=API_TOKEN"),
+cfg := sdktools.NewHTTPToolConfig("https://api.example.com/data",
+    sdktools.WithHeaderFromEnv("Authorization=API_TOKEN"),
 )
 ```
 
-At runtime, the `Authorization` header is set to the value of `$API_TOKEN`.
+The runtime sets `Authorization` to the value of `$API_TOKEN` on each call, and omits the header when the variable is empty.
 
-### Dynamic Auth with PreRequest
+Credentials that change at runtime, such as OAuth tokens, need a handler that makes the request itself. Register it with `OnToolCtx` and use the `ctx` it receives for the request.
 
-Use `WithPreRequest` to add authentication that requires runtime logic — OAuth token refresh, request signing, or rotating credentials:
+## 3. Set a timeout and redact fields
 
 ```go
-cfg := tools.NewHTTPToolConfig("https://api.example.com/data",
-    tools.WithMethod("GET"),
-    tools.WithPreRequest(func(req *http.Request) error {
-        token, err := getOAuthToken() // your token refresh logic
-        if err != nil {
-            return fmt.Errorf("auth failed: %w", err)
-        }
-        req.Header.Set("Authorization", "Bearer "+token)
-        return nil
-    }),
+cfg := sdktools.NewHTTPToolConfig("https://api.example.com/customers",
+    sdktools.WithMethod("GET"),
+    sdktools.WithTimeout(10000),            // milliseconds
+    sdktools.WithRedact("ssn", "credit_card"),
 )
-
-conv.OnToolCtx("fetch_data", cfg.HandlerCtx())
 ```
 
-## Transform Arguments
+`WithRedact` replaces the named top-level fields of a JSON object response with `[REDACTED]` before the model sees it.
 
-Reshape LLM arguments before the HTTP request:
+## 4. Reshape arguments
+
+`WithTransform` rewrites the model's arguments before the request:
 
 ```go
-cfg := tools.NewHTTPToolConfig("https://api.example.com/users",
-    tools.WithTransform(func(args map[string]any) (map[string]any, error) {
-        // Merge first_name and last_name into full_name
+cfg := sdktools.NewHTTPToolConfig("https://api.example.com/users",
+    sdktools.WithTransform(func(args map[string]any) (map[string]any, error) {
         first, _ := args["first_name"].(string)
         last, _ := args["last_name"].(string)
         return map[string]any{
@@ -74,81 +82,37 @@ cfg := tools.NewHTTPToolConfig("https://api.example.com/users",
 )
 ```
 
-## Post-Process Responses
+## 5. Reshape the response
 
-Filter or reshape the raw API response before it reaches the LLM:
+`WithPostProcess` receives the response bytes after redaction and returns the bytes the model sees:
 
 ```go
-cfg := tools.NewHTTPToolConfig("https://api.example.com/search",
-    tools.WithMethod("GET"),
-    tools.WithPostProcess(func(resp []byte) ([]byte, error) {
+cfg := sdktools.NewHTTPToolConfig("https://api.example.com/search",
+    sdktools.WithMethod("GET"),
+    sdktools.WithPostProcess(func(resp []byte) ([]byte, error) {
         var data map[string]any
         if err := json.Unmarshal(resp, &data); err != nil {
             return resp, nil
         }
-        // Extract just the results array
-        results, _ := data["results"]
-        return json.Marshal(results)
+        return json.Marshal(data["results"])
     }),
 )
 ```
 
-## Configuration Options
-
-| Option | Description |
-|--------|-------------|
-| `WithMethod(method)` | HTTP method (default: POST) |
-| `WithHeader(key, value)` | Static header |
-| `WithHeaderFromEnv(spec)` | Header from env var (`Header-Name=ENV_VAR`) |
-| `WithTimeout(ms)` | Request timeout in milliseconds |
-| `WithRedact(fields...)` | Fields to redact from the response |
-| `WithTransform(fn)` | Transform arguments before request |
-| `WithPreRequest(fn)` | Modify the `*http.Request` before sending |
-| `WithPostProcess(fn)` | Process raw response bytes after receiving |
-
-## Complete Example: OAuth-Protected API
+## Complete example
 
 ```go
 package main
 
 import (
     "context"
+    "encoding/json"
     "fmt"
     "log"
-    "net/http"
-    "os"
-    "sync"
-    "time"
 
     "github.com/AltairaLabs/PromptKit/sdk/v2"
     sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 )
-
-// tokenCache manages OAuth token refresh with caching.
-type tokenCache struct {
-    mu      sync.Mutex
-    token   string
-    expires time.Time
-}
-
-func (tc *tokenCache) getToken() (string, error) {
-    tc.mu.Lock()
-    defer tc.mu.Unlock()
-
-    if tc.token != "" && time.Now().Before(tc.expires) {
-        return tc.token, nil
-    }
-
-    // Replace with your OAuth token endpoint
-    token, err := refreshOAuthToken(os.Getenv("OAUTH_CLIENT_ID"), os.Getenv("OAUTH_CLIENT_SECRET"))
-    if err != nil {
-        return "", err
-    }
-
-    tc.token = token
-    tc.expires = time.Now().Add(55 * time.Minute) // refresh 5 min early
-    return tc.token, nil
-}
 
 func main() {
     conv, err := sdk.Open("./assistant.pack.json", "assistant")
@@ -157,89 +121,36 @@ func main() {
     }
     defer conv.Close()
 
-    cache := &tokenCache{}
-
-    // Register an HTTP tool with OAuth auth
     cfg := sdktools.NewHTTPToolConfig("https://api.example.com/customers",
         sdktools.WithMethod("GET"),
         sdktools.WithTimeout(10000),
-        sdktools.WithPreRequest(func(req *http.Request) error {
-            token, err := cache.getToken()
-            if err != nil {
-                return fmt.Errorf("oauth token refresh: %w", err)
-            }
-            req.Header.Set("Authorization", "Bearer "+token)
-            req.Header.Set("X-Request-ID", generateRequestID())
-            return nil
-        }),
-        sdktools.WithPostProcess(func(resp []byte) ([]byte, error) {
-            // Filter response to only include fields the LLM needs
-            return filterCustomerFields(resp)
-        }),
+        sdktools.WithHeaderFromEnv("Authorization=API_TOKEN"),
         sdktools.WithRedact("ssn", "credit_card"),
+        sdktools.WithPostProcess(func(resp []byte) ([]byte, error) {
+            var data map[string]any
+            if err := json.Unmarshal(resp, &data); err != nil {
+                return resp, nil
+            }
+            return json.Marshal(map[string]any{"name": data["name"], "plan": data["plan"]})
+        }),
     )
+    conv.OnToolHTTP("get_customer", cfg)
 
-    conv.OnToolCtx("get_customer", cfg.HandlerCtx())
-
-    ctx := context.Background()
-    resp, err := conv.Send(ctx, "Look up customer John Smith")
+    resp, err := conv.Send(context.Background(), "Look up customer John Smith")
     if err != nil {
         log.Fatal(err)
     }
     fmt.Println(resp.Text())
 }
-
-func refreshOAuthToken(clientID, clientSecret string) (string, error) {
-    // Your OAuth2 client credentials flow here
-    return "access-token-xyz", nil
-}
-
-func generateRequestID() string {
-    return fmt.Sprintf("req-%d", time.Now().UnixNano())
-}
-
-func filterCustomerFields(resp []byte) ([]byte, error) {
-    // Your response filtering logic
-    return resp, nil
-}
 ```
 
-## Custom RequestMapper (Runtime-Level)
+## Verify
 
-For advanced use cases, implement the `RequestMapper` interface to fully control how arguments map to HTTP requests:
+Send a message that makes the model call the tool. The runtime logs `HTTP tool call` with the tool name, method and URL, then `HTTP tool call completed` with the status.
 
-```go
-import rttools "github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+## Related
 
-type HMACRequestMapper struct {
-    rttools.DefaultRequestMapper // embed default behavior
-    secretKey string
-}
-
-func (m *HMACRequestMapper) RenderHeaders(
-    templates map[string]string, args map[string]any,
-) (map[string]string, error) {
-    // Call the default implementation first
-    headers, err := m.DefaultRequestMapper.RenderHeaders(templates, args)
-    if err != nil {
-        return nil, err
-    }
-    if headers == nil {
-        headers = make(map[string]string)
-    }
-
-    // Add HMAC signature
-    headers["X-Signature"] = computeHMAC(args, m.secretKey)
-    return headers, nil
-}
-
-// Wire into the executor
-executor := rttools.NewHTTPExecutor()
-executor.RequestMapper = &HMACRequestMapper{secretKey: os.Getenv("HMAC_SECRET")}
-```
-
-## See Also
-
-- [Register Tools](/sdk/how-to/tools/register-tools/) - Basic tool registration
-- [HTTP Tool Mapping](/runtime/how-to/tools/http-tool-mapping/) - YAML-based declarative mapping
-- [Client-Side Tools](/sdk/how-to/tools/client-tools/) - Tools that run on the client device
+- [Register tools](/sdk/how-to/tools/register-tools/): handlers written in Go
+- [HTTP tool mapping](/runtime/how-to/tools/http-tool-mapping/): declare URL templates and request and response mapping in the pack
+- [Client-side tools](/sdk/how-to/tools/client-tools/): tools that run on the client device
+- [SDK reference](/sdk/reference/conversation-manager/): every option and signature
