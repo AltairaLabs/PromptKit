@@ -34,9 +34,10 @@ func Tracer(tp trace.TracerProvider) trace.Tracer {
 }
 
 // NewTracerProvider creates a TracerProvider that exports spans via OTLP/HTTP.
-// endpoint is the full collector URL (for example "http://localhost:4318") and
-// serviceName becomes the service.name resource attribute. The caller is
-// responsible for calling Shutdown on the returned provider.
+// endpoint is the full collector URL, including scheme and port (a local
+// collector listens on port 4318 by default), and serviceName becomes the
+// service.name resource attribute. The caller is responsible for calling
+// Shutdown on the returned provider.
 func NewTracerProvider(ctx context.Context, endpoint, serviceName string) (*sdktrace.TracerProvider, error) {
 	exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(endpoint))
 	if err != nil {

@@ -45,16 +45,16 @@ const (
 ```
 
 <a name="NewTracerProvider"></a>
-## func [NewTracerProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/provider.go#L40>)
+## func [NewTracerProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/provider.go#L41>)
 
 ```go
 func NewTracerProvider(ctx context.Context, endpoint, serviceName string) (*sdktrace.TracerProvider, error)
 ```
 
-NewTracerProvider creates a TracerProvider that exports spans via OTLP/HTTP. endpoint is the full collector URL \(for example "http://localhost:4318"\) and serviceName becomes the service.name resource attribute. The caller is responsible for calling Shutdown on the returned provider.
+NewTracerProvider creates a TracerProvider that exports spans via OTLP/HTTP. endpoint is the full collector URL, including scheme and port \(a local collector listens on port 4318 by default\), and serviceName becomes the service.name resource attribute. The caller is responsible for calling Shutdown on the returned provider.
 
 <a name="SetupPropagation"></a>
-## func [SetupPropagation](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/provider.go#L65>)
+## func [SetupPropagation](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/telemetry/provider.go#L66>)
 
 ```go
 func SetupPropagation()
