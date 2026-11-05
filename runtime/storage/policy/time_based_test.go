@@ -15,13 +15,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testNow is the fixed instant every test in this file treats as "now".
+var testNow = time.Date(2026, 1, 2, 12, 0, 0, 0, time.UTC)
+
+func testClock() time.Time { return testNow }
+
 func TestNewTimeBasedPolicyHandler(t *testing.T) {
-	handler := policy.NewTimeBasedPolicyHandler(1 * time.Minute)
+	handler := policy.NewTimeBasedPolicyHandler(1*time.Minute, policy.WithClock(testClock))
 	assert.NotNil(t, handler)
 }
 
 func TestTimeBasedPolicyHandler_RegisterPolicy(t *testing.T) {
-	handler := policy.NewTimeBasedPolicyHandler(1 * time.Minute)
+	handler := policy.NewTimeBasedPolicyHandler(1*time.Minute, policy.WithClock(testClock))
 
 	t.Run("registers valid policy", func(t *testing.T) {
 		p := policy.Config{
@@ -45,10 +50,10 @@ func TestTimeBasedPolicyHandler_RegisterPolicy(t *testing.T) {
 
 func TestTimeBasedPolicyHandler_ApplyPolicy(t *testing.T) {
 	ctx := context.Background()
-	handler := policy.NewTimeBasedPolicyHandler(1 * time.Minute)
+	handler := policy.NewTimeBasedPolicyHandler(1*time.Minute, policy.WithClock(testClock))
 
 	t.Run("applies valid policy", func(t *testing.T) {
-		now := time.Now()
+		now := testNow
 		metadata := &storage.MediaMetadata{
 			PolicyName: "delete-after-5min",
 			Timestamp:  now,
@@ -62,7 +67,7 @@ func TestTimeBasedPolicyHandler_ApplyPolicy(t *testing.T) {
 	t.Run("handles empty policy name", func(t *testing.T) {
 		metadata := &storage.MediaMetadata{
 			PolicyName: "",
-			Timestamp:  time.Now(),
+			Timestamp:  testNow,
 		}
 
 		err := handler.ApplyPolicy(ctx, metadata)
@@ -72,7 +77,7 @@ func TestTimeBasedPolicyHandler_ApplyPolicy(t *testing.T) {
 	t.Run("fails on invalid policy name", func(t *testing.T) {
 		metadata := &storage.MediaMetadata{
 			PolicyName: "invalid-format",
-			Timestamp:  time.Now(),
+			Timestamp:  testNow,
 		}
 
 		err := handler.ApplyPolicy(ctx, metadata)
@@ -82,7 +87,7 @@ func TestTimeBasedPolicyHandler_ApplyPolicy(t *testing.T) {
 
 func TestTimeBasedPolicyHandler_EnforcePolicy(t *testing.T) {
 	ctx := context.Background()
-	handler := policy.NewTimeBasedPolicyHandler(1 * time.Minute)
+	handler := policy.NewTimeBasedPolicyHandler(1*time.Minute, policy.WithClock(testClock))
 
 	t.Run("deletes expired media", func(t *testing.T) {
 		tempDir := t.TempDir()
@@ -95,7 +100,7 @@ func TestTimeBasedPolicyHandler_EnforcePolicy(t *testing.T) {
 		// Create metadata that expired 1 minute ago
 		metadata := storage.MediaMetadata{
 			PolicyName: "delete-after-5min",
-			Timestamp:  time.Now().Add(-6 * time.Minute), // Expired
+			Timestamp:  testNow.Add(-6 * time.Minute), // Expired
 			MIMEType:   "image/jpeg",
 		}
 
@@ -125,7 +130,7 @@ func TestTimeBasedPolicyHandler_EnforcePolicy(t *testing.T) {
 		// Create metadata that expires in 4 minutes
 		metadata := storage.MediaMetadata{
 			PolicyName: "delete-after-5min",
-			Timestamp:  time.Now().Add(-1 * time.Minute), // Not yet expired
+			Timestamp:  testNow.Add(-1 * time.Minute), // Not yet expired
 			MIMEType:   "image/jpeg",
 		}
 
@@ -150,7 +155,7 @@ func TestTimeBasedPolicyHandler_EnforcePolicy(t *testing.T) {
 		// Create only .meta file (media file missing)
 		metadata := storage.MediaMetadata{
 			PolicyName: "delete-after-5min",
-			Timestamp:  time.Now().Add(-6 * time.Minute),
+			Timestamp:  testNow.Add(-6 * time.Minute),
 			MIMEType:   "image/jpeg",
 		}
 
@@ -190,7 +195,7 @@ func TestTimeBasedPolicyHandler_StartEnforcement(t *testing.T) {
 	defer cancel()
 
 	tempDir := t.TempDir()
-	handler := policy.NewTimeBasedPolicyHandler(100 * time.Millisecond)
+	handler := policy.NewTimeBasedPolicyHandler(5*time.Millisecond, policy.WithClock(testClock))
 
 	// Create an expired media file
 	mediaPath := filepath.Join(tempDir, "expire-soon.jpg")
@@ -199,7 +204,7 @@ func TestTimeBasedPolicyHandler_StartEnforcement(t *testing.T) {
 
 	metadata := storage.MediaMetadata{
 		PolicyName: "delete-after-5min",
-		Timestamp:  time.Now().Add(-6 * time.Minute), // Already expired
+		Timestamp:  testNow.Add(-6 * time.Minute), // Already expired
 		MIMEType:   "image/jpeg",
 	}
 
@@ -212,8 +217,11 @@ func TestTimeBasedPolicyHandler_StartEnforcement(t *testing.T) {
 	// Start background enforcement
 	handler.StartEnforcement(ctx, tempDir)
 
-	// Wait for enforcement to run
-	time.Sleep(250 * time.Millisecond)
+	// Poll until the background enforcement has deleted the files
+	require.Eventually(t, func() bool {
+		_, errM := os.Stat(metaPath)
+		return os.IsNotExist(errM)
+	}, 5*time.Second, time.Millisecond)
 
 	// Verify files are deleted by background process
 	assert.NoFileExists(t, mediaPath)
@@ -234,7 +242,7 @@ func TestTimeBasedPolicyHandler_AutoStart(t *testing.T) {
 
 		metadata := storage.MediaMetadata{
 			PolicyName: "delete-after-5min",
-			Timestamp:  time.Now().Add(-6 * time.Minute),
+			Timestamp:  testNow.Add(-6 * time.Minute),
 			MIMEType:   "image/jpeg",
 		}
 
@@ -246,13 +254,17 @@ func TestTimeBasedPolicyHandler_AutoStart(t *testing.T) {
 
 		// Create handler with auto-start — enforcement should begin immediately
 		handler := policy.NewTimeBasedPolicyHandler(
-			100*time.Millisecond,
+			5*time.Millisecond,
+			policy.WithClock(testClock),
 			policy.WithAutoStart(true),
 			policy.WithBaseDir(tempDir),
 		)
 
-		// Wait for enforcement to run
-		time.Sleep(250 * time.Millisecond)
+		// Poll until the background enforcement has deleted the files
+		require.Eventually(t, func() bool {
+			_, errM := os.Stat(metaPath)
+			return os.IsNotExist(errM)
+		}, 5*time.Second, time.Millisecond)
 
 		// Verify files are deleted by auto-started background process
 		assert.NoFileExists(t, mediaPath)
@@ -270,7 +282,7 @@ func TestTimeBasedPolicyHandler_AutoStart(t *testing.T) {
 
 		metadata := storage.MediaMetadata{
 			PolicyName: "delete-after-5min",
-			Timestamp:  time.Now().Add(-6 * time.Minute),
+			Timestamp:  testNow.Add(-6 * time.Minute),
 			MIMEType:   "image/jpeg",
 		}
 
@@ -282,12 +294,13 @@ func TestTimeBasedPolicyHandler_AutoStart(t *testing.T) {
 
 		// Create handler without auto-start
 		_ = policy.NewTimeBasedPolicyHandler(
-			100*time.Millisecond,
+			5*time.Millisecond,
+			policy.WithClock(testClock),
 			policy.WithBaseDir(tempDir),
 		)
 
-		// Wait to confirm enforcement does NOT run
-		time.Sleep(250 * time.Millisecond)
+		// Enforcement would have run many times by now at a 1ms interval
+		time.Sleep(50 * time.Millisecond)
 
 		// Files should still exist
 		assert.FileExists(t, mediaPath)
@@ -297,7 +310,8 @@ func TestTimeBasedPolicyHandler_AutoStart(t *testing.T) {
 	t.Run("does not auto-start without base dir", func(t *testing.T) {
 		// Should not panic or start enforcement when base dir is missing
 		handler := policy.NewTimeBasedPolicyHandler(
-			100*time.Millisecond,
+			5*time.Millisecond,
+			policy.WithClock(testClock),
 			policy.WithAutoStart(true),
 		)
 		assert.NotNil(t, handler)
@@ -306,7 +320,7 @@ func TestTimeBasedPolicyHandler_AutoStart(t *testing.T) {
 
 func TestTimeBasedPolicyHandler_StopIdempotent(t *testing.T) {
 	t.Run("stop is safe when enforcement never started", func(t *testing.T) {
-		handler := policy.NewTimeBasedPolicyHandler(100 * time.Millisecond)
+		handler := policy.NewTimeBasedPolicyHandler(5*time.Millisecond, policy.WithClock(testClock))
 		// Should not panic
 		handler.Stop()
 	})
@@ -314,7 +328,8 @@ func TestTimeBasedPolicyHandler_StopIdempotent(t *testing.T) {
 	t.Run("stop is safe to call multiple times", func(t *testing.T) {
 		tempDir := t.TempDir()
 		handler := policy.NewTimeBasedPolicyHandler(
-			100*time.Millisecond,
+			5*time.Millisecond,
+			policy.WithClock(testClock),
 			policy.WithAutoStart(true),
 			policy.WithBaseDir(tempDir),
 		)
@@ -330,7 +345,7 @@ func TestTimeBasedPolicyHandler_StartEnforcementIdempotent(t *testing.T) {
 	defer cancel()
 
 	tempDir := t.TempDir()
-	handler := policy.NewTimeBasedPolicyHandler(100 * time.Millisecond)
+	handler := policy.NewTimeBasedPolicyHandler(5*time.Millisecond, policy.WithClock(testClock))
 
 	// Calling StartEnforcement twice should not panic or start two goroutines
 	handler.StartEnforcement(ctx, tempDir)
@@ -342,7 +357,7 @@ func TestTimeBasedPolicyHandler_StartEnforcementIdempotent(t *testing.T) {
 func TestTimeBasedPolicyHandler_BuildExpiryIndex(t *testing.T) {
 	t.Run("builds index from existing meta files", func(t *testing.T) {
 		tempDir := t.TempDir()
-		handler := policy.NewTimeBasedPolicyHandler(1 * time.Minute)
+		handler := policy.NewTimeBasedPolicyHandler(1*time.Minute, policy.WithClock(testClock))
 
 		// Create 3 meta files: 2 expired, 1 active
 		for i, offset := range []time.Duration{-6, -10, -1} {
@@ -352,7 +367,7 @@ func TestTimeBasedPolicyHandler_BuildExpiryIndex(t *testing.T) {
 
 			meta := storage.MediaMetadata{
 				PolicyName: "delete-after-5min",
-				Timestamp:  time.Now().Add(offset * time.Minute),
+				Timestamp:  testNow.Add(offset * time.Minute),
 				MIMEType:   "image/jpeg",
 			}
 			metaData, err := json.Marshal(meta)
@@ -370,13 +385,13 @@ func TestTimeBasedPolicyHandler_BuildExpiryIndex(t *testing.T) {
 
 	t.Run("skips files without policy", func(t *testing.T) {
 		tempDir := t.TempDir()
-		handler := policy.NewTimeBasedPolicyHandler(1 * time.Minute)
+		handler := policy.NewTimeBasedPolicyHandler(1*time.Minute, policy.WithClock(testClock))
 
 		// Create a meta file without a policy name
 		metaPath := filepath.Join(tempDir, "nopolicy.jpg.meta")
 		meta := storage.MediaMetadata{
 			MIMEType:  "image/jpeg",
-			Timestamp: time.Now(),
+			Timestamp: testNow,
 		}
 		metaData, err := json.Marshal(meta)
 		require.NoError(t, err)
@@ -390,7 +405,7 @@ func TestTimeBasedPolicyHandler_BuildExpiryIndex(t *testing.T) {
 
 	t.Run("handles corrupt meta files gracefully", func(t *testing.T) {
 		tempDir := t.TempDir()
-		handler := policy.NewTimeBasedPolicyHandler(1 * time.Minute)
+		handler := policy.NewTimeBasedPolicyHandler(1*time.Minute, policy.WithClock(testClock))
 
 		metaPath := filepath.Join(tempDir, "corrupt.jpg.meta")
 		err := os.WriteFile(metaPath, []byte("not json"), 0600)
@@ -404,19 +419,19 @@ func TestTimeBasedPolicyHandler_BuildExpiryIndex(t *testing.T) {
 
 func TestTimeBasedPolicyHandler_TrackFile(t *testing.T) {
 	t.Run("adds file to expiry index", func(t *testing.T) {
-		handler := policy.NewTimeBasedPolicyHandler(1 * time.Minute)
+		handler := policy.NewTimeBasedPolicyHandler(1*time.Minute, policy.WithClock(testClock))
 
-		expiresAt := time.Now().Add(5 * time.Minute)
+		expiresAt := testNow.Add(5 * time.Minute)
 		handler.TrackFile("/tmp/test.jpg.meta", expiresAt)
 
 		assert.Equal(t, 1, handler.ExpiryIndexLen())
 	})
 
 	t.Run("updates existing entry", func(t *testing.T) {
-		handler := policy.NewTimeBasedPolicyHandler(1 * time.Minute)
+		handler := policy.NewTimeBasedPolicyHandler(1*time.Minute, policy.WithClock(testClock))
 
-		handler.TrackFile("/tmp/test.jpg.meta", time.Now().Add(5*time.Minute))
-		handler.TrackFile("/tmp/test.jpg.meta", time.Now().Add(10*time.Minute))
+		handler.TrackFile("/tmp/test.jpg.meta", testNow.Add(5*time.Minute))
+		handler.TrackFile("/tmp/test.jpg.meta", testNow.Add(10*time.Minute))
 
 		assert.Equal(t, 1, handler.ExpiryIndexLen())
 	})
@@ -424,9 +439,9 @@ func TestTimeBasedPolicyHandler_TrackFile(t *testing.T) {
 
 func TestTimeBasedPolicyHandler_UntrackFile(t *testing.T) {
 	t.Run("removes file from expiry index", func(t *testing.T) {
-		handler := policy.NewTimeBasedPolicyHandler(1 * time.Minute)
+		handler := policy.NewTimeBasedPolicyHandler(1*time.Minute, policy.WithClock(testClock))
 
-		handler.TrackFile("/tmp/test.jpg.meta", time.Now().Add(5*time.Minute))
+		handler.TrackFile("/tmp/test.jpg.meta", testNow.Add(5*time.Minute))
 		assert.Equal(t, 1, handler.ExpiryIndexLen())
 
 		handler.UntrackFile("/tmp/test.jpg.meta")
@@ -434,7 +449,7 @@ func TestTimeBasedPolicyHandler_UntrackFile(t *testing.T) {
 	})
 
 	t.Run("no-op for unknown file", func(t *testing.T) {
-		handler := policy.NewTimeBasedPolicyHandler(1 * time.Minute)
+		handler := policy.NewTimeBasedPolicyHandler(1*time.Minute, policy.WithClock(testClock))
 		handler.UntrackFile("/tmp/nonexistent.meta") // should not panic
 		assert.Equal(t, 0, handler.ExpiryIndexLen())
 	})
@@ -444,7 +459,7 @@ func TestTimeBasedPolicyHandler_IndexedEnforcement(t *testing.T) {
 	t.Run("deletes only expired files using index", func(t *testing.T) {
 		ctx := context.Background()
 		tempDir := t.TempDir()
-		handler := policy.NewTimeBasedPolicyHandler(1 * time.Minute)
+		handler := policy.NewTimeBasedPolicyHandler(1*time.Minute, policy.WithClock(testClock))
 
 		// Create expired file
 		expiredMedia := filepath.Join(tempDir, "expired.jpg")
@@ -453,7 +468,7 @@ func TestTimeBasedPolicyHandler_IndexedEnforcement(t *testing.T) {
 
 		expiredMeta := storage.MediaMetadata{
 			PolicyName: "delete-after-5min",
-			Timestamp:  time.Now().Add(-6 * time.Minute),
+			Timestamp:  testNow.Add(-6 * time.Minute),
 			MIMEType:   "image/jpeg",
 		}
 		expiredMetaData, err := json.Marshal(expiredMeta)
@@ -469,7 +484,7 @@ func TestTimeBasedPolicyHandler_IndexedEnforcement(t *testing.T) {
 
 		activeMeta := storage.MediaMetadata{
 			PolicyName: "delete-after-5min",
-			Timestamp:  time.Now().Add(-1 * time.Minute),
+			Timestamp:  testNow.Add(-1 * time.Minute),
 			MIMEType:   "image/jpeg",
 		}
 		activeMetaData, err := json.Marshal(activeMeta)
@@ -500,7 +515,7 @@ func TestTimeBasedPolicyHandler_IndexedEnforcement(t *testing.T) {
 	t.Run("enforcement with tracked files deletes expired", func(t *testing.T) {
 		ctx := context.Background()
 		tempDir := t.TempDir()
-		handler := policy.NewTimeBasedPolicyHandler(1 * time.Minute)
+		handler := policy.NewTimeBasedPolicyHandler(1*time.Minute, policy.WithClock(testClock))
 
 		// Create a media file
 		mediaPath := filepath.Join(tempDir, "tracked.jpg")
@@ -509,7 +524,7 @@ func TestTimeBasedPolicyHandler_IndexedEnforcement(t *testing.T) {
 
 		meta := storage.MediaMetadata{
 			PolicyName: "delete-after-5min",
-			Timestamp:  time.Now().Add(-6 * time.Minute),
+			Timestamp:  testNow.Add(-6 * time.Minute),
 			MIMEType:   "image/jpeg",
 		}
 		metaData, err := json.Marshal(meta)
@@ -519,7 +534,7 @@ func TestTimeBasedPolicyHandler_IndexedEnforcement(t *testing.T) {
 		require.NoError(t, err)
 
 		// Track the file manually (as would happen during store)
-		handler.TrackFile(metaPath, time.Now().Add(-1*time.Minute)) // already expired
+		handler.TrackFile(metaPath, testNow.Add(-1*time.Minute)) // already expired
 
 		// Enforce
 		err = handler.EnforcePolicy(ctx, tempDir)
@@ -535,7 +550,7 @@ func TestTimeBasedPolicyHandler_IndexedEnforcement(t *testing.T) {
 		defer cancel()
 
 		tempDir := t.TempDir()
-		handler := policy.NewTimeBasedPolicyHandler(100 * time.Millisecond)
+		handler := policy.NewTimeBasedPolicyHandler(5*time.Millisecond, policy.WithClock(testClock))
 
 		// Create an expired file
 		mediaPath := filepath.Join(tempDir, "indexed-expire.jpg")
@@ -544,7 +559,7 @@ func TestTimeBasedPolicyHandler_IndexedEnforcement(t *testing.T) {
 
 		meta := storage.MediaMetadata{
 			PolicyName: "delete-after-5min",
-			Timestamp:  time.Now().Add(-6 * time.Minute),
+			Timestamp:  testNow.Add(-6 * time.Minute),
 			MIMEType:   "image/jpeg",
 		}
 		metaData, err := json.Marshal(meta)
@@ -556,8 +571,11 @@ func TestTimeBasedPolicyHandler_IndexedEnforcement(t *testing.T) {
 		// Start enforcement - should build index on startup
 		handler.StartEnforcement(ctx, tempDir)
 
-		// Wait for enforcement to run
-		time.Sleep(250 * time.Millisecond)
+		// Poll until the background enforcement has deleted the files
+		require.Eventually(t, func() bool {
+			_, errM := os.Stat(metaPath)
+			return os.IsNotExist(errM)
+		}, 5*time.Second, time.Millisecond)
 
 		// File should be deleted
 		assert.NoFileExists(t, mediaPath)

@@ -70,6 +70,7 @@ func TestProviders_SamplingParamsReachWireOnAllPaths(t *testing.T) {
 				require.NoError(t, err)
 				defer func() { _ = p.Close() }()
 
+				providers.ResetWarnOnceStateForTest() // once-per-process warning; keep -count>1 repeatable
 				var logs bytes.Buffer
 				logger.SetOutput(&logs)
 				t.Cleanup(func() { logger.SetOutput(nil) })

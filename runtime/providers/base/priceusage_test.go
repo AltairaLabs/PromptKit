@@ -84,6 +84,7 @@ func TestPriceUsage_ExtraPricedUnitPreservesInvariant(t *testing.T) {
 // unpricedWarnOnce dedupes per-process by provider|capability|unit.
 func TestPriceUsage_LoudUnpricedWarns(t *testing.T) {
 	t.Run("nonzero unpriced unit with non-nil descriptor warns", func(t *testing.T) {
+		base.ResetUnpricedWarningsForTest() // once-per-process warning; keep -count>1 repeatable
 		var buf bytes.Buffer
 		logger.SetOutput(&buf)
 		defer logger.SetOutput(nil)
@@ -97,6 +98,7 @@ func TestPriceUsage_LoudUnpricedWarns(t *testing.T) {
 	})
 
 	t.Run("nil descriptor stays silent", func(t *testing.T) {
+		base.ResetUnpricedWarningsForTest() // once-per-process warning; keep -count>1 repeatable
 		var buf bytes.Buffer
 		logger.SetOutput(&buf)
 		defer logger.SetOutput(nil)

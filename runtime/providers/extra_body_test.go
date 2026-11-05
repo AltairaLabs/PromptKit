@@ -13,6 +13,7 @@ import (
 
 func captureExtraBodyLogs(t *testing.T) *bytes.Buffer {
 	t.Helper()
+	ResetWarnOnceStateForTest() // the warnings fire once per process; start each test fresh (-count>1)
 	var buf bytes.Buffer
 	logger.SetOutput(&buf)
 	t.Cleanup(func() { logger.SetOutput(nil) })

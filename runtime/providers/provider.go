@@ -97,6 +97,15 @@ const (
 // unsentParamOnce keys the provider|param pairs WarnUnsentParams has warned for.
 var unsentParamOnce sync.Map
 
+// ResetWarnOnceStateForTest forgets which once-per-process provider warnings
+// (unsent sampling parameters, extra_body collisions) have been emitted, so a
+// test that asserts on them passes when the test binary runs it more than once
+// (-count>1). Tests only.
+func ResetWarnOnceStateForTest() {
+	unsentParamOnce.Clear()
+	extraBodyCollisionsWarned.Clear()
+}
+
 // WarnUnsentParams logs, once per provider and parameter, each of params
 // (ParamTemperature, ParamTopP, ParamTopK, ParamFrequencyPenalty,
 // ParamPresencePenalty) that req sets but
