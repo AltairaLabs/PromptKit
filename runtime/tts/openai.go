@@ -310,6 +310,8 @@ func (s *OpenAIService) handleError(resp *http.Response) error {
 		}
 	}
 
+	cause = quotaCause(cause, resp.StatusCode, errResp.Error.Code, errResp.Error.Type)
+
 	return NewSynthesisError(
 		providerOpenAI,
 		errResp.Error.Code,
