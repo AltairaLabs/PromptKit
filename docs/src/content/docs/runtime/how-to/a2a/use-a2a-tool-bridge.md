@@ -147,6 +147,8 @@ conv, _ := sdk.Open("assistant.pack.json", "chat",
 )
 ```
 
+Each `WithA2ATools` call adds its bridge. If two bridges register the same tool name, `sdk.Open` fails with an error naming both.
+
 ---
 
 ## Input/Output Schema Generation

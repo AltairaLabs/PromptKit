@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -18,7 +19,7 @@ import (
 // path (agents section in pack) under a single capability.
 type A2ACapability struct {
 	// bridge path (explicit WithA2ATools)
-	bridge *a2a.ToolBridge
+	bridges []*a2a.ToolBridge
 
 	// builder-based agent bridges (from WithA2AAgent). Unlike the bridge
 	// path, these are handed over undiscovered: the capability fetches each
@@ -76,6 +77,9 @@ func (c *A2ACapability) Init(ctx CapabilityContext) error {
 	if err := c.discoverAgents(); err != nil {
 		return err
 	}
+	if err := c.checkDuplicateTools(); err != nil {
+		return err
+	}
 	p := ctx.Pack
 	if p.Agents != nil && len(p.Agents.Members) > 0 {
 		resolver := NewAgentToolResolver(p)
@@ -103,13 +107,7 @@ func (c *A2ACapability) RegisterTools(registry *tools.Registry) {
 // registerBridgeTools handles the bridge path (explicit WithA2ATools and WithA2AAgent).
 func (c *A2ACapability) registerBridgeTools(registry *tools.Registry) {
 	hasTools := false
-	if c.bridge != nil {
-		for _, td := range c.bridge.GetToolDescriptors() {
-			_ = registry.Register(td)
-			hasTools = true
-		}
-	}
-	for _, bridge := range c.agentBridges {
+	for _, bridge := range c.allBridges() {
 		for _, td := range bridge.GetToolDescriptors() {
 			_ = registry.Register(td)
 			hasTools = true
@@ -118,6 +116,47 @@ func (c *A2ACapability) registerBridgeTools(registry *tools.Registry) {
 	if hasTools {
 		registry.RegisterExecutor(c.bridgeExecutor())
 	}
+}
+
+// allBridges returns every non-nil bridge: explicit (WithA2ATools) first, then
+// builder agents (WithA2AAgent).
+func (c *A2ACapability) allBridges() []*a2a.ToolBridge {
+	all := make([]*a2a.ToolBridge, 0, len(c.bridges)+len(c.agentBridges))
+	for _, b := range slices.Concat(c.bridges, c.agentBridges) {
+		if b != nil {
+			all = append(all, b)
+		}
+	}
+	return all
+}
+
+// bridgeLabel names a bridge in errors: the agent URL when known, else the
+// URL on its tool, else its position.
+func (c *A2ACapability) bridgeLabel(b *a2a.ToolBridge, td *tools.ToolDescriptor, idx int) string {
+	if s, ok := c.agentSettings[b]; ok && s.url != "" {
+		return s.url
+	}
+	if td.A2AConfig != nil && td.A2AConfig.AgentURL != "" {
+		return td.A2AConfig.AgentURL
+	}
+	return fmt.Sprintf("bridge #%d", idx+1)
+}
+
+// checkDuplicateTools fails when two bridges register the same tool name, so
+// one agent's tools never silently shadow another's.
+func (c *A2ACapability) checkDuplicateTools() error {
+	owner := map[string]string{}
+	for i, b := range c.allBridges() {
+		for _, td := range b.GetToolDescriptors() {
+			label := c.bridgeLabel(b, td, i)
+			if prev, dup := owner[td.Name]; dup {
+				return fmt.Errorf("a2a tool %q is registered by both %s and %s; "+
+					"tool names must be unique across A2A bridges", td.Name, prev, label)
+			}
+			owner[td.Name] = label
+		}
+	}
+	return nil
 }
 
 // bridgeExecutor returns the executor bridge tools run on: the host's
@@ -129,13 +168,8 @@ func (c *A2ACapability) bridgeExecutor() tools.Executor {
 	exec := sdka2a.NewExecutor()
 	// Each bridge has already fetched its agent's card; hand it over so the
 	// executor calls the interface it declares without fetching it again.
-	if c.bridge != nil {
-		c.bridge.ShareCards(exec)
-	}
-	for _, bridge := range c.agentBridges {
-		if bridge != nil {
-			bridge.ShareCards(exec)
-		}
+	for _, bridge := range c.allBridges() {
+		bridge.ShareCards(exec)
 	}
 	return exec
 }
