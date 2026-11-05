@@ -16,6 +16,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -930,7 +931,10 @@ func TestInitEventBus(t *testing.T) {
 	})
 
 	t.Run("wires metrics collector", func(t *testing.T) {
-		collector := metrics.NewCollector(metrics.CollectorOpts{Namespace: "test"})
+		collector := metrics.NewCollector(metrics.CollectorOpts{
+			Registerer: prometheus.NewRegistry(), // a private registry, so -count>1 does not re-register on the default one
+			Namespace:  "test",
+		})
 		cfg := &config{
 			metricsCollector:      collector,
 			metricsInstanceLabels: map[string]string{"env": "test"},

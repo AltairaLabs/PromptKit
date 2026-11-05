@@ -60,6 +60,7 @@ func TestResolveLLMPricing_Order(t *testing.T) {
 // descriptor exists for: a paid provider's new model is reported, not billed
 // as a silent $0.
 func TestResolveLLMPricing_UnknownModelWarns(t *testing.T) {
+	base.ResetUnpricedWarnings() // once-per-process warning; keep -count>1 repeatable
 	var buf bytes.Buffer
 	logger.SetOutput(&buf)
 	defer logger.SetOutput(nil)

@@ -35,6 +35,17 @@ func WithBaseDir(baseDir string) Option {
 	}
 }
 
+// WithClock sets the function the handler uses to read the current time when
+// deciding whether media has expired. It defaults to time.Now; tests inject a
+// fixed clock so expiry does not depend on the wall clock.
+func WithClock(now func() time.Time) Option {
+	return func(h *TimeBasedPolicyHandler) {
+		if now != nil {
+			h.now = now
+		}
+	}
+}
+
 // expiryEntry tracks a file and its expiration time in the in-memory index.
 type expiryEntry struct {
 	metaPath  string
@@ -57,6 +68,9 @@ type TimeBasedPolicyHandler struct {
 
 	// baseDir is the directory to enforce policies in (used for auto-start)
 	baseDir string
+
+	// now returns the current time; time.Now unless overridden by WithClock.
+	now func() time.Time
 
 	// autoStart controls whether enforcement starts automatically
 	autoStart bool
@@ -100,6 +114,7 @@ func NewTimeBasedPolicyHandler(enforcementInterval time.Duration, opts ...Option
 		stopCh:              make(chan struct{}),
 		doneCh:              make(chan struct{}),
 		expiryIndex:         make(map[string]expiryEntry),
+		now:                 time.Now,
 	}
 
 	for _, opt := range opts {
@@ -166,7 +181,7 @@ func (h *TimeBasedPolicyHandler) EnforcePolicy(ctx context.Context, baseDir stri
 
 // enforceFromIndex checks only files in the expiry index whose time has passed.
 func (h *TimeBasedPolicyHandler) enforceFromIndex(_ context.Context) error {
-	now := time.Now()
+	now := h.now()
 	deleted := 0
 	errors := 0
 
@@ -203,7 +218,7 @@ func (h *TimeBasedPolicyHandler) enforceFromIndex(_ context.Context) error {
 // enforceFromWalk is the original full directory walk implementation, used
 // when no expiry index has been built.
 func (h *TimeBasedPolicyHandler) enforceFromWalk(_ context.Context, baseDir string) error {
-	now := time.Now()
+	now := h.now()
 	deleted := 0
 	errors := 0
 
