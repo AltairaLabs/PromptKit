@@ -185,14 +185,13 @@ func ragJudgeCall(
 	return result, nil
 }
 
-// ragErrorResult produces a standardized failure result with a score
-// of zero so any pass_threshold treats the eval as failed.
+// ragErrorResult reports a RAG or safety judge that could not run: no judge
+// resolved, the judge call failed, or the input it grades was missing. It is
+// errorResult, as llm_judge uses: an eval that did not run has not measured 0,
+// and Error is what routes it to eval.failed rather than eval.completed. Score
+// stays 0 so assertions and guardrails keep failing closed on it.
 func ragErrorResult(evalType, msg string) *evals.EvalResult {
-	return &evals.EvalResult{
-		Type:        evalType,
-		Score:       boolScore(false),
-		Explanation: msg,
-	}
+	return errorResult(evalType, msg)
 }
 
 // ragNoContextMessage is the standard explanation when a handler that

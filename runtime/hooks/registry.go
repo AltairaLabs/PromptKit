@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
@@ -235,44 +236,45 @@ func (r *Registry) RunToolResultRewriters(ctx context.Context, req ToolRequest, 
 
 // --- Session hooks ---
 
-// RunSessionStart executes all session hooks' OnSessionStart in order.
-// First error short-circuits.
+// RunSessionStart executes every session hook's OnSessionStart in order. See
+// runSessionHooks for how failures are handled.
 func (r *Registry) RunSessionStart(ctx context.Context, event SessionEvent) error {
-	if r == nil {
-		return nil
-	}
-	for _, h := range r.sessionHooks {
-		if err := h.OnSessionStart(ctx, event); err != nil {
-			return err
-		}
-	}
-	return nil
+	return r.runSessionHooks("start", event, func(h SessionHook) error {
+		return h.OnSessionStart(ctx, event)
+	})
 }
 
-// RunSessionUpdate executes all session hooks' OnSessionUpdate in order.
-// First error short-circuits.
+// RunSessionUpdate executes every session hook's OnSessionUpdate in order. See
+// runSessionHooks for how failures are handled.
 func (r *Registry) RunSessionUpdate(ctx context.Context, event SessionEvent) error {
-	if r == nil {
-		return nil
-	}
-	for _, h := range r.sessionHooks {
-		if err := h.OnSessionUpdate(ctx, event); err != nil {
-			return err
-		}
-	}
-	return nil
+	return r.runSessionHooks("update", event, func(h SessionHook) error {
+		return h.OnSessionUpdate(ctx, event)
+	})
 }
 
-// RunSessionEnd executes all session hooks' OnSessionEnd in order.
-// First error short-circuits.
+// RunSessionEnd executes every session hook's OnSessionEnd in order. See
+// runSessionHooks for how failures are handled.
 func (r *Registry) RunSessionEnd(ctx context.Context, event SessionEvent) error {
+	return r.runSessionHooks("end", event, func(h SessionHook) error {
+		return h.OnSessionEnd(ctx, event)
+	})
+}
+
+// runSessionHooks calls fn for every session hook. Session hooks only observe,
+// so a failing hook does not stop the ones after it: each failure is logged at
+// WARN with the hook's name, and all of them are returned joined (nil when
+// none failed). Callers that discard the error still leave a trace in the log.
+func (r *Registry) runSessionHooks(eventName string, event SessionEvent, fn func(SessionHook) error) error {
 	if r == nil {
 		return nil
 	}
+	var errs []error
 	for _, h := range r.sessionHooks {
-		if err := h.OnSessionEnd(ctx, event); err != nil {
-			return err
+		if err := fn(h); err != nil {
+			logger.Warn("session hook failed",
+				"hook", h.Name(), "event", eventName, "session_id", event.SessionID, "error", err)
+			errs = append(errs, fmt.Errorf("session hook %s (%s): %w", h.Name(), eventName, err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }

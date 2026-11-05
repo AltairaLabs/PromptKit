@@ -195,25 +195,13 @@ func (b *PipelineBuilder) validate() error {
 		return err
 	}
 
-	// Check for duplicate stage names
-	stageNames := make(map[string]bool)
-	for _, stage := range b.stages {
-		if stageNames[stage.Name()] {
-			return fmt.Errorf("%w: %s", ErrDuplicateStageName, stage.Name())
-		}
-		stageNames[stage.Name()] = true
+	stageNames, err := b.validateStages()
+	if err != nil {
+		return err
 	}
 
-	// Validate all edges reference existing stages
-	for fromStage, toStages := range b.edges {
-		if !stageNames[fromStage] {
-			return fmt.Errorf("%w: %s (referenced in edges)", ErrStageNotFound, fromStage)
-		}
-		for _, toStage := range toStages {
-			if !stageNames[toStage] {
-				return fmt.Errorf("%w: %s (referenced in edges from %s)", ErrStageNotFound, toStage, fromStage)
-			}
-		}
+	if err := b.validateEdges(stageNames); err != nil {
+		return err
 	}
 
 	// Check for cycles using depth-first search
@@ -229,6 +217,39 @@ func (b *PipelineBuilder) validate() error {
 	// Validate format capabilities between connected stages (logs warnings)
 	ValidateCapabilities(b.stages, b.edges)
 
+	return nil
+}
+
+// validateStages rejects duplicate stage names and runs per-stage build
+// validation. It returns the set of stage names.
+func (b *PipelineBuilder) validateStages() (map[string]bool, error) {
+	stageNames := make(map[string]bool)
+	for _, stage := range b.stages {
+		if stageNames[stage.Name()] {
+			return nil, fmt.Errorf("%w: %s", ErrDuplicateStageName, stage.Name())
+		}
+		stageNames[stage.Name()] = true
+		if bv, ok := stage.(buildValidator); ok {
+			if err := bv.validateBuild(); err != nil {
+				return nil, fmt.Errorf("%w: stage %s: %w", ErrInvalidPipeline, stage.Name(), err)
+			}
+		}
+	}
+	return stageNames, nil
+}
+
+// validateEdges checks that all edges reference existing stages.
+func (b *PipelineBuilder) validateEdges(stageNames map[string]bool) error {
+	for fromStage, toStages := range b.edges {
+		if !stageNames[fromStage] {
+			return fmt.Errorf("%w: %s (referenced in edges)", ErrStageNotFound, fromStage)
+		}
+		for _, toStage := range toStages {
+			if !stageNames[toStage] {
+				return fmt.Errorf("%w: %s (referenced in edges from %s)", ErrStageNotFound, toStage, fromStage)
+			}
+		}
+	}
 	return nil
 }
 

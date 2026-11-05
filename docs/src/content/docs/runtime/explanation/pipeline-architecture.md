@@ -274,11 +274,15 @@ Channel-based communication handles backpressure without extra machinery:
 The builder constructs pipelines with a fluent API:
 
 ```go
+// Prompt, template and provider stages share the turn's system prompt through
+// one TurnState; Build rejects a prompt stage constructed without one.
+turnState := stage.NewTurnState()
 pipeline, err := stage.NewPipelineBuilder().
     Chain(
         stage.NewStateStoreLoadStage(stateConfig),
-        stage.NewPromptAssemblyStage(registry, taskType, vars),
-        stage.NewProviderStage(provider, tools, policy, config),
+        stage.NewPromptAssemblyStageWithTurnState(registry, taskType, vars, turnState),
+        stage.NewTemplateStageWithTurnState(nil, turnState),
+        stage.NewProviderStageWithTurnState(provider, tools, policy, config, nil, nil, turnState),
         stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),
     ).
     Build()

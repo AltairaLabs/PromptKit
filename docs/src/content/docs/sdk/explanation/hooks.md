@@ -63,7 +63,7 @@ A `ToolHook` decision works differently. A non-`Allow` decision from `BeforeExec
 
 Eval hooks mutate directly: the hook receives a pointer to the result and mutates it in place. There is no decision struct. The hook is observational by contract, but it may edit the observation before it propagates (redact explanations, enrich details, add tracing metadata). No pipeline gating happens either way.
 
-Session hooks return a plain Go `error`. The SDK discards that error and does not log it, so a failing lifecycle hook cannot block a conversation and leaves no trace. Handle and report failures inside the hook. Use session hooks for pure observation, not for gating or content modification.
+Session hooks return a plain Go `error`. The SDK discards that error, so a failing lifecycle hook cannot block a conversation. The hook registry logs each failure at WARN with the hook's name, the event (`start`, `update` or `end`) and the session ID, and a failing hook does not stop the session hooks registered after it. Use session hooks for pure observation, not for gating or content modification.
 
 ## Execution ordering
 
@@ -102,7 +102,7 @@ Four consequences that a flat list hides:
 - Retries happen below the hook boundary. One round is one `BeforeCall`/`AfterCall` pair even if the transport retried the HTTP request several times. Hooks never see retries.
 - On the streaming path, `OnChunk` fires before `provider.call.completed`. Chunks are consumed as they arrive, and the completion event carries the totals (tokens, cost, finish reason) that are known only once the stream closes. A chunk interceptor that aborts a stream runs before any completion event for that call.
 
-Within a single phase, multiple hooks run in registration order. For decision-based hooks the first non-`Allow` decision short-circuits. Session hooks stop at the first error. For eval hooks every registered hook always runs, and a panic in one does not block the others.
+Within a single phase, multiple hooks run in registration order. For decision-based hooks the first non-`Allow` decision short-circuits. Every session hook for the event runs, and the registry logs each failure. For eval hooks every registered hook always runs, and a panic in one does not block the others.
 
 ## Error handling and safety
 
@@ -159,7 +159,7 @@ Prefer streaming guardrails when latency matters. A `ChunkInterceptor` can abort
 
 Keep hooks stateless when you can. Stateless hooks are safe under concurrent use across conversations.
 
-Return an error value instead of panicking. If a provider hook can fail, return `Deny`. A session hook returns an error, but the SDK discards it, so report the failure yourself.
+Return an error value instead of panicking. If a provider hook can fail, return `Deny`. A session hook returns an error, which the registry logs and the SDK then discards.
 
 ## See also
 

@@ -44,7 +44,7 @@ func newTestConversation() *Conversation {
 	// Create a minimal textSession for tests - requires a pipeline with at least one stage
 	promptRegistry := pack.ToPromptRegistry(p)
 	minimalPipeline, _ := stage.NewPipelineBuilder().
-		Chain(stage.NewPromptAssemblyStage(promptRegistry, "chat", nil)).
+		Chain(stage.NewPromptAssemblyStageWithTurnState(promptRegistry, "chat", nil, stage.NewTurnState())).
 		Build()
 
 	sess, err := session.NewUnarySession(session.UnarySessionConfig{

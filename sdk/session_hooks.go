@@ -80,9 +80,9 @@ func (d *sessionHookDispatcher) TurnIndex() int {
 	return int(d.turns.Load())
 }
 
-// dispatch builds a SessionEvent and calls fn. Errors from hooks are intentionally
-// discarded (they are logged inside the registry) so that hook failures never block
-// SDK operations.
+// dispatch builds a SessionEvent and calls fn. The returned error is discarded so
+// that hook failures never block SDK operations; the registry has already logged
+// each failing hook by name at WARN and run the remaining hooks.
 func (d *sessionHookDispatcher) dispatch(
 	ctx context.Context,
 	fn func(context.Context, hooks.SessionEvent) error,

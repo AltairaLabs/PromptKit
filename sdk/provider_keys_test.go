@@ -123,3 +123,71 @@ func TestDeclaredRequirementKeys_MalformedRequires(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "duplicate key")
 }
+
+// packWithPackLevelEval builds a pack declaring one LLM provider and carrying
+// one pack-level eval that names checkKey, with a prompt that has no checks.
+func packWithPackLevelEval(declaredKey, checkKey string) (*pack.Pack, *pack.Prompt) {
+	p, _ := packRequiring(declaredKey, "llm", "toxicity", declaredKey)
+	p.Evals = []*packspec.Eval{
+		{ID: "pack-tox", Type: "toxicity", Params: map[string]any{"provider": checkKey}},
+	}
+	return p, &pack.Prompt{}
+}
+
+// Pack-level evals run on every turn just like prompt-level ones, so Open must
+// check their providers too rather than let every turn fail instead (#2334).
+func TestCheckProviderKeys_PackLevelEvalUndeclaredName(t *testing.T) {
+	p, prompt := packWithPackLevelEval("grader", "graderr")
+	cfg := &config{}
+	ensureProviderPool(cfg)
+	cfg.providers.Register(mock.NewProvider("grader", "mock-model", false))
+
+	err := checkProviderKeys(p, prompt, cfg)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errProviderKeys)
+	assert.Contains(t, err.Error(), "does not declare in requires")
+	assert.Contains(t, err.Error(), "graderr")
+}
+
+func TestCheckProviderKeys_PackLevelEvalUnbound(t *testing.T) {
+	p, prompt := packWithPackLevelEval("grader", "grader")
+
+	err := checkProviderKeys(p, prompt, &config{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no providers wired at all")
+}
+
+func TestCheckProviderKeys_PackLevelEvalWrongKind(t *testing.T) {
+	p, prompt := packWithPackLevelEval("grader", "grader")
+	cfg := &config{}
+	require.NoError(t, cfg.registerInferenceProvider("grader", textClassifierStub{}))
+
+	err := checkProviderKeys(p, prompt, cfg)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "runs completions")
+	assert.Contains(t, err.Error(), "toxicity")
+}
+
+// A prompt-level eval with the same ID replaces the pack-level one at run
+// time, so only the replacement's provider is checked.
+func TestCheckProviderKeys_PromptEvalOverridesPackEval(t *testing.T) {
+	p, prompt := packWithPackLevelEval("grader", "graderr")
+	prompt.Evals = []*packspec.Eval{
+		{ID: "pack-tox", Type: "toxicity", Params: map[string]any{"provider": "grader"}},
+	}
+	cfg := &config{}
+	ensureProviderPool(cfg)
+	cfg.providers.Register(mock.NewProvider("grader", "mock-model", false))
+
+	assert.NoError(t, checkProviderKeys(p, prompt, cfg))
+
+	// And the override is what is checked: break its key and the gate fails.
+	prompt.Evals[0].Params["provider"] = "nope"
+	err := checkProviderKeys(p, prompt, cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `"nope"`)
+	assert.NotContains(t, err.Error(), "graderr")
+}

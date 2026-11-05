@@ -68,7 +68,21 @@ var (
 	// ErrDuplicateFanInEdge is returned when a stage receives multiple edges from
 	// the same upstream stage, creating a duplicate input source.
 	ErrDuplicateFanInEdge = errors.New("duplicate upstream edge detected")
+
+	// ErrTurnStateRequired is returned by Build when a TemplateStage or
+	// PromptAssemblyStage has no TurnState. Those stages share the loaded and
+	// rendered system prompt through TurnState; without one they do nothing and
+	// the provider receives an empty system prompt. Construct them with
+	// NewTemplateStageWithTurnState / NewPromptAssemblyStageWithTurnState.
+	ErrTurnStateRequired = errors.New("stage requires a shared TurnState")
 )
+
+// buildValidator is implemented by stages that can tell, before the pipeline
+// runs, that they were constructed in a way that cannot work. Build calls it
+// on every stage and fails on the first error.
+type buildValidator interface {
+	validateBuild() error
+}
 
 // StageError wraps an error with stage information.
 //

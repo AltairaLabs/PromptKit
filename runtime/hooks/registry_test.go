@@ -519,32 +519,54 @@ func TestSessionHooks_AllSucceed(t *testing.T) {
 	}
 }
 
-func TestSessionHooks_ErrorShortCircuits(t *testing.T) {
+// A failing session hook must not stop the others: session hooks only observe,
+// so one observer's failure is no reason to blind the rest. Every failure is
+// returned, and logged with the hook's name and the event (#2334).
+func TestSessionHooks_ErrorRunsRemainingHooksAndLogsEach(t *testing.T) {
 	errBoom := errors.New("boom")
-	called := false
-	r := NewRegistry(
-		WithSessionHook(&stubSessionHook{
-			name: "failer",
-			updateFn: func(_ context.Context, _ SessionEvent) error {
-				return errBoom
-			},
-		}),
-		WithSessionHook(&stubSessionHook{
-			name: "never-reached",
-			updateFn: func(_ context.Context, _ SessionEvent) error {
-				called = true
-				return nil
-			},
-		}),
-	)
-	ctx := context.Background()
-
-	err := r.RunSessionUpdate(ctx, SessionEvent{})
-	if !errors.Is(err, errBoom) {
-		t.Errorf("expected errBoom, got %v", err)
+	errBang := errors.New("bang")
+	fail := func(err error) func(context.Context, SessionEvent) error {
+		return func(context.Context, SessionEvent) error { return err }
 	}
-	if called {
-		t.Error("second session hook should not have been called")
+	tests := []struct {
+		event string
+		hook  func(h *stubSessionHook, fn func(context.Context, SessionEvent) error)
+		run   func(*Registry) error
+	}{
+		{"start", func(h *stubSessionHook, fn func(context.Context, SessionEvent) error) { h.startFn = fn },
+			func(r *Registry) error { return r.RunSessionStart(context.Background(), SessionEvent{SessionID: "s-1"}) }},
+		{"update", func(h *stubSessionHook, fn func(context.Context, SessionEvent) error) { h.updateFn = fn },
+			func(r *Registry) error { return r.RunSessionUpdate(context.Background(), SessionEvent{SessionID: "s-1"}) }},
+		{"end", func(h *stubSessionHook, fn func(context.Context, SessionEvent) error) { h.endFn = fn },
+			func(r *Registry) error { return r.RunSessionEnd(context.Background(), SessionEvent{SessionID: "s-1"}) }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.event, func(t *testing.T) {
+			first := &stubSessionHook{name: "first-failer"}
+			tc.hook(first, fail(errBoom))
+			called := false
+			middle := &stubSessionHook{name: "observer"}
+			tc.hook(middle, func(context.Context, SessionEvent) error { called = true; return nil })
+			last := &stubSessionHook{name: "second-failer"}
+			tc.hook(last, fail(errBang))
+			r := NewRegistry(WithSessionHook(first), WithSessionHook(middle), WithSessionHook(last))
+
+			var err error
+			logs := captureHookLogs(t, func() { err = tc.run(r) })
+
+			if !errors.Is(err, errBoom) || !errors.Is(err, errBang) {
+				t.Errorf("want both hook errors returned, got %v", err)
+			}
+			if !called {
+				t.Error("a hook after a failing one was not called")
+			}
+			for _, want := range []string{"level=WARN", "hook=first-failer", "hook=second-failer",
+				"event=" + tc.event, "session_id=s-1", "error=boom", "error=bang"} {
+				if !strings.Contains(logs, want) {
+					t.Errorf("log missing %q:\n%s", want, logs)
+				}
+			}
+		})
 	}
 }
 
