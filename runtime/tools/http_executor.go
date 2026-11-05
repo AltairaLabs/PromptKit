@@ -69,6 +69,12 @@ type HTTPExecutor struct {
 	// ResponseMapper customizes how HTTP responses map to tool results.
 	// If nil, DefaultResponseMapper is used.
 	ResponseMapper ResponseMapper
+
+	// PreRequest, if set, is called with every request after it is built
+	// (URL rendered, headers applied) and before it is sent. It may modify the
+	// request, for example to add a freshly refreshed auth token or a
+	// signature. An error it returns fails the tool call and nothing is sent.
+	PreRequest func(req *http.Request) error
 }
 
 // NewHTTPExecutor creates a new HTTP executor with the default HTTP client
@@ -206,12 +212,32 @@ func (e *HTTPExecutor) responseMapper() ResponseMapper {
 	return &DefaultResponseMapper{}
 }
 
-// buildRequest creates an HTTP request from the config and args.
-// When a RequestMapping is configured, it uses the mapper pipeline for URL
-// templating, argument partitioning, body building, and header rendering.
+// buildRequest creates an HTTP request from the config and args, then runs
+// PreRequest on it.
+func (e *HTTPExecutor) buildRequest(
+	ctx context.Context,
+	cfg *HTTPConfig,
+	args json.RawMessage,
+) (*http.Request, error) {
+	req, err := e.newRequest(ctx, cfg, args)
+	if err != nil {
+		return nil, err
+	}
+	if e.PreRequest != nil {
+		if err := e.PreRequest(req); err != nil {
+			return nil, fmt.Errorf("pre-request hook failed: %w", err)
+		}
+	}
+	return req, nil
+}
+
+// newRequest creates an HTTP request from the config and args.
+// When a RequestMapping is configured, or the URL contains a template, it uses
+// the mapper pipeline for URL templating, argument partitioning, body
+// building, and header rendering, whether or not the call has arguments.
 // Otherwise, it falls back to the original behavior: GET args become query
 // params, POST/PUT/PATCH args become a JSON body.
-func (e *HTTPExecutor) buildRequest(
+func (e *HTTPExecutor) newRequest(
 	ctx context.Context,
 	cfg *HTTPConfig,
 	args json.RawMessage,
@@ -223,8 +249,10 @@ func (e *HTTPExecutor) buildRequest(
 
 	hasArgs := len(args) > 0 && string(args) != jsonNull && string(args) != "{}"
 
-	// If a request mapping is configured, use the mapper pipeline.
-	if cfg.Request != nil && hasArgs {
+	if cfg.Request != nil || strings.Contains(cfg.URL, "{{") {
+		if !hasArgs {
+			args = json.RawMessage("{}")
+		}
 		return e.buildMappedRequest(ctx, cfg, method, args)
 	}
 
@@ -314,6 +342,11 @@ func urlAuthorityIsTemplated(tmpl string) bool {
 
 // buildMappedRequest uses the RequestMapper pipeline to build a request
 // with URL templating, argument partitioning, body shaping, and header rendering.
+//
+// A tool with a templated URL but no request block is mapped with an empty
+// RequestMapping: the template's arguments go into the path, and the rest go
+// where the unmapped path sends them (query for GET/HEAD/DELETE, JSON body for
+// POST/PUT/PATCH).
 func (e *HTTPExecutor) buildMappedRequest(
 	ctx context.Context,
 	cfg *HTTPConfig,
@@ -335,10 +368,26 @@ func (e *HTTPExecutor) buildMappedRequest(
 		return nil, fmt.Errorf("URL template rendering failed: %w", err)
 	}
 
-	queryArgs, _, bodyArgs := mapper.PartitionArgs(argsMap, cfg.Request, cfg.URL)
+	mapping := cfg.Request
+	if mapping == nil {
+		mapping = &RequestMapping{}
+	}
+
+	queryArgs, _, bodyArgs := mapper.PartitionArgs(argsMap, mapping, cfg.URL)
+	if queryArgs == nil {
+		queryArgs = make(map[string]any)
+	}
+	if bodyArgs == nil {
+		bodyArgs = make(map[string]any)
+	}
+	if cfg.Request == nil && !isBodyMethod(method) {
+		for k, v := range bodyArgs {
+			queryArgs[k] = v
+		}
+	}
 
 	// Merge static query params (config-defined values the LLM doesn't control).
-	for k, v := range cfg.Request.StaticQuery {
+	for k, v := range mapping.StaticQuery {
 		queryArgs[k] = v
 	}
 
@@ -347,16 +396,13 @@ func (e *HTTPExecutor) buildMappedRequest(
 		return nil, err
 	}
 
-	// Merge static body fields for POST/PUT/PATCH.
-	if isBodyMethod(method) {
-		for k, v := range cfg.Request.StaticBody {
-			bodyArgs[k] = v
-		}
-	}
-
 	var body io.Reader
 	if isBodyMethod(method) {
-		body = buildMappedBody(mapper, bodyArgs, cfg.Request.BodyMapping)
+		// Merge static body fields for POST/PUT/PATCH.
+		for k, v := range mapping.StaticBody {
+			bodyArgs[k] = v
+		}
+		body = buildMappedBody(mapper, bodyArgs, mapping.BodyMapping)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, targetURL, body)
@@ -368,12 +414,12 @@ func (e *HTTPExecutor) buildMappedRequest(
 		req.Header.Set(headerContentType, mimeJSON)
 	}
 
-	if err := e.applyMappedHeaders(req, mapper, cfg.Request.HeaderParams, argsMap); err != nil {
+	if err := e.applyMappedHeaders(req, mapper, mapping.HeaderParams, argsMap); err != nil {
 		return nil, err
 	}
 
 	// Apply static headers from mapping config.
-	for k, v := range cfg.Request.StaticHeaders {
+	for k, v := range mapping.StaticHeaders {
 		req.Header.Set(k, v)
 	}
 

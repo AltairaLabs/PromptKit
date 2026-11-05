@@ -18,6 +18,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync/atomic"
 
 	"github.com/AltairaLabs/PromptKit/sdk/v2"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
@@ -58,17 +59,7 @@ func main() {
 
 	// --- Pattern 2: Pre-request hook ---
 	// Inject a correlation ID and dynamic auth token into every request.
-	var requestCount int
-	orderCfg := sdktools.NewHTTPToolConfig("https://api.example.com/orders",
-		sdktools.WithMethod("GET"),
-		sdktools.WithPreRequest(func(req *http.Request) error {
-			requestCount++
-			req.Header.Set("X-Correlation-ID", fmt.Sprintf("req-%04d", requestCount))
-			req.Header.Set("Authorization", "Bearer dynamic-token-here")
-			return nil
-		}),
-	)
-	conv.OnToolCtx("get_orders", orderCfg.HandlerCtx())
+	conv.OnToolCtx("get_orders", ordersToolConfig("https://api.example.com").HandlerCtx())
 
 	// --- Pattern 3: Response post-processing + field redaction ---
 	// Strip sensitive fields before sending to the LLM, add computed fields.
@@ -98,4 +89,20 @@ func main() {
 		log.Fatalf("Send failed: %v", err)
 	}
 	fmt.Println("Response:", resp.Text())
+}
+
+// ordersToolConfig calls GET {baseURL}/users/{user_id}/orders. The user_id
+// argument fills the path template, and the pre-request hook adds a
+// correlation ID and an auth token to every request.
+func ordersToolConfig(baseURL string) *sdktools.HTTPToolConfig {
+	var requestCount atomic.Int64
+	return sdktools.NewHTTPToolConfig(baseURL+"/users/{{.user_id}}/orders",
+		sdktools.WithMethod("GET"),
+		sdktools.WithPreRequest(func(req *http.Request) error {
+			n := requestCount.Add(1)
+			req.Header.Set("X-Correlation-ID", fmt.Sprintf("req-%04d", n))
+			req.Header.Set("Authorization", "Bearer dynamic-token-here")
+			return nil
+		}),
+	)
 }
