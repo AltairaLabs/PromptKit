@@ -139,7 +139,8 @@ var methodNames = map[ProtocolVersion]map[Operation]string{
 
 // Method returns version v's JSON-RPC method name for op (1.0's for any
 // version other than 0.3). 0.3 has no ListTasks; the legacy PromptKit name is
-// returned for it.
+// returned for it. It returns "" for OpPushNotificationConfig, which has several
+// methods, and for OpUnknown.
 func (v ProtocolVersion) Method(op Operation) string {
 	if v != ProtocolVersion03 {
 		v = ProtocolVersion10
@@ -162,8 +163,8 @@ func (card *AgentCard) declaredVersion() (ProtocolVersion, bool) {
 }
 
 // PreferredVersion picks the protocol version to speak to the agent that
-// published card: 1.0 when any JSON-RPC interface declares it (or the card
-// declares nothing), otherwise 0.3.
+// published card: 1.0 when any JSON-RPC interface declares it, or when the card
+// declares no interfaces or none that use JSON-RPC; otherwise 0.3.
 func (card *AgentCard) PreferredVersion() ProtocolVersion {
 	if card == nil || len(card.SupportedInterfaces) == 0 {
 		return ProtocolVersion10

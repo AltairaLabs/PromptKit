@@ -17,8 +17,8 @@ const (
 // from assistant tool calls matched with their tool-role results, and pulls
 // workflow metadata from message Meta fields.
 //
-// This is the canonical way to build an EvalContext outside of a live conversation.
-// Both Arena (EvalOrchestrator) and the SDK (Evaluate) use this function.
+// This is the canonical way to build an EvalContext outside of a live
+// conversation. The SDK's Evaluate uses it, as does PromptArena.
 func BuildEvalContext(
 	messages []types.Message,
 	turnIndex int,
@@ -54,26 +54,16 @@ func BuildEvalContext(
 // BuildGuardrailEvalContext constructs an EvalContext for a guardrail, which
 // judges one specific message rather than scanning a transcript.
 //
-// Two things make this different from BuildEvalContext:
+// It differs from BuildEvalContext in two ways. CurrentOutput is the
+// caller-supplied currentOutput rather than the last assistant message, because
+// an input guardrail judges the user's message, and ContentScope is set to
+// ContentScopeCurrent. ToolCalls, ToolsOffered, Extras, Metadata and PriorResults
+// are derived from the message history exactly as BuildEvalContext derives them,
+// so a handler sees the same data either way.
 //
-// It does NOT infer CurrentOutput from the last assistant turn. An input
-// guardrail judges the *user's* message, so deriving the content under test
-// from assistant messages makes a content check silently pass everything. The
-// caller states the content, and ContentScope is pinned to
-// ContentScopeCurrent to match.
-//
-// Everything else is derived from the same message history BuildEvalContext
-// uses. factory.go promises that any registered eval handler can serve as a
-// guardrail, so a handler must see the same ToolCalls, Extras, Metadata and
-// PriorResults either way. A context with only three fields set leaves ~30
-// ToolCalls-reading handlers blind, makes cost_budget compute zero spend and
-// never fire, and makes state_is report "no workflow state", which scores 0; a
-// score below 1.0 means enforce, so it would block every turn.
-//
-// TurnIndex, SessionID, PromptID and Variables are still absent: unlike the
-// rest they cannot be derived from the message history, and the hook boundary
-// does not carry them. Handlers depending on those remain unsuitable as
-// guardrails.
+// TurnIndex, SessionID, PromptID and Variables are left unset because they
+// cannot be derived from the message history. Handlers that depend on them are
+// unsuitable as guardrails.
 func BuildGuardrailEvalContext(
 	messages []types.Message, currentOutput string, metadata map[string]any,
 ) *EvalContext {
@@ -92,23 +82,14 @@ func BuildGuardrailEvalContext(
 // SeedBudgetMetadata fills in the spend, token and latency values the budget
 // eval handlers read, deriving them from data the caller already holds.
 //
-// cost_budget reads total_cost/input_tokens/output_tokens and latency_budget
-// reads latency_ms, all off EvalContext.Metadata. Without those values on the
-// guardrail hook path, cost_budget computes zero spend and never fires, while
-// latency_budget treats its missing key as a hard fail (scoring 0, which a
-// guardrail reads as enforce) and so blocks every turn regardless of actual
-// latency.
+// It returns a copy of metadata with total_cost, input_tokens, output_tokens and
+// cached_tokens summed from the CostInfo of every message, and latency_ms (as a
+// float64) when latencyMs is non-nil. The cost_budget handler reads the cost and
+// token keys and latency_budget reads latency_ms. Pass latencyMs as nil where no
+// call has completed yet, such as for an input-direction guardrail.
 //
-// Neither value needs threading through the pipeline. Spend and tokens
-// accumulate on per-message CostInfo (the same source sumHistoryCost totals for
-// the tool loop's own budget check), and latency arrives on the hook's
-// ProviderResponse. Pass latencyMs as nil where no call has completed yet — an
-// input-direction guardrail has no latency to judge, and inventing a zero there
-// would silently report every prospective call as instant.
-//
-// Caller-supplied values win: a host tracking session-wide spend across turns
-// puts its own total_cost on the request metadata, and per-request derivation
-// must not quietly replace it. The input map is never mutated.
+// Values already present in metadata win over the derived ones. The input map is
+// never mutated.
 func SeedBudgetMetadata(
 	metadata map[string]any, messages []types.Message, latencyMs *int64,
 ) map[string]any {
@@ -175,10 +156,10 @@ func workflowExtras(messages []types.Message, metadata map[string]any) map[strin
 	return extras
 }
 
-// MetaToolsOffered re-exports the message-meta key carrying the tool names a
-// turn handed the provider. ProviderStage stamps it onto the assistant message
-// it produces, so the set survives into the transcript and is still readable
-// when evals run later against stored messages rather than a live turn.
+// MetaToolsOffered is the message-meta key carrying the tool names a turn handed
+// the provider. The provider stage stamps it onto the assistant message it
+// produces, so the set is still readable when evals run later against stored
+// messages.
 const MetaToolsOffered = types.MetaToolsOffered
 
 // currentTurnMessages narrows a history to the turn in progress: everything
@@ -205,13 +186,12 @@ func currentTurnMessages(messages []types.Message) []types.Message {
 	return messages
 }
 
-// ExtractToolsOffered returns the union of the tool sets recorded on the
-// messages, sorted and deduplicated.
+// ExtractToolsOffered returns the union of the tool sets recorded under
+// MetaToolsOffered on the messages, sorted and deduplicated, or nil when there
+// are none.
 //
-// A turn can hand the provider a different set on each tool round (skill tool
-// grants widen the set mid-turn), so the union is what "this turn offered"
-// means. A caller needing per-round detail should read
-// the per-message meta directly.
+// A turn can hand the provider a different set on each tool round, so the union
+// is what the turn offered. Per-round detail is in the per-message meta.
 func ExtractToolsOffered(messages []types.Message) []string {
 	seen := map[string]bool{}
 	for i := range messages {
@@ -254,7 +234,8 @@ func toStringSlice(v any) []string {
 }
 
 // ExtractToolCalls builds ToolCallRecords from a message history by matching
-// assistant tool calls with their corresponding tool-role result messages.
+// assistant tool calls with their corresponding tool-role result messages. Each
+// record's TurnIndex is the index of the assistant message in messages.
 func ExtractToolCalls(messages []types.Message) []ToolCallRecord {
 	toolResults := buildToolResultMap(messages)
 

@@ -64,6 +64,7 @@ type workflowStateReader interface {
 // ToolResultProvider is a callback the caller implements to supply results for
 // pending client tools. The adapter calls it when the LLM response contains
 // deferred client tools that need fulfillment before the pipeline can continue.
+// It may answer some of the pending calls and leave the rest.
 type ToolResultProvider func(ctx context.Context, tools []sdk.PendingClientTool) ([]ToolResult, error)
 
 // ToolResult carries the caller-provided outcome for a single client tool call.
@@ -78,11 +79,14 @@ type ToolResult struct {
 }
 
 // EventBusProvider abstracts access to the conversation's event bus.
+// NewEventAdapter requires it, but the adapter does not read the bus: every
+// event it emits comes from the turn's own messages.
 type EventBusProvider interface {
 	EventBus() events.Bus
 }
 
 // StateProvider produces a state snapshot for the AG-UI StateSnapshotEvent.
+// If Snapshot returns an error, the run omits the snapshot and carries on.
 type StateProvider interface {
 	Snapshot(sender Sender) (any, error)
 }
@@ -98,21 +102,24 @@ type adapterConfig struct {
 	toolResultProvider ToolResultProvider
 }
 
-// WithThreadID sets the AG-UI thread ID for emitted events.
+// WithThreadID sets the AG-UI thread ID for emitted events. By default the
+// adapter generates one.
 func WithThreadID(id string) AdapterOption {
 	return func(c *adapterConfig) {
 		c.threadID = id
 	}
 }
 
-// WithRunID sets the AG-UI run ID for emitted events.
+// WithRunID sets the AG-UI run ID for emitted events. By default the adapter
+// generates one.
 func WithRunID(id string) AdapterOption {
 	return func(c *adapterConfig) {
 		c.runID = id
 	}
 }
 
-// WithStateProvider sets a provider that produces state snapshots.
+// WithStateProvider sets a provider that produces the STATE_SNAPSHOT event at
+// the start of each run.
 func WithStateProvider(sp StateProvider) AdapterOption {
 	return func(c *adapterConfig) {
 		c.stateProvider = sp
@@ -160,7 +167,7 @@ type EventAdapter struct {
 
 // NewEventAdapter creates a new EventAdapter for the given conversation.
 // The conversation must implement both Sender and EventBusProvider.
-// In practice, *sdk.Conversation satisfies both interfaces.
+// *sdk.Conversation satisfies both interfaces.
 func NewEventAdapter(conv interface {
 	Sender
 	EventBusProvider
@@ -203,10 +210,10 @@ func newAdapter(sender Sender, _ EventBusProvider, opts ...AdapterOption) *Event
 // when the run ends, successfully or with an error.
 //
 // Drain it concurrently with RunSend, RunResume or RunContinue, for example
-// from another goroutine. The adapter never drops an event. When the channel's buffer is full it waits
-// for the reader, so a reader that stops reading holds the run until the run's
-// context is canceled; cancel it (an HTTP handler's request context is
-// canceled when the client disconnects) to release the run.
+// from another goroutine. The adapter never drops an event. When the channel's
+// buffer is full it waits for the reader, so a reader that stops reading holds
+// the run until the run's context is canceled; cancel it (an HTTP handler's
+// request context is canceled when the client disconnects) to release the run.
 func (a *EventAdapter) Events() <-chan aguievents.Event {
 	return a.events
 }
@@ -251,9 +258,8 @@ func (a *EventAdapter) RunID() string {
 // RunSend returns.
 //
 // Read Events() concurrently with the run, or cancel ctx: the run waits for
-// the reader once the channel's buffer of 64 events is full. A caller that
-// lets the run finish before reading blocks there; adapters before this
-// version dropped the events that did not fit instead.
+// the reader once the channel's buffer of 64 events is full, so a caller that
+// lets the run finish before reading blocks there.
 func (a *EventAdapter) RunSend(ctx context.Context, msg *types.Message) error {
 	return a.run(ctx, false, func(ctx context.Context) (*sdk.Response, error) {
 		return a.sender.Send(ctx, msg)
@@ -264,9 +270,8 @@ func (a *EventAdapter) RunSend(ctx context.Context, msg *types.Message) error {
 // emits the continued turn as a new run.
 //
 // Read Events() concurrently with the run, or cancel ctx: the run waits for
-// the reader once the channel's buffer of 64 events is full. A caller that
-// lets the run finish before reading blocks there; adapters before this
-// version dropped the events that did not fit instead.
+// the reader once the channel's buffer of 64 events is full, so a caller that
+// lets the run finish before reading blocks there.
 //
 // In AG-UI the application answers a frontend tool call in the next run's
 // input, as a tool message per call; [ToolResultsFromAGUI] extracts them. The
@@ -287,9 +292,8 @@ func (a *EventAdapter) RunResume(ctx context.Context, results []ToolResult) erro
 // (sdk.Conversation.ResolveTool / RejectTool) and emits it as a new run.
 //
 // Read Events() concurrently with the run, or cancel ctx: the run waits for
-// the reader once the channel's buffer of 64 events is full. A caller that
-// lets the run finish before reading blocks there; adapters before this
-// version dropped the events that did not fit instead.
+// the reader once the channel's buffer of 64 events is full, so a caller that
+// lets the run finish before reading blocks there.
 //
 // The held calls' results are emitted as TOOL_CALL_RESULT events, since only
 // the agent knows them.

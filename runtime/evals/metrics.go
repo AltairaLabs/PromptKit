@@ -75,36 +75,27 @@ func (w *MetricResultWriter) metricForEval(evalID string) *MetricDef {
 	return m
 }
 
-// MetricExpressionKey is the metric property naming a JMESPath expression that
-// selects this metric's value out of EvalResult.Value.
-//
-// It lives in MetricDef.Extra rather than a typed field because the PromptPack
-// schema declares MetricDef with additionalProperties: true, so a pack may
-// carry it today without a spec change. The name matches the json_path eval
-// handler's parameter so there is one expression vocabulary, not two.
+// MetricExpressionKey is the MetricDef.Extra key naming a JMESPath expression
+// that selects the metric's value out of EvalResult.Value. The name matches the
+// json_path eval handler's parameter.
 const MetricExpressionKey = "jmespath_expression"
 
 // ExtractValue returns the number to record for this metric, and whether there
 // is one at all.
 //
 // The bool separates "no value" from a measured zero. An eval that produces no
-// scalar (a judge answering with a rubric, an eval calling a service and
-// getting back a JSON object) returns ok false; recording it as a gauge reading
-// of ZERO would give a flatline indistinguishable from a real measurement of
-// zero. Callers must skip the sample when ok is false rather than substituting
-// anything.
+// scalar, such as a judge answering with a rubric, returns ok false, and callers
+// should skip the sample.
 //
 // Precedence:
 //
-//  1. A JMESPath expression declared on the metric, evaluated against
-//     result.Value. This is the author's explicit choice, so it wins — it is
-//     how one complex value becomes several series, with the names authored in
-//     the pack rather than taken from a model's JSON keys.
-//  2. result.MetricValue — the gauge number.
-//  3. result.Score — the normalized 0..1, as a fallback.
+//  1. A JMESPath expression declared on the metric (see MetricExpressionKey),
+//     evaluated against result.Value. When present it is the only source.
+//  2. result.MetricValue, the gauge number.
+//  3. result.Score, the normalized 0 to 1 score.
 //
 // An expression that does not resolve, or resolves to something non-numeric,
-// yields no sample. Guessing would reintroduce the fabricated zero.
+// yields no sample.
 func ExtractValue(result EvalResult, metric *MetricDef) (float64, bool) {
 	if expr := metricExpression(metric); expr != "" {
 		return evaluateMetricExpression(expr, result.Value)

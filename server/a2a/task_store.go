@@ -10,7 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 )
 
-// Task store errors.
+// Task store errors, returned by TaskStore methods.
 var (
 	ErrTaskNotFound      = errors.New("a2a: task not found")
 	ErrTaskAlreadyExists = errors.New("a2a: task already exists")
@@ -50,12 +50,25 @@ var validTransitions = map[a2a.TaskState]map[a2a.TaskState]bool{
 }
 
 // TaskStore defines the interface for task persistence and lifecycle management.
+// Methods return ErrTaskNotFound for an unknown task.
 type TaskStore interface {
+	// Create makes a task in the submitted state, or returns
+	// ErrTaskAlreadyExists.
 	Create(taskID, contextID string) (*a2a.Task, error)
+	// Get returns a copy of the task.
 	Get(taskID string) (*a2a.Task, error)
+	// SetState moves the task to state, with an optional status message. It
+	// returns ErrTaskTerminal for a finished task and ErrInvalidTransition for a
+	// move the state machine does not allow.
 	SetState(taskID string, state a2a.TaskState, msg *a2a.Message) error
+	// AddArtifacts appends artifacts to the task.
 	AddArtifacts(taskID string, artifacts []a2a.Artifact) error
+	// Cancel moves a task that has not finished to the canceled state, or
+	// returns ErrTaskTerminal.
 	Cancel(taskID string) error
+	// List returns copies of the tasks in a context (all tasks when contextID is
+	// empty), most recently updated first, at most limit of them from offset. A
+	// limit of zero or less means no limit.
 	List(contextID string, limit, offset int) ([]*a2a.Task, error)
 
 	// EvictTerminal removes tasks in a terminal state whose last status
@@ -216,7 +229,7 @@ func (s *InMemoryTaskStore) Create(taskID, contextID string) (*a2a.Task, error) 
 	return s.CreateOwned(taskID, contextID, "")
 }
 
-// CreateOwned implements OwnedTaskStore.
+// CreateOwned implements OwnedTaskStore. An empty owner records none.
 func (s *InMemoryTaskStore) CreateOwned(taskID, contextID, owner string) (*a2a.Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -308,7 +321,8 @@ func (s *InMemoryTaskStore) AddArtifacts(taskID string, artifacts []a2a.Artifact
 	return nil
 }
 
-// Cancel transitions the task to the canceled state from any non-terminal state.
+// Cancel transitions the task to the canceled state from any non-terminal state,
+// and returns ErrTaskTerminal otherwise.
 func (s *InMemoryTaskStore) Cancel(taskID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

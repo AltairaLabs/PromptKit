@@ -40,6 +40,13 @@ func NewToolBridgeWithConfig(client *Client, cfg *tools.A2AConfig) *ToolBridge {
 // each skill. The descriptors are appended to the bridge's internal list
 // (supporting multi-agent composition via GetToolDescriptors).
 // Skills excluded by the skill filter are skipped.
+//
+// Each tool is named a2a__<agent>__<skill>, with the card name and skill ID
+// lower-cased and non-alphanumeric runs replaced by "_". Its input schema
+// requires a "query" string, plus image_url and image_data when the skill
+// accepts image input and audio_data when it accepts audio input. Its output
+// schema has a "response" string, plus media_url and media_type when the skill
+// produces image or audio output.
 func (b *ToolBridge) RegisterAgent(ctx context.Context) ([]*tools.ToolDescriptor, error) {
 	card, err := b.client.Discover(ctx)
 	if err != nil {

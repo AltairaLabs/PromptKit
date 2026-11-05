@@ -131,6 +131,7 @@ func hasMedia(parts []types.ContentPart) bool {
 
 // MessageFromAGUI converts an AG-UI Message to a PromptKit Message.
 // It maps roles, content (text or multimodal), tool calls, and tool call IDs.
+// The developer role becomes system, and an unrecognized role becomes user.
 //
 // A reasoning message becomes an assistant message whose Reasoning holds the
 // text, never user input. [MessagesFromAGUI] folds it into the assistant

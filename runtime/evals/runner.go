@@ -20,8 +20,8 @@ const DefaultEvalTimeout = 30 * time.Second
 type EvalRunner struct {
 	registry *EvalTypeRegistry
 	timeout  time.Duration
-	emitter  *events.Emitter // optional — emits eval.completed/failed events
-	hooks    []EvalHook      // optional — observers invoked per result
+	emitter  *events.Emitter // optional: emits eval.completed/failed events
+	hooks    []EvalHook      // optional: observers invoked per result
 }
 
 // RunnerOption configures an EvalRunner.
@@ -49,8 +49,7 @@ func WithEvalHook(h EvalHook) RunnerOption {
 // can be mutated (SetEmitter, AddHook) without affecting a shared base.
 //
 // Hooks are copied into a new slice so appending to the clone does not
-// mutate the source. The emitter is intentionally dropped — callers are
-// expected to wire a fresh emitter per-use.
+// mutate the source. The emitter is dropped; wire a fresh one with SetEmitter.
 func (r *EvalRunner) Clone() *EvalRunner {
 	clone := &EvalRunner{
 		registry: r.registry,
@@ -68,9 +67,8 @@ func (r *EvalRunner) SetEmitter(e *events.Emitter) {
 	r.emitter = e
 }
 
-// AddHook appends an EvalHook to the runner. Intended to be called during
-// setup, before evals start running — there is no locking. Nil hooks are
-// silently ignored.
+// AddHook appends an EvalHook to the runner. Call it during setup, before evals
+// start running; there is no locking. Nil hooks are ignored.
 func (r *EvalRunner) AddHook(h EvalHook) {
 	if h == nil {
 		return
@@ -93,7 +91,9 @@ func NewEvalRunner(
 }
 
 // RunTurnEvals runs turn-level evals (every_turn and sample_turns triggers).
-// It filters by enabled state and trigger, then executes matching handlers.
+// It skips defs that are disabled, have another trigger, are excluded by
+// sampling, or fail their when-conditions, and executes the rest in order. Each
+// eval sees the earlier results of the batch in EvalContext.PriorResults.
 func (r *EvalRunner) RunTurnEvals(
 	ctx context.Context,
 	defs []EvalDef,

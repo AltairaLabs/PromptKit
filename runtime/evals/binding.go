@@ -27,12 +27,10 @@ var ErrNoBinding = errors.New("no provider binding configured")
 // bound nothing to.
 var ErrUnboundKey = errors.New("no provider bound to this key")
 
-// ErrWrongKind is returned when the host DID bind something to the key, but
-// what they bound cannot do what the check needs — an embedding provider bound
-// to the name a judge-backed check points at, say. Callers should surface this
-// at load time; a host that binds the wrong thing has made a wiring mistake and
-// deserves to hear about it before the first conversation, not on the turn that
-// happens to need it.
+// ErrWrongKind is returned when the host bound something to the key, but what it
+// bound cannot do what the check needs, such as an embedding provider bound to
+// the name a judge-backed check points at. It is a wiring mistake, so callers
+// should surface it at load time rather than on the first turn that needs it.
 var ErrWrongKind = errors.New("provider bound to this key cannot do what the check needs")
 
 // ProviderBinding resolves a pack's logical provider names against what the
@@ -43,16 +41,15 @@ var ErrWrongKind = errors.New("provider bound to this key cannot do what the che
 // reported as a mismatch ("you bound an embedder to the name a judge check
 // uses") rather than as an absence, which makes the failure legible.
 type ProviderBinding interface {
-	// LLM returns a provider that can run completions, for the logical key —
-	// what a judge-backed check needs. ErrWrongKind when the host bound
-	// something that is not one.
+	// LLM returns the provider that can run completions for the logical key,
+	// which is what a judge-backed check needs. It returns ErrWrongKind when
+	// the host bound something that is not one.
 	LLM(key string) (providers.Provider, error)
 
-	// Classifier returns the inference provider bound to the logical key —
-	// what a classifier-backed check needs — as an inference.Provider.
-	// ErrWrongKind when the host bound something that is not one. The return
-	// type is any only to keep the v2 signature; callers assert
-	// inference.Provider.
+	// Classifier returns the inference provider bound to the logical key, which
+	// is what a classifier-backed check needs. It returns ErrWrongKind when the
+	// host bound something that is not one. The return type is any; callers
+	// assert inference.Provider.
 	Classifier(key string) (any, error)
 }
 

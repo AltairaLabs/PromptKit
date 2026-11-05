@@ -34,13 +34,10 @@ var supportedWhenKeys, supportedWhenKeyList = func() (map[string]bool, string) {
 // promptkit does not implement, or a recognized condition carrying a value of
 // the wrong type.
 //
-// The spec defines $defs/Eval.when as additionalProperties:true with no named
-// properties, and its own two examples (has_variable and turn_count_gte) are
-// conditions promptkit does not implement. So nothing upstream rejects a key
-// this runtime cannot honor.
-// Neither running the eval as though no gate had been written nor skipping it
-// as though the gate had failed is a defensible reading of "the author asked
-// for something this runtime cannot do", so it is reported instead.
+// The supported conditions are the fields of EvalWhen. The PromptPack spec
+// leaves `when` open, so a pack can carry a condition this runtime does not
+// implement; it is reported as an error here rather than ignored or treated as
+// a failed gate. A nil or empty map is valid.
 func ValidateEvalWhen(raw map[string]any) error {
 	if len(raw) == 0 {
 		return nil
@@ -71,20 +68,17 @@ func ValidateEvalWhen(raw map[string]any) error {
 	return nil
 }
 
-// ShouldRunWhen evaluates `when` preconditions against the current eval
-// context's tool call records. Returns whether the eval should run and a reason
-// string if skipped. When toolCalls is nil (e.g. duplex path), returns true to
-// let the handler itself decide how to handle the missing data.
+// ShouldRunWhen evaluates `when` preconditions against the tool call records of
+// the current eval context. It returns whether the eval should run and, when it
+// should not, the reason. An empty `when` always runs. A nil or empty toolCalls
+// fails any condition that needs a tool call.
 //
-// A `when` this runtime cannot honor gates the eval off with the authoring
-// fault as its reason, rather than running it unconditionally. Callers that can
-// report an error rather than a skip (the eval runner does) should check
-// ValidateEvalWhen first and surface that instead.
+// A `when` that ValidateEvalWhen rejects does not run, and the validation error
+// is the reason. Callers that can report an error rather than a skip, as the
+// eval runner does, should call ValidateEvalWhen first.
 //
-// Takes the raw map because that is what the spec defines: $defs/Eval.when is
-// additionalProperties:true with no named properties, so the generated type is
-// map[string]any and EvalWhen is promptkit's own reading of it. Decoding here
-// keeps that reading in one place instead of at each call site.
+// It takes the raw map because EvalDef.When is a map[string]any; EvalWhen is
+// the runtime's reading of it.
 func ShouldRunWhen(raw map[string]any, toolCalls []ToolCallRecord) (shouldRun bool, reason string) {
 	if err := ValidateEvalWhen(raw); err != nil {
 		return false, err.Error()
@@ -118,10 +112,8 @@ func ShouldRunWhen(raw map[string]any, toolCalls []ToolCallRecord) (shouldRun bo
 
 // DecodeEvalWhen reads promptkit's when-conditions out of the spec's open
 // `when` object. A map that decodes to no conditions yields nil, meaning no
-// gate — which is correct only for a `when` that is empty or that sets its
-// conditions to their zero values. An unrecognized or wrongly typed `when` also
-// decodes to nothing, and is an authoring fault rather than an absent gate, so
-// callers must reject it with ValidateEvalWhen before reaching here.
+// gate. An unrecognized or wrongly typed `when` also yields nil, so callers
+// should reject it with ValidateEvalWhen first.
 func DecodeEvalWhen(raw map[string]any) *EvalWhen {
 	if len(raw) == 0 {
 		return nil
@@ -141,8 +133,8 @@ func DecodeEvalWhen(raw map[string]any) *EvalWhen {
 }
 
 // EncodeEvalWhen is the inverse of DecodeEvalWhen: it renders promptkit's
-// when-conditions into the spec's open `when` object, for anything building an
-// eval programmatically rather than loading one from a pack.
+// when-conditions into the spec's open `when` object, for building an eval
+// programmatically. A nil or empty EvalWhen yields nil.
 func EncodeEvalWhen(when *EvalWhen) map[string]any {
 	if when == nil || *when == (EvalWhen{}) {
 		return nil

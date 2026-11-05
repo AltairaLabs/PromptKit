@@ -44,8 +44,8 @@ const (
 	sseMaxTokenSize = 1 << 20
 
 	// DefaultSSEIdleTimeout is the default idle timeout for SSE streams.
-	// If no event is received within this duration, ReadSSE returns an error
-	// so callers can reconnect.
+	// If no line is received within this duration, reading stops so callers
+	// can reconnect.
 	DefaultSSEIdleTimeout = 5 * time.Minute
 )
 
@@ -67,7 +67,8 @@ func newRPCError(e *JSONRPCError) *RPCError {
 	return &RPCError{Code: e.Code, Message: e.Message, Data: e.Data}
 }
 
-// HTTPStatusError is returned when an A2A HTTP request receives a non-200 status code.
+// HTTPStatusError is returned when an A2A HTTP request receives a non-200 status
+// code. Method is the JSON-RPC method of the failed call.
 type HTTPStatusError struct {
 	StatusCode int
 	Method     string
@@ -78,7 +79,7 @@ func (e *HTTPStatusError) Error() string {
 }
 
 // StreamEvent represents a single event received during message streaming.
-// Exactly one field will be non-nil. A conforming agent opens a task stream
+// Exactly one field is set. A conforming agent opens a task stream
 // with the Task itself, or answers with a single Message.
 type StreamEvent struct {
 	Task           *Task
@@ -98,7 +99,8 @@ func WithHTTPClient(hc *http.Client) ClientOption {
 	return func(c *Client) { c.httpClient = hc }
 }
 
-// WithAuth sets the Authorization header on all requests.
+// WithAuth sets the Authorization header on all requests to "scheme token". An
+// empty token sets no header.
 func WithAuth(scheme, token string) ClientOption {
 	return func(c *Client) {
 		c.authScheme = scheme
@@ -123,9 +125,9 @@ func WithProtocolVersion(v ProtocolVersion) ClientOption {
 }
 
 // WithRequestTimeout sets the timeout for non-streaming requests (agent card
-// discovery and message/send, tasks/get, ...). The default is 60s. It does not
-// affect SSE streams, which are bounded by the SSE idle timeout instead.
-// A zero or negative value leaves the default in place.
+// discovery, SendMessage, GetTask and so on). The default is 60s. It does not
+// affect SSE streams, which use a separate client with a 30-minute limit and the
+// SSE idle timeout. A zero or negative value leaves the default in place.
 func WithRequestTimeout(d time.Duration) ClientOption {
 	return func(c *Client) {
 		if d <= 0 {
@@ -137,19 +139,26 @@ func WithRequestTimeout(d time.Duration) ClientOption {
 	}
 }
 
-// WithSSEIdleTimeout sets the idle timeout for SSE streams. If no event
-// is received within this duration, the stream is considered stale and
-// ReadSSE returns [ErrSSEIdleTimeout] so callers can reconnect.
-// A zero or negative value disables the idle timeout.
+// WithSSEIdleTimeout sets the idle timeout for SSE streams; the default is
+// [DefaultSSEIdleTimeout]. If no line is received within this duration, the
+// stream is considered stale: reading stops and the channel returned by
+// SendMessageStream is closed, so callers can reconnect. A zero or negative
+// value disables the idle timeout.
 func WithSSEIdleTimeout(d time.Duration) ClientOption {
 	return func(c *Client) { c.sseIdleTimeout = d }
 }
 
-// ErrSSEIdleTimeout is returned when an SSE stream has not received any
-// event within the configured idle timeout period.
+// ErrSSEIdleTimeout names an SSE stream that received nothing within the idle
+// timeout. The client does not return it: an idle stream ends and its event
+// channel is closed, with no error.
 var ErrSSEIdleTimeout = fmt.Errorf("a2a: SSE idle timeout exceeded")
 
-// Client is an HTTP client for discovering and calling external A2A agents.
+// Client is an HTTP client for discovering and calling external A2A agents over
+// JSON-RPC. It speaks A2A 1.0 and falls back to 0.3 when the agent rejects a 1.0
+// method, unless the version is pinned with WithProtocolVersion or settled by a
+// discovered agent card. Calls go to the JSON-RPC interface the agent card
+// declares on the configured host, or to {base}/a2a when no card is available.
+// A Client is safe for concurrent use.
 type Client struct {
 	baseURL        string
 	httpClient     *http.Client
@@ -269,7 +278,8 @@ const (
 
 // Discover fetches the agent card, trying [AgentCardPath] first and falling
 // back to [LegacyAgentCardPath] when the agent does not serve it (404/405).
-// The card is cached after the first successful call.
+// The card is cached after the first successful call, and a card that declares
+// a JSON-RPC interface on the client's host also settles the protocol version.
 func (c *Client) Discover(ctx context.Context) (*AgentCard, error) {
 	c.mu.RLock()
 	if c.agentCard != nil {
@@ -412,7 +422,8 @@ func (c *Client) fetchCardForCalls(ctx context.Context, done chan struct{}) {
 	close(done)
 }
 
-// ProtocolVersion returns the protocol version the client speaks.
+// ProtocolVersion returns the protocol version the client speaks. It can change
+// from 1.0 to 0.3 on the first call, if the agent rejects 1.0.
 func (c *Client) ProtocolVersion() ProtocolVersion {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -754,7 +765,7 @@ func sameParams(p any) func(ProtocolVersion) any {
 }
 
 // SendMessage sends a message (SendMessage; 0.3: message/send) and returns the
-// resulting task.
+// resulting task. The task may not be finished; see WaitForTask.
 //
 // An agent that answers with a Message rather than a Task gets a completed
 // task synthesized around it, the message as its status message, so callers
@@ -808,7 +819,10 @@ func decodeMessageResult(raw json.RawMessage) (*Task, error) {
 
 // SendMessageStream sends a streaming message (SendStreamingMessage; 0.3:
 // message/stream) and returns a channel of streaming events. The channel is
-// closed when the stream ends or the context is canceled.
+// closed when the stream ends, the context is canceled, or the stream is idle
+// for longer than the SSE idle timeout. An error the agent sends in the stream
+// arrives as the last event, with StreamEvent.Error set. An agent that refuses
+// the request before streaming returns an *RPCError from this call.
 func (c *Client) SendMessageStream(ctx context.Context, params *SendMessageRequest) (<-chan StreamEvent, error) {
 	var resp *http.Response
 	err := c.withVersionFallback(func(v ProtocolVersion) error {
@@ -1015,8 +1029,9 @@ func (c *Client) ListTasksPage(ctx context.Context, params *ListTasksRequest) (*
 	return &resp, nil
 }
 
-// ReadSSE reads SSE events from r and sends parsed StreamEvents to ch.
-// It has no idle timeout; use [ReadSSEWithIdleTimeout] for timeout support.
+// ReadSSE reads SSE events from r and sends parsed StreamEvents to ch. It returns
+// when r ends, ctx is canceled, or an error event is sent, and does not close
+// ch. It has no idle timeout; use [ReadSSEWithIdleTimeout] for timeout support.
 func ReadSSE(ctx context.Context, r io.Reader, ch chan<- StreamEvent) {
 	ReadSSEWithIdleTimeout(ctx, r, ch, 0)
 }
@@ -1101,8 +1116,8 @@ func processSSELine(ctx context.Context, line string, buf *strings.Builder, ch c
 
 // ReadSSEWithIdleTimeout reads SSE events from r and sends parsed StreamEvents
 // to ch. If idleTimeout is positive and no line is received within that
-// duration, reading stops (callers should reconnect). A zero or negative
-// idleTimeout disables idle detection.
+// duration, reading stops without an error (callers should reconnect). A zero or
+// negative idleTimeout disables idle detection. It does not close ch.
 func ReadSSEWithIdleTimeout(ctx context.Context, r io.Reader, ch chan<- StreamEvent, idleTimeout time.Duration) {
 	var buf strings.Builder
 	lineCh := startScanner(r)

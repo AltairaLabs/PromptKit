@@ -1,6 +1,17 @@
-// Package evals provides the core evaluation framework for PromptPack.
-// Eval definitions travel with packs and can run both during Arena testing
-// and at runtime in production via the SDK.
+// Package evals provides the evaluation framework for PromptPack.
+// Eval definitions travel with packs and run both during Arena testing and at
+// runtime in production via the SDK.
+//
+// An eval is a pure measurement. A handler produces a score and never states
+// pass or fail, and the runner clears any pass/fail a handler sets on a plain
+// eval. Judgment against a threshold belongs to the wrapper that applies it: the
+// "assertion" wrapper for tests and the "guardrail" wrapper for runtime
+// enforcement (see AssertionEvalHandler, GuardrailEvalHandler and
+// ScoreThresholds).
+//
+// EvalRunner executes EvalDef values against an EvalContext, and
+// EvalTypeRegistry maps eval type names to handlers. The built-in handlers live
+// in the evals/handlers package, which registers them when imported.
 package evals
 
 import (
@@ -12,16 +23,10 @@ import (
 
 // EvalTrigger names when an eval fires.
 //
-// The constants below are UNTYPED. $defs/Eval types `trigger` as a
-// plain string with no enum, so the generated EvalDef.Trigger is a string; an
-// untyped constant assigns to both that and EvalTrigger, which keeps the
-// vocabulary in one place without forcing a conversion at every call site.
-//
-// EvalTrigger remains for the maps and signatures that key on it. It is not a
-// safety mechanism: a Go named string type accepts any literal, so
-// `var t EvalTrigger = "nonsense"` compiles. ValidTriggers is the actual check.
-//
-// EvalTrigger determines when an eval fires.
+// The Trigger* constants are untyped, so each assigns to both EvalTrigger and
+// the plain string EvalDef.Trigger. EvalTrigger does not validate: a Go named
+// string type accepts any literal, so `var t EvalTrigger = "nonsense"` compiles.
+// ValidTriggers is the check.
 type EvalTrigger string
 
 const (
@@ -59,7 +64,7 @@ const (
 	// or compute-intensive operations (cosine similarity, LLM judge, etc.).
 	GroupLongRunning = "long-running"
 
-	// GroupExternal classifies evals that call external systems — REST APIs,
+	// GroupExternal classifies evals that call external systems: REST APIs,
 	// A2A agents, subprocess exec, or LLM judge providers.
 	GroupExternal = "external"
 )
@@ -104,15 +109,18 @@ var externalTypes = map[string]bool{
 // for eval types not in the built-in maps (e.g. exec handlers).
 var customTypeGroups = make(map[string][]string)
 
-// RegisterTypeGroups registers well-known groups for a dynamic eval type.
-// This is used by exec eval handlers to self-classify as long-running/external.
+// RegisterTypeGroups registers the classification groups DefaultGroupsForType
+// returns for a dynamic eval type, such as an exec handler that classifies itself
+// as long-running or external. It is not safe to call concurrently with
+// DefaultGroupsForType; register types during setup.
 func RegisterTypeGroups(evalType string, groups []string) {
 	customTypeGroups[evalType] = groups
 }
 
-// DefaultGroupsForType returns the well-known groups for a given eval type.
-// The result always includes DefaultEvalGroup plus any classification groups
-// based on the handler's characteristics.
+// DefaultGroupsForType returns the groups for a given eval type. The result
+// always starts with DefaultEvalGroup, followed by the groups registered with
+// RegisterTypeGroups for that type or, when none are registered, the built-in
+// classification: GroupFastRunning, GroupLongRunning or GroupExternal.
 func DefaultGroupsForType(evalType string) []string {
 	groups := []string{DefaultEvalGroup}
 
@@ -171,25 +179,12 @@ var ValidMetricTypes = map[MetricType]bool{
 
 // EvalDef defines a single evaluation within a PromptPack.
 // Evals are defined at pack level and/or prompt level. Prompt-level
-// evals override pack-level evals by ID.
+// evals override pack-level evals by ID (see ResolveEvals).
 //
-// Generated. It was hand-written, and diverged from the spec in two ways that
-// only showed on disk:
-//
-//   - `params` lacked omitempty, so an eval without params emitted
-//     "params": null, which the schema rejects (Expected: object). EVERY pack
-//     containing an eval emitted an invalid document.
-//   - `threshold` used a promptkit vocabulary ({passed, min_score, max_score})
-//     where the spec defines {operator, value} with additionalProperties:false.
-//     A spec-authored threshold loaded as all-nil and emitted as {}; a
-//     promptkit one emitted a document the schema rejects. Nothing in promptkit
-//     reads the field (an eval never states a pass/fail, only an assertion or
-//     guardrail coerces one), so it existed solely to be serialized wrongly.
-//
-// The accessors below were methods. A type alias cannot carry methods
-// ("cannot define new methods on non-local type"), so they are free functions
-// now — which is the general shape for adopting any generated type that had
-// behavior attached.
+// EvalDef is an alias for packspec.Eval, which is generated from the PromptPack
+// schema. A type alias cannot carry methods, so the accessors IsEnabled,
+// SamplePercentage and Groups are free functions. The runtime does not read the
+// Threshold field: an eval never states pass or fail.
 type EvalDef = packspec.Eval
 
 // IsEnabled returns whether an eval is enabled. Defaults to true when Enabled
@@ -244,14 +239,14 @@ func Values(in []*EvalDef) []EvalDef {
 	return out
 }
 
-// Threshold is an eval's pass/fail threshold, as the spec defines it:
-// {operator, value}. See EvalDef for why this replaced a divergent shape.
+// Threshold is the {operator, value} threshold shape the PromptPack spec defines
+// for an eval. The runtime carries it but does not apply it; thresholds are
+// applied by the assertion and guardrail wrappers through min_score and
+// max_score.
 type Threshold = packspec.EvalThreshold
 
-// Range defines the valid range for a metric value.
-// Range is generated from the schema: an ALIAS for packspec.MetricDefRange.
-// The schema nests the bounds inside MetricDef rather than naming them, so the
-// generator hoists the shape under a derived name.
+// Range defines the valid range for a metric value. It is an alias for
+// packspec.MetricDefRange.
 type Range = packspec.MetricDefRange
 
 // EvalWhen specifies preconditions that must be met for an eval to run.
@@ -269,25 +264,19 @@ type EvalViolation struct {
 	Evidence    map[string]any `json:"evidence,omitempty"`
 }
 
-// MetricDef defines a Prometheus-style metric associated with an eval.
-// The Extra field captures additionalProperties from the schema.
-// MetricDef is generated from the schema: an ALIAS for packspec.MetricDef.
+// MetricDef defines a Prometheus-style metric associated with an eval. It is an
+// alias for packspec.MetricDef.
 //
-// $defs/MetricDef is additionalProperties:true — an envelope RFC 0006 expects
-// runtimes to extend. It names labels, help, aggregation, alert_threshold and
-// slo as examples and states they are NOT part of the specification. So there
-// is no `Labels` field here and there should not be: labels are a runtime
-// extension carried in Extra, alongside any other key a deployment adds.
-//
-// Read them with MetricLabels, which does the coercion once.
+// The spec leaves MetricDef open to runtime extension, so keys the spec does not
+// name, including labels, are carried in the Extra field. Read labels with
+// MetricLabels and write them with SetMetricLabels.
 type MetricDef = packspec.MetricDef
 
 // SetMetricLabels records Prometheus labels on a metric.
 //
-// The inverse of MetricLabels. Labels are a runtime extension, so they live in
-// Extra rather than a named field; this keeps producers from hand-building the
-// nested map[string]any shape and getting it subtly wrong. Passing an empty map
-// removes the key rather than writing an empty object.
+// It is the inverse of MetricLabels and stores the labels under the "labels" key
+// of MetricDef.Extra. Passing an empty map removes the key. A nil metric is
+// ignored.
 func SetMetricLabels(m *MetricDef, labels map[string]string) {
 	if m == nil {
 		return
@@ -308,11 +297,9 @@ func SetMetricLabels(m *MetricDef, labels map[string]string) {
 
 // MetricLabels returns the Prometheus labels a metric declares, or nil.
 //
-// labels live in MetricDef.Extra because the spec does not define
-// them (RFC 0006: "the spec defines the envelope; runtimes extend it"). This
-// keeps the type assertion in one place rather than at each call site, which is
-// where a silent nil creeps in. A labels value of the wrong shape yields nil
-// rather than a partial map — validation reports the shape error.
+// Labels live in the "labels" key of MetricDef.Extra. A labels value of the wrong
+// shape, or one with a non-string label value, yields nil rather than a partial
+// map; ValidateEvals does not report it.
 func MetricLabels(m *MetricDef) map[string]string {
 	if m == nil {
 		return nil
@@ -333,80 +320,56 @@ func MetricLabels(m *MetricDef) map[string]string {
 }
 
 // EvalResult captures the outcome of a single eval execution.
-// Handlers produce scores only (0.0–1.0). There is no pass/fail on evals.
-// Assertion wrappers store pass/fail as a bool in Value.
+// Handlers produce scores only (0.0 to 1.0); there is no pass/fail on a plain
+// eval. The assertion and guardrail wrappers state a verdict in Passed.
 type EvalResult struct {
 	EvalID string `json:"eval_id"`
 	Type   string `json:"type"`
 
-	// Kind is the ROLE this result was produced in, STATED by whatever produced
-	// it rather than inferred from Type downstream. It used to be inferred, by
-	// string-matching Type against the two wrapper names, which quietly
-	// misreported any other wrapper as a plain eval.
-	//
-	// The zero value is EvalKindEval: an eval nothing wrapped is a measurement.
+	// Kind is the role this result was produced in, stated by whatever produced
+	// it. The zero value is EvalKindEval: an eval nothing wrapped is a
+	// measurement.
 	Kind events.EvalKind `json:"kind,omitempty"`
 
-	// Passed is set ONLY by a role that coerces to a boolean — an assertion or
-	// a guardrail. An eval MEASURES; it does not pass or fail, and for
-	// EvalKindEval this is always nil.
+	// Passed is set only by a role that coerces a score to a boolean: an
+	// assertion or a guardrail. For a guardrail it is the inverse of
+	// Details["triggered"]. An eval measures and does not pass or fail, so for
+	// EvalKindEval it is always nil.
 	//
-	// That is enforced, not merely documented: every handler result funnels
-	// through EvalRunner.executeHandler, which strips this for any result that
-	// is not an assertion or a guardrail. A handler that sets it cannot leak
-	// one to a consumer. See TestExecuteHandler_StripsPassedFromAPlainEval.
-	//
-	// It is also not DERIVED. Deriving it is how an llm_judge scoring 0.9 came
-	// to be reported as FAILED: `score >= 1.0` is the assertion's default
-	// threshold showing through, not a judgement anyone made.
+	// EvalRunner enforces this: it clears Passed on any handler result whose Kind
+	// is not assertion or guardrail. Passed is never derived from Score.
 	Passed *bool `json:"passed,omitempty"`
 
 	Score *float64 `json:"score,omitempty"`
 
-	// Value is what the eval MEASURED — the handler's own output, in whatever
-	// shape that handler produces: a rubric's per-criterion map, a classifier's
-	// label, a reasoning service's JSON.
-	//
-	// A wrapper does not overwrite it. The assertion wrapper used to replace it
-	// with its own boolean, destroying the inner eval's output — the judge
-	// reasoning, the rubric breakdown — so the richest thing an eval produced
-	// was thrown away by the act of asserting on it. The boolean now has its
-	// own field, above.
+	// Value is what the eval measured: the handler's own output, in whatever
+	// shape that handler produces, such as a rubric's per-criterion map, a
+	// classifier's label, or a reasoning service's JSON. The assertion and
+	// guardrail wrappers leave it unchanged.
 	Value       any      `json:"value,omitempty"`
 	MetricValue *float64 `json:"metric_value,omitempty"`
 
-	// Metrics are named sub-scores the eval produced alongside its score: a
-	// rubric's clarity and accuracy from one judge call, an exec program's
+	// Metrics are named sub-scores the eval produced alongside its score, such as
+	// a rubric's clarity and accuracy from one judge call, or an exec program's
 	// functional_score and security_score.
 	//
-	// They are OUTPUT, not declaration. A pack declares one metric per eval
-	// (the PromptPack spec's Eval.metric is singular), so the names here come
-	// from whatever the handler returned and are not trusted: a judge model can
-	// invent a new key on any call. Reports and events carry them as they are;
+	// The names come from the handler's output rather than from the pack, which
+	// declares one metric per eval, so they are not trusted: a judge model can
+	// return a new key on any call. Reports and events carry them as they are.
 	// Prometheus export is opt-in on the host's collector and bounded there
-	// (metrics.CollectorOpts.EvalDimensionLimit). A per-test breakdown with
-	// hundreds of entries belongs in Details, not here.
+	// (metrics.CollectorOpts.EvalDimensionLimit). Put a large per-test breakdown
+	// in Details instead.
 	Metrics map[string]float64 `json:"metrics,omitempty"`
 
 	Explanation string `json:"explanation,omitempty"`
 	DurationMs  int64  `json:"duration_ms"`
 	Error       string `json:"error,omitempty"`
 
-	// Message is the AUTHOR-configured message for this eval — EvalDef.Message,
-	// written in the pack as AssertionConfig.message — as distinct from
-	// Explanation, which is whatever the handler computed.
-	//
-	// DO NOT DELETE THIS BECAUSE NOTHING IN THIS REPO SETS IT. Nothing does,
-	// deliberately: the runtime has no reason to copy the message it was
-	// handed back to itself. PromptArena fills it downstream from its own
-	// assertion config (arena/engine/eval_orchestrator.go), moving any
-	// existing value to Details["explanation"] first, so wiring it here would
-	// only be overwritten.
-	//
-	// It is carried so a result serialized by the runtime and a result
-	// populated by a consumer have the same shape. A grep for producers finds
-	// none, which is exactly the evidence that would justify removing it —
-	// hence this comment.
+	// Message is the author-configured message for this eval, as distinct from
+	// Explanation, which is what the handler computed. The runtime never sets
+	// it. A consumer such as PromptArena fills it from its own assertion
+	// configuration, so that a result serialized by the runtime and one populated
+	// by a consumer have the same shape.
 	Message    string          `json:"message,omitempty"`
 	Details    map[string]any  `json:"details,omitempty"`
 	Violations []EvalViolation `json:"violations,omitempty"`
@@ -431,10 +394,9 @@ type EvalContext struct {
 	// grants have all been applied. Sorted and deduplicated.
 	//
 	// This is what the model could see, as opposed to ToolCalls, which is what
-	// it chose to do. Only the former can show that a skill's allowed-tools
-	// grant took effect: a grant that works and a grant that silently does
-	// nothing produce identical ToolCalls whenever the model does not go on to
-	// call the granted tool. See #1957 and AltairaLabs/promptarena#195.
+	// it chose to do. Only the former shows that a skill's allowed-tools grant
+	// took effect, because a grant that works and one that does nothing produce
+	// identical ToolCalls whenever the model does not call the granted tool.
 	//
 	// Hosts populate it; it is empty when the host does not.
 	ToolsOffered []string       `json:"tools_offered,omitempty"`
@@ -455,9 +417,8 @@ type EvalContext struct {
 	// said". ContentScopeCurrent means CurrentOutput only, which is what a
 	// guardrail wants: it judges one specific message.
 	//
-	// This must be explicit. BuildEvalContext always populates CurrentOutput,
-	// so its presence cannot be used to infer scope — doing so silently
-	// collapses every eval and assertion to the last assistant turn.
+	// The scope is explicit because BuildEvalContext always populates
+	// CurrentOutput, so its presence cannot indicate scope.
 	ContentScope string `json:"content_scope,omitempty"`
 }
 
@@ -467,13 +428,12 @@ const (
 	// and the behavior evals and assertions rely on.
 	ContentScopeTranscript = ""
 
-	// ContentScopeCurrent examines only EvalContext.CurrentOutput — the single
-	// message the caller is judging. Set by the guardrail adapter, for which
-	// the content under test may be a user message (input direction) that a
-	// transcript scan filtered to assistant role would never see.
+	// ContentScopeCurrent examines only EvalContext.CurrentOutput, the single
+	// message the caller is judging. The guardrail adapter sets it, because the
+	// content under test may be a user message (input direction) that a scan of
+	// assistant messages would never see.
 	ContentScopeCurrent = "current"
 )
 
-// ToolCallRecord is an alias for types.ToolCallRecord so existing code
-// referencing evals.ToolCallRecord continues to compile unchanged.
+// ToolCallRecord is an alias for types.ToolCallRecord.
 type ToolCallRecord = types.ToolCallRecord

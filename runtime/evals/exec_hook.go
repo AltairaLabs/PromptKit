@@ -45,8 +45,8 @@ type ExecEvalHookConfig struct {
 // invocation errors are logged but never propagated, and the hook never
 // modifies the result.
 //
-// This mirrors the observe-mode behavior of hooks.ExecProviderHook but
-// is specialised for evals, which have no allow/deny semantics.
+// This mirrors the observe-mode behavior of hooks.ExecProviderHook. Evals have
+// no allow/deny semantics.
 type ExecEvalHook struct {
 	name      string
 	command   string
@@ -60,8 +60,7 @@ type ExecEvalHook struct {
 var _ EvalHook = (*ExecEvalHook)(nil)
 
 // NewExecEvalHook constructs an ExecEvalHook from the given config.
-// When cfg.Sandbox is nil the hook falls back to the built-in direct
-// sandbox, which matches the historical local-exec behavior.
+// When cfg.Sandbox is nil the hook runs the command directly on the host.
 func NewExecEvalHook(cfg *ExecEvalHookConfig) *ExecEvalHook {
 	sb := cfg.Sandbox
 	if sb == nil {
@@ -82,8 +81,7 @@ func (h *ExecEvalHook) Name() string { return h.name }
 
 // OnEvalResult marshals the result to JSON and pipes it to the configured
 // subprocess on stdin. Errors (marshal failures, subprocess failures,
-// timeouts) are logged and discarded — the eval pipeline continues
-// regardless.
+// timeouts) are logged and discarded; the eval pipeline continues regardless.
 func (h *ExecEvalHook) OnEvalResult(
 	ctx context.Context, _ *EvalDef, _ *EvalContext, result *EvalResult,
 ) {

@@ -23,6 +23,8 @@ var prometheusLabelRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 //   - sample_percentage (if set) is in [0, 100]
 //   - Metric name matches Prometheus naming regex
 //   - Metric type is one of gauge/counter/histogram/boolean
+//   - Metric label names match the Prometheus label regex and do not start with "__"
+//   - when contains only supported conditions of the right type
 func ValidateEvals(defs []EvalDef, scope string) []string {
 	var errs []string
 	seen := make(map[string]bool, len(defs))
@@ -102,13 +104,11 @@ func validateEvalFields(def *EvalDef, prefix string) []string {
 // that its params are usable by the handler. Returns a list of human-readable
 // error strings for any type-lookup or param-validation failures.
 //
-// Params are normalised (ApplyDefaults + NormalizeParams) before calling
+// Params are normalized (ApplyDefaults + NormalizeParams) before calling
 // ValidateParams, so handlers only need to check canonical key names.
 //
-// Callers:
-//   - PromptArena's engine treats any returned errors as fatal.
-//   - sdk/eval_middleware.go uses this to warn-and-skip bad defs.
-//   - sdk/evaluate.go exposes it as a public preflight.
+// It also reports an unusable `when`. The SDK exposes it as a preflight check,
+// and its eval middleware skips defs that fail it, with a warning.
 func ValidateEvalTypes(defs []EvalDef, registry *EvalTypeRegistry) []string {
 	logger.Debug("evals: validating eval types", "def_count", len(defs), "registered_types", registry.Types())
 	var errs []string
