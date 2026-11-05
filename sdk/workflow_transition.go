@@ -24,6 +24,13 @@ func (wc *WorkflowConversation) transitionInternal(event, contextSummary string)
 		wc.emitWorkflowError(event, err)
 		return "", err
 	}
+	// ProcessEvent does not fire the executor's OnCommit hook, so the step is
+	// recorded here, and its evals run against the outgoing state's
+	// conversation before applyTransition closes it.
+	if wc.activeConv != nil {
+		wc.activeConv.evalMW.recordWorkflowStep()
+	}
+	wc.dispatchWorkflowStepEvals()
 	return wc.applyTransition(result, contextSummary)
 }
 

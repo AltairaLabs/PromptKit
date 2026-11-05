@@ -145,6 +145,15 @@ type evalMiddleware struct {
 	cachedMessages  []types.Message
 	cachedTurnIndex int32
 	cachedSessionID string
+
+	// pendingWorkflowSteps counts committed workflow transitions whose
+	// on_workflow_step evals have not been dispatched yet. A transition can
+	// commit mid-turn, on the pipeline's goroutine, before the turn that made it
+	// has finished, so it is recorded here and dispatched once the turn is done.
+	pendingWorkflowSteps atomic.Int32
+	// hasWorkflowStepEvals is whether any def uses the on_workflow_step
+	// trigger; without one a transition dispatches nothing.
+	hasWorkflowStepEvals bool
 }
 
 // newEvalMiddleware creates eval middleware for a conversation.
@@ -229,7 +238,19 @@ func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 		ctx:          ctx,
 		cancel:       cancel,
 		sem:          make(chan struct{}, maxConcurrent),
+
+		hasWorkflowStepEvals: hasTrigger(defs, evals.TriggerOnWorkflowStep),
 	}
+}
+
+// hasTrigger reports whether any def uses trigger.
+func hasTrigger(defs []evals.EvalDef, trigger evals.EvalTrigger) bool {
+	for i := range defs {
+		if evals.EvalTrigger(defs[i].Trigger) == trigger {
+			return true
+		}
+	}
+	return false
 }
 
 // reportedTurn is the turn number an eval result carries.
@@ -257,17 +278,54 @@ func (em *evalMiddleware) dispatchTurnEvals(ctx context.Context) {
 	if em == nil {
 		return
 	}
+	em.turnIndex.Add(1)
+	em.dispatchAsync(ctx, "turn", em.runner.RunTurnEvals)
+}
 
-	turn := em.turnIndex.Add(1)
+// recordWorkflowStep notes that a workflow state transition committed during
+// this conversation. Its on_workflow_step evals run on the next
+// dispatchWorkflowStepEvals. Nil-safe and safe to call from any goroutine.
+func (em *evalMiddleware) recordWorkflowStep() {
+	if em == nil {
+		return
+	}
+	em.pendingWorkflowSteps.Add(1)
+}
 
-	// Try to acquire the semaphore without blocking. If all slots are taken,
-	// skip this eval dispatch to prevent unbounded goroutine growth.
+// dispatchWorkflowStepEvals dispatches the on_workflow_step evals once for each
+// transition recorded since the last call, against the conversation's current
+// turn. Call it once the turn that made the transitions has finished. It uses
+// the same asynchronous, bounded dispatch as turn evals.
+// Nil-safe: no-op if middleware is nil.
+func (em *evalMiddleware) dispatchWorkflowStepEvals(ctx context.Context) {
+	if em == nil {
+		return
+	}
+	steps := em.pendingWorkflowSteps.Swap(0)
+	if !em.hasWorkflowStepEvals {
+		return
+	}
+	for range steps {
+		em.dispatchAsync(ctx, "workflow step", em.runner.RunWorkflowStepEvals)
+	}
+}
+
+// dispatchAsync builds the eval context for the current turn and runs run on a
+// goroutine tracked by the WaitGroup, bounded by the semaphore.
+//
+// The semaphore is acquired without blocking: if every slot is taken the
+// dispatch is skipped, to prevent unbounded goroutine growth.
+func (em *evalMiddleware) dispatchAsync(
+	ctx context.Context,
+	kind string,
+	run func(context.Context, []evals.EvalDef, *evals.EvalContext) []evals.EvalResult,
+) {
 	select {
 	case em.sem <- struct{}{}:
 		// Acquired — proceed
 	default:
-		logger.Warn("evals: semaphore full, skipping turn eval dispatch",
-			"turn", turn, "capacity", cap(em.sem))
+		logger.Warn("evals: semaphore full, skipping eval dispatch",
+			"kind", kind, "turn", em.turnIndex.Load(), "capacity", cap(em.sem))
 		return
 	}
 
@@ -280,7 +338,7 @@ func (em *evalMiddleware) dispatchTurnEvals(ctx context.Context) {
 	go func() {
 		defer em.wg.Done()
 		defer func() { <-em.sem }()
-		results := em.runner.RunTurnEvals(em.evalContextWithBinding(em.evalContextWithRegistry(em.ctx)), em.defs, evalCtx)
+		results := run(em.evalContextWithBinding(em.evalContextWithRegistry(em.ctx)), em.defs, evalCtx)
 		em.recordMetrics(results)
 	}()
 }

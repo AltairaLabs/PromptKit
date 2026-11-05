@@ -293,6 +293,8 @@ func dispatchEvals(
 		return runner.RunSessionEvals(ctx, defs, evalCtx)
 	case evals.TriggerOnConversationComplete:
 		return runner.RunConversationEvals(ctx, defs, evalCtx)
+	case evals.TriggerOnWorkflowStep:
+		return runner.RunWorkflowStepEvals(ctx, defs, evalCtx)
 	default:
 		return runner.RunTurnEvals(ctx, defs, evalCtx)
 	}
