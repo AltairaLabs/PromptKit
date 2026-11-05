@@ -18,7 +18,7 @@ import (
 //   - contexts ([]string) | context (string) | context_field (string):
 //     retrieved chunks
 //   - question (string): override the auto-extracted last user turn
-//   - rubric, model, system_prompt: standard llm_judge knobs
+//   - rubric, model, system_prompt, extra: standard llm_judge knobs
 type ContextualPrecisionHandler struct{}
 
 // Type returns the eval type identifier.

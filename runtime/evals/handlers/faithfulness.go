@@ -19,7 +19,7 @@ import (
 // Params (all optional):
 //   - contexts ([]string) | context (string) | context_field (string):
 //     retrieved chunks the answer should be grounded in
-//   - rubric, model, system_prompt: standard llm_judge knobs
+//   - rubric, model, system_prompt, extra: standard llm_judge knobs
 type FaithfulnessHandler struct{}
 
 // Type returns the eval type identifier.

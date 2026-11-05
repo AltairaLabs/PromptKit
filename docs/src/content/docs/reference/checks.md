@@ -768,6 +768,7 @@ Judge params, shared by `llm_judge`, `llm_judge_session`, `llm_judge_tool_calls`
 | `model` | string | No | Model to use for judging. |
 | `system_prompt` | string | No | Override the judge's system prompt. |
 | `provider` | string | No | A logical provider name this pack declares in `requires`. Empty uses the host's default judge. |
+| `extra` | object | No | Provider-specific parameters. They reach the judge as `JudgeOpts.Extra`; the built-in judges send them as the prediction request's `Metadata`, which each provider reads or ignores. |
 
 ### `llm_judge`
 

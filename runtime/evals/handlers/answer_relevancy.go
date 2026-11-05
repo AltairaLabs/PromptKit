@@ -17,7 +17,7 @@ import (
 //
 // Params (all optional):
 //   - question (string): override the auto-extracted last user turn
-//   - rubric, model, system_prompt: standard llm_judge knobs
+//   - rubric, model, system_prompt, extra: standard llm_judge knobs
 type AnswerRelevancyHandler struct{}
 
 // Type returns the eval type identifier.
