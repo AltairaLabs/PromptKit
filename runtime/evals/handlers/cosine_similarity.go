@@ -9,8 +9,12 @@ import (
 )
 
 // CosineSimilarityHandler computes cosine similarity between
-// embeddings. Params: reference []float64, min_similarity float64.
-// Target embedding comes from Metadata["embedding"].
+// embeddings. Params: reference []float64. Target embedding comes from
+// Metadata["embedding"].
+//
+// It is a pure eval primitive: Score is the raw similarity. A threshold
+// belongs on the `type: assertion` / `type: guardrail` wrapper (min_score), so
+// min_similarity, min_score and max_score are rejected here.
 type CosineSimilarityHandler struct{}
 
 // Type returns the eval type identifier.
@@ -18,27 +22,22 @@ func (h *CosineSimilarityHandler) Type() string {
 	return "cosine_similarity"
 }
 
-// Eval computes cosine similarity and checks against threshold.
+// Eval computes the cosine similarity between the reference and the
+// target embedding.
 func (h *CosineSimilarityHandler) Eval(
 	_ context.Context,
 	evalCtx *evals.EvalContext,
 	params map[string]any,
 ) (result *evals.EvalResult, err error) {
+	if msg := rejectCosineThresholdParams(params); msg != "" {
+		return errorResult(h.Type(), msg), nil
+	}
 	reference, ok := extractFloat64Slice(params, "reference")
 	if !ok || len(reference) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
 			Score:       boolScore(false),
 			Explanation: "no reference embedding specified",
-		}, nil
-	}
-
-	minSim, ok := extractFloat64(params, "min_similarity")
-	if !ok {
-		return &evals.EvalResult{
-			Type:        h.Type(),
-			Score:       boolScore(false),
-			Explanation: "no min_similarity specified",
 		}, nil
 	}
 
@@ -53,12 +52,12 @@ func (h *CosineSimilarityHandler) Eval(
 		}, nil
 	}
 
-	return h.computeAndCheck(reference, target, minSim)
+	return h.compute(reference, target)
 }
 
-// computeAndCheck calculates similarity and builds the result.
-func (h *CosineSimilarityHandler) computeAndCheck(
-	reference, target []float64, minSim float64,
+// compute calculates similarity and builds the result.
+func (h *CosineSimilarityHandler) compute(
+	reference, target []float64,
 ) (result *evals.EvalResult, err error) {
 	if len(reference) != len(target) {
 		return &evals.EvalResult{
@@ -72,17 +71,25 @@ func (h *CosineSimilarityHandler) computeAndCheck(
 	}
 
 	similarity := cosineSimilarity(reference, target)
-	explanation := fmt.Sprintf(
-		"cosine similarity %.4f vs threshold %.4f",
-		similarity, minSim,
-	)
-
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Score:       &similarity,
-		Value:       map[string]any{"similarity": similarity, keyThreshold: minSim},
-		Explanation: explanation,
+		MetricValue: &similarity,
+		Details:     map[string]any{"similarity": similarity},
+		Explanation: fmt.Sprintf("cosine similarity %.4f", similarity),
 	}, nil
+}
+
+// rejectCosineThresholdParams refuses a threshold on the eval. min_similarity
+// was this check's own threshold param before #2354; it is named in the error
+// so a pack that still sets it learns where the threshold went.
+func rejectCosineThresholdParams(params map[string]any) string {
+	if _, present := params["min_similarity"]; present {
+		return "min_similarity is not a valid param on cosine_similarity; it reports the raw " +
+			"similarity as its score. Wrap it with `type: assertion` and set min_score there " +
+			"(see runtime/evals/wrappers.go)"
+	}
+	return rejectThresholdParams(params)
 }
 
 // cosineSimilarity computes the cosine similarity between two

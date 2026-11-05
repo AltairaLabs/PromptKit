@@ -35,6 +35,7 @@ Package evals provides the core evaluation framework for PromptPack. Eval defini
 - [func RegisterDefault\(h EvalTypeHandler\)](<#RegisterDefault>)
 - [func RegisterDefaultAlias\(aliasType, targetType string\)](<#RegisterDefaultAlias>)
 - [func RegisterTypeGroups\(evalType string, groups \[\]string\)](<#RegisterTypeGroups>)
+- [func ResultReplacement\(result \*EvalResult\) string](<#ResultReplacement>)
 - [func SamplePercentage\(e \*EvalDef\) float64](<#SamplePercentage>)
 - [func SeedBudgetMetadata\(metadata map\[string\]any, messages \[\]types.Message, latencyMs \*int64\) map\[string\]any](<#SeedBudgetMetadata>)
 - [func SetMetricLabels\(m \*MetricDef, labels map\[string\]string\)](<#SetMetricLabels>)
@@ -217,6 +218,12 @@ It lives in MetricDef.Extra rather than a typed field because the PromptPack sch
 
 ```go
 const MetricExpressionKey = "jmespath_expression"
+```
+
+<a name="ResultDetailReplacement"></a>ResultDetailReplacement is the EvalResult.Details key under which a check supplies the text that replaces a turn it denies, when the check itself decides what to answer \(topic\_policy's on\_deny: respond\). A guardrail uses it when the validator sets no message of its own.
+
+```go
+const ResultDetailReplacement = "replacement"
 ```
 
 <a name="WrapperTypeAssertion"></a>WrapperTypeAssertion is the eval type name for the assertion wrapper handler.
@@ -509,6 +516,15 @@ func RegisterTypeGroups(evalType string, groups []string)
 
 RegisterTypeGroups registers well\-known groups for a dynamic eval type. This is used by exec eval handlers to self\-classify as long\-running/external.
 
+<a name="ResultReplacement"></a>
+## func [ResultReplacement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L111>)
+
+```go
+func ResultReplacement(result *EvalResult) string
+```
+
+ResultReplacement returns the replacement text a result supplies under ResultDetailReplacement, or "" when it supplies none.
+
 <a name="SamplePercentage"></a>
 ## func [SamplePercentage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L206>)
 
@@ -631,7 +647,7 @@ func WithProviderBinding(ctx context.Context, b ProviderBinding) context.Context
 WithProviderBinding attaches a host's binding to ctx. Mirrors inference.WithRegistry: the pipeline attaches it once and every stage and handler below reads it from the context it was given.
 
 <a name="AssertionEvalHandler"></a>
-## type [AssertionEvalHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L151-L153>)
+## type [AssertionEvalHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L167-L169>)
 
 AssertionEvalHandler is a registered eval type \("assertion"\) that wraps an inner eval and applies pass/fail judgment based on score thresholds.
 
@@ -653,7 +669,7 @@ type AssertionEvalHandler struct {
 ```
 
 <a name="AssertionEvalHandler.Eval"></a>
-### func \(\*AssertionEvalHandler\) [Eval](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L160-L162>)
+### func \(\*AssertionEvalHandler\) [Eval](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L176-L178>)
 
 ```go
 func (h *AssertionEvalHandler) Eval(ctx context.Context, evalCtx *EvalContext, params map[string]any) (*EvalResult, error)
@@ -662,7 +678,7 @@ func (h *AssertionEvalHandler) Eval(ctx context.Context, evalCtx *EvalContext, p
 Eval resolves the inner handler from the registry, executes it, and applies threshold\-based pass/fail judgment.
 
 <a name="AssertionEvalHandler.EvalTimeout"></a>
-### func \(\*AssertionEvalHandler\) [EvalTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L341>)
+### func \(\*AssertionEvalHandler\) [EvalTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L357>)
 
 ```go
 func (h *AssertionEvalHandler) EvalTimeout(params map[string]any) time.Duration
@@ -671,7 +687,7 @@ func (h *AssertionEvalHandler) EvalTimeout(params map[string]any) time.Duration
 EvalTimeout delegates to the wrapped eval.
 
 <a name="AssertionEvalHandler.Type"></a>
-### func \(\*AssertionEvalHandler\) [Type](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L156>)
+### func \(\*AssertionEvalHandler\) [Type](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L172>)
 
 ```go
 func (h *AssertionEvalHandler) Type() string
@@ -680,7 +696,7 @@ func (h *AssertionEvalHandler) Type() string
 Type returns the registered eval type name.
 
 <a name="AssertionEvalHandler.ValidateParams"></a>
-### func \(\*AssertionEvalHandler\) [ValidateParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L355>)
+### func \(\*AssertionEvalHandler\) [ValidateParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L371>)
 
 ```go
 func (h *AssertionEvalHandler) ValidateParams(params map[string]any) error
@@ -1262,7 +1278,7 @@ type ExecEvalHookConfig struct {
 ```
 
 <a name="GuardrailEvalHandler"></a>
-## type [GuardrailEvalHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L226-L228>)
+## type [GuardrailEvalHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L242-L244>)
 
 GuardrailEvalHandler is a registered eval type \("guardrail"\) that wraps an inner eval and determines whether the guardrail was triggered.
 
@@ -1284,7 +1300,7 @@ type GuardrailEvalHandler struct {
 ```
 
 <a name="GuardrailEvalHandler.Eval"></a>
-### func \(\*GuardrailEvalHandler\) [Eval](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L235-L237>)
+### func \(\*GuardrailEvalHandler\) [Eval](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L251-L253>)
 
 ```go
 func (h *GuardrailEvalHandler) Eval(ctx context.Context, evalCtx *EvalContext, params map[string]any) (*EvalResult, error)
@@ -1293,7 +1309,7 @@ func (h *GuardrailEvalHandler) Eval(ctx context.Context, evalCtx *EvalContext, p
 Eval resolves the inner handler from the registry, executes it, and determines whether the guardrail was triggered.
 
 <a name="GuardrailEvalHandler.EvalTimeout"></a>
-### func \(\*GuardrailEvalHandler\) [EvalTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L346>)
+### func \(\*GuardrailEvalHandler\) [EvalTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L362>)
 
 ```go
 func (h *GuardrailEvalHandler) EvalTimeout(params map[string]any) time.Duration
@@ -1302,7 +1318,7 @@ func (h *GuardrailEvalHandler) EvalTimeout(params map[string]any) time.Duration
 EvalTimeout delegates to the wrapped eval.
 
 <a name="GuardrailEvalHandler.Type"></a>
-### func \(\*GuardrailEvalHandler\) [Type](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L231>)
+### func \(\*GuardrailEvalHandler\) [Type](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L247>)
 
 ```go
 func (h *GuardrailEvalHandler) Type() string
@@ -1311,7 +1327,7 @@ func (h *GuardrailEvalHandler) Type() string
 Type returns the registered eval type name.
 
 <a name="GuardrailEvalHandler.ValidateParams"></a>
-### func \(\*GuardrailEvalHandler\) [ValidateParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L361>)
+### func \(\*GuardrailEvalHandler\) [ValidateParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L377>)
 
 ```go
 func (h *GuardrailEvalHandler) ValidateParams(params map[string]any) error

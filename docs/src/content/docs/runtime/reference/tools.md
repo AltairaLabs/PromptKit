@@ -65,6 +65,7 @@ Tools can be loaded from YAML/JSON files and executed with argument validation, 
 - [type ExecConfig](<#ExecConfig>)
 - [type ExecExecutor](<#ExecExecutor>)
   - [func \(e \*ExecExecutor\) Execute\(ctx context.Context, descriptor \*ToolDescriptor, args json.RawMessage\) \(json.RawMessage, error\)](<#ExecExecutor.Execute>)
+  - [func \(e \*ExecExecutor\) ExecuteAsync\(ctx context.Context, descriptor \*ToolDescriptor, args json.RawMessage\) \(\*ToolExecutionResult, error\)](<#ExecExecutor.ExecuteAsync>)
   - [func \(e \*ExecExecutor\) Name\(\) string](<#ExecExecutor.Name>)
 - [type Executor](<#Executor>)
 - [type FileToolResponseRepository](<#FileToolResponseRepository>)
@@ -686,13 +687,24 @@ type ExecExecutor struct{}
 ```
 
 <a name="ExecExecutor.Execute"></a>
-### func \(\*ExecExecutor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/exec_executor.go#L57-L59>)
+### func \(\*ExecExecutor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/exec_executor.go#L62-L64>)
 
 ```go
 func (e *ExecExecutor) Execute(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error)
 ```
 
 Execute runs the tool as a one\-shot subprocess.
+
+Execute is the synchronous path, which has no way to suspend a call, so a subprocess that answers \{"pending": ...\} is an error here. The pipeline calls ExecuteAsync, where a pending answer suspends the call.
+
+<a name="ExecExecutor.ExecuteAsync"></a>
+### func \(\*ExecExecutor\) [ExecuteAsync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/exec_executor.go#L81-L83>)
+
+```go
+func (e *ExecExecutor) ExecuteAsync(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (*ToolExecutionResult, error)
+```
+
+ExecuteAsync runs the tool as a one\-shot subprocess and reports a \{"pending": ...\} answer as ToolStatusPending, on the same path client and other async tools use: the pipeline suspends the call and the caller resolves it later.
 
 <a name="ExecExecutor.Name"></a>
 ### func \(\*ExecExecutor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/exec_executor.go#L36>)

@@ -133,7 +133,9 @@ type JudgeOpts struct {
 	// SystemPrompt overrides the default judge system prompt (optional).
 	SystemPrompt string
 
-	// Extra holds additional parameters for provider-specific features.
+	// Extra holds additional parameters for provider-specific features: the
+	// check's `extra` param. The built-in judges send it as the prediction
+	// request's Metadata.
 	Extra map[string]any
 
 	// Emitter is an optional event emitter for provider call telemetry.
@@ -270,6 +272,7 @@ func judgeWithProvider(
 		Temperature:    0.0,
 		TemperatureSet: true, // deterministic grading: 0, not the provider's default
 		MaxTokens:      judgeMaxTokens,
+		Metadata:       opts.Extra,
 	})
 	duration := time.Since(startTime)
 

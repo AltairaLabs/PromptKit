@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -544,16 +545,16 @@ func TestExecutor_SetFilter_DeactivatesNonMatching(t *testing.T) {
 	}
 }
 
-func TestNewExecutorDefaultsToModelDrivenSelector(t *testing.T) {
-	reg := NewRegistry()
-	exec := NewExecutor(ExecutorConfig{Registry: reg})
+// With no selector configured the index lists every skill, as
+// ModelDrivenSelector, the documented default, would choose.
+func TestNewExecutorWithNoSelectorListsEverySkill(t *testing.T) {
+	e := newTaggedExecutor(t, ExecutorConfig{})
 
-	if exec.selector == nil {
-		t.Fatal("expected non-nil selector")
+	if got := e.SelectSkillsIn(context.Background(), "anything", NewActiveSet()); got != nil {
+		t.Errorf("SelectSkillsIn = %v, want nil (no narrowing)", got)
 	}
-	if _, ok := exec.selector.(*ModelDrivenSelector); !ok {
-		t.Errorf(
-			"expected *ModelDrivenSelector, got %T", exec.selector,
-		)
+	index := e.SkillIndexFiltered(context.Background(), "anything", "")
+	if !strings.Contains(index, "alpha") || !strings.Contains(index, "beta") {
+		t.Errorf("index should list every skill:\n%s", index)
 	}
 }

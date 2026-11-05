@@ -223,8 +223,9 @@ conv, err := sdk.Open("support.pack.json", "assistant")
 | `WithSkillSource(skills.SkillSource)` | Adds a source with `MountAs`, `Preload`, or inline fields. Repeatable. | None |
 | `WithMaxActiveSkillsOption(n)` | Maximum concurrently active skills per conversation. `n` must be positive. | Unlimited |
 | `WithSelector(name, selection.Selector)` | Registers an in-process selector that a runtime config binds to skills by name. | None |
+| `WithSkillSelectorOption(skills.SkillSelector)` | Narrows the `skill__activate` index with a `skills.SkillSelector`, such as `TagSelector`. | None |
 
-`WithSkillsDir` and `WithSkillSource` add the skills capability only when the pack does not already declare `skills`. When it does, these two options have no effect.
+`WithSkillsDir` and `WithSkillSource` add the skills capability when the pack declares no `skills`. When it does, these sources merge with the pack's, and a source the capability already holds is not added twice.
 
 ```go
 conv, err := sdk.Open("base.pack.json", "assistant",
@@ -260,6 +261,8 @@ spec:
 ```
 
 An in-process `selection.Selector` (`Name`, `Init`, `Select`) registered with `WithSelector` under the same name takes precedence over the declared process. See [Runtime config reference](/sdk/reference/runtime-config/).
+
+A `skills.SkillSelector` passed to `WithSkillSelectorOption` runs on the same path. It narrows the index once per turn, with the user's message as its query, and is not consulted for a turn with no text. `TagSelector` reads the comma-separated `tags` entry in a skill's `metadata`. An error or an empty choice lists every skill the state admits. A selector bound in the runtime config takes precedence over one passed to `WithSkillSelectorOption`.
 
 ### Programmatic capability
 

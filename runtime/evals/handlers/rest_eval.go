@@ -38,8 +38,11 @@ var sharedHTTPClient = &http.Client{
 //   - include_messages (bool, optional): include conversation history, default true
 //   - include_tool_calls (bool, optional): include tool call records, default false
 //   - criteria (string, optional): evaluation criteria forwarded in request
-//   - min_score (float64, optional): minimum score threshold
 //   - extra (map[string]any, optional): arbitrary data forwarded in request
+//
+// A pure eval primitive: Score is the endpoint's score. min_score / max_score
+// are rejected; put the threshold on a `type: assertion` or `type: guardrail`
+// wrapper.
 type RestEvalHandler struct{}
 
 // Type returns the eval type identifier.
@@ -81,6 +84,9 @@ func executeRestEval(
 	evalType string,
 	content string,
 ) (*evals.EvalResult, error) {
+	if msg := rejectThresholdParams(params); msg != "" {
+		return errorResult(evalType, msg), nil
+	}
 	url, ok := params["url"].(string)
 	if !ok || url == "" {
 		return &evals.EvalResult{

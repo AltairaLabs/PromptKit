@@ -20,7 +20,7 @@ import (
 //   - reference (string) | expected_output (string): the ground-truth
 //     answer (required)
 //   - question (string): override the auto-extracted last user turn
-//   - rubric, model, system_prompt: standard llm_judge knobs
+//   - rubric, model, system_prompt, extra: standard llm_judge knobs
 type ContextualRecallHandler struct{}
 
 // Type returns the eval type identifier.

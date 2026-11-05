@@ -163,7 +163,7 @@ Applied when the param is absent.
 | `max_length` | `length` | `max` (int, required, > 0), `max_tokens` (int) | `min(max / length, 1)`, lowered by the token ratio |
 | `sentence_count` | `max_sentences` | none | Always 1 |
 | `field_presence` | `required_fields` | `fields` (string[]) | Fraction of fields found |
-| `cosine_similarity` | none | `reference` (float[], required), `min_similarity` (float, required) | The similarity |
+| `cosine_similarity` | none | `reference` (float[], required) | The similarity |
 
 | Check | Behavior |
 |-------|----------|
@@ -175,7 +175,7 @@ Applied when the param is absent.
 | `min_length`, `max_length` | Length is in bytes. `max_tokens` estimates tokens as bytes divided by 4. |
 | `sentence_count` | A measurement: the count is in `Details.count`. The handler reads no params; `max` and `max_sentences` have no effect. |
 | `field_presence` | Looks for each name as a substring of the output. No fields passes. |
-| `cosine_similarity` | The target embedding comes from `EvalContext.Metadata["embedding"]`. A missing embedding, or a dimension mismatch, scores 0. `min_similarity` is reported in the result and does not set the verdict. |
+| `cosine_similarity` | The target embedding comes from `EvalContext.Metadata["embedding"]`. A missing embedding, or a dimension mismatch, scores 0. `min_similarity`, `min_score` and `max_score` are rejected with an error: set the threshold as `min_score` on the [`assertion`](#assertion-wrapper) wrapper. |
 
 ### Streaming
 
@@ -709,13 +709,13 @@ Params:
 | `disallowed` | string[] | none | Explicit exclusions. |
 | `small_talk` | `allow` \| `deny` | `allow` | Whether greetings, thanks and pleasantries that match no listed subject count as in scope. |
 | `examples.allowed`, `examples.disallowed` | string[] | none | A labeled corpus folded into the prompt. |
-| `on_deny` | `block` \| `respond` | `block` | Recorded in the result `Details`. Both values block the turn and substitute `message`. |
+| `on_deny` | `block` \| `respond` | `block` | What replaces a denied turn. Both skip the agent for an input check and replace its reply for an output check. `block` answers with `message`, else the generic blocked message. `respond` answers with the policy's own response, naming the allowed subjects: `I can only help with: Omnia and PromptKit; licensing and support.` A `message` you set still wins under `respond`. |
 | `on_unknown` | `deny` \| `allow` | `deny` | Outcome when the classifier answers but gives no usable label, or the turn has no text to judge. |
 | `on_error` | `deny` \| `allow` | `deny` | Outcome when the classifier cannot be reached or parsed, including when no provider is bound. |
 | `recent_turns` | int (>= 0) | `4` | How many prior `user` and `assistant` turns to send for reference resolution. `0` judges the current message alone. |
 | `provider` | string | none | A logical provider name this pack declares in `requires`. Empty uses the host's default topic classifier. |
 | `direction` | `input` \| `output` \| `both` | `input` | `topic_policy` is the one check type whose default direction is not `output`. |
-| `message` | string | generic blocked message | The user-facing text for a denied turn. Normally the validator's top-level `message:` field; also accepted in `params`. |
+| `message` | string | generic blocked message (`on_deny: block`) or the policy's response (`on_deny: respond`) | The user-facing text for a denied turn. Normally the validator's top-level `message:` field; also accepted in `params`. |
 
 Behavior:
 
@@ -768,6 +768,7 @@ Judge params, shared by `llm_judge`, `llm_judge_session`, `llm_judge_tool_calls`
 | `model` | string | No | Model to use for judging. |
 | `system_prompt` | string | No | Override the judge's system prompt. |
 | `provider` | string | No | A logical provider name this pack declares in `requires`. Empty uses the host's default judge. |
+| `extra` | object | No | Provider-specific parameters. They reach the judge as `JudgeOpts.Extra`; the built-in judges send them as the prediction request's `Metadata`, which each provider reads or ignores. |
 
 ### `llm_judge`
 
@@ -915,7 +916,7 @@ External checks delegate evaluation to HTTP endpoints or A2A agents.
 
 ### `rest_eval`
 
-Sends the turn to an HTTP endpoint. The endpoint returns `{"score": float, "reasoning": string}`. A `passed` field is accepted and ignored.
+Sends the turn to an HTTP endpoint. The endpoint returns `{"score": float, "reasoning": string}`. A `passed` field is accepted and ignored. The check reports the endpoint's score as its own, and the [`assertion`](#assertion-wrapper) or guardrail wrapper decides pass or fail. `min_score` and `max_score` on the check itself are rejected with an error pointing at the wrapper, and the endpoint is not called. The same holds for `a2a_eval` and the session variants.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -962,6 +963,21 @@ evals:
       headers:
         Authorization: "Bearer ${SAFETY_API_KEY}"
       criteria: "Content is safe for all audiences"
+```
+
+To require a score, put the threshold on the wrapper:
+
+```yaml
+evals:
+  - id: safety_check
+    type: assertion
+    trigger: every_turn
+    params:
+      eval_type: rest_eval
+      min_score: 0.9
+      eval_params:
+        url: "https://safety.internal/evaluate"
+        criteria: "Content is safe for all audiences"
 ```
 
 ---

@@ -3842,7 +3842,9 @@ func WithSkillSource(src skills.SkillSource) Option {
 
 // WithSkillSelectorOption sets the skill selector for filtering available skills.
 // The selector determines which skills from the available set are presented
-// to the model in the skill index.
+// to the model in the skill index. It is consulted once per turn with the
+// user's message, as a selection.Selector bound in RuntimeConfig is, and that
+// RuntimeConfig selector takes precedence over it.
 //
 //	conv, _ := sdk.Open("./assistant.pack.json", "chat",
 //	    sdk.WithSkillSelectorOption(skills.NewTagSelector([]string{"coding"})),

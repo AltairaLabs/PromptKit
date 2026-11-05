@@ -24,8 +24,11 @@ const defaultA2AEvalTimeout = 60 * time.Second
 //   - criteria (string, optional): evaluation criteria
 //   - include_messages (bool, optional): include conversation history, default true
 //   - include_tool_calls (bool, optional): include tool call records, default false
-//   - min_score (float64, optional): minimum score threshold
 //   - extra (map[string]any, optional): arbitrary data forwarded in request
+//
+// A pure eval primitive: Score is the agent's score. min_score / max_score are
+// rejected; put the threshold on a `type: assertion` or `type: guardrail`
+// wrapper.
 type A2AEvalHandler struct{}
 
 // Type returns the eval type identifier.
@@ -67,6 +70,9 @@ func executeA2AEval(
 	evalType string,
 	content string,
 ) (*evals.EvalResult, error) {
+	if msg := rejectThresholdParams(params); msg != "" {
+		return errorResult(evalType, msg), nil
+	}
 	agentURL, ok := params["agent_url"].(string)
 	if !ok || agentURL == "" {
 		return &evals.EvalResult{

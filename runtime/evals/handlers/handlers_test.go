@@ -1238,8 +1238,7 @@ func TestCosineSimilarityHandler_Identical(t *testing.T) {
 		},
 	}
 	params := map[string]any{
-		"reference":      ref,
-		"min_similarity": 0.9,
+		"reference": ref,
 	}
 
 	result, err := h.Eval(ctx, evalCtx, params)
@@ -1266,8 +1265,7 @@ func TestCosineSimilarityHandler_Orthogonal(t *testing.T) {
 		},
 	}
 	params := map[string]any{
-		"reference":      []float64{1.0, 0.0, 0.0},
-		"min_similarity": 0.5,
+		"reference": []float64{1.0, 0.0, 0.0},
 	}
 
 	result, err := h.Eval(ctx, evalCtx, params)
@@ -1288,8 +1286,7 @@ func TestCosineSimilarityHandler_DimensionMismatch(t *testing.T) {
 		},
 	}
 	params := map[string]any{
-		"reference":      []float64{1.0, 0.0, 0.0},
-		"min_similarity": 0.5,
+		"reference": []float64{1.0, 0.0, 0.0},
 	}
 
 	result, err := h.Eval(ctx, evalCtx, params)
@@ -1310,9 +1307,7 @@ func TestCosineSimilarityHandler_NoReference(t *testing.T) {
 		},
 	}
 
-	result, err := h.Eval(ctx, evalCtx, map[string]any{
-		"min_similarity": 0.5,
-	})
+	result, err := h.Eval(ctx, evalCtx, map[string]any{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1328,8 +1323,7 @@ func TestCosineSimilarityHandler_NoEmbedding(t *testing.T) {
 		Metadata: map[string]any{},
 	}
 	params := map[string]any{
-		"reference":      []float64{1.0, 0.0},
-		"min_similarity": 0.5,
+		"reference": []float64{1.0, 0.0},
 	}
 
 	result, err := h.Eval(ctx, evalCtx, params)
@@ -1350,8 +1344,7 @@ func TestCosineSimilarityHandler_AnySlice(t *testing.T) {
 		},
 	}
 	params := map[string]any{
-		"reference":      []any{1.0, 0.0, 0.0},
-		"min_similarity": 0.9,
+		"reference": []any{1.0, 0.0, 0.0},
 	}
 
 	result, err := h.Eval(ctx, evalCtx, params)

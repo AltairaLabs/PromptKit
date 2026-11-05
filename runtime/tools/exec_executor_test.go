@@ -259,3 +259,59 @@ echo "{\"result\": $INPUT}"
 	require.NoError(t, json.Unmarshal(result, &parsed))
 	assert.Contains(t, string(parsed["args"]), "key")
 }
+
+// An exec tool that answers {"pending": ...} suspends the call on the same
+// path client and async tools use: ExecuteAsync reports ToolStatusPending with
+// the subprocess's reason and message, and the registry hands that back to the
+// pipeline untouched.
+func TestExecExecutor_PendingResponseSuspendsTheCall(t *testing.T) {
+	script := writeScript(t, "tool.sh", `#!/bin/sh
+echo '{"pending": {"reason": "requires_approval", "message": "Refund of $500 requires manager approval"}}'
+`)
+	registry := NewRegistry()
+	registry.RegisterExecutor(&ExecExecutor{})
+	require.NoError(t, registry.Register(&ToolDescriptor{
+		Name:       "refund",
+		Mode:       execExecutorName,
+		ExecConfig: &ExecConfig{Command: script},
+	}))
+
+	args := json.RawMessage(`{"amount":500}`)
+	res, err := registry.ExecuteAsync(context.Background(), "refund", args)
+	require.NoError(t, err)
+	require.Equal(t, ToolStatusPending, res.Status)
+	require.NotNil(t, res.PendingInfo)
+	assert.Equal(t, "requires_approval", res.PendingInfo.Reason)
+	assert.Equal(t, "Refund of $500 requires manager approval", res.PendingInfo.Message)
+	assert.Equal(t, "refund", res.PendingInfo.ToolName)
+	assert.JSONEq(t, string(args), string(res.PendingInfo.Args))
+	assert.Empty(t, res.Content, "a pending call has no result yet")
+}
+
+// A completed exec call still reports complete through ExecuteAsync.
+func TestExecExecutor_ExecuteAsyncCompletes(t *testing.T) {
+	script := writeScript(t, "tool.sh", `#!/bin/sh
+echo '{"result": {"ok": true}}'
+`)
+	e := &ExecExecutor{}
+	res, err := e.ExecuteAsync(context.Background(), &ToolDescriptor{
+		Name: "t", ExecConfig: &ExecConfig{Command: script},
+	}, json.RawMessage(`{}`))
+	require.NoError(t, err)
+	assert.Equal(t, ToolStatusComplete, res.Status)
+	assert.JSONEq(t, `{"ok": true}`, string(res.Content))
+}
+
+// The synchronous path cannot suspend, so a pending answer is an error there
+// rather than the raw {"pending": ...} envelope passed off as the tool's result.
+func TestExecExecutor_ExecuteRejectsPending(t *testing.T) {
+	script := writeScript(t, "tool.sh", `#!/bin/sh
+echo '{"pending": {"reason": "requires_approval"}}'
+`)
+	e := &ExecExecutor{}
+	_, err := e.Execute(context.Background(), &ToolDescriptor{
+		Name: "t", ExecConfig: &ExecConfig{Command: script},
+	}, json.RawMessage(`{}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pending")
+}

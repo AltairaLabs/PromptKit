@@ -38,6 +38,10 @@ import (
 // small_talk (allow|deny), examples.{allowed,disallowed}, on_deny
 // (block|respond), on_unknown (deny|allow), on_error (deny|allow),
 // recent_turns (>= 0), provider.
+//
+// on_deny picks what replaces a denied turn. block uses the validator's
+// message, else the generic blocked message. respond answers with the policy's
+// response, naming the allowed subjects; a validator message still wins.
 type TopicPolicyHandler struct {
 	// warnedGuardrails remembers which misconfigured guardrails have already
 	// been reported, so the unbound-classifier warning is loud once rather than
@@ -231,7 +235,7 @@ const (
 func (h *TopicPolicyHandler) decisionResult(
 	cfg topicPolicyConfig, decision string, score, confidence float64, raw string,
 ) *evals.EvalResult {
-	return scoredTopicResult(score, map[string]any{
+	return scoredTopicResult(cfg, score, map[string]any{
 		detailDecision:     decision,
 		detailRaw:          raw,
 		paramProvider:      cfg.providerKey,
@@ -253,7 +257,7 @@ func (h *TopicPolicyHandler) outcomeResult(
 	if outcome == outcomeAllow {
 		score = 1.0
 	}
-	return scoredTopicResult(score, map[string]any{
+	return scoredTopicResult(cfg, score, map[string]any{
 		detailDecision:     topicUnknown,
 		"reason":           reason,
 		detailRaw:          raw,
@@ -263,7 +267,13 @@ func (h *TopicPolicyHandler) outcomeResult(
 	})
 }
 
-func scoredTopicResult(score float64, details map[string]any) *evals.EvalResult {
+// scoredTopicResult builds the result. A denial under on_deny: respond carries
+// the policy's response as the replacement for the denied turn; under block it
+// carries none, and the guardrail falls back to its blocked message.
+func scoredTopicResult(cfg topicPolicyConfig, score float64, details map[string]any) *evals.EvalResult {
+	if score < 1 && cfg.onDeny == onDenyRespond {
+		details[evals.ResultDetailReplacement] = policyResponse(cfg.policy)
+	}
 	s := score
 	m := score
 	return &evals.EvalResult{
@@ -272,6 +282,12 @@ func scoredTopicResult(score float64, details map[string]any) *evals.EvalResult 
 		MetricValue: &m,
 		Details:     details,
 	}
+}
+
+// policyResponse is the reply on_deny: respond gives a denied turn: what the
+// policy lets the assistant help with, in the policy's own words.
+func policyResponse(p topicPolicy) string {
+	return "I can only help with: " + strings.Join(p.Allowed, "; ") + "."
 }
 
 // judgedMessage returns the message under judgment. The guardrail adapter puts

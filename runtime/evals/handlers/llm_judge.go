@@ -20,6 +20,8 @@ import (
 //   - rubric (string, optional): detailed scoring guidance
 //   - model (string, optional): model override for the judge
 //   - system_prompt (string, optional): override default system prompt
+//   - extra (map[string]any, optional): provider-specific parameters, passed
+//     to the judge as JudgeOpts.Extra
 type LLMJudgeHandler struct{}
 
 // Type returns the eval type identifier.
@@ -223,6 +225,7 @@ func buildJudgeOpts(
 	if v, ok := params["system_prompt"].(string); ok {
 		opts.SystemPrompt = v
 	}
+	opts.Extra = extractMapAny(params, "extra")
 
 	return opts
 }

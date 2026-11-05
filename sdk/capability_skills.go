@@ -33,6 +33,8 @@ type SkillsCapability struct {
 type SkillsOption func(*SkillsCapability)
 
 // WithSkillSelector sets a custom skill selector for filtering available skills.
+// It narrows the skill__activate index once per turn, as a selector bound in
+// RuntimeConfig does; a RuntimeConfig selector takes precedence over it.
 func WithSkillSelector(s skills.SkillSelector) SkillsOption {
 	return func(c *SkillsCapability) {
 		c.selector = s
@@ -87,6 +89,11 @@ func (c *SkillsCapability) Init(ctx CapabilityContext) error {
 		if sel, ok := ctx.Selectors[ctx.SkillsSelectorName]; ok {
 			c.newSelector = sel
 		}
+	}
+	// A SkillSelector (WithSkillSelector, sdk.WithSkillSelectorOption) runs on
+	// the same path, when RuntimeConfig binds no selector of its own.
+	if c.newSelector == nil {
+		c.newSelector = skills.AdaptSkillSelector(c.selector)
 	}
 
 	// Init runs once per conversation open, and a host may reuse one
