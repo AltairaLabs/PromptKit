@@ -1,459 +1,153 @@
 ---
 title: Templates
+description: How a pack's system template substitutes variables, which syntax the runtime supports, and how templates fail.
 sidebar:
   order: 2
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/packspec/types.go
+    - runtime/pipeline/stage/stages_utilities.go
+    - runtime/prompt/pack.go
+    - runtime/prompt/registry.go
+    - runtime/prompt/schema/promptpack.schema.json
+    - runtime/template/renderer.go
+    - sdk/conversation.go
+    - sdk/options.go
+    - sdk/sdk.go
 ---
-Understanding template systems in PromptKit.
 
-## What is a Template?
+A template is a prompt with placeholders for values that change. The runtime fills the placeholders on every turn, so one prompt serves many users, tenants, and situations.
 
-A **template** is a reusable prompt structure with placeholders for dynamic content. Templates separate prompt logic from data.
+## What a template is
 
-### Without Template
+Without a template, you assemble the system prompt by hand:
 
 ```go
 prompt := "You are a support agent for " + company + ". Help the user with: " + question
 ```
 
-### With Template
+With a template, the pack holds the text and the runtime supplies the values:
 
-```go
-template := "You are a support agent for . Help the user with: "
-result := ExecuteTemplate(template, map[string]string{
-    "company":  "TechCorp",
-    "question": "password reset",
-})
-```
-
-## Why Use Templates?
-
-**Consistency**: Same structure across all uses  
-**Maintainability**: Update once, apply everywhere  
-**Reusability**: Share templates across projects  
-**Testing**: Test templates independently  
-**Versioning**: Track template changes  
-
-## Template Structure
-
-### System and User Prompts
-
-```yaml
-system: |
-  You are a  for .
-  
-  Guidelines:
-  - Be 
-  - Keep responses under  words
-  
-user: |
-  
-```
-
-### Variables
-
-Variables are placeholders replaced with actual values:
-
-```go
-variables := map[string]string{
-    "role":      "customer support agent",
-    "company":   "TechCorp",
-    "tone":      "professional",
-    "max_words": "100",
+```json
+{
+  "system_template": "You are a {{role}} for {{company}}. Keep responses under {{max_words}} words."
 }
 ```
 
-## Templates in PromptKit Components
+Templates give you one place to change a prompt, prompts that you can version and review as files, and prompts that you can test without running application code.
 
-### Runtime Templates
+## Placeholder syntax
+
+A placeholder is a variable name between double braces: `{{name}}`. The runtime replaces each placeholder with the variable's value by exact string match, so `{{ name }}` with spaces is not a placeholder for `name`.
+
+The runtime performs plain substitution. It has no conditionals, loops, filters, default syntax inside the template, or template inheritance. Compute anything dynamic in Go and pass the result as a variable. The pack's `template_engine` block records the engine version and syntax, and the runtime does not read it to change how it substitutes.
+
+Variable values can contain other placeholders. The renderer repeats substitution for up to 10 passes, so `greeting` set to `Hello {{name}}` resolves once `name` has a value.
+
+## Declaring variables
+
+A prompt in a pack lists its variables in `variables`:
+
+```json
+{
+  "prompts": {
+    "support": {
+      "id": "support",
+      "name": "Support agent",
+      "version": "1.0.0",
+      "system_template": "You are a {{role}} for {{company}}.",
+      "variables": [
+        { "name": "company", "type": "string", "required": true },
+        { "name": "role", "type": "string", "required": false, "default": "support agent" }
+      ]
+    }
+  }
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `name` | Variable name used in the template. |
+| `type` | Declared data type. |
+| `required` | When `true`, the turn fails unless a non-empty value is supplied. |
+| `default` | Value used when none is supplied. A default cannot be set on a required variable, and the runtime applies string defaults. |
+
+## Where values come from
+
+Values come from pack defaults, `sdk.WithVariables`, variable providers, `SetVar`, and per-send input, with later sources winning. [How Variables Resolve](/sdk/explanation/variables/) lists every source and its precedence.
+
+```go
+conv, _ := sdk.Open("./support.pack.json", "support",
+    sdk.WithVariables(map[string]string{"company": "TechCorp"}),
+)
+conv.SetVar("role", "billing specialist")
+```
+
+Variables apply to the system template only. Message text is sent as written, so a `{{name}}` in a user message stays a placeholder.
+
+## Rendering without a pack
+
+The `template` package exposes the renderer the pipeline uses:
 
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/v2/template"
 
-// Create registry
-templates := template.NewRegistry()
-
-// Register template
-templates.RegisterTemplate("support", &template.PromptTemplate{
-    SystemPrompt: "You are a  for .",
-    Variables: map[string]string{
-        "role":    "support agent",
-        "company": "TechCorp",
-    },
-})
-```
-
-### PackC Templates
-
-PackC manages templates as files:
-
-```bash
-prompts/
-├── support.prompt
-├── sales.prompt
-└── technical.prompt
-```
-
-Example `support.prompt`:
-
-```yaml
-name: support
-version: 1.0.0
-system: |
-  You are a customer support agent for .
-  
-  Your responsibilities:
-  - Answer questions clearly
-  - Be empathetic and professional
-  - Escalate complex issues
-  
-  Company info:
-  - Website: 
-  - Support hours: 
-
-user: |
-  Customer question: 
-```
-
-Compile templates:
-
-```bash
-packc compile --config arena.yaml --output templates.pack.json --id templates
-```
-
-Load in code:
-
-```go
-pack, _ := prompt.LoadPack("templates.pack.json")
-```
-
-### SDK Templates
-
-SDK uses simpler template approach:
-
-```go
-conv, _ := sdk.Open("./assistant.pack.json", "chat",
-    sdk.WithModel("gpt-4o-mini"),
+r := template.NewRenderer()
+text, err := r.Render(
+    "You are a {{role}} for {{company}}.",
+    map[string]string{"role": "support agent", "company": "TechCorp"},
 )
-defer conv.Close()
 ```
 
-## Template Syntax
+`Render` returns an error when any placeholder remains unresolved. `RenderDetailed` also reports which variables were used and unused, and how many passes ran.
 
-### Variable Substitution
+## Authoring templates as files
 
-Basic:
-
-```
-Hello, !
-```
-
-With defaults:
-
-```
-Hello, !
-```
-
-### Conditionals
+PromptArena and PackC manage prompts as YAML `PromptConfig` files and compile them into a pack. The template lives under `spec.system_template`:
 
 ```yaml
-system: |
-  You are a support agent.
-  
-  Provide priority support.
-  
+apiVersion: promptkit.altairalabs.ai/v1alpha1
+kind: PromptConfig
+metadata:
+  name: support
+spec:
+  task_type: support
+  version: v1.0.0
+  system_template: |
+    You are a customer support agent for {{company}}.
+    Answer clearly, stay professional, and escalate complex issues.
+  variables:
+    - name: company
+      type: string
+      required: true
 ```
 
-### Loops
+Compile the prompts into a pack with PackC:
 
-```yaml
-system: |
-  Available commands:
-  
-  - 
-  
+```bash
+packc compile --config arena.yaml --output support.pack.json --id support
 ```
 
-### Functions
+Load the pack in Go with `sdk.Open`. The PromptArena documentation covers the arena configuration that points at your prompt files.
 
-```yaml
-system: |
-  User: 
-  Role: 
+## Failure modes
+
+A placeholder with no value fails the turn before the model runs. The error lists the variable names available and never their values:
+
+```text
+system prompt has unresolved variables: support: unresolved template
+placeholders: [{{company}}] (variables available: role)
 ```
 
-## Template Best Practices
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Unresolved placeholder error | No source supplied the variable | Supply it, or declare an optional variable with a `default`. |
+| `missing required variables` error | A `required` variable has no value or an empty value | Pass a non-empty value. |
+| Literal `{{name}}` in a user message | Variables do not apply to message text | Interpolate message text in Go before `Send`. |
 
-### Structure
+## Related
 
-✅ **Separate system and user prompts**
-
-```yaml
-system: |
-  Instructions for AI
-user: |
-  User input: 
-```
-
-✅ **Use clear variable names**
-
-```yaml
- not 
- not 
-```
-
-✅ **Provide defaults**
-
-```yaml
-tone: 
-```
-
-✅ **Document variables**
-```yaml
-# Variables:
-# - company: Company name (required)
-# - role: Agent role (default: "support agent")
-# - hours: Support hours (default: "24/7")
-```
-
-### Organization
-
-✅ **One template per use case**
-```
-support.prompt     # Customer support
-sales.prompt       # Sales inquiries
-technical.prompt   # Technical support
-```
-
-✅ **Version templates**
-```
-support-v1.prompt
-support-v2.prompt
-```
-
-✅ **Use descriptive names**
-```
-customer-support.prompt  # Clear
-template1.prompt         # Unclear
-```
-
-## Common Patterns
-
-### Role-Based Templates
-
-```yaml
-name: role-based
-system: |
-  You are a .
-  
-  
-  Focus on helping customers resolve issues.
-  
-  Focus on understanding customer needs.
-  
-```
-
-### Multi-Language Templates
-
-```yaml
-name: multilingual
-system: |
-  
-  You are a helpful assistant.
-  
-  Eres un asistente útil.
-  
-  Vous êtes un assistant utile.
-  
-```
-
-### Contextual Templates
-
-```yaml
-name: contextual
-system: |
-  You are a support agent.
-  
-  User tier: 
-  
-  Provide white-glove support.
-  
-  Provide standard support.
-  
-  
-  Previous issues: 
-  
-  This is a returning customer. Be extra helpful.
-  
-```
-
-## Testing Templates
-
-### With PromptArena
-
-```yaml
-name: Template Tests
-
-templates:
-  support:
-    file: support.prompt
-    variables:
-      company: TechCorp
-      role: support agent
-
-tests:
-  - name: Test Support Template
-    template: support
-    variables:
-      question: "How do I reset my password?"
-    assertions:
-      - type: contains
-        value: "TechCorp"
-      - type: contains
-        value: "password"
-```
-
-### With Runtime
-
-```go
-func TestTemplate(t *testing.T) {
-    templates := template.NewRegistry()
-    templates.RegisterTemplate("test", &template.PromptTemplate{
-        SystemPrompt: "You are a ",
-        Variables: map[string]string{"role": "tester"},
-    })
-    
-    // Test template rendering
-    rendered := templates.Get("test").Render()
-    assert.Contains(t, rendered, "tester")
-}
-```
-
-## Template Management
-
-### Development
-
-1. **Create templates** in `prompts/` directory
-2. **Test locally** with sample data
-3. **Version control** templates with code
-4. **Document variables** and usage
-
-### Production
-
-1. **Compile with PackC**: `packc compile --config arena.yaml --output prod.pack.json --id prod`
-2. **Deploy with app**: Include `.pack.json` file
-3. **Load at runtime**: `prompt.LoadPack("prod.pack.json")`
-4. **Monitor usage**: Track which templates are used
-
-### Updates
-
-1. **Create new version**: `support-v2.prompt`
-2. **Test thoroughly**: Use PromptArena
-3. **Deploy gradually**: Canary or blue-green
-4. **Monitor metrics**: Compare performance
-5. **Rollback if needed**: Switch back to v1
-
-## Troubleshooting
-
-### Problem: Variable Not Substituted
-
-```
-Output: "Hello, !"  // Variable not replaced
-```
-
-**Solution**: Check variable is provided
-
-```go
-// Missing variable
-variables := map[string]string{}  // ❌
-
-// Correct
-variables := map[string]string{
-    "name": "Alice",
-}  // ✅
-```
-
-### Problem: Template Not Found
-
-```
-Error: template "support" not found
-```
-
-**Solution**: Ensure template is registered
-
-```go
-templates.RegisterTemplate("support", promptTemplate)
-```
-
-### Problem: Syntax Error
-
-```
-Error: unexpected "}" in template
-```
-
-**Solution**: Check template syntax
-
-```yaml
-# Wrong
-{{.name}  # Missing closing brace
-
-# Correct
-
-```
-
-## Advanced Features
-
-### Nested Variables
-
-```yaml
-system: |
-  Company: 
-  Support: 
-```
-
-```go
-variables := map[string]any{
-    "company": map[string]string{
-        "name":          "TechCorp",
-        "support_email": "help@techcorp.com",
-    },
-}
-```
-
-### Template Inheritance
-
-Base template:
-```yaml
-# base.prompt
-system: |
-  You are a .
-  Be professional and helpful.
-```
-
-Extended template:
-```yaml
-# support.prompt
-extends: base.prompt
-system: |
-  
-  
-  Additional guidelines:
-  - Focus on customer satisfaction
-  - Escalate when needed
-```
-
-## Summary
-
-Templates provide:
-
-✅ **Reusability** - Write once, use many times  
-✅ **Consistency** - Same structure everywhere  
-✅ **Maintainability** - Update in one place  
-✅ **Testability** - Test independently  
-✅ **Flexibility** - Customize with variables  
-
-## Related Documentation
-
-- [Prompts](/concepts/prompts/) - Prompt engineering basics
-- [Runtime Templates](/concepts/templates/) - Implementation guide
-- [PackC Documentation](https://promptarena.altairalabs.ai/packc/) - Template packaging
-- [Template Reference](/concepts/templates/) - API details
+- [Prompts](/concepts/prompts/) covers prompt design.
+- [How Variables Resolve](/sdk/explanation/variables/) covers variable sources and precedence.
+- [PackC documentation](https://promptarena.altairalabs.ai/packc/) covers pack compilation.

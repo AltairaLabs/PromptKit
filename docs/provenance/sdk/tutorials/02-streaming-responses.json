@@ -1,0 +1,123 @@
+{
+ "page": "docs/src/content/docs/sdk/tutorials/02-streaming-responses.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Tutorial 1 page exists",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 2,
+   "claim": "conv.Stream() replaces conv.Send()",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:121"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Stream returns something range-able yielding chunks with Error, Type, Text",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:121"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "sdk.ChunkDone",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:59"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "StreamChunk has Type, Text, Error only",
+   "verdict": "false",
+   "evidence": [
+    "sdk/streaming.go:19-43"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "ChunkType values are ChunkText, ChunkToolCall, ChunkDone",
+   "verdict": "false",
+   "evidence": [
+    "sdk/streaming.go:46-62"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "ChunkDone means stream completed",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:119",
+    "sdk/streaming.go:58"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Collect-text snippet compiles",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:121"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Interactive streaming snippet compiles",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:121"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Error-handling snippet with errors.Is(DeadlineExceeded)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:19"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "Timeout snippet",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:121"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "Tutorial 4 page at /sdk/tutorials/04-state-management/",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 13,
+   "claim": "sdk/examples/streaming/ exists",
+   "verdict": "true",
+   "evidence": [
+    "sdk/examples/streaming/main_interactive.go"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "Users can stop generation",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:121"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "Pack hello.pack.json from tutorial 1 works for streaming",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:121"
+   ]
+  }
+ ]
+}

@@ -1,27 +1,41 @@
 ---
 title: PromptKit SDK
-description: Pack-first Go SDK for building LLM applications with minimal boilerplate
+description: "The pack-first Go SDK: open a pack, send messages, register tools, stream responses and run workflows"
 sidebar:
   order: 0
----
-**Pack-first Go SDK that reduces boilerplate by ~80%**
-
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/a2a/types.go
+    - runtime/evals/handlers/skill_activated.go
+    - runtime/events/types.go
+    - runtime/prompt/schema/promptpack.schema.json
+    - runtime/skills/types.go
+    - runtime/workflow/types.go
+    - sdk/a2a_exports.go
+    - sdk/conversation_tools.go
+    - sdk/errors.go
+    - sdk/hooks/events.go
+    - sdk/options.go
+    - sdk/sdk.go
+    - sdk/streaming.go
+    - sdk/tools/http.go
+    - sdk/workflow.go
 ---
 
 ## What is the PromptKit SDK?
 
-The SDK uses a **pack-first architecture** that dramatically simplifies LLM application development:
+The SDK is a Go library that runs conversations from a pack, the compiled JSON file that holds prompts, tools and validators:
 
-- **5 lines to hello world** - Open a pack, send a message, done
-- **Pack-first design** - Load prompts tested with Arena, compiled with PackC
-- **Built-in tools** - Register handlers with `OnTool`, auto JSON serialization
-- **Skills** - Native [AgentSkills.io](https://agentskills.io) support with progressive disclosure
-- **Workflows** - Event-driven state machines with orchestration modes
-- **A2A** - Multi-agent communication with agent-as-service pattern
-- **Streaming support** - Channel-based streaming with `Stream()`
-- **Human-in-the-Loop** - Approval workflows for sensitive operations
-- **Type-safe variables** - `SetVar`/`GetVar` with concurrent access
-- **Observability** - EventBus integration for monitoring
+- Pack-first: load prompts tested with Arena and compiled with PackC
+- Tools: register handlers with `OnTool`; results are serialized to JSON
+- Skills: [AgentSkills.io](https://agentskills.io) support with progressive disclosure
+- Workflows: event-driven state machines with orchestration modes
+- A2A: serve an agent, or call other agents
+- Streaming: channel-based streaming with `Stream()`
+- Human-in-the-loop: approval workflows for sensitive operations
+- Variables: `SetVar`/`GetVar` with concurrent access
+- Observability: event bus integration for monitoring
 
 ---
 
@@ -51,8 +65,6 @@ func main() {
     fmt.Println(resp.Text())
 }
 ```
-
-That's it. Five lines of functional code.
 
 ---
 
@@ -189,8 +201,8 @@ for _, pending := range resp.PendingTools() {
     fmt.Printf("Pending: %s - %s\n", pending.Name, pending.Message)
     
     // Approve or reject
-    result, _ := conv.ResolveTool(pending.ID)  // Approve
-    // result, _ := conv.RejectTool(pending.ID, "Not authorized")  // Reject
+    result, _ := conv.ResolveTool(ctx, pending.ID)  // Approve
+    // result, _ := conv.RejectTool(ctx, pending.ID, "Not authorized")  // Reject
 }
 ```
 
@@ -248,14 +260,13 @@ Working examples are available in the `sdk/examples/` directory:
 - **[tools](/sdk/examples/tools/)** - Tool registration and execution
 - **[streaming](/sdk/examples/streaming/)** - Real-time response streaming
 - **[hitl](/sdk/examples/hitl/)** - Human-in-the-loop approval workflows
-- **[workflow-external](/sdk/tutorials/)** - External orchestration via HTTP
+- **[workflow-external](/sdk/examples/workflow-external/)** - External orchestration via HTTP
 
 ---
 
 ## Getting Help
 
-- **Questions**: [GitHub Discussions](https://github.com/AltairaLabs/PromptKit/issues)
-- **Issues**: [Report a Bug](https://github.com/AltairaLabs/PromptKit/issues)
+- **Questions and bugs**: [GitHub Issues](https://github.com/AltairaLabs/PromptKit/issues)
 - **Examples**: [SDK Examples](/sdk/examples/)
 
 ---
@@ -291,12 +302,13 @@ fmt.Println(wf.AvailableEvents())   // ["Resolve"]
 States can declare an orchestration mode that controls who drives transitions:
 
 ```go
-mode := wf.OrchestrationMode() // "internal", "external", or "hybrid"
+mode := wf.OrchestrationMode() // "internal", "external", "hybrid" or "composition"
 ```
 
 - **Internal** — The agent drives transitions automatically
 - **External** — External callers (HTTP endpoints, queues) drive transitions via `Transition()`
 - **Hybrid** — Both the agent and external callers can trigger transitions
+- **Composition** — The state runs a declarative step graph instead of a model turn
 
 ### Resuming Workflows
 
@@ -312,7 +324,7 @@ When enabled, a summary of the previous state's conversation is injected as cont
 
 ```go
 wf, err := sdk.OpenWorkflow("./support.pack.json",
-    sdk.WithContextCarryForward(true),
+    sdk.WithContextCarryForward(),
 )
 ```
 
@@ -324,6 +336,7 @@ Expose your agent as an A2A-compliant service:
 
 ```go
 opener := sdk.A2AOpener("./assistant.pack.json", "chat")
+card := a2a.AgentCard{Name: "assistant"} // github.com/AltairaLabs/PromptKit/runtime/v2/a2a
 server := sdk.NewA2AServer(opener,
     sdk.WithA2ACard(&card),
     sdk.WithA2APort(9999),

@@ -44,6 +44,8 @@ package main
 
 import (
     "context"
+    "fmt"
+
     "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
     "github.com/AltairaLabs/PromptKit/runtime/v2/providers"
     "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
@@ -59,7 +61,7 @@ func main() {
     )
 
     // Build stage-based pipeline
-    pipeline := stage.NewPipelineBuilder().
+    pipeline, err := stage.NewPipelineBuilder().
         Chain(
             stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{
                 MaxTokens:   1500,
@@ -67,12 +69,15 @@ func main() {
             }),
         ).
         Build()
+    if err != nil {
+        panic(err)
+    }
 
     // Execute
     input := make(chan stage.StreamElement, 1)
     msg := types.Message{Role: "user"}
     msg.AddTextPart("Hello!")
-    input <- stage.NewMessageElement(msg)
+    input <- stage.NewMessageElement(&msg)
     close(input)
 
     output, _ := pipeline.Execute(context.Background(), input)
@@ -180,9 +185,9 @@ Different stage behaviors:
 MCP tool integration:
 
 ```go
-type Tool interface {
-    Execute(ctx context.Context, params map[string]interface{}) (interface{}, error)
-    Schema() *ToolSchema
+type Executor interface {
+    Execute(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error)
+    Name() string
 }
 ```
 
@@ -286,13 +291,28 @@ Audio/Text → DuplexProvider → Audio/Text
 
 ```go
 type StreamElement struct {
+    // Content types (at most one is set)
     Text      *string
     Audio     *AudioData
+    Video     *VideoData
+    Image     *ImageData
     Message   *types.Message
-    ToolCall  *types.ToolCall
-    Metadata  map[string]interface{}
-    Error     error
+    ToolCall  *types.MessageToolCall
+    Part      *types.ContentPart
+    MediaData *types.MediaContent
+
+    // Metadata
+    Sequence  int64
     Timestamp time.Time
+    Source    string
+    Priority  Priority        // Low, Normal, High, Critical
+    Meta      ElementMetadata // Typed per-element coordination data
+
+    // Control signals
+    EndOfStream bool
+    EndOfTurn   bool
+    Interrupt   bool
+    Error       error
 }
 ```
 
@@ -309,11 +329,13 @@ type Message struct {
 ### Provider Response
 
 ```go
-type Response struct {
+type PredictionResponse struct {
     Content   string
-    ToolCalls []ToolCall
-    Usage     *Usage
-    Metadata  map[string]interface{}
+    Parts     []types.ContentPart
+    CostInfo  *types.CostInfo
+    Latency   time.Duration
+    ToolCalls []types.MessageToolCall
+    // ...
 }
 ```
 

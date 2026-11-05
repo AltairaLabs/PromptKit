@@ -3,6 +3,11 @@ title: AG-UI (Agent-User Interaction)
 description: How the AG-UI protocol connects agents to frontend applications in PromptKit
 sidebar:
   order: 8
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - sdk/agui/adapter.go
+    - sdk/agui/convert.go
 ---
 
 How the AG-UI protocol bridges AI agents and frontend applications, enabling real-time streaming of agent activity to user interfaces.
@@ -15,11 +20,11 @@ Modern AI systems communicate across three boundaries, each served by a dedicate
 
 | Protocol | Connection | Purpose |
 |----------|------------|---------|
-| **MCP** | Agent ↔ Tools | Structured tool discovery and execution |
-| **A2A** | Agent ↔ Agents | Inter-agent task delegation and collaboration |
-| **AG-UI** | Agent ↔ Frontends | Real-time agent activity streaming to user interfaces |
+| MCP | Agent ↔ Tools | Structured tool discovery and execution |
+| A2A | Agent ↔ Agents | Inter-agent task delegation and collaboration |
+| AG-UI | Agent ↔ Frontends | Real-time agent activity streaming to user interfaces |
 
-MCP gives agents access to tools. A2A lets agents collaborate with each other. AG-UI closes the loop by connecting agents to the humans who use them, providing a standard way for frontends to observe and interact with agent execution in real time.
+MCP gives agents access to tools. A2A lets agents collaborate with each other. AG-UI connects agents to the people who use them, giving frontends a standard way to observe and interact with agent execution in real time.
 
 ---
 
@@ -27,9 +32,9 @@ MCP gives agents access to tools. A2A lets agents collaborate with each other. A
 
 Without AG-UI, every frontend that displays agent activity needs custom integration code: polling endpoints, proprietary WebSocket protocols, or framework-specific bindings. AG-UI standardizes this into a single request/response pattern:
 
-1. The frontend sends a **`RunAgentInput`** request describing the conversation state
-2. The server responds with a **Server-Sent Events (SSE)** stream of typed events
-3. The frontend renders events as they arrive — text, tool calls, state, workflow steps
+1. The frontend sends a `RunAgentInput` request describing the conversation state.
+2. The server responds with a Server-Sent Events (SSE) stream of typed events.
+3. The frontend renders events as they arrive: text, tool calls, state, workflow steps.
 
 This decouples agent logic from UI rendering. Any AG-UI-compatible frontend can connect to any AG-UI-compatible backend.
 
@@ -133,21 +138,23 @@ AG-UI defines events for the whole lifecycle of a run. The ones below are those 
 
 ## How PromptKit Integrates
 
-PromptKit provides the `sdk/agui` package as a bridge between SDK conversations and the AG-UI protocol. The integration follows a clear separation of concerns:
+The `sdk/agui` package bridges SDK conversations and the AG-UI protocol. Responsibilities split as follows.
 
-**PromptKit provides:**
-- **Converters** — bidirectional mapping between PromptKit messages/tools and AG-UI types
-- **EventAdapter** — observes a PromptKit conversation and emits AG-UI events
+PromptKit provides:
 
-**Your application provides:**
-- **HTTP endpoint** — accepts `RunAgentInput` requests and writes SSE responses
-- **Session management** — maps thread IDs to PromptKit conversations
+- Converters: bidirectional mapping between PromptKit messages and tools and AG-UI types.
+- `EventAdapter`: runs a PromptKit conversation turn and emits AG-UI events.
 
-This design means PromptKit does not impose any HTTP framework or server architecture. The `EventAdapter` produces a channel of events; how you serve them is up to you.
+Your application provides:
+
+- An HTTP endpoint that accepts `RunAgentInput` requests and writes SSE responses.
+- Session management that maps thread IDs to PromptKit conversations.
+
+PromptKit imposes no HTTP framework or server architecture. The `EventAdapter` produces a channel of events, and you choose how to serve them.
 
 ### Protocol Version
 
-The `sdk/agui` package targets AG-UI 1.0 through the AG-UI community Go SDK. Not every 1.0 feature is produced yet; the gaps are listed under [What the Adapter Does Not Do](#what-the-adapter-does-not-do).
+The `sdk/agui` package targets AG-UI 1.0 through the AG-UI community Go SDK. The 1.0 features the adapter does not produce are listed under [What the Adapter Does Not Do](#what-the-adapter-does-not-do).
 
 ### Event Mapping
 
@@ -159,7 +166,7 @@ The `EventAdapter` runs one conversation turn as one AG-UI run. When the turn ha
 | State provider configured | `STATE_SNAPSHOT` |
 | Workflow conversation | `STEP_STARTED` naming the workflow state the run starts in |
 | Each assistant message in the turn | `TEXT_MESSAGE_START` → `TEXT_MESSAGE_CONTENT` (its whole text) → `TEXT_MESSAGE_END` |
-| Each tool call the model made | `TOOL_CALL_START` → `TOOL_CALL_ARGS` → `TOOL_CALL_END` |
+| Each tool call the model made | `TOOL_CALL_START` → `TOOL_CALL_ARGS` (when the call has arguments) → `TOOL_CALL_END` |
 | Each result of a tool the agent ran | `TOOL_CALL_RESULT` carrying what the tool returned |
 | Workflow transition committed | `STEP_FINISHED` for the old state, `STEP_STARTED` for the new one |
 | Turn completes | `STEP_FINISHED` for the open step, then `RUN_FINISHED` |
@@ -168,7 +175,7 @@ The `EventAdapter` runs one conversation turn as one AG-UI run. When the turn ha
 
 A model that calls a tool and then answers produces two assistant messages in one turn; the run carries both, with the call and its result between them.
 
-A `TOOL_CALL_RESULT` is never empty, because the AG-UI Go SDK rejects an event with empty content. A result with no text carries its error, a description of the media it holds (such as `[image/png image]`), or the JSON encoding of its value (`null` when there is none, `""` for an empty string).
+A `TOOL_CALL_RESULT` is never empty, because the AG-UI Go SDK rejects an event with empty content. A result with no text carries its error, a description of the media it holds (such as `[image/png image]`), or the JSON encoding of its value (`""` for an empty string).
 
 ### Frontend Tools
 
@@ -182,15 +189,15 @@ A tool registered with `OnToolAsync` can hold a call for approval. The run then 
 
 The adapter never drops an event. If the consumer stops reading, the adapter waits; canceling the run's context releases it.
 
-Read `Events()` while the run is in progress, from another goroutine. Once its buffer of 64 events is full, the run waits for the reader, so code that lets `RunSend` finish before it starts reading blocks there. Before this version the adapter dropped the events that did not fit, including `RUN_FINISHED`.
+Read `Events()` while the run is in progress, from another goroutine. Once its buffer of 64 events is full, the run waits for the reader, so code that lets `RunSend` finish before it starts reading blocks there.
 
 ### What the Adapter Does Not Do
 
-- **Stream tokens.** Each message's text arrives as one `TEXT_MESSAGE_CONTENT` once the turn has run.
-- **Emit** `STATE_DELTA`, `MESSAGES_SNAPSHOT`, or reasoning events.
-- **Name pending calls on** `RUN_FINISHED`. A run that ends with a frontend tool call unanswered finishes without an outcome, which means success; a consumer finds the pending calls as the calls that received no `TOOL_CALL_RESULT`.
-- **Keep message ids stable.** The converters mint a new id each time they convert a message.
-- **Read the whole history from the input.** A PromptKit conversation keeps its own history, so the integration in the [tutorial](/sdk/tutorials/11-ag-ui-integration/) passes only the new input to it. History a client edits or replaces is not reflected.
+- Stream tokens. Each message's text arrives as one `TEXT_MESSAGE_CONTENT` once the turn has run.
+- Emit `STATE_DELTA`, `MESSAGES_SNAPSHOT`, or reasoning events.
+- Name pending calls on `RUN_FINISHED`. A run that ends with a frontend tool call unanswered finishes without an outcome, which means success; a consumer finds the pending calls as the calls that received no `TOOL_CALL_RESULT`.
+- Keep message ids stable. The converters mint a new id each time they convert a message.
+- Read the whole history from the input. A PromptKit conversation keeps its own history, so the integration in the [tutorial](/sdk/tutorials/11-ag-ui-integration/) passes only the new input to it. History a client edits or replaces is not reflected.
 
 ---
 
@@ -212,7 +219,7 @@ agent.runAgent({
 });
 ```
 
-Any HTTP client that can consume SSE streams works with AG-UI — the protocol is not tied to any specific frontend framework.
+Any HTTP client that can consume SSE streams works with AG-UI. The protocol is not tied to a frontend framework.
 
 ---
 

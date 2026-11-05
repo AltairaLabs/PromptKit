@@ -1,0 +1,121 @@
+{
+ "page": "docs/src/content/docs/sdk/tutorials/11-ag-ui-integration.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Go 1.22+",
+   "verdict": "false",
+   "evidence": []
+  },
+  {
+   "id": 2,
+   "claim": "sdk/agui targets AG-UI 1.0 through the AG-UI Go community SDK; go get path",
+   "verdict": "true",
+   "evidence": [
+    "sdk/agui/convert.go:1"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "ToolsFromAGUI returns descriptors marked as client tools (Mode)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/agui/convert.go:302",
+    "sdk/agui/convert.go:487"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "The model is offered only tools the pack's prompt declares",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/composition_executor.go:48",
+    "sdk/inference_integration_test.go:65"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "resume entries -> RunContinue; tool messages -> ToolResultsFromAGUI + RunResume; otherwise RunSend; conversation ignores repeated server tool results",
+   "verdict": "true",
+   "evidence": [
+    "sdk/agui/adapter.go:257",
+    "sdk/agui/adapter.go:277",
+    "sdk/agui/adapter.go:299",
+    "sdk/agui/convert.go:240"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "Step 5 and complete example compile (NewEventAdapter, WithThreadID, WithRunID, Events, sse.NewSSEWriter, ResolveTool, RejectTool, ToolRegistry)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/agui/adapter.go:164",
+    "sdk/conversation_tools.go:235",
+    "sdk/conversation_tools.go:305",
+    "sdk/conversation_tools.go:472"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "Events channel holds 64 events; the run waits once full; adapter never drops events; earlier versions dropped",
+   "verdict": "true",
+   "evidence": [
+    "sdk/agui/adapter.go:20",
+    "sdk/agui/adapter.go:736"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Run event sequence incl. TOOL_CALL_RESULT; text arrives in one TEXT_MESSAGE_CONTENT",
+   "verdict": "true",
+   "evidence": [
+    "sdk/agui/adapter.go:406",
+    "sdk/agui/convert.go:6"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Frontend tool call: run finishes unanswered; failed tool answered with error; run does not echo answers",
+   "verdict": "true",
+   "evidence": [
+    "sdk/agui/adapter.go:263",
+    "sdk/agui/convert.go:252"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Approval hold: RUN_FINISHED with interrupt outcome; interrupt fields; RunContinue emits TOOL_CALL_RESULT",
+   "verdict": "true",
+   "evidence": [
+    "sdk/agui/adapter.go:286",
+    "sdk/agui/adapter.go:382"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "NewWorkflowEventAdapter steps; WithWorkflowSteps(false)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/agui/adapter.go:179",
+    "sdk/agui/adapter.go:700"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "StateProvider Snapshot at start of each run emits STATE_SNAPSHOT",
+   "verdict": "true",
+   "evidence": [
+    "sdk/agui/adapter.go:340"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "input field table (context, state, forwardedProps not read)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/agui/adapter.go:339"
+   ]
+  }
+ ]
+}

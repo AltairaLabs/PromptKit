@@ -178,13 +178,8 @@ if resp.HasPendingClientTools() {
 
         // Return multimodal result with text and image
         conv.SendToolResultMultimodal(ctx, tool.CallID, []types.ContentPart{
-            {Type: "text", Text: "Monthly sales chart for Q1 2026"},
-            {
-                Type: "image",
-                ImageURL: &types.ImageURL{
-                    URL: "data:image/png;base64," + base64.StdEncoding.EncodeToString(chartPNG),
-                },
-            },
+            types.NewTextPart("Monthly sales chart for Q1 2026"),
+            types.NewImagePartFromData(base64.StdEncoding.EncodeToString(chartPNG), "image/png", nil),
         })
     }
 
@@ -201,13 +196,8 @@ For synchronous handlers, return `[]types.ContentPart` directly:
 conv.OnClientTool("capture_photo", func(ctx context.Context, req sdk.ClientToolRequest) (any, error) {
     photoBytes, _ := capturePhoto()
     return []types.ContentPart{
-        {Type: "text", Text: "Photo captured at entrance"},
-        {
-            Type: "image",
-            ImageURL: &types.ImageURL{
-                URL: "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(photoBytes),
-            },
-        },
+        types.NewTextPart("Photo captured at entrance"),
+        types.NewImagePartFromData(base64.StdEncoding.EncodeToString(photoBytes), "image/jpeg", nil),
     }, nil
 })
 ```

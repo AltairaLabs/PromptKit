@@ -35,7 +35,7 @@ func (h *PIIHook) BeforeCall(ctx context.Context, req *hooks.ProviderRequest) ho
 }
 
 func (h *PIIHook) AfterCall(ctx context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse) hooks.Decision {
-    if containsSSN(resp.Message.Content()) {
+    if containsSSN(resp.Message.Content) {
         return hooks.Deny("response contains SSN")
     }
     return hooks.Allow

@@ -84,13 +84,18 @@ func execute(audio []byte) []byte {
 With stages, concerns are separate and stream-capable:
 
 ```go
-pipeline := stage.NewPipelineBuilder().
+audioTurn, err := stage.NewAudioTurnStage(vadConfig)
+if err != nil {
+    return err
+}
+
+pipeline, err := stage.NewPipelineBuilder().
     Chain(
-        stage.NewAudioTurnStage(vadConfig),
+        audioTurn,
         stage.NewSTTStage(sttService, sttConfig),
         stage.NewStateStoreLoadStage(stateConfig),
         stage.NewProviderStage(provider, tools, policy, config),
-        stage.NewIncrementalSaveStage(stateConfig),
+        stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),
         stage.NewTTSStage(ttsService, ttsConfig),
     ).
     Build()
@@ -134,7 +139,7 @@ Stages combine easily:
 
 ```go
 // Simple pipeline
-pipeline := stage.NewPipelineBuilder().
+pipeline, err := stage.NewPipelineBuilder().
     Chain(
         stage.NewPromptAssemblyStage(registry, task, vars),
         stage.NewProviderStage(provider, tools, policy, config),
@@ -142,17 +147,19 @@ pipeline := stage.NewPipelineBuilder().
     Build()
 
 // Add state management
-pipeline := stage.NewPipelineBuilder().
+pipeline, err := stage.NewPipelineBuilder().
     Chain(
         stage.NewStateStoreLoadStage(stateConfig),  // Added
         stage.NewPromptAssemblyStage(registry, task, vars),
         stage.NewProviderStage(provider, tools, policy, config),
-        stage.NewIncrementalSaveStage(stateConfig),  // Added
+        stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),  // Added
     ).
     Build()
 
 // Add validation — registered on hooks.Registry, invoked from inside ProviderStage
-hookRegistry.RegisterProviderHook(guardrails.NewGuardrailHook(validatorConfig))
+hook, err := guardrails.NewGuardrailHook("banned_words", map[string]any{"words": []any{"secret"}})
+hookRegistry := hooks.NewRegistry(hooks.WithProviderHook(hook))
+// pass hookRegistry to stage.NewProviderStageWithHooks
 // (the same pipeline as above; validators run inside ProviderStage via the hook chain,
 // not as a separate stage)
 ```
@@ -162,12 +169,12 @@ hookRegistry.RegisterProviderHook(guardrails.NewGuardrailHook(validatorConfig))
 Order matters. User controls it:
 
 ```go
-pipeline := stage.NewPipelineBuilder().
+pipeline, err := stage.NewPipelineBuilder().
     Chain(
         stage.NewStateStoreLoadStage(stateConfig),   // 1. Load history
         stage.NewPromptAssemblyStage(registry, task, vars), // 2. Assemble prompt
         stage.NewProviderStage(provider, tools, policy, config), // 3. Execute (hooks validate before/after)
-        stage.NewIncrementalSaveStage(stateConfig),  // 4. Save state
+        stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),  // 4. Save state
     ).
     Build()
 ```
@@ -233,12 +240,12 @@ func (s *MessageCollectorStage) Process(ctx context.Context, input <-chan Stream
         }
     }
 
-    // Emit single element with all messages
-    output <- stage.StreamElement{
-        Metadata: map[string]interface{}{
-            "messages": messages,
-        },
+    // Emit a single element with all messages joined
+    var joined []string
+    for _, m := range messages {
+        joined = append(joined, m.GetContent())
     }
+    output <- stage.NewTextElement(strings.Join(joined, "\n"))
     return nil
 }
 ```
@@ -451,7 +458,7 @@ Output validation runs inside `ProviderStage` via `ProviderHook.AfterCall` (and 
 Split stream to multiple destinations:
 
 ```go
-pipeline := stage.NewPipelineBuilder().
+pipeline, err := stage.NewPipelineBuilder().
     Chain(
         stage.NewProviderStage(provider, tools, policy, config),
     ).
@@ -464,7 +471,7 @@ pipeline := stage.NewPipelineBuilder().
 Combine multiple streams:
 
 ```go
-mergeStage := stage.NewMergeStage(inputChannels...)
+mergeStage := stage.NewMergeStage("merge", len(inputChannels))
 ```
 
 ## Ordering Best Practices
@@ -472,7 +479,7 @@ mergeStage := stage.NewMergeStage(inputChannels...)
 ### Recommended Order
 
 ```go
-pipeline := stage.NewPipelineBuilder().
+pipeline, err := stage.NewPipelineBuilder().
     Chain(
         // 1. Load state first
         stage.NewStateStoreLoadStage(stateConfig),
@@ -491,7 +498,7 @@ pipeline := stage.NewPipelineBuilder().
         stage.NewProviderStage(provider, tools, policy, config),
 
         // 6. Save state
-        stage.NewIncrementalSaveStage(stateConfig),
+        stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),
     ).
     Build()
 ```
@@ -552,12 +559,15 @@ Test stages in pipeline:
 
 ```go
 func TestPipeline(t *testing.T) {
-    pipeline := stage.NewPipelineBuilder().
+    pipeline, err := stage.NewPipelineBuilder().
         Chain(
             NewUppercaseStage(),
             NewTrimStage(),
         ).
         Build()
+    if err != nil {
+        t.Fatal(err)
+    }
 
     text := "  hello  "
     input := make(chan stage.StreamElement, 1)

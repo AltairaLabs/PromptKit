@@ -1,0 +1,75 @@
+{
+ "page": "docs/src/content/docs/concepts/prompts.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "types.Message has Role and Content; roles system/user/assistant/tool",
+   "verdict": "true",
+   "evidence": [
+    "runtime/types/message.go:12"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "pack prompt has system_template, variables, template_engine {{variable}}",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/pack.go:554",
+    "sdk/examples/hello/hello.pack.json:1"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "template.NewRenderer().Render(text, vars) errors on unresolved placeholders",
+   "verdict": "true",
+   "evidence": [
+    "runtime/template/renderer.go:26",
+    "runtime/template/renderer.go:37"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "sdk.Open(packPath, promptName, opts...), WithModel, Conversation.Send, Response.Text, Close",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:268",
+    "sdk/options.go:453",
+    "sdk/response.go:99",
+    "sdk/sdk.go:84"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "prompt.LoadPack(path) returns (*Pack, error)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/pack.go:630"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "pipeline stages PromptAssembly -> Template -> Provider",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_core.go:166",
+    "runtime/pipeline/stage/stages_core.go:34",
+    "runtime/pipeline/stage/stages_provider.go:286",
+    "runtime/pipeline/stage/stages_save.go:60",
+    "runtime/pipeline/stage/stages_utilities.go:142"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "packc compile --config --output --id",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 8,
+   "claim": "arena scenario turns with assertions type content_includes params.patterns",
+   "verdict": "unverified",
+   "evidence": []
+  }
+ ]
+}

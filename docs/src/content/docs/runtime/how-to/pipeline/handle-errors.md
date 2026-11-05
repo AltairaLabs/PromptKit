@@ -12,7 +12,14 @@ Handle errors gracefully and implement retry logic.
 ## Quick Start
 
 ```go
-result, err := pipe.Execute(ctx, "user", "Your message")
+// send runs one message through the pipeline and returns the accumulated result.
+func send(ctx context.Context, pipe *stage.StreamPipeline, role, content string) (*stage.ExecutionResult, error) {
+    msg := types.Message{Role: role}
+    msg.AddTextPart(content)
+    return pipe.ExecuteSync(ctx, stage.NewMessageElement(&msg))
+}
+
+result, err := send(ctx, pipe, "user", "Your message")
 if err != nil {
     // Check error type
     if isRateLimitError(err) {
@@ -36,7 +43,7 @@ import "context"
 ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 defer cancel()
 
-result, err := pipe.Execute(ctx, "user", "Your message")
+result, err := send(ctx, pipe, "user", "Your message")
 if err != nil {
     if errors.Is(err, context.DeadlineExceeded) {
         log.Println("Request timed out")
@@ -74,7 +81,7 @@ if err != nil {
 ### Tool Execution Errors
 
 ```go
-result, err := pipe.Execute(ctx, "user", "Use the search tool")
+result, err := send(ctx, pipe, "user", "Use the search tool")
 if err != nil {
     if strings.Contains(err.Error(), "tool") {
         log.Printf("Tool error: %v", err)
@@ -90,12 +97,12 @@ if err != nil {
 ### Exponential Backoff
 
 ```go
-func executeWithRetry(pipe *pipeline.Pipeline, ctx context.Context, role, content string, maxRetries int) (*pipeline.PipelineResult, error) {
-    var result *pipeline.PipelineResult
+func executeWithRetry(pipe *stage.StreamPipeline, ctx context.Context, role, content string, maxRetries int) (*stage.ExecutionResult, error) {
+    var result *stage.ExecutionResult
     var err error
     
     for i := 0; i < maxRetries; i++ {
-        result, err = pipe.Execute(ctx, role, content)
+        result, err = send(ctx, pipe, role, content)
         if err == nil {
             return result, nil
         }
@@ -126,9 +133,9 @@ func isRetryableError(err error) bool {
 ### Fixed Retry Delay
 
 ```go
-func executeWithFixedRetry(pipe *pipeline.Pipeline, ctx context.Context, role, content string, maxRetries int, delay time.Duration) (*pipeline.PipelineResult, error) {
+func executeWithFixedRetry(pipe *stage.StreamPipeline, ctx context.Context, role, content string, maxRetries int, delay time.Duration) (*stage.ExecutionResult, error) {
     for i := 0; i < maxRetries; i++ {
-        result, err := pipe.Execute(ctx, role, content)
+        result, err := send(ctx, pipe, role, content)
         if err == nil {
             return result, nil
         }
@@ -221,7 +228,7 @@ err := cb.Call(func() error {
 ### Handle Incomplete Responses
 
 ```go
-result, err := pipe.Execute(ctx, "user", "Generate a long document")
+result, err := send(ctx, pipe, "user", "Generate a long document")
 if err != nil {
     if strings.Contains(err.Error(), "timeout") && result != nil {
         // Use partial result
@@ -236,29 +243,32 @@ if err != nil {
 ### Streaming with Error Recovery
 
 ```go
-stream, err := pipe.ExecuteStream(ctx, "user", "Long request")
+msg := types.Message{Role: "user"}
+msg.AddTextPart("Long request")
+input := make(chan stage.StreamElement, 1)
+input <- stage.NewMessageElement(&msg)
+close(input)
+
+output, err := pipe.Execute(ctx, input)
 if err != nil {
     return err
 }
-defer stream.Close()
 
 var accumulated string
-for {
-    chunk, err := stream.Next()
-    if err == io.EOF {
-        break
-    }
-    if err != nil {
-        log.Printf("Stream error: %v", err)
+for elem := range output {
+    if elem.Error != nil {
+        log.Printf("Stream error: %v", elem.Error)
         // Use accumulated content
         if len(accumulated) > 0 {
             log.Printf("Recovered partial content: %s", accumulated)
             return nil
         }
-        return err
+        return elem.Error
     }
-    
-    accumulated += chunk.Content
+
+    if elem.Text != nil {
+        accumulated += *elem.Text
+    }
 }
 ```
 
@@ -269,9 +279,9 @@ for {
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 
-func executeWithLogging(pipe *pipeline.Pipeline, ctx context.Context, sessionID, role, content string) (*pipeline.PipelineResult, error) {
+func executeWithLogging(pipe *stage.StreamPipeline, ctx context.Context, sessionID, role, content string) (*stage.ExecutionResult, error) {
     start := time.Now()
-    result, err := pipe.ExecuteWithContext(ctx, sessionID, role, content)
+    result, err := send(ctx, pipe, role, content)
     duration := time.Since(start)
     
     if err != nil {
@@ -287,8 +297,8 @@ func executeWithLogging(pipe *pipeline.Pipeline, ctx context.Context, sessionID,
     logger.Info("Pipeline execution succeeded",
         "session_id", sessionID,
         "duration", duration,
-        "tokens", result.Response.Usage.TotalTokens,
-        "cost", result.Cost.TotalCost,
+        "tokens", result.CostInfo.InputTokens+result.CostInfo.OutputTokens,
+        "cost", result.CostInfo.TotalCost,
     )
     
     return result, nil
@@ -469,16 +479,15 @@ func isRetryableError(err error) bool {
 
 2. Reduce concurrency:
    ```go
-   config := &pipeline.RuntimeConfig{
-       MaxConcurrentRequests: 1,  // Sequential
-   }
+   config := stage.DefaultPipelineConfig().
+       WithMaxConcurrentPipelines(1)  // Sequential
    ```
 
 3. Use rate limiter:
    ```go
    limiter := rate.NewLimiter(rate.Limit(10), 1)  // 10 req/sec
    limiter.Wait(ctx)
-   result, err := pipe.Execute(ctx, "user", content)
+   result, err := send(ctx, pipe, "user", content)
    ```
 
 ### Issue: Memory Leaks

@@ -1,24 +1,48 @@
 ---
 title: A2A (Agent-to-Agent)
-description: How the Agent-to-Agent protocol works in PromptKit
+description: The A2A wire format, agent cards, task lifecycle and streaming as PromptKit implements them
 sidebar:
   order: 7
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/a2a/bridge.go
+    - runtime/a2a/client.go
+    - runtime/a2a/executor.go
+    - runtime/a2a/mock/mock.go
+    - runtime/a2a/parts.go
+    - runtime/a2a/security.go
+    - runtime/a2a/types.go
+    - runtime/a2a/version.go
+    - runtime/a2a/wire.go
+    - runtime/httputil/egress.go
+    - runtime/providers/claude/claude_multimodal.go
+    - runtime/providers/gemini/gemini_multimodal.go
+    - runtime/providers/media_loader.go
+    - runtime/providers/ollama/ollama_multimodal.go
+    - runtime/providers/openai/openai_multimodal.go
+    - sdk/a2a_exports.go
+    - sdk/options.go
+    - server/a2a/protocol.go
+    - server/a2a/server.go
+    - server/a2a/server_stream.go
+    - server/a2a/task_store.go
 ---
 
-A deep dive into the A2A protocol design, task lifecycle, and how PromptKit implements it.
+How PromptKit implements the Agent-to-Agent (A2A) protocol: the wire format, agent cards, the task lifecycle and streaming.
 
 ---
 
 ## Why Agent-to-Agent?
 
-Modern AI applications often need multiple specialized agents working together. A research agent might delegate citation lookups to a knowledge agent, or an orchestrator might fan out tasks to domain experts.
+AI applications often need several specialized agents. A research agent might delegate citation lookups to a knowledge agent, or an orchestrator might fan out tasks to domain experts.
 
-A2A solves this by treating **agents as services** — each agent publishes a card describing its capabilities, and other agents call it over standard HTTP. This enables:
+A2A treats agents as services: each agent publishes a card describing its capabilities, and other agents call it over standard HTTP. This gives you:
 
-- **Skill delegation** — route tasks to the best-suited agent
-- **Composability** — build complex systems from simple, focused agents
-- **Language independence** — any HTTP client can call any A2A server
-- **Discovery** — agents self-describe their skills, input/output modes, and capabilities
+- Skill delegation: route tasks to the best-suited agent.
+- Composability: build complex systems from simple, focused agents.
+- Language independence: any HTTP client can call an A2A server.
+- Discovery: agents describe their skills, input and output modes, and capabilities.
 
 ---
 
@@ -37,9 +61,9 @@ PromptKit speaks two versions of the protocol on the same endpoint: **A2A 1.0** 
 | List tasks in a context | `ListTasks` | (1.0 only) |
 | Subscribe to a task's updates (SSE) | `SubscribeToTask` | `tasks/resubscribe` |
 
-Agent discovery is `GET /.well-known/agent-card.json`. The legacy `/.well-known/agent.json` path serves the same card.
+Agent discovery is `GET /.well-known/agent-card.json`; `/.well-known/agent.json` serves the same card.
 
-Every request is a standard JSON-RPC envelope:
+Every request is a JSON-RPC envelope:
 
 ```json
 {
@@ -50,7 +74,7 @@ Every request is a standard JSON-RPC envelope:
 }
 ```
 
-The two versions differ on the wire, not in meaning:
+The two versions carry the same operations in different wire shapes:
 
 | | A2A 1.0 | A2A 0.3 |
 |-|---------|---------|
@@ -61,11 +85,11 @@ The two versions differ on the wire, not in meaning:
 | File parts | `{"raw": ...}` / `{"url": ...}` with `mediaType` | `{"kind": "file", "file": {"bytes"\|"uri": ...}}` |
 | Blocking `SendMessage` | by default; `returnImmediately: true` opts out | only with `blocking: true` |
 
-A file part sent by URL is a URL the caller chose. OpenAI and Claude hand an image URL to the vendor to fetch. Other parts are fetched by the server itself: every media part for Gemini, documents for Claude, audio for OpenAI, and every image for Ollama, whose server usually sits inside the host's network. The server refuses to fetch from loopback, private, link-local or otherwise non-public addresses, including redirects to them, so a caller cannot point it at its cloud metadata service or internal network. The same applies to AG-UI messages. `sdk.WithUnsafePrivateNetworkMedia()` turns the check off. Use it only when every media URL comes from a source the host trusts. To allow specific internal destinations, use the host's egress policy instead.
+A file part sent by URL is a URL the caller chose. OpenAI and Claude hand an image URL to the vendor to fetch. The host fetches the other parts itself: every media part for Gemini, documents for Claude, audio for OpenAI, and every image for Ollama, whose server usually sits inside the host's network. The host refuses to fetch from loopback, private, link-local or otherwise non-public addresses, including redirects to them, so a caller cannot point it at the cloud metadata service or the internal network. The same applies to AG-UI messages. `sdk.WithUnsafePrivateNetworkMedia()` turns the check off; use it only when every media URL comes from a source you trust, and use your egress policy to allow specific internal destinations.
 
-A blocking `SendMessage` holds its request until the turn ends. If the caller disconnects first, the server stops waiting, and the turn runs on under its task. `a2aserver.WithMaxBlockingWait` caps the wait: past the cap, the caller gets the task still working, and polls `GetTask` or subscribes. The runtime's A2A tool executor does not block at all. It sends with `returnImmediately`, polls the task until it finishes (`Client.WaitForTask`), and cancels the task if the tool's timeout runs out first. It never resends a message after a response timeout, because the agent may already have started the turn.
+A blocking `SendMessage` holds its request until the turn ends. If the caller disconnects first, the server stops waiting and the turn runs on under its task. `a2aserver.WithMaxBlockingWait` caps the wait: past the cap, the caller gets the task still working, and polls `GetTask` or subscribes. The runtime's A2A tool executor does not block. It sends with `returnImmediately`, polls the task until it finishes (`Client.WaitForTask`), and cancels the task if the tool's timeout runs out first. It does not resend a message after a response timeout, because the agent may already have started the turn.
 
-The runtime client sends `A2A-Version: 1.0`. If the agent rejects a 1.0 method as unknown, the client retries once in 0.3 and remembers the answer; `a2a.WithProtocolVersion` pins a version instead. The client reads every version's shapes, so its callers see one set of Go types.
+The runtime client sends `A2A-Version: 1.0`. If the agent rejects a 1.0 method as unknown or unsupported, the client retries once in 0.3 and remembers the answer; `a2a.WithProtocolVersion` pins a version instead. The client reads every version's shapes, so its callers see one set of Go types.
 
 ---
 
@@ -105,11 +129,18 @@ Key fields:
 | `defaultInputModes` | MIME types the agent accepts (e.g., `text/plain`, `image/png`) |
 | `defaultOutputModes` | MIME types the agent can produce |
 
-Skills can override the agent's default input/output modes with their own `inputModes` and `outputModes`.
+A skill can override the default modes with its own `inputModes` and `outputModes`.
 
 A card should also say how to authenticate. Set `SecuritySchemes` (for example an `HTTPAuth` Bearer scheme) and `SecurityRequirements` on the `a2a.AgentCard`; the server publishes them in each version's shape.
 
-The server completes the card's `supportedInterfaces` before serving it. A JSON-RPC interface is declared for both 1.0 and 0.3. A card that declares none gets one pointing at the server's own `/a2a` endpoint, taken from the request's `Host` header. `X-Forwarded-*` headers are ignored: any caller can set them, and a cached card that trusted them could point other callers somewhere else. Behind a proxy, declare the public URL in the card's `supportedInterfaces`. The served card also declares `streaming` (the server answers `SendStreamingMessage` and `SubscribeToTask` in every mode; a conversation that does not implement `StreamingConversation` is streamed from its `Send` result, as the task followed by its result and final status) and never `pushNotifications` (every push method fails with `-32003`), whatever the configured card says. `GetExtendedAgentCard` fails with `UnsupportedOperationError` (`-32004`) unless the card declares `extendedAgentCard`, and with `ExtendedAgentCardNotConfiguredError` (`-32007`) if it does. A request that sends `A2A-Version: 1.0` gets the 1.0 card. Any other request gets the 0.3 card: `url`, `preferredTransport` and `protocolVersion`, with `supportedInterfaces` alongside.
+The server completes the card before serving it:
+
+- A JSON-RPC interface is declared for both 1.0 and 0.3.
+- A card that declares no interface gets one pointing at the server's own `/a2a` endpoint, taken from the request's `Host` header. `X-Forwarded-*` headers are ignored: any caller can set them, and a cached card that trusted them could point other callers somewhere else. Behind a proxy, declare the public URL in the card's `supportedInterfaces`.
+- `streaming` is declared whatever the configured card says. The server answers `SendStreamingMessage` and `SubscribeToTask` in every mode, and a conversation that does not implement `StreamingConversation` is streamed from its `Send` result: the task, then its result, then the final status.
+- `pushNotifications` is never declared, and every push method fails with `-32003`.
+
+`GetExtendedAgentCard` fails with `UnsupportedOperationError` (`-32004`) unless the card declares `extendedAgentCard`, and with `ExtendedAgentCardNotConfiguredError` (`-32007`) if it does. A request that sends `A2A-Version: 1.0` gets the 1.0 card. Any other request gets the 0.3 card: `url`, `preferredTransport` and `protocolVersion`, with `supportedInterfaces` alongside.
 
 ---
 
@@ -144,9 +175,9 @@ stateDiagram-v2
 | `auth_required` | Agent requires authentication |
 | `rejected` | Agent declined the task |
 
-Terminal states (`completed`, `failed`, `canceled`, `rejected`) cannot transition further. The `input_required` and `auth_required` states allow the caller to provide additional input and resume processing: the caller sends its next message with the task's `taskId`, and the same task goes back to `working`. A message whose `taskId` names no task the caller can see fails with `TaskNotFoundError` (`-32001`); one naming a finished task, or a task that is not waiting for input, fails with `UnsupportedOperationError` (`-32004`); and a `contextId` that differs from the task's fails with `-32602`. The context is taken from the task when the message names only the `taskId`. A message without a `taskId` always starts a new task.
+Terminal states (`completed`, `failed`, `canceled`, `rejected`) cannot transition further. From `input_required` and `auth_required` the caller resumes the task by sending its next message with the task's `taskId`; the same task goes back to `working`. A message whose `taskId` names no task the caller can see fails with `TaskNotFoundError` (`-32001`); one naming a finished task, or a task that is not waiting for input, fails with `UnsupportedOperationError` (`-32004`); and a `contextId` that differs from the task's fails with `-32602`. The context is taken from the task when the message names only the `taskId`. A message without a `taskId` always starts a new task.
 
-A streaming caller that disconnects closes only its own stream. The task runs on, its result is recorded, and subscribers keep receiving its updates; `CancelTask` is how to stop it.
+A streaming caller that disconnects closes only its own stream. The task runs on, its result is recorded, and subscribers keep receiving its updates. `CancelTask` stops it.
 
 These are PromptKit's Go names (`a2a.TaskStateInputRequired`). On the wire each state takes its version's spelling: `TASK_STATE_INPUT_REQUIRED` in 1.0, `input-required` in 0.3.
 
@@ -156,7 +187,7 @@ Canceling a task that has already finished fails with `TaskNotCancelableError` (
 
 ## Message Format
 
-Messages consist of **parts** — each part carries one type of content:
+Messages consist of parts. Each part carries one type of content:
 
 ```go
 type Part struct {
@@ -175,33 +206,37 @@ A message has a `role` (`user` or `agent`), a list of parts, and optional metada
 
 ```go
 type Message struct {
-    MessageID string `json:"messageId"`
-    ContextID string `json:"contextId,omitempty"`
-    TaskID    string `json:"taskId,omitempty"`
-    Role      Role   `json:"role"`
-    Parts     []Part `json:"parts"`
-    Metadata  map[string]any `json:"metadata,omitempty"`
+    MessageID        string         `json:"messageId"`
+    ContextID        string         `json:"contextId,omitempty"`
+    TaskID           string         `json:"taskId,omitempty"`
+    Role             Role           `json:"role"`
+    Parts            []Part         `json:"parts"`
+    ReferenceTaskIDs []string       `json:"referenceTaskIds,omitempty"`
+    Extensions       []string       `json:"extensions,omitempty"`
+    Metadata         map[string]any `json:"metadata,omitempty"`
 }
 ```
 
-The `contextId` groups related tasks into a conversation. If omitted, the server generates one automatically.
+The `contextId` groups related tasks into a conversation. The server generates one when a message omits it.
 
 ---
 
 ## Artifacts
 
-When a task completes, the agent's output is stored as **artifacts** on the task:
+When a task completes, the agent's output is stored as artifacts on the task:
 
 ```go
 type Artifact struct {
-    ArtifactID  string `json:"artifactId"`
-    Name        string `json:"name,omitempty"`
-    Description string `json:"description,omitempty"`
-    Parts       []Part `json:"parts"`
+    ArtifactID  string         `json:"artifactId"`
+    Name        string         `json:"name,omitempty"`
+    Description string         `json:"description,omitempty"`
+    Parts       []Part         `json:"parts"`
+    Extensions  []string       `json:"extensions,omitempty"`
+    Metadata    map[string]any `json:"metadata,omitempty"`
 }
 ```
 
-A single task can produce multiple artifacts (e.g., text response + generated image).
+A task can produce several artifacts, such as a text response and a generated image.
 
 ---
 
@@ -237,32 +272,32 @@ The client parses every version's events and delivers them as a channel of `Stre
 
 ### Why JSON-RPC?
 
-JSON-RPC provides a clean request/response model with typed methods, error codes, and request IDs — all over a single HTTP endpoint. This avoids the complexity of REST path design and keeps the protocol simple.
+JSON-RPC gives typed methods, error codes and request IDs over a single HTTP endpoint, with no REST path design.
 
 ### Why Agent Cards?
 
-Agent cards enable dynamic discovery. A client can connect to any A2A server, fetch its card, and understand what it can do — no hardcoded knowledge required. The Tool Bridge uses this to automatically generate tool descriptors from agent skills.
+Agent cards enable dynamic discovery. A client can connect to any A2A server, fetch its card, and learn what it can do without hardcoded knowledge. The Tool Bridge uses the card to generate a tool descriptor for each agent skill.
 
 ### Architecture Split
 
 PromptKit splits A2A into two packages:
 
-- **`runtime/a2a`** — protocol types, client, tool bridge, mock server, and conversion helpers. This is for *consuming* A2A services.
-- **`sdk`** — A2A server (`A2AServer`), task store, and conversation opener. This is for *exposing* an agent as an A2A service.
+- **`runtime/a2a`**: protocol types, client, tool bridge, mock server (`runtime/a2a/mock`) and conversion helpers. Use it to consume A2A services.
+- **`server/a2a`**: the A2A server, task store and conversation opener (package `a2aserver`). Use it to expose an agent as an A2A service. The `sdk` package re-exports them as `A2AServer`, `A2ATaskStore` and `A2AConversationOpener`.
 
-This separation keeps the runtime free of SDK dependencies while letting the SDK build on top of the protocol types.
+The runtime has no dependency on the server or the SDK, and both build on the runtime's protocol types.
 
 ---
 
 ## A2A and AG-UI
 
-A2A handles **agent-to-agent** communication — agents calling other agents as services. For the complementary problem of connecting agents to **frontend applications** (user interfaces, chat widgets, dashboards), PromptKit supports the [AG-UI protocol](/concepts/ag-ui/). Together, these protocols cover the full communication surface:
+A2A handles agent-to-agent communication: agents calling other agents as services. For connecting agents to frontend applications (user interfaces, chat widgets, dashboards), PromptKit supports the [AG-UI protocol](/concepts/ag-ui/). Together with MCP, the protocols cover the full communication surface:
 
 | Protocol | Direction | Use Case |
 |----------|-----------|----------|
-| **MCP** | Agent ↔ Tools | Tool discovery and execution |
-| **A2A** | Agent ↔ Agents | Task delegation between agents |
-| **AG-UI** | Agent ↔ Frontends | Real-time streaming to user interfaces |
+| MCP | Agent ↔ Tools | Tool discovery and execution |
+| A2A | Agent ↔ Agents | Task delegation between agents |
+| AG-UI | Agent ↔ Frontends | Real-time streaming to user interfaces |
 
 ---
 
@@ -273,4 +308,3 @@ A2A handles **agent-to-agent** communication — agents calling other agents as 
 - [Tool Bridge How-To](/runtime/how-to/a2a/use-a2a-tool-bridge/) — register agents as tools
 - [Runtime A2A Reference](/runtime/reference/a2a/) — client, types, bridge, mock API
 - [SDK A2A Reference](/sdk/reference/a2a-server/) — server, task store, opener API
-- [AG-UI Concept](/concepts/ag-ui/) — the complementary agent-to-frontend protocol

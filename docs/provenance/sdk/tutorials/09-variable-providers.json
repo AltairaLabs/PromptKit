@@ -1,0 +1,135 @@
+{
+ "page": "docs/src/content/docs/sdk/tutorials/09-variable-providers.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "sdk.WithVariableProvider registers a variables.Provider",
+   "verdict": "true",
+   "evidence": [
+    "runtime/variables/provider.go:16",
+    "sdk/options.go:2484"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "Provider interface: Name() string; Provide(ctx) (map[string]string, error)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/variables/provider.go:16"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Providers are called on each Send()",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:371",
+    "sdk/conversation.go:630"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "conv.SetVar value overrides provider value for same name; applies next Send",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:630",
+    "sdk/session_vars.go:50"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "variables.NewTimeProvider provides current_time (RFC3339), current_date, current_year, current_month, current_weekday, current_hour",
+   "verdict": "true",
+   "evidence": [
+    "runtime/variables/time.go:52"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "NewStateProvider(store, conversationID) exposes state Metadata as variables",
+   "verdict": "true",
+   "evidence": [
+    "runtime/variables/state.go:38",
+    "runtime/variables/state.go:67"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "sdk.WithStateStore and sdk.WithConversationID exist",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:942",
+    "sdk/options.go:991"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "statestore.NewMemoryStore, ConversationState{ID, Metadata}, store.Save",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/memory.go:170",
+    "runtime/statestore/types.go:20"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "variables.Chain calls providers in order; later override earlier",
+   "verdict": "true",
+   "evidence": [
+    "runtime/variables/chain.go:18",
+    "runtime/variables/chain.go:29"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "ctx.Value(\"current_query\") is set by the pipeline",
+   "verdict": "false",
+   "evidence": [
+    "runtime/variables/request.go:26",
+    "sdk/conversation.go:297"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "variables.RequestVars(ctx) carries sdk.WithJSONInput bindings into Provide",
+   "verdict": "true",
+   "evidence": [
+    "sdk/json_input.go:79",
+    "sdk/json_input.go:94"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "A provider error fails the Send",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:371"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "ConditionalProvider (no Name method) satisfies variables.Provider",
+   "verdict": "false",
+   "evidence": [
+    "runtime/variables/provider.go:16"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "Go snippets compile",
+   "verdict": "true",
+   "evidence": [
+    "runtime/variables/chain.go:18"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "variables.WithRequestVars(ctx, map) used in tests",
+   "verdict": "true",
+   "evidence": [
+    "runtime/variables/request.go:18"
+   ]
+  }
+ ]
+}

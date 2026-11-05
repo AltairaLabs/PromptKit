@@ -1,0 +1,322 @@
+{
+ "page": "docs/src/content/docs/concepts/compositions.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "composition state runs prompt/agent/tool/branch/parallel steps and produces structured output instead of an LLM-driven turn",
+   "verdict": "true",
+   "evidence": [
+    "runtime/composition/types.go:14",
+    "runtime/pipeline/stage/stages_composition.go:67"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "CompositionStage replaces ProviderStage; reads the turn's user message as input, walks the DAG, emits output as the turn response",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_composition.go:67",
+    "sdk/workflow.go:198"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "state store, events, eval hooks, guardrails remain unchanged",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 4,
+   "claim": "Output is validated structured JSON",
+   "verdict": "false",
+   "evidence": [
+    "runtime/composition/validate.go:267",
+    "runtime/pipeline/stage/composition_executor.go:245"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "agent step: tool loop terminates at max_steps or when tool_called fires",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/composition_executor.go:144"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "agent tool access is the intersection of the prompt's allowed tools and the step's tools list",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/composition_executor.go:30"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "prompt step runs prompt assembly + one LLM call, no tool loop",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/composition_executor.go:144"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "tool step invokes a registry tool directly with args",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/composition_executor.go:113"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "branch routes to then/else step ids; else optional; if omitted and predicate false, execution skips to next sequential step",
+   "verdict": "false",
+   "evidence": [
+    "runtime/composition/engine/engine.go:134",
+    "runtime/composition/engine/engine.go:247"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "predicate operators: equals,not_equals,in,not_in,less_than,less_than_or_equals,greater_than,greater_than_or_equals,exists",
+   "verdict": "false",
+   "evidence": [
+    "runtime/composition/engine/predicate.go:32",
+    "runtime/composition/types.go:92"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "compound predicates use all_of, any_of, not",
+   "verdict": "true",
+   "evidence": [
+    "runtime/composition/engine/predicate.go:21"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "parallel runs two or more branch steps concurrently and merges outputs",
+   "verdict": "true",
+   "evidence": [
+    "runtime/composition/engine/engine.go:274",
+    "runtime/composition/validate.go:229"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "reduce.strategy: barrier (wait for all, merge), append (concatenate), replace (last write wins)",
+   "verdict": "false",
+   "evidence": [
+    "runtime/composition/engine/reduce.go:14"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "reduce.into names the key under which the merged result is available as ${meta.output.metadata}",
+   "verdict": "true",
+   "evidence": [
+    "runtime/composition/engine/engine.go:307"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "${input.X} and ${stepID.output.X} references; literal object mixing references",
+   "verdict": "true",
+   "evidence": [
+    "runtime/composition/engine/scope.go:75"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "Both prompt and agent steps accept a modifiers block",
+   "verdict": "false",
+   "evidence": [
+    "runtime/composition/validate.go:218"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "retry.max_attempts retries the step on transient failure",
+   "verdict": "false",
+   "evidence": [
+    "runtime/composition/engine/engine.go:190"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "modifiers.eval runs the listed pack evals against the step's output; observability only",
+   "verdict": "dead",
+   "evidence": [
+    "runtime/composition/validate.go:140"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "compositions: top-level under spec, sibling of workflow; state fields orchestration: composition and composition: <name>; prompt_task omitted",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/pack.go:693",
+    "runtime/workflow/types.go:255",
+    "sdk/workflow.go:198"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "composition fields input_schema, output_schema",
+   "verdict": "dead",
+   "evidence": [
+    "runtime/packspec/types.go:590"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "output: final step id; defaults to last step if omitted",
+   "verdict": "true",
+   "evidence": [
+    "runtime/composition/engine/engine.go:225"
+   ]
+  },
+  {
+   "id": 22,
+   "claim": "unresolved composition reference is a hard error",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/pack.go:703"
+   ]
+  },
+  {
+   "id": 23,
+   "claim": "composition no state references produces a warning",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/pack.go:713"
+   ]
+  },
+  {
+   "id": 24,
+   "claim": "depends_on is required on steps that join after a branch or parallel",
+   "verdict": "false",
+   "evidence": [
+    "runtime/composition/validate.go:466"
+   ]
+  },
+  {
+   "id": 25,
+   "claim": "Send on a composition state runs CompositionStage; resp.CompositionOutput() returns the output",
+   "verdict": "true",
+   "evidence": [
+    "sdk/response.go:87",
+    "sdk/workflow.go:342"
+   ]
+  },
+  {
+   "id": 26,
+   "claim": "sdk.OpenWorkflow(path, sdk.WithProvider(p)) returns a conversation with Send(ctx, msg)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:482",
+    "sdk/workflow.go:103",
+    "sdk/workflow.go:342"
+   ]
+  },
+  {
+   "id": 27,
+   "claim": "OpenComposition(packPath, name, opts...) runs a named composition directly",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:1301"
+   ]
+  },
+  {
+   "id": 28,
+   "claim": "conv.OnTool(name, func(args map[string]any)(any,error))",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:228",
+    "sdk/conversation_tools.go:33"
+   ]
+  },
+  {
+   "id": 29,
+   "claim": "Send input: JSON object text is the composition input",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_composition.go:150"
+   ]
+  },
+  {
+   "id": 30,
+   "claim": "mock provider looks up per-step responses by step id from a steps: map next to turns:, steps take priority over turns, fall back to scenario default",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/mock/mock.go:231",
+    "runtime/providers/mock/mock_repository.go:134",
+    "runtime/providers/mock/mock_repository.go:302"
+   ]
+  },
+  {
+   "id": 31,
+   "claim": "steps entry keys response and tool_calls (name, arguments)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/mock/mock_repository.go:102",
+    "runtime/providers/mock/mock_repository.go:413"
+   ]
+  },
+  {
+   "id": 32,
+   "claim": "four handlers composition_step_output, composition_branch_taken, composition_parallel_complete, composition_output",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/composition.go:101",
+    "runtime/evals/handlers/composition.go:126",
+    "runtime/evals/handlers/composition.go:41",
+    "runtime/evals/handlers/composition.go:72"
+   ]
+  },
+  {
+   "id": 33,
+   "claim": "handler params: step+contains; branch+expected; parallel; contains",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/composition.go:110",
+    "runtime/evals/handlers/composition.go:158",
+    "runtime/evals/handlers/composition.go:50",
+    "runtime/evals/handlers/composition.go:81"
+   ]
+  },
+  {
+   "id": 34,
+   "claim": "threshold judgment lives on the type: assertion wrapper",
+   "verdict": "unverified",
+   "evidence": [
+    "runtime/evals/handlers/composition.go:20"
+   ]
+  },
+  {
+   "id": 35,
+   "claim": "unsupported: loops, kinds judge/refine/subflow/speculate/pause, step timeout/on_error/budget, durable execution, A2A delegation",
+   "verdict": "true",
+   "evidence": [
+    "runtime/composition/validate.go:183",
+    "runtime/composition/validate.go:343"
+   ]
+  },
+  {
+   "id": 36,
+   "claim": "per-composition provider selection: use sdk.WithCompositionProvider or the opaque engine block",
+   "verdict": "false",
+   "evidence": [
+    "runtime/packspec/types.go:2114",
+    "sdk/options.go:2712",
+    "sdk/provider_refs.go:48"
+   ]
+  },
+  {
+   "id": 37,
+   "claim": "links: /concepts/state-management/, /reference/checks/#composition-checks",
+   "verdict": "true",
+   "evidence": []
+  }
+ ]
+}

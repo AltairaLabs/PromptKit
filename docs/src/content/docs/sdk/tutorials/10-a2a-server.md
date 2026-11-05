@@ -2,35 +2,36 @@
 title: 'Tutorial 10: A2A Server'
 sidebar:
   order: 10
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/a2a/client.go
+    - sdk/a2a.go
+    - sdk/a2a_exports.go
+    - server/a2a/handler.go
+    - server/a2a/server.go
 ---
 
-Expose a PromptKit conversation as an A2A-compliant agent server.
+In this tutorial we expose a PromptKit conversation as an A2A-compliant agent server.
 
 **Time**: 15 minutes
 **Level**: Intermediate
 
-## What You'll Build
+## What we build
 
-An A2A server that exposes a PromptKit SDK conversation as a remotely-callable agent, discoverable via its agent card.
-
-## What You'll Learn
-
-- Create an A2A server with `sdk.NewA2AServer`
-- Use `sdk.A2AOpener` to bridge SDK conversations to the server
-- Configure agent cards
-- Start and gracefully shut down the server
+An A2A server that exposes a PromptKit SDK conversation as a remotely callable agent, discoverable through its agent card. We create the server with `sdk.NewA2AServer`, bridge SDK conversations to it with `sdk.A2AOpener`, and start and gracefully shut it down.
 
 ## Prerequisites
 
-- Go 1.22+
+- Go 1.26 or later
 - A compiled pack file (`.pack.json`)
 - Completed [First Conversation tutorial](/sdk/tutorials/01-first-conversation/) (recommended)
 
 ---
 
-## Step 1: Define the Agent Card
+## Step 1: Define the agent card
 
-The agent card describes your agent's identity and capabilities:
+The agent card describes the agent's identity and capabilities:
 
 ```go
 package main
@@ -64,34 +65,34 @@ func main() {
     }
 ```
 
+The card is only a value so far; Step 3 serves it.
+
 ---
 
-## Step 2: Create the Conversation Opener
+## Step 2: Create the conversation opener
 
-Use `sdk.A2AOpener` to create conversations from a pack file:
+We use `sdk.A2AOpener` to create conversations from a pack file:
 
 ```go
     opener := sdk.A2AOpener("./assistant.pack.json", "chat")
 ```
 
-Each A2A request creates a new SDK conversation via this opener. The `contextID` from the A2A protocol groups related requests.
+The server calls the opener the first time it sees a `contextID`, then reuses that conversation for later requests with the same `contextID`.
 
 :::note[Two ways to run the server]
-This tutorial uses the **conversation-owning** mode: you hand the server an
-opener, and it keeps the conversations it opens, reusing one per `contextID`.
-That is the right fit when A2A and the runtime run in the same process, as here.
+This tutorial uses the conversation-owning mode: we give the server an opener,
+and it keeps the conversations it opens. It suits A2A and the runtime in one
+process.
 
-If your runtime lives somewhere else (another service, another container) and
-you already track sessions yourself, use
-[`a2aserver.NewStatelessServer`](/sdk/reference/a2a-server/) instead. It hands
-each message to a handler you write, along with the HTTP request's context, and
-keeps nothing between calls. See [Choosing a server
-mode](/sdk/how-to/interop/choose-a2a-server-mode/).
+If the runtime lives in another service and sessions are already tracked, use
+[`a2aserver.NewStatelessServer`](/sdk/reference/a2a-server/). It hands each
+message to a handler you write and keeps nothing between calls. See [Choosing a
+server mode](/sdk/how-to/interop/choose-a2a-server-mode/).
 :::
 
 ---
 
-## Step 3: Create and Start the Server
+## Step 3: Create and start the server
 
 ```go
     server := sdk.NewA2AServer(opener,
@@ -117,23 +118,25 @@ mode](/sdk/how-to/interop/choose-a2a-server-mode/).
 }
 ```
 
-Run the server:
+We run the server:
 
 ```bash
 go run main.go
 ```
 
-Verify the agent card:
+The terminal prints the two `listening` and `Agent card` lines. We verify the agent card:
 
 ```bash
 curl http://localhost:9999/.well-known/agent-card.json | jq .
 ```
 
+The output is the JSON agent card, with the name `Assistant Agent` and the `chat` skill.
+
 ---
 
-## Step 4: Test with a Client
+## Step 4: Test with a client
 
-In a separate terminal, use the A2A client to send a message:
+In a separate terminal, we use the A2A client to send a message:
 
 ```go
 client := a2a.NewClient("http://localhost:9999")
@@ -159,11 +162,11 @@ for _, artifact := range task.Artifacts {
 }
 ```
 
-See the [A2A Client Tutorial](/runtime/tutorials/07-a2a-client/) for a complete walkthrough.
+The program prints `Agent: Assistant Agent` and then the agent's reply text. See the [A2A Client Tutorial](/runtime/tutorials/07-a2a-client/) for a complete walkthrough.
 
 ---
 
-## Step 5: Custom Task Store
+## Step 5: Use a custom task store
 
 By default, the server uses an in-memory task store. For persistence, implement the `sdk.A2ATaskStore` interface:
 
@@ -175,13 +178,13 @@ server := sdk.NewA2AServer(opener,
 )
 ```
 
-See the [SDK A2A Reference](/sdk/reference/a2a-server/) for the `A2ATaskStore` interface.
+Tasks now persist in `myCustomStore` instead of memory. See the [SDK A2A Reference](/sdk/reference/a2a-server/) for the `A2ATaskStore` interface.
 
 ---
 
-## Step 6: Embed in an Existing Server
+## Step 6: Embed in an existing server
 
-If you already have an HTTP server, use `Handler()` to get the `http.Handler`:
+If there is already an HTTP server, we use `Handler()` to get the `http.Handler`:
 
 ```go
 server := sdk.NewA2AServer(opener, sdk.WithA2ACard(&card))
@@ -192,9 +195,11 @@ mux.Handle("/", server.Handler())
 http.ListenAndServe(":8080", mux)
 ```
 
+The agent card is now served at `http://localhost:8080/.well-known/agent-card.json`.
+
 ---
 
-## Server Options
+## Server options
 
 | Option | Description |
 |--------|-------------|
@@ -204,20 +209,13 @@ http.ListenAndServe(":8080", mux)
 
 ---
 
-## What You've Learned
+## Next steps
 
-- How to configure an agent card
-- How to use `sdk.A2AOpener` to bridge SDK conversations
-- How to create, start, and gracefully shut down an A2A server
-- How to embed the server in an existing HTTP server
-
-## Next Steps
-
-- [A2A Client Tutorial](/runtime/tutorials/07-a2a-client/) — connect to this server from a client
-- [Use Tool Bridge](/runtime/how-to/a2a/use-a2a-tool-bridge/) — register this agent as a tool in another agent
-- [A2A Concept](/concepts/a2a/) — understand the protocol in depth
+- [A2A Client Tutorial](/runtime/tutorials/07-a2a-client/): connect to this server from a client
+- [Use Tool Bridge](/runtime/how-to/a2a/use-a2a-tool-bridge/): register this agent as a tool in another agent
+- [A2A Concept](/concepts/a2a/): the protocol in depth
 
 ## See Also
 
-- [SDK A2A Reference](/sdk/reference/a2a-server/) — complete server API documentation
-- [Examples](https://github.com/AltairaLabs/PromptKit/tree/main/server/a2a/examples/a2a-demo) — full working examples
+- [SDK A2A Reference](/sdk/reference/a2a-server/): complete server API documentation
+- [Examples](https://github.com/AltairaLabs/PromptKit/tree/main/server/a2a/examples/a2a-demo): a full working example

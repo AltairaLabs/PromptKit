@@ -935,7 +935,8 @@ func WithAzure(endpoint, providerType, model string, opts ...PlatformOption) Opt
 // When configured, conversation state (messages, metadata) is automatically
 // persisted after each turn and can be resumed later via [Resume].
 //
-//	store := statestore.NewRedisStore("redis://localhost:6379")
+//	client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+//	store := statestore.NewRedisStore(client)
 //	conv, _ := sdk.Open("./chat.pack.json", "assistant",
 //	    sdk.WithStateStore(store),
 //	)
@@ -1774,8 +1775,9 @@ func WithAutoSummarize(provider providers.Provider, threshold, batchSize int) Op
 // Provider hooks run synchronously before and after each LLM call.
 // Multiple hooks are executed in order; the first deny short-circuits.
 //
+//	hook, _ := guardrails.NewGuardrailHook("banned_words", map[string]any{"patterns": []string{"secret"}})
 //	conv, _ := sdk.Open("./chat.pack.json", "assistant",
-//	    sdk.WithProviderHook(hooks.NewBannedWords([]string{"secret"})),
+//	    sdk.WithProviderHook(hook),
 //	)
 func WithProviderHook(h hooks.ProviderHook) Option {
 	return func(c *config) error {
@@ -2478,8 +2480,8 @@ func withLocalAgentExecutor(exec *LocalAgentExecutor) Option {
 // Later providers in the chain override earlier ones with the same key.
 //
 //	conv, _ := sdk.Open("./assistant.pack.json", "support",
-//	    sdk.WithVariableProvider(variables.Time()),
-//	    sdk.WithVariableProvider(variables.State()),
+//	    sdk.WithVariableProvider(variables.NewTimeProvider()),
+//	    sdk.WithVariableProvider(variables.NewStateProvider(store, conversationID)),
 //	)
 func WithVariableProvider(p variables.Provider) Option {
 	return func(c *config) error {
@@ -2942,16 +2944,18 @@ func WithRerankProvider(spec ProviderSpec) Option {
 // When set, enables ASM (Audio Streaming Model) mode with continuous bidirectional streaming.
 // When nil (default), uses VAD (Voice Activity Detection) mode with turn-based streaming.
 //
-// ASM mode is for models with native bidirectional audio support (e.g., gemini-2.0-flash-exp).
+// ASM mode is for models with native bidirectional audio support (e.g., gemini-3.8-live).
 // VAD mode is for standard text-based models with audio transcription.
 //
 // Example for ASM mode:
 //
 //	conv, _ := sdk.OpenDuplex("./assistant.pack.json", "voice-chat",
 //	    sdk.WithStreamingConfig(&providers.StreamingInputConfig{
-//	        Type:       types.ContentTypeAudio,
-//	        SampleRate: 16000,
-//	        Channels:   1,
+//	        Config: types.StreamingMediaConfig{
+//	            Type:       types.ContentTypeAudio,
+//	            SampleRate: 16000,
+//	            Channels:   1,
+//	        },
 //	    }),
 //	)
 func WithStreamingConfig(streamingConfig *providers.StreamingInputConfig) Option {
@@ -3803,7 +3807,7 @@ func WithSkillSelectorOption(s skills.SkillSelector) Option {
 }
 
 // WithMaxActiveSkillsOption sets the maximum number of concurrently active skills.
-// Default is 5 if not set.
+// When not set, the number of active skills is unlimited.
 //
 //	conv, _ := sdk.Open("./assistant.pack.json", "chat",
 //	    sdk.WithMaxActiveSkillsOption(10),

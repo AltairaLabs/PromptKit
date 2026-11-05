@@ -1,0 +1,324 @@
+{
+ "page": "docs/src/content/docs/concepts/state-management.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "State management maintains conversation history across turns",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:942"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "Pseudo-code llm.Predict snippets",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 3,
+   "claim": "Each conversation has a session ID (conversation ID)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:991"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "sdk.Open with WithModel and conv.Send(ctx, text) example",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:1200"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Store interface provides Load, Save and Fork",
+   "verdict": "false",
+   "evidence": [
+    "runtime/statestore/interface.go:18",
+    "runtime/statestore/interface.go:35"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "statestore.NewMemoryStore(); store.Save(ctx, state)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/interface.go:38",
+    "runtime/statestore/memory.go:170"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "store.Load(ctx, sessionID) returns (state, err)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/interface.go:20"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "store.Fork(ctx, sourceSessionID, newSessionID) creates a branch",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/interface.go:24"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Memory store ~1-10 microseconds; lost on restart; single instance",
+   "verdict": "unverified",
+   "evidence": [
+    "runtime/statestore/memory.go:170"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "statestore.NewRedisStore(redisClient) with redis.Options",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/redis.go:77"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "Redis: persistent, multi-instance, TTL support; ~1-5ms",
+   "verdict": "unverified",
+   "evidence": [
+    "runtime/statestore/redis.go:54"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "Limit history by trimming messages after store.Load(sessionID)",
+   "verdict": "false",
+   "evidence": [
+    "runtime/statestore/interface.go:20",
+    "sdk/options.go:1702"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "sessionID patterns with fmt.Sprintf and uuid",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:991"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "Workflow tracks current state, transition history with timestamps, per-state conversations",
+   "verdict": "true",
+   "evidence": [
+    "runtime/workflow/types.go:274",
+    "runtime/workflow/types.go:297",
+    "sdk/workflow.go:560"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "persistence values transient and persistent per state",
+   "verdict": "true",
+   "evidence": [
+    "runtime/workflow/types.go:243",
+    "runtime/workflow/validate.go:101"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "transient: state is not persisted to the store; persistent: saved",
+   "verdict": "true",
+   "evidence": [
+    "sdk/workflow.go:783"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "control field with agent and user values (RFC 0014)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/workflow/types.go:266",
+    "runtime/workflow/validate.go:137"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "agent: take another round without yielding; user: end the turn",
+   "verdict": "true",
+   "evidence": [
+    "runtime/workflow/types.go:190"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "Absent control is treated as agent while the spec defaults to user",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/schema/promptpack.schema.json:1737",
+    "runtime/workflow/types.go:198"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "In-turn handoff shipped 2026-08-14, 17 days before RFC 0014",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 21,
+   "claim": "control: agent on a terminal state is flagged",
+   "verdict": "true",
+   "evidence": [
+    "runtime/workflow/validate.go:145"
+   ]
+  },
+  {
+   "id": 22,
+   "claim": "A cycle of agent states with no yield, terminal or max_visits runs until the workflow budget stops it",
+   "verdict": "false",
+   "evidence": [
+    "runtime/workflow/validate.go:171",
+    "runtime/workflow/validate.go:196"
+   ]
+  },
+  {
+   "id": 23,
+   "claim": "wf.Context() returns workflow.Context with CurrentState and History",
+   "verdict": "true",
+   "evidence": [
+    "runtime/workflow/types.go:275",
+    "sdk/workflow.go:700"
+   ]
+  },
+  {
+   "id": 24,
+   "claim": "sdk.ResumeWorkflow(workflowID, packPath) without a state store",
+   "verdict": "false",
+   "evidence": [
+    "sdk/workflow.go:228",
+    "sdk/workflow.go:239"
+   ]
+  },
+  {
+   "id": 25,
+   "claim": "Carry-forward injects summaries of previous states into the next state's conversation",
+   "verdict": "true",
+   "evidence": [
+    "sdk/workflow.go:33",
+    "sdk/workflow.go:574"
+   ]
+  },
+  {
+   "id": 26,
+   "claim": "sdk.WithContextCarryForward(true)",
+   "verdict": "false",
+   "evidence": [
+    "sdk/options.go:2022"
+   ]
+  },
+  {
+   "id": 27,
+   "claim": "Best practices code uses MaxMessages and TTL struct fields",
+   "verdict": "false",
+   "evidence": [
+    "runtime/statestore/redis.go:54",
+    "sdk/options.go:1702"
+   ]
+  },
+  {
+   "id": 28,
+   "claim": "store.Load(sessionID) error handling with []Message{}",
+   "verdict": "false",
+   "evidence": [
+    "runtime/statestore/interface.go:20"
+   ]
+  },
+  {
+   "id": 29,
+   "claim": "Redis-shared state across instances (ASCII diagram)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/redis.go:77"
+   ]
+  },
+  {
+   "id": 30,
+   "claim": "Session affinity gives local caching and reduced Redis load",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 31,
+   "claim": "MaxMessages config; lazy loading; gzip.Compress(messages) compression",
+   "verdict": "dead",
+   "evidence": []
+  },
+  {
+   "id": 32,
+   "claim": "StateMetrics struct and alert helpers",
+   "verdict": "dead",
+   "evidence": []
+  },
+  {
+   "id": 33,
+   "claim": "Testing: store.Save(\"session-1\", messages); pipe.ExecuteWithSession",
+   "verdict": "false",
+   "evidence": [
+    "runtime/statestore/interface.go:38"
+   ]
+  },
+  {
+   "id": 34,
+   "claim": "MemoryStore defaults: TTL 1 hour, 10,000 entries, LRU eviction; options WithMemoryTTL, WithNoTTL, WithMemoryMaxEntries, WithNoMaxEntries",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/memory.go:56",
+    "runtime/statestore/memory.go:61",
+    "runtime/statestore/memory.go:86"
+   ]
+  },
+  {
+   "id": 35,
+   "claim": "RedisStore defaults: TTL 24h, prefix promptkit; WithTTL, WithPrefix; reads extend TTL",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/redis.go:54",
+    "runtime/statestore/redis.go:62",
+    "runtime/statestore/types.go:15"
+   ]
+  },
+  {
+   "id": 36,
+   "claim": "Both built-in stores implement BulkWriter, MessageAppender, MetadataAccessor, SummaryAccessor, ListAccessor",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/interface.go:106",
+    "runtime/statestore/interface.go:128",
+    "runtime/statestore/interface.go:35",
+    "runtime/statestore/interface.go:79",
+    "runtime/statestore/interface.go:91"
+   ]
+  },
+  {
+   "id": 37,
+   "claim": "Without a state store, Open uses a private in-memory store; Resume returns ErrNoStateStore",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:1227",
+    "sdk/sdk.go:838"
+   ]
+  },
+  {
+   "id": 38,
+   "claim": "WithContextWindow(n) loads the most recent n messages; WithTokenBudget; WithTruncation sliding/summarize/relevance",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1594",
+    "sdk/options.go:1615",
+    "sdk/options.go:1702"
+   ]
+  }
+ ]
+}

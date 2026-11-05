@@ -418,24 +418,25 @@ func (s *MyStage) Process(ctx context.Context, input <-chan StreamElement, outpu
 }
 ```
 
-#### Pattern 2: Base Metadata (Session Context)
+#### Pattern 2: Provider Request Metadata (Session Context)
 
-Use `BaseMetadata` on the pipeline to inject session-level context into every element automatically:
+Set `ProviderRequestMetadata` on the shared `TurnState` to pass session-level context to the provider on every call:
 
 ```go
-pipeline.BaseMetadata = map[string]interface{}{
+turnState := stage.NewTurnState()
+turnState.ProviderRequestMetadata = map[string]interface{}{
     "session_id": sessionID,
     "tenant_id":  tenantID,
 }
-// All elements entering the pipeline will have these keys merged in.
-// Per-element metadata takes precedence on key collision.
+// Build the provider stage with NewProviderStageWithTurnState; it copies the
+// map into PredictionRequest.Metadata.
 ```
 
-#### Pattern 3: State Access via Metadata
+#### Pattern 3: State Access via TurnState
 
 ```go
-elem.Metadata["system_prompt"] = "..."
-elem.Metadata["allowed_tools"] = []string{...}
+turnState.SystemPrompt = "..."
+turnState.AllowedTools = []string{"search"}
 ```
 
 #### Pattern 4: Error Handling

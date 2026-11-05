@@ -1,138 +1,141 @@
 ---
 title: 'Tutorial 2: Multi-Turn Conversations'
+description: Build a chatbot that remembers earlier turns by adding a state store, a token budget and Redis persistence to a stage pipeline.
 sidebar:
   order: 2
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/pipeline/stage/pipeline.go
+    - runtime/pipeline/stage/stages_core.go
+    - runtime/pipeline/stage/stages_save.go
+    - runtime/pipeline/stage/stages_utilities.go
+    - runtime/pipeline/types.go
+    - runtime/providers/openai/openai.go
+    - runtime/statestore/memory.go
+    - runtime/statestore/redis.go
 ---
-Build a stateful chatbot that remembers conversation history.
+In this tutorial we build a command-line chatbot that remembers what you said earlier in the conversation, first in memory and then in Redis.
 
-**Time**: 20 minutes  
+**Time**: 20 minutes
 **Level**: Beginner
 
-## What You'll Build
+## What we will build
 
-A chatbot that maintains conversation context across multiple exchanges.
+The chatbot runs each message through four stages. The first loads the conversation history, the last saves the new messages.
 
-## What You'll Learn
-
-- Manage conversation state
-- Use session IDs
-- Implement state storage (Redis & in-memory)
-- Handle context windows
-- Build interactive chatbots
+```mermaid
+flowchart LR
+    in["user message"] --> load["StateStoreLoadStage"]
+    load --> ctx["ContextBuilderStage"]
+    ctx --> prov["ProviderStage"]
+    prov --> save["IncrementalSaveStage"]
+    load <--> store[("statestore.Store")]
+    save --> store
+```
 
 ## Prerequisites
 
-- Completed [Tutorial 1](/runtime/tutorials/01-first-pipeline/)
-- Redis (optional, for persistent state)
+- Completed [Tutorial 1](/runtime/tutorials/01-first-pipeline/), with `OPENAI_API_KEY` still set
+- Docker, for the Redis step
 
-## Step 1: Install Redis (Optional)
+## Step 1: Write the chatbot
 
-### macOS
-
-```bash
-brew install redis
-brew services start redis
-```
-
-### Linux
-
-```bash
-sudo apt-get install redis-server
-sudo systemctl start redis
-```
-
-### Docker
-
-```bash
-docker run -d -p 6379:6379 redis
-```
-
-## Step 2: In-Memory State (Simple)
-
-Start with in-memory state for development:
+In a new directory, create a module as in Tutorial 1, then create `main.go`:
 
 ```go
 package main
 
 import (
-    "bufio"
-    "context"
-    "fmt"
-    "log"
-    "os"
-    "strings"
-    
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/middleware"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+	"bufio"
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"strings"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func main() {
-    // Create provider
-    provider := openai.NewProvider(
-        "openai",
-        "gpt-4o-mini",
-        "", // uses OPENAI_API_KEY env var
-        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
-        false,
-    )
-    defer provider.Close()
-    
-    // Create in-memory state store
-    store := statestore.NewMemoryStore()
-    
-    // Build pipeline with state middleware
-    pipe := pipeline.NewPipeline(
-        middleware.StateMiddleware(store),
-        middleware.ProviderMiddleware(provider, nil, nil, &middleware.ProviderMiddlewareConfig{
-            MaxTokens:   500,
-            Temperature: 0.7,
-        }),
-    )
-    defer pipe.Shutdown(context.Background())
-    
-    // Session ID for this conversation
-    sessionID := "user-123"
-    ctx := context.Background()
-    
-    // Interactive chat loop
-    scanner := bufio.NewScanner(os.Stdin)
-    fmt.Println("Chatbot ready! Type 'exit' to quit.")
-    fmt.Print("\nYou: ")
-    
-    for scanner.Scan() {
-        input := strings.TrimSpace(scanner.Text())
-        
-        if input == "exit" {
-            break
-        }
-        
-        if input == "" {
-            fmt.Print("You: ")
-            continue
-        }
-        
-        // Execute with context
-        result, err := pipe.ExecuteWithContext(ctx, sessionID, "user", input)
-        if err != nil {
-            log.Printf("Error: %v\n", err)
-            fmt.Print("You: ")
-            continue
-        }
-        
-        fmt.Printf("\nBot: %s\n\n", result.Response.Content)
-        fmt.Printf("Tokens: %d | Cost: $%.6f\n", 
-            result.Response.Usage.TotalTokens,
-            result.Cost.TotalCost)
-        fmt.Print("\nYou: ")
-    }
-    
-    fmt.Println("\nGoodbye!")
+	ctx := context.Background()
+
+	provider := openai.NewProvider(
+		"openai",
+		"gpt-4o-mini",
+		"",
+		providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
+		false,
+	)
+	defer provider.Close()
+
+	// The conversation ID names the history to load and save.
+	conversationID := os.Getenv("SESSION_ID")
+	if conversationID == "" {
+		conversationID = "demo"
+	}
+
+	store := statestore.NewMemoryStore()
+	storeConfig := &pipeline.StateStoreConfig{Store: store, ConversationID: conversationID}
+
+	pipe, err := stage.NewPipelineBuilder().
+		Chain(
+			stage.NewStateStoreLoadStage(storeConfig),
+			stage.NewContextBuilderStage(&stage.ContextBuilderPolicy{
+				TokenBudget:      8000,
+				ReserveForOutput: 500,
+				Strategy:         stage.TruncateOldest,
+			}),
+			stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{
+				MaxTokens:   500,
+				Temperature: 0.7,
+			}),
+			stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: storeConfig}),
+		).
+		Build()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer pipe.Shutdown(ctx)
+
+	fmt.Printf("Session: %s\nChatbot ready! Type 'exit' to quit.\n\nYou: ", conversationID)
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		input := strings.TrimSpace(scanner.Text())
+		if input == "exit" {
+			break
+		}
+		if input == "" {
+			fmt.Print("You: ")
+			continue
+		}
+
+		msg := &types.Message{Role: "user", Content: input}
+		result, err := pipe.ExecuteSync(ctx, stage.NewMessageElement(msg))
+		if err != nil {
+			log.Printf("Error: %v", err)
+			fmt.Print("You: ")
+			continue
+		}
+
+		// The last message is this turn's assistant reply.
+		reply := result.Messages[len(result.Messages)-1]
+		fmt.Printf("\nBot: %s\n\n", result.Response.Content)
+		fmt.Printf("Turn cost: $%.6f | Conversation cost: $%.6f\n\nYou: ",
+			reply.CostInfo.TotalCost, result.CostInfo.TotalCost)
+	}
+	fmt.Println("\nGoodbye!")
 }
 ```
 
-## Step 3: Test Conversation Memory
+The `StateStoreLoadStage` and `IncrementalSaveStage` share one `StateStoreConfig`, so they read and write the same conversation.
+
+## Step 2: Test the conversation memory
 
 Run the chatbot:
 
@@ -142,7 +145,7 @@ go run main.go
 
 Try this conversation:
 
-```
+```text
 You: My name is Alice
 Bot: Hello Alice! It's nice to meet you...
 
@@ -156,385 +159,52 @@ You: What food do I love?
 Bot: You mentioned that you love pizza!
 ```
 
-The bot remembers your name and preferences! 🎉
+The bot answers from earlier turns because the load stage puts the saved messages in front of each new message.
 
-## Step 4: Redis State (Production)
+Type `exit` and run the program again. The new run starts without the earlier turns, because the memory store lives and dies with the process.
 
-For production, use Redis for persistent state:
+## Step 3: Keep the history in Redis
 
-```go
-package main
-
-import (
-    "bufio"
-    "context"
-    "fmt"
-    "log"
-    "os"
-    "strings"
-    
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/middleware"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
-)
-
-func main() {
-    // Create provider
-    provider := openai.NewProvider(
-        "openai",
-        "gpt-4o-mini",
-        "", // uses OPENAI_API_KEY env var
-        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
-        false,
-    )
-    defer provider.Close()
-    
-    // Create Redis state store
-    redisClient := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
-    store := statestore.NewRedisStore(redisClient)
-    
-    // Build pipeline with state
-    pipe := pipeline.NewPipeline(
-        middleware.StateMiddleware(store),
-        middleware.ProviderMiddleware(provider, nil, nil, &middleware.ProviderMiddlewareConfig{
-            MaxTokens:   500,
-            Temperature: 0.7,
-        }),
-    )
-    defer pipe.Shutdown(context.Background())
-    
-    // Get or create session ID
-    sessionID := os.Getenv("SESSION_ID")
-    if sessionID == "" {
-        sessionID = fmt.Sprintf("user-%d", os.Getpid())
-    }
-    
-    fmt.Printf("Session: %s\n", sessionID)
-    fmt.Println("Chatbot ready! Type 'exit' to quit.")
-    
-    ctx := context.Background()
-    scanner := bufio.NewScanner(os.Stdin)
-    fmt.Print("\nYou: ")
-    
-    for scanner.Scan() {
-        input := strings.TrimSpace(scanner.Text())
-        
-        if input == "exit" {
-            break
-        }
-        
-        if input == "" {
-            fmt.Print("You: ")
-            continue
-        }
-        
-        result, err := pipe.ExecuteWithContext(ctx, sessionID, "user", input)
-        if err != nil {
-            log.Printf("Error: %v\n", err)
-            fmt.Print("You: ")
-            continue
-        }
-        
-        fmt.Printf("\nBot: %s\n", result.Response.Content)
-        fmt.Printf("(Tokens: %d | Cost: $%.6f)\n\n", 
-            result.Response.Usage.TotalTokens,
-            result.Cost.TotalCost)
-        fmt.Print("You: ")
-    }
-    
-    fmt.Println("\nGoodbye!")
-}
-```
-
-With Redis, conversations persist! Restart the app with the same session ID to continue.
-
-## Understanding State Management
-
-### How State Middleware Works
-
-```go
-pipe := pipeline.NewPipeline(
-    middleware.StateMiddleware(store),  // Must be first!
-    middleware.ProviderMiddleware(...),
-)
-```
-
-State middleware:
-1. Loads previous messages before execution
-2. Adds new message to history
-3. Sends all messages to LLM
-4. Saves updated history
-
-### Session IDs
-
-Session IDs identify conversations:
-
-```go
-// User-based: one conversation per user
-sessionID := fmt.Sprintf("user-%s", userID)
-
-// Feature-based: separate conversations per feature
-sessionID := fmt.Sprintf("support-%s", ticketID)
-
-// Time-based: new conversation daily
-sessionID := fmt.Sprintf("user-%s-%s", userID, time.Now().Format("2006-01-02"))
-```
-
-## Managing Context Windows
-
-LLMs have token limits. Keep conversations manageable:
-
-### Option 1: Trim by Message Count
-
-```go
-// Load state
-state, _ := store.Load(ctx, sessionID)
-
-// Keep only recent 10 messages
-maxMessages := 10
-if len(state.Messages) > maxMessages {
-    state.Messages = state.Messages[len(state.Messages)-maxMessages:]
-    store.Save(ctx, state)
-}
-```
-
-### Option 2: Trim by Token Count
-
-```go
-// Load state
-state, _ := store.Load(ctx, sessionID)
-
-// Estimate tokens and trim (rough: 4 chars per token)
-totalChars := 0
-for _, msg := range state.Messages {
-    totalChars += len(msg.Content)
-}
-maxTokens := 4000
-for totalChars/4 > maxTokens && len(state.Messages) > 1 {
-    state.Messages = state.Messages[1:]
-    totalChars = 0
-    for _, msg := range state.Messages {
-        totalChars += len(msg.Content)
-    }
-}
-store.Save(ctx, state)
-```
-
-## Complete Multi-User Chatbot
-
-Here's a production-ready chatbot:
-
-```go
-package main
-
-import (
-    "bufio"
-    "context"
-    "fmt"
-    "log"
-    "os"
-    "strings"
-    "time"
-    
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/middleware"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
-)
-
-func main() {
-    // Configuration
-    if os.Getenv("OPENAI_API_KEY") == "" {
-        log.Fatal("OPENAI_API_KEY not set")
-    }
-
-    redisAddr := os.Getenv("REDIS_ADDR")
-    if redisAddr == "" {
-        redisAddr = "localhost:6379"
-    }
-    
-    username := os.Getenv("USER")
-    if username == "" {
-        username = "guest"
-    }
-    
-    // Create provider
-    provider := openai.NewProvider(
-        "openai",
-        "gpt-4o-mini",
-        "", // uses OPENAI_API_KEY env var
-        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
-        false,
-    )
-    defer provider.Close()
-    
-    // Create state store (fallback to in-memory if Redis fails)
-    var store statestore.Store
-    redisClient := redis.NewClient(&redis.Options{Addr: redisAddr})
-    if err := redisClient.Ping(context.Background()).Err(); err != nil {
-        log.Printf("Redis unavailable, using in-memory store: %v", err)
-        store = statestore.NewMemoryStore()
-    } else {
-        store = statestore.NewRedisStore(redisClient)
-    }
-    
-    // Build pipeline
-    config := &middleware.ProviderMiddlewareConfig{
-        MaxTokens:   500,
-        Temperature: 0.7,
-    }
-    
-    pipe := pipeline.NewPipeline(
-        middleware.StateMiddleware(store),
-        middleware.ProviderMiddleware(provider, nil, nil, config),
-    )
-    defer pipe.Shutdown(context.Background())
-    
-    // Session setup
-    sessionID := fmt.Sprintf("chat-%s-%s", username, time.Now().Format("2006-01-02"))
-    fmt.Printf("=== Chatbot ===\n")
-    fmt.Printf("Session: %s\n", sessionID)
-    fmt.Printf("Commands: 'exit' to quit, 'clear' to reset conversation\n\n")
-    
-    ctx := context.Background()
-    scanner := bufio.NewScanner(os.Stdin)
-    totalCost := 0.0
-    
-    fmt.Print("You: ")
-    for scanner.Scan() {
-        input := strings.TrimSpace(scanner.Text())
-        
-        switch input {
-        case "exit":
-            fmt.Printf("\nTotal cost this session: $%.6f\n", totalCost)
-            fmt.Println("Goodbye!")
-            return
-            
-        case "clear":
-            // Save empty state to clear conversation
-            store.Save(ctx, &statestore.ConversationState{ID: sessionID})
-            fmt.Println("\n[Conversation cleared]\n")
-            fmt.Print("You: ")
-            continue
-            
-        case "":
-            fmt.Print("You: ")
-            continue
-        }
-        
-        // Execute
-        result, err := pipe.ExecuteWithContext(ctx, sessionID, "user", input)
-        if err != nil {
-            log.Printf("\nError: %v\n\n", err)
-            fmt.Print("You: ")
-            continue
-        }
-        
-        // Display response
-        fmt.Printf("\nBot: %s\n", result.Response.Content)
-        
-        // Update metrics
-        totalCost += result.Cost.TotalCost
-        fmt.Printf("\n[Tokens: %d | This: $%.6f | Total: $%.6f]\n\n", 
-            result.Response.Usage.TotalTokens,
-            result.Cost.TotalCost,
-            totalCost)
-        
-        fmt.Print("You: ")
-    }
-}
-```
-
-## Experiment
-
-### 1. System Prompt
-
-Add personality to your bot:
-
-```go
-// Add system message before first user message
-systemPrompt := "You are a helpful AI assistant who speaks like a pirate."
-
-// Save initial state with system prompt
-state := &statestore.ConversationState{
-    ID:           sessionID,
-    SystemPrompt: systemPrompt,
-}
-store.Save(ctx, state)
-```
-
-### 2. Multiple Users
-
-Run multiple chatbot instances with different usernames:
+Start Redis:
 
 ```bash
-USER=alice go run main.go  # Terminal 1
-USER=bob go run main.go    # Terminal 2
+docker run -d -p 6379:6379 redis
 ```
 
-Each user has their own conversation history!
+Install the Redis client:
 
-### 3. Conversation Reset
-
-Add a command to clear history:
-
-```go
-if input == "/clear" {
-    // Save empty state to clear conversation
-    store.Save(ctx, &statestore.ConversationState{ID: sessionID})
-    fmt.Println("Conversation cleared!")
-    continue
-}
-```
-
-## Common Issues
-
-### Bot forgets things
-
-**Problem**: State middleware not registered or session ID changes.
-
-**Solution**: 
-- Ensure `StateMiddleware` is first
-- Use consistent session IDs
-- Check state store connection
-
-### Context length exceeded
-
-**Problem**: Conversation too long for model.
-
-**Solution**: Trim messages:
-```go
-state, _ := store.Load(ctx, sessionID)
-if len(state.Messages) > 20 {
-    state.Messages = state.Messages[len(state.Messages)-20:]
-    store.Save(ctx, state)
-}
-```
-
-### Redis connection failed
-
-**Problem**: Redis not running or wrong address.
-
-**Solution**: Check Redis:
 ```bash
-redis-cli ping  # Should return PONG
+go get github.com/redis/go-redis/v9
 ```
 
-## What You've Learned
+Add `"github.com/redis/go-redis/v9"` to the imports. Then replace the memory store in `main.go`:
 
-✅ Manage conversation state  
-✅ Use session IDs  
-✅ Implement Redis and in-memory storage  
-✅ Handle context windows  
-✅ Build interactive chatbots  
-✅ Support multiple users  
+```go
+store := statestore.NewMemoryStore()
+```
 
-## Next Steps
+with a Redis store:
+
+```go
+store := statestore.NewRedisStore(redis.NewClient(&redis.Options{Addr: "localhost:6379"}))
+```
+
+Run the chatbot with a fixed session ID, tell it your name, and exit:
+
+```bash
+SESSION_ID=alice go run main.go
+```
+
+Run the same command again and ask `What's my name?`. The bot answers correctly, because the history survived the restart. A different `SESSION_ID` starts a separate conversation.
+
+## Step 4: See the token budget at work
+
+The `ContextBuilderStage` keeps the history inside the model's context window. With `TokenBudget: 8000` and `ReserveForOutput: 500`, it drops the oldest messages once the history exceeds the remaining 7,500 tokens.
+
+To watch it, lower `TokenBudget` to `800`, tell the bot your name, then ask it a few questions that need long answers. Ask for your name again. The bot cannot answer, while the store still holds every message.
+
+## Next steps
 
 Continue to [Tutorial 3: MCP Integration](/runtime/tutorials/03-mcp-integration/) to add external tools to your chatbot.
 
-## See Also
-
-- [Manage State](/runtime/how-to/state/manage-state/) - Advanced state management
-- [StateStore Reference](/runtime/reference/statestore/) - Complete API
+For more on state, see [Manage State](/runtime/how-to/state/manage-state/) and the [StateStore Reference](/runtime/reference/statestore/).

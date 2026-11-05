@@ -135,9 +135,11 @@ These are not strict requirements; they reflect what tends to go wrong when hook
 **Order hooks fast-to-slow.** Decision-based hooks short-circuit on the first `Deny`, so cheap checks should run first — they protect expensive ones from running on requests that were already going to be rejected.
 
 ```go
-sdk.WithProviderHook(guardrails.NewLengthHook(1000, 250)),     // O(1)
-sdk.WithProviderHook(guardrails.NewBannedWordsHook(banned)),    // O(n*w)
-sdk.WithProviderHook(customExpensiveHook),                      // slow
+sdk.WithGuardrail(
+    guardrails.Output("length", map[string]any{"max_characters": 1000}), // O(1)
+    guardrails.Output("banned_words", map[string]any{"words": banned}),  // O(n*w)
+),
+sdk.WithProviderHook(customExpensiveHook),                               // slow
 ```
 
 **Prefer streaming guardrails when latency matters.** A `ChunkInterceptor` can abort a streaming response mid-flight, saving generation cost when the model produces something you'd reject anyway. The built-in `BannedWordsHook` and `LengthHook` already do this; `MaxSentencesHook` and `RequiredFieldsHook` need the full response and don't.

@@ -1,614 +1,214 @@
 ---
 title: Stream Responses
+description: Read a model reply as it is generated, from a stage pipeline or straight from a provider.
 sidebar:
   order: 6
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/pipeline/stage/builder.go
+    - runtime/pipeline/stage/config.go
+    - runtime/pipeline/stage/element.go
+    - runtime/pipeline/stage/pipeline.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/providers/provider.go
+    - runtime/providers/streaming.go
+    - runtime/types/message.go
 ---
-Stream LLM responses for real-time output.
+Read an LLM reply fragment by fragment while the model generates it.
 
-## Goal
+## Prerequisites
 
-Display LLM responses progressively as they're generated.
+- A provider that supports streaming. Check with `provider.SupportsStreaming()`.
+- A stage pipeline that contains a `ProviderStage`, built as in [Tutorial 1](/runtime/tutorials/01-first-pipeline/).
 
-## Quick Start
+A `ProviderStage` streams on its own when its provider supports it. It emits each fragment as a text element on the pipeline output, then emits the complete assistant message.
 
-```go
-import "io"
+## Stream through a pipeline
 
-stream, err := pipe.ExecuteStream(ctx, "user", "Write a story")
-if err != nil {
-    log.Fatal(err)
-}
-defer stream.Close()
+1. Send the request on an input channel and close the channel. `Execute` returns the output channel without waiting for the reply.
 
-for {
-    chunk, err := stream.Next()
-    if err == io.EOF {
-        break
-    }
-    if err != nil {
-        log.Printf("Stream error: %v", err)
-        break
-    }
-    
-    fmt.Print(chunk.Content)
-}
-```
+   ```go
+   input := make(chan stage.StreamElement, 1)
+   input <- stage.NewMessageElement(&types.Message{Role: "user", Content: prompt})
+   close(input)
 
-## Basic Streaming
+   output, err := pipe.Execute(ctx, input)
+   if err != nil {
+   	return err
+   }
+   ```
 
-### Execute Stream
+2. Range over the output channel. A text element (`elem.Text`) carries one fragment, not the accumulated reply. A message element (`elem.Message`) carries the complete assistant message with its token counts and cost.
 
-```go
-ctx := context.Background()
+3. Check `elem.Error` in the loop. `Execute` returns an error only when the pipeline is shutting down. A failure during the call arrives as an element with `Error` set.
 
-stream, err := pipe.ExecuteStream(ctx, "user", "Generate a long document")
-if err != nil {
-    log.Fatal(err)
-}
-defer stream.Close()
+The loop ends when the pipeline closes the output channel. Keep reading until it closes, even after you stop using the elements: the pipeline blocks on an output channel nobody reads.
 
-// Process chunks
-for {
-    chunk, err := stream.Next()
-    if err == io.EOF {
-        break  // Stream complete
-    }
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    // Display chunk
-    fmt.Print(chunk.Content)
-}
-```
-
-### With Session Context
-
-```go
-sessionID := "user-123"
-
-stream, err := pipe.ExecuteStreamWithContext(ctx, sessionID, "user", "Continue our conversation")
-if err != nil {
-    log.Fatal(err)
-}
-defer stream.Close()
-
-for {
-    chunk, err := stream.Next()
-    if err == io.EOF {
-        break
-    }
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    fmt.Print(chunk.Content)
-}
-```
-
-## Chunk Processing
-
-### Accumulate Content
-
-```go
-var accumulated string
-
-stream, _ := pipe.ExecuteStream(ctx, "user", "Write code")
-defer stream.Close()
-
-for {
-    chunk, err := stream.Next()
-    if err == io.EOF {
-        break
-    }
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    accumulated += chunk.Content
-    fmt.Print(chunk.Content)
-}
-
-// Use final content
-log.Printf("Total: %d chars", len(accumulated))
-```
-
-### Real-Time Display
-
-```go
-import "time"
-
-stream, _ := pipe.ExecuteStream(ctx, "user", "Explain quantum physics")
-defer stream.Close()
-
-lastUpdate := time.Now()
-minDelay := 50 * time.Millisecond
-
-for {
-    chunk, err := stream.Next()
-    if err == io.EOF {
-        break
-    }
-    if err != nil {
-        break
-    }
-    
-    // Throttle updates
-    if time.Since(lastUpdate) >= minDelay {
-        fmt.Print(chunk.Content)
-        lastUpdate = time.Now()
-    }
-}
-```
-
-### Parse Structured Output
-
-```go
-import "strings"
-
-stream, _ := pipe.ExecuteStream(ctx, "user", "List 5 items")
-defer stream.Close()
-
-var buffer string
-var items []string
-
-for {
-    chunk, err := stream.Next()
-    if err == io.EOF {
-        break
-    }
-    if err != nil {
-        break
-    }
-    
-    buffer += chunk.Content
-    
-    // Parse lines as they arrive
-    if strings.Contains(buffer, "\n") {
-        lines := strings.Split(buffer, "\n")
-        for i := 0; i < len(lines)-1; i++ {
-            line := strings.TrimSpace(lines[i])
-            if line != "" {
-                items = append(items, line)
-                log.Println("Found item:", line)
-            }
-        }
-        buffer = lines[len(lines)-1]
-    }
-}
-
-// Process remaining buffer
-if buffer != "" {
-    items = append(items, strings.TrimSpace(buffer))
-}
-```
-
-## Web Streaming
-
-### HTTP Server-Sent Events
-
-```go
-import "net/http"
-
-func handleStream(w http.ResponseWriter, r *http.Request) {
-    // Set SSE headers
-    w.Header().Set("Content-Type", "text/event-stream")
-    w.Header().Set("Cache-Control", "no-cache")
-    w.Header().Set("Connection", "keep-alive")
-    
-    flusher, ok := w.(http.Flusher)
-    if !ok {
-        http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
-        return
-    }
-    
-    prompt := r.URL.Query().Get("prompt")
-    ctx := r.Context()
-    
-    stream, err := pipe.ExecuteStream(ctx, "user", prompt)
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-    defer stream.Close()
-    
-    for {
-        chunk, err := stream.Next()
-        if err == io.EOF {
-            fmt.Fprintf(w, "data: [DONE]\n\n")
-            flusher.Flush()
-            break
-        }
-        if err != nil {
-            fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
-            flusher.Flush()
-            break
-        }
-        
-        // Send chunk
-        fmt.Fprintf(w, "data: %s\n\n", chunk.Content)
-        flusher.Flush()
-    }
-}
-
-http.HandleFunc("/stream", handleStream)
-http.ListenAndServe(":8080", nil)
-```
-
-### WebSocket Streaming
-
-```go
-import "github.com/gorilla/websocket"
-
-var upgrader = websocket.Upgrader{
-    CheckOrigin: func(r *http.Request) bool { return true },
-}
-
-func handleWebSocket(w http.ResponseWriter, r *http.Request) {
-    conn, err := upgrader.Upgrade(w, r, nil)
-    if err != nil {
-        log.Println("Upgrade error:", err)
-        return
-    }
-    defer conn.Close()
-    
-    // Read message
-    _, message, err := conn.ReadMessage()
-    if err != nil {
-        return
-    }
-    
-    ctx := r.Context()
-    stream, err := pipe.ExecuteStream(ctx, "user", string(message))
-    if err != nil {
-        conn.WriteMessage(websocket.TextMessage, []byte(err.Error()))
-        return
-    }
-    defer stream.Close()
-    
-    for {
-        chunk, err := stream.Next()
-        if err == io.EOF {
-            conn.WriteMessage(websocket.TextMessage, []byte("[DONE]"))
-            break
-        }
-        if err != nil {
-            conn.WriteMessage(websocket.TextMessage, []byte(err.Error()))
-            break
-        }
-        
-        err = conn.WriteMessage(websocket.TextMessage, []byte(chunk.Content))
-        if err != nil {
-            break
-        }
-    }
-}
-```
-
-## Stream Control
-
-### Cancel Stream
-
-```go
-import "context"
-
-ctx, cancel := context.WithCancel(context.Background())
-
-stream, _ := pipe.ExecuteStream(ctx, "user", "Long response")
-defer stream.Close()
-
-// Cancel after 10 chunks
-count := 0
-for {
-    chunk, err := stream.Next()
-    if err == io.EOF {
-        break
-    }
-    if err != nil {
-        break
-    }
-    
-    fmt.Print(chunk.Content)
-    
-    count++
-    if count >= 10 {
-        cancel()  // Stop stream
-        break
-    }
-}
-```
-
-### Timeout Stream
-
-```go
-ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-defer cancel()
-
-stream, err := pipe.ExecuteStream(ctx, "user", "Complex query")
-if err != nil {
-    log.Fatal(err)
-}
-defer stream.Close()
-
-for {
-    chunk, err := stream.Next()
-    if err == io.EOF {
-        break
-    }
-    if err != nil {
-        if errors.Is(err, context.DeadlineExceeded) {
-            log.Println("Stream timed out")
-        }
-        break
-    }
-    
-    fmt.Print(chunk.Content)
-}
-```
-
-## Error Handling
-
-### Recover from Stream Errors
-
-```go
-stream, _ := pipe.ExecuteStream(ctx, "user", "Generate content")
-defer stream.Close()
-
-var accumulated string
-var lastGoodChunk string
-
-for {
-    chunk, err := stream.Next()
-    if err == io.EOF {
-        break
-    }
-    if err != nil {
-        log.Printf("Stream error: %v", err)
-        
-        // Use accumulated content
-        if len(accumulated) > 0 {
-            log.Println("Using partial response")
-            fmt.Println(accumulated)
-        }
-        break
-    }
-    
-    accumulated += chunk.Content
-    lastGoodChunk = chunk.Content
-    fmt.Print(chunk.Content)
-}
-```
-
-### Retry on Error
-
-```go
-func streamWithRetry(pipe *pipeline.Pipeline, ctx context.Context, role, content string, maxRetries int) error {
-    for i := 0; i < maxRetries; i++ {
-        stream, err := pipe.ExecuteStream(ctx, role, content)
-        if err != nil {
-            log.Printf("Stream start failed (attempt %d/%d): %v", i+1, maxRetries, err)
-            time.Sleep(time.Second * time.Duration(i+1))
-            continue
-        }
-        defer stream.Close()
-        
-        // Process stream
-        for {
-            chunk, err := stream.Next()
-            if err == io.EOF {
-                return nil  // Success
-            }
-            if err != nil {
-                log.Printf("Stream error (attempt %d/%d): %v", i+1, maxRetries, err)
-                break  // Retry
-            }
-            
-            fmt.Print(chunk.Content)
-        }
-        
-        time.Sleep(time.Second * time.Duration(i+1))
-    }
-    
-    return fmt.Errorf("stream failed after %d retries", maxRetries)
-}
-```
-
-## Complete Example
+The complete function:
 
 ```go
 package main
 
 import (
-    "context"
-    "fmt"
-    "io"
-    "log"
-    "net/http"
-    
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-func main() {
-    // Create provider
-    provider := openai.NewProvider(
-        "openai",
-        "gpt-4o-mini",
-        "",
-        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
-        false,
-    )
-    defer provider.Close()
+// streamReply prints the reply as it arrives and returns the full text.
+func streamReply(ctx context.Context, pipe *stage.StreamPipeline, prompt string) (string, error) {
+	input := make(chan stage.StreamElement, 1)
+	input <- stage.NewMessageElement(&types.Message{Role: "user", Content: prompt})
+	close(input)
 
-    // Build pipeline
-    pipe := pipeline.NewPipeline(provider)
-    defer pipe.Shutdown(context.Background())
-    
-    // Set up HTTP endpoint
-    http.HandleFunc("/stream", func(w http.ResponseWriter, r *http.Request) {
-        handleStreamRequest(w, r, pipe)
-    })
-    
-    log.Println("Server running on :8080")
-    http.ListenAndServe(":8080", nil)
-}
+	output, err := pipe.Execute(ctx, input)
+	if err != nil {
+		return "", err
+	}
 
-func handleStreamRequest(w http.ResponseWriter, r *http.Request, pipe *pipeline.Pipeline) {
-    // SSE headers
-    w.Header().Set("Content-Type", "text/event-stream")
-    w.Header().Set("Cache-Control", "no-cache")
-    w.Header().Set("Connection", "keep-alive")
-    
-    flusher, ok := w.(http.Flusher)
-    if !ok {
-        http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
-        return
-    }
-    
-    prompt := r.URL.Query().Get("prompt")
-    if prompt == "" {
-        http.Error(w, "Missing prompt parameter", http.StatusBadRequest)
-        return
-    }
-    
-    ctx := r.Context()
-    stream, err := pipe.ExecuteStream(ctx, "user", prompt)
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-    defer stream.Close()
-    
-    for {
-        chunk, err := stream.Next()
-        if err == io.EOF {
-            fmt.Fprintf(w, "data: [DONE]\n\n")
-            flusher.Flush()
-            break
-        }
-        if err != nil {
-            fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
-            flusher.Flush()
-            break
-        }
-        
-        fmt.Fprintf(w, "data: %s\n\n", chunk.Content)
-        flusher.Flush()
-    }
+	var reply strings.Builder
+	var streamErr error
+	for elem := range output {
+		switch {
+		case elem.Error != nil:
+			streamErr = elem.Error
+		case elem.Text != nil:
+			fmt.Print(*elem.Text)
+			reply.WriteString(*elem.Text)
+		case elem.Message != nil && elem.Message.Role == "assistant" && elem.Message.CostInfo != nil:
+			fmt.Printf("\n%d tokens out\n", elem.Message.CostInfo.OutputTokens)
+		}
+	}
+	return reply.String(), streamErr
 }
 ```
 
-## Troubleshooting
+If the stream fails partway, `reply` holds the text received before the failure.
 
-### Issue: Chunks Arrive Slowly
+## Stop a stream early
 
-**Problem**: Long delays between chunks.
+Cancel the context you passed to `Execute`. The stages stop, and the output channel closes after the elements already in flight. Keep ranging over the channel to the end.
 
-**Solutions**:
+```go
+ctx, cancel := context.WithCancel(context.Background())
+defer cancel()
 
-1. Check network latency
-2. Use faster model:
-   ```go
-   provider := openai.NewProvider("openai", "gpt-4o-mini", ...)
-   ```
-3. Reduce max tokens:
-   ```go
-   config.MaxTokens = 500
-   ```
+output, err := pipe.Execute(ctx, input)
+if err != nil {
+	return err
+}
 
-### Issue: Stream Hangs
+seen := 0
+for elem := range output {
+	if elem.Text == nil {
+		continue
+	}
+	fmt.Print(*elem.Text)
+	if seen++; seen == 10 {
+		cancel() // stop generating; keep draining
+	}
+}
+```
 
-**Problem**: `stream.Next()` blocks indefinitely.
+## Set timeouts
 
-**Solutions**:
+Pass a pipeline configuration to the builder. `IdleTimeout` cancels a stream that stops producing chunks and resets on every chunk. `ExecutionTimeout` caps the whole run.
 
-1. Add timeout:
-   ```go
-   ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-   defer cancel()
-   ```
+```go
+cfg := stage.DefaultPipelineConfig().
+	WithIdleTimeout(15 * time.Second).
+	WithExecutionTimeout(2 * time.Minute)
 
-2. Check provider connection:
-   ```go
-   // Test non-streaming first
-   result, err := pipe.Execute(ctx, "user", "test")
-   ```
+pipe, err := stage.NewPipelineBuilder().
+	WithConfig(cfg).
+	Chain(stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{MaxTokens: 500})).
+	Build()
+```
 
-### Issue: Incomplete Responses
+`DefaultPipelineConfig` sets a 30-second idle timeout and no execution timeout. A `context.WithTimeout` on the context passed to `Execute` also ends the stream.
 
-**Problem**: Stream ends prematurely.
+## Serve a stream over HTTP
 
-**Solutions**:
+Write each fragment as a server-sent event and flush after each one. Encode the fragment as JSON so newlines in the text do not break the event framing.
 
-1. Check for errors:
-   ```go
-   if err != io.EOF {
-       log.Printf("Stream error: %v", err)
-   }
-   ```
+```go
+func handleStream(pipe *stage.StreamPipeline) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
 
-2. Accumulate content:
-   ```go
-   if len(accumulated) > 0 {
-       // Use partial response
-   }
-   ```
+		input := make(chan stage.StreamElement, 1)
+		input <- stage.NewMessageElement(&types.Message{Role: "user", Content: r.URL.Query().Get("prompt")})
+		close(input)
 
-## Best Practices
+		output, err := pipe.Execute(r.Context(), input)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 
-1. **Always close streams**:
-   ```go
-   defer stream.Close()
-   ```
+		for elem := range output {
+			switch {
+			case elem.Error != nil:
+				data, _ := json.Marshal(elem.Error.Error())
+				fmt.Fprintf(w, "event: error\ndata: %s\n\n", data)
+			case elem.Text != nil:
+				data, _ := json.Marshal(*elem.Text)
+				fmt.Fprintf(w, "data: %s\n\n", data)
+			}
+			flusher.Flush()
+		}
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}
+}
+```
 
-2. **Handle EOF correctly**:
-   ```go
-   if err == io.EOF {
-       break  // Normal completion
-   }
-   ```
+`r.Context()` ends when the client disconnects, which cancels the stream.
 
-3. **Set timeouts**:
-   ```go
-   ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-   defer cancel()
-   ```
+## Stream from a provider without a pipeline
 
-4. **Flush HTTP streams**:
-   ```go
-   flusher.Flush()
-   ```
+`PredictStream` returns a channel of `providers.StreamChunk`. `Delta` holds the new text, `Content` the text so far, and `Error` a failure. The final chunk has `FinishReason` set and carries `CostInfo`.
 
-5. **Accumulate content for recovery**:
-   ```go
-   var accumulated string
-   accumulated += chunk.Content
-   ```
+```go
+chunks, err := provider.PredictStream(ctx, providers.PredictionRequest{
+	Messages:  []types.Message{{Role: "user", Content: prompt}},
+	MaxTokens: 500,
+})
+if err != nil {
+	return err
+}
 
-6. **Throttle UI updates**:
-   ```go
-   if time.Since(lastUpdate) >= minDelay {
-       fmt.Print(chunk.Content)
-   }
-   ```
+for chunk := range chunks {
+	if chunk.Error != nil {
+		return chunk.Error
+	}
+	fmt.Print(chunk.Delta)
+}
+```
 
-7. **Handle context cancellation**:
-   ```go
-   select {
-   case <-ctx.Done():
-       return
-   default:
-       // Continue
-   }
-   ```
+A provider called this way bypasses the pipeline, so its idle timeout, history and hooks do not apply. Pass a context with a deadline.
 
-## Next Steps
+## Troubleshoot
 
-- [Handle Errors](/runtime/how-to/pipeline/handle-errors/) - Error strategies
-- [Monitor Costs](/runtime/how-to/observability/monitor-costs/) - Track usage
-- [Configure Pipeline](/runtime/how-to/pipeline/configure-pipeline/) - Complete setup
+| Symptom | Cause | Fix |
+|---|---|---|
+| The reply arrives all at once | The provider does not stream, so no text elements precede the message | Check `provider.SupportsStreaming()`, or read `elem.Message.Content` |
+| The program hangs after cancel | The output channel is not drained | Keep ranging until the channel closes |
+| The stream ends early with `Error` set | The idle timeout fired or the provider failed | Raise `IdleTimeout`, or read the error |
 
-## See Also
+## Related
 
-- [Pipeline Reference](/runtime/reference/pipeline/) - Stream API
-- [Providers Reference](/runtime/reference/providers/) - Streaming support
+- [Handle Errors](/runtime/how-to/pipeline/handle-errors/)
+- [Configure Pipeline](/runtime/how-to/pipeline/configure-pipeline/)
+- [Pipeline Reference](/runtime/reference/pipeline/)
+- [Providers Reference](/runtime/reference/providers/)

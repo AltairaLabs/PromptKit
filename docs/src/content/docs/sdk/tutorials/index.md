@@ -2,72 +2,79 @@
 title: SDK Tutorials
 sidebar:
   order: 0
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/credentials/resolver.go
+    - sdk/conversation.go
+    - sdk/conversation_tools.go
 ---
-Step-by-step tutorials to learn the PromptKit SDK pack-first architecture.
+Step-by-step tutorials that teach the PromptKit SDK, starting from a pack file.
 
 ## Learning Path
 
-Follow these tutorials in order for a structured learning experience:
+Follow the tutorials in order.
 
 ### Getting Started
 
 1. **[Your First Conversation](/sdk/tutorials/01-first-conversation/)**  
-   Build a chatbot in 5 lines of code. Learn `sdk.Open()` and basic message sending.
+   Open a pack with `sdk.Open()` and send messages.
 
 2. **[Streaming Responses](/sdk/tutorials/02-streaming-responses/)**  
-   Implement real-time streaming with `conv.Stream()`. Display incremental results.
+   Stream replies with `conv.Stream()` and display incremental results.
 
 ### Building Features
 
 3. **[Tool Integration](/sdk/tutorials/03-tool-integration/)**  
-   Add function calling with `OnTool()`. Register handlers and build a weather assistant.
+   Register handlers with `OnTool()` and build a weather assistant.
 
 4. **[Variables and Templates](/sdk/tutorials/04-state-management/)**  
-   Use `SetVar()`/`GetVar()` for template variables. Manage conversation context.
+   Use `SetVar()` and `GetVar()` for template variables.
 
 ### Advanced Topics
 
 5. **[Human-in-the-Loop](/sdk/tutorials/05-custom-pipelines/)**
-   Implement approval workflows with `OnToolAsync()`. Build safe AI agents.
+   Gate sensitive tools behind approval with `OnToolAsync()`.
 
-6. **[Working with Media](/sdk/tutorials/06-media-storage/)**
-   Handle images and multimodal content. Optimize memory with storage.
+6. **[Observability](/sdk/tutorials/06-media-storage/)**
+   Subscribe to conversation events with `hooks.On()` and `hooks.OnEvent()`.
 
 ### Voice & Audio
 
 7. **[Audio Sessions](/sdk/tutorials/07-audio-sessions/)**
-   Build voice-enabled conversations with VAD and ASM modes. Real-time audio streaming.
+   Build voice conversations with VAD and ASM modes.
 
 8. **[TTS Integration](/sdk/tutorials/08-tts-integration/)**
-   Add text-to-speech to responses. Configure voices, formats, and providers.
+   Add text-to-speech to responses.
 
 9. **[Variable Providers](/sdk/tutorials/09-variable-providers/)**
-   Inject dynamic context with RAG, database lookups, and session state.
+   Inject dynamic context from retrieval, databases and session state.
 
 ### A2A
 
 10. **[A2A Server](/sdk/tutorials/10-a2a-server/)**
-    Expose a PromptKit conversation as an A2A-compliant agent server.
+    Expose a PromptKit conversation as an A2A agent server.
+
+11. **[AG-UI Integration](/sdk/tutorials/11-ag-ui-integration/)**
+    Serve a PromptKit agent to frontend applications over the AG-UI protocol.
 
 ## Prerequisites
 
-- Go 1.21 or higher
-- Basic Go programming knowledge
-- API key for OpenAI, Anthropic, or Google
+- Go 1.26 or later
+- An API key for OpenAI, Anthropic, or Google
 
-## What You'll Build
+## What you will build
 
-By completing these tutorials, you'll:
+By the end you have built:
 
-- Create conversational AI applications with minimal code
-- Implement streaming and tool calling
-- Build approval workflows for sensitive operations
-- Understand SDK architecture and patterns
+- A conversational application
+- Streaming replies and tool calling
+- Approval workflows for sensitive operations
 
-## Getting Help
+## Related pages
 
 - Check the [How-To Guides](/sdk/how-to/) for specific tasks
 - See the [Reference Documentation](/sdk/reference/) for API details
 - Review [SDK Examples](/sdk/examples/) for complete applications
 
-Start with [Your First Conversation](/sdk/tutorials/01-first-conversation/) →
+Start with [Your First Conversation](/sdk/tutorials/01-first-conversation/).

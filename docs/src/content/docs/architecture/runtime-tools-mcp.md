@@ -882,13 +882,13 @@ MCP clients maintain persistent connections:
 Tools execute in parallel when possible:
 ```go
 var wg sync.WaitGroup
-results := make([]ToolResult, len(toolCalls))
+results := make([]*tools.ToolResult, len(toolCalls))
 
 for i, call := range toolCalls {
     wg.Add(1)
-    go func(i int, call ToolCall) {
+    go func(i int, call types.MessageToolCall) {
         defer wg.Done()
-        results[i] = registry.Execute(ctx, call.Name, call.Args)
+        results[i], _ = registry.Execute(ctx, call.Name, call.Args)
     }(i, call)
 }
 

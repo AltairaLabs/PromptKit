@@ -2,22 +2,29 @@
 title: 'Tutorial 1: Your First Conversation'
 sidebar:
   order: 1
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/credentials/resolver.go
+    - runtime/prompt/schema/promptpack.schema.json
+    - sdk/conversation.go
+    - sdk/examples/hello/main_interactive.go
+    - sdk/options.go
+    - sdk/response.go
+    - sdk/sdk.go
 ---
-Build a chatbot in 5 lines of code using the PromptKit SDK.
+Build a chatbot with the PromptKit SDK: open a conversation from a pack, send messages, and keep context across turns.
 
-## What You'll Learn
+## What you will build
 
-- Open a conversation from a pack file
-- Send messages and receive responses
-- Use template variables
-- Multi-turn conversations
+We open a conversation from a pack file, send messages, fill a template variable, and hold a multi-turn chat.
 
 ## Prerequisites
 
-- Go 1.21+ installed
-- OpenAI API key (get one at [platform.openai.com](https://platform.openai.com))
+- Go 1.26 or later
+- An OpenAI API key (get one at [platform.openai.com](https://platform.openai.com))
 
-## Step 1: Set Up Your Project
+## Step 1: Set up your project
 
 Create a new Go module:
 
@@ -61,9 +68,9 @@ Create `hello.pack.json`:
 }
 ```
 
-This pack defines your assistant's behavior and configuration.
+The pack defines the assistant's system prompt and generation parameters.
 
-## Step 3: Write Your First Chatbot
+## Step 3: Write your first chatbot
 
 Create `main.go`:
 
@@ -101,9 +108,7 @@ func main() {
 }
 ```
 
-That's it! **5 lines of functional code** (excluding error handling).
-
-## Step 4: Run Your Chatbot
+## Step 4: Run your chatbot
 
 Set your API key:
 
@@ -117,105 +122,65 @@ Run the program:
 go run main.go
 ```
 
-You should see:
+We see a greeting from the model, for example:
 
-```
+```text
 Hello World! How can I help you today?
 ```
 
-🎉 **Congratulations!** You've built your first chatbot.
+We have built our first chatbot.
 
-## Understanding the Code
+## Understanding the code
 
-### sdk.Open()
+### `sdk.Open()`
 
 ```go
 conv, err := sdk.Open("./hello.pack.json", "chat")
 ```
 
-- First argument: path to your pack file
-- Second argument: prompt name from the pack
-- Returns a `Conversation` ready to use
+`sdk.Open` takes the path to the pack file and the prompt name, and returns a `Conversation`.
 
-### conv.SetVar()
+### `conv.SetVar()`
 
 ```go
 conv.SetVar("user_name", "World")
 ```
 
-Sets template variables that are substituted into the system prompt.
+`SetVar` sets a template variable that the runtime substitutes into the system prompt.
 
-### conv.Send()
+### `conv.Send()`
 
 ```go
 resp, err := conv.Send(ctx, "Hello!")
 ```
 
-Sends a message and returns the response. The conversation context is maintained automatically.
+`Send` sends a message and returns the response. The conversation keeps its history between calls.
 
-### resp.Text()
+### `resp.Text()`
 
 ```go
 fmt.Println(resp.Text())
 ```
 
-Gets the text content from the response.
+`Text` returns the text content of the response.
 
-## Multi-Turn Conversations
+## Multi-turn conversations
 
-The SDK automatically maintains conversation history:
+The conversation keeps its history, so a second `Send` sees the first. We add two turns to `main.go` after the first send:
 
 ```go
 // Turn 1
 resp1, _ := conv.Send(ctx, "My name is Alice")
-fmt.Println(resp1.Text())  // "Nice to meet you, Alice!"
+fmt.Println(resp1.Text()) // for example: "Nice to meet you, Alice!"
 
-// Turn 2 - context is remembered
+// Turn 2: the model sees turn 1
 resp2, _ := conv.Send(ctx, "What's my name?")
-fmt.Println(resp2.Text())  // "Your name is Alice."
+fmt.Println(resp2.Text()) // for example: "Your name is Alice."
 ```
 
-## Configuration Options
+## Interactive chat loop
 
-### Open with Options
-
-```go
-conv, err := sdk.Open("./hello.pack.json", "chat",
-    sdk.WithModel("gpt-4o"),
-)
-```
-
-### Different Providers
-
-The pack file can specify different providers:
-
-```json
-{
-  "id": "my-chatbot",
-  "name": "My Chatbot",
-  "version": "1.0.0",
-  "template_engine": {
-    "version": "v1",
-    "syntax": "{{variable}}"
-  },
-  "provider": {
-    "name": "anthropic",
-    "model": "claude-3-5-sonnet-20241022"
-  },
-  "prompts": {
-    "chat": {
-      "id": "chat",
-      "name": "Chat",
-      "version": "1.0.0",
-      "system_template": "You are a helpful assistant."
-    }
-  }
-}
-```
-
-## Interactive Chat Loop
-
-Make it interactive:
+We replace `main.go` with a loop that reads from the terminal:
 
 ```go
 package main
@@ -240,19 +205,19 @@ func main() {
 
     ctx := context.Background()
     scanner := bufio.NewScanner(os.Stdin)
-    
+
     fmt.Println("Chat ready! Type 'quit' to exit.")
     for {
         fmt.Print("You: ")
         if !scanner.Scan() {
             break
         }
-        
+
         msg := strings.TrimSpace(scanner.Text())
         if msg == "quit" {
             break
         }
-        
+
         resp, err := conv.Send(ctx, msg)
         if err != nil {
             log.Printf("Error: %v", err)
@@ -264,20 +229,13 @@ func main() {
 }
 ```
 
-## What You've Learned
+Run it with `go run main.go`, type a message and the assistant answers; type `quit` to exit.
 
-✅ Open conversations with `sdk.Open()`  
-✅ Set template variables with `SetVar()`  
-✅ Send messages with `Send()`  
-✅ Multi-turn conversation context  
-✅ Configuration options  
+## Next steps
 
-## Next Steps
+- [Tutorial 2: Streaming](/sdk/tutorials/02-streaming-responses/): real-time responses
+- [Tutorial 3: Tools](/sdk/tutorials/03-tool-integration/): add function calling
+- [Send Messages](/sdk/how-to/conversations/send-messages/): the full set of send options
+- [Initialize a Conversation](/sdk/how-to/conversations/initialize/): choose a model or provider
 
-- **[Tutorial 2: Streaming](/sdk/tutorials/02-streaming-responses/)** - Real-time responses
-- **[Tutorial 3: Tools](/sdk/tutorials/03-tool-integration/)** - Add function calling
-- **[How-To: Send Messages](/sdk/how-to/conversations/send-messages/)** - Advanced messaging
-
-## Complete Example
-
-See the full example at `sdk/examples/hello/`.
+The complete example is in `sdk/examples/hello/`.

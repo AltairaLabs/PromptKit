@@ -1,55 +1,61 @@
 ---
 title: 'Tutorial 1: First Pipeline'
+description: Build a stage pipeline that sends a prompt to OpenAI and prints the response, token usage and cost.
 sidebar:
   order: 1
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/pipeline/stage/builder.go
+    - runtime/pipeline/stage/element.go
+    - runtime/pipeline/stage/pipeline.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/providers/openai/openai.go
+    - runtime/providers/provider.go
+    - runtime/types/message.go
 ---
-Learn the basics by building a simple LLM application.
+In this tutorial we build a command-line program that sends a prompt to an LLM through a runtime pipeline and prints the response, the token counts and the cost.
 
-**Time**: 15 minutes  
+**Time**: 15 minutes
 **Level**: Beginner
 
-## What You'll Build
+## What we will build
 
-A command-line application that sends prompts to an LLM and displays responses.
+The program wires one provider stage into a pipeline and runs a single request through it.
 
-## What You'll Learn
-
-- Create a pipeline
-- Configure an LLM provider
-- Execute requests
-- Handle responses
-- Track costs
+```mermaid
+flowchart LR
+    main["main.go"] --> builder["stage.PipelineBuilder"]
+    builder --> pipe["StreamPipeline"]
+    pipe --> ps["ProviderStage"]
+    ps --> openai["openai.Provider"]
+```
 
 ## Prerequisites
 
-- Go 1.21+
-- OpenAI API key (get one at [platform.openai.com](https://platform.openai.com))
+- Go 1.26 or later
+- An OpenAI API key from [platform.openai.com](https://platform.openai.com)
 
-## Step 1: Set Up Your Project
+## Step 1: Set up the project
 
-Create a new Go module:
+Create a Go module and install the runtime:
 
 ```bash
 mkdir my-llm-app
 cd my-llm-app
 go mod init my-llm-app
-```
-
-Install PromptKit:
-
-```bash
 go get github.com/AltairaLabs/PromptKit/runtime/v2@latest
 ```
 
-## Step 2: Set Your API Key
+## Step 2: Set your API key
 
-Export your OpenAI API key:
+The OpenAI provider reads the key from the `OPENAI_API_KEY` environment variable:
 
 ```bash
 export OPENAI_API_KEY="sk-..."
 ```
 
-## Step 3: Create Your First Pipeline
+## Step 3: Write the program
 
 Create `main.go`:
 
@@ -57,302 +63,114 @@ Create `main.go`:
 package main
 
 import (
-    "context"
-    "fmt"
-    "log"
-    "os"
-    
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/middleware"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func main() {
-    // Step 1: Create provider
-    provider := openai.NewProvider(
-        "openai",
-        "gpt-4o-mini",
-        "", // uses OPENAI_API_KEY env var
-        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
-        false,
-    )
-    defer provider.Close()
-    
-    // Step 2: Build pipeline
-    pipe := pipeline.NewPipeline(
-        middleware.ProviderMiddleware(provider, nil, nil, &middleware.ProviderMiddlewareConfig{
-            MaxTokens:   500,
-            Temperature: 0.7,
-        }),
-    )
-    defer pipe.Shutdown(context.Background())
-    
-    // Step 3: Execute request
-    ctx := context.Background()
-    result, err := pipe.Execute(ctx, "user", "What is artificial intelligence?")
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    // Step 4: Display response
-    fmt.Printf("Response: %s\n", result.Response.Content)
-    fmt.Printf("Tokens: %d\n", result.Response.Usage.TotalTokens)
-    fmt.Printf("Cost: $%.6f\n", result.Cost.TotalCost)
+	ctx := context.Background()
+
+	// Create the provider.
+	provider := openai.NewProvider(
+		"openai",      // provider ID
+		"gpt-4o-mini", // model
+		"",            // base URL; empty uses the default
+		providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
+		false, // do not include raw responses
+	)
+	defer provider.Close()
+
+	// Build a pipeline with one stage.
+	pipe, err := stage.NewPipelineBuilder().
+		Chain(
+			stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{
+				MaxTokens:   500,
+				Temperature: 0.7,
+			}),
+		).
+		Build()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer pipe.Shutdown(ctx)
+
+	// Send a user message and wait for the result.
+	msg := &types.Message{Role: "user", Content: "What is artificial intelligence?"}
+	result, err := pipe.ExecuteSync(ctx, stage.NewMessageElement(msg))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Print the response.
+	fmt.Printf("Response: %s\n", result.Response.Content)
+	fmt.Printf("Tokens: %d in, %d out\n", result.CostInfo.InputTokens, result.CostInfo.OutputTokens)
+	fmt.Printf("Cost: $%.6f\n", result.CostInfo.TotalCost)
 }
 ```
 
-## Step 4: Run Your Application
+## Step 4: Run it
 
 ```bash
 go run main.go
 ```
 
-You should see output like:
+The output looks like this:
 
-```
+```text
 Response: Artificial intelligence (AI) refers to the simulation of human intelligence...
-Tokens: 152
-Cost: $0.000023
+Tokens: 14 in, 138 out
+Cost: $0.000085
 ```
 
-## Understanding the Code
+Each part of the program did one job:
 
-### 1. Create Provider
+- `openai.NewProvider` created the connection to OpenAI.
+- `stage.NewPipelineBuilder().Chain(...).Build()` linked the stages into a `StreamPipeline`. Here there is one stage, `ProviderStage`, which calls the model.
+- `ExecuteSync` sent one message element into the pipeline, waited for it to finish, and returned an `ExecutionResult`.
+- `result.Response.Content` holds the reply text, and `result.CostInfo` holds the token counts and cost.
+
+## Step 5: Change a setting
+
+Lower `MaxTokens` in the `ProviderConfig` to shorten the reply:
 
 ```go
-provider := openai.NewProvider(
-    "openai",           // Provider ID
-    "gpt-4o-mini",      // Model (cost-effective)
-    "",                 // Base URL (empty = default, uses OPENAI_API_KEY env var)
-    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},  // Default settings
-    false,              // Include raw output off
-)
+stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{
+	MaxTokens:   100,
+	Temperature: 0.7,
+})
 ```
 
-The provider connects to OpenAI's API. We use `gpt-4o-mini` for cost-effectiveness.
+Run the program again. The reply is shorter because `MaxTokens` caps the output at 100 tokens.
 
-### 2. Build Pipeline
+## Step 6: Ask several questions
 
-```go
-pipe := pipeline.NewPipeline(
-    middleware.ProviderMiddleware(provider, nil, nil, config),
-)
-```
-
-The pipeline processes requests through middleware. `ProviderMiddleware` sends requests to the LLM.
-
-### 3. Execute Request
+The pipeline handles any number of requests. Replace the single `ExecuteSync` call with a loop:
 
 ```go
-result, err := pipe.Execute(ctx, "user", "What is artificial intelligence?")
-```
-
-`Execute()` takes:
-- Context for cancellation
-- Role (`"user"` for user messages)
-- Content (your prompt)
-
-### 4. Handle Response
-
-```go
-fmt.Printf("Response: %s\n", result.Response.Content)
-fmt.Printf("Tokens: %d\n", result.Response.Usage.TotalTokens)
-fmt.Printf("Cost: $%.6f\n", result.Cost.TotalCost)
-```
-
-The result contains:
-- `Response.Content`: LLM's response text
-- `Response.Usage`: Token counts
-- `Cost.TotalCost`: Cost in dollars
-
-## Experiment
-
-Try modifying your application:
-
-### 1. Change the Model
-
-Use a more powerful model:
-
-```go
-provider := openai.NewProvider(
-    "openai",
-    "gpt-4o",  // More capable, higher cost
-    "", // uses OPENAI_API_KEY env var
-    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
-    false,
-)
-```
-
-### 2. Adjust Temperature
-
-Make responses more creative:
-
-```go
-config := &middleware.ProviderMiddlewareConfig{
-    MaxTokens:   500,
-    Temperature: 1.0,  // More creative (0.0 = deterministic, 2.0 = very creative)
-}
-```
-
-### 3. Limit Response Length
-
-Reduce costs by limiting tokens:
-
-```go
-config := &middleware.ProviderMiddlewareConfig{
-    MaxTokens:   100,  // Shorter responses
-    Temperature: 0.7,
-}
-```
-
-### 4. Multiple Questions
-
-Ask several questions:
-
-```go
-questions := []string{
-    "What is AI?",
-    "What is machine learning?",
-    "What is deep learning?",
-}
+questions := []string{"What is AI?", "What is machine learning?", "What is deep learning?"}
 
 for _, question := range questions {
-    result, err := pipe.Execute(ctx, "user", question)
-    if err != nil {
-        log.Printf("Error: %v\n", err)
-        continue
-    }
-    
-    fmt.Printf("\nQ: %s\n", question)
-    fmt.Printf("A: %s\n", result.Response.Content)
-    fmt.Printf("Cost: $%.6f\n\n", result.Cost.TotalCost)
+	msg := &types.Message{Role: "user", Content: question}
+	result, err := pipe.ExecuteSync(ctx, stage.NewMessageElement(msg))
+	if err != nil {
+		log.Printf("Error: %v", err)
+		continue
+	}
+	fmt.Printf("\nQ: %s\nA: %s\n", question, result.Response.Content)
+	fmt.Printf("Cost: $%.6f\n", result.CostInfo.TotalCost)
 }
 ```
 
-## Common Issues
+Each question is independent: this pipeline stores no history. The next tutorial adds it.
 
-### "authentication failed"
-
-**Problem**: Invalid API key.
-
-**Solution**: Check your API key is set:
-```bash
-echo $OPENAI_API_KEY
-```
-
-### "context deadline exceeded"
-
-**Problem**: Request took too long.
-
-**Solution**: Increase timeout:
-```go
-ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-defer cancel()
-```
-
-### High costs
-
-**Problem**: Using expensive model or many tokens.
-
-**Solution**: 
-- Use `gpt-4o-mini` instead of `gpt-4o`
-- Reduce `MaxTokens` to 100-300
-- Monitor costs with `result.Cost.TotalCost`
-
-## Complete Example
-
-Here's the full application with better structure:
-
-```go
-package main
-
-import (
-    "context"
-    "fmt"
-    "log"
-    "os"
-    "time"
-    
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/middleware"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
-)
-
-func main() {
-    // Validate API key is set
-    if os.Getenv("OPENAI_API_KEY") == "" {
-        log.Fatal("OPENAI_API_KEY environment variable not set")
-    }
-
-    // Create provider
-    provider := openai.NewProvider(
-        "openai",
-        "gpt-4o-mini",
-        "", // uses OPENAI_API_KEY env var
-        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
-        false,
-    )
-    defer provider.Close()
-    
-    // Build pipeline
-    config := &middleware.ProviderMiddlewareConfig{
-        MaxTokens:   500,
-        Temperature: 0.7,
-    }
-    
-    pipe := pipeline.NewPipeline(
-        middleware.ProviderMiddleware(provider, nil, nil, config),
-    )
-    defer pipe.Shutdown(context.Background())
-    
-    // Create context with timeout
-    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-    defer cancel()
-    
-    // Get prompt from command line or use default
-    prompt := "What is artificial intelligence?"
-    if len(os.Args) > 1 {
-        prompt = os.Args[1]
-    }
-    
-    // Execute request
-    fmt.Printf("Prompt: %s\n\n", prompt)
-    result, err := pipe.Execute(ctx, "user", prompt)
-    if err != nil {
-        log.Fatalf("Request failed: %v", err)
-    }
-    
-    // Display results
-    fmt.Printf("Response:\n%s\n\n", result.Response.Content)
-    fmt.Printf("--- Metrics ---\n")
-    fmt.Printf("Input tokens:  %d\n", result.Response.Usage.PromptTokens)
-    fmt.Printf("Output tokens: %d\n", result.Response.Usage.CompletionTokens)
-    fmt.Printf("Total tokens:  %d\n", result.Response.Usage.TotalTokens)
-    fmt.Printf("Cost:          $%.6f\n", result.Cost.TotalCost)
-}
-```
-
-Run with custom prompt:
-
-```bash
-go run main.go "Explain quantum computing in simple terms"
-```
-
-## What You've Learned
-
-✅ Create and configure a pipeline  
-✅ Connect to an LLM provider  
-✅ Execute basic requests  
-✅ Handle responses  
-✅ Track token usage and costs  
-✅ Adjust model parameters  
-
-## Next Steps
+## Next steps
 
 Continue to [Tutorial 2: Multi-Turn Conversations](/runtime/tutorials/02-multi-turn/) to add conversation state and build a chatbot.
 
-## See Also
-
-- [Configure Pipeline](/runtime/how-to/pipeline/configure-pipeline/) - More configuration options
-- [Setup Providers](/runtime/how-to/providers/setup-providers/) - Other LLM providers
-- [Pipeline Reference](/runtime/reference/pipeline/) - Complete API
+For other settings, see [Configure Pipeline](/runtime/how-to/pipeline/configure-pipeline/), [Setup Providers](/runtime/how-to/providers/setup-providers/) and the [Pipeline Reference](/runtime/reference/pipeline/).

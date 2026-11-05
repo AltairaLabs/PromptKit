@@ -27,13 +27,31 @@ store := statestore.NewRedisStore(redisClient)
 
 ```go
 ctx := context.Background()
-sessionID := "user-123-conversation"
+
+// The conversation ID on the state config is the session ID. With the load
+// stage first and the save stage last, every Execute reads and writes history.
+stateConfig := &pipeline.StateStoreConfig{
+    Store:          store,
+    ConversationID: "user-123-conversation",
+}
+
+pipe, err := stage.NewPipelineBuilder().
+    Chain(
+        stage.NewStateStoreLoadStage(stateConfig),
+        stage.NewProviderStage(provider, nil, nil, nil),
+        stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),
+    ).
+    Build()
 
 // First message - state auto-saved
-result, err := pipe.ExecuteWithContext(ctx, sessionID, "user", "Hi, I'm Alice")
+first := types.Message{Role: "user"}
+first.AddTextPart("Hi, I'm Alice")
+result, err := pipe.ExecuteSync(ctx, stage.NewMessageElement(&first))
 
 // Subsequent messages - state auto-loaded
-result2, err := pipe.ExecuteWithContext(ctx, sessionID, "user", "What's my name?")
+second := types.Message{Role: "user"}
+second.AddTextPart("What's my name?")
+result2, err := pipe.ExecuteSync(ctx, stage.NewMessageElement(&second))
 // Response: "Your name is Alice"
 ```
 
@@ -209,7 +227,10 @@ import (
     "github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 )
 
-func cleanupOldSessions(store statestore.Store) {
+func cleanupOldSessions(store interface {
+    statestore.Store
+    statestore.BulkWriter
+}) {
     // Redis TTL handles expiration automatically via WithTTL option
     // For manual cleanup, load and re-save trimmed state
     ctx := context.Background()
@@ -337,7 +358,7 @@ if err != nil {
 ### Retry Logic
 
 ```go
-func saveWithRetry(store statestore.Store, state *statestore.ConversationState, maxRetries int) error {
+func saveWithRetry(store statestore.BulkWriter, state *statestore.ConversationState, maxRetries int) error {
     ctx := context.Background()
 
     for i := 0; i < maxRetries; i++ {
@@ -371,10 +392,8 @@ func saveWithRetry(store statestore.Store, state *statestore.ConversationState, 
 
 2. Check session ID consistency:
    ```go
-   // Use same session ID for both calls
-   sessionID := "user-123"
-   pipe.ExecuteWithContext(ctx, sessionID, "user", "First message")
-   pipe.ExecuteWithContext(ctx, sessionID, "user", "Second message")
+   // Use the same ConversationID for both calls
+   stateConfig := &pipeline.StateStoreConfig{Store: store, ConversationID: "user-123"}
    ```
 
 3. Verify store connection:

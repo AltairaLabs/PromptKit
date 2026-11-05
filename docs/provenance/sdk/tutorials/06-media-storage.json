@@ -1,0 +1,127 @@
+{
+ "page": "docs/src/content/docs/sdk/tutorials/06-media-storage.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "hooks package (sdk/v2/hooks) listens for events",
+   "verdict": "true",
+   "evidence": [
+    "sdk/hooks/events.go:41"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "hooks.On(conv, eventType, func(*events.Event))",
+   "verdict": "true",
+   "evidence": [
+    "sdk/hooks/events.go:53"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Events are events.EventType in runtime/events",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:40"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "EventProviderCallStarted/Completed/Failed = provider.call.started/completed/failed",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:40",
+    "runtime/events/types.go:42",
+    "runtime/events/types.go:44"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "EventToolCallStarted/Completed/Failed = tool.call.started/completed/failed",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:47",
+    "runtime/events/types.go:49",
+    "runtime/events/types.go:51"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "EventPipelineStarted/Completed/Failed = pipeline.started/completed/failed",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:19",
+    "runtime/events/types.go:21",
+    "runtime/events/types.go:23"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "EventStreamInterrupted = stream.interrupted",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:70"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "hooks.OnToolCall(conv, func(name string, args map[string]any))",
+   "verdict": "true",
+   "evidence": [
+    "sdk/hooks/events.go:67"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "hooks.OnEvent receives every event; Event has Timestamp and Type",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:175",
+    "sdk/hooks/events.go:41"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Provider/pipeline failures are reported by EventProviderCallFailed/EventPipelineFailed",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:23",
+    "runtime/events/types.go:44"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "EventToolCallStarted counts tool calls; EventToolCallFailed counts tool errors",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:47",
+    "runtime/events/types.go:51",
+    "sdk/hooks/events.go:68"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "hello.pack.json chat prompt from tutorial 1 works with Open; all snippets compile",
+   "verdict": "false",
+   "evidence": [
+    "sdk/examples/hello/hello.pack.json:17",
+    "sdk/session_vars.go:31"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "Links /sdk/how-to/observability/monitor-events/ and /sdk/explanation/observability/ exist",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 14,
+   "claim": "sdk/examples/ shows observability patterns",
+   "verdict": "false",
+   "evidence": [
+    "sdk/examples/hooks/main_interactive.go:33"
+   ]
+  }
+ ]
+}

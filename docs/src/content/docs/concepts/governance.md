@@ -3,21 +3,34 @@ title: Governance
 description: Declaring who is accountable for an agent, how autonomously it acts, and what its tools can affect
 sidebar:
   order: 10
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/packspec/types.go
+    - runtime/prompt/governance.go
+    - runtime/prompt/governance_validate.go
+    - runtime/prompt/pack.go
+    - runtime/prompt/schema/promptpack.schema.json
+    - sdk/governance.go
+    - sdk/internal/pack/load.go
+    - sdk/internal/pack/validate.go
+    - sdk/sdk.go
+    - sdk/validate_pack.go
 ---
 
-A pack can declare governance facts about the agent it defines — who is answerable for it, how far it acts without a human, what it was built for, and whether it must disclose itself as AI.
+A pack can declare governance facts about the agent it defines: who is answerable for it, how far it acts without a human, what it was built for, and whether it must disclose itself as AI.
 
-These are **human-declared claims, not enforcement**. PromptKit carries them, resolves them, and hands them to you. It does not act on them. Nothing in the runtime refuses a request because a pack declared a low autonomy level, and nothing gates a tool because it was marked irreversible.
+These are human-declared claims. PromptKit carries them, resolves them, and hands them to you. It does not act on them. The runtime does not refuse a request because a pack declared a low autonomy level, and it does not gate a tool because the tool is marked irreversible.
 
-This follows the specification. A declaration describes; the decisions belong to the host that knows its own policy, its own deployment, and its own obligations.
+A declaration describes. The decisions belong to the host, which knows its own policy, deployment and obligations.
 
 ---
 
 ## Why declare it at all
 
-Compliance regimes increasingly ask questions that are about a system, not about a model: who is accountable, what was this built for, does it act on its own, does it tell people it is AI. Those answers usually live in a spreadsheet maintained separately from the thing it describes, and they go stale the moment the agent changes.
+Compliance regimes ask questions about a system rather than a model: who is accountable, what was this built for, does it act on its own, does it tell people it is AI. Those answers usually live in a spreadsheet maintained apart from the thing it describes, and they go stale when the agent changes.
 
-Putting them in the pack makes them travel with the agent, version with it, and diff in review like anything else.
+Putting them in the pack makes them travel with the agent, version with it, and diff in review like any other change.
 
 | Without | With |
 |---------|------|
@@ -29,7 +42,7 @@ Putting them in the pack makes them travel with the agent, version with it, and 
 
 ## Where governance goes
 
-Two levels. Pack-level, under `metadata`:
+Governance lives at two levels. Pack-level, under `metadata`:
 
 ```yaml
 metadata:
@@ -55,20 +68,20 @@ agents:
         autonomy_level: suggests
 ```
 
-Here the pack says its agents act with approval; the `refunds` agent narrows itself to only suggesting. Everything it does not restate (the owner, the purpose, the disclosure requirement) it inherits.
+The pack says its agents act with approval. The `refunds` agent narrows itself to suggesting. It inherits everything it does not restate: the owner, the purpose, the disclosure requirement and the approved environments.
 
 ---
 
 ## The override rule
 
-An agent's governance overrides the pack's **per field**:
+An agent's governance overrides the pack's per field:
 
 - A field present on the agent replaces the pack value for that field.
-- A field absent inherits.
-- **Arrays and `extensions` replace whole. They are not merged or appended.**
-- **`vocabularies` is the exception: prefixes merge.**
+- A field absent from the agent inherits the pack value.
+- Arrays and `extensions` replace whole. They are not merged or appended.
+- `vocabularies` is the exception: prefixes merge.
 
-The last point is the one that catches people, because appending is the intuitive guess. It is worth being concrete about why replacement is right:
+Replacement is the right rule for arrays:
 
 ```yaml
 metadata:
@@ -82,13 +95,13 @@ agents:
         approved_environments: [staging]
 ```
 
-The `refunds` agent is cleared for **staging only**. If arrays merged, narrowing an agent's approved environments would be impossible — every attempt to restrict would silently re-grant everything the pack allowed. The same applies to `capabilities`, `foreseeable_misuse`, `intended_deployment_contexts`, `obligations`, `reviews` and `extensions`. `independent_of` is an object, but it also replaces whole: an agent that declares it gets its own axes and enforcement, never the pack's enforcement attached to the agent's axes.
+The `refunds` agent is cleared for staging only. If arrays merged, narrowing an agent's approved environments would be impossible, because every attempt to restrict would re-grant everything the pack allowed. The same applies to `capabilities`, `foreseeable_misuse`, `intended_deployment_contexts`, `obligations`, `reviews` and `extensions`. `independent_of` is an object, but it also replaces whole: an agent that declares it gets its own axes and enforcement, never the pack's enforcement attached to the agent's axes.
 
-Because `obligations` and `reviews` replace independently, an agent that restates its obligations but not its reviews inherits the pack's reviews. Each review's `satisfies` must name an obligation in the agent's resolved governance, so restate `reviews` alongside `obligations` when the obligation ids change.
+`obligations` and `reviews` replace independently, so an agent that restates its obligations but not its reviews inherits the pack's reviews. Each review's `satisfies` must name an obligation in the agent's resolved governance. Restate `reviews` alongside `obligations` when the obligation ids change.
 
-### `vocabularies` merges, and only it
+### `vocabularies` merges
 
-`vocabularies` maps a prefix to an IRI so CURIE values like `acme:tier-3` resolve. It is the one container that accumulates rather than replaces, and the reason is what it would break:
+`vocabularies` maps a prefix to an IRI so CURIE values like `acme:tier-3` resolve. It is the one container that accumulates rather than replaces:
 
 ```yaml
 metadata:
@@ -105,27 +118,27 @@ agents:
           other: https://other.example/ns#
 ```
 
-The `refunds` agent inherits `risk_classification: acme:tier-3`. If its own `vocabularies` replaced the pack's, the `acme` prefix would leave scope and that inherited value would become unresolvable — an agent would break a field it never touched. So prefixes accumulate, exactly as they do in every other CURIE system.
+The `refunds` agent inherits `risk_classification: acme:tier-3`. If its own `vocabularies` replaced the pack's, the `acme` prefix would leave scope and the inherited value would become unresolvable, so an agent would break a field it never touched. Prefixes accumulate, as in other CURIE systems.
 
-An agent that redeclares a prefix still wins on it, which is how you point a name at a different IRI:
+An agent that redeclares a prefix wins on it, which is how you point a name at a different IRI:
 
 ```yaml
 # pack:  acme -> https://acme.example/v1#
 # agent: acme -> https://acme.example/v2#   → the agent's IRI applies
 ```
 
-The `dpv`, `eu-aiact` and `ai` prefixes are well-known defaults and never need declaring.
+These prefixes are well-known and need no declaration: `dpv`, `eu-aiact`, `ai`, `pd`, `risk`, `tech`, `legal-eu-gdpr`, `legal-us`, `sector-health`, `sector-finance`, `sector-education`, `sector-law`, `sector-publicservices`, `sector-infra`, `hipaa` and `pp`.
 
 ---
 
 ## The fields
 
-All optional. Absence means undeclared — which is not the same as a default, and not the same as a denial.
+All fields are optional. Absence means undeclared, which is neither a default nor a denial.
 
 | Field | Meaning |
 |-------|---------|
 | `intended_purpose` | What the agent is built to do, in the author's words |
-| `autonomy_level` | How far it acts without a human — see below |
+| `autonomy_level` | How far it acts without a human; see below |
 | `accountable_owner` | The role, team or function answerable for it. Prefer a durable identifier over a named person |
 | `operator_role` | The declaring organization's role for this agent |
 | `risk_classification` | The risk class assigned to it, as a vocabulary term or free string |
@@ -140,7 +153,7 @@ All optional. Absence means undeclared — which is not the same as a default, a
 | `independent_of` | Axes (`model`, `provider`, `tools`, `prompts`, `accountable_owner`) on which whatever produces this agent's input must differ from it, with `strict` or `advisory` enforcement |
 | `extensions` | Opaque annotations for external tooling, never interpreted by the spec |
 
-`autonomy_level` is a **closed enum** — a value outside these four fails schema validation:
+`autonomy_level` is a closed enum. A value outside these four fails schema validation:
 
 | Value | Meaning |
 |-------|---------|
@@ -149,16 +162,16 @@ All optional. Absence means undeclared — which is not the same as a default, a
 | `acts_with_oversight` | Acts on its own; a human monitors and can intervene or reverse |
 | `acts_autonomously` | Acts without a human in the loop |
 
-Everything else is an open string, because owners, risk frameworks and sector names are organization-specific.
+Every other field is an open string, because owners, risk frameworks and sector names are organization-specific.
 
 ### `requires_ai_disclosure` distinguishes silence from "no"
 
-Most fields cannot tell "declared as empty" from "not declared", and it rarely matters. Disclosure is the exception, so it is carried as a nullable boolean:
+Most fields cannot tell "declared as empty" from "not declared", and it rarely matters. Disclosure can, because it is a nullable boolean:
 
-- **Absent** — the pack says nothing. An agent inherits whatever the pack declared.
-- **`false`** — someone decided disclosure is not required here.
+- Absent: the pack says nothing, and an agent inherits whatever the pack declared.
+- `false`: someone decided disclosure is not required here.
 
-An agent under a pack that requires disclosure can therefore state `requires_ai_disclosure: false` and have it stick. That is an explicit exemption someone wrote down, and it reads differently in a review from an agent that never mentioned it.
+An agent under a pack that requires disclosure can therefore state `requires_ai_disclosure: false` and have it stick. The exemption is written down, and it reads differently in a review from an agent that never mentioned disclosure.
 
 ### References must resolve
 
@@ -169,17 +182,17 @@ An obligation cannot be discharged by naming something that does not exist, so `
 - An `eval` control, and a review's `eval`, name an eval in the pack's `evals` or a prompt's `evals`.
 - A `field` control names a governance property that is declared in the effective governance object.
 - Each entry in a review's `satisfies` names an obligation in the effective governance object.
-- `cadence` is a non-empty ISO 8601 duration. The schema checks this too, but a pack opened with schema validation skipped is still checked.
+- `cadence` is a non-empty ISO 8601 duration. The schema checks this too, and a pack opened with schema validation skipped is still checked.
 
 For an agent, the effective object is its declaration resolved against the pack's, so a control may rely on a field the agent inherits.
 
-A term in `obligation`, `applies_to` or a review's `type` that uses a CURIE prefix neither declared in `vocabularies` nor well-known (such as `dpv`, `eu-aiact`, `pp` or `hipaa`) is only a warning. `sdk.Open` logs it, and `sdk.ValidatePack` reports it as an issue with severity `warning`.
+A term in `obligation`, `applies_to` or a review's `type` that uses a CURIE prefix neither declared in `vocabularies` nor well-known is a warning. `sdk.Open` logs it, and `sdk.ValidatePack` reports it as an issue with severity `warning`.
 
 ---
 
 ## Tool action scope
 
-Tools carry a related declaration, describing what calling them can affect:
+Tools carry a related declaration that describes what calling them can affect:
 
 ```yaml
 tools:
@@ -199,9 +212,9 @@ tools:
 | `data_classes` | Open list of data-class terms |
 | `extensions` | Opaque annotations for external tooling |
 
-Like governance, `action_scope` **describes consequence and gates nothing**. It does not stop the tool being called. It is there so a host can decide to require approval for irreversible external tools, or a reviewer can see at a glance which tools touch financial data.
+Like governance, `action_scope` describes consequence and gates nothing. It does not stop the tool being called. A host can use it to require approval for irreversible external tools, and a reviewer can see which tools touch financial data.
 
-If you want a hard stop on tool use, that is `tool_policy` and the hooks — a different mechanism with a different job.
+A hard stop on tool use is a different mechanism with a different job: `tool_policy` and the hooks.
 
 ---
 
@@ -219,7 +232,7 @@ if g := conv.Governance(); g != nil {
     fmt.Println(sdk.DescribeGovernance(g))
     // purpose: Triage inbound billing questions and draft replies.;
     // autonomy: suggests; owner: billing-platform-team;
-    // must disclose as AI; environments: staging
+    // must disclose as AI; environments: staging/production
 
     if g.RequiresAIDisclosure != nil && *g.RequiresAIDisclosure {
         showAIDisclosureBanner()
@@ -227,11 +240,11 @@ if g := conv.Governance(); g != nil {
 }
 ```
 
-Note the summary: `autonomy: suggests` and `environments: staging` come from the agent, everything else from the pack. That is the override rule in one line.
+In the summary, `autonomy: suggests` comes from the agent and everything else from the pack. That is the override rule applied.
 
-`Governance()` returns what applies to **this** conversation. Opened as a named agent, that is the agent's declaration resolved against the pack's; for a plain single-prompt conversation, which is not an agent, it is the pack-level declaration. `PackGovernance()` ignores agent scope and returns the pack's.
+`Governance()` returns what applies to this conversation. Opened as a named agent, that is the agent's declaration resolved against the pack's. For a plain single-prompt conversation, which is not an agent, it is the pack-level declaration. `PackGovernance()` ignores agent scope and returns the pack's.
 
-Both return `nil` when nothing is declared — not a zero-valued declaration, which would read as "declared everything as empty". Both return a copy, so adjusting what you read does not rewrite the loaded pack.
+Both return `nil` when nothing is declared, never a zero-valued declaration, which would read as "declared everything as empty". Both return a copy, so adjusting what you read does not rewrite the loaded pack.
 
 From the runtime, for any agent in a loaded pack:
 
@@ -239,25 +252,23 @@ From the runtime, for any agent in a loaded pack:
 g, err := prompt.ResolveGovernance(pack, "refunds")
 ```
 
-An unknown agent name is an **error**, not a fallback to the pack values. For most lookups a quiet fallback is a convenience; here it would be a lie — a caller that mistyped the name would be handed the pack's autonomy level and told the agent needs no approval, when nothing about that agent had been checked.
+An unknown agent name is an error rather than a fallback to the pack values. A caller that mistyped the name would otherwise receive the pack's autonomy level and conclude the agent needs no approval, when nothing about that agent had been checked.
 
 ---
 
 ## What a host might do with it
 
-PromptKit does not do any of this for you. These are the shapes the declaration is built to support:
+PromptKit does none of this for you. The declaration supports these uses:
 
-- **Show it.** Render the AI disclosure the pack requires; put the accountable owner beside a transcript in an audit view.
-- **Gate a deployment.** Refuse to promote a pack whose `approved_environments` does not include the environment you are deploying to. This is a check in your pipeline, not something the runtime enforces.
-- **Route for approval.** Require human sign-off on tool calls whose `action_scope.reversibility` is `irreversible`, using the existing HITL approval flow.
-- **Report.** Inventory every pack you run and what each one claims, as evidence for a compliance review.
-
-The last one is often the immediate payoff: the facts already exist in the packs, so the inventory is a script rather than a survey.
+- Show it. Render the AI disclosure the pack requires, or put the accountable owner beside a transcript in an audit view.
+- Gate a deployment. Refuse to promote a pack whose `approved_environments` does not include the target environment. This is a check in your pipeline.
+- Route for approval. Require human sign-off on tool calls whose `action_scope.reversibility` is `irreversible`, using the existing HITL approval flow.
+- Report. Inventory every pack you run and what each one claims, as evidence for a compliance review. The facts already exist in the packs, so the inventory is a script.
 
 ---
 
 ## See also
 
-- [Validation](/concepts/validation/) — what the schema enforces, and where guardrails take over
-- [Tools & MCP](/concepts/tools-mcp/) — `tool_policy`, approvals and the mechanisms that do gate
-- [A2A](/concepts/a2a/) — declaring agents and their members
+- [Validation](/concepts/validation/): what the schema enforces, and where guardrails take over
+- [Tools & MCP](/concepts/tools-mcp/): `tool_policy`, approvals and the mechanisms that do gate
+- [A2A](/concepts/a2a/): declaring agents and their members

@@ -1,0 +1,139 @@
+{
+ "page": "docs/src/content/docs/sdk/tutorials/01-first-conversation.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Go 1.21+ installed",
+   "verdict": "false",
+   "evidence": []
+  },
+  {
+   "id": 2,
+   "claim": "Reads OpenAI API key",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/resolver.go:32-45"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "go get github.com/AltairaLabs/PromptKit/sdk/v2",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 4,
+   "claim": "hello.pack.json is a valid pack with template_engine, prompts.chat.parameters temperature/max_tokens",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/schema/promptpack.schema.json"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "main.go compiles: sdk.Open, SetVar, Send, resp.Text, Close",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1209",
+    "sdk/conversation.go:268",
+    "sdk/response.go:99",
+    "sdk/sdk.go:84"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "5 lines of functional code",
+   "verdict": "unverified",
+   "evidence": [
+    "sdk/examples/hello/main_interactive.go"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "OPENAI_API_KEY selects the provider",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/resolver.go:45"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Open: first arg pack path, second prompt name, returns Conversation",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:84"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "SetVar substitutes template variables into the system prompt",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1209"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Send keeps conversation context automatically",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:268"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "resp.Text() returns the text content",
+   "verdict": "true",
+   "evidence": [
+    "sdk/response.go:99"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "SDK maintains conversation history across Send calls",
+   "verdict": "true",
+   "evidence": [
+    "sdk/examples/hello/main_interactive.go:46"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "sdk.WithModel(\"gpt-4o\") option",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:453"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "Pack top-level provider {name, model} selects a provider",
+   "verdict": "false",
+   "evidence": [
+    "runtime/prompt/schema/promptpack.schema.json"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "Interactive loop snippet compiles",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:268"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "Tutorial 2/3 and send-messages how-to pages exist",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 17,
+   "claim": "sdk/examples/hello/ exists",
+   "verdict": "true",
+   "evidence": [
+    "sdk/examples/hello/main_interactive.go"
+   ]
+  }
+ ]
+}

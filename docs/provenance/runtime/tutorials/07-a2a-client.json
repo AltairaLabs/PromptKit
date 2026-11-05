@@ -1,0 +1,149 @@
+{
+ "page": "docs/src/content/docs/runtime/tutorials/07-a2a-client.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Go 1.26+",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 2,
+   "claim": "a2a.NewClient(baseURL, a2a.WithAuth(scheme, token), a2a.WithHTTPClient(hc))",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/client.go:102",
+    "runtime/a2a/client.go:231",
+    "runtime/a2a/client.go:97"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Client.Discover caches the card",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/client.go:273"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "card.Name, card.Description, card.Skills[].ID/Description",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/types.go"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Calls go to the first JSON-RPC interface serving the client's version, else the first JSON-RPC interface, with its tenant",
+   "verdict": "false",
+   "evidence": [
+    "runtime/a2a/client.go:520",
+    "runtime/a2a/client.go:536"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "Scheme, host and port from NewClient win; only a same host+port interface contributes path, version, tenant",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/client.go:549",
+    "runtime/a2a/client.go:596"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "Interface at default /a2a keeps the URL as given",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/client.go:634"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Different host/port is not followed; calls go to {base}/a2a and a warning is logged once",
+   "verdict": "false",
+   "evidence": [
+    "runtime/a2a/client.go:618",
+    "runtime/a2a/client.go:625"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Without a card, calls go to {base}/a2a",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/client.go:513"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "A2A tool executors discover the card themselves on first use",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/executor.go:334"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "SendMessage with SendMessageRequest{Message{Role RoleUser, Parts}, Configuration{Blocking}} returns *Task with Status.State and Artifacts",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/client.go:762",
+    "runtime/a2a/types.go"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "Expected output: agent card of the A2A Server tutorial, Task state: completed",
+   "verdict": "false",
+   "evidence": [
+    "runtime/a2a/types.go:99"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "SendMessageStream returns <-chan StreamEvent with StatusUpdate and ArtifactUpdate",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/client.go:812",
+    "runtime/a2a/client.go:83"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "A server whose conversation cannot stream sends the reply as artifact events then completed",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/server_stream.go:500",
+    "server/a2a/server_stream.go:511",
+    "server/a2a/server_stream.go:557"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "GetTask(ctx,id), CancelTask(ctx,id) error, ListTasks(ctx,*ListTasksRequest{ContextID})",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/client.go:967",
+    "runtime/a2a/client.go:980",
+    "runtime/a2a/client.go:990"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "Steps 1-5 assemble into a program that compiles",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/client.go:762"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "Example path server/a2a/examples/a2a-demo; doc links to tutorials/how-tos",
+   "verdict": "true",
+   "evidence": []
+  }
+ ]
+}

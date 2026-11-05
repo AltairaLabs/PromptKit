@@ -1,0 +1,110 @@
+{
+ "page": "docs/src/content/docs/sdk/tutorials/03-tool-integration.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Tutorial 1 page exists",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 2,
+   "claim": "tools.pack.json valid: prompts.assistant.tools lists names; top-level tools with name/description/parameters",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/schema/promptpack.schema.json"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "main.go compiles with OnTool",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:33"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "ToolHandler signature func(args map[string]any) (any, error)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:228"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "LLM calls the registered tool when asked about weather",
+   "verdict": "true",
+   "evidence": [
+    "sdk/tool_executors.go:65-100"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "Return values are automatically serialized to JSON",
+   "verdict": "true",
+   "evidence": [
+    "sdk/tool_executors.go:105-110"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "OnToolCtx(name, func(ctx, args))",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:236",
+    "sdk/conversation_tools.go:47"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "sdktools import path and NewHTTPToolConfig/WithMethod/WithHeader",
+   "verdict": "true",
+   "evidence": [
+    "sdk/tools/http.go:60",
+    "sdk/tools/http.go:73",
+    "sdk/tools/http.go:80"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "OnToolHTTP(name, *HTTPToolConfig)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:84"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Handler error is returned to the LLM, which can inform the user",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:2810",
+    "sdk/tool_executors.go:101-103"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "OnTools(map[string]sdk.ToolHandler)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:63"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "Tutorial 4 and 5 pages at stated URLs; register-tools how-to exists",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 13,
+   "claim": "sdk/examples/tools/ exists",
+   "verdict": "true",
+   "evidence": [
+    "sdk/examples/tools/main_interactive.go"
+   ]
+  }
+ ]
+}

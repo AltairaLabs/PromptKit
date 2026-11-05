@@ -2,22 +2,24 @@
 title: "Tutorial 8: TTS Integration"
 sidebar:
   order: 8
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/tts/cartesia.go
+    - runtime/tts/cartesia_interactive.go
+    - runtime/tts/elevenlabs.go
+    - runtime/tts/errors.go
+    - runtime/tts/openai.go
+    - runtime/tts/service.go
 ---
-Add text-to-speech capabilities to your conversations.
-
-## What You'll Learn
-
-- Setting up TTS providers (OpenAI, ElevenLabs, Cartesia)
-- Configuring voice, speed, and audio formats
-- Streaming vs single-shot synthesis
-- Integrating TTS with conversations
+In this tutorial we add text-to-speech to a conversation. We set up a TTS provider (OpenAI, ElevenLabs or Cartesia), choose a voice, speed and audio format, synthesize speech in one shot and as a stream, and wire the service into a conversation.
 
 ## Prerequisites
 
 - Completed [Tutorial 7: Audio Sessions](/sdk/tutorials/07-audio-sessions/)
 - API key for a TTS provider
 
-## TTS Service Interface
+## The TTS service interface
 
 All TTS providers implement the same interface:
 
@@ -30,7 +32,7 @@ type Service interface {
 }
 ```
 
-## Setting Up TTS Providers
+## Step 1: Set up a TTS provider
 
 ### OpenAI TTS
 
@@ -41,8 +43,10 @@ import "github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 ttsService := tts.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
 
 // Available voices: alloy, echo, fable, onyx, nova, shimmer
-// Available models: tts-1 (fast), tts-1-hd (high quality)
+// Available models: tts-1 (fast), tts-1-hd (high quality), gpt-4o-mini-tts (expressive)
 ```
+
+The service is ready to use; no network call happens until the first `Synthesize`.
 
 ### ElevenLabs TTS
 
@@ -67,7 +71,7 @@ ttsService := tts.NewCartesia(os.Getenv("CARTESIA_API_KEY"))
 // Supports interactive streaming mode for low latency
 ```
 
-## Synthesis Configuration
+## Step 2: Configure synthesis
 
 ```go
 config := tts.SynthesisConfig{
@@ -80,7 +84,7 @@ config := tts.SynthesisConfig{
 }
 ```
 
-### Available Formats
+### Available formats
 
 | Format | Constant | Use Case |
 |--------|----------|----------|
@@ -91,9 +95,9 @@ config := tts.SynthesisConfig{
 | PCM | `tts.FormatPCM16` | Raw audio processing |
 | WAV | `tts.FormatWAV` | PCM with header |
 
-## Basic Synthesis
+## Step 3: Synthesize speech
 
-### Single-Shot Synthesis
+### Single-shot synthesis
 
 ```go
 ctx := context.Background()
@@ -116,12 +120,15 @@ audioData, _ := io.ReadAll(reader)
 // Play or save audioData...
 ```
 
-### Streaming Synthesis
+`audioData` holds the complete MP3 for the sentence. Writing it to a `.mp3` file with `os.WriteFile` gives a clip we can play.
+
+### Streaming synthesis
 
 For lower latency, use streaming synthesis (if supported):
 
 ```go
-// Check if provider supports streaming
+// Check if provider supports streaming (Cartesia does)
+var ttsService tts.Service = tts.NewCartesia(os.Getenv("CARTESIA_API_KEY"))
 streamingService, ok := ttsService.(tts.StreamingService)
 if !ok {
     log.Fatal("Provider doesn't support streaming")
@@ -146,9 +153,11 @@ for chunk := range chunks {
 }
 ```
 
-## Integrating with Conversations
+Audio chunks arrive and play while the rest of the sentence is still being synthesized; the loop ends on the final chunk.
 
-### VAD Mode with TTS
+## Step 4: Integrate with conversations
+
+### VAD mode with TTS
 
 ```go
 sttService := stt.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
@@ -165,7 +174,7 @@ conv, _ := sdk.OpenDuplex("./assistant.pack.json", "voice",
 )
 ```
 
-### Manual TTS in Text Mode
+### Manual TTS in text mode
 
 ```go
 // Open text conversation
@@ -184,9 +193,11 @@ audioData, _ := io.ReadAll(reader)
 playAudio(audioData)
 ```
 
-## Voice Selection
+The model's joke plays aloud.
 
-### Listing Available Voices
+## Step 5: Choose a voice
+
+### Listing available voices
 
 ```go
 voices := ttsService.SupportedVoices()
@@ -200,18 +211,20 @@ for _, voice := range voices {
 }
 ```
 
-### Voice Characteristics (OpenAI)
+### Voice characteristics (OpenAI)
 
 | Voice | Character |
 |-------|-----------|
-| alloy | Neutral, versatile |
-| echo | Warm, smooth |
+| alloy | Balanced, versatile |
+| echo | Clear male voice |
 | fable | Expressive, British |
 | onyx | Deep, authoritative |
-| nova | Friendly, youthful |
-| shimmer | Clear, professional |
+| nova | Warm, friendly |
+| shimmer | Soft, calm |
 
-## Error Handling
+Listing the voices prints one line per voice with its ID, name, language and gender.
+
+## Step 6: Handle errors
 
 ```go
 reader, err := ttsService.Synthesize(ctx, text, config)
@@ -223,8 +236,8 @@ if err != nil {
         log.Printf("Rate limited, retrying...")
         time.Sleep(time.Second)
         // Retry...
-    case errors.Is(err, tts.ErrTextTooLong):
-        log.Printf("Text exceeds maximum length")
+    case errors.Is(err, tts.ErrQuotaExceeded):
+        log.Printf("Quota exceeded")
     default:
         log.Printf("Synthesis failed: %v", err)
     }
@@ -232,11 +245,11 @@ if err != nil {
 }
 ```
 
-## Performance Optimization
+An unsupported voice now logs `Voice '...' not supported` instead of a generic failure.
 
-### Caching
+## Step 7: Cache synthesized audio
 
-For repeated phrases, cache synthesized audio:
+For repeated phrases, we cache the synthesized audio:
 
 ```go
 var cache = make(map[string][]byte)
@@ -263,9 +276,11 @@ func synthesizeWithCache(text string, config tts.SynthesisConfig) ([]byte, error
 }
 ```
 
+The second call with the same text, voice and format returns the cached bytes without a request to the provider.
+
 ### Pre-synthesis
 
-For common responses, synthesize in advance:
+For common responses, we synthesize in advance:
 
 ```go
 greetings := []string{
@@ -282,25 +297,7 @@ for _, text := range greetings {
 }
 ```
 
-## Best Practices
-
-1. **Voice Consistency**: Use the same voice throughout a conversation
-2. **Speed Adjustment**: Slower for complex info, faster for casual chat
-3. **Format Selection**: Use Opus for streaming, MP3 for storage
-4. **Error Handling**: Gracefully handle synthesis failures
-5. **Resource Cleanup**: Always close readers when done
-
-## Cost Considerations
-
-| Provider | Pricing Model |
-|----------|---------------|
-| OpenAI | Per character |
-| ElevenLabs | Per character (tiers) |
-| Cartesia | Per character |
-
-Estimate costs before production deployment.
-
-## What's Next
+## Next steps
 
 - [Tutorial 9: Variable Providers](/sdk/tutorials/09-variable-providers/) - Dynamic context injection
 

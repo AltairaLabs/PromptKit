@@ -1183,7 +1183,8 @@ func applyDefaultVariables(conv *Conversation, prompt *pack.Prompt) {
 //
 // Use this to continue a persisted conversation:
 //
-//	store := statestore.NewRedisStore("redis://localhost:6379")
+//	client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+//	store := statestore.NewRedisStore(client)
 //	conv, err := sdk.Resume("session-123", "./chat.pack.json", "assistant",
 //	    sdk.WithStateStore(store),
 //	)
@@ -1252,7 +1253,8 @@ func resumeWith(
 // session that continues "with memory." The live provider socket cannot migrate,
 // so recovery means reconstructing context from durable state, not the socket.
 //
-//	store := statestore.NewRedisStore("redis://localhost:6379")
+//	client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+//	store := statestore.NewRedisStore(client)
 //	conv, err := sdk.ResumeDuplex("session-123", "./chat.pack.json", "assistant",
 //	    sdk.WithStateStore(store),
 //	    sdk.WithProvider(realtimeProvider),

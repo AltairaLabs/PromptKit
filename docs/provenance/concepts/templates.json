@@ -1,0 +1,223 @@
+{
+ "page": "docs/src/content/docs/concepts/templates.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "A template is a prompt structure with {{placeholders}}",
+   "verdict": "true",
+   "evidence": [
+    "runtime/template/renderer.go:37"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "ExecuteTemplate(template, map[string]string) helper",
+   "verdict": "false",
+   "evidence": [
+    "runtime/template/renderer.go:37"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "system and user template keys in YAML",
+   "verdict": "false",
+   "evidence": [
+    "runtime/prompt/schema/promptpack.schema.json:345"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "variables as map[string]string passed in Go",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:2506"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "template.NewRegistry, RegisterTemplate, PromptTemplate type",
+   "verdict": "false",
+   "evidence": [
+    "runtime/template/renderer.go:26"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "PackC manages templates as .prompt files with name/version/system keys",
+   "verdict": "false",
+   "evidence": [
+    "runtime/prompt/registry.go:600"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "packc compile --config arena.yaml --output templates.pack.json --id templates",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 8,
+   "claim": "prompt.LoadPack(path) loads a compiled pack",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/pack.go:625"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "SDK uses sdk.Open(pack, prompt, WithModel)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:1200"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Variable substitution {{name}}",
+   "verdict": "true",
+   "evidence": [
+    "runtime/template/renderer.go:43"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "Defaults inside the template with a pipe/default syntax",
+   "verdict": "false",
+   "evidence": [
+    "runtime/prompt/registry.go:850",
+    "runtime/template/renderer.go:43"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "Conditionals in templates",
+   "verdict": "dead",
+   "evidence": [
+    "runtime/template/renderer.go:37"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "Loops in templates",
+   "verdict": "dead",
+   "evidence": [
+    "runtime/template/renderer.go:37"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "Functions in templates",
+   "verdict": "dead",
+   "evidence": [
+    "runtime/template/renderer.go:37"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "templates.Get(...).Render() test API",
+   "verdict": "false",
+   "evidence": [
+    "runtime/template/renderer.go:37"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "PromptArena templates: block with template/variables/assertions in tests",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 17,
+   "claim": "Nested variables map[string]any with dotted access",
+   "verdict": "false",
+   "evidence": [
+    "runtime/template/renderer.go:37"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "Template inheritance with extends: base.prompt",
+   "verdict": "dead",
+   "evidence": [
+    "runtime/template/renderer.go:37"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "Unresolved variable renders as empty",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:235",
+    "runtime/template/renderer.go:53"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "Renderer replaces {{name}} by exact match over up to 10 passes",
+   "verdict": "true",
+   "evidence": [
+    "runtime/template/renderer.go:43",
+    "runtime/template/renderer.go:96"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "Variables apply to system_template only, not message text",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:211"
+   ]
+  },
+  {
+   "id": 22,
+   "claim": "template_engine block is not read by the runtime to change syntax",
+   "verdict": "true",
+   "evidence": [
+    "runtime/packspec/types.go:2872"
+   ]
+  },
+  {
+   "id": 23,
+   "claim": "Variable fields name, type, required, default; string defaults applied for optional variables; required needs a non-empty value",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/registry.go:850",
+    "runtime/template/renderer.go:148"
+   ]
+  },
+  {
+   "id": 24,
+   "claim": "Render errors on unresolved placeholders; RenderDetailed reports used/unused vars and passes",
+   "verdict": "true",
+   "evidence": [
+    "runtime/template/renderer.go:71",
+    "runtime/template/renderer.go:79"
+   ]
+  },
+  {
+   "id": 25,
+   "claim": "Unresolved placeholder error text lists variable names, not values",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:235",
+    "runtime/pipeline/stage/stages_utilities.go:262"
+   ]
+  },
+  {
+   "id": 26,
+   "claim": "Variable sources WithVariables, SetVar",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1209",
+    "sdk/options.go:2506"
+   ]
+  },
+  {
+   "id": 27,
+   "claim": "Link: Runtime Templates and Template Reference both point to /concepts/templates/",
+   "verdict": "false",
+   "evidence": []
+  }
+ ]
+}

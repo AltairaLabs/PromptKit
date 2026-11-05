@@ -2,32 +2,24 @@
 title: 'Tutorial 6: Observability'
 sidebar:
   order: 6
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/events/types.go
+    - sdk/examples/hello/hello.pack.json
+    - sdk/examples/hooks/main_interactive.go
+    - sdk/hooks/events.go
+    - sdk/session_vars.go
 ---
-Learn how to monitor and observe your SDK applications with the hooks package.
-
-## What You'll Learn
-
-- Listen for SDK events with hooks
-- Monitor tool calls and responses
-- Track conversation flow
-- Debug issues
-
-## Why Observability?
-
-Observability helps you:
-
-- **Debug** - Understand what's happening in your application
-- **Monitor** - Track performance and usage
-- **Audit** - Log all actions for compliance
-- **Optimize** - Find bottlenecks and improve
+In this tutorial we subscribe to SDK events with the `hooks` package, then use them to log activity, report failures and count tool calls.
 
 ## Prerequisites
 
-Complete [Tutorial 1](/sdk/tutorials/01-first-conversation/) and understand basic SDK usage.
+Complete [Tutorial 1](/sdk/tutorials/01-first-conversation/). The examples reuse its `hello.pack.json`.
 
-## Basic Event Subscription
+## Step 1: Subscribe to events
 
-Use the `hooks` package to listen for events:
+We use the `hooks` package to listen for events:
 
 ```go
 package main
@@ -48,6 +40,7 @@ func main() {
         log.Fatal(err)
     }
     defer conv.Close()
+    conv.SetVar("user_name", "World")
 
     // Subscribe to provider call events
     hooks.On(conv, events.EventProviderCallStarted, func(e *events.Event) {
@@ -64,9 +57,11 @@ func main() {
 }
 ```
 
-## Event Types
+Run it. The output shows `[PROVIDER] Call started`, then `[PROVIDER] Call completed`, then the model's reply.
 
-Events are defined as `events.EventType` in the `runtime/events` package:
+## Step 2: Pick event types
+
+The `runtime/events` package defines each event as an `events.EventType`. These are the provider, tool, pipeline and stream events:
 
 ```go
 const (
@@ -83,9 +78,11 @@ const (
 )
 ```
 
-## Monitoring Tool Calls
+Each constant is a type we can pass to `hooks.On`.
 
-Track tool execution:
+## Step 3: Monitor tool calls
+
+To track tool execution:
 
 ```go
 hooks.OnToolCall(conv, func(name string, args map[string]any) {
@@ -93,9 +90,11 @@ hooks.OnToolCall(conv, func(name string, args map[string]any) {
 })
 ```
 
-## Logging All Events
+When the model calls a tool, the program prints `[TOOL] Calling <name> with <arguments>`.
 
-Create a comprehensive logger:
+## Step 4: Log all events
+
+We create a logger for every event:
 
 ```go
 func logAllEvents(conv *sdk.Conversation) {
@@ -112,9 +111,11 @@ conv, _ := sdk.Open("./pack.json", "chat")
 logAllEvents(conv)
 ```
 
-## Error Monitoring
+Each event now writes a log line with its time and type.
 
-Track pipeline and provider failures:
+## Step 5: Monitor errors
+
+To track pipeline and provider failures:
 
 ```go
 hooks.On(conv, events.EventProviderCallFailed, func(e *events.Event) {
@@ -126,9 +127,11 @@ hooks.On(conv, events.EventPipelineFailed, func(e *events.Event) {
 })
 ```
 
-## Metrics Collection
+A failed provider call or pipeline logs an `[ERROR]` line.
 
-Collect metrics for monitoring systems:
+## Step 6: Collect metrics
+
+To collect metrics for monitoring systems:
 
 ```go
 type Metrics struct {
@@ -152,31 +155,9 @@ func (m *Metrics) Attach(conv *sdk.Conversation) {
 }
 ```
 
-## Debug Mode
+After `Attach`, `ToolCalls` counts started tool calls and `Errors` counts failed ones.
 
-Enable verbose debugging:
-
-```go
-func enableDebug(conv *sdk.Conversation) {
-    hooks.OnEvent(conv, func(e *events.Event) {
-        log.Printf("[DEBUG] %s: %s", e.Timestamp.Format("15:04:05"), e.Type)
-    })
-}
-```
-
-## What You've Learned
-
-✅ Subscribe to events with `hooks.On()`, `hooks.OnEvent()`, `hooks.OnToolCall()`
-✅ Monitor tool calls and provider calls
-✅ Track errors with event types
-✅ Build metrics collection
-✅ Enable debug logging  
-
-## Next Steps
+## Next steps
 
 - **[How-To: Monitor Events](/sdk/how-to/observability/monitor-events/)** - Advanced monitoring
 - **[Explanation: Observability](/sdk/explanation/observability/)** - Architecture deep-dive
-
-## Complete Example
-
-See observability patterns in `sdk/examples/`.

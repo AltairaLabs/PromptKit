@@ -1,0 +1,106 @@
+{
+ "page": "docs/src/content/docs/sdk/tutorials/07-audio-sessions.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "stt.NewOpenAI(apiKey) and tts.NewOpenAI(apiKey) signatures",
+   "verdict": "true",
+   "evidence": [
+    "runtime/stt/openai.go:68",
+    "runtime/tts/openai.go:95"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "sdk.WithVADMode(stt, tts, cfg) and DefaultVADModeConfig",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:3012",
+    "sdk/options.go:3053"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "OpenDuplex with WithVADMode needs no streaming provider",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:132",
+    "sdk/sdk.go:321"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "VADModeConfig defaults and fields (800ms, 200ms, 30s, 16000, en, alloy, 1.0, OutputSampleRate)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:2969",
+    "sdk/options.go:3012"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "ASM is Gemini Live only",
+   "verdict": "false",
+   "evidence": [
+    "runtime/providers/gemini/streaming_support.go:50",
+    "runtime/providers/openai/streaming_support.go:136",
+    "sdk/sdk.go:126"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "gemini.NewStreamSession(ctx, wsURL, key, *StreamingInputConfig) builds a session passed to OpenDuplex",
+   "verdict": "false",
+   "evidence": [
+    "runtime/providers/gemini/stream_session_integration.go:150",
+    "sdk/options.go:2957"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "StreamingInputConfig has flat Type/SampleRate/Channels fields",
+   "verdict": "false",
+   "evidence": [
+    "runtime/providers/streaming_input.go:133",
+    "runtime/types/streaming.go:52"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "audioIn / audioOut channels carry audio",
+   "verdict": "false",
+   "evidence": [
+    "sdk/conversation.go:1054",
+    "sdk/conversation.go:1157"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "audio.NewSilenceDetector(threshold) and WithTurnDetector in VAD mode",
+   "verdict": "true",
+   "evidence": [
+    "runtime/audio/silence.go:99",
+    "sdk/conversation.go:846",
+    "sdk/options.go:2539"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Interrupted chunk, input_transcription, assistant_turn_complete metadata",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/streaming.go:89",
+    "sdk/examples/openai-realtime/main.go:114"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "16kHz best compatibility",
+   "verdict": "unverified",
+   "evidence": [
+    "sdk/options.go:3017"
+   ]
+  }
+ ]
+}

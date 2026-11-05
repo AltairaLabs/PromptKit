@@ -2,16 +2,24 @@
 title: "Tutorial 7: Audio Sessions"
 sidebar:
   order: 7
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/audio/silence.go
+    - runtime/providers/gemini/stream_session_integration.go
+    - runtime/providers/gemini/streaming_support.go
+    - runtime/providers/openai/streaming_support.go
+    - runtime/providers/streaming.go
+    - runtime/providers/streaming_input.go
+    - runtime/stt/openai.go
+    - runtime/tts/openai.go
+    - runtime/types/streaming.go
+    - sdk/conversation.go
+    - sdk/examples/openai-realtime/main.go
+    - sdk/options.go
+    - sdk/sdk.go
 ---
-Build voice-enabled conversations with real-time audio streaming.
-
-## What You'll Learn
-
-- Two modes for voice conversations: [VAD](/glossary#vad) and [ASM](/glossary#asm)
-- Setting up VAD mode with [STT](/glossary#stt) and [TTS](/glossary#tts) services
-- Setting up ASM mode for native audio LLMs
-- Handling audio input and output streams
-- Turn detection and interruption handling
+In this tutorial we build a voice-enabled conversation with real-time audio streaming. We set it up in two modes, [VAD](/glossary#vad) with [STT](/glossary#stt) and [TTS](/glossary#tts) services and [ASM](/glossary#asm) with a native audio LLM, then handle the audio streams, turn detection and interruptions.
 
 ## Prerequisites
 
@@ -19,26 +27,26 @@ Build voice-enabled conversations with real-time audio streaming.
 - Basic understanding of audio streaming concepts
 - API keys for OpenAI or Google (for Gemini Live)
 
-## Two Modes for Voice
+## Two modes for voice
 
 PromptKit supports two modes for voice conversations:
 
 | Mode | Description | Use Case |
 |------|-------------|----------|
 | **VAD** | Voice Activity Detection pipeline | Standard LLMs (GPT-4, Claude) with separate STT/TTS |
-| **ASM** | Audio Streaming Model | Native multimodal LLMs (Gemini Live) |
+| **ASM** | Audio Streaming Model | Native audio LLMs (Gemini Live, OpenAI Realtime) |
 
-## VAD Mode: Voice with Text LLMs
+## VAD mode: voice with text LLMs
 
 VAD mode enables voice conversations with any text-based LLM by adding STT (speech-to-text) and TTS (text-to-speech) stages to the pipeline.
 
-### Pipeline Flow
+### Pipeline flow
 
 ```
 Audio Input → [AudioTurn] → [STT] → [LLM] → [TTS] → Audio Output
 ```
 
-### Step 1: Create the Pack
+### Step 1: Create the pack
 
 Create `voice-assistant.pack.json`:
 
@@ -66,7 +74,7 @@ Create `voice-assistant.pack.json`:
 }
 ```
 
-### Step 2: Configure VAD Mode
+### Step 2: Configure VAD mode
 
 ```go
 package main
@@ -118,7 +126,9 @@ func main() {
 }
 ```
 
-### Step 3: Customize VAD Configuration
+Run it. The session opens without an error and then waits for audio. Sending audio (see Handling audio streams) is what produces responses.
+
+### Step 3: Customize the VAD configuration
 
 ```go
 // Custom VAD settings for different environments
@@ -137,7 +147,9 @@ conv, _ := sdk.OpenDuplex("./voice-assistant.pack.json", "assistant",
 )
 ```
 
-### VAD Configuration Options
+The session now ends a turn after 500 ms of silence instead of the default 800 ms.
+
+### VAD configuration options
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -150,55 +162,41 @@ conv, _ := sdk.OpenDuplex("./voice-assistant.pack.json", "assistant",
 | `Speed` | 1.0 | TTS speech rate (0.5-2.0) |
 | `OutputSampleRate` | TTS service's rate | Sample rate of the reply audio in Hz, resampled when it differs from the service's (for example 16000 for telephony) |
 
-## ASM Mode: Native Audio LLMs
+## ASM mode: native audio LLMs
 
-ASM (Audio Streaming Model) mode is for LLMs with native bidirectional audio support, like Gemini Live API. Audio streams directly to and from the model without separate STT/TTS stages.
+ASM (Audio Streaming Model) mode is for LLMs with native bidirectional audio support: the Gemini Live API and OpenAI Realtime. Audio streams directly to and from the model without separate STT/TTS stages.
 
-### Pipeline Flow
+### Pipeline flow
 
 ```
 Audio/Text Input → [DuplexProvider] → Audio/Text Output
 ```
 
-### Step 1: Configure ASM Mode
+### Step 1: Configure ASM mode
+
+ASM mode needs a provider that streams audio to the model: Gemini Live or OpenAI Realtime. We set `GEMINI_API_KEY` or `OPENAI_API_KEY`, pick a model the provider's live API accepts, and describe the audio we send with `WithStreamingConfig`.
 
 ```go
 package main
 
 import (
-    "context"
     "log"
-    "os"
 
-    "github.com/AltairaLabs/PromptKit/sdk/v2"
     "github.com/AltairaLabs/PromptKit/runtime/v2/providers"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
     "github.com/AltairaLabs/PromptKit/runtime/v2/types"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 func main() {
-    ctx := context.Background()
-
-    // Create Gemini streaming session
-    session, err := gemini.NewStreamSession(ctx,
-        "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent",
-        os.Getenv("GEMINI_API_KEY"),
-        &providers.StreamingInputConfig{
-            Type:       types.ContentTypeAudio,
-            SampleRate: 16000,
-            Channels:   1,
-        },
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-
     // Open duplex conversation with ASM mode
     conv, err := sdk.OpenDuplex("./voice-assistant.pack.json", "assistant",
+        sdk.WithModel("gemini-3.8-live"),
         sdk.WithStreamingConfig(&providers.StreamingInputConfig{
-            Type:       types.ContentTypeAudio,
-            SampleRate: 16000,
-            Channels:   1,
+            Config: types.StreamingMediaConfig{
+                Type:       types.ContentTypeAudio,
+                SampleRate: 16000,
+                Channels:   1,
+            },
         }),
     )
     if err != nil {
@@ -206,8 +204,13 @@ func main() {
     }
     defer conv.Close()
 
+    conv.SetVar("user_name", "Alice")
+
     // Receive streaming responses in a goroutine
-    respCh, _ := conv.Response()
+    respCh, err := conv.Response()
+    if err != nil {
+        log.Fatal(err)
+    }
     go func() {
         for chunk := range respCh {
             // Handle audio or text output
@@ -215,57 +218,68 @@ func main() {
         }
     }()
 
-    // Send audio chunks
-    // conv.SendChunk(ctx, chunk)
-    // (See complete example for bidirectional streaming)
+    // Send audio chunks (see "Handling Audio Streams")
 }
 ```
 
-## Handling Audio Streams
+For OpenAI Realtime, use `sdk.WithModel("gpt-realtime")` and a 24000 Hz `SampleRate`. The `sdk/examples/openai-realtime/` example shows the full configuration.
 
-### Sending Audio
+Run it. The session opens against the live API and waits for audio, as in VAD mode.
+
+## Handling audio streams
+
+### Sending audio
+
+We wrap each block of PCM bytes from our capture code in a `StreamChunk` and pass it to `SendChunk`:
 
 ```go
 // Send audio chunks from microphone
 go func() {
-    for {
-        chunk := readFromMicrophone() // Your audio capture code
-        select {
-        case audioIn <- chunk:
-        case <-ctx.Done():
+    for ctx.Err() == nil {
+        pcm := readFromMicrophone() // Your audio capture code
+        err := conv.SendChunk(ctx, &providers.StreamChunk{
+            MediaData: &providers.StreamMediaData{
+                MIMEType: "audio/pcm",
+                Data:     pcm,
+            },
+        })
+        if err != nil {
+            log.Printf("Send error: %v", err)
             return
         }
     }
 }()
 ```
 
-### Receiving Audio
+### Receiving audio
+
+Audio output arrives on the channel from `conv.Response()`:
 
 ```go
 // Play audio output
-go func() {
-    for chunk := range audioOut {
-        if chunk.Error != nil {
-            log.Printf("Audio error: %v", chunk.Error)
-            continue
-        }
-        playAudio(chunk.Data) // Your audio playback code
+for chunk := range respCh {
+    if chunk.Error != nil {
+        log.Printf("Audio error: %v", chunk.Error)
+        continue
     }
-}()
+    if chunk.MediaData != nil {
+        playAudio(chunk.MediaData.Data) // Your audio playback code
+    }
+}
 ```
 
-## Turn Detection
+## Turn detection
 
 VAD mode uses turn detection to determine when the user has finished speaking.
 
-### Default Behavior
+### Default behavior
 
 The default turn detector uses silence duration:
 - Waits for `SilenceDuration` of quiet
 - Requires at least `MinSpeechDuration` of speech first
 - Forces completion after `MaxTurnDuration`
 
-### Custom Turn Detector
+### Custom turn detector
 
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/v2/audio"
@@ -279,7 +293,7 @@ conv, _ := sdk.OpenDuplex("./voice-assistant.pack.json", "assistant",
 )
 ```
 
-## Interruption Handling
+## Interruption handling
 
 Users can interrupt the assistant while it's speaking (barge-in).
 
@@ -311,7 +325,7 @@ for chunk := range responses {
 }
 ```
 
-## Transcripts and Turn Boundaries
+## Transcripts and turn boundaries
 
 VAD and ASM mode mark turns on `Response()` the same way, through chunk metadata:
 
@@ -335,7 +349,7 @@ for chunk := range responses {
 }
 ```
 
-## Complete Example: Voice Interview
+## Complete example: voice interview
 
 See the `sdk/examples/voice-interview/` directory for a complete working example that includes:
 - Audio capture from microphone
@@ -344,25 +358,17 @@ See the `sdk/examples/voice-interview/` directory for a complete working example
 - Turn management
 - Interruption handling
 
-## Choosing Between VAD and ASM
+## Choosing between VAD and ASM
 
-| Consideration | VAD Mode | ASM Mode |
+| Consideration | VAD mode | ASM mode |
 |---------------|----------|----------|
-| LLM Support | Any text LLM | Gemini Live only |
+| LLM Support | Any text LLM | Gemini Live, OpenAI Realtime |
 | Latency | Higher (STT + TTS overhead) | Lower (native audio) |
 | Flexibility | More control over STT/TTS | Less customization |
 | Cost | Separate STT/TTS costs | Single API cost |
 | Quality | Depends on STT/TTS providers | Native quality |
 
-## Best Practices
-
-1. **Sample Rate**: Use 16kHz for best compatibility
-2. **Buffer Size**: Keep audio buffers small for low latency
-3. **Error Handling**: Always handle audio errors gracefully
-4. **Cleanup**: Close conversations properly to release resources
-5. **Testing**: Test with various audio inputs and network conditions
-
-## What's Next
+## Next steps
 
 - [Tutorial 8: TTS Integration](/sdk/tutorials/08-tts-integration/) - Deep dive into TTS configuration
 - [Tutorial 9: Variable Providers](/sdk/tutorials/09-variable-providers/) - Dynamic context injection

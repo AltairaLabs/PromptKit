@@ -131,7 +131,7 @@ conv1, _ := sdk.Open("./pack.json", "chat")
 conv1.SetVar("user", "Alice")
 
 // Fork creates a copy
-conv2 := conv1.Fork()
+conv2, _ := conv1.Fork()
 conv2.SetVar("user", "Bob")
 
 // Variables are isolated

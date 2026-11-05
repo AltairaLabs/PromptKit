@@ -1,386 +1,302 @@
 ---
 title: 'Tutorial 4: Validation & Guardrails'
+description: Add input and output guardrails to a stage-pipeline chatbot with guardrail hooks, then write your own.
 sidebar:
   order: 4
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/evals/handlers/content_excludes.go
+    - runtime/evals/handlers/length.go
+    - runtime/evals/normalize.go
+    - runtime/hooks/errors.go
+    - runtime/hooks/guardrails/adapter.go
+    - runtime/hooks/guardrails/factory.go
+    - runtime/hooks/guardrails/spec.go
+    - runtime/hooks/registry.go
+    - runtime/hooks/types.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/prompt/registry.go
+    - runtime/types/message.go
 ---
-Add content safety and validation to your LLM application.
+In this tutorial we add content guardrails to a chatbot: banned words on the way in and out, a length limit, and custom checks.
 
 **Time**: 20 minutes
 **Level**: Intermediate
 
-## What You'll Build
+## What we will build
 
-A chatbot with content filtering and validation guardrails using the hooks system.
+A command-line chatbot whose guardrails block a request before it reaches the model, replace a response that breaks a rule, and reject a response that contains personal data. Each guardrail is a hook on the `ProviderStage`.
 
-## What You'll Learn
-
-- Register guardrail hooks via the SDK
-- Filter banned words and enforce length limits
-- Understand enforcement behavior (content replacement/truncation)
-- Use monitor-only mode for observability without enforcement
-- Create custom `ProviderHook` implementations
-- Use streaming guardrails via `ChunkInterceptor`
-- Configure guardrails in pack YAML
+```mermaid
+flowchart LR
+    in["user message"] --> prov["ProviderStage"]
+    prov -->|BeforeCall| reg["hooks.Registry"]
+    prov -->|AfterCall| reg
+    reg --> g["guardrail hooks"]
+    prov --> out["reply"]
+```
 
 ## Prerequisites
 
-- Completed [Tutorial 1](/runtime/tutorials/01-first-pipeline/)
+- Completed [Tutorial 1](/runtime/tutorials/01-first-pipeline/), with `OPENAI_API_KEY` still set
 
-## Step 1: Basic Guardrails
+## Step 1: Add guardrails to a pipeline
 
-Add banned-word filtering and length limits using the SDK:
+In a new directory, create a module as in Tutorial 1, then create `main.go`. `guardrails.NewGuardrailHook` builds a hook from an eval type and its params. A `direction` of `input` checks the user's message before the model call. The default direction checks the response. `hooks.NewRegistry` collects the hooks, and `stage.NewProviderStageWithHooks` runs them around each model call.
 
 ```go
 package main
 
 import (
-    "context"
-    "bufio"
-    "fmt"
-    "log"
-    "os"
-    "strings"
+	"bufio"
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"strings"
 
-    "github.com/AltairaLabs/PromptKit/sdk/v2"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func main() {
-    // Open a conversation with guardrail hooks
-    conv, err := sdk.Open("./app.pack.json", "chat",
-        sdk.WithProviderHook(guardrails.NewBannedWordsHook([]string{
-            "spam", "hack", "exploit",
-        })),
-        sdk.WithProviderHook(guardrails.NewLengthHook(2000, 500)),
-        sdk.WithProviderHook(guardrails.NewMaxSentencesHook(10)),
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer conv.Close()
+	ctx := context.Background()
 
-    ctx := context.Background()
-    scanner := bufio.NewScanner(os.Stdin)
+	provider := openai.NewProvider(
+		"openai",
+		"gpt-4o-mini",
+		"",
+		providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
+		false,
+	)
+	defer provider.Close()
 
-    fmt.Println("Safe Chatbot (with content filtering)")
-    fmt.Print("\nYou: ")
+	// The direction param makes a guardrail check the user's message
+	// before the model call. The default direction checks the response.
+	noHacking, err := guardrails.NewGuardrailHook("banned_words", map[string]any{
+		"words":     []any{"hack", "exploit"},
+		"direction": "input",
+	}, guardrails.WithMessage("I can't help with that."))
+	if err != nil {
+		log.Fatal(err)
+	}
+	noCredentials, err := guardrails.NewGuardrailHook("banned_words", map[string]any{
+		"words": []any{"password", "secret"},
+	}, guardrails.WithMessage("I can't share credentials."))
+	if err != nil {
+		log.Fatal(err)
+	}
+	shortReplies, err := guardrails.NewGuardrailHook("length", map[string]any{
+		"max_characters": 500,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-    for scanner.Scan() {
-        input := strings.TrimSpace(scanner.Text())
+	registry := hooks.NewRegistry(
+		hooks.WithProviderHook(noHacking),
+		hooks.WithProviderHook(noCredentials),
+		hooks.WithProviderHook(shortReplies),
+	)
 
-        if input == "exit" {
-            break
-        }
-        if input == "" {
-            fmt.Print("You: ")
-            continue
-        }
+	pipe, err := stage.NewPipelineBuilder().
+		Chain(stage.NewProviderStageWithHooks(provider, nil, nil,
+			&stage.ProviderConfig{MaxTokens: 500, Temperature: 0.7}, nil, registry)).
+		Build()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer pipe.Shutdown(ctx)
 
-        resp, err := conv.Send(ctx, input)
-        if err != nil {
-            log.Printf("\nError: %v\n\n", err)
-            fmt.Print("You: ")
-            continue
-        }
+	fmt.Print("Safe chatbot. Type 'exit' to quit.\n\nYou: ")
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		input := strings.TrimSpace(scanner.Text())
+		if input == "exit" {
+			break
+		}
+		if input == "" {
+			fmt.Print("You: ")
+			continue
+		}
 
-        // Guardrails enforce in-place — check for violations
-        if len(resp.Validations) > 0 {
-            fmt.Printf("\nBot: %s (guardrail enforced)\n\n", resp.Text())
-        } else {
-            fmt.Printf("\nBot: %s\n\n", resp.Text())
-        }
-        fmt.Print("You: ")
-    }
+		msg := &types.Message{Role: "user", Content: input}
+		result, err := pipe.ExecuteSync(ctx, stage.NewMessageElement(msg))
+		if err != nil {
+			log.Printf("Error: %v", err)
+			fmt.Print("\nYou: ")
+			continue
+		}
 
-    fmt.Println("Goodbye!")
+		reply := result.Messages[len(result.Messages)-1]
+		fmt.Printf("\nBot: %s\n", result.Response.Content)
+		for _, v := range reply.Validations {
+			if !v.Passed {
+				fmt.Printf("[guardrail enforced: %s]\n", v.ValidatorType)
+			}
+		}
+		fmt.Print("\nYou: ")
+	}
 }
 ```
 
-## Step 2: Test Guardrails
+## Step 2: Try it
 
-Try these inputs:
-
+```bash
+go run .
 ```
+
+```text
 You: Hello!
+
 Bot: Hi! How can I help you?
 
 You: How do I hack a system?
-Bot: Sorry, we can't provide this response as it would violate our content policy. (guardrail enforced)
 
-You: Tell me about artificial intelligence
-Bot: Artificial intelligence is...
+Bot: I can't help with that.
+[guardrail enforced: banned_words]
+
+You: What is a good default password for a database?
+
+Bot: I can't share credentials.
+[guardrail enforced: banned_words]
 ```
 
-When a banned word is detected, the guardrail **replaces the content** with a safe message and the pipeline continues. The original response is never returned to the user.
+The input guardrail blocks the first request before the model call, so it costs no tokens. The output guardrail replaces a response that contains a banned word. Neither returns an error: the pipeline returns the replacement text, and the reply message's `Validations` records which guardrail fired.
 
-## Built-in Guardrail Hooks
+Banned-word matching is case-insensitive and matches whole words, so `hack` blocks "HACK it" but not "hackers". Set `"match_mode": "substring"` in the params to match inside words. While a response streams, the check matches substrings in the partial text, so a stream can stop on a word that the finished response would pass. The length guardrail truncates a response longer than `max_characters`.
 
-### BannedWordsHook
+## Step 3: Add a function guardrail
 
-Blocks messages containing banned words (case-insensitive, word-boundary matching):
+`guardrails.InputFunc` and `guardrails.OutputFunc` turn a plain function into a guardrail spec, and `Hook` builds the hook. Add this to `main.go` before the registry, and pass `noSSN` with another `hooks.WithProviderHook`:
 
 ```go
-hook := guardrails.NewBannedWordsHook([]string{
-    "spam", "hack", "exploit", "inappropriate",
-})
+noSSN, err := guardrails.InputFunc("no-ssn", func(_ context.Context, in *hooks.InputRequest) hooks.Decision {
+	if strings.Contains(strings.ToLower(in.UserInput), "social security number") {
+		in.Replacement = "I can't help with that request."
+		return hooks.Enforced("ssn requested", map[string]any{"validator_type": "no-ssn"})
+	}
+	return hooks.Allow
+}).Hook()
+if err != nil {
+	log.Fatal(err)
+}
 ```
 
-**Streaming**: Yes — aborts the stream immediately on detection.
+Setting `in.Replacement` chooses the text the user sees, and the `validator_type` metadata makes the firing appear in `Validations`. Ask "What is my social security number?" and the bot answers `I can't help with that request.` with `[guardrail enforced: no-ssn]`.
 
-### LengthHook
+## Step 4: Write a custom hook
 
-Enforces character and/or token limits (pass `0` to disable a limit):
-
-```go
-hook := guardrails.NewLengthHook(2000, 500) // maxCharacters, maxTokens
-```
-
-**Streaming**: Yes — aborts when the limit is exceeded.
-
-### MaxSentencesHook
-
-Limits the number of sentences in a response:
-
-```go
-hook := guardrails.NewMaxSentencesHook(5)
-```
-
-**Streaming**: No — requires the complete response.
-
-### RequiredFieldsHook
-
-Ensures the response contains required strings:
-
-```go
-hook := guardrails.NewRequiredFieldsHook([]string{"order number", "tracking number"})
-```
-
-**Streaming**: No — requires the complete response.
-
-## Custom Hooks
-
-Create domain-specific hooks by implementing `ProviderHook`:
+A check that needs more control implements `hooks.ProviderHook`. Create `pii.go`. This hook rejects responses that contain an email address. It returns `hooks.Deny`, which makes `ExecuteSync` return an error instead of replacement text.
 
 ```go
 package main
 
 import (
-    "context"
-    "regexp"
+	"context"
+	"regexp"
 
-    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 )
 
-// PIIHook blocks responses containing personally identifiable information.
+// PIIHook rejects responses that contain an email address.
 type PIIHook struct {
-    emailRegex *regexp.Regexp
-    phoneRegex *regexp.Regexp
+	email *regexp.Regexp
 }
 
 func NewPIIHook() *PIIHook {
-    return &PIIHook{
-        emailRegex: regexp.MustCompile(`\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b`),
-        phoneRegex: regexp.MustCompile(`\b\d{3}[-.]?\d{3}[-.]?\d{4}\b`),
-    }
+	return &PIIHook{email: regexp.MustCompile(`[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}`)}
 }
 
 func (h *PIIHook) Name() string { return "pii_filter" }
 
-func (h *PIIHook) BeforeCall(ctx context.Context, req *hooks.ProviderRequest) hooks.Decision {
-    return hooks.Allow
+func (h *PIIHook) BeforeCall(_ context.Context, _ *hooks.ProviderRequest) hooks.Decision {
+	return hooks.Allow
 }
 
-func (h *PIIHook) AfterCall(ctx context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse) hooks.Decision {
-    content := resp.Message.Content()
-    if h.emailRegex.MatchString(content) {
-        return hooks.Deny("response contains email address")
-    }
-    if h.phoneRegex.MatchString(content) {
-        return hooks.Deny("response contains phone number")
-    }
-    return hooks.Allow
+func (h *PIIHook) AfterCall(
+	_ context.Context, _ *hooks.ProviderRequest, resp *hooks.ProviderResponse,
+) hooks.Decision {
+	if h.email.MatchString(resp.Message.Content) {
+		return hooks.Deny("response contains an email address")
+	}
+	return hooks.Allow
 }
 ```
 
-Use it alongside built-in hooks:
+Register it next to the other hooks:
 
 ```go
-conv, _ := sdk.Open("./app.pack.json", "chat",
-    sdk.WithProviderHook(guardrails.NewBannedWordsHook([]string{"spam", "hack"})),
-    sdk.WithProviderHook(guardrails.NewLengthHook(2000, 500)),
-    sdk.WithProviderHook(NewPIIHook()),
-)
+hooks.WithProviderHook(NewPIIHook()),
 ```
 
-## Production Example
-
-Combine multiple hooks with proper error handling:
+Handle the denial in the loop, before the `err != nil` check, by looking for `*hooks.HookDeniedError`. Add `"errors"` to the imports.
 
 ```go
-package main
-
-import (
-    "context"
-    "bufio"
-    "fmt"
-    "log"
-    "os"
-    "strings"
-
-    "github.com/AltairaLabs/PromptKit/sdk/v2"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
-)
-
-func main() {
-    conv, err := sdk.Open("./app.pack.json", "chat",
-        // Streaming guardrails (can abort mid-stream)
-        sdk.WithProviderHook(guardrails.NewBannedWordsHook([]string{
-            "spam", "scam", "hack", "exploit",
-        })),
-        sdk.WithProviderHook(guardrails.NewLengthHook(2000, 500)),
-        // Post-completion guardrails
-        sdk.WithProviderHook(guardrails.NewMaxSentencesHook(10)),
-        sdk.WithProviderHook(guardrails.NewRequiredFieldsHook([]string{})),
-        // Custom hook
-        sdk.WithProviderHook(NewPIIHook()),
-    )
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer conv.Close()
-
-    ctx := context.Background()
-    scanner := bufio.NewScanner(os.Stdin)
-
-    fmt.Println("=== Secure Chatbot ===")
-    fmt.Println("Content filtering enabled")
-    fmt.Print("\nYou: ")
-
-    for scanner.Scan() {
-        input := strings.TrimSpace(scanner.Text())
-        if input == "exit" {
-            break
-        }
-        if input == "" {
-            fmt.Print("You: ")
-            continue
-        }
-
-        resp, err := conv.Send(ctx, input)
-        if err != nil {
-            fmt.Printf("\n❌ Error: %v\n\n", err)
-            fmt.Print("You: ")
-            continue
-        }
-
-        // Guardrails enforce in-place (truncate or replace content)
-        // Check validations for details
-        if len(resp.Validations) > 0 {
-            for _, v := range resp.Validations {
-                if !v.Passed {
-                    fmt.Printf("⚠️  Guardrail %s enforced\n", v.ValidatorType)
-                }
-            }
-        }
-
-        fmt.Printf("\nBot: %s\n\n", resp.Text())
-        fmt.Print("You: ")
-    }
-
-    fmt.Println("Goodbye!")
+var denied *hooks.HookDeniedError
+if errors.As(err, &denied) {
+	fmt.Printf("\nBot: [blocked: %s]\n\nYou: ", denied.Reason)
+	continue
 }
 ```
 
-## Streaming Guardrails
+Ask the bot to "make up a fake contact card with an email address":
 
-Hooks that implement `ChunkInterceptor` can inspect each streaming chunk. When a guardrail triggers during streaming, the stream is stopped and the enforced content is returned:
+```text
+Bot: [blocked: response contains an email address]
+```
+
+## Step 5: Build guardrails from declared validators
+
+`guardrails.CompileValidators` turns validator declarations into hooks, the same way a pack's `validators` list does. Replace the banned-word and length hooks from Step 1 with this, add `"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"` to the imports, and build the registry from the compiled hooks:
 
 ```go
-// Stream with guardrails
-ch := conv.Stream(ctx, "Tell me about security")
-for chunk := range ch {
-    if chunk.Error != nil {
-        log.Printf("Stream error: %v\n", chunk.Error)
-        break
-    }
-    if chunk.Type == sdk.ChunkText {
-        fmt.Print(chunk.Text)
-    }
+declared, err := guardrails.CompileValidators([]prompt.ValidatorConfig{
+	{
+		Type:    "banned_words",
+		Params:  map[string]any{"words": []any{"competitor_name"}, "direction": "input"},
+		Message: "I can't discuss that.",
+	},
+	{
+		Type:   "length",
+		Params: map[string]any{"max_characters": 500},
+	},
+})
+if err != nil {
+	log.Fatal(err)
 }
+
+opts := []hooks.Option{hooks.WithProviderHook(noSSN), hooks.WithProviderHook(NewPIIHook())}
+for _, h := range declared {
+	opts = append(opts, hooks.WithProviderHook(h))
+}
+registry := hooks.NewRegistry(opts...)
 ```
 
-`BannedWordsHook` and `LengthHook` both support streaming — they enforce immediately when a violation is detected (truncating content for length, stopping the stream for banned words), saving API costs on wasted tokens.
+A validator checks the response unless its `direction` param is `input`. The `Message` field sets the text the user sees when the validator fires. A validator always enforces; set `Enabled` to a pointer to `false` to switch one off. Ask "Tell me about competitor_name":
 
-## Pack YAML Approach
-
-You can also define validators in your pack's prompt config. They are automatically converted to guardrail hooks at runtime:
-
-```yaml
-# prompts/chat.yaml
-spec:
-  system_template: |
-    You are a helpful assistant.
-
-  validators:
-    - type: banned_words
-      params:
-        words:
-          - hack
-          - exploit
-      message: "This response has been blocked by our content policy."
-
-    - type: max_length
-      params:
-        max_characters: 2000
-        max_tokens: 500
-
-    - type: max_sentences
-      params:
-        max_sentences: 10
-
-    # Monitor-only: evaluate but don't modify content
-    - type: banned_words
-      params:
-        words:
-          - competitor_name
-      monitor: true
+```text
+Bot: I can't discuss that.
+[guardrail enforced: banned_words]
 ```
 
-The `message` field sets a custom user-facing message when content is blocked. The `monitor` field enables monitor-only mode — the guardrail evaluates and records results but doesn't modify content.
+## Common issues
 
-## Common Issues
+| Symptom | Fix |
+|---|---|
+| Legitimate messages blocked | Shorten the word list, and keep the default whole-word `match_mode` instead of `"substring"`. |
+| Inappropriate content gets through | Add guardrails, or write a custom `hooks.ProviderHook` for a domain-specific check. |
+| `NewGuardrailHook` or `CompileValidators` returns an error | The eval type or its params are invalid. Check the error before you build the pipeline. |
 
-### Guardrail too strict
+## Next steps
 
-**Problem**: Legitimate messages blocked.
-
-**Solution**: Refine banned words list, adjust length limits, review hook denial reasons via `HookDeniedError.Reason`.
-
-### Guardrail too permissive
-
-**Problem**: Inappropriate content getting through.
-
-**Solution**: Add more hooks, use stricter patterns, consider a custom `ProviderHook` for domain-specific checks.
-
-## What You've Learned
-
-- Register guardrail hooks via `sdk.WithProviderHook`
-- Use built-in guardrails: banned words, length, sentences, required fields
-- Guardrails enforce in-place (truncation/replacement) and the pipeline continues
-- Use `monitor: true` for evaluation without enforcement
-- Use `message` for custom blocked content messages
-- Create custom `ProviderHook` implementations
-- Use streaming guardrails for early abort
-- Configure guardrails in pack YAML
-
-## Next Steps
-
-Continue to [Tutorial 5: Production Deployment](/runtime/tutorials/05-production-deployment/) for production-ready patterns.
-
-## See Also
-
-- [Checks Reference](/reference/checks/) -- All check types and parameters
-- [Unified Check Model](/concepts/validation/) -- How guardrails, assertions, and evals relate
-- [Guardrails Reference](https://promptarena.altairalabs.ai/arena/reference/validators/) -- Guardrail configuration and behavior
-- [Hooks & Guardrails Reference](/runtime/reference/hooks/) -- Runtime hook system API
-- [Handle Errors](/runtime/how-to/pipeline/handle-errors/) -- Error strategies
+- Continue to [Tutorial 5: Production Deployment](/runtime/tutorials/05-production-deployment/).
+- [Checks Reference](/reference/checks/): all check types and parameters.
+- [Unified Check Model](/concepts/validation/): how guardrails, assertions and evals relate.
+- [Hooks & Guardrails Reference](/runtime/reference/hooks/): the runtime hook API.
+- [Handle Errors](/runtime/how-to/pipeline/handle-errors/): error strategies.

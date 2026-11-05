@@ -1,7 +1,15 @@
 ---
 title: 'Tutorial: A2A Client'
+description: Discover an A2A agent from its agent card and send it blocking and streaming messages with the runtime client.
 sidebar:
   order: 7
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/a2a/client.go
+    - runtime/a2a/executor.go
+    - runtime/a2a/types.go
+    - server/a2a/server_stream.go
 ---
 
 Discover an A2A agent and send messages using the runtime client.
@@ -9,25 +17,18 @@ Discover an A2A agent and send messages using the runtime client.
 **Time**: 10 minutes
 **Level**: Intermediate
 
-## What You'll Build
+## What we build
 
-A client that discovers a remote A2A agent and sends messages — both synchronous and streaming.
-
-## What You'll Learn
-
-- Create an A2A client
-- Discover an agent's capabilities via its agent card
-- Send synchronous messages
-- Receive streaming events
+In this tutorial we build a client that discovers a remote A2A agent, then sends it a blocking message and a streaming message.
 
 ## Prerequisites
 
-- Go 1.22+
+- Go 1.26+
 - A running A2A server (see [A2A Server Tutorial](/sdk/tutorials/10-a2a-server/))
 
 ---
 
-## Step 1: Create the Client
+## Step 1: Create the client
 
 ```go
 package main
@@ -45,7 +46,7 @@ func main() {
     client := a2a.NewClient("http://localhost:9999")
 ```
 
-You can configure the client with options:
+Configure the client with options:
 
 ```go
 client := a2a.NewClient("http://localhost:9999",
@@ -56,9 +57,9 @@ client := a2a.NewClient("http://localhost:9999",
 
 ---
 
-## Step 2: Discover the Agent
+## Step 2: Discover the agent
 
-Fetch the agent card to learn what the agent can do:
+We fetch the agent card to learn what the agent can do:
 
 ```go
     card, err := client.Discover(ctx)
@@ -73,15 +74,15 @@ Fetch the agent card to learn what the agent can do:
     }
 ```
 
-The card is cached after the first call, so subsequent `Discover` calls are free.
+The client caches the card, so later `Discover` calls return it without a request.
 
-After `Discover`, calls go to the card's first JSON-RPC interface for the version the client speaks, with that interface's `tenant`. The scheme, host and port you gave `NewClient` always win: from the card the client takes only an interface on that same host and port (default ports filled in): its path (an agent serving JSON-RPC at `/`, for example), version and tenant. An interface at the default `/a2a` keeps your URL as given. A card that names a different host or port is not followed, and its tenant and version are not used. Calls go to `{base}/a2a` and a warning is logged once; to call that host, configure the client with it. Without a card, calls go to `{base}/a2a`. A2A tool executors discover the card themselves on first use.
+After `Discover`, calls go to the card's first JSON-RPC interface that serves the version the client speaks (otherwise its first JSON-RPC interface), with that interface's `tenant`. The scheme, host and port you gave `NewClient` always win: from the card the client takes only an interface on that same host and port (default ports filled in): its path (an agent serving JSON-RPC at `/`, for example), version and tenant. An interface at the default `/a2a` keeps your URL as given. A card that names a different host or port is not followed, and its tenant and version are not used. Calls go to `{base}/a2a` and the client logs a warning once (an `http` interface on the `https` base host, as a TLS-terminating proxy reports, is not warned about); to call that host, configure the client with it. Without a card, calls go to `{base}/a2a`. A2A tool executors discover the card themselves on first use.
 
 ---
 
-## Step 3: Send a Message
+## Step 3: Send a message
 
-Send a synchronous message with `Blocking: true`:
+We send a synchronous message with `Blocking: true`:
 
 ```go
     text := "Hello from the client!"
@@ -106,21 +107,21 @@ Send a synchronous message with `Blocking: true`:
     }
 ```
 
-Expected output:
+Against the server from the [A2A Server Tutorial](/sdk/tutorials/10-a2a-server/), the output looks like this. The last line is the model's reply, so its text varies:
 
 ```
-Agent: Echo Agent
-Description: Echoes back whatever you send
-  Skill: echo — Echoes the input message back
+Agent: Assistant Agent
+Description: A helpful assistant powered by PromptKit
+  Skill: chat — General-purpose chat assistant
 Task state: completed
-Agent: Echo: Hello from the client!
+Agent: Hello! How can I help you today?
 ```
 
 ---
 
-## Step 4: Try Streaming
+## Step 4: Try streaming
 
-Use `SendMessageStream` to receive incremental updates:
+We use `SendMessageStream` to receive incremental updates:
 
 ```go
     streamText := "Tell me a story"
@@ -150,13 +151,13 @@ Use `SendMessageStream` to receive incremental updates:
 }
 ```
 
-Streaming requires the server to support it. If the server doesn't support streaming, you'll see a single artifact event followed by completion.
+A server whose conversation cannot stream sends the whole reply as artifact events, followed by the completed status.
 
 ---
 
-## Step 5: Manage Tasks
+## Step 5: Manage tasks
 
-Retrieve or cancel tasks by ID:
+We retrieve or cancel tasks by ID:
 
 ```go
 // Get a task by ID.
@@ -173,21 +174,14 @@ tasks, err := client.ListTasks(ctx, &a2a.ListTasksRequest{
 
 ---
 
-## What You've Learned
-
-- How to create an A2A client and configure authentication
-- How to discover agents via their agent card
-- How to send synchronous and streaming messages
-- How to manage tasks (get, cancel, list)
-
-## Next Steps
+## Next steps
 
 - [A2A Server Tutorial](/sdk/tutorials/10-a2a-server/) — build the server side
 - [Use Tool Bridge](/runtime/how-to/a2a/use-a2a-tool-bridge/) — register this agent as a tool
 - [Use Mock Server](/runtime/how-to/a2a/use-a2a-mock-server/) — test without a real server
 - [A2A Concept](/concepts/a2a/) — understand the protocol in depth
 
-## See Also
+## See also
 
 - [Runtime A2A Reference](/runtime/reference/a2a/) — complete client API documentation
 - [Examples](https://github.com/AltairaLabs/PromptKit/tree/main/server/a2a/examples/a2a-demo) — full working examples

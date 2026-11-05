@@ -2,36 +2,26 @@
 title: 'Tutorial 4: Variables and Templates'
 sidebar:
   order: 4
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/prompt/pack.go
+    - runtime/template/renderer.go
+    - sdk/conversation.go
+    - sdk/examples/hello/main_interactive.go
+    - sdk/sdk.go
+    - sdk/session/unary_session.go
+    - sdk/session_vars.go
 ---
-Learn how to use template variables for dynamic prompts and conversation context.
+In this tutorial we set template variables on a conversation and watch them change the system prompt. We set variables one at a time and in bulk, read them back, load them from the environment, and keep them separate in a forked conversation.
 
-## What You'll Learn
-
-- Set and get template variables
-- Use variables in system prompts
-- Bulk variable operations
-- Environment variable integration
-
-## Why Variables?
-
-Variables make prompts dynamic and reusable:
-
-**Static Prompt:**
-```
-You are a helpful assistant.
-```
-
-**Dynamic Prompt:**
-```
-You are a {{role}} assistant for {{company}}. 
-Speak in {{language}}.
-```
+A variable is a `{{name}}` placeholder in a prompt's `system_template`. The conversation fills it in before each call to the model.
 
 ## Prerequisites
 
-Complete [Tutorial 1](/sdk/tutorials/01-first-conversation/) and understand basic SDK usage.
+Complete [Tutorial 1](/sdk/tutorials/01-first-conversation/).
 
-## Step 1: Create a Template Pack
+## Step 1: Create a template pack
 
 Create `dynamic.pack.json`:
 
@@ -58,9 +48,9 @@ Create `dynamic.pack.json`:
 }
 ```
 
-## Step 2: Set Variables
+## Step 2: Set variables
 
-Use `SetVar()` to set individual variables:
+We use `SetVar()` to set individual variables:
 
 ```go
 package main
@@ -96,9 +86,11 @@ func main() {
 }
 ```
 
-## Bulk Variable Setting
+Run it. The reply is addressed to Alice as a TechCorp support specialist, because all four variables were filled into the system prompt.
 
-Use `SetVars()` for multiple variables at once:
+## Step 3: Set several variables at once
+
+We use `SetVars()` to set several variables in one call:
 
 ```go
 conv.SetVars(map[string]any{
@@ -109,9 +101,11 @@ conv.SetVars(map[string]any{
 })
 ```
 
-## Get Variables
+Send a message after this call. The reply is now in Spanish, from a sales representative at GlobalTech, speaking to Carlos.
 
-Retrieve variables with `GetVar()`:
+## Step 4: Read variables back
+
+We retrieve variables with `GetVar()`:
 
 ```go
 // Set a variable
@@ -128,52 +122,45 @@ _, ok = conv.GetVar("nonexistent")
 fmt.Printf("Found: %v\n", ok)  // false
 ```
 
-## Environment Variables
+The program prints `User ID: 12345` and then `Found: false`.
 
-Load variables from environment:
+## Step 5: Load variables from the environment
+
+`SetVarsFromEnv()` takes a prefix. Every environment variable that starts with it becomes a template variable, with the prefix removed and the name lowercased:
 
 ```go
-// Set from environment
-// Uses PROMPTKIT_ prefix by default
-// e.g., PROMPTKIT_API_KEY becomes "api_key"
+// PROMPTKIT_API_KEY=abc123 becomes the variable "api_key"
 conv.SetVarsFromEnv("PROMPTKIT_")
 
-// Or set individual env vars
-import "os"
-conv.SetVar("api_key", os.Getenv("MY_API_KEY"))
+apiKey, _ := conv.GetVar("api_key")
+fmt.Println(apiKey) // "abc123"
 ```
 
-## Dynamic Context Updates
+With `PROMPTKIT_API_KEY=abc123` set in the shell, the program prints `abc123`.
 
-Update variables during conversation:
+## Step 6: Change a variable between sends
+
+A conversation renders the system prompt on every `Send()`, so a variable you change between sends takes effect on the next one:
 
 ```go
-conv, _ := sdk.Open("./support.pack.json", "support")
-
+ctx := context.Background()
 conv.SetVar("customer_name", "Unknown")
 
 // First interaction
 resp1, _ := conv.Send(ctx, "Hi, my name is Bob")
 
-// Update context based on conversation
+// Update the variable from what the customer said
 conv.SetVar("customer_name", "Bob")
 
-// Now system prompt includes "The customer's name is Bob"
+// The system prompt now says "The customer's name is Bob"
 resp2, _ := conv.Send(ctx, "What products do you have?")
 ```
 
-## Variable Values
+The second reply can address Bob by name; the first could not.
 
-Variables are strings:
+## Step 7: Pass non-string values
 
-```go
-conv.SetVar("name", "Alice")
-conv.SetVar("user_id", "12345")
-conv.SetVar("is_premium", "true")
-conv.SetVar("region", "us-west")
-```
-
-Use `SetVars()` for bulk setting with `map[string]any` (values are converted to strings):
+Variables are strings. `SetVars()` accepts a `map[string]any` and converts each value to a string:
 
 ```go
 conv.SetVars(map[string]any{
@@ -181,16 +168,20 @@ conv.SetVars(map[string]any{
     "user_id":    12345,
     "is_premium": true,
 })
+
+userID, _ := conv.GetVar("user_id")
+fmt.Println(userID) // "12345"
 ```
 
-## Concurrent Safety
+The integer `12345` comes back as the string `12345`.
 
-Variables are thread-safe for concurrent access:
+## Step 8: Set variables from several goroutines
+
+Several goroutines can set variables on one conversation:
 
 ```go
 var wg sync.WaitGroup
 
-// Safe to set from multiple goroutines
 for i := 0; i < 10; i++ {
     wg.Add(1)
     go func(n int) {
@@ -202,16 +193,20 @@ for i := 0; i < 10; i++ {
 wg.Wait()
 ```
 
-## Forked Conversations
+All ten variables (`var_0` to `var_9`) are set, and the program finishes without a data race.
 
-Forked conversations get their own variable scope:
+## Step 9: Fork a conversation
+
+`Fork()` copies a conversation, including its variables. Changing a variable in the fork leaves the original untouched:
 
 ```go
 conv1, _ := sdk.Open("./pack.json", "chat")
 conv1.SetVar("user", "Alice")
 
-// Fork creates isolated copy
-conv2 := conv1.Fork()
+conv2, err := conv1.Fork()
+if err != nil {
+    log.Fatal(err)
+}
 conv2.SetVar("user", "Bob")
 
 // conv1 still has "Alice"
@@ -221,20 +216,10 @@ fmt.Println(user1)  // "Alice"
 fmt.Println(user2)  // "Bob"
 ```
 
-## What You've Learned
+The program prints `Alice` and then `Bob`.
 
-✅ Set variables with `SetVar()` and `SetVars()`  
-✅ Get variables with `GetVar()`  
-✅ Use variables in system prompts  
-✅ Load from environment  
-✅ Thread-safe concurrent access  
-✅ Variable isolation in forks  
-
-## Next Steps
+## Next steps
 
 - **[Tutorial 5: HITL](/sdk/tutorials/05-custom-pipelines/)** - Approval workflows
 - **[How-To: Manage State](/sdk/how-to/conversations/manage-state/)** - Advanced state
-
-## Complete Example
-
-See the variable handling in `sdk/examples/hello/`.
+- The variable handling in `sdk/examples/hello/` shows a complete program.

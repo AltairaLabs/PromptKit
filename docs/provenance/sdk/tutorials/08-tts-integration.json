@@ -1,0 +1,103 @@
+{
+ "page": "docs/src/content/docs/sdk/tutorials/08-tts-integration.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "tts.Service interface methods",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tts/service.go:49"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "tts.NewOpenAI, NewElevenLabs, NewCartesia take an API key",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tts/cartesia.go:120",
+    "runtime/tts/elevenlabs.go:76",
+    "runtime/tts/openai.go:95"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "OpenAI models tts-1, tts-1-hd",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tts/openai.go:32",
+    "runtime/tts/openai.go:36",
+    "runtime/tts/openai.go:40"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "SynthesisConfig fields Voice, Format, Speed, Pitch, Language, Model",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tts/service.go:103"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Format constants MP3, Opus, AAC, FLAC, PCM16, WAV",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tts/service.go:181",
+    "runtime/tts/service.go:226"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "ttsService.(tts.StreamingService) assertion on tts.NewOpenAI result",
+   "verdict": "false",
+   "evidence": [
+    "runtime/tts/cartesia_interactive.go:35",
+    "runtime/tts/service.go:80"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "tts.DefaultSynthesisConfig()",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tts/service.go:130"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "OpenAI voice characteristics (echo warm smooth, nova youthful, shimmer clear professional)",
+   "verdict": "false",
+   "evidence": [
+    "runtime/tts/openai.go:323"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "tts.ErrTextTooLong exists",
+   "verdict": "false",
+   "evidence": [
+    "runtime/tts/errors.go:23",
+    "runtime/tts/errors.go:8"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "OpenAI, ElevenLabs, Cartesia price per character",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tts/cartesia.go:68",
+    "runtime/tts/elevenlabs.go:52",
+    "runtime/tts/openai.go:60"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "ElevenLabs per-character pricing has tiers",
+   "verdict": "unverified",
+   "evidence": [
+    "runtime/tts/elevenlabs.go:52"
+   ]
+  }
+ ]
+}

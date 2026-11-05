@@ -1,0 +1,130 @@
+{
+ "page": "docs/src/content/docs/sdk/tutorials/04-state-management.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "template_engine {version v1, syntax {{variable}}} in the pack",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/pack.go:755"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "system_template placeholders {{role}} etc. are filled by conv.SetVar values; pack need not declare them",
+   "verdict": "true",
+   "evidence": [
+    "runtime/template/renderer.go:59",
+    "sdk/session_vars.go:31"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "sdk.Open(packPath, promptName) returns (*Conversation, error)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:84"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "conv.SetVar(name, value string)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1209",
+    "sdk/session/unary_session.go:244"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "conv.SetVars(map[string]any)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1226"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "conv.GetVar(name) returns (string, bool); false for unset",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1273",
+    "sdk/session/unary_session.go:254"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "SetVarsFromEnv uses PROMPTKIT_ prefix by default; PROMPTKIT_API_KEY becomes api_key",
+   "verdict": "false",
+   "evidence": [
+    "sdk/conversation.go:1247",
+    "sdk/conversation.go:1264"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Updating a variable between sends changes the next system prompt",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1203",
+    "sdk/session_vars.go:31"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Variables are strings; SetVars converts values to strings",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1235"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Variables are safe for concurrent access",
+   "verdict": "true",
+   "evidence": [
+    "sdk/session/unary_session.go:244",
+    "sdk/session/unary_session.go:254"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "conv.Fork() returns a single *Conversation",
+   "verdict": "false",
+   "evidence": [
+    "sdk/conversation.go:1358"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "A fork has its own variable scope copied from the parent",
+   "verdict": "true",
+   "evidence": [
+    "sdk/session/unary_session.go:292"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "sdk/examples/hello shows variable handling",
+   "verdict": "true",
+   "evidence": [
+    "sdk/examples/hello/main_interactive.go:32"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "/sdk/how-to/conversations/manage-state/ and tutorial 05 pages exist",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 15,
+   "claim": "Step 2 Go program and the snippets compile against sdk/v2",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1358"
+   ]
+  }
+ ]
+}

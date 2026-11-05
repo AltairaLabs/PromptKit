@@ -1,0 +1,115 @@
+{
+ "page": "docs/src/content/docs/sdk/tutorials/10-a2a-server.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Go 1.22+",
+   "verdict": "false",
+   "evidence": []
+  },
+  {
+   "id": 2,
+   "claim": "a2a.AgentCard fields Name, Description, DefaultInputModes, DefaultOutputModes, Capabilities{Streaming}, Skills{ID,Name,Description}",
+   "verdict": "true",
+   "evidence": [
+    "sdk/a2a_exports.go:38"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "sdk.A2AOpener(packPath, prompt) creates conversations from a pack",
+   "verdict": "true",
+   "evidence": [
+    "sdk/a2a.go:10"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Each A2A request creates a new SDK conversation via the opener",
+   "verdict": "false",
+   "evidence": [
+    "server/a2a/server.go:262"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Conversation-owning mode reuses one conversation per contextID",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/server.go:262"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "a2aserver.NewStatelessServer hands each message to a handler, keeps nothing",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/handler.go:93"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "sdk.NewA2AServer, WithA2ACard, WithA2APort, WithA2ATaskStore",
+   "verdict": "true",
+   "evidence": [
+    "sdk/a2a_exports.go:45",
+    "sdk/a2a_exports.go:50",
+    "sdk/a2a_exports.go:55"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "server.Shutdown(ctx), ListenAndServe(), Handler()",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/server.go:318",
+    "server/a2a/server.go:349",
+    "server/a2a/server.go:371"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Agent card served at /.well-known/agent-card.json",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/client.go:266",
+    "server/a2a/server.go:320"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Client: a2a.NewClient, Discover, SendMessage with SendMessageRequest{Message, Configuration{Blocking}}, RoleUser, Part.Text",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/client.go:231",
+    "runtime/a2a/client.go:273",
+    "runtime/a2a/client.go:762"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "Default task store is in-memory",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/server.go:294"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "sdk.A2ATaskStore interface",
+   "verdict": "true",
+   "evidence": [
+    "sdk/a2a_exports.go:13"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "Linked pages exist",
+   "verdict": "true",
+   "evidence": [
+    "sdk/a2a_exports.go:13"
+   ]
+  }
+ ]
+}
