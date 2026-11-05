@@ -27,6 +27,22 @@ type ToolHook interface {
 	AfterExecution(ctx context.Context, req ToolRequest, resp ToolResponse) Decision
 }
 
+// ToolResultRewriter is an opt-in extension for ToolHook. A ToolHook that
+// also implements it may rewrite the text of a tool's successful result
+// before the model sees it, as a test harness does to plant an indirect
+// prompt injection in live tool output.
+//
+// The provider stage calls it for the tools it runs: once with a plain
+// result's text, or once per text part of a multimodal result, before the
+// result size limit applies. Rewriters run in registration order, each on
+// the previous one's output; an error fails the tool call. Client tools,
+// calls resumed after approval and duplex sessions are not rewritten.
+// Parallel tool calls rewrite concurrently, so RewriteResult must be safe
+// for concurrent use.
+type ToolResultRewriter interface {
+	RewriteResult(ctx context.Context, req ToolRequest, content string) (string, error)
+}
+
 // SessionHook tracks session lifecycle.
 type SessionHook interface {
 	Name() string

@@ -2707,7 +2707,7 @@ func (s *ProviderStage) executeToolCalls(
 // Returns (hookDecision, blocked result, shouldSkip).
 // When shouldSkip is true the caller should return the blocked result directly.
 func (s *ProviderStage) preExecCheck(
-	ctx context.Context, toolCall types.MessageToolCall,
+	ctx context.Context, toolCall types.MessageToolCall, toolReq hooks.ToolRequest,
 ) (hooks.Decision, toolCallResult, bool) {
 	if p := s.policy(); p != nil && isToolBlocked(toolCall.Name, p.Blocklist) {
 		errMsg := fmt.Sprintf("Tool %s is blocked by policy", toolCall.Name)
@@ -2721,10 +2721,6 @@ func (s *ProviderStage) preExecCheck(
 
 	var hookDecision hooks.Decision
 	if s.hookRegistry != nil {
-		toolReq := hooks.ToolRequest{
-			Name: toolCall.Name, Args: toolCall.Args, CallID: toolCall.ID,
-			Declaration: s.toolDeclaration(toolCall.Name),
-		}
 		hookDecision = s.hookRegistry.RunBeforeToolExecution(ctx, toolReq)
 		if !hookDecision.Allow {
 			errMsg := fmt.Sprintf(
@@ -2779,7 +2775,8 @@ func (s *ProviderStage) executeSingleToolCall(
 	toolCall types.MessageToolCall,
 	rr roundRef,
 ) toolCallResult {
-	hookDecision, blocked, skip := s.preExecCheck(ctx, toolCall)
+	toolReq := s.toolRequest(toolCall)
+	hookDecision, blocked, skip := s.preExecCheck(ctx, toolCall, toolReq)
 	if skip {
 		return blocked
 	}
@@ -2796,30 +2793,17 @@ func (s *ProviderStage) executeSingleToolCall(
 	asyncResult, err := s.toolRegistry.ExecuteAsync(ctx, toolCall.Name, toolCall.Args)
 	ResetIdleFromContext(ctx)
 	if err != nil {
-		if s.emitter != nil {
-			s.emitter.ToolCallEventCtx(ctx, events.EventToolCallFailed, &events.ToolCallEventData{
-				ToolName:       toolCall.Name,
-				CallID:         toolCall.ID,
-				Error:          err,
-				Duration:       time.Since(startTime),
-				Labels:         labels,
-				Round:          rr.round,
-				ProviderCallID: rr.providerCallID,
-			})
-		}
-		errResult := types.NewTextToolResult(toolCall.ID, toolCall.Name, fmt.Sprintf("Error: %v", err))
-		errResult.Error = err.Error()
-		errResult.ErrorType = classifyToolError(err)
-		return toolCallResult{
-			message: types.NewToolResultMessage(errResult),
-		}
+		return s.toolCallFailed(ctx, toolCall, err, startTime, labels, rr)
 	}
 
 	if asyncResult.Status == tools.ToolStatusPending {
 		return s.buildPendingResult(ctx, toolCall, asyncResult)
 	}
 
-	result := s.handleToolResult(toolCall, asyncResult)
+	result, err := s.buildToolResult(toolCall, asyncResult, s.resultRewriter(ctx, toolReq))
+	if err != nil {
+		return s.toolCallFailed(ctx, toolCall, err, startTime, labels, rr)
+	}
 	if s.emitter != nil {
 		s.emitter.ToolCallEventCtx(ctx, events.EventToolCallCompleted, &events.ToolCallEventData{
 			ToolName:       toolCall.Name,
@@ -2837,9 +2821,58 @@ func (s *ProviderStage) executeSingleToolCall(
 		resultMsg.Meta = hookDecision.Metadata
 	}
 
-	s.runAfterToolHooks(ctx, toolCall, result, startTime)
+	s.runAfterToolHooks(ctx, toolReq, result, startTime)
 
 	return toolCallResult{message: resultMsg}
+}
+
+// toolRequest is the hook request for a tool call, built once per call.
+func (s *ProviderStage) toolRequest(toolCall types.MessageToolCall) hooks.ToolRequest {
+	if s.hookRegistry == nil {
+		return hooks.ToolRequest{}
+	}
+	return hooks.ToolRequest{
+		Name: toolCall.Name, Args: toolCall.Args, CallID: toolCall.ID,
+		Declaration: s.toolDeclaration(toolCall.Name),
+	}
+}
+
+// toolCallFailed emits tool.call.failed and returns the error result the
+// model sees.
+func (s *ProviderStage) toolCallFailed(
+	ctx context.Context, toolCall types.MessageToolCall, err error,
+	startTime time.Time, labels map[string]string, rr roundRef,
+) toolCallResult {
+	if s.emitter != nil {
+		s.emitter.ToolCallEventCtx(ctx, events.EventToolCallFailed, &events.ToolCallEventData{
+			ToolName:       toolCall.Name,
+			CallID:         toolCall.ID,
+			Error:          err,
+			Duration:       time.Since(startTime),
+			Labels:         labels,
+			Round:          rr.round,
+			ProviderCallID: rr.providerCallID,
+		})
+	}
+	errResult := types.NewTextToolResult(toolCall.ID, toolCall.Name, fmt.Sprintf("Error: %v", err))
+	errResult.Error = err.Error()
+	errResult.ErrorType = classifyToolError(err)
+	return toolCallResult{
+		message: types.NewToolResultMessage(errResult),
+	}
+}
+
+// resultRewriter returns the function that passes a result's text through
+// the hook registry's ToolResultRewriters, or nil when there are none.
+func (s *ProviderStage) resultRewriter(
+	ctx context.Context, toolReq hooks.ToolRequest,
+) func(string) (string, error) {
+	if !s.hookRegistry.HasToolResultRewriters() {
+		return nil
+	}
+	return func(content string) (string, error) {
+		return s.hookRegistry.RunToolResultRewriters(ctx, toolReq, content)
+	}
 }
 
 // emitToolStarted emits the tool call started event if an emitter is configured.
@@ -3269,20 +3302,16 @@ func (s *ProviderStage) buildPendingResult(
 // runAfterToolHooks runs AfterExecution hooks if a hook registry is configured.
 func (s *ProviderStage) runAfterToolHooks(
 	ctx context.Context,
-	toolCall types.MessageToolCall,
+	toolReq hooks.ToolRequest,
 	result types.MessageToolResult,
 	startTime time.Time,
 ) {
 	if s.hookRegistry == nil {
 		return
 	}
-	toolReq := hooks.ToolRequest{
-		Name: toolCall.Name, Args: toolCall.Args, CallID: toolCall.ID,
-		Declaration: s.toolDeclaration(toolCall.Name),
-	}
 	toolResp := hooks.ToolResponse{
-		Name:      toolCall.Name,
-		CallID:    toolCall.ID,
+		Name:      toolReq.Name,
+		CallID:    toolReq.CallID,
 		Content:   result.GetTextContent(),
 		Error:     result.Error,
 		LatencyMs: time.Since(startTime).Milliseconds(),
@@ -3295,6 +3324,19 @@ func (s *ProviderStage) handleToolResult(
 	call types.MessageToolCall,
 	asyncResult *tools.ToolExecutionResult,
 ) types.MessageToolResult {
+	result, _ := s.buildToolResult(call, asyncResult, nil)
+	return result
+}
+
+// buildToolResult converts a tool execution result to a MessageToolResult.
+// rewrite, when set, rewrites a completed result's text before the size limit
+// applies: the whole text of a plain result, or each text part of a
+// multimodal one, leaving media parts where they are. Its error is returned.
+func (s *ProviderStage) buildToolResult(
+	call types.MessageToolCall,
+	asyncResult *tools.ToolExecutionResult,
+	rewrite func(string) (string, error),
+) (types.MessageToolResult, error) {
 	switch asyncResult.Status {
 	case tools.ToolStatusPending:
 		// Tool is held pending external resolution (HITL approval or a client-mode
@@ -3305,7 +3347,7 @@ func (s *ProviderStage) handleToolResult(
 		if pendingMsg == "" {
 			pendingMsg = fmt.Sprintf("Tool %s is awaiting approval", call.Name)
 		}
-		return types.NewTextToolResult(call.ID, call.Name, pendingMsg)
+		return types.NewTextToolResult(call.ID, call.Name, pendingMsg), nil
 
 	case tools.ToolStatusFailed:
 		failResult := types.NewTextToolResult(
@@ -3313,7 +3355,7 @@ func (s *ProviderStage) handleToolResult(
 			fmt.Sprintf("Tool execution failed: %s", asyncResult.Error),
 		)
 		failResult.Error = asyncResult.Error
-		return failResult
+		return failResult, nil
 
 	case tools.ToolStatusComplete:
 		// Tool completed successfully
@@ -3325,27 +3367,60 @@ func (s *ProviderStage) handleToolResult(
 			content = formatToolResult(resultValue)
 		}
 
-		// Enforce tool result size limit
-		content = s.enforceResultSizeLimit(call.Name, content)
-
 		// If the executor returned multimodal parts, propagate them directly;
 		// otherwise wrap the text content as a single text ContentPart (legacy path).
 		if len(asyncResult.Parts) > 0 {
+			parts, err := s.rewriteTextParts(call.Name, asyncResult.Parts, rewrite)
+			if err != nil {
+				return types.MessageToolResult{}, err
+			}
 			return types.MessageToolResult{
 				ID:    call.ID,
 				Name:  call.Name,
-				Parts: asyncResult.Parts,
-			}
+				Parts: parts,
+			}, nil
 		}
 
-		return types.NewTextToolResult(call.ID, call.Name, content)
+		if rewrite != nil {
+			var err error
+			if content, err = rewrite(content); err != nil {
+				return types.MessageToolResult{}, err
+			}
+		}
+		// Enforce tool result size limit
+		content = s.enforceResultSizeLimit(call.Name, content)
+		return types.NewTextToolResult(call.ID, call.Name, content), nil
 
 	default:
 		unknownMsg := fmt.Sprintf("Unknown tool status: %v", asyncResult.Status)
 		unknownResult := types.NewTextToolResult(call.ID, call.Name, unknownMsg)
 		unknownResult.Error = unknownMsg
-		return unknownResult
+		return unknownResult, nil
 	}
+}
+
+// rewriteTextParts rewrites each text part of a multimodal result, capped
+// at the size limit, and keeps the media parts in place. Without rewrite the
+// parts are returned as they are.
+func (s *ProviderStage) rewriteTextParts(
+	name string, parts []types.ContentPart, rewrite func(string) (string, error),
+) ([]types.ContentPart, error) {
+	if rewrite == nil {
+		return parts, nil
+	}
+	out := make([]types.ContentPart, len(parts))
+	for i, p := range parts {
+		if p.Type != types.ContentTypeText || p.Text == nil {
+			out[i] = p
+			continue
+		}
+		text, err := rewrite(*p.Text)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = types.NewTextPart(s.enforceResultSizeLimit(name, text))
+	}
+	return out, nil
 }
 
 // enforceResultSizeLimit truncates the tool result content if it exceeds the

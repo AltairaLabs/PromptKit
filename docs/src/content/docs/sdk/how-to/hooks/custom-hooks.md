@@ -13,6 +13,7 @@ How to implement each PromptKit hook type in Go and register it with an SDK conv
 | Inspect or block an LLM request/response | [`ProviderHook`](#providerhook) |
 | Same as above, but abort mid-stream on bad chunks | [`ProviderHook` + `ChunkInterceptor`](#providerhook--chunkinterceptor) |
 | Inspect or block a tool call | [`ToolHook`](#toolhook) |
+| Rewrite a tool's result before the model sees it | [`ToolHook` + `ToolResultRewriter`](#toolhook--toolresultrewriter) |
 | Observe session start/turn/end | [`SessionHook`](#sessionhook) |
 | Push or mutate eval results | [`EvalHook`](#evalhook) |
 
@@ -83,7 +84,7 @@ A streaming denial surfaces as `*providers.ValidationAbortError` rather than `*h
 
 ## ToolHook
 
-Same shape as `ProviderHook` but firing around tool execution. Use `BeforeExecution` to gate calls (e.g. allowlist) and `AfterExecution` to observe or sanitise results.
+Same shape as `ProviderHook` but firing around tool execution. Use `BeforeExecution` to gate calls (e.g. allowlist) and `AfterExecution` to observe results. `AfterExecution` runs after the result is built, so it can't change it; to change a result, also implement [`ToolResultRewriter`](#toolhook--toolresultrewriter).
 
 ```go
 type AuditToolHook struct {
@@ -106,6 +107,28 @@ func (h *AuditToolHook) AfterExecution(_ context.Context, req hooks.ToolRequest,
 ```
 
 Register via `sdk.WithToolHook(&AuditToolHook{logger: slog.Default()})`.
+
+## ToolHook + ToolResultRewriter
+
+If your tool hook also implements `ToolResultRewriter`, the registry passes the text of each successful tool result through `RewriteResult` before the model sees it. Use it to redact a result, or in a test harness to plant an indirect prompt injection in live tool output.
+
+```go
+type RedactHook struct{ AuditToolHook }
+
+func (h *RedactHook) RewriteResult(_ context.Context, req hooks.ToolRequest, content string) (string, error) {
+    if req.Name != "lookup_customer" {
+        return content, nil
+    }
+    return ssnPattern.ReplaceAllString(content, "[redacted]"), nil
+}
+```
+
+- **Order.** Rewriters run in registration order, each on the previous one's output.
+- **What they see.** The whole text of a plain result, before the result size limit applies; the limit then applies to what they return. A multimodal result is rewritten one text part at a time, with media parts left where they are; a result with no text isn't rewritten.
+- **What sees the rewrite.** The model, the `tool.call.completed` event and `AfterExecution` all see the rewritten result.
+- **Errors.** A failed call isn't rewritten. A rewriter that returns an error fails the call: the model gets an error result, `tool.call.failed` is emitted, and the original text is not passed on.
+- **Concurrency.** Parallel tool calls are rewritten concurrently, so `RewriteResult` must be safe for concurrent use.
+- **Scope.** Only tools the pipeline runs are rewritten. Client tools, calls resumed after approval, and tools in duplex sessions are not.
 
 ## SessionHook
 
