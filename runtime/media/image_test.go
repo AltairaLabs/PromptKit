@@ -2,8 +2,10 @@ package media
 
 import (
 	"bytes"
+	"encoding/base64"
 	"image"
 	"image/color"
+	"image/gif"
 	"image/jpeg"
 	"image/png"
 	"testing"
@@ -378,5 +380,96 @@ func TestResizeImage_TinyDimensions(t *testing.T) {
 
 	if result.Width < 1 || result.Height < 1 {
 		t.Errorf("Expected minimum dimensions of 1x1, got %dx%d", result.Width, result.Height)
+	}
+}
+
+// tinyWebP is a 1x1 lossless WebP; the standard library has no WebP encoder.
+const tinyWebP = "UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA=="
+
+// createFormatTestImage encodes a test image in any input format, including GIF and WebP.
+func createFormatTestImage(t *testing.T, format string, width, height int) []byte {
+	t.Helper()
+	switch format {
+	case FormatGIF:
+		img := image.NewPaletted(image.Rect(0, 0, width, height), color.Palette{color.Black, color.White})
+		var buf bytes.Buffer
+		if err := gif.Encode(&buf, img, nil); err != nil {
+			t.Fatalf("gif encode: %v", err)
+		}
+		return buf.Bytes()
+	case FormatWebP:
+		data, err := base64.StdEncoding.DecodeString(tinyWebP)
+		if err != nil {
+			t.Fatalf("webp fixture: %v", err)
+		}
+		return data
+	default:
+		return createTestImage(width, height, format)
+	}
+}
+
+// mimeFromMagic reports the MIME type indicated by the leading bytes of data.
+func mimeFromMagic(data []byte) string {
+	switch {
+	case bytes.HasPrefix(data, []byte{0xFF, 0xD8, 0xFF}):
+		return MIMETypeJPEG
+	case bytes.HasPrefix(data, []byte("\x89PNG\r\n\x1a\n")):
+		return MIMETypePNG
+	case bytes.HasPrefix(data, []byte("GIF8")):
+		return MIMETypeGIF
+	case len(data) >= 12 && string(data[:4]) == "RIFF" && string(data[8:12]) == "WEBP":
+		return MIMETypeWebP
+	}
+	return "unknown"
+}
+
+func TestResizeImage_MIMETypeMatchesEncodedBytes(t *testing.T) {
+	inputs := []string{FormatJPEG, FormatPNG, FormatGIF, FormatWebP}
+	outputs := []string{"", FormatJPEG, FormatJPG, FormatPNG, FormatGIF, FormatWebP}
+
+	for _, in := range inputs {
+		for _, out := range outputs {
+			t.Run(in+"_to_"+out, func(t *testing.T) {
+				width, height := 400, 200
+				if in == FormatWebP {
+					width, height = 1, 1
+				}
+				data := createFormatTestImage(t, in, width, height)
+				cfg := testResizeConfig(func(c *ImageResizeConfig) {
+					c.MaxWidth, c.MaxHeight = 100, 100
+					c.Format = out
+					c.SkipIfSmaller = false
+				})
+				if in == FormatWebP {
+					cfg.MaxWidth, cfg.MaxHeight = 0, 0
+				}
+
+				result, err := ResizeImage(data, cfg)
+				if err != nil {
+					t.Fatalf("ResizeImage failed: %v", err)
+				}
+				if got := mimeFromMagic(result.Data); got != result.MIMEType {
+					t.Errorf("MIMEType %q does not match encoded bytes (%q)", result.MIMEType, got)
+				}
+				if got := formatToMIMEType(result.Format); got != result.MIMEType {
+					t.Errorf("Format %q implies %q, MIMEType is %q", result.Format, got, result.MIMEType)
+				}
+			})
+		}
+	}
+}
+
+func TestResizeImage_SkipIfSmallerMIMETypeMatchesBytes(t *testing.T) {
+	for _, in := range []string{FormatJPEG, FormatPNG, FormatGIF, FormatWebP} {
+		t.Run(in, func(t *testing.T) {
+			data := createFormatTestImage(t, in, 1, 1)
+			result, err := ResizeImage(data, testResizeConfig())
+			if err != nil {
+				t.Fatalf("ResizeImage failed: %v", err)
+			}
+			if got := mimeFromMagic(result.Data); got != result.MIMEType {
+				t.Errorf("MIMEType %q does not match bytes (%q)", result.MIMEType, got)
+			}
+		})
 	}
 }
