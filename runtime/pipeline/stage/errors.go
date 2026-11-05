@@ -84,7 +84,10 @@ type buildValidator interface {
 	validateBuild() error
 }
 
-// StageError wraps an error with stage information.
+// StageError wraps an error with stage information. The pipeline delivers a
+// failed stage's error to the caller as a *StageError, except for an error the
+// stage already emitted as an error element before returning it, which the caller
+// receives as emitted. errors.Is and errors.As see through it to the stage's error.
 //
 //nolint:revive // Intentionally named StageError for clarity; stage.Error would be too generic
 type StageError struct {
@@ -113,14 +116,9 @@ func NewStageError(stageName string, stageType StageType, err error) *StageError
 }
 
 // ErrTemplateUnresolved is returned by TemplateStage when the system prompt
-// references a variable nothing supplied.
-//
-// The turn fails rather than proceeding. The alternative (sending the
-// unrendered template) puts literal {{...}} in front of the model, and since
-// rendering aborts at the first missing name, every other variable in that
-// prompt goes unrendered too. That reads in production as a model ignoring its
-// instructions, which is a far longer trail back to a missing variable than an
-// error naming it.
+// references a variable nothing supplied. The turn fails and the error reaches
+// the caller wrapped in a *StageError, so errors.Is matches it. The stage does
+// not send the unrendered template to the model.
 var ErrTemplateUnresolved = errors.New("system prompt has unresolved variables")
 
 // ErrMaxRoundsExceeded matches, with errors.Is, a turn the provider stage

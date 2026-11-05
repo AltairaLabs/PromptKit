@@ -62,7 +62,7 @@ func (b *PipelineBuilder) AddStage(stage Stage) *PipelineBuilder {
 //
 // Example:
 //
-//	pipeline := NewPipelineBuilder().
+//	pipeline, err := NewPipelineBuilder().
 //	    Chain(
 //	        NewStageA(),
 //	        NewStageB(),
@@ -102,7 +102,7 @@ func (b *PipelineBuilder) Connect(fromStage, toStage string) *PipelineBuilder {
 //
 // Example:
 //
-//	pipeline := NewPipelineBuilder().
+//	pipeline, err := NewPipelineBuilder().
 //	    Chain(NewStageA(), NewStageB()).
 //	    Branch("stageB", "stageC", "stageD").  // each element of B's output goes to C or D
 //	    Build()
@@ -123,7 +123,13 @@ func (b *PipelineBuilder) Merge(into string, from ...string) *PipelineBuilder {
 }
 
 // Build constructs the pipeline from the builder's configuration.
-// It validates the pipeline structure and returns an error if invalid.
+// It validates the pipeline structure and returns an error if invalid: no stages
+// (ErrNoStages), an invalid PipelineConfig, a duplicate stage name
+// (ErrDuplicateStageName), an edge to an unknown stage (ErrStageNotFound), a cycle
+// (ErrCyclicDependency), a duplicate edge (ErrDuplicateFanInEdge), a fan-in stage
+// that does not implement MultiInputStage (ErrFanInNotSupported), or a
+// TemplateStage or PromptAssemblyStage without a TurnState (ErrTurnStateRequired,
+// wrapped in ErrInvalidPipeline).
 func (b *PipelineBuilder) Build() (*StreamPipeline, error) {
 	// Validate the pipeline
 	if err := b.validate(); err != nil {

@@ -15,7 +15,7 @@ import (
 
 // PromptAssemblyStage loads and assembles prompts from the prompt registry.
 // It populates TurnState (Template, AllowedTools, Validators) on its first
-// iteration; downstream stages read from TurnState. See ARCHITECTURE.md §4.
+// iteration; downstream stages read from TurnState.
 type PromptAssemblyStage struct {
 	BaseStage
 	promptRegistry *prompt.Registry
@@ -75,10 +75,9 @@ func (s *PromptAssemblyStage) WithModel(model string) *PromptAssemblyStage {
 	return s
 }
 
-// Process loads the prompt template and populates TurnState. It does NOT
-// render the template (that is TemplateStage's job) and does NOT set
-// variables (that is VariableProviderStage's job). All input elements are
-// forwarded unchanged.
+// Process loads the prompt template and populates TurnState. It does not
+// render the template (TemplateStage does) and does not set variables
+// (VariableProviderStage does). All input elements are forwarded unchanged.
 func (s *PromptAssemblyStage) Process(
 	ctx context.Context, input <-chan StreamElement, output chan<- StreamElement,
 ) error {
@@ -223,7 +222,7 @@ func (s *StateStoreLoadStage) Process(
 // reading the whole transcript from the store. It is the single source for
 // TurnState.TurnIndex: the turn is a position in the persisted conversation,
 // so every stage that opens a turn must derive it from the store rather than
-// from whatever subset of history it happened to load (#1945). A missing
+// from whatever subset of history it happened to load. A missing
 // conversation is turn zero, not an error.
 func deriveTurnIndex(ctx context.Context, store statestore.Store, convID string) (int, error) {
 	state, err := store.Load(ctx, convID)

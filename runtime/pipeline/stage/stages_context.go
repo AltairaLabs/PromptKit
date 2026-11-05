@@ -28,23 +28,25 @@ type ContextAssemblyConfig struct {
 	StateStoreConfig *rtpipeline.StateStoreConfig
 
 	// RecentMessages is the number of recent messages to include (hot window).
+	// Zero or negative means 20.
 	RecentMessages int
 
-	// MessageIndex for semantic retrieval of relevant older messages (Phase 2).
+	// MessageIndex for semantic retrieval of relevant older messages.
 	// When nil, only the hot window and summaries are used.
 	MessageIndex statestore.MessageIndex
 
 	// RetrievalTopK is the number of results to retrieve from the message index.
+	// Zero or negative disables retrieval.
 	RetrievalTopK int
 
 	// MaxMessages is the hard cap on total messages retained when no explicit
 	// context window is set. System messages at the start are always preserved.
-	// Default: DefaultMaxMessages (200).
+	// Zero or negative means DefaultMaxMessages (200).
 	MaxMessages int
 
 	// WarningThreshold is the message count above which a warning is logged
 	// when no context window or token budget is configured.
-	// Default: DefaultWarningThreshold (100).
+	// Zero or negative means DefaultWarningThreshold (100).
 	WarningThreshold int
 
 	// HasTokenBudget indicates whether a token budget stage is configured
@@ -134,7 +136,7 @@ func (s *ContextAssemblyStage) Process(
 		// The hot window is a subset, so the turn cannot be counted from it.
 		// Read the transcript once purely to place this turn against it: a
 		// context-window conversation otherwise reports turn 0 on every
-		// guardrail and eval event (#1945).
+		// guardrail and eval event.
 		priorTurns, err := deriveTurnIndex(ctx, store, convID)
 		if err != nil {
 			return fmt.Errorf("context assembly: %w", err)
@@ -204,7 +206,7 @@ func (s *ContextAssemblyStage) assembleFromReader(
 		return nil, fmt.Errorf("context assembly: failed to load recent messages: %w", err)
 	}
 
-	// 3. Semantic retrieval (Phase 2) — insert between summaries and hot window
+	// 3. Semantic retrieval, inserted between summaries and hot window
 	if s.config.MessageIndex != nil && s.config.RetrievalTopK > 0 && len(recentMsgs) > 0 {
 		retrieved, err := s.retrieveRelevant(ctx, convID, recentMsgs)
 		if err != nil {

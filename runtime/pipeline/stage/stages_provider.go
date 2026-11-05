@@ -53,7 +53,19 @@ const (
 //      and the pipeline suspends until the caller resolves it
 
 // ProviderStage executes LLM calls and handles tool execution.
-// This is the request/response mode implementation.
+//
+// With ProviderConfig.Streaming unset it runs in request/response mode: it reads
+// its input to the end, calls the model, runs the tool loop, and emits the
+// resulting messages. With Streaming set it fires on each EndOfTurn element and
+// stays open for the next turn.
+//
+// In request/response mode a failed call makes the stage emit the error as an
+// error element and return it, so the caller receives the provider's error as
+// the provider returned it, not wrapped in a *StageError. A tool loop that
+// reaches its round limit ends the same way with a *MaxRoundsError. In streaming
+// mode a failed turn emits the error element and the stage stays open for the
+// next turn. If an upstream stage failed the turn, the stage forwards that
+// failure and does not call the model.
 type ProviderStage struct {
 	BaseStage
 	provider     providers.Provider
@@ -72,7 +84,7 @@ type ProviderStage struct {
 	promptTask atomic.Value // string
 	// active is what the model is invoked on next: the provider and the
 	// max_tokens/temperature. Each execution starts on the stage's own; a
-	// workflow handoff to a state whose prompt runs elsewhere (RFC 0017) swaps
+	// workflow handoff to a state whose prompt runs elsewhere swaps
 	// it mid-turn, as promptTask is swapped. Read through callProvider,
 	// callMaxTokens and callTemperature, never s.provider directly.
 	active atomic.Pointer[activeCall]
@@ -129,7 +141,10 @@ func (s *ProviderStage) SetWorkflowStateResolver(r WorkflowStateResolver) {
 
 // ProviderConfig contains configuration for the provider stage.
 type ProviderConfig struct {
-	MaxTokens   int
+	// MaxTokens limits the tokens in a response. Zero leaves the provider's default.
+	MaxTokens int
+	// Temperature is the sampling temperature. Zero is the provider's default
+	// unless TemperatureSet is true.
 	Temperature float32
 	// TemperatureSet marks Temperature as set, so a zero is requested rather
 	// than the provider's default (providers.ResolveTemperature).
@@ -144,9 +159,9 @@ type ProviderConfig struct {
 	ResponseFormat   *providers.ResponseFormat // Optional response format (JSON mode)
 
 	// StructuredOutputMode selects when ResponseFormat is applied to a tool
-	// loop. Empty means final_turn — the schema is withheld from tool-calling
+	// loop. Empty means final_turn: the schema is withheld from tool-calling
 	// rounds and the final answer is re-asked under it, because a schema on
-	// every round suppresses tool calling. See structured_output_mode.go.
+	// every round suppresses tool calling.
 	// Ignored when ResponseFormat is nil or the turn uses no tools, where
 	// there is no loop to protect.
 	StructuredOutputMode StructuredOutputMode
@@ -172,7 +187,7 @@ type ProviderConfig struct {
 	// on each EndOfTurn control element, emits that turn's reply, stays open,
 	// and threads conversation history across turns within the session. Used by
 	// the composed-VAD voice path (one continuous mic session). Default false
-	// preserves today's fire-once-at-close behavior for every existing pipeline.
+	// fires once at close.
 	Streaming bool
 
 	// ToolSelector, when set, narrows the pack-declared allowedTools
@@ -188,7 +203,7 @@ type ProviderConfig struct {
 	ToolSelector selection.Selector
 
 	// ToolGrants, when set, returns the pack tools currently granted beyond the
-	// prompt's baseline — today, the union of active skills' allowed-tools. It
+	// prompt's baseline: the union of active skills' allowed-tools. It
 	// is a live accessor rather than a list because the set changes while a
 	// turn is running: a skill is usually activated by a tool call in round 1
 	// and its tools must be offered in round 2 of the same Send. The stage
@@ -201,8 +216,8 @@ type ProviderConfig struct {
 	// DescribeTool, when set, returns the descriptor to offer the model for a
 	// registered tool on this build, or nil to withhold the tool. It runs on
 	// every tools build, so a tool's description can follow per-conversation
-	// state that changes mid-turn — the skill__activate index narrowed to what
-	// the current workflow state admits, for one. It must not mutate the
+	// state that changes mid-turn, such as the skill__activate index narrowed to what
+	// the current workflow state admits. It must not mutate the
 	// descriptor it is handed, which the registry owns: return a copy to change
 	// it. After any tool round the stage re-runs it and rebuilds the tools
 	// array when what it returns changed.
@@ -210,17 +225,16 @@ type ProviderConfig struct {
 
 	// ApprovalChecker, when set, is consulted before each tool executes. If it
 	// returns a non-nil PendingToolInfo the call is HELD pending (surfaced via
-	// ErrToolsPending / PendingTools metadata) instead of executing — the
-	// human-in-the-loop approval gate. Nil (default) executes every tool
-	// normally. This is what makes HITL approval work on the standard
-	// ProviderStage, not only the ASM duplex session.
+	// ErrToolsPending / PendingTools metadata) instead of executing. This is
+	// the human-in-the-loop approval gate. Nil (default) executes every tool
+	// normally.
 	ApprovalChecker tools.ApprovalChecker
 
 	// PromptDeclarations maps each prompt task to the pack's definition of
-	// that prompt (RFC 0016), copies taken when the conversation was built.
+	// that prompt, copies taken when the conversation was built.
 	// Hook requests carry the one for the prompt the model is being invoked
 	// for (hooks.ProviderRequest.Prompt). Nil or a missing task means
-	// undeclared. PromptKit never reads them.
+	// undeclared. The stage hands them to hooks and does not interpret them.
 	PromptDeclarations map[string]*packspec.Prompt
 }
 
@@ -499,7 +513,7 @@ func (s *ProviderStage) Process(
 
 	// An upstream stage failed: the input ended because the turn did, not
 	// because it was complete. Calling the model now would answer an
-	// incomplete request — without its system prompt, say (#2312). Pass the
+	// incomplete request, without its system prompt for one. Pass the
 	// failure on instead.
 	if len(accumulated.upstreamErrors) > 0 {
 		return forwardUpstreamErrors(ctx, accumulated.upstreamErrors, output)
@@ -523,7 +537,7 @@ func (s *ProviderStage) Process(
 // that element and then waits for the pipeline to finish *before* closing the
 // channel, so waiting on channel close alone deadlocks the drain until its
 // timeout expires. EndOfStream is the same session-over signal AudioTurnStage,
-// ResponseVAD and processStreaming already honor. See #1638.
+// ResponseVAD and processStreaming already honor.
 func (s *ProviderStage) accumulateInput(input <-chan StreamElement) *providerInput {
 	acc := &providerInput{
 		metadata: make(map[string]interface{}),
@@ -751,7 +765,7 @@ func (s *ProviderStage) fireStreamingTurn(
 
 // endOfTurnFor builds the EndOfTurn boundary for a turn whose new messages are
 // msgs, carrying the finish reason of its last assistant reply so a caller
-// delimiting turns can tell why the reply ended (#2307).
+// delimiting turns can tell why the reply ended.
 func endOfTurnFor(msgs []types.Message) StreamElement {
 	elem := NewEndOfTurnElement()
 	for i := len(msgs) - 1; i >= 0; i-- {
@@ -770,7 +784,7 @@ func endOfTurnFor(msgs []types.Message) StreamElement {
 // stage and the turn joins the history, where the reply's interrupted marker
 // keeps it out of every later request. The kept turn is closed with an
 // EndOfTurn like a completed one, so a caller delimiting assistant turns sees
-// the cut-short reply end too (#2287). A turn that produced nothing is left
+// the cut-short reply end too. A turn that produced nothing is left
 // out, as before.
 func (s *ProviderStage) keepInterruptedTurn(
 	ctx context.Context, full []types.Message, newStart int, history *[]types.Message, output chan<- StreamElement,
@@ -953,7 +967,7 @@ func (s *ProviderStage) stampWorkflowState(response *types.Message) {
 }
 
 // recordToolCalls reports a round's executed tool-call count to the resolver
-// when it implements ToolCallRecorder, feeding RFC 0009's max_tool_calls
+// when it implements ToolCallRecorder, feeding the workflow's max_tool_calls
 // budget. No-op without a resolver, or when the resolver does not enforce a
 // budget — the ordinary non-workflow case.
 func (s *ProviderStage) recordToolCalls(n int) {
@@ -1006,8 +1020,8 @@ func (s *ProviderStage) applyStateHandoff(
 	}
 	// Two states may also share a prompt and differ only in what the
 	// conversation's DescribeTool makes of the tools — a workflow state's
-	// skills filter, which the commit that resolving runs has just applied
-	// (#2326). That change needs the same rebuild.
+	// skills filter, which the commit that resolving runs has just applied.
+	// That change needs the same rebuild.
 	if handoff.SystemPrompt == acc.systemPrompt && !providerChanged &&
 		!s.describedToolsChanged(handoff.AllowedTools, loop.excluded) {
 		return false, nil
@@ -1295,7 +1309,7 @@ func lastUserMessageText(msgs []types.Message) string {
 // template, so the new state's tool_policy applies from its next turn.
 //
 // Every read of the policy goes through here; never read s.toolPolicy directly,
-// or the prompt's tool_policy is silently ignored again (#2104).
+// or the prompt's tool_policy is silently ignored again.
 func (s *ProviderStage) policy() *pipeline.ToolPolicy {
 	if s.turnState == nil || s.turnState.Template == nil {
 		return s.toolPolicy
@@ -1635,7 +1649,7 @@ func (tl *toolLoop) afterRound(
 		tl.toolChoice = ""
 	}
 
-	// RFC 0010 termination.tool_called: stop cleanly after the round in which
+	// termination.tool_called: stop cleanly after the round in which
 	// the named terminal tool fired. The tool has already executed and its result
 	// is recorded in tl.messages — now stop before the next provider round.
 	if calledStopTool(policy, response.ToolCalls) {
@@ -2166,7 +2180,7 @@ func (s *ProviderStage) executeStreamingRound(
 // (OpenAI's plain path builds []openAIMessage, which has no tool_calls or
 // tool_call_id field at all; Claude's splits []claudeMessage vs
 // []claudeToolMessage the same way). Sending such a history down the plain path
-// silently strips the linkage and the provider rejects the array (issue #1735).
+// silently strips the linkage and the provider rejects the array.
 func messagesHaveToolLinkage(messages []types.Message) bool {
 	for i := range messages {
 		if len(messages[i].ToolCalls) > 0 || messages[i].ToolResult != nil {
@@ -2707,7 +2721,7 @@ func (s *ProviderStage) executeToolCalls(
 	}
 
 	// Running tools is activity, so hold the idle timer open until they finish.
-	// Each tool is still bounded by its own TimeoutMs (#2017).
+	// Each tool is still bounded by its own TimeoutMs.
 	defer keepIdleAlive(ctx)()
 
 	resultSlots := make([]toolCallResult, len(toolCalls))
@@ -2748,7 +2762,7 @@ func (s *ProviderStage) executeToolCalls(
 		results = append(results, resultSlots[i].message)
 	}
 
-	// Report what actually ran for RFC 0009's max_tool_calls budget. results
+	// Report what actually ran for the workflow's max_tool_calls budget. results
 	// excludes pending calls, which have not executed and are counted when they
 	// run on resume; errored and policy-blocked calls are included, since both
 	// consumed a round.
@@ -2983,9 +2997,9 @@ func (s *ProviderStage) runAfterCallHooks(ctx context.Context, p *afterCallParam
 	}
 
 	// An output guardrail's judge call is activity, not idle silence — hold the
-	// idle timer open across it exactly as tool execution does (#2017), so a
+	// idle timer open across it exactly as tool execution does, so a
 	// classifier slower than IdleTimeout does not cancel the very context the
-	// pipeline needs to emit the enforced (or allowed) result on (#2064). The
+	// pipeline needs to emit the enforced (or allowed) result on. The
 	// handler itself stays bounded — see GuardrailHookAdapter's own timeout
 	// around handler.Eval.
 	defer keepIdleAlive(ctx)()
@@ -3051,7 +3065,7 @@ func (s *ProviderStage) runBeforeCallHooks(
 	}
 
 	// An input guardrail's classifier call is activity, not idle silence — hold
-	// the idle timer open across it exactly as tool execution does (#2017), so
+	// the idle timer open across it exactly as tool execution does, so
 	// a classifier slower than IdleTimeout does not cancel the very context the
 	// pipeline needs to emit the enforced (or allowed) result on afterward.
 	// Before this fix a classifier that timed out lost the race with its own
@@ -3059,7 +3073,7 @@ func (s *ProviderStage) runBeforeCallHooks(
 	// message, but by the time it returned, the shared ctx was already done, so
 	// emitResponseMessages/emitBlockedTurnText's select dropped the message
 	// instead of sending it, and Send() returned an empty response with no
-	// error (#2064). The handler itself stays bounded — see
+	// error. The handler itself stays bounded — see
 	// GuardrailHookAdapter's own timeout around handler.Eval.
 	defer keepIdleAlive(ctx)()
 
@@ -3097,7 +3111,7 @@ func (s *ProviderStage) runBeforeCallHooks(
 // every unblocked turn does. Enforcement returns before startStreamingRequest,
 // so no chunk ever passes through emitChunkElement: without this the caller
 // received nothing at all until the whole message landed at once at the end of
-// the turn, and a UI rendering text deltas showed an empty reply (#1716).
+// the turn, and a UI rendering text deltas showed an empty reply.
 //
 // The element is shaped exactly like the element a real final chunk produces
 // (emitChunkElement), which is what keeps the reply delivered exactly once:
@@ -3577,7 +3591,7 @@ func (s *ProviderStage) updateExcludedTools(
 // processStreaming serves a whole session inside one Process call. Without
 // this, a tool offered once is reported offered for the rest of the
 // conversation and a tools_offered check with absent:true can never fail
-// again (#2037).
+// again.
 func (s *ProviderStage) resetOffered() {
 	s.offeredTools = nil
 }
@@ -3610,10 +3624,8 @@ func (s *ProviderStage) recordOffered(descriptors []*providers.ToolDescriptor) {
 // model, so an eval can assert on tool availability and not just on what the
 // model chose to call.
 //
-// Both round implementations must call it. It lived inline in executeRound
-// until #2035, which meant it never ran for a streaming provider — that is
-// every provider PromptArena runs, so the eval had no evidence to judge
-// anywhere it mattered.
+// Both round implementations must call it. A streaming round that skips it
+// leaves the eval with no evidence of the tools offered.
 func (s *ProviderStage) stampToolsOffered(msg *types.Message) {
 	offered := s.offeredToolNames()
 	if len(offered) == 0 {
@@ -3667,7 +3679,7 @@ func (s *ProviderStage) collectProviderDescriptors(
 	// 1. Pack-declared tools from the prompt's allowed list (slice order). An
 	//    entry ending in "*" (e.g. mcp__server__*) is a wildcard expanded against
 	//    the registry: MCP servers reveal their tool sets only at connection time,
-	//    so authors can't enumerate exact names (issue #1578).
+	//    so authors can't enumerate exact names.
 	for _, entry := range allowedTools {
 		c.addAllowedEntry(entry)
 	}
@@ -3675,7 +3687,7 @@ func (s *ProviderStage) collectProviderDescriptors(
 	// 2. Implicit capability tools (skill__, a2a__, workflow__, memory__, media),
 	//    gathered in randomized map order — sorted below to make the whole set
 	//    stable. MCP tools are NOT implicit: they surface only via an explicit
-	//    allowed_tools entry in loop 1 above (issue #1578).
+	//    allowed_tools entry in loop 1 above.
 	s.toolRegistry.IterateTools(func(name string, tool *tools.ToolDescriptor) {
 		if c.skip(name) || !tools.IsImplicitTool(name) {
 			return

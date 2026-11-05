@@ -1224,7 +1224,7 @@ func (s *TTSStageWithInterruption) emitAudioElement(
 		Message: withTTSCost(in.Message, cost),
 		Meta:    in.Meta,
 		// This element replaces the one it synthesized, so it carries that
-		// element's end-of-stream boundary on, or the boundary is lost (#2287).
+		// element's end-of-stream boundary on, or the boundary is lost.
 		EndOfStream: in.EndOfStream,
 		Timestamp:   time.Now(),
 	}
@@ -1235,7 +1235,7 @@ func (s *TTSStageWithInterruption) emitAudioElement(
 	outElem.Meta.SynthesizedSpeech = true
 	outElem.Meta.StreamingDelta = false
 	// Attach the faithful spoken text (post markup-lowering) when the provider can
-	// report it, so a consumer can caption exactly what was said (#1657). Uses the
+	// report it, so a consumer can caption exactly what was said. Uses the
 	// same config as synthesis; empty when the provider doesn't implement it.
 	if reporter, ok := s.service.(tts.SpokenTextReporter); ok {
 		outElem.Meta.SpokenText = reporter.SpokenText(text, tts.SynthesisConfig{

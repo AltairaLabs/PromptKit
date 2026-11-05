@@ -1,4 +1,3 @@
-// Package stage provides the reactive streams architecture for pipeline execution.
 package stage
 
 import (
@@ -99,18 +98,20 @@ type StreamElement struct {
 	// Meta is the typed schema for per-element coordination data
 	// (e.g. FromHistory, TurnID, MediaExtract). Per-Turn invariants
 	// (system_prompt, allowed_tools, validators, variables, etc.) live
-	// on TurnState — see runtime/pipeline/stage/ARCHITECTURE.md §4.
+	// on TurnState.
 	Meta ElementMetadata
 
 	// Control signals
 	EndOfStream bool  // No more elements after this (session over)
 	EndOfTurn   bool  // End of one conversational turn's input; stream stays open
 	Interrupt   bool  // Barge-in: cancel in-flight generation/playback
-	Error       error // Error propagation
+	Error       error // Error carried to downstream stages and the caller
 }
 
 // Priority defines the scheduling priority for stream elements.
-// Higher priority elements are processed before lower priority ones.
+// PriorityChannel delivers higher priority elements first. The channels between
+// pipeline stages deliver elements in the order they were sent, whatever their
+// priority.
 type Priority int
 
 const (
@@ -176,7 +177,7 @@ func (af AudioFormat) String() string {
 
 // BytesPerSample returns the byte count of one mono sample at this format.
 // Compressed/variable-rate formats (Opus/MP3/AAC) have no fixed
-// bytes-per-sample on the wire, so 0 is returned — callers that need a
+// bytes-per-sample on the wire, so 0 is returned. Callers that need a
 // stable bytes/sample (e.g. duration math) should refuse those formats
 // rather than guess.
 func (af AudioFormat) BytesPerSample() int {

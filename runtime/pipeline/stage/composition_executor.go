@@ -64,7 +64,7 @@ type CompositionExecutorDeps struct {
 	// Provider runs every prompt/agent step, unless ResolveProvider is set.
 	Provider providers.Provider
 	// ResolveProvider, when set, picks the provider for each prompt/agent step
-	// (RFC 0017: the step's provider key, else its prompt's, else the default).
+	// (the step's provider key, else its prompt's, else the default).
 	// Optional; without it every step runs on Provider.
 	ResolveProvider func(step *composition.Step) (providers.Provider, error)
 	ToolRegistry    *tools.Registry

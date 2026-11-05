@@ -1,4 +1,3 @@
-// Package stage provides pipeline stages for audio processing.
 package stage
 
 import (

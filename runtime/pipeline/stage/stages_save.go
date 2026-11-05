@@ -24,16 +24,18 @@ type IncrementalSaveConfig struct {
 	// StateStoreConfig for accessing the store.
 	StateStoreConfig *rtpipeline.StateStoreConfig
 
-	// MessageIndex for indexing new messages (Phase 2, optional).
+	// MessageIndex for indexing new messages. Optional.
 	MessageIndex statestore.MessageIndex
 
-	// Summarizer for auto-summarization (Phase 3, optional).
+	// Summarizer for auto-summarization. Optional.
 	Summarizer statestore.Summarizer
 
 	// SummarizeThreshold is the message count above which summarization triggers.
+	// Zero disables summarization.
 	SummarizeThreshold int
 
-	// SummarizeBatchSize is how many messages to summarize at once.
+	// SummarizeBatchSize is how many messages to summarize at once. A summary is
+	// written only when at least this many messages are unsummarized.
 	SummarizeBatchSize int
 
 	// MessageLog, when set, indicates that messages are already persisted per-round
@@ -49,7 +51,9 @@ type IncrementalSaveConfig struct {
 
 // IncrementalSaveStage saves only new messages from the current turn using
 // MessageAppender, avoiding the full load+replace+save cycle. When the store
-// doesn't implement MessageAppender, it falls back to StateStoreSaveStage behavior.
+// doesn't implement MessageAppender, it loads the state, appends the new
+// messages and writes it back through BulkWriter. A store that implements
+// neither makes the stage return an error.
 type IncrementalSaveStage struct {
 	BaseStage
 	config    *IncrementalSaveConfig
@@ -289,7 +293,7 @@ func (s *IncrementalSaveStage) fullSave(ctx context.Context, newMessages []types
 	return bulkWriter.Save(ctx, state)
 }
 
-// indexNewMessages indexes new messages in the message index (Phase 2).
+// indexNewMessages indexes new messages in the message index.
 func (s *IncrementalSaveStage) indexNewMessages(
 	ctx context.Context,
 	convID string,
@@ -317,7 +321,7 @@ func (s *IncrementalSaveStage) indexNewMessages(
 	}
 }
 
-// maybeSummarize checks if summarization is needed and triggers it (Phase 3).
+// maybeSummarize checks if summarization is needed and triggers it.
 func (s *IncrementalSaveStage) maybeSummarize(ctx context.Context, convID string) {
 	reader, ok := s.config.StateStoreConfig.Store.(statestore.MessageReader)
 	if !ok {

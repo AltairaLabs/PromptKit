@@ -1,7 +1,6 @@
-// Package stage provides pipeline stages for media processing.
-//
 // This file contains FFmpeg-dependent integration code for video frame extraction.
 // These functions require FFmpeg to be installed and cannot be unit tested without it.
+
 package stage
 
 import (

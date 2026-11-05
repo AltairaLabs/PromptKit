@@ -1,4 +1,3 @@
-// Package stage provides the reactive streams architecture for pipeline execution.
 package stage
 
 import (
@@ -22,7 +21,7 @@ var elementPool = sync.Pool{
 }
 
 // GetElement retrieves a StreamElement from the pool or creates a new one.
-// The returned element is reset to its zero state.
+// The returned element has been through Reset.
 // Callers should call PutElement once they are done with the element.
 func GetElement() *StreamElement {
 	return elementPool.Get().(*StreamElement)
@@ -39,8 +38,10 @@ func PutElement(elem *StreamElement) {
 	elementPool.Put(elem)
 }
 
-// Reset clears all fields of the StreamElement to their zero values.
-// This is called automatically by PutElement before returning to the pool.
+// Reset clears the content fields, Sequence, Timestamp, Source, Meta, EndOfStream
+// and Error, and sets Priority to PriorityNormal. It leaves Reasoning, EndOfTurn
+// and Interrupt unchanged. PutElement calls it before returning the element to
+// the pool.
 func (e *StreamElement) Reset() {
 	// Clear content types
 	e.Text = nil

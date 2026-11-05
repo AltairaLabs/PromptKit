@@ -9,20 +9,19 @@ import (
 
 // Handoff describes the prompt and tool set the workflow's current state needs.
 //
-// It is a statement of what the turn *should* be running, not a record that
-// something changed: the stage compares it against what the turn is actually
-// running and swaps only on a mismatch. That distinction matters: a pipeline
-// re-execution (HITL resume, deferred client tool) re-runs PromptAssemblyStage,
-// which resets the turn's prompt to the state the pipeline was built for. A
-// "did a transition happen this run" signal is unobservable by then; a "what should
-// be running" signal self-corrects.
+// It states what the turn should be running. It does not record that something
+// changed: the stage compares it against what the turn is actually running and
+// swaps only on a mismatch. A pipeline re-execution (HITL resume, deferred client
+// tool) re-runs PromptAssemblyStage, which resets the turn's prompt to the state
+// the pipeline was built for, so a "did a transition happen this run" signal is
+// unobservable by then, while a "what should be running" signal self-corrects.
 type Handoff struct {
 	// Valid reports whether SystemPrompt and AllowedTools are meaningful.
 	// False when there is no workflow state to apply.
 	Valid bool
 	// Stop ends the turn without a further provider round. Set for states the
 	// runtime must not continue into — externally orchestrated states pause for
-	// an injected event (RFC 0009), and composition states are run by
+	// an injected event, and composition states are run by
 	// CompositionStage rather than the tool loop.
 	Stop bool
 	// SystemPrompt is the current state's rendered system prompt.
@@ -35,7 +34,7 @@ type Handoff struct {
 	// leaves the task the turn started on.
 	PromptTask string
 	// Call is the provider and parameters the current state's prompt runs
-	// with — its RFC 0017 provider and its max_tokens/temperature — so a
+	// with (its provider and its max_tokens/temperature), so a
 	// handoff to a prompt that runs elsewhere switches them for the next
 	// round. nil keeps the ones the turn started with.
 	Call *HandoffCall
@@ -52,12 +51,12 @@ type HandoffCall struct {
 // workflow's current state.
 //
 // A workflow state change is a different system prompt, a different tool set
-// and, when the state's prompt runs elsewhere (RFC 0017), a different provider
-// and parameters (Handoff.Call). All are per-round inputs to the provider tool
-// loop, so reconciling them between rounds is sufficient to make the turn run
-// as the current state — no new conversation, no new pipeline, and no user
-// message required. Without this, a transition advances the state machine and
-// the destination state never speaks.
+// and, when the state's prompt names its own provider, a different provider and
+// parameters (Handoff.Call). All are per-round inputs to the provider tool loop,
+// so reconciling them between rounds makes the turn run as the current state,
+// with no new conversation, no new pipeline, and no user message. Without this,
+// a transition advances the state machine and the destination state never
+// speaks.
 //
 // runtime must not import sdk, so the interface is defined here and implemented
 // by consumers (SDK WorkflowConversation, Arena's per-run transition executor).
@@ -81,7 +80,7 @@ type WorkflowStateResolver interface {
 // ToolCallRecorder is an optional interface a WorkflowStateResolver may
 // implement to receive the number of tool calls each round executed.
 //
-// RFC 0009's engine.budget.max_tool_calls needs a per-round count, and the tool
+// The workflow engine's tool-call budget (engine.budget.max_tool_calls) needs a per-round count, and the tool
 // loop is the only place that sees every call on every path — unary, streaming,
 // and resumed-after-HITL. Counting here rather than in each consumer keeps one
 // counting site, so the SDK's and Arena's totals cannot drift apart; consumers

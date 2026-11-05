@@ -21,7 +21,7 @@ const (
 	// DefaultMaxConcurrentPipelines is the default maximum number of concurrent pipeline executions.
 	DefaultMaxConcurrentPipelines = 100
 	// DefaultExecutionTimeoutSeconds is the default execution timeout in seconds.
-	// Set to 0 (disabled) — use IdleTimeout as the primary liveness check.
+	// Set to 0 (disabled). IdleTimeout is the primary liveness check.
 	DefaultExecutionTimeoutSeconds = 0
 	// DefaultIdleTimeoutSeconds is the default idle timeout in seconds.
 	// The timer resets on each activity signal (stream chunk, round, tool
@@ -40,19 +40,19 @@ type PipelineConfig struct {
 	ChannelBufferSize int
 
 	// MaxConcurrentPipelines limits the number of concurrent pipeline executions.
-	// This is used by PipelinePool to control concurrency.
+	// Validate rejects negative values. The pipeline does not enforce the limit.
 	// Default: 100
 	MaxConcurrentPipelines int
 
 	// ExecutionTimeout sets a hard maximum duration for a single pipeline execution.
-	// This is a safety ceiling — prefer IdleTimeout for liveness detection.
+	// This is a safety ceiling. Prefer IdleTimeout for liveness detection.
 	// Set to 0 to disable (default).
 	ExecutionTimeout time.Duration
 
 	// IdleTimeout sets the maximum duration of inactivity before the pipeline is
 	// canceled. The timer resets on each streaming chunk, round completion, and
-	// tool completion, and is held open for as long as tool calls are running —
-	// a tool in flight is not an idle pipeline, and slow tools are bounded by
+	// tool completion, and is held open for as long as tool calls are running.
+	// A tool in flight is not an idle pipeline, and slow tools are bounded by
 	// their own TimeoutMs instead. Set to 0 to disable.
 	// Default: 30 seconds.
 	IdleTimeout time.Duration
