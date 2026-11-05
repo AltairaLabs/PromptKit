@@ -145,6 +145,12 @@ type Config struct {
 	// Open(), and skills activate afterwards (#1957).
 	ToolGrants func() []string
 
+	// DescribeTool, when set, gives the conversation's view of a registered
+	// tool on every tools build, or nil to withhold it — the skill__activate
+	// index narrowed to what the current workflow state admits (#2326). See
+	// stage.ProviderConfig.DescribeTool.
+	DescribeTool func(*tools.ToolDescriptor) *tools.ToolDescriptor
+
 	// ApprovalChecker, when set, gates tool execution for human-in-the-loop
 	// approval on the standard ProviderStage: a tool the checker holds is
 	// surfaced as pending instead of executing. Optional; nil executes normally.
@@ -700,6 +706,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			MessageLogConvID: cfg.ConversationID,
 			ToolSelector:     cfg.ToolSelector,
 			ToolGrants:       cfg.ToolGrants,
+			DescribeTool:     cfg.DescribeTool,
 			ApprovalChecker:  cfg.ApprovalChecker,
 			Streaming:        cfg.Ingestion != nil,
 

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
@@ -167,6 +168,12 @@ type Conversation struct {
 	// instead. See #2011.
 	skillSet    *skills.ActiveSet
 	memoryScope map[string]string
+
+	// skillSelection is the skills selector's choice for the current Send
+	// (nil inside: no narrowing). Written before the pipeline runs and read
+	// by describeTool on each round, which may run on the pipeline's own
+	// goroutine, hence atomic.
+	skillSelection atomic.Pointer[[]string]
 
 	// Hook registry for policy enforcement (nil = no hooks)
 	hookRegistry *hooks.Registry
@@ -443,15 +450,46 @@ func (c *Conversation) applySkillFilter(state, filter string) {
 }
 
 // refreshSelectorBoundCapabilities lets capabilities that depend on
-// per-turn context (currently only SkillsCapability) refresh their
-// tool descriptors before the pipeline runs. No-op when no such
-// capability is present or no selector is configured.
+// per-turn context (currently only SkillsCapability) re-select before the
+// pipeline runs: the skills selector ranks this turn's user text, and its
+// choice is kept for describeTool to apply on each round. No-op when no
+// such capability is present or no selector is configured.
 func (c *Conversation) refreshSelectorBoundCapabilities(ctx context.Context, query string) {
+	if sc := c.skillsCapability(); sc != nil {
+		selected := sc.selectSkills(ctx, query, c.skillSet)
+		c.skillSelection.Store(&selected)
+	}
+}
+
+// skillsCapability returns the conversation's skills capability, or nil.
+func (c *Conversation) skillsCapability() *SkillsCapability {
 	for _, cap := range c.capabilities {
 		if sc, ok := cap.(*SkillsCapability); ok {
-			sc.RefreshSkillIndex(ctx, query, c.toolRegistry)
+			return sc
 		}
 	}
+	return nil
+}
+
+// describeTool gives the provider stage this conversation's view of a
+// registered tool on every tools build (intpipeline.Config.DescribeTool).
+// Today only skill__activate differs: its index lists just the skills this
+// conversation's workflow state admits, and it is withheld when the state
+// admits none (#2326). Read per build, not fixed at registration, because a
+// transition the model makes mid-turn changes the filter between rounds.
+func (c *Conversation) describeTool(d *tools.ToolDescriptor) *tools.ToolDescriptor {
+	if d == nil || d.Name != skills.SkillActivateTool {
+		return d
+	}
+	sc := c.skillsCapability()
+	if sc == nil {
+		return d
+	}
+	var selected []string
+	if p := c.skillSelection.Load(); p != nil {
+		selected = *p
+	}
+	return sc.describeActivate(d, c.skillSet, selected)
 }
 
 // maxMessageSize returns the configured maximum message size, falling back to the default.
@@ -670,6 +708,7 @@ func (c *Conversation) buildPipelineConfig(
 		CompactionRules:       c.config.compactionRules,
 		ToolSelector:          c.config.selectors[c.config.toolSelectorName],
 		ToolGrants:            c.skillToolGrants,
+		DescribeTool:          c.describeTool,
 		ApprovalChecker:       c.newApprovalChecker(),
 		InferenceRegistry:     c.config.inferenceRegistry,
 		ProviderBinding:       newHostBinding(c.config),

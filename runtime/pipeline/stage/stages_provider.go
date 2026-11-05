@@ -91,6 +91,11 @@ type ProviderStage struct {
 	// ProviderStage non-comparable, which is an incompatible API change for a
 	// published exported type and blocks every subsequent minor release.
 	offeredTools *offeredToolSet
+
+	// describedKey fingerprints the tools array last built, as DescribeTool
+	// shaped it (see describedToolsKey). Like offeredTools it is turn state
+	// read and written on the turn's one goroutine.
+	describedKey string
 }
 
 // offeredToolSet is the set of tool names offered during a turn. It exists so
@@ -187,6 +192,16 @@ type ProviderConfig struct {
 	// applied after ToolSelector narrowing, so a selector never hides a tool
 	// the model was just told it gained.
 	ToolGrants func() []string
+
+	// DescribeTool, when set, returns the descriptor to offer the model for a
+	// registered tool on this build, or nil to withhold the tool. It runs on
+	// every tools build, so a tool's description can follow per-conversation
+	// state that changes mid-turn — the skill__activate index narrowed to what
+	// the current workflow state admits, for one. It must not mutate the
+	// descriptor it is handed, which the registry owns: return a copy to change
+	// it. After any tool round the stage re-runs it and rebuilds the tools
+	// array when what it returns changed.
+	DescribeTool func(*tools.ToolDescriptor) *tools.ToolDescriptor
 
 	// ApprovalChecker, when set, is consulted before each tool executes. If it
 	// returns a non-nil PendingToolInfo the call is HELD pending (surfaced via
@@ -980,7 +995,15 @@ func (s *ProviderStage) applyStateHandoff(
 	// The call switches before the prompt comparison for the same reason: two
 	// states may share a prompt text and still run on different providers.
 	providerChanged := handoff.Valid && s.applyHandoffCall(handoff.Call)
-	if !handoff.Valid || (handoff.SystemPrompt == acc.systemPrompt && !providerChanged) {
+	if !handoff.Valid {
+		return false, nil
+	}
+	// Two states may also share a prompt and differ only in what the
+	// conversation's DescribeTool makes of the tools — a workflow state's
+	// skills filter, which the commit that resolving runs has just applied
+	// (#2326). That change needs the same rebuild.
+	if handoff.SystemPrompt == acc.systemPrompt && !providerChanged &&
+		!s.describedToolsChanged(handoff.AllowedTools, loop.excluded) {
 		return false, nil
 	}
 	// Tools are rebuilt on a provider change too: their wire form is the
@@ -1656,15 +1679,17 @@ func (tl *toolLoop) handleIdenticalLoop(
 }
 
 // rebuildToolsIfChanged rebuilds the tools array when this round changed what
-// the model may call: a tool crossed the rejection threshold (excluded), or a
+// the model may call: a tool crossed the rejection threshold (excluded), a
 // tool call such as skill__activate / skill__deactivate changed the granted
-// set. Rebuilding busts the provider's cached prefix, so it happens only on a
-// real change.
+// set, or DescribeTool now describes the tools differently (a mid-turn
+// workflow transition narrowing the skill index). Rebuilding busts the
+// provider's cached prefix, so it happens only on a real change.
 func (tl *toolLoop) rebuildToolsIfChanged(
 	allowedTools []string, toolResults []types.Message, grantsBefore []string,
 ) error {
 	excludedChanged := tl.stage.updateExcludedTools(toolResults, tl.rejectionCounts, tl.excluded)
-	if !excludedChanged && stringSlicesEqual(grantsBefore, tl.stage.grantedTools()) {
+	if !excludedChanged && stringSlicesEqual(grantsBefore, tl.stage.grantedTools()) &&
+		!tl.stage.describedToolsChanged(allowedTools, tl.excluded) {
 		return nil
 	}
 	rebuilt, _, rebuildErr := tl.stage.buildProviderTools(allowedTools, tl.excluded)
@@ -3628,40 +3653,14 @@ func classifyToolError(err error) types.ToolErrorType {
 func (s *ProviderStage) collectProviderDescriptors(
 	allowedTools []string, excluded map[string]bool,
 ) []*providers.ToolDescriptor {
-	seen := make(map[string]bool)
-	var descriptors []*providers.ToolDescriptor
-	add := func(tool *tools.ToolDescriptor) {
-		seen[tool.Name] = true
-		descriptors = append(descriptors, &providers.ToolDescriptor{
-			Name:        tool.Name,
-			Description: tool.Description,
-			InputSchema: tool.InputSchema,
-		})
-	}
+	c := &descriptorCollector{stage: s, excluded: excluded, seen: make(map[string]bool)}
 
 	// 1. Pack-declared tools from the prompt's allowed list (slice order). An
 	//    entry ending in "*" (e.g. mcp__server__*) is a wildcard expanded against
 	//    the registry: MCP servers reveal their tool sets only at connection time,
 	//    so authors can't enumerate exact names (issue #1578).
 	for _, entry := range allowedTools {
-		if strings.HasSuffix(entry, "*") {
-			s.toolRegistry.IterateTools(func(name string, tool *tools.ToolDescriptor) {
-				if seen[name] || excluded[name] || !tools.MatchToolPattern(entry, name) {
-					return
-				}
-				add(tool)
-			})
-			continue
-		}
-		if excluded[entry] {
-			continue
-		}
-		tool, err := s.toolRegistry.GetTool(entry)
-		if err != nil {
-			logger.Warn("Tool not found in registry", "tool", entry, "error", err)
-			continue
-		}
-		add(tool)
+		c.addAllowedEntry(entry)
 	}
 
 	// 2. Implicit capability tools (skill__, a2a__, workflow__, memory__, media),
@@ -3669,16 +3668,71 @@ func (s *ProviderStage) collectProviderDescriptors(
 	//    stable. MCP tools are NOT implicit: they surface only via an explicit
 	//    allowed_tools entry in loop 1 above (issue #1578).
 	s.toolRegistry.IterateTools(func(name string, tool *tools.ToolDescriptor) {
-		if seen[name] || excluded[name] || !tools.IsImplicitTool(name) {
+		if c.skip(name) || !tools.IsImplicitTool(name) {
 			return
 		}
-		add(tool)
+		c.add(tool)
 	})
 
-	sort.Slice(descriptors, func(i, j int) bool {
-		return descriptors[i].Name < descriptors[j].Name
+	sort.Slice(c.descriptors, func(i, j int) bool {
+		return c.descriptors[i].Name < c.descriptors[j].Name
 	})
-	return descriptors
+	return c.descriptors
+}
+
+// descriptorCollector accumulates one provider call's tool descriptors,
+// skipping excluded and already-added names and applying the configured
+// DescribeTool to each.
+type descriptorCollector struct {
+	stage       *ProviderStage
+	excluded    map[string]bool
+	seen        map[string]bool
+	descriptors []*providers.ToolDescriptor
+}
+
+// skip reports whether name is excluded or already collected.
+func (c *descriptorCollector) skip(name string) bool {
+	return c.seen[name] || c.excluded[name]
+}
+
+// addAllowedEntry adds the tool an allowed_tools entry names, expanding a
+// trailing "*" wildcard against the registry.
+func (c *descriptorCollector) addAllowedEntry(entry string) {
+	reg := c.stage.toolRegistry
+	if strings.HasSuffix(entry, "*") {
+		reg.IterateTools(func(name string, tool *tools.ToolDescriptor) {
+			if c.skip(name) || !tools.MatchToolPattern(entry, name) {
+				return
+			}
+			c.add(tool)
+		})
+		return
+	}
+	if c.excluded[entry] {
+		return
+	}
+	tool, err := reg.GetTool(entry)
+	if err != nil {
+		logger.Warn("Tool not found in registry", "tool", entry, "error", err)
+		return
+	}
+	c.add(tool)
+}
+
+// add records tool, passing it through DescribeTool when one is configured;
+// a nil result withholds the tool.
+func (c *descriptorCollector) add(tool *tools.ToolDescriptor) {
+	c.seen[tool.Name] = true
+	if cfg := c.stage.config; cfg != nil && cfg.DescribeTool != nil {
+		if tool = cfg.DescribeTool(tool); tool == nil {
+			return
+		}
+	}
+	c.descriptors = append(c.descriptors, &providers.ToolDescriptor{
+		Name:        tool.Name,
+		Description: tool.Description,
+		InputSchema: tool.InputSchema,
+	})
 }
 
 // grantedTools returns the currently granted tool names, sorted, or nil when
@@ -3733,17 +3787,21 @@ func stringSlicesEqual(a, b []string) bool {
 	return true
 }
 
-func (s *ProviderStage) buildProviderTools(
+// offerableDescriptors returns the descriptors a tools build would offer, and
+// the provider to build them for. Nil descriptors and provider when this call
+// offers no tools at all: no registry, a provider without tool support, or
+// tool calling disabled for the turn.
+func (s *ProviderStage) offerableDescriptors(
 	allowedTools []string, excluded map[string]bool,
-) (providerTools interface{}, toolChoice string, err error) {
+) ([]*providers.ToolDescriptor, providers.ToolSupport) {
 	if s.toolRegistry == nil {
-		return nil, "", nil
+		return nil, nil
 	}
 
 	// Check if provider supports tools
 	toolProvider, ok := s.callProvider().(providers.ToolSupport)
 	if !ok {
-		return nil, "", nil
+		return nil, nil
 	}
 
 	// When tool calling is disabled for this turn (tool_choice: none), send no
@@ -3753,10 +3811,55 @@ func (s *ProviderStage) buildProviderTools(
 	// path, which omits both the declarations and any tool_config.
 	policy := s.policy()
 	if policy != nil && policy.ToolChoice == toolChoiceNone {
-		return nil, "", nil
+		return nil, nil
 	}
 
-	descriptors := s.collectProviderDescriptors(s.withGrantedTools(allowedTools), excluded)
+	return s.collectProviderDescriptors(s.withGrantedTools(allowedTools), excluded), toolProvider
+}
+
+// describedToolsKey fingerprints what DescribeTool made of a tools build — the
+// name, description and schema of each descriptor, in order — so a later
+// round can tell whether the per-conversation view changed. Empty when no
+// DescribeTool is configured: without one, grants and exclusions are the only
+// things that change the array mid-turn, and they are tracked directly.
+func (s *ProviderStage) describedToolsKey(descriptors []*providers.ToolDescriptor) string {
+	if s.config == nil || s.config.DescribeTool == nil {
+		return ""
+	}
+	var sb strings.Builder
+	for _, d := range descriptors {
+		sb.WriteString(d.Name)
+		sb.WriteByte(0)
+		sb.WriteString(d.Description)
+		sb.WriteByte(0)
+		sb.Write(d.InputSchema)
+		sb.WriteByte(0)
+	}
+	return sb.String()
+}
+
+// describedToolsChanged reports whether DescribeTool would now give a
+// different tools array from the one last built — a workflow transition
+// mid-turn changing the skill__activate index, say, with no grant or exclusion
+// changing alongside it.
+func (s *ProviderStage) describedToolsChanged(allowedTools []string, excluded map[string]bool) bool {
+	if s.config == nil || s.config.DescribeTool == nil {
+		return false
+	}
+	descriptors, _ := s.offerableDescriptors(allowedTools, excluded)
+	return s.describedToolsKey(descriptors) != s.describedKey
+}
+
+func (s *ProviderStage) buildProviderTools(
+	allowedTools []string, excluded map[string]bool,
+) (providerTools interface{}, toolChoice string, err error) {
+	descriptors, toolProvider := s.offerableDescriptors(allowedTools, excluded)
+	s.describedKey = s.describedToolsKey(descriptors)
+	if toolProvider == nil {
+		return nil, "", nil
+	}
+	policy := s.policy()
+
 	s.recordOffered(descriptors)
 	if len(descriptors) == 0 {
 		return nil, "", nil

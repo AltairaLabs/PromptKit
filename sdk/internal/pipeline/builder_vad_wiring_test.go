@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -109,6 +110,19 @@ func TestVADProviderConfig_CarriesToolGrants(t *testing.T) {
 
 	require.NotNil(t, got.ToolGrants, "a skill activated by voice must grant its tools")
 	assert.Equal(t, []string{"refund"}, got.ToolGrants())
+}
+
+// The conversation's per-build tool view must reach VAD mode's provider stage,
+// or a voice session's skill__activate index ignores the workflow state's
+// skills filter (#2326).
+func TestVADProviderConfig_CarriesDescribeTool(t *testing.T) {
+	narrowed := &tools.ToolDescriptor{Name: "skill__activate", Description: "narrowed"}
+	cfg := &Config{DescribeTool: func(*tools.ToolDescriptor) *tools.ToolDescriptor { return narrowed }}
+
+	got := vadProviderConfig(cfg)
+
+	require.NotNil(t, got.DescribeTool, "voice must offer the same per-state skill index as text")
+	assert.Equal(t, "narrowed", got.DescribeTool(&tools.ToolDescriptor{Name: "skill__activate"}).Description)
 }
 
 // The per-turn tool selector must reach VAD mode's provider stage.

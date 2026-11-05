@@ -224,6 +224,29 @@ func (r *Registry) List() []SkillMetadata {
 	return result
 }
 
+// listedSkill is a registered skill's metadata together with the path a
+// filter matches it against: its virtual path, empty for an inline skill.
+type listedSkill struct {
+	metadata SkillMetadata
+	path     string
+}
+
+// listWithPaths returns every registered skill with its virtual path, sorted
+// by name.
+func (r *Registry) listWithPaths() []listedSkill {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	result := make([]listedSkill, 0, len(r.skills))
+	for _, rs := range r.skills {
+		result = append(result, listedSkill{metadata: rs.metadata, path: rs.virtualPath})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].metadata.Name < result[j].metadata.Name
+	})
+	return result
+}
+
 // ListForDir returns metadata for skills whose virtual path is under the given
 // directory. If dir is empty, returns all skills. Results are sorted by name.
 //

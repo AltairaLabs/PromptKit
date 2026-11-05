@@ -1240,7 +1240,7 @@ type ClientToolRequestEvent struct {
 ```
 
 <a name="Conversation"></a>
-## type [Conversation](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L88-L192>)
+## type [Conversation](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L89-L199>)
 
 Conversation represents an active LLM conversation.
 
@@ -1468,7 +1468,7 @@ ResumeDuplex requires a state store to be configured. If no state store is provi
 The persisted message history is seeded into the duplex pipeline by the same StateStore load stage that the unary path uses; no separate replay is needed.
 
 <a name="Conversation.Clear"></a>
-### func \(\*Conversation\) [Clear](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1320>)
+### func \(\*Conversation\) [Clear](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1359>)
 
 ```go
 func (c *Conversation) Clear() error
@@ -1479,7 +1479,7 @@ Clear removes all messages from the conversation history.
 This keeps the system prompt and variables but removes all user/assistant messages. Useful for starting fresh within the same conversation session. In duplex mode, this will close the session first if actively streaming.
 
 <a name="Conversation.Close"></a>
-### func \(\*Conversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1536>)
+### func \(\*Conversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1575>)
 
 ```go
 func (c *Conversation) Close() error
@@ -1535,7 +1535,7 @@ for chunk := range conv.Response() {
 ```
 
 <a name="Conversation.Done"></a>
-### func \(\*Conversation\) [Done](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1187>)
+### func \(\*Conversation\) [Done](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1226>)
 
 ```go
 func (c *Conversation) Done() (<-chan struct{}, error)
@@ -1544,7 +1544,7 @@ func (c *Conversation) Done() (<-chan struct{}, error)
 Done returns a channel that's closed when the duplex session ends. Only available when the conversation was opened with OpenDuplex\(\).
 
 <a name="Conversation.EventBus"></a>
-### func \(\*Conversation\) [EventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1776>)
+### func \(\*Conversation\) [EventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1815>)
 
 ```go
 func (c *Conversation) EventBus() events.Bus
@@ -1574,7 +1574,7 @@ FailClientTool reports that a deferred client tool failed.
 callID must match one of the [PendingClientTool.CallID](<#PendingClientTool>) values returned in the [Response](<#Response>). partial, when not nil, is the output the tool produced before failing and must be JSON\-serializable. The model is told about the failure, the stored tool result carries err as its Error, and the tool.client.resolved event reports the call as an error. Call [Conversation.Resume](<#Conversation.Resume>) once every pending tool is resolved.
 
 <a name="Conversation.Fork"></a>
-### func \(\*Conversation\) [Fork](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1375>)
+### func \(\*Conversation\) [Fork](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1414>)
 
 ```go
 func (c *Conversation) Fork() (*Conversation, error)
@@ -1598,7 +1598,7 @@ branch.Send(ctx, "Tell me about Kyoto")   // Branch path
 The forked conversation is completely independent \- changes to one do not affect the other.
 
 <a name="Conversation.GetVar"></a>
-### func \(\*Conversation\) [GetVar](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1290>)
+### func \(\*Conversation\) [GetVar](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1329>)
 
 ```go
 func (c *Conversation) GetVar(name string) (string, bool)
@@ -1622,7 +1622,7 @@ Nothing in PromptKit acts on the result. RFC 0013 is explicit that a governance 
 The result is a copy; adjusting it does not change the loaded pack.
 
 <a name="Conversation.ID"></a>
-### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1762>)
+### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1801>)
 
 ```go
 func (c *Conversation) ID() string
@@ -1631,7 +1631,7 @@ func (c *Conversation) ID() string
 ID returns the conversation's unique identifier.
 
 <a name="Conversation.Messages"></a>
-### func \(\*Conversation\) [Messages](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1303>)
+### func \(\*Conversation\) [Messages](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1342>)
 
 ```go
 func (c *Conversation) Messages(ctx context.Context) []types.Message
@@ -1830,7 +1830,7 @@ conv.OnTools(map[string]sdk.ToolHandler{
 ```
 
 <a name="Conversation.OwnSubscription"></a>
-### func \(\*Conversation\) [OwnSubscription](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1786>)
+### func \(\*Conversation\) [OwnSubscription](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1825>)
 
 ```go
 func (c *Conversation) OwnSubscription(unsubscribe func())
@@ -1960,7 +1960,7 @@ resp, _ = conv.Continue(ctx)
 ```
 
 <a name="Conversation.Response"></a>
-### func \(\*Conversation\) [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1174>)
+### func \(\*Conversation\) [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1213>)
 
 ```go
 func (c *Conversation) Response() (<-chan providers.StreamChunk, error)
@@ -2005,7 +2005,7 @@ for chunk := range conv.ResumeStream(ctx) {
 ```
 
 <a name="Conversation.Send"></a>
-### func \(\*Conversation\) [Send](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L268>)
+### func \(\*Conversation\) [Send](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L275>)
 
 ```go
 func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption) (*Response, error)
@@ -2043,7 +2043,7 @@ Send automatically:
 If the model's stream fails or the context is canceled after the model has started replying, Send returns the error AND a non\-nil Response holding what the model produced \(text, reasoning, completed tool calls\), with FinishReason types.FinishReasonInterrupted. That partial reply is saved to the conversation, but is never sent back to the model on later turns.
 
 <a name="Conversation.SendChunk"></a>
-### func \(\*Conversation\) [SendChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1071>)
+### func \(\*Conversation\) [SendChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1110>)
 
 ```go
 func (c *Conversation) SendChunk(ctx context.Context, chunk *providers.StreamChunk) error
@@ -2052,7 +2052,7 @@ func (c *Conversation) SendChunk(ctx context.Context, chunk *providers.StreamChu
 SendChunk sends a streaming chunk in duplex mode. Only available when the conversation was opened with OpenDuplex\(\).
 
 <a name="Conversation.SendFrame"></a>
-### func \(\*Conversation\) [SendFrame](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1106>)
+### func \(\*Conversation\) [SendFrame](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1145>)
 
 ```go
 func (c *Conversation) SendFrame(ctx context.Context, frame *session.ImageFrame) error
@@ -2072,7 +2072,7 @@ conv.SendFrame(ctx, frame)
 ```
 
 <a name="Conversation.SendText"></a>
-### func \(\*Conversation\) [SendText](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1084>)
+### func \(\*Conversation\) [SendText](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1123>)
 
 ```go
 func (c *Conversation) SendText(ctx context.Context, text string) error
@@ -2107,7 +2107,7 @@ callID must match one of the [PendingClientTool.CallID](<#PendingClientTool>) va
 After all pending tools have been resolved \(via SendToolResult, SendToolResultMultimodal, or RejectClientTool\), call [Conversation.Resume](<#Conversation.Resume>) to continue the pipeline.
 
 <a name="Conversation.SendVideoChunk"></a>
-### func \(\*Conversation\) [SendVideoChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1129>)
+### func \(\*Conversation\) [SendVideoChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1168>)
 
 ```go
 func (c *Conversation) SendVideoChunk(ctx context.Context, chunk *session.VideoChunk) error
@@ -2128,7 +2128,7 @@ conv.SendVideoChunk(ctx, chunk)
 ```
 
 <a name="Conversation.SessionError"></a>
-### func \(\*Conversation\) [SessionError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1201>)
+### func \(\*Conversation\) [SessionError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1240>)
 
 ```go
 func (c *Conversation) SessionError() error
@@ -2137,7 +2137,7 @@ func (c *Conversation) SessionError() error
 SessionError returns any error from the duplex session. Only available when the conversation was opened with OpenDuplex\(\). Note: This is named SessionError to avoid conflict with the Error interface method.
 
 <a name="Conversation.SetVar"></a>
-### func \(\*Conversation\) [SetVar](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1226>)
+### func \(\*Conversation\) [SetVar](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1265>)
 
 ```go
 func (c *Conversation) SetVar(name, value string)
@@ -2156,7 +2156,7 @@ conv.SetVar("customer_name", "Alice")
 A unary conversation renders the system prompt on every Send, so a value changed between sends changes the next prompt. A duplex conversation \(OpenDuplex\) renders it once, when the first input starts the session, and the provider session is created with that render as its system instruction. Set duplex variables before the first SendChunk/SendText; a later SetVar is stored but never reaches the provider, and the first one is logged at Warn.
 
 <a name="Conversation.SetVars"></a>
-### func \(\*Conversation\) [SetVars](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1243>)
+### func \(\*Conversation\) [SetVars](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1282>)
 
 ```go
 func (c *Conversation) SetVars(vars map[string]any)
@@ -2173,7 +2173,7 @@ conv.SetVars(map[string]any{
 ```
 
 <a name="Conversation.SetVarsFromEnv"></a>
-### func \(\*Conversation\) [SetVarsFromEnv](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1264>)
+### func \(\*Conversation\) [SetVarsFromEnv](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1303>)
 
 ```go
 func (c *Conversation) SetVarsFromEnv(prefix string)
@@ -2273,7 +2273,7 @@ for _, desc := range registry.Descriptors() {
 ```
 
 <a name="Conversation.TriggerStart"></a>
-### func \(\*Conversation\) [TriggerStart](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1151>)
+### func \(\*Conversation\) [TriggerStart](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1190>)
 
 ```go
 func (c *Conversation) TriggerStart(ctx context.Context, message string) error
@@ -5968,7 +5968,7 @@ func WithVideoStorageRef(ref, mimeType string) SendOption
 WithVideoStorageRef attaches a video by durable storage reference.
 
 <a name="SessionMode"></a>
-## type [SessionMode](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L57>)
+## type [SessionMode](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L58>)
 
 SessionMode represents the conversation's session mode.
 
@@ -6062,7 +6062,7 @@ Concurrency is bounded by \[maxConcurrentClosures\] to avoid spawning an unbound
 Errors from individual Close calls are collected and returned as a combined error using [errors.Join](<https://pkg.go.dev/errors/#Join>).
 
 <a name="SkillsCapability"></a>
-## type [SkillsCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L18-L29>)
+## type [SkillsCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L19-L30>)
 
 SkillsCapability provides skill activation/deactivation tools to conversations. Skills are loaded from directories or inline definitions and can be dynamically activated by the LLM via the skill\_\_activate tool.
 
@@ -6073,7 +6073,7 @@ type SkillsCapability struct {
 ```
 
 <a name="NewSkillsCapability"></a>
-### func [NewSkillsCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L49-L51>)
+### func [NewSkillsCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L50-L52>)
 
 ```go
 func NewSkillsCapability(sources []skills.SkillSource, opts ...SkillsOption) *SkillsCapability
@@ -6082,7 +6082,7 @@ func NewSkillsCapability(sources []skills.SkillSource, opts ...SkillsOption) *Sk
 NewSkillsCapability creates a new SkillsCapability from the given sources.
 
 <a name="SkillsCapability.Close"></a>
-### func \(\*SkillsCapability\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L166>)
+### func \(\*SkillsCapability\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L167>)
 
 ```go
 func (c *SkillsCapability) Close() error
@@ -6091,7 +6091,7 @@ func (c *SkillsCapability) Close() error
 Close is a no\-op for SkillsCapability.
 
 <a name="SkillsCapability.Executor"></a>
-### func \(\*SkillsCapability\) [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L188>)
+### func \(\*SkillsCapability\) [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L230>)
 
 ```go
 func (c *SkillsCapability) Executor() *skills.Executor
@@ -6100,7 +6100,7 @@ func (c *SkillsCapability) Executor() *skills.Executor
 Executor returns the underlying skills executor for testing.
 
 <a name="SkillsCapability.Init"></a>
-### func \(\*SkillsCapability\) [Init](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L65>)
+### func \(\*SkillsCapability\) [Init](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L66>)
 
 ```go
 func (c *SkillsCapability) Init(ctx CapabilityContext) error
@@ -6109,7 +6109,7 @@ func (c *SkillsCapability) Init(ctx CapabilityContext) error
 Init discovers skills from sources and creates an executor.
 
 <a name="SkillsCapability.Name"></a>
-### func \(\*SkillsCapability\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L62>)
+### func \(\*SkillsCapability\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L63>)
 
 ```go
 func (c *SkillsCapability) Name() string
@@ -6118,7 +6118,7 @@ func (c *SkillsCapability) Name() string
 Name returns the capability identifier.
 
 <a name="SkillsCapability.NewActiveSet"></a>
-### func \(\*SkillsCapability\) [NewActiveSet](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L138>)
+### func \(\*SkillsCapability\) [NewActiveSet](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L139>)
 
 ```go
 func (c *SkillsCapability) NewActiveSet() *skills.ActiveSet
@@ -6129,16 +6129,18 @@ NewActiveSet returns a fresh ActiveSet for one conversation, with the preloaded 
 Preloading is best\-effort — a skill that fails here can still be activated on first use, so a failure does not abort the open. It is reported, though: when the cause is MaxActive the "activate later" recovery does not hold, because the limit is as full at first use as it is now.
 
 <a name="SkillsCapability.RefreshSkillIndex"></a>
-### func \(\*SkillsCapability\) [RefreshSkillIndex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L174>)
+### func \(\*SkillsCapability\) [RefreshSkillIndex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L179>)
 
 ```go
 func (c *SkillsCapability) RefreshSkillIndex(ctx context.Context, query string, registry *tools.Registry)
 ```
 
-RefreshSkillIndex re\-materializes the skill\_\_activate tool's description using the configured external Selector, if any. It is called per\-Send from the conversation loop so the selector can rank against the current user query. When no selector is configured or the query is empty, the descriptor is re\-registered with the full eligible index \(same as historical behavior\).
+RefreshSkillIndex re\-materializes the skill\_\_activate tool's description in registry using the configured external Selector, if any, ranked against query. When no selector is configured or the query is empty, the registered descriptor is left as it is.
+
+A Conversation does not call this: it runs the selector once per Send and narrows the index per provider round, to the skills its own workflow state admits, without re\-registering anything. This remains for hosts that drive a tools.Registry directly; the index it writes ignores any workflow state's skills filter.
 
 <a name="SkillsCapability.RegisterTools"></a>
-### func \(\*SkillsCapability\) [RegisterTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L152>)
+### func \(\*SkillsCapability\) [RegisterTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L153>)
 
 ```go
 func (c *SkillsCapability) RegisterTools(registry *tools.Registry)
@@ -6147,7 +6149,7 @@ func (c *SkillsCapability) RegisterTools(registry *tools.Registry)
 RegisterTools registers the skill management tools into the registry.
 
 <a name="SkillsOption"></a>
-## type [SkillsOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L32>)
+## type [SkillsOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L33>)
 
 SkillsOption configures a SkillsCapability.
 
@@ -6156,7 +6158,7 @@ type SkillsOption func(*SkillsCapability)
 ```
 
 <a name="WithMaxActiveSkills"></a>
-### func [WithMaxActiveSkills](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L42>)
+### func [WithMaxActiveSkills](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L43>)
 
 ```go
 func WithMaxActiveSkills(n int) SkillsOption
@@ -6165,7 +6167,7 @@ func WithMaxActiveSkills(n int) SkillsOption
 WithMaxActiveSkills sets the maximum number of concurrently active skills.
 
 <a name="WithSkillSelector"></a>
-### func [WithSkillSelector](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L35>)
+### func [WithSkillSelector](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L36>)
 
 ```go
 func WithSkillSelector(s skills.SkillSelector) SkillsOption
@@ -6350,7 +6352,7 @@ func (e *ToolError) Unwrap() error
 Unwrap returns the underlying error.
 
 <a name="ToolHandler"></a>
-## type [ToolHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L228>)
+## type [ToolHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L235>)
 
 ToolHandler is a function that executes a tool call. It receives the parsed arguments from the LLM and returns a result.
 
@@ -6368,7 +6370,7 @@ type ToolHandler func(args map[string]any) (any, error)
 ```
 
 <a name="ToolHandlerCtx"></a>
-## type [ToolHandlerCtx](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L236>)
+## type [ToolHandlerCtx](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L243>)
 
 ToolHandlerCtx is like [ToolHandler](<#ToolHandler>) but receives a context. Use this when your tool implementation needs context for cancellation or deadlines.
 
