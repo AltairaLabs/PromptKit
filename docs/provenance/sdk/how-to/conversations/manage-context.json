@@ -253,11 +253,13 @@
   },
   {
    "id": 30,
-   "claim": "budget auto-detected from the provider via ContextWindowProvider, else 128K",
+   "claim": "budget auto-detected from the provider via ContextWindowProvider, else 128K; Claude, OpenAI and Gemini report per-model limits, additional_config.context_window overrides, Ollama/vLLM only via that setting, unknown model reports 0",
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/compactor.go:14",
-    "runtime/pipeline/stage/compactor.go:98"
+    "runtime/pipeline/stage/compactor.go:98",
+    "runtime/providers/claude/context_window_table.go:65",
+    "runtime/providers/ollama/context_window.go:5"
    ]
   },
   {

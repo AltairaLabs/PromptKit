@@ -34,11 +34,11 @@
   },
   {
    "id": 4,
-   "claim": "on_workflow_step evals do not run through Evaluate",
+   "claim": "on_workflow_step evals run through Evaluate when Trigger is TriggerOnWorkflowStep, after each workflow state transition",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/runner.go:141",
-    "sdk/evaluate.go:292"
+    "runtime/evals/trigger.go:27",
+    "sdk/evaluate.go:296"
    ]
   },
   {

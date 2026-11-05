@@ -13,6 +13,7 @@ verified:
     - runtime/evals/hooks.go
     - runtime/evals/metrics.go
     - runtime/evals/runner.go
+    - runtime/evals/trigger.go
     - runtime/evals/types.go
     - runtime/evals/wrappers.go
     - runtime/events/types.go

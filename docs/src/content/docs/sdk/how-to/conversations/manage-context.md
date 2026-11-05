@@ -11,7 +11,9 @@ verified:
     - runtime/pipeline/stage/compactor_fold.go
     - runtime/pipeline/stage/stages_provider.go
     - runtime/pipeline/stage/stages_utilities.go
+    - runtime/providers/claude/context_window_table.go
     - runtime/providers/gemini/embedding.go
+    - runtime/providers/ollama/context_window.go
     - runtime/providers/openai/embedding.go
     - runtime/providers/voyageai/embedding.go
     - runtime/statestore/interface.go
@@ -116,7 +118,7 @@ func openLongConversation(
 
 During multi-round tool execution, the context compactor runs between rounds and folds stale tool results into summaries such as `[file_read: package main... — 12000 bytes compacted]`. It is on by default:
 
-- It triggers when the estimated context exceeds 70% of the provider's context window. The window comes from the provider when it implements `providers.ContextWindowProvider`, otherwise 128,000 tokens.
+- It triggers when the estimated context exceeds 70% of the provider's context window. The window comes from the provider when it implements `providers.ContextWindowProvider`, otherwise 128,000 tokens. The Claude, OpenAI and Gemini providers report a limit for each model in their pricing tables, and `additional_config.context_window` overrides it. Ollama and vLLM report a limit only through that setting. A model the table does not list reports 0, so the compactor keeps the 128,000 default.
 - It folds the oldest tool results first and keeps the 4 most recent messages as written.
 - It leaves error results, system messages and non-tool messages unchanged.
 - It emits a `context.compacted` event with the token counts.
