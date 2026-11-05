@@ -128,12 +128,23 @@ Error:
 {"error": "city not found"}
 ```
 
+Pending:
+
+```json
+{"pending": {"reason": "requires_approval", "message": "Refund of $500 requires manager approval"}}
+```
+
 | Field | Type | Description |
 |-------|------|-------------|
 | `result` | any | The tool result passed to the model |
 | `error` | string | A non-empty value fails the call with this message |
+| `pending` | object | `reason` and `message`. Holds the call instead of completing it |
 
-The runtime checks `error` first, then `result`. A response with neither is returned to the model as the raw stdout bytes.
+The runtime checks `error` first, then `pending`, then `result`. A response with none of them is returned to the model as the raw stdout bytes.
+
+A `pending` answer holds the call instead of completing it. `ExecExecutor.ExecuteAsync` (`runtime/tools/exec_executor.go`) reports it as `ToolStatusPending`, with `reason` and `message` copied into the call's `PendingToolInfo`. That is the path a deferred client tool takes: the turn suspends, and in the SDK the call appears in `resp.ClientTools()`. Supply its result with `conv.SendToolResult` (or refuse it with `conv.RejectClientTool`), then call `conv.Resume`. The subprocess is not run again.
+
+The synchronous `ExecExecutor.Execute` cannot hold a call, so it returns an error for a `pending` answer.
 
 ## Eval protocol
 

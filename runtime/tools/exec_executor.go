@@ -47,24 +47,74 @@ type execToolResponse struct {
 	Pending *execPending    `json:"pending,omitempty"`
 }
 
-// execPending represents a pending/async tool result.
+// execPending is a pending answer: the call is held until resolved, the same
+// as a client tool awaiting fulfillment. See ExecuteAsync.
 type execPending struct {
 	Reason  string `json:"reason,omitempty"`
 	Message string `json:"message,omitempty"`
 }
 
 // Execute runs the tool as a one-shot subprocess.
+//
+// Execute is the synchronous path, which has no way to suspend a call, so a
+// subprocess that answers {"pending": ...} is an error here. The pipeline calls
+// ExecuteAsync, where a pending answer suspends the call.
 func (e *ExecExecutor) Execute(
 	ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage,
 ) (json.RawMessage, error) {
+	resp, stdout, err := e.run(ctx, descriptor, args)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Pending != nil {
+		return nil, fmt.Errorf(
+			"exec executor: tool %q returned pending, which only the async execution path can suspend",
+			descriptor.Name)
+	}
+	return execResult(resp, stdout), nil
+}
+
+// ExecuteAsync runs the tool as a one-shot subprocess and reports a
+// {"pending": ...} answer as ToolStatusPending, on the same path client and
+// other async tools use: the pipeline suspends the call and the caller resolves
+// it later.
+func (e *ExecExecutor) ExecuteAsync(
+	ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage,
+) (*ToolExecutionResult, error) {
+	resp, stdout, err := e.run(ctx, descriptor, args)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Pending != nil {
+		return &ToolExecutionResult{
+			Status: ToolStatusPending,
+			PendingInfo: &PendingToolInfo{
+				Reason:   resp.Pending.Reason,
+				Message:  resp.Pending.Message,
+				ToolName: descriptor.Name,
+				Args:     args,
+			},
+		}, nil
+	}
+	return &ToolExecutionResult{
+		Status:  ToolStatusComplete,
+		Content: execResult(resp, stdout),
+	}, nil
+}
+
+// run spawns the subprocess and decodes its answer. An "error" answer is
+// returned as an error.
+func (e *ExecExecutor) run(
+	ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage,
+) (resp execToolResponse, stdout []byte, err error) {
 	if descriptor.ExecConfig == nil {
-		return nil, fmt.Errorf("exec executor: tool %q has no exec configuration", descriptor.Name)
+		return resp, nil, fmt.Errorf("exec executor: tool %q has no exec configuration", descriptor.Name)
 	}
 	cfg := descriptor.ExecConfig
 
 	reqBytes, err := json.Marshal(execToolRequest{Args: args})
 	if err != nil {
-		return nil, fmt.Errorf("exec executor: marshaling request: %w", err)
+		return resp, nil, fmt.Errorf("exec executor: marshaling request: %w", err)
 	}
 
 	stdout, stderr, err := runExecProcess(ctx, cfg.Command, cfg.Args, cfg.Env, reqBytes)
@@ -73,24 +123,26 @@ func (e *ExecExecutor) Execute(
 		if len(stderr) > 0 {
 			detail = fmt.Sprintf(" (stderr: %s)", bytes.TrimSpace(stderr))
 		}
-		return nil, fmt.Errorf("exec executor: tool %q failed: %w%s", descriptor.Name, err, detail)
+		return resp, nil, fmt.Errorf("exec executor: tool %q failed: %w%s", descriptor.Name, err, detail)
 	}
 
-	var resp execToolResponse
 	if err := json.Unmarshal(stdout, &resp); err != nil {
-		return nil, fmt.Errorf("exec executor: tool %q returned invalid JSON: %w", descriptor.Name, err)
+		return resp, nil, fmt.Errorf("exec executor: tool %q returned invalid JSON: %w", descriptor.Name, err)
 	}
 
 	if resp.Error != "" {
-		return nil, fmt.Errorf("exec executor: tool %q: %s", descriptor.Name, resp.Error)
+		return resp, nil, fmt.Errorf("exec executor: tool %q: %s", descriptor.Name, resp.Error)
 	}
+	return resp, stdout, nil
+}
 
+// execResult is the tool's result: the "result" field, or the whole answer
+// when there is none (backward compat).
+func execResult(resp execToolResponse, stdout []byte) json.RawMessage {
 	if resp.Result != nil {
-		return resp.Result, nil
+		return resp.Result
 	}
-
-	// If no result field, return the full response (backward compat)
-	return stdout, nil
+	return stdout
 }
 
 // runExecProcess spawns a subprocess, writes input to stdin, and captures stdout/stderr.
