@@ -287,10 +287,14 @@ type ExecConfig struct {
 // Tools with mode "client" are fulfilled by the SDK caller's device
 // (e.g., GPS, camera, contacts, biometrics).
 type ClientConfig struct {
-	Consent        *ConsentConfig `json:"consent,omitempty" yaml:"consent,omitempty"`
-	TimeoutMs      int            `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
-	Categories     []string       `json:"categories,omitempty" yaml:"categories,omitempty"`
-	ValidateOutput bool           `json:"validate_output,omitempty" yaml:"validate_output,omitempty"`
+	Consent    *ConsentConfig `json:"consent,omitempty" yaml:"consent,omitempty"`
+	TimeoutMs  int            `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
+	Categories []string       `json:"categories,omitempty" yaml:"categories,omitempty"`
+	// ValidateOutput checks a result the caller supplies for a deferred call
+	// (SendToolResult in the SDK) against the tool's OutputSchema. A result
+	// that does not match reaches the model as a failed call. Results from a
+	// registered handler are checked against the schema either way.
+	ValidateOutput bool `json:"validate_output,omitempty" yaml:"validate_output,omitempty"`
 }
 
 // ConsentConfig defines consent requirements for client-side tools.

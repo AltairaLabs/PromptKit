@@ -362,6 +362,7 @@ func (c *Conversation) buildToolResultMessages(ctx context.Context) ([]types.Mes
 	if len(resolutions) == 0 {
 		return nil, fmt.Errorf("no resolved tool results to resume with")
 	}
+	c.validateDeferredResults(ctx, resolutions)
 
 	toolMsgs := make([]types.Message, 0, len(resolutions))
 	for _, res := range resolutions {
@@ -389,6 +390,57 @@ func (c *Conversation) buildToolResultMessages(ctx context.Context) ([]types.Mes
 	c.emitClientToolResolvedEvents(resolutions)
 
 	return toolMsgs, nil
+}
+
+// clientResultValidator checks caller-supplied client tool results. It is
+// safe for concurrent use and caches compiled schemas.
+var clientResultValidator = tools.NewSchemaValidator()
+
+// validateDeferredResults checks each caller-supplied JSON result against its
+// tool's output schema when the tool's client config sets validate_output. A
+// result that does not match becomes a failure, so the model is told the call
+// failed and why, as it is when a handler registered with OnClientTool
+// returns an invalid result.
+func (c *Conversation) validateDeferredResults(ctx context.Context, resolutions []*sdktools.ToolResolution) {
+	if c.toolRegistry == nil || c.getBaseSession() == nil {
+		return
+	}
+	var names map[string]string
+	for _, res := range resolutions {
+		if res.Rejected || res.Error != nil || len(res.Parts) > 0 {
+			continue
+		}
+		if names == nil {
+			names = callNamesOfLastAssistant(c.Messages(ctx))
+		}
+		desc, err := c.toolRegistry.GetTool(names[res.ID])
+		if err != nil || desc.ClientConfig == nil || !desc.ClientConfig.ValidateOutput {
+			continue
+		}
+		validated, _, err := clientResultValidator.CoerceResult(desc, res.ResultJSON)
+		if err != nil {
+			res.ResultJSON = nil
+			res.Error = fmt.Errorf("result validation failed: %w", err)
+			continue
+		}
+		res.ResultJSON = validated
+	}
+}
+
+// callNamesOfLastAssistant maps each call the last assistant message in
+// history made to the name of the tool it called.
+func callNamesOfLastAssistant(history []types.Message) map[string]string {
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role != roleAssistant {
+			continue
+		}
+		names := make(map[string]string, len(history[i].ToolCalls))
+		for _, tc := range history[i].ToolCalls {
+			names[tc.ID] = tc.Name
+		}
+		return names
+	}
+	return map[string]string{}
 }
 
 // emitClientToolResolvedEvents emits a tool.client.resolved event for each

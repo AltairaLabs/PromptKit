@@ -144,6 +144,25 @@ err = conv.SendToolResultMultimodal(ctx, tool.CallID, []types.ContentPart{
 
 A handler can return the same `[]types.ContentPart` directly. Any other return value is serialized as JSON text.
 
+### 6. Validate deferred results (optional)
+
+A result returned by an `OnClientTool` handler is checked against the tool's `output_schema` before the model sees it. A result passed to `SendToolResult` is not, unless the tool sets `client.validate_output`:
+
+```yaml
+tools:
+  get_location:
+    mode: client
+    output_schema:
+      type: object
+      properties:
+        city: { type: string }
+      required: [city]
+    client:
+      validate_output: true
+```
+
+With it set, `Resume` checks each JSON result against the schema. A result that does not match reaches the model as a failed call, with the validation error in place of the result. Multimodal results sent with `SendToolResultMultimodal` are not checked.
+
 ## Serve client tools over A2A
 
 An A2A server reports a suspended turn as an input-required task. Each pending call is a status message part whose metadata carries the call. The example uses A2A 0.3 names; a 1.0 caller sees `TASK_STATE_INPUT_REQUIRED`, `ROLE_AGENT` and the `SendMessage` method with the same metadata:
