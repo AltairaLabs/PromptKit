@@ -28,9 +28,10 @@ import (
 //     saying so is the difference between a five-minute fix and an afternoon.
 
 // checkProviderKeys validates every logical provider name the prompt's checks
-// reference. Returns nil when the prompt declares none.
+// reference, including the pack-level evals that run on its turns. Returns nil
+// when none names a provider.
 func checkProviderKeys(p *pack.Pack, prompt *pack.Prompt, cfg *config) error {
-	refs := collectProviderKeyRefs(prompt, cfg)
+	refs := collectProviderKeyRefs(p, prompt, cfg)
 	if len(refs) == 0 {
 		return nil
 	}
@@ -78,49 +79,83 @@ type providerKeyRef struct {
 	resolve func(evals.ProviderBinding) error
 }
 
-// collectProviderKeyRefs walks the prompt's validators and evals for checks
-// that name a provider.
-func collectProviderKeyRefs(prompt *pack.Prompt, cfg *config) []providerKeyRef {
-	if prompt == nil {
+// collectProviderKeyRefs walks the prompt's validators and the evals that run
+// on its turns for checks that name a provider. The evals are the pack-level
+// and prompt-level ones merged the way the eval middleware merges them, so a
+// prompt-level eval that overrides a pack-level one by ID is the one checked.
+func collectProviderKeyRefs(p *pack.Pack, prompt *pack.Prompt, cfg *config) []providerKeyRef {
+	checks := checksOnTurn(p, prompt)
+	if len(checks) == 0 {
 		return nil
 	}
 	registry := cfg.evalRegistry
 	if registry == nil {
 		registry = evals.NewEvalTypeRegistry()
 	}
-
 	var refs []providerKeyRef
-	add := func(checkType string, params map[string]any) {
-		key, _ := params[handlers.ProviderParam].(string)
-		if key == "" {
-			return
+	for _, c := range checks {
+		if ref, ok := providerKeyRefFor(registry, c.checkType, c.params); ok {
+			refs = append(refs, ref)
 		}
-		handler, err := registry.Get(checkType)
-		if err != nil {
-			// An unknown type is reported by the guardrail/eval compile paths
-			// with a better message than anything this could say.
-			return
-		}
-		switch {
-		case handlers.RequiresJudge(handler):
-			refs = append(refs, providerKeyRef{check: checkType, key: key,
-				resolve: func(b evals.ProviderBinding) error { _, err := b.LLM(key); return err }})
-		case handlers.RequiresClassifier(handler):
-			refs = append(refs, providerKeyRef{check: checkType, key: key,
-				resolve: func(b evals.ProviderBinding) error { _, err := b.Classifier(key); return err }})
-		}
-	}
-
-	for _, v := range prompt.Validators {
-		if v.Enabled != nil && !*v.Enabled {
-			continue
-		}
-		add(v.Type, v.Params)
-	}
-	for _, e := range prompt.Evals {
-		add(e.Type, e.Params)
 	}
 	return refs
+}
+
+// turnCheck is one validator or eval: its type and params.
+type turnCheck struct {
+	checkType string
+	params    map[string]any
+}
+
+// checksOnTurn lists the enabled validators of the prompt and the evals that
+// run on its turns (pack-level merged with prompt-level). Nil entries are
+// skipped.
+func checksOnTurn(p *pack.Pack, prompt *pack.Prompt) []turnCheck {
+	var packEvals, promptEvals []evals.EvalDef
+	var out []turnCheck
+	if p != nil {
+		packEvals = evals.Values(p.Evals)
+	}
+	if prompt != nil {
+		promptEvals = evals.Values(prompt.Evals)
+		for _, v := range prompt.Validators {
+			if v == nil || (v.Enabled != nil && !*v.Enabled) {
+				continue
+			}
+			out = append(out, turnCheck{checkType: v.Type, params: v.Params})
+		}
+	}
+	merged := evals.ResolveEvals(packEvals, promptEvals)
+	for i := range merged {
+		out = append(out, turnCheck{checkType: merged[i].Type, params: merged[i].Params})
+	}
+	return out
+}
+
+// providerKeyRefFor returns the reference a check makes to a provider, and
+// false when it names none or needs none.
+func providerKeyRefFor(
+	registry *evals.EvalTypeRegistry, checkType string, params map[string]any,
+) (providerKeyRef, bool) {
+	key, _ := params[handlers.ProviderParam].(string)
+	if key == "" {
+		return providerKeyRef{}, false
+	}
+	handler, err := registry.Get(checkType)
+	if err != nil {
+		// An unknown type is reported by the guardrail/eval compile paths
+		// with a better message than anything this could say.
+		return providerKeyRef{}, false
+	}
+	switch {
+	case handlers.RequiresJudge(handler):
+		return providerKeyRef{check: checkType, key: key,
+			resolve: func(b evals.ProviderBinding) error { _, err := b.LLM(key); return err }}, true
+	case handlers.RequiresClassifier(handler):
+		return providerKeyRef{check: checkType, key: key,
+			resolve: func(b evals.ProviderBinding) error { _, err := b.Classifier(key); return err }}, true
+	}
+	return providerKeyRef{}, false
 }
 
 // declaredRequirementKeys returns the logical names the pack declares.

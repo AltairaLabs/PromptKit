@@ -170,7 +170,7 @@ Judge-backed evals (`llm_judge`, `llm_judge_session`, `bias`, `toxicity`, `pii_l
 
 Nothing falls back to the conversation's own provider. A host that drives packs whose checks name no provider can set a default judge: `sdk.WithJudgeProvider` for a conversation, `EvaluateOpts.JudgeProvider` for `Evaluate`. A check that names a provider ignores the default.
 
-For checks in a prompt's `evals` or `validators`, `Open()` fails before the first turn when the name is undeclared in `requires`, declared but unbound, or bound to an inference provider. A judge-backed guardrail that names no provider, with no default judge, also fails `Open()` and the error says to add `params.provider`.
+For checks in a prompt's `evals` or `validators`, and in the pack-level `evals` that run on its turns, `Open()` fails before the first turn when the name is undeclared in `requires`, declared but unbound, or bound to an inference provider. A judge-backed guardrail that names no provider, with no default judge, also fails `Open()` and the error says to add `params.provider`.
 
 ## Record metrics
 
