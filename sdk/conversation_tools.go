@@ -19,8 +19,9 @@ import (
 
 // OnTool registers a handler for a tool defined in the pack.
 //
-// The tool name must match a tool defined in the pack's tools section.
-// When the LLM calls the tool, your handler receives the parsed arguments
+// The tool name should match a tool defined in the pack's tools section.
+// OnTool does not check it: a handler for a name the pack does not define is
+// stored and never called. When the LLM calls the tool, your handler receives the parsed arguments
 // and returns a result.
 //
 //	conv.OnTool("get_weather", func(args map[string]any) (any, error) {
@@ -150,15 +151,15 @@ func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 // Use this for Human-in-the-Loop (HITL) workflows where certain actions
 // require human approval before proceeding:
 //
-//	conv.OnToolAsync("process_refund", func(args map[string]any) tools.PendingResult {
+//	conv.OnToolAsync("process_refund", func(args map[string]any) sdktools.PendingResult {
 //	    amount := args["amount"].(float64)
 //	    if amount > 1000 {
-//	        return tools.PendingResult{
+//	        return sdktools.PendingResult{
 //	            Reason:  "high_value_refund",
 //	            Message: fmt.Sprintf("Refund of $%.2f requires approval", amount),
 //	        }
 //	    }
-//	    return tools.PendingResult{} // Proceed immediately
+//	    return sdktools.PendingResult{} // Proceed immediately
 //	}, func(args map[string]any) (any, error) {
 //	    // Execute the actual refund
 //	    return refundAPI.Process(args)
@@ -301,7 +302,7 @@ func (c *Conversation) ResolveToolWithArgs(
 // The call is claimed atomically, so a reject races safely against a concurrent
 // approve — the loser gets [sdktools.ErrPendingAlreadyResolved].
 //
-//	resp, _ := conv.RejectTool(ctx, pending.ID, "Not authorized for this amount")
+//	resolution, _ := conv.RejectTool(ctx, pending.ID, "Not authorized for this amount")
 func (c *Conversation) RejectTool(ctx context.Context, id, reason string) (*sdktools.ToolResolution, error) {
 	if c.pendingStore == nil {
 		return nil, fmt.Errorf("no pending tools")
@@ -401,7 +402,8 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 //
 // Usage:
 //
-//	for chunk := range conv.Response() {
+//	respCh, _ := conv.Response()
+//	for chunk := range respCh {
 //	    if len(chunk.PendingTools) > 0 {
 //	        for _, pt := range chunk.PendingTools {
 //	            conv.ResolveTool(ctx, pt.CallID) // or RejectTool

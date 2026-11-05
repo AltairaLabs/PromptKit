@@ -603,7 +603,7 @@ var ErrShutdownManagerClosed = errors.New("shutdown manager is closed; cannot re
 ```
 
 <a name="DescribeGovernance"></a>
-## func [DescribeGovernance](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/governance.go#L79>)
+## func [DescribeGovernance](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/governance.go#L78>)
 
 ```go
 func DescribeGovernance(g *Governance) string
@@ -629,7 +629,7 @@ Eval definitions can come from three sources \(checked in order\):
 The function builds an \[evals.EvalContext\] from the provided messages, dispatches to the appropriate runner method based on Trigger, and optionally emits events on the EventBus.
 
 <a name="GracefulShutdown"></a>
-## func [GracefulShutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/shutdown.go#L151>)
+## func [GracefulShutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/shutdown.go#L150>)
 
 ```go
 func GracefulShutdown(mgr *ShutdownManager, timeout time.Duration)
@@ -657,13 +657,13 @@ The registries are populated by package init\(\), which means the answer depends
 Intended for deploy\-time and boot\-time validation — a caller can check a configured type without constructing a provider and string\-matching the error. See ValidateOptions to check a whole option set.
 
 <a name="ValidateEvalTypes"></a>
-## func [ValidateEvalTypes](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/evaluate.go#L389>)
+## func [ValidateEvalTypes](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/evaluate.go#L390>)
 
 ```go
 func ValidateEvalTypes(opts ValidateEvalTypesOpts) ([]evals.EvalDef, error)
 ```
 
-ValidateEvalTypes checks that every eval type referenced in the resolved eval definitions has a registered handler in the EvalTypeRegistry. Returns a list of eval IDs whose types are missing, or nil if all are valid.
+ValidateEvalTypes checks that every eval type referenced in the resolved eval definitions has a registered handler in the EvalTypeRegistry. Returns the eval definitions whose types have no registered handler, or nil if all are valid.
 
 This is useful as a preflight check \(e.g. at startup or in CI\) to catch configuration errors \(typos, missing RuntimeConfig bindings\) before evals are actually executed.
 
@@ -688,7 +688,7 @@ So a nil return means "this configuration builds", not "this deployment will ser
 Anything constructed during validation is discarded.
 
 <a name="A2AAgentBuilder"></a>
-## type [A2AAgentBuilder](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2348-L2359>)
+## type [A2AAgentBuilder](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2353-L2364>)
 
 A2AAgentBuilder provides a fluent interface for configuring A2A agent connections.
 
@@ -699,7 +699,7 @@ type A2AAgentBuilder struct {
 ```
 
 <a name="NewA2AAgent"></a>
-### func [NewA2AAgent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2370>)
+### func [NewA2AAgent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2375>)
 
 ```go
 func NewA2AAgent(agentURL string) *A2AAgentBuilder
@@ -718,7 +718,7 @@ conv, _ := sdk.Open("./assistant.pack.json", "assistant",
 ```
 
 <a name="A2AAgentBuilder.Build"></a>
-### func \(\*A2AAgentBuilder\) [Build](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2439>)
+### func \(\*A2AAgentBuilder\) [Build](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2444>)
 
 ```go
 func (b *A2AAgentBuilder) Build() *tools.A2AConfig
@@ -727,7 +727,7 @@ func (b *A2AAgentBuilder) Build() *tools.A2AConfig
 Build returns the A2AConfig for this agent.
 
 <a name="A2AAgentBuilder.Required"></a>
-### func \(\*A2AAgentBuilder\) [Required](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2433>)
+### func \(\*A2AAgentBuilder\) [Required](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2438>)
 
 ```go
 func (b *A2AAgentBuilder) Required() *A2AAgentBuilder
@@ -736,7 +736,7 @@ func (b *A2AAgentBuilder) Required() *A2AAgentBuilder
 Required makes the agent's discovery a precondition of opening the conversation: if its agent card cannot be fetched, Open fails. Without it a failed discovery is logged and the conversation runs without that agent's tools.
 
 <a name="A2AAgentBuilder.WithAuth"></a>
-### func \(\*A2AAgentBuilder\) [WithAuth](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2378>)
+### func \(\*A2AAgentBuilder\) [WithAuth](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2383>)
 
 ```go
 func (b *A2AAgentBuilder) WithAuth(scheme, token string) *A2AAgentBuilder
@@ -745,7 +745,7 @@ func (b *A2AAgentBuilder) WithAuth(scheme, token string) *A2AAgentBuilder
 WithAuth sets authentication credentials for the A2A agent.
 
 <a name="A2AAgentBuilder.WithAuthFromEnv"></a>
-### func \(\*A2AAgentBuilder\) [WithAuthFromEnv](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2385>)
+### func \(\*A2AAgentBuilder\) [WithAuthFromEnv](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2390>)
 
 ```go
 func (b *A2AAgentBuilder) WithAuthFromEnv(scheme, envVar string) *A2AAgentBuilder
@@ -754,7 +754,7 @@ func (b *A2AAgentBuilder) WithAuthFromEnv(scheme, envVar string) *A2AAgentBuilde
 WithAuthFromEnv sets authentication using an environment variable for the token.
 
 <a name="A2AAgentBuilder.WithHeader"></a>
-### func \(\*A2AAgentBuilder\) [WithHeader](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2392>)
+### func \(\*A2AAgentBuilder\) [WithHeader](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2397>)
 
 ```go
 func (b *A2AAgentBuilder) WithHeader(key, value string) *A2AAgentBuilder
@@ -763,7 +763,7 @@ func (b *A2AAgentBuilder) WithHeader(key, value string) *A2AAgentBuilder
 WithHeader adds a static header to all requests to this agent.
 
 <a name="A2AAgentBuilder.WithHeaderFromEnv"></a>
-### func \(\*A2AAgentBuilder\) [WithHeaderFromEnv](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2399>)
+### func \(\*A2AAgentBuilder\) [WithHeaderFromEnv](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2404>)
 
 ```go
 func (b *A2AAgentBuilder) WithHeaderFromEnv(headerEnv string) *A2AAgentBuilder
@@ -772,7 +772,7 @@ func (b *A2AAgentBuilder) WithHeaderFromEnv(headerEnv string) *A2AAgentBuilder
 WithHeaderFromEnv adds a header that reads its value from an environment variable. Format: "Header\-Name=ENV\_VAR\_NAME"
 
 <a name="A2AAgentBuilder.WithRetryPolicy"></a>
-### func \(\*A2AAgentBuilder\) [WithRetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2413>)
+### func \(\*A2AAgentBuilder\) [WithRetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2418>)
 
 ```go
 func (b *A2AAgentBuilder) WithRetryPolicy(maxRetries, initialDelayMs, maxDelayMs int) *A2AAgentBuilder
@@ -781,7 +781,7 @@ func (b *A2AAgentBuilder) WithRetryPolicy(maxRetries, initialDelayMs, maxDelayMs
 WithRetryPolicy sets the retry policy for this agent.
 
 <a name="A2AAgentBuilder.WithSkillFilter"></a>
-### func \(\*A2AAgentBuilder\) [WithSkillFilter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2424>)
+### func \(\*A2AAgentBuilder\) [WithSkillFilter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2429>)
 
 ```go
 func (b *A2AAgentBuilder) WithSkillFilter(filter *tools.A2ASkillFilter) *A2AAgentBuilder
@@ -790,7 +790,7 @@ func (b *A2AAgentBuilder) WithSkillFilter(filter *tools.A2ASkillFilter) *A2AAgen
 WithSkillFilter sets a skill filter that controls which skills from this agent are exposed to the LLM.
 
 <a name="A2AAgentBuilder.WithTimeout"></a>
-### func \(\*A2AAgentBuilder\) [WithTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2407>)
+### func \(\*A2AAgentBuilder\) [WithTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2412>)
 
 ```go
 func (b *A2AAgentBuilder) WithTimeout(ms int) *A2AAgentBuilder
@@ -864,13 +864,13 @@ type A2AConversationOpener = a2aserver.ConversationOpener
 ```
 
 <a name="A2AOpener"></a>
-### func [A2AOpener](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a.go#L10>)
+### func [A2AOpener](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a.go#L12>)
 
 ```go
 func A2AOpener(packPath, promptName string, opts ...Option) A2AConversationOpener
 ```
 
-A2AOpener returns an A2AConversationOpener backed by SDK conversations. Each call to the returned function opens a new conversation for the given context ID using sdk.Open with the provided pack path, prompt name, and options.
+A2AOpener returns an A2AConversationOpener backed by SDK conversations. Each call to the returned function opens a new conversation with sdk.Open using the provided pack path, prompt name, and options. The context ID is not passed to the conversation, so each one gets a generated conversation ID unless opts include [WithConversationID](<#WithConversationID>).
 
 <a name="A2AServer"></a>
 ## type [A2AServer](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L19>)
@@ -992,7 +992,7 @@ type A2ATaskStore = a2aserver.TaskStore
 <a name="Agent"></a>
 ## type [Agent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/multi_agent.go#L11-L14>)
 
-Agent is a sendable agent pipeline. It is either a single\-prompt \*Conversation \(RFC 0007\) or a workflow\-backed \*WorkflowConversation entered at the agent's state \(RFC 0011\) — both are driven through Send identically.
+Agent is a sendable agent pipeline. It is either a single\-prompt \*Conversation or a workflow\-backed \*WorkflowConversation entered at the agent's state. Both are driven through Send identically.
 
 ```go
 type Agent interface {
@@ -1058,7 +1058,7 @@ func (r *AgentToolResolver) SetEndpointResolver(er EndpointResolver)
 SetEndpointResolver configures how agent URLs are resolved. When nil, descriptors are created without an AgentURL \(suitable for testing or when endpoints are resolved later\).
 
 <a name="AudioMonitorMode"></a>
-## type [AudioMonitorMode](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1195>)
+## type [AudioMonitorMode](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1200>)
 
 AudioMonitorMode controls when audio monitoring is active in SDK conversations.
 
@@ -1083,9 +1083,7 @@ const (
 <a name="AudioMonitorOptions"></a>
 ## type [AudioMonitorOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1215-L1226>)
 
-AudioMonitorOptions configures real\-time audio monitoring for duplex SDK conversations. Mirrors the canonical audio.Options shape but is defined here so sdk/ stays independent of PromptArena's audio package.
-
-Consumers who want full control of the audio stack \(router, local sink, web SSE, level meter\) can supply this struct via WithAudioMonitor; the SDK internally translates it into the audio package's types when wiring the monitor pipeline.
+AudioMonitorOptions describes real\-time audio monitoring for duplex SDK conversations: the monitoring mode, the sample rate, and which outputs \(local sink, SSE relay, level meter\) to enable. [WithAudioMonitor](<#WithAudioMonitor>) accepts it.
 
 ```go
 type AudioMonitorOptions struct {
@@ -1181,7 +1179,7 @@ String returns the string representation of the chunk type.
 <a name="ClientToolHandler"></a>
 ## type [ClientToolHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L47>)
 
-ClientToolHandler is a function that fulfillls a client\-side tool call. It receives a context \(carrying the tool timeout from ClientConfig.TimeoutMs\) and a [ClientToolRequest](<#ClientToolRequest>) with the invocation details.
+ClientToolHandler is a function that fulfills a client\-side tool call. It receives a context \(carrying the tool timeout from ClientConfig.TimeoutMs\) and a [ClientToolRequest](<#ClientToolRequest>) with the invocation details.
 
 The return value should be JSON\-serializable and will be sent back to the LLM as the tool result.
 
@@ -1276,7 +1274,7 @@ type Conversation struct {
 ```
 
 <a name="Open"></a>
-### func [Open](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L86>)
+### func [Open](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L89>)
 
 ```go
 func Open(packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1318,20 +1316,21 @@ The packPath can be:
 
 - Absolute path: "/path/to/assistant.pack.json"
 - Relative path: "./packs/assistant.pack.json"
-- Remote URL pointing at a .pack.json \(future\)
+
+The file must exist, or Open returns [ErrPackNotFound](<#ErrConversationClosed>). Open caches each loaded pack by absolute path for the life of the process, so later Open calls for the same path do not re\-read the file.
 
 The promptName must match a prompt ID defined in the pack's "prompts" section.
 
 <a name="OpenComposition"></a>
-### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1311>)
+### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1314>)
 
 ```go
 func OpenComposition(packPath, name string, opts ...Option) (*Conversation, error)
 ```
 
-OpenComposition loads a pack and creates a Conversation that runs the named composition directly \(RFC 0010 function\-mode surface\).
+OpenComposition loads a pack and creates a Conversation that runs the named composition directly.
 
-Unlike [OpenWorkflow](<#OpenWorkflow>), no workflow state machine is involved — the composition is active from the first [Conversation.Send](<#Conversation.Send>) call onward. The named composition must be present in the pack's "compositions" map; if it is absent an error is returned before any further initialisation.
+Unlike [OpenWorkflow](<#OpenWorkflow>), no workflow state machine is involved: the composition is active from the first [Conversation.Send](<#Conversation.Send>) call onward. The named composition must be present in the pack's "compositions" map; if it is absent an error is returned before any further initialization.
 
 Basic usage:
 
@@ -1351,7 +1350,7 @@ fmt.Println(string(resp.CompositionOutput()))
 ```
 
 <a name="OpenDuplex"></a>
-### func [OpenDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L134>)
+### func [OpenDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L137>)
 
 ```go
 func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1379,7 +1378,7 @@ go func() {
 // Receive streaming output
 respCh, _ := conv.Response()
 for chunk := range respCh {
-    fmt.Print(chunk.Content)
+    fmt.Print(chunk.Delta)
 }
 ```
 
@@ -1410,7 +1409,7 @@ _ = conv.Start(ctx) // blocks: mic → LLM → speaker, until ctx is canceled
 ```
 
 <a name="Resume"></a>
-### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1209>)
+### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1212>)
 
 ```go
 func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1438,7 +1437,7 @@ if errors.Is(err, sdk.ErrConversationNotFound) {
 Resume requires a state store to be configured. If no state store is provided, it returns [ErrNoStateStore](<#ErrConversationClosed>).
 
 <a name="ResumeDuplex"></a>
-### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1285>)
+### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1288>)
 
 ```go
 func ResumeDuplex(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1481,7 +1480,7 @@ Clear removes all messages from the conversation history.
 This keeps the system prompt and variables but removes all user/assistant messages. Useful for starting fresh within the same conversation session. In duplex mode, this will close the session first if actively streaming.
 
 <a name="Conversation.Close"></a>
-### func \(\*Conversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1589>)
+### func \(\*Conversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1593>)
 
 ```go
 func (c *Conversation) Close() error
@@ -1493,10 +1492,10 @@ After Close is called, Send and Stream will return [ErrConversationClosed](<#Err
 
 Close cancels the session context; it does not drain work already in flight. On the streaming ingestion path in particular, turns are processed asynchronously after the last chunk is queued, so calling Close immediately can cancel a turn mid\-pipeline and drop its response. Wait for the responses you expect before closing.
 
-An event bus the SDK created is closed last, once this conversation and any forks of it are all closed. Before closing it, Close waits up to pipelineFlushTimeout for pipeline executions still in flight, so the events a turn publishes after it returns \(pipeline.completed among them\) reach the bus's subscribers. A bus supplied via [WithEventBus](<#WithEventBus>) is left open for the caller to close.
+An event bus the SDK created is closed last, once this conversation and any forks of it are all closed. Before closing it, Close waits up to one second for pipeline executions still in flight, so the events a turn publishes after it returns \(pipeline.completed among them\) reach the bus's subscribers. A bus supplied via [WithEventBus](<#WithEventBus>) is left open for the caller to close.
 
 <a name="Conversation.Continue"></a>
-### func \(\*Conversation\) [Continue](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L334>)
+### func \(\*Conversation\) [Continue](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L335>)
 
 ```go
 func (c *Conversation) Continue(ctx context.Context) (*Response, error)
@@ -1515,7 +1514,7 @@ resp, _ = conv.Continue(ctx) // LLM receives tool results
 ```
 
 <a name="Conversation.ContinueDuplex"></a>
-### func \(\*Conversation\) [ContinueDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L412>)
+### func \(\*Conversation\) [ContinueDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L414>)
 
 ```go
 func (c *Conversation) ContinueDuplex(ctx context.Context) error
@@ -1526,7 +1525,8 @@ ContinueDuplex sends resolved/rejected HITL tool results back into the duplex st
 Usage:
 
 ```
-for chunk := range conv.Response() {
+respCh, _ := conv.Response()
+for chunk := range respCh {
     if len(chunk.PendingTools) > 0 {
         for _, pt := range chunk.PendingTools {
             conv.ResolveTool(ctx, pt.CallID) // or RejectTool
@@ -1568,7 +1568,7 @@ func (c *Conversation) Done() (<-chan struct{}, error)
 Done returns a channel that's closed when the duplex session ends. Only available when the conversation was opened with OpenDuplex\(\).
 
 <a name="Conversation.EventBus"></a>
-### func \(\*Conversation\) [EventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1829>)
+### func \(\*Conversation\) [EventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1833>)
 
 ```go
 func (c *Conversation) EventBus() events.Bus
@@ -1598,7 +1598,7 @@ FailClientTool reports that a deferred client tool failed.
 callID must match one of the [PendingClientTool.CallID](<#PendingClientTool>) values returned in the [Response](<#Response>). partial, when not nil, is the output the tool produced before failing and must be JSON\-serializable. The model is told about the failure, the stored tool result carries err as its Error, and the tool.client.resolved event reports the call as an error. Call [Conversation.Resume](<#Conversation.Resume>) once every pending tool is resolved.
 
 <a name="Conversation.Fork"></a>
-### func \(\*Conversation\) [Fork](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1428>)
+### func \(\*Conversation\) [Fork](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1432>)
 
 ```go
 func (c *Conversation) Fork() (*Conversation, error)
@@ -1619,7 +1619,7 @@ conv.Send(ctx, "Tell me about Tokyo")     // Original path
 branch.Send(ctx, "Tell me about Kyoto")   // Branch path
 ```
 
-The forked conversation is completely independent \- changes to one do not affect the other.
+The fork gets a copy of the message history and variables, its own session ID \(the original's with a "\-fork" suffix\), tool registry, pending tool calls, active skills and memory scope. Handlers registered with OnTool, OnToolAsync and the client tool handlers are copied. The fork shares the original's providers, MCP servers, hooks and event bus, and the event bus stays open until the original and every fork have closed.
 
 <a name="Conversation.GetVar"></a>
 ### func \(\*Conversation\) [GetVar](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1343>)
@@ -1631,7 +1631,7 @@ func (c *Conversation) GetVar(name string) (string, bool)
 GetVar returns the current value of a template variable. Returns empty string and false if the variable is not set.
 
 <a name="Conversation.Governance"></a>
-### func \(\*Conversation\) [Governance](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/governance.go#L32>)
+### func \(\*Conversation\) [Governance](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/governance.go#L31>)
 
 ```go
 func (c *Conversation) Governance() *Governance
@@ -1641,12 +1641,12 @@ Governance returns the governance declared for this conversation, or nil if the 
 
 When the conversation was opened as a named agent, this is the agent's governance resolved against the pack's — per\-field replacement, arrays and extensions replacing whole \(see prompt.ResolveGovernance\). For a plain single\-prompt conversation, which is not an agent, it is the pack\-level declaration.
 
-Nothing in PromptKit acts on the result. RFC 0013 is explicit that a governance block describes and does not gate: this is here so a host can SHOW what the pack claims — surface an AI disclosure in its UI, log the accountable owner beside a transcript, refuse to deploy a pack whose approved\_environments do not include the one it is being deployed to. Those are the host's decisions to make, on its own policy, with these facts.
+Nothing in PromptKit acts on the result. A governance block describes and does not gate: it is here so a host can show what the pack claims — surface an AI disclosure in its UI, log the accountable owner beside a transcript, refuse to deploy a pack whose approved\_environments do not include the one it is being deployed to. Those are the host's decisions to make, on its own policy, with these facts.
 
 The result is a copy; adjusting it does not change the loaded pack.
 
 <a name="Conversation.ID"></a>
-### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1815>)
+### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1819>)
 
 ```go
 func (c *Conversation) ID() string
@@ -1731,7 +1731,7 @@ conv.OnStreamEvent(func(event sdk.StreamEvent) {
 ```
 
 <a name="Conversation.OnTool"></a>
-### func \(\*Conversation\) [OnTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L33>)
+### func \(\*Conversation\) [OnTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L34>)
 
 ```go
 func (c *Conversation) OnTool(name string, handler ToolHandler)
@@ -1739,7 +1739,7 @@ func (c *Conversation) OnTool(name string, handler ToolHandler)
 
 OnTool registers a handler for a tool defined in the pack.
 
-The tool name must match a tool defined in the pack's tools section. When the LLM calls the tool, your handler receives the parsed arguments and returns a result.
+The tool name should match a tool defined in the pack's tools section. OnTool does not check it: a handler for a name the pack does not define is stored and never called. When the LLM calls the tool, your handler receives the parsed arguments and returns a result.
 
 ```
 conv.OnTool("get_weather", func(args map[string]any) (any, error) {
@@ -1751,7 +1751,7 @@ conv.OnTool("get_weather", func(args map[string]any) (any, error) {
 The handler's return value is automatically serialized to JSON and sent back to the LLM as the tool result.
 
 <a name="Conversation.OnToolAsync"></a>
-### func \(\*Conversation\) [OnToolAsync](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L171-L175>)
+### func \(\*Conversation\) [OnToolAsync](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L172-L176>)
 
 ```go
 func (c *Conversation) OnToolAsync(name string, checkFunc func(args map[string]any) sdktools.PendingResult, execFunc ToolHandler)
@@ -1762,15 +1762,15 @@ OnToolAsync registers a handler that may require approval before execution.
 Use this for Human\-in\-the\-Loop \(HITL\) workflows where certain actions require human approval before proceeding:
 
 ```
-conv.OnToolAsync("process_refund", func(args map[string]any) tools.PendingResult {
+conv.OnToolAsync("process_refund", func(args map[string]any) sdktools.PendingResult {
     amount := args["amount"].(float64)
     if amount > 1000 {
-        return tools.PendingResult{
+        return sdktools.PendingResult{
             Reason:  "high_value_refund",
             Message: fmt.Sprintf("Refund of $%.2f requires approval", amount),
         }
     }
-    return tools.PendingResult{} // Proceed immediately
+    return sdktools.PendingResult{} // Proceed immediately
 }, func(args map[string]any) (any, error) {
     // Execute the actual refund
     return refundAPI.Process(args)
@@ -1782,7 +1782,7 @@ The first function checks if approval is needed, the second executes the action.
 Lock ordering contract: asyncHandlersMu is acquired first, then handlersMu. All code paths that acquire both locks must follow this order to avoid deadlock.
 
 <a name="Conversation.OnToolCtx"></a>
-### func \(\*Conversation\) [OnToolCtx](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L47>)
+### func \(\*Conversation\) [OnToolCtx](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L48>)
 
 ```go
 func (c *Conversation) OnToolCtx(name string, handler ToolHandlerCtx)
@@ -1799,7 +1799,7 @@ conv.OnToolCtx("search_db", func(ctx context.Context, args map[string]any) (any,
 ```
 
 <a name="Conversation.OnToolExecutor"></a>
-### func \(\*Conversation\) [OnToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L102>)
+### func \(\*Conversation\) [OnToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L103>)
 
 ```go
 func (c *Conversation) OnToolExecutor(name string, executor tools.Executor)
@@ -1817,7 +1817,7 @@ conv.OnToolExecutor("custom_tool", executor)
 The executor must implement the runtime/tools.Executor interface.
 
 <a name="Conversation.OnToolHTTP"></a>
-### func \(\*Conversation\) [OnToolHTTP](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L84>)
+### func \(\*Conversation\) [OnToolHTTP](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L85>)
 
 ```go
 func (c *Conversation) OnToolHTTP(name string, config *sdktools.HTTPToolConfig)
@@ -1839,7 +1839,7 @@ conv.OnToolHTTP("create_ticket", sdktools.NewHTTPToolConfig(
 The tool arguments from the LLM are serialized to JSON and sent as the request body. The response is parsed and returned to the LLM.
 
 <a name="Conversation.OnTools"></a>
-### func \(\*Conversation\) [OnTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L63>)
+### func \(\*Conversation\) [OnTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L64>)
 
 ```go
 func (c *Conversation) OnTools(handlers map[string]ToolHandler)
@@ -1856,7 +1856,7 @@ conv.OnTools(map[string]sdk.ToolHandler{
 ```
 
 <a name="Conversation.OwnSubscription"></a>
-### func \(\*Conversation\) [OwnSubscription](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1839>)
+### func \(\*Conversation\) [OwnSubscription](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1843>)
 
 ```go
 func (c *Conversation) OwnSubscription(unsubscribe func())
@@ -1867,7 +1867,7 @@ OwnSubscription ties a subscription on [Conversation.EventBus](<#Conversation.Ev
 The \[hooks\] helpers call it, so their handlers stop with the conversation even on a bus supplied with [WithEventBus](<#WithEventBus>), which outlives it.
 
 <a name="Conversation.PackGovernance"></a>
-### func \(\*Conversation\) [PackGovernance](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/governance.go#L70>)
+### func \(\*Conversation\) [PackGovernance](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/governance.go#L69>)
 
 ```go
 func (c *Conversation) PackGovernance() *Governance
@@ -1876,7 +1876,7 @@ func (c *Conversation) PackGovernance() *Governance
 PackGovernance returns the pack\-level governance declaration, ignoring any agent scope. Use it to show what the pack claims as a whole; use Governance for what applies to this conversation.
 
 <a name="Conversation.PendingTools"></a>
-### func \(\*Conversation\) [PendingTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L455>)
+### func \(\*Conversation\) [PendingTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L457>)
 
 ```go
 func (c *Conversation) PendingTools(ctx context.Context) ([]*sdktools.PendingToolCall, error)
@@ -1896,7 +1896,7 @@ RejectClientTool rejects a deferred client tool with a human\-readable reason.
 callID must match one of the [PendingClientTool.CallID](<#PendingClientTool>) values returned in the [Response](<#Response>). The rejection reason is sent to the LLM as the tool result.
 
 <a name="Conversation.RejectTool"></a>
-### func \(\*Conversation\) [RejectTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L305>)
+### func \(\*Conversation\) [RejectTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L306>)
 
 ```go
 func (c *Conversation) RejectTool(ctx context.Context, id, reason string) (*sdktools.ToolResolution, error)
@@ -1907,7 +1907,7 @@ RejectTool rejects a pending tool call.
 The call is claimed atomically, so a reject races safely against a concurrent approve — the loser gets \[sdktools.ErrPendingAlreadyResolved\].
 
 ```
-resp, _ := conv.RejectTool(ctx, pending.ID, "Not authorized for this amount")
+resolution, _ := conv.RejectTool(ctx, pending.ID, "Not authorized for this amount")
 ```
 
 <a name="Conversation.RerankProvider"></a>
@@ -1942,7 +1942,7 @@ func (c *Conversation) RerankProviderIDs() []string
 RerankProviderIDs returns the configured rerank provider IDs in declaration order. The first is the one RerankProvider\(\) returns.
 
 <a name="Conversation.ResolveTool"></a>
-### func \(\*Conversation\) [ResolveTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L235>)
+### func \(\*Conversation\) [ResolveTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L236>)
 
 ```go
 func (c *Conversation) ResolveTool(ctx context.Context, id string) (*sdktools.ToolResolution, error)
@@ -1964,7 +1964,7 @@ if len(resp.PendingTools()) > 0 {
 ```
 
 <a name="Conversation.ResolveToolWithArgs"></a>
-### func \(\*Conversation\) [ResolveToolWithArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L261-L263>)
+### func \(\*Conversation\) [ResolveToolWithArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L262-L264>)
 
 ```go
 func (c *Conversation) ResolveToolWithArgs(ctx context.Context, id string, overrides map[string]any) (*sdktools.ToolResolution, error)
@@ -2281,7 +2281,7 @@ If no handler has been registered via [Conversation.OnStreamEvent](<#Conversatio
 Returns the complete Response or an error.
 
 <a name="Conversation.ToolRegistry"></a>
-### func \(\*Conversation\) [ToolRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L471>)
+### func \(\*Conversation\) [ToolRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L473>)
 
 ```go
 func (c *Conversation) ToolRegistry() *tools.Registry
@@ -2479,7 +2479,7 @@ type EvaluateOpts struct {
 <a name="Governance"></a>
 ## type [Governance](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/governance.go#L13>)
 
-Governance is a pack's RFC 0013 governance declaration: who is accountable for the agent, how autonomously it acts, what it was built for, whether it must disclose itself as AI.
+Governance is a pack's governance declaration: who is accountable for the agent, how autonomously it acts, what it was built for, whether it must disclose itself as AI.
 
 Aliased here so a host reading these facts does not have to import the runtime package directly.
 
@@ -2497,7 +2497,7 @@ type InMemoryA2ATaskStore = a2aserver.InMemoryTaskStore
 ```
 
 <a name="IngestionFunc"></a>
-## type [IngestionFunc](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3116>)
+## type [IngestionFunc](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3122>)
 
 IngestionFunc authors a custom upstream stage sub\-graph. It adds stages and edges to the shared builder and returns the name of the node whose output feeds the agent chain. Mutually exclusive with WithVADMode.
 
@@ -2622,7 +2622,7 @@ type MCPEndpointResolver interface {
 ```
 
 <a name="MCPServerBuilder"></a>
-## type [MCPServerBuilder](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2129-L2131>)
+## type [MCPServerBuilder](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2134-L2136>)
 
 MCPServerBuilder provides a fluent interface for configuring MCP servers.
 
@@ -2633,7 +2633,7 @@ type MCPServerBuilder struct {
 ```
 
 <a name="NewMCPServer"></a>
-### func [NewMCPServer](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2141>)
+### func [NewMCPServer](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2146>)
 
 ```go
 func NewMCPServer(name, command string, args ...string) *MCPServerBuilder
@@ -2651,7 +2651,7 @@ conv, _ := sdk.Open("./assistant.pack.json", "assistant",
 ```
 
 <a name="NewMCPServerByName"></a>
-### func [NewMCPServerByName](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2214>)
+### func [NewMCPServerByName](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2219>)
 
 ```go
 func NewMCPServerByName(name string) *MCPServerBuilder
@@ -2667,7 +2667,7 @@ conv, _ := sdk.Open("./assistant.pack.json", "assistant",
 ```
 
 <a name="MCPServerBuilder.Build"></a>
-### func \(\*MCPServerBuilder\) [Build](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2184>)
+### func \(\*MCPServerBuilder\) [Build](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2189>)
 
 ```go
 func (b *MCPServerBuilder) Build() mcp.ServerConfig
@@ -2676,7 +2676,7 @@ func (b *MCPServerBuilder) Build() mcp.ServerConfig
 Build returns the configured server config.
 
 <a name="MCPServerBuilder.WithArgs"></a>
-### func \(\*MCPServerBuilder\) [WithArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2159>)
+### func \(\*MCPServerBuilder\) [WithArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2164>)
 
 ```go
 func (b *MCPServerBuilder) WithArgs(args ...string) *MCPServerBuilder
@@ -2685,7 +2685,7 @@ func (b *MCPServerBuilder) WithArgs(args ...string) *MCPServerBuilder
 WithArgs appends additional arguments to the MCP server command.
 
 <a name="MCPServerBuilder.WithEnv"></a>
-### func \(\*MCPServerBuilder\) [WithEnv](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2153>)
+### func \(\*MCPServerBuilder\) [WithEnv](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2158>)
 
 ```go
 func (b *MCPServerBuilder) WithEnv(key, value string) *MCPServerBuilder
@@ -2694,7 +2694,7 @@ func (b *MCPServerBuilder) WithEnv(key, value string) *MCPServerBuilder
 WithEnv adds an environment variable to the MCP server.
 
 <a name="MCPServerBuilder.WithTimeout"></a>
-### func \(\*MCPServerBuilder\) [WithTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2171>)
+### func \(\*MCPServerBuilder\) [WithTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2176>)
 
 ```go
 func (b *MCPServerBuilder) WithTimeout(ms int) *MCPServerBuilder
@@ -2703,7 +2703,7 @@ func (b *MCPServerBuilder) WithTimeout(ms int) *MCPServerBuilder
 WithTimeout sets the per\-request timeout in milliseconds for the MCP server.
 
 <a name="MCPServerBuilder.WithToolFilter"></a>
-### func \(\*MCPServerBuilder\) [WithToolFilter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2178>)
+### func \(\*MCPServerBuilder\) [WithToolFilter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2183>)
 
 ```go
 func (b *MCPServerBuilder) WithToolFilter(filter *mcp.ToolFilter) *MCPServerBuilder
@@ -2712,7 +2712,7 @@ func (b *MCPServerBuilder) WithToolFilter(filter *mcp.ToolFilter) *MCPServerBuil
 WithToolFilter sets a tool filter that controls which tools from this server are exposed to the LLM. Only tools passing the filter are registered.
 
 <a name="MCPServerBuilder.WithWorkingDir"></a>
-### func \(\*MCPServerBuilder\) [WithWorkingDir](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2165>)
+### func \(\*MCPServerBuilder\) [WithWorkingDir](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2170>)
 
 ```go
 func (b *MCPServerBuilder) WithWorkingDir(dir string) *MCPServerBuilder
@@ -2839,7 +2839,7 @@ func (c *MemoryCapability) WithRetriever(r memory.Retriever) *MemoryCapability
 WithRetriever sets the memory retriever for automatic RAG injection.
 
 <a name="MemoryOption"></a>
-## type [MemoryOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1433>)
+## type [MemoryOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1434>)
 
 MemoryOption configures the memory capability.
 
@@ -2848,7 +2848,7 @@ type MemoryOption func(*MemoryCapability)
 ```
 
 <a name="WithMemoryContextFormatter"></a>
-### func [WithMemoryContextFormatter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1504>)
+### func [WithMemoryContextFormatter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1505>)
 
 ```go
 func WithMemoryContextFormatter(fn memory.ContextFormatter) MemoryOption
@@ -2868,7 +2868,7 @@ conv, _ := sdk.Open(packPath, "chat",
 ```
 
 <a name="WithMemoryExtractor"></a>
-### func [WithMemoryExtractor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1436>)
+### func [WithMemoryExtractor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1437>)
 
 ```go
 func WithMemoryExtractor(e memory.Extractor) MemoryOption
@@ -2877,7 +2877,7 @@ func WithMemoryExtractor(e memory.Extractor) MemoryOption
 WithMemoryExtractor sets an extractor for automatic memory extraction.
 
 <a name="WithMemoryRetriever"></a>
-### func [WithMemoryRetriever](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1441>)
+### func [WithMemoryRetriever](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1442>)
 
 ```go
 func WithMemoryRetriever(r memory.Retriever) MemoryOption
@@ -2886,7 +2886,7 @@ func WithMemoryRetriever(r memory.Retriever) MemoryOption
 WithMemoryRetriever sets a retriever for automatic RAG injection.
 
 <a name="WithMemorySubjectKey"></a>
-### func [WithMemorySubjectKey](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1483>)
+### func [WithMemorySubjectKey](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1484>)
 
 ```go
 func WithMemorySubjectKey(key string) MemoryOption
@@ -2907,7 +2907,7 @@ conv, _ := sdk.Open(packPath, "chat",
 Passing "" removes the gate entirely: the tools are always registered and the store decides what an anonymous subject means.
 
 <a name="WithMemoryToolsDisabled"></a>
-### func [WithMemoryToolsDisabled](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1462>)
+### func [WithMemoryToolsDisabled](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1463>)
 
 ```go
 func WithMemoryToolsDisabled() MemoryOption
@@ -3005,7 +3005,7 @@ type MultiTrackIngestionConfig struct {
 ```
 
 <a name="Option"></a>
-## type [Option](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L446>)
+## type [Option](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L445>)
 
 Option configures a Conversation.
 
@@ -3014,7 +3014,7 @@ type Option func(*config) error
 ```
 
 <a name="WithA2AAgent"></a>
-### func [WithA2AAgent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2469>)
+### func [WithA2AAgent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2474>)
 
 ```go
 func WithA2AAgent(builder *A2AAgentBuilder) Option
@@ -3032,7 +3032,7 @@ conv, _ := sdk.Open("./assistant.pack.json", "assistant",
 ```
 
 <a name="WithA2AToolExecutor"></a>
-### func [WithA2AToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2330>)
+### func [WithA2AToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2335>)
 
 ```go
 func WithA2AToolExecutor(executor tools.Executor) Option
@@ -3051,7 +3051,7 @@ conv, _ := sdk.Open(packPath, "assistant",
 Whatever name executor reports, it is registered as "a2a".
 
 <a name="WithA2ATools"></a>
-### func [WithA2ATools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2305>)
+### func [WithA2ATools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2310>)
 
 ```go
 func WithA2ATools(bridge *a2a.ToolBridge) Option
@@ -3076,7 +3076,7 @@ conv, _ := sdk.Open("./assistant.pack.json", "assistant",
 ```
 
 <a name="WithAPIKey"></a>
-### func [WithAPIKey](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L465>)
+### func [WithAPIKey](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L464>)
 
 ```go
 func WithAPIKey(key string) Option
@@ -3091,7 +3091,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithAgentEndpoints"></a>
-### func [WithAgentEndpoints](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2505>)
+### func [WithAgentEndpoints](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2510>)
 
 ```go
 func WithAgentEndpoints(resolver EndpointResolver) Option
@@ -3125,18 +3125,18 @@ conv, _ := sdk.Open("./multiagent.pack.json", "orchestrator",
 ```
 
 <a name="WithAudioMonitor"></a>
-### func [WithAudioMonitor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1241>)
+### func [WithAudioMonitor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1242>)
 
 ```go
 func WithAudioMonitor(opts AudioMonitorOptions) Option
 ```
 
-WithAudioMonitor configures real\-time audio monitoring for duplex SDK conversations.
+WithAudioMonitor stores the audio monitoring options on the conversation configuration. No SDK component reads them, so setting this option has no effect on a conversation.
 
 Example:
 
 ```
-conv, err := sdk.Open(ctx, pack,
+conv, err := sdk.Open("./chat.pack.json", "assistant",
     sdk.WithAudioMonitor(sdk.AudioMonitorOptions{
         Mode:       sdk.AudioMonitorOn,
         Rate:       24000,
@@ -3158,7 +3158,7 @@ WithAudioSession binds a duplex voice conversation to an audio.Session — the c
 The device implementation stays outside the pure\-Go SDK \(e.g. the PortAudio helper in sdk/examples/audiohelper, or audio.MemSource/MemSink for tests\), so the SDK itself never links a sound\-card binding. Use with OpenVoice, or with OpenDuplex when you drive Start yourself.
 
 <a name="WithAutoResize"></a>
-### func [WithAutoResize](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3217>)
+### func [WithAutoResize](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3223>)
 
 ```go
 func WithAutoResize(maxWidth, maxHeight int) Option
@@ -3175,7 +3175,7 @@ conv, _ := sdk.Open("./chat.pack.json", "vision-assistant",
 ```
 
 <a name="WithAutoSummarize"></a>
-### func [WithAutoSummarize](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1789>)
+### func [WithAutoSummarize](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1793>)
 
 ```go
 func WithAutoSummarize(provider providers.Provider, threshold, batchSize int) Option
@@ -3196,7 +3196,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithAzure"></a>
-### func [WithAzure](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L917>)
+### func [WithAzure](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L920>)
 
 ```go
 func WithAzure(endpoint, providerType, model string, opts ...PlatformOption) Option
@@ -3211,7 +3211,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithBedrock"></a>
-### func [WithBedrock](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L868>)
+### func [WithBedrock](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L871>)
 
 ```go
 func WithBedrock(region, providerType, model string, opts ...PlatformOption) Option
@@ -3226,7 +3226,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithCapability"></a>
-### func [WithCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2078>)
+### func [WithCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2082>)
 
 ```go
 func WithCapability(capability Capability) Option
@@ -3243,7 +3243,7 @@ conv, _ := sdk.Open("./assistant.pack.json", "chat",
 ```
 
 <a name="WithClassifier"></a>
-### func [WithClassifier](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2706>)
+### func [WithClassifier](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2711>)
 
 ```go
 func WithClassifier(id string, provider any) Option
@@ -3254,7 +3254,7 @@ WithClassifier registers an already\-constructed inference provider under id. Es
 provider must implement inference.Provider; it is typed any only to keep the v2 signature, and anything else is rejected when the option is applied.
 
 <a name="WithCompaction"></a>
-### func [WithCompaction](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1320>)
+### func [WithCompaction](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1321>)
 
 ```go
 func WithCompaction(enabled bool) Option
@@ -3263,7 +3263,7 @@ func WithCompaction(enabled bool) Option
 WithCompaction controls context compaction in tool loops. When enabled \(default\), stale tool results are folded between rounds to prevent context overflow. The budget is auto\-detected from the provider's context window or defaults to 128K tokens. Pass false to disable.
 
 <a name="WithCompactionRules"></a>
-### func [WithCompactionRules](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1342>)
+### func [WithCompactionRules](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1343>)
 
 ```go
 func WithCompactionRules(rules ...stage.CompactionRule) Option
@@ -3272,7 +3272,7 @@ func WithCompactionRules(rules ...stage.CompactionRule) Option
 WithCompactionRules configures the default ContextCompactor with custom rules. Rules are applied in order; first match wins. This replaces the default rules \(FoldToolResults\). This is mutually exclusive with WithCompactionStrategy — the last one set wins.
 
 <a name="WithCompactionStrategy"></a>
-### func [WithCompactionStrategy](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1330>)
+### func [WithCompactionStrategy](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1331>)
 
 ```go
 func WithCompactionStrategy(strategy stage.CompactionStrategy) Option
@@ -3281,7 +3281,7 @@ func WithCompactionStrategy(strategy stage.CompactionStrategy) Option
 WithCompactionStrategy replaces the default context compactor with a custom CompactionStrategy implementation. This is mutually exclusive with WithCompactionRules — the last one set wins.
 
 <a name="WithContextCarryForward"></a>
-### func [WithContextCarryForward](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2061>)
+### func [WithContextCarryForward](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2065>)
 
 ```go
 func WithContextCarryForward() Option
@@ -3300,7 +3300,7 @@ wc, _ := sdk.OpenWorkflow("./support.pack.json",
 ```
 
 <a name="WithContextRetrieval"></a>
-### func [WithContextRetrieval](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1762>)
+### func [WithContextRetrieval](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1766>)
 
 ```go
 func WithContextRetrieval(embeddingProvider providers.EmbeddingProvider, topK int) Option
@@ -3322,7 +3322,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithContextWindow"></a>
-### func [WithContextWindow](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1707>)
+### func [WithContextWindow](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1711>)
 
 ```go
 func WithContextWindow(recentMessages int) Option
@@ -3342,7 +3342,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithConversationID"></a>
-### func [WithConversationID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L992>)
+### func [WithConversationID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L995>)
 
 ```go
 func WithConversationID(id string) Option
@@ -3364,7 +3364,7 @@ Needs somewhere durable to be resumable. Without a state store or an event store
 WithStateStore makes the conversation itself resumable. WithEventStore is enough if the id is only a recording session key: session recordings are stored and replayed by conversation id \(see sdk/examples/session\-recording\).
 
 <a name="WithCredential"></a>
-### func [WithCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L711>)
+### func [WithCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L714>)
 
 ```go
 func WithCredential(opts ...CredentialOption) Option
@@ -3374,7 +3374,7 @@ WithCredential configures advanced credential resolution for the provider.
 
 This is the advanced form of credential configuration. For simple API key usage, prefer [WithAPIKey](<#WithAPIKey>). When both WithCredential and WithAPIKey are set, WithCredential takes precedence.
 
-Credential resolution priority: direct API key \> environment variable \> file.
+Credential resolution priority: direct API key \> environment variable \> file. The first one set is used and the others are ignored: a credential environment variable that is unset or empty makes Open return an error rather than falling back to the file.
 
 Example with environment variable:
 
@@ -3401,7 +3401,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithEmbeddingProvider"></a>
-### func [WithEmbeddingProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2895>)
+### func [WithEmbeddingProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2900>)
 
 ```go
 func WithEmbeddingProvider(spec ProviderSpec) Option
@@ -3412,7 +3412,7 @@ WithEmbeddingProvider builds an embedding provider from a spec and sets it as th
 Registering the same ID twice is an error, matching what the declarative path \(a runtime config's embedding\_providers\) does. Silently keeping one provider while listing its ID twice would make the ID list stop being a set.
 
 <a name="WithEvalGroups"></a>
-### func [WithEvalGroups](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3764>)
+### func [WithEvalGroups](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3765>)
 
 ```go
 func WithEvalGroups(groups ...string) Option
@@ -3425,7 +3425,7 @@ Each EvalDef can belong to one or more groups via its Groups field. Evals with n
 A requested group that matches no eval is logged at WARN, naming the group and the groups the pack's evals declare. If none of the requested groups match, no evals run for the conversation, so a typo here disables every eval — including any that back a guardrail.
 
 <a name="WithEvalHook"></a>
-### func [WithEvalHook](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3698>)
+### func [WithEvalHook](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3699>)
 
 ```go
 func WithEvalHook(h evals.EvalHook) Option
@@ -3447,7 +3447,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithEvalRegistry"></a>
-### func [WithEvalRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3673>)
+### func [WithEvalRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3674>)
 
 ```go
 func WithEvalRegistry(r *evals.EvalTypeRegistry) Option
@@ -3458,7 +3458,7 @@ WithEvalRegistry provides a custom eval type registry.
 Use this to register custom eval type handlers beyond the built\-in ones. If not set, the default registry with all built\-in handlers is used.
 
 <a name="WithEvalRunner"></a>
-### func [WithEvalRunner](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3662>)
+### func [WithEvalRunner](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3663>)
 
 ```go
 func WithEvalRunner(r *evals.EvalRunner) Option
@@ -3480,7 +3480,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithEvalsDisabled"></a>
-### func [WithEvalsDisabled](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3710>)
+### func [WithEvalsDisabled](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3711>)
 
 ```go
 func WithEvalsDisabled() Option
@@ -3489,7 +3489,7 @@ func WithEvalsDisabled() Option
 WithEvalsDisabled disables eval execution even when eval definitions exist in the pack. Use this to temporarily suppress evals without removing definitions.
 
 <a name="WithEventBus"></a>
-### func [WithEventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1096>)
+### func [WithEventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1099>)
 
 ```go
 func WithEventBus(bus events.Bus) Option
@@ -3508,7 +3508,7 @@ conv2, _ := sdk.Open("./chat.pack.json", "assistant", sdk.WithEventBus(bus))
 ```
 
 <a name="WithEventRedactor"></a>
-### func [WithEventRedactor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3950>)
+### func [WithEventRedactor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3951>)
 
 ```go
 func WithEventRedactor(r events.Redactor) Option
@@ -3532,7 +3532,7 @@ sdk.WithEventRedactor(func(field, value string) string {
 ```
 
 <a name="WithEventStore"></a>
-### func [WithEventStore](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1129>)
+### func [WithEventStore](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1132>)
 
 ```go
 func WithEventStore(store events.EventStore) Option
@@ -3553,7 +3553,7 @@ Example:
 ```
 store, _ := events.NewFileEventStore("/var/log/sessions")
 defer store.Close()
-conv, err := sdk.Open(ctx, pack,
+conv, err := sdk.Open("./chat.pack.json", "assistant",
     sdk.WithEventStore(store),
     sdk.WithRecording(nil), // use defaults
 )
@@ -3562,13 +3562,13 @@ conv, err := sdk.Open(ctx, pack,
 For production at scale, supply a buffered or sampled EventStore implementation. See runtime/events.EventStore for the interface contract.
 
 <a name="WithExecutionTimeout"></a>
-### func [WithExecutionTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1515>)
+### func [WithExecutionTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1517>)
 
 ```go
 func WithExecutionTimeout(d time.Duration) Option
 ```
 
-WithExecutionTimeout overrides the default pipeline execution timeout \(30s\). Use this for pipelines that need more time, such as multi\-round tool\-calling with slower providers like Ollama. Pass 0 to disable the timeout entirely.
+WithExecutionTimeout sets a hard limit on how long one pipeline execution may run. By default there is no execution limit and the idle timeout \([WithIdleTimeout](<#WithIdleTimeout>)\) is the liveness check. Pass 0 to remove a limit set earlier. Duplex sessions \(ASM mode\) never apply this limit.
 
 ```
 conv, _ := sdk.Open("./chat.pack.json", "assistant",
@@ -3577,7 +3577,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithGuardrail"></a>
-### func [WithGuardrail](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1849>)
+### func [WithGuardrail](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1853>)
 
 ```go
 func WithGuardrail(specs ...guardrails.Spec) Option
@@ -3602,7 +3602,7 @@ Construction errors \(unknown eval type, invalid params\) are returned from Open
 An eval\-backed guardrail resolves its type against the registry supplied by WithEvalRegistry, if any. Resolution happens after every option has been applied, so the two options may be passed in either order.
 
 <a name="WithGuardrailTimeout"></a>
-### func [WithGuardrailTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1559>)
+### func [WithGuardrailTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1561>)
 
 ```go
 func WithGuardrailTimeout(d time.Duration) Option
@@ -3619,7 +3619,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithIdleTimeout"></a>
-### func [WithIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1534>)
+### func [WithIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1536>)
 
 ```go
 func WithIdleTimeout(d time.Duration) Option
@@ -3636,7 +3636,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithImagePreprocessing"></a>
-### func [WithImagePreprocessing](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3198>)
+### func [WithImagePreprocessing](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3204>)
 
 ```go
 func WithImagePreprocessing(cfg *stage.ImagePreprocessConfig) Option
@@ -3670,7 +3670,7 @@ conv, _ := sdk.Open("./chat.pack.json", "vision-assistant",
 ```
 
 <a name="WithImageProvider"></a>
-### func [WithImageProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2800>)
+### func [WithImageProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2805>)
 
 ```go
 func WithImageProvider(spec ProviderSpec) Option
@@ -3679,7 +3679,7 @@ func WithImageProvider(spec ProviderSpec) Option
 WithImageProvider sets an image\-generation provider as the agent \(completion\) provider. Image providers are Predict\-compatible: the generated image is the turn's response. Wired identically to WithLLMProvider; both target the single agent slot \(last writer wins\).
 
 <a name="WithInferenceProvider"></a>
-### func [WithInferenceProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2681>)
+### func [WithInferenceProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2686>)
 
 ```go
 func WithInferenceProvider(spec ProviderSpec) Option
@@ -3688,7 +3688,7 @@ func WithInferenceProvider(spec ProviderSpec) Option
 WithInferenceProvider registers an inference provider \(role: inference\) that the SDK constructs and credential\-resolves. The type names the vendor API it calls — huggingface, openai, systemone, or nvidia\-topic\-control \(an alias for openai with NemoGuard topic control's model\). The first inference provider registered is the default for checks that name none.
 
 <a name="WithIngestion"></a>
-### func [WithIngestion](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3121>)
+### func [WithIngestion](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3127>)
 
 ```go
 func WithIngestion(fn IngestionFunc) Option
@@ -3697,7 +3697,7 @@ func WithIngestion(fn IngestionFunc) Option
 WithIngestion installs a custom ingestion sub\-graph in front of the agent chain \(fan\-out/fan\-in supported\). Use with OpenDuplex for streaming harnesses that map multiple input sources onto one agent without a TTS return path.
 
 <a name="WithJSONMode"></a>
-### func [WithJSONMode](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3289>)
+### func [WithJSONMode](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3295>)
 
 ```go
 func WithJSONMode() Option
@@ -3716,7 +3716,7 @@ resp, _ := conv.Send(ctx, "List 3 colors as JSON")
 ```
 
 <a name="WithJudgeProvider"></a>
-### func [WithJudgeProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3730>)
+### func [WithJudgeProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3731>)
 
 ```go
 func WithJudgeProvider(jp handlers.JudgeProvider) Option
@@ -3729,7 +3729,7 @@ If not set, a check that names a provider through its "provider" param resolves 
 A judge\-backed guardrail with no judge from either route fails Open\(\) rather than failing per turn.
 
 <a name="WithLLMProvider"></a>
-### func [WithLLMProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2785>)
+### func [WithLLMProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2790>)
 
 ```go
 func WithLLMProvider(spec ProviderSpec) Option
@@ -3740,7 +3740,7 @@ WithLLMProvider sets the conversation's agent \(completion\) provider from a spe
 It sets the AGENT: the last call wins, and a provider registered this way becomes the model the conversation talks to. To bind an ancillary provider a pack names \(a judge, say\), use [WithNamedProvider](<#WithNamedProvider>) instead.
 
 <a name="WithLogger"></a>
-### func [WithLogger](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1309>)
+### func [WithLogger](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1310>)
 
 ```go
 func WithLogger(l *slog.Logger) Option
@@ -3756,10 +3756,10 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 )
 ```
 
-Note: only the first logger set via WithLogger takes effect process\-wide. Subsequent calls are silently ignored due to sync.Once in setLoggerOnce.
+Only the first logger set via WithLogger takes effect process\-wide. Later calls with a different logger are ignored.
 
 <a name="WithMCP"></a>
-### func [WithMCP](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2117>)
+### func [WithMCP](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2122>)
 
 ```go
 func WithMCP(name, command string, args ...string) Option
@@ -3777,12 +3777,13 @@ conv, _ := sdk.Open("./assistant.pack.json", "assistant",
 )
 ```
 
-With environment variables:
+With environment variables, use [NewMCPServer](<#NewMCPServer>) and [WithMCPServer](<#WithMCPServer>):
 
 ```
 conv, _ := sdk.Open("./assistant.pack.json", "assistant",
-    sdk.WithMCP("github", "npx", "@modelcontextprotocol/server-github").
-        WithEnv("GITHUB_TOKEN", os.Getenv("GITHUB_TOKEN")),
+    sdk.WithMCPServer(
+        sdk.NewMCPServer("github", "npx", "@modelcontextprotocol/server-github").
+            WithEnv("GITHUB_TOKEN", os.Getenv("GITHUB_TOKEN"))),
 )
 ```
 
@@ -3800,7 +3801,7 @@ conv, _ := sdk.Open("./assistant.pack.json", "assistant",
 The command and args are executed as a subprocess \(via stdio\-based MCP transport\). Commands are not sandboxed or validated. The caller is responsible for ensuring that command values come from trusted sources. Untrusted input should never be passed as the command or args parameters.
 
 <a name="WithMCPAuthorizer"></a>
-### func [WithMCPAuthorizer](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2268>)
+### func [WithMCPAuthorizer](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2273>)
 
 ```go
 func WithMCPAuthorizer(provider func(serverName string) mcp.Authorizer) Option
@@ -3811,7 +3812,7 @@ WithMCPAuthorizer delegates MCP authorization to the host. For each HTTP MCP ser
 Like [WithMCPEndpoints](<#WithMCPEndpoints>), this keeps provisioning out of the pack: the pack declares servers by name, and the host \(Omnia, or any embedder\) owns how they are reached and authorized.
 
 <a name="WithMCPElicitation"></a>
-### func [WithMCPElicitation](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2279>)
+### func [WithMCPElicitation](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2284>)
 
 ```go
 func WithMCPElicitation(handler mcp.ElicitationHandler) Option
@@ -3820,7 +3821,7 @@ func WithMCPElicitation(handler mcp.ElicitationHandler) Option
 WithMCPElicitation lets MCP servers ask the user for input during a tool call. PromptKit does not talk to users: handler presents the request and returns the answer. Without it the client does not advertise elicitation, and servers that need it cannot ask.
 
 <a name="WithMCPEndpoints"></a>
-### func [WithMCPEndpoints](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2252>)
+### func [WithMCPEndpoints](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2257>)
 
 ```go
 func WithMCPEndpoints(resolver MCPEndpointResolver) Option
@@ -3860,7 +3861,7 @@ conv, _ := sdk.Open("./assistant.pack.json", "assistant",
 ```
 
 <a name="WithMCPServer"></a>
-### func [WithMCPServer](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2196>)
+### func [WithMCPServer](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2201>)
 
 ```go
 func WithMCPServer(builder *MCPServerBuilder) Option
@@ -3878,7 +3879,7 @@ conv, _ := sdk.Open("./assistant.pack.json", "assistant",
 ```
 
 <a name="WithMaxActiveSkillsOption"></a>
-### func [WithMaxActiveSkillsOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3865>)
+### func [WithMaxActiveSkillsOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3866>)
 
 ```go
 func WithMaxActiveSkillsOption(n int) Option
@@ -3893,7 +3894,7 @@ conv, _ := sdk.Open("./assistant.pack.json", "chat",
 ```
 
 <a name="WithMaxConcurrentEvals"></a>
-### func [WithMaxConcurrentEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3743>)
+### func [WithMaxConcurrentEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3744>)
 
 ```go
 func WithMaxConcurrentEvals(n int) Option
@@ -3904,7 +3905,7 @@ WithMaxConcurrentEvals sets the maximum number of concurrent eval goroutines.
 Each Send\(\) call dispatches turn evals asynchronously. This option limits how many eval goroutines can run concurrently. If the limit is reached, additional eval dispatches are skipped \(non\-blocking\) to prevent unbounded goroutine growth. The default is DefaultMaxConcurrentEvals \(10\).
 
 <a name="WithMaxMessageSize"></a>
-### func [WithMaxMessageSize](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1577>)
+### func [WithMaxMessageSize](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1579>)
 
 ```go
 func WithMaxMessageSize(bytes int) Option
@@ -3930,7 +3931,7 @@ func WithMediaStorage(store storage.MediaStorageService) Option
 WithMediaStorage injects a MediaStorageService so MediaContent.StorageReference values \(e.g. from WithImageStorageRef\) resolve to a model\-fetchable URL or bytes at provider\-call time. Applied to every provider in the pool.
 
 <a name="WithMemory"></a>
-### func [WithMemory](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1421>)
+### func [WithMemory](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1422>)
 
 ```go
 func WithMemory(store memory.Store, scope map[string]string, opts ...MemoryOption) Option
@@ -3941,7 +3942,7 @@ WithMemory enables agentic memory — cross\-session knowledge that persists bey
 Optional: pass extractor for automatic memory extraction from conversations, and/or retriever for automatic RAG injection of relevant memories.
 
 <a name="WithMessageLog"></a>
-### func [WithMessageLog](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1357>)
+### func [WithMessageLog](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1358>)
 
 ```go
 func WithMessageLog(log statestore.MessageLog) Option
@@ -3952,7 +3953,7 @@ WithMessageLog enables per\-round write\-through persistence during tool loops. 
 The store must implement \[statestore.MessageLog\]. MemoryStore implements it by default. Pass nil to disable.
 
 <a name="WithMetricRecorder"></a>
-### func [WithMetricRecorder](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3779>)
+### func [WithMetricRecorder](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3780>)
 
 ```go
 func WithMetricRecorder(r evals.MetricRecorder) Option
@@ -3965,7 +3966,7 @@ When set, eval results are automatically recorded as Prometheus metrics based on
 Deprecated: Use WithMetrics with metrics.NewCollector instead.
 
 <a name="WithMetrics"></a>
-### func [WithMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1287>)
+### func [WithMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1288>)
 
 ```go
 func WithMetrics(collector *metrics.Collector, instanceLabels map[string]string) Option
@@ -3990,7 +3991,7 @@ conv, _ := sdk.Open(pack, prompt,
 ```
 
 <a name="WithModel"></a>
-### func [WithModel](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L453>)
+### func [WithModel](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L452>)
 
 ```go
 func WithModel(model string) Option
@@ -4005,7 +4006,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithNamedProvider"></a>
-### func [WithNamedProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2767>)
+### func [WithNamedProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2772>)
 
 ```go
 func WithNamedProvider(spec ProviderSpec) Option
@@ -4013,17 +4014,17 @@ func WithNamedProvider(spec ProviderSpec) Option
 
 WithNamedProvider registers a completion provider under its ID for a pack to name, WITHOUT making it the conversation's agent.
 
-This is how a host answers a pack's \`requires\` entry for an ancillary model — the judge a toxicity guardrail grades with, say, or the model a prompt or composition step names in its \`provider\` \(RFC 0017\), which then runs on it. [WithLLMProvider](<#WithLLMProvider>) would also register it, but it sets the agent as a side effect, so binding a grader with it silently replaces the model the conversation talks to.
+This is how a host answers a pack's \`requires\` entry for an ancillary model — the judge a toxicity guardrail grades with, say, or the model a prompt or composition step names in its \`provider\`, which then runs on it. [WithLLMProvider](<#WithLLMProvider>) would also register it, but it sets the agent as a side effect, so binding a grader with it silently replaces the model the conversation talks to.
 
 ```
-conv, _ := sdk.Open(pack, "chat",
+conv, _ := sdk.Open("./chat.pack.json", "chat",
     sdk.WithProvider(agent),
     sdk.WithNamedProvider(sdk.ProviderSpec{ID: "grader", Type: "openai", Model: "gpt-4.1-mini"}),
 )
 ```
 
 <a name="WithPendingStore"></a>
-### func [WithPendingStore](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L966>)
+### func [WithPendingStore](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L969>)
 
 ```go
 func WithPendingStore(store sdktools.PendingStore) Option
@@ -4051,7 +4052,7 @@ func WithProvider(p providers.Provider) Option
 
 WithProvider uses a custom provider instance.
 
-This bypasses auto\-detection and uses the provided provider directly. Use this for custom provider implementations or when you need full control over provider configuration.
+This bypasses auto\-detection and uses the provided provider directly. WithProvider\(nil\) is a no\-op. Use this for custom provider implementations or when you need full control over provider configuration.
 
 ```
 provider := openai.NewProvider(openai.Config{...})
@@ -4070,7 +4071,7 @@ func WithProviderFile(path string) Option
 WithProviderFile loads a single Arena\-format \*.provider.yaml and routes it into the SDK by its role. Path is resolved relative to the working directory.
 
 <a name="WithProviderHook"></a>
-### func [WithProviderHook](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1819>)
+### func [WithProviderHook](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1823>)
 
 ```go
 func WithProviderHook(h hooks.ProviderHook) Option
@@ -4097,7 +4098,7 @@ func WithProvidersDir(dir string) Option
 WithProvidersDir loads every \*.provider.yaml in dir \(lexically sorted\) and routes each by role. Among multiple llm/image providers the first sorted file becomes the agent; the rest stay in the pool.
 
 <a name="WithRecording"></a>
-### func [WithRecording](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1183>)
+### func [WithRecording](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1188>)
 
 ```go
 func WithRecording(cfg *RecordingConfig) Option
@@ -4128,7 +4129,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithRelevanceTruncation"></a>
-### func [WithRelevanceTruncation](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1684>)
+### func [WithRelevanceTruncation](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1688>)
 
 ```go
 func WithRelevanceTruncation(cfg *RelevanceConfig) Option
@@ -4165,7 +4166,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithRerankProvider"></a>
-### func [WithRerankProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2955>)
+### func [WithRerankProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2960>)
 
 ```go
 func WithRerankProvider(spec ProviderSpec) Option
@@ -4175,7 +4176,7 @@ WithRerankProvider configures a rerank provider from a spec, for hosts that want
 
 Reranking is a synchronous model\-backed call, not a tool: nothing in the pipeline invokes it on your behalf. Retrieve the constructed provider with [Conversation.RerankProvider](<#Conversation.RerankProvider>) and call it where it belongs in your own retrieval flow.
 
-Multiple providers may be configured; the first declared becomes the default returned by RerankProvider\(\). Registered types are reported by \[RegisteredRerankProviderTypes\].
+Multiple providers may be configured; the first declared becomes the default returned by RerankProvider\(\). Registered types are reported by [RegisteredProviderTypes](<#RegisteredProviderTypes>), under the "rerank" role.
 
 ```
 conv, _ := sdk.Open("./assistant.pack.json", "assistant",
@@ -4190,7 +4191,7 @@ out, err := rr.Rerank(ctx, providers.RerankRequest{
 ```
 
 <a name="WithResponseFormat"></a>
-### func [WithResponseFormat](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3249>)
+### func [WithResponseFormat](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3255>)
 
 ```go
 func WithResponseFormat(format *providers.ResponseFormat) Option
@@ -4223,7 +4224,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithRetrievalFormatter"></a>
-### func [WithRetrievalFormatter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1408>)
+### func [WithRetrievalFormatter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1409>)
 
 ```go
 func WithRetrievalFormatter(fn memory.ContextFormatter) Option
@@ -4246,7 +4247,7 @@ sdk.WithRetrievalFormatter(func(items []*memory.Memory) string {
 Applies to the retriever set by [WithRetriever](<#WithRetriever>); the memory capability's equivalent is [WithMemoryContextFormatter](<#WithMemoryContextFormatter>).
 
 <a name="WithRetriever"></a>
-### func [WithRetriever](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1384>)
+### func [WithRetriever](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1385>)
 
 ```go
 func WithRetriever(r memory.Retriever) Option
@@ -4266,7 +4267,7 @@ The retriever is handed the turn's messages and decides relevance itself; Prompt
 This is a different mechanism from the memory tools. Grounding happens whether or not the model asks for it and needs no store, no scope and no memory capability — the retrieved content need not be "memory" at all. Use [WithMemory](<#WithMemory>) when you want the model to manage facts about its subject; use this when you want it grounded in your content. A retriever set here takes precedence over one configured via [WithMemoryRetriever](<#WithMemoryRetriever>).
 
 <a name="WithRuntimeConfig"></a>
-### func [WithRuntimeConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/runtime_config.go#L97>)
+### func [WithRuntimeConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/runtime_config.go#L99>)
 
 ```go
 func WithRuntimeConfig(path string) Option
@@ -4274,7 +4275,7 @@ func WithRuntimeConfig(path string) Option
 
 WithRuntimeConfig loads a RuntimeConfig YAML file and applies its settings to the SDK conversation. This provides a declarative alternative to programmatic configuration via individual With\* options.
 
-RuntimeConfig sections are applied in order: providers, MCP servers, state store, logging, tools. Programmatic options applied after WithRuntimeConfig take precedence.
+The file's providers, MCP servers, state store, logging, exec tools, eval handlers, hooks, sandboxes and selectors are applied in that order. The file does not replace an agent provider, state store or logger that an earlier option already set, and options applied after WithRuntimeConfig replace what the file set.
 
 Example:
 
@@ -4285,7 +4286,7 @@ conv, err := sdk.Open("./agent.pack.json", "chat",
 ```
 
 <a name="WithSTTProvider"></a>
-### func [WithSTTProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2855>)
+### func [WithSTTProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2860>)
 
 ```go
 func WithSTTProvider(spec ProviderSpec) Option
@@ -4294,7 +4295,7 @@ func WithSTTProvider(spec ProviderSpec) Option
 WithSTTProvider builds an STT service from a spec and sets it as the default sttService \(first\-wins; does not overwrite one already set\). Registering the same ID twice is an error, matching the declarative path.
 
 <a name="WithSandboxFactory"></a>
-### func [WithSandboxFactory](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1941>)
+### func [WithSandboxFactory](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1945>)
 
 ```go
 func WithSandboxFactory(mode string, factory sandbox.Factory) Option
@@ -4315,7 +4316,7 @@ Callers who don't use RuntimeConfig can instead construct a Sandbox directly and
 Duplicate registration for a given mode returns an error \(as with sandbox.RegisterFactory\). If a deployment legitimately needs to overwrite an existing factory, use sandbox.ReplaceFactory directly.
 
 <a name="WithSelector"></a>
-### func [WithSelector](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1957>)
+### func [WithSelector](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1961>)
 
 ```go
 func WithSelector(name string, impl selection.Selector) Option
@@ -4326,7 +4327,7 @@ WithSelector registers an in\-process Selector under the given name. The selecto
 A RuntimeConfig skills.selector reference resolves first against WithSelector\-registered names, so programmatic registrations take precedence over exec\-declared selectors of the same name.
 
 <a name="WithSessionHook"></a>
-### func [WithSessionHook](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2027>)
+### func [WithSessionHook](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2031>)
 
 ```go
 func WithSessionHook(h hooks.SessionHook) Option
@@ -4343,7 +4344,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithSessionMetadata"></a>
-### func [WithSessionMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1026>)
+### func [WithSessionMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1029>)
 
 ```go
 func WithSessionMetadata(metadata map[string]any) Option
@@ -4363,7 +4364,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithShutdownManager"></a>
-### func [WithShutdownManager](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3886>)
+### func [WithShutdownManager](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3887>)
 
 ```go
 func WithShutdownManager(mgr *ShutdownManager) Option
@@ -4382,7 +4383,7 @@ defer conv.Close()
 ```
 
 <a name="WithSkillSelectorOption"></a>
-### func [WithSkillSelectorOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3852>)
+### func [WithSkillSelectorOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3853>)
 
 ```go
 func WithSkillSelectorOption(s skills.SkillSelector) Option
@@ -4397,7 +4398,7 @@ conv, _ := sdk.Open("./assistant.pack.json", "chat",
 ```
 
 <a name="WithSkillSource"></a>
-### func [WithSkillSource](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3836>)
+### func [WithSkillSource](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3837>)
 
 ```go
 func WithSkillSource(src skills.SkillSource) Option
@@ -4422,7 +4423,7 @@ conv, _ := sdk.Open("./assistant.pack.json", "chat",
 ```
 
 <a name="WithSkillsDir"></a>
-### func [WithSkillsDir](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3801>)
+### func [WithSkillsDir](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3802>)
 
 ```go
 func WithSkillsDir(dir string) Option
@@ -4441,7 +4442,7 @@ conv, _ := sdk.Open("./assistant.pack.json", "chat",
 ```
 
 <a name="WithSkipSchemaValidation"></a>
-### func [WithSkipSchemaValidation](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2043>)
+### func [WithSkipSchemaValidation](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2047>)
 
 ```go
 func WithSkipSchemaValidation() Option
@@ -4458,7 +4459,7 @@ conv, _ := sdk.Open("./legacy.pack.json", "assistant",
 ```
 
 <a name="WithStateStore"></a>
-### func [WithStateStore](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L943>)
+### func [WithStateStore](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L946>)
 
 ```go
 func WithStateStore(store statestore.Store) Option
@@ -4477,7 +4478,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithStreamingConfig"></a>
-### func [WithStreamingConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3005>)
+### func [WithStreamingConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3011>)
 
 ```go
 func WithStreamingConfig(streamingConfig *providers.StreamingInputConfig) Option
@@ -4485,7 +4486,7 @@ func WithStreamingConfig(streamingConfig *providers.StreamingInputConfig) Option
 
 WithStreamingConfig configures streaming for duplex mode. When set, enables ASM \(Audio Streaming Model\) mode with continuous bidirectional streaming. When nil \(default\), uses VAD \(Voice Activity Detection\) mode with turn\-based streaming.
 
-ASM mode is for models with native bidirectional audio support \(e.g., gemini\-3.8\-live\). VAD mode is for standard text\-based models with audio transcription.
+ASM mode is for models with native bidirectional audio support \(for example, Gemini Live models\). VAD mode is for standard text\-based models with audio transcription.
 
 Example for ASM mode:
 
@@ -4502,7 +4503,7 @@ conv, _ := sdk.OpenDuplex("./assistant.pack.json", "voice-chat",
 ```
 
 <a name="WithStreamingVideo"></a>
-### func [WithStreamingVideo](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3369>)
+### func [WithStreamingVideo](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3371>)
 
 ```go
 func WithStreamingVideo(cfg *VideoStreamConfig) Option
@@ -4525,10 +4526,7 @@ Example with custom config:
 ```
 session, _ := sdk.OpenDuplex("./assistant.pack.json", "vision-chat",
     sdk.WithStreamingVideo(&sdk.VideoStreamConfig{
-        TargetFPS:  2.0,      // 2 frames per second
-        MaxWidth:   1280,     // Resize large frames
-        MaxHeight:  720,
-        Quality:    80,
+        TargetFPS: 2.0, // 2 frames per second
     }),
 )
 ```
@@ -4546,7 +4544,7 @@ for frame := range webcam.Frames() {
 ```
 
 <a name="WithStructuredOutputMode"></a>
-### func [WithStructuredOutputMode](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3271>)
+### func [WithStructuredOutputMode](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3277>)
 
 ```go
 func WithStructuredOutputMode(mode string) Option
@@ -4565,24 +4563,16 @@ sdk.WithStructuredOutputMode("every_round")
 ```
 
 <a name="WithTTS"></a>
-### func [WithTTS](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2571>)
+### func [WithTTS](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2572>)
 
 ```go
 func WithTTS(service tts.Service) Option
 ```
 
-WithTTS configures text\-to\-speech for the Pipeline.
-
-TTS is applied via Pipeline middleware during streaming responses.
-
-```
-conv, _ := sdk.Open("./assistant.pack.json", "voice",
-    sdk.WithTTS(tts.NewOpenAI(os.Getenv("OPENAI_API_KEY"))),
-)
-```
+WithTTS sets the text\-to\-speech service for VAD mode. It has an effect only together with [WithVADMode](<#WithVADMode>), which sets the TTS service from its own argument. Whichever of the two options is applied last decides the service.
 
 <a name="WithTTSProvider"></a>
-### func [WithTTSProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2817>)
+### func [WithTTSProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2822>)
 
 ```go
 func WithTTSProvider(spec ProviderSpec) Option
@@ -4591,7 +4581,7 @@ func WithTTSProvider(spec ProviderSpec) Option
 WithTTSProvider builds a TTS service from a spec and sets it as the default ttsService \(first\-wins; does not overwrite one already set by WithTTS or a prior WithTTSProvider call\). Registering the same ID twice is an error, matching the declarative path.
 
 <a name="WithTelemetryContentCapture"></a>
-### func [WithTelemetryContentCapture](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3919>)
+### func [WithTelemetryContentCapture](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3920>)
 
 ```go
 func WithTelemetryContentCapture(enabled bool) Option
@@ -4616,7 +4606,7 @@ sdk.WithEventRedactor(func(field, value string) string {
 ```
 
 <a name="WithTokenBudget"></a>
-### func [WithTokenBudget](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1595>)
+### func [WithTokenBudget](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1597>)
 
 ```go
 func WithTokenBudget(tokens int) Option
@@ -4633,7 +4623,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithToolDescriptorOverride"></a>
-### func [WithToolDescriptorOverride](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/tool_descriptor_override.go#L116>)
+### func [WithToolDescriptorOverride](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/tool_descriptor_override.go#L115>)
 
 ```go
 func WithToolDescriptorOverride(name string, fn ToolDescriptorPatchFn) Option
@@ -4649,7 +4639,7 @@ If no tool with the given name is registered when overrides are applied, the ove
 
 #### Schema extension and host passthrough
 
-Extending the InputSchema with new top\-level fields produces structured LLM args, but the executor's typed decode would historically drop unknown keys. Executors that have a host\-facing callback now route unknown top\-level args into that callback's typed record:
+Extending the InputSchema with new top\-level fields produces structured LLM args, but an executor's typed decode drops unknown keys. Executors that have a host\-facing callback route unknown top\-level args into that callback's typed record:
 
 - memory\_\_remember → Memory.Metadata \(host's MemoryStore.Save\)
 - memory\_\_recall → RetrieveOptions.Extras \(host's MemoryStore.Retrieve\)
@@ -4662,7 +4652,7 @@ For memory\_\_remember and a2a the extras merge into the typed Metadata field wi
 
 memory\_\_forget is the one that needs opting into: memory.Store.Delete has no options parameter, so a store receives the extras only if it implements memory.ExtrasDeleter. Stores that do not are unaffected and keep the plain Delete.
 
-Tools without a host\-facing callback \(workflow\_\_set\_artifact, the skills tools\) drop unknown top\-level fields. Extending those schemas will pass the new field to the LLM but the data is not observable host\-side. If you need this for one of them, file an issue describing the use case so the right observation point can be designed.
+Tools without a host\-facing callback \(workflow\_\_set\_artifact, the skills tools\) drop unknown top\-level fields. Extending those schemas will pass the new field to the LLM but the data is not observable host\-side.
 
 Example: customize the memory\_\_remember tool's description for an Omnia deployment that wants the LLM to tag a category alongside the memory, and extend the schema with an \`about\` field that flows into Memory.Metadata.
 
@@ -4682,14 +4672,14 @@ conv, err := sdk.Open(packPath, "chat",
 Workflow transitions follow the same shape but use the dedicated HostExtras field on the workflow.transitioned event. Subscribe via the event bus to read extras after a transition commits:
 
 ```
-conv, err := sdk.OpenWorkflow(packPath, "chat",
+wc, err := sdk.OpenWorkflow(packPath,
     sdk.WithEventBus(bus),
     sdk.WithToolDescriptorOverride("workflow__transition",
         func(d *tools.ToolDescriptor) {
             d.InputSchema = schemaWithEscalationReason
         }),
 )
-bus.Subscribe(events.EventWorkflowTransitioned, func(e events.Event) {
+bus.Subscribe(events.EventWorkflowTransitioned, func(e *events.Event) {
     d := e.Data.(*events.WorkflowTransitionedData)
     if reason, ok := d.HostExtras["escalation_reason"]; ok {
         audit.Record(d.Event, reason)
@@ -4698,7 +4688,7 @@ bus.Subscribe(events.EventWorkflowTransitioned, func(e events.Event) {
 ```
 
 <a name="WithToolExecutor"></a>
-### func [WithToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1069>)
+### func [WithToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1072>)
 
 ```go
 func WithToolExecutor(name string, executor tools.Executor) Option
@@ -4718,7 +4708,7 @@ opener := sdk.A2AOpener(packPath, promptName,
 The tool must be declared in the pack; registering an executor for a name the pack does not define fails when the model calls it, not here. Registering the same name twice keeps the last executor.
 
 <a name="WithToolHook"></a>
-### func [WithToolHook](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1984>)
+### func [WithToolHook](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1988>)
 
 ```go
 func WithToolHook(h hooks.ToolHook) Option
@@ -4735,7 +4725,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithToolRegistry"></a>
-### func [WithToolRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1044>)
+### func [WithToolRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1047>)
 
 ```go
 func WithToolRegistry(registry *tools.Registry) Option
@@ -4754,7 +4744,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithTracerProvider"></a>
-### func [WithTracerProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1260>)
+### func [WithTracerProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1261>)
 
 ```go
 func WithTracerProvider(tp trace.TracerProvider) Option
@@ -4774,13 +4764,13 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithTransitionAuthorizer"></a>
-### func [WithTransitionAuthorizer](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2010>)
+### func [WithTransitionAuthorizer](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2014>)
 
 ```go
 func WithTransitionAuthorizer(a workflow.TransitionAuthorizer) Option
 ```
 
-WithTransitionAuthorizer installs the host's policy for workflow transitions. PromptKit calls it before every transition it would make: one the model requests through workflow\_\_transition, and one the host fires with WorkflowConversation.Transition. The request carries both states' declarations, so a policy can read their extensions \(RFC 0016\).
+WithTransitionAuthorizer installs the host's policy for workflow transitions. PromptKit calls it before every transition it would make: one the model requests through workflow\_\_transition, and one the host fires with WorkflowConversation.Transition. The request carries both states' declarations, so a policy can read their extensions.
 
 A refusal of a model\-requested transition reaches the model as the tool result, with the authorizer's error text as the reason, and the workflow stays where it is. A refusal of a host\-fired transition is returned to the caller. Without this option every transition is allowed; PromptKit ships no policy.
 
@@ -4793,30 +4783,34 @@ conv, _ := sdk.OpenWorkflow("./support.pack.json",
 ```
 
 <a name="WithTruncation"></a>
-### func [WithTruncation](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1620>)
+### func [WithTruncation](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1624>)
 
 ```go
 func WithTruncation(strategy string) Option
 ```
 
-WithTruncation sets the truncation strategy for context management.
+WithTruncation sets the truncation strategy for context management. It takes effect only when [WithTokenBudget](<#WithTokenBudget>) is set.
 
 Strategies:
 
 - "sliding": Remove oldest messages first \(default\)
-
-- "summarize": Summarize old messages before removing
-
-- "relevance": Remove least relevant messages based on embedding similarity
-
+- "summarize": Replace old messages with a summary from the provider given to [WithAutoSummarize](<#WithAutoSummarize>); without one, it removes the oldest messages
+- "relevance": Remove least relevant messages based on embedding similarity \(see [WithRelevanceTruncation](<#WithRelevanceTruncation>)\)
 - "oldest": Same as "sliding"
-
 - "fail": Return an error instead of truncating when the budget is exceeded
-  
-  conv, \_ := sdk.Open\("./chat.pack.json", "assistant", sdk.WithTokenBudget\(8000\), sdk.WithTruncation\("summarize"\), \)
+
+An unrecognized value behaves as "sliding".
+
+```
+conv, _ := sdk.Open("./chat.pack.json", "assistant",
+    sdk.WithTokenBudget(8000),
+    sdk.WithAutoSummarize(summaryProvider, 100, 50),
+    sdk.WithTruncation("summarize"),
+)
+```
 
 <a name="WithTurnDetector"></a>
-### func [WithTurnDetector](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2585>)
+### func [WithTurnDetector](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2588>)
 
 ```go
 func WithTurnDetector(detector audio.TurnDetector) Option
@@ -4824,10 +4818,11 @@ func WithTurnDetector(detector audio.TurnDetector) Option
 
 WithTurnDetector configures turn detection for the Pipeline.
 
-Turn detectors determine when a user has finished speaking in audio sessions.
+A turn detector determines when a user has finished speaking. It applies to VAD mode only \(see [WithVADMode](<#WithVADMode>)\) and replaces the default turn detector.
 
 ```
-conv, _ := sdk.Open("./assistant.pack.json", "voice",
+conv, _ := sdk.OpenDuplex("./assistant.pack.json", "voice",
+    sdk.WithVADMode(sttService, ttsService, nil),
     sdk.WithTurnDetector(audio.NewSilenceDetector(500 * time.Millisecond)),
 )
 ```
@@ -4844,7 +4839,7 @@ WithUnsafePrivateNetworkMedia lets providers fetch URL media from loopback, priv
 By default they refuse. A media URL can arrive in a message from a remote client \(A2A, AG\-UI\) or in a model's output, and a provider that fetches it from the host would otherwise let that URL reach the host's cloud metadata service or internal network. Use this only when every media URL the conversation sees comes from a source the host trusts, such as a local development server; egress policy in the host's network is the better place to allow specific internal destinations.
 
 <a name="WithUserID"></a>
-### func [WithUserID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1008>)
+### func [WithUserID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1011>)
 
 ```go
 func WithUserID(id string) Option
@@ -4861,26 +4856,27 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithVAD"></a>
-### func [WithVAD](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2605>)
+### func [WithVAD](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2610>)
 
 ```go
 func WithVAD(vad audio.VADAnalyzer) Option
 ```
 
-WithVAD supplies the voice activity detector used for audio sessions.
+WithVAD supplies the voice activity detector used in VAD mode \(see [WithVADMode](<#WithVADMode>)\). It has no effect on other conversations.
 
 The detector decides what counts as speech, which governs where turns begin and end. The default \(AdaptiveVAD\) tracks the ambient noise floor and suits general microphone input; supply your own when you have a better model or acoustics it does not handle — telephony codecs, a far\-field array, or an ML detector.
 
 Implement audio.VADAnalyzer; the interface depends on no runtime internals.
 
 ```
-conv, _ := sdk.Open("./assistant.pack.json", "voice",
+conv, _ := sdk.OpenDuplex("./assistant.pack.json", "voice",
+    sdk.WithVADMode(sttService, ttsService, nil),
     sdk.WithVAD(myDetector),
 )
 ```
 
 <a name="WithVADMode"></a>
-### func [WithVADMode](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3101>)
+### func [WithVADMode](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3107>)
 
 ```go
 func WithVADMode(sttService stt.Service, ttsService tts.Service, cfg *VADModeConfig) Option
@@ -4917,7 +4913,7 @@ conv, _ := sdk.OpenDuplex("./assistant.pack.json", "voice-chat",
 ```
 
 <a name="WithVariableProvider"></a>
-### func [WithVariableProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2530>)
+### func [WithVariableProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2535>)
 
 ```go
 func WithVariableProvider(p variables.Provider) Option
@@ -4935,7 +4931,7 @@ conv, _ := sdk.Open("./assistant.pack.json", "support",
 ```
 
 <a name="WithVariables"></a>
-### func [WithVariables](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2552>)
+### func [WithVariables](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2557>)
 
 ```go
 func WithVariables(vars map[string]string) Option
@@ -4957,7 +4953,7 @@ conv, _ := sdk.Open("./assistant.pack.json", "assistant",
 ```
 
 <a name="WithVertex"></a>
-### func [WithVertex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L892>)
+### func [WithVertex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L895>)
 
 ```go
 func WithVertex(region, project, providerType, model string, opts ...PlatformOption) Option
@@ -5068,7 +5064,7 @@ ValidatePack loads the pack at path and reports any semantic issues \(unknown va
 
 When skipSchemaValidation is false \(the default for callers who pass the zero value\), ValidatePack runs strict promptpack JSON schema validation against the embedded schema. A pack that fails schema validation \(for example, a validator declaring a forbidden field like "monitor"\) is returned as a non\-nil error, not as PackIssues, because the file itself is non\-spec. Pass true to bypass this and check only handler\-level issues.
 
-Returns \(nil, nil\) if the pack is fully valid. Returns \(nil, err\) if the pack file is missing, unreadable, fails JSON parse, or fails schema validation \(when strict\). These are considered fatal and distinct from semantic issues. Returns \(issues, nil\) if the pack loads cleanly but has semantic problems \(unknown validator/eval types, missing required params\) the caller should address, or governance warnings \(an undeclared CURIE prefix, RFC 0016 rule 10\). A governance reference that does not resolve fails the load, so it is returned as an error.
+Returns \(nil, nil\) if the pack is fully valid. Returns \(nil, err\) if the pack file is missing, unreadable, fails JSON parse, or fails schema validation \(when strict\). These are considered fatal and distinct from semantic issues. Returns \(issues, nil\) if the pack loads cleanly but has semantic problems \(unknown validator/eval types, missing required params\) the caller should address, or governance warnings \(an undeclared CURIE prefix\). A governance reference that does not resolve fails the load, so it is returned as an error.
 
 This is a pre\-flight check for CI gates and operator tools. It runs the same handler\-level validation the SDK runs internally during Open\(\), exposed as a standalone function.
 
@@ -5250,7 +5246,7 @@ type PendingTool struct {
 ```
 
 <a name="PlatformOption"></a>
-## type [PlatformOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L723-L725>)
+## type [PlatformOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L726-L728>)
 
 PlatformOption configures a platform for a provider.
 
@@ -5261,7 +5257,7 @@ type PlatformOption interface {
 ```
 
 <a name="WithAWSProfile"></a>
-### func [WithAWSProfile](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L806>)
+### func [WithAWSProfile](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L809>)
 
 ```go
 func WithAWSProfile(profile string) PlatformOption
@@ -5278,7 +5274,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithAWSRoleARN"></a>
-### func [WithAWSRoleARN](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L791>)
+### func [WithAWSRoleARN](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L794>)
 
 ```go
 func WithAWSRoleARN(arn string) PlatformOption
@@ -5295,7 +5291,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithAzureClientSecret"></a>
-### func [WithAzureClientSecret](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L850>)
+### func [WithAzureClientSecret](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L853>)
 
 ```go
 func WithAzureClientSecret(tenantID, clientID, secret string) PlatformOption
@@ -5312,7 +5308,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithAzureManagedIdentity"></a>
-### func [WithAzureManagedIdentity](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L836>)
+### func [WithAzureManagedIdentity](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L839>)
 
 ```go
 func WithAzureManagedIdentity(clientID string) PlatformOption
@@ -5329,7 +5325,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithGCPServiceAccount"></a>
-### func [WithGCPServiceAccount](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L821>)
+### func [WithGCPServiceAccount](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L824>)
 
 ```go
 func WithGCPServiceAccount(keyPath string) PlatformOption
@@ -5346,7 +5342,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithPlatformEndpoint"></a>
-### func [WithPlatformEndpoint](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L776>)
+### func [WithPlatformEndpoint](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L779>)
 
 ```go
 func WithPlatformEndpoint(endpoint string) PlatformOption
@@ -5355,7 +5351,7 @@ func WithPlatformEndpoint(endpoint string) PlatformOption
 WithPlatformEndpoint sets a custom endpoint URL.
 
 <a name="WithPlatformProject"></a>
-### func [WithPlatformProject](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L769>)
+### func [WithPlatformProject](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L772>)
 
 ```go
 func WithPlatformProject(project string) PlatformOption
@@ -5364,7 +5360,7 @@ func WithPlatformProject(project string) PlatformOption
 WithPlatformProject sets the cloud project \(for Vertex\).
 
 <a name="WithPlatformRegion"></a>
-### func [WithPlatformRegion](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L762>)
+### func [WithPlatformRegion](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L765>)
 
 ```go
 func WithPlatformRegion(region string) PlatformOption
@@ -5412,7 +5408,7 @@ func (e *ProviderError) Unwrap() error
 Unwrap returns the underlying error.
 
 <a name="ProviderSpec"></a>
-## type [ProviderSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2616-L2666>)
+## type [ProviderSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2621-L2671>)
 
 ProviderSpec is the uniform, SDK\-facing declaration for any capability provider, used by WithInferenceProvider and the WithXProvider option family. Fields mirror runtime base.CapabilitySpec; Credential is an unresolved config that the option resolves before construction.
 
@@ -5463,25 +5459,27 @@ type ProviderSpec struct {
 ```
 
 <a name="RecordingConfig"></a>
-## type [RecordingConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1139-L1148>)
+## type [RecordingConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1142-L1153>)
 
 RecordingConfig configures session recording via RecordingStage. RecordingStages capture full message content \(including binary data\) and write directly to the EventStore for session replay.
 
 ```go
 type RecordingConfig struct {
-    // IncludeAudio records audio data (may be large). Default: true.
+    // IncludeAudio records audio data (may be large). True in
+    // [DefaultRecordingConfig].
     IncludeAudio bool
 
-    // IncludeVideo records video data (may be large). Default: false.
+    // IncludeVideo records video data (may be large). False in
+    // [DefaultRecordingConfig].
     IncludeVideo bool
 
-    // IncludeImages records image data. Default: true.
+    // IncludeImages records image data. True in [DefaultRecordingConfig].
     IncludeImages bool
 }
 ```
 
 <a name="DefaultRecordingConfig"></a>
-### func [DefaultRecordingConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1151>)
+### func [DefaultRecordingConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1156>)
 
 ```go
 func DefaultRecordingConfig() RecordingConfig
@@ -5490,7 +5488,7 @@ func DefaultRecordingConfig() RecordingConfig
 DefaultRecordingConfig returns a RecordingConfig with sensible defaults.
 
 <a name="RelevanceConfig"></a>
-## type [RelevanceConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1629-L1656>)
+## type [RelevanceConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L1633-L1660>)
 
 RelevanceConfig configures embedding\-based relevance truncation. Used when truncation strategy is "relevance".
 
@@ -5586,7 +5584,7 @@ When the model calls a client tool that has no handler \(bound with [Conversatio
 func (r *Response) CompositionOutput() json.RawMessage
 ```
 
-CompositionOutput returns the composition's structured output for a turn that ran a composition state \(RFC 0010\), as raw JSON. For non\-composition turns it returns the assistant message content encoded as a JSON string. Nil when there is no message.
+CompositionOutput returns the composition's structured output for a turn that ran a composition state, as raw JSON. For other turns it returns the assistant message content unchanged, which is valid JSON only if the model produced JSON. Nil when there is no message.
 
 <a name="Response.Cost"></a>
 ### func \(\*Response\) [Cost](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/response.go#L180>)
@@ -5774,7 +5772,7 @@ func WithTurnMessagesForTest(msgs []types.Message) ResponseTestOption
 WithTurnMessagesForTest sets the messages [Response.TurnMessages](<#Response.TurnMessages>) returns.
 
 <a name="SendOption"></a>
-## type [SendOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3397>)
+## type [SendOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3399>)
 
 SendOption configures a single Send call.
 
@@ -5783,7 +5781,7 @@ type SendOption func(*sendConfig) error
 ```
 
 <a name="WithAudioData"></a>
-### func [WithAudioData](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3464>)
+### func [WithAudioData](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3466>)
 
 ```go
 func WithAudioData(data []byte, mimeType string) SendOption
@@ -5798,7 +5796,7 @@ resp, _ := conv.Send(ctx, "Transcribe this audio",
 ```
 
 <a name="WithAudioFile"></a>
-### func [WithAudioFile](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3452>)
+### func [WithAudioFile](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3454>)
 
 ```go
 func WithAudioFile(path string) SendOption
@@ -5813,7 +5811,7 @@ resp, _ := conv.Send(ctx, "Transcribe this audio",
 ```
 
 <a name="WithAudioStorageRef"></a>
-### func [WithAudioStorageRef](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3554>)
+### func [WithAudioStorageRef](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3555>)
 
 ```go
 func WithAudioStorageRef(ref, mimeType string) SendOption
@@ -5822,7 +5820,7 @@ func WithAudioStorageRef(ref, mimeType string) SendOption
 WithAudioStorageRef attaches audio by durable storage reference.
 
 <a name="WithDocumentData"></a>
-### func [WithDocumentData](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3528>)
+### func [WithDocumentData](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3529>)
 
 ```go
 func WithDocumentData(data []byte, mimeType string) SendOption
@@ -5837,7 +5835,7 @@ resp, _ := conv.Send(ctx, "Review this PDF",
 ```
 
 <a name="WithDocumentFile"></a>
-### func [WithDocumentFile](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3516>)
+### func [WithDocumentFile](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3517>)
 
 ```go
 func WithDocumentFile(path string) SendOption
@@ -5852,7 +5850,7 @@ resp, _ := conv.Send(ctx, "Analyze this document",
 ```
 
 <a name="WithFile"></a>
-### func [WithFile](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3504>)
+### func [WithFile](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3505>)
 
 ```go
 func WithFile(name string, data []byte) SendOption
@@ -5860,7 +5858,7 @@ func WithFile(name string, data []byte) SendOption
 
 WithFile attaches a file with the given name and content.
 
-Deprecated: Use WithDocumentFile or WithDocumentData instead for proper document handling. This function is kept for backward compatibility but should not be used for new code as it cannot properly handle binary files.
+Deprecated: Use WithDocumentFile or WithDocumentData instead for proper document handling. WithFile cannot handle binary files.
 
 ```
 resp, _ := conv.Send(ctx, "Analyze this data",
@@ -5869,7 +5867,7 @@ resp, _ := conv.Send(ctx, "Analyze this data",
 ```
 
 <a name="WithFileStorageRef"></a>
-### func [WithFileStorageRef](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3571>)
+### func [WithFileStorageRef](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3572>)
 
 ```go
 func WithFileStorageRef(name, ref, mimeType string) SendOption
@@ -5878,7 +5876,7 @@ func WithFileStorageRef(name, ref, mimeType string) SendOption
 WithFileStorageRef attaches a document by durable storage reference. The name is preserved as the media caption for downstream display.
 
 <a name="WithImageData"></a>
-### func [WithImageData](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3436>)
+### func [WithImageData](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3438>)
 
 ```go
 func WithImageData(data []byte, mimeType string, detail ...*string) SendOption
@@ -5893,7 +5891,7 @@ resp, _ := conv.Send(ctx, "What's in this image?",
 ```
 
 <a name="WithImageFile"></a>
-### func [WithImageFile](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3404>)
+### func [WithImageFile](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3406>)
 
 ```go
 func WithImageFile(path string, detail ...*string) SendOption
@@ -5908,7 +5906,7 @@ resp, _ := conv.Send(ctx, "What's in this image?",
 ```
 
 <a name="WithImageStorageRef"></a>
-### func [WithImageStorageRef](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3542>)
+### func [WithImageStorageRef](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3543>)
 
 ```go
 func WithImageStorageRef(ref, mimeType string, detail ...*string) SendOption
@@ -5923,7 +5921,7 @@ resp, _ := conv.Send(ctx, "What's in this image?",
 ```
 
 <a name="WithImageURL"></a>
-### func [WithImageURL](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3420>)
+### func [WithImageURL](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3422>)
 
 ```go
 func WithImageURL(imageURL string, detail ...*string) SendOption
@@ -5958,7 +5956,7 @@ resp, _ := conv.Send(ctx, "", sdk.WithJSONInput(map[string]any{"topic": "x"}))
 ```
 
 <a name="WithMessageMetadata"></a>
-### func [WithMessageMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/message_metadata.go#L32>)
+### func [WithMessageMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/message_metadata.go#L34>)
 
 ```go
 func WithMessageMetadata(md map[string]any) SendOption
@@ -5966,7 +5964,7 @@ func WithMessageMetadata(md map[string]any) SendOption
 
 WithMessageMetadata attaches key\-value metadata to the user message of a single Send or Stream call: information the application has about the turn that is not chat text, such as which shapes the user selected on a canvas or the view they were on.
 
-The metadata is stored with the message, so it is in the conversation's message history \(Messages, the state store\) and on the message's message.created event \(event bus and event store\), where events.Redacting rewrites its strings. Evals read the conversation's messages, so they see it too. It is never sent to the model: to put structured input in front of the model, use WithJSONInput.
+The metadata is stored with the message, so it is in the conversation's message history \(Messages, the state store\) and on the message's message.created event \(event bus and event store\), where events.Redacting rewrites its strings. Evals read the conversation's messages, so they see it too. The model does not see it unless the provider has a message\_metadata\_template, which renders it as text appended to the message \(see [ProviderSpec](<#ProviderSpec>).MessageMetadataTemplate\). To put structured input in front of the model directly, use WithJSONInput.
 
 Read it back with types.Message.Metadata. Calling WithMessageMetadata more than once in a call merges the maps, the later value winning for a repeated key. The values must be JSON\-serializable, since state stores persist them as JSON, and they are kept in their decoded JSON form from the start: a number reads back as float64, a slice as \[\]any and a struct as map\[string\]any, whether read live or from a store.
 
@@ -5976,7 +5974,7 @@ resp, err := conv.Send(ctx, "Align these",
 ```
 
 <a name="WithVideoData"></a>
-### func [WithVideoData](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3488>)
+### func [WithVideoData](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3490>)
 
 ```go
 func WithVideoData(data []byte, mimeType string) SendOption
@@ -5991,7 +5989,7 @@ resp, _ := conv.Send(ctx, "Describe this video",
 ```
 
 <a name="WithVideoFile"></a>
-### func [WithVideoFile](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3476>)
+### func [WithVideoFile](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3478>)
 
 ```go
 func WithVideoFile(path string) SendOption
@@ -6006,7 +6004,7 @@ resp, _ := conv.Send(ctx, "Describe this video",
 ```
 
 <a name="WithVideoStorageRef"></a>
-### func [WithVideoStorageRef](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3562>)
+### func [WithVideoStorageRef](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3563>)
 
 ```go
 func WithVideoStorageRef(ref, mimeType string) SendOption
@@ -6078,7 +6076,7 @@ func (m *ShutdownManager) Deregister(id string)
 Deregister removes a conversation from tracking. It is safe to call with an ID that was never registered or was already deregistered.
 
 <a name="ShutdownManager.Len"></a>
-### func \(\*ShutdownManager\) [Len](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/shutdown.go#L139>)
+### func \(\*ShutdownManager\) [Len](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/shutdown.go#L138>)
 
 ```go
 func (m *ShutdownManager) Len() int
@@ -6096,7 +6094,7 @@ func (m *ShutdownManager) Register(id string, conv io.Closer) error
 Register tracks a conversation for shutdown. If the manager has already been shut down, it returns [ErrShutdownManagerClosed](<#ErrShutdownManagerClosed>).
 
 <a name="ShutdownManager.Shutdown"></a>
-### func \(\*ShutdownManager\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/shutdown.go#L84>)
+### func \(\*ShutdownManager\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/shutdown.go#L83>)
 
 ```go
 func (m *ShutdownManager) Shutdown(ctx context.Context) error
@@ -6104,7 +6102,7 @@ func (m *ShutdownManager) Shutdown(ctx context.Context) error
 
 Shutdown closes all tracked conversations. It respects the context deadline, returning a context error if the deadline is exceeded before all conversations are closed. After Shutdown returns, new registrations are rejected.
 
-Concurrency is bounded by \[maxConcurrentClosures\] to avoid spawning an unbounded number of goroutines.
+At most 100 conversations are closed at a time.
 
 Errors from individual Close calls are collected and returned as a combined error using [errors.Join](<https://pkg.go.dev/errors/#Join>).
 
@@ -6432,7 +6430,7 @@ type ToolHandlerCtx func(ctx context.Context, args map[string]any) (any, error)
 ```
 
 <a name="VADModeConfig"></a>
-## type [VADModeConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3017-L3057>)
+## type [VADModeConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3023-L3063>)
 
 VADModeConfig configures VAD \(Voice Activity Detection\) mode for voice conversations. In VAD mode, the pipeline processes audio through: AudioTurnStage → STTStage → ProviderStage → TTSStage
 
@@ -6483,7 +6481,7 @@ type VADModeConfig struct {
 ```
 
 <a name="DefaultVADModeConfig"></a>
-### func [DefaultVADModeConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3060>)
+### func [DefaultVADModeConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3066>)
 
 ```go
 func DefaultVADModeConfig() *VADModeConfig
@@ -6613,9 +6611,11 @@ func (e *ValidationError) Error() string
 Error implements the error interface.
 
 <a name="VideoStreamConfig"></a>
-## type [VideoStreamConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3300-L3324>)
+## type [VideoStreamConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3308-L3329>)
 
 VideoStreamConfig configures realtime video/image streaming for duplex sessions. This enables webcam feeds, screen sharing, and continuous frame analysis.
+
+Only TargetFPS takes effect. The pipeline does not read the other fields.
 
 ```go
 type VideoStreamConfig struct {
@@ -6624,29 +6624,26 @@ type VideoStreamConfig struct {
     // Default: 1.0 (one frame per second, suitable for most LLM vision scenarios)
     TargetFPS float64
 
-    // MaxWidth is the maximum frame width in pixels.
-    // Frames larger than this are resized. 0 means no limit.
-    // Default: 0 (no resizing)
+    // MaxWidth is the maximum frame width in pixels. The pipeline does not read
+    // it, so frames are never resized.
     MaxWidth int
 
-    // MaxHeight is the maximum frame height in pixels.
-    // Frames larger than this are resized. 0 means no limit.
-    // Default: 0 (no resizing)
+    // MaxHeight is the maximum frame height in pixels. The pipeline does not
+    // read it, so frames are never resized.
     MaxHeight int
 
-    // Quality is the JPEG compression quality (1-100) for frame encoding.
-    // Higher values = better quality, larger size.
-    // Default: 85
+    // Quality is a JPEG compression quality (1-100). The pipeline does not read
+    // it, so frames are never re-encoded. [DefaultVideoStreamConfig] sets 85.
     Quality int
 
-    // EnableResize enables automatic frame resizing when dimensions exceed limits.
-    // Default: true (resizing enabled when MaxWidth/MaxHeight are set)
+    // EnableResize is a resize switch that the pipeline does not read.
+    // [DefaultVideoStreamConfig] sets true.
     EnableResize bool
 }
 ```
 
 <a name="DefaultVideoStreamConfig"></a>
-### func [DefaultVideoStreamConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3327>)
+### func [DefaultVideoStreamConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3332>)
 
 ```go
 func DefaultVideoStreamConfig() *VideoStreamConfig

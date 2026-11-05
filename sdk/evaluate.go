@@ -379,7 +379,8 @@ type ValidateEvalTypesOpts struct {
 
 // ValidateEvalTypes checks that every eval type referenced in the resolved
 // eval definitions has a registered handler in the EvalTypeRegistry.
-// Returns a list of eval IDs whose types are missing, or nil if all are valid.
+// Returns the eval definitions whose types have no registered handler, or nil
+// if all are valid.
 //
 // This is useful as a preflight check (e.g. at startup or in CI) to catch
 // configuration errors (typos, missing RuntimeConfig bindings) before evals

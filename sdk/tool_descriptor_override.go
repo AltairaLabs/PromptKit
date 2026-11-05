@@ -51,9 +51,9 @@ type toolDescriptorOverride struct {
 // # Schema extension and host passthrough
 //
 // Extending the InputSchema with new top-level fields produces structured
-// LLM args, but the executor's typed decode would historically drop unknown
-// keys. Executors that have a host-facing callback now route unknown
-// top-level args into that callback's typed record:
+// LLM args, but an executor's typed decode drops unknown keys. Executors that
+// have a host-facing callback route unknown top-level args into that callback's
+// typed record:
 //
 //   - memory__remember           → Memory.Metadata          (host's MemoryStore.Save)
 //   - memory__recall             → RetrieveOptions.Extras   (host's MemoryStore.Retrieve)
@@ -78,8 +78,7 @@ type toolDescriptorOverride struct {
 // Tools without a host-facing callback (workflow__set_artifact, the skills
 // tools) drop unknown top-level fields. Extending those schemas
 // will pass the new field to the LLM but the data is not observable
-// host-side. If you need this for one of them, file an issue describing
-// the use case so the right observation point can be designed.
+// host-side.
 //
 // Example: customize the memory__remember tool's description for an Omnia
 // deployment that wants the LLM to tag a category alongside the memory,
@@ -100,14 +99,14 @@ type toolDescriptorOverride struct {
 // HostExtras field on the workflow.transitioned event. Subscribe via the
 // event bus to read extras after a transition commits:
 //
-//	conv, err := sdk.OpenWorkflow(packPath, "chat",
+//	wc, err := sdk.OpenWorkflow(packPath,
 //	    sdk.WithEventBus(bus),
 //	    sdk.WithToolDescriptorOverride("workflow__transition",
 //	        func(d *tools.ToolDescriptor) {
 //	            d.InputSchema = schemaWithEscalationReason
 //	        }),
 //	)
-//	bus.Subscribe(events.EventWorkflowTransitioned, func(e events.Event) {
+//	bus.Subscribe(events.EventWorkflowTransitioned, func(e *events.Event) {
 //	    d := e.Data.(*events.WorkflowTransitionedData)
 //	    if reason, ok := d.HostExtras["escalation_reason"]; ok {
 //	        audit.Record(d.Event, reason)

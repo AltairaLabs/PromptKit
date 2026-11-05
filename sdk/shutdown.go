@@ -76,8 +76,7 @@ const maxConcurrentClosures = 100
 // returning a context error if the deadline is exceeded before all conversations
 // are closed. After Shutdown returns, new registrations are rejected.
 //
-// Concurrency is bounded by [maxConcurrentClosures] to avoid spawning an
-// unbounded number of goroutines.
+// At most 100 conversations are closed at a time.
 //
 // Errors from individual Close calls are collected and returned as a combined
 // error using [errors.Join].

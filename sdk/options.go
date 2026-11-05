@@ -359,8 +359,7 @@ type config struct {
 	metricContext *metrics.MetricContext
 
 	// Pipeline execution timeout override.
-	// When non-nil, overrides the default 30s execution timeout.
-	// Use 0 to disable timeout entirely (useful for long-running tool-calling pipelines).
+	// When non-nil, replaces the default (no execution timeout).
 	executionTimeout *time.Duration
 	idleTimeout      *time.Duration
 
@@ -472,6 +471,7 @@ func WithAPIKey(key string) Option {
 // WithProvider uses a custom provider instance.
 //
 // This bypasses auto-detection and uses the provided provider directly.
+// WithProvider(nil) is a no-op.
 // Use this for custom provider implementations or when you need full
 // control over provider configuration.
 //
@@ -690,6 +690,9 @@ func WithCredentialEnv(envVar string) CredentialOption {
 // WithCredential takes precedence.
 //
 // Credential resolution priority: direct API key > environment variable > file.
+// The first one set is used and the others are ignored: a credential
+// environment variable that is unset or empty makes Open return an error rather
+// than falling back to the file.
 //
 // Example with environment variable:
 //
@@ -1119,7 +1122,7 @@ func WithEventBus(bus events.Bus) Option {
 //
 //	store, _ := events.NewFileEventStore("/var/log/sessions")
 //	defer store.Close()
-//	conv, err := sdk.Open(ctx, pack,
+//	conv, err := sdk.Open("./chat.pack.json", "assistant",
 //	    sdk.WithEventStore(store),
 //	    sdk.WithRecording(nil), // use defaults
 //	)
@@ -1137,13 +1140,15 @@ func WithEventStore(store events.EventStore) Option {
 // RecordingStages capture full message content (including binary data)
 // and write directly to the EventStore for session replay.
 type RecordingConfig struct {
-	// IncludeAudio records audio data (may be large). Default: true.
+	// IncludeAudio records audio data (may be large). True in
+	// [DefaultRecordingConfig].
 	IncludeAudio bool
 
-	// IncludeVideo records video data (may be large). Default: false.
+	// IncludeVideo records video data (may be large). False in
+	// [DefaultRecordingConfig].
 	IncludeVideo bool
 
-	// IncludeImages records image data. Default: true.
+	// IncludeImages records image data. True in [DefaultRecordingConfig].
 	IncludeImages bool
 }
 
@@ -1204,14 +1209,9 @@ const (
 	AudioMonitorOff AudioMonitorMode = "off"
 )
 
-// AudioMonitorOptions configures real-time audio monitoring for duplex SDK
-// conversations. Mirrors the canonical audio.Options shape but is defined here
-// so sdk/ stays independent of PromptArena's audio package.
-//
-// Consumers who want full control of the audio stack (router, local sink, web
-// SSE, level meter) can supply this struct via WithAudioMonitor; the SDK
-// internally translates it into the audio package's types when wiring the
-// monitor pipeline.
+// AudioMonitorOptions describes real-time audio monitoring for duplex SDK
+// conversations: the monitoring mode, the sample rate, and which outputs (local
+// sink, SSE relay, level meter) to enable. [WithAudioMonitor] accepts it.
 type AudioMonitorOptions struct {
 	// Mode is "auto" | "on" | "off". Defaults to "auto" when unset.
 	Mode AudioMonitorMode
@@ -1225,12 +1225,13 @@ type AudioMonitorOptions struct {
 	LevelMeter bool
 }
 
-// WithAudioMonitor configures real-time audio monitoring for duplex SDK
-// conversations.
+// WithAudioMonitor stores the audio monitoring options on the conversation
+// configuration. No SDK component reads them, so setting this option has no
+// effect on a conversation.
 //
 // Example:
 //
-//	conv, err := sdk.Open(ctx, pack,
+//	conv, err := sdk.Open("./chat.pack.json", "assistant",
 //	    sdk.WithAudioMonitor(sdk.AudioMonitorOptions{
 //	        Mode:       sdk.AudioMonitorOn,
 //	        Rate:       24000,
@@ -1304,8 +1305,8 @@ func WithMetrics(collector *metrics.Collector, instanceLabels map[string]string)
 //	    sdk.WithLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil))),
 //	)
 //
-// Note: only the first logger set via WithLogger takes effect process-wide.
-// Subsequent calls are silently ignored due to sync.Once in setLoggerOnce.
+// Only the first logger set via WithLogger takes effect process-wide. Later
+// calls with a different logger are ignored.
 func WithLogger(l *slog.Logger) Option {
 	return func(c *config) error {
 		c.logger = l
@@ -1505,9 +1506,10 @@ func WithMemoryContextFormatter(fn memory.ContextFormatter) MemoryOption {
 	return func(c *MemoryCapability) { c.formatter = fn }
 }
 
-// WithExecutionTimeout overrides the default pipeline execution timeout (30s).
-// Use this for pipelines that need more time, such as multi-round tool-calling
-// with slower providers like Ollama. Pass 0 to disable the timeout entirely.
+// WithExecutionTimeout sets a hard limit on how long one pipeline execution may
+// run. By default there is no execution limit and the idle timeout
+// ([WithIdleTimeout]) is the liveness check. Pass 0 to remove a limit set
+// earlier. Duplex sessions (ASM mode) never apply this limit.
 //
 //	conv, _ := sdk.Open("./chat.pack.json", "assistant",
 //	    sdk.WithExecutionTimeout(120 * time.Second),
@@ -1599,24 +1601,26 @@ func WithTokenBudget(tokens int) Option {
 	}
 }
 
-// WithTruncation sets the truncation strategy for context management.
+// WithTruncation sets the truncation strategy for context management. It
+// takes effect only when [WithTokenBudget] is set.
 //
 // Strategies:
 //
 //   - "sliding": Remove oldest messages first (default)
-//
-//   - "summarize": Summarize old messages before removing
-//
+//   - "summarize": Replace old messages with a summary from the provider given
+//     to [WithAutoSummarize]; without one, it removes the oldest messages
 //   - "relevance": Remove least relevant messages based on embedding similarity
-//
+//     (see [WithRelevanceTruncation])
 //   - "oldest": Same as "sliding"
-//
 //   - "fail": Return an error instead of truncating when the budget is exceeded
 //
-//     conv, _ := sdk.Open("./chat.pack.json", "assistant",
-//     sdk.WithTokenBudget(8000),
-//     sdk.WithTruncation("summarize"),
-//     )
+// An unrecognized value behaves as "sliding".
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithTokenBudget(8000),
+//	    sdk.WithAutoSummarize(summaryProvider, 100, 50),
+//	    sdk.WithTruncation("summarize"),
+//	)
 func WithTruncation(strategy string) Option {
 	return func(c *config) error {
 		c.truncationStrategy = strategy
@@ -1992,7 +1996,7 @@ func WithToolHook(h hooks.ToolHook) Option {
 // transitions. PromptKit calls it before every transition it would make: one
 // the model requests through workflow__transition, and one the host fires with
 // WorkflowConversation.Transition. The request carries both states'
-// declarations, so a policy can read their extensions (RFC 0016).
+// declarations, so a policy can read their extensions.
 //
 // A refusal of a model-requested transition reaches the model as the tool
 // result, with the authorizer's error text as the reason, and the workflow
@@ -2094,11 +2098,12 @@ func WithCapability(capability Capability) Option {
 //	    sdk.WithMCP("filesystem", "npx", "@modelcontextprotocol/server-filesystem", "/path"),
 //	)
 //
-// With environment variables:
+// With environment variables, use [NewMCPServer] and [WithMCPServer]:
 //
 //	conv, _ := sdk.Open("./assistant.pack.json", "assistant",
-//	    sdk.WithMCP("github", "npx", "@modelcontextprotocol/server-github").
-//	        WithEnv("GITHUB_TOKEN", os.Getenv("GITHUB_TOKEN")),
+//	    sdk.WithMCPServer(
+//	        sdk.NewMCPServer("github", "npx", "@modelcontextprotocol/server-github").
+//	            WithEnv("GITHUB_TOKEN", os.Getenv("GITHUB_TOKEN"))),
 //	)
 //
 // Multiple servers:
@@ -2561,13 +2566,9 @@ func WithVariables(vars map[string]string) Option {
 	}
 }
 
-// WithTTS configures text-to-speech for the Pipeline.
-//
-// TTS is applied via Pipeline middleware during streaming responses.
-//
-//	conv, _ := sdk.Open("./assistant.pack.json", "voice",
-//	    sdk.WithTTS(tts.NewOpenAI(os.Getenv("OPENAI_API_KEY"))),
-//	)
+// WithTTS sets the text-to-speech service for VAD mode. It has an effect only
+// together with [WithVADMode], which sets the TTS service from its own argument.
+// Whichever of the two options is applied last decides the service.
 func WithTTS(service tts.Service) Option {
 	return func(c *config) error {
 		c.ttsService = service
@@ -2577,9 +2578,11 @@ func WithTTS(service tts.Service) Option {
 
 // WithTurnDetector configures turn detection for the Pipeline.
 //
-// Turn detectors determine when a user has finished speaking in audio sessions.
+// A turn detector determines when a user has finished speaking. It applies to
+// VAD mode only (see [WithVADMode]) and replaces the default turn detector.
 //
-//	conv, _ := sdk.Open("./assistant.pack.json", "voice",
+//	conv, _ := sdk.OpenDuplex("./assistant.pack.json", "voice",
+//	    sdk.WithVADMode(sttService, ttsService, nil),
 //	    sdk.WithTurnDetector(audio.NewSilenceDetector(500 * time.Millisecond)),
 //	)
 func WithTurnDetector(detector audio.TurnDetector) Option {
@@ -2589,7 +2592,8 @@ func WithTurnDetector(detector audio.TurnDetector) Option {
 	}
 }
 
-// WithVAD supplies the voice activity detector used for audio sessions.
+// WithVAD supplies the voice activity detector used in VAD mode (see
+// [WithVADMode]). It has no effect on other conversations.
 //
 // The detector decides what counts as speech, which governs where turns begin
 // and end. The default (AdaptiveVAD) tracks the ambient noise floor and suits
@@ -2599,7 +2603,8 @@ func WithTurnDetector(detector audio.TurnDetector) Option {
 //
 // Implement audio.VADAnalyzer; the interface depends on no runtime internals.
 //
-//	conv, _ := sdk.Open("./assistant.pack.json", "voice",
+//	conv, _ := sdk.OpenDuplex("./assistant.pack.json", "voice",
+//	    sdk.WithVADMode(sttService, ttsService, nil),
 //	    sdk.WithVAD(myDetector),
 //	)
 func WithVAD(vad audio.VADAnalyzer) Option {
@@ -2755,12 +2760,12 @@ func (s ProviderSpec) capabilityTuning(role string) (base.HTTPTuning, error) {
 //
 // This is how a host answers a pack's `requires` entry for an ancillary model —
 // the judge a toxicity guardrail grades with, say, or the model a prompt or
-// composition step names in its `provider` (RFC 0017), which then runs on it.
+// composition step names in its `provider`, which then runs on it.
 // [WithLLMProvider] would also register it, but it sets the agent as a side
 // effect, so binding a grader with it silently replaces the model the
 // conversation talks to.
 //
-//	conv, _ := sdk.Open(pack, "chat",
+//	conv, _ := sdk.Open("./chat.pack.json", "chat",
 //	    sdk.WithProvider(agent),
 //	    sdk.WithNamedProvider(sdk.ProviderSpec{ID: "grader", Type: "openai", Model: "gpt-4.1-mini"}),
 //	)
@@ -2941,7 +2946,7 @@ func WithEmbeddingProvider(spec ProviderSpec) Option {
 //
 // Multiple providers may be configured; the first declared becomes the
 // default returned by RerankProvider(). Registered types are reported by
-// [RegisteredRerankProviderTypes].
+// [RegisteredProviderTypes], under the "rerank" role.
 //
 //	conv, _ := sdk.Open("./assistant.pack.json", "assistant",
 //	    sdk.WithRerankProvider(sdk.ProviderSpec{
@@ -2988,7 +2993,8 @@ func WithRerankProvider(spec ProviderSpec) Option {
 // When set, enables ASM (Audio Streaming Model) mode with continuous bidirectional streaming.
 // When nil (default), uses VAD (Voice Activity Detection) mode with turn-based streaming.
 //
-// ASM mode is for models with native bidirectional audio support (e.g., gemini-3.8-live).
+// ASM mode is for models with native bidirectional audio support (for example,
+// Gemini Live models).
 // VAD mode is for standard text-based models with audio transcription.
 //
 // Example for ASM mode:
@@ -3297,29 +3303,28 @@ func WithJSONMode() Option {
 
 // VideoStreamConfig configures realtime video/image streaming for duplex sessions.
 // This enables webcam feeds, screen sharing, and continuous frame analysis.
+//
+// Only TargetFPS takes effect. The pipeline does not read the other fields.
 type VideoStreamConfig struct {
 	// TargetFPS is the target frame rate for streaming.
 	// Frames exceeding this rate will be dropped.
 	// Default: 1.0 (one frame per second, suitable for most LLM vision scenarios)
 	TargetFPS float64
 
-	// MaxWidth is the maximum frame width in pixels.
-	// Frames larger than this are resized. 0 means no limit.
-	// Default: 0 (no resizing)
+	// MaxWidth is the maximum frame width in pixels. The pipeline does not read
+	// it, so frames are never resized.
 	MaxWidth int
 
-	// MaxHeight is the maximum frame height in pixels.
-	// Frames larger than this are resized. 0 means no limit.
-	// Default: 0 (no resizing)
+	// MaxHeight is the maximum frame height in pixels. The pipeline does not
+	// read it, so frames are never resized.
 	MaxHeight int
 
-	// Quality is the JPEG compression quality (1-100) for frame encoding.
-	// Higher values = better quality, larger size.
-	// Default: 85
+	// Quality is a JPEG compression quality (1-100). The pipeline does not read
+	// it, so frames are never re-encoded. [DefaultVideoStreamConfig] sets 85.
 	Quality int
 
-	// EnableResize enables automatic frame resizing when dimensions exceed limits.
-	// Default: true (resizing enabled when MaxWidth/MaxHeight are set)
+	// EnableResize is a resize switch that the pipeline does not read.
+	// [DefaultVideoStreamConfig] sets true.
 	EnableResize bool
 }
 
@@ -3350,10 +3355,7 @@ func DefaultVideoStreamConfig() *VideoStreamConfig {
 //
 //	session, _ := sdk.OpenDuplex("./assistant.pack.json", "vision-chat",
 //	    sdk.WithStreamingVideo(&sdk.VideoStreamConfig{
-//	        TargetFPS:  2.0,      // 2 frames per second
-//	        MaxWidth:   1280,     // Resize large frames
-//	        MaxHeight:  720,
-//	        Quality:    80,
+//	        TargetFPS: 2.0, // 2 frames per second
 //	    }),
 //	)
 //
@@ -3495,8 +3497,7 @@ func WithVideoData(data []byte, mimeType string) SendOption {
 // WithFile attaches a file with the given name and content.
 //
 // Deprecated: Use WithDocumentFile or WithDocumentData instead for proper document handling.
-// This function is kept for backward compatibility but should not be used for new code
-// as it cannot properly handle binary files.
+// WithFile cannot handle binary files.
 //
 //	resp, _ := conv.Send(ctx, "Analyze this data",
 //	    sdk.WithFile("data.csv", csvBytes),

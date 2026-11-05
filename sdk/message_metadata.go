@@ -17,8 +17,10 @@ import (
 // message history (Messages, the state store) and on the message's
 // message.created event (event bus and event store), where events.Redacting
 // rewrites its strings. Evals read the conversation's messages, so they see it
-// too. It is never sent to the model: to put structured input in front of the
-// model, use WithJSONInput.
+// too. The model does not see it unless the provider has a
+// message_metadata_template, which renders it as text appended to the message
+// (see [ProviderSpec].MessageMetadataTemplate). To put structured input in front
+// of the model directly, use WithJSONInput.
 //
 // Read it back with types.Message.Metadata. Calling WithMessageMetadata more
 // than once in a call merges the maps, the later value winning for a repeated
