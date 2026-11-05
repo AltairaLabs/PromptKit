@@ -20,7 +20,7 @@ The SDK owns the developer-facing API surface: conversation lifecycle, options, 
 
 ### Tool Handler Registration
 - **OnTool / OnToolCtx** — local handlers (mode: "local") wrapped in `localExecutor`
-- **OnClientTool** — deferred client-side handlers (mode: "client") wrapped in `clientExecutor`
+- **OnClientTool / DeferClientTool** — bind a pack tool as a client tool for this conversation; `localExecutor` hands its calls to `clientExecutor` (sync with a handler, deferred without one)
 - **OnToolAsync** — human-in-the-loop approval handlers
 - **Handler snapshot at Send time** — consistency within a single pipeline execution
 - **Client handler accessor** — live lookup for deferred tools registered mid-pipeline

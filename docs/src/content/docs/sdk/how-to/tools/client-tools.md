@@ -45,16 +45,15 @@ A pack describes a tool's interface: name, description and parameters.
 }
 ```
 
-The pack loader registers every pack tool with mode `local` and does not read a `mode` or `client` key. Calls to a `local` tool go to `OnTool` handlers, not `OnClientTool` handlers.
+The pack loader registers every pack tool with mode `local` and does not read a `mode` or `client` key, because a pack does not say how a tool executes. The conversation does: `OnClientTool` or `DeferClientTool` (step 3) binds the tool as a client tool for that conversation only.
 
-### 2. Mark the tool as client-side
+### 2. Add consent details (optional)
 
-Set the descriptor's mode and consent details with `WithToolDescriptorOverride`:
+Set the consent message and categories with `WithToolDescriptorOverride`:
 
 ```go
 conv, err := sdk.Open("./app.pack.json", "assistant",
     sdk.WithToolDescriptorOverride("get_location", func(d *tools.ToolDescriptor) {
-        d.Mode = "client"
         d.ClientConfig = &tools.ClientConfig{
             Consent:    &tools.ConsentConfig{Message: "This app wants to access your location"},
             Categories: []string{"location"},
@@ -67,7 +66,7 @@ conv, err := sdk.Open("./app.pack.json", "assistant",
 
 ### 3. Answer the call
 
-To answer with a handler, register it with `OnClientTool`. It runs when the model calls the tool, and the pipeline sends its result to the model:
+To answer with a handler, bind it with `OnClientTool`. That makes the tool a client tool in this conversation, so calls go to the handler instead of an `OnTool` handler. It runs when the model calls the tool, and the pipeline sends its result to the model. The registry's descriptor, which other conversations may share, is not changed:
 
 ```go
 conv.OnClientTool("get_location", func(ctx context.Context, req sdk.ClientToolRequest) (any, error) {
@@ -78,9 +77,11 @@ resp, err := conv.Send(ctx, "Where am I?")
 fmt.Println(resp.Text())
 ```
 
-To answer later, register no handler. The turn suspends and `Send` returns the pending calls:
+To answer later, bind the tool with `DeferClientTool`, which takes no handler. The turn suspends and `Send` returns the pending calls:
 
 ```go
+conv.DeferClientTool("get_location")
+
 resp, err := conv.Send(ctx, "Where am I?")
 
 if resp.HasPendingClientTools() {
@@ -106,7 +107,7 @@ if resp.HasPendingClientTools() {
 
 ### 4. Stream deferred calls
 
-When streaming, a `ChunkClientTool` chunk carries the pending call. Answer it, then call `ResumeStream`:
+With the tool bound by `DeferClientTool`, a `ChunkClientTool` chunk carries the pending call when streaming. Answer it, then call `ResumeStream`:
 
 ```go
 for chunk := range conv.Stream(ctx, "Where am I?") {

@@ -12,10 +12,38 @@ import (
 // It dispatches to the appropriate ToolHandler based on the tool name.
 // Context-aware handlers (ctxHandlers) are preferred over plain handlers
 // so that pipeline context (tracing, cancellation) propagates to tool calls.
+//
+// A pack tool's descriptor says "local" whatever the host means to do with it:
+// execution mode is a hosting concern, not a pack field. So a call for a tool
+// the conversation bound with OnClientTool or DeferClientTool arrives here too,
+// and is handed to the conversation's client executor. The binding lives on
+// the conversation, not on the descriptor, which may be shared with other
+// conversations through a host registry.
 type localExecutor struct {
 	handlers    map[string]ToolHandler
 	ctxHandlers map[string]ToolHandlerCtx
 	live        *localHandlersAccessor
+	client      *clientExecutor
+}
+
+// clientBound reports whether the conversation bound name as a client tool.
+func (e *localExecutor) clientBound(name string) bool {
+	return e.client != nil && e.client.isBound(name)
+}
+
+// ExecuteAsync routes a client-bound tool to the client executor, which may
+// defer it (ToolStatusPending), and runs every other tool through Execute.
+func (e *localExecutor) ExecuteAsync(
+	ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage,
+) (*tools.ToolExecutionResult, error) {
+	if e.clientBound(descriptor.Name) {
+		return e.client.ExecuteAsync(ctx, asClientTool(descriptor), args)
+	}
+	result, err := e.Execute(ctx, descriptor, args)
+	if err != nil {
+		return nil, err
+	}
+	return &tools.ToolExecutionResult{Status: tools.ToolStatusComplete, Content: result}, nil
 }
 
 // localHandlersAccessor provides live read access to the conversation's local
@@ -70,6 +98,10 @@ func (e *localExecutor) liveHandler(name string) (ToolHandler, bool) {
 func (e *localExecutor) Execute(
 	ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage,
 ) (json.RawMessage, error) {
+	if e.clientBound(descriptor.Name) {
+		return e.client.Execute(ctx, asClientTool(descriptor), args)
+	}
+
 	// Parse args to map
 	var argsMap map[string]any
 	if err := json.Unmarshal(args, &argsMap); err != nil {

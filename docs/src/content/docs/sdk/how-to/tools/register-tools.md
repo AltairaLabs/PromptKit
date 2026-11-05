@@ -1,6 +1,6 @@
 ---
 title: Register tools
-description: Give the model Go functions to call with OnTool, typed handlers, custom executors and human approval.
+description: Give the model Go functions to call with OnTool, custom executors and human approval.
 sidebar:
   order: 3
 verified:

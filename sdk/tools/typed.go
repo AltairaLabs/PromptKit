@@ -3,7 +3,7 @@
 // This package extends the basic tool registration provided by [sdk.Conversation.OnTool]
 // with additional capabilities:
 //
-//   - Type-safe handlers using Go generics
+//   - Type-safe handlers using Go generics (deprecated; see OnTyped)
 //   - Handler adapters for the runtime tool registry
 //   - HTTP tool executors
 //   - Pending tool management for HITL workflows
@@ -11,21 +11,17 @@
 // Most users will only need [sdk.Conversation.OnTool] from the main sdk package.
 // This sub-package is for advanced use cases.
 //
-// # Typed Handlers
+// # Typed Handlers (deprecated)
 //
-// For type safety, use OnTyped with struct arguments:
+// OnTyped, ToolRegistrar, ToolHandler and TypedHandler are deprecated: they
+// never worked with *sdk.Conversation, whose OnTool takes sdk.ToolHandler, not
+// the func type ToolRegistrar names. Register the handler with conv.OnTool and
+// read its map[string]any arguments:
 //
-//	type GetWeatherArgs struct {
-//	    City    string `map:"city"`
-//	    Country string `map:"country"`
-//	}
-//
-//	tools.OnTyped(conv, "get_weather", func(args GetWeatherArgs) (any, error) {
-//	    return weatherAPI.GetForecast(args.City, args.Country)
+//	conv.OnTool("get_weather", func(args map[string]any) (any, error) {
+//	    city, _ := args["city"].(string)
+//	    return weatherAPI.GetCurrent(city)
 //	})
-//
-// The struct fields are populated from the args map using the "map" struct tag
-// (or the field name in lowercase if no tag is specified).
 package tools
 
 import (
@@ -88,15 +84,21 @@ func getStructMeta(rt reflect.Type) *structMeta {
 }
 
 // TypedHandler is a function that executes a tool call with typed arguments.
-// T must be a struct type with fields tagged with `map:"fieldname"`.
+// T must be a struct type; see [OnTyped] for how its fields are populated.
+//
+// Deprecated: TypedHandler exists only for [OnTyped], which never worked with
+// *sdk.Conversation. Use conv.OnTool with a map[string]any handler.
 type TypedHandler[T any] func(args T) (any, error)
 
 // OnTyped registers a typed handler for a tool.
 //
-// The type parameter T must be a struct type. Field values are populated from
-// the args map using:
+// The type parameter T must be a struct type. Each exported field is populated
+// from the args map entry keyed by:
 //   - The "map" struct tag value, or
-//   - The lowercase field name if no tag is present
+//   - The field name exactly as written (case-sensitive) if no tag is present,
+//     so an untagged City field reads args["City"], not args["city"]
+//
+// A field tagged `map:"-"` is skipped.
 //
 // Example:
 //
@@ -105,9 +107,13 @@ type TypedHandler[T any] func(args T) (any, error)
 //	    MaxResults int  `map:"max_results"`
 //	}
 //
-//	tools.OnTyped(conv, "search", func(args SearchArgs) (any, error) {
+//	tools.OnTyped(reg, "search", func(args SearchArgs) (any, error) {
 //	    return search(args.Query, args.MaxResults)
 //	})
+//
+// Deprecated: OnTyped never worked with *sdk.Conversation: its OnTool takes
+// sdk.ToolHandler, so *sdk.Conversation does not implement [ToolRegistrar] and
+// the call does not compile. Use conv.OnTool with a map[string]any handler.
 func OnTyped[T any](conv ToolRegistrar, name string, handler TypedHandler[T]) {
 	conv.OnTool(name, func(args map[string]any) (any, error) {
 		var typedArgs T
@@ -118,14 +124,20 @@ func OnTyped[T any](conv ToolRegistrar, name string, handler TypedHandler[T]) {
 	})
 }
 
-// ToolRegistrar is the interface for registering tool handlers.
-// This is implemented by [sdk.Conversation].
+// ToolRegistrar is the interface [OnTyped] registers handlers through.
+//
+// Deprecated: *sdk.Conversation does not implement ToolRegistrar (its OnTool
+// takes sdk.ToolHandler), so OnTyped never worked with it. Use conv.OnTool
+// with a map[string]any handler.
 type ToolRegistrar interface {
 	OnTool(name string, handler ToolHandler)
 }
 
-// ToolHandler is a function type for tool handlers.
-// This mirrors the definition in the main sdk package.
+// ToolHandler is the handler type [ToolRegistrar] takes.
+//
+// Deprecated: it is not sdk.ToolHandler, which is a distinct defined type, so
+// it never let *sdk.Conversation implement [ToolRegistrar]. Use conv.OnTool
+// with an sdk.ToolHandler.
 type ToolHandler = func(args map[string]any) (any, error)
 
 // mapToStruct converts a map[string]any to a struct using reflection.

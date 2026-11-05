@@ -217,22 +217,22 @@ type PendingTool struct {
 
 // ClientTools returns client tools awaiting fulfillment by the caller.
 //
-// When no [Conversation.OnClientTool] handler is registered for a tool,
-// the pipeline suspends and the pending client tools are returned here.
-// The caller should fulfillthem via [Conversation.SendToolResult] or
+// When the model calls a client tool that has no handler (bound with
+// [Conversation.DeferClientTool]), the pipeline suspends and the pending
+// client tools are returned here. The caller should fulfill them via [Conversation.SendToolResult] or
 // [Conversation.RejectClientTool], then call [Conversation.Resume].
 func (r *Response) ClientTools() []PendingClientTool {
 	return r.clientTools
 }
 
 // HasPendingClientTools returns true if the response contains client tools
-// that the caller must fulfillbefore the conversation can continue.
+// that the caller must fulfill before the conversation can continue.
 func (r *Response) HasPendingClientTools() bool {
 	return len(r.clientTools) > 0
 }
 
-// PendingClientTool represents a client-mode tool call that was deferred
-// because no OnClientTool handler was registered. The caller must supply a
+// PendingClientTool represents a client tool call that was deferred because
+// the tool has no handler (see [Conversation.DeferClientTool]). The caller must supply a
 // result via [Conversation.SendToolResult] or reject it via
 // [Conversation.RejectClientTool] and then call [Conversation.Resume].
 type PendingClientTool struct {
@@ -245,8 +245,8 @@ type PendingClientTool struct {
 	// Args contains the parsed arguments from the LLM.
 	Args map[string]any
 
-	// ConsentMsg is the human-readable consent message from the pack's
-	// client.consent.message field. Empty when no consent is configured.
+	// ConsentMsg is the human-readable consent message from the tool
+	// descriptor's ClientConfig.Consent.Message. Empty when no consent is configured.
 	ConsentMsg string
 
 	// Categories are the semantic consent categories (e.g., ["location"]).

@@ -27,8 +27,8 @@ type ClientToolRequest struct {
 	// Args contains the parsed arguments from the LLM.
 	Args map[string]any
 
-	// ConsentMsg is the human-readable consent message from the pack's
-	// client.consent.message field. Empty when no consent is configured.
+	// ConsentMsg is the human-readable consent message from the tool
+	// descriptor's ClientConfig.Consent.Message. Empty when no consent is configured.
 	ConsentMsg string
 
 	// Categories are the semantic consent categories (e.g., ["location"]).
@@ -46,11 +46,19 @@ type ClientToolRequest struct {
 // LLM as the tool result.
 type ClientToolHandler func(ctx context.Context, req ClientToolRequest) (any, error)
 
-// OnClientTool registers a handler for a client-side tool.
+// OnClientTool binds name as a client tool served by handler.
 //
-// Client tools (mode: "client") are tools that must be fulfillled on the
-// caller's device — for example GPS, camera, or biometric sensors. The
-// handler is invoked synchronously when the LLM calls the tool.
+// Client tools are tools that must be fulfilled on the caller's device — for
+// example GPS, camera, or biometric sensors. A pack does not say how a tool
+// executes; this binding is what makes name a client tool in this
+// conversation, in Send, Stream and their Resume calls alike. Other
+// conversations over the same pack, or the same host tool registry, are
+// unaffected. A client binding takes precedence over an [Conversation.OnTool]
+// handler for the same name.
+//
+// The handler is invoked synchronously when the LLM calls the tool. A nil
+// handler defers the call to the caller instead; see
+// [Conversation.DeferClientTool].
 //
 // Example:
 //
@@ -70,7 +78,8 @@ func (c *Conversation) OnClientTool(name string, handler ClientToolHandler) {
 	c.clientHandlers[name] = handler
 }
 
-// OnClientTools registers multiple client tool handlers at once.
+// OnClientTools binds several client tools at once, as [Conversation.OnClientTool]
+// does for one.
 //
 //	conv.OnClientTools(map[string]sdk.ClientToolHandler{
 //	    "get_location": locationHandler,
@@ -87,6 +96,27 @@ func (c *Conversation) OnClientTools(handlers map[string]ClientToolHandler) {
 	}
 }
 
+// DeferClientTool makes name a client tool that the caller fulfills after the
+// turn suspends, rather than through a handler.
+//
+// When the LLM calls the tool, Send returns a [Response] whose
+// [Response.ClientTools] lists the call (Stream emits a [ChunkClientTool]
+// chunk). Answer it with [Conversation.SendToolResult],
+// [Conversation.RejectClientTool] or [Conversation.FailClientTool], then call
+// [Conversation.Resume] (or [Conversation.ResumeStream]).
+//
+//	conv.DeferClientTool("get_location")
+//	resp, _ := conv.Send(ctx, "Where am I?")
+//	for _, call := range resp.ClientTools() {
+//	    conv.SendToolResult(ctx, call.CallID, coordsFromDevice())
+//	}
+//	resp, _ = conv.Resume(ctx)
+//
+// It is the same binding as OnClientTool(name, nil).
+func (c *Conversation) DeferClientTool(name string) {
+	c.OnClientTool(name, nil)
+}
+
 // clientExecutor dispatches client-mode tool calls to registered
 // ClientToolHandler functions. It implements tools.Executor.
 type clientExecutor struct {
@@ -101,6 +131,8 @@ type clientHandlersMuAccessor struct {
 	conv *Conversation
 }
 
+// getHandler returns the binding for name: ok reports whether name is bound
+// as a client tool at all, and a nil handler is a deferred binding.
 func (a *clientHandlersMuAccessor) getHandler(name string) (ClientToolHandler, bool) {
 	a.conv.clientHandlersMu.RLock()
 	defer a.conv.clientHandlersMu.RUnlock()
@@ -108,18 +140,51 @@ func (a *clientHandlersMuAccessor) getHandler(name string) (ClientToolHandler, b
 	return h, ok
 }
 
-// lookupClientHandler resolves a client handler: the build-time snapshot first,
-// then live via the mutex accessor for handlers registered after the pipeline
-// was built.
-func (e *clientExecutor) lookupClientHandler(name string) (ClientToolHandler, bool) {
-	if h, ok := e.handlers[name]; ok {
-		return h, true
-	}
+// binding resolves the client binding for name: the conversation's live
+// bindings first, then the build-time snapshot. Live comes first so a binding
+// made after the pipeline was built (OnClientTool after Open) is seen, and a
+// later re-binding of the same name wins over the snapshot. bound reports
+// whether name is a client tool; a nil handler means it is deferred.
+func (e *clientExecutor) binding(name string) (handler ClientToolHandler, bound bool) {
 	if e.handlersMu != nil {
-		return e.handlersMu.getHandler(name)
+		if h, ok := e.handlersMu.getHandler(name); ok {
+			return h, true
+		}
 	}
-	return nil, false
+	h, ok := e.handlers[name]
+	return h, ok
 }
+
+// isBound reports whether the host bound name as a client tool, with or
+// without a handler.
+func (e *clientExecutor) isBound(name string) bool {
+	_, bound := e.binding(name)
+	return bound
+}
+
+// lookupClientHandler resolves the handler that fulfills name synchronously.
+// It reports false for an unbound name and for a deferred binding.
+func (e *clientExecutor) lookupClientHandler(name string) (ClientToolHandler, bool) {
+	h, _ := e.binding(name)
+	return h, h != nil
+}
+
+// asClientTool returns a copy of d routed as a client tool. A pack tool's
+// descriptor says "local" (its mode is a hosting concern, not a pack field);
+// the conversation's client binding is what makes it a client tool, so the
+// handler sees it as one. The registry's descriptor, which other
+// conversations may share, is left untouched.
+func asClientTool(d *tools.ToolDescriptor) *tools.ToolDescriptor {
+	if d == nil || d.Mode == toolModeClient {
+		return d
+	}
+	cp := *d
+	cp.Mode = toolModeClient
+	return &cp
+}
+
+// toolModeClient is the execution mode of a client tool.
+const toolModeClient = "client"
 
 // Name returns "client" to match mode: "client" tools.
 func (e *clientExecutor) Name() string {
@@ -159,11 +224,7 @@ func (e *clientExecutor) ExecuteAsync(
 		return nil, fmt.Errorf("failed to parse client tool arguments: %w", err)
 	}
 
-	// Look up handler — first from snapshot, then live via mutex accessor
-	handler, ok := e.handlers[descriptor.Name]
-	if !ok && e.handlersMu != nil {
-		handler, ok = e.handlersMu.getHandler(descriptor.Name)
-	}
+	handler, ok := e.lookupClientHandler(descriptor.Name)
 
 	// No handler → deferred mode: return Pending
 	if !ok {
