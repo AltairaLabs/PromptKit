@@ -303,6 +303,10 @@ func (s *MetricsStage) Process(
 	input <-chan StreamElement,
 	output chan<- StreamElement,
 ) error {
+	// Close output on every return, the ctx.Done path included: a stage that
+	// returns without closing it leaves its downstream waiting forever.
+	defer close(output)
+
 	// Create intermediate channel to intercept elements
 	intermediate := make(chan StreamElement, metricsStageBufferSize)
 
@@ -330,8 +334,6 @@ func (s *MetricsStage) Process(
 			return ctx.Err()
 		}
 	}
-
-	close(output)
 
 	// Wait for wrapped stage to complete
 	return <-errChan

@@ -220,8 +220,8 @@ Use the memory tools for retrieval in a voice or realtime session, or do the ret
 **An unresolved placeholder fails the turn.** If `{{memory_context}}` cannot be resolved (no retriever configured, for instance), `Send` returns an error rather than sending the model a prompt it cannot use:
 
 ```
-system prompt has unresolved variables: support: unresolved template
-placeholders: [{{memory_context}}] (variables available: customer_name)
+stage 'template' (transform) failed: system prompt has unresolved variables:
+support: unresolved template placeholders: [{{memory_context}}] (variables available: customer_name)
 ```
 
 **Your retriever sees the user's words verbatim.** Message text is never variable-substituted, so what reaches `RetrieveContext` is exactly what was sent — including any `{{...}}` a user happened to type.
