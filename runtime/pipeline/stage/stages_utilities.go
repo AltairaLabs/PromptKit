@@ -650,8 +650,12 @@ type RelevanceConfig struct {
 	// CustomQuery is the query text when QuerySource is QuerySourceCustom.
 	CustomQuery string
 
-	// CacheEmbeddings enables caching of embeddings across truncation calls.
-	// Useful when context changes incrementally.
+	// CacheEmbeddings is carried but never read: embeddings are computed on
+	// every truncation.
+	//
+	// Deprecated: setting it has no effect and it will be removed in v3. To
+	// reuse embeddings across truncations, set EmbeddingProvider to a provider
+	// that caches them.
 	CacheEmbeddings bool
 }
 

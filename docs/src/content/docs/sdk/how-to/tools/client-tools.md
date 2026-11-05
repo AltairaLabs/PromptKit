@@ -63,7 +63,7 @@ conv, err := sdk.Open("./app.pack.json", "assistant",
 )
 ```
 
-`tools` is `github.com/AltairaLabs/PromptKit/runtime/v2/tools`. The consent message reaches your code as `ConsentMsg`, and `Categories` as `Categories`, on the request and on pending calls.
+`tools` is `github.com/AltairaLabs/PromptKit/runtime/v2/tools`. The consent message reaches your code as `ConsentMsg`, and `Categories` as `Categories`, on the request and on pending calls. Consent is the host's job: the SDK does not ask for it. When the user declines, return an error from the handler, or call `RejectClientTool` for a deferred call. `client.consent.required` and `client.consent.decline_strategy` are deprecated, nothing reads them, and they will be removed in v3.
 
 ### 3. Answer the call
 

@@ -1720,7 +1720,7 @@ func (s *ContextAssemblyStage) Process(ctx context.Context, input <-chan StreamE
 Process loads context tiers and emits them before the current input.
 
 <a name="ContextBuilderPolicy"></a>
-## type [ContextBuilderPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L659-L678>)
+## type [ContextBuilderPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L663-L682>)
 
 ContextBuilderPolicy defines token budget and truncation behavior.
 
@@ -1748,7 +1748,7 @@ type ContextBuilderPolicy struct {
 ```
 
 <a name="ContextBuilderStage"></a>
-## type [ContextBuilderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L707-L714>)
+## type [ContextBuilderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L711-L718>)
 
 ContextBuilderStage manages token budget and truncates messages if needed.
 
@@ -1789,7 +1789,7 @@ type ContextBuilderStage struct {
 ```
 
 <a name="NewContextBuilderStage"></a>
-### func [NewContextBuilderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L720>)
+### func [NewContextBuilderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L724>)
 
 ```go
 func NewContextBuilderStage(policy *ContextBuilderPolicy) *ContextBuilderStage
@@ -1798,7 +1798,7 @@ func NewContextBuilderStage(policy *ContextBuilderPolicy) *ContextBuilderStage
 NewContextBuilderStage creates a context builder stage with no TurnState wired. Useful for tests; production callers should use NewContextBuilderStageWithTurnState so the system prompt is available for token\-budget accounting.
 
 <a name="NewContextBuilderStageWithTurnState"></a>
-### func [NewContextBuilderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L726>)
+### func [NewContextBuilderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L730>)
 
 ```go
 func NewContextBuilderStageWithTurnState(policy *ContextBuilderPolicy, turnState *TurnState) *ContextBuilderStage
@@ -1807,7 +1807,7 @@ func NewContextBuilderStageWithTurnState(policy *ContextBuilderPolicy, turnState
 NewContextBuilderStageWithTurnState creates a context builder stage that reads the system prompt from the shared \*TurnState.
 
 <a name="ContextBuilderStage.Process"></a>
-### func \(\*ContextBuilderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L742-L746>)
+### func \(\*ContextBuilderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L746-L750>)
 
 ```go
 func (s *ContextBuilderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4400,7 +4400,7 @@ func DefaultRecordingStageConfig() RecordingStageConfig
 DefaultRecordingStageConfig returns sensible defaults.
 
 <a name="RelevanceConfig"></a>
-## type [RelevanceConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L626-L656>)
+## type [RelevanceConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L626-L660>)
 
 RelevanceConfig configures embedding\-based relevance truncation. Used when TruncationStrategy is TruncateLeastRelevant.
 
@@ -4432,8 +4432,12 @@ type RelevanceConfig struct {
     // CustomQuery is the query text when QuerySource is QuerySourceCustom.
     CustomQuery string
 
-    // CacheEmbeddings enables caching of embeddings across truncation calls.
-    // Useful when context changes incrementally.
+    // CacheEmbeddings is carried but never read: embeddings are computed on
+    // every truncation.
+    //
+    // Deprecated: setting it has no effect and it will be removed in v3. To
+    // reuse embeddings across truncations, set EmbeddingProvider to a provider
+    // that caches them.
     CacheEmbeddings bool
 }
 ```

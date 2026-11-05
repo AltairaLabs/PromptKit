@@ -298,14 +298,31 @@ type ClientConfig struct {
 }
 
 // ConsentConfig defines consent requirements for client-side tools.
+// Message is surfaced to the host (the SDK's ClientToolRequest.ConsentMsg and
+// pending client tool); asking for consent and acting on the answer is the
+// host's job.
 type ConsentConfig struct {
+	// Required is carried but never read.
+	//
+	// Deprecated: nothing enforces it and it will be removed in v3. Consent is
+	// a hosting concern: ask for it in the client tool handler, or before
+	// answering a deferred call, using Message and ClientConfig.Categories.
 	Required bool   `json:"required" yaml:"required"`
 	Message  string `json:"message,omitempty" yaml:"message,omitempty"`
-	// DeclineStrategy: "fallback" | "error" | "retry"
+	// DeclineStrategy is carried but never read.
+	//
+	// Deprecated: nothing acts on it and it will be removed in v3. When the
+	// user declines, the host answers the call itself: in the SDK, return an
+	// error from the client tool handler (the model sees a failed call), or
+	// call Conversation.RejectClientTool for a deferred call (the model is
+	// told it was rejected and why).
 	DeclineStrategy string `json:"decline_strategy,omitempty" yaml:"decline_strategy,omitempty"`
 }
 
 // Decline strategy constants for ConsentConfig.DeclineStrategy.
+//
+// Deprecated: ConsentConfig.DeclineStrategy is never read; see it for what
+// to do instead. These will be removed in v3.
 const (
 	DeclineStrategyFallback = "fallback"
 	DeclineStrategyError    = "error"

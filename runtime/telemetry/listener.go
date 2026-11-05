@@ -224,11 +224,11 @@ func (l *OTelEventListener) OnEvent(evt *events.Event) {
 		l.completeTool(evt)
 	case events.EventToolCallFailed:
 		l.failTool(evt)
-	case events.EventMiddlewareStarted:
+	case events.EventMiddlewareStarted: //nolint:staticcheck // SA1019: still traced until v3 removes it
 		l.startMiddleware(evt)
-	case events.EventMiddlewareCompleted:
+	case events.EventMiddlewareCompleted: //nolint:staticcheck // SA1019: still traced until v3 removes it
 		l.completeMiddleware(evt)
-	case events.EventMiddlewareFailed:
+	case events.EventMiddlewareFailed: //nolint:staticcheck // SA1019: still traced until v3 removes it
 		l.failMiddleware(evt)
 	case events.EventMessageCreated:
 		l.handleMessage(evt)
