@@ -1,8 +1,10 @@
 // Package main demonstrates client-side tool execution with the PromptKit SDK.
 //
-// This example shows two modes:
-//   - Synchronous: OnClientTool handler runs immediately when the LLM invokes the tool
-//   - Deferred: No handler registered; pipeline suspends, caller provides result, then resumes
+// The pack declares get_location without saying how it runs: execution mode
+// is a hosting concern. Each conversation binds it as a client tool:
+//   - Synchronous: OnClientTool binds a handler that runs when the LLM invokes the tool
+//   - Deferred: DeferClientTool binds it without a handler; the pipeline suspends,
+//     the caller provides the result, then resumes
 //
 // Run with:
 //
@@ -23,7 +25,7 @@ func main() {
 	fmt.Println("=== Synchronous Mode ===")
 	syncExample()
 
-	// --- Mode 2: Deferred (no handler) ---
+	// --- Mode 2: Deferred (DeferClientTool) ---
 	fmt.Println("\n=== Deferred Mode ===")
 	deferredExample()
 
@@ -59,7 +61,8 @@ func deferredExample() {
 	}
 	defer conv.Close()
 
-	// No OnClientTool handler — pipeline will suspend.
+	// Bind get_location as a client tool with no handler: the pipeline suspends.
+	conv.DeferClientTool("get_location")
 	ctx := context.Background()
 
 	resp, err := conv.Send(ctx, "Where am I right now?")
@@ -96,6 +99,8 @@ func streamDeferredExample() {
 		log.Fatalf("Failed to open pack: %v", err)
 	}
 	defer conv.Close()
+
+	conv.DeferClientTool("get_location")
 
 	ctx := context.Background()
 

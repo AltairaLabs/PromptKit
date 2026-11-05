@@ -630,17 +630,19 @@ func (c *Conversation) buildPipelineConfig(
 		ctxHandlersCopy[k] = v
 	}
 
-	localExec := &localExecutor{
-		handlers:    handlersCopy,
-		ctxHandlers: ctxHandlersCopy,
-		live:        &localHandlersAccessor{conv: c},
-	}
-	c.toolRegistry.RegisterExecutor(localExec)
-
 	clientExec := &clientExecutor{
 		handlers:   clientHandlersCopy,
 		handlersMu: &clientHandlersMuAccessor{conv: c},
 	}
+	// The local executor hands calls for client-bound pack tools to clientExec:
+	// OnClientTool, not the pack, makes a tool a client tool.
+	localExec := &localExecutor{
+		handlers:    handlersCopy,
+		ctxHandlers: ctxHandlersCopy,
+		live:        &localHandlersAccessor{conv: c},
+		client:      clientExec,
+	}
+	c.toolRegistry.RegisterExecutor(localExec)
 	c.toolRegistry.RegisterExecutor(clientExec)
 
 	c.registerMCPExecutors()
