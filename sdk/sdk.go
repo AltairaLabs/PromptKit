@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -1337,7 +1338,7 @@ func OpenComposition(packPath, name string, opts ...Option) (*Conversation, erro
 // ensureA2ACapability adds an A2ACapability if the config has a bridge or
 // builder-based agents but no A2ACapability was already inferred or explicit.
 func ensureA2ACapability(caps []Capability, cfg *config) []Capability {
-	if cfg.a2aBridge == nil && len(cfg.a2aAgents) == 0 {
+	if len(cfg.a2aBridges) == 0 && len(cfg.a2aAgents) == 0 {
 		return caps
 	}
 	for _, cap := range caps {
@@ -1402,8 +1403,8 @@ func wireA2ACapability(a2aCap *A2ACapability, cfg *config) {
 	if cfg.localAgentExecutor != nil && a2aCap.localExecutor == nil {
 		a2aCap.localExecutor = cfg.localAgentExecutor
 	}
-	if cfg.a2aBridge != nil && a2aCap.bridge == nil {
-		a2aCap.bridge = cfg.a2aBridge
+	if len(cfg.a2aBridges) > 0 && len(a2aCap.bridges) == 0 {
+		a2aCap.bridges = slices.Clone(cfg.a2aBridges)
 	}
 	// Wire builder-based A2A agents as bridges.
 	if len(cfg.a2aAgents) > 0 && len(a2aCap.agentBridges) == 0 {

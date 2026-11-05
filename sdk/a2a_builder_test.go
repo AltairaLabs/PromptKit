@@ -181,9 +181,10 @@ func TestWireA2AConfig_AgentBridges(t *testing.T) {
 		a2aCap := NewA2ACapability()
 		bridge := &a2a.ToolBridge{}
 		caps := []Capability{a2aCap}
-		cfg := &config{a2aBridge: bridge}
+		cfg := &config{a2aBridges: []*a2a.ToolBridge{bridge}}
 		wireA2AConfig(caps, cfg)
-		assert.Same(t, bridge, a2aCap.bridge)
+		require.Len(t, a2aCap.bridges, 1)
+		assert.Same(t, bridge, a2aCap.bridges[0])
 	})
 
 	t.Run("wires empty auth token skipped", func(t *testing.T) {

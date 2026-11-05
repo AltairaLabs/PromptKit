@@ -3,6 +3,7 @@ package sdk
 import (
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
 	"github.com/stretchr/testify/assert"
@@ -59,7 +60,7 @@ func TestA2ACapability_RegisterTools_BridgePath(t *testing.T) {
 
 	bridge := setupA2ABridge(t, srv.URL)
 	cap := NewA2ACapability()
-	cap.bridge = bridge
+	cap.bridges = []*a2a.ToolBridge{bridge}
 
 	registry := tools.NewRegistry()
 	cap.RegisterTools(registry)

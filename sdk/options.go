@@ -218,8 +218,8 @@ type config struct {
 	mcpServers []mcp.ServerConfig
 
 	// A2A tool bridge for remote agent tools
-	a2aBridge *a2a.ToolBridge
-	a2aAgents []a2aAgentConfig // builder-based A2A agent registrations
+	a2aBridges []*a2a.ToolBridge
+	a2aAgents  []a2aAgentConfig // builder-based A2A agent registrations
 	// a2aToolExecutor runs A2A bridge tools in place of the SDK's executor.
 	a2aToolExecutor tools.Executor
 
@@ -2249,6 +2249,10 @@ func WithMCPElicitation(handler mcp.ElicitationHandler) Option {
 // WithA2ATools registers tools from an A2A [a2a.ToolBridge] so the LLM can
 // call remote A2A agents as tools.
 //
+// Each call adds its bridge: pass the option once per agent and every bridge's
+// tools register. Open fails, naming both bridges, if two register the same
+// tool name.
+//
 // The bridge must have already discovered agents via [a2a.ToolBridge.RegisterAgent].
 // Each agent skill becomes a tool with Mode "a2a" in the tool registry.
 //
@@ -2263,7 +2267,10 @@ func WithMCPElicitation(handler mcp.ElicitationHandler) Option {
 //	)
 func WithA2ATools(bridge *a2a.ToolBridge) Option {
 	return func(c *config) error {
-		c.a2aBridge = bridge
+		if bridge == nil || slices.Contains(c.a2aBridges, bridge) {
+			return nil
+		}
+		c.a2aBridges = append(c.a2aBridges, bridge)
 		return nil
 	}
 }

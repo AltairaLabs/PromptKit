@@ -151,7 +151,8 @@ func TestWithA2ATools_Option(t *testing.T) {
 	err := opt(cfg)
 
 	require.NoError(t, err)
-	assert.Same(t, bridge, cfg.a2aBridge)
+	require.Len(t, cfg.a2aBridges, 1)
+	assert.Same(t, bridge, cfg.a2aBridges[0])
 }
 
 func TestWithA2ATools_NilBridge(t *testing.T) {
@@ -170,7 +171,7 @@ func TestWithA2ATools_ToolsRegistered(t *testing.T) {
 
 	bridge := setupA2ABridge(t, srv.URL)
 	cap := NewA2ACapability()
-	cap.bridge = bridge
+	cap.bridges = []*a2a.ToolBridge{bridge}
 
 	registry := tools.NewRegistry()
 	cap.RegisterTools(registry)
@@ -191,7 +192,7 @@ func TestWithA2ATools_ExecutorRegistered(t *testing.T) {
 
 	bridge := setupA2ABridge(t, srv.URL)
 	cap := NewA2ACapability()
-	cap.bridge = bridge
+	cap.bridges = []*a2a.ToolBridge{bridge}
 
 	registry := tools.NewRegistry()
 	cap.RegisterTools(registry)
@@ -222,7 +223,7 @@ func TestWithA2ATools_AlongsidePackTools(t *testing.T) {
 
 	// Register A2A tools via capability
 	cap := NewA2ACapability()
-	cap.bridge = bridge
+	cap.bridges = []*a2a.ToolBridge{bridge}
 	cap.RegisterTools(registry)
 
 	// Both should be present
@@ -456,4 +457,47 @@ func TestWithA2AToolExecutor_RoutesBridgeTools(t *testing.T) {
 
 func TestWithA2AToolExecutor_RejectsNil(t *testing.T) {
 	assert.Error(t, WithA2AToolExecutor(nil)(&config{}))
+}
+
+func TestWithA2ATools_AppendsEachBridge(t *testing.T) {
+	srvA := a2aTestServer(t, "AgentA", "alpha", "a")
+	defer srvA.Close()
+	srvB := a2aTestServer(t, "AgentB", "beta", "b")
+	defer srvB.Close()
+	bridgeA := setupA2ABridge(t, srvA.URL)
+	bridgeB := setupA2ABridge(t, srvB.URL)
+
+	cfg := &config{}
+	require.NoError(t, WithA2ATools(bridgeA)(cfg))
+	require.NoError(t, WithA2ATools(bridgeB)(cfg))
+	require.NoError(t, WithA2ATools(bridgeA)(cfg)) // same bridge again is not doubled
+	require.NoError(t, WithA2ATools(nil)(cfg))
+	require.Len(t, cfg.a2aBridges, 2)
+
+	a2aCap := NewA2ACapability()
+	wireA2ACapability(a2aCap, cfg)
+	require.NoError(t, a2aCap.Init(CapabilityContext{Pack: &pack.Pack{}}))
+
+	registry := tools.NewRegistry()
+	a2aCap.RegisterTools(registry)
+	_, err := registry.GetTool("a2a__agenta__alpha")
+	assert.NoError(t, err)
+	_, err = registry.GetTool("a2a__agentb__beta")
+	assert.NoError(t, err)
+}
+
+func TestA2ACapability_DuplicateToolAcrossBridgesFailsInit(t *testing.T) {
+	srvA := a2aTestServer(t, "Same", "skill", "a")
+	defer srvA.Close()
+	srvB := a2aTestServer(t, "Same", "skill", "b")
+	defer srvB.Close()
+
+	a2aCap := NewA2ACapability()
+	a2aCap.bridges = []*a2a.ToolBridge{setupA2ABridge(t, srvA.URL), setupA2ABridge(t, srvB.URL)}
+
+	err := a2aCap.Init(CapabilityContext{Pack: &pack.Pack{}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "a2a__same__skill")
+	assert.Contains(t, err.Error(), srvA.URL)
+	assert.Contains(t, err.Error(), srvB.URL)
 }
