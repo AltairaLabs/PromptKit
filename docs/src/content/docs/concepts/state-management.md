@@ -1,176 +1,165 @@
 ---
 title: State Management
+description: How PromptKit stores conversation history and workflow state, and how state stores, conversation IDs, and context limits fit together.
 sidebar:
   order: 5
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/prompt/schema/promptpack.schema.json
+    - runtime/statestore/interface.go
+    - runtime/statestore/memory.go
+    - runtime/statestore/redis.go
+    - runtime/statestore/types.go
+    - runtime/workflow/types.go
+    - runtime/workflow/validate.go
+    - sdk/options.go
+    - sdk/sdk.go
+    - sdk/workflow.go
 ---
-Understanding conversation state and persistence in PromptKit.
 
-## What is State Management?
+State management keeps conversation history across turns so the model can use what was said earlier.
 
-**State management** maintains conversation history across multiple turns. It allows LLMs to remember previous interactions.
+## Why state exists
 
-## Why Manage State?
+LLM calls are stateless. A model answers "What about Germany?" correctly only when the request also carries the earlier question about France and its answer. PromptKit keeps that history, loads it before each turn, and appends the new messages afterward.
 
-**Context**: LLMs need history to understand conversations  
-**Continuity**: Users expect the AI to remember  
-**Multi-turn**: Enable back-and-forth dialogue  
-**Personalization**: Remember user preferences  
+State gives you:
 
-## The Problem
+- **Context**: the model sees earlier turns.
+- **Continuity**: a conversation survives across `Send` calls and, with a durable store, across process restarts.
+- **Isolation**: each conversation has its own history, keyed by conversation ID.
 
-LLMs are stateless:
+## Conversations and IDs
 
-```go
-// First message
-response1 := llm.Predict("What's the capital of France?")
-// "Paris"
-
-// Second message - no memory!
-response2 := llm.Predict("What about Germany?")
-// "What do you mean 'what about Germany'?"
-```
-
-## The Solution
-
-Pass conversation history:
+Each conversation has an ID. The SDK generates one, or you set it with `sdk.WithConversationID`. State is saved to the state store you pass with `sdk.WithStateStore`, and `sdk.Resume` reopens a stored conversation by ID.
 
 ```go
-messages := []Message{
-    {Role: "user", Content: "What's the capital of France?"},
-    {Role: "assistant", Content: "Paris"},
-    {Role: "user", Content: "What about Germany?"},
-}
-response := llm.Predict(messages)
-// "The capital of Germany is Berlin"
-```
+store := statestore.NewMemoryStore()
 
-## State in PromptKit
-
-### Session-Based Architecture
-
-Each conversation has a **session ID**:
-
-```go
-conv, _ := sdk.Open("./assistant.pack.json", "chat",
+conv, err := sdk.Open("./assistant.pack.json", "chat",
     sdk.WithModel("gpt-4o-mini"),
+    sdk.WithStateStore(store),
+    sdk.WithConversationID("user-123-conv-1"),
 )
+if err != nil {
+    log.Fatal(err)
+}
 defer conv.Close()
 
-response, _ := conv.Send(ctx, "Hello")
+if _, err := conv.Send(ctx, "Hello"); err != nil {
+    log.Fatal(err)
+}
+
+// Later: reopen the same conversation.
+conv, err = sdk.Resume("user-123-conv-1", "./assistant.pack.json", "chat",
+    sdk.WithModel("gpt-4o-mini"),
+    sdk.WithStateStore(store),
+)
 ```
 
-Sessions enable:
-- **Multi-user support**: Separate conversations
-- **History isolation**: Users don't see each other's messages
-- **Concurrent access**: Multiple requests per session
+Without a state store, each `Open` creates a private in-memory store. Turns accumulate within that `Conversation`, but a second `Open` with the same ID starts an empty conversation. `Resume` returns `sdk.ErrNoStateStore` when you pass no store.
 
-### Using the Store Interface
+## The Store interface
 
-The `Store` interface provides `Load`, `Save`, and `Fork` methods:
+`statestore.Store` has two methods:
+
+| Method | Purpose |
+|--------|---------|
+| `Load(ctx, id)` | Returns the `*ConversationState` for an ID, or `statestore.ErrNotFound`. |
+| `Fork(ctx, sourceID, newID)` | Copies a conversation to a new ID and leaves the original unchanged. |
+
+Writes go through optional interfaces that a store implements: `BulkWriter.Save` replaces a whole state, and `MessageAppender`, `MetadataAccessor`, `SummaryAccessor` and `ListAccessor` write incrementally. Both built-in stores implement all of them.
+
+```go
+state, err := store.Load(ctx, "user-123-conv-1")
+if errors.Is(err, statestore.ErrNotFound) {
+    // No such conversation.
+}
+
+err = store.Fork(ctx, "user-123-conv-1", "user-123-conv-1-branch")
+```
+
+## State stores
+
+### In-memory store
 
 ```go
 store := statestore.NewMemoryStore()
-
-// Save conversation state
-err := store.Save(ctx, state)
-
-// Load conversation state
-state, err := store.Load(ctx, sessionID)
-
-// Fork a conversation (create a branch)
-err := store.Fork(ctx, sourceSessionID, newSessionID)
-```  
-
-## State Stores
-
-### In-Memory Store
-
-Fast, but not persistent:
-
-```go
-store := statestore.NewMemoryStore()
 ```
 
-**Pros**: Very fast (~1-10µs)  
-**Cons**: Lost on restart, single-instance only  
-**Use for**: Development, testing, demos  
+The memory store is fast and thread-safe, and its contents are lost when the process exits. It serves one instance only. By default it expires conversations one hour after last use (`statestore.DefaultTTL`) and holds at most 10,000 (`statestore.DefaultMaxEntries`), evicting the least recently used. Use `statestore.WithMemoryTTL`, `statestore.WithNoTTL`, `statestore.WithMemoryMaxEntries` and `statestore.WithNoMaxEntries` to change these limits.
 
-### Redis Store
+It suits development, testing, and demos.
 
-Persistent and scalable:
+### Redis store
 
 ```go
 redisClient := redis.NewClient(&redis.Options{
     Addr: "localhost:6379",
 })
-store := statestore.NewRedisStore(redisClient)
+store := statestore.NewRedisStore(redisClient,
+    statestore.WithTTL(24*time.Hour),
+    statestore.WithPrefix("myapp"),
+)
 ```
 
-**Pros**: Persistent, multi-instance, TTL support  
-**Cons**: Slower (~1-5ms), requires Redis  
-**Use for**: Production, distributed systems  
+The Redis store persists conversations, lets several instances share them, and expires idle conversations. The TTL defaults to 24 hours (`0` disables expiry) and the key prefix defaults to `promptkit`. Reading a conversation extends its TTL.
 
-## Usage Patterns
+It suits production and distributed deployments.
 
-### Limiting History Size
+## Limiting history size
 
-Control history size by trimming messages after loading:
+A long history costs tokens and latency. Three options bound what the model sees:
+
+| Option | Effect |
+|--------|--------|
+| `sdk.WithContextWindow(n)` | Loads only the most recent `n` messages from the store each turn. Requires a state store. |
+| `sdk.WithTokenBudget(tokens)` | Truncates history when prompt plus history exceeds the budget. |
+| `sdk.WithTruncation(strategy)` | Picks how truncation works: `"sliding"` (default), `"summarize"`, or `"relevance"`. |
 
 ```go
-messages, _ := store.Load(sessionID)
-if len(messages) > 20 {
-    messages = messages[len(messages)-20:]
-}
+conv, _ := sdk.Open("./assistant.pack.json", "chat",
+    sdk.WithStateStore(store),
+    sdk.WithContextWindow(20),
+)
 ```
 
-**Benefits**:
-- Lower costs (fewer tokens)
-- Faster loading
-- More relevant context
+## Session ID patterns
 
-## Session Patterns
+How you build conversation IDs decides what a conversation means.
 
-### User Sessions
+| Pattern | Example | Use case |
+|---------|---------|----------|
+| One per user | `fmt.Sprintf("user-%s", userID)` | A single ongoing conversation per user |
+| Several per user | `fmt.Sprintf("user-%s-conv-%s", userID, conversationID)` | A user can start multiple conversations |
+| Anonymous | `uuid.New().String()` | Guest users with no account |
 
-One session per user:
+## Scaling across instances
 
-```go
-sessionID := fmt.Sprintf("user-%s", userID)
+A shared Redis store lets any instance serve any conversation: the instance loads the history for the ID it receives.
+
+```mermaid
+flowchart LR
+    A[User A] --> I1[Instance 1]
+    B[User B] --> I2[Instance 2]
+    I1 --> R[(RedisStore)]
+    I2 --> R
 ```
 
-**Use case**: Single ongoing conversation per user
+Shared state gives you high availability and horizontal scaling. A memory store holds state in one process, so route a conversation to the same instance every time if you use one.
 
-### Conversation Sessions
+## Workflow state
 
-Multiple conversations per user:
+A workflow adds a state machine on top of conversation state. Each workflow tracks:
 
-```go
-sessionID := fmt.Sprintf("user-%s-conv-%s", userID, conversationID)
-```
+- The current state.
+- The transition history, with timestamps.
+- A separate conversation for each state. A transition closes the current conversation and opens one for the destination state's `prompt_task`.
 
-**Use case**: User can start multiple conversations
+### Persistence per state
 
-### Temporary Sessions
-
-Anonymous sessions:
-
-```go
-sessionID := uuid.New().String()
-```
-
-**Use case**: Guest users, no account required
-
-## Workflow State
-
-Workflows add a state machine layer on top of conversation state. Each workflow tracks:
-
-- **Current state** — Which state the machine is in
-- **Transition history** — All state transitions with timestamps
-- **Per-state conversations** — Each state has its own conversation history
-
-### Workflow State Persistence
-
-Workflow states can control their own persistence behavior:
+A workflow state can opt out of persistence with `persistence`:
 
 ```json
 {
@@ -187,12 +176,12 @@ Workflow states can control their own persistence behavior:
 }
 ```
 
-- **`transient`** — State is not persisted to the store (ephemeral interactions)
-- **`persistent`** — State is saved to the store (important conversations)
+- `transient`: the SDK does not write the workflow context to the store while the workflow is in this state.
+- `persistent`: the SDK writes the workflow context to the store (also the behavior when `persistence` is absent).
 
 ### Who speaks after a transition
 
-A state can declare who holds the turn once the workflow enters it, with `control` ([RFC 0014](https://promptpack.org/docs/rfcs/workflow-state-control)):
+A state declares who holds the turn once the workflow enters it with `control`:
 
 ```json
 {
@@ -209,225 +198,50 @@ A state can declare who holds the turn once the workflow enters it, with `contro
 }
 ```
 
-- **`agent`** — Take another round in this state without yielding. Use it for routing and processing states that should not stop to ask permission mid-task.
-- **`user`** — End the turn and wait for the user.
+- `agent`: take another round in this state without yielding. Use it for routing and processing states that should not stop mid-task.
+- `user`: end the turn and wait for the user.
 
-:::note[Default behavior differs from the spec]
-RFC 0014 defaults `control` to `user`. PromptKit treats an **absent** `control` as `agent`.
-
-In-turn state handoff shipped here on 2026-08-14, seventeen days before RFC 0014 existed, and at the time the spec said nothing about who holds the turn after a transition. Adopting the RFC's default would silently turn every routing state in every existing pack into a dead stop, so an undeclared `control` keeps the behavior those packs were written against.
-
-A **declared** `control` is honored exactly as the RFC specifies. The divergence is limited to what absent means, and it is permanent. Declare `control` explicitly on any state where the turn-taking matters, and the spec's semantics apply exactly.
+:::note[Absent `control` means `agent`]
+The PromptPack specification defaults `control` to `user`. PromptKit treats an absent `control` as `agent`, so routing states in packs that never declared the field keep running on. A declared `control` follows the specification exactly. Declare `control` explicitly on any state where turn-taking matters.
 :::
 
-Two combinations are flagged at validation time: `control: agent` on a terminal state (terminal wins, so it does nothing), and a cycle of `control: agent` states with no state that yields, no terminal state and no `max_visits` — that loop runs until the workflow budget stops it.
+Validation warns about two combinations. `control: agent` on a terminal state has no effect, because the workflow ends there. A cycle of `control: agent` states with no state that yields to the user, no terminal state, no `max_visits`, and no `engine.budget` limit on total visits or wall time runs until the tool loop's round cap stops it.
 
-### Workflow Context
+### Workflow context
 
-The `workflow.Context` captures the full machine state for persistence and resumption:
-
-```go
-wf, _ := sdk.OpenWorkflow("./support.pack.json")
-
-// ... interact with the workflow ...
-
-// Get the full workflow context for persistence
-wfCtx := wf.Context()
-fmt.Println(wfCtx.CurrentState)  // "specialist"
-fmt.Println(len(wfCtx.History))  // number of transitions
-
-// Resume later
-wf, _ = sdk.ResumeWorkflow("workflow-id", "./support.pack.json")
-```
-
-### Context Carry-Forward
-
-When enabled, summaries from previous states are injected into the next state's conversation as context, enabling continuity across state transitions:
+`workflow.Context` captures the machine state for persistence and resumption. The workflow ID is the conversation ID. `sdk.ResumeWorkflow` restores a workflow from a state store, so pass the same store you used when opening it:
 
 ```go
 wf, _ := sdk.OpenWorkflow("./support.pack.json",
-    sdk.WithContextCarryForward(true),
+    sdk.WithStateStore(store),
+    sdk.WithConversationID("workflow-id"),
+)
+
+// ... interact with the workflow ...
+
+wfCtx := wf.Context()
+fmt.Println(wfCtx.CurrentState) // "specialist"
+fmt.Println(len(wfCtx.History)) // number of transitions
+
+// Resume later.
+wf, _ = sdk.ResumeWorkflow("workflow-id", "./support.pack.json",
+    sdk.WithStateStore(store),
 )
 ```
 
-## Best Practices
+### Context carry-forward
 
-### Do's
-
-✅ **Use Redis in production**
-```go
-// Production
-store := statestore.NewRedisStore(redisClient)
-
-// Development
-store := statestore.NewMemoryStore()
-```
-
-✅ **Set appropriate limits**
-```go
-// Balance context vs cost
-MaxMessages: 10-20  // Good for most cases
-```
-
-✅ **Set TTL for privacy**
-```go
-TTL: 24 * time.Hour  // Delete old conversations
-```
-
-✅ **Handle errors gracefully**
-```go
-messages, err := store.Load(sessionID)
-if err != nil {
-    // Continue with empty history
-    messages = []Message{}
-}
-```
-
-### Don'ts
-
-❌ **Don't store infinite history** - Cost and performance  
-❌ **Don't use in-memory in production** - Not persistent  
-❌ **Don't forget to clean up** - Privacy and storage  
-❌ **Don't ignore errors** - Handle store failures  
-
-## Multi-Instance Scaling
-
-### With Redis
-
-```
-User A → [Instance 1] ↘
-                        [Redis Store]
-User B → [Instance 2] ↗
-```
-
-Benefits:
-- High availability
-- Horizontal scaling
-- Shared state
-
-### Session Affinity
-
-Route user to same instance:
-
-```
-User (session-123) → Instance 1  (every time)
-User (session-456) → Instance 2  (every time)
-```
-
-Benefits:
-- Local caching
-- Reduced Redis load
-- Lower latency
-
-## Performance Optimization
-
-### Limit History Size
+`sdk.WithContextCarryForward()` injects a summary of the previous state's conversation into the next state. The summary arrives in the `{{workflow_context}}` template variable, so the next state's prompt must reference that variable to use it. Without the option, each state starts a fresh conversation.
 
 ```go
-// Fast: Load 10 messages
-MaxMessages: 10
-
-// Slow: Load all messages
-MaxMessages: -1  // Unlimited
+wf, _ := sdk.OpenWorkflow("./support.pack.json",
+    sdk.WithContextCarryForward(),
+)
 ```
 
-### Lazy Loading
+## Related
 
-Load on demand:
-
-```go
-// Only load when needed
-if requiresHistory {
-    messages, _ := store.Load(sessionID)
-}
-```
-
-### Compression
-
-For large histories:
-
-```go
-compressed := gzip.Compress(messages)
-store.Save(sessionID, compressed)
-```
-
-## Monitoring State
-
-### Track Metrics
-
-```go
-type StateMetrics struct {
-    ActiveSessions   int
-    AvgHistorySize   int
-    LoadLatency      time.Duration
-    StorageUsed      int64
-}
-```
-
-### Set Alerts
-
-```go
-if metrics.ActiveSessions > 10000 {
-    alert.Send("High active session count")
-}
-
-if metrics.LoadLatency > 100*time.Millisecond {
-    alert.Send("Slow state loading")
-}
-```
-
-## Testing State Management
-
-### Unit Tests
-
-```go
-func TestStateStore(t *testing.T) {
-    store := statestore.NewMemoryStore()
-    
-    // Save messages
-    messages := []types.Message{
-        {Role: "user", Content: "Hello"},
-    }
-    err := store.Save("session-1", messages)
-    assert.NoError(t, err)
-    
-    // Load messages
-    loaded, err := store.Load("session-1")
-    assert.NoError(t, err)
-    assert.Equal(t, messages, loaded)
-}
-```
-
-### Integration Tests
-
-```go
-func TestConversationFlow(t *testing.T) {
-    pipe := createPipelineWithState()
-    sessionID := "test-session"
-    
-    // First message
-    result1, _ := pipe.ExecuteWithSession(ctx, sessionID, "user", "My name is Alice")
-    
-    // Second message - should remember
-    result2, _ := pipe.ExecuteWithSession(ctx, sessionID, "user", "What's my name?")
-    
-    assert.Contains(t, result2.Response.Content, "Alice")
-}
-```
-
-## Summary
-
-State management provides:
-
-✅ **Context** - LLMs remember conversations  
-✅ **Continuity** - Multi-turn dialogue  
-✅ **Scalability** - Redis for distributed systems  
-✅ **Performance** - Configurable limits  
-✅ **Privacy** - TTL-based cleanup  
-
-## Related Documentation
-
-- [State Management Explanation](/runtime/explanation/state-management) - Architecture details
-- [Manage State How-To](/runtime/how-to/state/manage-state) - Implementation guide
-- [Multi-turn Tutorial](/runtime/tutorials/02-multi-turn) - Step-by-step guide
-- [StateStore Reference](/runtime/reference/statestore) - API documentation
+- [State Management Explanation](/runtime/explanation/state-management) covers the architecture.
+- [Manage State How-To](/runtime/how-to/state/manage-state) walks through implementation.
+- [Multi-turn Tutorial](/runtime/tutorials/02-multi-turn) is a step-by-step guide.
+- [StateStore Reference](/runtime/reference/statestore) documents the API.

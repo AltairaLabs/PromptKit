@@ -1,0 +1,60 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/voice/handle-turns-and-barge-in.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Response must be drained or it back-pressures",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1148"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "turn completion rules in audio time",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_speech.go:510"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "NewSilenceDetector and WithTurnDetector wired in VAD mode",
+   "verdict": "true",
+   "evidence": [
+    "runtime/audio/silence.go:99",
+    "sdk/conversation.go:846",
+    "sdk/options.go:2541"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "WithVAD sets the VAD analyzer",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:853",
+    "sdk/options.go:2561"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "barge-in window and Interrupted chunk",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_speech.go:300",
+    "sdk/session/duplex_session.go:877"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "transcript, turn-complete and finish_reason metadata",
+   "verdict": "true",
+   "evidence": [
+    "sdk/session/duplex_session.go:890",
+    "sdk/session/duplex_session.go:905",
+    "sdk/session/duplex_session.go:909"
+   ]
+  }
+ ]
+}

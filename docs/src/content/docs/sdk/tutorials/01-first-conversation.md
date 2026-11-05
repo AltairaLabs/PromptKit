@@ -1,23 +1,28 @@
 ---
-title: 'Tutorial 1: Your First Conversation'
+title: 'Tutorial 1: Your first conversation'
 sidebar:
   order: 1
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/credentials/resolver.go
+    - runtime/logger/config.go
+    - runtime/prompt/schema/promptpack.schema.json
+    - sdk/conversation.go
+    - sdk/examples/hello/main_interactive.go
+    - sdk/response.go
+    - sdk/sdk.go
 ---
-Build a chatbot in 5 lines of code using the PromptKit SDK.
+## What we will build
 
-## What You'll Learn
-
-- Open a conversation from a pack file
-- Send messages and receive responses
-- Use template variables
-- Multi-turn conversations
+In this tutorial we build a command-line chatbot with the PromptKit SDK. It opens a conversation from a pack file, fills a template variable, holds a multi-turn exchange, and ends as an interactive chat loop.
 
 ## Prerequisites
 
-- Go 1.21+ installed
-- OpenAI API key (get one at [platform.openai.com](https://platform.openai.com))
+- Go 1.26 or later
+- An OpenAI API key (get one at [platform.openai.com](https://platform.openai.com))
 
-## Step 1: Set Up Your Project
+## Step 1: Set up your project
 
 Create a new Go module:
 
@@ -32,6 +37,8 @@ Install the SDK:
 ```bash
 go get github.com/AltairaLabs/PromptKit/sdk/v2
 ```
+
+`go.mod` now has a `require` line for `github.com/AltairaLabs/PromptKit/sdk/v2`.
 
 ## Step 2: Create a PromptPack
 
@@ -61,9 +68,9 @@ Create `hello.pack.json`:
 }
 ```
 
-This pack defines your assistant's behavior and configuration.
+The pack defines the assistant's system prompt and generation parameters. The `{{user_name}}` placeholder is a template variable that our program fills in.
 
-## Step 3: Write Your First Chatbot
+## Step 3: Write your first chatbot
 
 Create `main.go`:
 
@@ -79,31 +86,30 @@ import (
 )
 
 func main() {
-    // Open a conversation from a pack file
+    // Open a conversation from the pack file, using its "chat" prompt
     conv, err := sdk.Open("./hello.pack.json", "chat")
     if err != nil {
         log.Fatal(err)
     }
     defer conv.Close()
 
-    // Set template variables (optional)
+    // Fill the {{user_name}} placeholder in the system prompt
     conv.SetVar("user_name", "World")
 
-    // Send a message and get a response
+    // Send a message and wait for the reply
     ctx := context.Background()
     resp, err := conv.Send(ctx, "Hello!")
     if err != nil {
         log.Fatal(err)
     }
 
-    // Print the response
     fmt.Println(resp.Text())
 }
 ```
 
-That's it! **5 lines of functional code** (excluding error handling).
+`sdk.Open` takes the pack path and the prompt name and returns a `Conversation`. `SetVar` fills a placeholder in the system prompt, `Send` sends a message and returns the response, and `Text` returns the response's text.
 
-## Step 4: Run Your Chatbot
+## Step 4: Run your chatbot
 
 Set your API key:
 
@@ -117,105 +123,65 @@ Run the program:
 go run main.go
 ```
 
-You should see:
+We see a greeting from the model. The wording varies; it typically reads like this:
 
-```
+```text
 Hello World! How can I help you today?
 ```
 
-🎉 **Congratulations!** You've built your first chatbot.
+The SDK also writes `INFO` log lines, such as `conversation opened`, to standard error.
 
-## Understanding the Code
+## Step 5: Hold a multi-turn conversation
 
-### sdk.Open()
-
-```go
-conv, err := sdk.Open("./hello.pack.json", "chat")
-```
-
-- First argument: path to your pack file
-- Second argument: prompt name from the pack
-- Returns a `Conversation` ready to use
-
-### conv.SetVar()
+The conversation keeps its history, so a second `Send` sees the first. Replace `main.go` with:
 
 ```go
-conv.SetVar("user_name", "World")
-```
+package main
 
-Sets template variables that are substituted into the system prompt.
+import (
+    "context"
+    "fmt"
+    "log"
 
-### conv.Send()
-
-```go
-resp, err := conv.Send(ctx, "Hello!")
-```
-
-Sends a message and returns the response. The conversation context is maintained automatically.
-
-### resp.Text()
-
-```go
-fmt.Println(resp.Text())
-```
-
-Gets the text content from the response.
-
-## Multi-Turn Conversations
-
-The SDK automatically maintains conversation history:
-
-```go
-// Turn 1
-resp1, _ := conv.Send(ctx, "My name is Alice")
-fmt.Println(resp1.Text())  // "Nice to meet you, Alice!"
-
-// Turn 2 - context is remembered
-resp2, _ := conv.Send(ctx, "What's my name?")
-fmt.Println(resp2.Text())  // "Your name is Alice."
-```
-
-## Configuration Options
-
-### Open with Options
-
-```go
-conv, err := sdk.Open("./hello.pack.json", "chat",
-    sdk.WithModel("gpt-4o"),
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
-```
 
-### Different Providers
-
-The pack file can specify different providers:
-
-```json
-{
-  "id": "my-chatbot",
-  "name": "My Chatbot",
-  "version": "1.0.0",
-  "template_engine": {
-    "version": "v1",
-    "syntax": "{{variable}}"
-  },
-  "provider": {
-    "name": "anthropic",
-    "model": "claude-3-5-sonnet-20241022"
-  },
-  "prompts": {
-    "chat": {
-      "id": "chat",
-      "name": "Chat",
-      "version": "1.0.0",
-      "system_template": "You are a helpful assistant."
+func main() {
+    conv, err := sdk.Open("./hello.pack.json", "chat")
+    if err != nil {
+        log.Fatal(err)
     }
-  }
+    defer conv.Close()
+
+    conv.SetVar("user_name", "World")
+    ctx := context.Background()
+
+    // Turn 1
+    resp1, err := conv.Send(ctx, "My favorite color is green.")
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println("Assistant:", resp1.Text())
+
+    // Turn 2: the model sees turn 1
+    resp2, err := conv.Send(ctx, "What is my favorite color?")
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println("Assistant:", resp2.Text())
 }
 ```
 
-## Interactive Chat Loop
+Run it with `go run main.go`. The second reply typically names green, because the model received turn 1 along with turn 2:
 
-Make it interactive:
+```text
+Assistant: Nice! Green is a great color.
+Assistant: Your favorite color is green.
+```
+
+## Step 6: Build an interactive chat loop
+
+Replace `main.go` with a loop that reads from the terminal:
 
 ```go
 package main
@@ -238,46 +204,40 @@ func main() {
     }
     defer conv.Close()
 
+    conv.SetVar("user_name", "World")
+
     ctx := context.Background()
     scanner := bufio.NewScanner(os.Stdin)
-    
+
     fmt.Println("Chat ready! Type 'quit' to exit.")
     for {
         fmt.Print("You: ")
         if !scanner.Scan() {
             break
         }
-        
+
         msg := strings.TrimSpace(scanner.Text())
         if msg == "quit" {
             break
         }
-        
+
         resp, err := conv.Send(ctx, msg)
         if err != nil {
             log.Printf("Error: %v", err)
             continue
         }
-        
+
         fmt.Printf("Assistant: %s\n\n", resp.Text())
     }
 }
 ```
 
-## What You've Learned
+Run it with `go run main.go`. The program prints `Chat ready! Type 'quit' to exit.` and a `You: ` prompt. Type a message and the reply follows on an `Assistant:` line; type `quit` to exit.
 
-✅ Open conversations with `sdk.Open()`  
-✅ Set template variables with `SetVar()`  
-✅ Send messages with `Send()`  
-✅ Multi-turn conversation context  
-✅ Configuration options  
+## Next steps
 
-## Next Steps
-
-- **[Tutorial 2: Streaming](/sdk/tutorials/02-streaming-responses/)** - Real-time responses
-- **[Tutorial 3: Tools](/sdk/tutorials/03-tool-integration/)** - Add function calling
-- **[How-To: Send Messages](/sdk/how-to/conversations/send-messages/)** - Advanced messaging
-
-## Complete Example
-
-See the full example at `sdk/examples/hello/`.
+- [Tutorial 2: Streaming responses](/sdk/tutorials/02-streaming-responses/) shows the reply as it is generated.
+- [Tutorial 3: Tool integration](/sdk/tutorials/03-tool-integration/) adds function calling.
+- [Send messages](/sdk/how-to/conversations/send-messages/) covers the full set of send options.
+- [Initialize a conversation](/sdk/how-to/conversations/initialize/) shows how to choose a model or provider.
+- The complete example is in `sdk/examples/hello/`.

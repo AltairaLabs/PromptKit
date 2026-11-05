@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/reference/runtime-config.md",
- "commit": "0b4f0066f2ec99ca65c2528d963f767eaedcd993",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
  "claims": [
   {
    "id": 1,
@@ -58,11 +58,12 @@
   },
   {
    "id": 7,
-   "claim": "LLM provider types registered by SDK import: claude, openai, gemini, ollama, mock",
-   "verdict": "false",
+   "claim": "LLM provider types registered by SDK import: claude, openai, gemini, ollama; mock needs a blank import",
+   "verdict": "true",
    "evidence": [
     "runtime/providers/all/all.go:30",
     "runtime/providers/mock/mock.go:64",
+    "sdk/internal/provider/detect.go",
     "sdk/runtime_config.go:26"
    ]
   },
@@ -71,7 +72,7 @@
    "claim": "Image provider types: imagen",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/imagen/factory.go:11",
+    "runtime/providers/imagen/factory.go:12",
     "sdk/runtime_config.go:31"
    ]
   },
@@ -143,10 +144,10 @@
    "claim": "Credentials are resolved in order of precedence: api_key > credential_file > credential_env",
    "verdict": "true",
    "evidence": [
-    "runtime/credentials/resolver.go:102",
-    "runtime/credentials/resolver.go:113",
-    "runtime/credentials/resolver.go:95",
-    "sdk/runtime_config.go:581"
+    "runtime/credentials/resolver.go:117",
+    "runtime/credentials/resolver.go:124",
+    "runtime/credentials/resolver.go:135",
+    "sdk/runtime_config.go:624"
    ]
   },
   {
@@ -155,7 +156,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/provider_tuning.go:47",
-    "pkg/config/types.go:325",
+    "pkg/config/types.go:327",
     "runtime/providers/stream_retry.go:44"
    ]
   },
@@ -165,7 +166,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/provider_tuning.go:50-52",
-    "pkg/config/types.go:325"
+    "pkg/config/types.go:327"
    ]
   },
   {
@@ -173,7 +174,7 @@
    "claim": "stream_retry max_attempts default: 2",
    "verdict": "dead",
    "evidence": [
-    "pkg/config/types.go:315",
+    "pkg/config/types.go:317",
     "runtime/providers/stream_retry.go:28",
     "runtime/providers/stream_retry.go:96"
    ]
@@ -183,7 +184,7 @@
    "claim": "stream_retry initial_delay default: `250ms` (Go duration string)",
    "verdict": "dead",
    "evidence": [
-    "pkg/config/types.go:319",
+    "pkg/config/types.go:321",
     "runtime/providers/stream_retry.go:29"
    ]
   },
@@ -193,7 +194,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/provider_tuning.go:46",
-    "pkg/config/types.go:322",
+    "pkg/config/types.go:324",
     "runtime/providers/stream_retry.go:30"
    ]
   },
@@ -213,18 +214,18 @@
    "claim": "stream_idle_timeout default: `30s` (Go duration string)",
    "verdict": "dead",
    "evidence": [
-    "pkg/config/types.go:206",
-    "runtime/providers/registry.go:422",
+    "pkg/config/types.go:208",
+    "runtime/providers/registry.go:448",
     "runtime/providers/streaming.go:44"
    ]
   },
   {
    "id": 23,
    "claim": "stream_max_concurrent default: 0 (unlimited)",
-   "verdict": "dead",
+   "verdict": "true",
    "evidence": [
     "pkg/config/types.go:220",
-    "runtime/providers/registry.go:443"
+    "runtime/providers/registry.go:469"
    ]
   },
   {
@@ -232,7 +233,7 @@
    "claim": "http_transport max_conns_per_host default: 100",
    "verdict": "false",
    "evidence": [
-    "pkg/config/types.go:294",
+    "pkg/config/types.go:296",
     "runtime/providers/base_provider.go:105",
     "runtime/providers/base_provider.go:37"
    ]
@@ -242,7 +243,7 @@
    "claim": "http_transport max_idle_conns_per_host default: 100",
    "verdict": "dead",
    "evidence": [
-    "pkg/config/types.go:297",
+    "pkg/config/types.go:299",
     "runtime/providers/base_provider.go:109",
     "runtime/providers/base_provider.go:31"
    ]
@@ -252,7 +253,7 @@
    "claim": "http_transport idle_conn_timeout default: `90s` (Go duration string)",
    "verdict": "dead",
    "evidence": [
-    "pkg/config/types.go:302",
+    "pkg/config/types.go:304",
     "runtime/providers/base_provider.go:113",
     "runtime/providers/base_provider.go:38"
    ]
@@ -262,8 +263,8 @@
    "claim": "Tool spec modes: `mock` (canned responses), `live` (HTTP), `exec` (subprocess), or `client` (client-side execution)",
    "verdict": "false",
    "evidence": [
-    "pkg/config/types.go:389",
-    "sdk/runtime_config.go:467"
+    "pkg/config/types.go:391",
+    "sdk/runtime_config.go:510"
    ]
   },
   {
@@ -272,7 +273,7 @@
    "verdict": "false",
    "evidence": [
     "pkg/config/runtime_config.go:343",
-    "sdk/runtime_config.go:467"
+    "sdk/runtime_config.go:510"
    ]
   },
   {
@@ -281,7 +282,7 @@
    "verdict": "false",
    "evidence": [
     "pkg/config/runtime_config.go:343",
-    "sdk/runtime_config.go:467"
+    "sdk/runtime_config.go:510"
    ]
   },
   {
@@ -290,7 +291,7 @@
    "verdict": "false",
    "evidence": [
     "pkg/config/runtime_config.go:343",
-    "sdk/runtime_config.go:467"
+    "sdk/runtime_config.go:510"
    ]
   },
   {
@@ -299,7 +300,7 @@
    "verdict": "false",
    "evidence": [
     "pkg/config/runtime_config.go:343",
-    "sdk/runtime_config.go:467"
+    "sdk/runtime_config.go:510"
    ]
   },
   {
@@ -310,7 +311,7 @@
     "runtime/hooks/execconfig/execconfig.go:44",
     "sdk/exec_tools.go:20",
     "sdk/exec_tools.go:47",
-    "sdk/runtime_config.go:477"
+    "sdk/runtime_config.go:520"
    ]
   },
   {
@@ -318,7 +319,7 @@
    "claim": "Hook interface types: `provider`, `tool`, or `session`",
    "verdict": "false",
    "evidence": [
-    "pkg/config/runtime_config.go:813",
+    "pkg/config/runtime_config.go:845",
     "runtime/hooks/exec_build.go:11",
     "runtime/hooks/execconfig/execconfig.go:69",
     "sdk/runtime_config.go:59"
@@ -337,7 +338,7 @@
   },
   {
    "id": 35,
-   "claim": "Provider hook valid phases: `before_call`, `after_call`",
+   "claim": "Provider hook valid phases: before_call, after_call",
    "verdict": "true",
    "evidence": [
     "runtime/hooks/exec_hooks.go:191",
@@ -346,11 +347,11 @@
   },
   {
    "id": 36,
-   "claim": "Tool hook valid phases: `before_execution`, `after_execution`",
+   "claim": "Tool hook valid phases: before_execution, after_execution",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/exec_hooks.go:234",
-    "runtime/hooks/exec_hooks.go:247"
+    "runtime/hooks/exec_hooks.go:237",
+    "runtime/hooks/exec_hooks.go:250"
    ]
   },
   {
@@ -365,18 +366,19 @@
   },
   {
    "id": 38,
-   "claim": "MCP server config requires `name` field",
+   "claim": "MCP server config requires name field",
    "verdict": "true",
    "evidence": [
-    "pkg/config/runtime_config.go:619"
+    "pkg/config/runtime_config.go:639"
    ]
   },
   {
    "id": 39,
-   "claim": "MCP server config requires `command` field",
-   "verdict": "false",
+   "claim": "MCP server needs exactly one transport: command (stdio) or url; command is conditional",
+   "verdict": "true",
    "evidence": [
-    "pkg/config/runtime_config.go:625-640"
+    "pkg/config/runtime_config.go:645-650",
+    "pkg/config/runtime_config.go:699-725"
    ]
   },
   {
@@ -384,8 +386,8 @@
    "claim": "tool_filter allowlist is applied first, then blocklist removes from the result",
    "verdict": "false",
    "evidence": [
-    "runtime/mcp/types.go:302",
-    "runtime/mcp/types.go:320",
+    "runtime/mcp/types.go:295",
+    "runtime/mcp/types.go:313",
     "sdk/mcp_tool_sync.go:157"
    ]
   },
@@ -395,7 +397,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:442",
-    "sdk/runtime_config.go:617"
+    "sdk/runtime_config.go:660"
    ]
   },
   {
@@ -404,7 +406,7 @@
    "verdict": "false",
    "evidence": [
     "pkg/config/types.go:96",
-    "sdk/runtime_config.go:626"
+    "sdk/runtime_config.go:669"
    ]
   },
   {
@@ -414,7 +416,7 @@
    "evidence": [
     "runtime/statestore/redis.go:80",
     "runtime/statestore/types.go:16",
-    "sdk/runtime_config.go:630"
+    "sdk/runtime_config.go:673"
    ]
   },
   {
@@ -423,7 +425,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/statestore/redis.go:81",
-    "sdk/runtime_config.go:637"
+    "sdk/runtime_config.go:680"
    ]
   },
   {
@@ -432,7 +434,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:80",
-    "sdk/runtime_config.go:656"
+    "sdk/runtime_config.go:699"
    ]
   },
   {
@@ -442,7 +444,7 @@
    "evidence": [
     "pkg/config/types.go:84",
     "runtime/statestore/file/store.go:86",
-    "sdk/runtime_config.go:668"
+    "sdk/runtime_config.go:711"
    ]
   },
   {
@@ -451,7 +453,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/logging.go:21",
-    "sdk/runtime_config.go:537"
+    "sdk/runtime_config.go:580"
    ]
   },
   {
@@ -459,8 +461,8 @@
    "claim": "Logging format values: `text` (default) or `json`",
    "verdict": "true",
    "evidence": [
-    "pkg/config/logging.go:93",
-    "sdk/runtime_config.go:514"
+    "pkg/config/logging.go:96",
+    "sdk/runtime_config.go:557"
    ]
   },
   {
@@ -470,7 +472,7 @@
    "evidence": [
     "runtime/logger/config.go:104",
     "runtime/logger/config.go:52",
-    "sdk/runtime_config.go:508"
+    "sdk/runtime_config.go:551"
    ]
   },
   {
@@ -484,10 +486,10 @@
   },
   {
    "id": 51,
-   "claim": "Example shows Claude model `claude-sonnet-4-20250514`",
+   "claim": "Example shows Claude model claude-sonnet-4-20250514",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/pricing_table.go:140"
+    "runtime/providers/claude/pricing_table.go:171"
    ]
   },
   {
@@ -505,9 +507,9 @@
    "claim": "Example tool mode `exec` with runtime `server`",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/types.go:281",
+    "runtime/tools/types.go:278",
     "sdk/exec_tools.go:20",
-    "sdk/runtime_config.go:467"
+    "sdk/runtime_config.go:510"
    ]
   },
   {
@@ -515,13 +517,13 @@
    "claim": "Example tool mode `live` with HTTP method GET",
    "verdict": "dead",
    "evidence": [
-    "pkg/config/types.go:389",
-    "sdk/runtime_config.go:467"
+    "pkg/config/types.go:391",
+    "sdk/runtime_config.go:510"
    ]
   },
   {
    "id": 55,
-   "claim": "Example hook type `provider` with phases `before_call`, `after_call`",
+   "claim": "Example hook type provider with phases before_call, after_call",
    "verdict": "true",
    "evidence": [
     "runtime/hooks/exec_hooks.go:191",
@@ -530,10 +532,10 @@
   },
   {
    "id": 56,
-   "claim": "Example hook type `tool` with phase `after_execution`",
+   "claim": "Example hook type tool with phase after_execution",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/exec_hooks.go:247"
+    "runtime/hooks/exec_hooks.go:250"
    ]
   },
   {
@@ -541,9 +543,8 @@
    "claim": "Example MCP server uses npx command with @modelcontextprotocol/server-filesystem args",
    "verdict": "true",
    "evidence": [
-    "pkg/config/runtime_config.go:634",
-    "sdk/runtime_config.go:155",
-    "sdk/runtime_config.go:165"
+    "pkg/config/runtime_config.go:621",
+    "sdk/runtime_config.go:236-246"
    ]
   },
   {
@@ -551,7 +552,7 @@
    "claim": "Example MCP server tool_filter blocklist includes `delete_file`",
    "verdict": "true",
    "evidence": [
-    "runtime/mcp/types.go:320",
+    "runtime/mcp/types.go:313",
     "sdk/mcp_tool_sync.go:157"
    ]
   },
@@ -560,8 +561,8 @@
    "claim": "Example state_store type `redis` with database `1`",
    "verdict": "true",
    "evidence": [
-    "sdk/runtime_config.go:619",
-    "sdk/runtime_config.go:626"
+    "sdk/runtime_config.go:662",
+    "sdk/runtime_config.go:669"
    ]
   },
   {
@@ -570,7 +571,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/logging.go:21",
-    "sdk/runtime_config.go:508"
+    "sdk/runtime_config.go:551"
    ]
   },
   {
@@ -605,26 +606,27 @@
    "verdict": "true",
    "evidence": [
     "runtime/providers/claude/claude_multimodal.go:39",
-    "runtime/providers/multimodal.go:11",
-    "runtime/providers/multimodal.go:25"
+    "runtime/providers/multimodal.go:13",
+    "runtime/providers/multimodal.go:27"
    ]
   },
   {
    "id": 65,
-   "claim": "request_timeout is a Go duration string (e.g., `60s`, `2m`), does not apply to streaming",
-   "verdict": "dead",
+   "claim": "request_timeout is a Go duration string (e.g., 60s, 2m), does not apply to streaming",
+   "verdict": "true",
    "evidence": [
     "pkg/config/types.go:201",
-    "runtime/providers/registry.go:419"
+    "runtime/providers/registry.go:445-447"
    ]
   },
   {
    "id": 66,
-   "claim": "Provider `headers` are sent on every request; a header the provider sets itself fails the request with an error naming it",
+   "claim": "Provider headers are sent on every request; a header the provider sets itself fails the request with an error naming it",
    "verdict": "true",
    "evidence": [
-    "pkg/config/types.go:181",
-    "runtime/providers/base/http_tuning.go:117-131"
+    "pkg/config/types.go:183",
+    "runtime/providers/base/http_tuning.go:117-131",
+    "runtime/providers/registry.go:494"
    ]
   },
   {

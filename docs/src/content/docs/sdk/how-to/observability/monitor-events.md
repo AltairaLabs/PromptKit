@@ -162,8 +162,8 @@ hooks.OnToolCall(conv, func(name string, args map[string]any) {
 ```go
 hooks.On(conv, events.EventValidationFailed, func(e *events.Event) {
     data := e.Data.(*events.ValidationEventData)
-    log.Printf("Guardrail %s triggered: score=%.2f enforced=%v monitor=%v",
-        data.ValidatorName, data.Score, data.Enforced, data.MonitorOnly)
+    log.Printf("Guardrail %s triggered: score=%.2f enforced=%v",
+        data.ValidatorName, data.Score, data.Enforced)
 })
 ```
 
@@ -174,7 +174,6 @@ The `ValidationEventData` includes:
 | `ValidatorName` | Validator type (e.g., `banned_words`, `max_length`) |
 | `Score` | Evaluation score (0.0–1.0, lower means more violation) |
 | `Enforced` | `true` if content was modified (truncated/replaced) |
-| `MonitorOnly` | `true` if the guardrail evaluated without enforcing |
 | `Violations` | Violation details (reason strings) |
 | `Duration` | How long the evaluation took |
 

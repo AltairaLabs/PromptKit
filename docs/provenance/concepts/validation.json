@@ -1,0 +1,262 @@
+{
+ "page": "docs/src/content/docs/concepts/validation.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "About 55 built-in check types",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/handlers/register.go:134",
+    "runtime/evals/registry.go:73"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "Check types include contains, max_length, llm_judge, regex, banned_words",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/register.go:1"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Assertion config in scenario YAML assertions:, runs after generation in testing",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 4,
+   "claim": "Guardrail config in pack validators:, runs during LLM generation",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/guardrails/factory.go:183",
+    "runtime/packspec/types.go:1583"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Eval config in pack evals:, scores 0.0-1.0",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/types.go:1",
+    "runtime/packspec/types.go:1536"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "All three share the EvalTypeHandler registry",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/registry.go:13",
+    "runtime/evals/registry.go:87"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "Eval handlers produce scores only and never determine pass/fail",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/wrappers.go:163"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "AssertionEvalHandler applies min_score/max_score; without thresholds a score of 1.0 passes",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/wrappers.go:176",
+    "runtime/evals/wrappers.go:180"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "GuardrailEvalHandler checks whether the score indicates a violation and enforces policy (truncate, replace, block)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/registry.go:88",
+    "runtime/hooks/guardrails/adapter.go:336"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Mermaid diagram edges (check types -> registry -> assertion/guardrail/eval -> reports/records/metrics)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/registry.go:87"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "Assertions run only in Arena; when: for conditional checks; pass_threshold for statistical testing",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 12,
+   "claim": "Guardrails run during every LLM call; streaming-capable checks can abort early",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/registry.go:26",
+    "runtime/hooks/guardrails/adapter.go:410"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "fail_on_violation is deprecated as of PromptPack v1.7.0 (RFC 0015) and ignored; stays schema-valid until v2.0.0; a triggered validator rewrites or blocks whatever its value",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/schema/promptpack.schema.json:1045"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "enabled: false switches a validator off",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/guardrails/factory.go:291"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "Guardrails run before the call, after it, or both via direction",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/guardrails/factory.go:383"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "Evals run on configurable triggers; results exported as Prometheus metrics and trace events",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/metrics.go:41",
+    "runtime/evals/trigger.go:1"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "A triggered guardrail does not return an error; the round loop stops either way; only provider work in the turn's ProviderStage is affected, downstream stages still run",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:3044",
+    "runtime/pipeline/stage/stages_provider.go:3190"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "content_excludes and banned_words replace the whole response with a policy message",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/guardrails/adapter.go:465"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "max_length or any check with max_characters/max/max_chars truncates to that limit when the response exceeded it",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/guardrails/adapter.go:465",
+    "runtime/hooks/guardrails/adapter.go:542"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "Every other case replaces the response with the policy message; no log-only mode",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/guardrails/adapter.go:465"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "Input guardrails (direction: input) run before the provider call, no tokens spent; return a canned assistant turn (message, else default blocked message); evaluated once per user turn",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/guardrails/adapter.go:219",
+    "runtime/pipeline/stage/stages_provider.go:2975"
+   ]
+  },
+  {
+   "id": 22,
+   "claim": "On enforcement the round loop stops; tool calls requested by an enforced output response are dropped",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:3044",
+    "runtime/pipeline/stage/stages_provider.go:3058"
+   ]
+  },
+  {
+   "id": 23,
+   "claim": "All violations recorded in message.Validations and emitted as validation.failed events",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/emitter.go:411",
+    "runtime/events/types.go:58",
+    "runtime/pipeline/stage/stages_provider.go:3057"
+   ]
+  },
+  {
+   "id": 24,
+   "claim": "Go handlers implement the EvalTypeHandler interface",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/registry.go:13"
+   ]
+  },
+  {
+   "id": 25,
+   "claim": "Exec eval bindings in RuntimeConfig YAML run checks in Python, Node.js or any language",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:93",
+    "runtime/evals/handlers/exec_handler.go:1"
+   ]
+  },
+  {
+   "id": 26,
+   "claim": "rest_eval and a2a_eval check types delegate to HTTP endpoints or A2A agents",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/a2a_eval.go:32",
+    "runtime/evals/handlers/rest_eval.go:46"
+   ]
+  },
+  {
+   "id": 27,
+   "claim": "Custom guardrails implement the ProviderHook interface",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/hooks.go:10"
+   ]
+  },
+  {
+   "id": 28,
+   "claim": "Custom LLM judges implement the JudgeProvider interface",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/judge_provider.go:35"
+   ]
+  },
+  {
+   "id": 29,
+   "claim": "The pack YAML key for guardrails is validators:",
+   "verdict": "true",
+   "evidence": [
+    "runtime/packspec/types.go:1583"
+   ]
+  },
+  {
+   "id": 30,
+   "claim": "Links: /reference/checks/#extending-the-check-system, /sdk/how-to/observability/run-evals/, /runtime/reference/hooks/",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 31,
+   "claim": "External promptarena.altairalabs.ai links (assertions, validators, eval-framework)",
+   "verdict": "unverified",
+   "evidence": []
+  }
+ ]
+}

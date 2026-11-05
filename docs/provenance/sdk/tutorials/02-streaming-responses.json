@@ -1,0 +1,87 @@
+{
+ "page": "docs/src/content/docs/sdk/tutorials/02-streaming-responses.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "`conv.Stream()` returns a channel of chunks",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:121"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "for chunk := range conv.Stream(ctx, \"Tell me a short story\")",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:121",
+    "sdk/streaming.go:59"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Each chunk carries a `Type`, the `Text` of a text chunk, and an `Error`",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:19",
+    "sdk/streaming.go:59"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "The story appears a few words at a time",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:121"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "fullText += chunk.Text",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:19"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "Canceling the context ends the stream, and the failure arrives as a chunk with `Error` set",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:392",
+    "sdk/streaming.go:410"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "errors.Is(chunk.Error, context.DeadlineExceeded)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:392"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "fmt.Println(\"Streaming chat ready! Type 'quit' to exit.\")",
+   "verdict": "true",
+   "evidence": [
+    "sdk/examples/streaming/main_interactive.go:1"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "/sdk/reference/conversation-manager/#StreamChunk",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 10,
+   "claim": "The complete example is in `sdk/examples/streaming/`",
+   "verdict": "true",
+   "evidence": [
+    "sdk/examples/streaming/main_interactive.go:1"
+   ]
+  }
+ ]
+}

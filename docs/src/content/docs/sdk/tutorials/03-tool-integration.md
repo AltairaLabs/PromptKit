@@ -1,39 +1,26 @@
 ---
-title: 'Tutorial 3: Tool Integration'
+title: 'Tutorial 3: Tool integration'
 sidebar:
   order: 3
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/prompt/schema/promptpack.schema.json
+    - sdk/conversation.go
+    - sdk/conversation_tools.go
+    - sdk/examples/tools/main_interactive.go
+    - sdk/tool_executors.go
 ---
-Learn how to add function calling capabilities to your LLM with tools.
+## What we will build
 
-## What You'll Learn
-
-- Register tool handlers with `OnTool()`
-- Handle tool arguments and return values
-- Build a weather assistant
-- Use HTTP tools for external APIs
-
-## Why Tools?
-
-Tools let LLMs perform actions and access real-time data:
-
-**Without Tools:**
-```
-User: What's the weather in Paris?
-LLM: I don't have access to real-time weather data.
-```
-
-**With Tools:**
-```
-User: What's the weather in Paris?
-LLM: [calls weather tool]
-LLM: It's currently 18°C and partly cloudy in Paris.
-```
+In this tutorial we build a weather and time assistant. The pack declares two tools, and Go handlers answer the model's calls. Without tools the model cannot read live data; with tools it calls our handler and uses the result.
 
 ## Prerequisites
 
-Complete [Tutorial 1](/sdk/tutorials/01-first-conversation/) and understand basic SDK usage.
+Complete [Tutorial 1: Your first conversation](/sdk/tutorials/01-first-conversation/). We reuse its project and the `OPENAI_API_KEY` it sets.
 
-## Step 1: Create a Pack with Tools
+## Step 1: Create a pack with tools
 
 Create `tools.pack.json`:
 
@@ -91,9 +78,11 @@ Create `tools.pack.json`:
 }
 ```
 
-## Step 2: Register Tool Handlers
+The prompt's `tools` list names the tools the model may call, and the top-level `tools` object describes each one's parameters. The pack loads when we open it in Step 2.
 
-Use `OnTool()` to register handlers:
+## Step 2: Register tool handlers
+
+`OnTool()` registers a handler by tool name. Replace `main.go` with:
 
 ```go
 package main
@@ -114,7 +103,7 @@ func main() {
     }
     defer conv.Close()
 
-    // Register time tool
+    // Register the time tool
     conv.OnTool("get_time", func(args map[string]any) (any, error) {
         timezone := "UTC"
         if tz, ok := args["timezone"].(string); ok && tz != "" {
@@ -127,22 +116,21 @@ func main() {
         }, nil
     })
 
-    // Register weather tool
+    // Register the weather tool, with simulated data for London only
     conv.OnTool("get_weather", func(args map[string]any) (any, error) {
         city, _ := args["city"].(string)
-        country, _ := args["country"].(string)
-        
-        // Simulated weather data
+        if city != "London" {
+            return nil, fmt.Errorf("no weather data for %q", city)
+        }
         return map[string]any{
             "city":        city,
-            "country":     country,
             "temperature": 22.5,
             "conditions":  "Partly cloudy",
             "humidity":    65,
         }, nil
     })
 
-    // Ask about weather - LLM will call the tool
+    // Ask about the weather: the model calls get_weather
     ctx := context.Background()
     resp, err := conv.Send(ctx, "What's the weather in London?")
     if err != nil {
@@ -153,121 +141,35 @@ func main() {
 }
 ```
 
-## Understanding OnTool
+A handler receives the arguments the model chose as a `map[string]any` and returns any JSON-serializable value or an error. The SDK serializes the value to JSON and sends it to the model as the tool result.
 
-### Handler Signature
+## Step 3: Run it
 
-```go
-conv.OnTool("tool_name", func(args map[string]any) (any, error) {
-    // args contains the parameters from the LLM
-    // Return any JSON-serializable value
-    return result, nil
-})
+Run the program:
+
+```bash
+go run main.go
 ```
 
-### Automatic JSON Serialization
+The model typically calls `get_weather` and answers with the handler's data, for example:
 
-Return structs directly - they're automatically serialized:
-
-```go
-type Weather struct {
-    City        string  `json:"city"`
-    Temperature float64 `json:"temperature"`
-    Conditions  string  `json:"conditions"`
-}
-
-conv.OnTool("get_weather", func(args map[string]any) (any, error) {
-    return Weather{
-        City:        args["city"].(string),
-        Temperature: 22.5,
-        Conditions:  "Sunny",
-    }, nil
-})
+```text
+It's currently 22.5°C and partly cloudy in London, with 65% humidity.
 ```
 
-## Tool with Context
+## Step 4: See a tool failure
 
-Use `OnToolCtx` when you need the context:
-
-```go
-conv.OnToolCtx("search", func(ctx context.Context, args map[string]any) (any, error) {
-    query := args["query"].(string)
-    
-    // Use context for timeouts, cancellation
-    results, err := searchAPI(ctx, query)
-    if err != nil {
-        return nil, err
-    }
-    
-    return results, nil
-})
-```
-
-## HTTP Tools
-
-For external API calls, use HTTP tools:
+The weather handler returns an error for any city but London. In `main.go`, change the question to:
 
 ```go
-import sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
-
-conv.OnToolHTTP("stock_price", sdktools.NewHTTPToolConfig(
-    "https://api.stocks.example.com/v1/price",
-    sdktools.WithMethod("GET"),
-    sdktools.WithHeader("Authorization", "Bearer "+apiKey),
-))
+resp, err := conv.Send(ctx, "What's the weather in Atlantis?")
 ```
 
-## Error Handling
+Run it with `go run main.go`. The model receives `Tool execution failed: no weather data for "Atlantis"` as the tool result, and the reply typically says it could not get the weather for Atlantis.
 
-Return errors to inform the LLM:
+## Next steps
 
-```go
-conv.OnTool("get_user", func(args map[string]any) (any, error) {
-    userID := args["user_id"].(string)
-    
-    user, err := db.GetUser(userID)
-    if err != nil {
-        return nil, fmt.Errorf("user not found: %s", userID)
-    }
-    
-    return user, nil
-})
-```
-
-The LLM will receive the error and can inform the user.
-
-## Multiple Tools Example
-
-Register all tools at once:
-
-```go
-conv.OnTools(map[string]sdk.ToolHandler{
-    "get_time": func(args map[string]any) (any, error) {
-        return time.Now().Format(time.RFC3339), nil
-    },
-    "get_weather": func(args map[string]any) (any, error) {
-        return map[string]any{"temp": 22}, nil
-    },
-    "search": func(args map[string]any) (any, error) {
-        return []string{"result1", "result2"}, nil
-    },
-})
-```
-
-## What You've Learned
-
-✅ Define tools in pack files  
-✅ Register handlers with `OnTool()`  
-✅ Handle arguments and return values  
-✅ Use `OnToolCtx` for context access  
-✅ HTTP tools for external APIs  
-
-## Next Steps
-
-- **[Tutorial 4: Variables](/sdk/tutorials/04-state-management/)** - Template variables
-- **[Tutorial 5: HITL](/sdk/tutorials/05-custom-pipelines/)** - Approval workflows
-- **[How-To: Register Tools](/sdk/how-to/tools/register-tools/)** - Advanced patterns
-
-## Complete Example
-
-See the full example at `sdk/examples/tools/`.
+- [Tutorial 4: Variables and templates](/sdk/tutorials/04-state-management/) covers template variables.
+- [Tutorial 5: Human-in-the-loop approval](/sdk/tutorials/05-custom-pipelines/) adds approval workflows.
+- [Register tools](/sdk/how-to/tools/register-tools/) covers context-aware, HTTP and typed handlers.
+- The complete example is in `sdk/examples/tools/`.

@@ -186,6 +186,7 @@ export default defineConfig({
                 { label: 'Hooks', items: [{ autogenerate: { directory: 'sdk/how-to/hooks' } }] },
                 { label: 'Providers', items: [{ autogenerate: { directory: 'sdk/how-to/providers' } }] },
                 { label: 'Multimodal', items: [{ autogenerate: { directory: 'sdk/how-to/multimodal' } }] },
+                { label: 'Voice', items: [{ autogenerate: { directory: 'sdk/how-to/voice' } }] },
                 { label: 'Evals & Observability', items: [{ autogenerate: { directory: 'sdk/how-to/observability' } }] },
                 { label: 'Interop (A2A)', items: [{ autogenerate: { directory: 'sdk/how-to/interop' } }] },
               ],

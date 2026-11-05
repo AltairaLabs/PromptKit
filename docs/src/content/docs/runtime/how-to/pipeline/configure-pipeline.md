@@ -45,7 +45,7 @@ defer provider.Close()
 ### Step 3: Build Pipeline
 
 ```go
-pipeline := stage.NewPipelineBuilder().
+pipeline, err := stage.NewPipelineBuilder().
     Chain(
         stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{
             MaxTokens:   1500,
@@ -64,7 +64,7 @@ ctx := context.Background()
 msg := types.Message{Role: "user"}
 msg.AddTextPart("What is 2+2?")
 input := make(chan stage.StreamElement, 1)
-input <- stage.NewMessageElement(msg)
+input <- stage.NewMessageElement(&msg)
 close(input)
 
 // Execute pipeline
@@ -89,11 +89,9 @@ for elem := range output {
 config := stage.DefaultPipelineConfig().
     WithChannelBufferSize(32).              // Inter-stage channel buffer
     WithIdleTimeout(60 * time.Second).      // Cancel after 60s of inactivity (default: 30s)
-    WithGracefulShutdownTimeout(10 * time.Second). // Shutdown grace period
-    WithMetrics(true).                      // Enable per-stage metrics
-    WithTracing(true)                       // Enable distributed tracing
+    WithGracefulShutdownTimeout(10 * time.Second) // Shutdown grace period
 
-pipeline := stage.NewPipelineBuilderWithConfig(config).
+pipeline, err := stage.NewPipelineBuilderWithConfig(config).
     Chain(stages...).
     Build()
 ```
@@ -135,7 +133,7 @@ provider := openai.NewProvider(
 ### Adding Prompt Assembly
 
 ```go
-pipeline := stage.NewPipelineBuilder().
+pipeline, err := stage.NewPipelineBuilder().
     Chain(
         stage.NewPromptAssemblyStage(promptRegistry, "chat", variables),
         stage.NewTemplateStage(),
@@ -152,15 +150,28 @@ import (
     "github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
 )
 
+bannedWords, err := guardrails.NewGuardrailHook("banned_words", map[string]any{
+    "words": []any{"inappropriate"},
+})
+if err != nil {
+    log.Fatal(err)
+}
+maxLength, err := guardrails.NewGuardrailHook("length", map[string]any{
+    "max_characters": 2000,
+})
+if err != nil {
+    log.Fatal(err)
+}
+
 hookRegistry := hooks.NewRegistry(
-    hooks.WithProviderHook(guardrails.NewBannedWordsHook([]string{"inappropriate"})),
-    hooks.WithProviderHook(guardrails.NewLengthHook(2000, 500)),
+    hooks.WithProviderHook(bannedWords),
+    hooks.WithProviderHook(maxLength),
 )
 
-pipeline := stage.NewPipelineBuilder().
+pipeline, err := stage.NewPipelineBuilder().
     Chain(
         stage.NewPromptAssemblyStage(promptRegistry, "chat", variables),
-        stage.NewProviderStage(provider, nil, hookRegistry, config),
+        stage.NewProviderStageWithHooks(provider, nil, nil, config, nil, hookRegistry),
     ).
     Build()
 ```
@@ -185,12 +196,12 @@ stateConfig := &pipeline.StateStoreConfig{
     ConversationID: "session-123",
 }
 
-pipeline := stage.NewPipelineBuilder().
+pipeline, err := stage.NewPipelineBuilder().
     Chain(
         stage.NewStateStoreLoadStage(stateConfig),
         stage.NewPromptAssemblyStage(promptRegistry, "chat", variables),
         stage.NewProviderStage(provider, nil, nil, config),
-        stage.NewStateStoreSaveStage(stateConfig),
+        stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),
     ).
     Build()
 ```
@@ -202,14 +213,13 @@ pipeline := stage.NewPipelineBuilder().
 Standard request/response pipeline:
 
 ```go
-pipeline := stage.NewPipelineBuilder().
+pipeline, err := stage.NewPipelineBuilder().
     Chain(
         stage.NewStateStoreLoadStage(stateConfig),
         stage.NewPromptAssemblyStage(promptRegistry, task, vars),
         stage.NewTemplateStage(),
         stage.NewProviderStage(provider, tools, policy, config),
-        stage.NewValidationStage(validatorRegistry, validationConfig),
-        stage.NewStateStoreSaveStage(stateConfig),
+        stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),
     ).
     Build()
 ```
@@ -245,14 +255,14 @@ ttsConfig.InterruptionHandler = interruptionHandler
 
 providerConfig.Streaming = true // one tool loop per EndOfTurn, history kept across turns
 
-pipeline := stage.NewPipelineBuilder().
+pipeline, err := stage.NewPipelineBuilder().
     Chain(
         audioTurn,
         stage.NewSTTStage(sttService, sttConfig),
         stage.NewStateStoreLoadStage(stateConfig),
         stage.NewPromptAssemblyStage(promptRegistry, task, vars),
         stage.NewProviderStage(provider, tools, policy, providerConfig),
-        stage.NewStateStoreSaveStage(stateConfig),
+        stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),
         stage.NewTTSStageWithInterruption(ttsService, ttsConfig),
     ).
     Build()
@@ -263,14 +273,13 @@ pipeline := stage.NewPipelineBuilder().
 For native multimodal LLMs like Gemini Live:
 
 ```go
-session, _ := gemini.NewStreamSession(ctx, endpoint, apiKey, streamConfig)
-
-pipeline := stage.NewPipelineBuilder().
+// provider implements providers.StreamInputSupport (for example, Gemini Live)
+pipeline, err := stage.NewPipelineBuilder().
     Chain(
         stage.NewStateStoreLoadStage(stateConfig),
         stage.NewPromptAssemblyStage(promptRegistry, task, vars),
-        stage.NewDuplexProviderStage(session),
-        stage.NewStateStoreSaveStage(stateConfig),
+        stage.NewDuplexProviderStage(provider, &providers.StreamingInputConfig{}),
+        stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),
     ).
     Build()
 ```
@@ -300,28 +309,26 @@ func NewProductionPipeline() (*stage.StreamPipeline, error) {
     config := stage.DefaultPipelineConfig().
         WithChannelBufferSize(32).
         WithExecutionTimeout(60 * time.Second).
-        WithGracefulShutdownTimeout(15 * time.Second).
-        WithMetrics(true)
+        WithGracefulShutdownTimeout(15 * time.Second)
 
     // Build pipeline
     return stage.NewPipelineBuilderWithConfig(config).
         Chain(
             stage.NewPromptAssemblyStage(promptRegistry, "chat", nil),
             stage.NewTemplateStage(),
-            stage.NewValidationStage(validatorRegistry, validationConfig),
-            stage.NewProviderStage(provider, toolRegistry, toolPolicy, &stage.ProviderConfig{
+                stage.NewProviderStage(provider, toolRegistry, toolPolicy, &stage.ProviderConfig{
                 MaxTokens:   1500,
                 Temperature: 0.7,
             }),
         ).
-        Build(), nil
+        Build()
 }
 ```
 
 ### Development Configuration
 
 ```go
-func NewDevelopmentPipeline() *stage.StreamPipeline {
+func NewDevelopmentPipeline() (*stage.StreamPipeline, error) {
     // Use mock provider for testing
     provider := mock.NewProvider("mock", "test-model", true)
 
@@ -332,7 +339,7 @@ func NewDevelopmentPipeline() *stage.StreamPipeline {
 
     return stage.NewPipelineBuilderWithConfig(config).
         Chain(
-            stage.NewDebugStage(os.Stdout),  // Log all elements
+            stage.NewDebugStage("input"),  // Log all elements
             stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{
                 MaxTokens:   500,
                 Temperature: 1.0,
@@ -380,7 +387,7 @@ func NewPipelineFromConfig(cfg PipelineConfig) (*stage.StreamPipeline, error) {
     stages := []stage.Stage{}
 
     if cfg.EnableDebug {
-        stages = append(stages, stage.NewDebugStage(os.Stdout))
+        stages = append(stages, stage.NewDebugStage("input"))
     }
 
     if cfg.EnableState {
@@ -393,12 +400,12 @@ func NewPipelineFromConfig(cfg PipelineConfig) (*stage.StreamPipeline, error) {
     }))
 
     if cfg.EnableState {
-        stages = append(stages, stage.NewStateStoreSaveStage(stateConfig))
+        stages = append(stages, stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}))
     }
 
     return stage.NewPipelineBuilder().
         Chain(stages...).
-        Build(), nil
+        Build()
 }
 ```
 
@@ -410,7 +417,7 @@ func ExecuteSync(ctx context.Context, pipeline *stage.StreamPipeline, message st
     msg := types.Message{Role: "user"}
     msg.AddTextPart(message)
     input := make(chan stage.StreamElement, 1)
-    input <- stage.NewMessageElement(msg)
+    input <- stage.NewMessageElement(&msg)
     close(input)
 
     // Execute
@@ -436,22 +443,23 @@ func ExecuteSync(ctx context.Context, pipeline *stage.StreamPipeline, message st
 
 ## Session Metadata
 
-Use `BaseMetadata` to attach session-level context that flows through to all stages and providers on every turn:
+Put session-level context in `TurnState.ProviderRequestMetadata` and build the provider stage with `NewProviderStageWithTurnState`. The stage copies the map into `PredictionRequest.Metadata` on every call:
 
 ```go
-pipeline, _ := builder.Build()
-pipeline.BaseMetadata = map[string]interface{}{
+turnState := stage.NewTurnState()
+turnState.ProviderRequestMetadata = map[string]interface{}{
     "session_id": sessionID,
     "tenant_id":  tenantID,
     "user_id":    userID,
 }
 
-// All Execute/ExecuteSync calls now include these keys in element metadata.
-// Per-element metadata overrides base metadata on key collision.
-result, err := pipeline.ExecuteSync(ctx, input)
+providerStage := stage.NewProviderStageWithTurnState(
+    provider, nil, nil, &stage.ProviderConfig{}, nil, nil, turnState,
+)
+pipe, err := stage.NewPipelineBuilder().Chain(providerStage).Build()
 ```
 
-This avoids manually injecting the same metadata into every `StreamElement` on each turn. Providers receive these values in `PredictionRequest.Metadata`.
+Providers receive these values in `PredictionRequest.Metadata`. No built-in model provider reads `session_id`, `tenant_id` or `user_id` there; only the mock provider reads its own scenario keys. Use this map when you write a custom provider that reads these keys. For conversation and user identity inside the pipeline, set `ConversationID` and `UserID` on the `StateStoreConfig`; the load stages copy them into the typed `TurnState.ConversationID` and `TurnState.UserID` fields.
 
 ## Testing Configuration
 
@@ -460,11 +468,11 @@ This avoids manually injecting the same metadata into every `StreamElement` on e
 ```go
 func TestPipeline(t *testing.T) {
     // Create mock provider
-    provider := mock.NewProvider("test", "test-model", false)
-    provider.AddResponse("test input", "test output")
+    provider := mock.NewProviderWithRepository("test", "test-model", false,
+        mock.NewInMemoryMockRepository("test output"))
 
     // Simple test pipeline
-    pipeline := stage.NewPipelineBuilder().
+    pipeline, err := stage.NewPipelineBuilder().
         Chain(
             stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{
                 MaxTokens: 100,
@@ -476,7 +484,7 @@ func TestPipeline(t *testing.T) {
     msg := types.Message{Role: "user"}
     msg.AddTextPart("test input")
     input := make(chan stage.StreamElement, 1)
-    input <- stage.NewMessageElement(msg)
+    input <- stage.NewMessageElement(&msg)
     close(input)
 
     // Execute
@@ -488,7 +496,7 @@ func TestPipeline(t *testing.T) {
     // Check output
     for elem := range output {
         if elem.Message != nil {
-            content := elem.Message.GetTextContent()
+            content := elem.Message.GetContent()
             if content != "test output" {
                 t.Errorf("unexpected response: %s", content)
             }
@@ -538,7 +546,7 @@ defer mcpRegistry.Close()
 
 1. **Always use defer for cleanup**:
    ```go
-   defer pipeline.Shutdown(10 * time.Second)
+   defer pipeline.Shutdown(context.Background())
    ```
 
 2. **Set appropriate timeouts**:
@@ -555,13 +563,12 @@ defer mcpRegistry.Close()
 4. **Configure based on environment**:
    ```go
    if os.Getenv("ENV") == "production" {
-       config = config.WithMetrics(true).WithTracing(true)
+       config = config.WithExecutionTimeout(60 * time.Second)
    }
    ```
 
 5. **Order stages correctly**:
    - State load before prompt assembly
-   - Validation before provider
    - State save after provider
 
 ## Next Steps

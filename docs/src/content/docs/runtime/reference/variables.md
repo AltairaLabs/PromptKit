@@ -253,7 +253,7 @@ type TimeProvider struct {
     // Defaults to time.RFC3339 if empty.
     Format string
 
-    // Location specifies the timezone. Defaults to UTC if nil.
+    // Location specifies the timezone. If nil, the process's local time is used.
     Location *time.Location
     // contains filtered or unexported fields
 }
@@ -266,7 +266,7 @@ type TimeProvider struct {
 func NewTimeProvider() *TimeProvider
 ```
 
-NewTimeProvider creates a TimeProvider with default settings \(UTC, RFC3339 format\).
+NewTimeProvider creates a TimeProvider with default settings \(local time, RFC3339 format\).
 
 <a name="NewTimeProviderWithFormat"></a>
 ### func [NewTimeProviderWithFormat](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/time.go#L35>)

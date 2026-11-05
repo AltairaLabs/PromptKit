@@ -1,0 +1,107 @@
+{
+ "page": "docs/src/content/docs/runtime/tutorials/04-validation-guardrails.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "guardrails.NewGuardrailHook(type, params, opts...) builds a ProviderHook; WithMessage sets the blocked message",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/guardrails/factory.go:162",
+    "runtime/hooks/guardrails/factory.go:60"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "direction param 'input' gates the user message before the model call; default direction is output",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/guardrails/factory.go:345",
+    "runtime/hooks/guardrails/factory.go:383",
+    "runtime/hooks/types.go:46"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "hooks.NewRegistry(hooks.WithProviderHook(h)) and stage.NewProviderStageWithHooks(provider,nil,nil,cfg,nil,registry)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/registry.go:51",
+    "runtime/hooks/registry.go:75",
+    "runtime/pipeline/stage/stages_provider.go:286"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Guardrail enforcement does not return an error; the reply message's Validations records the firing",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/types.go:37",
+    "runtime/pipeline/stage/stages_provider.go:3136",
+    "runtime/types/message.go:46"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "banned_words matches whole words, case-insensitively, by default (match_mode word_boundary)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/normalize.go:68",
+    "runtime/hooks/guardrails/factory.go:123"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "length guardrail truncates a response longer than max_characters",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/length.go:73",
+    "runtime/hooks/guardrails/adapter.go:232"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "guardrails.InputFunc(name, fn).Hook(); in.Replacement chooses the text; validator_type metadata makes the firing appear in Validations",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/guardrails/spec.go:31",
+    "runtime/hooks/guardrails/spec.go:90",
+    "runtime/hooks/types.go:37"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Custom hook implements hooks.ProviderHook (Name, BeforeCall, AfterCall); hooks.Deny makes ExecuteSync return an error; errors.As finds *hooks.HookDeniedError with Reason",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/errors.go:8",
+    "runtime/hooks/types.go:26",
+    "runtime/pipeline/stage/stages_provider.go:2925"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "guardrails.CompileValidators([]prompt.ValidatorConfig) returns hooks; Message sets the blocked text",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/guardrails/factory.go:213",
+    "runtime/hooks/guardrails/factory.go:291",
+    "runtime/prompt/registry.go:189"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "A validator checks the response unless its direction param is input",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/guardrails/factory.go:345"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "Links /reference/checks/, /concepts/validation/, /runtime/reference/hooks/, /runtime/how-to/pipeline/handle-errors/",
+   "verdict": "unverified",
+   "evidence": []
+  }
+ ]
+}

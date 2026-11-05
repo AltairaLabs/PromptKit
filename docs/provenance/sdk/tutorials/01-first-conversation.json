@@ -1,0 +1,89 @@
+{
+ "page": "docs/src/content/docs/sdk/tutorials/01-first-conversation.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Go 1.26 or later",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 2,
+   "claim": "go get github.com/AltairaLabs/PromptKit/sdk/v2",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 3,
+   "claim": "\"system_template\": \"You are a helpful AI assistant",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/schema/promptpack.schema.json:1"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "sdk.Open(\"./hello.pack.json\", \"chat\")",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1209",
+    "sdk/conversation.go:268",
+    "sdk/response.go:99",
+    "sdk/sdk.go:84"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "`sdk.Open` takes the pack path and the prompt name",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1209",
+    "sdk/response.go:99",
+    "sdk/sdk.go:84"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "export OPENAI_API_KEY=\"your-api-key-here\"",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/resolver.go:46"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "The SDK also writes `INFO` log lines",
+   "verdict": "true",
+   "evidence": [
+    "runtime/logger/config.go:133",
+    "sdk/sdk.go:94"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "The conversation keeps its history, so a second `Send` sees the first",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1286",
+    "sdk/conversation.go:268"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "fmt.Println(\"Chat ready! Type 'quit' to exit.\")",
+   "verdict": "true",
+   "evidence": [
+    "sdk/examples/hello/main_interactive.go:1"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "The complete example is in `sdk/examples/hello/`",
+   "verdict": "true",
+   "evidence": [
+    "sdk/examples/hello/main_interactive.go:1"
+   ]
+  }
+ ]
+}

@@ -65,9 +65,9 @@ The `Emitter` provides convenient methods for emitting events with consistent me
 emitter := events.NewEmitter(bus, runID, sessionID, conversationID)
 
 // Emit typed events
-emitter.EmitPipelineStarted(middlewareCount)
-emitter.EmitProviderCallCompleted(provider, model, duration, tokens, cost)
-emitter.EmitMiddlewareFailed(name, index, err, duration)
+emitter.PipelineStarted(middlewareCount)
+emitter.ProviderCallCompleted(&events.ProviderCallCompletedData{Provider: provider, Model: model, Duration: duration})
+emitter.MiddlewareFailed(name, index, err, duration)
 ```
 
 The emitter automatically populates:
@@ -277,45 +277,34 @@ The pipeline automatically creates an emitter and passes it through the executio
 ```go
 // Pipeline creates emitter
 emitter := events.NewEmitter(p.eventBus, runID, sessionID, conversationID)
-ctx := &pipeline.ExecutionContext{
-    EventEmitter: emitter,
-    // ... other fields
-}
+builder := stage.NewPipelineBuilder().WithEventEmitter(emitter)
 
 // Emits lifecycle events
-emitter.EmitPipelineStarted(len(p.middleware))
+emitter.PipelineStarted(len(p.middleware))
 // ... execute middleware
-emitter.EmitPipelineCompleted(duration, cost, tokens, messageCount)
+emitter.PipelineCompleted(duration, cost, inputTokens, outputTokens, messageCount)
 ```
 
-### Middleware Integration
+### Stage Integration
 
-All built-in middleware emit lifecycle events:
+The pipeline emits `stage.started`, `stage.completed` and `stage.failed` for each stage. Subscribe to the bus to observe them:
 
 ```go
-func (m *ContextBuilderMiddleware) Execute(ctx *ExecutionContext, next NextFunc) error {
-    if ctx.EventEmitter != nil {
-        ctx.EventEmitter.EmitMiddlewareStarted("context_builder", m.index)
-    }
-    
-    start := time.Now()
-    err := m.buildContext(ctx)
-    duration := time.Since(start)
-    
-    if err != nil {
-        if ctx.EventEmitter != nil {
-            ctx.EventEmitter.EmitMiddlewareFailed("context_builder", m.index, err, duration)
-        }
-        return err
-    }
-    
-    if ctx.EventEmitter != nil {
-        ctx.EventEmitter.EmitMiddlewareCompleted("context_builder", m.index, duration)
-    }
-    
-    return next(ctx)
-}
+bus := events.NewEventBus()
+emitter := events.NewEmitter(bus, runID, sessionID, conversationID)
+
+bus.Subscribe(events.EventStageCompleted, func(e *events.Event) {
+    data := e.Data.(*events.StageCompletedData)
+    log.Printf("stage %s finished in %s", data.Name, data.Duration)
+})
+
+pipe, err := stage.NewPipelineBuilder().
+    WithEventEmitter(emitter).
+    Chain(providerStage).
+    Build()
 ```
+
+A stage that needs its own events takes the emitter in its constructor, as `NewProviderStageWithEmitter` does for provider-call events.
 
 ### SDK Integration
 
@@ -375,7 +364,7 @@ var totalCost float64
 var mu sync.Mutex
 
 bus.Subscribe(events.EventProviderCallCompleted, func(e *events.Event) {
-    data := e.Data.(events.ProviderCallCompletedData)
+    data := e.Data.(*events.ProviderCallCompletedData)
     mu.Lock()
     totalCost += data.Cost
     mu.Unlock()
@@ -398,7 +387,7 @@ type MiddlewareStats struct {
 stats := make(map[string]*MiddlewareStats)
 
 bus.Subscribe(events.EventMiddlewareCompleted, func(e *events.Event) {
-    data := e.Data.(events.MiddlewareCompletedData)
+    data := e.Data.(*events.MiddlewareCompletedData)
     
     if _, ok := stats[data.Name]; !ok {
         stats[data.Name] = &MiddlewareStats{Name: data.Name}

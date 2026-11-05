@@ -218,6 +218,19 @@ shallow-merge over the arguments the model proposed:
 conv.ResolveToolWithArgs(ctx, pending.ID, map[string]any{"amount": 500})
 ```
 
+To approve from a web service, resolve the call in a handler. A successful request returns status 200; if `ResolveTool` fails, the handler returns 409 with the error text:
+
+```go
+http.HandleFunc("/approve", func(w http.ResponseWriter, r *http.Request) {
+    id := r.URL.Query().Get("id")
+    if _, err := conv.ResolveTool(r.Context(), id); err != nil {
+        http.Error(w, err.Error(), http.StatusConflict)
+    }
+})
+```
+
+Once every held call is resolved or rejected, call `conv.Continue(ctx)` for the model's reply.
+
 ### Durable approvals across restarts and instances
 
 By default, held calls live in an in-process store — they do not survive a

@@ -1,0 +1,73 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/voice/configure-tts.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "NewOpenAI, NewElevenLabs, NewCartesia take an API key",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tts/cartesia.go:120",
+    "runtime/tts/elevenlabs.go:76",
+    "runtime/tts/openai.go:95"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "tts.Service methods",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tts/service.go:48"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "empty Voice uses provider default",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tts/cartesia.go:200",
+    "runtime/tts/elevenlabs.go:128",
+    "runtime/tts/openai.go:147"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "per-service formats",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tts/cartesia.go:408",
+    "runtime/tts/elevenlabs.go:272",
+    "runtime/tts/openai.go:335"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "OpenAI model constants, tts-1 default",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tts/openai.go:101",
+    "runtime/tts/openai.go:32"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "Cartesia implements StreamingService; chunk Data/Final/Error",
+   "verdict": "true",
+   "evidence": [
+    "runtime/audio/chunk.go:6",
+    "runtime/tts/cartesia_interactive.go:35"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "ErrEmptyText; SynthesisError Retryable and Unwrap",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tts/errors.go:56",
+    "runtime/tts/http_helpers.go:20",
+    "runtime/tts/openai.go:143",
+    "runtime/tts/openai.go:207"
+   ]
+  }
+ ]
+}

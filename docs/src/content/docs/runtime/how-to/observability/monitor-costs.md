@@ -12,14 +12,21 @@ Monitor token usage and costs for budget control.
 ## Quick Start
 
 ```go
-result, err := pipe.Execute(ctx, "user", "Your message")
+// ask runs one user message through the pipeline and returns the result.
+func ask(ctx context.Context, pipe *stage.StreamPipeline, text string) (*stage.ExecutionResult, error) {
+    msg := types.Message{Role: "user"}
+    msg.AddTextPart(text)
+    return pipe.ExecuteSync(ctx, stage.NewMessageElement(&msg))
+}
+
+result, err := ask(ctx, pipe, "Your message")
 if err != nil {
     log.Fatal(err)
 }
 
 // Check cost
-log.Printf("Tokens: %d", result.Response.Usage.TotalTokens)
-log.Printf("Cost: $%.6f", result.Cost.TotalCost)
+log.Printf("Tokens: %d", result.CostInfo.InputTokens+result.CostInfo.OutputTokens)
+log.Printf("Cost: $%.6f", result.CostInfo.TotalCost)
 ```
 
 ## Cost Tracking
@@ -27,18 +34,15 @@ log.Printf("Cost: $%.6f", result.Cost.TotalCost)
 ### Basic Cost Info
 
 ```go
-result, _ := pipe.Execute(ctx, "user", "Explain AI")
+result, _ := ask(ctx, pipe, "Explain AI")
 
-// Token usage
-usage := result.Response.Usage
-log.Printf("Input tokens: %d", usage.PromptTokens)
-log.Printf("Output tokens: %d", usage.CompletionTokens)
-log.Printf("Total tokens: %d", usage.TotalTokens)
-
-// Cost breakdown
-cost := result.Cost
-log.Printf("Input cost: $%.6f", cost.InputCost)
-log.Printf("Output cost: $%.6f", cost.OutputCost)
+// Cost breakdown (token counts and costs are on CostInfo)
+cost := result.CostInfo
+log.Printf("Input tokens: %d", cost.InputTokens)
+log.Printf("Output tokens: %d", cost.OutputTokens)
+log.Printf("Total tokens: %d", cost.InputTokens+cost.OutputTokens)
+log.Printf("Input cost: $%.6f", cost.InputCostUSD)
+log.Printf("Output cost: $%.6f", cost.OutputCostUSD)
 log.Printf("Total cost: $%.6f", cost.TotalCost)
 ```
 
@@ -52,12 +56,12 @@ type SessionCosts struct {
     requestCounts map[string]int
 }
 
-func (sc *SessionCosts) Record(sessionID string, result *pipeline.PipelineResult) {
+func (sc *SessionCosts) Record(sessionID string, result *stage.ExecutionResult) {
     sc.mu.Lock()
     defer sc.mu.Unlock()
     
-    sc.costs[sessionID] += result.Cost.TotalCost
-    sc.tokens[sessionID] += result.Response.Usage.TotalTokens
+    sc.costs[sessionID] += result.CostInfo.TotalCost
+    sc.tokens[sessionID] += result.CostInfo.InputTokens+result.CostInfo.OutputTokens
     sc.requestCounts[sessionID]++
 }
 
@@ -75,7 +79,7 @@ tracker := &SessionCosts{
     requestCounts: make(map[string]int),
 }
 
-result, _ := pipe.ExecuteWithContext(ctx, sessionID, "user", "Hello")
+result, _ := ask(ctx, pipe, "Hello")
 tracker.Record(sessionID, result)
 
 cost, tokens, count := tracker.GetStats(sessionID)
@@ -93,10 +97,10 @@ type CostTracker struct {
     totalReqs   int64
 }
 
-func (ct *CostTracker) Record(result *pipeline.PipelineResult) {
-    costCents := int64(result.Cost.TotalCost * 100)
+func (ct *CostTracker) Record(result *stage.ExecutionResult) {
+    costCents := int64(result.CostInfo.TotalCost * 100)
     atomic.AddInt64(&ct.totalCost, costCents)
-    atomic.AddInt64(&ct.totalTokens, int64(result.Response.Usage.TotalTokens))
+    atomic.AddInt64(&ct.totalTokens, int64(result.CostInfo.InputTokens+result.CostInfo.OutputTokens))
     atomic.AddInt64(&ct.totalReqs, 1)
 }
 
@@ -148,8 +152,8 @@ if !budget.CanExecute() {
     log.Fatal("Budget exceeded")
 }
 
-result, _ := pipe.Execute(ctx, "user", "Your message")
-if err := budget.Record(result.Cost.TotalCost); err != nil {
+result, _ := ask(ctx, pipe, "Your message")
+if err := budget.Record(result.CostInfo.TotalCost); err != nil {
     log.Printf("Warning: %v", err)
 }
 ```
@@ -268,7 +272,7 @@ func optimizeMaxTokens(messages []types.Message, budget float64, pricePerToken f
 import "crypto/sha256"
 
 type ResponseCache struct {
-    cache map[string]*pipeline.PipelineResult
+    cache map[string]*stage.ExecutionResult
     mu    sync.RWMutex
 }
 
@@ -277,7 +281,7 @@ func (rc *ResponseCache) Key(prompt string) string {
     return fmt.Sprintf("%x", hash[:8])
 }
 
-func (rc *ResponseCache) Get(prompt string) (*pipeline.PipelineResult, bool) {
+func (rc *ResponseCache) Get(prompt string) (*stage.ExecutionResult, bool) {
     rc.mu.RLock()
     defer rc.mu.RUnlock()
     
@@ -285,7 +289,7 @@ func (rc *ResponseCache) Get(prompt string) (*pipeline.PipelineResult, bool) {
     return result, exists
 }
 
-func (rc *ResponseCache) Set(prompt string, result *pipeline.PipelineResult) {
+func (rc *ResponseCache) Set(prompt string, result *stage.ExecutionResult) {
     rc.mu.Lock()
     defer rc.mu.Unlock()
     
@@ -293,7 +297,7 @@ func (rc *ResponseCache) Set(prompt string, result *pipeline.PipelineResult) {
 }
 
 // Usage
-cache := &ResponseCache{cache: make(map[string]*pipeline.PipelineResult)}
+cache := &ResponseCache{cache: make(map[string]*stage.ExecutionResult)}
 
 prompt := "What is AI?"
 if cached, exists := cache.Get(prompt); exists {
@@ -301,9 +305,9 @@ if cached, exists := cache.Get(prompt); exists {
     return cached, nil
 }
 
-result, _ := pipe.Execute(ctx, "user", prompt)
+result, _ := ask(ctx, pipe, prompt)
 cache.Set(prompt, result)
-log.Printf("Fresh response cost: $%.6f", result.Cost.TotalCost)
+log.Printf("Fresh response cost: $%.6f", result.CostInfo.TotalCost)
 ```
 
 ## Reporting
@@ -384,8 +388,10 @@ import (
     "log"
     "sync"
     
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers"
     "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 type CostMonitor struct {
@@ -395,17 +401,17 @@ type CostMonitor struct {
     mu          sync.Mutex
 }
 
-func (cm *CostMonitor) Record(result *pipeline.PipelineResult) {
+func (cm *CostMonitor) Record(result *stage.ExecutionResult) {
     cm.mu.Lock()
     defer cm.mu.Unlock()
     
-    cm.totalCost += result.Cost.TotalCost
-    cm.totalTokens += result.Response.Usage.TotalTokens
+    cm.totalCost += result.CostInfo.TotalCost
+    cm.totalTokens += result.CostInfo.InputTokens+result.CostInfo.OutputTokens
     cm.requests++
     
     log.Printf("Request cost: $%.6f (%d tokens)", 
-        result.Cost.TotalCost, 
-        result.Response.Usage.TotalTokens)
+        result.CostInfo.TotalCost, 
+        result.CostInfo.InputTokens+result.CostInfo.OutputTokens)
 }
 
 func (cm *CostMonitor) Report() {
@@ -418,6 +424,12 @@ func (cm *CostMonitor) Report() {
     log.Printf("Total cost: $%.4f", cm.totalCost)
     log.Printf("Avg cost/request: $%.6f", cm.totalCost/float64(cm.requests))
     log.Printf("Avg tokens/request: %.1f", float64(cm.totalTokens)/float64(cm.requests))
+}
+
+func ask(ctx context.Context, pipe *stage.StreamPipeline, text string) (*stage.ExecutionResult, error) {
+    msg := types.Message{Role: "user"}
+    msg.AddTextPart(text)
+    return pipe.ExecuteSync(ctx, stage.NewMessageElement(&msg))
 }
 
 func main() {
@@ -434,7 +446,12 @@ func main() {
     defer provider.Close()
 
     // Build pipeline
-    pipe := pipeline.NewPipeline(provider)
+    pipe, err := stage.NewPipelineBuilder().
+        Chain(stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{})).
+        Build()
+    if err != nil {
+        log.Fatal(err)
+    }
     defer pipe.Shutdown(context.Background())
     
     ctx := context.Background()
@@ -447,7 +464,7 @@ func main() {
     }
     
     for _, prompt := range prompts {
-        result, err := pipe.Execute(ctx, "user", prompt)
+        result, err := ask(ctx, pipe, prompt)
         if err != nil {
             log.Printf("Error: %v", err)
             continue
@@ -501,7 +518,7 @@ func main() {
 
 2. Include all cost components:
    ```go
-   total := result.Cost.InputCost + result.Cost.OutputCost
+   total := result.CostInfo.InputCostUSD + result.CostInfo.OutputCostUSD
    // Some providers may have additional fees
    ```
 
@@ -514,7 +531,7 @@ func main() {
 
 1. **Always monitor costs**:
    ```go
-   log.Printf("Cost: $%.6f", result.Cost.TotalCost)
+   log.Printf("Cost: $%.6f", result.CostInfo.TotalCost)
    ```
 
 2. **Set budget limits**:
@@ -542,7 +559,7 @@ func main() {
 
 6. **Track per-user costs**:
    ```go
-   budgets.Record(userID, result.Cost.TotalCost)
+   budgets.Record(userID, result.CostInfo.TotalCost)
    ```
 
 7. **Set up alerts**:

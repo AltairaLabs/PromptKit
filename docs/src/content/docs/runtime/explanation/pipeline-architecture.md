@@ -48,12 +48,17 @@ The stage architecture is designed for streaming scenarios like voice applicatio
 Stages model this as a reactive stream where data flows through connected processing units:
 
 ```go
-pipeline := stage.NewPipelineBuilder().
+audioTurn, err := stage.NewAudioTurnStage(vadConfig) // Accumulate until turn complete
+if err != nil {
+    return err
+}
+
+pipeline, err := stage.NewPipelineBuilder().
     Chain(
-        stage.NewAudioTurnStage(vadConfig),      // Accumulate until turn complete
+        audioTurn,
         stage.NewSTTStage(sttService, sttConfig), // Transcribe audio
         stage.NewProviderStage(provider, tools, policy, config), // Call LLM
-        stage.NewTTSStageWithInterruption(ttsService, handler, ttsConfig), // Generate audio
+        stage.NewTTSStageWithInterruption(ttsService, ttsConfig), // Generate audio
     ).
     Build()
 ```
@@ -70,33 +75,48 @@ type StreamElement struct {
     Video     *VideoData
     Image     *ImageData
     Message   *types.Message
-    ToolCall  *types.ToolCall
-    Parts     []types.ContentPart
+    ToolCall  *types.MessageToolCall
+    Part      *types.ContentPart
+    MediaData *types.MediaContent
 
-    // Metadata for inter-stage communication
-    Metadata  map[string]interface{}
-
-    // Control and observability
-    Priority  Priority  // Low, Normal, High, Critical
-    Error     error
+    // Metadata
+    Sequence  int64
     Timestamp time.Time
+    Source    string
+    Priority  Priority        // Low, Normal, High, Critical
+    Meta      ElementMetadata // Typed per-element coordination data
+
+    // Control signals
+    EndOfStream bool
+    EndOfTurn   bool
+    Interrupt   bool
+    Error       error
 }
 ```
 
 **Key insight**: Each element carries one content type, enabling type-safe routing and priority scheduling.
 
-### Base Metadata
+### Provider Request Metadata
 
-Pipelines support `BaseMetadata` — a set of key-value pairs that are automatically merged into every `StreamElement` entering the pipeline. This is designed for session-level context (e.g., `session_id`, `tenant_id`, `user_id`) that should be available to all stages and providers on every turn without manual injection per element.
+Session-level context (for example `session_id`, `tenant_id`, `user_id`) travels on the pipeline's `TurnState`. A `ProviderStage` built with `NewProviderStageWithTurnState` copies `TurnState.ProviderRequestMetadata` into `PredictionRequest.Metadata` on every call.
 
 ```go
-pipeline.BaseMetadata = map[string]interface{}{
+turnState := stage.NewTurnState()
+turnState.ProviderRequestMetadata = map[string]interface{}{
     "session_id": sessionID,
     "tenant_id":  tenantID,
 }
+
+providerStage := stage.NewProviderStageWithTurnState(
+    provider, nil, nil, &stage.ProviderConfig{}, nil, nil, turnState,
+)
 ```
 
-Base metadata is merged at the `Execute`/`ExecuteSync` boundary. Per-element metadata takes precedence on key collision, so stages and callers can always override base values for specific elements.
+The map is read-only after the stage that produces it runs; downstream stages must not modify it.
+
+No built-in model provider reads keys such as `session_id` or `tenant_id` from `PredictionRequest.Metadata`; only the mock provider reads its own scenario keys there. The OpenAI and Gemini realtime sessions read a few configuration keys (voice, modalities, VAD) from `StreamingInputConfig.Metadata`, a separate map this one does not feed. Session context in this map therefore reaches only a custom provider that reads it. `NewIncrementalSaveStageWithTurnState` also merges the map into the saved conversation state's `Metadata`.
+
+Conversation and user identity have typed fields. The load stages copy `StateStoreConfig.ConversationID` and `StateStoreConfig.UserID` into `TurnState.ConversationID` and `TurnState.UserID`, and stages should read those. The metadata map exists for the provider boundary, where the interface is untyped.
 
 ## Stage Interface
 
@@ -283,12 +303,12 @@ func (p *Pipeline) Shutdown(timeout time.Duration) error {
 The builder constructs pipelines with a fluent API:
 
 ```go
-pipeline := stage.NewPipelineBuilder().
+pipeline, err := stage.NewPipelineBuilder().
     Chain(
         stage.NewStateStoreLoadStage(stateConfig),
         stage.NewPromptAssemblyStage(registry, taskType, vars),
         stage.NewProviderStage(provider, tools, policy, config),
-        stage.NewStateStoreSaveStage(stateConfig),
+        stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),
     ).
     Build()
 ```
@@ -298,7 +318,7 @@ pipeline := stage.NewPipelineBuilder().
 For parallel processing paths:
 
 ```go
-pipeline := stage.NewPipelineBuilder().
+pipeline, err := stage.NewPipelineBuilder().
     Chain(
         stage.NewProviderStage(provider, tools, policy, config),
     ).

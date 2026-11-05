@@ -1,0 +1,92 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/voice/choose-voice-mode.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "ASM works with providers implementing StreamInputSupport: Gemini Live and OpenAI Realtime",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/gemini/streaming_support.go:50",
+    "runtime/providers/openai/streaming_support.go:136",
+    "sdk/sdk.go:322"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "VAD pipeline stages",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pipeline/builder_vad.go:41"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "non-streaming provider refused unless VAD or ingestion",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:322"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "nil VADModeConfig uses DefaultVADModeConfig",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:3057"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Zero-valued VADModeConfig fields take defaults: 800ms silence, 200ms minimum speech, 30s maximum turn, 16000 Hz, voice alloy",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:2973",
+    "sdk/options.go:3016",
+    "sdk/options.go:3085",
+    "sdk/options.go:3116"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "VAD mode has no resample stage",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pipeline/builder_vad.go:89"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "ASM config with WithModel and WithStreamingConfig",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/gemini/setup.go:70",
+    "sdk/options.go:2961"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "gpt-realtime with 24000 Hz",
+   "verdict": "true",
+   "evidence": [
+    "sdk/examples/openai-realtime/main.go:59"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "first SendChunk starts pipeline",
+   "verdict": "true",
+   "evidence": [
+    "sdk/session/duplex_session.go:214"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "ingestion and VAD mutually exclusive",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:874"
+   ]
+  }
+ ]
+}

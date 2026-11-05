@@ -1,0 +1,97 @@
+{
+ "page": "docs/src/content/docs/runtime/tutorials/03-mcp-integration.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "mcp.NewRegistry, RegisterServer(mcp.ServerConfig{Name,Command,Args}), ListAllTools, Close exist",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/registry.go:159",
+    "runtime/mcp/registry.go:425",
+    "runtime/mcp/registry.go:513",
+    "runtime/mcp/registry.go:82"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "RegisterServer stores the config; the server process starts on first use (ListAllTools)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/registry.go:159"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "tools.NewRegistry, RegisterExecutor(tools.NewMCPExecutor(mcpReg)), Register(&ToolDescriptor{Name,Description,InputSchema,Mode:\"mcp\"})",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/mcp_executor.go:106",
+    "runtime/tools/mcp_executor.go:42",
+    "runtime/tools/registry.go:166",
+    "runtime/tools/registry.go:398"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "stage.NewProviderStage(provider, toolReg, &pipeline.ToolPolicy{ToolChoice,MaxRounds}, &ProviderConfig); MaxRounds caps tool rounds",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:261",
+    "runtime/pipeline/types.go:16",
+    "runtime/pipeline/types.go:18"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "mcp.ServerConfig has TimeoutMs and ToolFilter; ToolFilter has Allowlist/Blocklist and Includes; trailing * is a prefix match",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/types.go:298",
+    "runtime/mcp/types.go:315",
+    "runtime/mcp/types.go:359"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "The runtime registry does not apply ToolFilter; the caller applies it at registration",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/registry.go:425",
+    "sdk/mcp_tool_sync.go:157"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "The filesystem MCP server lists 16 tools including read_file, write_file, list_directory; memory server lists 9",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 8,
+   "claim": "Tool registry holds one descriptor per name; later registration replaces",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/registry.go:166"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Tutorial 2 pipeline stages NewStateStoreLoadStage and NewIncrementalSaveStage, pipeline.StateStoreConfig, ExecuteSync, result.Response.Content",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_core.go",
+    "runtime/pipeline/stage/stages_save.go",
+    "runtime/pipeline/types.go"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "SDK equivalent documented at sdk/how-to/tools/configure-mcp",
+   "verdict": "true",
+   "evidence": [
+    "sdk/mcp_tool_sync.go:157"
+   ]
+  }
+ ]
+}

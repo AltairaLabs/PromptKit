@@ -64,7 +64,9 @@ Each conversation has a unique ID:
 ```go
 sessionID := "user-123-conv-456"
 
-result, err := pipeline.ExecuteWithSession(ctx, sessionID, "user", "Hello")
+// The session ID is the conversation ID on the state store config that the
+// pipeline's load and save stages share.
+stateConfig := &pipeline.StateStoreConfig{Store: store, ConversationID: sessionID}
 ```
 
 Sessions enable:
@@ -114,13 +116,16 @@ deployments.
 
 ## State Store Interface
 
-All stores implement:
+All stores implement the read-shaped `Store` interface. Whole-state replacement is the optional `BulkWriter`; pipeline stages write through the typed interfaces (`MessageAppender`, `MetadataAccessor`, `SummaryAccessor`) instead:
 
 ```go
 type Store interface {
     Load(ctx context.Context, id string) (*ConversationState, error)
-    Save(ctx context.Context, state *ConversationState) error
     Fork(ctx context.Context, sourceID, newID string) error
+}
+
+type BulkWriter interface {
+    Save(ctx context.Context, state *ConversationState) error
 }
 ```
 
@@ -132,7 +137,7 @@ type ConversationState struct {
     UserID         string
     Messages       []types.Message
     SystemPrompt   string
-    Summaries      []string
+    Summaries      []Summary
     TokenCount     int
     LastAccessedAt time.Time
     Metadata       map[string]any
@@ -396,7 +401,7 @@ Compress stored messages:
 
 ```go
 type CompressedStore struct {
-    inner statestore.Store
+    inner statestore.BulkWriter
 }
 
 func (s *CompressedStore) Save(ctx context.Context, state *statestore.ConversationState) error {
@@ -521,7 +526,9 @@ One session per user:
 
 ```go
 sessionID := fmt.Sprintf("user-%s", userID)
-result, err := pipeline.ExecuteWithSession(ctx, sessionID, "user", "Hello")
+// The session ID is the conversation ID on the state store config that the
+// pipeline's load and save stages share.
+stateConfig := &pipeline.StateStoreConfig{Store: store, ConversationID: sessionID}
 ```
 
 **Use case**: Single ongoing conversation per user
@@ -532,7 +539,9 @@ Multiple conversations per user:
 
 ```go
 sessionID := fmt.Sprintf("user-%s-conv-%s", userID, conversationID)
-result, err := pipeline.ExecuteWithSession(ctx, sessionID, "user", "Hello")
+// The session ID is the conversation ID on the state store config that the
+// pipeline's load and save stages share.
+stateConfig := &pipeline.StateStoreConfig{Store: store, ConversationID: sessionID}
 ```
 
 **Use case**: User can start multiple conversations
@@ -543,7 +552,9 @@ Anonymous sessions:
 
 ```go
 sessionID := uuid.New().String()
-result, err := pipeline.ExecuteWithSession(ctx, sessionID, "user", "Hello")
+// The session ID is the conversation ID on the state store config that the
+// pipeline's load and save stages share.
+stateConfig := &pipeline.StateStoreConfig{Store: store, ConversationID: sessionID}
 ```
 
 **Use case**: Guest users, temporary chats

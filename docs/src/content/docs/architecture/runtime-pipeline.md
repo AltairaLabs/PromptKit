@@ -41,24 +41,28 @@ The fundamental unit of data flowing through the pipeline. Each element can carr
 
 ```go
 type StreamElement struct {
-    // Content types (mutually optional)
-    Text     *string
-    Audio    *AudioData
-    Video    *VideoData
-    Image    *ImageData
-    Message  *types.Message
-    ToolCall *types.ToolCall
-    Parts    []types.ContentPart
+    // Content types (at most one is set)
+    Text      *string
+    Audio     *AudioData
+    Video     *VideoData
+    Image     *ImageData
+    Message   *types.Message
+    ToolCall  *types.MessageToolCall
+    Part      *types.ContentPart
+    MediaData *types.MediaContent
 
-    // Metadata for passing state between stages
-    Metadata map[string]interface{}
-
-    // Priority for QoS-aware scheduling
-    Priority Priority  // Low, Normal, High, Critical
+    // Metadata
+    Sequence  int64
+    Timestamp time.Time
+    Source    string
+    Priority  Priority        // Low, Normal, High, Critical
+    Meta      ElementMetadata // Typed per-element coordination data
 
     // Control signals
-    Error     error
-    Timestamp time.Time
+    EndOfStream bool
+    EndOfTurn   bool
+    Interrupt   bool
+    Error       error
 }
 ```
 
@@ -66,7 +70,7 @@ Helper functions for creating elements:
 
 ```go
 textElem := stage.NewTextElement("Hello")
-msgElem := stage.NewMessageElement(types.Message{Role: "user", Content: "Hello"})
+msgElem := stage.NewMessageElement(&types.Message{Role: "user", Content: "Hello"})
 audioElem := stage.NewAudioElement(&stage.AudioData{
     Samples:    audioBytes,
     SampleRate: 16000,
@@ -105,12 +109,12 @@ Each stage:
 Constructs the pipeline DAG using a fluent API:
 
 ```go
-pipeline := stage.NewPipelineBuilder().
+pipeline, err := stage.NewPipelineBuilder().
     Chain(
         stage.NewStateStoreLoadStage(stateConfig),
         stage.NewPromptAssemblyStage(registry, taskType, vars),
         stage.NewProviderStage(provider, toolRegistry, toolPolicy, config),
-        stage.NewIncrementalSaveStage(stateConfig),
+        stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),
     ).
     Build()
 ```
@@ -480,12 +484,10 @@ sequenceDiagram
 ```go
 config := stage.DefaultPipelineConfig().
     WithChannelBufferSize(32).           // Larger buffers for throughput
-    WithPriorityQueue(true).             // Enable priority scheduling
     WithExecutionTimeout(60 * time.Second).
-    WithMetrics(true).                   // Enable per-stage metrics
-    WithTracing(true)                    // Enable element-level tracing
+    WithIdleTimeout(45 * time.Second)    // Cancel after inactivity
 
-pipeline := stage.NewPipelineBuilderWithConfig(config).
+pipeline, err := stage.NewPipelineBuilderWithConfig(config).
     Chain(stages...).
     Build()
 ```
@@ -498,9 +500,7 @@ pipeline := stage.NewPipelineBuilderWithConfig(config).
 | ExecutionTimeout | 0 (disabled) | Maximum pipeline execution time (wall-clock) |
 | IdleTimeout | 30s | Cancels pipeline after inactivity (resets on each provider call, tool execution, or streaming chunk) |
 | GracefulShutdownTimeout | 10s | Timeout for graceful shutdown |
-| PriorityQueue | false | Enable priority-based scheduling |
-| Metrics | false | Enable per-stage metrics collection |
-| Tracing | false | Enable distributed tracing |
+| MaxConcurrentPipelines | 100 | Concurrent executions allowed by a pipeline pool |
 
 ## Error Handling
 

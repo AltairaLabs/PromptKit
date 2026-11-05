@@ -1,0 +1,56 @@
+{
+ "page": "docs/src/content/docs/sdk/tutorials/03-tool-integration.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "\"tools\": [\"get_time\", \"get_weather\"]",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/schema/promptpack.schema.json:1",
+    "sdk/conversation_tools.go:121"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "`OnTool()` registers a handler by tool name",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:228",
+    "sdk/conversation_tools.go:33"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "conv.OnTool(\"get_weather\"",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:33"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "The SDK serializes the value to JSON and sends it to the model as the tool result",
+   "verdict": "true",
+   "evidence": [
+    "sdk/tool_executors.go:109"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "The model receives `Tool execution failed: no weather data for \"Atlantis\"` as the tool result",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:3313"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "The complete example is in `sdk/examples/tools/`",
+   "verdict": "true",
+   "evidence": [
+    "sdk/examples/tools/main_interactive.go:1"
+   ]
+  }
+ ]
+}

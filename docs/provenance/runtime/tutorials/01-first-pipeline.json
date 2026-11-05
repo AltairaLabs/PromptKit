@@ -1,0 +1,167 @@
+{
+ "page": "docs/src/content/docs/runtime/tutorials/01-first-pipeline.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Go 1.26 or later is required",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 2,
+   "claim": "OPENAI_API_KEY env var is read by the OpenAI provider",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/openai/openai.go:313"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "go get github.com/AltairaLabs/PromptKit/runtime/v2@latest installs the runtime",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 4,
+   "claim": "openai.NewProvider(id, model, baseURL, providers.ProviderDefaults, includeRawOutput) signature",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/openai/openai.go:199"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "empty base URL uses the default",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/openai/openai.go:258"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "providers.ProviderDefaults has Temperature and MaxTokens",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:214"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "stage.NewPipelineBuilder().Chain(...).Build() returns (*StreamPipeline, error)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/builder.go:125",
+    "runtime/pipeline/stage/builder.go:20",
+    "runtime/pipeline/stage/builder.go:72"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "stage.NewProviderStage(provider, toolRegistry, toolPolicy, *ProviderConfig) with nil registry and policy",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:261"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "ProviderConfig has MaxTokens and Temperature",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:121"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "pipe.Shutdown(ctx) shuts down the pipeline",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:645"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "ExecuteSync(ctx, ...StreamElement) returns (*ExecutionResult, error)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:537"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "stage.NewMessageElement takes *types.Message",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/element.go:343"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "types.Message has Role and Content fields; the provider reads Content for a user message",
+   "verdict": "true",
+   "evidence": [
+    "runtime/types/message.go:305"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "result.Response.Content holds the reply text",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:558"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "result.CostInfo has InputTokens, OutputTokens, TotalCost",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:585",
+    "runtime/types/message.go:242"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "example output Response/Tokens/Cost lines",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:537"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "the chain of one stage links into a StreamPipeline",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/builder.go:125"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "lowering MaxTokens caps the output at that many tokens",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/openai/openai.go:733",
+    "runtime/providers/openai/openai.go:94"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "the pipeline handles repeated ExecuteSync calls; each is independent with no history",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:537"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "diagram: main.go -> PipelineBuilder -> StreamPipeline -> ProviderStage -> openai.Provider",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/builder.go:72",
+    "runtime/pipeline/stage/stages_provider.go:261"
+   ]
+  }
+ ]
+}

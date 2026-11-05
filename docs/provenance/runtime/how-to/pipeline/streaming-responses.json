@@ -1,0 +1,191 @@
+{
+ "page": "docs/src/content/docs/runtime/how-to/pipeline/streaming-responses.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "provider.SupportsStreaming() reports whether a provider streams",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:256"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "ProviderStage streams on its own when its provider supports streaming, emitting each fragment as a text element then the complete assistant message",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:2504",
+    "runtime/pipeline/stage/stages_provider.go:2559",
+    "runtime/pipeline/stage/stages_provider.go:761"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Execute(ctx, input <-chan StreamElement) returns the output channel without waiting for the reply",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:104",
+    "runtime/pipeline/stage/pipeline.go:54"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "stage.NewMessageElement(&types.Message{...}) builds an input element",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/element.go:343"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "elem.Text carries one fragment, not the accumulated reply; elem.Message carries the complete assistant message with token counts and cost",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:585",
+    "runtime/pipeline/stage/stages_provider.go:2504",
+    "runtime/types/message.go:35"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "Execute returns an error only when the pipeline is shutting down; a failure during the call arrives as an element with Error set",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:56",
+    "runtime/pipeline/stage/stages_provider.go:785"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "The output channel closes when the pipeline ends; the pipeline blocks on an output channel nobody reads",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:495",
+    "runtime/pipeline/stage/pipeline.go:513"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Complete streamReply function compiles against the stage API",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/element.go:334",
+    "runtime/pipeline/stage/pipeline.go:54"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Cancelling the context passed to Execute stops the stages and closes the output channel after in-flight elements",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:112",
+    "runtime/pipeline/stage/pipeline.go:442"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Cancel-early snippet compiles",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:54"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "IdleTimeout cancels a stream that stops producing chunks and resets on every chunk; ExecutionTimeout caps the whole run",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/config.go:47",
+    "runtime/pipeline/stage/config.go:52",
+    "runtime/pipeline/stage/pipeline.go:63",
+    "runtime/pipeline/stage/pipeline.go:71"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "Timeout snippet: DefaultPipelineConfig().WithIdleTimeout().WithExecutionTimeout(), builder WithConfig, NewProviderStage(provider, nil, nil, &ProviderConfig{MaxTokens})",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/builder.go:41",
+    "runtime/pipeline/stage/config.go:125",
+    "runtime/pipeline/stage/config.go:131",
+    "runtime/pipeline/stage/config.go:83",
+    "runtime/pipeline/stage/stages_provider.go:261"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "DefaultPipelineConfig sets a 30-second idle timeout and no execution timeout",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/config.go:25",
+    "runtime/pipeline/stage/config.go:29",
+    "runtime/pipeline/stage/config.go:83"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "A context.WithTimeout on the context passed to Execute also ends the stream",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:61"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "HTTP SSE handler snippet compiles",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:54"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "r.Context() ends when the client disconnects, which cancels the stream",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:61"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "PredictStream returns a channel of providers.StreamChunk with Delta (new text), Content (text so far), Error; final chunk has FinishReason and CostInfo",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:254",
+    "runtime/providers/streaming.go:104",
+    "runtime/providers/streaming.go:52",
+    "runtime/providers/streaming.go:57",
+    "runtime/providers/streaming.go:85"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "PredictStream snippet with PredictionRequest{Messages, MaxTokens} compiles",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:254",
+    "runtime/providers/provider.go:56"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "A provider called directly bypasses the pipeline: idle timeout, history and hooks do not apply",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:70",
+    "runtime/pipeline/stage/stages_provider.go:2166"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "With a non-streaming provider no text elements precede the message; elem.Message.Content holds the reply",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:761",
+    "runtime/pipeline/stage/stages_provider.go:764"
+   ]
+  }
+ ]
+}

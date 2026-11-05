@@ -1,0 +1,55 @@
+{
+ "page": "docs/src/content/docs/sdk/tutorials/index.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Tutorial 4 covers SetVar()/GetVar()",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1209",
+    "sdk/conversation.go:1273"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "Tutorial 5 implements approvals with OnToolAsync()",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:171"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Go 1.21 or higher",
+   "verdict": "false",
+   "evidence": []
+  },
+  {
+   "id": 4,
+   "claim": "API keys for OpenAI, Anthropic or Google",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/resolver.go:32-45"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Tutorials 1-10 exist at the linked URLs; titles match",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 6,
+   "claim": "Tutorial 11 (AG-UI) exists",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 7,
+   "claim": "/sdk/how-to/, /sdk/reference/, /sdk/examples/ pages exist",
+   "verdict": "unverified",
+   "evidence": []
+  }
+ ]
+}

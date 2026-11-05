@@ -1,597 +1,440 @@
 ---
-title: 'Tutorial 6: Advanced Patterns'
+title: 'Tutorial 6: Advanced patterns'
+description: Add response caching, a custom pipeline stage with a spend budget, buffered streaming and bounded parallel requests to a runtime application.
 sidebar:
   order: 6
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/pipeline/stage/pipeline.go
+    - runtime/pipeline/stage/stage.go
+    - runtime/pipeline/stage/stages_core.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/providers/base_provider.go
+    - runtime/providers/provider.go
+    - runtime/providers/streaming.go
+    - runtime/types/message.go
 ---
-Master advanced optimization and architectural patterns.
+## What we will build
 
-**Time**: 30 minutes  
-**Level**: Advanced
-
-## What You'll Learn
-
-- Streaming optimization
-- Response caching
-- Custom middleware
-- Performance tuning
-- Advanced provider patterns
+In this tutorial we build four small building blocks, each in its own file of one `package main`: a response cache, a spend budget, a stream buffer and a parallel batch runner. A `main.go` runs all four.
 
 ## Prerequisites
 
-- Completed previous tutorials
-- Understanding of Go concurrency
+- Completed [Tutorial 5](/runtime/tutorials/05-production-deployment/)
+- A Go module with the runtime installed: `go get github.com/AltairaLabs/PromptKit/runtime/v2@latest`
+- `OPENAI_API_KEY` set in your environment
 
-## Pattern 1: Response Caching
+## Step 1: Write a helper
 
-Cache common queries to reduce costs:
+Every step below sends single prompts through a pipeline. We create `ask.go` with `ask`, which builds a one-stage pipeline and returns the assistant reply. `runPipeline` feeds one user message into any pipeline and collects the reply.
 
 ```go
 package main
 
 import (
-    "crypto/sha256"
-    "fmt"
-    "sync"
-    "time"
-    
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"context"
+	"errors"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-type CacheEntry struct {
-    result    *pipeline.PipelineResult
-    timestamp time.Time
+// ask sends one prompt through a single-stage pipeline and returns the reply.
+func ask(ctx context.Context, p providers.Provider, prompt string) (*types.Message, error) {
+	pipe, err := stage.NewPipelineBuilder().
+		Chain(stage.NewProviderStage(p, nil, nil, &stage.ProviderConfig{MaxTokens: 500})).
+		Build()
+	if err != nil {
+		return nil, err
+	}
+	defer pipe.Shutdown(context.Background())
+
+	return runPipeline(ctx, pipe, prompt)
+}
+
+// runPipeline feeds one user message to pipe and returns the assistant reply.
+func runPipeline(ctx context.Context, pipe *stage.StreamPipeline, prompt string) (*types.Message, error) {
+	input := make(chan stage.StreamElement, 1)
+	input <- stage.NewMessageElement(&types.Message{Role: "user", Content: prompt})
+	close(input)
+
+	output, err := pipe.Execute(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	var reply *types.Message
+	for elem := range output {
+		if elem.Error != nil {
+			err = elem.Error
+		}
+		if elem.Message != nil && elem.Message.Role == "assistant" && !elem.Meta.FromHistory {
+			reply = elem.Message
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if reply == nil {
+		return nil, errors.New("pipeline produced no reply")
+	}
+	return reply, nil
+}
+```
+
+## Step 2: Cache responses
+
+We cache replies to repeated prompts so we do not pay for them twice. Create `cache.go`:
+
+```go
+package main
+
+import (
+	"crypto/sha256"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+)
+
+type cacheEntry struct {
+	reply   *types.Message
+	created time.Time
 }
 
 type ResponseCache struct {
-    cache map[string]*CacheEntry
-    ttl   time.Duration
-    mu    sync.RWMutex
+	mu      sync.RWMutex
+	entries map[string]cacheEntry
+	ttl     time.Duration
+	done    chan struct{}
 }
 
 func NewResponseCache(ttl time.Duration) *ResponseCache {
-    cache := &ResponseCache{
-        cache: make(map[string]*CacheEntry),
-        ttl:   ttl,
-    }
-    
-    // Cleanup expired entries
-    go cache.cleanup()
-    
-    return cache
+	c := &ResponseCache{
+		entries: make(map[string]cacheEntry),
+		ttl:     ttl,
+		done:    make(chan struct{}),
+	}
+	go c.cleanup()
+	return c
 }
 
-func (c *ResponseCache) key(prompt string) string {
-    hash := sha256.Sum256([]byte(prompt))
-    return fmt.Sprintf("%x", hash[:16])
+// Close stops the background cleanup.
+func (c *ResponseCache) Close() { close(c.done) }
+
+func key(prompt string) string {
+	sum := sha256.Sum256([]byte(prompt))
+	return fmt.Sprintf("%x", sum[:16])
 }
 
-func (c *ResponseCache) Get(prompt string) (*pipeline.PipelineResult, bool) {
-    c.mu.RLock()
-    defer c.mu.RUnlock()
-    
-    entry, exists := c.cache[c.key(prompt)]
-    if !exists {
-        return nil, false
-    }
-    
-    if time.Since(entry.timestamp) > c.ttl {
-        return nil, false
-    }
-    
-    return entry.result, true
+func (c *ResponseCache) Get(prompt string) (*types.Message, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	e, ok := c.entries[key(prompt)]
+	if !ok || time.Since(e.created) > c.ttl {
+		return nil, false
+	}
+	return e.reply, true
 }
 
-func (c *ResponseCache) Set(prompt string, result *pipeline.PipelineResult) {
-    c.mu.Lock()
-    defer c.mu.Unlock()
-    
-    c.cache[c.key(prompt)] = &CacheEntry{
-        result:    result,
-        timestamp: time.Now(),
-    }
+func (c *ResponseCache) Set(prompt string, reply *types.Message) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries[key(prompt)] = cacheEntry{reply: reply, created: time.Now()}
 }
 
 func (c *ResponseCache) cleanup() {
-    ticker := time.NewTicker(5 * time.Minute)
-    defer ticker.Stop()
-    
-    for range ticker.C {
-        c.mu.Lock()
-        now := time.Now()
-        for key, entry := range c.cache {
-            if now.Sub(entry.timestamp) > c.ttl {
-                delete(c.cache, key)
-            }
-        }
-        c.mu.Unlock()
-    }
-}
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
 
-// Usage
-cache := NewResponseCache(10 * time.Minute)
-
-prompt := "What is AI?"
-if cached, exists := cache.Get(prompt); exists {
-    fmt.Println("Cache hit!")
-    return cached, nil
-}
-
-result, err := pipe.Execute(ctx, "user", prompt)
-if err == nil {
-    cache.Set(prompt, result)
+	for {
+		select {
+		case <-c.done:
+			return
+		case <-ticker.C:
+			c.mu.Lock()
+			for k, e := range c.entries {
+				if time.Since(e.created) > c.ttl {
+					delete(c.entries, k)
+				}
+			}
+			c.mu.Unlock()
+		}
+	}
 }
 ```
 
-## Pattern 2: Custom Middleware
+Step 6 calls `Get` before each request and `Set` after each reply.
 
-Create domain-specific middleware:
+## Step 3: Add a custom stage
+
+A pipeline is a chain of stages, and a stage is a function over channels of `StreamElement`. `NewMapStage` wraps a function that transforms one element at a time. We create `budget.go` with a stage that adds up the cost of every reply and a check that refuses new requests once the budget is spent:
 
 ```go
 package main
 
 import (
-    "context"
-    "fmt"
-    "time"
-    
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"context"
+	"errors"
+	"log"
+	"sync"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-// LoggingWrapper wraps a provider to add logging
-type LoggingWrapper struct {
-    inner providers.Provider
+var ErrBudgetExceeded = errors.New("budget exceeded")
+
+// Budget tracks spend in USD across requests.
+type Budget struct {
+	mu    sync.Mutex
+	limit float64
+	spent float64
 }
 
-func NewLoggingWrapper(inner providers.Provider) *LoggingWrapper {
-    return &LoggingWrapper{inner: inner}
+func NewBudget(limit float64) *Budget { return &Budget{limit: limit} }
+
+func (b *Budget) Exceeded() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.spent >= b.limit
 }
 
-func (w *LoggingWrapper) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
-    start := time.Now()
-
-    content := ""
-    if len(req.Messages) > 0 {
-        content = req.Messages[len(req.Messages)-1].Content
-        if len(content) > 50 {
-            content = content[:50]
-        }
-    }
-    fmt.Printf("[%s] Processing: %s...\n", time.Now().Format("15:04:05"), content)
-
-    resp, err := w.inner.Predict(ctx, req)
-
-    duration := time.Since(start)
-    if err != nil {
-        fmt.Printf("[%s] Error after %v: %v\n", time.Now().Format("15:04:05"), duration, err)
-    } else if resp.CostInfo != nil {
-        fmt.Printf("[%s] Success in %v (cost: $%.6f)\n",
-            time.Now().Format("15:04:05"),
-            duration,
-            resp.CostInfo.TotalCost)
-    }
-
-    return resp, err
+func (b *Budget) Add(cost float64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.spent += cost
 }
 
-// BudgetWrapper wraps a provider to enforce budget limits
-type BudgetWrapper struct {
-    inner  providers.Provider
-    budget float64
-    spent  float64
-    mu     sync.Mutex
+// NewCostMeter returns a stage that adds each reply's cost to the budget.
+func NewCostMeter(b *Budget) stage.Stage {
+	return stage.NewMapStage("cost_meter", func(elem stage.StreamElement) (stage.StreamElement, error) {
+		m := elem.Message
+		if m != nil && m.Role == "assistant" && !elem.Meta.FromHistory && m.CostInfo != nil {
+			b.Add(m.CostInfo.TotalCost)
+			log.Printf("reply cost $%.6f", m.CostInfo.TotalCost)
+		}
+		return elem, nil
+	})
 }
 
-func NewBudgetWrapper(inner providers.Provider, budget float64) *BudgetWrapper {
-    return &BudgetWrapper{
-        inner:  inner,
-        budget: budget,
-    }
-}
+func askWithBudget(ctx context.Context, p providers.Provider, b *Budget, prompt string) (*types.Message, error) {
+	if b.Exceeded() {
+		return nil, ErrBudgetExceeded
+	}
 
-func (w *BudgetWrapper) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
-    w.mu.Lock()
-    if w.spent >= w.budget {
-        w.mu.Unlock()
-        return providers.PredictionResponse{}, fmt.Errorf("budget exceeded: $%.2f / $%.2f", w.spent, w.budget)
-    }
-    w.mu.Unlock()
+	pipe, err := stage.NewPipelineBuilder().
+		Chain(
+			stage.NewProviderStage(p, nil, nil, &stage.ProviderConfig{MaxTokens: 500}),
+			NewCostMeter(b),
+		).
+		Build()
+	if err != nil {
+		return nil, err
+	}
+	defer pipe.Shutdown(context.Background())
 
-    resp, err := w.inner.Predict(ctx, req)
-    if err == nil && resp.CostInfo != nil {
-        w.mu.Lock()
-        w.spent += resp.CostInfo.TotalCost
-        w.mu.Unlock()
-    }
-
-    return resp, err
+	return runPipeline(ctx, pipe, prompt)
 }
 ```
 
-## Pattern 3: Streaming Optimization
+`NewCostMeter` sits after the provider stage, where the assistant message carries its `CostInfo`. `elem.Meta.FromHistory` is true for messages replayed from a state store, so the stage skips them.
 
-Optimize streaming for better UX:
+## Step 4: Buffer streamed output
+
+Redrawing a terminal or browser on every chunk is wasteful. We create `stream.go` with a buffer that batches chunks and flushes at most once per 100 milliseconds:
 
 ```go
 package main
 
 import (
-    "context"
-    "fmt"
-    "io"
-    "strings"
-    "time"
-    
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
+// StreamBuffer batches chunks so the UI redraws at most once per minDelay.
 type StreamBuffer struct {
-    chunks    []string
-    lastFlush time.Time
-    minDelay  time.Duration
+	chunks    []string
+	lastFlush time.Time
+	minDelay  time.Duration
 }
 
 func NewStreamBuffer(minDelay time.Duration) *StreamBuffer {
-    return &StreamBuffer{
-        chunks:    make([]string, 0),
-        lastFlush: time.Now(),
-        minDelay:  minDelay,
-    }
+	return &StreamBuffer{lastFlush: time.Now(), minDelay: minDelay}
 }
 
 func (sb *StreamBuffer) Add(chunk string) string {
-    sb.chunks = append(sb.chunks, chunk)
-    
-    if time.Since(sb.lastFlush) >= sb.minDelay {
-        return sb.Flush()
-    }
-    
-    return ""
+	sb.chunks = append(sb.chunks, chunk)
+	if time.Since(sb.lastFlush) >= sb.minDelay {
+		return sb.Flush()
+	}
+	return ""
 }
 
 func (sb *StreamBuffer) Flush() string {
-    if len(sb.chunks) == 0 {
-        return ""
-    }
-    
-    result := strings.Join(sb.chunks, "")
-    sb.chunks = sb.chunks[:0]
-    sb.lastFlush = time.Now()
-    return result
+	if len(sb.chunks) == 0 {
+		return ""
+	}
+	out := strings.Join(sb.chunks, "")
+	sb.chunks = sb.chunks[:0]
+	sb.lastFlush = time.Now()
+	return out
 }
 
-func streamWithBuffer(pipe *pipeline.Pipeline, ctx context.Context, role, content string) error {
-    stream, err := pipe.ExecuteStream(ctx, role, content)
-    if err != nil {
-        return err
-    }
-    defer stream.Close()
-    
-    buffer := NewStreamBuffer(100 * time.Millisecond)
-    
-    for {
-        chunk, err := stream.Next()
-        if err == io.EOF {
-            // Flush remaining
-            if remaining := buffer.Flush(); remaining != "" {
-                fmt.Print(remaining)
-            }
-            break
-        }
-        if err != nil {
-            return err
-        }
-        
-        if output := buffer.Add(chunk.Content); output != "" {
-            fmt.Print(output)
-        }
-    }
-    
-    return nil
+func streamWithBuffer(ctx context.Context, p providers.Provider, prompt string) error {
+	chunks, err := p.PredictStream(ctx, providers.PredictionRequest{
+		Messages:  []types.Message{{Role: "user", Content: prompt}},
+		MaxTokens: 500,
+	})
+	if err != nil {
+		return err
+	}
+
+	buffer := NewStreamBuffer(100 * time.Millisecond)
+	for chunk := range chunks {
+		if chunk.Error != nil {
+			return chunk.Error
+		}
+		if out := buffer.Add(chunk.Delta); out != "" {
+			fmt.Print(out)
+		}
+	}
+	fmt.Print(buffer.Flush())
+	return nil
 }
 ```
 
-## Pattern 4: Provider Pool
+`PredictStream` returns a channel of `StreamChunk` values. `Delta` holds the new text in each chunk, and `Error` is set when the stream fails.
 
-Load balance across multiple providers:
+## Step 5: Process prompts in parallel
+
+We process prompts concurrently with a cap on parallel requests. Create `batch.go`:
 
 ```go
 package main
 
 import (
-    "context"
-    "sync"
-    "sync/atomic"
-    
-    "github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"context"
+	"sync"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
-
-type ProviderPool struct {
-    providers []providers.Provider
-    current   int32
-    health    map[string]*ProviderHealth
-    mu        sync.RWMutex
-}
-
-type ProviderHealth struct {
-    failures    int32
-    lastFailure int64
-    available   bool
-}
-
-func NewProviderPool(providerList ...providers.Provider) *ProviderPool {
-    pool := &ProviderPool{
-        providers: providerList,
-        health:    make(map[string]*ProviderHealth),
-    }
-
-    for _, p := range providerList {
-        pool.health[p.ID()] = &ProviderHealth{
-            available: true,
-        }
-    }
-
-    return pool
-}
-
-func (pp *ProviderPool) Execute(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
-    startIdx := int(atomic.LoadInt32(&pp.current)) % len(pp.providers)
-
-    for i := 0; i < len(pp.providers); i++ {
-        idx := (startIdx + i) % len(pp.providers)
-        provider := pp.providers[idx]
-
-        // Check health
-        pp.mu.RLock()
-        health := pp.health[provider.ID()]
-        pp.mu.RUnlock()
-
-        if !health.available {
-            continue
-        }
-
-        response, err := provider.Predict(ctx, req)
-        if err == nil {
-            atomic.StoreInt32(&pp.current, int32(idx))
-            atomic.StoreInt32(&health.failures, 0)
-            return response, nil
-        }
-
-        // Record failure
-        failures := atomic.AddInt32(&health.failures, 1)
-        if failures >= 3 {
-            pp.mu.Lock()
-            health.available = false
-            pp.mu.Unlock()
-
-            // Reset after 1 minute
-            go func(h *ProviderHealth) {
-                time.Sleep(time.Minute)
-                pp.mu.Lock()
-                h.available = true
-                atomic.StoreInt32(&h.failures, 0)
-                pp.mu.Unlock()
-            }(health)
-        }
-    }
-
-    return providers.PredictionResponse{}, fmt.Errorf("all providers unavailable")
-}
-```
-
-## Pattern 5: Parallel Processing
-
-Process multiple requests concurrently:
-
-```go
-package main
-
-import (
-    "context"
-    "sync"
-    
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
-)
-
-type BatchRequest struct {
-    SessionID string
-    Role      string
-    Content   string
-}
 
 type BatchResult struct {
-    Request *BatchRequest
-    Result  *pipeline.PipelineResult
-    Error   error
+	Prompt string
+	Reply  *types.Message
+	Err    error
 }
 
-func processBatch(pipe *pipeline.Pipeline, ctx context.Context, requests []BatchRequest, maxConcurrent int) []BatchResult {
-    results := make([]BatchResult, len(requests))
-    sem := make(chan struct{}, maxConcurrent)
-    var wg sync.WaitGroup
-    
-    for i, req := range requests {
-        wg.Add(1)
-        go func(idx int, r BatchRequest) {
-            defer wg.Done()
-            
-            sem <- struct{}{}
-            defer func() { <-sem }()
-            
-            result, err := pipe.ExecuteWithContext(ctx, r.SessionID, r.Role, r.Content)
-            results[idx] = BatchResult{
-                Request: &r,
-                Result:  result,
-                Error:   err,
-            }
-        }(i, req)
-    }
-    
-    wg.Wait()
-    return results
-}
+func processBatch(ctx context.Context, p providers.Provider, prompts []string, maxConcurrent int) []BatchResult {
+	results := make([]BatchResult, len(prompts))
+	sem := make(chan struct{}, maxConcurrent)
+	var wg sync.WaitGroup
 
-// Usage
-requests := []BatchRequest{
-    {SessionID: "user-1", Role: "user", Content: "Hello"},
-    {SessionID: "user-2", Role: "user", Content: "Hi there"},
-    {SessionID: "user-3", Role: "user", Content: "Good morning"},
-}
+	for i, prompt := range prompts {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
-results := processBatch(pipe, ctx, requests, 3)  // Process 3 at a time
-for _, r := range results {
-    if r.Error != nil {
-        fmt.Printf("Error for %s: %v\n", r.Request.SessionID, r.Error)
-    } else {
-        fmt.Printf("%s: %s\n", r.Request.SessionID, r.Result.Response.Content)
-    }
+			reply, err := ask(ctx, p, prompt)
+			results[i] = BatchResult{Prompt: prompt, Reply: reply, Err: err}
+		}()
+	}
+
+	wg.Wait()
+	return results
 }
 ```
 
-## Performance Tips
+`processBatch` limits parallel requests with a semaphore channel, and each result lands at the index of its prompt.
 
-### 1. Connection Pooling
+## Step 6: Combine the pieces
 
-Reuse providers across requests:
-
-```go
-// Create once, reuse many times
-provider := openai.NewProvider(...)
-defer provider.Close()
-
-// Use in multiple pipelines or requests
-```
-
-### 2. Context Timeouts
-
-Set appropriate timeouts:
-
-```go
-// Short timeout for simple queries
-ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-
-// Longer timeout for complex tasks
-ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-```
-
-### 3. Token Optimization
-
-Reduce token usage:
-
-```go
-// Trim conversation history
-if len(messages) > 10 {
-    messages = messages[len(messages)-10:]
-}
-
-// Limit output
-config := &middleware.ProviderMiddlewareConfig{
-    MaxTokens: 300,  // Shorter responses
-}
-```
-
-### 4. Model Selection
-
-Use appropriate models:
-
-```go
-// Simple tasks: cheap, fast
-"gpt-4o-mini"
-
-// Complex reasoning: expensive, better
-"gpt-4o"
-
-// Long context: specialized
-"claude-3-5-sonnet-20241022"
-```
-
-## Complete Advanced Example
-
-Combining all patterns:
+Create `main.go`. It answers repeated prompts from the cache, sends new ones through the budgeted pipeline, streams one reply through the buffer and then runs a parallel batch:
 
 ```go
 package main
 
 import (
-    "context"
-    "fmt"
-    "time"
-    
-    "github.com/AltairaLabs/PromptKit/runtime/v2/providers"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"context"
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
 )
 
 func main() {
-    // Response cache
-    cache := NewResponseCache(10 * time.Minute)
+	provider := openai.NewProvider("openai", "gpt-4o-mini", "",
+		providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000}, false)
+	defer provider.Close()
 
-    // Provider with connection pooling
-    provider := openai.NewProvider(
-        "openai",
-        "gpt-4o-mini",
-        "", // uses OPENAI_API_KEY env var
-        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
-        false,
-    )
-    defer provider.Close()
+	cache := NewResponseCache(10 * time.Minute)
+	defer cache.Close()
+	budget := NewBudget(1.00) // USD
 
-    // Wrap with logging and budget
-    budgetProvider := NewBudgetWrapper(provider, 1.0) // $1 budget
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 
-    ctx := context.Background()
+	prompts := []string{"What is AI?", "What is machine learning?", "What is AI?"}
+	for _, prompt := range prompts {
+		if cached, ok := cache.Get(prompt); ok {
+			fmt.Printf("[cache] %s\n%s\n\n", prompt, cached.GetContent())
+			continue
+		}
 
-    // Process with caching
-    prompts := []string{
-        "What is AI?",
-        "What is machine learning?",
-        "What is AI?",  // Cache hit!
-    }
+		reply, err := askWithBudget(ctx, provider, budget, prompt)
+		if err != nil {
+			log.Printf("%s: %v", prompt, err)
+			continue
+		}
+		cache.Set(prompt, reply)
+		fmt.Printf("%s\n%s\n\n", prompt, reply.GetContent())
+	}
 
-    for _, prompt := range prompts {
-        if cached, exists := cache.Get(prompt); exists {
-            fmt.Printf("\n[CACHE] %s\n", prompt)
-            fmt.Printf("Response: %s\n", cached.Content)
-            continue
-        }
+	fmt.Println("[stream]")
+	if err := streamWithBuffer(ctx, provider, "Name three uses of caching."); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println()
 
-        resp, err := budgetProvider.Predict(ctx, providers.PredictionRequest{
-            Messages:    []types.Message{{Role: "user", Content: prompt}},
-            Temperature: 0.7,
-            MaxTokens:   500,
-        })
-        if err != nil {
-            fmt.Printf("Error: %v\n", err)
-            continue
-        }
-
-        fmt.Printf("\nResponse: %s\n", resp.Content)
-    }
+	fmt.Println("[batch]")
+	greetings := []string{"Hello", "Hi there", "Good morning"}
+	for _, r := range processBatch(ctx, provider, greetings, 3) {
+		if r.Err != nil {
+			fmt.Printf("%s: %v\n", r.Prompt, r.Err)
+			continue
+		}
+		fmt.Printf("%s: %s\n", r.Prompt, r.Reply.GetContent())
+	}
 }
 ```
 
-## What You've Learned
+Run it:
 
-✅ Response caching  
-✅ Custom middleware  
-✅ Streaming optimization  
-✅ Provider pooling  
-✅ Parallel processing  
-✅ Performance tuning  
-✅ Production patterns  
+```bash
+go run .
+```
 
-## Congratulations!
+The first two prompts print a reply. The repeated third prompt prints with a `[cache]` prefix, and the log shows one `reply cost` line per request that reached the provider. The `[stream]` section prints a reply in bursts of text instead of word by word. The `[batch]` section prints one line for each of the three greetings, in the order we listed them.
 
-You've completed the Runtime tutorial series! You now know how to build production-ready LLM applications.
+## Next steps
 
-## Next Steps
-
-- Explore [Runtime Reference](/runtime/reference/) for complete API documentation
-- Read [Runtime Explanation](/runtime/explanation/) for architectural concepts
-- Check [Runtime How-To](/runtime/how-to/) for specific tasks
-
-## See Also
-
-- [Pipeline Reference](/runtime/reference/pipeline/) - Complete API
-- [Handle Errors](/runtime/how-to/pipeline/handle-errors/) - Error strategies
-- [Monitor Costs](/runtime/how-to/observability/monitor-costs/) - Cost optimization
+- Continue to [Tutorial 7: A2A client](/runtime/tutorials/07-a2a-client/) to call another agent.
+- The [pipeline reference](/runtime/reference/pipeline/) and the rest of the [runtime reference](/runtime/reference/) list the complete API.
+- The [runtime explanation](/runtime/explanation/) pages cover the architecture.
+- [Handle errors](/runtime/how-to/pipeline/handle-errors/) and [monitor costs](/runtime/how-to/observability/monitor-costs/) go further with the patterns from this tutorial.

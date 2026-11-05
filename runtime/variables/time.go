@@ -13,7 +13,7 @@ type TimeProvider struct {
 	// Defaults to time.RFC3339 if empty.
 	Format string
 
-	// Location specifies the timezone. Defaults to UTC if nil.
+	// Location specifies the timezone. If nil, the process's local time is used.
 	Location *time.Location
 
 	// nowFunc allows injecting a custom time source for testing.
@@ -21,7 +21,7 @@ type TimeProvider struct {
 	nowFunc func() time.Time
 }
 
-// NewTimeProvider creates a TimeProvider with default settings (UTC, RFC3339 format).
+// NewTimeProvider creates a TimeProvider with default settings (local time, RFC3339 format).
 func NewTimeProvider() *TimeProvider {
 	return &TimeProvider{}
 }

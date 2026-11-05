@@ -64,8 +64,10 @@ import (
 
 conv, _ := sdk.Open("./app.pack.json", "chat",
     // Guardrail hooks
-    sdk.WithProviderHook(guardrails.NewBannedWordsHook([]string{"hack", "exploit"})),
-    sdk.WithProviderHook(guardrails.NewLengthHook(2000, 500)),
+    sdk.WithGuardrail(
+        guardrails.Input("banned_words", map[string]any{"words": []any{"hack", "exploit"}}),
+        guardrails.Output("length", map[string]any{"max_characters": 2000}),
+    ),
 
     // Tool and session hooks
     sdk.WithToolHook(myToolAuditHook),

@@ -237,7 +237,7 @@ This inserts an input RecordingStage (after template assembly) and an output Rec
 ```go
 // NewRecordingStage takes an EventStore, not an EventBus — recording bypasses
 // the bus entirely.
-pipeline := stage.NewPipelineBuilder().
+pipeline, err := stage.NewPipelineBuilder().
     Chain(
         stage.NewRecordingStage(eventStore, stage.RecordingStageConfig{Position: "input"}),
         stage.NewProviderStage(provider, tools, policy, config),

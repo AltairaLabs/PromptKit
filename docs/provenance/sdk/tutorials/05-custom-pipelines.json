@@ -1,0 +1,118 @@
+{
+ "page": "docs/src/content/docs/sdk/tutorials/05-custom-pipelines.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Pack with template_engine, tools, prompts.refund_agent.tools opens with sdk.Open",
+   "verdict": "true",
+   "evidence": [
+    "sdk/examples/hitl/hitl.pack.json:11"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "OnToolAsync takes a check func returning tools.PendingResult and an execute func; non-empty holds, empty runs at once",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:171",
+    "sdk/tools/pending.go:52",
+    "sdk/tools/pending.go:63"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Execute function return value is the tool result the model sees",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:173",
+    "sdk/conversation_tools.go:291"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Step 2 program compiles and runs against a mock provider with the shown output",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:235",
+    "sdk/conversation_tools.go:305",
+    "sdk/conversation_tools.go:334"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "resp.PendingTools() returns pending tools with ID, Name, Reason, Message",
+   "verdict": "true",
+   "evidence": [
+    "sdk/response.go:196",
+    "sdk/response.go:201"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "conv.ResolveTool(ctx, id) returns a resolution with Result",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:235",
+    "sdk/tools/pending.go:146"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "conv.RejectTool(ctx, id, reason) returns a resolution with RejectionReason",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:305",
+    "sdk/tools/pending.go:162"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Continue(ctx) sends the outcomes to the model and returns the final reply",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:334",
+    "sdk/conversation_tools.go:350"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Over the threshold Send returns the call as pending; ResolveTool runs the execute function",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:235",
+    "sdk/conversation_tools.go:291"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "RejectTool records the rejection without running the execute function; Continue reports it",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:305"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "An empty PendingResult runs the tool inside Send",
+   "verdict": "true",
+   "evidence": [
+    "sdk/tools/pending.go:63"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "register-tools Async Tools (HITL) section covers ResolveToolWithArgs, HTTP endpoint and durable store",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 13,
+   "claim": "sdk/examples/hitl/ is the full example",
+   "verdict": "true",
+   "evidence": [
+    "sdk/examples/hitl/main_interactive.go:35"
+   ]
+  }
+ ]
+}

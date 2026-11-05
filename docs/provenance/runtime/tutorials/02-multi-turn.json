@@ -1,0 +1,163 @@
+{
+ "page": "docs/src/content/docs/runtime/tutorials/02-multi-turn.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "StateStoreLoadStage loads saved history and emits it before the new message",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_core.go:166"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "stage.NewStateStoreLoadStage(*pipeline.StateStoreConfig)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_core.go:166"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "pipeline.StateStoreConfig has Store and ConversationID",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/types.go:175"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "statestore.NewMemoryStore() constructs an in-memory store that is lost when the process exits",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/memory.go:170"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: ...}) saves new messages",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_save.go:23",
+    "runtime/pipeline/stage/stages_save.go:60"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "stage.NewContextBuilderStage(&ContextBuilderPolicy{TokenBudget, ReserveForOutput, Strategy})",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:655",
+    "runtime/pipeline/stage/stages_utilities.go:716"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "stage.TruncateOldest drops the oldest messages when the budget is exceeded",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:599"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "available history = TokenBudget - ReserveForOutput (7,500 for 8000/500)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:683"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "TokenBudget 800 with ReserveForOutput 500 truncates after a few long turns; store keeps every message",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:655"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "last message in result.Messages is this turn's assistant reply with CostInfo for the turn",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:585"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "result.CostInfo.TotalCost is the conversation total across history",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:585"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "a restart with the memory store starts without history",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/memory.go:170"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "statestore.NewRedisStore(*redis.Client) with go-redis v9",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/redis.go:77"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "go get github.com/redis/go-redis/v9",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 15,
+   "claim": "Redis store persists history across restarts; different SESSION_ID is a separate conversation",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/redis.go:290"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "docker run -d -p 6379:6379 redis starts Redis on 6379",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 17,
+   "claim": "the program compiles with openai provider as written",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/openai/openai.go:199"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "Redis variant compiles with the documented replacement",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/redis.go:77"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "Tutorial 3 exists at /runtime/tutorials/03-mcp-integration/",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 20,
+   "claim": "diagram: load -> context builder -> provider -> save; load and save use statestore.Store",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_core.go:166",
+    "runtime/pipeline/stage/stages_save.go:60"
+   ]
+  }
+ ]
+}

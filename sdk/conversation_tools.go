@@ -150,15 +150,15 @@ func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 // Use this for Human-in-the-Loop (HITL) workflows where certain actions
 // require human approval before proceeding:
 //
-//	conv.OnToolAsync("process_refund", func(args map[string]any) sdk.PendingResult {
+//	conv.OnToolAsync("process_refund", func(args map[string]any) tools.PendingResult {
 //	    amount := args["amount"].(float64)
 //	    if amount > 1000 {
-//	        return sdk.PendingResult{
+//	        return tools.PendingResult{
 //	            Reason:  "high_value_refund",
 //	            Message: fmt.Sprintf("Refund of $%.2f requires approval", amount),
 //	        }
 //	    }
-//	    return sdk.PendingResult{} // Proceed immediately
+//	    return tools.PendingResult{} // Proceed immediately
 //	}, func(args map[string]any) (any, error) {
 //	    // Execute the actual refund
 //	    return refundAPI.Process(args)
@@ -328,7 +328,7 @@ func (c *Conversation) RejectTool(ctx context.Context, id, reason string) (*sdkt
 //
 //	resp, _ := conv.Send(ctx, "Process refund")
 //	for _, pending := range resp.PendingTools() {
-//	    conv.ResolveTool(pending.ID)
+//	    conv.ResolveTool(ctx, pending.ID)
 //	}
 //	resp, _ = conv.Continue(ctx) // LLM receives tool results
 func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
@@ -404,7 +404,7 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 //	for chunk := range conv.Response() {
 //	    if len(chunk.PendingTools) > 0 {
 //	        for _, pt := range chunk.PendingTools {
-//	            conv.ResolveTool(pt.CallID) // or RejectTool
+//	            conv.ResolveTool(ctx, pt.CallID) // or RejectTool
 //	        }
 //	        conv.ContinueDuplex(ctx)
 //	    }

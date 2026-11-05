@@ -1,439 +1,379 @@
 ---
-title: 'Tutorial 5: Production Deployment'
+title: 'Tutorial 5: Production deployment'
+description: Build an HTTP chat server with provider fallback, guardrail hooks, persisted conversations, cost metrics and graceful shutdown.
 sidebar:
   order: 5
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/evals/handlers/register.go
+    - runtime/hooks/guardrails/adapter.go
+    - runtime/hooks/guardrails/factory.go
+    - runtime/pipeline/stage/builder.go
+    - runtime/pipeline/stage/pipeline.go
+    - runtime/pipeline/stage/stages_context.go
+    - runtime/pipeline/stage/stages_core.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/stages_save.go
+    - runtime/pipeline/types.go
+    - runtime/providers/base_provider.go
+    - runtime/providers/claude/claude.go
+    - runtime/providers/claude/pricing_table.go
+    - runtime/providers/openai/openai.go
+    - runtime/providers/openai/pricing_table.go
+    - runtime/providers/retry.go
+    - runtime/statestore/memory.go
+    - runtime/types/message.go
 ---
-Build production-ready LLM applications with proper error handling, monitoring, and scalability.
+## What we will build
 
-**Time**: 40 minutes  
-**Level**: Advanced
+In this tutorial we build an HTTP server with a `/chat` endpoint, `/health` and `/metrics` endpoints, guardrails on every reply, conversation history in a state store, and fallback from OpenAI to Claude.
 
-## What You'll Build
-
-A production-ready API server with error handling, monitoring, cost tracking, and multiple providers.
-
-## What You'll Learn
-
-- Error handling strategies
-- Multi-provider fallback
-- Cost monitoring
-- Logging and metrics
-- Health checks
-- Graceful shutdown
+```mermaid
+flowchart LR
+    Client -->|POST /chat| Server["Server.Execute"]
+    Server --> Load["StateStoreLoadStage"]
+    Load --> Provider["ProviderStage + guardrail hooks"]
+    Provider --> Save["IncrementalSaveStage"]
+    Server -.->|provider failed: next provider| Load
+```
 
 ## Prerequisites
 
 - Completed [Tutorial 1](/runtime/tutorials/01-first-pipeline/)
-- Multiple LLM API keys (OpenAI, Claude recommended)
+- An OpenAI API key and an Anthropic API key
 
-## Production Architecture
+## Step 1: Set up the project
 
-```d2
-direction: down
-
-server: HTTP Server
-validation: Request Validation
-pipeline: Pipeline (with fallback providers) {
-  state: State Middleware (Redis)
-  valid: Validation Middleware
-  provider: Provider Middleware
-}
-response: Response + Metrics
-
-server -> validation -> pipeline -> response
+```bash
+mkdir chat-server && cd chat-server
+go mod init chat-server
+go get github.com/AltairaLabs/PromptKit/runtime/v2@latest
+export OPENAI_API_KEY="sk-..."
+export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
-## Step 1: Production Pipeline
+## Step 2: Track metrics
+
+We create `main.go` with the imports for the whole server and a small metrics type. The server records every attempt, so a failed provider shows up in the error count.
 
 ```go
 package main
 
 import (
-    "context"
-    "encoding/json"
-    "fmt"
-    "log"
-    "net/http"
-    "os"
-    "os/signal"
-    "sync"
-    "sync/atomic"
-    "syscall"
-    "time"
-    
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/middleware"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/anthropic"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/types"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/claude"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-type Server struct {
-    pipes         []pipeline.Pipeline
-    store         statestore.Store
-    metrics       *Metrics
-    currentPipe   int32
-}
-
 type Metrics struct {
-    mu           sync.Mutex
-    totalReqs    int64
-    totalErrors  int64
-    totalCost    float64
-    providerUse  map[string]int64
+	mu          sync.Mutex
+	requests    int
+	errors      int
+	totalCost   float64
+	providerUse map[string]int
 }
 
-func (m *Metrics) RecordRequest(provider string, cost float64, err error) {
-    atomic.AddInt64(&m.totalReqs, 1)
-    
-    if err != nil {
-        atomic.AddInt64(&m.totalErrors, 1)
-    }
-    
-    m.mu.Lock()
-    m.totalCost += cost
-    m.providerUse[provider]++
-    m.mu.Unlock()
+func (m *Metrics) Record(provider string, cost float64, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.requests++
+	if err != nil {
+		m.errors++
+	}
+	m.totalCost += cost
+	m.providerUse[provider]++
 }
 
-func (m *Metrics) Report() map[string]interface{} {
-    m.mu.Lock()
-    defer m.mu.Unlock()
-    
-    return map[string]interface{}{
-        "total_requests": atomic.LoadInt64(&m.totalReqs),
-        "total_errors":   atomic.LoadInt64(&m.totalErrors),
-        "total_cost":     fmt.Sprintf("$%.4f", m.totalCost),
-        "provider_usage": m.providerUse,
-        "error_rate":     float64(atomic.LoadInt64(&m.totalErrors)) / float64(atomic.LoadInt64(&m.totalReqs)),
-    }
-}
-
-func NewServer() (*Server, error) {
-    // Create state store
-    var store statestore.Store
-    redisClient := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
-    if err := redisClient.Ping(context.Background()).Err(); err != nil {
-        log.Printf("Redis unavailable, using in-memory: %v", err)
-        store = statestore.NewMemoryStore()
-    } else {
-        store = statestore.NewRedisStore(redisClient)
-    }
-    
-    // Create providers
-    openaiProvider := openai.NewProvider(
-        "openai",
-        "gpt-4o-mini",
-        "", // uses OPENAI_API_KEY env var
-        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
-        false,
-    )
-    
-    claudeProvider := anthropic.NewProvider(
-        "claude",
-        "claude-3-5-haiku-20241022",
-        "", // uses ANTHROPIC_API_KEY env var
-        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 4096},
-        false,
-    )
-    
-    // Guardrail hooks
-    hookRegistry := hooks.NewRegistry(
-        hooks.WithProviderHook(guardrails.NewBannedWordsHook([]string{"spam", "hack"})),
-        hooks.WithProviderHook(guardrails.NewLengthHook(2000, 500)),
-    )
-
-    // Pipeline config
-    config := &middleware.ProviderMiddlewareConfig{
-        MaxTokens:   1000,
-        Temperature: 0.7,
-    }
-
-    // Create pipelines for each provider
-    openaiPipe := pipeline.NewPipeline(
-        middleware.StateMiddleware(store),
-        middleware.ProviderMiddleware(openaiProvider, nil, hookRegistry, config),
-    )
-    
-    claudePipe := pipeline.NewPipeline(
-        middleware.StateMiddleware(store),
-        middleware.ProviderMiddleware(claudeProvider, nil, hookRegistry, config),
-    )
-    
-    return &Server{
-        pipes: []pipeline.Pipeline{openaiPipe, claudePipe},
-        store: store,
-        metrics: &Metrics{
-            providerUse: make(map[string]int64),
-        },
-    }, nil
-}
-
-func (s *Server) Execute(ctx context.Context, sessionID, role, content string) (*pipeline.PipelineResult, error) {
-    var lastErr error
-    
-    // Try each provider
-    for i := 0; i < len(s.pipes); i++ {
-        pipeIdx := int(atomic.LoadInt32(&s.currentPipe)) % len(s.pipes)
-        pipe := s.pipes[pipeIdx]
-        
-        result, err := pipe.ExecuteWithContext(ctx, sessionID, role, content)
-        
-        providerName := fmt.Sprintf("provider_%d", pipeIdx)
-        if result != nil {
-            s.metrics.RecordRequest(providerName, result.Cost.TotalCost, err)
-        } else {
-            s.metrics.RecordRequest(providerName, 0, err)
-        }
-        
-        if err == nil {
-            atomic.StoreInt32(&s.currentPipe, int32(pipeIdx))
-            return result, nil
-        }
-        
-        lastErr = err
-        log.Printf("Provider %d failed: %v", pipeIdx, err)
-        atomic.StoreInt32(&s.currentPipe, int32((pipeIdx+1)%len(s.pipes)))
-    }
-    
-    return nil, fmt.Errorf("all providers failed: %w", lastErr)
-}
-
-func (s *Server) Close() {
-    ctx := context.Background()
-    for _, pipe := range s.pipes {
-        pipe.Shutdown(ctx)
-    }
-    // Store does not need closing; Redis client manages its own connections
-}
-
-type ChatRequest struct {
-    SessionID string `json:"session_id"`
-    Message   string `json:"message"`
-}
-
-type ChatResponse struct {
-    Response string  `json:"response"`
-    Tokens   int     `json:"tokens"`
-    Cost     float64 `json:"cost"`
-}
-
-func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
-    if r.Method != http.MethodPost {
-        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-        return
-    }
-    
-    var req ChatRequest
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        http.Error(w, "Invalid request", http.StatusBadRequest)
-        return
-    }
-    
-    if req.SessionID == "" || req.Message == "" {
-        http.Error(w, "session_id and message required", http.StatusBadRequest)
-        return
-    }
-    
-    ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-    defer cancel()
-    
-    result, err := s.Execute(ctx, req.SessionID, "user", req.Message)
-    if err != nil {
-        log.Printf("Request failed: %v", err)
-        http.Error(w, "Request failed", http.StatusInternalServerError)
-        return
-    }
-    
-    resp := ChatResponse{
-        Response: result.Response.Content,
-        Tokens:   result.Response.Usage.TotalTokens,
-        Cost:     result.Cost.TotalCost,
-    }
-    
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(resp)
-}
-
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-}
-
-func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(s.metrics.Report())
-}
-
-func main() {
-    server, err := NewServer()
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer server.Close()
-    
-    http.HandleFunc("/chat", server.handleChat)
-    http.HandleFunc("/health", server.handleHealth)
-    http.HandleFunc("/metrics", server.handleMetrics)
-    
-    httpServer := &http.Server{
-        Addr:         ":8080",
-        ReadTimeout:  10 * time.Second,
-        WriteTimeout: 60 * time.Second,
-    }
-    
-    // Graceful shutdown
-    stop := make(chan os.Signal, 1)
-    signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-    
-    go func() {
-        log.Println("Server starting on :8080")
-        if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-            log.Fatal(err)
-        }
-    }()
-    
-    <-stop
-    log.Println("Shutting down gracefully...")
-    
-    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-    defer cancel()
-    
-    if err := httpServer.Shutdown(ctx); err != nil {
-        log.Printf("Shutdown error: %v", err)
-    }
-    
-    log.Println("Server stopped")
+func (m *Metrics) Report() map[string]any {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return map[string]any{
+		"requests":       m.requests,
+		"errors":         m.errors,
+		"total_cost_usd": m.totalCost,
+		"provider_usage": m.providerUse,
+	}
 }
 ```
 
-## Step 2: Test the API
+## Step 3: Create the server
 
-Start the server:
+In `NewServer` we build two guardrail hooks, two providers and an in-memory state store. An empty base URL selects the provider's default endpoint, and each provider reads its API key from the environment. The `banned_words` hook replaces a reply that contains a listed word with a policy message, and the `length` hook truncates a reply at 2,000 characters.
+
+```go
+type Server struct {
+	providers []providers.Provider
+	store     *statestore.MemoryStore
+	hooks     *hooks.Registry
+	metrics   *Metrics
+}
+
+func NewServer() (*Server, error) {
+	banned, err := guardrails.NewGuardrailHook("banned_words", map[string]any{
+		"words": []string{"spam", "hack"},
+	})
+	if err != nil {
+		return nil, err
+	}
+	length, err := guardrails.NewGuardrailHook("length", map[string]any{
+		"max_characters": 2000,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &Server{
+		providers: []providers.Provider{
+			openai.NewProvider("openai", "gpt-4o-mini", "",
+				providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000}, false),
+			claude.NewProvider("claude", "claude-haiku-4-5", "",
+				providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000}, false),
+		},
+		store: statestore.NewMemoryStore(),
+		hooks: hooks.NewRegistry(
+			hooks.WithProviderHook(banned),
+			hooks.WithProviderHook(length),
+		),
+		metrics: &Metrics{providerUse: map[string]int{}},
+	}, nil
+}
+
+func (s *Server) Close() {
+	for _, p := range s.providers {
+		_ = p.Close()
+	}
+	s.store.Close()
+}
+```
+
+## Step 4: Run a request through a pipeline
+
+In `run` we build a pipeline for one conversation: it loads history, calls the provider with the hooks attached, and saves the new messages. The state store config names the conversation, so the pipeline is built per request.
+
+```go
+// run sends one user message through a pipeline backed by provider p and
+// returns the assistant message.
+func (s *Server) run(ctx context.Context, p providers.Provider, sessionID, content string) (*types.Message, error) {
+	state := &pipeline.StateStoreConfig{Store: s.store, ConversationID: sessionID}
+
+	pipe, err := stage.NewPipelineBuilder().
+		Chain(
+			stage.NewStateStoreLoadStage(state),
+			stage.NewProviderStageWithHooks(p, nil, nil,
+				&stage.ProviderConfig{MaxTokens: 1000}, nil, s.hooks),
+			stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: state}),
+		).
+		Build()
+	if err != nil {
+		return nil, err
+	}
+	defer pipe.Shutdown(context.Background())
+
+	input := make(chan stage.StreamElement, 1)
+	input <- stage.NewMessageElement(&types.Message{Role: "user", Content: content})
+	close(input)
+
+	output, err := pipe.Execute(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	var reply *types.Message
+	for elem := range output {
+		if elem.Error != nil {
+			err = elem.Error
+		}
+		if elem.Message != nil && elem.Message.Role == "assistant" && !elem.Meta.FromHistory {
+			reply = elem.Message
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if reply == nil {
+		return nil, errors.New("pipeline produced no reply")
+	}
+	return reply, nil
+}
+```
+
+Each provider retries transient failures such as `429` and `503` itself. `Execute` moves to the next provider only when a provider returns an error after its retries.
+
+```go
+// Execute tries each provider in order until one succeeds.
+func (s *Server) Execute(ctx context.Context, sessionID, content string) (*types.Message, error) {
+	var lastErr error
+	for _, p := range s.providers {
+		reply, err := s.run(ctx, p, sessionID, content)
+		cost := 0.0
+		if reply != nil && reply.CostInfo != nil {
+			cost = reply.CostInfo.TotalCost
+		}
+		s.metrics.Record(p.ID(), cost, err)
+		if err == nil {
+			return reply, nil
+		}
+		lastErr = err
+		log.Printf("provider %s failed: %v", p.ID(), err)
+	}
+	return nil, fmt.Errorf("all providers failed: %w", lastErr)
+}
+```
+
+## Step 5: Add the HTTP handlers
+
+```go
+type ChatRequest struct {
+	SessionID string `json:"session_id"`
+	Message   string `json:"message"`
+}
+
+type ChatResponse struct {
+	Response string  `json:"response"`
+	Cost     float64 `json:"cost_usd"`
+}
+
+func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req ChatRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.SessionID == "" || req.Message == "" {
+		http.Error(w, "session_id and message required", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	reply, err := s.Execute(ctx, req.SessionID, req.Message)
+	if err != nil {
+		log.Printf("request failed: %v", err)
+		http.Error(w, "request failed", http.StatusInternalServerError)
+		return
+	}
+
+	resp := ChatResponse{Response: reply.GetContent()}
+	if reply.CostInfo != nil {
+		resp.Cost = reply.CostInfo.TotalCost
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(s.metrics.Report())
+}
+```
+
+## Step 6: Serve and shut down gracefully
+
+`main` serves the three routes and, on `SIGINT` or `SIGTERM`, gives in-flight requests 30 seconds to finish.
+
+```go
+func main() {
+	server, err := NewServer()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer server.Close()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/chat", server.handleChat)
+	mux.HandleFunc("/health", server.handleHealth)
+	mux.HandleFunc("/metrics", server.handleMetrics)
+
+	httpServer := &http.Server{
+		Addr:         ":8080",
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 60 * time.Second,
+	}
+
+	go func() {
+		log.Println("server starting on :8080")
+		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal(err)
+		}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	<-stop
+	log.Println("shutting down")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := httpServer.Shutdown(ctx); err != nil {
+		log.Printf("shutdown error: %v", err)
+	}
+}
+```
+
+Run `go build`. The command prints nothing when the server compiles.
+
+## Step 7: Try it
+
+We start the server:
 
 ```bash
 go run main.go
 ```
 
-Send requests:
+In another terminal, we send a request and check the health and metrics endpoints:
 
 ```bash
-# Chat
 curl -X POST http://localhost:8080/chat \
   -H "Content-Type: application/json" \
   -d '{"session_id": "user-1", "message": "Hello!"}'
 
-# Health check
 curl http://localhost:8080/health
 
-# Metrics
 curl http://localhost:8080/metrics
 ```
 
-## Production Patterns
+The chat call returns the reply and its cost. The health call returns `{"status":"ok"}`. The metrics call reports one request served by `openai`. The cost varies with the length of the reply:
 
-### 1. Retry with Exponential Backoff
-
-```go
-func executeWithRetry(pipe *pipeline.Pipeline, ctx context.Context, sessionID, role, content string, maxRetries int) (*pipeline.PipelineResult, error) {
-    for i := 0; i < maxRetries; i++ {
-        result, err := pipe.ExecuteWithContext(ctx, sessionID, role, content)
-        if err == nil {
-            return result, nil
-        }
-        
-        if !isRetryable(err) {
-            return nil, err
-        }
-        
-        backoff := time.Duration(1<<uint(i)) * time.Second
-        time.Sleep(backoff)
-    }
-    
-    return nil, fmt.Errorf("failed after %d retries", maxRetries)
-}
-
-func isRetryable(err error) bool {
-    errStr := err.Error()
-    return strings.Contains(errStr, "rate_limit") ||
-           strings.Contains(errStr, "timeout") ||
-           strings.Contains(errStr, "503")
-}
+```json
+{"errors":0,"provider_usage":{"openai":1},"requests":1,"total_cost_usd":0.000041}
 ```
 
-### 2. Circuit Breaker
+We send a second message with the same `session_id`. The model sees the first exchange because the pipeline loads it from the state store.
 
-```go
-type CircuitBreaker struct {
-    failures    int32
-    maxFailures int32
-    timeout     time.Duration
-    lastFailure time.Time
-    mu          sync.Mutex
-}
+## Next steps
 
-func (cb *CircuitBreaker) Call(fn func() error) error {
-    cb.mu.Lock()
-    failures := atomic.LoadInt32(&cb.failures)
-    
-    if failures >= cb.maxFailures {
-        if time.Since(cb.lastFailure) < cb.timeout {
-            cb.mu.Unlock()
-            return fmt.Errorf("circuit breaker open")
-        }
-        atomic.StoreInt32(&cb.failures, 0)
-    }
-    cb.mu.Unlock()
-    
-    err := fn()
-    if err != nil {
-        atomic.AddInt32(&cb.failures, 1)
-        cb.mu.Lock()
-        cb.lastFailure = time.Now()
-        cb.mu.Unlock()
-    } else {
-        atomic.StoreInt32(&cb.failures, 0)
-    }
-    
-    return err
-}
-```
-
-### 3. Rate Limiting
-
-```go
-import "golang.org/x/time/rate"
-
-limiter := rate.NewLimiter(rate.Limit(10), 1)  // 10 req/sec
-
-func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
-    if !limiter.Allow() {
-        http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
-        return
-    }
-    
-    // Process request...
-}
-```
-
-## What You've Learned
-
-✅ Error handling strategies  
-✅ Multi-provider fallback  
-✅ Cost monitoring  
-✅ Logging and metrics  
-✅ Health checks  
-✅ Graceful shutdown  
-✅ Production API patterns  
-
-## Next Steps
-
-Continue to [Tutorial 6: Advanced Patterns](/runtime/tutorials/06-advanced-patterns/) for optimization techniques.
-
-## See Also
-
-- [Handle Errors](/runtime/how-to/pipeline/handle-errors/) - Error strategies
-- [Monitor Costs](/runtime/how-to/observability/monitor-costs/) - Cost tracking
+- Continue to [Tutorial 6: Advanced patterns](/runtime/tutorials/06-advanced-patterns/).
+- [Handle errors](/runtime/how-to/pipeline/handle-errors/)
+- [Monitor costs](/runtime/how-to/observability/monitor-costs/)
+- [Manage state](/runtime/how-to/state/manage-state/)

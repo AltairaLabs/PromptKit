@@ -1,0 +1,119 @@
+{
+ "page": "docs/src/content/docs/sdk/tutorials/09-variable-providers.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "WithVariableProvider registers a variables.Provider; pipeline calls every provider on each Send before rendering",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:371",
+    "runtime/variables/provider.go:16",
+    "sdk/options.go:2486"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "NewTimeProvider supplies current_time/date/year/month/weekday/hour",
+   "verdict": "true",
+   "evidence": [
+    "runtime/variables/time.go:25",
+    "runtime/variables/time.go:52"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Step 1 program compiles and renders the date into the system prompt (mock echo)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/variables/time.go:64"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "NewStateProvider turns conversation state metadata into variables",
+   "verdict": "true",
+   "evidence": [
+    "runtime/variables/state.go:38",
+    "runtime/variables/state.go:67"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "statestore.NewMemoryStore / Save(ConversationState{ID, Metadata})",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/memory.go:170",
+    "runtime/statestore/types.go:20"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "WithStateStore and WithConversationID options",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:943",
+    "sdk/options.go:992"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "{{plan}} renders as premium (verified with mock echo)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/variables/state.go:99"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Provider has Name() and Provide(ctx)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/variables/provider.go:16"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "RequestVars reads per-send values bound by WithJSONInput",
+   "verdict": "true",
+   "evidence": [
+    "runtime/variables/request.go:26",
+    "sdk/json_input.go:79",
+    "sdk/json_input.go:94"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "WithJSONInput binds top-level fields as per-send variables",
+   "verdict": "true",
+   "evidence": [
+    "sdk/json_input.go:32",
+    "sdk/json_input.go:46"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "WithRequestVars puts per-send values on a context",
+   "verdict": "true",
+   "evidence": [
+    "runtime/variables/request.go:18"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "Test compiles and passes",
+   "verdict": "true",
+   "evidence": [
+    "runtime/variables/request.go:18"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "Variables reference lists built-in providers including Chain",
+   "verdict": "true",
+   "evidence": [
+    "runtime/variables/chain.go:18"
+   ]
+  }
+ ]
+}

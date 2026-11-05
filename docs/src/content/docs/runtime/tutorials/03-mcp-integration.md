@@ -1,406 +1,369 @@
 ---
-title: 'Tutorial 3: MCP Integration'
+title: 'Tutorial 3: MCP integration'
+description: Give a stage-pipeline chatbot file tools by connecting an MCP server through the runtime's MCP registry and tool executor.
 sidebar:
   order: 3
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/mcp/registry.go
+    - runtime/mcp/types.go
+    - runtime/pipeline/stage/stages_core.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/stages_save.go
+    - runtime/pipeline/types.go
+    - runtime/tools/mcp_executor.go
+    - runtime/tools/registry.go
+    - sdk/mcp_tool_sync.go
 ---
-Add external tools to your LLM application via Model Context Protocol.
+## What we will build
 
-**Time**: 30 minutes  
-**Level**: Intermediate
+In this tutorial we build a command-line chatbot that reads and lists files through a Model Context Protocol (MCP) server, on the pipeline from Tutorial 2. The runtime starts an MCP server, registers its tools, and lets the model call them.
 
-## What You'll Build
-
-A chatbot that can read and manipulate files using MCP filesystem tools.
-
-## What You'll Learn
-
-- Set up MCP servers
-- Register external tools
-- Enable automatic tool calling
-- Handle tool execution
-- Build tool-enabled agents
+```mermaid
+flowchart LR
+    in["user message"] --> load["StateStoreLoadStage"]
+    load --> prov["ProviderStage"]
+    prov <--> exec["tools.MCPExecutor"]
+    exec <--> mcp["mcp.Registry"]
+    mcp <--> srv["MCP server (npx)"]
+    prov --> save["IncrementalSaveStage"]
+```
 
 ## Prerequisites
 
-- Completed [Tutorial 2](/runtime/tutorials/02-multi-turn/)
-- Node.js (for MCP servers)
+- Completed [Tutorial 2](/runtime/tutorials/02-multi-turn/), with `OPENAI_API_KEY` still set
+- Node.js, which provides `npx` to start the MCP server
 
-## Step 1: Install MCP Filesystem Server
+## Step 1: Create a test directory
 
-The filesystem server provides file operations as tools:
+In the Tutorial 2 module, create a directory the MCP server may access, with two files:
 
 ```bash
-# Test the MCP server
-npx -y @modelcontextprotocol/server-filesystem /tmp/allowed
+mkdir -p allowed
+echo "Hello from file!" > allowed/test.txt
+echo "Shopping: milk, eggs, bread" > allowed/shopping.txt
 ```
 
-This starts an MCP server that can access files in `/tmp/allowed`.
+## Step 2: List the server's tools
 
-## Step 2: Create Tool-Enabled Bot
+Replace `main.go` with a program that starts the filesystem server and prints the tools it offers. `mcp.Registry` starts the server process on first use and `Close` stops it.
 
 ```go
 package main
 
 import (
-    "bufio"
-    "context"
-    "fmt"
-    "log"
-    "os"
-    "strings"
-    
-    "github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/middleware"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"context"
+	"fmt"
+	"log"
+	"path/filepath"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
 )
 
 func main() {
-    // Create MCP registry
-    mcpRegistry := mcp.NewRegistry()
-    defer mcpRegistry.Close()
-    
-    // Register filesystem server
-    err := mcpRegistry.RegisterServer(mcp.ServerConfig{
-        Name:    "filesystem",
-        Command: "npx",
-        Args:    []string{"-y", "@modelcontextprotocol/server-filesystem", "/tmp/allowed"},
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    // Create tool registry
-    toolRegistry := tools.NewRegistry()
-    toolRegistry.RegisterExecutor(tools.NewMCPExecutor(mcpRegistry))
-    
-    // Discover and register MCP tools
-    ctx := context.Background()
-    serverTools, err := mcpRegistry.ListAllTools(ctx)
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    for _, mcpTools := range serverTools {
-        for _, mcpTool := range mcpTools {
-            toolRegistry.Register(&tools.ToolDescriptor{
-                Name:        mcpTool.Name,
-                Description: mcpTool.Description,
-                InputSchema: mcpTool.InputSchema,
-                Mode:        "mcp",
-            })
-            fmt.Printf("Registered tool: %s\n", mcpTool.Name)
-        }
-    }
-    
-    // Create provider
-    provider := openai.NewProvider(
-        "openai",
-        "gpt-4o-mini",
-        "", // uses OPENAI_API_KEY env var
-        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
-        false,
-    )
-    defer provider.Close()
-    
-    // Build pipeline with tools
-    pipe := pipeline.NewPipeline(
-        middleware.ProviderMiddleware(provider, toolRegistry, &pipeline.ToolPolicy{
-            ToolChoice: "auto",
-            MaxRounds:  5,
-        }, &middleware.ProviderMiddlewareConfig{
-            MaxTokens:   1500,
-            Temperature: 0.7,
-        }),
-    )
-    defer pipe.Shutdown(context.Background())
-    
-    // Interactive loop
-    fmt.Println("\nTool-enabled chatbot ready! Type 'exit' to quit.")
-    fmt.Print("\nYou: ")
-    
-    scanner := bufio.NewScanner(os.Stdin)
-    for scanner.Scan() {
-        input := strings.TrimSpace(scanner.Text())
-        
-        if input == "exit" {
-            break
-        }
-        
-        if input == "" {
-            fmt.Print("You: ")
-            continue
-        }
-        
-        result, err := pipe.Execute(ctx, "user", input)
-        if err != nil {
-            log.Printf("Error: %v\n", err)
-            fmt.Print("You: ")
-            continue
-        }
-        
-        fmt.Printf("\nBot: %s\n\n", result.Response.Content)
-        fmt.Print("You: ")
-    }
-    
-    fmt.Println("Goodbye!")
+	ctx := context.Background()
+
+	dir, err := filepath.Abs("allowed")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	mcpReg := mcp.NewRegistry()
+	defer mcpReg.Close()
+
+	err = mcpReg.RegisterServer(mcp.ServerConfig{
+		Name:    "filesystem",
+		Command: "npx",
+		Args:    []string{"-y", "@modelcontextprotocol/server-filesystem", dir},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	serverTools, err := mcpReg.ListAllTools(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for server, list := range serverTools {
+		fmt.Printf("%s: %d tools\n", server, len(list))
+		for _, t := range list {
+			fmt.Printf("  %s\n", t.Name)
+		}
+	}
 }
 ```
 
-## Step 3: Test with Files
-
-Create test directory and files:
+Run it:
 
 ```bash
-mkdir -p /tmp/allowed
-echo "Hello from file!" > /tmp/allowed/test.txt
-echo "Shopping: milk, eggs, bread" > /tmp/allowed/shopping.txt
+go run .
 ```
 
-Run the bot:
+The program prints the server's tools. The order varies between runs:
+
+```text
+filesystem: 16 tools
+  read_file
+  read_text_file
+  read_media_file
+  read_multiple_files
+  write_file
+  append_file
+  edit_file
+  create_directory
+  list_directory
+  list_directory_with_sizes
+  directory_tree
+  move_file
+  copy_file
+  search_files
+  get_file_info
+  list_allowed_directories
+```
+
+## Step 3: Give the tools to the model
+
+The model can call a tool only when the pipeline's tool registry holds it. Replace `main.go` with the chatbot below. It does three things on top of Step 2:
+
+- It registers `tools.NewMCPExecutor`, which sends tool calls to the MCP server.
+- It registers a `ToolDescriptor` with `Mode: "mcp"` for each tool the server lists.
+- It passes the tool registry and a `ToolPolicy` to `stage.NewProviderStage`, so the stage runs up to five tool rounds per message.
+
+```go
+package main
+
+import (
+	"bufio"
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+)
+
+func main() {
+	ctx := context.Background()
+
+	dir, err := filepath.Abs("allowed")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Start the MCP server and list its tools.
+	mcpReg := mcp.NewRegistry()
+	defer mcpReg.Close()
+
+	err = mcpReg.RegisterServer(mcp.ServerConfig{
+		Name:    "filesystem",
+		Command: "npx",
+		Args:    []string{"-y", "@modelcontextprotocol/server-filesystem", dir},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	serverTools, err := mcpReg.ListAllTools(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Make each MCP tool callable from the pipeline.
+	toolReg := tools.NewRegistry()
+	toolReg.RegisterExecutor(tools.NewMCPExecutor(mcpReg))
+	registered := 0
+	for _, list := range serverTools {
+		for _, t := range list {
+			err := toolReg.Register(&tools.ToolDescriptor{
+				Name:        t.Name,
+				Description: t.Description,
+				InputSchema: t.InputSchema,
+				Mode:        "mcp",
+			})
+			if err != nil {
+				log.Fatal(err)
+			}
+			registered++
+		}
+	}
+	fmt.Printf("Registered %d MCP tools\n", registered)
+
+	provider := openai.NewProvider(
+		"openai",
+		"gpt-4o-mini",
+		"",
+		providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
+		false,
+	)
+	defer provider.Close()
+
+	store := statestore.NewMemoryStore()
+	storeConfig := &pipeline.StateStoreConfig{Store: store, ConversationID: "files"}
+
+	pipe, err := stage.NewPipelineBuilder().
+		Chain(
+			stage.NewStateStoreLoadStage(storeConfig),
+			stage.NewProviderStage(provider, toolReg,
+				&pipeline.ToolPolicy{ToolChoice: "auto", MaxRounds: 5},
+				&stage.ProviderConfig{MaxTokens: 1500, Temperature: 0.7},
+			),
+			stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: storeConfig}),
+		).
+		Build()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer pipe.Shutdown(ctx)
+
+	fmt.Printf("Allowed directory: %s\nType 'exit' to quit.\n\nYou: ", dir)
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		input := strings.TrimSpace(scanner.Text())
+		if input == "exit" {
+			break
+		}
+		if input == "" {
+			fmt.Print("You: ")
+			continue
+		}
+
+		msg := &types.Message{Role: "user", Content: input}
+		result, err := pipe.ExecuteSync(ctx, stage.NewMessageElement(msg))
+		if err != nil {
+			log.Printf("Error: %v", err)
+			fmt.Print("You: ")
+			continue
+		}
+		fmt.Printf("\nBot: %s\n\nYou: ", result.Response.Content)
+	}
+}
+```
+
+## Step 4: Run the bot
 
 ```bash
-go run main.go
+go run .
 ```
 
-Try these prompts:
+The program prints how many tools it registered and the absolute path of the allowed directory. Include that path in your prompts. The replies vary, but the model typically calls a file tool for each request:
 
-```
-You: Read the file /tmp/allowed/test.txt
+```text
+Registered 16 MCP tools
+Allowed directory: <dir>
+Type 'exit' to quit.
+
+You: Read the file <dir>/test.txt
+
 Bot: The file contains: "Hello from file!"
 
-You: List all files in /tmp/allowed
+You: List all files in <dir>
+
 Bot: There are 2 files: test.txt and shopping.txt
 
-You: What's in my shopping list?
-Bot: Your shopping list contains: milk, eggs, and bread
+You: Create a file called notes.txt in <dir> containing "Meeting at 3pm"
 
-You: Create a new file called notes.txt with "Meeting at 3pm"
-Bot: I've created notes.txt with your message.
+Bot: I created notes.txt with your message.
 ```
 
-The LLM automatically uses tools to complete tasks! 🎉
+The model chooses to call the MCP tools, and the pipeline executes them and returns the results to the model. Check `allowed/notes.txt` to see the file the bot created.
 
-## Understanding Tool Calling
+## Step 5: Restrict the tools
 
-### How Tools Work
+The MCP server offers every tool it has, and the registry lists them all. `mcp.ServerConfig` has a `ToolFilter` and a `TimeoutMs`. The registry does not apply the filter, so you apply it when you register tools.
 
-1. **Registration**: Tools are registered with descriptions
-2. **LLM Decision**: LLM decides when to use tools
-3. **Execution**: Runtime executes tool calls
-4. **Response**: LLM sees results and responds to user
-
-### Tool Policy
+In `main.go`, replace the `RegisterServer` call with a server configuration that allows only the read and list tools:
 
 ```go
-policy := &pipeline.ToolPolicy{
-    ToolChoice: "auto",    // "auto", "required", "none"
-    MaxRounds:  5,         // Max back-and-forth with tools
+server := mcp.ServerConfig{
+	Name:       "filesystem",
+	Command:    "npx",
+	Args:       []string{"-y", "@modelcontextprotocol/server-filesystem", dir},
+	TimeoutMs:  10000,
+	ToolFilter: &mcp.ToolFilter{Allowlist: []string{"read_*", "list_*"}},
+}
+if err := mcpReg.RegisterServer(server); err != nil {
+	log.Fatal(err)
 }
 ```
 
-- `auto`: LLM chooses when to use tools
-- `required`: LLM must use at least one tool
-- `none`: Tools disabled
-
-### Available Filesystem Tools
-
-- `read_file`: Read file contents
-- `write_file`: Write to file
-- `list_directory`: List directory contents
-- `create_directory`: Create directory
-- `move_file`: Move/rename file
-- `delete_file`: Delete file
-
-## Add Memory Server
-
-Install memory MCP server for persistent key-value storage:
+At the top of the inner registration loop, skip tools the filter excludes:
 
 ```go
-// Register memory server
-mcpRegistry.RegisterServer(mcp.ServerConfig{
-    Name:    "memory",
-    Command: "npx",
-    Args:    []string{"-y", "@modelcontextprotocol/server-memory"},
-})
-```
-
-Memory tools:
-- `store_memory`: Save data by key
-- `retrieve_memory`: Get data by key
-
-Try:
-```
-You: Remember that my favorite color is blue
-Bot: I've stored that information.
-
-You: What's my favorite color?
-Bot: Your favorite color is blue.
-```
-
-## Complete Example with Multiple Servers
-
-```go
-package main
-
-import (
-    "bufio"
-    "context"
-    "fmt"
-    "log"
-    "os"
-    "strings"
-    
-    "github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/middleware"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/tools"
-)
-
-func main() {
-    // MCP setup
-    mcpRegistry := mcp.NewRegistry()
-    defer mcpRegistry.Close()
-    
-    // Register servers
-    servers := []mcp.ServerConfig{
-        {
-            Name:    "filesystem",
-            Command: "npx",
-            Args:    []string{"-y", "@modelcontextprotocol/server-filesystem", "/tmp/allowed"},
-        },
-        {
-            Name:    "memory",
-            Command: "npx",
-            Args:    []string{"-y", "@modelcontextprotocol/server-memory"},
-        },
-    }
-    
-    for _, config := range servers {
-        if err := mcpRegistry.RegisterServer(config); err != nil {
-            log.Fatalf("Failed to register %s: %v", config.Name, err)
-        }
-        fmt.Printf("Registered MCP server: %s\n", config.Name)
-    }
-    
-    // Tool registry setup
-    toolRegistry := tools.NewRegistry()
-    toolRegistry.RegisterExecutor(tools.NewMCPExecutor(mcpRegistry))
-    
-    // Discover tools
-    ctx := context.Background()
-    serverTools, _ := mcpRegistry.ListAllTools(ctx)
-    for serverName, mcpTools := range serverTools {
-        fmt.Printf("\n%s tools:\n", serverName)
-        for _, tool := range mcpTools {
-            toolRegistry.Register(&tools.ToolDescriptor{
-                Name:        tool.Name,
-                Description: tool.Description,
-                InputSchema: tool.InputSchema,
-                Mode:        "mcp",
-            })
-            fmt.Printf("  - %s: %s\n", tool.Name, tool.Description)
-        }
-    }
-    
-    // Provider and pipeline
-    provider := openai.NewProvider(
-        "openai",
-        "gpt-4o-mini",
-        "", // uses OPENAI_API_KEY env var
-        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
-        false,
-    )
-    defer provider.Close()
-    
-    store := statestore.NewMemoryStore()
-    
-    pipe := pipeline.NewPipeline(
-        middleware.StateMiddleware(store),
-        middleware.ProviderMiddleware(provider, toolRegistry, &pipeline.ToolPolicy{
-            ToolChoice: "auto",
-            MaxRounds:  5,
-        }, &middleware.ProviderMiddlewareConfig{
-            MaxTokens:   1500,
-            Temperature: 0.7,
-        }),
-    )
-    defer pipe.Shutdown(ctx)
-    
-    sessionID := "tool-session"
-    
-    fmt.Println("\n=== Tool-Enabled Agent ===")
-    fmt.Println("Available: filesystem and memory tools")
-    fmt.Println("Type 'exit' to quit\n")
-    
-    scanner := bufio.NewScanner(os.Stdin)
-    fmt.Print("You: ")
-    
-    for scanner.Scan() {
-        input := strings.TrimSpace(scanner.Text())
-        
-        if input == "exit" {
-            break
-        }
-        
-        if input == "" {
-            fmt.Print("You: ")
-            continue
-        }
-        
-        result, err := pipe.ExecuteWithContext(ctx, sessionID, "user", input)
-        if err != nil {
-            log.Printf("\nError: %v\n\n", err)
-            fmt.Print("You: ")
-            continue
-        }
-        
-        fmt.Printf("\nAgent: %s\n\n", result.Response.Content)
-        fmt.Printf("[Cost: $%.6f]\n\n", result.Cost.TotalCost)
-        fmt.Print("You: ")
-    }
-    
-    fmt.Println("Goodbye!")
+if !server.ToolFilter.Includes(t.Name) {
+	continue
 }
 ```
 
-## Common Issues
+An entry ending in `*` matches a name prefix. Run the bot again and ask it to create `notes2.txt`.
 
-### MCP server won't start
+```text
+Registered 7 MCP tools
+```
 
-**Problem**: `npx` command fails.
+The bot reads and lists files but has no tool to create them, so it typically tells you it cannot.
 
-**Solution**: Install Node.js or specify full path to npx.
+## Step 6: Add a second server
 
-### Tools not working
+Replace the `RegisterServer` call and the filter check with a list of servers. This adds the memory server beside the filesystem server and keeps each server's filter:
 
-**Problem**: LLM doesn't use tools.
+```go
+servers := []mcp.ServerConfig{
+	{
+		Name:       "filesystem",
+		Command:    "npx",
+		Args:       []string{"-y", "@modelcontextprotocol/server-filesystem", dir},
+		TimeoutMs:  10000,
+		ToolFilter: &mcp.ToolFilter{Allowlist: []string{"read_*", "list_*"}},
+	},
+	{
+		Name:    "memory",
+		Command: "npx",
+		Args:    []string{"-y", "@modelcontextprotocol/server-memory"},
+	},
+}
+filters := map[string]*mcp.ToolFilter{}
+for _, server := range servers {
+	if err := mcpReg.RegisterServer(server); err != nil {
+		log.Fatal(err)
+	}
+	filters[server.Name] = server.ToolFilter
+}
+```
 
-**Solution**: Use clear prompts: "Read the file test.txt" not "What's in that file?"
+`ListAllTools` returns tools keyed by server name. Use the key to look up the filter, and change the loop header to match:
 
-### Permission errors
+```go
+for serverName, list := range serverTools {
+	for _, t := range list {
+		if f := filters[serverName]; f != nil && !f.Includes(t.Name) {
+			continue
+		}
+		// ... register the tool as before
+	}
+}
+```
 
-**Problem**: Can't access files.
+Run the bot. It registers the 7 filesystem tools and the 9 memory tools:
 
-**Solution**: Ensure path is within allowed directory: `/tmp/allowed/file.txt`
+```text
+Registered 16 MCP tools
+```
 
-## What You've Learned
+Keep tool names unique across servers: the tool registry holds one descriptor per name, so a later registration replaces an earlier one.
 
-✅ Set up MCP servers  
-✅ Register external tools  
-✅ Enable automatic tool calling  
-✅ Handle tool execution  
-✅ Build tool-enabled agents  
-✅ Use multiple MCP servers  
+## Next steps
 
-## Next Steps
-
-Continue to [Tutorial 4: Validation & Guardrails](/runtime/tutorials/04-validation-guardrails/) to add content safety.
-
-## See Also
-
-- [Integrate MCP](/runtime/how-to/tools/integrate-mcp/) - More MCP patterns
-- [MCP Reference](/runtime/reference/mcp/) - Complete API
+- Continue to [Tutorial 4: Validation and guardrails](/runtime/tutorials/04-validation-guardrails/) to add content safety.
+- [Integrate MCP](/runtime/how-to/tools/integrate-mcp/) covers transports, authorization and tool list changes.
+- [Configure MCP in the SDK](/sdk/how-to/tools/configure-mcp/) sets up the same servers through `sdk.WithMCP`.
+- The [MCP reference](/runtime/reference/mcp/) lists the complete API.

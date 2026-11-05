@@ -1,0 +1,185 @@
+{
+ "page": "docs/src/content/docs/runtime/how-to/providers/setup-providers.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "OpenAI reads OPENAI_API_KEY then OPENAI_TOKEN",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/openai/openai.go:322"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "Claude reads ANTHROPIC_API_KEY then CLAUDE_API_KEY",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude.go:136"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Gemini reads GEMINI_API_KEY then GOOGLE_API_KEY",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/gemini/gemini.go:105"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "constructor signatures openai/claude/gemini NewProvider(id, model, baseURL, defaults, includeRawOutput)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude.go:134",
+    "runtime/providers/gemini/gemini.go:104",
+    "runtime/providers/openai/openai.go:199"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "pricing tables recognize gpt-5-nano/mini/gpt-5/gpt-4.1/o4-mini",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/openai/pricing_table.go:117"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "pricing tables recognize claude-haiku-5-5, sonnet-5-5, opus-5-5",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/pricing_table.go:155"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "pricing tables recognize gemini-3.5-flash-lite, 3.7-flash, 3.1-pro",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/gemini/pricing_table.go:244"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "ProviderDefaults.Pricing{InputCostPer1K,OutputCostPer1K} per 1K tokens feeds cost",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude.go:957",
+    "runtime/providers/openai/openai.go:839",
+    "runtime/providers/provider.go:199"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "request MaxTokens overrides default; zero/MaxTokensUnlimited sends no limit; Claude sends 4096",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude.go:668",
+    "runtime/providers/provider.go:204"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "CreateProviderFromSpec rejects MaxTokensUnlimited for Claude",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude.go:687",
+    "runtime/providers/claude/claude_tools.go:959"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "Azure: NewProviderWithCredential with azure platform, derives {endpoint}/openai/deployments/{model} and api-version",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/azure.go:38",
+    "runtime/providers/openai/openai.go:217",
+    "runtime/providers/openai/openai.go:295",
+    "runtime/providers/openai/openai.go:604"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "credentials.NewAzureCredential, NewAPIKeyCredential, WithHeaderName, WithPrefix exist",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/azure_integration.go:22",
+    "runtime/credentials/credential.go:56"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "ollama.NewProvider signature with additionalConfig keep_alive",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/ollama/ollama.go:58",
+    "runtime/providers/ollama/ollama.go:74"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "vLLM additional_config keys read: api_key,use_beam_search,best_of,ignore_eos,skip_special_tokens,guided_json,guided_regex,guided_grammar,guided_choice",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/vllm/vllm.go:373",
+    "runtime/providers/vllm/vllm.go:65"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "guided_grammar is sent with tool-calling requests",
+   "verdict": "false",
+   "evidence": [
+    "runtime/providers/vllm/vllm_tools.go:338"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "guided_* keys are mutually exclusive in vLLM",
+   "verdict": "unverified",
+   "evidence": [
+    "runtime/providers/vllm/vllm.go:385"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "extra_body merged into openai, vllm, ollama requests incl streaming/tools; provider fields win with warning",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/extra_body.go:23",
+    "runtime/providers/ollama/ollama_tools.go:334",
+    "runtime/providers/openai/openai_tools.go:224",
+    "runtime/providers/vllm/vllm_tools.go:114"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "mock: NewInMemoryMockRepository, SetResponse(scenario, turn, resp), NewProviderWithRepository, NewProvider fixed response",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/mock/mock.go:35",
+    "runtime/providers/mock/mock.go:52",
+    "runtime/providers/mock/mock_repository.go:602",
+    "runtime/providers/mock/mock_repository.go:611"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "PredictionResponse.CostInfo.TotalCost",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:184",
+    "runtime/types/message.go:249"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "Go snippets compile against current API",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:242"
+   ]
+  }
+ ]
+}

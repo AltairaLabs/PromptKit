@@ -1,0 +1,68 @@
+{
+ "page": "docs/src/content/docs/runtime/tutorials/index.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Go 1.26 or later",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 2,
+   "claim": "Tutorials 1-7 exist at the linked paths",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 3,
+   "claim": "Tutorial times 15/20/20/20/40/30/10 min",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 4,
+   "claim": "Tutorial 3 builds a chatbot with file tools from an MCP server",
+   "verdict": "true",
+   "evidence": [
+    "sdk/examples/mcp-tools/main_interactive.go:1"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Tutorial 4 builds a chatbot whose guardrails block, replace or reject content",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/guardrails/factory.go:1"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "Tutorial 5 uses keys for more than one provider",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 7,
+   "claim": "Tutorial 7 needs a running A2A server",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/client.go:1"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Links to /runtime/reference/index/, /runtime/how-to/index/, /runtime/explanation/index/ resolve",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 9,
+   "claim": "Tutorial 6 builds response caching, a custom stage with a spend budget, buffered streaming and parallel batching",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stage.go:261"
+   ]
+  }
+ ]
+}

@@ -1,46 +1,62 @@
 ---
 title: Skills
-description: Demand-driven knowledge and instruction loading with AgentSkills.io
+description: How skills load instructions and tools into a conversation on demand, using the AgentSkills.io format.
 sidebar:
   order: 8
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/packspec/types.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/prompt/schema/promptpack.schema.json
+    - runtime/skills/active_set.go
+    - runtime/skills/executor.go
+    - runtime/skills/parser.go
+    - runtime/skills/tool_executor.go
+    - runtime/skills/types.go
+    - sdk/capability.go
+    - sdk/capability_skills.go
+    - sdk/conversation.go
+    - sdk/options.go
+    - sdk/sdk.go
 ---
 
-Skills provide **demand-driven knowledge loading** — instead of cramming all instructions into the system prompt, skills load only the knowledge the model needs, when it needs it.
+Skills load knowledge on demand. Instead of placing every instruction in the system prompt, the model activates a skill when a turn needs it.
 
----
+## Why skills exist
 
-## Why Skills?
-
-As agents grow in capability, their system prompts bloat with instructions irrelevant to most turns. A customer support agent might need escalation procedures, PCI compliance rules, troubleshooting playbooks, and product catalogs — but any single turn only uses a fraction.
+As an agent gains capabilities, its system prompt fills with instructions that most turns never use. A customer support agent might carry escalation procedures, PCI compliance rules, troubleshooting playbooks, and a product catalog, while any single turn uses a fraction of them.
 
 | Problem | Impact |
 |---------|--------|
-| **Context waste** | 15-20K tokens of unused instructions per turn |
-| **Model confusion** | Irrelevant context degrades accuracy and coherence |
-| **No reuse** | Knowledge is embedded in pack prompts, not shareable |
+| Context waste | 15-20K tokens of unused instructions per turn |
+| Model confusion | Irrelevant context degrades accuracy and coherence |
+| No reuse | Knowledge is embedded in pack prompts and cannot be shared |
 
-Skills solve all three by loading knowledge on demand.
+Skills address all three by loading knowledge when the model asks for it.
 
----
+## The AgentSkills.io format
 
-## The AgentSkills.io Standard
-
-PromptKit uses the [AgentSkills.io](https://agentskills.io/specification) standard — the portable skill format adopted by Claude Code, OpenAI Codex, GitHub Copilot, Cursor, and Strands Agents.
+PromptKit uses the [AgentSkills.io](https://agentskills.io/specification) skill format, which Claude Code, OpenAI Codex, GitHub Copilot, Cursor, and Strands Agents also adopt.
 
 A skill is a directory containing a `SKILL.md` file:
 
-```
+```text
 pci-compliance/
-├── SKILL.md           # Required — metadata + instructions
-├── references/        # Optional — supporting documents
-└── assets/            # Optional — templates, data files
+├── SKILL.md           # Required: metadata + instructions
+├── references/        # Optional: supporting documents
+└── assets/            # Optional: templates, data files
 ```
 
-```yaml
+The file starts with YAML frontmatter and continues with Markdown instructions:
+
+```markdown
 ---
 name: pci-compliance
 description: PCI DSS rules for handling payment card data. Use when the customer mentions billing, refunds, or payment information.
-allowed-tools: refund process_payment
+allowed-tools:
+  - refund
+  - process_payment
 ---
 
 # PCI Compliance Guidelines
@@ -51,109 +67,68 @@ When handling payment card data, always follow these rules:
 2. Verify cardholder identity before processing refunds...
 ```
 
----
+## Progressive disclosure
 
-## Progressive Disclosure
-
-Skills load in three phases, saving 95-98% of tokens for unused skills:
+A skill loads in three phases, so an unused skill costs almost nothing:
 
 | Phase | What loads | Token cost | When |
 |-------|-----------|------------|------|
-| **1. Discovery** | Name + description only | ~50 tokens/skill | Always (startup) |
-| **2. Activation** | Full SKILL.md instructions | 1-5K tokens | On `skill__activate` |
-| **3. Resources** | Supporting files | As needed | On `skill__read_resource` |
+| 1. Discovery | Name + description only | ~50 tokens per skill | Always (startup) |
+| 2. Activation | Full `SKILL.md` instructions | 1-5K tokens | On `skill__activate` |
+| 3. Resources | Supporting files | As needed | On `skill__read_resource` |
 
-With 8 skills installed, the discovery phase costs ~400 tokens instead of ~8,000 for loading everything.
+With 8 skills installed, discovery costs about 400 tokens instead of about 8,000 for loading everything.
 
----
+## Three-level tool scoping
 
-## Three-Level Tool Scoping
-
-Skills compose with the existing tool system in a clean hierarchy:
+Skills compose with the tool system in a hierarchy:
 
 | Level | What it defines | Example |
 |-------|----------------|---------|
-| **Pack** | All possible tools (the ceiling) | `tools: {get_order, refund, search, escalate}` |
-| **Prompt** | Baseline tools for a task | `allowed_tools: [get_order, search]` |
-| **Skill** | Additional tools on activation | `allowed-tools: refund` |
+| Pack | Every tool that can exist (the ceiling) | `tools: {get_order, refund, search, escalate}` |
+| Prompt | Baseline tools for a task | `tools: [get_order, search]` |
+| Skill | Additional tools on activation | `allowed-tools: [refund]` |
 
-When a skill activates, its `allowed-tools` extend the prompt's tool set — but **never beyond the pack's declared tools**. The pack is the ceiling.
+When a skill activates, its `allowed-tools` extend the prompt's tool set, capped at the tools the pack declares. A skill cannot grant a tool the pack does not define. Deactivating a skill withdraws the tools it granted, unless another active skill still grants them.
 
-This means **controlling skills controls tools**. Don't want refund capability in a state? Don't include the skill that brings it.
+Controlling which skills a conversation can activate therefore controls which extra tools the model can reach.
 
----
+## Skill tools
 
-## Skill Tools
+The skills capability registers three tools in the `skill__` namespace, alongside `a2a__`, `workflow__`, and `mcp__`:
 
-Skills integrate via the `skill__` namespace, alongside `a2a__`, `workflow__`, and `mcp__`:
+- `skill__activate` loads a skill's instructions and extends the tool set.
+- `skill__deactivate` removes a skill's instructions and retracts the tools it granted.
+- `skill__read_resource` reads a file from a skill's directory.
 
-| Tool | Purpose |
-|------|---------|
-| `skill__activate` | Load a skill's instructions + extend tool set |
-| `skill__deactivate` | Remove a skill's instructions + retract tools |
-| `skill__read_resource` | Read a file from a skill's directory |
+The `skill__activate` description carries the discovery index: each available skill with its description. The model reads the index and decides which skill to activate.
 
-The `skill__activate` tool description includes the discovery index — a list of available skills with descriptions. The model reads this and decides which to activate.
+## Using skills from the SDK
 
----
-
-## Workflow Integration
-
-Workflow states can optionally scope which skills are available using directory paths:
-
-```yaml
-workflow:
-  states:
-    billing:
-      prompt_task: billing_agent
-      skills: ./skills/billing       # Only skills in this directory
-    intake:
-      prompt_task: intake_agent      # No skills field = all skills available
-```
-
-Organize skills into subdirectories by concern:
-
-```
-skills/
-├── billing/
-│   ├── pci-compliance/SKILL.md
-│   └── refund-processing/SKILL.md
-├── orders/
-│   └── order-troubleshooting/SKILL.md
-└── brand-voice/SKILL.md              # Top-level = always available
-```
-
----
-
-## SDK Usage
+The SDK detects skills declared in the pack's `skills` section. You can also add skill sources in code:
 
 ```go
-// Skills auto-detected from pack's skills section
+// Skills declared in the pack's skills section are detected automatically.
 conv, _ := sdk.Open("support.pack.json", "assistant")
 
-// Or configure programmatically
-conv, _ := sdk.Open("base.pack.json", "assistant",
+// Or add them programmatically.
+conv, _ = sdk.Open("base.pack.json", "assistant",
     sdk.WithSkillsDir("./skills"),
     sdk.WithMaxActiveSkillsOption(5),
 )
 ```
 
----
+Activation fails when a conversation already holds the maximum number of active skills. Each conversation tracks its own active skills, so one conversation reaching the limit does not affect another.
 
-## Key Concepts
+## Design consequences
 
-**Skills are knowledge as well as tools.** A skill can be pure behavioral guidance (brand voice, communication style) with no tools at all. Or it can bring knowledge *and* tools together — compliance rules plus the refund tool.
-
-**The model drives activation.** The model reads the skill index and calls `skill__activate` when it determines knowledge is needed. No external orchestration required.
-
-**Skills are portable.** The same SKILL.md works across any framework that supports AgentSkills.io. Install community skills, share across packs, or publish your own.
-
----
+- A skill can be pure behavioral guidance, such as brand voice or communication style, with no tools. It can also bring knowledge and tools together, such as compliance rules plus the refund tool.
+- The model drives activation. It reads the skill index and calls `skill__activate` when it decides the knowledge is needed, with no external orchestration.
+- Skills are portable. The same `SKILL.md` works in any framework that supports AgentSkills.io, so you can install community skills, share skills across packs, or publish your own.
 
 ## Related
 
-- [Skills Reference](/reference/skills/) — Complete SKILL.md format, pack syntax, and SDK API reference
-- [Workflow + Skills Example](https://github.com/AltairaLabs/PromptKit/tree/main/examples/workflow-skills) — Working example with directory-based filtering
-- [Tools & MCP](/concepts/tools-mcp/) — How tools work in PromptKit
-- [A2A](/concepts/a2a/) — Agent-to-Agent protocol (agents can also be skills)
-- [SDK Skills Options](/sdk/index/) — SDK integration details
+- [Skills Reference](/reference/skills/) lists the `SKILL.md` format, pack syntax, and SDK API.
+- [Tools & MCP](/concepts/tools-mcp/) explains how tools work in PromptKit.
+- [A2A](/concepts/a2a/) covers the Agent-to-Agent protocol.
+- [SDK](/sdk/index/) covers SDK integration.

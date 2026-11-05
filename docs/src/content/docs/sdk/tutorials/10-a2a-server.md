@@ -1,223 +1,214 @@
 ---
-title: 'Tutorial 10: A2A Server'
+title: 'Tutorial 10: A2A server'
 sidebar:
   order: 10
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/a2a/client.go
+    - runtime/credentials/resolver.go
+    - sdk/a2a.go
+    - sdk/a2a_exports.go
+    - sdk/sdk.go
+    - server/a2a/server.go
 ---
 
-Expose a PromptKit conversation as an A2A-compliant agent server.
+## What we will build
 
-**Time**: 15 minutes
-**Level**: Intermediate
-
-## What You'll Build
-
-An A2A server that exposes a PromptKit SDK conversation as a remotely-callable agent, discoverable via its agent card.
-
-## What You'll Learn
-
-- Create an A2A server with `sdk.NewA2AServer`
-- Use `sdk.A2AOpener` to bridge SDK conversations to the server
-- Configure agent cards
-- Start and gracefully shut down the server
+In this tutorial we build an A2A server that exposes a PromptKit conversation as a remotely callable agent, plus a small client that discovers it and sends it a message. The server publishes an agent card, opens one SDK conversation per A2A context with `sdk.A2AOpener`, and shuts down cleanly on Ctrl+C.
 
 ## Prerequisites
 
-- Go 1.22+
-- A compiled pack file (`.pack.json`)
-- Completed [First Conversation tutorial](/sdk/tutorials/01-first-conversation/) (recommended)
+- Go 1.26 or later
+- An OpenAI API key, exported as `OPENAI_API_KEY`
+- [Tutorial 1](/sdk/tutorials/01-first-conversation/) completed (recommended)
 
----
+## Step 1: Set up the project
 
-## Step 1: Define the Agent Card
+We create a module and add the SDK and runtime:
 
-The agent card describes your agent's identity and capabilities:
+```bash
+mkdir a2a-agent
+cd a2a-agent
+go mod init a2a-agent
+go get github.com/AltairaLabs/PromptKit/sdk/v2 github.com/AltairaLabs/PromptKit/runtime/v2
+```
+
+Both modules now appear in `go.mod`.
+
+## Step 2: Create the pack
+
+We create `assistant.pack.json`. Its system prompt has no template variables, because the A2A opener opens each conversation without setting any:
+
+```json
+{
+  "id": "a2a-assistant",
+  "name": "A2A Assistant",
+  "version": "1.0.0",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "chat": {
+      "id": "chat",
+      "name": "Chat Assistant",
+      "version": "1.0.0",
+      "system_template": "You are a helpful assistant. Answer questions clearly and concisely.",
+      "parameters": {
+        "max_tokens": 1024
+      }
+    }
+  }
+}
+```
+
+The project now holds `go.mod` and `assistant.pack.json`.
+
+## Step 3: Write and start the server
+
+We create `main.go`. It defines the agent card, builds an opener from the pack, and serves both on port 9999:
 
 ```go
 package main
 
 import (
-    "context"
-    "fmt"
-    "log"
-    "os"
-    "os/signal"
-    "syscall"
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 
-    "github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
-    "github.com/AltairaLabs/PromptKit/sdk/v2"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 func main() {
-    card := a2a.AgentCard{
-        Name:               "Assistant Agent",
-        Description:        "A helpful assistant powered by PromptKit",
-        DefaultInputModes:  []string{"text/plain"},
-        DefaultOutputModes: []string{"text/plain"},
-        Capabilities:       a2a.AgentCapabilities{Streaming: true},
-        Skills: []a2a.AgentSkill{
-            {
-                ID:          "chat",
-                Name:        "Chat",
-                Description: "General-purpose chat assistant",
-            },
-        },
-    }
-```
+	card := a2a.AgentCard{
+		Name:               "Assistant Agent",
+		Description:        "A helpful assistant powered by PromptKit",
+		DefaultInputModes:  []string{"text/plain"},
+		DefaultOutputModes: []string{"text/plain"},
+		Capabilities:       a2a.AgentCapabilities{Streaming: true},
+		Skills: []a2a.AgentSkill{
+			{
+				ID:          "chat",
+				Name:        "Chat",
+				Description: "General-purpose chat assistant",
+			},
+		},
+	}
 
----
+	opener := sdk.A2AOpener("./assistant.pack.json", "chat")
 
-## Step 2: Create the Conversation Opener
+	server := sdk.NewA2AServer(opener,
+		sdk.WithA2ACard(&card),
+		sdk.WithA2APort(9999),
+	)
 
-Use `sdk.A2AOpener` to create conversations from a pack file:
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-```go
-    opener := sdk.A2AOpener("./assistant.pack.json", "chat")
-```
+	go func() {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal(err)
+		}
+	}()
 
-Each A2A request creates a new SDK conversation via this opener. The `contextID` from the A2A protocol groups related requests.
+	fmt.Println("A2A server listening on http://localhost:9999")
+	fmt.Println("Agent card: http://localhost:9999/.well-known/agent-card.json")
 
-:::note[Two ways to run the server]
-This tutorial uses the **conversation-owning** mode: you hand the server an
-opener, and it keeps the conversations it opens, reusing one per `contextID`.
-That is the right fit when A2A and the runtime run in the same process, as here.
-
-If your runtime lives somewhere else (another service, another container) and
-you already track sessions yourself, use
-[`a2aserver.NewStatelessServer`](/sdk/reference/a2a-server/) instead. It hands
-each message to a handler you write, along with the HTTP request's context, and
-keeps nothing between calls. See [Choosing a server
-mode](/sdk/how-to/interop/choose-a2a-server-mode/).
-:::
-
----
-
-## Step 3: Create and Start the Server
-
-```go
-    server := sdk.NewA2AServer(opener,
-        sdk.WithA2ACard(&card),
-        sdk.WithA2APort(9999),
-    )
-
-    // Handle graceful shutdown.
-    sigCh := make(chan os.Signal, 1)
-    signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-    go func() {
-        <-sigCh
-        fmt.Println("\nShutting down...")
-        server.Shutdown(context.Background())
-        os.Exit(0)
-    }()
-
-    fmt.Println("A2A server listening on http://localhost:9999")
-    fmt.Println("Agent card: http://localhost:9999/.well-known/agent-card.json")
-    if err := server.ListenAndServe(); err != nil {
-        log.Fatal(err)
-    }
+	<-ctx.Done()
+	fmt.Println("Shutting down...")
+	if err := server.Shutdown(context.Background()); err != nil {
+		log.Fatal(err)
+	}
 }
 ```
 
-Run the server:
+The server calls the opener the first time it sees a `contextID`, then reuses that conversation for later requests with the same `contextID`.
+
+We start it:
 
 ```bash
-go run main.go
+go run .
 ```
 
-Verify the agent card:
+The terminal prints the `A2A server listening` and `Agent card` lines and keeps running.
+
+## Step 4: Fetch the agent card
+
+In a second terminal, we request the card:
 
 ```bash
-curl http://localhost:9999/.well-known/agent-card.json | jq .
+curl -s http://localhost:9999/.well-known/agent-card.json
 ```
 
----
+The output is the JSON agent card, with the name `Assistant Agent` and the `chat` skill.
 
-## Step 4: Test with a Client
+## Step 5: Call the agent from a client
 
-In a separate terminal, use the A2A client to send a message:
-
-```go
-client := a2a.NewClient("http://localhost:9999")
-
-card, _ := client.Discover(ctx)
-fmt.Printf("Agent: %s\n", card.Name)
-
-text := "Hello!"
-task, _ := client.SendMessage(ctx, &a2a.SendMessageRequest{
-    Message: a2a.Message{
-        Role:  a2a.RoleUser,
-        Parts: []a2a.Part{{Text: &text}},
-    },
-    Configuration: &a2a.SendMessageConfiguration{Blocking: true},
-})
-
-for _, artifact := range task.Artifacts {
-    for _, part := range artifact.Parts {
-        if part.Text != nil {
-            fmt.Println(*part.Text)
-        }
-    }
-}
-```
-
-See the [A2A Client Tutorial](/runtime/tutorials/07-a2a-client/) for a complete walkthrough.
-
----
-
-## Step 5: Custom Task Store
-
-By default, the server uses an in-memory task store. For persistence, implement the `sdk.A2ATaskStore` interface:
+We create `client/main.go` in the same module. It discovers the agent, then sends one message and waits for the finished task:
 
 ```go
-server := sdk.NewA2AServer(opener,
-    sdk.WithA2ACard(&card),
-    sdk.WithA2APort(9999),
-    sdk.WithA2ATaskStore(myCustomStore),
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 )
+
+func main() {
+	ctx := context.Background()
+	client := a2a.NewClient("http://localhost:9999")
+
+	card, err := client.Discover(ctx)
+	if err != nil {
+		log.Fatalf("discover: %v", err)
+	}
+	fmt.Printf("Agent: %s\n", card.Name)
+
+	text := "Hello!"
+	task, err := client.SendMessage(ctx, &a2a.SendMessageRequest{
+		Message: a2a.Message{
+			Role:  a2a.RoleUser,
+			Parts: []a2a.Part{{Text: &text}},
+		},
+		Configuration: &a2a.SendMessageConfiguration{Blocking: true},
+	})
+	if err != nil {
+		log.Fatalf("send: %v", err)
+	}
+
+	for _, artifact := range task.Artifacts {
+		for _, part := range artifact.Parts {
+			if part.Text != nil {
+				fmt.Println(*part.Text)
+			}
+		}
+	}
+}
 ```
 
-See the [SDK A2A Reference](/sdk/reference/a2a-server/) for the `A2ATaskStore` interface.
+We run it from the project root:
 
----
-
-## Step 6: Embed in an Existing Server
-
-If you already have an HTTP server, use `Handler()` to get the `http.Handler`:
-
-```go
-server := sdk.NewA2AServer(opener, sdk.WithA2ACard(&card))
-
-mux := http.NewServeMux()
-mux.Handle("/", server.Handler())
-
-http.ListenAndServe(":8080", mux)
+```bash
+go run ./client
 ```
 
----
+The program prints `Agent: Assistant Agent`, then the agent's reply, which is typically a short greeting. Back in the first terminal, Ctrl+C prints `Shutting down...` and the server exits.
 
-## Server Options
+## Next steps
 
-| Option | Description |
-|--------|-------------|
-| `sdk.WithA2ACard(card)` | Sets the agent card served at `/.well-known/agent-card.json` |
-| `sdk.WithA2APort(port)` | Sets the TCP port for `ListenAndServe` |
-| `sdk.WithA2ATaskStore(store)` | Sets a custom task store (default: in-memory) |
-
----
-
-## What You've Learned
-
-- How to configure an agent card
-- How to use `sdk.A2AOpener` to bridge SDK conversations
-- How to create, start, and gracefully shut down an A2A server
-- How to embed the server in an existing HTTP server
-
-## Next Steps
-
-- [A2A Client Tutorial](/runtime/tutorials/07-a2a-client/) — connect to this server from a client
-- [Use Tool Bridge](/runtime/how-to/a2a/use-a2a-tool-bridge/) — register this agent as a tool in another agent
-- [A2A Concept](/concepts/a2a/) — understand the protocol in depth
-
-## See Also
-
-- [SDK A2A Reference](/sdk/reference/a2a-server/) — complete server API documentation
-- [Examples](https://github.com/AltairaLabs/PromptKit/tree/main/server/a2a/examples/a2a-demo) — full working examples
+- [Choose an A2A server mode](/sdk/how-to/interop/choose-a2a-server-mode/): persist tasks in your own store, mount the server on an existing HTTP server, or run it without conversations
+- [Tutorial 7: A2A client](/runtime/tutorials/07-a2a-client/): the client side in depth
+- [Use the A2A tool bridge](/runtime/how-to/a2a/use-a2a-tool-bridge/): register this agent as a tool in another agent
+- [A2A](/concepts/a2a/): the protocol and how PromptKit implements it
+- [SDK A2A server reference](/sdk/reference/a2a-server/): the complete server API
+- [a2a-demo example](https://github.com/AltairaLabs/PromptKit/tree/main/server/a2a/examples/a2a-demo): a full working server and client

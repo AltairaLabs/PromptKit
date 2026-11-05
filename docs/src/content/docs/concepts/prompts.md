@@ -1,44 +1,38 @@
 ---
 title: Prompts
+description: What a prompt is, how messages and roles shape a model's behavior, and how PromptKit manages prompts across components.
 sidebar:
   order: 1
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/pipeline/stage/stages_core.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/stages_save.go
+    - runtime/pipeline/stage/stages_utilities.go
+    - runtime/prompt/pack.go
+    - runtime/template/renderer.go
+    - runtime/types/message.go
+    - sdk/conversation.go
+    - sdk/examples/hello/hello.pack.json
+    - sdk/options.go
+    - sdk/response.go
+    - sdk/sdk.go
 ---
-Understanding prompts and prompt engineering in PromptKit.
+A prompt is the input you send to an LLM. It tells the model what to do and gives it the context to do it. This page explains the parts of a prompt, the techniques that improve one, and where each PromptKit component handles prompts.
 
-## What is a Prompt?
+## What a prompt contains
 
-A **prompt** is the text input sent to an LLM. It tells the model what to do and provides context for generating a response.
+A prompt is a list of messages. Each message has a role:
 
-### Basic Example
+| Role | Purpose |
+|------|---------|
+| `system` | Instructions that set the model's behavior |
+| `user` | Input from the end user |
+| `assistant` | Earlier model responses, kept for context |
+| `tool` | Results from tool calls |
 
-```
-User: What's the capital of France?
-
-LLM Response: The capital of France is Paris.
-```
-
-### Structured Prompt
-
-```
-System: You are a helpful assistant. Be concise.
-
-User: What's the capital of France?
-
-LLM Response: Paris.
-```
-
-## Prompt Components
-
-### Messages
-
-Prompts consist of **messages** with different roles:
-
-- **System**: Instructions for the AI's behavior
-- **User**: Input from the end user
-- **Assistant**: Previous AI responses (for context)
-- **Tool**: Results from function calls
-
-Example in PromptKit:
+In the runtime, a message is a `types.Message` with `Role` and `Content` fields:
 
 ```go
 messages := []types.Message{
@@ -49,304 +43,156 @@ messages := []types.Message{
 }
 ```
 
-### System Prompts
+### System prompts
 
-System prompts set the AI's behavior:
+The system prompt carries the instructions that apply to every turn. A specific one names the role, the constraints and the resources:
 
-**Good system prompt:**
 ```
 You are a customer support agent for TechCorp.
 
 Guidelines:
 - Be professional and empathetic
 - Keep responses under 100 words
-- Reference documentation when possible
 - Escalate complex issues to human agents
-
-Available resources:
-- Help docs: https://help.techcorp.com
-- Status page: https://status.techcorp.com
 ```
 
-**Poor system prompt:**
-```
-Be helpful.
-```
+A vague one such as "Be helpful." leaves the model to guess the format, length and tone.
 
-## Prompt Engineering Techniques
+## Techniques that improve a prompt
 
-### 1. Clear Instructions
+### Clear instructions
 
-**Bad:**
-```
-Write something about dogs.
-```
+State the task, the length and the content you expect. "Write a 3-sentence summary about Golden Retrievers, covering origin, temperament and typical uses" gives the model more to work with than "Write something about dogs."
 
-**Good:**
-```
-Write a 3-sentence summary about Golden Retrievers.
-Include: origin, temperament, and typical uses.
-```
+### Few-shot examples
 
-### 2. Few-Shot Examples
-
-Provide examples to guide the model:
+Examples show the model the pattern to follow:
 
 ```
 Convert user questions to support ticket categories.
 
-Examples:
-Q: "I can't log in" → Category: Authentication
-Q: "My credit card was declined" → Category: Billing
-Q: "The app crashed" → Category: Technical
+Q: "I can't log in" -> Category: Authentication
+Q: "My credit card was declined" -> Category: Billing
 
-Q: "I forgot my password" → Category: ?
+Q: "I forgot my password" -> Category: ?
 ```
 
-### 3. Chain-of-Thought
+### Step-by-step reasoning
 
-Ask the model to explain its reasoning:
+Asking the model to work through a problem in steps improves accuracy on arithmetic and multi-part questions.
 
-```
-Solve this math problem step-by-step:
-If Alice has 3 apples and Bob gives her 5 more, how many does Alice have?
+### Role assignment
 
-Let's solve this step by step:
-1. Alice starts with: 3 apples
-2. Bob gives her: 5 apples
-3. Total: 3 + 5 = 8 apples
+A role focuses the response: "You are an experienced software architect reviewing code. Focus on design patterns, scalability and maintainability."
 
-Answer: 8 apples
-```
+## How PromptKit handles prompts
 
-### 4. Role-Based
+A pack stores each prompt as a `system_template` with declared variables. The runtime pipeline loads the prompt, renders the variables into the template, and sends the result to the provider along with the conversation history.
 
-Assign a specific role:
-
-```
-You are an experienced software architect reviewing code.
-Focus on:
-- Design patterns
-- Scalability
-- Maintainability
-
-Review this code:
-[code here]
+```mermaid
+flowchart LR
+    Pack[Pack: system_template and variables] --> Assemble[PromptAssembly]
+    Assemble --> Tmpl["Template: renders {{variable}}"]
+    Tmpl --> Prov[ProviderStage]
+    Hist[Conversation history] --> Prov
+    Prov --> LLM[LLM]
 ```
 
-## Prompts in PromptKit
+Variables use the `{{name}}` syntax. A pack prompt looks like this:
+
+```json
+{
+  "id": "hello-example",
+  "version": "1.0.0",
+  "template_engine": { "version": "v1", "syntax": "{{variable}}" },
+  "prompts": {
+    "chat": {
+      "id": "chat",
+      "system_template": "You are a friendly assistant. The user's name is {{user_name}}.",
+      "variables": [
+        { "name": "user_name", "type": "string", "required": true }
+      ]
+    }
+  }
+}
+```
 
 ### Runtime
 
-Runtime uses prompts with templates:
+The `template` package renders a template with a variable map. The renderer returns an error if a placeholder stays unresolved:
 
 ```go
-templates := template.NewRegistry()
-templates.RegisterTemplate("support", &template.PromptTemplate{
-    SystemPrompt: "You are a support agent. Be helpful.",
-    Variables: map[string]string{
-        "company": "TechCorp",
-    },
-})
+text, err := template.NewRenderer().Render(
+    "You are a support agent for {{company}}.",
+    map[string]string{"company": "TechCorp"},
+)
 ```
+
+See [Templates](/concepts/templates/) for how templates are structured.
 
 ### SDK
 
-SDK simplifies prompt management:
+`sdk.Open` loads a pack and returns a conversation for one of its prompts:
 
 ```go
-conv, _ := sdk.Open("./assistant.pack.json", "chat",
-    sdk.WithModel("gpt-4o-mini"),
+conv, err := sdk.Open("./assistant.pack.json", "chat",
+    sdk.WithModel("gpt-5-mini"),
 )
+if err != nil {
+    log.Fatal(err)
+}
 defer conv.Close()
 
-response, _ := conv.Send(ctx, "Hello")
+resp, err := conv.Send(ctx, "Hello")
+fmt.Println(resp.Text())
 ```
 
 ### PackC
 
-PackC packages prompts for distribution:
-
-```yaml
-# support.prompt
-system: |
-  You are a  for .
-  Be professional and concise.
-
-user: |
-  
-```
-
-Compile and use:
+PackC compiles prompt configurations into a pack file:
 
 ```bash
 packc compile --config arena.yaml --output support.pack.json --id support
 ```
 
+The runtime loads the result with `prompt.LoadPack`:
+
 ```go
-pack, _ := prompt.LoadPack("support.pack.json")
+pack, err := prompt.LoadPack("support.pack.json")
 ```
 
 ### PromptArena
 
-PromptArena tests prompts:
+PromptArena tests prompts with scenarios. Each turn can carry assertions on the response:
 
 ```yaml
-tests:
-  - name: Support Query
-    prompt: "How do I reset my password?"
-    assertions:
-      - type: contains
-        value: "password reset"
-      - type: max_length
-        value: 200
+spec:
+  task_type: assistant
+  turns:
+    - role: user
+      content: "How do I reset my password?"
+      assertions:
+        - type: content_includes
+          params:
+            patterns:
+              - "password reset"
 ```
 
-## Best Practices
+## Prompt lifecycle
 
-### Do's
+Store prompts in version control and give each a meaningful name. Test them with PromptArena, including edge cases, and compare variations before changing a production prompt. In production, load prompts from compiled packs, use variables for the parts that change per request, and version the pack.
 
-✅ **Be specific** - Clear instructions get better results  
-✅ **Provide context** - Give the model relevant information  
-✅ **Use examples** - Show what you want  
-✅ **Set constraints** - Specify format, length, tone  
-✅ **Test variations** - Try different phrasings  
-✅ **Version prompts** - Track changes over time  
+## Fixing common problems
 
-### Don'ts
+| Problem | Fix |
+|---------|-----|
+| Inconsistent responses | Add specific instructions and examples. |
+| Wrong output format | State the exact format, for example `{"items": ["item1", "item2"]}`. |
+| Ignored instructions | Move the instruction to the system prompt and state it once, clearly. |
+| Responses too long | Set a length limit, for example "Answer in exactly 2 sentences." |
 
-❌ **Don't be vague** - "Be helpful" isn't enough  
-❌ **Don't assume knowledge** - Provide necessary context  
-❌ **Don't skip system prompts** - They guide behavior  
-❌ **Don't ignore length** - Longer ≠ better  
-❌ **Don't forget to test** - Use PromptArena  
+## Related
 
-## Common Patterns
-
-### Task-Oriented
-
-```
-Task: Extract customer email from support ticket
-
-Input: "Hi, my email is john@example.com and I need help"
-Output: john@example.com
-
-Input: "Please contact me at support@company.com"
-Output:
-```
-
-### Conversational
-
-```
-You are a friendly chatbot. Maintain context across messages.
-
-Be:
-- Conversational and warm
-- Helpful and informative
-- Concise (under 50 words per response)
-```
-
-### Analytical
-
-```
-Analyze the following text and provide:
-1. Main topic
-2. Sentiment (positive/negative/neutral)
-3. Key entities mentioned
-4. Confidence score (0-1)
-
-Text: [input]
-```
-
-### Creative
-
-```
-Write a creative product description for:
-
-Product: 
-Features: 
-Target audience: 
-
-Style: Engaging and persuasive
-Length: 50-100 words
-```
-
-## Prompt Management
-
-### Development
-
-- Store prompts in version control
-- Use meaningful names
-- Document prompt purpose
-- Track performance metrics
-
-### Testing
-
-- Test with PromptArena
-- Try edge cases
-- Measure quality
-- Compare variations
-
-### Production
-
-- Load from PackC files
-- Use templates for flexibility
-- Monitor performance
-- Version prompts
-
-## Troubleshooting
-
-### Problem: Inconsistent Responses
-
-**Solution**: Add more specific instructions and examples
-
-### Problem: Wrong Format
-
-**Solution**: Specify exact format in prompt
-
-Before:
-```
-List the items.
-```
-
-After:
-```
-List the items in JSON format:
-{"items": ["item1", "item2"]}
-```
-
-### Problem: Ignoring Instructions
-
-**Solution**: Emphasize important instructions
-
-```
-IMPORTANT: Always include sources.
-NEVER make up information.
-
-[rest of prompt]
-```
-
-### Problem: Too Verbose
-
-**Solution**: Set length constraints
-
-```
-Answer in exactly 2 sentences. Be concise.
-```
-
-## Summary
-
-Prompts are the foundation of LLM applications. Good prompts:
-
-- Provide clear instructions
-- Include relevant context
-- Use examples when helpful
-- Set appropriate constraints
-- Are tested and versioned
-
-## Related Documentation
-
-- [Templates](/concepts/templates/) - Organizing prompts
-- [Validation](/concepts/validation/) - Content safety
-- [Runtime Templates](/concepts/templates/) - Implementation
-- [PackC](https://promptarena.altairalabs.ai/packc/) - Prompt packaging
+- [Templates](/concepts/templates/)
+- [Validation](/concepts/validation/)
+- [PackC](https://promptarena.altairalabs.ai/packc/)

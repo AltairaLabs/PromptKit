@@ -138,11 +138,11 @@ for _, mcpTools := range serverTools {
 }
 
 // Use in pipeline
-pipe := pipeline.NewPipeline(
-    middleware.ProviderMiddleware(provider, toolRegistry, &pipeline.ToolPolicy{
+pipe, err := stage.NewPipelineBuilder().
+    Chain(stage.NewProviderStage(provider, toolRegistry, &pipeline.ToolPolicy{
         ToolChoice: "auto",
-    }, config),
-)
+    }, config)).
+    Build()
 ```
 
 ## Common MCP Servers
@@ -202,9 +202,11 @@ import (
     
     "github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
     "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/middleware"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers"
     "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
     "github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func main() {
@@ -248,19 +250,24 @@ func main() {
     defer provider.Close()
     
     // Build pipeline with tools
-    pipe := pipeline.NewPipeline(
-        middleware.ProviderMiddleware(provider, toolRegistry, &pipeline.ToolPolicy{
+    pipe, err := stage.NewPipelineBuilder().
+        Chain(stage.NewProviderStage(provider, toolRegistry, &pipeline.ToolPolicy{
             ToolChoice: "auto",
             MaxRounds:  5,
-        }, &middleware.ProviderMiddlewareConfig{
+        }, &stage.ProviderConfig{
             MaxTokens:   1500,
             Temperature: 0.7,
-        }),
-    )
+        })).
+        Build()
+    if err != nil {
+        log.Fatal(err)
+    }
     defer pipe.Shutdown(context.Background())
     
     // Execute with tool access
-    result, err := pipe.Execute(ctx, "user", "Read the contents of /data/example.txt")
+    msg := types.Message{Role: "user"}
+    msg.AddTextPart("Read the contents of /data/example.txt")
+    result, err := pipe.ExecuteSync(ctx, stage.NewMessageElement(&msg))
     if err != nil {
         log.Fatal(err)
     }

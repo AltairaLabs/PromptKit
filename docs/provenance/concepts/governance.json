@@ -1,0 +1,318 @@
+{
+ "page": "docs/src/content/docs/concepts/governance.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "pack metadata.governance and agents.members.<n>.governance declare governance facts",
+   "verdict": "true",
+   "evidence": [
+    "runtime/packspec/types.go:962",
+    "runtime/prompt/governance.go:52",
+    "runtime/prompt/governance.go:70"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "runtime does not act on governance or action_scope (no refusal, no tool gating)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/governance.go:11",
+    "runtime/prompt/pack.go:437"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "fields intended_purpose, autonomy_level, accountable_owner, requires_ai_disclosure, approved_environments under metadata.governance",
+   "verdict": "true",
+   "evidence": [
+    "runtime/packspec/types.go:962"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "agent inherits fields it does not restate",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/governance.go:120"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "present agent field replaces pack value per field; absent inherits",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/governance.go:120"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "arrays and extensions replace whole",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/governance.go:146",
+    "runtime/prompt/governance.go:160"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "vocabularies prefixes merge; agent wins on a redeclared prefix",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/governance.go:191",
+    "runtime/prompt/governance.go:305"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "capabilities, foreseeable_misuse, intended_deployment_contexts, obligations, reviews, extensions replace whole",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/governance.go:146",
+    "runtime/prompt/governance.go:172"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "independent_of replaces whole",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/governance.go:169"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "obligations and reviews replace independently; review satisfies must name an obligation in resolved governance",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/governance.go:172",
+    "runtime/prompt/governance_validate.go:261"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "dpv, eu-aiact, ai are well-known prefixes",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/governance_validate.go:52"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "the 15 governance fields listed",
+   "verdict": "true",
+   "evidence": [
+    "runtime/packspec/types.go:962"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "independent_of axes model, provider, tools, prompts, accountable_owner; enforcement strict or advisory",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/schema/promptpack.schema.json:637",
+    "runtime/prompt/schema/promptpack.schema.json:644"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "obligation controls: field, validator, eval, external",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/schema/promptpack.schema.json:711"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "review has ISO 8601 cadence, owning team, satisfies",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/schema/promptpack.schema.json:737"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "autonomy_level closed enum of four values; out-of-enum fails schema validation",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/governance.go:35",
+    "runtime/prompt/schema/promptpack.schema.json:574"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "requires_ai_disclosure is a nullable boolean; false overrides pack true",
+   "verdict": "true",
+   "evidence": [
+    "runtime/packspec/types.go:1017",
+    "runtime/prompt/governance.go:139"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "sdk.Open rejects a pack whose governance references dangle",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pack/load.go:91",
+    "sdk/internal/pack/validate.go:270"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "obligation and review ids unique per governance object; validator ids unique pack-wide",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/governance_validate.go:151",
+    "runtime/prompt/governance_validate.go:196"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "validator control resolves to a prompt validator id",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/governance_validate.go:237"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "eval control and review eval resolve in pack evals or a prompt's evals",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/governance_validate.go:165",
+    "runtime/prompt/governance_validate.go:214"
+   ]
+  },
+  {
+   "id": 22,
+   "claim": "field control names a declared governance property in effective object",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/governance_validate.go:275"
+   ]
+  },
+  {
+   "id": 23,
+   "claim": "satisfies names an obligation in the effective object",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/governance_validate.go:265"
+   ]
+  },
+  {
+   "id": 24,
+   "claim": "cadence non-empty ISO 8601 duration, checked even when schema validation skipped",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/governance_validate.go:217",
+    "runtime/prompt/governance_validate.go:45"
+   ]
+  },
+  {
+   "id": 25,
+   "claim": "effective object for an agent is its declaration resolved against the pack's",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/governance_validate.go:118"
+   ]
+  },
+  {
+   "id": 26,
+   "claim": "undeclared CURIE prefix is a warning; sdk.Open logs it; sdk.ValidatePack reports severity warning",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/governance_validate.go:316",
+    "sdk/internal/pack/validate.go:270",
+    "sdk/validate_pack.go:144"
+   ]
+  },
+  {
+   "id": 27,
+   "claim": "tool action_scope: effect, reversibility, data_classes, extensions",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/schema/promptpack.schema.json:779"
+   ]
+  },
+  {
+   "id": 28,
+   "claim": "effect values read, write, external; reversibility values reversible, compensable, irreversible",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/schema/promptpack.schema.json:787",
+    "runtime/prompt/schema/promptpack.schema.json:793"
+   ]
+  },
+  {
+   "id": 29,
+   "claim": "action_scope gates nothing",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/pack.go:437"
+   ]
+  },
+  {
+   "id": 30,
+   "claim": "tool_policy and hooks are the hard-stop mechanism",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 31,
+   "claim": "sdk.Open(path, name) then conv.Governance() returns *Governance",
+   "verdict": "true",
+   "evidence": [
+    "sdk/governance.go:32",
+    "sdk/sdk.go:84"
+   ]
+  },
+  {
+   "id": 32,
+   "claim": "sdk.DescribeGovernance output format 'purpose: ..; autonomy: ..; owner: ..; must disclose as AI; environments: a/b' joined by '; '",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/governance.go:234"
+   ]
+  },
+  {
+   "id": 33,
+   "claim": "Governance() resolves agent declaration when opened as a named agent, else pack-level; PackGovernance ignores agent scope",
+   "verdict": "true",
+   "evidence": [
+    "sdk/governance.go:32",
+    "sdk/governance.go:70"
+   ]
+  },
+  {
+   "id": 34,
+   "claim": "both return nil when nothing declared, and a copy",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/governance.go:319",
+    "runtime/prompt/governance.go:52"
+   ]
+  },
+  {
+   "id": 35,
+   "claim": "prompt.ResolveGovernance(pack, agent) returns (*Governance, error)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/governance.go:84"
+   ]
+  },
+  {
+   "id": 36,
+   "claim": "unknown agent name is an error, not a fallback",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/governance.go:197"
+   ]
+  },
+  {
+   "id": 37,
+   "claim": "existing HITL approval flow",
+   "verdict": "unverified",
+   "evidence": []
+  }
+ ]
+}

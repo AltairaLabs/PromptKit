@@ -1,53 +1,73 @@
 ---
 title: Tools & MCP
+description: How the runtime lets a model call functions, how the Model Context Protocol connects external tool servers, and how a prompt's tool_policy bounds a turn.
 sidebar:
   order: 6
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/events/types.go
+    - runtime/mcp/client.go
+    - runtime/mcp/registry.go
+    - runtime/mcp/types.go
+    - runtime/packspec/types.go
+    - runtime/pipeline/stage/composition_executor.go
+    - runtime/pipeline/stage/errors.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/types.go
+    - runtime/prompt/schema/promptpack.schema.json
+    - runtime/tools/mcp_executor.go
+    - runtime/tools/registry.go
+    - runtime/tools/types.go
+    - runtime/types/message.go
+    - runtime/workflow/machine.go
 ---
-Understanding function calling and the Model Context Protocol.
+Tools let a model call code you write. MCP lets it call code that runs in another process.
 
 ## What are Tools?
 
-**Tools** (also called "function calling") allow LLMs to execute code, query databases, call APIs, and interact with external systems.
+A tool, also called a function call, is a function the model can ask the runtime to run. Tools let the model query a database, call an API, take an action such as sending an email, or compute a result with code instead of reasoning about it.
 
-## Why Tools?
-
-**Extend capabilities**: LLMs can do more than generate text  
-**Real-time data**: Access current information  
-**Take actions**: Update databases, send emails, etc.  
-**Accuracy**: Use code for math, not LLM reasoning  
+The model never runs the function. It emits a tool call with arguments, the runtime executes the matching tool, and the result goes back to the model as the next message.
 
 ## How Tools Work
 
-1. **Define tools**: Describe available functions
-2. **LLM decides**: When to use which tool
-3. **Execute**: Run the tool and get results
-4. **LLM responds**: Incorporate tool results in response
+The runtime describes the available tools to the model, the model decides whether to call one, the runtime executes it, and the model answers with the result in context.
 
-## Example Flow
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant P as ProviderStage
+    participant M as LLM
+    participant R as tools.Registry
+    U->>P: What's the weather in Paris?
+    P->>M: messages and tool descriptors
+    M-->>P: tool call get_weather(city="Paris")
+    P->>R: Execute get_weather
+    R-->>P: {"temp": 18, "condition": "cloudy"}
+    P->>M: messages and tool result
+    M-->>U: It's 18°C and cloudy in Paris
+```
 
-```
-User: "What's the weather in Paris?"
-  ↓
-LLM: "I should use the weather tool"
-  ↓
-Tool Call: get_weather(city="Paris")
-  ↓
-Tool Result: {"temp": 18, "condition": "cloudy"}
-  ↓
-LLM: "It's 18°C and cloudy in Paris"
-```
+Each pass through "model, tool, model" is one round. The provider stage repeats rounds until the model answers without calling a tool or a limit stops the turn.
 
 ## Tools in PromptKit
 
 ### Define Tools
 
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+A `tools.ToolDescriptor` gives the model a name, a description and a JSON Schema for the arguments. `Mode` names the executor that runs the tool.
 
-// Define tool
+```go
+import (
+    "encoding/json"
+
+    "github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+)
+
 weatherTool := &tools.ToolDescriptor{
     Name:        "get_weather",
     Description: "Get current weather for a city",
+    Mode:        "weather", // the Name() of the executor below
     InputSchema: json.RawMessage(`{
         "type": "object",
         "properties": {
@@ -63,6 +83,8 @@ weatherTool := &tools.ToolDescriptor{
 
 ### Implement Executor
 
+An executor implements `tools.Executor`. It receives the descriptor and the raw JSON arguments, and returns raw JSON.
+
 ```go
 type WeatherExecutor struct{}
 
@@ -76,7 +98,9 @@ func (e *WeatherExecutor) Execute(
     var params struct {
         City string `json:"city"`
     }
-    json.Unmarshal(args, &params)
+    if err := json.Unmarshal(args, &params); err != nil {
+        return nil, fmt.Errorf("invalid arguments: %w", err)
+    }
 
     weather := getWeather(params.City)
     return json.Marshal(map[string]any{
@@ -88,17 +112,15 @@ func (e *WeatherExecutor) Execute(
 
 ### Register Tools
 
+The registry routes a call to the executor whose `Name()` equals the descriptor's `Mode`. A descriptor with an empty `Mode` runs as a mock tool.
+
 ```go
-// Create registry and register the tool
 registry := tools.NewRegistry()
 registry.RegisterExecutor(&WeatherExecutor{})
-err := registry.Register(weatherTool)
-if err != nil {
+if err := registry.Register(weatherTool); err != nil {
     log.Fatal(err)
 }
 ```
-
-The tool registry makes tools available for the LLM to call during conversations.
 
 ## Limiting Tool Use
 
@@ -118,7 +140,7 @@ A prompt's `tool_policy` in the pack limits how it uses tools in one turn:
 }
 ```
 
-- `max_rounds`: how many LLM → tool → LLM cycles one turn may take. Defaults to 50. A turn that still wants tools at the limit fails with `max rounds (N) exceeded`. The error matches `stage.ErrMaxRoundsExceeded` with `errors.Is`, and `errors.As` with `*stage.MaxRoundsError` gives the limit, so a host can tell it apart from other failures without matching the message.
+- `max_rounds`: how many LLM → tool → LLM cycles one turn may take. Defaults to 50. A turn that still wants tools at the limit fails with `provider stage: max rounds (N) exceeded`. The error matches `stage.ErrMaxRoundsExceeded` with `errors.Is`, and `errors.As` with `*stage.MaxRoundsError` gives the limit, so a host can tell it apart from other failures without matching the message.
 - `max_tool_calls_per_turn`: how many tool calls one turn may run, across all its rounds. A call over the limit is not run; the model gets an error result for it, and the next round offers no tools, so the model answers.
 - `tool_choice`: `auto`, `required` or `none`. With `none`, no tools are sent.
 - `blocklist`: tools this prompt may not run, even when listed in `tools`.
@@ -129,51 +151,46 @@ A prompt's `tool_policy` in the pack limits how it uses tools in one turn:
 
 Three other limits can apply, and they work differently:
 
-| Limit | What it bounds | How it combines with `tool_policy` |
-|---|---|---|
-| A composition agent step's `termination.max_steps` | The LLM-tool loop of that one step, counted in the same rounds as `max_rounds` | The step stops at the lower of `max_steps` and its prompt's `max_rounds` |
-| `workflow.engine.budget` (`max_tool_calls`, `max_total_visits`, `max_wall_time_sec`) and a state's `max_visits` | The whole workflow run, across states and turns | Applies on top. Each turn is still bounded by its prompt's `tool_policy` |
-| Limits a host or test harness sets in code | Whatever the caller sets | These can only make the prompt's limits stricter, never looser |
+- A composition agent step's `termination.max_steps` bounds the LLM-tool loop of that one step, counted in the same rounds as `max_rounds`. The step stops at the lower of `max_steps` and its prompt's `max_rounds`.
+- `workflow.engine.budget` (`max_tool_calls`, `max_total_visits`, `max_wall_time_sec`) and a state's `max_visits` bound the whole workflow run, across states and turns. They apply on top: each turn is still bounded by its prompt's `tool_policy`.
+- Limits a host or test harness sets in code combine with the prompt's. The lower `max_rounds` and `max_tool_calls_per_turn` apply, the blocklists are joined, and a `tool_choice` the host sets takes precedence over the prompt's.
 
 `max_steps` limits rounds inside one step, not how many steps run. A composition's steps form an acyclic graph, so no step runs twice. To loop, use workflow states with `max_visits`.
 
 ## Model Context Protocol (MCP)
 
-**MCP** is a standard for connecting LLMs to external data sources and tools.
+MCP is a standard protocol for connecting an LLM application to external tool servers.
 
 ### What is MCP?
 
-MCP provides:
-- **Standard interface**: Connect any tool to any LLM
-- **Tool discovery**: LLMs learn available tools
-- **Secure execution**: Sandboxed tool execution
-- **Composability**: Combine multiple tool servers
+MCP gives you:
+
+- A standard interface: a server written once serves any MCP client.
+- Tool discovery: the client asks each server which tools it offers.
+- Composability: one application connects to several servers at once.
+
+A server runs in its own process or on another host. PromptKit does not sandbox it, so a server has the access of the process that runs it.
 
 ### MCP Architecture
 
-```
-LLM Application
-      ↓
-  MCP Client
-      ↓
-  MCP Server(s)
-      ↓
-External Systems (filesystem, databases, APIs)
+The runtime routes calls to tools with `mode: mcp` through the MCP executor, which uses the MCP registry to reach the server that owns the tool.
+
+```mermaid
+flowchart TD
+    A[ProviderStage] --> B[tools.Registry]
+    B --> C[tools.MCPExecutor]
+    C --> D[mcp.Registry]
+    D --> E[MCP server over stdio]
+    D --> F[MCP server over HTTP]
+    E --> G[Filesystem, databases, APIs]
+    F --> G
 ```
 
 ## MCP in PromptKit
 
-### Start MCP Server
-
-```bash
-# Filesystem server
-npx @modelcontextprotocol/server-filesystem ~/documents
-
-# Memory server
-npx @modelcontextprotocol/server-memory
-```
-
 ### Connect in Code
+
+A `mcp.ServerConfig` with `Command` makes PromptKit spawn the server as a subprocess and talk to it over stdio. A config with `URL` connects to an HTTP server instead.
 
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
@@ -201,66 +218,18 @@ if err != nil {
 
 ## Common Tools
 
-### File Operations
-
-```go
-fileTools := []tools.ToolDescriptor{
-    {
-        Name:        "read_file",
-        Description: "Read contents of a file",
-    },
-    {
-        Name:        "write_file",
-        Description: "Write contents to a file",
-    },
-    {
-        Name:        "list_directory",
-        Description: "List files in a directory",
-    },
-}
-```
-
-### Database Queries
+Most tools fall into a few kinds: file operations (`read_file`, `write_file`, `list_directory`), database queries, HTTP calls and calculations. Each is a descriptor with a narrow job and an input schema:
 
 ```go
 dbTool := &tools.ToolDescriptor{
     Name:        "query_database",
-    Description: "Execute SQL query",
+    Description: "Execute a read-only SQL query",
     InputSchema: json.RawMessage(`{
         "type": "object",
         "properties": {
             "query": {"type": "string"}
-        }
-    }`),
-}
-```
-
-### API Calls
-
-```go
-apiTool := &tools.ToolDescriptor{
-    Name:        "fetch_url",
-    Description: "Fetch data from URL",
-    InputSchema: json.RawMessage(`{
-        "type": "object",
-        "properties": {
-            "url": {"type": "string"}
-        }
-    }`),
-}
-```
-
-### Calculations
-
-```go
-calcTool := &tools.ToolDescriptor{
-    Name:        "calculate",
-    Description: "Perform mathematical calculation",
-    InputSchema: json.RawMessage(`{
-        "type": "object",
-        "properties": {
-            "expression": {"type": "string"}
-        }
+        },
+        "required": ["query"]
     }`),
 }
 ```
@@ -269,17 +238,19 @@ calcTool := &tools.ToolDescriptor{
 
 ### Clear Descriptions
 
-**Bad**:
-```go
-Description: "Gets stuff"
-```
+The model chooses a tool from its description. A vague description leads to wrong or missed calls.
 
-**Good**:
 ```go
+// Bad
+Description: "Gets stuff"
+
+// Good
 Description: "Get current weather for a specified city. Returns temperature in Celsius and current conditions."
 ```
 
 ### Detailed Parameters
+
+Describe each parameter, constrain values with `enum`, and mark what is required.
 
 ```go
 InputSchema: json.RawMessage(`{
@@ -301,6 +272,8 @@ InputSchema: json.RawMessage(`{
 ```
 
 ### Error Handling
+
+An executor returns an error for bad arguments and for failures in the work it does. Wrap errors so the cause stays visible.
 
 ```go
 func (e *WeatherExecutor) Execute(
@@ -327,124 +300,77 @@ func (e *WeatherExecutor) Execute(
 
 ### Security
 
-✅ **Validate inputs**:
-```go
-if !isValidCity(params.City) {
-    return "", errors.New("invalid city name")
-}
-```
+Arguments come from a model, so treat them as untrusted input.
 
-✅ **Limit access**:
-```go
-// Only allow reading specific directories
-allowedPaths := []string{"/data", "/docs"}
-```
+- Validate arguments before using them, and reject values outside the expected set.
+- Limit what the tool can reach, for example by checking paths against an allowed list.
+- Bound the work with a timeout on the context.
+- Return only the data the model needs. Keep secrets such as API keys out of results.
 
-✅ **Timeout operations**:
 ```go
 ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 defer cancel()
-```
 
-❌ **Don't expose sensitive data**:
-```go
-// Bad: Returns API keys
-return fmt.Sprintf("API_KEY=%s", apiKey)
-
-// Good: Returns only needed data
-return fmt.Sprintf("weather=%s", weather)
+if !isValidCity(params.City) {
+    return nil, errors.New("invalid city name")
+}
 ```
 
 ## Testing Tools
 
-### Unit Tests
+An executor is an ordinary Go type, so test it directly:
 
 ```go
-func TestWeatherTool(t *testing.T) {
+func TestWeatherExecutor(t *testing.T) {
     executor := &WeatherExecutor{}
-    
-    call := &types.ToolCall{
-        Name: "get_weather",
-        Arguments: json.RawMessage(`{"city": "Paris"}`),
-    }
-    
-    result, err := executor.Execute(context.Background(), call)
+    descriptor := &tools.ToolDescriptor{Name: "get_weather", Mode: "weather"}
+
+    result, err := executor.Execute(
+        context.Background(), descriptor, json.RawMessage(`{"city": "Paris"}`),
+    )
     assert.NoError(t, err)
-    assert.Contains(t, result, "temp")
+    assert.Contains(t, string(result), "temp")
 }
-```
-
-### Integration Tests
-
-```yaml
-# arena.yaml
-tests:
-  - name: Weather Tool Test
-    prompt: "What's the weather in Paris?"
-    assertions:
-      - type: tool_call
-        tool_name: get_weather
-      - type: contains
-        value: "Paris"
 ```
 
 ## Monitoring Tools
 
-### Track Usage
-
-```go
-type ToolMetrics struct {
-    CallCount     map[string]int
-    ErrorCount    map[string]int
-    AvgLatency    map[string]time.Duration
-}
-
-func RecordToolCall(toolName string, duration time.Duration, err error) {
-    metrics.CallCount[toolName]++
-    if err != nil {
-        metrics.ErrorCount[toolName]++
-    }
-    metrics.AvgLatency[toolName] = updateAverage(duration)
-}
-```
-
-### Log Tool Calls
-
-```go
-logger.Info("tool executed",
-    zap.String("tool", call.Name),
-    zap.Duration("duration", duration),
-    zap.Bool("success", err == nil),
-)
-```
+The runtime emits `tool.call.started`, `tool.call.completed` and `tool.call.failed` events for each call. Subscribe to them to count calls, errors and latency per tool. See [Runtime Events](/architecture/runtime-events/) for the event model.
 
 ## Common Patterns
 
 ### Tool Chaining
 
-LLM uses multiple tools:
+The model can call several tools across rounds, each result informing the next call.
 
-```
-User: "Analyze the sales data"
-  ↓
-Tool 1: read_file("sales.csv")
-  ↓
-Tool 2: calculate("sum(column)")
-  ↓
-Tool 3: create_chart(data)
-  ↓
-Response: "Here's your sales analysis [chart]"
+```mermaid
+sequenceDiagram
+    participant M as LLM
+    participant R as tools.Registry
+    M->>R: read_file("sales.csv")
+    R-->>M: file contents
+    M->>R: calculate("sum(column)")
+    R-->>M: total
+    M->>R: create_chart(data)
+    R-->>M: chart
+    M-->>M: compose the sales analysis
 ```
 
 ### Conditional Tools
 
+Register a tool only when the caller should have it:
+
 ```go
 if userTier == "premium" {
-    registry.Register(advancedAnalyticsTool)
+    if err := registry.Register(advancedAnalyticsTool); err != nil {
+        log.Fatal(err)
+    }
 }
 ```
 
 ### Cached Tools
+
+Wrap an executor to cache results by tool name and arguments:
 
 ```go
 type CachedExecutor struct {
@@ -470,15 +396,7 @@ func (e *CachedExecutor) Execute(
 }
 ```
 
-## Summary
-
-Tools & MCP provide:
-
-✅ **Extended capabilities** - LLMs can do more  
-✅ **Real-time data** - Access current information  
-✅ **Actions** - Interact with external systems  
-✅ **Standardization** - MCP provides common interface  
-✅ **Composability** - Combine multiple tools  
+A concurrent host guards the map with a mutex.
 
 ## Related Documentation
 

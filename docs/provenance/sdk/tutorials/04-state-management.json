@@ -1,0 +1,100 @@
+{
+ "page": "docs/src/content/docs/sdk/tutorials/04-state-management.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "\"system_template\": \"You are a {{role}} at {{company}}",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/pack.go:755",
+    "runtime/template/renderer.go:59"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "`SetVar()` sets one variable",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1209"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "sdk.Open(\"./dynamic.pack.json\", \"support\")",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1209",
+    "sdk/sdk.go:84"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "`SetVars()` sets several variables in one call",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1226"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "`GetVar()` returns a variable's value and whether it is set",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1273"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "`SetVarsFromEnv()` takes a prefix",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1247",
+    "sdk/conversation.go:1264"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "converts each value with `fmt.Sprintf(\"%v\", value)`",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1235"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "A conversation renders the system prompt on every `Send()`",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1203",
+    "sdk/session_vars.go:31"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Several goroutines can set variables on one conversation",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1209",
+    "sdk/session/unary_session.go:244"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "`Fork()` copies a conversation, including its variables",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1358",
+    "sdk/session/unary_session.go:283"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "The variable handling in `sdk/examples/hello/`",
+   "verdict": "true",
+   "evidence": [
+    "sdk/examples/hello/main_interactive.go:32"
+   ]
+  }
+ ]
+}

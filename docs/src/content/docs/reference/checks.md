@@ -38,7 +38,9 @@ All check types are implemented as `EvalTypeHandler` instances registered in the
 | `field_presence` | `required_fields` | `fields` or `required_fields` (string[]) | A G E | No |
 | `cosine_similarity` | -- | `reference` (string), `min_similarity` (float) | A E | No |
 
-When `content_excludes` is invoked via the `banned_words` alias, `match_mode` defaults to `word_boundary`.
+When `content_excludes` is invoked via the `banned_words` alias, `match_mode` defaults to `word_boundary`; otherwise it defaults to `substring`.
+
+`content_excludes` matches case-insensitively. `match_mode` is `substring` (match inside words) or `word_boundary` (match whole words only). While a response streams, the check matches substrings in the partial text whatever the `match_mode`, so a stream can stop on a word that the finished response would pass.
 
 **Example -- assertion (scenario YAML):**
 

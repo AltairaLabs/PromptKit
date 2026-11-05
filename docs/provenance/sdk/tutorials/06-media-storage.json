@@ -1,0 +1,109 @@
+{
+ "page": "docs/src/content/docs/sdk/tutorials/06-media-storage.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Tutorial 3 creates tools.pack.json with prompt assistant and get_weather",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 2,
+   "claim": "hooks.On runs a handler for one event type",
+   "verdict": "true",
+   "evidence": [
+    "sdk/hooks/events.go:53"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Step 1 program compiles and runs against a mock provider",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:40",
+    "runtime/events/types.go:42",
+    "sdk/hooks/events.go:53"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "A tool round makes two provider calls",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:40",
+    "runtime/events/types.go:42"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Each listener runs on its own goroutine; lines from different handlers can appear in any order",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/bus.go:244",
+    "runtime/events/bus.go:560"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "hooks.OnToolCall passes tool name and arguments",
+   "verdict": "true",
+   "evidence": [
+    "sdk/hooks/events.go:67"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "hooks.OnEvent runs one handler for every event type",
+   "verdict": "true",
+   "evidence": [
+    "sdk/hooks/events.go:41"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "A single listener sees events in publish order",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/bus.go:244",
+    "runtime/events/types.go:19",
+    "runtime/events/types.go:21"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Runtime events page lists event types",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 10,
+   "claim": "Failure event types exist",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:23",
+    "runtime/events/types.go:44",
+    "runtime/events/types.go:47",
+    "runtime/events/types.go:51"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "Close waits for handlers to finish; a second Close does nothing",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/bus.go:620",
+    "sdk/conversation.go:1505",
+    "sdk/conversation.go:1519"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "Final program prints tool calls 1, errors 0 against a mock",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:47"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,95 @@
+{
+ "page": "docs/src/content/docs/runtime/tutorials/06-advanced-patterns.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "go get github.com/AltairaLabs/PromptKit/runtime/v2@latest",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 2,
+   "claim": "ask/runPipeline: NewProviderStage, ProviderConfig{MaxTokens}, StreamElement Message output with Role assistant",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:121",
+    "runtime/pipeline/stage/stages_provider.go:261"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "ResponseCache over *types.Message compiles and works",
+   "verdict": "true",
+   "evidence": [
+    "runtime/types/message.go:310"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "NewMapStage wraps a function transforming one element at a time",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stage.go:261",
+    "runtime/pipeline/stage/stage.go:269"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "The assistant message carries CostInfo after the provider stage",
+   "verdict": "true",
+   "evidence": [
+    "runtime/types/message.go:242"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "elem.Meta.FromHistory is true for messages replayed from a state store",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_core.go:286"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "Provider.PredictStream returns chan StreamChunk with Delta and Error",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:254",
+    "runtime/providers/streaming.go:105",
+    "runtime/providers/streaming.go:57"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "processBatch compiles and is called from main; results come back in prompt order",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:54"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "provider.Close() releases a provider (deferred in main)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:121",
+    "runtime/providers/base_provider.go:284"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "Repeated prompt hits cache; log shows one reply cost line per provider request",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:261"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "Links /runtime/reference/, /runtime/explanation/, /runtime/how-to/ exist",
+   "verdict": "true",
+   "evidence": []
+  }
+ ]
+}

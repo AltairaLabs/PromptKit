@@ -1,0 +1,103 @@
+{
+ "page": "docs/src/content/docs/sdk/tutorials/07-audio-sessions.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "VAD pipeline is AudioTurnStage -> STTStage -> ProviderStage -> TTSStageWithInterruption",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pipeline/builder_vad.go:100",
+    "sdk/internal/pipeline/builder_vad.go:41"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "OpenAI TTS FormatPCM16 returns raw 16-bit mono PCM at 24 kHz",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tts/openai.go:267",
+    "runtime/tts/openai.go:342"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "tts.NewOpenAI(apiKey), Synthesize returns io.ReadCloser",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tts/openai.go:95",
+    "runtime/tts/service.go:55"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "VADModeConfig.SampleRate sets the input rate; VAD mode does not resample",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pipeline/builder_vad.go:89",
+    "sdk/options.go:3096"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "OpenDuplex with WithVADMode needs no streaming provider",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:3053",
+    "sdk/sdk.go:322"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "duplex session renders system prompt once on first chunk",
+   "verdict": "true",
+   "evidence": [
+    "sdk/session/duplex_session.go:214"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "SendChunk with MediaData sends audio; first chunk starts the pipeline",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1054",
+    "sdk/session/duplex_session.go:201"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "turn ends after 800ms of silence by default, measured in audio time",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_speech.go:510",
+    "sdk/options.go:3017"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "input_transcription and assistant_turn_complete metadata on Response()",
+   "verdict": "true",
+   "evidence": [
+    "sdk/session/duplex_session.go:890",
+    "sdk/session/duplex_session.go:905"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "turn boundary arrives after the reply's audio",
+   "verdict": "true",
+   "evidence": [
+    "sdk/session/duplex_session.go:918"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "VAD default voice alloy; reply audio at TTS service PCM rate 24 kHz",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_speech.go:973",
+    "sdk/options.go:3023"
+   ]
+  }
+ ]
+}

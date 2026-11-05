@@ -1,0 +1,154 @@
+{
+ "page": "docs/src/content/docs/runtime/tutorials/05-production-deployment.md",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "go get github.com/AltairaLabs/PromptKit/runtime/v2@latest installs the runtime module",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 2,
+   "claim": "OPENAI_API_KEY is read from the environment by openai.NewProvider with empty key args",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/openai/openai.go:322"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "ANTHROPIC_API_KEY is read from the environment by claude.NewProvider",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude.go:136"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Code compiles: imports and identifiers hooks, guardrails, pipeline, stage, providers, claude, openai, statestore, types",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/builder.go:20",
+    "runtime/pipeline/stage/stages_core.go:166",
+    "runtime/pipeline/stage/stages_provider.go:286",
+    "runtime/pipeline/stage/stages_save.go:60"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "guardrails.NewGuardrailHook(\"banned_words\", {words}) replaces a reply containing a listed word with a policy message",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/register.go:145",
+    "runtime/hooks/guardrails/adapter.go:466",
+    "runtime/hooks/guardrails/factory.go:162"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "guardrails.NewGuardrailHook(\"length\", {max_characters}) truncates a reply at the limit",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/guardrails/adapter.go:468",
+    "runtime/hooks/guardrails/adapter.go:541"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "An empty base URL selects the provider's default endpoint",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude.go:134",
+    "runtime/providers/openai/openai.go:199"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "NewStateStoreLoadStage / NewProviderStageWithHooks / NewIncrementalSaveStage chain loads history, calls provider with hooks, saves new messages",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_core.go:253",
+    "runtime/pipeline/stage/stages_provider.go:286",
+    "runtime/pipeline/stage/stages_save.go:60"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "StateStoreConfig names the conversation, so the pipeline is built per request",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_save.go:131",
+    "runtime/pipeline/types.go:175"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Providers retry transient failures such as 429 and 503 themselves",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base_provider.go:1005",
+    "runtime/providers/retry.go:43"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "Execute moves to the next provider only when a provider returns an error",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:286"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "Graceful shutdown: http.Server.Shutdown with 30s context on SIGINT/SIGTERM",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:645"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "/metrics returns {errors, provider_usage, requests, total_cost_usd}",
+   "verdict": "true",
+   "evidence": [
+    "runtime/types/message.go:242"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "A second message with the same session_id sees the first exchange via the state store",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_core.go:253",
+    "runtime/statestore/memory.go:170"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "StateStoreLoadStage -> ProviderStage (+hooks) -> IncrementalSaveStage; Execute falls back to next provider",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/builder.go:72"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "claude-haiku-4-5 and gpt-4o-mini are valid model IDs",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/pricing_table.go:141",
+    "runtime/providers/openai/pricing_table.go:123"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "Pipeline output carries the assistant message with CostInfo; elem.Meta.FromHistory marks replayed history",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_context.go:291",
+    "runtime/types/message.go:242"
+   ]
+  }
+ ]
+}

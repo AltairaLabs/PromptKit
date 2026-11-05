@@ -1,255 +1,120 @@
 ---
 title: Setup Providers
+description: Connect the runtime to OpenAI, Claude, Gemini, Azure OpenAI, Ollama, vLLM and the mock provider.
 sidebar:
   order: 2
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/credentials/azure.go
+    - runtime/credentials/azure_integration.go
+    - runtime/credentials/credential.go
+    - runtime/providers/claude/claude.go
+    - runtime/providers/claude/claude_tools.go
+    - runtime/providers/claude/pricing_table.go
+    - runtime/providers/extra_body.go
+    - runtime/providers/gemini/gemini.go
+    - runtime/providers/gemini/pricing_table.go
+    - runtime/providers/mock/mock.go
+    - runtime/providers/mock/mock_repository.go
+    - runtime/providers/ollama/ollama.go
+    - runtime/providers/ollama/ollama_tools.go
+    - runtime/providers/openai/openai.go
+    - runtime/providers/openai/openai_tools.go
+    - runtime/providers/openai/pricing_table.go
+    - runtime/providers/provider.go
+    - runtime/providers/vllm/vllm.go
+    - runtime/providers/vllm/vllm_tools.go
+    - runtime/types/message.go
 ---
-Configure LLM providers for OpenAI, Claude, and Gemini.
+Create runtime providers for OpenAI, Claude, Gemini, Azure OpenAI, Ollama and vLLM, and swap in the mock provider for tests.
 
-## Goal
+## Prerequisites
 
-Connect to LLM providers with proper configuration and authentication.
+Set the API key for each hosted provider. Each provider reads the first variable it finds in its list.
 
-## OpenAI Setup
+| Provider | Environment variables |
+|----------|-----------------------|
+| `openai` | `OPENAI_API_KEY`, `OPENAI_TOKEN` |
+| `claude` | `ANTHROPIC_API_KEY`, `CLAUDE_API_KEY` |
+| `gemini` | `GEMINI_API_KEY`, `GOOGLE_API_KEY` |
 
-### Basic Setup
+Ollama needs no key. vLLM takes an optional `api_key` in `additional_config`.
+
+## Create a hosted provider
+
+Every constructor takes an ID, a model, a base URL (empty selects the provider's default), a `providers.ProviderDefaults`, and an `includeRawOutput` flag.
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
-
-provider := openai.NewProvider(
-    "openai",
-    "gpt-4o-mini",
-    "",  // Default URL
-    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
-    false,
+import (
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/claude"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
+    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
 )
-defer provider.Close()
+
+defaults := providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000}
+
+oa := openai.NewProvider("openai", "gpt-5-mini", "", defaults, false)
+defer oa.Close()
+
+cl := claude.NewProvider("claude", "claude-sonnet-5-5", "", defaults, false)
+defer cl.Close()
+
+gm := gemini.NewProvider("gemini", "gemini-3.7-flash", "", defaults, false)
+defer gm.Close()
 ```
 
-### Environment Variables
+To choose another model, pass its ID. The pricing tables recognize these models:
 
-```bash
-export OPENAI_API_KEY="sk-..."
-```
+| Provider | Models |
+|----------|--------|
+| OpenAI | `gpt-5-nano`, `gpt-5-mini`, `gpt-5`, `gpt-4.1`, `o4-mini` |
+| Claude | `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5` |
+| Gemini | `gemini-3.5-flash-lite`, `gemini-3.7-flash`, `gemini-3.1-pro` |
 
-### Custom Configuration
+To set rates yourself, fill `ProviderDefaults.Pricing` with cost per 1,000 tokens:
 
 ```go
-customDefaults := providers.ProviderDefaults{
+priced := providers.ProviderDefaults{
     Temperature: 0.8,
     TopP:        0.95,
     MaxTokens:   2000,
     Pricing: providers.Pricing{
-        InputCostPer1K:  0.00015,
-        OutputCostPer1K: 0.0006,
+        InputCostPer1K:  inputRate,
+        OutputCostPer1K: outputRate,
     },
 }
-
-provider := openai.NewProvider(
-    "openai",
-    "gpt-4o-mini",
-    "",
-    customDefaults,
-    false,
-)
 ```
 
-### Available Models
+## Limit output tokens
+
+`ProviderDefaults.MaxTokens` caps output tokens. A request's own `MaxTokens` overrides it. Leave `MaxTokens` at zero, or set it to `providers.MaxTokensUnlimited`, to send no limit and let the model's own maximum apply. Claude requires a limit: it sends 4096 when none is set, and `CreateProviderFromSpec` rejects `MaxTokensUnlimited` for it.
+
+## Fall back across providers
+
+Try each provider in order and return the first success:
 
 ```go
-// Fast and cheap
-provider := openai.NewProvider("openai", "gpt-4o-mini", "", defaults, false)
-
-// Balanced
-provider := openai.NewProvider("openai", "gpt-4o", "", defaults, false)
-
-// Advanced reasoning
-provider := openai.NewProvider("openai", "gpt-4-turbo", "", defaults, false)
-```
-
-## Claude Setup
-
-### Basic Setup
-
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/claude"
-
-provider := claude.NewProvider(
-    "claude",
-    "claude-3-5-sonnet-20241022",
-    "",
-    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 4096},
-    false,
-)
-defer provider.Close()
-```
-
-### Environment Variables
-
-```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-```
-
-### Available Models
-
-```go
-// Fast and cheap
-provider := claude.NewProvider("claude", "claude-3-haiku-20240307", "", defaults, false)
-
-// Balanced (recommended)
-provider := claude.NewProvider("claude", "claude-3-5-sonnet-20241022", "", defaults, false)
-
-// Most capable
-provider := claude.NewProvider("claude", "claude-3-opus-20240229", "", defaults, false)
-```
-
-## Gemini Setup
-
-### Basic Setup
-
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
-
-provider := gemini.NewProvider(
-    "gemini",
-    "gemini-1.5-flash",
-    "",
-    providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 8192},
-    false,
-)
-defer provider.Close()
-```
-
-### Environment Variables
-
-```bash
-export GEMINI_API_KEY="..."
-```
-
-### Available Models
-
-```go
-// Fast and cheap
-provider := gemini.NewProvider("gemini", "gemini-1.5-flash", "", defaults, false)
-
-// Advanced (large context)
-provider := gemini.NewProvider("gemini", "gemini-1.5-pro", "", defaults, false)
-```
-
-## Multi-Provider Setup
-
-### Provider Registry
-
-```go
-type ProviderRegistry struct {
-    providers map[string]providers.Provider
-}
-
-func NewProviderRegistry() *ProviderRegistry {
-    return &ProviderRegistry{
-        providers: make(map[string]providers.Provider),
-    }
-}
-
-func (r *ProviderRegistry) Register(name string, provider providers.Provider) {
-    r.providers[name] = provider
-}
-
-func (r *ProviderRegistry) Get(name string) providers.Provider {
-    return r.providers[name]
-}
-
-// Setup
-registry := NewProviderRegistry()
-registry.Register("openai", openaiProvider)
-registry.Register("claude", claudeProvider)
-registry.Register("gemini", geminiProvider)
-
-// Use
-provider := registry.Get("openai")
-```
-
-### Fallback Strategy
-
-```go
-func ExecuteWithFallback(providers []providers.Provider, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+func predictWithFallback(
+    ctx context.Context, chain []providers.Provider, req providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
     var lastErr error
-    
-    for _, provider := range providers {
-        response, err := provider.Predict(ctx, req)
+    for _, p := range chain {
+        resp, err := p.Predict(ctx, req)
         if err == nil {
-            return response, nil
+            return resp, nil
         }
         lastErr = err
-        log.Printf("Provider %s failed: %v, trying next...", provider.ID(), err)
+        log.Printf("provider %s failed: %v", p.ID(), err)
     }
-    
     return providers.PredictionResponse{}, fmt.Errorf("all providers failed: %w", lastErr)
 }
-
-// Usage
-providers := []providers.Provider{openaiProvider, claudeProvider, geminiProvider}
-response, err := ExecuteWithFallback(providers, req)
 ```
 
-## Cost Optimization
+## Use Azure OpenAI
 
-### Model Selection by Task
-
-```go
-func SelectProvider(taskType string) providers.Provider {
-    switch taskType {
-    case "simple":
-        // Use cheapest model
-        return openai.NewProvider("openai", "gpt-4o-mini", "", defaults, false)
-    case "complex":
-        // Use more capable model
-        return claude.NewProvider("claude", "claude-3-5-sonnet-20241022", "", defaults, false)
-    case "long-context":
-        // Use model with large context
-        return gemini.NewProvider("gemini", "gemini-1.5-pro", "", defaults, false)
-    default:
-        return openai.NewProvider("openai", "gpt-4o-mini", "", defaults, false)
-    }
-}
-```
-
-### Token Limits
-
-```go
-// Set MaxTokens via ProviderDefaults when creating a provider
-defaults := providers.ProviderDefaults{
-    MaxTokens:   500,  // Limit output tokens
-    Temperature: 0.7,
-}
-```
-
-A request's own `MaxTokens` overrides the default. Leave `MaxTokens` at zero,
-or set it to `providers.MaxTokensUnlimited`, to send no limit and let the
-model's own maximum apply. Claude requires a limit: it sends 4096 when none is
-set, and `CreateProviderFromSpec` rejects `MaxTokensUnlimited` for it.
-
-## Testing with Mock Provider
-
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
-
-// Create mock provider
-provider := mock.NewProvider("mock", "test-model", false)
-
-// Configure responses
-provider.AddResponse("Hello", "Hi there!")
-provider.AddResponse("What is 2+2?", "4")
-
-// Use in tests
-result, err := provider.Predict(ctx, req)
-```
-
-## Custom Base URLs
-
-### Azure OpenAI
-
-Use `NewProviderWithCredential` with the Azure platform and an `AzureCredential`:
+Use `NewProviderWithCredential` with the `azure` platform and an `AzureCredential`:
 
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
@@ -261,8 +126,8 @@ if err != nil {
 
 provider := openai.NewProviderWithCredential(
     "azure-openai",
-    "gpt-4o",
-    "",  // auto-derived from endpoint + model
+    "gpt-5",
+    "",  // derived from the endpoint and model
     defaults,
     false,
     cred,
@@ -274,116 +139,36 @@ provider := openai.NewProviderWithCredential(
 )
 ```
 
-The provider auto-derives the deployment URL (`{endpoint}/openai/deployments/{model}`) and appends `?api-version=...` to requests. Azure AD auth (Managed Identity, CLI, env vars) is handled by `AzureCredential`.
+The provider derives the deployment URL (`{endpoint}/openai/deployments/{model}`) and appends `?api-version=...` to requests. `AzureCredential` handles Azure AD authentication (managed identity, Azure CLI, environment variables).
 
-For API key auth, use a simple credential instead:
+For API key authentication, pass an API key credential instead:
 
 ```go
 provider := openai.NewProviderWithCredential(
     "azure-openai",
-    "gpt-4o",
-    credentials.AzureOpenAIEndpoint("https://your-resource.openai.azure.com", "gpt-4o"),
+    "gpt-5",
+    credentials.AzureOpenAIEndpoint("https://your-resource.openai.azure.com", "gpt-5"),
     defaults,
     false,
-    credentials.NewAPIKeyCredential(os.Getenv("AZURE_OPENAI_API_KEY"), credentials.WithHeaderName("api-key"), credentials.WithPrefix("")),
+    credentials.NewAPIKeyCredential(
+        os.Getenv("AZURE_OPENAI_API_KEY"),
+        credentials.WithHeaderName("api-key"),
+        credentials.WithPrefix(""),
+    ),
     "azure",
     nil,
 )
 ```
 
-### OpenAI-Compatible Endpoints
+## Use an OpenAI-compatible endpoint
+
+Pass the endpoint as the base URL:
 
 ```go
-provider := openai.NewProvider(
-    "local-llm",
-    "model-name",
-    "http://localhost:8080/v1",
-    defaults,
-    false,
-)
+provider := openai.NewProvider("local-llm", "model-name", "http://localhost:8080/v1", defaults, false)
 ```
 
-## Troubleshooting
-
-### Authentication Errors
-
-**Problem**: API key not found.
-
-**Solution**:
-```go
-apiKey := os.Getenv("OPENAI_API_KEY")
-if apiKey == "" {
-    log.Fatal("OPENAI_API_KEY environment variable not set")
-}
-```
-
-### Rate Limiting
-
-**Problem**: 429 Too Many Requests.
-
-**Solution**: Add retry logic:
-```go
-var response providers.PredictionResponse
-var err error
-
-for i := 0; i < 3; i++ {
-    response, err = provider.Predict(ctx, req)
-    if err == nil {
-        break
-    }
-    if strings.Contains(err.Error(), "rate_limit") {
-        time.Sleep(time.Duration(i+1) * time.Second)
-        continue
-    }
-    break
-}
-```
-
-### Timeout Errors
-
-**Problem**: Requests timing out.
-
-**Solution**: Increase context timeout:
-```go
-ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-defer cancel()
-```
-
-## Best Practices
-
-1. **Store API keys in environment variables**:
-   ```bash
-   export OPENAI_API_KEY="sk-..."
-   ```
-
-2. **Always close providers**:
-   ```go
-   defer provider.Close()
-   ```
-
-3. **Use appropriate models for tasks**:
-   - Simple: gpt-4o-mini, claude-haiku, llama 3.2 1B (vLLM/Ollama)
-   - Complex: gpt-4o, claude-sonnet, llama 3.1 8B (vLLM)
-   - Long context: gemini-1.5-pro
-   - Local development: ollama (easy setup)
-   - GPU-accelerated: vLLM (high throughput, guided decoding)
-
-4. **Monitor costs**:
-   ```go
-   log.Printf("Cost: $%.6f", result.CostInfo.TotalCost)
-   ```
-
-5. **Handle errors gracefully**:
-   ```go
-   if err != nil {
-       log.Printf("Provider error: %v", err)
-       // Fallback or retry
-   }
-   ```
-
-## Ollama & vLLM Setup
-
-### Ollama (Local Development)
+## Use Ollama
 
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/ollama"
@@ -395,26 +180,20 @@ provider := ollama.NewProvider(
     providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2048},
     false,
     map[string]interface{}{
-        "keep_alive": "5m",  // Keep model loaded
+        "keep_alive": "5m",  // keep the model loaded
     },
 )
 defer provider.Close()
 ```
 
-**Setup**:
+Start the server and pull the model first:
+
 ```bash
-# Install Ollama
-brew install ollama  # macOS
-# or visit https://ollama.ai
-
-# Start server
 ollama serve
-
-# Pull a model
 ollama pull llama3.2:1b
 ```
 
-### vLLM (High-Performance)
+## Use vLLM
 
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/vllm"
@@ -427,13 +206,14 @@ provider := vllm.NewProvider(
     false,
     map[string]interface{}{
         "use_beam_search": false,
-        "guided_json":     jsonSchema,  // Force structured output
+        "guided_json":     jsonSchema,  // force structured output
     },
 )
 defer provider.Close()
 ```
 
-**Setup (GPU-accelerated)**:
+Start a server with the model:
+
 ```bash
 docker run --rm --gpus all \
   -p 8000:8000 \
@@ -443,17 +223,9 @@ docker run --rm --gpus all \
   --max-model-len 4096
 ```
 
-**Features**:
-- Guided decoding (JSON schema, regex)
-- Beam search for quality
-- Multi-GPU tensor parallelism
-- High-throughput continuous batching
+### vLLM `additional_config` keys
 
-#### vLLM `additional_config` keys
-
-Everything vLLM-specific rides in `additional_config`. These are the keys the
-provider reads; any other key is ignored. To send a server parameter that has
-no key here, put it in `extra_body`.
+All vLLM-specific settings go in `additional_config`. The provider reads these keys and ignores any other. To send a server parameter that has no key here, put it in `extra_body`.
 
 | Key | Type | Effect |
 |-----|------|--------|
@@ -468,9 +240,7 @@ no key here, put it in `extra_body`.
 | `guided_choice` | string[] | Closed set of permitted answers. |
 | `extra_body` | object | Extra request fields, merged into every request. See [Send server parameters with `extra_body`](#send-server-parameters-with-extra_body). |
 
-The four `guided_*` keys are mutually exclusive — vLLM applies one decoding
-constraint per request. Guided decoding is enforced by the server, so unlike a
-prompt instruction it cannot be ignored by the model.
+The four `guided_*` keys are mutually exclusive: vLLM applies one decoding constraint per request. The server enforces guided decoding, so the model cannot ignore it the way it can ignore a prompt instruction.
 
 ```yaml
 id: local-llama
@@ -482,22 +252,11 @@ additional_config:
   best_of: 4
 ```
 
-A value of the wrong type is ignored rather than rejected, so a key that does
-not take effect is worth checking against the table above before suspecting
-the server. Two shapes are read leniently because a config decoder has no
-choice about what it produces: `best_of` accepts a JSON number (JSON decodes
-every number to a float, so an integer literal arrives as `4.0`) but refuses a
-fractional one, and `guided_choice` accepts the untyped sequence both YAML and
-JSON produce. A `guided_choice` list containing a non-string is refused whole
-rather than partially applied — a silently shortened choice list changes what
-the model is allowed to answer.
+A value of the wrong type is ignored rather than rejected, so check a key that has no effect against the table before suspecting the server. Two keys accept the shapes a config decoder produces: `best_of` accepts a JSON number (an integer literal decodes to a float such as `4.0`) but refuses a fractional one, and `guided_choice` accepts the untyped sequence that YAML and JSON produce. A `guided_choice` list containing a non-string is refused whole, because a silently shortened list changes what the model may answer.
 
 ### Send server parameters with `extra_body`
 
-The `openai`, `vllm` and `ollama` providers merge `additional_config.extra_body`
-into the body of every chat request, on the streaming and tool-calling paths
-too. Use it for a request parameter the server accepts but PromptKit has no key
-for. To turn off Qwen3's reasoning on vLLM, for example:
+The `openai`, `vllm` and `ollama` providers merge `additional_config.extra_body` into the body of every chat request, on the streaming and tool-calling paths too. Use it for a request parameter the server accepts and PromptKit has no key for. To turn off Qwen3's reasoning on vLLM:
 
 ```yaml
 id: qwen3
@@ -510,17 +269,56 @@ additional_config:
       enable_thinking: false
 ```
 
-A field the provider sets itself, such as `model`, `messages`, `tools` or
-`stream`, always wins. The provider drops the colliding `extra_body` field and
-logs a warning naming it. An `extra_body` that is not a map is ignored with a
-warning.
+A field the provider sets itself, such as `model`, `messages`, `tools` or `stream`, always wins. The provider drops the colliding `extra_body` field and logs a warning naming it. An `extra_body` that is not a map is ignored with a warning.
 
-## Next Steps
+## Test with the mock provider
 
-- [Configure Pipeline](/runtime/how-to/pipeline/configure-pipeline/) - Build complete pipeline
-- [Monitor Costs](/runtime/how-to/observability/monitor-costs/) - Track spending
+Back the mock provider with an in-memory repository, and set the response per scenario and turn:
 
-## See Also
+```go
+import "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 
-- [Provider Reference](/runtime/reference/providers/) - Complete API
-- [Provider Tutorial](/runtime/tutorials/01-first-pipeline/) - Step-by-step guide
+repo := mock.NewInMemoryMockRepository("Default reply")
+repo.SetResponse("greeting", 1, "Hi there!")
+
+provider := mock.NewProviderWithRepository("mock", "test-model", false, repo)
+defer provider.Close()
+
+resp, err := provider.Predict(ctx, providers.PredictionRequest{})
+```
+
+`mock.NewProvider("mock", "test-model", false)` returns a fixed response naming the provider and model.
+
+## Verify
+
+Check the cost the provider reports after a call:
+
+```go
+if resp.CostInfo != nil {
+    log.Printf("Cost: $%.6f", resp.CostInfo.TotalCost)
+}
+```
+
+## Troubleshoot
+
+**API key not found.** Check that one of the variables in the prerequisites table is set in the process that runs your program:
+
+```go
+if os.Getenv("OPENAI_API_KEY") == "" {
+    log.Fatal("OPENAI_API_KEY is not set")
+}
+```
+
+**Requests time out.** Pass a context with a longer deadline:
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+defer cancel()
+```
+
+## Related
+
+- [Configure Pipeline](/runtime/how-to/pipeline/configure-pipeline/)
+- [Monitor Costs](/runtime/how-to/observability/monitor-costs/)
+- [Provider Reference](/runtime/reference/providers/)
+- [First Pipeline tutorial](/runtime/tutorials/01-first-pipeline/)

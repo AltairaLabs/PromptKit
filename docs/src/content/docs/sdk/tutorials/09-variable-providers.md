@@ -1,172 +1,37 @@
 ---
-title: "Tutorial 9: Variable Providers"
+title: 'Tutorial 9: Variable providers'
 sidebar:
   order: 9
+verified:
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  sources:
+    - runtime/pipeline/stage/stages_utilities.go
+    - runtime/statestore/memory.go
+    - runtime/statestore/types.go
+    - runtime/variables/chain.go
+    - runtime/variables/provider.go
+    - runtime/variables/request.go
+    - runtime/variables/state.go
+    - runtime/variables/time.go
+    - sdk/json_input.go
+    - sdk/options.go
 ---
-Inject dynamic context into prompts with variable providers.
+## What we will build
 
-## What You'll Learn
-
-- What variable providers are and when to use them
-- Built-in providers: Time, State, Chain
-- Creating custom providers for RAG and database lookups
-- Chaining multiple providers together
+In this tutorial we build a support agent whose system prompt fills itself in on every `Send()`: today's date from the built-in time provider, the customer's plan from conversation state, and an FAQ answer from a provider we write. A variable provider implements `variables.Provider`, and `sdk.WithVariableProvider` registers it; the pipeline calls every registered provider on each `Send()`, before it renders the prompt.
 
 ## Prerequisites
 
-- Completed [Tutorial 1: First Conversation](/sdk/tutorials/01-first-conversation/)
-- Understanding of template variables
+Complete [Tutorial 1: First conversation](/sdk/tutorials/01-first-conversation/), and set your provider API key as in that tutorial.
 
-## What Are Variable Providers?
+## Step 1: Inject today's date
 
-Variable providers dynamically resolve variables at runtime, before template rendering. They're useful for:
-
-- **RAG**: Injecting context from vector search
-- **Session State**: Including user preferences or history summaries
-- **Time-sensitive Data**: Current timestamps, business hours
-- **External APIs**: Live data from databases or services
-
-### Static vs Dynamic Variables
-
-```go
-// Sticky: set on the conversation, re-read every turn
-// (change it between sends and the next prompt changes)
-conv.SetVar("user_name", "Alice")
-
-// Dynamic: Resolved on each Send()
-conv, _ := sdk.Open("./pack.json", "chat",
-    sdk.WithVariableProvider(&myRAGProvider{}),
-)
-```
-
-## Built-in Providers
-
-### TimeProvider
-
-Injects current time and date information:
-
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/variables"
-
-conv, _ := sdk.Open("./pack.json", "chat",
-    sdk.WithVariableProvider(variables.NewTimeProvider()),
-)
-
-// Available variables:
-// {{current_time}}    - "2025-01-15T15:04:05Z" (RFC3339 format)
-// {{current_date}}    - "2025-01-15"
-// {{current_year}}    - "2025"
-// {{current_month}}   - "January"
-// {{current_weekday}} - "Wednesday"
-// {{current_hour}}    - "15"
-```
-
-### StateProvider
-
-Extracts variables from conversation state metadata:
-
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/variables"
-
-// StateProvider reads from statestore metadata
-stateProvider := variables.NewStateProvider(stateStore, conversationID)
-
-conv, _ := sdk.Open("./pack.json", "chat",
-    sdk.WithStateStore(stateStore),
-    sdk.WithConversationID(conversationID),
-    sdk.WithVariableProvider(stateProvider),
-)
-
-// Any metadata saved to state is available as variables
-// e.g., if state has metadata["user_tier"] = "premium"
-// then {{user_tier}} resolves to "premium"
-```
-
-### ChainProvider
-
-Combines multiple providers in sequence:
-
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/variables"
-
-chain := variables.Chain(
-    variables.NewTimeProvider(),
-    variables.NewStateProvider(store, convID),
-    &myRAGProvider{},
-)
-
-conv, _ := sdk.Open("./pack.json", "chat",
-    sdk.WithVariableProvider(chain),
-)
-
-// Variables resolved in order; later providers override earlier ones
-```
-
-## Creating Custom Providers
-
-### Provider Interface
-
-```go
-type Provider interface {
-    Name() string
-    Provide(ctx context.Context) (map[string]string, error)
-}
-```
-
-### Example: RAG Provider
-
-```go
-package main
-
-import (
-    "context"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/variables"
-)
-
-type RAGProvider struct {
-    vectorDB VectorDatabase
-    topK     int
-}
-
-func NewRAGProvider(db VectorDatabase, topK int) *RAGProvider {
-    return &RAGProvider{vectorDB: db, topK: topK}
-}
-
-func (p *RAGProvider) Name() string {
-    return "rag"
-}
-
-func (p *RAGProvider) Provide(ctx context.Context) (map[string]string, error) {
-    // Get the current query from context (set by the pipeline)
-    query := ctx.Value("current_query").(string)
-
-    // Search vector database
-    results, err := p.vectorDB.Search(ctx, query, p.topK)
-    if err != nil {
-        return nil, err
-    }
-
-    // Format results as context
-    var context strings.Builder
-    for i, result := range results {
-        context.WriteString(fmt.Sprintf("[%d] %s\n", i+1, result.Text))
-    }
-
-    return map[string]string{
-        "rag_context": context.String(),
-        "rag_sources": formatSources(results),
-    }, nil
-}
-```
-
-### Using the RAG Provider
-
-Pack file with RAG context:
+Create `support.pack.json`. Its system template uses two variables the time provider supplies:
 
 ```json
 {
-  "id": "rag-assistant",
-  "name": "RAG Assistant",
+  "id": "support",
+  "name": "Support",
   "version": "1.0.0",
   "template_engine": {
     "version": "v1",
@@ -177,213 +42,206 @@ Pack file with RAG context:
       "id": "support",
       "name": "Support Agent",
       "version": "1.0.0",
-      "system_template": "You are a support agent. Use the following context to answer questions:\n\n{{rag_context}}\n\nSources: {{rag_sources}}"
+      "system_template": "You are a support agent for Acme. Today is {{current_weekday}}, {{current_date}}."
     }
   }
 }
 ```
 
-Go code:
-
-```go
-ragProvider := NewRAGProvider(myVectorDB, 5)
-
-conv, _ := sdk.Open("./rag-assistant.pack.json", "support",
-    sdk.WithVariableProvider(ragProvider),
-)
-
-// RAG context automatically injected on each Send()
-resp, _ := conv.Send(ctx, "How do I reset my password?")
-```
-
-### Example: Database Provider
-
-```go
-type UserDataProvider struct {
-    db     *sql.DB
-    userID string
-}
-
-func (p *UserDataProvider) Name() string {
-    return "user_data"
-}
-
-func (p *UserDataProvider) Provide(ctx context.Context) (map[string]string, error) {
-    var user struct {
-        Name        string
-        Tier        string
-        LastLogin   time.Time
-        Preferences string
-    }
-
-    err := p.db.QueryRowContext(ctx,
-        "SELECT name, tier, last_login, preferences FROM users WHERE id = $1",
-        p.userID,
-    ).Scan(&user.Name, &user.Tier, &user.LastLogin, &user.Preferences)
-    if err != nil {
-        return nil, err
-    }
-
-    return map[string]string{
-        "user_name":        user.Name,
-        "user_tier":        user.Tier,
-        "last_login":       user.LastLogin.Format("2006-01-02"),
-        "user_preferences": user.Preferences,
-    }, nil
-}
-```
-
-## Provider Chaining
-
-### Order Matters
-
-Variables are resolved in order, with later providers overriding earlier ones:
-
-```go
-chain := variables.Chain(
-    &defaultsProvider{},     // Base defaults
-    &userDataProvider{},     // User-specific data (overrides defaults)
-    &ragProvider{},          // RAG context
-)
-```
-
-### Conditional Providers
-
-```go
-type ConditionalProvider struct {
-    condition func(ctx context.Context) bool
-    provider  variables.Provider
-}
-
-func (p *ConditionalProvider) Provide(ctx context.Context) (map[string]string, error) {
-    if !p.condition(ctx) {
-        return nil, nil // Skip this provider
-    }
-    return p.provider.Provide(ctx)
-}
-```
-
-## Error Handling
-
-### Graceful Degradation
-
-```go
-func (p *RAGProvider) Provide(ctx context.Context) (map[string]string, error) {
-    results, err := p.vectorDB.Search(ctx, query, p.topK)
-    if err != nil {
-        // Log error but don't fail the conversation
-        log.Printf("RAG search failed: %v", err)
-        return map[string]string{
-            "rag_context": "No additional context available.",
-        }, nil
-    }
-    // ... format results
-}
-```
-
-### Timeout Handling
-
-```go
-func (p *SlowProvider) Provide(ctx context.Context) (map[string]string, error) {
-    // Create timeout context
-    ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
-    defer cancel()
-
-    result, err := p.slowOperation(ctx)
-    if errors.Is(err, context.DeadlineExceeded) {
-        return map[string]string{
-            "external_data": "Loading...",
-        }, nil
-    }
-    // ...
-}
-```
-
-## Complete Example
+Create `main.go`. `variables.NewTimeProvider()` supplies `current_time`, `current_date`, `current_year`, `current_month`, `current_weekday` and `current_hour`:
 
 ```go
 package main
 
 import (
     "context"
+    "fmt"
     "log"
-    "os"
 
-    "github.com/AltairaLabs/PromptKit/sdk/v2"
     "github.com/AltairaLabs/PromptKit/runtime/v2/variables"
+    "github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 func main() {
-    // Create provider chain
-    chain := variables.Chain(
-        // Time context
-        variables.NewTimeProvider(),
+    ctx := context.Background()
 
-        // User data from database
-        &UserDataProvider{db: myDB, userID: "user-123"},
-
-        // RAG context from vector search
-        &RAGProvider{vectorDB: myVectorDB, topK: 3},
-    )
-
-    // Open conversation with providers
-    conv, err := sdk.Open("./support.pack.json", "agent",
-        sdk.WithVariableProvider(chain),
+    conv, err := sdk.Open("./support.pack.json", "support",
+        sdk.WithVariableProvider(variables.NewTimeProvider()),
     )
     if err != nil {
         log.Fatal(err)
     }
     defer conv.Close()
 
-    // Variables automatically resolved on each Send()
-    resp, err := conv.Send(context.Background(), "What's my account status?")
+    resp, err := conv.Send(ctx, "What day is it today?")
     if err != nil {
         log.Fatal(err)
     }
-
     fmt.Println(resp.Text())
 }
 ```
 
-## Testing Providers
+Run it:
+
+```bash
+go run .
+```
+
+The system prompt the model receives reads, for example, `Today is Thursday, 2026-11-05.`, so the reply typically names today's weekday and date:
+
+```text
+Today is Thursday, November 5, 2026.
+```
+
+## Step 2: Read the plan from conversation state
+
+`variables.NewStateProvider` turns the metadata saved in a conversation's state into variables. Add the plan to the end of the system template:
+
+```json
+"system_template": "You are a support agent for Acme. Today is {{current_weekday}}, {{current_date}}. The customer is on the {{plan}} plan."
+```
+
+In `main.go`, add `"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"` to the imports, and save the customer's plan before `sdk.Open`:
 
 ```go
-func TestRAGProvider(t *testing.T) {
-    // Create mock vector DB
-    mockDB := &mockVectorDB{
-        results: []SearchResult{
-            {Text: "Password reset: Go to settings...", Score: 0.95},
-        },
-    }
-
-    provider := NewRAGProvider(mockDB, 3)
-
-    ctx := context.WithValue(context.Background(), "current_query", "reset password")
-    vars, err := provider.Provide(ctx)
-
-    assert.NoError(t, err)
-    assert.Contains(t, vars["rag_context"], "Password reset")
+store := statestore.NewMemoryStore()
+conversationID := "customer-42"
+err := store.Save(ctx, &statestore.ConversationState{
+    ID:       conversationID,
+    Metadata: map[string]any{"plan": "premium"},
+})
+if err != nil {
+    log.Fatal(err)
 }
 ```
 
-## Best Practices
+Open the conversation on that store and that conversation ID, with the state provider after the time provider:
 
-1. **Keep Providers Fast**: Providers run on every `Send()`, keep them quick
-2. **Cache When Possible**: Cache expensive lookups with TTLs
-3. **Handle Errors Gracefully**: Don't fail conversations for optional context
-4. **Use Timeouts**: Prevent slow providers from blocking
-5. **Log Failures**: Track provider issues for debugging
-6. **Test Independently**: Unit test providers separately from conversations
+```go
+conv, err := sdk.Open("./support.pack.json", "support",
+    sdk.WithVariableProvider(variables.NewTimeProvider()),
+    sdk.WithStateStore(store),
+    sdk.WithConversationID(conversationID),
+    sdk.WithVariableProvider(variables.NewStateProvider(store, conversationID)),
+)
+```
 
-## What's Next
+Change the message to `"What plan am I on?"` and run the program again. `{{plan}}` renders as `premium`, so the reply typically says:
 
-You've completed the SDK tutorials! Explore:
+```text
+You're on the premium plan.
+```
 
-- [How-To Guides](/sdk/how-to/) - Task-specific guides
-- [API Reference](/sdk/reference/) - Complete API documentation
-- [Examples](https://github.com/AltairaLabs/PromptKit/tree/main/sdk/examples) - Working code examples
+## Step 3: Write an FAQ provider
 
-## See Also
+A provider has two methods, `Name()` and `Provide(ctx)`. This one looks up an answer for a topic the caller passes with each `Send()`; `variables.RequestVars(ctx)` reads those per-send values. Create `faq.go`:
 
-- [Variable Providers Reference](/runtime/reference/variables/) - Complete API
-- [State Management Tutorial](/sdk/tutorials/04-state-management/) - Conversation state
+```go
+package main
+
+import (
+    "context"
+
+    "github.com/AltairaLabs/PromptKit/runtime/v2/variables"
+)
+
+// FAQProvider looks up an FAQ answer for the topic passed with each Send.
+type FAQProvider struct {
+    answers map[string]string
+}
+
+func (p *FAQProvider) Name() string {
+    return "faq"
+}
+
+func (p *FAQProvider) Provide(ctx context.Context) (map[string]string, error) {
+    topic := variables.RequestVars(ctx)["topic"]
+    answer, ok := p.answers[topic]
+    if !ok {
+        answer = "No FAQ entry matches this question."
+    }
+    return map[string]string{"faq_answer": answer}, nil
+}
+```
+
+`Provide` always returns `faq_answer`, so the template variable resolves even when no topic matches. Add the answer to the end of the system template:
+
+```json
+"system_template": "You are a support agent for Acme. Today is {{current_weekday}}, {{current_date}}. The customer is on the {{plan}} plan. Answer from this FAQ entry: {{faq_answer}}"
+```
+
+In `main.go`, create the provider before `sdk.Open`:
+
+```go
+faq := &FAQProvider{answers: map[string]string{
+    "password": "Open Settings > Security and choose Reset password. The reset link is valid for 30 minutes.",
+}}
+```
+
+Add `sdk.WithVariableProvider(faq),` as the last option to `sdk.Open`. Then replace the `Send` call so it passes the topic with `sdk.WithJSONInput`:
+
+```go
+resp, err := conv.Send(ctx, "How do I reset my password?",
+    sdk.WithJSONInput(map[string]any{"topic": "password"}),
+)
+```
+
+Run the program. The FAQ answer is in the system prompt, so the reply typically repeats its steps:
+
+```text
+Go to Settings > Security and choose Reset password. The reset link is valid for 30 minutes.
+```
+
+## Step 4: Test the provider
+
+A provider is a plain Go type, so we test it without a conversation. `variables.WithRequestVars` puts per-send values on a context, as `WithJSONInput` does. Create `faq_test.go`:
+
+```go
+package main
+
+import (
+    "context"
+    "testing"
+
+    "github.com/AltairaLabs/PromptKit/runtime/v2/variables"
+)
+
+func TestFAQProvider(t *testing.T) {
+    p := &FAQProvider{answers: map[string]string{"password": "Open Settings > Security."}}
+
+    ctx := variables.WithRequestVars(context.Background(), map[string]string{"topic": "password"})
+    vars, err := p.Provide(ctx)
+    if err != nil {
+        t.Fatal(err)
+    }
+    if vars["faq_answer"] != "Open Settings > Security." {
+        t.Errorf("faq_answer = %q", vars["faq_answer"])
+    }
+
+    vars, _ = p.Provide(context.Background())
+    if vars["faq_answer"] != "No FAQ entry matches this question." {
+        t.Errorf("faq_answer without a topic = %q", vars["faq_answer"])
+    }
+}
+```
+
+Run it:
+
+```bash
+go test
+```
+
+The test passes:
+
+```text
+PASS
+ok  	support	0.312s
+```
+
+The module name and the time vary with your setup.
+
+## Next steps
+
+- [Variable providers reference](/runtime/reference/variables/): every built-in provider and its options, including `variables.Chain`
+- [Tutorial 4: State management](/sdk/tutorials/04-state-management/): conversation state and `SetVar`
+- [SDK examples](https://github.com/AltairaLabs/PromptKit/tree/main/sdk/examples): complete programs
