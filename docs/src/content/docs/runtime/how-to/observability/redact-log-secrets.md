@@ -24,7 +24,7 @@ logger.APIRequest("openai", "POST", url, headers, body)
 |---------|---------|----------------|
 | OpenAI keys | `sk-abc123...` | first 4 chars + `...[REDACTED]` |
 | Google keys | `AIzaXYZ...` | first 4 chars + `...[REDACTED]` |
-| Bearer tokens | `Bearer xyz...` | `Bearer [REDACTED]` |
+| Bearer tokens | `Bearer xyz...`, including dotted JWTs | `Bearer [REDACTED]` |
 
 ## Manual Redaction
 

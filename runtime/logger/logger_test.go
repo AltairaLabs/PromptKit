@@ -664,3 +664,26 @@ func TestSetOutputPreservesFormat(t *testing.T) {
 		t.Fatalf("Expected JSON output after SetOutput, got error: %v\nOutput: %s", err, output)
 	}
 }
+
+func TestRedactSensitiveData_BearerTokenShapes(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"opaque", "Authorization: Bearer abc123_-xyz", "Authorization: Bearer [REDACTED]"},
+		{"jwt", "Authorization: Bearer aaa.bbb.ccc", "Authorization: Bearer [REDACTED]"},
+		{"base64 standard", "Bearer ab+cd/ef==", "Bearer [REDACTED]"},
+		{"followed by comma", "Bearer aaa.bbb.ccc, next", "Bearer [REDACTED], next"},
+		{"followed by quote", `{"h":"Bearer aaa.bbb.ccc"}`, `{"h":"Bearer [REDACTED]"}`},
+		{"sentence period", "sent Bearer aaa.bbb.ccc.", "sent Bearer [REDACTED]."},
+		{"end of line", "Bearer aaa.bbb.ccc\nnext", "Bearer [REDACTED]\nnext"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := RedactSensitiveData(tt.input); got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

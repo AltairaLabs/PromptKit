@@ -116,7 +116,7 @@ var (
 ```
 
 <a name="APIRequest"></a>
-## func [APIRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L366>)
+## func [APIRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L367>)
 
 ```go
 func APIRequest(provider, method, url string, headers map[string]string, body interface{})
@@ -135,7 +135,7 @@ Parameters:
 Sensitive data in URL, headers, and body are automatically redacted.
 
 <a name="APIResponse"></a>
-## func [APIResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L413>)
+## func [APIResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L414>)
 
 ```go
 func APIResponse(provider string, statusCode int, body string, err error)
@@ -261,7 +261,7 @@ func ParseLevel(s string) slog.Level
 ParseLevel converts a string log level to slog.Level. Supported values: "trace", "debug", "info", "warn", "warning", "error". Unknown values default to LevelInfo.
 
 <a name="RedactSensitiveData"></a>
-## func [RedactSensitiveData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L336>)
+## func [RedactSensitiveData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/logger/logger.go#L337>)
 
 ```go
 func RedactSensitiveData(input string) string
@@ -273,7 +273,7 @@ Supported patterns:
 
 - OpenAI keys \(sk\-...\): Shows first 4 chars
 - Google keys \(AIza...\): Shows first 4 chars
-- Bearer tokens: Shows only "Bearer \[REDACTED\]"
+- Bearer tokens \(opaque, base64, or dotted JWT\): Shows only "Bearer \[REDACTED\]"
 
 This function is safe for concurrent use as it only reads from the compiled patterns.
 

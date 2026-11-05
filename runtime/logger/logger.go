@@ -317,9 +317,10 @@ var (
 	// apiKeyPatterns contains compiled regular expressions for detecting sensitive data.
 	// Patterns match common API key formats from various providers.
 	apiKeyPatterns = []*regexp.Regexp{
-		regexp.MustCompile(`sk-[a-zA-Z0-9]{32,}`),     // OpenAI API keys
-		regexp.MustCompile(`AIza[a-zA-Z0-9_-]{35}`),   // Google API keys
-		regexp.MustCompile(`Bearer\s+[a-zA-Z0-9_-]+`), // Bearer tokens
+		regexp.MustCompile(`sk-[a-zA-Z0-9]{32,}`),   // OpenAI API keys
+		regexp.MustCompile(`AIza[a-zA-Z0-9_-]{35}`), // Google API keys
+		// Bearer tokens: opaque, base64 ("+", "/", "=") or dotted JWT; "." only between segments.
+		regexp.MustCompile(`Bearer\s+[a-zA-Z0-9_~+/=-]+(?:\.[a-zA-Z0-9_~+/=-]+)*`),
 	}
 )
 
@@ -330,7 +331,7 @@ var (
 // Supported patterns:
 //   - OpenAI keys (sk-...): Shows first 4 chars
 //   - Google keys (AIza...): Shows first 4 chars
-//   - Bearer tokens: Shows only "Bearer [REDACTED]"
+//   - Bearer tokens (opaque, base64, or dotted JWT): Shows only "Bearer [REDACTED]"
 //
 // This function is safe for concurrent use as it only reads from the compiled patterns.
 func RedactSensitiveData(input string) string {
