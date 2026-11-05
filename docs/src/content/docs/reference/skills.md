@@ -197,6 +197,8 @@ Workflow states can filter which skills are available using the `skills` field:
 | *(omitted)* | All pack-level skills are available |
 | `"none"` | No skills available in this state |
 
+A relative path resolves the same way as the pack's `skills` sources. A glob such as `"skills/billing/*"` matches skill paths with `filepath.Match`. On entering a state, active skills that its filter excludes are deactivated.
+
 ---
 
 ## Skill Tools

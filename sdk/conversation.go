@@ -425,6 +425,23 @@ func (c *Conversation) initConversationState() {
 	}
 }
 
+// applySkillFilter restricts which skills this conversation may activate to
+// those a workflow state's `skills` admits: a skill directory path, "none", or
+// "" for no restriction. Skills already active that the filter no longer
+// admits are deactivated — the tools they granted go with them, since
+// skillToolGrants reads the same set — and logged.
+//
+// Only this conversation's own set changes; see [skills.ActiveSet.SetFilter].
+func (c *Conversation) applySkillFilter(state, filter string) {
+	if c == nil || c.skillSet == nil {
+		return
+	}
+	if dropped := c.skillSet.SetFilter(filter); len(dropped) > 0 {
+		logger.Info("skills: deactivated by workflow state filter",
+			"state", state, "filter", filter, "skills", dropped)
+	}
+}
+
 // refreshSelectorBoundCapabilities lets capabilities that depend on
 // per-turn context (currently only SkillsCapability) refresh their
 // tool descriptors before the pipeline runs. No-op when no such
