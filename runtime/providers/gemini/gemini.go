@@ -514,12 +514,19 @@ func (p *Provider) buildGeminiRequest(
 			MaxOutputTokens: maxTokens,
 			ThinkingConfig:  p.geminiThinkingConfigFor(maxTokens),
 		},
-		SafetySettings: []geminiSafety{
-			{Category: "HARM_CATEGORY_HARASSMENT", Threshold: safetyThresholdBlockNone},
-			{Category: "HARM_CATEGORY_HATE_SPEECH", Threshold: safetyThresholdBlockNone},
-			{Category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", Threshold: safetyThresholdBlockNone},
-			{Category: "HARM_CATEGORY_DANGEROUS_CONTENT", Threshold: safetyThresholdBlockNone},
-		},
+		SafetySettings: defaultSafetySettings(),
+	}
+}
+
+// defaultSafetySettings is the safety configuration every generateContent
+// request carries. The plain request and the hand-built tools request both
+// take it from here so they cannot drift (#2319).
+func defaultSafetySettings() []geminiSafety {
+	return []geminiSafety{
+		{Category: "HARM_CATEGORY_HARASSMENT", Threshold: safetyThresholdBlockNone},
+		{Category: "HARM_CATEGORY_HATE_SPEECH", Threshold: safetyThresholdBlockNone},
+		{Category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", Threshold: safetyThresholdBlockNone},
+		{Category: "HARM_CATEGORY_DANGEROUS_CONTENT", Threshold: safetyThresholdBlockNone},
 	}
 }
 

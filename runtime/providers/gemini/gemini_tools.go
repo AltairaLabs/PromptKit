@@ -540,6 +540,7 @@ func (p *ToolProvider) buildToolRequest(
 	request := map[string]any{
 		"contents":          contents,
 		keyGenerationConfig: genConfig,
+		"safetySettings":    defaultSafetySettings(),
 	}
 
 	if req.System != "" {
