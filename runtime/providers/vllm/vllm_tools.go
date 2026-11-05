@@ -357,6 +357,9 @@ func addVLLMExtensionFields(reqMap map[string]any, vllmReq *vllmRequest) {
 	if vllmReq.GuidedRegex != "" {
 		reqMap["guided_regex"] = vllmReq.GuidedRegex
 	}
+	if vllmReq.GuidedGrammar != "" {
+		reqMap["guided_grammar"] = vllmReq.GuidedGrammar
+	}
 	if vllmReq.GuidedChoice != nil {
 		reqMap["guided_choice"] = vllmReq.GuidedChoice
 	}
