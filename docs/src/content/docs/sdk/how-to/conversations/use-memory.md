@@ -186,7 +186,7 @@ func (s *GraphStore) DeleteWithOptions(
 ) error
 ```
 
-A store that does not read `Extras` drops them. Fields you return in `Memory.Metadata` serialize into the tool result without any extra setup. [Override Capability Tools](/sdk/how-to/tools/override-capability-tools/#getting-a-new-parameter-to-the-host) has the matrix for workflow, A2A and skills.
+A store that does not read `Extras` drops them. Fields you return in `Memory.Metadata` serialize into the tool result without any extra setup. [Override Capability Tools](/sdk/how-to/tools/override-capability-tools/#4-read-the-new-parameter-in-your-host) has the matrix for workflow, A2A and skills.
 
 ## Use both
 

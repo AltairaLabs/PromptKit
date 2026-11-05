@@ -160,7 +160,7 @@ A `tools:` key that matches no tool in the pack is skipped with a warning that n
 WARN exec tool config skipped: tool not registered  name=fetch_invoice registered_tools=[fetch_invoices send_email]
 ```
 
-The tool the entry was meant for keeps its pack-declared mode, and other entries still apply. Check the key for a misspelling or a renamed tool. [`WithToolDescriptorOverride`](/sdk/how-to/tools/override-capability-tools/#tolerance-to-version-skew) treats an unknown name the same way.
+The tool the entry was meant for keeps its pack-declared mode, and other entries still apply. Check the key for a misspelling or a renamed tool. [`WithToolDescriptorOverride`](/sdk/how-to/tools/override-capability-tools/#troubleshoot) treats an unknown name the same way.
 
 ## Related
 

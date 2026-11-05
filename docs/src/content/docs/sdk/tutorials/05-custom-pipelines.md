@@ -238,5 +238,5 @@ As in Step 2, the reply typically confirms the refund in the model's own words.
 ## Next steps
 
 - [Tutorial 6: Observability](/sdk/tutorials/06-media-storage/): watch tool and provider events with hooks
-- [Register Tools](/sdk/how-to/tools/register-tools/#async-tools-hitl): approve with edited arguments, resolve from an HTTP endpoint, and keep held calls across restarts
+- [Register Tools](/sdk/how-to/tools/register-tools/#5-require-approval-before-a-tool-runs): approve with edited arguments, resolve from an HTTP endpoint, and keep held calls across restarts
 - The full example is in `sdk/examples/hitl/`.
