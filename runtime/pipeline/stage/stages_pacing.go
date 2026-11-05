@@ -1,4 +1,3 @@
-// Package stage provides pipeline stages for audio processing.
 package stage
 
 import (
@@ -244,7 +243,7 @@ func (s *AudioPacingStage) paceFor(ctx context.Context, elem *StreamElement) err
 		// We're already past the deadline (consumer running behind);
 		// don't try to claw back the gap, just resume from now. Record it:
 		// this is the "cannot hold real time" health signal, reported
-		// direct-update (never via the event bus — see #853).
+		// direct-update (never via the event bus).
 		s.last = now
 		providers.DefaultStreamMetrics().PacingBehindDeadlineInc(pacingDirection(s.Name()))
 	}

@@ -14,9 +14,8 @@ import (
 // constructed by the pipeline builder and held by reference by every stage
 // that needs to read or write per-Turn data.
 //
-// See `runtime/pipeline/stage/ARCHITECTURE.md` §4 for the data-flow
-// principle and the rationale for moving per-Turn data out of
-// `StreamElement.Metadata`.
+// Per-Turn data lives here, not in StreamElement.Meta, because it is the same
+// for every element of the Turn.
 //
 // # Synchronization
 //
@@ -157,15 +156,12 @@ func (t *TurnState) BeginTurn() {
 // Unlike TurnState (which is per-Turn-invariant), fields here genuinely
 // differ between elements within the same Turn.
 //
-// The current set is small because most metadata historically attached to
-// elements was per-Turn data being unnecessarily copied per-element. As
-// genuine per-element use cases appear (e.g. per-element guardrail
-// markers, tool-call IDs, error tags), they go here.
+// Only data that differs between elements of the same Turn belongs here.
 type ElementMetadata struct {
 	// FromHistory marks elements emitted by load stages that represent
 	// historical messages (vs the current input element of this Turn).
 	// Read by stages that need to skip per-Turn work for historical
-	// elements (e.g. TemplateStage no longer renders for history rows).
+	// elements (e.g. TemplateStage does not render for history rows).
 	FromHistory bool
 
 	// MergeInputIndex records which input channel this element arrived on
@@ -222,16 +218,17 @@ type ElementMetadata struct {
 	// SynthesizedSpeech marks an element produced by a TTS stage: it carries the
 	// spoken audio plus, for reference, the text that was submitted for synthesis.
 	// That text is the same reply already delivered as streaming Text deltas, so a
-	// consumer converting elements to output chunks must NOT re-present it as new
-	// model output (Delta) — the audio is the payload. It is also not necessarily
-	// the true spoken text, since providers strip or rewrite markup at synthesis.
+	// consumer converting elements to output chunks must not re-present it as new
+	// model output (Delta). The audio is the payload. The text is also not
+	// necessarily the spoken text, since providers strip or rewrite markup at
+	// synthesis.
 	SynthesizedSpeech bool
 
 	// SpokenText is the text the TTS provider actually spoke, after markup
-	// lowering — the faithful, provider- and model-specific value the reference
-	// Text (above) only approximates. Populated on SynthesizedSpeech elements when
-	// the provider implements tts.SpokenTextReporter; empty otherwise (consumers
-	// then fall back to the reference/LLM text). See #1657.
+	// lowering. It is the provider- and model-specific value that the reference
+	// Text only approximates. Populated on SynthesizedSpeech elements when the
+	// provider implements tts.SpokenTextReporter; empty otherwise, and consumers
+	// then fall back to the reference text.
 	SpokenText string
 
 	// StreamingDelta marks an incremental content Text element emitted by a

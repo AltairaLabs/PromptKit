@@ -1,4 +1,3 @@
-// Package stage provides the reactive streams architecture for pipeline execution.
 package stage
 
 import (
@@ -83,18 +82,17 @@ func DefaultRecordingStageConfig() RecordingStageConfig {
 // RecordingStage captures pipeline elements as events for session recording.
 // It observes elements flowing through without modifying them.
 //
-// Writes synchronously to the EventStore. Slow disk applies back-pressure
-// to upstream — recording correctness wins over pipeline throughput. For
-// production use cases where this trade-off is wrong, inject a buffered
-// EventStore implementation via Engine.EnableSessionRecordingWithStore.
+// Writes synchronously to the EventStore. Slow disk applies back-pressure to
+// upstream, so recording correctness takes priority over pipeline throughput.
+// Where that trade-off is wrong, pass a buffered events.EventStore
+// implementation.
 //
-// Routing: this stage writes DIRECTLY to the EventStore and never touches the
-// EventBus. It does not use events.Emitter (it builds each Event itself), so
-// searching for a producer by emitter method name finds nothing here.
+// Routing: this stage writes directly to the EventStore and never touches the
+// EventBus. It does not use events.Emitter; it builds each Event itself.
 //
-// It is NOT the only producer of message.created. MessageBroadcastStage
-// publishes the same event on the bus for live consumers, which is the route a
-// TUI or SSE relay wants. The two differ in exactly one way:
+// It is not the only producer of message.created. MessageBroadcastStage
+// publishes the same event on the bus for live consumers, such as a TUI or an
+// SSE relay. The two differ in one way:
 //
 //   - this route retains full binary, because its purpose is lossless replay;
 //   - the bus route strips content parts to metadata, so blobs stay out of
@@ -109,8 +107,6 @@ func DefaultRecordingStageConfig() RecordingStageConfig {
 // runs ahead of this one, so history flows through every turn, and appending it
 // again would make an N-turn recording hold turn 1 N times. Each message is
 // recorded once, on the turn it was new.
-//
-// See the routing note on events.Emitter.emit for the other side.
 type RecordingStage struct {
 	BaseStage
 	store     events.EventStore
@@ -138,10 +134,9 @@ func (rs *RecordingStage) Process(
 	defer close(output)
 
 	// Transcript-absolute position of the next complete message, LOCAL to this
-	// execution. A pipeline is built once and re-executed per turn
-	// (sdk/sdk.go:687), so a counter held on the stage would climb across turns
-	// and would also race — stage objects are shared across concurrent Execute
-	// calls (see pipeline.go). Every message element is counted, replayed
+	// execution. A pipeline is built once and re-executed per turn, so a counter
+	// held on the stage would climb across turns and would also race, because
+	// stage objects are shared across concurrent Execute calls. Every message element is counted, replayed
 	// history included, so the count matches the persisted transcript.
 	msgIndex := 0
 
@@ -220,7 +215,7 @@ func (rs *RecordingStage) appendOrWarn(ctx context.Context, evt *events.Event) {
 // recordTextElement records a streaming text delta.
 //
 // Emits message.text.delta, not message.created: a token fragment is not a
-// message (#1878). Recording it as one made the recording ambiguous — a reader
+// message. Recording it as one made the recording ambiguous — a reader
 // could not tell a token from a turn — and doubled the text on replay, since
 // recording/replay.go appends every message.created and the complete message
 // arrives too.
@@ -246,7 +241,7 @@ func (rs *RecordingStage) recordMessageElement(ctx context.Context, elem *Stream
 	// stage runs before the input RecordingStage, so history flows through here
 	// every turn; appending it again made an N-turn recording hold turn 1 N
 	// times, and recording/replay.go appends every message.created in time
-	// order, so a replayed transcript repeated its early messages (#1879).
+	// order, so a replayed transcript repeated its early messages.
 	//
 	// Each message is still recorded once, on the turn it was new, so the union
 	// across turns remains the complete transcript and the readers need no
@@ -337,7 +332,7 @@ func (rs *RecordingStage) recordAudioElement(ctx context.Context, elem *StreamEl
 // recordImageElement records an image element as an image event.
 //
 // It used to emit message.created carrying a JSON blob of metadata in the
-// Content field — not a message, and not readable as one (#1878). Two costs:
+// Content field — not a message, and not readable as one. Two costs:
 // a consumer reading Content off message.created got a JSON object where it
 // expected text, and nothing looking for image events saw these at all.
 //
@@ -381,7 +376,7 @@ func (rs *RecordingStage) recordImageElement(ctx context.Context, elem *StreamEl
 //
 // Same defect as recordImageElement, with a sharper consequence: media_timeline
 // filters on EventVideoFrame, so frames recorded as message.created were
-// invisible to it (#1878).
+// invisible to it.
 func (rs *RecordingStage) recordVideoElement(ctx context.Context, elem *StreamElement, _ string) {
 	video := elem.Video
 

@@ -1,4 +1,3 @@
-// Package stage provides pipeline stages for media processing.
 package stage
 
 import (

@@ -117,15 +117,20 @@ func (s *DebugStage) logElement(elem *StreamElement, timing string) {
 	logger.Debug("StreamElement snapshot", "stage", s.stageName, "timing", timing, "element", string(data))
 }
 
-// TemplateStage substitutes {{variable}} placeholders in messages and metadata.
+// TemplateStage renders the system prompt template.
 //
-// When metadata contains "system_template" (set by PromptAssemblyStage), this
-// stage is the single render point: it merges variable maps with the priority
-// template.DefaultVars < template.FragmentVars < TurnState.Variables, calls
-// the template.Renderer for recursive substitution, and emits lifecycle events.
-// It also substitutes variables in message content and parts.
+// When TurnState holds a template with a raw template string (set by
+// PromptAssemblyStage), this stage is the single render point: it merges
+// variable maps with the priority template.DefaultVars < template.FragmentVars <
+// TurnState.Variables, calls the template.Renderer for recursive substitution,
+// stores the result in TurnState.SystemPrompt, and emits lifecycle events. It
+// renders once per turn. Elements pass through unchanged, and message content is
+// never substituted.
 //
-// This is a Transform stage: 1 input element → 1 output element.
+// If the template references a variable nothing supplied, the stage returns an
+// error that matches ErrTemplateUnresolved, which ends the turn.
+//
+// This is a Transform stage: each input element produces one output element.
 type TemplateStage struct {
 	BaseStage
 	emitter  *events.Emitter
@@ -196,7 +201,9 @@ func (s *TemplateStage) validateBuild() error {
 	return nil
 }
 
-// Process substitutes variables in messages and system prompt metadata.
+// Process renders the system prompt on the first element and forwards every
+// element unchanged. It forwards an upstream failure's error element without
+// rendering.
 func (s *TemplateStage) Process(
 	ctx context.Context,
 	input <-chan StreamElement,
@@ -223,7 +230,7 @@ func (s *TemplateStage) Process(
 	return nil
 }
 
-// renderTurnPrompt renders this turn's system prompt, once — the cache on
+// renderTurnPrompt renders this turn's system prompt, once. The cache on
 // TurnState.SystemPrompt makes every later element a no-op.
 //
 // Elements pass through untouched. Variables apply to the system template and
@@ -257,7 +264,7 @@ func (s *TemplateStage) renderTurnPrompt() error {
 // and caches the result on TurnState.SystemPrompt. The first call per
 // Send performs the render and emits events; subsequent calls reuse
 // the cached value without re-rendering. This is the per-Send dedup
-// that fixes #1035 — without it, every element flowing through the
+// that keeps a render from running per element: without it, every element flowing through the
 // stage triggers a full render and a new pair of started/rendered events.
 func (s *TemplateStage) renderSystemTemplate(
 	tmpl *prompt.Template, vars map[string]string,
@@ -337,26 +344,25 @@ func sortedFragmentNames(fragmentVars map[string]string) []string {
 	return names
 }
 
-// VariableProviderStage resolves variables from dynamic providers and adds them to metadata.
+// VariableProviderStage resolves variables from dynamic providers and publishes them for TemplateStage.
 //
 // This stage calls each registered variable provider to fetch dynamic variables
 // (e.g., from environment, external services, databases) and merges them into
-// the element's metadata["variables"] map for use by TemplateStage.
+// TurnState.Variables.
 //
 // Provider resolution order:
-//  1. Variables from earlier stages (e.g., PromptAssemblyStage base_variables)
-//  2. Each provider is called in sequence; later providers can override earlier values
+//  1. The static variables the stage was constructed with
+//  2. Each provider is called in sequence; later providers override earlier values
 //
 // Error handling:
-//   - If any provider fails, the stage returns an error and aborts the pipeline
-//   - This ensures variable resolution failures are surfaced early
+//   - If any provider fails, the stage returns an error and the turn ends with it
 //
 // Example providers:
 //   - Environment variable provider: reads from OS environment
 //   - Config provider: reads from configuration files
 //   - External API provider: fetches user context from external services
 //
-// This is a Transform stage: 1 input element → 1 output element (with enriched metadata)
+// This is a Transform stage: each input element is forwarded unchanged.
 type VariableProviderStage struct {
 	BaseStage
 	staticVars map[string]string
@@ -466,7 +472,7 @@ type MediaExternalizerConfig struct {
 //   - StorageService: where to store media (S3, GCS, local filesystem, etc.)
 //   - DefaultPolicy: retention policy name for stored media
 //
-// This is a Transform stage: 1 input element → 1 output element (with externalized media)
+// This is a Transform stage: each input element produces one output element.
 type MediaExternalizerStage struct {
 	BaseStage
 	config *MediaExternalizerConfig
@@ -558,9 +564,7 @@ func (s *MediaExternalizerStage) externalizeMessageMedia(
 // In both cases the storage service receives the MediaContent as-is and
 // is responsible for reading from whichever source is set; on success
 // we replace the source with a StorageReference and clear the inline
-// data (FilePath is intentionally left set — downstream consumers may
-// still want to read the file before the producer's cleanup fires, and
-// the StorageReference is the canonical handle going forward).
+// data and FilePath.
 func (s *MediaExternalizerStage) externalizeMedia(
 	ctx context.Context,
 	media *types.MediaContent,
@@ -660,26 +664,28 @@ const (
 // Used when TruncationStrategy is TruncateLeastRelevant.
 type RelevanceConfig struct {
 	// EmbeddingProvider generates embeddings for similarity scoring.
-	// Required for relevance-based truncation; if nil, falls back to oldest.
+	// Required for relevance-based truncation. With none, truncation fails with an
+	// error. If the embedding call fails, truncation falls back to TruncateOldest.
 	EmbeddingProvider providers.EmbeddingProvider
 
 	// MinRecentMessages always keeps the N most recent messages
-	// regardless of relevance score. Default: 3
+	// regardless of relevance score. Zero or negative means 3.
 	MinRecentMessages int
 
 	// AlwaysKeepSystemRole keeps all system role messages regardless of score.
 	AlwaysKeepSystemRole bool
 
 	// SimilarityThreshold is the minimum score to consider a message relevant (0.0-1.0).
-	// Messages below this threshold may be dropped first.
+	// Messages that are not protected and score below it are dropped. Zero disables
+	// the threshold.
 	SimilarityThreshold float64
 
-	// QuerySource determines what text to compare messages against.
-	// Default: QuerySourceLastUser
+	// QuerySource determines what text to compare messages against. Set it: an
+	// empty value produces no query, and truncation falls back to TruncateOldest.
 	QuerySource QuerySourceType
 
 	// LastNCount is the number of messages to use when QuerySource is QuerySourceLastN.
-	// Default: 3
+	// Zero or negative means 3.
 	LastNCount int
 
 	// CustomQuery is the query text when QuerySource is QuerySourceCustom.
@@ -738,11 +744,13 @@ type ContextBuilderPolicy struct {
 //   - Strategy: truncation strategy to apply
 //   - CacheBreakpoints: enable prompt caching hints
 //
-// Metadata added:
-//   - context_truncated: true if truncation was applied
-//   - enable_cache_breakpoints: copied from policy.CacheBreakpoints
+// Metadata set on the emitted elements:
+//   - Meta.ContextTruncated: true if truncation was applied
+//   - Meta.EnableCacheBreakpoints: true if policy.CacheBreakpoints is set
 //
-// This is an Accumulate stage: N input elements → N (possibly fewer) output elements
+// An unrecognized Strategy truncates like TruncateOldest.
+//
+// This is an Accumulate stage: N input elements produce N (possibly fewer) output elements.
 type ContextBuilderStage struct {
 	BaseStage
 	policy       *ContextBuilderPolicy

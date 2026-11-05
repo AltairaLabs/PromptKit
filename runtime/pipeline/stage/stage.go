@@ -58,7 +58,10 @@ type Stage interface {
 	// Process is called once when the pipeline starts.
 	// The stage reads from input, processes elements, and writes to output.
 	// The stage MUST close output when done (or when input closes).
-	// Returns an error if processing fails.
+	// Returns an error if processing fails. The pipeline wraps the error in a
+	// *StageError, ends the turn with it, and passes it to the caller (see
+	// StreamPipeline.Execute). A stage that also emits the error as an error
+	// element before returning it delivers that error as emitted.
 	Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
 }
 
@@ -76,14 +79,14 @@ type MultiInputStage interface {
 // downstream edge via RegisterOutput before Process runs; the stage routes each
 // element to the appropriate registered output(s) and MUST close them when done.
 //
-// Single-Execute caveat: RegisterOutput is called on the stage INSTANCE (e.g.
+// Single-Execute caveat: RegisterOutput is called on the stage instance (e.g.
 // RouterStage.outputs) fresh on every StreamPipeline.Execute() call, since the
 // per-Execute edge channels live for the duration of that Execute() only. A
 // pipeline containing a MultiOutputStage is therefore only safe for a single
-// (or strictly sequential, non-concurrent) Execute() call — concurrent
-// Execute() calls on the same pipeline would race registering/routing through
-// the stage's shared output registry. This matches the only real usage today:
-// the long-running duplex streaming session, Execute'd once. Callers that
+// (or strictly sequential, non-concurrent) Execute() call. Concurrent
+// Execute() calls on the same pipeline would race registering and routing
+// through the stage's shared output registry. The long-running duplex streaming
+// session, which calls Execute once, is the intended use. Callers that
 // reuse one *StreamPipeline across concurrent Execute() calls (e.g. the
 // unary Send() path) must not include a MultiOutputStage in that pipeline.
 type MultiOutputStage interface {

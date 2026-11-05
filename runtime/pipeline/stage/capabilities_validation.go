@@ -1,4 +1,3 @@
-// Package stage provides the reactive streams architecture for pipeline execution.
 package stage
 
 import (

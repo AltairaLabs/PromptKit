@@ -17,7 +17,7 @@ import (
 // the per-turn *CompositionSnapshot in the assistant message's Meta map.
 const compositionSnapshotMetaKey = "_composition_snapshot"
 
-// CompositionStage runs an RFC 0010 composition to completion as a single
+// CompositionStage runs a composition to completion as a single
 // pipeline stage: it reads the turn's input element, executes the composition's
 // step DAG via the engine, and emits one assistant element carrying the
 // structured output.

@@ -53,6 +53,18 @@ type StreamPipeline struct {
 // Execute starts the pipeline execution with the given input channel.
 // Returns an output channel that will receive all elements from terminal stages.
 // The pipeline executes in background goroutines and closes the output channel when complete.
+//
+// The first stage error ends the turn. Nothing is canceled: the failed stage's
+// downstream stages receive the error in-band and pass it on without acting on
+// the incomplete turn, and the other stages drain as usual. The error reaches the
+// caller as an element with Error set, the last element before the output closes.
+// A stage that emits its own error as an error element before returning it (the
+// provider stage does) delivers that error as emitted. Any other stage's error
+// arrives as a *StageError, which unwraps to the stage's error. A context error
+// that comes from the caller's own cancellation is not treated as a stage failure.
+// The output closes once the terminal stages have returned.
+//
+// Execute returns ErrPipelineShuttingDown if the pipeline is shutting down.
 func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement) (<-chan StreamElement, error) {
 	// Register for graceful shutdown, or refuse if shutting down.
 	if !p.beginExecution() {
@@ -133,7 +145,7 @@ func (p *StreamPipeline) executeBackground(
 	// field for why edgeChannels must not be stored on *StreamPipeline.
 	channels, edgeChannels := p.createChannels()
 
-	// The first stage error ends the turn (#2312). It is recorded here and
+	// The first stage error ends the turn. It is recorded here and
 	// signaled to the failed stage's downstream stages in-band, as an error
 	// element on their input (see gateInput). Nothing is canceled, so the
 	// other stages drain and persist exactly as before.
@@ -311,7 +323,7 @@ func (p *StreamPipeline) startStages(
 // seen only after the upstream stage has returned. A stage closes its output
 // before it returns its error, so without the gate a downstream stage could
 // take a failed upstream's closed output for the end of a complete turn and act
-// on it — the provider stage calling the model with no system prompt (#2312).
+// on it, such as the provider stage calling the model with no system prompt.
 // With it, a failed upstream's error reaches the downstream stage as the last
 // element of its input, as a turn-failure signal (see isTurnFailureSignal).
 //
@@ -883,6 +895,10 @@ func (p *StreamPipeline) collectOutput(
 // ExecuteSync runs the pipeline synchronously and returns the accumulated result.
 // This is a convenience method for request/response mode where you want a single result.
 // It converts the streaming execution into a blocking call.
+//
+// The returned error is the last error element on the output. When a stage
+// failed the turn, that is the failure (see Execute for its form). The result is
+// non-nil alongside the error and holds whatever the pipeline produced.
 func (p *StreamPipeline) ExecuteSync(ctx context.Context, input ...StreamElement) (*ExecutionResult, error) {
 	// Create input channel
 	inputChan := make(chan StreamElement, len(input))

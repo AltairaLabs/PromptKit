@@ -73,13 +73,13 @@ func ResetIdleFromContext(ctx context.Context) {
 // keepIdleAlive holds the idle timer open across work that is active but
 // silent, resetting it every half-window until the returned stop func runs.
 // A tool call in flight is not an idle pipeline: the timer exists to catch a
-// pipeline that has stalled, and before this a single tool call slower than
-// IdleTimeout cancelled its own turn (#2017).
+// pipeline that has stalled, so a tool call slower than IdleTimeout does not
+// cancel its own turn.
 //
-// This does not leave a hung tool unbounded. Every registered tool carries a
-// TimeoutMs (tools.DefaultToolTimeout when it declares none), so a tool that
-// never returns is cut off by its own deadline — which is the bound that
-// should catch it. ExecutionTimeout remains the ceiling on the whole turn.
+// A hung tool stays bounded. Every registered tool carries a TimeoutMs
+// (tools.DefaultToolTimeout when it declares none), so a tool that never
+// returns is cut off by its own deadline. ExecutionTimeout remains the ceiling
+// on the whole turn.
 //
 // Returns a no-op stop when no idle timeout is configured.
 func keepIdleAlive(ctx context.Context) (stop func()) {

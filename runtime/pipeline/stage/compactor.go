@@ -81,7 +81,7 @@ type ContextCompactor struct {
 	// BudgetFromProvider marks BudgetTokens as the context window of the
 	// provider the turn runs on, rather than a fixed number: ForProvider then
 	// re-budgets for whichever provider a round runs on after a workflow
-	// handoff switches it (RFC 0017).
+	// handoff switches it.
 	BudgetFromProvider bool
 }
 
