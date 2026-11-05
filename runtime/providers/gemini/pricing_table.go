@@ -38,11 +38,11 @@ const geminiCacheReadDiscount = 0.1
 
 // geminiRates is one model's published per-1M-token USD rates. Zero audioIn,
 // imageIn or videoIn means that modality bills at the text input rate; zero
-// audioOut means the model does not produce audio, so audio out stays
-// unpriced and is warned about if it ever appears.
+// audioOut or imageOut means the model does not produce that modality, so it
+// stays unpriced and is warned about if it ever appears.
 type geminiRates struct {
 	in, audioIn, imageIn, videoIn float64
-	out, audioOut                 float64
+	out, audioOut, imageOut       float64
 	// thinking gates whether the model bills "thinking" tokens (at the text
 	// output rate). Earlier non-thinking models never emit thoughtsTokenCount,
 	// but pricing it unconditionally would hide a future thinking backport
@@ -67,6 +67,9 @@ func (r geminiRates) descriptor() *base.PricingDescriptor {
 	}
 	if r.audioOut > 0 {
 		items = append(items, base.PriceItem{Unit: base.UnitAudioOutputToken, Rate: r.audioOut / perMillionScale})
+	}
+	if r.imageOut > 0 {
+		items = append(items, base.PriceItem{Unit: base.UnitImageOutputToken, Rate: r.imageOut / perMillionScale})
 	}
 	if r.thinking {
 		items = append(items, base.PriceItem{Unit: base.UnitReasoningToken, Rate: r.out / perMillionScale})
@@ -130,6 +133,17 @@ const (
 	gemini25NativeAudioTextOut, gemini25NativeAudioAudOut = 2.00, 12.00
 )
 
+// Image-generation models bill generated images as output tokens at their own
+// rate, many times the text output rate; text and thinking bill at the text
+// rate. 2.5 Flash Image prices text like 2.5 Flash and does not think.
+const (
+	nanoBanana21In, nanoBanana21Out, nanoBanana21ImgOut                   = 1.50, 7.50, 30.00   // Nano Banana 2.1
+	gemini31FlashImgIn, gemini31FlashImgOut, gemini31FlashImgImgOut       = 0.50, 3.00, 60.00   // 3.1 Flash Image
+	gemini31FlashLiteImgIn, gemini31FlashLiteImgOut, gemini31FlashLiteImg = 0.25, 1.50, 30.00   // 3.1 Flash Lite Image
+	gemini3ProImgIn, gemini3ProImgOut, gemini3ProImgImgOut                = 2.00, 12.00, 120.00 // 3 Pro Image
+	gemini25FlashImgImgOut                                                = 30.00               // 2.5 Flash Image
+)
+
 // Shared descriptors, one per rate tier, reused across dated snapshot IDs and
 // bare family aliases in geminiPricingTable so every alias of a model prices
 // identically.
@@ -167,6 +181,22 @@ var (
 		in: gemini25NativeAudioTextIn, audioIn: gemini25NativeAudioAVIn,
 		imageIn: gemini25NativeAudioAVIn, videoIn: gemini25NativeAudioAVIn,
 		out: gemini25NativeAudioTextOut, audioOut: gemini25NativeAudioAudOut, thinking: true,
+	}.descriptor()
+
+	nanoBanana21 = geminiRates{
+		in: nanoBanana21In, out: nanoBanana21Out, imageOut: nanoBanana21ImgOut, thinking: true,
+	}.descriptor()
+	gemini31FlashImage = geminiRates{
+		in: gemini31FlashImgIn, out: gemini31FlashImgOut, imageOut: gemini31FlashImgImgOut, thinking: true,
+	}.descriptor()
+	gemini31FlashLiteImage = geminiRates{
+		in: gemini31FlashLiteImgIn, out: gemini31FlashLiteImgOut, imageOut: gemini31FlashLiteImg, thinking: true,
+	}.descriptor()
+	gemini3ProImage = geminiRates{
+		in: gemini3ProImgIn, out: gemini3ProImgOut, imageOut: gemini3ProImgImgOut, thinking: true,
+	}.descriptor()
+	gemini25FlashImage = geminiRates{
+		in: gemini25FlashIn, out: gemini25FlashOut, imageOut: gemini25FlashImgImgOut,
 	}.descriptor()
 )
 
@@ -226,4 +256,11 @@ var geminiPricingTable = map[string]*base.PricingDescriptor{
 	"gemini-3.8-live-extended-thinking":             gemini38Live,
 	"gemini-3.1-flash-live-preview":                 gemini38Live,
 	"gemini-2.5-flash-native-audio-preview-12-2025": gemini25NativeAudio,
+
+	// Image-generation models.
+	"gemini-nano-banana-2.1":      nanoBanana21,
+	"gemini-3.1-flash-image":      gemini31FlashImage,
+	"gemini-3.1-flash-lite-image": gemini31FlashLiteImage,
+	"gemini-3-pro-image":          gemini3ProImage,
+	"gemini-2.5-flash-image":      gemini25FlashImage,
 }

@@ -107,3 +107,25 @@ func TestPriceUsage_LoudUnpricedWarns(t *testing.T) {
 		assert.Empty(t, buf.String())
 	})
 }
+
+// TestPriceUsage_HeadlineTokensCountEveryModality pins the headline counts
+// metrics, OTel and TokensUsed() read: a voice or image turn is mostly
+// non-text tokens, and counting text alone reported it as near zero.
+func TestPriceUsage_HeadlineTokensCountEveryModality(t *testing.T) {
+	ci := base.PriceUsage(nil, "p", base.ProviderTypeInference, base.TokenUsage{
+		Input: 10, AudioInput: 200, ImageInput: 30, VideoInput: 40, CacheRead: 5, CacheWrite: 7,
+		Output: 20, AudioOutput: 300, ImageOutput: 1120, Reasoning: 9,
+	}, nil, 0)
+	assert.Equal(t, 280, ci.InputTokens)   // text + audio + image + video, uncached
+	assert.Equal(t, 1440, ci.OutputTokens) // text + audio + image, reasoning excluded
+	assert.Equal(t, 5, ci.CachedTokens)
+}
+
+// TestPriceUsage_ImageOutputIsOutputCost checks generated images land in the
+// output headline.
+func TestPriceUsage_ImageOutputIsOutputCost(t *testing.T) {
+	desc := &base.PricingDescriptor{Items: []base.PriceItem{{Unit: base.UnitImageOutputToken, Rate: 0.001}}}
+	ci := base.PriceUsage(desc, "p", base.ProviderTypeInference, base.TokenUsage{ImageOutput: 1000}, nil, 0)
+	assert.InDelta(t, 1.0, ci.OutputCostUSD, 1e-9)
+	assert.Zero(t, ci.InputCostUSD)
+}

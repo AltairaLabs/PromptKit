@@ -67,6 +67,10 @@ func TestBuildCostInfo(t *testing.T) {
 		})
 		assertUSD(t, "InputCostUSD", got.InputCostUSD, (200*0.75+800*3.00)/1e6)
 		assertUSD(t, "OutputCostUSD", got.OutputCostUSD, (100*4.50+400*12.00+50*4.50)/1e6)
+		// The headline counts cover audio too: a voice turn is not near zero tokens.
+		if got.InputTokens != 1000 || got.OutputTokens != 500 {
+			t.Errorf("tokens = %d/%d, want 1000/500", got.InputTokens, got.OutputTokens)
+		}
 	})
 }
 
