@@ -27,7 +27,7 @@ Install hooks once after cloning: `./scripts/install-hooks.sh` (sources are trac
 **NEVER use `--no-verify` or skip the hooks.** The pre-commit checks mirror what SonarCloud enforces in CI — if the hook fails, the PR will also fail. Fix all issues before committing, including pre-existing issues in files you've touched.
 
 ### Before committing
-1. Run **`make verify`** — it is exactly what the pre-commit hook and CI run (`lint-diff` + `test-fast`). Do not reach for `golangci-lint run ./...` or `go test ./... -count=1` at the repo root; there is no root module and both fail.
+1. Run **`make verify`** — it runs `lint-diff` + `test-fast`, a subset of the pre-commit hook (which also builds, checks per-file coverage, weak assertions and reference drift); CI does not run it. Do not reach for `golangci-lint run ./...` or `go test ./... -count=1` at the repo root; there is no root module and both fail.
 2. Fix ALL failures before attempting `git commit`
 3. If the pre-commit hook reports lint or coverage failures on pre-existing code in files you changed, fix those too — SonarCloud will flag them
 

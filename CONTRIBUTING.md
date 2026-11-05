@@ -1,6 +1,6 @@
 # Contributing to PromptKit
 
-Thank you for your interest in contributing to PromptKit! This document provides comprehensive guidelines and instructions for contributing to our open source project.
+Thank you for your interest in contributing to PromptKit! This document describes how to contribute to PromptKit: the sign-off and license requirements, the development setup, and the pull request process.
 
 ## Code of Conduct
 
@@ -14,63 +14,70 @@ This project uses the Developer Certificate of Origin (DCO) to ensure that contr
 2. The contribution is based upon previous work that, to the best of your knowledge, is covered under an appropriate open source license and you have the right under that license to submit that work with modifications, whether created in whole or in part by you, under the same open source license (unless you are permitted to submit under a different license), as indicated in the file; or
 3. The contribution was provided directly to you by some other person who certified (1), (2) or (3) and you have not modified it.
 
-### Signing Your Commits
+### Signing your commits
 
-To sign off on your commits, add the `-s` flag to your git commit command:
+Every commit needs a `Signed-off-by` trailer whose email matches the commit author. Add the `-s` flag to your commit command:
 
 ```bash
-git commit -s -m "Your commit message"
+git commit -s -m "feat: add the thing"
 ```
 
-This adds a "Signed-off-by" line to your commit message:
+This adds the trailer to your commit message:
 
-```
+```text
 Signed-off-by: Your Name <your.email@example.com>
 ```
 
-> **This is enforced.** A required `DCO` check verifies every commit in your pull request carries a matching `Signed-off-by` line. If you forget, fix it with `git commit --amend -s` (single commit) or `git rebase --signoff main` (multiple commits), then force-push.
+The `commit-msg` hook (installed by `./scripts/install-hooks.sh`) rejects a commit without a matching trailer. To fix the last commit:
+
+```bash
+git commit --amend -s --no-edit
+```
+
+To sign off several commits, run `git rebase --signoff <base>`.
 
 ## Contributor License Agreement (CLA)
 
-Before your first contribution can be merged you must sign our Contributor License Agreement. When you open your first pull request, the **CLA Assistant** bot comments with a link to the CLA; you sign by replying on the PR with:
+You sign the CLA once, on your first pull request. The CLA Assistant bot comments with a link to the agreement; reply on the pull request with:
 
-> I have read the CLA Document and I hereby sign the CLA
+```text
+I have read the CLA Document and I hereby sign the CLA
+```
 
-You sign **once** — the signature then applies to your future contributions across AltairaLabs repositories. The CLA is a **license grant**, not a copyright assignment: you keep ownership of your contribution and grant AltairaLabs a license to use and relicense it. You can read the full text [here](https://gist.github.com/chaholl/acc8f1f6c38376d00a162351f566b93e).
+The CLA is a license grant, not a copyright assignment: you keep ownership of your contribution and grant AltairaLabs a license to use and relicense it. You sign once; the signature applies to your future contributions across AltairaLabs repositories. You can read the full text [here](https://gist.github.com/chaholl/acc8f1f6c38376d00a162351f566b93e).
 
-## How to Contribute
+## How to contribute
 
-### Reporting Bugs
+### Reporting bugs
 
-- Check existing issues first
-- Provide clear reproduction steps
-- Include version information
-- Share relevant configuration/code samples
+- Check existing issues first.
+- Provide clear reproduction steps.
+- Include version information.
+- Share relevant configuration and code samples.
 
-### Suggesting Features
+### Suggesting features
 
-- Open an issue describing the feature
-- Explain the use case and benefits
-- Discuss implementation approach
+- Open an issue describing the feature.
+- Explain the use case and benefits.
+- Discuss the implementation approach.
 
-### Submitting Changes
+### Submitting changes
 
-1. **Fork the repository**
-2. **Create a feature branch**: `git checkout -b feature/your-feature-name`
-3. **Make your changes**
-4. **Write/update tests**
-5. **Run tests**: `make test`
-6. **Run linter**: `make lint`
-7. **Commit your changes**: Use clear, descriptive commit messages
-8. **Push to your fork**: `git push origin feature/your-feature-name`
-9. **Open a Pull Request**
+1. Fork the repository.
+2. Create a feature branch: `git checkout -b feat/your-feature-name`.
+3. Make your changes and write or update tests.
+4. Run `make verify`. It runs `lint-diff` (golangci-lint on the changed modules, then gosec) and `test-fast` (`go test` on the changed modules). The pre-commit hook also builds, checks coverage, runs the weak-assertion guard and checks reference drift, and CI runs a wider set of jobs, so a passing `make verify` does not predict either.
+5. Commit with `git commit -s` and a conventional-commit message (`feat:`, `fix:`, `docs:`, `chore:`). The pre-commit hook runs on every commit.
+6. Push to your fork: `git push -u origin feat/your-feature-name`.
+7. Open a pull request against `main`.
 
-## Development Setup
+## Development setup
 
 ### Prerequisites
 
-- Go 1.21 or later
-- Make (for build automation)
+- Go, at the version `go.work` declares
+- Make
+- golangci-lint, at the version pinned in `.github/workflows/ci.yml`. `scripts/check-lint-version.sh` refuses any other version, because versions disagree about findings.
 
 ### Setup
 
@@ -79,134 +86,134 @@ You sign **once** — the signature then applies to your future contributions ac
 git clone https://github.com/YOUR_USERNAME/PromptKit.git
 cd PromptKit
 
-# Install dependencies
+# Download module dependencies
 make install
 
-# Run tests
-make test
+# Install the git hooks (once)
+./scripts/install-hooks.sh
 
-# Build all components
+# Build and test
 make build
+make test
 ```
 
-### Project Structure
+The repository has no root `go.mod`. `go.work` lists the modules, so `go build ./...` and `go test ./...` fail at the repository root. The Make targets iterate the modules for you; for a single package use `go -C <module>`:
 
+```bash
+go -C runtime test ./evals/... -count=1
 ```
+
+`make help` lists every target. See [Pre-commit hooks](https://promptkit.altairalabs.ai/contributors/pre-commit-hooks/) for what the hooks check.
+
+### Project structure
+
+```text
 PromptKit/
 ├── runtime/          # Core runtime components
-├── pkg/              # Shared packages (config, schema validation)
-├── server/a2a/       # A2A protocol server module
+├── pkg/              # Shared packages (config)
 ├── sdk/              # PromptKit SDK
-├── examples/         # Example configurations
+│   └── examples/     # Runnable SDK examples
+├── server/a2a/       # A2A protocol server module
+├── benchmarks/       # Framework comparison benchmarks
+├── tools/            # Development tools
 └── docs/             # Documentation
 ```
 
-> The **PromptArena** and **PackC** CLIs are developed in their own repository,
-> [github.com/AltairaLabs/promptarena](https://github.com/AltairaLabs/promptarena).
-> Contributions to the testing framework and pack compiler go there. This repo
-> covers the SDK, runtime, and the hosted JSON schemas.
+Twelve directories under `sdk/examples/` have their own `go.mod`: `audiohelper`, `duplex-streaming`, `eval-hooks`, `multitrack-ingestion`, `onnx-audio-emotion`, `openai-realtime`, `sdk-evals`, `sdk-http-auth`, `telemetry-redaction`, `topic-policy`, `voice-chat` and `voice-interview`. The other examples, such as `hello`, belong to the `sdk` module. `make build` does not compile the nested modules and `go -C sdk build ./...` does not either; CI does. Build the ones you touch:
 
-## Component-Specific Contribution Guidelines
+```bash
+go -C sdk/examples/sdk-evals build ./...
+```
+
+The PromptArena and PackC CLIs, and the config-file JSON schemas, live in a separate repository. See the [PromptArena docs](https://promptarena.altairalabs.ai/) to contribute to them.
+
+## Component-specific guidelines
 
 ### SDK (`sdk/`)
 
-**Focus**: Production-ready library for deploying LLM applications
+The SDK is the high-level API (`Open`, `OpenDuplex`, `OpenWorkflow`). Areas for contribution:
 
-**Key Areas for Contribution:**
 - High-level API improvements
-- New conversation patterns and middleware
+- Conversation patterns and middleware
 - Integration helpers and utilities
 - Performance optimizations
 - Example applications and tutorials
 
-**Testing SDK Changes:**
 ```bash
-# Build and test SDK
-cd sdk && go test ./...
+# Unit tests
+go -C sdk test ./...
 
-# Run integration tests
-cd sdk && go test -tags=integration ./...
-
-# Test with examples
-cd examples/customer-support && go run main.go
+# Integration tests (build tag)
+go -C sdk test -tags=integration ./...
 ```
 
 ### Runtime (`runtime/`)
 
-**Focus**: Core engine and shared components
+The runtime holds the core engine and shared components. Areas for contribution:
 
-**Key Areas for Contribution:**
 - Provider implementations and optimizations
 - Tool execution framework
 - State management and persistence
 - Pipeline processing improvements
 - Security and error handling
 
-**Testing Runtime Changes:**
 ```bash
-# Build and test runtime
-cd runtime && go test ./...
+# Unit tests
+go -C runtime test ./...
 
-# Run comprehensive tests
-make test
-
-# Check coverage
+# Coverage report for all modules
 make coverage
 ```
 
-## Coding Guidelines
+## Coding guidelines
 
-### Go Code Style
+### Go code style
 
-- Follow standard Go conventions
-- Use `gofmt` for formatting (included in `make fmt`)
-- Write clear, descriptive variable/function names
-- Add package-level documentation comments
-- Keep functions focused and testable
+- Follow standard Go conventions.
+- Format with `gofmt` and `goimports`. `make lint` runs `go vet`, `go fmt` (which rewrites files), golangci-lint, gosec and the message-pattern check.
+- Use clear, descriptive names.
+- Add package-level documentation comments. Doc comments are published as the API reference, so keep issue numbers and inline URLs out of them.
+- Keep functions focused and testable.
 
 ### Testing
 
-- Write unit tests for new functionality
-- Maintain test coverage above 50%
-- Use table-driven tests where appropriate
-- Mock external dependencies
+- Write unit tests for new functionality.
+- New and changed non-test files need at least 80% statement coverage. The pre-commit hook checks it per file, and SonarCloud checks new code in CI.
+- Use table-driven tests where appropriate.
+- Give tests assertions that can fail. `scripts/check-weak-assertions.sh` rejects new tests that assert only on `NoError`, `Nil` or `NotNil`.
+- Mock external dependencies.
+- Check `_test.go` files in the same package for name collisions before naming a type or function.
 
 ### Documentation
 
-- Update README.md if adding features
-- Add inline comments for complex logic
-- Update relevant example configurations
-- Add package documentation for new packages
+- Update the README when you add features.
+- Add inline comments for complex logic.
+- Update the example configurations you affect.
+- Add package documentation for new packages.
+- Pages under `docs/src/content/docs/` follow `docs/STYLE.md`. `make docs-voice` checks the mechanical rules.
+- If you change an exported Go symbol or doc comment, regenerate the API reference with `make docs-reference` or `make docs-sdk-reference`. CI's reference drift check fails otherwise.
 
-## Pull Request Process
+## Pull request process
 
-1. **Ensure CI passes** - All tests and linter checks must pass
-2. **Update documentation** - README, examples, inline docs
-3. **Add changelog entry** - Describe your changes
-4. **Request review** - Tag maintainers (see `.github/CODEOWNERS`)
-5. **Address feedback** - Respond to review comments
-6. **Resolve all conversations** - All review comments must be marked as resolved
-7. **Sign commits** - Use `git commit -s` for DCO compliance
-8. **Keep branch updated** - Rebase or merge with latest `main`
-9. **Squash merge** - Maintains clean commit history (preferred)
+1. Make CI pass. Tests, lint, build and the weak-assertion guard must succeed.
+2. Update documentation: README, examples, inline docs.
+3. Describe breaking changes in `CHANGELOG.md`.
+4. Request review from the maintainers (see `.github/CODEOWNERS`).
+5. Address feedback and resolve every review conversation.
+6. Keep your branch up to date with `main`.
+7. Maintainers merge with squash.
 
-**Note**: The `main` branch is protected. See [Branch Protection Guide](docs/devops/branch-protection.md) and [Quick Reference](docs/devops/branch-protection-quickref.md) for details.
+The `main` branch is protected, so you cannot push to it directly. See the [DevOps documentation](https://promptkit.altairalabs.ai/contributors/devops/) for branch protection and the CI/CD pipelines.
 
-## Release Process
+## Releases
 
-Maintainers handle releases:
+Maintainers cut releases with the `release.yml` workflow. Do not create releases or tags by hand. See [DevOps](https://promptkit.altairalabs.ai/contributors/devops/#release-management).
 
-1. Update version numbers
-2. Update CHANGELOG.md
-3. Create git tag
-4. Build and test release artifacts
-5. Publish to GitHub releases
+## Questions
 
-## Questions?
-
-- Open a GitHub issue for questions
-- Check existing documentation
-- Review closed issues and PRs
+- Open a GitHub issue.
+- Check the existing documentation.
+- Review closed issues and pull requests.
 
 ## License
 

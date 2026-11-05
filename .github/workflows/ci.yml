@@ -11,7 +11,6 @@ on:
       - '.github/workflows/docs.yml'
       - '.github/workflows/release.yml'
       - '.github/CODEOWNERS'
-      - 'scripts/setup-branch-protection.sh'
   pull_request:
     branches: [ main ]
     paths-ignore:
@@ -22,7 +21,6 @@ on:
       - '.github/workflows/docs.yml'
       - '.github/workflows/release.yml'
       - '.github/CODEOWNERS'
-      - 'scripts/setup-branch-protection.sh'
 
 permissions:
   contents: read

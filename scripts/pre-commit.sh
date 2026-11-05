@@ -3,7 +3,6 @@
 # Pre-commit hook for PromptKit
 # Runs fast, developer-friendly checks on changed code only
 #
-# To skip this hook, include "[skip-pre-commit]" in your commit message
 #
 
 set -e
@@ -38,23 +37,6 @@ print_header() {
     echo -e "${BLUE}  $1${NC}"
     echo -e "${BLUE}═══════════════════════════════════════════════════${NC}"
 }
-
-# Check if commit message contains skip flag
-COMMIT_MSG_FILE=".git/COMMIT_EDITMSG"
-if [ -f "$COMMIT_MSG_FILE" ]; then
-    if grep -q "\[skip-pre-commit\]" "$COMMIT_MSG_FILE"; then
-        print_warning "Skipping pre-commit checks (found [skip-pre-commit] in commit message)"
-        exit 0
-    fi
-fi
-
-# Also check the commit message passed via -m flag
-for arg in "$@"; do
-    if [[ "$arg" == *"[skip-pre-commit]"* ]]; then
-        print_warning "Skipping pre-commit checks (found [skip-pre-commit] in commit message)"
-        exit 0
-    fi
-done
 
 print_header "Pre-Commit Checks"
 print_info "Running fast checks on changed code only..."
@@ -210,7 +192,7 @@ else
 
         if [ $LINT_FAILED -eq 1 ]; then
             echo ""
-            print_error "Linting failed. Fix the issues above or use [skip-pre-commit] to bypass."
+            print_error "Linting failed. Fix the issues above."
             CHECKS_FAILED=1
         fi
     fi
@@ -404,7 +386,7 @@ else
     
     if [ $TEST_FAILED -eq 1 ]; then
         echo ""
-        print_error "Tests failed. Fix the issues above or use [skip-pre-commit] to bypass."
+        print_error "Tests failed. Fix the issues above."
         CHECKS_FAILED=1
     else
         # Merge coverage files
@@ -567,52 +549,6 @@ runtime/tts/cartesia_interactive.go"
 fi
 
 #
-# 4. Lint TypeScript files in GitHub Actions
-#
-print_header "Linting TypeScript Files"
-
-# Check for staged TypeScript files in GitHub Actions
-STAGED_TS_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.github/actions/.*\.ts$' || true)
-
-if [ -z "$STAGED_TS_FILES" ]; then
-    print_info "No TypeScript files staged in GitHub Actions"
-else
-    print_info "Found $(echo "$STAGED_TS_FILES" | wc -l | tr -d ' ') TypeScript file(s) to check"
-
-    TS_LINT_FAILED=0
-
-    # Check packc-action
-    if echo "$STAGED_TS_FILES" | grep -q "packc-action"; then
-        print_info "Linting packc-action TypeScript..."
-        if cd "$REPO_ROOT/.github/actions/packc-action" && npm run lint 2>&1; then
-            print_success "packc-action passed linting"
-        else
-            print_error "packc-action has linting issues"
-            TS_LINT_FAILED=1
-        fi
-        cd "$REPO_ROOT"
-    fi
-
-    # Check promptarena-action
-    if echo "$STAGED_TS_FILES" | grep -q "promptarena-action"; then
-        print_info "Linting promptarena-action TypeScript..."
-        if cd "$REPO_ROOT/.github/actions/promptarena-action" && npm run lint 2>&1; then
-            print_success "promptarena-action passed linting"
-        else
-            print_error "promptarena-action has linting issues"
-            TS_LINT_FAILED=1
-        fi
-        cd "$REPO_ROOT"
-    fi
-
-    if [ $TS_LINT_FAILED -eq 1 ]; then
-        echo ""
-        print_error "TypeScript linting failed. Fix the issues above or use [skip-pre-commit] to bypass."
-        CHECKS_FAILED=1
-    fi
-fi
-
-#
 # Summary
 #
 print_header "Summary"
@@ -629,7 +565,6 @@ else
     print_info "Options:"
     echo "  1. Fix the issues above and try again"
     echo "  2. Run 'make verify' to see detailed output"
-    echo "  3. Use [skip-pre-commit] in commit message to bypass (not recommended)"
     echo ""
     exit 1
 fi
