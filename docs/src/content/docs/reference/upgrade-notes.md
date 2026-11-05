@@ -1,12 +1,126 @@
 ---
 title: Upgrade Notes
 description: Changes that need action when moving between PromptKit versions.
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/a2a/client.go
+    - runtime/a2a/types.go
+    - runtime/a2a/version.go
+    - runtime/evals/handlers/classify_handler_base.go
+    - runtime/evals/runner.go
+    - runtime/hooks/guardrails/adapter.go
+    - runtime/hooks/hooks.go
+    - runtime/inference/all/all.go
+    - runtime/inference/openai/provider.go
+    - runtime/inference/openai/register.go
+    - runtime/inference/provider.go
+    - runtime/metrics/collector.go
+    - runtime/pipeline/stage/compactor.go
+    - runtime/pipeline/stage/composition_executor.go
+    - runtime/pipeline/stage/config.go
+    - runtime/pipeline/stage/errors.go
+    - runtime/pipeline/stage/pipeline.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/state_handoff.go
+    - runtime/providers/base_embedding.go
+    - runtime/providers/claude/claude.go
+    - runtime/providers/claude/claude_tools.go
+    - runtime/providers/claude/schema.go
+    - runtime/providers/gemini/setup.go
+    - runtime/providers/gemini/streaming_support.go
+    - runtime/providers/openai/openai.go
+    - runtime/providers/openai/openai_multimodal.go
+    - runtime/providers/openai/responses_convert.go
+    - runtime/providers/openai/streaming_support.go
+    - runtime/providers/provider.go
+    - runtime/providers/registry.go
+    - runtime/providers/rejected_params.go
+    - runtime/providers/stream_metrics.go
+    - runtime/skills/active_set.go
+    - runtime/skills/executor.go
+    - runtime/workflow/authorizer.go
+    - sdk/evaluate.go
+    - sdk/internal/pack/validate.go
+    - sdk/internal/pipeline/builder.go
+    - sdk/internal/pipeline/builder_vad.go
+    - sdk/options.go
+    - sdk/provider_refs.go
+    - sdk/sdk.go
+    - server/a2a/ownership.go
+    - server/a2a/protocol.go
+    - server/a2a/server.go
 ---
 
 Release notes are generated from merged pull requests. This page carries the
-changes that need you to do something, with what to change and why.
+changes that need you to do something, with what to change and why. Sections
+are grouped by the release that first contained the change, newest first.
+Unreleased holds changes that are on `main` and in no release.
 
 ## Unreleased
+
+### A failing stage ends the turn, and `Send` returns its error
+
+A pipeline stage that returned an error did not fail the turn. `ExecuteSync`
+and `Conversation.Send` returned nil, and the stages after it kept running on
+the failed stage's closed output. A template stage that could not resolve the
+system prompt, for example, let the provider stage call the model with no
+system prompt at all.
+
+The first failing stage's error now reaches the caller: `ExecuteSync` and
+`Send` return it, `Stream` delivers it as its last element, and the completion
+event reports it. `errors.Is(err, stage.ErrTemplateUnresolved)` holds for an
+unresolved system-prompt variable. The provider stage does not call the model
+once an upstream stage has failed. Nothing is canceled: the other stages drain
+and persist as before. A context error that follows the caller's own cancel is
+not a failure. Error elements that a stage reports and continues past, such as
+those from `FramesToMessageStage` and `MediaComposeStage`, do not stop the
+call.
+
+| If you | You will see | Change |
+|---|---|---|
+| Send to a prompt whose system prompt has an unresolved variable | `Send` returns an error wrapping `stage.ErrTemplateUnresolved`, where it returned a reply from a model that never saw the prompt | supply the variable |
+| Run a pipeline whose custom stage returns an error | `ExecuteSync`, `Send` and `Stream` return that error | handle it, or have the stage report and continue with an error element |
+
+### A workflow state's `skills` filter applies, and the skill index follows it
+
+A workflow state's `skills` field was parsed and never read, so every skill
+could activate in every state. `WorkflowConversation` now sets the
+conversation's own skill filter from the state: when the conversation opens for
+a state, and when a transition the model makes mid-turn commits, before the
+destination state's next round. A state without the field clears the filter.
+Narrowing deactivates active skills the new filter excludes, and their tool
+grants go with them.
+
+The field takes `none` (case-insensitive), a glob, or, as the PromptPack spec
+defines it, a path to a skill directory or `SKILL.md` file, which admits the
+skills at or under it. Globs match as before. An inline skill has no path and
+matches no path filter.
+
+The `skill__activate` description, which lists the skills the model can
+activate, follows the filter. It lists only the skills the conversation's
+filter admits and is withheld when the filter admits none. A conversation
+with no filter still lists every skill. The skills selector, which narrows the
+list further, now runs once per `Send` instead of once per round, and falls
+back to every admitted skill if a mid-turn transition leaves it nothing.
+
+| If you | You will see | Change |
+|---|---|---|
+| Declare `skills` on a workflow state | only the matching skills activate in that state, and the model is offered only those | check each state's value; `none` now means no skills |
+| Leave `skills` off a state | every skill, as before | nothing |
+| Call `SkillsCapability.RefreshSkillIndex` on a tool registry yourself | nothing: it stays for hosts that drive a registry directly, and conversations no longer call it | nothing |
+
+### New seams for hosts and custom pipelines
+
+These additions need no action.
+
+| Addition | Purpose |
+|---|---|
+| `hooks.ToolResultRewriter` | A `hooks.ToolHook` that also implements it receives the text of each successful tool result the provider stage runs, and returns the text the model sees. Rewriters chain in registration order, run before the result size limit, and run once per text part of a multimodal result. An error fails the call: the model gets an error result and `tool.call.failed` is emitted. Client tools, calls resumed after approval and duplex sessions are not rewritten. `RewriteResult` must be safe for concurrent use |
+| `stage.ProviderConfig.DescribeTool` | Returns the descriptor to offer the model for each registered tool on every tools build: a copy when it changes the tool, or nil to withhold it. The registry's descriptor is never changed. The stage rebuilds the tools array when the result changes between rounds, including after a mid-turn workflow handoff |
+| `skills.Executor.SkillIndexIn`, `skills.Executor.SelectSkillsIn` | The `skill__activate` index for one `ActiveSet`, and the selector's choice over the skills that set admits |
+
+## v2.13.0
 
 ### Media options stay with the conversation that set them
 
@@ -77,7 +191,7 @@ retry the call, which then succeeds with the model's own default.
 
 | If you | You will see | Change |
 |---|---|---|
-| Set a sampling parameter a model rejects | the call succeeds after one retry, and a warning | remove the parameter, or list it in `unsupported_params` to skip the retry |
+| Set a sampling parameter a model rejects | the call succeeds after a retry for each rejected parameter, and a warning | remove the parameter, or list it in `unsupported_params` to skip the retry |
 | List parameters in `unsupported_params` | nothing | nothing |
 
 ### A prompt's `top_k` reaches the provider
@@ -250,6 +364,8 @@ compositions. Each host-facing seam hands you the matching declaration; see
 | Build `tools.ToolDescriptor`, `hooks.ToolRequest`, `hooks.ProviderRequest` or `events.ValidationEventData` literals | nothing: the new `Declaration`, `Agent`, `Prompt` and `Validator` fields are optional, and nil means undeclared | nothing |
 | Want to decide workflow transitions | every transition is allowed unless you install a policy | implement `workflow.TransitionAuthorizer` and pass it to `sdk.WithTransitionAuthorizer` |
 
+## v2.12.0
+
 ### Conversations use your provider's `max_tokens` and `temperature`, and send no output-token limit by default
 
 A conversation sent `max_tokens: 4096` and `temperature: 0.7` on every turn
@@ -266,6 +382,8 @@ applies. Claude requires a limit, so it falls back to 4096. Providers that
 | Rely on the SDK capping replies at 4096 tokens | longer replies, and output cost up to the model's maximum | set `max_tokens` in the prompt's `parameters` or in the provider's defaults |
 | Want no limit and set a large number to get it | nothing breaks | set the provider's `max_tokens` to `-1` (`providers.MaxTokensUnlimited`), or leave it unset; a prompt's `max_tokens` must be at least 1 |
 | Set `max_tokens: -1` on a Claude provider | `CreateProviderFromSpec` fails: Claude requires a limit | set a positive limit, or leave it unset for 4096 |
+
+## v2.8.0
 
 ### The A2A server and client speak A2A 1.0 and 0.3, not a mix of both
 
@@ -305,6 +423,8 @@ see [Callers and replicas](/sdk/how-to/interop/choose-a2a-server-mode/#callers-a
 |---|---|---|
 | Implement your own `TaskStore` and want caller scoping | `NewServer` panics when `WithTaskOwner` is set | implement `OwnedTaskStore` (`CreateOwned`, `Owner`); if you implement `TaskQuerier`, filter by `TaskQuery.Owner` |
 | Run several replicas behind a shared task store | `CancelTask` and `SubscribeToTask` only reached the replica running the task, as before | supply `WithTaskCanceler` and `WithTaskEventBus`, or keep session affinity |
+
+## v2.7.0
 
 ### Inference providers share one interface; `runtime/classify` is superseded
 
@@ -349,7 +469,8 @@ result is discarded and it can no longer change the response.
 
 Inference calls also emit `inference_requests_total`,
 `inference_request_duration_seconds`, `inference_input_tokens_total` and
-`inference_cost_total` (labels `provider`, `model`, `source`, plus `status`).
+`inference_cost_total` (labels `provider`, `model` and `source`;
+`inference_requests_total` also carries `status`).
 
 Provider HTTP retries (every LLM and inference provider) are counted in
 `provider_retries_total{provider, outcome}` (under the metrics collector's namespace): `retry` per retried
@@ -377,12 +498,89 @@ API, and every response is checked against the reported size.
 | Declare a `dimensions` the model cannot produce | `Embed` errors, naming both sizes (or the API rejects the field, e.g. `text-embedding-ada-002`) | set it to the model's real size, or remove it |
 | Rely on a declared `dimensions` for `openai`/`gemini` that was previously ignored | vectors now come back at that size | size existing vector storage to match, or remove the setting |
 
+## v2.6.0
+
+### `tools_offered` now answers for the turn, not the conversation
+
+`tools_offered` is documented as checking what a turn handed the provider, and
+it reported the union over the whole conversation. The pipeline never reset its
+record between turns, and the eval context extracted over the full history.
+Both are fixed. The set a check sees is the tools offered across the current
+turn's rounds. A skill grant that widens the set mid-turn counts; a grant from
+three turns earlier does not.
+
+| If you | You will see | Change |
+|---|---|---|
+| Assert `tool_names: [refund]` | passes only if this turn offered `refund`; it used to pass when `refund` was offered in any earlier turn | check that the grant is active on the turn being asserted |
+| Assert `tool_names: [refund], absent: true` | fails when this turn offers `refund`; it could never fail once `refund` had been offered once | check that the grant is not active on the turn being asserted |
+
+### Voice (VAD) sessions now run guardrails
+
+A pack's `validators:` did nothing in a VAD voice session. Guardrails are
+provider hooks, and the VAD pipeline built its provider stage with a nil hook
+registry, so every hook path returned early: no `validation.started` /
+`passed` / `failed` events, and no enforcement. Guardrails now run in VAD mode
+(`OpenVoice` and the VAD topology) exactly as they do in text. Native realtime
+and duplex sessions are a separate stage with no hook support, and guardrails
+still do not run there.
+
+| If you | You will see | Change |
+|---|---|---|
+| Run a voice conversation under a pack with `validators:` | the conversation is blocked where the validators say so, and `validation.*` events appear | review what the validators do to the voice path before upgrading; they were never exercised there |
+| Run native realtime or duplex sessions | no change; guardrails do not run | none |
+
+### Provider adapters now rewrite your JSON Schema for the vendor
+
+A schema written for a pack went to the wire as written, and the three
+providers enforce rules that contradict each other:
+
+| | Anthropic | Gemini | OpenAI (strict) |
+|---|---|---|---|
+| `additionalProperties: false` on every object | required | rejected | required |
+| every property in `required` | not required | n/a | required |
+| `minimum` / `maxItems` / `uniqueItems` / … | rejected | accepted | accepted |
+
+No schema was portable, and a valid one failed on whichever provider had not
+been tried. The adapters now rewrite the schema on the way out, for output
+schemas and tool schemas alike. On Anthropic, constraints its grammar cannot
+carry (`minimum`, `maxItems`, `uniqueItems`, …) are removed from the wire and
+restated in the node's `description`, so the model still sees them. Tool
+arguments stay validated against the schema as written; the rewrite never
+touches the descriptor.
+
+| If you | You will see | Change |
+|---|---|---|
+| Wrote a schema that a provider rejected with a 400 naming a JSON path | the schema works | none |
+| Use constraints such as `minimum` or `maxItems` with Anthropic | the constraints restated in the node's `description`, not on the wire | none |
+| Use the `not` keyword | the request still fails, with an error naming the keyword; it has no equivalent in the accepted subset | remove the keyword |
+
+### Claude tools use Anthropic's native strict tool use
+
+Tool definitions carry `strict: true`, so the API constrains decoding to the
+schema and `tool_use.input` is guaranteed to validate.
+
+| If you | You will see | Change |
+|---|---|---|
+| Define tools for Claude | better-formed tool arguments, and the schema adapted as above, because strict mode enforces the same rules | none |
+| Need a schema sent exactly as written | the adapted schema | set `strict_tools: false` per provider, as below |
+
+```yaml
+providers:
+  - id: claude
+    type: claude
+    model: claude-sonnet-5
+    additional_config:
+      strict_tools: false
+```
+
+## v2.5.0
+
 ### Checks name the provider they need, and the host binds it
 
 Checks that need a model they do not own (a judge for `toxicity`, a classifier
-for `text_sentiment`) now name it by a **logical key the pack declares in
-`requires`**. The host binds that name to a concrete provider and can rebind it
-whenever it likes, without the pack changing.
+for `text_sentiment`) name it by a logical key the pack declares in `requires`.
+The host binds that name to a concrete provider and can rebind it without the
+pack changing.
 
 ```yaml
 requires:
@@ -409,118 +607,20 @@ conv, _ := sdk.Open("./app.pack.json", "chat",
 )
 ```
 
-**What breaks, and what to do:**
-
 | If you | You will see | Change |
 |---|---|---|
 | Use `classifier_id` in a pack | the check errors, naming the replacement | rename it to `provider`, and declare that name in `requires` |
 | Declare a judge-backed check (`toxicity`, `bias`, `pii_leakage`, `role_violation`, `llm_judge`, the RAG primitives) that names no provider | `Open()` fails | add `params.provider` naming a key from `requires`, or pass `sdk.WithJudgeProvider` as a host default |
 | Bind an ancillary provider with `sdk.WithLLMProvider` | it silently became your agent | use `sdk.WithNamedProvider`, which registers it for a pack to name without touching the agent |
 | Run `sdk.Evaluate` on a pack whose checks name providers | the checks error | pass `EvaluateOpts.ProviderBinding` (or `JudgeTargets`, which is treated as one) |
-| Relied on `sdk.JudgeProviderKey` | it is gone | the runtime no longer names providers; the pack does |
 
-**Why the break is worth it.** A judge-backed guardrail with no judge used to
-build successfully and then block **every turn**, reporting a content violation
-as the reason — or, for `pii_leakage`, run only its regex layer with the LLM
-half silently absent. Both now fail at `Open()`, naming the check and whether
-the fix belongs in the pack or in your wiring. A check that names a provider it
-cannot get is an error rather than a skip, because a skip scores 1.0 and passes:
-a safety control that never ran must not report clean.
-
-### `tools_offered` now answers for the turn, not the conversation
-
-`tools_offered` was documented as checking what **a turn** handed the provider
-and in practice reported the union over the whole conversation, in two places
-at once: the pipeline never reset its record between turns, and the eval
-context extracted over the full history.
-
-Both are fixed. The set a check sees is now the tools offered across the
-current turn's rounds — a skill grant that widens the set mid-turn still
-counts, a grant from three turns ago does not.
-
-**What to expect:** a check that was passing on stale evidence can start
-failing, and that failure is the correct answer:
-
-| Check | Before | Now |
-|---|---|---|
-| `tool_names: [refund]` | passed if `refund` was offered in **any** earlier turn | passes only if this turn offered it |
-| `tool_names: [refund], absent: true` | could never fail once `refund` had been offered once | fails when this turn offers it |
-
-If an assertion flips to failing, read it as the grant not being active on that
-turn rather than as a regression in the check.
-
-### Voice (VAD) sessions now run guardrails
-
-A pack's `validators:` did nothing in a VAD voice session. Guardrails are
-provider hooks, and the VAD pipeline built its provider stage with a nil hook
-registry, so every hook path early-returned: no `validation.started` /
-`passed` / `failed` events, and no enforcement. The docs said guardrails
-applied everywhere; for voice they did not.
-
-They now run, exactly as they do in text.
-
-**What to expect:** a voice conversation that was passing because nothing
-checked it can start being blocked. That is the configured policy taking
-effect, not a regression. Before upgrading, check what your pack's
-`validators:` would do to the voice path — they have never been exercised
-there.
-
-This covers VAD mode (`OpenVoice` and the VAD topology). Native realtime and
-duplex sessions are a separate stage with no hook support at all;
-guardrails still do not run there.
-
-### Provider adapters now rewrite your JSON Schema for the vendor
-
-A schema you write for a pack went to the wire as written, and the three
-providers enforce rules that contradict each other:
-
-| | Anthropic | Gemini | OpenAI (strict) |
-|---|---|---|---|
-| `additionalProperties: false` on every object | required | **rejected** | required |
-| every property in `required` | not required | n/a | required |
-| `minimum` / `maxItems` / `uniqueItems` / … | **rejected** | accepted | accepted |
-
-So no schema was portable, and a perfectly valid one failed on whichever
-provider you had not tried. The adapters now rewrite it on the way out —
-output schemas and tool schemas alike.
-
-**What to expect:**
-
-- A schema that used to be rejected now works. The failure was a 400 naming a
-  JSON path, arriving at the first real invocation rather than at deploy.
-- On Anthropic, constraints its grammar cannot carry (`minimum`, `maxItems`,
-  `uniqueItems`, …) are removed from the wire and restated in the node's
-  `description`, so the model still sees them. Tool arguments stay validated
-  against the schema **you** wrote — the rewrite never touches your descriptor.
-- `not` is the one keyword left in place: it has no equivalent in the accepted
-  subset, so the request still fails, with an error naming the keyword.
-
-### Claude tools use Anthropic's native strict tool use
-
-Tool definitions now carry `strict: true`, so the API constrains decoding to
-your schema and `tool_use.input` is guaranteed to validate rather than merely
-likely to.
-
-**What to expect:** better-formed tool arguments, and a schema adapted as
-above, because strict mode enforces the same rules. If you need a schema sent
-exactly as written, turn it off per provider:
-
-```yaml
-providers:
-  - id: claude
-    type: claude
-    model: claude-sonnet-5
-    additional_config:
-      strict_tools: false
-```
+A judge-backed guardrail with no judge used to build and then block every turn,
+reporting a content violation as the reason, or, for `pii_leakage`, run only its
+regex layer. Both now fail at `Open()`, naming the check and whether the fix
+belongs in the pack or in the host wiring. A check that names a provider it
+cannot get is an error, because a skip scores 1.0 and passes.
 
 ## v2.4.0
-
-### Judge-backed guardrails need a judge
-
-Superseded by the entry above, which changes how the judge is supplied. If you
-adopted `sdk.JudgeProviderKey` from this release, move to naming the provider in
-the pack.
 
 ### A tool call slower than 30s no longer kills its own turn
 

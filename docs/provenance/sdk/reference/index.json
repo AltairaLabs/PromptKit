@@ -1,0 +1,35 @@
+{
+ "page": "docs/src/content/docs/sdk/reference/index.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "c1",
+   "claim": "The generated sdk page covers Open, Conversation (Send, Stream, OnTool, Fork, EventBus), Response, StreamChunk, every With* option and the exported error values.",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1414",
+    "sdk/conversation.go:1815",
+    "sdk/conversation.go:275",
+    "sdk/conversation_tools.go:33",
+    "sdk/errors.go:11",
+    "sdk/response.go:31",
+    "sdk/sdk.go:84",
+    "sdk/streaming.go:19"
+   ]
+  },
+  {
+   "id": "c2",
+   "claim": "RuntimeConfig page documents providers, tools, evals, hooks, sandboxes, selectors, skills, MCP servers, state store and logging.",
+   "verdict": "false",
+   "evidence": [
+    "sdk/runtime_config.go:508-548"
+   ]
+  },
+  {
+   "id": "c3",
+   "claim": "A2A Server page covers server/a2a; AG-UI page covers sdk/agui.",
+   "verdict": "true",
+   "evidence": []
+  }
+ ]
+}

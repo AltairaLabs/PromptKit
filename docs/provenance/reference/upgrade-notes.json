@@ -1,0 +1,290 @@
+{
+ "page": "docs/src/content/docs/reference/upgrade-notes.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "c1",
+   "claim": "providers.MediaScoped exists; WithMediaStorage/WithUnsafePrivateNetworkMedia are options",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/registry.go:338",
+    "sdk/options.go:499",
+    "sdk/options.go:516"
+   ]
+  },
+  {
+   "id": "c10",
+   "claim": "Claude omits top_k with extended thinking; honors unsupported_params",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude.go:463-482"
+   ]
+  },
+  {
+   "id": "c11",
+   "claim": "PredictionRequest.TopK, TemperatureSet, penalties; WarnUnsentParams; ResolveTemperature",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:56-133"
+   ]
+  },
+  {
+   "id": "c12",
+   "claim": "Compact receives round input tokens as lastInputTokens",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/compactor.go:131-144",
+    "runtime/pipeline/stage/compactor.go:35-36"
+   ]
+  },
+  {
+   "id": "c13",
+   "claim": "Handoff.Call, ProviderBudgetedCompaction.ForProvider, WorkflowStateResolver",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/compactor.go:90-92",
+    "runtime/pipeline/stage/state_handoff.go:20-58"
+   ]
+  },
+  {
+   "id": "c14",
+   "claim": "CompositionExecutorDeps.ResolveProvider optional",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/composition_executor.go:69"
+   ]
+  },
+  {
+   "id": "c15",
+   "claim": "Open checks every call site's provider key; wrong role, unbound, no tool support fail Open",
+   "verdict": "true",
+   "evidence": [
+    "sdk/provider_refs.go:128-157"
+   ]
+  },
+  {
+   "id": "c16",
+   "claim": "Governance validation failed error; TransitionAuthorizer; WithTransitionAuthorizer",
+   "verdict": "true",
+   "evidence": [
+    "runtime/workflow/authorizer.go:22",
+    "sdk/internal/pack/validate.go:261",
+    "sdk/options.go:1973"
+   ]
+  },
+  {
+   "id": "c17",
+   "claim": "Default conversations send no max_tokens; Claude falls back to 4096; -1 rejected on Claude; MaxTokensUnlimited",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude.go:664-695",
+    "runtime/providers/provider.go:203-207",
+    "sdk/sdk.go:630-636"
+   ]
+  },
+  {
+   "id": "c18",
+   "claim": "A2A: A2A-Version header else method version; defaults page size 50, cap 100; error codes; method constants and deprecation",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/types.go:15-85",
+    "server/a2a/protocol.go:17-52",
+    "server/a2a/server.go:48-53"
+   ]
+  },
+  {
+   "id": "c19",
+   "claim": "A2A options WithTaskOwner, WithMaxBlockingWait, OwnedTaskStore, WithTaskCanceler, WithTaskEventBus, ListTasksPage, LookupMethod",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/client.go:1006",
+    "runtime/a2a/version.go:112",
+    "server/a2a/ownership.go:30-174",
+    "server/a2a/server.go:142"
+   ]
+  },
+  {
+   "id": "c2",
+   "claim": "Gemini Live sends temperature, top_p, top_k, max_tokens; penalties not sent",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/gemini/setup.go:75-91"
+   ]
+  },
+  {
+   "id": "c20",
+   "claim": "inference.Provider Infer; types huggingface/openai/systemone/nvidia-topic-control alias 20s timeout; ClassifyRegistry ignored",
+   "verdict": "true",
+   "evidence": [
+    "runtime/inference/all/all.go:7-9",
+    "runtime/inference/openai/register.go:19-28",
+    "runtime/inference/provider.go:40-75",
+    "runtime/pipeline/stage/config.go:73-79"
+   ]
+  },
+  {
+   "id": "c21",
+   "claim": "WithGuardrailTimeout, DefaultEvalTimeout 30s, func guardrails honor it",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/runner.go:16",
+    "runtime/hooks/guardrails/adapter.go:119-128",
+    "sdk/options.go:1559"
+   ]
+  },
+  {
+   "id": "c22",
+   "claim": "inference metrics: labels provider, model, source plus status on all four (page said)",
+   "verdict": "false",
+   "evidence": [
+    "runtime/metrics/collector.go:458-480"
+   ]
+  },
+  {
+   "id": "c23",
+   "claim": "provider_retries_total{provider,outcome}: retry, success, exhausted; openai.Config.RetryPolicy",
+   "verdict": "true",
+   "evidence": [
+    "runtime/inference/openai/provider.go:64-66",
+    "runtime/providers/stream_metrics.go:146-152"
+   ]
+  },
+  {
+   "id": "c24",
+   "claim": "EmbeddingDimensions: declared, else known, else observed first vector; mismatch errors",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base_embedding.go:85-115"
+   ]
+  },
+  {
+   "id": "c25",
+   "claim": "Checks name provider via requires; classifier_id errors; WithNamedProvider; EvaluateOpts.ProviderBinding/JudgeTargets",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/classify_handler_base.go:86-92",
+    "sdk/evaluate.go:130-137",
+    "sdk/options.go:2723"
+   ]
+  },
+  {
+   "id": "c26",
+   "claim": "sdk.JudgeProviderKey is gone (page: 'adopted from v2.4.0 release')",
+   "verdict": "false",
+   "evidence": [
+    "sdk/options.go:3677"
+   ]
+  },
+  {
+   "id": "c27",
+   "claim": "Claude strict tools default; additional_config.strict_tools: false",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude_tools.go:144-155",
+    "runtime/providers/claude/claude_tools.go:921-925"
+   ]
+  },
+  {
+   "id": "c28",
+   "claim": "Native duplex has no hook registry; VAD passes one",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pipeline/builder.go:678",
+    "sdk/internal/pipeline/builder_vad.go:113"
+   ]
+  },
+  {
+   "id": "c29",
+   "claim": "Claude 'not' keyword left in schema",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/schema.go:65-67"
+   ]
+  },
+  {
+   "id": "c3",
+   "claim": "Gemini Live does not answer below temperature 0.5; not sent, with a warning",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/gemini/streaming_support.go:85-98"
+   ]
+  },
+  {
+   "id": "c30",
+   "claim": "Unreleased: failing stage ends turn; Send returns error; ErrTemplateUnresolved",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/errors.go:110",
+    "runtime/pipeline/stage/pipeline.go"
+   ]
+  },
+  {
+   "id": "c31",
+   "claim": "Unreleased: workflow state skills filter none/glob/path; SetFilter deactivates",
+   "verdict": "true",
+   "evidence": [
+    "runtime/skills/active_set.go:57-120"
+   ]
+  },
+  {
+   "id": "c32",
+   "claim": "Unreleased: SkillIndexIn/SelectSkillsIn, DescribeTool, ToolResultRewriter",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/hooks.go:42-44",
+    "runtime/pipeline/stage/stages_provider.go:196-204",
+    "runtime/skills/executor.go:281-305"
+   ]
+  },
+  {
+   "id": "c4",
+   "claim": "OpenAI Realtime sends max_tokens only; rest logged as not sent",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/openai/streaming_support.go:107-119"
+   ]
+  },
+  {
+   "id": "c5",
+   "claim": "OpenAI realtime runs the configured model; Gemini Live default gemini-3.8-live",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/gemini/setup.go:70",
+    "runtime/providers/openai/streaming_support.go:37"
+   ]
+  },
+  {
+   "id": "c6",
+   "claim": "OpenAI defaults to Responses API against api.openai.com or empty base_url; Chat Completions otherwise and for Azure/Bedrock",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/openai/openai.go:350-352",
+    "runtime/providers/openai/responses_convert.go:104-134"
+   ]
+  },
+  {
+   "id": "c7",
+   "claim": "Audio to a Responses-mode provider errors that audio needs Chat Completions",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/openai/openai_multimodal.go:133-136"
+   ]
+  },
+  {
+   "id": "c8",
+   "claim": "Providers learn a rejected sampling parameter, warn, stop sending, retry; unsupported_params skips",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/rejected_params.go:130-208"
+   ]
+  },
+  {
+   "id": "c9",
+   "claim": "Retry is one retry (page said)",
+   "verdict": "false",
+   "evidence": [
+    "runtime/providers/rejected_params.go:124-138"
+   ]
+  }
+ ]
+}

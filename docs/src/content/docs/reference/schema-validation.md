@@ -1,134 +1,55 @@
 ---
-title: Configuration Schema Validation
-description: How to use JSON schemas for validating PromptKit configuration files
+title: Configuration schema validation
+description: What PromptKit checks when it loads config files, and the JSON schemas this site hosts for editors and CI
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - Makefile
+    - pkg/config/loader.go
+    - pkg/config/schema_validator.go
+    - runtime/prompt/schema/schema.go
+    - scripts/fetch-schemas.sh
+    - scripts/gen-schema-latest-refs.sh
+    - sdk/internal/pack/validate.go
+    - sdk/provider_file.go
 ---
 
-PromptArena publishes JSON schemas for its configuration file types, and this site hosts them, for validation and editor support.
+PromptKit checks configuration files against its Go types. The JSON schemas under `/schemas/` are published by PromptArena, which generates them; this site only hosts them for editor support and external validation.
 
-## Overview
+## What PromptKit validates
 
-promptarena generates the schemas from the config Go types: its own, plus PromptKit's provider and runtime types. They provide:
+PromptKit does not ship config-file JSON schemas and does not validate against them. Its loaders decode strictly and then run Go checks.
 
-- **Validation**: Ensure your config files match the expected structure
-- **IDE Support**: Get autocomplete, inline documentation, and error checking
-- **CI/CD Integration**: Validate configs automatically in your pipelines
-- **Validation on load**: PromptArena and PackC validate configs against them when loading
+For a provider file loaded by `sdk.WithProviderFile` or `sdk.WithProvidersDir`, the load fails when:
 
-### Validation on Load
+- the file is not a YAML mapping
+- `apiVersion`, `kind` or `spec` is missing
+- a key is not a field of the provider type (a misspelled or unsupported setting)
+- `spec.type` is missing
+- `spec.role` is not a known role
 
-PromptArena and PackC validate each configuration file against these schemas when they load it: arena configs, scenarios, providers, prompt configs, tools, personas and evals. A file that does not match fails to load, with an error naming the field.
+A top-level `$schema` key is allowed and ignored. Because the check runs against the Go types, a provider setting works from the PromptKit release that adds it, before any published schema includes it.
 
-The PromptKit SDK does not use the schemas. When it loads a provider file (`sdk.WithProviderFile`, `sdk.WithProvidersDir`), it checks the file against its Go types. An unknown key, a missing `apiVersion`, `kind`, `spec` or `spec.type`, or an unknown `role` is an error. A provider setting is accepted from the PromptKit release that adds it, before the published schema includes it.
+The `Validate*` functions and `UseSchemaFS` in `pkg/config` are deprecated. They validate only against schemas the caller supplies.
 
-## Available Schemas
+The embedded PromptPack schema in `runtime/prompt/schema` is a separate matter: it is a verbatim copy of the PromptPack specification, and pack loading validates against it.
 
-All schemas are available at `https://promptkit.altairalabs.ai/schemas/`.
+## Hosted schemas
 
-### Using Latest Schemas (Recommended)
+The docs build fetches the schemas from the PromptArena repository (`make schemas-host`), so they are only as current as the last docs deploy. They are served at `https://promptkit.altairalabs.ai/schemas/`.
 
-The `/latest/` path automatically points to the current stable schema version:
+| Path | Meaning |
+|------|---------|
+| `/schemas/v1alpha1/<name>.json` | The versioned schema |
+| `/schemas/latest/<name>.json` | A file containing a `$ref` to the `v1alpha1` schema of the same name |
 
-| Config Type | Latest Schema URL |
-|------------|-------------------|
-| Arena | `https://promptkit.altairalabs.ai/schemas/latest/arena.json` |
-| Scenario | `https://promptkit.altairalabs.ai/schemas/latest/scenario.json` |
-| Provider | `https://promptkit.altairalabs.ai/schemas/latest/provider.json` |
-| PromptConfig | `https://promptkit.altairalabs.ai/schemas/latest/promptconfig.json` |
-| Tool | `https://promptkit.altairalabs.ai/schemas/latest/tool.json` |
-| Persona | `https://promptkit.altairalabs.ai/schemas/latest/persona.json` |
-| Eval | `https://promptkit.altairalabs.ai/schemas/latest/eval.json` |
+The files are `arena`, `scenario`, `provider`, `promptconfig`, `tool`, `persona`, `eval`, `logging` and `runtime-config`, plus `common/metadata`, `common/assertions` and `common/media`, each with a `.json` extension.
 
-**Benefits of using `/latest/`:**
+For the field-by-field contents, read the schema file itself or the Go types in `pkg/config`.
 
-- Automatic updates when new schema versions are released
-- No need to update URLs in your config files
-- Always get the latest validation rules and field definitions
+## `$schema` key
 
-### Versioned Schemas
-
-For stability in production or when you need a specific schema version:
-
-| Config Type | Versioned Schema URL |
-|------------|----------------------|
-| Arena | `https://promptkit.altairalabs.ai/schemas/v1alpha1/arena.json` |
-| Scenario | `https://promptkit.altairalabs.ai/schemas/v1alpha1/scenario.json` |
-| Provider | `https://promptkit.altairalabs.ai/schemas/v1alpha1/provider.json` |
-| PromptConfig | `https://promptkit.altairalabs.ai/schemas/v1alpha1/promptconfig.json` |
-| Tool | `https://promptkit.altairalabs.ai/schemas/v1alpha1/tool.json` |
-| Persona | `https://promptkit.altairalabs.ai/schemas/v1alpha1/persona.json` |
-| Eval | `https://promptkit.altairalabs.ai/schemas/v1alpha1/eval.json` |
-
-### Common Schemas
-
-Shared configuration structures:
-
-- **Metadata**: `https://promptkit.altairalabs.ai/schemas/v1alpha1/common/metadata.json`
-- **Assertions**: `https://promptkit.altairalabs.ai/schemas/v1alpha1/common/assertions.json`
-- **Media**: `https://promptkit.altairalabs.ai/schemas/v1alpha1/common/media.json`
-
-## Using Schemas in Configuration Files
-
-Add a `$schema` field at the top of your YAML config:
-
-```yaml
-$schema: https://promptkit.altairalabs.ai/schemas/latest/arena.json
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Arena
-metadata:
-  name: my-arena
-spec:
-  # ... rest of config
-```
-
-**Tip:** Use `/latest/` in the `$schema` URL to automatically get schema updates, while `apiVersion` remains stable for runtime compatibility.
-
-### Arena Configuration
-
-Recommended file name: `config.arena.yaml`
-
-```yaml
-$schema: https://promptkit.altairalabs.ai/schemas/latest/arena.json
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Arena
-metadata:
-  name: customer-support-arena
-spec:
-  scenarios:
-    - file: scenarios/support-ticket.scenario.yaml
-    - file: scenarios/product-inquiry.scenario.yaml
-  
-  providers:
-    - file: providers/openai.provider.yaml
-    - file: providers/anthropic.provider.yaml
-```
-
-### Scenario Configuration
-
-Recommended file name: `*.scenario.yaml` (e.g., `support-ticket.scenario.yaml`)
-
-```yaml
-$schema: https://promptkit.altairalabs.ai/schemas/latest/scenario.json
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Scenario
-metadata:
-  name: support-ticket
-spec:
-  id: "support-ticket"
-  task_type: "assistant"
-  description: "Test handling of customer support tickets"
-  
-  turns:
-    - role: user
-      content: "I need help with my order"
-      assertions:
-        - type: content_includes
-          params:
-            patterns: ["ticket number", "order"]
-```
-
-### Provider Configuration
-
-Recommended file name: `*.provider.yaml` (e.g., `openai.provider.yaml`)
+A `$schema` key as the first key selects the schema:
 
 ```yaml
 $schema: https://promptkit.altairalabs.ai/schemas/latest/provider.json
@@ -137,450 +58,45 @@ kind: Provider
 metadata:
   name: openai-gpt4
 spec:
-  id: "openai-gpt4"
+  id: openai-gpt4
   type: openai
   model: gpt-4
-  defaults:
-    temperature: 0.7
-    max_tokens: 2000
 ```
 
-### Tool Configuration
+`$schema` selects the schema version your editor uses. `apiVersion` is a separate field that the loaders require; see [schema versioning](/reference/schema-versioning/).
 
-Recommended file name: `*.tool.yaml` (e.g., `search.tool.yaml`)
+## Editor schema mapping
 
-```yaml
-$schema: https://promptkit.altairalabs.ai/schemas/latest/tool.json
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Tool
-metadata:
-  name: search
-spec:
-  id: "search"
-  description: "Search for information"
-  input_schema:
-    type: object
-    properties:
-      query:
-        type: string
-        description: "Search query"
-```
-
-### Persona Configuration
-
-Recommended file name: `*.persona.yaml` (e.g., `customer.persona.yaml`)
-
-```yaml
-$schema: https://promptkit.altairalabs.ai/schemas/latest/persona.json
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Persona
-metadata:
-  name: curious-customer
-spec:
-  id: "curious-customer"
-  description: "A curious customer asking detailed questions"
-  traits:
-    - inquisitive
-    - detail-oriented
-```
-
-### Eval Configuration
-
-Recommended file name: `*.eval.yaml` (e.g., `validate-session.eval.yaml`)
-
-```yaml
-$schema: https://promptkit.altairalabs.ai/schemas/latest/eval.json
-apiVersion: promptkit.altairalabs.ai/v1alpha1
-kind: Eval
-metadata:
-  name: validate-customer-support
-
-spec:
-  id: "support-validation"
-  description: "Validate customer support conversation quality"
-  
-  recording:
-    path: recordings/session-123.recording.json
-    type: session
-  
-  judge_targets:
-    default:
-      type: openai
-      model: gpt-4o
-      id: quality-judge
-  
-  assertions:
-    - type: llm_judge
-      params:
-        judge: default
-        criteria: "Was the conversation helpful and professional?"
-        expected: pass
-  
-  tags:
-    - customer-support
-    - quality-check
-```
-
-## VS Code Integration
-
-### Automatic Setup
-
-If you're using the PromptKit repository, schema validation is already configured in `.vscode/settings.json`.
-
-### Manual Setup
-
-Add to your workspace or user settings:
+Editors that use the Red Hat YAML language server (VS Code, Neovim, Emacs) take a glob-to-schema map:
 
 ```json
 {
   "yaml.schemas": {
-    "https://promptkit.altairalabs.ai/schemas/latest/arena.json": [
-      "config.arena.yaml",
-      "*.arena.yaml",
-      "**/arena.yaml"
-    ],
-    "https://promptkit.altairalabs.ai/schemas/latest/scenario.json": [
-      "*.scenario.yaml",
-      "**/scenarios/*.yaml"
-    ],
-    "https://promptkit.altairalabs.ai/schemas/latest/provider.json": [
-      "*.provider.yaml",
-      "**/providers/*.yaml"
-    ],
-    "https://promptkit.altairalabs.ai/schemas/latest/promptconfig.json": [
-      "*.prompt.yaml",
-      "**/prompts/*.yaml"
-    ],
-    "https://promptkit.altairalabs.ai/schemas/latest/tool.json": [
-      "*.tool.yaml",
-      "**/tools/*.yaml"
-    ],
-    "https://promptkit.altairalabs.ai/schemas/latest/persona.json": [
-      "*.persona.yaml",
-      "**/personas/*.yaml"
-    ],
-    "https://promptkit.altairalabs.ai/schemas/latest/eval.json": [
-      "*.eval.yaml",
-      "**/evals/*.yaml"
-    ]
-  },
-  "yaml.schemaStore.enable": true,
-  "yaml.validate": true
-}
-```
-
-**File Naming Convention:** Use typed file extensions for better IDE integration:
-
-- Arena: `config.arena.yaml`
-- Scenarios: `*.scenario.yaml`
-- Providers: `*.provider.yaml`
-- Tools: `*.tool.yaml`
-- Personas: `*.persona.yaml`
-- PromptConfigs: `*.prompt.yaml`
-- Evals: `*.eval.yaml`
-
-### Features
-
-Once configured, VS Code provides:
-
-- **Autocomplete**: Press `Ctrl+Space` to see available fields
-- **Inline Documentation**: Hover over fields to see descriptions
-- **Error Checking**: Real-time validation with red squiggles
-- **Quick Fixes**: Suggestions for fixing validation errors
-
-## Other Editors
-
-### JetBrains IDEs (IntelliJ, GoLand, PyCharm)
-
-1. Open **Settings** → **Languages & Frameworks** → **Schemas and DTDs** → **JSON Schema Mappings**
-2. Click **+** to add a new mapping
-3. Enter schema URL: `https://promptkit.altairalabs.ai/schemas/latest/arena.json`
-4. Add file patterns: `config.arena.yaml`, `*.arena.yaml`
-5. Repeat for other config types (scenario, provider, tool, persona)
-
-### Vim/Neovim
-
-Use [yaml-language-server](https://github.com/redhat-developer/yaml-language-server) with the following config:
-
-```lua
-require('lspconfig').yamlls.setup {
-  settings = {
-    yaml = {
-      schemas = {
-        ["https://promptkit.altairalabs.ai/schemas/latest/arena.json"] = { "config.arena.yaml", "*.arena.yaml" },
-        ["https://promptkit.altairalabs.ai/schemas/latest/scenario.json"] = { "*.scenario.yaml", "**/scenarios/*.yaml" },
-        ["https://promptkit.altairalabs.ai/schemas/latest/provider.json"] = { "*.provider.yaml", "**/providers/*.yaml" },
-        ["https://promptkit.altairalabs.ai/schemas/latest/tool.json"] = { "*.tool.yaml", "**/tools/*.yaml" },
-        ["https://promptkit.altairalabs.ai/schemas/latest/persona.json"] = { "*.persona.yaml", "**/personas/*.yaml" },
-        ["https://promptkit.altairalabs.ai/schemas/latest/eval.json"] = { "*.eval.yaml", "**/evals/*.yaml" },
-      }
-    }
+    "https://promptkit.altairalabs.ai/schemas/latest/provider.json": ["*.provider.yaml"],
+    "https://promptkit.altairalabs.ai/schemas/latest/scenario.json": ["*.scenario.yaml"],
+    "https://promptkit.altairalabs.ai/schemas/latest/arena.json": ["*.arena.yaml"]
   }
 }
 ```
 
-### Emacs
+`sdk.WithProvidersDir` loads every `*.provider.yaml` in a directory, so that suffix is the one the SDK itself relies on. The file patterns PromptArena associates with each schema (`*.arena.yaml`, `*.scenario.yaml`, `*.provider.yaml`, `*.prompt.yaml`, `*.tool.yaml`, `*.persona.yaml`, and the matching `scenarios/`, `providers/`, `prompts/`, `tools/` and `personas/` directories) are listed in the `schema-map.json` that ships in its `@altairalabs/promptarena` npm package.
 
-Use [lsp-mode](https://emacs-lsp.github.io/lsp-mode/) with yaml-language-server:
+## `promptarena validate`
 
-```elisp
-(with-eval-after-load 'lsp-mode
-  (add-to-list 'lsp-yaml-schemas
-               '("https://promptkit.altairalabs.ai/schemas/latest/arena.json" . ["config.arena.yaml" "*.arena.yaml"]))
-  (add-to-list 'lsp-yaml-schemas
-               '("https://promptkit.altairalabs.ai/schemas/latest/scenario.json" . ["*.scenario.yaml"])))
-```
+The `promptarena validate [file]` command checks a file against the schema for its type and, for an arena config, runs further checks that the config builds a valid pack. Its flags:
 
-## File Naming Conventions
+| Flag | Meaning |
+|------|---------|
+| `--type` | `auto` (default), `arena`, `scenario`, `provider`, `promptconfig`, `tool` or `persona` |
+| `--schema-only` | Skip the checks beyond the schema |
+| `--verbose` | Show every validation error |
+| `--json` | Emit the result as JSON |
 
-PromptKit uses typed file extensions to improve IDE integration and make file purposes clear:
+The command has no flag for choosing a schema location. The `@altairalabs/promptarena` npm package also bundles the schemas for offline use. PromptArena owns the command, the package and the schema generator (`make schemas` in its repository); see its documentation for details.
 
-| Type | Pattern | Example |
-|------|---------|----------|
-| Arena | `config.arena.yaml` | `config.arena.yaml` |
-| Scenario | `*.scenario.yaml` | `support-ticket.scenario.yaml` |
-| Provider | `*.provider.yaml` | `openai-gpt4.provider.yaml` |
-| Tool | `*.tool.yaml` | `search.tool.yaml` |
-| Persona | `*.persona.yaml` | `curious-customer.persona.yaml` |
-| PromptConfig | `*.prompt.yaml` | `assistant.prompt.yaml` |
-
-### Why Use Typed Extensions?
-
-1. **Better IDE Support**: Schema stores and language servers can match files by pattern
-2. **Self-Documenting**: File purpose is clear from the name
-3. **Easier Navigation**: Find all providers with `find . -name "*.provider.yaml"`
-4. **Backwards Compatible**: Old names like `arena.yaml` still work
-
-### Migration Example
-
-Old structure:
-
-```text
-arena.yaml
-providers/
-  openai.yaml
-  anthropic.yaml
-scenarios/
-  test1.yaml
-  test2.yaml
-```
-
-New structure:
-
-```text
-config.arena.yaml
-providers/
-  openai.provider.yaml
-  anthropic.provider.yaml
-scenarios/
-  test1.scenario.yaml
-  test2.scenario.yaml
-```
-
-**Note:** The `kind` field in each manifest remains the authoritative type indicator at runtime. File naming is primarily for IDE and developer experience.
-
-## Command Line Validation
-
-### Using promptarena validate (Recommended)
-
-The `promptarena` CLI includes a built-in validate command that automatically detects config types:
-
-```bash
-# Validate any config file (auto-detects type from 'kind' field)
-promptarena validate arena.yaml
-promptarena validate scenarios/test.yaml
-promptarena validate providers/openai.yaml
-
-# Explicit type specification
-promptarena validate config.yaml --type arena
-
-# Schema-only validation (skip business logic checks)
-promptarena validate arena.yaml --schema-only
-
-# Verbose error output
-promptarena validate arena.yaml --verbose
-```
-
-**Features:**
-
-- Automatic type detection from `kind` field
-- Schema validation with detailed error messages
-- Optional business logic validation for arena configs
-- Field path highlighting in error messages
-
-**Example output:**
-
-```text
-Validating arena.yaml as type 'arena'...
-✅ Schema validation passed for arena.yaml
-
-Running business logic validation...
-✅ Business logic validation passed
-
-✅ arena.yaml is valid
-```
-
-### Using ajv-cli
-
-Install [ajv-cli](https://github.com/ajv-validator/ajv-cli):
-
-```bash
-npm install -g ajv-cli ajv-formats
-```
-
-Validate a config file:
-
-```bash
-ajv validate \
-  -s https://promptkit.altairalabs.ai/schemas/v1alpha1/arena.json \
-  -d arena.yaml \
-  --strict=false
-```
-
-## CI/CD Integration
-
-### GitHub Actions
-
-To check your own config files in CI, validate them against the hosted schemas:
-
-```yaml
-- name: Validate configs
-  run: |
-    npm install -g ajv-cli ajv-formats
-    
-    for file in $(find . -name "arena.yaml"); do
-      ajv validate \
-        -s https://promptkit.altairalabs.ai/schemas/v1alpha1/arena.json \
-        -d "$file" \
-        --strict=false
-    done
-```
-
-### GitLab CI
-
-```yaml
-validate:schemas:
-  image: node:20
-  script:
-    - npm install -g ajv-cli ajv-formats
-    - |
-      for file in $(find . -name "*.yaml"); do
-        # Determine schema based on file location
-        case "$file" in
-          */scenarios/*) schema="scenario" ;;
-          */providers/*) schema="provider" ;;
-          *arena*) schema="arena" ;;
-          *) continue ;;
-        esac
-        
-        ajv validate \
-          -s "https://promptkit.altairalabs.ai/schemas/v1alpha1/${schema}.json" \
-          -d "$file" \
-          --strict=false
-      done
-```
-
-## Pre-commit Hooks
-
-Create `.pre-commit-config.yaml`:
-
-```yaml
-repos:
-  - repo: local
-    hooks:
-      - id: validate-arena-configs
-        name: Validate Arena Configs
-        entry: bash -c 'for f in $(git diff --cached --name-only | grep arena.yaml); do ajv validate -s https://promptkit.altairalabs.ai/schemas/v1alpha1/arena.json -d "$f" --strict=false; done'
-        language: system
-        files: 'arena\.yaml$'
-        pass_filenames: false
-```
-
-## Schema Generation
-
-Schemas are generated from the config Go types (arena/arenaconfig in the promptarena repo, plus pkg/config here) using reflection, by promptarena's schema-gen; PromptKit hosts the result.
-
-### How It Works
-
-1. promptarena's `schema-gen` tool analyzes the config Go struct definitions
-2. Generates JSON Schema Draft 7 compatible schemas
-3. Adds descriptions from Go doc comments
-4. Includes validation rules from struct tags
-
-### Contributing to Schemas
-
-When you modify config structures in the codebase:
-
-1. Update struct tags and doc comments:
-
-```go
-// ArenaConfig defines the complete arena configuration
-type ArenaConfig struct {
-    // Metadata about the arena
-    Metadata Metadata `json:"metadata" jsonschema:"required,description=Arena metadata"`
-    
-    // List of scenario files to include
-    Scenarios []ScenarioRef `json:"scenarios" jsonschema:"required,minItems=1,description=Scenarios to test"`
-}
-```
-
-1. Run `make schemas` in the promptarena repo to regenerate them
-1. The docs site serves promptarena's schemas from its next deploy
-
-## Troubleshooting
-
-### Schema Not Found (404)
-
-Ensure you're using the correct schema URL. All schemas are hosted at:
-
-- `https://promptkit.altairalabs.ai/schemas/v1alpha1/`
-
-### Validation Errors
-
-Common issues:
-
-**Missing required fields:**
-
-```text
-Error: must have required property 'metadata'
-```
-
-→ Add the `metadata` field to your config
-
-**Invalid type:**
-
-```text
-Error: must be string
-```
-
-→ Check the field type matches the schema (e.g., string vs number)
-
-**Additional properties:**
-
-```text
-Error: must NOT have additional properties
-```
-
-→ Remove unknown fields or check for typos
-
-### IDE Not Recognizing Schema
-
-1. Ensure the YAML extension is installed (e.g., Red Hat YAML for VS Code)
-2. Check the `$schema` field is at the top of the file
-3. Verify VS Code settings include the schema mapping
-4. Reload the window: `Cmd+Shift+P` → "Developer: Reload Window"
-
-## Best Practices
-
-1. **Always include `$schema`**: Makes configs self-documenting
-2. **Use schema validation in CI**: Catch errors before deployment
-3. **Keep schemas up to date**: Regenerate them in promptarena after struct changes
-4. **Add descriptions**: Document fields in Go struct tags
-5. **Test with examples**: Validate example configs in CI
+Any JSON Schema validator can also check a file against a hosted schema.
 
 ## Related
 
-- [Arena Configuration Reference](https://promptarena.altairalabs.ai/arena/reference/config-schema/)
-- [Scenario Format](https://promptarena.altairalabs.ai/arena/reference/scenario-format/)
-- [Provider Configuration](/runtime/reference/providers/)
-- [Configuration Validation](https://promptarena.altairalabs.ai/packc/explanation/validation/)
+- [Schema versioning](/reference/schema-versioning/)
+- [Provider configuration](/runtime/reference/providers/)

@@ -1,0 +1,218 @@
+{
+ "page": "docs/src/content/docs/reference/skills.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "s1",
+   "claim": "name is kebab-case, max 64 chars; description required, max 1024",
+   "verdict": "true",
+   "evidence": [
+    "runtime/skills/parser.go:136-160",
+    "runtime/skills/parser.go:16-22"
+   ]
+  },
+  {
+   "id": "s10",
+   "claim": "workflow state skills: omitted all, none case-insensitive, directory path, glob via filepath.Match",
+   "verdict": "true",
+   "evidence": [
+    "runtime/skills/active_set.go:94-138"
+   ]
+  },
+  {
+   "id": "s11",
+   "claim": "filter applies on open, resume, transition (incl. mid-turn); excluded active skills deactivated; index lists admitted skills; no skill__activate when none admitted",
+   "verdict": "true",
+   "evidence": [
+    "runtime/skills/executor.go:294-329",
+    "sdk/conversation.go:435-493",
+    "sdk/workflow.go:594-667"
+   ]
+  },
+  {
+   "id": "s12",
+   "claim": "skill__activate/deactivate take name; read_resource takes skill_name and path; outputs instructions/added_tools, removed_tools, content",
+   "verdict": "true",
+   "evidence": [
+    "runtime/skills/tool_executor.go:199-265",
+    "runtime/skills/tool_executor.go:20-29"
+   ]
+  },
+  {
+   "id": "s13",
+   "claim": "activation is idempotent; fails on unknown skill, filter, max active; deactivate of inactive fails",
+   "verdict": "true",
+   "evidence": [
+    "runtime/skills/executor.go:122-202"
+   ]
+  },
+  {
+   "id": "s14",
+   "claim": "index format and 'No skills available.'; rebuilt per provider round; selector narrows by user text; failure keeps full index",
+   "verdict": "true",
+   "evidence": [
+    "runtime/skills/executor.go:273-329",
+    "runtime/skills/executor.go:436-453",
+    "sdk/conversation.go:452-493"
+   ]
+  },
+  {
+   "id": "s15",
+   "claim": "capability inferred from pack skills or WithSkillsDir/WithSkillSource; the options have no effect when the pack declares skills",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:1353-1368",
+    "sdk/sdk.go:268-272"
+   ]
+  },
+  {
+   "id": "s16",
+   "claim": "WithMaxActiveSkillsOption default unlimited, n must be positive",
+   "verdict": "false",
+   "evidence": [
+    "runtime/skills/executor.go:55",
+    "sdk/options.go:3809-3823"
+   ]
+  },
+  {
+   "id": "s17",
+   "claim": "MountAs affects filter matching only; rejects globs, .. and inline",
+   "verdict": "true",
+   "evidence": [
+    "runtime/skills/registry.go:77-93",
+    "runtime/skills/types.go:60-76"
+   ]
+  },
+  {
+   "id": "s18",
+   "claim": "spec.skills.selector must name a selector declared under spec.selectors; WithSelector overrides by name",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:828-843",
+    "sdk/capability_skills.go:83-90",
+    "sdk/runtime_config.go:292-320"
+   ]
+  },
+  {
+   "id": "s19",
+   "claim": "skill_activated min_calls default 1, scores fraction of named skills met, counts only successful activations; skill_not_activated scores 1/0",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/skill_activated.go:22-84",
+    "runtime/evals/handlers/skill_not_activated.go:19-70"
+   ]
+  },
+  {
+   "id": "s2",
+   "claim": "license and compatibility are free-form strings the runtime does not interpret",
+   "verdict": "true",
+   "evidence": [
+    "runtime/skills/types.go:10-17"
+   ]
+  },
+  {
+   "id": "s20",
+   "claim": "WithSkillSelectorOption / TagSelector / ModelDrivenSelector narrow the index (old page)",
+   "verdict": "dead",
+   "evidence": [
+    "runtime/skills/executor.go:455-495",
+    "runtime/skills/executor.go:50",
+    "runtime/skills/executor.go:73-76"
+   ]
+  },
+  {
+   "id": "s21",
+   "claim": "EmbeddingSelector exists (old page)",
+   "verdict": "false",
+   "evidence": [
+    "runtime/selection/selector.go:57-65"
+   ]
+  },
+  {
+   "id": "s22",
+   "claim": "default max active skills is 5 (old page)",
+   "verdict": "false",
+   "evidence": [
+    "sdk/options.go:3809-3815"
+   ]
+  },
+  {
+   "id": "s23",
+   "claim": "resolution order inline, local, project, user (old page)",
+   "verdict": "false",
+   "evidence": [
+    "runtime/skills/registry.go:97-111"
+   ]
+  },
+  {
+   "id": "s24",
+   "claim": "skill_activation_order takes required sequence string[], scores fraction of the sequence matched in order, counts every skill__activate call with a name",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/register.go:69",
+    "runtime/evals/handlers/skill_activation_order.go:11-112"
+   ]
+  },
+  {
+   "id": "s3",
+   "claim": "allowed-tools grants are capped by the pack's declared tools; deactivate removes a tool only if no other active skill grants it",
+   "verdict": "true",
+   "evidence": [
+    "runtime/skills/executor.go:166-202",
+    "runtime/skills/executor.go:517-534"
+   ]
+  },
+  {
+   "id": "s4",
+   "claim": "pack skills entries: string, path source with preload, inline skill",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/schema/promptpack.schema.json:1927-1988",
+    "sdk/capability.go:88-103"
+   ]
+  },
+  {
+   "id": "s5",
+   "claim": "relative skill paths resolve against the process working directory, not the pack file",
+   "verdict": "true",
+   "evidence": [
+    "runtime/skills/registry.go:116",
+    "sdk/capability.go:94-100"
+   ]
+  },
+  {
+   "id": "s6",
+   "claim": "preloaded skills are activated into each conversation's set at open; failures logged at WARN",
+   "verdict": "true",
+   "evidence": [
+    "sdk/capability_skills.go:118-150"
+   ]
+  },
+  {
+   "id": "s7",
+   "claim": "first source wins on name collision; preload is OR-merged; WARN logged",
+   "verdict": "true",
+   "evidence": [
+    "runtime/skills/registry.go:136-148"
+   ]
+  },
+  {
+   "id": "s8",
+   "claim": "@org/name references resolve project-level then user-level (XDG_CONFIG_HOME aware); not installed fails discovery",
+   "verdict": "true",
+   "evidence": [
+    "runtime/skills/installer.go:248-264",
+    "runtime/skills/installer.go:302-313",
+    "runtime/skills/registry.go:97-111"
+   ]
+  },
+  {
+   "id": "s9",
+   "claim": "promptarena skill install --project / --into are mutually exclusive",
+   "verdict": "true",
+   "evidence": [
+    "runtime/skills/installer.go:52-102"
+   ]
+  }
+ ]
+}

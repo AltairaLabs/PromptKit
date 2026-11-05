@@ -1,0 +1,454 @@
+{
+ "page": "docs/src/content/docs/reference/checks.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "c1",
+   "claim": "banned_words aliases content_excludes; match_mode defaults to word_boundary under that name only",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/register.go:145",
+    "runtime/evals/normalize.go:68"
+   ]
+  },
+  {
+   "id": "c10",
+   "claim": "sentence_count is a pure measurement with no params; max/max_sentences have no effect",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/handlers/sentence_count.go:14-38"
+   ]
+  },
+  {
+   "id": "c11",
+   "claim": "cosine_similarity reference is a float array; embedding from Metadata[embedding]; score is the similarity",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/handlers/cosine_similarity.go:27-56",
+    "runtime/evals/handlers/cosine_similarity.go:80-85"
+   ]
+  },
+  {
+   "id": "c12",
+   "claim": "regex has expect_match param (default true)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/regex.go:44-51"
+   ]
+  },
+  {
+   "id": "c13",
+   "claim": "json_path uses JMESPath; example expression is order.status (not $.order.status); allow_wrapped, extract_json, min, max, jmespath_expression exist",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/handlers/json_path.go:10-37",
+    "runtime/evals/handlers/json_path.go:130-148"
+   ]
+  },
+  {
+   "id": "c14",
+   "claim": "tools_called params: tool_names/tools, min_calls default 1, max_calls default unbounded, ignore_validation, require_args",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/tools_called.go:17-65"
+   ]
+  },
+  {
+   "id": "c15",
+   "claim": "tools_offered is registered and reads EvalContext.ToolsOffered with absent/exact params",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/register.go:13",
+    "runtime/evals/handlers/tools_offered.go:21-95"
+   ]
+  },
+  {
+   "id": "c16",
+   "claim": "tool_call_chain param is steps (array of step objects), not chain string[]",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/handlers/tool_call_chain.go:10-23",
+    "runtime/evals/handlers/tool_call_views.go:188-205"
+   ]
+  },
+  {
+   "id": "c17",
+   "claim": "tool_result_includes/matches/has_media/media_type use param tool (not tool_name); tool_result_media_type uses mime_type; includes/matches have occurrence default 1",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/handlers/tool_result_includes.go:24-26",
+    "runtime/evals/handlers/tool_result_matches.go:24-26",
+    "runtime/evals/handlers/tool_result_media.go:25-26",
+    "runtime/evals/handlers/tool_result_media.go:90-91"
+   ]
+  },
+  {
+   "id": "c18",
+   "claim": "tool_calls_with_args params: tool_name, expected_args, args_match, result_includes, result_matches, no_error",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/handlers/tool_calls_with_args.go:27-32"
+   ]
+  },
+  {
+   "id": "c19",
+   "claim": "no_tool_errors takes optional tools filter; tool_no_repeat max_repeats default 1",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/no_tool_errors.go:25",
+    "runtime/evals/handlers/tool_no_repeat.go:11-31"
+   ]
+  },
+  {
+   "id": "c2",
+   "claim": "legacy param words normalizes to patterns for content_excludes and banned_words",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/normalize.go:23-28"
+   ]
+  },
+  {
+   "id": "c20",
+   "claim": "agent_invoked / agent_not_invoked param is agents (not agent_names); agent_response_contains uses agent and contains (not agent_name/patterns)",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/handlers/agent_invoked.go:24",
+    "runtime/evals/handlers/agent_not_invoked.go:24",
+    "runtime/evals/handlers/agent_response_contains.go:26-27"
+   ]
+  },
+  {
+   "id": "c21",
+   "claim": "skill checks read skill__activate calls (name arg); skill_activated min_calls default 1",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/skill_activated.go:11-28"
+   ]
+  },
+  {
+   "id": "c22",
+   "claim": "spoke_in_state passes only with non-empty assistant text stamped with the state; whitespace excluded; missing stamps explained",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/workflow_spoke_in_state.go:41-120"
+   ]
+  },
+  {
+   "id": "c23",
+   "claim": "composition handlers read Metadata keys; equals takes precedence over contains; reject min_score/max_score",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/composition.go:158-166",
+    "runtime/evals/handlers/composition.go:24-34",
+    "runtime/evals/handlers/composition.go:47"
+   ]
+  },
+  {
+   "id": "c24",
+   "claim": "image_dimensions also takes exact width/height; video_resolution also min_height/max_height; presets map to heights",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/handlers/image_dimensions.go:24-29",
+    "runtime/evals/handlers/video_resolution.go:105-121",
+    "runtime/evals/handlers/video_resolution.go:25-29"
+   ]
+  },
+  {
+   "id": "c25",
+   "claim": "classifier common params: model, expected_label required; default role user for audio_emotion, assistant otherwise; message_index default -1; classifier_id rejected",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/audio_emotion.go:20",
+    "runtime/evals/handlers/classify_handler_base.go:57-100",
+    "runtime/evals/handlers/image_moderation.go:16"
+   ]
+  },
+  {
+   "id": "c26",
+   "claim": "no provider named and none default -> skipped (passes); named provider unresolved -> error",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/provider_binding.go:56-69"
+   ]
+  },
+  {
+   "id": "c27",
+   "claim": "topic_policy params, defaults and closed key set",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/topic_policy_params.go:53-131",
+    "runtime/evals/normalize.go:72-79"
+   ]
+  },
+  {
+   "id": "c28",
+   "claim": "topic_policy on_deny: recorded only; both values block identically",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/topic_policy.go:229-242"
+   ]
+  },
+  {
+   "id": "c29",
+   "claim": "topic_policy: media-only turn resolves through on_unknown; recent_turns filters tool, safety and interrupted turns",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/topic_policy.go:107-117",
+    "runtime/evals/handlers/topic_policy.go:305-366"
+   ]
+  },
+  {
+   "id": "c3",
+   "claim": "an eval never states pass/fail; only assertion and guardrail wrappers set Passed",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/types.go:349-360",
+    "runtime/evals/wrappers.go:180-182"
+   ]
+  },
+  {
+   "id": "c30",
+   "claim": "topic_policy backends: nvidia-topic-control requires base_url, default timeout 20s, model default; timeout_seconds conflicts with request_timeout; systemone needs credential unless loopback",
+   "verdict": "true",
+   "evidence": [
+    "runtime/inference/openai/register.go:17-82",
+    "runtime/inference/systemone/register.go:22"
+   ]
+  },
+  {
+   "id": "c31",
+   "claim": "topic_policy is English-only / MVP direction input only; deferred direction both",
+   "verdict": "unverified",
+   "evidence": [
+    "runtime/evals/handlers/topic_prompt.go:51"
+   ]
+  },
+  {
+   "id": "c32",
+   "claim": "topic_policy: OPENAI_API_KEY used only for OpenAI's endpoint",
+   "verdict": "unverified",
+   "evidence": [
+    "runtime/inference/openai/register.go:40"
+   ]
+  },
+  {
+   "id": "c33",
+   "claim": "llm_judge accepts params criteria, rubric, model, system_prompt, provider; extra is not read",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/handlers/llm_judge.go:209-228"
+   ]
+  },
+  {
+   "id": "c34",
+   "claim": "judge-backed guardrail with no provider param and no default judge fails Open()",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/guardrails/factory.go:152-157",
+    "sdk/sdk.go:1520-1538"
+   ]
+  },
+  {
+   "id": "c35",
+   "claim": "RAG context forms: contexts, context, context_field in that order; question defaults to last user message; contextual_recall needs reference or expected_output",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/rag_helpers.go:39-108"
+   ]
+  },
+  {
+   "id": "c36",
+   "claim": "pii_leakage regex pre-pass (email, ssn, 16-digit card), degrades to score 1 with no judge",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/pii_leakage.go:56-68",
+    "runtime/evals/handlers/safety_helpers.go:58-71"
+   ]
+  },
+  {
+   "id": "c37",
+   "claim": "role_violation uses agent_role then Metadata system_prompt",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/role_violation.go:63-74"
+   ]
+  },
+  {
+   "id": "c38",
+   "claim": "params failing validation are a warning and skip; unknown type fatal",
+   "verdict": "false",
+   "evidence": [
+    "runtime/hooks/guardrails/factory.go:279-307",
+    "sdk/sdk.go:1532-1538"
+   ]
+  },
+  {
+   "id": "c39",
+   "claim": "unrecognized direction falls back to output with a warning",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/guardrails/factory.go:370-391"
+   ]
+  },
+  {
+   "id": "c4",
+   "claim": "assertion wrapper: default min_score 1.0, error fails, nil score passes",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/wrappers.go:189-213"
+   ]
+  },
+  {
+   "id": "c40",
+   "claim": "rest_eval: method default POST, timeout default 30s, include_messages default true, include_tool_calls default false, extra forwarded; min_score is not read",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/handlers/external_eval.go:63-81",
+    "runtime/evals/handlers/rest_eval.go:93-98"
+   ]
+  },
+  {
+   "id": "c41",
+   "claim": "a2a_eval timeout default 60s; auth_token ${ENV}; min_score not read",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/handlers/a2a_eval.go:14-30",
+    "runtime/evals/handlers/a2a_eval.go:79-88"
+   ]
+  },
+  {
+   "id": "c42",
+   "claim": "latency_budget reads Metadata latency_ms; cost_budget reads total_cost/input_tokens/output_tokens and has max_input_tokens/max_output_tokens; cost_budget fires on on_session_complete",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/handlers/cost_budget.go:28-44",
+    "runtime/evals/handlers/latency_budget.go:25-43"
+   ]
+  },
+  {
+   "id": "c43",
+   "claim": "guardrail_triggered param is validator_type (alias validator), not guardrail; should_trigger default true; triggered = score < 1.0; direction filter",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/handlers/guardrail_triggered.go:184-190",
+    "runtime/evals/handlers/guardrail_triggered.go:51-69"
+   ]
+  },
+  {
+   "id": "c44",
+   "claim": "outcome_equivalent / directional params: expected_*, baseline_*, threshold default 0.5",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/handlers/directional.go:13-19",
+    "runtime/evals/handlers/directional.go:98",
+    "runtime/evals/handlers/outcome_equivalent.go:12-17"
+   ]
+  },
+  {
+   "id": "c45",
+   "claim": "exec eval env lists host variable names to pass through (not NAME=value); timeout_ms default 30s",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/handlers/exec_handler.go:17-18",
+    "runtime/evals/handlers/exec_handler.go:217-225"
+   ]
+  },
+  {
+   "id": "c46",
+   "claim": "tool_exec params, defaults and score extraction rules",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/tool_exec.go:262-275",
+    "runtime/evals/handlers/tool_exec.go:43-75",
+    "runtime/evals/handlers/tool_exec_score.go:76-120"
+   ]
+  },
+  {
+   "id": "c47",
+   "claim": "Arena injects tool_registry automatically / CompositionMetadataProvider injects composition metadata",
+   "verdict": "unverified",
+   "evidence": [
+    "runtime/evals/handlers/tool_exec.go:20-24"
+   ]
+  },
+  {
+   "id": "c48",
+   "claim": "content_excludes and max_length implement StreamableEvalHandler; stream matching is substring",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/content_excludes.go:85-114",
+    "runtime/evals/handlers/length.go:130"
+   ]
+  },
+  {
+   "id": "c49",
+   "claim": "min_length/max_length: required positive; legacy min_characters/min_chars, max_characters/max_chars; max_tokens = bytes/4",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/length.go:15",
+    "runtime/evals/handlers/length.go:188-220"
+   ]
+  },
+  {
+   "id": "c5",
+   "claim": "guardrail triggers when score < min_score (default 1.0) or > max_score; nil result/score triggers",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/wrappers.go:85-101"
+   ]
+  },
+  {
+   "id": "c50",
+   "claim": "threshold params rejected by eval handlers with an error result; tool_exec and topic_policy reject at load",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/handlers/llm_judge.go:270-278",
+    "runtime/evals/handlers/tool_exec.go:65-75"
+   ]
+  },
+  {
+   "id": "c6",
+   "claim": "any registered handler incl. aliases can serve as a guardrail",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/guardrails/factory.go:100-101"
+   ]
+  },
+  {
+   "id": "c7",
+   "claim": "alias table: 13 aliases",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/register.go:134-148"
+   ]
+  },
+  {
+   "id": "c8",
+   "claim": "session tool types are tools_called_session, tools_not_called_session, tool_args_session (not 'tools_called (session)'); tool_called aliases the turn-level tools_called",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/handlers/register.go:140",
+    "runtime/evals/handlers/tools_called_session.go:17"
+   ]
+  },
+  {
+   "id": "c9",
+   "claim": "workflow types registered as state_is and transitioned_to, not workflow_state_is / workflow_transitioned_to",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/handlers/workflow_state_is.go:15",
+    "runtime/evals/handlers/workflow_transitioned_to.go:15"
+   ]
+  },
+  {
+   "id": "c_alias_keyed",
+   "claim": "param aliases and defaults are keyed by the declared check name; guardrail factory and eval validation apply ApplyDefaults and NormalizeParams on the declared type name",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/normalize.go:19-56",
+    "runtime/evals/validate.go:138-140",
+    "runtime/hooks/guardrails/factory.go:123-125"
+   ]
+  }
+ ]
+}
