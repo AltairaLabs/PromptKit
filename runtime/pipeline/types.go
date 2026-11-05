@@ -14,13 +14,17 @@ import (
 
 // ToolPolicy defines constraints on tool usage.
 type ToolPolicy struct {
-	ToolChoice           string   `json:"tool_choice,omitempty"` // "auto", "required", "none", or specific tool name
-	MaxRounds            int      `json:"max_rounds,omitempty"`
-	MaxToolCallsPerTurn  int      `json:"max_tool_calls_per_turn,omitempty"`
-	MaxParallelToolCalls int      `json:"max_parallel_tool_calls,omitempty"` // Max concurrent tool executions (default 10)
-	MaxCallsPerMinute    int      `json:"max_calls_per_minute,omitempty"`    // Per-tool calls/minute (0=unlimited)
-	MaxCostUSD           float64  `json:"max_cost_usd,omitempty"`            // Cost budget in USD (0=unlimited)
-	Blocklist            []string `json:"blocklist,omitempty"`
+	ToolChoice           string `json:"tool_choice,omitempty"` // "auto", "required", "none", or specific tool name
+	MaxRounds            int    `json:"max_rounds,omitempty"`
+	MaxToolCallsPerTurn  int    `json:"max_tool_calls_per_turn,omitempty"`
+	MaxParallelToolCalls int    `json:"max_parallel_tool_calls,omitempty"` // Max concurrent tool executions (default 10)
+	// MaxCallsPerMinute caps each tool's calls in any one-minute window of a
+	// conversation (0 = unlimited). The provider stage holds the window, so it
+	// spans the turns of a conversation that stage runs; a call over the limit
+	// is not executed and the model is told the tool's limit is reached.
+	MaxCallsPerMinute int      `json:"max_calls_per_minute,omitempty"`
+	MaxCostUSD        float64  `json:"max_cost_usd,omitempty"` // Cost budget in USD (0=unlimited)
+	Blocklist         []string `json:"blocklist,omitempty"`
 	// MaxIdenticalToolCalls is the number of times the same tool may be called with
 	// identical arguments before the loop guard steps in. The first time, the repeated
 	// call is skipped (not executed) and the model gets a "stop repeating this call"

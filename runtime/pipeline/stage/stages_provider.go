@@ -96,6 +96,11 @@ type ProviderStage struct {
 	// shaped it (see describedToolsKey). Like offeredTools it is turn state
 	// read and written on the turn's one goroutine.
 	describedKey string
+
+	// callRate holds the calls admitted under ToolPolicy.MaxCallsPerMinute, per
+	// conversation and tool, across turns. A pointer for the same reason as
+	// offeredTools.
+	callRate *callRateWindow
 }
 
 // offeredToolSet is the set of tool names offered during a turn. It exists so
@@ -338,6 +343,7 @@ func NewProviderStageWithTurnState(
 		emitter:      emitter,
 		hookRegistry: hookRegistry,
 		turnState:    turnState,
+		callRate:     newCallRateWindow(),
 	}
 }
 
@@ -2787,6 +2793,9 @@ func (s *ProviderStage) preExecCheck(
 			}
 			return hookDecision, toolCallResult{message: msg}, true
 		}
+	}
+	if msg, limited := s.callRateLimited(toolCall); limited {
+		return hookDecision, toolCallResult{message: msg}, true
 	}
 	return hookDecision, toolCallResult{}, false
 }
