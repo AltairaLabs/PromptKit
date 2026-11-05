@@ -329,7 +329,8 @@ func (s *CartesiaService) processWSResponse(
 	resp *cartesiaWSResponse, index int,
 ) (*audio.Chunk, error) {
 	if resp.Error != "" {
-		return nil, NewSynthesisError(providerCartesia, "", resp.Error, nil, false)
+		retryable, cause := cartesiaWSErrorCause(resp)
+		return nil, NewSynthesisError(providerCartesia, "", resp.Error, cause, retryable)
 	}
 
 	if resp.Type != "chunk" || resp.Data == "" {
@@ -390,7 +391,16 @@ func (s *CartesiaService) handleError(resp *http.Response) error {
 	if message == "" {
 		message = errResp.Error
 	}
+	cause = quotaCause(cause, resp.StatusCode, errResp.Error)
 	return NewSynthesisError(providerCartesia, errResp.Error, message, cause, retryable)
+}
+
+// cartesiaWSErrorCause maps a websocket error frame to a cause and whether it
+// is retryable. Cartesia's frames carry status_code (HTTP-style); 402 is an
+// exhausted quota and 429 is throttling.
+func cartesiaWSErrorCause(resp *cartesiaWSResponse) (retryable bool, cause error) {
+	retryable, cause = classifyHTTPStatus(resp.StatusCode, nil, nil)
+	return retryable, quotaCause(cause, resp.StatusCode, resp.Error)
 }
 
 // SupportedVoices returns a sample of available Cartesia voices.

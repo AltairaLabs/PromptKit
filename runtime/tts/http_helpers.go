@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
 // httpServerErrorThreshold is the HTTP status code threshold for server errors.
@@ -32,6 +33,30 @@ func classifyHTTPStatus(statusCode int, notFoundErr, badRequestErr error) (retry
 		cause = notFoundErr
 	}
 	return retryable, cause
+}
+
+// quotaCodes are the provider error codes (lowercased) that mean the account is
+// out of quota or credit, as opposed to briefly throttled.
+var quotaCodes = map[string]bool{
+	"insufficient_quota":         true, // OpenAI
+	"billing_hard_limit_reached": true, // OpenAI
+	"quota_exceeded":             true, // ElevenLabs (legacy detail.status)
+	"insufficient_credits":       true, // ElevenLabs
+	"payment_required":           true,
+}
+
+// quotaCause returns ErrQuotaExceeded when the HTTP status is 402 or any of
+// the provider error codes names an exhausted quota, otherwise cause unchanged.
+func quotaCause(cause error, statusCode int, codes ...string) error {
+	if statusCode == http.StatusPaymentRequired {
+		return ErrQuotaExceeded
+	}
+	for _, c := range codes {
+		if quotaCodes[strings.ToLower(c)] {
+			return ErrQuotaExceeded
+		}
+	}
+	return cause
 }
 
 // decodeErrorBody attempts to decode the response body into target. On decode

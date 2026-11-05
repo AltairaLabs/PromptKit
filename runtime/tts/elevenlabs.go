@@ -231,6 +231,7 @@ func (s *ElevenLabsService) mapFormat(format AudioFormat) string {
 type elevenLabsErrorResponse struct {
 	Detail struct {
 		Status  string `json:"status"`
+		Code    string `json:"code"`
 		Message string `json:"message"`
 	} `json:"detail"`
 }
@@ -242,6 +243,7 @@ func (s *ElevenLabsService) handleError(resp *http.Response) error {
 		return e
 	}
 	retryable, cause := classifyHTTPStatus(resp.StatusCode, ErrInvalidVoice, fmt.Errorf("bad request"))
+	cause = quotaCause(cause, resp.StatusCode, errResp.Detail.Code, errResp.Detail.Status)
 	return NewSynthesisError(
 		providerElevenLabs,
 		errResp.Detail.Status,
