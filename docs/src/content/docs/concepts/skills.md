@@ -134,6 +134,8 @@ skills/
 
 The filter applies when the workflow opens or resumes in a state and on every transition. Entering a state deactivates any active skill its filter excludes, along with the tools that skill granted.
 
+The discovery index follows the filter. In each provider round, `skill__activate` lists only the skills the current state admits, so the model never sees a skill it cannot activate. A transition the model makes mid-turn changes the index for the next round. In a state whose filter admits no skill, such as `skills: none`, the model is not offered `skill__activate` at all.
+
 ## Using skills from the SDK
 
 The SDK detects skills declared in the pack's `skills` section. You can also add skill sources in code:

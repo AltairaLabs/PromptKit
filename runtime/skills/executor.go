@@ -237,14 +237,95 @@ func (e *Executor) SkillsIn(set *ActiveSet) []string {
 // relPath returns the path filters match a skill against: relative to the
 // executor's ConfigDir when one is configured, absolute otherwise.
 func (e *Executor) relPath(skill *Skill) string {
+	return e.relPathOf(skill.Path)
+}
+
+// relPathOf is relPath for a skill's virtual path.
+func (e *Executor) relPathOf(path string) string {
 	if e.configDir == "" {
-		return skill.Path
+		return path
 	}
-	rel, err := filepath.Rel(e.configDir, skill.Path)
+	rel, err := filepath.Rel(e.configDir, path)
 	if err != nil {
-		return skill.Path
+		return path
 	}
 	return rel
+}
+
+// admittedIn returns the metadata of the registered skills that set's filter
+// admits, sorted by name — exactly the skills [Executor.ActivateIn] would let
+// that set activate. A nil set means the Executor's own set.
+func (e *Executor) admittedIn(set *ActiveSet) []SkillMetadata {
+	if set == nil {
+		set = e.own
+	}
+	filter := set.Filter()
+	listed := e.registry.listWithPaths()
+	out := make([]SkillMetadata, 0, len(listed))
+	for _, ls := range listed {
+		if matchesFilter(e.relPathOf(ls.path), filter) {
+			out = append(out, ls.metadata)
+		}
+	}
+	return out
+}
+
+// SelectSkillsIn asks the configured external selector which of the skills
+// set's filter admits are relevant to query, and returns their names. It
+// returns nil when nothing narrows the choice: no selector, an empty query, a
+// selector failure, or a selection of every admitted skill.
+//
+// The result is meant to be computed once per user turn and handed to
+// [Executor.SkillIndexIn] on each round, so the selector runs once per turn
+// while the index still follows filter changes made mid-turn.
+func (e *Executor) SelectSkillsIn(ctx context.Context, query string, set *ActiveSet) []string {
+	admitted := e.admittedIn(set)
+	narrowed := e.applyNewSelector(ctx, query, admitted)
+	if len(narrowed) == len(admitted) {
+		return nil
+	}
+	names := make([]string, 0, len(narrowed))
+	for _, s := range narrowed {
+		names = append(names, s.Name)
+	}
+	return names
+}
+
+// SkillIndexIn returns the skill__activate index for one conversation: the
+// skills its set's filter currently admits, so the model is never shown a
+// skill that activating would refuse. When selected is non-nil (see
+// [Executor.SelectSkillsIn]) the index is narrowed to those names, unless
+// that would leave it empty, in which case every admitted skill is listed —
+// selection never hides everything.
+//
+// ok is false when the set's filter is set and admits none of the registered
+// skills ("none", or a path no skill lies under): there is nothing the model
+// could activate, so the caller should not offer skill__activate at all.
+// A set with no filter is always ok, even over an empty catalog.
+func (e *Executor) SkillIndexIn(set *ActiveSet, selected []string) (index string, ok bool) {
+	if set == nil {
+		set = e.own
+	}
+	admitted := e.admittedIn(set)
+	if len(admitted) == 0 && set.Filter() != "" {
+		return "", false
+	}
+	if selected != nil {
+		keep := make(map[string]bool, len(selected))
+		for _, name := range selected {
+			keep[name] = true
+		}
+		narrowed := make([]SkillMetadata, 0, len(selected))
+		for _, s := range admitted {
+			if keep[s.Name] {
+				narrowed = append(narrowed, s)
+			}
+		}
+		if len(narrowed) > 0 {
+			admitted = narrowed
+		}
+	}
+	return formatSkillIndex(admitted), true
 }
 
 // Activate loads a skill's instructions and returns them.
@@ -346,11 +427,20 @@ func (e *Executor) SkillIndexFiltered(ctx context.Context, query, skillsDir stri
 	}
 
 	if len(skills) == 0 {
-		return "No skills available."
+		return noSkillsIndex
 	}
 
-	skills = e.applyNewSelector(ctx, query, skills)
+	return formatSkillIndex(e.applyNewSelector(ctx, query, skills))
+}
 
+// noSkillsIndex is the index text for an empty catalog.
+const noSkillsIndex = "No skills available."
+
+// formatSkillIndex renders the skill__activate index for the given skills.
+func formatSkillIndex(skills []SkillMetadata) string {
+	if len(skills) == 0 {
+		return noSkillsIndex
+	}
 	var sb strings.Builder
 	sb.WriteString("Available skills:")
 	for _, s := range skills {

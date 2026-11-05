@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
@@ -166,11 +167,15 @@ func (c *SkillsCapability) RegisterTools(registry *tools.Registry) {
 func (c *SkillsCapability) Close() error { return nil }
 
 // RefreshSkillIndex re-materializes the skill__activate tool's
-// description using the configured external Selector, if any. It is
-// called per-Send from the conversation loop so the selector can rank
-// against the current user query. When no selector is configured or
-// the query is empty, the descriptor is re-registered with the full
-// eligible index (same as historical behavior).
+// description in registry using the configured external Selector, if any,
+// ranked against query. When no selector is configured or the query is
+// empty, the registered descriptor is left as it is.
+//
+// A Conversation does not call this: it runs the selector once per Send
+// and narrows the index per provider round, to the skills its own
+// workflow state admits, without re-registering anything. This remains
+// for hosts that drive a tools.Registry directly; the index it writes
+// ignores any workflow state's skills filter.
 func (c *SkillsCapability) RefreshSkillIndex(ctx context.Context, query string, registry *tools.Registry) {
 	if c.executor == nil || registry == nil {
 		return
@@ -182,6 +187,43 @@ func (c *SkillsCapability) RefreshSkillIndex(ctx context.Context, query string, 
 	}
 	index := c.executor.SkillIndexFiltered(ctx, query, "")
 	_ = registry.Register(skills.BuildSkillActivateDescriptorWithIndex(index))
+}
+
+// selectSkills runs the external selector, if any, over the skills set
+// currently admits, once per user turn. Nil means no narrowing; see
+// [skills.Executor.SelectSkillsIn].
+func (c *SkillsCapability) selectSkills(ctx context.Context, query string, set *skills.ActiveSet) []string {
+	if c.executor == nil {
+		return nil
+	}
+	return c.executor.SelectSkillsIn(ctx, query, set)
+}
+
+// describeActivate returns the skill__activate descriptor one conversation's
+// round should offer: registered with the full index, narrowed here to the
+// skills set's filter admits (and selected names, when a selector chose).
+// Nil withholds the tool, when the filter admits no skill at all.
+//
+// The registered descriptor is shared and never modified; a narrowed index is
+// a copy. A description a host replaced with WithToolDescriptorOverride is
+// kept as it is when it no longer carries the full index to narrow.
+func (c *SkillsCapability) describeActivate(
+	d *tools.ToolDescriptor, set *skills.ActiveSet, selected []string,
+) *tools.ToolDescriptor {
+	if c.executor == nil {
+		return d
+	}
+	index, ok := c.executor.SkillIndexIn(set, selected)
+	if !ok {
+		return nil
+	}
+	full := c.executor.SkillIndex("")
+	if index == full || !strings.Contains(d.Description, full) {
+		return d
+	}
+	out := *d
+	out.Description = strings.Replace(d.Description, full, index, 1)
+	return &out
 }
 
 // Executor returns the underlying skills executor for testing.

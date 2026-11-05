@@ -197,7 +197,7 @@ Workflow states can filter which skills are available using the `skills` field:
 | *(omitted)* | All pack-level skills are available |
 | `"none"` | No skills available in this state |
 
-A relative path resolves the same way as the pack's `skills` sources. A glob such as `"skills/billing/*"` matches skill paths with `filepath.Match`. On entering a state, active skills that its filter excludes are deactivated.
+A relative path resolves the same way as the pack's `skills` sources. A glob such as `"skills/billing/*"` matches skill paths with `filepath.Match`. On entering a state, active skills that its filter excludes are deactivated. The `skill__activate` index lists only the skills the state admits, and a state that admits none is not offered `skill__activate`.
 
 ---
 
@@ -211,7 +211,7 @@ Skills register three tools in the `skill__` namespace:
 | `skill__deactivate` | `{"name": "skill-name"}` | List of removed tools |
 | `skill__read_resource` | `{"skill_name": "name", "path": "file.md"}` | File content |
 
-The `skill__activate` tool description includes the discovery skill index — a list of available skills with their names and descriptions.
+The `skill__activate` tool description includes the discovery skill index — a list of available skills with their names and descriptions. In a workflow, the index is rebuilt for each provider round from the current state's `skills` filter.
 
 ---
 

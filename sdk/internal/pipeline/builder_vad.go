@@ -158,6 +158,9 @@ func vadProviderConfig(cfg *Config) *stage.ProviderConfig {
 		// build, so voice gets the same tools as text (#1957, #1980).
 		ToolSelector: cfg.ToolSelector,
 		ToolGrants:   cfg.ToolGrants,
+		// The skill__activate index follows the workflow state's skills
+		// filter per build, for voice as for text (#2326).
+		DescribeTool: cfg.DescribeTool,
 		// Run the continuous multi-turn loop: fire the tool loop per
 		// EndOfTurn, thread history across turns, and stay open for the next
 		// utterance — rather than the unary default that drains the whole
