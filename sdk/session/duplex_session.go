@@ -903,6 +903,11 @@ func streamElementToStreamChunk(elem *stage.StreamElement) providers.StreamChunk
 	// conversation after one turn. A dedicated metadata flag is additive and safe.
 	if isAssistantTurnBoundary(elem) {
 		setChunkMetadata(&chunk, "assistant_turn_complete", true)
+		// Why the turn ended (stop, max_output_tokens, safety, ...), when the
+		// provider reported it. A key alongside the flag for the same reason (#2307).
+		if fr := elem.Meta.FinishReason; fr != nil && *fr != "" {
+			setChunkMetadata(&chunk, "finish_reason", *fr)
+		}
 	}
 
 	return chunk

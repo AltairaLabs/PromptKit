@@ -698,7 +698,23 @@ func (s *ProviderStage) fireStreamingTurn(
 	}
 	*history = full
 
-	return sendStreamElement(forwardCtx, NewEndOfTurnElement(), output)
+	return sendStreamElement(forwardCtx, endOfTurnFor(full[min(newStart, len(full)):]), output)
+}
+
+// endOfTurnFor builds the EndOfTurn boundary for a turn whose new messages are
+// msgs, carrying the finish reason of its last assistant reply so a caller
+// delimiting turns can tell why the reply ended (#2307).
+func endOfTurnFor(msgs []types.Message) StreamElement {
+	elem := NewEndOfTurnElement()
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == roleAssistant {
+			if fr := msgs[i].FinishReason; fr != "" {
+				elem.Meta.FinishReason = &fr
+			}
+			break
+		}
+	}
+	return elem
 }
 
 // keepInterruptedTurn keeps a reply the model had started before a streaming
@@ -720,7 +736,7 @@ func (s *ProviderStage) keepInterruptedTurn(
 		}
 	}
 	*history = full
-	return sendStreamElement(ctx, NewEndOfTurnElement(), output)
+	return sendStreamElement(ctx, endOfTurnFor(full[min(newStart, len(full)):]), output)
 }
 
 // sendStreamElement forwards one element downstream, honoring cancellation.

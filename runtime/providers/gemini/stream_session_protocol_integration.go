@@ -11,8 +11,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-// finishReasonComplete is the finish reason indicating the turn completed normally.
-const finishReasonComplete = "complete"
+// finishReasonComplete is the finish reason for a turn the model completed
+// normally, in the canonical vocabulary every provider reports.
+const finishReasonComplete = types.FinishReasonStop
 
 // audioPCMMime is the MIME type for PCM audio used by Gemini Live API.
 const audioPCMMime = "audio/pcm"

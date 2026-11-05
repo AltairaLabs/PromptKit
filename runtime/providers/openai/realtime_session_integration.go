@@ -818,8 +818,9 @@ func (s *RealtimeSession) handleResponseDone(e *ResponseDoneEvent) {
 	s.responseActive = false
 	s.ClearDrop()
 
+	finishReason := realtimeFinishReason(&e.Response)
 	chunk := providers.StreamChunk{
-		FinishReason: &e.Response.Status,
+		FinishReason: &finishReason,
 		Metadata: map[string]interface{}{
 			keyResponseID: e.Response.ID,
 		},

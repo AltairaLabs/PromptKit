@@ -363,8 +363,8 @@ func TestGeminiStreamSession_ReceiveAudioResponse(t *testing.T) {
 		// Verify finish reason
 		if chunk.FinishReason == nil {
 			t.Error("Expected FinishReason to be set")
-		} else if *chunk.FinishReason != "complete" {
-			t.Errorf("Expected FinishReason 'complete', got '%s'", *chunk.FinishReason)
+		} else if *chunk.FinishReason != types.FinishReasonStop {
+			t.Errorf("Expected FinishReason %q, got '%s'", types.FinishReasonStop, *chunk.FinishReason)
 		}
 
 	case <-time.After(1 * time.Second):
@@ -1192,8 +1192,8 @@ func TestProcessServerMessage_TurnCompleteWithoutModelTurn(t *testing.T) {
 		if chunk.FinishReason == nil {
 			t.Fatal("Expected finish reason")
 		}
-		if *chunk.FinishReason != "complete" {
-			t.Errorf("Expected finish_reason='complete', got %v", *chunk.FinishReason)
+		if *chunk.FinishReason != types.FinishReasonStop {
+			t.Errorf("Expected finish_reason=%q, got %v", types.FinishReasonStop, *chunk.FinishReason)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Timeout waiting for turn complete")
@@ -1241,8 +1241,8 @@ func TestProcessServerMessage_ToolCall(t *testing.T) {
 	// back to JSON.
 	select {
 	case chunk := <-session.Response():
-		if chunk.FinishReason == nil || *chunk.FinishReason != "tool_calls" {
-			t.Errorf("Expected finish_reason=tool_calls, got %v", chunk.FinishReason)
+		if chunk.FinishReason == nil || *chunk.FinishReason != types.FinishReasonToolUse {
+			t.Errorf("Expected finish_reason=%s, got %v", types.FinishReasonToolUse, chunk.FinishReason)
 		}
 		if len(chunk.ToolCalls) != 1 {
 			t.Fatalf("Expected 1 tool call, got %d", len(chunk.ToolCalls))

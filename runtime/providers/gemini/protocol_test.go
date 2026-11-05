@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 func TestBuildCostInfo(t *testing.T) {
@@ -148,8 +149,8 @@ func TestHandleToolCalls(t *testing.T) {
 		}
 
 		chunk := <-s.emitCh
-		if chunk.FinishReason == nil || *chunk.FinishReason != "tool_calls" {
-			t.Errorf("FinishReason = %v, want tool_calls", chunk.FinishReason)
+		if chunk.FinishReason == nil || *chunk.FinishReason != types.FinishReasonToolUse {
+			t.Errorf("FinishReason = %v, want %s", chunk.FinishReason, types.FinishReasonToolUse)
 		}
 		if len(chunk.ToolCalls) != 2 {
 			t.Fatalf("expected 2 tool calls, got %d", len(chunk.ToolCalls))
