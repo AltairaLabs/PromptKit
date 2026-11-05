@@ -39,8 +39,8 @@ func NewActiveSet() *ActiveSet {
 	return &ActiveSet{active: make(map[string]activeEntry)}
 }
 
-// Filter returns the glob restricting which skills this set may activate.
-// Empty means all.
+// Filter returns the glob or path restricting which skills this set may
+// activate. Empty means all.
 func (s *ActiveSet) Filter() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -48,8 +48,9 @@ func (s *ActiveSet) Filter() string {
 }
 
 // SetFilter restricts which skills this set may activate. Empty means all;
-// "none" (case-insensitive) disables all. Skills already active that no longer
-// match are deactivated, and their names returned, sorted.
+// "none" (case-insensitive) disables all; otherwise the filter is a glob or a
+// skill directory path (see matchesFilter). Skills already active that no
+// longer match are deactivated, and their names returned, sorted.
 //
 // Only this set is affected — a workflow state narrowing one conversation's
 // skills cannot narrow another's.
@@ -90,8 +91,15 @@ func (s *ActiveSet) Len() int {
 	return len(s.active)
 }
 
-// matchesFilter reports whether a skill path satisfies a filter glob.
+// matchesFilter reports whether a skill path satisfies a filter.
 // An empty filter admits everything; "none" (case-insensitive) admits nothing.
+//
+// A filter is either a glob, matched against the skill's path with
+// filepath.Match, or — as the PromptPack spec defines a workflow state's
+// `skills` — a path to a skill directory or SKILL.md file, which admits the
+// skills at or under that directory. A relative path resolves the way skill
+// sources do (see [Registry.ListForDir]), so "./skills/billing" in a state
+// names the same directory as "./skills/billing" in the pack's skills list.
 func matchesFilter(relPath, filter string) bool {
 	if filter == "" {
 		return true
@@ -99,8 +107,34 @@ func matchesFilter(relPath, filter string) bool {
 	if strings.EqualFold(filter, "none") {
 		return false
 	}
-	matched, _ := filepath.Match(filter, relPath)
-	return matched
+	if matched, _ := filepath.Match(filter, relPath); matched {
+		return true
+	}
+	if relPath == "" || strings.ContainsAny(filter, "*?[") {
+		return false
+	}
+	return pathUnder(relPath, filter)
+}
+
+// pathUnder reports whether skillPath is dir, or lies beneath it by whole
+// path segments. dir may name a skill's SKILL.md file, meaning its directory.
+func pathUnder(skillPath, dir string) bool {
+	if filepath.Base(dir) == skillMDFile {
+		dir = filepath.Dir(dir)
+	}
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return false
+	}
+	absPath, err := filepath.Abs(skillPath)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(absDir, absPath)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 type activeSetKey struct{}

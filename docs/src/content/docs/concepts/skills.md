@@ -103,6 +103,37 @@ The skills capability registers three tools in the `skill__` namespace, alongsid
 
 The `skill__activate` description carries the discovery index: each available skill with its description. The model reads the index and decides which skill to activate.
 
+## Skills in workflow states
+
+A workflow state can limit which skills are available in it, with a path to a skill directory or the literal `none`:
+
+```yaml
+workflow:
+  states:
+    billing:
+      prompt_task: billing_agent
+      skills: ./skills/billing       # Only skills in this directory
+    intake:
+      prompt_task: intake_agent      # No skills field = all skills available
+    closed:
+      prompt_task: closing_agent
+      skills: none                   # No skills can activate
+```
+
+Organize skills into subdirectories by concern:
+
+```text
+skills/
+├── billing/
+│   ├── pci-compliance/SKILL.md
+│   └── refund-processing/SKILL.md
+├── orders/
+│   └── order-troubleshooting/SKILL.md
+└── brand-voice/SKILL.md              # Outside billing/, so not available in the billing state
+```
+
+The filter applies when the workflow opens or resumes in a state and on every transition. Entering a state deactivates any active skill its filter excludes, along with the tools that skill granted.
+
 ## Using skills from the SDK
 
 The SDK detects skills declared in the pack's `skills` section. You can also add skill sources in code:

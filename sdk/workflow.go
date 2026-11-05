@@ -595,6 +595,11 @@ func (wc *WorkflowConversation) registerWorkflowTools() {
 	registry := wc.activeConv.ToolRegistry()
 	state := wc.workflowSpec.States[wc.machine.CurrentState()]
 
+	// Every conversation opened for a state — on open, on resume, and after a
+	// transition — comes through here, so this is where it takes the state's
+	// skills filter (#2314).
+	wc.applyStateSkillFilter(wc.machine.CurrentState(), state)
+
 	// Create and register transition executor (deferred commit pattern)
 	wc.transExec = workflow.NewTransitionExecutor(wc.machine, wc.workflowSpec)
 	registry.RegisterExecutor(wc.transExec)
@@ -636,12 +641,29 @@ func (wc *WorkflowConversation) onTransitionCommitted(result *workflow.Transitio
 	if wc.activeConv != nil && wc.transExec != nil {
 		if newState := wc.workflowSpec.States[result.To]; newState != nil {
 			wc.transExec.RegisterForState(wc.activeConv.ToolRegistry(), newState)
+			// A mid-turn handoff runs the destination state's rounds in this
+			// same conversation, so its skills filter applies here, before
+			// those rounds, not only once reconcileActiveConv opens the next
+			// conversation.
+			wc.applyStateSkillFilter(result.To, newState)
 		}
 	}
 	wc.emitTransitionEvents(result, result.To, wc.machine.CurrentPromptTask())
 	if wc.stateStore != nil && wc.workflowID != "" {
 		wc.persistWorkflowContext()
 	}
+}
+
+// applyStateSkillFilter restricts the active conversation's skills to what the
+// named workflow state's `skills` admits. A state without the field (or an
+// unknown state) clears any restriction a previous state set. Skills active
+// in the conversation that the new filter excludes are deactivated.
+func (wc *WorkflowConversation) applyStateSkillFilter(name string, state *workflow.State) {
+	filter := ""
+	if state != nil {
+		filter = state.Skills
+	}
+	wc.activeConv.applySkillFilter(name, filter)
 }
 
 // applyTransition handles post-commit transition logic for the manual

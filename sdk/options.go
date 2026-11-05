@@ -3763,7 +3763,7 @@ func WithSkillsDir(dir string) Option {
 //   - MountAs, to present skills to the workflow filter under a virtual
 //     prefix without moving the files. A skill at "./agentskills/billing/pci"
 //     mounted as "skills" appears at virtual path "skills/billing/pci", so a
-//     workflow state with `skills: "skills/*"` will match it. ReadResource
+//     workflow state with `skills: "skills/billing/*"` will match it. ReadResource
 //     still uses the real on-disk path; MountAs only affects display and
 //     glob matching.
 //   - Preload, to inject the skill's instructions into the system prompt at
