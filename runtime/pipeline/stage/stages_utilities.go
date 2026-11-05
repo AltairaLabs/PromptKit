@@ -144,8 +144,8 @@ type TemplateStage struct {
 }
 
 // WithSystemPromptSuffix makes the stage append fn's text to every system
-// prompt it renders, separated by a blank line. fn runs once per render — once
-// per Send — so it may read state that changes between turns. An empty result
+// prompt it renders, separated by a blank line. fn runs once per render (once
+// per Send), so it may read state that changes between turns. An empty result
 // appends nothing. The suffix is added after variable substitution, so it is
 // not itself a template.
 func (s *TemplateStage) WithSystemPromptSuffix(fn func() string) *TemplateStage {
