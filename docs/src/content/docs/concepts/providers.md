@@ -4,7 +4,7 @@ description: How PromptKit models LLM providers, their roles, hosting platforms,
 sidebar:
   order: 3
 verified:
-  commit: e16364fb2e353574937eb70165d503422bdd50f0
+  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
   sources:
     - pkg/config/role.go
     - pkg/config/types.go
@@ -160,7 +160,11 @@ Because every provider shares one interface, strategies that span providers are 
 
 A provider records what each call cost as a `CostInfo`: the tokens used by
 unit (input, cached input, output and reasoning, plus audio, image and video
-where the provider reports them apart) and the dollar cost of each unit.
+where the provider reports them apart, and generated images as image output)
+and the dollar cost of each unit. The `InputTokens` and `OutputTokens`
+headlines add up every modality: input covers text, audio, image and video, and
+output covers text, audio and generated images. `CachedTokens` counts cache
+reads. Cache writes and reasoning appear only in the per-unit quantities.
 
 The diagram shows how Claude, OpenAI and Gemini resolve a call's rates.
 

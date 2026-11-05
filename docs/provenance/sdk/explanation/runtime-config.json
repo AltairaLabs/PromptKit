@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/explanation/runtime-config.md",
- "commit": "0b4f0066f2ec99ca65c2528d963f767eaedcd993",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
  "claims": [
   {
    "id": 1,
@@ -17,7 +17,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:76",
-    "pkg/config/types.go:382"
+    "pkg/config/types.go:384"
    ]
   },
   {
@@ -61,24 +61,29 @@
    "claim": "Options applied after WithRuntimeConfig() take precedence over YAML-declared settings",
    "verdict": "true",
    "evidence": [
+    "sdk/options.go:482",
     "sdk/options.go:942",
+    "sdk/runtime_config.go:144",
+    "sdk/runtime_config.go:153",
     "sdk/runtime_config.go:84",
-    "sdk/sdk.go:387",
     "sdk/sdk.go:550"
    ]
   },
   {
    "id": 8,
-   "claim": "Code wins: if both YAML file and programmatic option configure the same thing, the programmatic option takes effect",
-   "verdict": "false",
+   "claim": "WithProvider, WithStateStore and WithLogger win on either side of WithRuntimeConfig; the file applies state store and logger only when none is set, a declared provider joins the pool; MCP servers append; exec eval bindings register into the eval registry and WithEvalRegistry after replaces it; exec tool bindings always apply",
+   "verdict": "true",
    "evidence": [
     "runtime/evals/registry.go:124",
-    "sdk/options.go:2159",
+    "sdk/options.go:1308",
+    "sdk/options.go:3625",
+    "sdk/options.go:942",
     "sdk/provider_file.go:57",
-    "sdk/runtime_config.go:180",
-    "sdk/runtime_config.go:184",
-    "sdk/runtime_config.go:193",
-    "sdk/runtime_config.go:500"
+    "sdk/runtime_config.go:144",
+    "sdk/runtime_config.go:153",
+    "sdk/runtime_config.go:161",
+    "sdk/runtime_config.go:543",
+    "sdk/sdk.go:550"
    ]
   },
   {
@@ -90,7 +95,8 @@
     "pkg/config/runtime_config.go:93",
     "pkg/config/runtime_config.go:97",
     "runtime/tools/exec_executor.go:57",
-    "sdk/runtime_config.go:198"
+    "sdk/runtime_config.go:158",
+    "sdk/runtime_config.go:510"
    ]
   },
   {
@@ -140,7 +146,7 @@
     "runtime/hooks/execconfig/execconfig.go:41",
     "runtime/tools/exec_executor.go:100",
     "runtime/tools/server_executor.go:167",
-    "sdk/runtime_config.go:476"
+    "sdk/runtime_config.go:519"
    ]
   },
   {
@@ -169,9 +175,9 @@
    "verdict": "true",
    "evidence": [
     "runtime/tools/registry.go:431",
-    "runtime/tools/registry.go:785",
+    "runtime/tools/registry.go:771",
     "sdk/exec_tools.go:56",
-    "sdk/runtime_config.go:480"
+    "sdk/runtime_config.go:523"
    ]
   },
   {
@@ -181,8 +187,8 @@
    "evidence": [
     "runtime/tools/errors.go:38",
     "runtime/tools/exec_executor.go:100",
-    "runtime/tools/registry.go:483",
-    "runtime/tools/registry.go:507",
+    "runtime/tools/registry.go:495",
+    "runtime/tools/registry.go:508",
     "runtime/tools/server_executor.go:216"
    ]
   },

@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/concepts/providers.md",
- "commit": "e16364fb2e353574937eb70165d503422bdd50f0",
+ "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
  "claims": [
   {
    "id": 1,
@@ -411,12 +411,12 @@
   },
   {
    "id": 108,
-   "claim": "CostInfo records tokens by unit: input, cached input, output and reasoning, plus audio, image and video where reported",
+   "claim": "CostInfo records tokens by unit: input, cached input, output and reasoning, plus audio, image and video (image input and generated image output) where reported; InputTokens and OutputTokens headlines sum every modality",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/base/priceusage.go:23-43",
-    "runtime/providers/base/units.go:8-18",
-    "runtime/providers/gemini/usage_modality.go:65-67",
+    "runtime/providers/base/priceusage.go:46-80",
+    "runtime/providers/base/units.go:8-19",
+    "runtime/providers/gemini/usage_modality.go:58-73",
     "runtime/types/message.go:242-264"
    ]
   },
@@ -483,7 +483,7 @@
    "evidence": [
     "runtime/providers/base/llmpricing.go:55",
     "runtime/providers/base/priceusage.go:39",
-    "runtime/providers/base/priceusage.go:81"
+    "runtime/providers/base/priceusage.go:84"
    ]
   },
   {
