@@ -33,7 +33,8 @@ The runtime owns all core abstractions, interfaces, and execution logic. It is t
 
 ### Providers (`providers/`)
 - **Provider interface** — Predict, PredictStream, CalculateCost
-- **Optional interfaces** — ToolSupport, MultimodalSupport, StreamInputSupport, ContextWindowProvider
+- **Optional interfaces** — ToolSupport, MultimodalSupport, StreamInputSupport, ContextWindowProvider (`MaxContextTokens()`)
+- **Context windows** — Claude, OpenAI and Gemini resolve a per-model table kept beside the pricing table, keyed the same way (Bedrock/Vertex/Azure run through these providers, so a platform-specific model id that is not a table key needs the override); `additional_config.context_window` overrides it. Ollama and vLLM have no table and report the override only. Unknown model: 0, so the compactor uses its 128K default (debug-logged)
 - **Implementations** — Claude, OpenAI, Gemini, Ollama, vLLM, Voyage AI, Imagen, Mock, Replay
 
 ### Events (`events/`)

@@ -123,6 +123,9 @@ type Provider struct {
 	// thinkingBudget, when non-nil, enables Claude extended thinking with this
 	// token budget. Set from additional_config.thinking_budget. nil = off.
 	thinkingBudget *int
+	// contextWindow, when positive, overrides the built-in context-window table.
+	// Set from additional_config.context_window.
+	contextWindow int
 }
 
 // setCapabilities records the declared capability set on the provider.

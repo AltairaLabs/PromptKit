@@ -942,6 +942,7 @@ func init() {
 			tp.setCapabilities(spec.Capabilities)
 			applyThinkingConfig(tp.Provider, spec)
 			applyStrictToolsConfig(tp, spec)
+			applyContextWindowConfig(tp.Provider, spec)
 			return tp, nil
 		},
 		func(spec providers.ProviderSpec) (providers.Provider, error) {
@@ -952,6 +953,7 @@ func init() {
 			tp.setCapabilities(spec.Capabilities)
 			applyThinkingConfig(tp.Provider, spec)
 			applyStrictToolsConfig(tp, spec)
+			applyContextWindowConfig(tp.Provider, spec)
 			return tp, nil
 		},
 	)
