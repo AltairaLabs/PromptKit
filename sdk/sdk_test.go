@@ -604,7 +604,37 @@ func TestApplyOptions(t *testing.T) {
 			WithContextRetrieval(&mockEmbeddingProvider{}, 5),
 		})
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "WithContextRetrieval requires WithContextWindow")
+		assert.Contains(t, err.Error(), "requires WithContextWindow and WithStateStore")
+	})
+
+	t.Run("embedding provider names only the options still missing", func(t *testing.T) {
+		_, err := applyOptions("test-prompt", []Option{
+			WithContextRetrieval(&mockEmbeddingProvider{}, 5),
+			WithStateStore(statestore.NewMemoryStore()),
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "requires WithContextWindow")
+		assert.NotContains(t, err.Error(), "WithStateStore")
+	})
+
+	t.Run("declared embedding provider gets the default top-k", func(t *testing.T) {
+		cfg, err := applyOptions("test-prompt", []Option{
+			func(c *config) error { c.retrievalProvider = &mockEmbeddingProvider{}; return nil },
+			WithStateStore(statestore.NewMemoryStore()),
+			WithContextWindow(10),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, defaultRetrievalTopK, cfg.retrievalTopK)
+	})
+
+	t.Run("WithContextRetrieval top-k overrides the default", func(t *testing.T) {
+		cfg, err := applyOptions("test-prompt", []Option{
+			WithContextRetrieval(&mockEmbeddingProvider{}, 7),
+			WithStateStore(statestore.NewMemoryStore()),
+			WithContextWindow(10),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 7, cfg.retrievalTopK)
 	})
 
 	t.Run("WithAutoSummarize without WithContextWindow", func(t *testing.T) {

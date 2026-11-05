@@ -37,7 +37,7 @@ conv, _ := sdk.Open("./pack.json", "chat",
 )
 ```
 
-The first declared entry becomes the default RAG provider unless `WithContextRetrieval` set one programmatically. The same instance is supplied to in-process `selection.Selector` implementations via `SelectorContext.Embeddings` on `Init`, so a cosine-similarity selector and the RAG retrieval pipeline share a single embedding pool — one connection pool, one rate-limit bucket, one set of credentials.
+The first declared entry becomes the default RAG provider unless `WithContextRetrieval` set one programmatically, and it retrieves the top 3 matching older messages. Retrieval also needs a context window and a state store: a `state_store` block in the same file supplies the store, but a runtime config has no context window field, so pass `sdk.WithContextWindow(n)`. `Open` names whichever of the two is missing. The same instance is supplied to in-process `selection.Selector` implementations via `SelectorContext.Embeddings` on `Init`, so a cosine-similarity selector and the RAG retrieval pipeline share a single embedding pool — one connection pool, one rate-limit bucket, one set of credentials.
 
 ## The `embedding_providers:` block
 
@@ -81,7 +81,7 @@ reports `0` until the first response gives the real size. It never guesses.
 
 ## Programmatic Path Still Works
 
-`WithContextRetrieval(provider, topK)` is unchanged. When set, it wins over the YAML default. This mirrors how chat providers behave: programmatic options take precedence over RuntimeConfig defaults.
+`WithContextRetrieval(provider, topK)` is unchanged. When set, it wins over the YAML default, including the default count of 3. This mirrors how chat providers behave: programmatic options take precedence over RuntimeConfig defaults.
 
 ## Validation
 

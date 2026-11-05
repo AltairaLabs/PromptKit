@@ -1707,6 +1707,36 @@ func WithContextWindow(recentMessages int) Option {
 	}
 }
 
+// defaultRetrievalTopK is how many older messages retrieval injects when an
+// embedding provider is declared (in a runtime config or via
+// WithEmbeddingProvider) without WithContextRetrieval choosing a count. It
+// matches the corpus retriever's default (runtime/memory/corpus).
+const defaultRetrievalTopK = 3
+
+// enableRetrieval finishes the retrieval setup once every option has been
+// applied. A declared embedding provider carries no top-k, so it gets
+// defaultRetrievalTopK; WithContextRetrieval's explicit count is kept. It
+// returns an error naming the options the configuration still lacks — a
+// runtime config can supply a state store but not a context window.
+func (c *config) enableRetrieval() error {
+	var missing []string
+	if c.contextWindow <= 0 {
+		missing = append(missing, "WithContextWindow")
+	}
+	if c.stateStore == nil {
+		missing = append(missing, "WithStateStore (or state_store in the runtime config)")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("an embedding provider is configured for retrieval "+
+			"(WithContextRetrieval, WithEmbeddingProvider or a runtime config embedding provider), "+
+			"which also requires %s", strings.Join(missing, " and "))
+	}
+	if c.retrievalTopK <= 0 {
+		c.retrievalTopK = defaultRetrievalTopK
+	}
+	return nil
+}
+
 // WithContextRetrieval enables semantic search for relevant older messages.
 //
 // When configured alongside WithContextWindow, the pipeline uses the embedding
@@ -1714,7 +1744,10 @@ func WithContextWindow(recentMessages int) Option {
 // to the current user message. These retrieved messages are inserted chronologically
 // between summaries and the hot window.
 //
-// Requires WithContextWindow to be set.
+// Requires WithContextWindow to be set. An embedding provider declared in a
+// runtime config (or added with WithEmbeddingProvider) enables the same
+// retrieval with a top-k of 3; this option overrides both the provider and
+// that count.
 //
 //	embProvider, _ := openai.NewEmbeddingProvider()
 //	conv, _ := sdk.Open("./chat.pack.json", "assistant",

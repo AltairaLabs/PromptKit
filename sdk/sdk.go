@@ -402,8 +402,10 @@ func applyOptions(promptName string, opts []Option) (*config, error) {
 	if cfg.contextWindow > 0 && cfg.stateStore == nil {
 		return nil, fmt.Errorf("WithContextWindow requires WithStateStore")
 	}
-	if cfg.retrievalProvider != nil && cfg.contextWindow <= 0 {
-		return nil, fmt.Errorf("WithContextRetrieval requires WithContextWindow")
+	if cfg.retrievalProvider != nil {
+		if err := cfg.enableRetrieval(); err != nil {
+			return nil, err
+		}
 	}
 	if cfg.summarizeSet && cfg.contextWindow <= 0 {
 		return nil, fmt.Errorf("WithAutoSummarize requires WithContextWindow")
