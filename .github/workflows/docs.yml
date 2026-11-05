@@ -10,6 +10,7 @@ on:
       - 'sdk/examples/**/README.md'
       - 'scripts/prepare-examples-docs.sh'
       - 'scripts/rewrite-example-links.mjs'
+      - 'Makefile'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
     inputs:
@@ -87,14 +88,12 @@ jobs:
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       
       - name: Install Node dependencies
-        # Regenerate the lockfile on the CI platform first: a macOS-generated
-        # lock omits the Linux rollup/esbuild native binaries (npm/cli#4828),
-        # which `npm install` then honours, breaking the Astro build. Deleting
-        # it forces a clean, platform-correct resolve. The committed lock stays
-        # for local dev and the setup-node cache key.
-        run: |
-          rm -f docs/package-lock.json
-          make docs-install
+        # Installs exactly what the committed lockfile pins (`npm ci`). The lock
+        # carries every platform's rollup/esbuild native binaries, so a
+        # macOS-generated lock installs on Linux. Re-resolving here instead let
+        # an upstream publish (playwright 1.65.0 before its playwright-core)
+        # break every deploy.
+        run: make docs-install
         env:
           # @altairalabs/brand (the masterbrand family bar) is a private
           # GitHub Packages dependency; docs/.npmrc reads this. secrets.GITHUB_TOKEN
