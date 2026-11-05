@@ -905,7 +905,7 @@ sdk.WithGuardrail(
 | A judge-backed check with no `provider` param and no default judge | `Open()` returns an error |
 | Unrecognized `direction` value | Logged as a warning and treated as `output` |
 
-`sdk.ValidatePack` builds each validator without opening a conversation and reports every problem at once. With a custom registry (`sdk.WithEvalRegistry`), use `sdk.ValidatePackWithRegistry` with the same registry, or preflight reports your custom types as unknown.
+`sdk.ValidatePack` builds each validator without opening a conversation and reports every problem at once. With a custom registry (`sdk.WithEvalRegistry`), use `sdk.ValidatePackWithRegistry` with the same registry, or preflight reports your custom types as unknown. To preflight with the host's own configuration, use `sdk.ValidatePackWithOptions` and pass the options you pass to `Open()`. It honors `sdk.WithEvalRegistry` and `sdk.WithJudgeProvider`, so a judge-backed check that names no provider is reported as needing a judge unless you supply one, as `Open()` would fail.
 
 ---
 

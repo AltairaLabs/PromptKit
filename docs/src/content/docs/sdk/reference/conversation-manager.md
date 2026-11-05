@@ -394,6 +394,7 @@ All pack examples conform to the PromptPack Specification v1.9.0: https://github
   - [func \(e \*PackError\) Unwrap\(\) error](<#PackError.Unwrap>)
 - [type PackIssue](<#PackIssue>)
   - [func ValidatePack\(path string, skipSchemaValidation bool\) \(\[\]PackIssue, error\)](<#ValidatePack>)
+  - [func ValidatePackWithOptions\(path string, skipSchemaValidation bool, opts ...Option\) \(\[\]PackIssue, error\)](<#ValidatePackWithOptions>)
   - [func ValidatePackWithRegistry\(path string, skipSchemaValidation bool, registry \*evals.EvalTypeRegistry\) \(\[\]PackIssue, error\)](<#ValidatePackWithRegistry>)
   - [func \(p PackIssue\) String\(\) string](<#PackIssue.String>)
 - [type PackTemplate](<#PackTemplate>)
@@ -5020,7 +5021,7 @@ func (e *PackError) Unwrap() error
 Unwrap returns the underlying error.
 
 <a name="PackIssue"></a>
-## type [PackIssue](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L16-L42>)
+## type [PackIssue](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L17-L43>)
 
 PackIssue describes a single semantic problem with a loaded pack. Structural issues \(malformed JSON, missing required fields, schema violations\) are returned as an error from ValidatePack, not as PackIssues.
 
@@ -5055,7 +5056,7 @@ type PackIssue struct {
 ```
 
 <a name="ValidatePack"></a>
-### func [ValidatePack](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L90>)
+### func [ValidatePack](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L93>)
 
 ```go
 func ValidatePack(path string, skipSchemaValidation bool) ([]PackIssue, error)
@@ -5069,10 +5070,21 @@ Returns \(nil, nil\) if the pack is fully valid. Returns \(nil, err\) if the pac
 
 This is a pre\-flight check for CI gates and operator tools. It runs the same handler\-level validation the SDK runs internally during Open\(\), exposed as a standalone function.
 
-Validator and eval types are resolved against the built\-in eval registry. Callers who supply their own handlers to Open\(\) via WithEvalRegistry must use ValidatePackWithRegistry instead, or preflight will report those types as unknown.
+Validator and eval types are resolved against the built\-in eval registry. Callers who supply their own handlers to Open\(\) via WithEvalRegistry must use ValidatePackWithRegistry instead, or preflight will report those types as unknown. Likewise a judge\-backed validator that relies on the host's default judge \(WithJudgeProvider\) is reported as needing one; use ValidatePackWithOptions to supply it.
+
+<a name="ValidatePackWithOptions"></a>
+### func [ValidatePackWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L127>)
+
+```go
+func ValidatePackWithOptions(path string, skipSchemaValidation bool, opts ...Option) ([]PackIssue, error)
+```
+
+ValidatePackWithOptions is ValidatePack taking the same host configuration Open\(\) would. Pass the options the host passes to Open so preflight builds each validator under the same conditions: [WithEvalRegistry](<#WithEvalRegistry>) supplies custom handlers, and [WithJudgeProvider](<#WithJudgeProvider>) supplies the default judge a judge\-backed validator that names no provider relies on. Without that judge such a validator is reported as an error, although Open\(\) builds it.
+
+Options other than those two are accepted and ignored. An option that returns an error fails the call. Everything else is as documented on ValidatePack.
 
 <a name="ValidatePackWithRegistry"></a>
-### func [ValidatePackWithRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L108-L110>)
+### func [ValidatePackWithRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L111-L113>)
 
 ```go
 func ValidatePackWithRegistry(path string, skipSchemaValidation bool, registry *evals.EvalTypeRegistry) ([]PackIssue, error)
@@ -5085,7 +5097,7 @@ Without this a pack validator or eval naming a custom eval type is reported as a
 Everything else \(the error/issue split, strict schema validation, the \(nil, nil\) fully\-valid result\) is exactly as documented on ValidatePack.
 
 <a name="PackIssue.String"></a>
-### func \(PackIssue\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L45>)
+### func \(PackIssue\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L46>)
 
 ```go
 func (p PackIssue) String() string
