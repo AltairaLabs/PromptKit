@@ -29,15 +29,15 @@ const (
 
 // streamErrorChunksForwardedBuckets partitions the "chunks forwarded
 // before error" histogram. The critical boundary is 0 vs 1: zero
-// chunks means Phase 1 pre-first-chunk retry could have caught the
+// chunks means a pre-first-chunk retry could have caught the
 // failure (and the caller saw no content), whereas one or more means
 // the stream leaked through the safe-retry window and content has
-// already been emitted downstream — the regime where only Phase 4
-// dedup-aware resume can help. The upper tail covers full reasoning
+// already been emitted downstream — the regime where only a
+// dedup-aware resume could help. The upper tail covers full reasoning
 // responses that can run into tens of thousands of chunks.
 //
-// See AltairaLabs/PromptKit#864: this histogram is the load-bearing
-// measurement for deciding whether Phase 4 is worth building.
+// This histogram is the measurement for deciding whether a dedup-aware
+// resume is worth building.
 var streamErrorChunksForwardedBuckets = []float64{
 	0, 1, 5, 20, 100, 500, 2000, 10000,
 }
@@ -125,12 +125,12 @@ func NewStreamMetrics(
 				"terminated with an error, per provider. Observed once per failed " +
 				"stream on the terminal error chunk. The bucket at 0 counts errors " +
 				"that reached the consumer with no content already emitted (a regime " +
-				"Phase 1 pre-first-chunk retry could cover if the classifier recognized " +
+				"a pre-first-chunk retry could cover if the classifier recognized " +
 				"the error as retryable); buckets at 1 and above count mid-stream " +
 				"failures that leaked past the safe-retry window and would require " +
-				"Phase 4 dedup-aware resume to recover (see AltairaLabs/PromptKit#864). " +
-				"This histogram is the load-bearing measurement for deciding whether " +
-				"Phase 4 is worth building.",
+				"a dedup-aware resume to recover. " +
+				"This histogram is the measurement for deciding whether " +
+				"such a resume is worth building.",
 			Buckets:     streamErrorChunksForwardedBuckets,
 			ConstLabels: constLabels,
 		}, []string{labelProvider}),

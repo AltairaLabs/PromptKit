@@ -171,7 +171,7 @@ func (e *ToolExecutor) Name() string { return SkillExecutorName }
 // Activation and deactivation land in the [ActiveSet] the caller attached with
 // [WithActiveSet], so one ToolExecutor -- which is all a tools.Registry holds
 // per name -- serves concurrent conversations without their active skills
-// reaching each other (#2011).
+// reaching each other.
 func (e *ToolExecutor) Execute(
 	ctx context.Context, tool *tools.ToolDescriptor, args json.RawMessage,
 ) (json.RawMessage, error) {

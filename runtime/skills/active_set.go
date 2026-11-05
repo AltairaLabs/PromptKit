@@ -17,7 +17,7 @@ import (
 // registered by name into a tools.Registry that keeps exactly one executor per
 // name. A host running concurrent conversations over one registry gives each
 // conversation its own ActiveSet and passes it per call; see [WithActiveSet]
-// for the tool-dispatch path. See AltairaLabs/PromptKit#2011.
+// for the tool-dispatch path.
 //
 // An ActiveSet is safe for concurrent use.
 type ActiveSet struct {
@@ -146,7 +146,7 @@ type activeSetKey struct{}
 // This is what lets a single skill executor, registered once into a shared
 // tools.Registry, serve concurrent conversations without their activations
 // reaching each other. It mirrors tools.WithMCPRegistry, which exists for the
-// same reason. See AltairaLabs/PromptKit#2011.
+// same reason.
 func WithActiveSet(ctx context.Context, set *ActiveSet) context.Context {
 	if set == nil {
 		return ctx

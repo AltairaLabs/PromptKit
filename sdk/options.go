@@ -3718,8 +3718,9 @@ func WithEvalsDisabled() Option {
 // toxicity, pii_leakage, role_violation, llm_judge and the RAG primitives)
 // evaluate through, as evals and as pack `validators:` guardrails alike.
 //
-// If not set, the judge is the provider registered under [JudgeProviderKey],
-// which is what a host supplies in answer to a pack's requires block. Nothing
+// If not set, a check that names a provider through its "provider" param
+// resolves that name through the host's provider binding, which is what a host
+// supplies in answer to a pack's requires block. Nothing
 // falls back to the conversation's own provider: which model grades the output
 // is the host's decision, and self-grading on the agent model is a decision, not
 // a default.

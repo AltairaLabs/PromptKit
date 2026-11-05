@@ -19,7 +19,6 @@ type skillFilterKey struct{}
 // half of a conversation's skill state and belongs with the other half; this
 // pair only ever covered the filter, and never had a producer anywhere. It is
 // retained so existing callers keep compiling and will be removed in v3.
-// See AltairaLabs/PromptKit#2011.
 func WithSkillFilter(ctx context.Context, filter string) context.Context {
 	return context.WithValue(ctx, skillFilterKey{}, filter)
 }
@@ -27,7 +26,6 @@ func WithSkillFilter(ctx context.Context, filter string) context.Context {
 // SkillFilterFromContext returns the skill filter from context, or "" if not set.
 //
 // Deprecated: use [ActiveSetFromContext] and [ActiveSet.Filter].
-// See AltairaLabs/PromptKit#2011.
 func SkillFilterFromContext(ctx context.Context) string {
 	if v, ok := ctx.Value(skillFilterKey{}).(string); ok {
 		return v
@@ -333,7 +331,7 @@ func (e *Executor) SkillIndexIn(set *ActiveSet, selected []string) (index string
 // Deprecated: use [Executor.ActivateIn] with the conversation's own
 // [ActiveSet]. This form activates into state held on the Executor, which is
 // shared by every conversation dispatching through the same tools.Registry
-// entry. It will be removed in v3. See AltairaLabs/PromptKit#2011.
+// entry. It will be removed in v3.
 func (e *Executor) Activate(name string) (instructions string, addedTools []string, retErr error) {
 	act, err := e.ActivateIn(e.own, name)
 	return act.Instructions, act.AddedTools, err
@@ -345,7 +343,7 @@ func (e *Executor) Activate(name string) (instructions string, addedTools []stri
 // Deprecated: use [Executor.ActivateIn] with an [ActiveSet] whose filter was
 // set by [ActiveSet.SetFilter]. Passing a filter per call covered only half of
 // the per-conversation state and left the active set shared. It will be
-// removed in v3. See AltairaLabs/PromptKit#2011.
+// removed in v3.
 func (e *Executor) ActivateWithFilter(
 	name, filter string,
 ) (instructions string, addedTools []string, retErr error) {
@@ -375,7 +373,6 @@ func (e *Executor) ActivateWithFilter(
 // Deprecated: use [ActiveSet.SetFilter] on the conversation's own set. This
 // form mutates state shared by every conversation dispatching through the same
 // tools.Registry entry. It will be removed in v3.
-// See AltairaLabs/PromptKit#2011.
 func (e *Executor) SetFilter(glob string) []string {
 	return e.own.SetFilter(glob)
 }
@@ -383,7 +380,7 @@ func (e *Executor) SetFilter(glob string) []string {
 // Deactivate removes a skill from the active set.
 //
 // Deprecated: use [Executor.DeactivateIn] with the conversation's own
-// [ActiveSet]. It will be removed in v3. See AltairaLabs/PromptKit#2011.
+// [ActiveSet]. It will be removed in v3.
 func (e *Executor) Deactivate(name string) (removedTools []string, retErr error) {
 	return e.DeactivateIn(e.own, name)
 }
@@ -497,7 +494,7 @@ func (e *Executor) applyNewSelector(ctx context.Context, query string, skills []
 // ActiveSkills returns the names of currently active skills, sorted.
 //
 // Deprecated: use [Executor.SkillsIn] with the conversation's own [ActiveSet].
-// It will be removed in v3. See AltairaLabs/PromptKit#2011.
+// It will be removed in v3.
 func (e *Executor) ActiveSkills() []string {
 	return e.own.Names()
 }
@@ -508,8 +505,8 @@ func (e *Executor) ActiveSkills() []string {
 // Deprecated: use [Executor.ToolsFor] with the conversation's own [ActiveSet].
 // Wiring this into ProviderConfig.ToolGrants from a shared executor grants one
 // conversation's skill tools to every other conversation — a permission leak,
-// which is what made this the urgent half of AltairaLabs/PromptKit#2011. It
-// will be removed in v3.
+// which is why it is the urgent half of the shared-state problem. It will be
+// removed in v3.
 func (e *Executor) ActiveTools() []string {
 	return e.ToolsFor(e.own)
 }

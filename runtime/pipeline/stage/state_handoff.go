@@ -57,8 +57,7 @@ type HandoffCall struct {
 // loop, so reconciling them between rounds is sufficient to make the turn run
 // as the current state — no new conversation, no new pipeline, and no user
 // message required. Without this, a transition advances the state machine and
-// the destination state never speaks (see
-// docs/local-backlog/WORKFLOW_IN_TURN_STATE_HANDOFF_DESIGN.md).
+// the destination state never speaks.
 //
 // runtime must not import sdk, so the interface is defined here and implemented
 // by consumers (SDK WorkflowConversation, Arena's per-run transition executor).
