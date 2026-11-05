@@ -15,7 +15,7 @@ type Registry struct {
 	providerHooks     []ProviderHook
 	toolHooks         []ToolHook
 	sessionHooks      []SessionHook
-	chunkInterceptors []ChunkInterceptor // cached from providerHooks that implement ChunkInterceptor
+	chunkInterceptors []ChunkInterceptor   // cached from providerHooks that implement ChunkInterceptor
 	resultRewriters   []ToolResultRewriter // cached from toolHooks that implement ToolResultRewriter
 }
 
