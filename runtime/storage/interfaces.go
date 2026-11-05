@@ -12,13 +12,18 @@ import (
 //
 // Example usage:
 //
-//	storage := local.NewFileStore("/var/promptkit/media")
-//	ref, err := storage.StoreMedia(ctx, mediaContent, metadata)
+//	store, err := local.NewFileStore(local.FileStoreConfig{
+//	    BaseDir:      "/var/promptkit/media",
+//	    Organization: storage.OrganizationByRun,
+//	})
 //	if err != nil {
 //	    return err
 //	}
-//	// Later...
-//	content, err := storage.RetrieveMedia(ctx, ref)
+//	ref, err := store.StoreMedia(ctx, mediaContent, metadata)
+//	if err != nil {
+//	    return err
+//	}
+//	content, err := store.RetrieveMedia(ctx, ref)
 //
 // Implementations should be safe for concurrent use by multiple goroutines.
 type MediaStorageService interface {
@@ -91,21 +96,6 @@ type MediaStorageService interface {
 
 // PolicyHandler defines the interface for applying and enforcing storage policies.
 // Policies control media retention, cleanup, and other lifecycle management.
-//
-// Example usage:
-//
-//	policy := policy.NewTimeBasedPolicy()
-//	err := policy.ApplyPolicy(ctx, "/path/to/media.jpg", "delete-after-10min")
-//	if err != nil {
-//	    return err
-//	}
-//	// Background enforcement
-//	go func() {
-//	    ticker := time.NewTicker(1 * time.Minute)
-//	    for range ticker.C {
-//	        policy.EnforcePolicy(ctx)
-//	    }
-//	}()
 type PolicyHandler interface {
 	// ApplyPolicy applies a named policy to a media file.
 	// This typically stores policy metadata alongside the media.

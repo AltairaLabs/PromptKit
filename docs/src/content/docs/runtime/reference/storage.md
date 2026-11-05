@@ -31,13 +31,13 @@ Package storage exposes the MediaStorageService interface for media persistence,
 
 
 <a name="InstrumentedStorage"></a>
-## type [InstrumentedStorage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L34-L41>)
+## type [InstrumentedStorage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L33-L40>)
 
-InstrumentedStorage wraps any MediaStorageService with telemetry — OTel spans on every call, runtime events on success/failure, and \(when wired in by the consumer\) bytes/latency/error metrics derived from the emitted events.
+InstrumentedStorage wraps any MediaStorageService with telemetry — OTel spans on every call, runtime events on success and failure, and \(when the consumer wires them in\) bytes, latency and error metrics derived from the emitted events.
 
-The wrapper is nil\-safe at every level: a nil bus or nil inner is a hard error, but missing fields on MediaMetadata never panic.
+A nil bus disables events, and a nil MediaMetadata is tolerated. Only SetBus and Inner are safe on a nil \*InstrumentedStorage.
 
-Backend identification \(\`local\`, \`s3\`, ...\) is supplied by the caller at construction time so the same wrapper works regardless of the concrete inner implementation.
+The caller supplies the backend name \(\`local\`, \`s3\`, ...\) at construction, so the same wrapper works with any inner implementation.
 
 ```go
 type InstrumentedStorage struct {
@@ -46,7 +46,7 @@ type InstrumentedStorage struct {
 ```
 
 <a name="NewInstrumentedStorage"></a>
-### func [NewInstrumentedStorage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L51>)
+### func [NewInstrumentedStorage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L50>)
 
 ```go
 func NewInstrumentedStorage(inner MediaStorageService, bus events.Bus, backend string) *InstrumentedStorage
@@ -54,10 +54,10 @@ func NewInstrumentedStorage(inner MediaStorageService, bus events.Bus, backend s
 
 NewInstrumentedStorage wraps inner so every call publishes a media lifecycle event to bus and records an OTel span. backend names the concrete implementation \(e.g. "local", "s3"\) and ends up on every emitted event and span.
 
-Passing a nil inner returns nil — the wrapper has nothing to wrap. A nil bus is allowed \(events become no\-ops\); spans still emit via the global tracer provider.
+Passing a nil inner returns nil. A nil bus is allowed \(events become no\-ops\); spans still emit via the global tracer provider.
 
 <a name="InstrumentedStorage.DeleteMedia"></a>
-### func \(\*InstrumentedStorage\) [DeleteMedia](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L161>)
+### func \(\*InstrumentedStorage\) [DeleteMedia](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L157>)
 
 ```go
 func (s *InstrumentedStorage) DeleteMedia(ctx context.Context, reference Reference) error
@@ -66,25 +66,25 @@ func (s *InstrumentedStorage) DeleteMedia(ctx context.Context, reference Referen
 DeleteMedia traces, times, and announces a delete operation.
 
 <a name="InstrumentedStorage.GetURL"></a>
-### func \(\*InstrumentedStorage\) [GetURL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L188-L190>)
+### func \(\*InstrumentedStorage\) [GetURL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L184-L186>)
 
 ```go
 func (s *InstrumentedStorage) GetURL(ctx context.Context, reference Reference, expiry time.Duration) (string, error)
 ```
 
-GetURL traces and times URL generation. No success event is emitted \(URL generation is a metadata operation that doesn't move bytes\), but failures still publish an error event so opaque 404s are visible.
+GetURL traces and times URL generation. It emits no event on success, because URL generation moves no bytes, and publishes an error event on failure.
 
 <a name="InstrumentedStorage.Inner"></a>
-### func \(\*InstrumentedStorage\) [Inner](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L86>)
+### func \(\*InstrumentedStorage\) [Inner](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L82>)
 
 ```go
 func (s *InstrumentedStorage) Inner() MediaStorageService
 ```
 
-Inner returns the wrapped MediaStorageService — useful for callers that need to type\-assert to a backend\-specific interface.
+Inner returns the wrapped MediaStorageService, for callers that need to type\-assert to a backend\-specific interface.
 
 <a name="InstrumentedStorage.RetrieveMedia"></a>
-### func \(\*InstrumentedStorage\) [RetrieveMedia](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L132-L134>)
+### func \(\*InstrumentedStorage\) [RetrieveMedia](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L128-L130>)
 
 ```go
 func (s *InstrumentedStorage) RetrieveMedia(ctx context.Context, reference Reference) (*types.MediaContent, error)
@@ -93,16 +93,16 @@ func (s *InstrumentedStorage) RetrieveMedia(ctx context.Context, reference Refer
 RetrieveMedia traces, times, and announces a retrieve operation.
 
 <a name="InstrumentedStorage.SetBus"></a>
-### func \(\*InstrumentedStorage\) [SetBus](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L69>)
+### func \(\*InstrumentedStorage\) [SetBus](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L65>)
 
 ```go
 func (s *InstrumentedStorage) SetBus(bus events.Bus)
 ```
 
-SetBus swaps the event bus the wrapper publishes to. Arena constructs the storage before the runtime event bus exists, then late\-binds it via this method once the bus is wired up. Safe to call once before the wrapper sees any traffic; safe to call concurrently with operations because the bus pointer is guarded by busMu.
+SetBus swaps the event bus the wrapper publishes to, for callers that build the storage before the event bus exists. It is safe to call concurrently with operations. Passing nil disables events.
 
 <a name="InstrumentedStorage.StoreMedia"></a>
-### func \(\*InstrumentedStorage\) [StoreMedia](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L94-L96>)
+### func \(\*InstrumentedStorage\) [StoreMedia](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/instrumented.go#L90-L92>)
 
 ```go
 func (s *InstrumentedStorage) StoreMedia(ctx context.Context, content *types.MediaContent, metadata *MediaMetadata) (Reference, error)
@@ -150,20 +150,25 @@ type MediaMetadata struct {
 ```
 
 <a name="MediaStorageService"></a>
-## type [MediaStorageService](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L24-L90>)
+## type [MediaStorageService](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L29-L95>)
 
 MediaStorageService defines the interface for storing and retrieving media content. Implementations may store media in local filesystem, cloud storage, or other backends.
 
 Example usage:
 
 ```
-storage := local.NewFileStore("/var/promptkit/media")
-ref, err := storage.StoreMedia(ctx, mediaContent, metadata)
+store, err := local.NewFileStore(local.FileStoreConfig{
+    BaseDir:      "/var/promptkit/media",
+    Organization: storage.OrganizationByRun,
+})
 if err != nil {
     return err
 }
-// Later...
-content, err := storage.RetrieveMedia(ctx, ref)
+ref, err := store.StoreMedia(ctx, mediaContent, metadata)
+if err != nil {
+    return err
+}
+content, err := store.RetrieveMedia(ctx, ref)
 ```
 
 Implementations should be safe for concurrent use by multiple goroutines.
@@ -322,26 +327,9 @@ const (
 ```
 
 <a name="PolicyHandler"></a>
-## type [PolicyHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L109-L137>)
+## type [PolicyHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L99-L127>)
 
 PolicyHandler defines the interface for applying and enforcing storage policies. Policies control media retention, cleanup, and other lifecycle management.
-
-Example usage:
-
-```
-policy := policy.NewTimeBasedPolicy()
-err := policy.ApplyPolicy(ctx, "/path/to/media.jpg", "delete-after-10min")
-if err != nil {
-    return err
-}
-// Background enforcement
-go func() {
-    ticker := time.NewTicker(1 * time.Minute)
-    for range ticker.C {
-        policy.EnforcePolicy(ctx)
-    }
-}()
-```
 
 ```go
 type PolicyHandler interface {

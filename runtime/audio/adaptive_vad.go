@@ -54,19 +54,21 @@ const (
 )
 
 // AdaptiveVAD is a voice activity detector that adapts its speech threshold to
-// the ambient noise level. It is well-suited for "quiet mic" environments where
-// the speaker's voice is only slightly louder than the background — a condition
+// the ambient noise level. It suits quiet-microphone environments where the
+// speaker's voice is only slightly louder than the background, a condition
 // where SimpleVAD's fixed threshold often fails to trigger.
 //
 // Algorithm:
 //
 //  1. Compute the RMS of each PCM16 chunk.
-//  2. Smooth with an exponential moving average (α = 0.3).
+//  2. Smooth with an exponential moving average: weight 0.3 on the new value
+//     while the level rises, 0.7 while it falls.
 //  3. Derive speechThreshold = max(noiseFloor × 3.0, 0.01).
-//  4. Adapt the noise floor upward only when smoothedRMS < speechThreshold
-//     (i.e. we are probably in silence, not speech).
-//  5. Map smoothedRMS → probability in [0, 1] using a linear scale between
-//     noiseFloor and 2 × (speechThreshold − noiseFloor).
+//  4. While smoothedRMS < speechThreshold (probably silence, not speech), move
+//     the noise floor toward smoothedRMS with weight 0.05, clamped to
+//     [0.0005, 0.05]. The floor starts at 0.005.
+//  5. Map smoothedRMS to a probability in [0, 1] using a linear scale between
+//     noiseFloor and noiseFloor + 2 × (speechThreshold − noiseFloor).
 //
 // AdaptiveVAD embeds *vadStateMachine, which promotes State(), OnStateChange(),
 // and base Reset() to satisfy the VADAnalyzer interface.

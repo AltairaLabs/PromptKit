@@ -1,9 +1,11 @@
-// Package memory defines interfaces and types for agentic memory —
+// Package memory defines interfaces and types for agentic memory:
 // cross-session knowledge that persists beyond a single conversation.
 //
-// PromptKit defines interfaces and an in-memory test store. Production
-// implementations (vector search, graph retrieval, compliance) are
-// provided by platform layers like Omnia.
+// The package provides the Store, Retriever and Extractor interfaces, the
+// memory__recall, memory__remember, memory__list and memory__forget tools,
+// and an in-memory store for tests and development. Production
+// implementations (vector search, graph retrieval, compliance) come from the
+// host application or a platform layer.
 package memory
 
 import "time"
@@ -46,21 +48,21 @@ const (
 	//
 	// Consumers that classify server-side may fall back to their own
 	// classifier when this is absent. Values are not validated by
-	// PromptKit — see [IsKnownCategory] for an opt-in check against the
+	// PromptKit; see [IsKnownCategory] for an opt-in check against the
 	// canonical [ConsentCategory] taxonomy.
 	MetaKeyConsentCategory = "consent_category"
 
-	// ProvenanceUserRequested — user explicitly asked the agent to remember this.
+	// ProvenanceUserRequested marks a memory the user explicitly asked the agent to remember.
 	ProvenanceUserRequested Provenance = "user_requested"
 
-	// ProvenanceAgentExtracted — the agent/pipeline extracted this from
-	// conversation without an explicit user request (safe default).
+	// ProvenanceAgentExtracted marks a memory the agent or pipeline extracted from
+	// conversation without an explicit user request.
 	ProvenanceAgentExtracted Provenance = "agent_extracted"
 
-	// ProvenanceSystemGenerated — created by system logic, not from user content.
+	// ProvenanceSystemGenerated marks a memory created by system logic, not from user content.
 	ProvenanceSystemGenerated Provenance = "system_generated"
 
-	// ProvenanceOperatorCurated — manually created/edited by an operator.
+	// ProvenanceOperatorCurated marks a memory created or edited manually by an operator.
 	ProvenanceOperatorCurated Provenance = "operator_curated"
 )
 
@@ -88,7 +90,7 @@ func (m *Memory) GetProvenance() Provenance {
 // RetrieveOptions configures a memory retrieval query.
 type RetrieveOptions struct {
 	Types         []string // Filter by memory type (empty = all)
-	Limit         int      // Max results (0 = store default)
+	Limit         int      // Max results (0 = store default; InMemoryStore uses 10)
 	MinConfidence float64  // Minimum confidence threshold (0 = no filter)
 	// Extras carries top-level recall args the executor does not type,
 	// so a store can accept backend-specific parameters without forking
@@ -96,15 +98,15 @@ type RetrieveOptions struct {
 	// sdk.WithToolDescriptorOverride and read the values here; a store
 	// that does not recognize a key ignores it. Nil when the call carried
 	// no untyped args. This mirrors what Memory.Metadata does on the
-	// write side. See AltairaLabs/PromptKit#1987.
+	// write side.
 	Extras map[string]any
 }
 
 // ListOptions configures a memory list query.
 type ListOptions struct {
-	Types  []string
-	Limit  int
-	Offset int
+	Types  []string // Filter by memory type (empty = all)
+	Limit  int      // Max results (0 = store default; InMemoryStore uses 50)
+	Offset int      // Number of results to skip
 	// Extras carries top-level list args the executor does not type.
 	// See [RetrieveOptions.Extras].
 	Extras map[string]any

@@ -5,7 +5,7 @@
 // conversations, including:
 //   - Response processing state machine for handling provider responses
 //   - Tool execution interface for streaming tool calls
-//   - Audio streaming utilities for sending audio chunks to providers
+//   - Audio, image and video streaming utilities for sending input to providers
 //   - Response collection patterns for managing streaming responses
 //
 // The package is designed to be provider-agnostic, working with any provider
@@ -26,10 +26,13 @@
 // plugged in. The package provides helpers for sending tool results back through
 // the streaming pipeline.
 //
-// # Audio Streaming
+// # Audio, Image and Video Streaming
 //
-// AudioStreamer provides utilities for streaming audio data in either burst mode
-// (all at once) or real-time mode (paced to match playback speed).
+// SendEndOfStream signals the end of audio input for a turn. ImageStreamer and
+// VideoStreamer send frames or encoded chunks into the pipeline, either in burst
+// mode (all at once) or real-time mode (paced to the target frame rate or chunk
+// duration). SendImageEndOfStream and SendVideoEndOfStream signal the end of
+// image and video input.
 //
 // # Response Collection
 //

@@ -59,9 +59,9 @@ func NewInMemoryIndex(provider providers.EmbeddingProvider, opts ...InMemoryInde
 	return idx
 }
 
-// Index adds a message to the search index by computing its embedding.
-//
-// message passed by value to match MessageIndex interface
+// Index adds a message to the search index by computing its embedding. It
+// embeds the message's Content field and skips a message whose Content is empty,
+// such as one built from Parts only.
 func (idx *InMemoryIndex) Index(
 	ctx context.Context, conversationID string, turnIndex int, message types.Message,
 ) error {
@@ -95,7 +95,8 @@ func (idx *InMemoryIndex) Index(
 	return nil
 }
 
-// Search finds the top-k messages most relevant to the query string.
+// Search finds the top-k messages most relevant to the query string, ranked by
+// cosine similarity. It returns nil for an empty query or k <= 0.
 func (idx *InMemoryIndex) Search(ctx context.Context, conversationID, query string, k int) ([]IndexResult, error) {
 	if query == "" || k <= 0 {
 		return nil, nil

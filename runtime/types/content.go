@@ -12,9 +12,9 @@ import (
 )
 
 // ContentPart represents a single piece of content in a multimodal message.
-// A message can contain multiple parts: text, images, audio, video, etc.
+// A message can contain multiple parts: text, images, audio, video and documents.
 type ContentPart struct {
-	Type string `json:"type"` // "text", "image", "audio", "video"
+	Type string `json:"type"` // a ContentType constant: "text", "image", "audio", "video", "document", "thinking"
 
 	// For text content
 	Text *string `json:"text,omitempty"`
@@ -23,10 +23,11 @@ type ContentPart struct {
 	Media *MediaContent `json:"media,omitempty"`
 }
 
-// MediaContent represents media data (image, audio, video) in a message.
-// Supports both inline base64 data and external file/URL references.
+// MediaContent represents media data (image, audio, video, document) in a message.
+// The payload is inline base64 data, a local file path, an external URL or a
+// storage reference. Validate lists the permitted combinations.
 type MediaContent struct {
-	// Data source - exactly one should be set
+	// Data source: set at least one; Validate rejects URL combined with Data or FilePath
 	Data     *string `json:"data,omitempty"`      // Base64-encoded media data
 	FilePath *string `json:"file_path,omitempty"` // Local file path
 	URL      *string `json:"url,omitempty"`       // External URL (http/https)
@@ -309,11 +310,11 @@ func (cp *ContentPart) Validate() error {
 
 // Validate checks if the MediaContent is valid.
 //
-// At least one of Data, FilePath, or URL must be set. Data + FilePath is
-// permitted: Data is the canonical bytes and FilePath is an origin hint
-// (set by Arena's media loaders so the HTML renderer can resolve the
-// original file). URL is mutually exclusive with Data — a URL refers to
-// an external resource we don't carry inline.
+// At least one of Data, FilePath, URL or StorageReference must be set, and
+// MIMEType must be non-empty. Data + FilePath is permitted: Data is the
+// canonical bytes and FilePath is an origin hint. URL is mutually exclusive
+// with both Data and FilePath: a URL refers to an external resource that is
+// not carried inline.
 func (mc *MediaContent) Validate() error {
 	hasData := mc.Data != nil && *mc.Data != ""
 	hasFilePath := mc.FilePath != nil && *mc.FilePath != ""

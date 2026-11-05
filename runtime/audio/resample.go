@@ -1,4 +1,3 @@
-// Package audio provides audio processing utilities.
 package audio
 
 import (
@@ -42,14 +41,16 @@ const (
 	SampleRate24kHz = 24000 // Common TTS output rate
 	SampleRate16kHz = 16000 // Common STT/ASR input rate
 
-	// DuplexRate is the native device rate for the single duplex stream.
-	// Resample only at the STT (48→16 kHz) and TTS (24→48 kHz) seams.
+	// DuplexRate is the sample rate of a duplex audio stream. Resample at the
+	// STT (48 to 16 kHz) and TTS (24 to 48 kHz) boundaries.
 	DuplexRate = 48000
 )
 
 // ResamplePCM16 resamples PCM16 audio data from one sample rate to another.
 // Uses linear interpolation for reasonable quality resampling.
 // Input and output are little-endian 16-bit signed PCM samples.
+// It returns an error for a non-positive rate or an input whose length is not a
+// multiple of two bytes.
 func ResamplePCM16(input []byte, fromRate, toRate int) ([]byte, error) {
 	if fromRate <= 0 || toRate <= 0 {
 		return nil, fmt.Errorf("invalid sample rates: from=%d, to=%d", fromRate, toRate)

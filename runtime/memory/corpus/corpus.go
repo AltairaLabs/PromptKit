@@ -1,21 +1,20 @@
 // Package corpus provides a reference [memory.Retriever] over a fixed set of
-// documents — a knowledge base the host supplies, separate from
+// documents: a knowledge base the host supplies, separate from
 // the [memory.Store] the memory tools read and write.
 //
-// That separation is the point. The two retrieval paths in PromptKit answer
-// different questions:
+// The two retrieval paths in PromptKit answer different questions:
 //
 //   - The memory tools (memory__remember / memory__recall) let the model
-//     manage facts about the *subject* — what the user told it to remember.
+//     manage facts about the *subject*: what the user told it to remember.
 //     The model decides when to look, and the store is scoped per subject.
 //   - Ambient injection asks a corpus what is relevant to *this turn* and puts
 //     the answer in the system prompt before the model runs. The model never
 //     decides; it sees grounding it did not have to ask for.
 //
 // Pointing ambient injection at the memory store would collapse the two into
-// one confusing path — the model would find the same rows twice, once by
-// asking and once without. Retrieval for grounding belongs over the host's own
-// content: documentation, a product catalog, a support knowledge base.
+// one path, and the model would find the same rows twice, once by asking and
+// once without. Retrieval for grounding belongs over the host's own content:
+// documentation, a product catalog, a support knowledge base.
 //
 // This implementation scores documents by term overlap with the latest user
 // turn. That is enough to develop and test against, and is not a
@@ -67,8 +66,8 @@ type Retriever struct {
 // Option configures a [Retriever].
 type Option func(*Retriever)
 
-// WithTopK caps how many documents are injected. Defaults to 3 — enough to
-// ground an answer without crowding the system prompt.
+// WithTopK caps how many documents are injected. It defaults to 3. A value of
+// zero or less injects every matching document.
 func WithTopK(n int) Option {
 	return func(r *Retriever) { r.topK = n }
 }
@@ -83,11 +82,11 @@ func New(docs []Document, opts ...Option) *Retriever {
 }
 
 // RetrieveContext implements [memory.Retriever]. The query is the latest user
-// turn — what the assistant is about to answer.
+// turn, the one the assistant is about to answer. Documents are ranked by the
+// number of terms they share with it, with declaration order breaking ties.
 //
 // A turn with no user text, or one sharing no term with any document, returns
-// nothing rather than everything: injecting an unrelated document is worse
-// than injecting none, because the model cannot tell that it was not chosen.
+// nothing.
 func (r *Retriever) RetrieveContext(
 	_ context.Context, _ map[string]string, messages []types.Message,
 ) ([]*memory.Memory, error) {
@@ -151,7 +150,7 @@ func latestUserText(messages []types.Message) string {
 	return ""
 }
 
-// tokenize lowercases and splits on non-letter runes, dropping one- and
+// tokenize lowercases and splits on any rune other than ASCII letters and digits, dropping one- and
 // two-character tokens so common short words ("do", "is") don't match
 // everything.
 func tokenize(s string) map[string]struct{} {

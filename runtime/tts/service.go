@@ -64,8 +64,8 @@ type Service interface {
 
 // SpokenTextReporter is an optional Service extension: given the input text and
 // config, it returns the exact text that will be submitted to the synthesis
-// engine after PromptKit's bracket-tag markup is lowered — provider- and
-// model-specific (e.g. OpenAI gpt-4o-mini-tts moves tags to `instructions`, so
+// engine after PromptKit's bracket-tag markup is lowered. The result is provider-
+// and model-specific (e.g. OpenAI gpt-4o-mini-tts moves tags to `instructions`, so
 // the spoken text is the stripped remainder; ElevenLabs v3 keeps inline tags).
 // The lowering is pure, so this reports the value without synthesizing. Returns
 // "" when unknown, letting consumers fall back to the LLM text.
@@ -89,9 +89,9 @@ type StreamingService interface {
 // PersonaRubricProvider is an optional extension interface that TTS adapters
 // implement to advertise the bracket-tag rubric an upstream persona / script
 // should splice into its system prompt. Implementations return the empty
-// string when the configured model cannot consume characterization markup —
-// callers MUST treat the empty string as "do not inject any rubric" so we
-// do not waste persona tokens on tags that would be silently dropped.
+// string when the configured model cannot consume characterization markup.
+// Callers must treat the empty string as "do not inject any rubric", so that
+// persona tokens are not spent on tags that would be silently dropped.
 //
 // See [github.com/AltairaLabs/PromptKit/runtime/v2/tts/markup] for the canonical
 // rubric strings each adapter may return.
@@ -105,24 +105,24 @@ type SynthesisConfig struct {
 	// Available voices vary by provider - use SupportedVoices() to list options.
 	Voice string
 
-	// Format is the output audio format.
-	// Default is MP3 for most providers.
+	// Format is the output audio format. If the zero value, the provider uses its
+	// default format (MP3 for OpenAI).
 	Format AudioFormat
 
-	// Speed is the speech rate multiplier (0.25-4.0, default 1.0).
-	// Not all providers support speed adjustment.
+	// Speed is the speech rate multiplier (default 1.0).
+	// Only OpenAIService reads it.
 	Speed float64
 
-	// Pitch adjusts the voice pitch (-20 to 20 semitones, default 0).
-	// Not all providers support pitch adjustment.
+	// Pitch adjusts the voice pitch in semitones (default 0).
+	// No built-in provider reads it.
 	Pitch float64
 
 	// Language is the language code for synthesis (e.g., "en-US").
-	// Required for some providers, optional for others.
+	// Only CartesiaService sends it.
 	Language string
 
-	// Model is the TTS model to use (provider-specific).
-	// For OpenAI: "tts-1" (fast) or "tts-1-hd" (high quality).
+	// Model is the TTS model to use (provider-specific). If empty, the service's
+	// configured model is used. For OpenAI: ModelTTS1, ModelTTS1HD or ModelGPT4oMiniTTS.
 	Model string
 }
 

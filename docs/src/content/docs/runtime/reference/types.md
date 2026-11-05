@@ -193,7 +193,7 @@ const MetaToolsOffered = "_tools_offered"
 ```
 
 <a name="CountMediaParts"></a>
-## func [CountMediaParts](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L256>)
+## func [CountMediaParts](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L255>)
 
 ```go
 func CountMediaParts(msg Message) int
@@ -202,7 +202,7 @@ func CountMediaParts(msg Message) int
 CountMediaParts returns the number of media parts \(image, audio, video\) in a message
 
 <a name="CountPartsByType"></a>
-## func [CountPartsByType](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L271>)
+## func [CountPartsByType](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L270>)
 
 ```go
 func CountPartsByType(msg Message, contentType string) int
@@ -211,7 +211,7 @@ func CountPartsByType(msg Message, contentType string) int
 CountPartsByType returns the number of parts of a specific type in a message
 
 <a name="ExtractTextContent"></a>
-## func [ExtractTextContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L208>)
+## func [ExtractTextContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L207>)
 
 ```go
 func ExtractTextContent(msg Message) string
@@ -220,7 +220,7 @@ func ExtractTextContent(msg Message) string
 ExtractTextContent extracts all text content from a message, regardless of format. This is useful for backward compatibility when you need only the text.
 
 <a name="HasOnlyTextContent"></a>
-## func [HasOnlyTextContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L213>)
+## func [HasOnlyTextContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L212>)
 
 ```go
 func HasOnlyTextContent(msg Message) bool
@@ -229,7 +229,7 @@ func HasOnlyTextContent(msg Message) bool
 HasOnlyTextContent returns true if the message contains only text \(no media\)
 
 <a name="MigrateMessagesToLegacy"></a>
-## func [MigrateMessagesToLegacy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L50>)
+## func [MigrateMessagesToLegacy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L44>)
 
 ```go
 func MigrateMessagesToLegacy(messages []Message) error
@@ -238,7 +238,7 @@ func MigrateMessagesToLegacy(messages []Message) error
 MigrateMessagesToLegacy converts a slice of multimodal messages to legacy format in\-place. Returns an error if any message contains media content.
 
 <a name="MigrateMessagesToMultimodal"></a>
-## func [MigrateMessagesToMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L42>)
+## func [MigrateMessagesToMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L36>)
 
 ```go
 func MigrateMessagesToMultimodal(messages []Message)
@@ -247,22 +247,22 @@ func MigrateMessagesToMultimodal(messages []Message)
 MigrateMessagesToMultimodal converts a slice of legacy messages to multimodal format in\-place
 
 <a name="MigrateToLegacy"></a>
-## func [MigrateToLegacy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L26>)
+## func [MigrateToLegacy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L20>)
 
 ```go
 func MigrateToLegacy(msg *Message) error
 ```
 
-MigrateToLegacy converts a multimodal message back to legacy text\-only format. This is useful for backward compatibility with systems that don't support multimodal. Returns an error if the message contains non\-text content.
+MigrateToLegacy converts a multimodal message back to legacy text\-only format. This is for systems that don't support multimodal content. Returns an error if the message contains non\-text content.
 
 <a name="MigrateToMultimodal"></a>
-## func [MigrateToMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L12>)
+## func [MigrateToMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L6>)
 
 ```go
 func MigrateToMultimodal(msg *Message)
 ```
 
-MigrateToMultimodal converts a legacy text\-only message to use the Parts structure. This is useful when transitioning existing code to the new multimodal API.
+MigrateToMultimodal converts a legacy text\-only message to use the Parts structure.
 
 <a name="NormalizeRawMessage"></a>
 ## func [NormalizeRawMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L215>)
@@ -274,7 +274,7 @@ func NormalizeRawMessage(raw json.RawMessage) json.RawMessage
 NormalizeRawMessage returns a valid JSON value for raw, substituting "\{\}" when raw is nil, empty, OR not well\-formed JSON. Two crash sources in the agent loop motivate this: LLMs routinely emit tool calls with no arguments \(empty\), and a streamed tool call cut off at max\_tokens leaves \*truncated\* args \(e.g. \`\{"path":"foo\`\) — non\-empty but invalid. Both fail json.RawMessage's encoder with "unexpected end of JSON input". Provider request builders and the message types call this at the boundary so a missing or broken blob degrades to \{\} instead of crashing a request or losing a whole run's saved output.
 
 <a name="ChunkReader"></a>
-## type [ChunkReader](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/streaming.go#L181-L186>)
+## type [ChunkReader](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/streaming.go#L183-L188>)
 
 ChunkReader reads from an io.Reader and produces MediaChunks. Useful for converting continuous streams \(e.g., microphone input\) into chunks.
 
@@ -301,7 +301,7 @@ type ChunkReader struct {
 ```
 
 <a name="NewChunkReader"></a>
-### func [NewChunkReader](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/streaming.go#L190>)
+### func [NewChunkReader](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/streaming.go#L192>)
 
 ```go
 func NewChunkReader(r io.Reader, config StreamingMediaConfig) *ChunkReader
@@ -310,16 +310,16 @@ func NewChunkReader(r io.Reader, config StreamingMediaConfig) *ChunkReader
 NewChunkReader creates a new ChunkReader that reads from the given reader and produces MediaChunks according to the config.
 
 <a name="ChunkReader.NextChunk"></a>
-### func \(\*ChunkReader\) [NextChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/streaming.go#L202>)
+### func \(\*ChunkReader\) [NextChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/streaming.go#L206>)
 
 ```go
 func (cr *ChunkReader) NextChunk(ctx context.Context) (*MediaChunk, error)
 ```
 
-NextChunk reads the next chunk from the reader. Returns io.EOF when the stream is complete. The returned chunk's IsLast field will be true on the final chunk.
+NextChunk reads the next chunk from the reader. Returns io.EOF when the stream is complete. IsLast is true only when the underlying reader returns data together with io.EOF. A reader that returns io.EOF with no data ends the stream with a nil chunk and io.EOF, so IsLast is never set on a chunk for such readers.
 
 <a name="ChunkWriter"></a>
-## type [ChunkWriter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/streaming.go#L258-L261>)
+## type [ChunkWriter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/streaming.go#L262-L265>)
 
 ChunkWriter writes MediaChunks to an io.Writer. Useful for converting chunks back into continuous streams \(e.g., speaker output\).
 
@@ -329,7 +329,7 @@ Example usage:
 writer := NewChunkWriter(speakerOutput)
 for chunk := range session.Response() {
     if chunk.MediaData != nil {
-        err := writer.WriteChunk(&MediaChunk{Data: chunk.MediaData.Data})
+        _, err := writer.WriteChunk(&MediaChunk{Data: chunk.MediaData.Data})
         if err != nil {
             return err
         }
@@ -344,7 +344,7 @@ type ChunkWriter struct {
 ```
 
 <a name="NewChunkWriter"></a>
-### func [NewChunkWriter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/streaming.go#L267>)
+### func [NewChunkWriter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/streaming.go#L271>)
 
 ```go
 func NewChunkWriter(w io.Writer) *ChunkWriter
@@ -353,7 +353,7 @@ func NewChunkWriter(w io.Writer) *ChunkWriter
 NewChunkWriter creates a new ChunkWriter that writes to the given writer.
 
 <a name="ChunkWriter.Flush"></a>
-### func \(\*ChunkWriter\) [Flush](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/streaming.go#L290>)
+### func \(\*ChunkWriter\) [Flush](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/streaming.go#L294>)
 
 ```go
 func (cw *ChunkWriter) Flush() error
@@ -362,7 +362,7 @@ func (cw *ChunkWriter) Flush() error
 Flush flushes any buffered data to the underlying writer \(if it supports flushing\).
 
 <a name="ChunkWriter.WriteChunk"></a>
-### func \(\*ChunkWriter\) [WriteChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/streaming.go#L276>)
+### func \(\*ChunkWriter\) [WriteChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/streaming.go#L280>)
 
 ```go
 func (cw *ChunkWriter) WriteChunk(chunk *MediaChunk) (int, error)
@@ -373,11 +373,11 @@ WriteChunk writes a MediaChunk to the underlying writer. Returns the number of b
 <a name="ContentPart"></a>
 ## type [ContentPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L16-L24>)
 
-ContentPart represents a single piece of content in a multimodal message. A message can contain multiple parts: text, images, audio, video, etc.
+ContentPart represents a single piece of content in a multimodal message. A message can contain multiple parts: text, images, audio, video and documents.
 
 ```go
 type ContentPart struct {
-    Type string `json:"type"` // "text", "image", "audio", "video"
+    Type string `json:"type"` // a ContentType constant: "text", "image", "audio", "video", "document", "thinking"
 
     // For text content
     Text *string `json:"text,omitempty"`
@@ -388,7 +388,7 @@ type ContentPart struct {
 ```
 
 <a name="MetadataOnlyParts"></a>
-### func [MetadataOnlyParts](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L407>)
+### func [MetadataOnlyParts](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L408>)
 
 ```go
 func MetadataOnlyParts(parts []ContentPart) []ContentPart
@@ -397,7 +397,7 @@ func MetadataOnlyParts(parts []ContentPart) []ContentPart
 MetadataOnlyParts returns a copy of parts with binary data stripped. Text parts are preserved as\-is. Media parts keep metadata \(MIMEType, SizeKB, Width, Height, Duration, etc.\) and URL references, but Data and FilePath are set to nil. This is useful for event emission where binary payloads are unnecessary overhead.
 
 <a name="NewAudioPart"></a>
-### func [NewAudioPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L188>)
+### func [NewAudioPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L189>)
 
 ```go
 func NewAudioPart(filePath string) (ContentPart, error)
@@ -406,7 +406,7 @@ func NewAudioPart(filePath string) (ContentPart, error)
 NewAudioPart creates a ContentPart with audio content from a file path
 
 <a name="NewAudioPartFromData"></a>
-### func [NewAudioPartFromData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L204>)
+### func [NewAudioPartFromData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L205>)
 
 ```go
 func NewAudioPartFromData(base64Data, mimeType string) ContentPart
@@ -415,7 +415,7 @@ func NewAudioPartFromData(base64Data, mimeType string) ContentPart
 NewAudioPartFromData creates a ContentPart with base64\-encoded audio data
 
 <a name="NewAudioPartFromStorageRef"></a>
-### func [NewAudioPartFromStorageRef](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L215>)
+### func [NewAudioPartFromStorageRef](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L216>)
 
 ```go
 func NewAudioPartFromStorageRef(ref, mimeType string) ContentPart
@@ -424,7 +424,7 @@ func NewAudioPartFromStorageRef(ref, mimeType string) ContentPart
 NewAudioPartFromStorageRef creates an audio ContentPart backed by a storage reference.
 
 <a name="NewDocumentPart"></a>
-### func [NewDocumentPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L258>)
+### func [NewDocumentPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L259>)
 
 ```go
 func NewDocumentPart(filePath string) (ContentPart, error)
@@ -433,7 +433,7 @@ func NewDocumentPart(filePath string) (ContentPart, error)
 NewDocumentPart creates a ContentPart with document content from a file path
 
 <a name="NewDocumentPartFromData"></a>
-### func [NewDocumentPartFromData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L274>)
+### func [NewDocumentPartFromData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L275>)
 
 ```go
 func NewDocumentPartFromData(base64Data, mimeType string) ContentPart
@@ -442,7 +442,7 @@ func NewDocumentPartFromData(base64Data, mimeType string) ContentPart
 NewDocumentPartFromData creates a ContentPart with base64\-encoded document data
 
 <a name="NewDocumentPartFromStorageRef"></a>
-### func [NewDocumentPartFromStorageRef](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L285>)
+### func [NewDocumentPartFromStorageRef](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L286>)
 
 ```go
 func NewDocumentPartFromStorageRef(ref, mimeType string) ContentPart
@@ -451,7 +451,7 @@ func NewDocumentPartFromStorageRef(ref, mimeType string) ContentPart
 NewDocumentPartFromStorageRef creates a document ContentPart backed by a storage reference.
 
 <a name="NewImagePart"></a>
-### func [NewImagePart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L132>)
+### func [NewImagePart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L133>)
 
 ```go
 func NewImagePart(filePath string, detail *string) (ContentPart, error)
@@ -460,7 +460,7 @@ func NewImagePart(filePath string, detail *string) (ContentPart, error)
 NewImagePart creates a ContentPart with image content from a file path
 
 <a name="NewImagePartFromData"></a>
-### func [NewImagePartFromData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L162>)
+### func [NewImagePartFromData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L163>)
 
 ```go
 func NewImagePartFromData(base64Data, mimeType string, detail *string) ContentPart
@@ -469,7 +469,7 @@ func NewImagePartFromData(base64Data, mimeType string, detail *string) ContentPa
 NewImagePartFromData creates a ContentPart with base64\-encoded image data
 
 <a name="NewImagePartFromStorageRef"></a>
-### func [NewImagePartFromStorageRef](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L176>)
+### func [NewImagePartFromStorageRef](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L177>)
 
 ```go
 func NewImagePartFromStorageRef(ref, mimeType string, detail *string) ContentPart
@@ -478,7 +478,7 @@ func NewImagePartFromStorageRef(ref, mimeType string, detail *string) ContentPar
 NewImagePartFromStorageRef creates an image ContentPart backed by a durable storage reference. The reference is resolved to a URL or bytes at provider\-call time \(see providers.MediaLoader\).
 
 <a name="NewImagePartFromURL"></a>
-### func [NewImagePartFromURL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L149>)
+### func [NewImagePartFromURL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L150>)
 
 ```go
 func NewImagePartFromURL(url string, detail *string) ContentPart
@@ -516,7 +516,7 @@ type: image
 </details>
 
 <a name="NewTextPart"></a>
-### func [NewTextPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L89>)
+### func [NewTextPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L90>)
 
 ```go
 func NewTextPart(text string) ContentPart
@@ -525,7 +525,7 @@ func NewTextPart(text string) ContentPart
 NewTextPart creates a ContentPart with text content
 
 <a name="NewThinkingPart"></a>
-### func [NewThinkingPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L102>)
+### func [NewThinkingPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L103>)
 
 ```go
 func NewThinkingPart(text string) ContentPart
@@ -536,7 +536,7 @@ NewThinkingPart creates a ContentPart with thinking/reasoning content. Thinking 
 Deprecated: reasoning now lives on Message.Reasoning \(a ReasoningTrace\), off Parts, so it is structurally excluded from content/exports/future context. New code should populate Message.Reasoning, not a thinking ContentPart.
 
 <a name="NewVideoPart"></a>
-### func [NewVideoPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L223>)
+### func [NewVideoPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L224>)
 
 ```go
 func NewVideoPart(filePath string) (ContentPart, error)
@@ -545,7 +545,7 @@ func NewVideoPart(filePath string) (ContentPart, error)
 NewVideoPart creates a ContentPart with video content from a file path
 
 <a name="NewVideoPartFromData"></a>
-### func [NewVideoPartFromData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L239>)
+### func [NewVideoPartFromData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L240>)
 
 ```go
 func NewVideoPartFromData(base64Data, mimeType string) ContentPart
@@ -554,7 +554,7 @@ func NewVideoPartFromData(base64Data, mimeType string) ContentPart
 NewVideoPartFromData creates a ContentPart with base64\-encoded video data
 
 <a name="NewVideoPartFromStorageRef"></a>
-### func [NewVideoPartFromStorageRef](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L250>)
+### func [NewVideoPartFromStorageRef](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L251>)
 
 ```go
 func NewVideoPartFromStorageRef(ref, mimeType string) ContentPart
@@ -563,7 +563,7 @@ func NewVideoPartFromStorageRef(ref, mimeType string) ContentPart
 NewVideoPartFromStorageRef creates a video ContentPart backed by a storage reference.
 
 <a name="SplitMultimodalMessage"></a>
-### func [SplitMultimodalMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L222>)
+### func [SplitMultimodalMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L221>)
 
 ```go
 func SplitMultimodalMessage(msg Message) (text string, mediaParts []ContentPart)
@@ -572,7 +572,7 @@ func SplitMultimodalMessage(msg Message) (text string, mediaParts []ContentPart)
 SplitMultimodalMessage splits a multimodal message into separate text and media parts. Returns the text content and a slice of media content parts.
 
 <a name="ContentPart.Validate"></a>
-### func \(\*ContentPart\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L293>)
+### func \(\*ContentPart\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L294>)
 
 ```go
 func (cp *ContentPart) Validate() error
@@ -581,32 +581,31 @@ func (cp *ContentPart) Validate() error
 Validate checks if the ContentPart is valid
 
 <a name="CostInfo"></a>
-## type [CostInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L242-L264>)
+## type [CostInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L242-L263>)
 
 CostInfo tracks token usage and associated costs for LLM operations. All cost values are in USD. Used for both individual messages and aggregated tracking.
 
 ```go
 type CostInfo struct {
-    InputTokens   int     `json:"input_tokens"`              // Number of input tokens consumed
-    OutputTokens  int     `json:"output_tokens"`             // Number of output tokens generated
-    CachedTokens  int     `json:"cached_tokens,omitempty"`   // Number of cached tokens used (reduces cost)
+    InputTokens   int     `json:"input_tokens"`              // Uncached input tokens across all modalities
+    OutputTokens  int     `json:"output_tokens"`             // Visible output tokens across all modalities
+    CachedTokens  int     `json:"cached_tokens,omitempty"`   // Cache-read tokens
     InputCostUSD  float64 `json:"input_cost_usd"`            // Cost of input tokens in USD
     OutputCostUSD float64 `json:"output_cost_usd"`           // Cost of output tokens in USD
-    CachedCostUSD float64 `json:"cached_cost_usd,omitempty"` // Cost savings from cached tokens
+    CachedCostUSD float64 `json:"cached_cost_usd,omitempty"` // Cost of cache-read tokens in USD
     TotalCost     float64 `json:"total_cost_usd"`            // Total cost in USD
 
-    // unified-path fields (added for ancillary providers and post-migration Imagen)
+    // Per-unit fields populated when a provider prices its usage.
     Quantities     map[string]float64 `json:"quantities,omitempty"`      // Raw billable quantities by unit name
     DimensionMatch map[string]string  `json:"dimension_match,omitempty"` // Dimension key-value pairs (e.g. size, quality)
     ProviderName   string             `json:"provider_name,omitempty"`   // Provider that produced this cost entry
     Capability     string             `json:"capability,omitempty"`      // ProviderType as string for JSON portability
     Latency        time.Duration      `json:"latency_ns,omitempty"`      // Time taken by the provider call
 
-    // Breakdown is a per-line-item view of the cost. On a per-message
-    // CostInfo it is left nil; on the aggregated rollup it is populated
-    // from every contributing message so the report can show per-(provider,
-    // capability, unit) detail. Aggregators are free to group or de-dup
-    // further; the runtime appends without aggregation.
+    // Breakdown is a per-line-item view of the cost. A priced provider call
+    // fills it with one item per billed unit. On the aggregated rollup it merges
+    // the items of every contributing message by (provider, capability, unit,
+    // dimensions), so a report can show per-unit detail.
     Breakdown []CostLineItem `json:"breakdown,omitempty"`
 }
 ```
@@ -648,7 +647,7 @@ $0.018 total (1000 in / 500 out)
 </details>
 
 <a name="CostLineItem"></a>
-## type [CostLineItem](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L269-L276>)
+## type [CostLineItem](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L268-L275>)
 
 CostLineItem is one row of a cost breakdown, suitable for surfacing in reports. Carries provider \+ capability tags so consumers can group across the conversation without re\-deriving them.
 
@@ -700,13 +699,13 @@ type MediaChunk struct {
 ```
 
 <a name="MediaContent"></a>
-## type [MediaContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L28-L50>)
+## type [MediaContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L29-L51>)
 
-MediaContent represents media data \(image, audio, video\) in a message. Supports both inline base64 data and external file/URL references.
+MediaContent represents media data \(image, audio, video, document\) in a message. The payload is inline base64 data, a local file path, an external URL or a storage reference. Validate lists the permitted combinations.
 
 ```go
 type MediaContent struct {
-    // Data source - exactly one should be set
+    // Data source: set at least one; Validate rejects URL combined with Data or FilePath
     Data     *string `json:"data,omitempty"`      // Base64-encoded media data
     FilePath *string `json:"file_path,omitempty"` // Local file path
     URL      *string `json:"url,omitempty"`       // External URL (http/https)
@@ -731,7 +730,7 @@ type MediaContent struct {
 ```
 
 <a name="MediaContent.GetBase64Data"></a>
-### func \(\*MediaContent\) [GetBase64Data](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L348>)
+### func \(\*MediaContent\) [GetBase64Data](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L349>)
 
 ```go
 func (mc *MediaContent) GetBase64Data() (string, error)
@@ -742,7 +741,7 @@ GetBase64Data returns the base64\-encoded data for this media content. If the da
 Deprecated: For new code, use providers.MediaLoader.GetBase64Data which supports all sources including storage references and URLs with proper context handling.
 
 <a name="MediaContent.ReadData"></a>
-### func \(\*MediaContent\) [ReadData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L378>)
+### func \(\*MediaContent\) [ReadData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L379>)
 
 ```go
 func (mc *MediaContent) ReadData() (io.ReadCloser, error)
@@ -751,7 +750,7 @@ func (mc *MediaContent) ReadData() (io.ReadCloser, error)
 ReadData returns an io.Reader for the media content. For base64 data, it decodes and returns a reader. For file paths, it opens and returns the file. For URLs, it returns an error \(caller should fetch separately\).
 
 <a name="MediaContent.Validate"></a>
-### func \(\*MediaContent\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L317>)
+### func \(\*MediaContent\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L318>)
 
 ```go
 func (mc *MediaContent) Validate() error
@@ -759,16 +758,16 @@ func (mc *MediaContent) Validate() error
 
 Validate checks if the MediaContent is valid.
 
-At least one of Data, FilePath, or URL must be set. Data \+ FilePath is permitted: Data is the canonical bytes and FilePath is an origin hint \(set by Arena's media loaders so the HTML renderer can resolve the original file\). URL is mutually exclusive with Data — a URL refers to an external resource we don't carry inline.
+At least one of Data, FilePath, URL or StorageReference must be set, and MIMEType must be non\-empty. Data \+ FilePath is permitted: Data is the canonical bytes and FilePath is an origin hint. URL is mutually exclusive with both Data and FilePath: a URL refers to an external resource that is not carried inline.
 
 <a name="MediaItemSummary"></a>
-## type [MediaItemSummary](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L531-L539>)
+## type [MediaItemSummary](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L530-L538>)
 
 MediaItemSummary provides details about a single media item in a message.
 
 ```go
 type MediaItemSummary struct {
-    Type      string `json:"type"`             // Content type: "image", "audio", "video"
+    Type      string `json:"type"`             // Content type: "image", "audio", "video", "document"
     Source    string `json:"source"`           // Source description (file path, URL, or "inline data")
     MIMEType  string `json:"mime_type"`        // MIME type
     SizeBytes int    `json:"size_bytes"`       // Size in bytes (0 if unknown)
@@ -779,7 +778,7 @@ type MediaItemSummary struct {
 ```
 
 <a name="MediaSummary"></a>
-## type [MediaSummary](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L520-L528>)
+## type [MediaSummary](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L519-L527>)
 
 MediaSummary provides a high\-level overview of media content in a message. This is included in JSON output to make multimodal messages more observable.
 
@@ -840,16 +839,16 @@ type Message struct {
 ```
 
 <a name="CloneMessage"></a>
-### func [CloneMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L60>)
+### func [CloneMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L59>)
 
 ```go
 func CloneMessage(msg Message) Message
 ```
 
-CloneMessage creates a deep copy of a message
+CloneMessage returns a copy of a message. Parts \(including their media content\), ToolCalls, ToolResult, CostInfo, Meta and Validations are copied into new slices, maps and structs. Values nested inside them are shared with the original: tool\-call Args, ToolResult.Parts, CostInfo.Quantities, CostInfo.DimensionMatch and Breakdown, Reasoning, the values in Meta, and ValidationResult.Details.
 
 <a name="CombineTextAndMedia"></a>
-### func [CombineTextAndMedia](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L241>)
+### func [CombineTextAndMedia](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L240>)
 
 ```go
 func CombineTextAndMedia(role, text string, mediaParts []ContentPart) Message
@@ -858,7 +857,7 @@ func CombineTextAndMedia(role, text string, mediaParts []ContentPart) Message
 CombineTextAndMedia creates a multimodal message from separate text and media parts. This is the inverse of SplitMultimodalMessage.
 
 <a name="ConvertTextToMultimodal"></a>
-### func [ConvertTextToMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L199>)
+### func [ConvertTextToMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/migration.go#L198>)
 
 ```go
 func ConvertTextToMultimodal(role, content string) Message
@@ -867,7 +866,7 @@ func ConvertTextToMultimodal(role, content string) Message
 ConvertTextToMultimodal is a convenience function that creates a multimodal message from a role and text content. This helps with code migration.
 
 <a name="ExcludeInterrupted"></a>
-### func [ExcludeInterrupted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L354>)
+### func [ExcludeInterrupted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L353>)
 
 ```go
 func ExcludeInterrupted(msgs []Message) []Message
@@ -876,7 +875,7 @@ func ExcludeInterrupted(msgs []Message) []Message
 ExcludeInterrupted returns msgs without interrupted replies, for any path that sends history back to a model. A half\-finished reply would mislead the model, and one cut off mid tool call leaves a call with no result, which providers reject. The transcript keeps them; only model context drops them. msgs is returned as\-is when it holds none.
 
 <a name="NewAssistantMessage"></a>
-### func [NewAssistantMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L484>)
+### func [NewAssistantMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L483>)
 
 ```go
 func NewAssistantMessage(content string) Message
@@ -885,7 +884,7 @@ func NewAssistantMessage(content string) Message
 NewAssistantMessage creates an assistant message with text content.
 
 <a name="NewMultimodalMessage"></a>
-### func [NewMultimodalMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L511>)
+### func [NewMultimodalMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L510>)
 
 ```go
 func NewMultimodalMessage(role string, parts []ContentPart) Message
@@ -929,7 +928,7 @@ parts: 2
 </details>
 
 <a name="NewSystemMessage"></a>
-### func [NewSystemMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L489>)
+### func [NewSystemMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L488>)
 
 ```go
 func NewSystemMessage(content string) Message
@@ -938,7 +937,7 @@ func NewSystemMessage(content string) Message
 NewSystemMessage creates a system message with text content.
 
 <a name="NewTextMessage"></a>
-### func [NewTextMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L471>)
+### func [NewTextMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L470>)
 
 ```go
 func NewTextMessage(role, content string) Message
@@ -976,7 +975,7 @@ user -> Hello!
 </details>
 
 <a name="NewToolResultMessage"></a>
-### func [NewToolResultMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L500>)
+### func [NewToolResultMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L499>)
 
 ```go
 func NewToolResultMessage(result MessageToolResult) Message
@@ -987,7 +986,7 @@ NewToolResultMessage creates a properly normalized tool result message. This ens
 IMPORTANT: Always use this constructor instead of directly creating Message\{Role: "tool", ToolResult: ...\} to avoid Content/ToolResult.Parts synchronization issues.
 
 <a name="NewUserMessage"></a>
-### func [NewUserMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L479>)
+### func [NewUserMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L478>)
 
 ```go
 func NewUserMessage(content string) Message
@@ -996,7 +995,7 @@ func NewUserMessage(content string) Message
 NewUserMessage creates a user message with text content.
 
 <a name="StripReasoning"></a>
-### func [StripReasoning](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L334>)
+### func [StripReasoning](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L333>)
 
 ```go
 func StripReasoning(msgs []Message) []Message
@@ -1005,7 +1004,7 @@ func StripReasoning(msgs []Message) []Message
 StripReasoning returns copies of msgs with Reasoning cleared, for persistence or export paths that must not retain model reasoning \(the default behavior; see Message.Reasoning\). The input slice and its messages are not mutated.
 
 <a name="Message.AddAudioPart"></a>
-### func \(\*Message\) [AddAudioPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L433>)
+### func \(\*Message\) [AddAudioPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L432>)
 
 ```go
 func (m *Message) AddAudioPart(filePath string) error
@@ -1014,7 +1013,7 @@ func (m *Message) AddAudioPart(filePath string) error
 AddAudioPart adds an audio content part from a file path
 
 <a name="Message.AddDocumentPart"></a>
-### func \(\*Message\) [AddDocumentPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L453>)
+### func \(\*Message\) [AddDocumentPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L452>)
 
 ```go
 func (m *Message) AddDocumentPart(filePath string) error
@@ -1023,7 +1022,7 @@ func (m *Message) AddDocumentPart(filePath string) error
 AddDocumentPart adds a document content part from a file path
 
 <a name="Message.AddImagePart"></a>
-### func \(\*Message\) [AddImagePart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L418>)
+### func \(\*Message\) [AddImagePart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L417>)
 
 ```go
 func (m *Message) AddImagePart(filePath string, detail *string) error
@@ -1032,7 +1031,7 @@ func (m *Message) AddImagePart(filePath string, detail *string) error
 AddImagePart adds an image content part from a file path
 
 <a name="Message.AddImagePartFromURL"></a>
-### func \(\*Message\) [AddImagePartFromURL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L428>)
+### func \(\*Message\) [AddImagePartFromURL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L427>)
 
 ```go
 func (m *Message) AddImagePartFromURL(url string, detail *string)
@@ -1041,7 +1040,7 @@ func (m *Message) AddImagePartFromURL(url string, detail *string)
 AddImagePartFromURL adds an image content part from a URL
 
 <a name="Message.AddPart"></a>
-### func \(\*Message\) [AddPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L405>)
+### func \(\*Message\) [AddPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L404>)
 
 ```go
 func (m *Message) AddPart(part ContentPart)
@@ -1050,7 +1049,7 @@ func (m *Message) AddPart(part ContentPart)
 AddPart adds a content part to the message. If this is the first part added, it clears the legacy Content field.
 
 <a name="Message.AddTextPart"></a>
-### func \(\*Message\) [AddTextPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L413>)
+### func \(\*Message\) [AddTextPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L412>)
 
 ```go
 func (m *Message) AddTextPart(text string)
@@ -1059,7 +1058,7 @@ func (m *Message) AddTextPart(text string)
 AddTextPart adds a text content part to the message
 
 <a name="Message.AddVideoPart"></a>
-### func \(\*Message\) [AddVideoPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L443>)
+### func \(\*Message\) [AddVideoPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L442>)
 
 ```go
 func (m *Message) AddVideoPart(filePath string) error
@@ -1068,16 +1067,16 @@ func (m *Message) AddVideoPart(filePath string) error
 AddVideoPart adds a video content part from a file path
 
 <a name="Message.GetContent"></a>
-### func \(\*Message\) [GetContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L310>)
+### func \(\*Message\) [GetContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L309>)
 
 ```go
 func (m *Message) GetContent() string
 ```
 
-GetContent returns the content of the message. This is the recommended way to access message content as it handles all cases: 1. For tool messages \(Role="tool"\): returns ToolResult.Content \(authoritative source\) 2. For multimodal messages: returns concatenated text parts 3. For legacy messages: returns the Content field
+GetContent returns the content of the message. This is the recommended way to access message content as it handles all cases: 1. For tool messages \(Role="tool"\) with a ToolResult: returns ToolResult.GetTextContent\(\) 2. For multimodal messages: returns concatenated text parts 3. For legacy messages: returns the Content field
 
 <a name="Message.HasMediaContent"></a>
-### func \(\*Message\) [HasMediaContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L379>)
+### func \(\*Message\) [HasMediaContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L378>)
 
 ```go
 func (m *Message) HasMediaContent() bool
@@ -1086,7 +1085,7 @@ func (m *Message) HasMediaContent() bool
 HasMediaContent returns true if the message contains any media \(image, audio, video, document\)
 
 <a name="Message.IsInterrupted"></a>
-### func \(\*Message\) [IsInterrupted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L345>)
+### func \(\*Message\) [IsInterrupted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L344>)
 
 ```go
 func (m *Message) IsInterrupted() bool
@@ -1095,7 +1094,7 @@ func (m *Message) IsInterrupted() bool
 IsInterrupted reports whether m is a partial reply kept from a stream that failed before the model finished \(see FinishReasonInterrupted\).
 
 <a name="Message.IsMultimodal"></a>
-### func \(\*Message\) [IsMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L374>)
+### func \(\*Message\) [IsMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L373>)
 
 ```go
 func (m *Message) IsMultimodal() bool
@@ -1104,7 +1103,7 @@ func (m *Message) IsMultimodal() bool
 IsMultimodal returns true if the message contains multimodal content \(Parts\)
 
 <a name="Message.MarshalJSON"></a>
-### func \(Message\) [MarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L546>)
+### func \(Message\) [MarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L545>)
 
 ```go
 func (m Message) MarshalJSON() ([]byte, error)
@@ -1122,7 +1121,7 @@ func (m *Message) Metadata() map[string]any
 Metadata returns a copy of the metadata an application attached to the message \(see MetaMessageMetadata\), or nil when there is none. The copy is deep, so changing it never changes the message, or any other holder of the message's Meta.
 
 <a name="Message.SetMultimodalContent"></a>
-### func \(\*Message\) [SetMultimodalContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L398>)
+### func \(\*Message\) [SetMultimodalContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L397>)
 
 ```go
 func (m *Message) SetMultimodalContent(parts []ContentPart)
@@ -1131,7 +1130,7 @@ func (m *Message) SetMultimodalContent(parts []ContentPart)
 SetMultimodalContent sets the message content to multimodal parts. This clears the legacy Content field.
 
 <a name="Message.SetTextContent"></a>
-### func \(\*Message\) [SetTextContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L391>)
+### func \(\*Message\) [SetTextContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L390>)
 
 ```go
 func (m *Message) SetTextContent(text string)
@@ -1140,7 +1139,7 @@ func (m *Message) SetTextContent(text string)
 SetTextContent sets the message content to simple text. This clears any existing Parts and sets the legacy Content field.
 
 <a name="Message.UnmarshalJSON"></a>
-### func \(\*Message\) [UnmarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L581>)
+### func \(\*Message\) [UnmarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L580>)
 
 ```go
 func (m *Message) UnmarshalJSON(data []byte) error
@@ -1223,7 +1222,7 @@ func (r *MessageToolResult) HasMedia() bool
 HasMedia returns true if any non\-text parts exist in the tool result.
 
 <a name="OpaqueReasoning"></a>
-## type [OpaqueReasoning](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L124-L129>)
+## type [OpaqueReasoning](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L125-L130>)
 
 OpaqueReasoning is a provider\-native reasoning token \(signature / encrypted block\) preserved for intra\-turn round\-trip. Never displayed, never content. Kind values: thinking\_signature, redacted\_thinking, thought\_signature, encrypted\_reasoning \(provider\-specific\).
 
@@ -1237,7 +1236,7 @@ type OpaqueReasoning struct {
 ```
 
 <a name="ReasoningTrace"></a>
-## type [ReasoningTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L114-L118>)
+## type [ReasoningTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/content.go#L115-L119>)
 
 ReasoningTrace holds a model's reasoning/"thinking" for one assistant turn. It is a sibling of content \(NOT a ContentPart\), so GetContent\(\)/Parts\-based consumers \(external conversation stores, exports, the events bus\) exclude it by default. Text is human\-readable \(display/record only\); Opaque holds provider round\-trip tokens that may be fed back where a provider requires, never shown.
 
@@ -1252,7 +1251,7 @@ type ReasoningTrace struct {
 <a name="StreamingMediaConfig"></a>
 ## type [StreamingMediaConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/streaming.go#L52-L103>)
 
-StreamingMediaConfig configures streaming media input parameters. It configures audio/video streaming sessions with providers.
+StreamingMediaConfig configures streaming media input parameters. It configures audio, video and image streaming sessions with providers.
 
 Example usage for audio streaming:
 
@@ -1270,7 +1269,7 @@ config := &StreamingMediaConfig{
 ```go
 type StreamingMediaConfig struct {
     // Type specifies the media type being streamed
-    // Values: ContentTypeAudio, ContentTypeVideo
+    // Values: ContentTypeAudio, ContentTypeVideo, ContentTypeImage
     Type string `json:"type"`
 
     // ChunkSize is the target size in bytes for each chunk
@@ -1317,13 +1316,13 @@ type StreamingMediaConfig struct {
 ```
 
 <a name="StreamingMediaConfig.Validate"></a>
-### func \(\*StreamingMediaConfig\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/streaming.go#L106>)
+### func \(\*StreamingMediaConfig\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/streaming.go#L108>)
 
 ```go
 func (c *StreamingMediaConfig) Validate() error
 ```
 
-Validate checks if the StreamingMediaConfig is valid
+Validate checks that Type is audio, video or image. Audio and video require a positive ChunkSize. Audio also requires a positive SampleRate and Channels and a non\-empty Encoding. Video requires a positive Width, Height and FrameRate.
 
 <a name="ToolCallRecord"></a>
 ## type [ToolCallRecord](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/tool_call_record.go#L21-L29>)
@@ -1390,7 +1389,7 @@ const (
 ```
 
 <a name="ToolStats"></a>
-## type [ToolStats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L280-L283>)
+## type [ToolStats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L279-L282>)
 
 ToolStats tracks tool usage statistics across a conversation or run. Useful for monitoring which tools are being used and how frequently.
 
@@ -1402,7 +1401,7 @@ type ToolStats struct {
 ```
 
 <a name="ValidationError"></a>
-## type [ValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L287-L291>)
+## type [ValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L286-L290>)
 
 ValidationError represents a validation failure in tool usage or message content. It provides structured error information when validation fails.
 
@@ -1415,7 +1414,7 @@ type ValidationError struct {
 ```
 
 <a name="ValidationResult"></a>
-## type [ValidationResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L295-L300>)
+## type [ValidationResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/message.go#L294-L299>)
 
 ValidationResult represents the outcome of a validator check on a message. These are attached to assistant messages to show which validations passed or failed.
 

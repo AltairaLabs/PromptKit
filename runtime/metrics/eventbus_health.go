@@ -8,9 +8,9 @@ import (
 
 // eventBusHealthCollector is a pull-based Prometheus collector that exports
 // eventbus_events_dropped_total by reading EventBus.DroppedCount() at scrape
-// time. It runs NO goroutine and does NO per-event work — the event bus stays
-// Prometheus-free, and this metric is the early-warning signal for bus
-// saturation under burst load (see AltairaLabs/PromptKit#853).
+// time. It runs no goroutine and does no per-event work, so the event bus
+// stays free of Prometheus. The metric signals event bus saturation under
+// burst load.
 type eventBusHealthCollector struct {
 	bus     *events.EventBus
 	dropped *prometheus.Desc

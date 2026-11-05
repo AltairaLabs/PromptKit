@@ -96,18 +96,26 @@ func (m *ModuleConfig) updateSortedKeys() {
 var globalModuleConfig = NewModuleConfig(slog.LevelInfo)
 
 // LoggingConfigSpec defines the logging configuration for the Configure function.
-// This mirrors the config.LoggingConfigSpec to avoid import cycles.
+// It mirrors the config package's LoggingConfigSpec, which the runtime cannot
+// import.
 type LoggingConfigSpec struct {
+	// DefaultLevel is the log level name (see ParseLevel). Empty means "info".
 	DefaultLevel string
-	Format       string // "json" or "text"
+	// Format is "json" or "text". Any other value selects text.
+	Format string
+	// CommonFields are attached to every log record.
 	CommonFields map[string]string
-	Modules      []ModuleLoggingSpec
+	// Modules sets per-module log levels.
+	Modules []ModuleLoggingSpec
 }
 
 // ModuleLoggingSpec configures logging for a specific module.
 type ModuleLoggingSpec struct {
-	Name   string
-	Level  string
+	// Name is the dotted module name, such as "runtime.pipeline".
+	Name string
+	// Level is the log level name for this module and its children.
+	Level string
+	// Fields is not read by Configure.
 	Fields map[string]string
 }
 
@@ -117,8 +125,9 @@ const (
 	FormatText = "text"
 )
 
-// Configure applies a LoggingConfigSpec to the global logger.
-// This reconfigures the logger with the new settings.
+// Configure applies a LoggingConfigSpec to the global logger, replacing the
+// current logger with one built from the spec. A nil spec does nothing, and so
+// does any call made while a logger installed by SetLogger is in place.
 func Configure(cfg *LoggingConfigSpec) error {
 	if cfg == nil {
 		return nil

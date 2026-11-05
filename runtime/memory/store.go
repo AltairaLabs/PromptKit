@@ -6,12 +6,21 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
-// Store is the core memory persistence interface.
+// Store is the core memory persistence interface. Every method other than Save
+// operates within the scope it is given: a memory is visible only to calls
+// that pass the same scope map it was saved with.
 type Store interface {
+	// Save persists a memory under memory.Scope.
 	Save(ctx context.Context, memory *Memory) error
+	// Retrieve returns the memories in scope that match query, filtered by opts.
+	// The tools call it for memory__recall.
 	Retrieve(ctx context.Context, scope map[string]string, query string, opts RetrieveOptions) ([]*Memory, error)
+	// List returns the memories in scope without a query, filtered and paged by
+	// opts. The tools call it for memory__list.
 	List(ctx context.Context, scope map[string]string, opts ListOptions) ([]*Memory, error)
+	// Delete removes one memory by ID. The tools call it for memory__forget.
 	Delete(ctx context.Context, scope map[string]string, memoryID string) error
+	// DeleteAll removes every memory in scope.
 	DeleteAll(ctx context.Context, scope map[string]string) error
 }
 

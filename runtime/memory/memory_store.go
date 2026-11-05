@@ -11,8 +11,11 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
-// InMemoryStore is a test/development memory store. Substring matching
-// for retrieval, no vector search. Not for production use.
+// InMemoryStore is a test and development memory store that keeps memories in
+// process memory, keyed by scope. Retrieve matches the query as a
+// case-insensitive substring of the memory content and returns at most 10
+// results by default. List returns at most 50 by default. Delete does not
+// return an error for an unknown ID.
 type InMemoryStore struct {
 	mu       sync.RWMutex
 	memories map[string][]*Memory // keyed by scope hash

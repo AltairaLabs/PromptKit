@@ -2,8 +2,16 @@
 //
 // The Collector records both pipeline operational metrics (from EventBus events)
 // and eval result metrics (from pack-defined MetricDefs) into a Prometheus
-// registry. It replaces the dead-code runtime/metrics/prometheus package and
-// the hand-rolled Prometheus text writer in runtime/evals/metrics.go.
+// registry.
+//
+// Pipeline metric families are prefixed with the namespace (default
+// "promptkit") and cover the pipeline (pipeline_duration_seconds), LLM provider
+// calls (provider_request_duration_seconds, provider_requests_total and the
+// provider_*_tokens_total and provider_cost_total counters), tool calls
+// (tool_call_duration_seconds, tool_calls_total), validations
+// (validation_duration_seconds, validations_total), and the tts_, stt_,
+// embedding_, image_gen_ and inference_ families for those capabilities. Eval
+// metrics are created on first observation from the pack's MetricDef.
 //
 // Usage:
 //
@@ -17,8 +25,8 @@
 //
 //	// Per-conversation binding:
 //	ctx := collector.Bind(prometheus.Labels{"tenant": "acme"})
-//	bus.SubscribeAll(ctx.OnEvent)     // pipeline metrics
-//	recorder := ctx                    // evals.MetricRecorder
+//	bus.SubscribeAll(ctx.OnEvent) // pipeline metrics
+//	recorder := ctx                // evals.MetricRecorder
 package metrics
 
 import (
@@ -79,7 +87,7 @@ type CollectorOpts struct {
 	Namespace string
 
 	// ConstLabels are added to every metric as constant label pairs.
-	// These must be truly constant for the lifetime of the process —
+	// These must be constant for the lifetime of the process:
 	// they are baked into the metric descriptor at registration time.
 	// Use for process-level dimensions: env, region, service_name.
 	ConstLabels prometheus.Labels
@@ -92,16 +100,16 @@ type CollectorOpts struct {
 	InstanceLabels []string
 
 	// DisablePipelineMetrics disables operational metrics (provider, tool, pipeline,
-	// validation). Set this to true when you only need eval result metrics — for
-	// example, in standalone eval workers that use sdk.Evaluate() without a live
+	// validation). Set this to true when you only need eval result metrics, for
+	// example in standalone eval workers that use sdk.Evaluate() without a live
 	// pipeline. See also NewEvalOnlyCollector() for a convenience constructor.
 	DisablePipelineMetrics bool
 
 	// DisableEvalMetrics disables eval result metrics.
 	DisableEvalMetrics bool
 
-	// EvalDimensionLimit turns on export of eval dimensions — the named
-	// sub-scores in evals.EvalResult.Metrics — and caps how many distinct
+	// EvalDimensionLimit turns on export of eval dimensions (the named
+	// sub-scores in evals.EvalResult.Metrics) and caps how many distinct
 	// dimensions each eval metric may export for the life of the process.
 	// Zero, the default, exports none: results, events and traces still carry
 	// them, only Prometheus does not.
@@ -272,7 +280,7 @@ func (c *Collector) Registry() *prometheus.Registry { return c.registry }
 // instance label values. The returned context implements both
 // events.Listener (via OnEvent) and evals.MetricRecorder (via Record).
 //
-// Label key ordering in the map does not matter — the Collector sorts
+// Label key ordering in the map does not matter. The Collector sorts
 // InstanceLabels internally for deterministic Prometheus label ordering.
 // Only the keys need to match; values are looked up by key, not position.
 //
@@ -707,8 +715,8 @@ func (mc *MetricContext) handleToolCallCompleted(event *events.Event) {
 // toolCallFailed reports whether a tool.call.completed status means the call
 // failed. The tool executor reports a failed call (an HTTP error, a timeout, a
 // circuit-breaker rejection) as tools.ToolStatusFailed, "failed"; "error" is
-// still accepted for any emitter that uses it. Comparing against "error" alone
-// counted every failed call as a success (#2148).
+// still accepted for any emitter that uses it. A status of "failed" or "error"
+// counts as a failure.
 func toolCallFailed(status string) bool {
 	return status == string(tools.ToolStatusFailed) || status == statusError
 }

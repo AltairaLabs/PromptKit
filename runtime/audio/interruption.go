@@ -106,10 +106,9 @@ func (h *InterruptionHandler) Interrupted() <-chan struct{} {
 }
 
 // Interrupt externally signals an interruption. Use this on the realtime/ASM
-// path where barge-in is detected by the provider's server-side VAD rather than
-// our local VAD — there is no ProcessVADState call to drive handleInterruption,
-// so the provider stage signals the interruption directly. Idempotent within a
-// turn; cleared by Reset.
+// path where the provider's server-side VAD detects barge-in rather than a
+// local VAD. No ProcessVADState call drives the interruption there, so the
+// provider stage signals it directly. Idempotent within a turn; cleared by Reset.
 func (h *InterruptionHandler) Interrupt() {
 	h.mu.Lock()
 	defer h.mu.Unlock()

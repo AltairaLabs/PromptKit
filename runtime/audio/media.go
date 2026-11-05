@@ -11,12 +11,12 @@ type MediaKind int
 const (
 	// KindAudio is a PCM16 little-endian audio frame.
 	KindAudio MediaKind = iota
-	// KindVideo is reserved for future use (YAGNI — not implemented).
+	// KindVideo is reserved. No Source or Sink in this package produces or consumes it.
 	KindVideo
 )
 
 // Format describes the encoding of the media payload.
-// Audio fields are present now; video fields (Width, Height, Codec) will be added later.
+// It carries the audio fields only.
 type Format struct {
 	// SampleRate is the number of audio samples per second (e.g. 16000, 24000, 48000).
 	SampleRate int
@@ -25,12 +25,11 @@ type Format struct {
 }
 
 // MediaFrame is a single unit of captured or synthesized media.
-// PTS (presentation timestamp) is measured from the session clock and is the
-// load-bearing field for AEC delay estimation and A/V sync.
+// PTS (presentation timestamp) is measured from the session clock.
 type MediaFrame struct {
 	// Kind identifies the media type.
 	Kind MediaKind
-	// Data is the raw payload — PCM16 little-endian for audio.
+	// Data is the raw payload: PCM16 little-endian for audio.
 	Data []byte
 	// PTS is the presentation timestamp from the session clock.
 	PTS time.Duration
@@ -54,10 +53,9 @@ type Source interface {
 // devices (speaker), file writers, and the in-memory MemSink test double.
 type Sink interface {
 	// Write enqueues a MediaFrame for playback/storage.
-	// Note: hardware sinks fix the playback sample rate at session construction
-	// (WithPlaybackRate, default 24 kHz); MediaFrame.Format is informational and
-	// is NOT resampled. Callers must write frames at the session's playback rate.
-	// (Phase 3 adds resample-at-sink.)
+	// Note: a hardware sink fixes its playback sample rate when it is
+	// constructed. MediaFrame.Format is informational and is not resampled, so
+	// callers must write frames at the sink's playback rate.
 	Write(MediaFrame)
 	// Flush drops all queued output immediately (e.g. on barge-in).
 	Flush()

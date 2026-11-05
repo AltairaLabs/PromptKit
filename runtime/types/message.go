@@ -240,26 +240,25 @@ func (td ToolDef) MarshalJSON() ([]byte, error) { // value receiver required for
 // CostInfo tracks token usage and associated costs for LLM operations.
 // All cost values are in USD. Used for both individual messages and aggregated tracking.
 type CostInfo struct {
-	InputTokens   int     `json:"input_tokens"`              // Number of input tokens consumed
-	OutputTokens  int     `json:"output_tokens"`             // Number of output tokens generated
-	CachedTokens  int     `json:"cached_tokens,omitempty"`   // Number of cached tokens used (reduces cost)
+	InputTokens   int     `json:"input_tokens"`              // Uncached input tokens across all modalities
+	OutputTokens  int     `json:"output_tokens"`             // Visible output tokens across all modalities
+	CachedTokens  int     `json:"cached_tokens,omitempty"`   // Cache-read tokens
 	InputCostUSD  float64 `json:"input_cost_usd"`            // Cost of input tokens in USD
 	OutputCostUSD float64 `json:"output_cost_usd"`           // Cost of output tokens in USD
-	CachedCostUSD float64 `json:"cached_cost_usd,omitempty"` // Cost savings from cached tokens
+	CachedCostUSD float64 `json:"cached_cost_usd,omitempty"` // Cost of cache-read tokens in USD
 	TotalCost     float64 `json:"total_cost_usd"`            // Total cost in USD
 
-	// unified-path fields (added for ancillary providers and post-migration Imagen)
+	// Per-unit fields populated when a provider prices its usage.
 	Quantities     map[string]float64 `json:"quantities,omitempty"`      // Raw billable quantities by unit name
 	DimensionMatch map[string]string  `json:"dimension_match,omitempty"` // Dimension key-value pairs (e.g. size, quality)
 	ProviderName   string             `json:"provider_name,omitempty"`   // Provider that produced this cost entry
 	Capability     string             `json:"capability,omitempty"`      // ProviderType as string for JSON portability
 	Latency        time.Duration      `json:"latency_ns,omitempty"`      // Time taken by the provider call
 
-	// Breakdown is a per-line-item view of the cost. On a per-message
-	// CostInfo it is left nil; on the aggregated rollup it is populated
-	// from every contributing message so the report can show per-(provider,
-	// capability, unit) detail. Aggregators are free to group or de-dup
-	// further; the runtime appends without aggregation.
+	// Breakdown is a per-line-item view of the cost. A priced provider call
+	// fills it with one item per billed unit. On the aggregated rollup it merges
+	// the items of every contributing message by (provider, capability, unit,
+	// dimensions), so a report can show per-unit detail.
 	Breakdown []CostLineItem `json:"breakdown,omitempty"`
 }
 
@@ -304,7 +303,7 @@ const roleTool = "tool"
 
 // GetContent returns the content of the message.
 // This is the recommended way to access message content as it handles all cases:
-// 1. For tool messages (Role="tool"): returns ToolResult.Content (authoritative source)
+// 1. For tool messages (Role="tool") with a ToolResult: returns ToolResult.GetTextContent()
 // 2. For multimodal messages: returns concatenated text parts
 // 3. For legacy messages: returns the Content field
 func (m *Message) GetContent() string {
@@ -529,7 +528,7 @@ type MediaSummary struct {
 
 // MediaItemSummary provides details about a single media item in a message.
 type MediaItemSummary struct {
-	Type      string `json:"type"`             // Content type: "image", "audio", "video"
+	Type      string `json:"type"`             // Content type: "image", "audio", "video", "document"
 	Source    string `json:"source"`           // Source description (file path, URL, or "inline data")
 	MIMEType  string `json:"mime_type"`        // MIME type
 	SizeBytes int    `json:"size_bytes"`       // Size in bytes (0 if unknown)

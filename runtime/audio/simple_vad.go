@@ -32,7 +32,7 @@ const (
 // scaled linearly between MinVolume (0.01) and maxExpectedRMS (0.1) against a
 // 0.5 Confidence threshold, so nothing below ~0.055 RMS registers as speech.
 // Conversational speech averages ~0.10 RMS but ranges far below that within a
-// single utterance — a trailing word at 0.021 reads as silence, which closes the
+// single utterance: a trailing word at 0.021 reads as silence, which closes the
 // turn mid-sentence and orphans the word.
 //
 // Measured against AdaptiveVAD across nine acoustic conditions and against TTS
@@ -41,11 +41,10 @@ const (
 // at every level it does detect, and drops out of quiet tails. It false-positives
 // no less often. There is no input for which it is the better choice.
 //
-// It remains exported so existing callers keep compiling. Both AudioTurnStage
-// and ResponseVADStage now default to AdaptiveVAD.
+// AudioTurnStage and ResponseVADStage default to AdaptiveVAD.
 //
 // SimpleVAD embeds *vadStateMachine, which promotes State(), OnStateChange(), and
-// base Reset() — together they satisfy the VADAnalyzer interface.
+// base Reset() to satisfy the VADAnalyzer interface.
 type SimpleVAD struct {
 	*vadStateMachine
 

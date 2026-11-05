@@ -9,7 +9,7 @@
 //   - Service interface for TTS providers
 //   - SynthesisConfig for voice/format configuration
 //   - Voice and AudioFormat types for provider capabilities
-//   - Multiple provider implementations (OpenAI, ElevenLabs, etc.)
+//   - Provider implementations for OpenAI, ElevenLabs and Cartesia
 //
 // # Usage
 //
@@ -33,17 +33,19 @@
 // For low-latency applications, use StreamingService:
 //
 //	streamer := tts.NewCartesia(os.Getenv("CARTESIA_API_KEY"))
-//	chunks, err := streamer.SynthesizeStream(ctx, "Hello world", config)
+//	chunks, err := streamer.SynthesizeStream(ctx, "Hello world", tts.DefaultSynthesisConfig())
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
 //	for chunk := range chunks {
 //	    // Play audio chunk immediately
-//	    speaker.Write(chunk)
+//	    speaker.Write(chunk.Data)
 //	}
 //
 // # Available Providers
 //
 // The package includes implementations for:
-//   - OpenAI TTS (tts-1, tts-1-hd models)
-//   - ElevenLabs (high-quality voice cloning)
-//   - Cartesia (ultra-low latency streaming)
-//   - Google Cloud Text-to-Speech (multi-language)
+//   - OpenAI TTS (tts-1, tts-1-hd and gpt-4o-mini-tts models)
+//   - ElevenLabs
+//   - Cartesia (REST and WebSocket streaming)
 package tts

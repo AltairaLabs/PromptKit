@@ -18,9 +18,8 @@ const (
 )
 
 // RetryConfig configures bounded retry for TTS synthesis calls.
-// Defaults are on (unlike streaming retry) because TTS calls are
-// one-shot and idempotent — retry has no content-duplication risk,
-// and the alternative is silence.
+// TTS calls are one-shot and idempotent, so retry has no
+// content-duplication risk.
 type RetryConfig struct {
 	// MaxAttempts is the total number of attempts including the initial
 	// call. 3 means "initial + up to 2 retries". Values < 1 are

@@ -2,13 +2,7 @@ package types
 
 import "fmt"
 
-// TODO: Review necessity of migration utilities - currently only used in tests.
-// This entire file may be premature infrastructure. Consider removing or deferring
-// until there's a concrete use case in production code (arena, packc, or SDK consumers).
-// See discussion: feature/multimodal-phase1-core-types branch review.
-
 // MigrateToMultimodal converts a legacy text-only message to use the Parts structure.
-// This is useful when transitioning existing code to the new multimodal API.
 func MigrateToMultimodal(msg *Message) {
 	if msg.IsMultimodal() {
 		return // Already multimodal, nothing to do
@@ -21,7 +15,7 @@ func MigrateToMultimodal(msg *Message) {
 }
 
 // MigrateToLegacy converts a multimodal message back to legacy text-only format.
-// This is useful for backward compatibility with systems that don't support multimodal.
+// This is for systems that don't support multimodal content.
 // Returns an error if the message contains non-text content.
 func MigrateToLegacy(msg *Message) error {
 	if !msg.IsMultimodal() {
@@ -56,7 +50,12 @@ func MigrateMessagesToLegacy(messages []Message) error {
 	return nil
 }
 
-// CloneMessage creates a deep copy of a message
+// CloneMessage returns a copy of a message. Parts (including their media
+// content), ToolCalls, ToolResult, CostInfo, Meta and Validations are copied
+// into new slices, maps and structs. Values nested inside them are shared with
+// the original: tool-call Args, ToolResult.Parts, CostInfo.Quantities,
+// CostInfo.DimensionMatch and Breakdown, Reasoning, the values in Meta, and
+// ValidationResult.Details.
 func CloneMessage(msg Message) Message {
 	clone := msg
 

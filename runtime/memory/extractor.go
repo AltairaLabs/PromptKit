@@ -7,8 +7,8 @@ import (
 )
 
 // Extractor derives memories from conversation messages.
-// PromptKit defines the interface only. Implementations are provided
-// by platform layers (Omnia) or SDK examples.
+// PromptKit defines the interface only. Implementations come from the host
+// application or a platform layer.
 type Extractor interface {
 	Extract(ctx context.Context, scope map[string]string, messages []types.Message) ([]*Memory, error)
 }

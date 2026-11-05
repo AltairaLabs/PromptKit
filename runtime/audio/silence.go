@@ -12,7 +12,8 @@ import (
 const DefaultMaxAudioBufferSize = 10 * 1024 * 1024
 
 // SilenceDetector detects turn boundaries based on silence duration.
-// It triggers end-of-turn when silence exceeds a configurable threshold.
+// It triggers end-of-turn when silence exceeds a configurable threshold,
+// measured in wall-clock time between VAD state updates.
 type SilenceDetector struct {
 	// Threshold is the silence duration required to trigger turn end.
 	Threshold time.Duration

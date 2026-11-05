@@ -30,6 +30,6 @@ type IndexResult struct {
 	// Message is the full message content.
 	Message types.Message
 
-	// Score is the relevance score (higher is more relevant, typically 0.0-1.0).
+	// Score is the relevance score (higher is more relevant). InMemoryIndex reports cosine similarity.
 	Score float64
 }

@@ -565,7 +565,7 @@ func (s *MemoryStore) LogAppend(ctx context.Context, id string, startSeq int, me
 
 // LogLoad returns messages for the conversation.
 // If recent > 0, returns only the last N messages.
-// Returns an empty slice if the conversation doesn't exist.
+// Returns nil if the conversation doesn't exist or has expired.
 func (s *MemoryStore) LogLoad(ctx context.Context, id string, recent int) ([]types.Message, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

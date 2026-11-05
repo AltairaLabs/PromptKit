@@ -64,7 +64,7 @@ type Executor struct {
 	scope map[string]string
 }
 
-// NewExecutor creates a Executor for the given store and default scope.
+// NewExecutor creates an Executor for the given store and default scope.
 func NewExecutor(store Store, scope map[string]string) *Executor {
 	return &Executor{store: store, scope: scope}
 }
@@ -111,9 +111,8 @@ func (e *Executor) recall(ctx context.Context, args json.RawMessage) (json.RawMe
 	}
 	// Decode typed fields and capture any unknown top-level args, the same
 	// way remember does. Hosts use sdk.WithToolDescriptorOverride to extend
-	// memory__recall's input schema with backend-specific fields (Omnia adds
-	// graph expansion and point-in-time args); without this passthrough the
-	// store never sees them. See AltairaLabs/PromptKit#1987.
+	// memory__recall's input schema with backend-specific fields; without
+	// this passthrough the store never sees them.
 	extras, err := tools.DecodeArgsExtras(args, &a, argQuery, argTypes, argLimit, "min_confidence")
 	if err != nil {
 		return nil, fmt.Errorf("memory recall: %w", err)
@@ -250,7 +249,9 @@ func (e *Executor) delete(ctx context.Context, memoryID string, extras map[strin
 	return e.store.Delete(ctx, e.scopeFor(ctx), memoryID)
 }
 
-// RegisterMemoryTools registers the four base memory tools with executor routing.
+// RegisterMemoryTools registers the four base memory tools (memory__recall,
+// memory__remember, memory__list and memory__forget) with executor routing.
+// Register an Executor under ExecutorMode so the registry routes calls to it.
 func RegisterMemoryTools(registry *tools.Registry) {
 	for _, desc := range buildMemoryToolDescriptors() {
 		desc.Mode = ExecutorMode

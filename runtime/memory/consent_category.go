@@ -3,7 +3,7 @@ package memory
 import "strings"
 
 // ConsentCategory is the well-known taxonomy used by consent-aware consumers
-// (e.g. Omnia) to apply per-category retention, opt-outs, and PII rules at
+// (for example, a hosting platform) to apply per-category retention, opt-outs, and PII rules at
 // memory-write time. Values are stored in [Memory.Metadata] under the key
 // [MetaKeyConsentCategory] regardless of which path produced the memory:
 // the explicit `memory__remember` tool (LLM-supplied category arg) or an
@@ -14,8 +14,7 @@ import "strings"
 type ConsentCategory string
 
 // Known consent categories. The string values are the wire format consumers
-// match against — do not change them without coordinating with downstream
-// platforms.
+// match against.
 const (
 	CategoryIdentity    ConsentCategory = "memory:identity"    // Names, IDs, pronouns, contact details.
 	CategoryPreferences ConsentCategory = "memory:preferences" // Likes, dislikes, settings, configuration.
@@ -39,8 +38,8 @@ func KnownCategories() []ConsentCategory {
 }
 
 // IsKnownCategory reports whether s exactly matches one of the canonical
-// category strings. Unknown values are not rejected by the storage layer —
-// this helper exists for consumer validation only.
+// category strings. The storage layer does not reject unknown values, so this
+// helper is for consumer validation.
 func IsKnownCategory(s string) bool {
 	for _, c := range KnownCategories() {
 		if string(c) == s {
@@ -71,7 +70,7 @@ fallback classifier handles it.`
 // SetConsentCategory writes a category onto m.Metadata[MetaKeyConsentCategory],
 // initializing the map when nil. Empty input is a no-op so callers can pass
 // LLM output unconditionally without checking first. Unknown (non-canonical)
-// values are accepted as-is — see [IsKnownCategory] for validation.
+// values are accepted as-is; see [IsKnownCategory] for validation.
 func (m *Memory) SetConsentCategory(c ConsentCategory) {
 	v := strings.TrimSpace(string(c))
 	if v == "" {

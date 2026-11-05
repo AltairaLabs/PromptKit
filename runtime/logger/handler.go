@@ -17,7 +17,11 @@ type ContextHandler struct {
 
 // ModuleHandler extends ContextHandler with per-module log level filtering.
 // It determines the module name from the call stack and applies the appropriate
-// log level from the module configuration.
+// log level from the module configuration. A module name is the caller's package
+// path under the PromptKit repository with slashes replaced by dots and any major
+// version segment dropped (for example "runtime.pipeline"). A caller outside the
+// repository has an empty module name and gets the default level. Each record
+// carries the module name in a "logger" attribute.
 type ModuleHandler struct {
 	ContextHandler
 	moduleConfig *ModuleConfig
@@ -242,7 +246,7 @@ func extractModuleFromFunction(fn string) string {
 }
 
 // isMajorVersionSegment reports whether a path segment is a Go major-version
-// suffix — "v2", "v3", … . "v1" never appears in a module path, and a package
+// suffix ("v2", "v3", and so on). "v1" never appears in a module path, and a package
 // legitimately named e.g. "v1alpha1" is not one because it is not all digits
 // after the v.
 func isMajorVersionSegment(seg string) bool {

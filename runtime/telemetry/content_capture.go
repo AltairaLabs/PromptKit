@@ -3,12 +3,11 @@ package telemetry
 // Content capture: whether conversation content and tool payloads are attached
 // to spans, and how they are scrubbed when they are.
 //
-// These attributes carry customer data — tool arguments the model composed,
+// These attributes carry customer data: tool arguments the model composed,
 // tool return values, raw message content. Exporting a trace exports them with
 // it, across whatever trust boundary the operator's APM sits behind. The OTel
 // GenAI conventions make message-content capture opt-in for exactly this
-// reason; this package used to emit it unconditionally with no way to turn it
-// off short of disabling tracing.
+// reason.
 //
 // Why this cannot be left to the SDK caller, which is the obvious first
 // suggestion: three of the four content attributes are produced by the MODEL,
@@ -52,9 +51,9 @@ type OTelOption func(*OTelEventListener)
 // WithContentCapture enables attaching conversation content and tool payloads
 // to spans.
 //
-// OFF by default. Span structure, timing, token usage, model names and tool
-// NAMES are unaffected — those carry the operational value without the payload,
-// and remain on regardless.
+// Content capture is off by default. Span structure, timing, token usage, model
+// names and tool names are unaffected: they carry the operational value without
+// the payload, and remain on regardless.
 //
 // Enable this only where the trace backend is an appropriate place for customer
 // data. Where tool arguments may carry credentials (on-behalf-of token

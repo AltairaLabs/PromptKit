@@ -37,7 +37,7 @@ type MediaChunk struct {
 }
 
 // StreamingMediaConfig configures streaming media input parameters.
-// It configures audio/video streaming sessions with providers.
+// It configures audio, video and image streaming sessions with providers.
 //
 // Example usage for audio streaming:
 //
@@ -51,7 +51,7 @@ type MediaChunk struct {
 //	}
 type StreamingMediaConfig struct {
 	// Type specifies the media type being streamed
-	// Values: ContentTypeAudio, ContentTypeVideo
+	// Values: ContentTypeAudio, ContentTypeVideo, ContentTypeImage
 	Type string `json:"type"`
 
 	// ChunkSize is the target size in bytes for each chunk
@@ -102,7 +102,9 @@ type StreamingMediaConfig struct {
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
 
-// Validate checks if the StreamingMediaConfig is valid
+// Validate checks that Type is audio, video or image. Audio and video require
+// a positive ChunkSize. Audio also requires a positive SampleRate and Channels
+// and a non-empty Encoding. Video requires a positive Width, Height and FrameRate.
 func (c *StreamingMediaConfig) Validate() error {
 	// Type must be set
 	if c.Type == "" {
@@ -198,7 +200,9 @@ func NewChunkReader(r io.Reader, config StreamingMediaConfig) *ChunkReader {
 
 // NextChunk reads the next chunk from the reader.
 // Returns io.EOF when the stream is complete.
-// The returned chunk's IsLast field will be true on the final chunk.
+// IsLast is true only when the underlying reader returns data together with
+// io.EOF. A reader that returns io.EOF with no data ends the stream with a
+// nil chunk and io.EOF, so IsLast is never set on a chunk for such readers.
 func (cr *ChunkReader) NextChunk(ctx context.Context) (*MediaChunk, error) {
 	// Check context first
 	select {
@@ -249,7 +253,7 @@ func (cr *ChunkReader) NextChunk(ctx context.Context) (*MediaChunk, error) {
 //	writer := NewChunkWriter(speakerOutput)
 //	for chunk := range session.Response() {
 //	    if chunk.MediaData != nil {
-//	        err := writer.WriteChunk(&MediaChunk{Data: chunk.MediaData.Data})
+//	        _, err := writer.WriteChunk(&MediaChunk{Data: chunk.MediaData.Data})
 //	        if err != nil {
 //	            return err
 //	        }
