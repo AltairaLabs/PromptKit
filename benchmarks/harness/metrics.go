@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -25,6 +26,7 @@ type Summary struct {
 	Concurrency  int
 	Count        int
 	Errors       int
+	ErrorsByType map[string]int
 	ErrorRate    float64
 	FirstByteP50 time.Duration
 	FirstByteP99 time.Duration
@@ -48,6 +50,18 @@ func (a *Aggregator) Record(r RequestResult) {
 	a.mu.Unlock()
 }
 
+// errorKind groups errors by their outermost context and root cause, dropping
+// the URL and addresses in between so that equal failures count together.
+func errorKind(err error) string {
+	msg := err.Error()
+	first, _, _ := strings.Cut(msg, ": ")
+	last := msg[strings.LastIndex(msg, ": ")+1:]
+	if last == msg {
+		return msg
+	}
+	return first + ": ..." + last
+}
+
 // Summarize computes percentiles and other statistics over all recorded results.
 func (a *Aggregator) Summarize() Summary {
 	a.mu.Lock()
@@ -64,6 +78,10 @@ func (a *Aggregator) Summarize() Summary {
 	for _, r := range snapshot {
 		if r.Error != nil {
 			s.Errors++
+			if s.ErrorsByType == nil {
+				s.ErrorsByType = map[string]int{}
+			}
+			s.ErrorsByType[errorKind(r.Error)]++
 			continue
 		}
 		firstBytes = append(firstBytes, r.FirstByteLatency)
