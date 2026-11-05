@@ -765,10 +765,11 @@ Judge params, shared by `llm_judge`, `llm_judge_session`, `llm_judge_tool_calls`
 |-------|------|----------|-------------|
 | `criteria` | string | See each check | What the judge should evaluate. |
 | `rubric` | string | No | Detailed scoring guidance. |
-| `model` | string | No | Model to use for judging. |
 | `system_prompt` | string | No | Override the judge's system prompt. |
 | `provider` | string | No | A logical provider name this pack declares in `requires`. Empty uses the host's default judge. |
 | `extra` | object | No | Provider-specific parameters. They reach the judge as `JudgeOpts.Extra`; the built-in judges send them as the prediction request's `Metadata`, which each provider reads or ignores. |
+
+A judge grades with the model of the provider it is bound to. There is no `model` param, and supplying one produces an error result rather than being ignored. To grade with another model, bind another provider: name it with `provider` or register it with `sdk.WithNamedProvider`.
 
 ### `llm_judge`
 
@@ -1024,7 +1025,7 @@ These checks compare a run against an expectation recorded in the params.
 | Type | Params | Score |
 |------|--------|-------|
 | `outcome_equivalent` | `metric` (`tool_calls` \| `final_state` \| `content_hash`, required), `expected_tools` (string[]), `expected_state` (string), `expected_content` (string) | 1 or 0 |
-| `directional` | `check` (`same_tool_calls` \| `same_outcome` \| `similar_content`, required), `baseline_tools` (string[]), `baseline_state` (string), `baseline_content` (string), `threshold` (float, default `0.5`) | 1 or 0; the overlap for `similar_content` |
+| `directional` | `check` (`same_tool_calls` \| `same_outcome` \| `similar_content`, required), `baseline_tools` (string[]), `baseline_state` (string), `baseline_content` (string) | 1 or 0; the word-overlap ratio for `similar_content`. `threshold` is rejected with an error result; put the pass line on the [`assertion`](#assertion-wrapper) wrapper as `min_score`. |
 
 | Metric or check | Compares |
 |-----------------|----------|

@@ -24,7 +24,7 @@ func (h *LLMJudgeToolCallsHandler) Eval(
 	evalCtx *evals.EvalContext,
 	params map[string]any,
 ) (*evals.EvalResult, error) {
-	if msg := rejectThresholdParams(params); msg != "" {
+	if msg := rejectJudgeParams(params); msg != "" {
 		return errorResult(h.Type(), msg), nil
 	}
 	filtered := filterToolCallViews(evalCtx.ToolCalls, extractStringSlice(params, "tools"))

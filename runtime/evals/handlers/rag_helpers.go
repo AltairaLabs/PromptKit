@@ -151,7 +151,7 @@ func ragJudgeCall(
 	defaultSystemPrompt string,
 	defaultCriteria string,
 ) (*evals.EvalResult, error) {
-	if msg := rejectThresholdParams(params); msg != "" {
+	if msg := rejectJudgeParams(params); msg != "" {
 		return errorResult(evalType, msg), nil
 	}
 	provider, extractErr := resolveJudgeProvider(ctx, evalCtx, params)

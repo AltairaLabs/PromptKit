@@ -127,7 +127,10 @@ type JudgeOpts struct {
 	// Rubric provides detailed scoring guidance (optional).
 	Rubric string
 
-	// Model specifies which model to use for judging (optional, provider decides default).
+	// Model is not read: a provider takes no per-call model, so a judge grades
+	// with the model of the provider it is bound to. The judge handlers reject
+	// a `model` param rather than ignore it. Bind a different provider to
+	// change the judge's model.
 	Model string
 
 	// SystemPrompt overrides the default judge system prompt (optional).
