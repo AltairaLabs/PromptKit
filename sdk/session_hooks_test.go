@@ -2,6 +2,8 @@ package sdk
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
@@ -78,4 +80,46 @@ func TestSessionHookDispatcher_TurnIndex(t *testing.T) {
 	d.IncrementTurn()
 	d.IncrementTurn()
 	assert.Equal(t, 3, d.TurnIndex())
+}
+
+// failingSessionHook fails every lifecycle event.
+type failingSessionHook struct{ name string }
+
+func (h failingSessionHook) Name() string { return h.name }
+func (h failingSessionHook) OnSessionStart(context.Context, hooks.SessionEvent) error {
+	return errors.New("start broke")
+}
+func (h failingSessionHook) OnSessionUpdate(context.Context, hooks.SessionEvent) error {
+	return errors.New("update broke")
+}
+func (h failingSessionHook) OnSessionEnd(context.Context, hooks.SessionEvent) error {
+	return errors.New("end broke")
+}
+
+// The dispatcher discards session-hook errors so they never block the
+// conversation; each must still leave a trace naming the hook, and must not
+// stop the hooks registered after it (#2334).
+func TestSessionHookDispatcher_FailingHookIsLoggedAndOthersStillRun(t *testing.T) {
+	logs := captureLogs(t)
+	after := &recordingSessionHook{name: "after"}
+	reg := hooks.NewRegistry(
+		hooks.WithSessionHook(failingSessionHook{name: "audit-sink"}),
+		hooks.WithSessionHook(after),
+	)
+	d := newSessionHookDispatcher(reg, func() (string, string, []types.Message) {
+		return "sess-9", "conv-9", nil
+	})
+
+	d.SessionStart(context.Background())
+	d.SessionUpdate(context.Background())
+	d.SessionEnd(context.Background())
+
+	assert.True(t, after.startCalled && after.updateCalled && after.endCalled,
+		"hooks after the failing one must still run")
+	out := logs.String()
+	for _, want := range []string{"start broke", "update broke", "end broke"} {
+		assert.Contains(t, out, want)
+	}
+	assert.Equal(t, 3, strings.Count(out, "hook=audit-sink"), out)
+	assert.Contains(t, out, "session_id=sess-9")
 }
