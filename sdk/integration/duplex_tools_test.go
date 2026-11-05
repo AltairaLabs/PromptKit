@@ -136,10 +136,12 @@ func (s *toolAwareMockSession) SendToolResponse(_ context.Context, toolCallID, r
 
 // SendToolResponses implements providers.ToolResponseSupport.
 func (s *toolAwareMockSession) SendToolResponses(_ context.Context, responses []providers.ToolResponse) error {
-	s.toolResponsesReceived.Add(1)
+	// Record the responses before bumping the counter: waiters poll the counter
+	// and then read receivedResponses, so the counter must not run ahead.
 	s.responsesMu.Lock()
 	s.receivedResponses = append(s.receivedResponses, responses)
 	s.responsesMu.Unlock()
+	s.toolResponsesReceived.Add(1)
 
 	select {
 	case s.toolResultsCh <- responses:
