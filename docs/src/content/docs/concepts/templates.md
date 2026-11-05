@@ -133,11 +133,11 @@ Load the pack in Go with `sdk.Open`. The PromptArena documentation covers the ar
 
 ## Failure modes
 
-A placeholder with no value fails the turn before the model runs. The error lists the variable names available and never their values:
+A placeholder with no value fails the turn before the model runs: `Send` returns an error for which `errors.Is(err, stage.ErrTemplateUnresolved)` holds. The error lists the variable names available and never their values:
 
 ```text
-system prompt has unresolved variables: support: unresolved template
-placeholders: [{{company}}] (variables available: role)
+stage 'template' (transform) failed: system prompt has unresolved variables:
+support: unresolved template placeholders: [{{company}}] (variables available: role)
 ```
 
 | Symptom | Cause | Fix |
