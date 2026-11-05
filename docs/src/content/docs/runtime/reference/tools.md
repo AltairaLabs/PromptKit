@@ -11,17 +11,18 @@ sidebar:
 import "github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 ```
 
-Package tools provides tool/function calling infrastructure for LLM testing.
+Package tools provides the tool\-calling infrastructure: descriptors, a registry that executes them, and the built\-in executors.
 
-This package implements a flexible tool execution system with:
+The package contains:
 
-- Tool descriptor registry with JSON Schema validation
-- Mock executors for testing \(static and template\-based\)
-- HTTP executor for live API calls
-- Type coercion and result validation
-- Adapter for prompt registry integration
+- A tool descriptor registry with JSON Schema validation of arguments and results
+- Mock executors \(static and template\-based\)
+- An HTTP executor for live API calls, with request and response mapping
+- Exec and server executors that run tools as subprocesses
+- An MCP executor that calls tools on MCP servers
+- Argument coercion for common model mistakes, such as "10" for an integer
 
-Tools can be loaded from YAML/JSON files and executed with argument validation, result schema checking, and automatic type coercion for common mismatches.
+Tools load from YAML or JSON files with Registry.LoadToolFromBytes, or are registered directly with Registry.Register.
 
 ## Index
 
@@ -182,14 +183,14 @@ const (
     DefaultToolTimeout = 30000
 
     // DefaultMaxToolResultSize is the maximum allowed size (in bytes) of a
-    // JSON-marshaled tool result. Results exceeding this limit are truncated.
+    // tool result's text. The provider stage truncates results that exceed it.
     DefaultMaxToolResultSize = 1 * 1024 * 1024 // 1 MB
 )
 ```
 
 <a name="DeclineStrategyFallback"></a>Decline strategy constants for ConsentConfig.DeclineStrategy.
 
-Deprecated: ConsentConfig.DeclineStrategy is never read; see it for what to do instead. These will be removed in v3.
+Deprecated: ConsentConfig.DeclineStrategy is never read; see it for what to do instead.
 
 ```go
 const (
@@ -203,8 +204,10 @@ const (
 
 ```go
 const (
-    DefaultMaxAggregateSize = 50 * 1024 * 1024 // 50MB cumulative across all responses
 
+    // DefaultMaxAggregateSize is the default limit, in bytes, on the response
+    // bytes an HTTPExecutor reads across all its calls (50MB).
+    DefaultMaxAggregateSize = 50 * 1024 * 1024
 )
 ```
 
@@ -261,7 +264,7 @@ var (
 var ErrAggregateResponseSizeExceeded = fmt.Errorf("aggregate HTTP response size limit exceeded")
 ```
 
-<a name="ErrRateLimitExceeded"></a>ErrRateLimitExceeded is returned when a tool call exceeds its per\-minute rate limit.
+<a name="ErrRateLimitExceeded"></a>ErrRateLimitExceeded is the error reported when a tool call exceeds its per\-minute rate limit. Registry.Execute reports its message in ToolResult.Error and Registry.ExecuteAsync in ToolExecutionResult.Error; neither returns it.
 
 ```go
 var ErrRateLimitExceeded = fmt.Errorf("tool rate limit exceeded")
@@ -317,7 +320,7 @@ func IsBinaryContentType(contentType string, acceptTypes []string) bool
 IsBinaryContentType returns true if the Content\-Type indicates a binary response that should be handled as multimodal content rather than JSON. If acceptTypes is non\-empty, only those specific types match. Otherwise, common image/audio/video prefixes are checked.
 
 <a name="IsImplicitTool"></a>
-## func [IsImplicitTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L88>)
+## func [IsImplicitTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L90>)
 
 ```go
 func IsImplicitTool(name string) bool
@@ -326,7 +329,7 @@ func IsImplicitTool(name string) bool
 IsImplicitTool reports whether a system tool is auto\-surfaced to every prompt without an allowed\_tools entry. Capability tools \(a2a, workflow, memory, skill, image/video mediagen\) are implicitly available. MCP tools are system\-namespaced but must be listed explicitly in allowed\_tools \(or matched by an mcp\_\_\<server\>\_\_\* wildcard\), so they are excluded here.
 
 <a name="IsSystemTool"></a>
-## func [IsSystemTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L67>)
+## func [IsSystemTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L69>)
 
 ```go
 func IsSystemTool(name string) bool
@@ -335,7 +338,7 @@ func IsSystemTool(name string) bool
 IsSystemTool returns true if name belongs to a known system namespace.
 
 <a name="MatchToolPattern"></a>
-## func [MatchToolPattern](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L76>)
+## func [MatchToolPattern](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L78>)
 
 ```go
 func MatchToolPattern(pattern, name string) bool
@@ -355,7 +358,7 @@ MergeExtrasIntoMetadata copies extras into target, leaving any keys already pres
 If target is nil and extras is non\-empty, returns a fresh map; otherwise mutates target in place and returns it. Returns nil when both are empty.
 
 <a name="ParseToolName"></a>
-## func [ParseToolName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L48>)
+## func [ParseToolName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L50>)
 
 ```go
 func ParseToolName(name string) (namespace, localName string)
@@ -364,7 +367,7 @@ func ParseToolName(name string) (namespace, localName string)
 ParseToolName splits a qualified tool name on the first NamespaceSep. "a2a\_\_weather\_\_forecast" → \("a2a", "weather\_\_forecast"\) "get\_weather" → \("", "get\_weather"\) "" → \("", ""\)
 
 <a name="QualifyToolName"></a>
-## func [QualifyToolName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L59>)
+## func [QualifyToolName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L61>)
 
 ```go
 func QualifyToolName(namespace, localName string) string
@@ -382,13 +385,13 @@ func ReadMultimodalResponse(resp *http.Response, aggregateSize *atomic.Int64, ma
 ReadMultimodalResponse reads a binary HTTP response and returns it as a ContentPart with base64\-encoded data. It enforces per\-response and aggregate size limits.
 
 <a name="RedactFields"></a>
-## func [RedactFields](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L665>)
+## func [RedactFields](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L672>)
 
 ```go
 func RedactFields(data []byte, fields []string) []byte
 ```
 
-RedactFields removes or masks sensitive fields from a JSON response.
+RedactFields replaces the value of each listed top\-level key of a JSON object with "\[REDACTED\]". Keys that are absent are ignored. Data that is not a JSON object is returned unchanged.
 
 <a name="ResolveMockParts"></a>
 ## func [ResolveMockParts](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/executors.go#L82>)
@@ -420,7 +423,7 @@ WithMCPRegistry attaches an MCP registry to the context. The MCPExecutor reads t
 Use this to give each concurrent run its own per\-run MCP registry \(typically a Fork of the engine's parent registry\) so that session\-scoped servers registered under the same name \(e.g. "sandbox"\) resolve to different URLs without collision.
 
 <a name="A2AAuthConfig"></a>
-## type [A2AAuthConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L234-L239>)
+## type [A2AAuthConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L246-L251>)
 
 A2AAuthConfig defines authentication for an A2A agent connection.
 
@@ -434,7 +437,7 @@ type A2AAuthConfig struct {
 ```
 
 <a name="A2AConfig"></a>
-## type [A2AConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L222-L231>)
+## type [A2AConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L234-L243>)
 
 A2AConfig defines configuration for A2A agent tool execution
 
@@ -452,7 +455,7 @@ type A2AConfig struct {
 ```
 
 <a name="A2ARetryConfig"></a>
-## type [A2ARetryConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L242-L246>)
+## type [A2ARetryConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L254-L258>)
 
 A2ARetryConfig defines per\-agent retry policy overrides.
 
@@ -465,7 +468,7 @@ type A2ARetryConfig struct {
 ```
 
 <a name="A2ASkillFilter"></a>
-## type [A2ASkillFilter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L249-L252>)
+## type [A2ASkillFilter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L261-L264>)
 
 A2ASkillFilter controls which skills from an A2A agent are exposed to the LLM.
 
@@ -477,7 +480,7 @@ type A2ASkillFilter struct {
 ```
 
 <a name="A2ASkillFilter.IncludesSkill"></a>
-### func \(\*A2ASkillFilter\) [IncludesSkill](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L255>)
+### func \(\*A2ASkillFilter\) [IncludesSkill](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L267>)
 
 ```go
 func (f *A2ASkillFilter) IncludesSkill(skillID string) bool
@@ -486,7 +489,7 @@ func (f *A2ASkillFilter) IncludesSkill(skillID string) bool
 IncludesSkill returns true if the given skill ID passes the filter.
 
 <a name="ApprovalChecker"></a>
-## type [ApprovalChecker](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L378>)
+## type [ApprovalChecker](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L392>)
 
 ApprovalChecker decides whether a tool call must be held for external approval \(human\-in\-the\-loop\) before execution. It returns a non\-nil PendingToolInfo to hold the call pending, or nil to let it execute normally. It is consulted per tool call before execution; a nil checker is a no\-op. The context is the tool\-execution context, so a checker that persists the held call \(e.g. to a durable store\) honors cancellation and deadlines.
 
@@ -495,7 +498,7 @@ type ApprovalChecker func(ctx context.Context, callID, name string, args map[str
 ```
 
 <a name="AsyncToolExecutor"></a>
-## type [AsyncToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L432-L437>)
+## type [AsyncToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L446-L451>)
 
 AsyncToolExecutor is a tool that can return pending status instead of blocking. Tools that require human approval or external async operations should implement this.
 
@@ -509,7 +512,7 @@ type AsyncToolExecutor interface {
 ```
 
 <a name="ClientConfig"></a>
-## type [ClientConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L289-L298>)
+## type [ClientConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L303-L312>)
 
 ClientConfig defines configuration for client\-side tool execution. Tools with mode "client" are fulfilled by the SDK caller's device \(e.g., GPS, camera, contacts, biometrics\).
 
@@ -527,7 +530,7 @@ type ClientConfig struct {
 ```
 
 <a name="Coercion"></a>
-## type [Coercion](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L315-L319>)
+## type [Coercion](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L321-L325>)
 
 Coercion represents a type coercion that was performed.
 
@@ -540,7 +543,7 @@ type Coercion struct {
 ```
 
 <a name="ConsentConfig"></a>
-## type [ConsentConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L304-L320>)
+## type [ConsentConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L318-L334>)
 
 ConsentConfig defines consent requirements for client\-side tools. Message is surfaced to the host \(the SDK's ClientToolRequest.ConsentMsg and pending client tool\); asking for consent and acting on the answer is the host's job.
 
@@ -548,14 +551,14 @@ ConsentConfig defines consent requirements for client\-side tools. Message is su
 type ConsentConfig struct {
     // Required is carried but never read.
     //
-    // Deprecated: nothing enforces it and it will be removed in v3. Consent is
+    // Deprecated: nothing enforces it. Consent is
     // a hosting concern: ask for it in the client tool handler, or before
     // answering a deferred call, using Message and ClientConfig.Categories.
     Required bool   `json:"required" yaml:"required"`
     Message  string `json:"message,omitempty" yaml:"message,omitempty"`
     // DeclineStrategy is carried but never read.
     //
-    // Deprecated: nothing acts on it and it will be removed in v3. When the
+    // Deprecated: nothing acts on it. When the
     // user declines, the host answers the call itself: in the SDK, return an
     // error from the client tool handler (the model sees a failed call), or
     // call Conversation.RejectClientTool for a deferred call (the model is
@@ -574,7 +577,7 @@ type DefaultRequestMapper struct{}
 ```
 
 <a name="DefaultRequestMapper.BuildBody"></a>
-### func \(\*DefaultRequestMapper\) [BuildBody](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L110>)
+### func \(\*DefaultRequestMapper\) [BuildBody](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L113>)
 
 ```go
 func (m *DefaultRequestMapper) BuildBody(bodyArgs map[string]any, jmespathExpr string) (json.RawMessage, error)
@@ -583,16 +586,16 @@ func (m *DefaultRequestMapper) BuildBody(bodyArgs map[string]any, jmespathExpr s
 BuildBody produces the JSON body from args, optionally reshaped via JMESPath.
 
 <a name="DefaultRequestMapper.PartitionArgs"></a>
-### func \(\*DefaultRequestMapper\) [PartitionArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L75-L77>)
+### func \(\*DefaultRequestMapper\) [PartitionArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L78-L80>)
 
 ```go
 func (m *DefaultRequestMapper) PartitionArgs(args map[string]any, cfg *RequestMapping, urlTemplate string) (query, header, body map[string]any)
 ```
 
-PartitionArgs splits tool arguments into three buckets: query parameters, header values, and body fields. Arguments consumed by URL templates and header templates are automatically excluded from the body.
+PartitionArgs splits tool arguments into query parameters and body fields. The header bucket is always empty: headers come from RequestMapping.HeaderParams templates. Arguments consumed by URL templates and header templates, listed in Exclude, or routed to the query are left out of the body. With a nil cfg every argument goes to the body.
 
 <a name="DefaultRequestMapper.RenderHeaders"></a>
-### func \(\*DefaultRequestMapper\) [RenderHeaders](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L121-L123>)
+### func \(\*DefaultRequestMapper\) [RenderHeaders](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L124-L126>)
 
 ```go
 func (m *DefaultRequestMapper) RenderHeaders(templates map[string]string, args map[string]any) (map[string]string, error)
@@ -601,13 +604,13 @@ func (m *DefaultRequestMapper) RenderHeaders(templates map[string]string, args m
 RenderHeaders applies text/template substitution to header value templates.
 
 <a name="DefaultRequestMapper.RenderURL"></a>
-### func \(\*DefaultRequestMapper\) [RenderURL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L65>)
+### func \(\*DefaultRequestMapper\) [RenderURL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L66>)
 
 ```go
 func (m *DefaultRequestMapper) RenderURL(urlTemplate string, args map[string]any) (string, error)
 ```
 
-RenderURL applies Go text/template substitution to a URL string. Template variables like \{\{.user\_id\}\} are replaced with values from args.
+RenderURL applies Go text/template substitution to a URL string. Template variables like \{\{.user\_id\}\} are replaced with values from args. Values are inserted as they are, without URL escaping.
 
 <a name="DefaultResponseMapper"></a>
 ## type [DefaultResponseMapper](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L59>)
@@ -619,7 +622,7 @@ type DefaultResponseMapper struct{}
 ```
 
 <a name="DefaultResponseMapper.MapResponse"></a>
-### func \(\*DefaultResponseMapper\) [MapResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L146-L148>)
+### func \(\*DefaultResponseMapper\) [MapResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L149-L151>)
 
 ```go
 func (m *DefaultResponseMapper) MapResponse(response json.RawMessage, jmespathExpr string) (json.RawMessage, error)
@@ -630,7 +633,7 @@ MapResponse applies a JMESPath expression to extract or reshape a JSON response.
 <a name="ErrToolsPending"></a>
 ## type [ErrToolsPending](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/errors.go#L54-L56>)
 
-ErrToolsPending is returned by executeToolCalls when one or more tool calls returned ToolStatusPending. The pipeline should suspend: completed tool results are still returned alongside this error so they can be appended to the message history.
+ErrToolsPending is returned by the provider stage when one or more tool calls returned ToolStatusPending. The pipeline should suspend: completed tool results are still returned alongside this error so they can be appended to the message history.
 
 ```go
 type ErrToolsPending struct {
@@ -657,15 +660,17 @@ func (e *ErrToolsPending) Error() string
 
 
 <a name="ExecConfig"></a>
-## type [ExecConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L278-L284>)
+## type [ExecConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L290-L298>)
 
 ExecConfig defines configuration for exec subprocess tool execution. The runtime spawns the command per invocation, passing tool arguments as JSON on stdin and reading the result from stdout.
 
 ```go
 type ExecConfig struct {
-    Command   string   `json:"command" yaml:"command"`
-    Runtime   string   `json:"runtime,omitempty" yaml:"runtime,omitempty"` // "exec" (default) or "server"
-    Args      []string `json:"args,omitempty" yaml:"args,omitempty"`
+    Command string   `json:"command" yaml:"command"`
+    Runtime string   `json:"runtime,omitempty" yaml:"runtime,omitempty"` // "exec" (default) or "server"
+    Args    []string `json:"args,omitempty" yaml:"args,omitempty"`
+    // Env lists the names of the environment variables passed to the exec
+    // subprocess. When it is empty the subprocess inherits the full environment.
     Env       []string `json:"env,omitempty" yaml:"env,omitempty"`
     TimeoutMs int      `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
 }
@@ -716,7 +721,7 @@ func (e *ExecExecutor) Name() string
 Name returns the executor name used for mode\-based routing.
 
 <a name="Executor"></a>
-## type [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L414-L417>)
+## type [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L428-L431>)
 
 Executor interface defines how tools are executed
 
@@ -730,7 +735,7 @@ type Executor interface {
 <a name="FileToolResponseRepository"></a>
 ## type [FileToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L137-L140>)
 
-FileToolResponseRepository implements ToolResponseRepository using the provider's MockConfig YAML structure. This allows Arena scenarios to define tool responses alongside LLM responses.
+FileToolResponseRepository implements ToolResponseRepository from a scenario's configured tool responses. It answers only for calls whose context key equals its scenario ID.
 
 ```go
 type FileToolResponseRepository struct {
@@ -748,27 +753,37 @@ func NewFileToolResponseRepository(scenarioID string, toolResponses map[string][
 NewFileToolResponseRepository creates a repository from scenario tool responses. This is typically used by Arena to provide tool mocking from YAML scenarios.
 
 <a name="FileToolResponseRepository.GetToolResponse"></a>
-### func \(\*FileToolResponseRepository\) [GetToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L168-L170>)
+### func \(\*FileToolResponseRepository\) [GetToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L170-L172>)
 
 ```go
 func (r *FileToolResponseRepository) GetToolResponse(toolName string, args map[string]any, contextKey string) (*ToolResponseData, error)
 ```
 
-GetToolResponse implements ToolResponseRepository. It finds the first matching response based on argument comparison.
+GetToolResponse implements ToolResponseRepository. It returns the first configured response for the tool whose CallArgs all appear, with deeply equal values, in args; an entry with no CallArgs matches any call. It returns nil when the context key is not the scenario ID or nothing matches.
 
 <a name="HTTPConfig"></a>
-## type [HTTPConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L157-L171>)
+## type [HTTPConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L159-L183>)
 
 HTTPConfig defines configuration for live HTTP tool execution
 
 ```go
 type HTTPConfig struct {
-    URL            string            `json:"url" yaml:"url"`
-    Method         string            `json:"method" yaml:"method"`
-    HeadersFromEnv []string          `json:"headers_from_env,omitempty" yaml:"headers_from_env,omitempty"`
-    TimeoutMs      int               `json:"timeout_ms" yaml:"timeout_ms"`
-    Redact         []string          `json:"redact,omitempty" yaml:"redact,omitempty"`
-    Headers        map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+    // URL is the endpoint. It may contain Go template references to tool
+    // arguments in the path and query, but not in the scheme or host.
+    URL string `json:"url" yaml:"url"`
+    // Method is the HTTP method. It defaults to POST.
+    Method string `json:"method" yaml:"method"`
+    // HeadersFromEnv lists headers to set from environment variables, each
+    // entry in the form "Header-Name=ENV_VAR_NAME". A variable that is unset or
+    // empty sets no header.
+    HeadersFromEnv []string `json:"headers_from_env,omitempty" yaml:"headers_from_env,omitempty"`
+    // TimeoutMs bounds the request, in milliseconds. 0 sets no limit here.
+    TimeoutMs int `json:"timeout_ms" yaml:"timeout_ms"`
+    // Redact lists top-level keys of a JSON object response whose values are
+    // replaced with "[REDACTED]" before the result is returned.
+    Redact []string `json:"redact,omitempty" yaml:"redact,omitempty"`
+    // Headers are literal headers set on every request.
+    Headers map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 
     // Request/response mapping configuration
     Request  *RequestMapping  `json:"request,omitempty" yaml:"request,omitempty"`
@@ -780,7 +795,7 @@ type HTTPConfig struct {
 ```
 
 <a name="HTTPExecutor"></a>
-## type [HTTPExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L60-L78>)
+## type [HTTPExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L62-L80>)
 
 HTTPExecutor executes tools that make HTTP calls based on pack configuration. It reads the HTTPConfig from the tool descriptor and makes the appropriate HTTP request. It tracks cumulative response sizes and rejects calls once the aggregate limit is reached.
 
@@ -809,7 +824,7 @@ type HTTPExecutor struct {
 ```
 
 <a name="NewHTTPExecutor"></a>
-### func [NewHTTPExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L82>)
+### func [NewHTTPExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L84>)
 
 ```go
 func NewHTTPExecutor() *HTTPExecutor
@@ -818,7 +833,7 @@ func NewHTTPExecutor() *HTTPExecutor
 NewHTTPExecutor creates a new HTTP executor with the default HTTP client and default aggregate response size limit.
 
 <a name="NewHTTPExecutorWithClient"></a>
-### func [NewHTTPExecutorWithClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L91>)
+### func [NewHTTPExecutorWithClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L93>)
 
 ```go
 func NewHTTPExecutorWithClient(client *http.Client) *HTTPExecutor
@@ -827,7 +842,7 @@ func NewHTTPExecutorWithClient(client *http.Client) *HTTPExecutor
 NewHTTPExecutorWithClient creates a new HTTP executor with a custom HTTP client. This is useful for testing or when custom transport configuration is needed.
 
 <a name="NewHTTPExecutorWithMaxAggregate"></a>
-### func [NewHTTPExecutorWithMaxAggregate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L100>)
+### func [NewHTTPExecutorWithMaxAggregate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L102>)
 
 ```go
 func NewHTTPExecutorWithMaxAggregate(maxAggregate int64) *HTTPExecutor
@@ -836,7 +851,7 @@ func NewHTTPExecutorWithMaxAggregate(maxAggregate int64) *HTTPExecutor
 NewHTTPExecutorWithMaxAggregate creates a new HTTP executor with a custom aggregate response size limit. Use 0 or a negative value to disable.
 
 <a name="HTTPExecutor.AggregateResponseSize"></a>
-### func \(\*HTTPExecutor\) [AggregateResponseSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L108>)
+### func \(\*HTTPExecutor\) [AggregateResponseSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L110>)
 
 ```go
 func (e *HTTPExecutor) AggregateResponseSize() int64
@@ -845,16 +860,16 @@ func (e *HTTPExecutor) AggregateResponseSize() int64
 AggregateResponseSize returns the cumulative response size consumed so far.
 
 <a name="HTTPExecutor.Execute"></a>
-### func \(\*HTTPExecutor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L123-L127>)
+### func \(\*HTTPExecutor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L128-L132>)
 
 ```go
 func (e *HTTPExecutor) Execute(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error)
 ```
 
-Execute performs an HTTP request based on the tool descriptor's HTTPConfig.
+Execute performs an HTTP request based on the tool descriptor's HTTPConfig. A non\-2xx status is an error that includes the response body. A response that is not JSON is returned wrapped as \{"result": "\<body\>"\}. Redaction runs before response mapping.
 
 <a name="HTTPExecutor.ExecuteMultimodal"></a>
-### func \(\*HTTPExecutor\) [ExecuteMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L582-L586>)
+### func \(\*HTTPExecutor\) [ExecuteMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L587-L591>)
 
 ```go
 func (e *HTTPExecutor) ExecuteMultimodal(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, []types.ContentPart, error)
@@ -863,7 +878,7 @@ func (e *HTTPExecutor) ExecuteMultimodal(ctx context.Context, descriptor *ToolDe
 ExecuteMultimodal performs an HTTP request and returns multimodal content parts when the response is a binary type \(image, audio, video\). For JSON responses, it falls back to the standard Execute path with no content parts.
 
 <a name="HTTPExecutor.Name"></a>
-### func \(\*HTTPExecutor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L118>)
+### func \(\*HTTPExecutor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L120>)
 
 ```go
 func (e *HTTPExecutor) Name() string
@@ -872,7 +887,7 @@ func (e *HTTPExecutor) Name() string
 Name returns the executor name used for registration.
 
 <a name="HTTPExecutor.ResetAggregateSize"></a>
-### func \(\*HTTPExecutor\) [ResetAggregateSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L113>)
+### func \(\*HTTPExecutor\) [ResetAggregateSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L115>)
 
 ```go
 func (e *HTTPExecutor) ResetAggregateSize()
@@ -898,7 +913,7 @@ type HostExtras map[string]any
 ```
 
 <a name="InMemoryToolResponseRepository"></a>
-## type [InMemoryToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L247-L249>)
+## type [InMemoryToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L249-L251>)
 
 InMemoryToolResponseRepository implements ToolResponseRepository using in\-memory storage. This is useful for SDK unit tests and programmatic configuration of tool responses.
 
@@ -909,7 +924,7 @@ type InMemoryToolResponseRepository struct {
 ```
 
 <a name="NewInMemoryToolResponseRepository"></a>
-### func [NewInMemoryToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L252>)
+### func [NewInMemoryToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L254>)
 
 ```go
 func NewInMemoryToolResponseRepository() *InMemoryToolResponseRepository
@@ -918,7 +933,7 @@ func NewInMemoryToolResponseRepository() *InMemoryToolResponseRepository
 NewInMemoryToolResponseRepository creates a new in\-memory tool response repository.
 
 <a name="InMemoryToolResponseRepository.AddResponse"></a>
-### func \(\*InMemoryToolResponseRepository\) [AddResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L260>)
+### func \(\*InMemoryToolResponseRepository\) [AddResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L262>)
 
 ```go
 func (r *InMemoryToolResponseRepository) AddResponse(contextKey, toolName string, response *ToolResponseData)
@@ -927,7 +942,7 @@ func (r *InMemoryToolResponseRepository) AddResponse(contextKey, toolName string
 AddResponse adds a tool response for a specific context and tool name. This method supports simple responses where argument matching is not needed.
 
 <a name="InMemoryToolResponseRepository.GetToolResponse"></a>
-### func \(\*InMemoryToolResponseRepository\) [GetToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L271-L273>)
+### func \(\*InMemoryToolResponseRepository\) [GetToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L273-L275>)
 
 ```go
 func (r *InMemoryToolResponseRepository) GetToolResponse(toolName string, args map[string]any, contextKey string) (*ToolResponseData, error)
@@ -1100,7 +1115,7 @@ type MockToolResponseConfig struct {
 ```
 
 <a name="MultimodalConfig"></a>
-## type [MultimodalConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L212-L219>)
+## type [MultimodalConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L224-L231>)
 
 MultimodalConfig configures multimodal response handling for HTTP tools.
 
@@ -1116,7 +1131,7 @@ type MultimodalConfig struct {
 ```
 
 <a name="MultimodalExecutor"></a>
-## type [MultimodalExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L421-L428>)
+## type [MultimodalExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L435-L442>)
 
 MultimodalExecutor extends Executor with support for returning multimodal content parts. Executors that can return images, audio, or other non\-text content should implement this.
 
@@ -1147,7 +1162,7 @@ type PendingToolExecution struct {
 ```
 
 <a name="PendingToolInfo"></a>
-## type [PendingToolInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L381-L398>)
+## type [PendingToolInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L395-L412>)
 
 PendingToolInfo describes a tool call awaiting external input or approval.
 
@@ -1182,7 +1197,7 @@ func (p PendingToolInfo) MarshalJSON() ([]byte, error)
 MarshalJSON normalizes the pending tool call's args \(empty \-\> \{\}\).
 
 <a name="Registry"></a>
-## type [Registry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L81-L94>)
+## type [Registry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L82-L95>)
 
 Registry manages tool descriptors and provides access to executors. All map access is protected by mu \(RWMutex\) for safe concurrent use.
 
@@ -1238,7 +1253,7 @@ func main() {
 </details>
 
 <a name="NewRegistry"></a>
-### func [NewRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L97>)
+### func [NewRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L98>)
 
 ```go
 func NewRegistry(opts ...RegistryOption) *Registry
@@ -1247,7 +1262,7 @@ func NewRegistry(opts ...RegistryOption) *Registry
 NewRegistry creates an empty tool registry.
 
 <a name="NewRegistryWithRepository"></a>
-### func [NewRegistryWithRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L103>)
+### func [NewRegistryWithRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L104>)
 
 ```go
 func NewRegistryWithRepository(repo ToolRepository, opts ...RegistryOption) *Registry
@@ -1256,7 +1271,7 @@ func NewRegistryWithRepository(repo ToolRepository, opts ...RegistryOption) *Reg
 NewRegistryWithRepository creates a tool registry preloaded with every descriptor the repository lists. The repository is not retained.
 
 <a name="Registry.Child"></a>
-### func \(\*Registry\) [Child](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/child_registry.go#L29>)
+### func \(\*Registry\) [Child](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/child_registry.go#L21>)
 
 ```go
 func (r *Registry) Child(opts ...RegistryOption) *Registry
@@ -1264,34 +1279,32 @@ func (r *Registry) Child(opts ...RegistryOption) *Registry
 
 Child returns a registry that shares this one's tool DESCRIPTORS but owns its own EXECUTORS.
 
-Executors are the dangerous half: they are keyed by name, one per name, and several hold per\-conversation state, so sharing them across conversations is the bug. Descriptors are data, and a host that passes a registry in with WithToolRegistry reads it back to inspect and override the tool set \-\- sdk/integration/contract\_tool\_overrides\_test.go asserts exactly that. So Register writes through to the parent and only RegisterExecutor stays local.
+Executors are keyed by name, one per name, and several hold per\-conversation state, so conversations must not share them. Descriptors are data, and a host that passes a registry in with WithToolRegistry reads it back to inspect and override the tool set. So Register and Unregister act on the parent, and only RegisterExecutor stays local to the child.
 
-A Registry keys executors by name and holds exactly one per name, so a host that shares a single registry across concurrent conversations has each conversation's executors overwrite the previous one's \-\- and with them any per\-conversation state those executors held. Giving each conversation a child makes that unrepresentable rather than merely avoided: RegisterExecutor writes to the child, and executor lookup falls through to the parent only for names the child never claimed, so a host's own custom executor is still used.
+Executor lookup falls through to the parent only for names the child never registered, so a host's own custom executor is still used. Descriptor lookup is live, not a snapshot: a tool registered on the parent after the child was created is visible to the child.
 
-Descriptor lookup is live, not a snapshot. A tool registered on the parent after the child was created is visible to the child, which is what a copy\-at\-creation child would get wrong.
-
-Child is nil\-receiver safe: a nil parent yields a standalone registry, so a caller can write reg = hostRegistry.Child\(\) without branching on whether the host supplied one.
+Child is nil\-receiver safe: a nil parent yields a standalone registry, so a caller can write reg = hostRegistry.Child\(\) without checking whether the host supplied one. The child takes the parent's default timeout, result size limit and rate limiter, and options passed to Child override them.
 
 <a name="Registry.Execute"></a>
-### func \(\*Registry\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L452-L454>)
+### func \(\*Registry\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L464-L466>)
 
 ```go
 func (r *Registry) Execute(ctx context.Context, toolName string, args json.RawMessage) (*ToolResult, error)
 ```
 
-Execute executes a tool with the given arguments
+Execute runs a tool with the given arguments. It coerces the arguments toward the input schema, validates them, applies the rate limit, and runs the executor the tool's mode selects, under the tool's TimeoutMs. An unknown tool, invalid arguments, or a missing executor return an error. An executor failure, a timeout, a rate\-limit refusal, or a result that fails the output schema is reported in ToolResult.Error with a nil error. Results of tools in mcp mode are not validated against the output schema.
 
 <a name="Registry.ExecuteAsync"></a>
-### func \(\*Registry\) [ExecuteAsync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L555-L557>)
+### func \(\*Registry\) [ExecuteAsync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L569-L571>)
 
 ```go
 func (r *Registry) ExecuteAsync(ctx context.Context, toolName string, args json.RawMessage) (*ToolExecutionResult, error)
 ```
 
-ExecuteAsync executes a tool with async support, checking if it implements AsyncToolExecutor. Returns ToolExecutionResult with status \(complete/pending/failed\).
+ExecuteAsync is Execute for executors that may suspend a call. If the tool's executor implements AsyncToolExecutor, the result can have status ToolStatusPending; otherwise the call runs synchronously. Failures are reported as status ToolStatusFailed with a nil error, as for Execute.
 
 <a name="Registry.Fork"></a>
-### func \(\*Registry\) [Fork](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L152>)
+### func \(\*Registry\) [Fork](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L153>)
 
 ```go
 func (r *Registry) Fork() *Registry
@@ -1299,12 +1312,12 @@ func (r *Registry) Fork() *Registry
 
 Fork returns a child Registry that snapshots the parent's tool descriptors and executors at the moment of the call. After Fork the child and parent are independent: descriptors and executors registered on the child do not leak to the parent \(and vice versa\).
 
-Use this to give each concurrent run its own per\-run dispatch state — a per\-run MCPExecutor wired to a per\-run mcp.Registry, plus per\-run MCP tool descriptors discovered from session\-scoped sources, without colliding with other runs that share the engine's parent Registry.
+Use this to give each concurrent run its own per\-run dispatch state: a per\-run MCPExecutor wired to a per\-run mcp.Registry, plus per\-run MCP tool descriptors discovered from session\-scoped sources, without colliding with other runs that share the engine's parent Registry.
 
 Memory cost is two shallow map copies; descriptor and executor values are pointer\-typed so the underlying objects are shared.
 
 <a name="Registry.Get"></a>
-### func \(\*Registry\) [Get](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L221>)
+### func \(\*Registry\) [Get](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L226>)
 
 ```go
 func (r *Registry) Get(name string) *ToolDescriptor
@@ -1313,7 +1326,7 @@ func (r *Registry) Get(name string) *ToolDescriptor
 Get retrieves a tool descriptor by name, or nil when none is registered.
 
 <a name="Registry.GetByNamespace"></a>
-### func \(\*Registry\) [GetByNamespace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L375>)
+### func \(\*Registry\) [GetByNamespace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L383>)
 
 ```go
 func (r *Registry) GetByNamespace(ns string) []*ToolDescriptor
@@ -1322,7 +1335,7 @@ func (r *Registry) GetByNamespace(ns string) []*ToolDescriptor
 GetByNamespace returns all tool descriptors in the given namespace.
 
 <a name="Registry.GetTool"></a>
-### func \(\*Registry\) [GetTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L333>)
+### func \(\*Registry\) [GetTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L341>)
 
 ```go
 func (r *Registry) GetTool(name string) (*ToolDescriptor, error)
@@ -1331,16 +1344,16 @@ func (r *Registry) GetTool(name string) (*ToolDescriptor, error)
 GetTool retrieves a tool descriptor by name.
 
 <a name="Registry.GetTools"></a>
-### func \(\*Registry\) [GetTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L344>)
+### func \(\*Registry\) [GetTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L352>)
 
 ```go
 func (r *Registry) GetTools() map[string]*ToolDescriptor
 ```
 
-GetTools returns all loaded tool descriptors. The returned map is a shallow copy \(safe to iterate/delete keys\), but the \*ToolDescriptor pointers are shared with the registry. Callers MUST NOT mutate the returned descriptors.
+GetTools returns all loaded tool descriptors. The returned map is a shallow copy \(safe to iterate/delete keys\), but the \*ToolDescriptor pointers are shared with the registry. Callers must not mutate the returned descriptors.
 
 <a name="Registry.GetToolsByNames"></a>
-### func \(\*Registry\) [GetToolsByNames](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L362>)
+### func \(\*Registry\) [GetToolsByNames](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L370>)
 
 ```go
 func (r *Registry) GetToolsByNames(names []string) ([]*ToolDescriptor, error)
@@ -1349,16 +1362,16 @@ func (r *Registry) GetToolsByNames(names []string) ([]*ToolDescriptor, error)
 GetToolsByNames returns tool descriptors for the specified names
 
 <a name="Registry.IterateTools"></a>
-### func \(\*Registry\) [IterateTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L355>)
+### func \(\*Registry\) [IterateTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L363>)
 
 ```go
 func (r *Registry) IterateTools(fn func(name string, tool *ToolDescriptor))
 ```
 
-IterateTools calls fn for each loaded tool descriptor while holding the read lock. This avoids the map copy that GetTools performs, which matters when the registry is large and the caller only needs to inspect each tool once \(e.g. building a provider tool list\). The callback MUST NOT call back into the Registry \(deadlock\).
+IterateTools calls fn for each loaded tool descriptor while holding the read lock. This avoids the map copy that GetTools performs, which matters when the registry is large and the caller only needs to inspect each tool once \(e.g. building a provider tool list\). The callback must not call back into the Registry.
 
 <a name="Registry.List"></a>
-### func \(\*Registry\) [List](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L227>)
+### func \(\*Registry\) [List](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L232>)
 
 ```go
 func (r *Registry) List() []string
@@ -1367,16 +1380,16 @@ func (r *Registry) List() []string
 List returns the names of every registered tool, sorted.
 
 <a name="Registry.LoadToolFromBytes"></a>
-### func \(\*Registry\) [LoadToolFromBytes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L241>)
+### func \(\*Registry\) [LoadToolFromBytes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L249>)
 
 ```go
 func (r *Registry) LoadToolFromBytes(filename string, data []byte) error
 ```
 
-LoadToolFromBytes loads a tool descriptor from raw bytes data. This is useful when tool data has already been read from a file or received from another source, avoiding redundant file I/O. The filename parameter is used only for error reporting.
+LoadToolFromBytes loads a tool descriptor from raw bytes data. A filename ending in .yaml or .yml selects the YAML parser, which requires the Kubernetes manifest form \(apiVersion, kind: Tool, metadata, spec\); any other filename selects JSON. The descriptor must have a name, description, input schema, output schema and a valid mode, or an error is returned. A TimeoutMs of 0 is replaced with the registry default. The filename is used for the parser choice and in error messages.
 
 <a name="Registry.MaxToolResultSize"></a>
-### func \(\*Registry\) [MaxToolResultSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L420>)
+### func \(\*Registry\) [MaxToolResultSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L426>)
 
 ```go
 func (r *Registry) MaxToolResultSize() int
@@ -1385,16 +1398,16 @@ func (r *Registry) MaxToolResultSize() int
 MaxToolResultSize returns the configured maximum tool result size in bytes.
 
 <a name="Registry.Register"></a>
-### func \(\*Registry\) [Register](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L166>)
+### func \(\*Registry\) [Register](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L170>)
 
 ```go
 func (r *Registry) Register(descriptor *ToolDescriptor) error
 ```
 
-Register adds a tool descriptor to the registry with validation.
+Register adds a tool descriptor to the registry, replacing any descriptor of the same name, and sets its Namespace from its name. Unlike LoadToolFromBytes, it does not check the descriptor's required fields. On a registry made with Child, the descriptor is registered on the parent.
 
 <a name="Registry.RegisterExecutor"></a>
-### func \(\*Registry\) [RegisterExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L398>)
+### func \(\*Registry\) [RegisterExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L404>)
 
 ```go
 func (r *Registry) RegisterExecutor(executor Executor)
@@ -1402,12 +1415,12 @@ func (r *Registry) RegisterExecutor(executor Executor)
 
 RegisterExecutor registers a tool executor under its Executor.Name.
 
-A registry holds exactly one executor per name, so registering a second one under a name already taken EVICTS the first. That is almost always a bug: two owners \-\- typically two conversations sharing a registry \-\- each believe they installed the executor that serves their tool calls, and the loser silently starts getting the winner's answers, along with whatever per\-conversation state the winner's executor holds.
+A registry holds exactly one executor per name, so registering a second one under a name already taken replaces the first. Two owners that share a registry, typically two conversations, would each expect their own executor to serve their tool calls, and the later registration would take over the earlier one's calls along with whatever per\-conversation state its executor holds.
 
-RegisterExecutor logs the eviction at Warn. Nothing in PromptKit legitimately re\-registers a name on the same registry \-\- each conversation owns its own \(see [Registry.Child](<#Registry.Child>)\), and a workflow state change opens a fresh conversation with a fresh registry \-\- so in practice this fires only on the bug.
+RegisterExecutor logs the replacement at Warn. Give each conversation its own executors with [Registry.Child](<#Registry.Child>). A nil executor is ignored.
 
 <a name="Registry.Unregister"></a>
-### func \(\*Registry\) [Unregister](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L203>)
+### func \(\*Registry\) [Unregister](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L208>)
 
 ```go
 func (r *Registry) Unregister(name string) bool
@@ -1415,9 +1428,9 @@ func (r *Registry) Unregister(name string) bool
 
 Unregister removes a tool descriptor by name. Returns true if a descriptor was removed, false if none was registered.
 
-Used when a workflow state machine transitions into a terminal state: the previous state's workflow\_\_transition descriptor \(with its now\-stale enum of events\) must be torn down so the LLM can't call it against a dead state. Safe to call concurrently with Get/List.
+The workflow runtime uses it when a state machine transitions into a terminal state, to remove the previous state's workflow\_\_transition descriptor so the model cannot call it against a dead state. Safe to call concurrently with Get/List.
 
-Removal is final for every read path — Get, GetTool and List all read the same store. There is no repository fallback to resurrect the descriptor.
+Removal is final for every read path: Get, GetTool and List all read the same store. There is no repository fallback that restores the descriptor. On a registry made with Child, the descriptor is removed from the parent.
 
 <a name="RegistryOption"></a>
 ## type [RegistryOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L48>)
@@ -1438,16 +1451,16 @@ func WithDefaultTimeout(ms int) RegistryOption
 WithDefaultTimeout sets the default timeout \(in milliseconds\) applied to tools that don't declare their own TimeoutMs. Pass 0 to disable timeouts by default.
 
 <a name="WithMaxToolResultSize"></a>
-### func [WithMaxToolResultSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L60>)
+### func [WithMaxToolResultSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L61>)
 
 ```go
 func WithMaxToolResultSize(bytes int) RegistryOption
 ```
 
-WithMaxToolResultSize sets the maximum allowed size \(in bytes\) of a JSON\-marshaled tool result. Pass 0 to disable size checking.
+WithMaxToolResultSize sets the maximum allowed size \(in bytes\) of a tool result's text, which the provider stage enforces by truncating. Pass 0 to disable size checking.
 
 <a name="WithRateLimit"></a>
-### func [WithRateLimit](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L68>)
+### func [WithRateLimit](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L69>)
 
 ```go
 func WithRateLimit(maxCallsPerMinute int) RegistryOption
@@ -1517,7 +1530,7 @@ type RequestMapper interface {
 ```
 
 <a name="RequestMapping"></a>
-## type [RequestMapping](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L174-L203>)
+## type [RequestMapping](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L186-L215>)
 
 RequestMapping configures how LLM tool arguments are mapped to HTTP request components.
 
@@ -1567,7 +1580,7 @@ type ResponseMapper interface {
 ```
 
 <a name="ResponseMapping"></a>
-## type [ResponseMapping](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L206-L209>)
+## type [ResponseMapping](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L218-L221>)
 
 ResponseMapping configures how HTTP response bodies are mapped to tool results.
 
@@ -1608,7 +1621,7 @@ func NewSchemaValidatorWithSize(maxSize int) *SchemaValidator
 NewSchemaValidatorWithSize creates a new schema validator with the given maximum cache size. If maxSize \<= 0 it defaults to DefaultMaxSchemaCacheSize.
 
 <a name="SchemaValidator.CacheLen"></a>
-### func \(\*SchemaValidator\) [CacheLen](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L251>)
+### func \(\*SchemaValidator\) [CacheLen](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L257>)
 
 ```go
 func (sv *SchemaValidator) CacheLen() int
@@ -1617,7 +1630,7 @@ func (sv *SchemaValidator) CacheLen() int
 CacheLen returns the number of entries in the schema cache. Exported for testing and monitoring.
 
 <a name="SchemaValidator.CoerceArgs"></a>
-### func \(\*SchemaValidator\) [CoerceArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L360-L362>)
+### func \(\*SchemaValidator\) [CoerceArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L366-L368>)
 
 ```go
 func (sv *SchemaValidator) CoerceArgs(descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, []Coercion, error)
@@ -1637,7 +1650,7 @@ CoerceArgs normalises LLM tool arguments to match the types declared in the tool
 All normalisation happens here, before ValidateArgs, keeping the schema validator strict and tool executors simple.
 
 <a name="SchemaValidator.CoerceResult"></a>
-### func \(\*SchemaValidator\) [CoerceResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L263-L265>)
+### func \(\*SchemaValidator\) [CoerceResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L269-L271>)
 
 ```go
 func (sv *SchemaValidator) CoerceResult(descriptor *ToolDescriptor, result json.RawMessage) (json.RawMessage, []Coercion, error)
@@ -1645,25 +1658,25 @@ func (sv *SchemaValidator) CoerceResult(descriptor *ToolDescriptor, result json.
 
 CoerceResult attempts to coerce simple type mismatches in tool results.
 
-This is a pass\-through: if the result validates, it is returned as\-is; otherwise validation is re\-attempted after a round\-trip through JSON \(which normalises whitespace/encoding\). Actual type coercion \(e.g., string↔number\) is not implemented — the Coercion slice is always empty.
+A result that validates is returned as\-is. Otherwise validation is re\-attempted after a round\-trip through JSON, which normalizes whitespace and encoding. It does not convert types \(for example string to number\), and the returned Coercion slice is always nil.
 
 <a name="SchemaValidator.ValidateArgs"></a>
-### func \(\*SchemaValidator\) [ValidateArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L124>)
+### func \(\*SchemaValidator\) [ValidateArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L128>)
 
 ```go
 func (sv *SchemaValidator) ValidateArgs(descriptor *ToolDescriptor, args json.RawMessage) error
 ```
 
-ValidateArgs validates tool arguments against the input schema
+ValidateArgs validates tool arguments against the descriptor's input schema and returns a \*ValidationError of type "args\_invalid" when they do not conform. Nil, empty or null args are validated as an empty object. A descriptor with no input schema, or a schema with a $ref to an external document, is not validated.
 
 <a name="SchemaValidator.ValidateResult"></a>
-### func \(\*SchemaValidator\) [ValidateResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L133>)
+### func \(\*SchemaValidator\) [ValidateResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/validator.go#L139>)
 
 ```go
 func (sv *SchemaValidator) ValidateResult(descriptor *ToolDescriptor, result json.RawMessage) error
 ```
 
-ValidateResult validates tool result against the output schema
+ValidateResult validates a tool result against the descriptor's output schema and returns a \*ValidationError of type "result\_invalid" when it does not conform. The same skip rules as ValidateArgs apply.
 
 <a name="ServerExecutor"></a>
 ## type [ServerExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/server_executor.go#L48-L51>)
@@ -1712,7 +1725,7 @@ func (e *ServerExecutor) Name() string
 Name returns the executor name used for mode\-based routing.
 
 <a name="ToolCall"></a>
-## type [ToolCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L333-L337>)
+## type [ToolCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L347-L351>)
 
 ToolCall represents a tool invocation request
 
@@ -1734,7 +1747,7 @@ func (c ToolCall) MarshalJSON() ([]byte, error)
 MarshalJSON normalizes the tool call's args \(empty \-\> \{\}\).
 
 <a name="ToolConfig"></a>
-## type [ToolConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L94-L99>)
+## type [ToolConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L96-L101>)
 
 ToolConfig represents a K8s\-style tool configuration manifest
 
@@ -1748,7 +1761,7 @@ type ToolConfig struct {
 ```
 
 <a name="ToolConfig.FunctionName"></a>
-### func \(\*ToolConfig\) [FunctionName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L104>)
+### func \(\*ToolConfig\) [FunctionName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L106>)
 
 ```go
 func (c *ToolConfig) FunctionName() string
@@ -1757,7 +1770,7 @@ func (c *ToolConfig) FunctionName() string
 FunctionName is the name the LLM calls the tool by: spec.name when set, otherwise metadata.name. metadata.name is a resource name, where hyphens are conventional, so it cannot always be a function name.
 
 <a name="ToolDescriptor"></a>
-## type [ToolDescriptor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L112-L154>)
+## type [ToolDescriptor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L114-L156>)
 
 ToolDescriptor represents a normalized tool definition
 
@@ -1768,7 +1781,7 @@ type ToolDescriptor struct {
     Description  string          `json:"description" yaml:"description"`
     InputSchema  json.RawMessage `json:"input_schema" yaml:"input_schema"`   // JSON Schema Draft-07
     OutputSchema json.RawMessage `json:"output_schema" yaml:"output_schema"` // JSON Schema Draft-07
-    Mode         string          `json:"mode" yaml:"mode"`                   // mock|live|local|mcp|client
+    Mode         string          `json:"mode" yaml:"mode"`                   // mock|live|local|mcp|client|<executor name>
     TimeoutMs    int             `json:"timeout_ms" yaml:"timeout_ms"`
 
     // Static mock data (in-memory)
@@ -1790,7 +1803,7 @@ type ToolDescriptor struct {
     ClientConfig *ClientConfig `json:"client,omitempty" yaml:"client,omitempty"` // Client-side execution configuration
     ExecConfig   *ExecConfig   `json:"exec,omitempty" yaml:"exec,omitempty"`     // Exec subprocess configuration
 
-    // Declaration is the pack's definition of this tool (RFC 0016), so a
+    // Declaration is the pack's definition of this tool, so a
     // host's executor can apply its own policy to action_scope and
     // extensions. It is a copy, never the loaded pack, and is read-only: it
     // may be shared by every conversation opened from one PackTemplate. Nil
@@ -1829,7 +1842,7 @@ type ToolErrorData struct {
 ```
 
 <a name="ToolExecutionResult"></a>
-## type [ToolExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L362-L370>)
+## type [ToolExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L376-L384>)
 
 ToolExecutionResult includes status and optional pending information
 
@@ -1846,7 +1859,7 @@ type ToolExecutionResult struct {
 ```
 
 <a name="ToolExecutionStatus"></a>
-## type [ToolExecutionStatus](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L350>)
+## type [ToolExecutionStatus](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L364>)
 
 ToolExecutionStatus represents whether a tool completed or needs external input
 
@@ -1870,7 +1883,7 @@ const (
 <a name="ToolRepository"></a>
 ## type [ToolRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L41-L45>)
 
-ToolRepository is the source a registry is LOADED from at construction: NewRegistryWithRepository copies every descriptor it lists into the registry and does not consult it again. It is a loader, not a store — pack content is immutable for a session, so there is nothing to re\-read and nothing to write back. Local interface to avoid import cycles.
+ToolRepository is the source a registry is LOADED from at construction: NewRegistryWithRepository copies every descriptor it lists into the registry and does not consult it again. It is a loader, not a store: pack content is immutable for a session, so there is nothing to re\-read and nothing to write back.
 
 ```go
 type ToolRepository interface {
@@ -1906,7 +1919,7 @@ type ToolResponseRepository interface {
 ```
 
 <a name="ToolResult"></a>
-## type [ToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L340-L347>)
+## type [ToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L354-L361>)
 
 ToolResult represents the result of a tool execution
 
@@ -1931,7 +1944,7 @@ func (r ToolResult) MarshalJSON() ([]byte, error)
 MarshalJSON normalizes the tool result payload \(empty \-\> \{\}\).
 
 <a name="ValidationError"></a>
-## type [ValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L401-L406>)
+## type [ValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L415-L420>)
 
 ValidationError represents a tool validation failure
 
@@ -1945,7 +1958,7 @@ type ValidationError struct {
 ```
 
 <a name="ValidationError.Error"></a>
-### func \(\*ValidationError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L409>)
+### func \(\*ValidationError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L423>)
 
 ```go
 func (e *ValidationError) Error() string

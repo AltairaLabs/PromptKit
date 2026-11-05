@@ -3,29 +3,21 @@ package tools
 // Child returns a registry that shares this one's tool DESCRIPTORS but owns its
 // own EXECUTORS.
 //
-// Executors are the dangerous half: they are keyed by
-// name, one per name, and several hold per-conversation state, so sharing them
-// across conversations is the bug. Descriptors are data, and a host that passes
-// a registry in with WithToolRegistry reads it back to inspect and override the
-// tool set -- sdk/integration/contract_tool_overrides_test.go asserts exactly
-// that. So Register writes through to the parent and only RegisterExecutor
-// stays local.
+// Executors are keyed by name, one per name, and several hold per-conversation
+// state, so conversations must not share them. Descriptors are data, and a host
+// that passes a registry in with WithToolRegistry reads it back to inspect and
+// override the tool set. So Register and Unregister act on the parent, and only
+// RegisterExecutor stays local to the child.
 //
-// A Registry keys executors by name and holds exactly one per name, so a host
-// that shares a single registry across concurrent conversations has each
-// conversation's executors overwrite the previous one's -- and with them any
-// per-conversation state those executors held. Giving each conversation a child
-// makes that unrepresentable rather than merely avoided: RegisterExecutor
-// writes to the child, and executor lookup falls through to the parent only for
-// names the child never claimed, so a host's own custom executor is still used.
-//
-// Descriptor lookup is live, not a snapshot. A tool registered on the parent
-// after the child was created is visible to the child, which is what a
-// copy-at-creation child would get wrong.
+// Executor lookup falls through to the parent only for names the child never
+// registered, so a host's own custom executor is still used. Descriptor lookup
+// is live, not a snapshot: a tool registered on the parent after the child was
+// created is visible to the child.
 //
 // Child is nil-receiver safe: a nil parent yields a standalone registry, so a
-// caller can write reg = hostRegistry.Child() without branching on whether the
-// host supplied one.
+// caller can write reg = hostRegistry.Child() without checking whether the
+// host supplied one. The child takes the parent's default timeout, result size
+// limit and rate limiter, and options passed to Child override them.
 func (r *Registry) Child(opts ...RegistryOption) *Registry {
 	child := newRegistry(nil, opts...)
 	if r == nil {

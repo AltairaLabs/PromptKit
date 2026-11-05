@@ -43,7 +43,7 @@ func ResolveSandboxes(specs map[string]*execconfig.SandboxConfig) (map[string]sa
 
 // BuildExecHooks converts runtime-config exec-hook bindings into provider, tool,
 // and session hook instances, resolving each binding's named sandbox from the
-// provided map. Bindings with Hook=="eval" are skipped — eval hooks live in the
+// provided map. Bindings with Hook=="eval" are skipped: eval hooks live in the
 // evals package and are wired by the caller. This is the single source of truth
 // for turning execconfig.ExecHook bindings into runtime hooks, used by both the SDK
 // and Arena so the two never drift.

@@ -29,15 +29,15 @@ const (
 	DefaultToolTimeout = 30000
 
 	// DefaultMaxToolResultSize is the maximum allowed size (in bytes) of a
-	// JSON-marshaled tool result. Results exceeding this limit are truncated.
+	// tool result's text. The provider stage truncates results that exceed it.
 	DefaultMaxToolResultSize = 1 * 1024 * 1024 // 1 MB
 )
 
 // ToolRepository is the source a registry is LOADED from at construction:
 // NewRegistryWithRepository copies every descriptor it lists into the
-// registry and does not consult it again. It is a loader, not a store — pack
+// registry and does not consult it again. It is a loader, not a store: pack
 // content is immutable for a session, so there is nothing to re-read and
-// nothing to write back. Local interface to avoid import cycles.
+// nothing to write back.
 type ToolRepository interface {
 	LoadTool(name string) (*ToolDescriptor, error)
 	ListTools() ([]string, error)
@@ -55,8 +55,9 @@ func WithDefaultTimeout(ms int) RegistryOption {
 	}
 }
 
-// WithMaxToolResultSize sets the maximum allowed size (in bytes) of a
-// JSON-marshaled tool result. Pass 0 to disable size checking.
+// WithMaxToolResultSize sets the maximum allowed size (in bytes) of a tool
+// result's text, which the provider stage enforces by truncating. Pass 0 to
+// disable size checking.
 func WithMaxToolResultSize(bytes int) RegistryOption {
 	return func(r *Registry) {
 		r.maxToolResultSize = bytes
@@ -123,7 +124,7 @@ func newRegistry(repository ToolRepository, opts ...RegistryOption) *Registry {
 	registry.RegisterExecutor(NewMockScriptedExecutor())
 
 	// Load every descriptor the repository holds. This is the one and only
-	// read of the repository (#1951).
+	// read of the repository.
 	if repository != nil {
 		if toolNames, _ := repository.ListTools(); toolNames != nil {
 			for _, name := range toolNames {
@@ -142,10 +143,10 @@ func newRegistry(repository ToolRepository, opts ...RegistryOption) *Registry {
 // child and parent are independent: descriptors and executors registered
 // on the child do not leak to the parent (and vice versa).
 //
-// Use this to give each concurrent run its own per-run dispatch state —
-// a per-run MCPExecutor wired to a per-run mcp.Registry, plus per-run
-// MCP tool descriptors discovered from session-scoped sources, without
-// colliding with other runs that share the engine's parent Registry.
+// Use this to give each concurrent run its own per-run dispatch state: a
+// per-run MCPExecutor wired to a per-run mcp.Registry, plus per-run MCP tool
+// descriptors discovered from session-scoped sources, without colliding with
+// other runs that share the engine's parent Registry.
 //
 // Memory cost is two shallow map copies; descriptor and executor values
 // are pointer-typed so the underlying objects are shared.
@@ -162,7 +163,10 @@ func (r *Registry) Fork() *Registry {
 	}
 }
 
-// Register adds a tool descriptor to the registry with validation.
+// Register adds a tool descriptor to the registry, replacing any descriptor of
+// the same name, and sets its Namespace from its name. Unlike
+// LoadToolFromBytes, it does not check the descriptor's required fields. On a
+// registry made with Child, the descriptor is registered on the parent.
 func (r *Registry) Register(descriptor *ToolDescriptor) error {
 	if descriptor == nil {
 		return errors.New("tool registry: cannot register a nil descriptor")
@@ -193,13 +197,14 @@ func (r *Registry) Register(descriptor *ToolDescriptor) error {
 // Unregister removes a tool descriptor by name. Returns true if a descriptor
 // was removed, false if none was registered.
 //
-// Used when a workflow state machine transitions into a terminal state:
-// the previous state's workflow__transition descriptor (with its
-// now-stale enum of events) must be torn down so the LLM can't call it
-// against a dead state. Safe to call concurrently with Get/List.
+// The workflow runtime uses it when a state machine transitions into a
+// terminal state, to remove the previous state's workflow__transition
+// descriptor so the model cannot call it against a dead state. Safe to call
+// concurrently with Get/List.
 //
-// Removal is final for every read path — Get, GetTool and List all read the
-// same store. There is no repository fallback to resurrect the descriptor.
+// Removal is final for every read path: Get, GetTool and List all read the
+// same store. There is no repository fallback that restores the descriptor.
+// On a registry made with Child, the descriptor is removed from the parent.
 func (r *Registry) Unregister(name string) bool {
 	// Descriptors live on the parent (see [Registry.Child]), so removal has to
 	// reach the registry that actually holds them.
@@ -234,10 +239,13 @@ func (r *Registry) List() []string {
 	return names
 }
 
-// LoadToolFromBytes loads a tool descriptor from raw bytes data.
-// This is useful when tool data has already been read from a file or
-// received from another source, avoiding redundant file I/O.
-// The filename parameter is used only for error reporting.
+// LoadToolFromBytes loads a tool descriptor from raw bytes data. A filename
+// ending in .yaml or .yml selects the YAML parser, which requires the
+// Kubernetes manifest form (apiVersion, kind: Tool, metadata, spec); any other
+// filename selects JSON. The descriptor must have a name, description, input
+// schema, output schema and a valid mode, or an error is returned. A
+// TimeoutMs of 0 is replaced with the registry default. The filename is used
+// for the parser choice and in error messages.
 func (r *Registry) LoadToolFromBytes(filename string, data []byte) error {
 	ext := strings.ToLower(filepath.Ext(filename))
 
@@ -340,7 +348,7 @@ func (r *Registry) GetTool(name string) (*ToolDescriptor, error) {
 
 // GetTools returns all loaded tool descriptors. The returned map is a shallow
 // copy (safe to iterate/delete keys), but the *ToolDescriptor pointers are
-// shared with the registry. Callers MUST NOT mutate the returned descriptors.
+// shared with the registry. Callers must not mutate the returned descriptors.
 func (r *Registry) GetTools() map[string]*ToolDescriptor {
 	// visibleTools already returns a fresh map, and locks each registry in the
 	// parent chain individually.
@@ -351,7 +359,7 @@ func (r *Registry) GetTools() map[string]*ToolDescriptor {
 // read lock. This avoids the map copy that GetTools performs, which matters
 // when the registry is large and the caller only needs to inspect each tool
 // once (e.g. building a provider tool list).
-// The callback MUST NOT call back into the Registry (deadlock).
+// The callback must not call back into the Registry.
 func (r *Registry) IterateTools(fn func(name string, tool *ToolDescriptor)) {
 	for name, tool := range r.visibleTools() {
 		fn(name, tool)
@@ -385,16 +393,14 @@ func (r *Registry) GetByNamespace(ns string) []*ToolDescriptor {
 // RegisterExecutor registers a tool executor under its [Executor.Name].
 //
 // A registry holds exactly one executor per name, so registering a second one
-// under a name already taken EVICTS the first. That is almost always a bug:
-// two owners -- typically two conversations sharing a registry -- each believe
-// they installed the executor that serves their tool calls, and the loser
-// silently starts getting the winner's answers, along with whatever
-// per-conversation state the winner's executor holds.
+// under a name already taken replaces the first. Two owners that share a
+// registry, typically two conversations, would each expect their own executor
+// to serve their tool calls, and the later registration would take over the
+// earlier one's calls along with whatever per-conversation state its
+// executor holds.
 //
-// RegisterExecutor logs the eviction at Warn. Nothing in PromptKit legitimately re-registers a
-// name on the same registry -- each conversation owns its own (see
-// [Registry.Child]), and a workflow state change opens a fresh conversation with
-// a fresh registry -- so in practice this fires only on the bug.
+// RegisterExecutor logs the replacement at Warn. Give each conversation its own
+// executors with [Registry.Child]. A nil executor is ignored.
 func (r *Registry) RegisterExecutor(executor Executor) {
 	if executor == nil {
 		return
@@ -448,7 +454,13 @@ func invokeExecutor(
 	return result, nil, err
 }
 
-// Execute executes a tool with the given arguments
+// Execute runs a tool with the given arguments. It coerces the arguments
+// toward the input schema, validates them, applies the rate limit, and runs
+// the executor the tool's mode selects, under the tool's TimeoutMs. An unknown
+// tool, invalid arguments, or a missing executor return an error. An executor
+// failure, a timeout, a rate-limit refusal, or a result that fails the output
+// schema is reported in ToolResult.Error with a nil error. Results of tools in
+// mcp mode are not validated against the output schema.
 func (r *Registry) Execute(
 	ctx context.Context, toolName string, args json.RawMessage,
 ) (*ToolResult, error) {
@@ -550,8 +562,10 @@ func (r *Registry) Execute(
 	}, nil
 }
 
-// ExecuteAsync executes a tool with async support, checking if it implements AsyncToolExecutor.
-// Returns ToolExecutionResult with status (complete/pending/failed).
+// ExecuteAsync is Execute for executors that may suspend a call. If the
+// tool's executor implements AsyncToolExecutor, the result can have status
+// ToolStatusPending; otherwise the call runs synchronously. Failures are
+// reported as status ToolStatusFailed with a nil error, as for Execute.
 func (r *Registry) ExecuteAsync(
 	ctx context.Context, toolName string, args json.RawMessage,
 ) (*ToolExecutionResult, error) {

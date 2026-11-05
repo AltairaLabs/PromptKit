@@ -6,7 +6,9 @@ import (
 	"time"
 )
 
-// ErrRateLimitExceeded is returned when a tool call exceeds its per-minute rate limit.
+// ErrRateLimitExceeded is the error reported when a tool call exceeds its
+// per-minute rate limit. Registry.Execute reports its message in ToolResult.Error and
+// Registry.ExecuteAsync in ToolExecutionResult.Error; neither returns it.
 var ErrRateLimitExceeded = fmt.Errorf("tool rate limit exceeded")
 
 // msPerMinute is the number of milliseconds in one minute.

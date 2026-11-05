@@ -47,7 +47,7 @@ type PendingToolExecution struct {
 	ToolResult  types.MessageToolResult `json:"tool_result"`
 }
 
-// ErrToolsPending is returned by executeToolCalls when one or more tool calls
+// ErrToolsPending is returned by the provider stage when one or more tool calls
 // returned ToolStatusPending. The pipeline should suspend: completed tool
 // results are still returned alongside this error so they can be appended to
 // the message history.

@@ -17,7 +17,8 @@ type ClientOptions struct {
 	// HTTP one, and agreeing the protocol.
 	InitTimeout time.Duration
 	// MaxRetries is the number of times connecting is retried after a
-	// failure that is not the server's answer. tools/call is never retried:
+	// failure that is neither the server's answer nor a refusal of
+	// authorization. tools/call is never retried:
 	// a tool may have side effects.
 	MaxRetries int
 	// RetryDelay is the initial delay between retries (exponential backoff).
@@ -27,7 +28,8 @@ type ClientOptions struct {
 	EnableGracefulDegradation bool
 	// MaxReconnectAttempts is how many times the client reconnects when its
 	// connection is lost (a stdio server exits, an SSE stream ends) before
-	// reporting the server unresponsive. 0 disables reconnection.
+	// failing with ErrProcessDied (stdio) or ErrServerUnresponsive. 0 disables
+	// reconnection.
 	MaxReconnectAttempts int
 	// ElicitationHandler, when set, answers servers' requests for user input
 	// and makes the client advertise the elicitation capability (form mode).
@@ -50,7 +52,9 @@ type ClientOptions struct {
 	Authorizer Authorizer
 }
 
-// DefaultClientOptions returns sensible defaults.
+// DefaultClientOptions returns the default options: a 30s RequestTimeout, a
+// 10s InitTimeout, 3 retries starting at 100ms, graceful degradation on, and 3
+// reconnect attempts.
 func DefaultClientOptions() ClientOptions {
 	return ClientOptions{
 		RequestTimeout:            defaultRequestTimeout,
