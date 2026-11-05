@@ -51,7 +51,7 @@ cfg := sdktools.NewHTTPToolConfig("https://api.example.com/data",
 
 The runtime sets `Authorization` to the value of `$API_TOKEN` on each call, and omits the header when the variable is empty.
 
-To change the request just before it is sent, for example to add an OAuth token that expires, use `WithPreRequest`:
+Use `WithPreRequest` to change the request before it is sent, such as to add an OAuth token that expires:
 
 ```go
 cfg := sdktools.NewHTTPToolConfig("https://api.example.com/data",
