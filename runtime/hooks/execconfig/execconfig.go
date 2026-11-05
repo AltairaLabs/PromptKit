@@ -53,8 +53,9 @@ type ExecBinding struct {
 	TimeoutMs int `yaml:"timeout_ms,omitempty" json:"timeout_ms,omitempty" jsonschema:"title=Timeout,description=Per-invocation timeout in milliseconds"`
 	// Sandbox names a sandbox backend declared under spec.sandboxes.
 	// When empty the built-in "direct" backend is used. Only applies to
-	// exec hooks; ignored for exec tools and exec eval handlers (which
-	// reuse this struct via embedding but do not yet support sandboxing).
+	// exec hooks (including eval hooks); ignored for exec tools and exec eval
+	// handlers (which reuse this struct via embedding but do not support
+	// sandboxing).
 	//nolint:lll // jsonschema tags require single line
 	Sandbox string `yaml:"sandbox,omitempty" json:"sandbox,omitempty" jsonschema:"title=Sandbox,description=Name of a sandbox declared under spec.sandboxes"`
 }

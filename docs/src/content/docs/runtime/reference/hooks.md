@@ -376,21 +376,23 @@ func (h *ExecToolHook) Name() string
 Name returns the hook name.
 
 <a name="HookDeniedError"></a>
-## type [HookDeniedError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/errors.go#L8-L13>)
+## type [HookDeniedError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/errors.go#L11-L16>)
 
 HookDeniedError is returned when a hook denies an operation.
+
+The provider stage returns it today, and sets HookName to the fixed string "provider\_hook" rather than the denying hook's own Name\(\).
 
 ```go
 type HookDeniedError struct {
     HookName string
-    HookType string // "provider_before", "provider_after", "chunk", "tool_before", "tool_after"
+    HookType string // "provider_before" or "provider_after"
     Reason   string
     Metadata map[string]any
 }
 ```
 
 <a name="HookDeniedError.Error"></a>
-### func \(\*HookDeniedError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/errors.go#L15>)
+### func \(\*HookDeniedError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/errors.go#L18>)
 
 ```go
 func (e *HookDeniedError) Error() string

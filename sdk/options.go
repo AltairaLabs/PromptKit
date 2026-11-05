@@ -1135,7 +1135,7 @@ func WithEventStore(store events.EventStore) Option {
 
 // RecordingConfig configures session recording via RecordingStage.
 // RecordingStages capture full message content (including binary data)
-// and publish directly to the EventBus for session replay.
+// and write directly to the EventStore for session replay.
 type RecordingConfig struct {
 	// IncludeAudio records audio data (may be large). Default: true.
 	IncludeAudio bool
@@ -1609,6 +1609,10 @@ func WithTokenBudget(tokens int) Option {
 //
 //   - "relevance": Remove least relevant messages based on embedding similarity
 //
+//   - "oldest": Same as "sliding"
+//
+//   - "fail": Return an error instead of truncating when the budget is exceeded
+//
 //     conv, _ := sdk.Open("./chat.pack.json", "assistant",
 //     sdk.WithTokenBudget(8000),
 //     sdk.WithTruncation("summarize"),
@@ -1632,7 +1636,7 @@ type RelevanceConfig struct {
 	MinRecentMessages int
 
 	// AlwaysKeepSystemRole keeps all system role messages regardless of score.
-	// Default: true
+	// Default: false
 	AlwaysKeepSystemRole bool
 
 	// SimilarityThreshold is the minimum score (0.0-1.0) to consider a message relevant.
@@ -3896,12 +3900,15 @@ func WithShutdownManager(mgr *ShutdownManager) Option {
 // (the tool result) is the same value the MODEL consumes, so redacting it in a
 // handler withholds it from the model rather than from the trace.
 //
-// Pair with WithTelemetryRedactor when enabling this on tools that take
+// Pair with WithEventRedactor when enabling this on tools that take
 // credentials.
 //
 //	sdk.WithTelemetryContentCapture(true),
-//	sdk.WithTelemetryRedactor(func(attr, value string) string {
-//	    return tokenPattern.ReplaceAllString(value, "[REDACTED]")
+//	sdk.WithEventRedactor(func(field, value string) string {
+//	    if field == events.FieldToolCallArgs {
+//	        return tokenPattern.ReplaceAllString(value, "[REDACTED]")
+//	    }
+//	    return value
 //	}),
 func WithTelemetryContentCapture(enabled bool) Option {
 	return func(c *config) error {

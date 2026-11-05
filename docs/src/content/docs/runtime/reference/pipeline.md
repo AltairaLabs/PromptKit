@@ -471,7 +471,7 @@ This file contains FFmpeg\-dependent integration code for video frame extraction
 ```go
 const (
     // DefaultChannelBufferSize is the default buffer size for channels between stages.
-    // For text pipelines, 16 provides adequate buffering.
+    // For text pipelines, 32 provides adequate buffering.
     // For audio pipelines at ~50 chunks/sec, consider using DefaultAudioChannelBufferSize.
     DefaultChannelBufferSize = 32
     // DefaultAudioChannelBufferSize is the recommended buffer size for audio pipelines.
@@ -3394,7 +3394,7 @@ PLACEMENT PRECONDITION. This stage must sit where it observes EVERY message elem
 
 It does NOT need to be adjacent to the save stage. The SDK builder places it immediately before that sink only so a message broadcasts as soon as it exists; correctness does not depend on it.
 
-Read Index rather than arrival order. The bus dispatches through a worker pool, so subscribers can and do receive these out of publish order — Index is what lets a consumer reassemble a transcript from a stream that makes no ordering promise.
+The bus delivers to each subscriber in publish order. Index is still the reliable way to reassemble a transcript: it stays correct when a subscriber's queue overflows and drops an event, or when the stage sits downstream of a fan\-in that interleaves elements.
 
 ```go
 type MessageBroadcastStage struct {
@@ -3666,25 +3666,25 @@ func (b *PipelineBuilder) AddStage(stage Stage) *PipelineBuilder
 AddStage adds a stage to the builder without connecting it. This is useful when building complex topologies manually.
 
 <a name="PipelineBuilder.Branch"></a>
-### func \(\*PipelineBuilder\) [Branch](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L107>)
+### func \(\*PipelineBuilder\) [Branch](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L109>)
 
 ```go
 func (b *PipelineBuilder) Branch(fromStage string, toStages ...string) *PipelineBuilder
 ```
 
-Branch creates multiple outgoing connections from a single stage. This allows one stage's output to fan out to multiple downstream stages.
+Branch creates multiple outgoing connections from a single stage. The downstream stages share stage B's output channel and compete for it: each element goes to whichever downstream stage reads it first, not to all of them. To deliver every element to every branch, route through a BroadcastRouter.
 
 Example:
 
 ```
 pipeline := NewPipelineBuilder().
     Chain(NewStageA(), NewStageB()).
-    Branch("stageB", "stageC", "stageD").  // B's output goes to both C and D
+    Branch("stageB", "stageC", "stageD").  // each element of B's output goes to C or D
     Build()
 ```
 
 <a name="PipelineBuilder.Build"></a>
-### func \(\*PipelineBuilder\) [Build](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L125>)
+### func \(\*PipelineBuilder\) [Build](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L127>)
 
 ```go
 func (b *PipelineBuilder) Build() (*StreamPipeline, error)
@@ -3714,7 +3714,7 @@ pipeline := NewPipelineBuilder().
 ```
 
 <a name="PipelineBuilder.Clone"></a>
-### func \(\*PipelineBuilder\) [Clone](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L355>)
+### func \(\*PipelineBuilder\) [Clone](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L357>)
 
 ```go
 func (b *PipelineBuilder) Clone() *PipelineBuilder
@@ -3732,7 +3732,7 @@ func (b *PipelineBuilder) Connect(fromStage, toStage string) *PipelineBuilder
 Connect creates a directed edge from one stage to another. The output of fromStage will be connected to the input of toStage.
 
 <a name="PipelineBuilder.Merge"></a>
-### func \(\*PipelineBuilder\) [Merge](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L116>)
+### func \(\*PipelineBuilder\) [Merge](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L118>)
 
 ```go
 func (b *PipelineBuilder) Merge(into string, from ...string) *PipelineBuilder
@@ -3768,7 +3768,7 @@ type PipelineConfig struct {
     // ChannelBufferSize controls buffering between stages.
     // Smaller values = lower latency but more backpressure.
     // Larger values = higher throughput but more memory usage.
-    // Default: 16
+    // Default: 32
     ChannelBufferSize int
 
     // MaxConcurrentPipelines limits the number of concurrent pipeline executions.

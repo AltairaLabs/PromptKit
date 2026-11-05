@@ -171,19 +171,19 @@ result, err := pipeline.ExecuteSync(ctx, elements...)
 
 ### ✅ Completed (Phase 4: Streaming Stages)
 
-1. **VADAccumulatorStage** (`stages_streaming.go`)
-   - Buffers audio chunks until turn complete
-   - VAD-based silence detection
-   - Transcribes buffered audio to text
+1. **AudioTurnStage** (`stages_speech.go`)
+   - Buffers audio chunks until the turn is complete
+   - VAD-based silence detection and turn-boundary detection
+   - Emits one audio utterance per turn
    - Configurable thresholds and durations
 
-2. **TTSStage** (`stages_streaming.go`)
+2. **TTSStage** (`stages_tts.go`)
    - Synthesizes audio for text elements
    - Adds AudioData to StreamElements
    - Configurable min text length and empty handling
    - Resilient error handling
 
-3. **DuplexProviderStage** (`stages_streaming.go`)
+3. **DuplexProviderStage** (`stages_duplex_provider_session.go`)
    - Bidirectional WebSocket streaming
    - Concurrent input/output forwarding
    - StreamElement ⟷ StreamChunk conversion
@@ -211,12 +211,6 @@ result, err := pipeline.ExecuteSync(ctx, elements...)
    - Priority-based scheduling (Critical/High/Normal/Low)
    - Separate queues per priority level
    - Context-aware blocking operations
-
-5. **TracingStage** (`stages_advanced.go`)
-   - Element-level distributed tracing
-   - Trace ID generation and propagation
-   - Per-stage timing information
-   - GetTraceInfo() helper function
 
 ### ✅ Completed (Phase 6b: Utility Stages) - Dec 14, 2024
 

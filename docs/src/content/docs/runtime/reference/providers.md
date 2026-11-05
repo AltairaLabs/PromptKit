@@ -1997,9 +1997,9 @@ func (BedrockEventStreamFrameDetector) PeekFirstFrame(r io.Reader) ([]byte, erro
 PeekFirstFrame reads one complete event\-stream message from r and returns the raw bytes. The reader must be positioned at the start of a message boundary.
 
 <a name="ContextWindowProvider"></a>
-## type [ContextWindowProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L280-L282>)
+## type [ContextWindowProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L282-L284>)
 
-ContextWindowProvider is an optional interface for providers that can report their context window size. The compactor budget is auto\-configured from it.
+ContextWindowProvider is an optional interface for providers that can report their context window size. The compactor budget is auto\-configured from it when a provider implements it; otherwise the compactor falls back to stage.DefaultBudgetTokens. No built\-in provider implements it today.
 
 ```go
 type ContextWindowProvider interface {
@@ -2615,7 +2615,7 @@ type MediaStorageConfigurable interface {
 ```
 
 <a name="MessageMetadataTemplater"></a>
-## type [MessageMetadataTemplater](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L290-L292>)
+## type [MessageMetadataTemplater](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L292-L294>)
 
 MessageMetadataTemplater is implemented by a provider that renders a message's application metadata \(types.Message.Metadata\) for the model. The provider stage fills the template's \{\{key\}\} placeholders from each message's metadata and appends the result to that message's text in the request only. An empty template means the model does not see the metadata. ProviderSpec.MessageMetadataTemplate sets it.
 
@@ -3208,7 +3208,7 @@ func (s *ProviderSpec) HasCredential() bool
 HasCredential returns true if the spec has a real \(non\-empty, non\-"none"\) credential. Use this in factory functions to decide between credential\-based and env\-var\-based constructors.
 
 <a name="ProviderTools"></a>
-## type [ProviderTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L316>)
+## type [ProviderTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L318>)
 
 ProviderTools represents provider\-specific tool configuration. Each provider returns its own native format:
 
@@ -4784,7 +4784,7 @@ type StreamingToolDefinition struct {
 ```
 
 <a name="ToolDescriptor"></a>
-## type [ToolDescriptor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L295-L300>)
+## type [ToolDescriptor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L297-L302>)
 
 ToolDescriptor represents a tool that can be used by providers
 
@@ -4839,7 +4839,7 @@ type ToolResponseSupport interface {
 ```
 
 <a name="ToolResult"></a>
-## type [ToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L304>)
+## type [ToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L306>)
 
 ToolResult represents the result of a tool execution This is an alias to types.MessageToolResult for provider\-specific context
 
@@ -4848,7 +4848,7 @@ type ToolResult = types.MessageToolResult
 ```
 
 <a name="ToolSupport"></a>
-## type [ToolSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L319-L343>)
+## type [ToolSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L321-L345>)
 
 ToolSupport interface for providers that support tool/function calling
 

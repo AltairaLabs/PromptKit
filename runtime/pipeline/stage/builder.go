@@ -96,13 +96,15 @@ func (b *PipelineBuilder) Connect(fromStage, toStage string) *PipelineBuilder {
 }
 
 // Branch creates multiple outgoing connections from a single stage.
-// This allows one stage's output to fan out to multiple downstream stages.
+// The downstream stages share stage B's output channel and compete for it: each
+// element goes to whichever downstream stage reads it first, not to all of them.
+// To deliver every element to every branch, route through a BroadcastRouter.
 //
 // Example:
 //
 //	pipeline := NewPipelineBuilder().
 //	    Chain(NewStageA(), NewStageB()).
-//	    Branch("stageB", "stageC", "stageD").  // B's output goes to both C and D
+//	    Branch("stageB", "stageC", "stageD").  // each element of B's output goes to C or D
 //	    Build()
 func (b *PipelineBuilder) Branch(fromStage string, toStages ...string) *PipelineBuilder {
 	for _, toStage := range toStages {
