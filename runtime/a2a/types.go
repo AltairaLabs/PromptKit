@@ -1,4 +1,10 @@
-// Package a2a provides types for the Agent-to-Agent (A2A) protocol.
+// Package a2a implements the client side of the Agent-to-Agent (A2A) protocol.
+//
+// It provides the protocol types, a JSON-RPC Client for discovering and calling
+// agents, an Executor that exposes A2A skills as tools, and a ToolBridge that
+// builds tool descriptors from an agent card. The package speaks A2A 1.0 and
+// 0.3: the types marshal as 1.0 and unmarshal either version's JSON, and
+// ProtocolVersion produces the wire shape for a given peer.
 //
 // Types are derived from the A2A protocol specification (a2a.proto)
 // and use camelCase JSON tags matching the JSON-RPC binding convention.

@@ -8,7 +8,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-// InferContentType maps a MIME type to a PromptKit content type string.
+// InferContentType maps a MIME type to a PromptKit content type string: image,
+// audio or video for the matching "image/", "audio/" or "video/" prefix, and
+// document for everything else.
 func InferContentType(mediaType string) string {
 	switch {
 	case strings.HasPrefix(mediaType, "image/"):
@@ -25,7 +27,10 @@ func InferContentType(mediaType string) string {
 	}
 }
 
-// PartToContentPart converts an A2A Part to a PromptKit ContentPart.
+// PartToContentPart converts an A2A Part to a PromptKit ContentPart. A text part
+// becomes a text content part. A Raw or URL part becomes a media content part
+// and requires MediaType. A structured data part, or a part with none of text,
+// raw, URL or data, returns an error.
 func PartToContentPart(part *Part) (types.ContentPart, error) {
 	switch {
 	case part.Text != nil:
@@ -61,7 +66,10 @@ func PartToContentPart(part *Part) (types.ContentPart, error) {
 	}
 }
 
-// MessageToMessage converts an A2A Message to a PromptKit Message.
+// MessageToMessage converts an A2A Message to a PromptKit Message. The "agent"
+// role becomes "assistant"; any other role is copied unchanged. Metadata becomes
+// Meta, and Content is set from the text parts. It returns an error naming the
+// first part that fails to convert.
 func MessageToMessage(msg *Message) (*types.Message, error) {
 	role := string(msg.Role)
 	if role == "agent" {
@@ -87,7 +95,10 @@ func MessageToMessage(msg *Message) (*types.Message, error) {
 	return out, nil
 }
 
-// ContentPartToA2APart converts a PromptKit ContentPart to an A2A Part.
+// ContentPartToA2APart converts a PromptKit ContentPart to an A2A Part. A text
+// part becomes a text part. A media part becomes a Raw part when it carries
+// base64 data, otherwise a URL part when it carries a URL. Any other part
+// returns an error.
 func ContentPartToA2APart(part types.ContentPart) (Part, error) {
 	if part.Type == types.ContentTypeText && part.Text != nil {
 		return Part{Text: part.Text}, nil
@@ -117,8 +128,9 @@ func ContentPartToA2APart(part types.ContentPart) (Part, error) {
 }
 
 // ContentPartsToArtifacts converts PromptKit ContentParts into A2A Artifacts.
-// It creates a single Artifact containing all non-empty parts. Returns nil if
-// parts is empty or all parts fail to convert.
+// It returns a single Artifact, with ID "artifact-1", containing every part. It
+// returns nil for an empty parts slice and an error if any part fails to
+// convert.
 func ContentPartsToArtifacts(parts []types.ContentPart) ([]Artifact, error) {
 	if len(parts) == 0 {
 		return nil, nil

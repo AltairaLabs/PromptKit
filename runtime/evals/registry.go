@@ -9,7 +9,7 @@ import (
 
 // EvalTypeHandler defines the interface for eval type implementations.
 // Each handler covers a single eval type (e.g. "contains", "llm_judge").
-// Handlers are stateless — params are passed per invocation.
+// Handlers are stateless; params are passed per invocation.
 type EvalTypeHandler interface {
 	// Type returns the eval type identifier (e.g. "contains", "regex").
 	Type() string
@@ -37,20 +37,18 @@ type StreamableEvalHandler interface {
 // params need not implement it.
 //
 // ValidateParams is called at two points:
-//  1. Guardrail hook construction in runtime/hooks/guardrails/factory.go,
-//     so pack validators with unusable params are surfaced at SDK load
-//     time instead of silently failing every turn.
-//  2. runtime/evals/validate.go:ValidateEvalTypes, so Arena's fail-fast
-//     build-time check and the SDK's warn-and-skip middleware both see
-//     param errors the same way.
+//  1. When a guardrail hook is constructed, so a pack validator with unusable
+//     params is surfaced at SDK load time instead of failing every turn.
+//  2. By ValidateEvalTypes, so build-time checks and the SDK's eval middleware
+//     see param errors the same way.
 //
-// Params passed to ValidateParams have already been normalised via
+// Params passed to ValidateParams have already been normalized via
 // ApplyDefaults and NormalizeParams, so implementations should check
 // for canonical key names only.
 type ParamValidator interface {
 	// ValidateParams returns nil if params are usable by this handler,
 	// or an error describing what is missing or wrong. The error message
-	// should be self-contained — it is logged and/or surfaced in a
+	// should be self-contained: it is logged or surfaced in a
 	// ValidateEvalTypes result without a wrapping prefix.
 	ValidateParams(params map[string]any) error
 }
@@ -70,11 +68,12 @@ func NewEmptyEvalTypeRegistry() *EvalTypeRegistry {
 	}
 }
 
-// NewEvalTypeRegistry creates a registry pre-populated with all
-// built-in eval handlers. Call this in production code.
-// Handlers self-register via RegisterDefaults in the handlers package;
-// import _ "github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
-// or call handlers.RegisterDefaults(r) explicitly.
+// NewEvalTypeRegistry creates a registry pre-populated with the handlers and
+// aliases added through RegisterDefault and RegisterDefaultAlias, plus the
+// "assertion" and "guardrail" wrappers. The evals/handlers package registers
+// the built-in handlers in its init function, so import it for its side effects:
+//
+//	import _ "github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
 func NewEvalTypeRegistry() *EvalTypeRegistry {
 	r := NewEmptyEvalTypeRegistry()
 	for _, h := range defaultHandlers {
@@ -97,21 +96,21 @@ var defaultHandlers []EvalTypeHandler
 var defaultAliases [][2]string
 
 // RegisterDefault adds a handler to the default set used by
-// NewEvalTypeRegistry. Call this from handler init() functions
-// or from handlers.RegisterDefaults().
+// NewEvalTypeRegistry. Call it from an init function; it affects only registries
+// created afterward and is not safe to call concurrently.
 func RegisterDefault(h EvalTypeHandler) {
 	defaultHandlers = append(defaultHandlers, h)
 }
 
 // RegisterDefaultAlias registers an alias mapping applied by NewEvalTypeRegistry.
-// The target handler must be registered (via RegisterDefault) before the registry is created.
+// The target must be registered with RegisterDefault before the registry is
+// created; an alias whose target is missing is skipped.
 func RegisterDefaultAlias(aliasType, targetType string) {
 	defaultAliases = append(defaultAliases, [2]string{aliasType, targetType})
 }
 
-// DefaultAliases returns a sorted copy of the registered alias→target pairs.
-// Used by tooling (e.g. the agentkb reference generator) to render the alias
-// table without reaching into package-private state.
+// DefaultAliases returns a copy of the pairs registered with RegisterDefaultAlias,
+// as alias and target, sorted by alias.
 func DefaultAliases() [][2]string {
 	out := make([][2]string, len(defaultAliases))
 	copy(out, defaultAliases)

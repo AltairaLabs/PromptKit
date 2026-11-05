@@ -19,7 +19,7 @@ import (
 // the handler with the context of the request it arrived on, and the handler
 // answers with a stream of events. What a conversation is, how long it lives,
 // and whether two requests sharing a context id share anything are all the
-// embedder's to decide — which is what a platform needs when the runtime lives
+// embedder's to decide, which is what a platform needs when the runtime lives
 // somewhere else and A2A is only the protocol surface in front of it.
 //
 // The protocol half — JSON-RPC dispatch, the task state machine, the task
@@ -45,7 +45,8 @@ type MessageRequest struct {
 	// presenting the same one share anything.
 	ContextID string
 
-	// TaskID is the server-assigned id of the task this message created.
+	// TaskID is the id of the task this message runs on: a task the server
+	// created for it, or the existing task its taskId continues.
 	TaskID string
 
 	// Message is the inbound A2A message.
@@ -64,6 +65,7 @@ type ToolResultHandler interface {
 
 // ToolResultRequest carries client-tool results back to the handler.
 type ToolResultRequest struct {
+	// ContextID and TaskID identify the context and task the results belong to.
 	ContextID string
 	TaskID    string
 
@@ -74,7 +76,9 @@ type ToolResultRequest struct {
 
 // ToolResult is one fulfilled (or refused) client-side tool call.
 type ToolResult struct {
+	// CallID identifies the tool call, as the handler supplied it.
 	CallID string
+	// Result is the tool's result, as the caller sent it.
 	Result any
 
 	// Rejected is true when the caller declined the tool. Reason carries their
@@ -87,7 +91,7 @@ type ToolResult struct {
 //
 // It is [NewServer]'s sibling: same protocol, same options, but each message
 // goes to the handler with its request context and nothing is kept between
-// calls. Use it when the embedder owns conversations — because it already
+// calls. Use it when the embedder owns conversations: because it already
 // tracks sessions, because the runtime is in another process, or because the
 // server needs to scale horizontally with only the task store shared.
 func NewStatelessServer(h MessageHandler, opts ...Option) *Server {

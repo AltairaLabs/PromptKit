@@ -18,8 +18,8 @@ type ResultWriter interface {
 }
 
 // EventSubscriber subscribes to eval events from an event bus.
-// PromptKit ships this interface only — platforms provide concrete
-// implementations backed by Redis Streams, NATS, Kafka, etc.
+// PromptKit ships only the interface; a platform supplies an implementation
+// backed by a message system such as Redis Streams, NATS or Kafka.
 type EventSubscriber interface {
 	Subscribe(
 		ctx context.Context,
@@ -67,7 +67,8 @@ func (defaultLogger) Printf(format string, v ...any) {
 // WorkerOption configures an EvalWorker.
 type WorkerOption func(*EvalWorker)
 
-// WithLogger sets a custom logger for the worker.
+// WithLogger sets a custom logger for the worker. The default logs at warn level
+// through the runtime logger.
 func WithLogger(l Logger) WorkerOption {
 	return func(w *EvalWorker) { w.logger = l }
 }
@@ -92,9 +93,11 @@ func NewEvalWorker(
 	return w
 }
 
-// Start subscribes to turn and session eval events and processes them.
-// It blocks until the context is canceled or a subscription error occurs.
-// If either subscription fails, the other is canceled to avoid goroutine leaks.
+// Start subscribes to the "eval.turn.*" and "eval.session.*" subjects and
+// processes the events. Turn events run RunTurnEvals and session events run
+// RunSessionEvals. Each event payload is JSON with the keys "defs" and
+// "eval_ctx". Start blocks until the context is canceled or a subscription
+// returns an error, and it cancels the other subscription in either case.
 func (w *EvalWorker) Start(ctx context.Context) error {
 	logger.Info("evals: worker starting", "subscriptions", []string{"eval.turn.*", "eval.session.*"})
 

@@ -55,7 +55,9 @@ func ResolveEvals(packEvals, promptEvals []EvalDef) []EvalDef {
 
 // FilterByGroups returns only the defs that belong to at least one of the
 // requested groups. If groups is nil or empty, all defs are returned unchanged.
-// Each def's effective groups are determined by GetGroups() (defaults to ["default"]).
+// Each def's effective groups are determined by Groups, which includes
+// DefaultEvalGroup when none are set. A requested group that matches no def is
+// logged as a warning.
 func FilterByGroups(defs []EvalDef, groups []string) []EvalDef {
 	if len(groups) == 0 {
 		return defs

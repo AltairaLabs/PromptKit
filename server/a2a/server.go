@@ -68,13 +68,16 @@ const (
 	evictionInterval = 1 * time.Minute
 )
 
-// Authenticator validates incoming requests. Return a non-nil error to reject.
+// Authenticator validates incoming requests to POST /a2a. Return a non-nil
+// error to reject the request, which the server answers with HTTP 401 and a
+// JSON-RPC error. The agent card and health endpoints are not authenticated.
 type Authenticator interface {
 	Authenticate(r *http.Request) error
 }
 
 // AgentCardProvider returns the agent card to serve at
-// /.well-known/agent-card.json (and the legacy /.well-known/agent.json).
+// /.well-known/agent-card.json (and the legacy /.well-known/agent.json). The
+// server completes the returned card as WithCard describes.
 type AgentCardProvider interface {
 	AgentCard(r *http.Request) (*a2a.AgentCard, error)
 }
@@ -94,10 +97,12 @@ type Option func(*Server)
 
 // WithCard sets the agent card served at /.well-known/agent-card.json.
 //
-// The server completes the card's JSON-RPC interface declarations for the
-// protocol versions it speaks (see servedCard); declare SecuritySchemes and
-// SecurityRequirements on it when WithAuthenticator is in use, so callers can
-// discover how to authenticate.
+// The server completes a copy of the card before serving it. A card with no
+// interfaces gets a JSON-RPC interface pointing at this server's /a2a endpoint,
+// derived from the request's Host; JSON-RPC interfaces are declared for both
+// A2A 1.0 and 0.3; Streaming is set to true and PushNotifications to false.
+// Declare SecuritySchemes and SecurityRequirements on the card when
+// WithAuthenticator is in use, so callers can discover how to authenticate.
 func WithCard(card *a2a.AgentCard) Option {
 	return func(s *Server) { s.cardProvider = &StaticCard{Card: *card} }
 }
@@ -107,7 +112,7 @@ func WithCardProvider(p AgentCardProvider) Option {
 	return func(s *Server) { s.cardProvider = p }
 }
 
-// WithPort sets the TCP port for ListenAndServe.
+// WithPort sets the TCP port for ListenAndServe. It has no effect on Serve.
 func WithPort(port int) Option {
 	return func(s *Server) { s.port = port }
 }
@@ -123,8 +128,10 @@ func WithReadTimeout(d time.Duration) Option {
 	return func(s *Server) { s.readTimeout = d }
 }
 
-// WithWriteTimeout sets the maximum duration before timing out writes of
-// the response. Default: 60s.
+// WithWriteTimeout records a write timeout, default 60s. ListenAndServe and
+// Serve do not apply it: they leave the HTTP server's WriteTimeout at 0 so SSE
+// streams stay open. Apply write timeouts in a proxy or by serving Handler from
+// your own http.Server.
 func WithWriteTimeout(d time.Duration) Option {
 	return func(s *Server) { s.writeTimeout = d }
 }
@@ -132,7 +139,7 @@ func WithWriteTimeout(d time.Duration) Option {
 // WithMaxBlockingWait caps how long a blocking SendMessage holds its request
 // open. When the turn has not finished or been interrupted by then, the server
 // answers with the task in its current (working) state, and the turn runs on:
-// the caller polls GetTask or subscribes for the rest. Default: 0, no cap — a
+// the caller polls GetTask or subscribes for the rest. Default: 0, no cap. A
 // 1.0 SendMessage waits for the turn, as the spec requires, until the turn
 // ends or the caller disconnects.
 //
@@ -149,8 +156,8 @@ func WithIdleTimeout(d time.Duration) Option {
 	return func(s *Server) { s.idleTimeout = d }
 }
 
-// WithMaxBodySize sets the maximum allowed request body size in bytes.
-// Default: 10 MB.
+// WithMaxBodySize sets the maximum allowed request body size in bytes for
+// JSON-RPC requests. Default: 10 MB.
 func WithMaxBodySize(n int64) Option {
 	return func(s *Server) { s.maxBodySize = n }
 }
@@ -168,7 +175,7 @@ func WithConversationTTL(d time.Duration) Option {
 	return func(s *Server) { s.convTTL = d }
 }
 
-// WithAuthenticator sets an authenticator for incoming requests.
+// WithAuthenticator sets an authenticator for incoming JSON-RPC requests.
 func WithAuthenticator(auth Authenticator) Option {
 	return func(s *Server) { s.authenticator = auth }
 }
@@ -259,10 +266,11 @@ type Server struct {
 	handlers map[a2a.Operation]func(*rpcCall)
 }
 
-// NewServer creates a new A2A server that OWNS its conversations: it opens one
+// NewServer creates a new A2A server that owns its conversations: it opens one
 // per context id through the supplied opener, caches it, and reuses it when
 // that id returns. Suits an embedder running A2A and the runtime in one
-// process.
+// process. A background goroutine evicts expired tasks and idle conversations
+// until Shutdown.
 //
 // For an embedder that owns conversations itself (because the runtime lives
 // elsewhere, or it already tracks sessions), see [NewStatelessServer].
@@ -314,7 +322,11 @@ func newServer(opts ...Option) *Server {
 	return s
 }
 
-// Handler returns an http.Handler implementing the A2A protocol.
+// Handler returns an http.Handler implementing the A2A protocol. It serves the
+// agent card at GET /.well-known/agent-card.json and /.well-known/agent.json,
+// JSON-RPC at POST /a2a, and the probes GET /healthz and GET /readyz. Requests
+// are traced with OpenTelemetry, and a panic in a handler is recovered and
+// answered with a JSON-RPC internal error.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+a2a.AgentCardPath, s.handleAgentCard)
@@ -340,12 +352,12 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// ListenAndServe starts the HTTP server on the configured port.
+// ListenAndServe starts the HTTP server on the configured port and blocks until
+// it stops.
 //
 // WriteTimeout is set to 0 (disabled) because SSE streaming endpoints
-// (message/stream, tasks/subscribe) hold the connection open indefinitely.
-// A non-zero WriteTimeout would kill long-lived SSE connections. Non-streaming
-// endpoints rely on the request context deadline for timeout enforcement.
+// (SendStreamingMessage, SubscribeToTask) hold the connection open indefinitely.
+// A non-zero WriteTimeout would kill long-lived SSE connections.
 func (s *Server) ListenAndServe() error {
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", s.port),
@@ -366,8 +378,10 @@ func (s *Server) ListenAndServe() error {
 	return srv.ListenAndServe()
 }
 
-// Shutdown gracefully shuts down the server: stops the eviction goroutine,
-// drains HTTP requests, cancels in-flight tasks, and closes all conversations.
+// Shutdown gracefully shuts down the server: it marks the server not ready,
+// stops the eviction goroutine, drains HTTP requests, ends task subscriptions,
+// cancels in-flight tasks, and closes all conversations. It returns the first
+// error from stopping the HTTP server or closing a conversation.
 func (s *Server) Shutdown(ctx context.Context) error {
 	// Mark as not ready so /readyz returns 503 immediately.
 	s.isReady.Store(false)
@@ -416,7 +430,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return firstErr
 }
 
-// Serve starts the HTTP server on the given listener.
+// Serve starts the HTTP server on the given listener and blocks until it stops.
 // See ListenAndServe for the rationale behind WriteTimeout: 0.
 func (s *Server) Serve(ln net.Listener) error {
 	srv := &http.Server{

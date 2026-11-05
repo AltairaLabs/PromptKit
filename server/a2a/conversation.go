@@ -1,6 +1,19 @@
 // Package a2aserver provides a standalone A2A-protocol HTTP server that can be
 // backed by any conversation implementation satisfying the interfaces defined
 // here. It imports only runtime/ and has no dependency on sdk/.
+//
+// The server speaks A2A 1.0 and 0.3 over one JSON-RPC endpoint, POST /a2a, and
+// answers each request in the protocol version it asked for. It also serves the
+// agent card at /.well-known/agent-card.json (and the legacy
+// /.well-known/agent.json) and the liveness and readiness probes /healthz and
+// /readyz.
+//
+// There are two ways to supply the agent. NewServer takes a ConversationOpener
+// and owns the conversations: it opens one per context ID, caches it, and
+// expires it when idle. NewStatelessServer takes a MessageHandler and keeps no
+// conversations, so the embedder decides what a conversation is. In both modes
+// the server runs the task state machine, stores tasks in a TaskStore, and
+// streams updates over SSE. The server does not support push notifications.
 package a2aserver
 
 import (
@@ -58,33 +71,43 @@ const (
 	EventClientTool
 
 	// EventPending indicates the turn is paused on something the server cannot
-	// see — a human approving a tool call, most often. Text carries the reason.
-	//
-	// It exists because "is this turn waiting?" cannot be inferred: a pause on
-	// a server-side approval looks exactly like a finished turn from outside,
-	// and reporting it as completed would be a control that did not run
-	// reporting clean. A handler that never pauses never emits it.
+	// see, most often a human approving a tool call. Text carries the reason.
+	// The task moves to input-required instead of completed. A handler that
+	// never pauses never emits it.
 	EventPending
 )
 
 // StreamEvent is a single event on a streaming channel.
 type StreamEvent struct {
-	Kind       EventKind
-	Text       string
-	Media      *types.MediaContent
+	// Kind says which of the other fields applies.
+	Kind EventKind
+	// Text is the content of an EventText event, or the reason of an
+	// EventPending event.
+	Text string
+	// Media is the content of an EventMedia event.
+	Media *types.MediaContent
+	// ClientTool describes the request of an EventClientTool event.
 	ClientTool *PendingClientToolInfo
-	Error      error
+	// Error, when non-nil, ends the turn and fails the task.
+	Error error
 }
 
 // Conversation is the non-streaming conversation interface the server uses.
 type Conversation interface {
+	// Send delivers a message and returns the completed turn. The message is the
+	// result of a2a.MessageToMessage, a *types.Message.
 	Send(ctx context.Context, message any) (SendResult, error)
+	// Close releases the conversation. The server calls it on eviction and on
+	// Shutdown.
 	Close() error
 }
 
-// StreamingConversation extends Conversation with streaming support.
+// StreamingConversation extends Conversation with streaming support. A
+// conversation that does not implement it is streamed from its Send result.
 type StreamingConversation interface {
 	Conversation
+	// Stream delivers a message and returns the events of the turn. The channel
+	// is closed when the turn ends.
 	Stream(ctx context.Context, message any) <-chan StreamEvent
 }
 
@@ -92,11 +115,18 @@ type StreamingConversation interface {
 // client-side tool results and resume pipeline execution.
 type ResumableConversation interface {
 	Conversation
+	// SendToolResult supplies the result of the client tool call callID.
 	SendToolResult(callID string, result any) error
+	// RejectClientTool records that the caller declined the client tool call
+	// callID, with the caller's reason.
 	RejectClientTool(callID string, reason string)
+	// Resume continues the turn once the pending tool calls are resolved and
+	// returns the completed turn.
 	Resume(ctx context.Context) (SendResult, error)
+	// ResumeStream is Resume for a streamed turn.
 	ResumeStream(ctx context.Context) <-chan StreamEvent
 }
 
 // ConversationOpener creates or retrieves a conversation for a given context ID.
+// NewServer calls it once per context ID and caches the result.
 type ConversationOpener func(contextID string) (Conversation, error)

@@ -9,7 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 )
 
-// Per-caller task scoping (#2089).
+// Per-caller task scoping.
 //
 // A server that serves several callers must not let one of them read, cancel,
 // list or subscribe to another's tasks. With WithTaskOwner the server asks the
@@ -39,13 +39,13 @@ type OwnedTaskStore interface {
 // WithTaskOwner scopes every task to the caller that created it. owner
 // identifies the caller of each request; GetTask, CancelTask, ListTasks and
 // SubscribeToTask then see only the caller's own tasks, and ListTasks without
-// a contextId lists them all. With NewServer, a message into a conversation
-// another caller opened is refused; with NewStatelessServer the handler owns
-// contexts and decides.
+// a contextId lists them all. A task another caller owns is reported as not
+// found. With NewServer, a message into a conversation another caller opened is
+// refused; with NewStatelessServer the handler owns contexts and decides.
 //
 // The task store must implement OwnedTaskStore (the default in-memory store
-// does); NewServer panics otherwise, since serving with scoping silently off
-// would be worse than not starting. A request whose owner is empty is refused.
+// does); NewServer and NewStatelessServer panic otherwise. A request whose
+// owner is empty is refused with HTTP 401.
 func WithTaskOwner(owner OwnerFunc) Option {
 	return func(s *Server) { s.owner = owner }
 }

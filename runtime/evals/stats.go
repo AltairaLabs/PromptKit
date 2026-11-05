@@ -5,8 +5,8 @@ import (
 	"math/big"
 )
 
-// PassRate returns the fraction of true values in results (0.0 to 1.0).
-// Returns 0 for an empty slice.
+// PassRate returns the fraction of true values in results (0.0 to 1.0), such as
+// the repeated assertion outcomes of one test. It returns 0 for an empty slice.
 func PassRate(results []bool) float64 {
 	if len(results) == 0 {
 		return 0
@@ -25,10 +25,9 @@ func PassRate(results []bool) float64 {
 //	pass@k = 1 - C(n-c, k) / C(n, k)
 //
 // where n is the total number of samples, c is the number of correct
-// (passing) samples, and k is the number of samples drawn. Returns 1.0
-// if k <= 0 or all samples pass. Returns 0.0 if k > c (not enough
-// passes to guarantee at least one in any draw of size k... actually
-// the formula handles the general case).
+// (passing) samples, and k is the number of samples drawn. It returns 1.0 when
+// k <= 0, 0.0 when results is empty, 1.0 when every sample passes, and 0.0 when
+// k > n.
 func PassAtK(results []bool, k int) float64 {
 	n := len(results)
 	if k <= 0 {

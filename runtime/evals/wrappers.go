@@ -20,22 +20,18 @@ const WrapperTypeGuardrail = "guardrail"
 // wrapper must consume them and strip them before invoking its inner handler.
 var scoreThresholdParamKeys = []string{"min_score", "max_score"}
 
-// ScoreThresholds turns an eval score into a verdict, and is the single
-// implementation of that decision.
-//
-// Every role that wraps an eval needs it: the "assertion" and "guardrail" eval
-// types here, and the pipeline's guardrail hook adapter. A copy hardcoded at
-// `< 1.0` would ignore min_score entirely and so make continuous-score handlers
-// (cost_budget, latency_budget) untunable and effectively unusable as
-// guardrails.
+// ScoreThresholds turns an eval score into a verdict. It is the shared
+// implementation used by the "guardrail" eval type here and by the pipeline's
+// guardrail hook adapter; evals themselves never apply it.
 type ScoreThresholds struct {
-	// Min fails a score below it. Max fails a score above it. Both optional;
-	// with neither set, Triggered requires a perfect 1.0.
+	// Min triggers on a score below it. Max triggers on a score above it. Both
+	// are optional; with neither set, Triggered requires a score of 1.0.
 	Min *float64
 	Max *float64
 }
 
-// ExtractScoreThresholds reads min_score/max_score from wrapper params.
+// ExtractScoreThresholds reads min_score and max_score from wrapper params.
+// A value that is missing or not a number is left unset.
 func ExtractScoreThresholds(params map[string]any) ScoreThresholds {
 	return ScoreThresholds{
 		Min: extractOptionalFloat64(params, "min_score"),
@@ -43,13 +39,10 @@ func ExtractScoreThresholds(params map[string]any) ScoreThresholds {
 	}
 }
 
-// StripScoreThresholds returns params without the threshold keys, so they never
-// reach an inner eval handler. Handlers that call rejectThresholdParams return
-// an error result scoring 0 when they see one, which a guardrail reads as
-// "block" — so forwarding a threshold turns the guardrail into an always-block
-// rather than merely ignoring the param.
-//
-// The input map is never mutated; callers may share it across turns.
+// StripScoreThresholds returns params without min_score and max_score, so the
+// keys never reach an inner eval handler. Handlers reject those keys with an
+// error result that scores 0, which a guardrail reads as a block. The input map
+// is never mutated.
 func StripScoreThresholds(params map[string]any) map[string]any {
 	if params == nil {
 		return nil
@@ -76,12 +69,9 @@ func StripScoreThresholds(params map[string]any) map[string]any {
 
 // Triggered reports whether a result trips a guardrail under these thresholds.
 //
-// A nil result or nil score means the handler could not judge, and a safety
-// mechanism that cannot judge blocks: this is fail-closed, matching what the
-// pipeline's guardrail hook does. The assertion role makes the opposite choice
-// (see AssertionEvalHandler.applyThresholds) because failing
-// a *test* over a handler that declined to score would be noise, whereas
-// allowing unjudged content through a *guardrail* is a hole.
+// A nil result or nil score means the handler could not judge, and Triggered
+// returns true: a guardrail fails closed, as the pipeline's guardrail hook does.
+// The assertion wrapper makes the opposite choice for a nil score and passes it.
 func (t ScoreThresholds) Triggered(result *EvalResult) bool {
 	if result == nil || result.Score == nil {
 		return true
@@ -102,8 +92,8 @@ func (t ScoreThresholds) Triggered(result *EvalResult) bool {
 
 // ResultDetailReplacement is the EvalResult.Details key under which a check
 // supplies the text that replaces a turn it denies, when the check itself
-// decides what to answer (topic_policy's on_deny: respond). A guardrail uses it
-// when the validator sets no message of its own.
+// decides what to answer (topic_policy with on_deny set to respond). A guardrail
+// uses it when the validator sets no message of its own.
 const ResultDetailReplacement = "replacement"
 
 // ResultReplacement returns the replacement text a result supplies under
@@ -156,13 +146,18 @@ func extractEvalParams(params map[string]any) map[string]any {
 // AssertionEvalHandler is a registered eval type ("assertion") that wraps an
 // inner eval and applies pass/fail judgment based on score thresholds.
 //
+// The result is the inner eval's result with Kind set to EvalKindAssertion and
+// Passed set. Passed is false when the inner result carries an Error, true when
+// it carries no score, and otherwise true when the score satisfies min_score and
+// max_score. With neither set, min_score defaults to 1.0.
+//
 // Params structure:
 //
 //	{
 //	  "eval_type":  "llm_judge",           // inner eval type (required)
 //	  "eval_params": { "criteria": "..." }, // params for inner eval
-//	  "min_score":  0.8,                    // assertion threshold (optional)
-//	  "max_score":  1.0                     // assertion threshold (optional)
+//	  "min_score":  0.8,                    // minimum passing score (optional)
+//	  "max_score":  1.0                     // maximum passing score (optional)
 //	}
 type AssertionEvalHandler struct {
 	registry *EvalTypeRegistry
@@ -231,13 +226,20 @@ func (h *AssertionEvalHandler) applyThresholds(
 // GuardrailEvalHandler is a registered eval type ("guardrail") that wraps an
 // inner eval and determines whether the guardrail was triggered.
 //
+// The result is the inner eval's result with Kind set to EvalKindGuardrail,
+// Passed set to the inverse of triggered, and Details["triggered"] and
+// Details["action"] set. A guardrail is triggered under ScoreThresholds.Triggered:
+// the score is below min_score or above max_score (min_score defaults to 1.0
+// when neither is set), or the inner result has no score.
+//
 // Params structure:
 //
 //	{
 //	  "eval_type":   "content_excludes",     // inner eval type (required)
 //	  "eval_params": { "patterns": ["..."] }, // params for inner eval
-//	  "action":      "block",                 // guardrail action (optional, default: "block")
-//	  "min_score":   0.8                      // trigger threshold (optional)
+//	  "action":      "block",                 // recorded in Details["action"] (optional, default: "block")
+//	  "min_score":   0.8,                     // triggers below this score (optional)
+//	  "max_score":   1.0                      // triggers above this score (optional)
 //	}
 type GuardrailEvalHandler struct {
 	registry *EvalTypeRegistry
@@ -292,8 +294,7 @@ func (h *GuardrailEvalHandler) Eval(
 }
 
 // innerEvalType reports the eval type a wrapper delegates to, and whether the
-// param was usable. Shared so the two wrappers and anything inspecting a
-// wrapper declaration agree on where the inner type is named.
+// param was usable.
 func innerEvalType(params map[string]any) (string, bool) {
 	t, ok := params["eval_type"].(string)
 	return t, ok && t != ""

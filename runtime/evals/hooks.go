@@ -4,8 +4,8 @@ import "context"
 
 // EvalHook observes eval results as they are produced by the runner.
 //
-// Unlike ProviderHook or ToolHook, EvalHook is purely observational —
-// evals compute scores, they do not gate execution, so there is no
+// Unlike ProviderHook or ToolHook, EvalHook is purely observational:
+// evals compute scores and do not gate execution, so there is no
 // allow/deny semantics. Hooks are invoked once per executed eval, after
 // the handler runs (or after a skip/error result is synthesized), and
 // before the result is emitted as an event.

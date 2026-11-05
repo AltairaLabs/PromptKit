@@ -81,11 +81,19 @@ func (h *clientHeap) Pop() interface{} {
 	return e
 }
 
-// RetryPolicy configures retry behavior for the A2A executor.
+// RetryPolicy configures retry behavior for the A2A executor. The executor
+// retries only the SendMessage call, on HTTP 429, 502, 503 and 504 and on
+// transient network errors, and waits an exponentially growing delay between
+// attempts, with random jitter of up to 50% added on top.
 type RetryPolicy struct {
-	MaxRetries   int
+	// MaxRetries is the number of retries after the first attempt.
+	MaxRetries int
+	// InitialDelay is the delay before the first retry. Zero or negative means
+	// DefaultA2AInitialDelay.
 	InitialDelay time.Duration
-	MaxDelay     time.Duration
+	// MaxDelay caps the exponential delay before jitter is added. Zero or
+	// negative means DefaultA2AMaxDelay.
+	MaxDelay time.Duration
 }
 
 // DefaultRetryPolicy returns the default retry policy for A2A calls.
@@ -130,8 +138,18 @@ var (
 
 // Executor implements tools.Executor and tools.MultimodalExecutor for A2A agent tools.
 // It dispatches tool calls to remote A2A agents via the A2A client.
-// The executor maintains a cache of A2A clients with TTL-based eviction.
-// Call Close when you are done with the executor to release resources.
+//
+// A call sends the "query" argument, plus any image_url, image_data or
+// audio_data, as a message with returnImmediately set, then polls the task until
+// it finishes. The result is a JSON object with a "response" string. A task that
+// does not complete, whether failed, rejected, canceled or waiting for input,
+// is an error. If the wait ends first, the executor asks the agent to cancel
+// the task. The tool's A2AConfig.TimeoutMs, when positive, bounds the whole call.
+//
+// The executor keeps a cache of clients keyed by agent URL, with TTL-based and
+// least-recently-used eviction. The first A2AConfig seen for a URL decides the
+// client's auth and headers. Call Close when you are done with the executor to
+// release resources.
 type Executor struct {
 	mu         sync.RWMutex
 	clients    map[string]*clientEntry
@@ -586,6 +604,7 @@ func a2aCryptoRandFloat64() float64 {
 }
 
 // Close stops the background cleanup goroutine and clears the client cache.
+// Calling it more than once is safe.
 func (e *Executor) Close() error {
 	e.mu.Lock()
 	if e.closed {
@@ -740,8 +759,8 @@ func resolveHeaders(static map[string]string, fromEnv []string) map[string]strin
 }
 
 // ExtractResponseParts converts all A2A Parts from a completed task into PromptKit ContentParts.
-// It collects parts from the status message (if present) and all artifacts.
-// Parts that fail conversion (e.g., structured data) are silently skipped.
+// It collects parts from the status message (if present) and then all artifacts.
+// Parts that fail conversion, such as structured data, are skipped.
 func ExtractResponseParts(task *Task) []types.ContentPart {
 	var result []types.ContentPart
 
@@ -768,8 +787,9 @@ func ExtractResponseParts(task *Task) []types.ContentPart {
 	return result
 }
 
-// ExtractResponseText extracts text from a completed A2A task.
-// It checks the status message first, then artifacts.
+// ExtractResponseText extracts text from a completed A2A task. It returns the
+// first text part of the status message; if there is none, the text parts of all
+// artifacts joined with newlines. It returns "" when the task has no text.
 func ExtractResponseText(task *Task) string {
 	if task.Status.Message != nil {
 		for _, part := range task.Status.Message.Parts {
