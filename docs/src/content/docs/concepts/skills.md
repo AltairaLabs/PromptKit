@@ -4,7 +4,7 @@ description: How skills load instructions and tools into a conversation on deman
 sidebar:
   order: 8
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
   sources:
     - runtime/packspec/types.go
     - runtime/pipeline/stage/stages_provider.go
@@ -19,6 +19,7 @@ verified:
     - sdk/conversation.go
     - sdk/options.go
     - sdk/sdk.go
+    - sdk/workflow.go
 ---
 
 Skills load knowledge on demand. Instead of placing every instruction in the system prompt, the model activates a skill when a turn needs it.

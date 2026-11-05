@@ -1,13 +1,13 @@
 {
  "page": "docs/src/content/docs/concepts/state-management.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
  "claims": [
   {
    "id": 1,
    "claim": "State management maintains conversation history across turns",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:942"
+    "sdk/options.go:943"
    ]
   },
   {
@@ -21,7 +21,7 @@
    "claim": "Each conversation has a session ID (conversation ID)",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:991"
+    "sdk/options.go:992"
    ]
   },
   {
@@ -29,7 +29,7 @@
    "claim": "sdk.Open with WithModel and conv.Send(ctx, text) example",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:1200"
+    "sdk/sdk.go:1201"
    ]
   },
   {
@@ -96,7 +96,7 @@
    "verdict": "false",
    "evidence": [
     "runtime/statestore/interface.go:20",
-    "sdk/options.go:1702"
+    "sdk/options.go:1703"
    ]
   },
   {
@@ -104,7 +104,7 @@
    "claim": "sessionID patterns with fmt.Sprintf and uuid",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:991"
+    "sdk/options.go:992"
    ]
   },
   {
@@ -131,7 +131,7 @@
    "claim": "transient: state is not persisted to the store; persistent: saved",
    "verdict": "true",
    "evidence": [
-    "sdk/workflow.go:783"
+    "sdk/workflow.go:805"
    ]
   },
   {
@@ -189,16 +189,16 @@
    "verdict": "true",
    "evidence": [
     "runtime/workflow/types.go:275",
-    "sdk/workflow.go:700"
+    "sdk/workflow.go:722"
    ]
   },
   {
    "id": 24,
    "claim": "sdk.ResumeWorkflow(workflowID, packPath) without a state store",
-   "verdict": "false",
+   "verdict": "true",
    "evidence": [
     "sdk/workflow.go:228",
-    "sdk/workflow.go:239"
+    "sdk/workflow.go:236"
    ]
   },
   {
@@ -213,9 +213,9 @@
   {
    "id": 26,
    "claim": "sdk.WithContextCarryForward(true)",
-   "verdict": "false",
+   "verdict": "true",
    "evidence": [
-    "sdk/options.go:2022"
+    "sdk/options.go:2024"
    ]
   },
   {
@@ -224,7 +224,7 @@
    "verdict": "false",
    "evidence": [
     "runtime/statestore/redis.go:54",
-    "sdk/options.go:1702"
+    "sdk/options.go:1703"
    ]
   },
   {
@@ -306,7 +306,7 @@
    "claim": "Without a state store, Open uses a private in-memory store; Resume returns ErrNoStateStore",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:1227",
+    "sdk/sdk.go:1228",
     "sdk/sdk.go:838"
    ]
   },
@@ -315,9 +315,19 @@
    "claim": "WithContextWindow(n) loads the most recent n messages; WithTokenBudget; WithTruncation sliding/summarize/relevance",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1594",
-    "sdk/options.go:1615",
-    "sdk/options.go:1702"
+    "sdk/options.go:1595",
+    "sdk/options.go:1616",
+    "sdk/options.go:1703"
+   ]
+  },
+  {
+   "id": 39,
+   "claim": "A workflow state's `skills` field limits the skills its conversation can activate; the SDK applies it on open, resume and after a transition",
+   "verdict": "true",
+   "evidence": [
+    "runtime/packspec/types.go:2794",
+    "sdk/workflow.go:601",
+    "sdk/workflow.go:664"
    ]
   }
  ]

@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/tutorials/03-tool-integration.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
  "claims": [
   {
    "id": 1,
@@ -16,7 +16,7 @@
    "claim": "`OnTool()` registers a handler by tool name",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:228",
+    "sdk/conversation.go:235",
     "sdk/conversation_tools.go:33"
    ]
   },
@@ -41,7 +41,7 @@
    "claim": "The model receives `Tool execution failed: no weather data for \"Atlantis\"` as the tool result",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3313"
+    "runtime/pipeline/stage/stages_provider.go:3407"
    ]
   },
   {

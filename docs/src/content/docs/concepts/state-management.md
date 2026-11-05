@@ -4,8 +4,9 @@ description: How PromptKit stores conversation history and workflow state, and h
 sidebar:
   order: 5
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
   sources:
+    - runtime/packspec/types.go
     - runtime/prompt/schema/promptpack.schema.json
     - runtime/statestore/interface.go
     - runtime/statestore/memory.go
@@ -156,6 +157,8 @@ A workflow adds a state machine on top of conversation state. Each workflow trac
 - The current state.
 - The transition history, with timestamps.
 - A separate conversation for each state. A transition closes the current conversation and opens one for the destination state's `prompt_task`.
+
+A state's `skills` field limits which skills that state's conversation can activate. The SDK applies it each time it opens a conversation for a state: on open, on resume, and after a transition. [Skills](/concepts/skills/) covers the filter.
 
 ### Persistence per state
 

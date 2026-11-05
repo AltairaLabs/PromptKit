@@ -1,15 +1,15 @@
 {
  "page": "docs/src/content/docs/sdk/tutorials/09-variable-providers.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
  "claims": [
   {
    "id": 1,
    "claim": "WithVariableProvider registers a variables.Provider; pipeline calls every provider on each Send before rendering",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:371",
+    "runtime/pipeline/stage/stages_utilities.go:375",
     "runtime/variables/provider.go:16",
-    "sdk/options.go:2486"
+    "sdk/options.go:2488"
    ]
   },
   {
@@ -52,8 +52,8 @@
    "claim": "WithStateStore and WithConversationID options",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:943",
-    "sdk/options.go:992"
+    "sdk/options.go:944",
+    "sdk/options.go:993"
    ]
   },
   {
