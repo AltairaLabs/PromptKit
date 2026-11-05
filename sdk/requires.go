@@ -46,7 +46,8 @@ func checkProviderRequirements(p *prompt.Pack, cfg *config) error {
 		return fmt.Errorf(
 			"pack requires providers that are not configured: %s. "+
 				"Supply them with WithProvider/WithLLMProvider (llm), WithEmbeddingProvider, "+
-				"WithTTSProvider or WithSTTProvider, using the key the pack names",
+				"WithTTSProvider, WithSTTProvider, or WithClassifier/WithInferenceProvider (inference), "+
+				"using the key the pack names",
 			prompt.DescribeUnsatisfied(required))
 	}
 	return nil

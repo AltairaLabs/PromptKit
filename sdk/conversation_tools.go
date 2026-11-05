@@ -465,9 +465,8 @@ func (c *Conversation) PendingTools(ctx context.Context) ([]*sdktools.PendingToo
 // are loaded from the pack; this allows inspecting them or registering
 // custom executors.
 //
-//	registry := conv.ToolRegistry().(*tools.Registry)
-//	for _, desc := range registry.Descriptors() {
-//	    fmt.Printf("Tool: %s\n", desc.Name)
+//	for name, desc := range conv.ToolRegistry().GetTools() {
+//	    fmt.Printf("Tool: %s (%s)\n", name, desc.Description)
 //	}
 func (c *Conversation) ToolRegistry() *tools.Registry {
 	return c.toolRegistry

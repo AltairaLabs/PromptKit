@@ -78,10 +78,10 @@ import (
 // immediately before that sink only so a message broadcasts as soon as it
 // exists; correctness does not depend on it.
 //
-// Read Index rather than arrival order. The bus dispatches through a worker
-// pool, so subscribers can and do receive these out of publish order — Index is
-// what lets a consumer reassemble a transcript from a stream that makes no
-// ordering promise.
+// The bus delivers to each subscriber in publish order. Index is still the
+// reliable way to reassemble a transcript: it stays correct when a
+// subscriber's queue overflows and drops an event, or when the stage sits
+// downstream of a fan-in that interleaves elements.
 type MessageBroadcastStage struct {
 	BaseStage
 	emitter *events.Emitter

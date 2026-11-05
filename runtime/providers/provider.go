@@ -276,7 +276,9 @@ func AssertInferenceProvider(p base.Provider) (InferenceProvider, error) {
 }
 
 // ContextWindowProvider is an optional interface for providers that can report
-// their context window size. The compactor budget is auto-configured from it.
+// their context window size. The compactor budget is auto-configured from it
+// when a provider implements it; otherwise the compactor falls back to
+// stage.DefaultBudgetTokens. No built-in provider implements it today.
 type ContextWindowProvider interface {
 	MaxContextTokens() int
 }

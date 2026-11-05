@@ -5,7 +5,7 @@ Demonstrates how to use PromptKit's eval framework with the SDK.
 ## What It Shows
 
 - **Pack-level evals**: Eval definitions live in the pack file (`assistant.pack.json`) — no Go code needed to define them
-- **InProcDispatcher**: Runs evals synchronously in-process (simplest pattern)
+- **EvalRunner**: Runs evals in-process, passed to the conversation with `sdk.WithEvalRunner`
 - **Metrics Collector**: Records eval results as Prometheus metrics via the unified `metrics.NewEvalOnlyCollector`
 - **Turn vs session evals**: Turn evals run after each `Send()`, session evals run on `Close()`
 
@@ -55,12 +55,9 @@ promptpack_eval_session_has_substance 1
 
 ## Key Concepts
 
-### Dispatcher Patterns
+### Eval Runner
 
-This example uses `InProcDispatcher` (Pattern A). For production, consider:
-
-- **EventDispatcher** (Pattern B): Publishes eval requests to an event bus for async worker processing
-- **EventBusEvalListener** (Pattern C): Subscribes to `message.created` events and triggers evals automatically — no middleware needed
+This example passes an `EvalRunner` to the conversation with `sdk.WithEvalRunner`. The runner executes turn evals after each `Send()` and session evals on `Close()`, and emits each result as an event on the conversation's EventBus. Subscribe to those events to export results elsewhere.
 
 ### MetricResultWriter
 

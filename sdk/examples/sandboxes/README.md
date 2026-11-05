@@ -58,7 +58,7 @@ conv, _ := sdk.Open("./pack.json", "chat",
 )
 ```
 
-Then reference the mode in RuntimeConfig YAML *(binding coming in a follow-up PR)*:
+Then reference the mode in RuntimeConfig YAML:
 
 ```yaml
 spec:

@@ -38,7 +38,7 @@ type RuntimeConfigSpec struct {
 	// programmatically via WithContextRetrieval.
 	//
 	// Deprecated: declare the provider under spec.providers with
-	// `role: embedding` instead. Removed in v3 — see #1998.
+	// `role: embedding` instead. Removed in v3.
 	//nolint:lll // jsonschema tags require single line
 	EmbeddingProviders []EmbeddingProviderConfig `yaml:"embedding_providers,omitempty" json:"embedding_providers,omitempty" jsonschema:"title=Embedding Providers,description=Embedding provider configurations"`
 
@@ -48,7 +48,7 @@ type RuntimeConfigSpec struct {
 	// WithVADMode.
 	//
 	// Deprecated: declare the provider under spec.providers with
-	// `role: tts` instead. Removed in v3 — see #1998.
+	// `role: tts` instead. Removed in v3.
 	//nolint:lll // jsonschema tags require single line
 	TTSProviders []TTSProviderConfig `yaml:"tts_providers,omitempty" json:"tts_providers,omitempty" jsonschema:"title=TTS Providers,description=Text-to-speech provider configurations"`
 
@@ -57,7 +57,7 @@ type RuntimeConfigSpec struct {
 	// programmatically via WithVADMode.
 	//
 	// Deprecated: declare the provider under spec.providers with
-	// `role: stt` instead. Removed in v3 — see #1998.
+	// `role: stt` instead. Removed in v3.
 	//nolint:lll // jsonschema tags require single line
 	STTProviders []STTProviderConfig `yaml:"stt_providers,omitempty" json:"stt_providers,omitempty" jsonschema:"title=STT Providers,description=Speech-to-text provider configurations"`
 
@@ -67,7 +67,7 @@ type RuntimeConfigSpec struct {
 	// implementing a task becomes that task's default.
 	//
 	// Deprecated: declare the provider under spec.providers with
-	// `role: inference` instead. Removed in v3 — see #1998.
+	// `role: inference` instead. Removed in v3.
 	//nolint:lll // jsonschema tags require single line
 	InferenceProviders []InferenceProviderConfig `yaml:"inference_providers,omitempty" json:"inference_providers,omitempty" jsonschema:"title=Inference Providers,description=Inference (classify) provider configurations"`
 
@@ -172,7 +172,7 @@ type SkillsConfig struct {
 // programmatically via WithContextRetrieval.
 //
 // Deprecated: use Provider with Role set to 'embedding' under
-// RuntimeConfigSpec.Providers instead. Removed in v3 — see #1998.
+// RuntimeConfigSpec.Providers instead. Removed in v3.
 type EmbeddingProviderConfig struct {
 	// ID is a stable identifier used to reference this provider from
 	// other config blocks (e.g. tool_selector via SelectorContext).
@@ -207,7 +207,7 @@ type EmbeddingProviderConfig struct {
 // NewCartesia constructors. Resolved by sdk.WithRuntimeConfig.
 //
 // Deprecated: use Provider with Role set to 'tts' under
-// RuntimeConfigSpec.Providers instead. Removed in v3 — see #1998.
+// RuntimeConfigSpec.Providers instead. Removed in v3.
 type TTSProviderConfig struct {
 	// ID is a stable identifier; defaults to the type when empty.
 	ID string `yaml:"id,omitempty" json:"id,omitempty" jsonschema:"title=ID,description=Stable identifier"`
@@ -234,7 +234,7 @@ type TTSProviderConfig struct {
 // stt.RegisterSTTFactory pattern.
 //
 // Deprecated: use Provider with Role set to 'stt' under
-// RuntimeConfigSpec.Providers instead. Removed in v3 — see #1998.
+// RuntimeConfigSpec.Providers instead. Removed in v3.
 type STTProviderConfig struct {
 	// ID is a stable identifier; defaults to the type when empty.
 	ID string `yaml:"id,omitempty" json:"id,omitempty" jsonschema:"title=ID,description=Stable identifier"`
@@ -259,7 +259,7 @@ type STTProviderConfig struct {
 // by classify-backed eval handlers (audio_emotion, text_toxicity, …).
 //
 // Deprecated: use Provider with Role set to 'inference' under
-// RuntimeConfigSpec.Providers instead. Removed in v3 — see #1998.
+// RuntimeConfigSpec.Providers instead. Removed in v3.
 type InferenceProviderConfig struct {
 	// ID is a stable identifier; defaults to the type when empty.
 	ID string `yaml:"id,omitempty" json:"id,omitempty" jsonschema:"title=ID,description=Stable identifier"`

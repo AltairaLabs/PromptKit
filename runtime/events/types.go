@@ -1177,7 +1177,7 @@ type TemplateFailedData struct {
 
 // MaxEvalValueBytes bounds the JSON encoding of EvalEventData.Value.
 //
-// The bus is a buffered channel drained by a worker pool: it drops rather than
+// The bus feeds each listener a bounded queue: it drops rather than
 // blocks, so one oversized payload does not stall the pipeline — it evicts
 // OTHER events. 64KB is far above any rubric or judge payload measured here
 // and far below the size at which one eval could crowd out a turn's tool and

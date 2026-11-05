@@ -11,7 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
-// Default configuration values for the event bus worker pool.
+// Default configuration values for the event bus.
 const (
 	DefaultWorkerPoolSize    = 10
 	DefaultEventBufferSize   = 1000
@@ -25,10 +25,9 @@ const (
 // call sites (arena, SDK, examples) pick up operator config without any
 // code changes.
 //
-// See AltairaLabs/PromptKit#853: the capability-matrix run dropped 201
-// events due to worker-pool throughput saturation under bursty load.
-// Operators can raise these values to match their expected concurrency
-// without a code change.
+// A burst of events can overflow a listener's queue, and an overflowing event
+// is dropped. Operators can raise these values to match their expected
+// concurrency without a code change.
 const (
 	// EnvEventBusBufferSize overrides DefaultEventBufferSize. Invalid
 	// or non-positive values are ignored and the default is used.
@@ -168,7 +167,7 @@ type Bus interface {
 //
 // Delivery costs one non-blocking channel send per listener per event. The
 // previous design started a goroutine and a timer, and made a channel, for
-// every delivery — per streamed token, for every listener (#2146).
+// every delivery — per streamed token, for every listener.
 type listenerEntry struct {
 	id       uint64
 	listener Listener
@@ -280,7 +279,7 @@ type EventBus struct {
 //  2. Environment variables (PROMPTKIT_EVENT_BUS_BUFFER_SIZE,
 //     PROMPTKIT_EVENT_BUS_SUBSCRIBER_TIMEOUT). Invalid values are logged
 //     and ignored. This is the operator knob for tuning without code
-//     changes — see AltairaLabs/PromptKit#853.
+//     changes.
 //  3. Package defaults (DefaultEventBufferSize etc.).
 //
 // The zero-argument form reads env vars and falls back to defaults, so

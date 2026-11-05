@@ -12,7 +12,7 @@ import (
 
 const (
 	// DefaultChannelBufferSize is the default buffer size for channels between stages.
-	// For text pipelines, 16 provides adequate buffering.
+	// For text pipelines, 32 provides adequate buffering.
 	// For audio pipelines at ~50 chunks/sec, consider using DefaultAudioChannelBufferSize.
 	DefaultChannelBufferSize = 32
 	// DefaultAudioChannelBufferSize is the recommended buffer size for audio pipelines.
@@ -36,7 +36,7 @@ type PipelineConfig struct {
 	// ChannelBufferSize controls buffering between stages.
 	// Smaller values = lower latency but more backpressure.
 	// Larger values = higher throughput but more memory usage.
-	// Default: 16
+	// Default: 32
 	ChannelBufferSize int
 
 	// MaxConcurrentPipelines limits the number of concurrent pipeline executions.

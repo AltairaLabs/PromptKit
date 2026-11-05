@@ -72,8 +72,8 @@ type Provider interface {
 // in runtime/providers/provider.go and embedded here via the existing
 // providers.Provider interface, kept intact for back-compat.
 //
-// For PR 1 this interface is forward-declared. Existing implementations
-// satisfy it once they compose the base.Implementation helper (Task 7).
+// It adds no methods of its own beyond Provider; it exists as the shared name
+// for inference-role providers.
 type InferenceProvider interface {
 	Provider
 }
