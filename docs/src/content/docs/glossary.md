@@ -3,184 +3,276 @@ title: Glossary
 description: Definitions of key terms used throughout PromptKit documentation
 sidebar:
   order: 100
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - pkg/config/role.go
+    - runtime/events/bus.go
+    - runtime/hooks/hooks.go
+    - runtime/inference/factory.go
+    - runtime/inference/provider.go
+    - runtime/pipeline/stage/stage.go
+    - runtime/pipeline/stage/stages_speech.go
+    - runtime/prompt/schema/promptpack.schema.json
+    - runtime/providers/gemini/audio_encoder.go
+    - runtime/providers/replay/provider.go
+    - runtime/statestore/file/store.go
+    - runtime/statestore/memory.go
+    - runtime/statestore/redis.go
+    - runtime/variables/state.go
+    - runtime/variables/time.go
+    - sdk/conversation_tools.go
 ---
 
-Definitions of key terms used throughout PromptKit documentation.
+Definitions of terms used across the PromptKit documentation. Each entry links to the page that covers the term in full.
 
-## Audio & Voice
+## Audio and voice
 
 ### ASM
-**Audio Streaming Model** - A mode for native bidirectional audio streaming with multimodal LLMs like Gemini Live. Audio streams directly to and from the model without separate STT/TTS stages. Compare with [VAD](#vad).
+
+**Audio Streaming Mode**. A duplex voice mode in which a native audio model (Gemini Live, OpenAI Realtime) takes audio in and returns audio, with no separate [STT](#stt) or [TTS](#tts) stage. The model detects turn boundaries. Compare with [VAD](#vad). See [Choose a voice mode](/sdk/how-to/voice/choose-voice-mode/).
 
 ### ASR
-**Automatic Speech Recognition** - Technology that converts spoken audio into text. Also known as [STT](#stt) (Speech-to-Text). Used in [VAD](#vad) mode pipelines.
+
+**Automatic Speech Recognition**. Converts spoken audio to text. Another name for [STT](#stt).
 
 ### Barge-in
-The ability for a user to interrupt the AI assistant while it's speaking. Enables natural back-and-forth conversations in voice interactions. Requires real-time [turn detection](#turn-detection).
 
-### Bit Depth
-The number of bits that represent each audio sample. PromptKit typically uses 16-bit audio, which provides good quality for voice while keeping file sizes manageable.
+A user interrupting the assistant while it speaks. The session stops the assistant's playback and starts a new [turn](#turn). See [Handle turns, barge-in and transcripts](/sdk/how-to/voice/handle-turns-and-barge-in/).
+
+### Bit depth
+
+The number of bits per audio sample. Voice input to Gemini Live is 16-bit PCM. See [Audio](/runtime/reference/audio/).
 
 ### Channels
-The number of audio tracks in a stream. Mono (1 channel) is used for voice conversations; stereo (2 channels) is unnecessary for speech.
+
+The number of audio tracks in a stream. Voice input is mono (one channel). See [Audio](/runtime/reference/audio/).
 
 ### Duplex
-**Bidirectional streaming** - A communication pattern where audio or data flows in both directions simultaneously. In PromptKit, duplex sessions enable real-time voice conversations where the user can speak while receiving responses.
+
+A session that sends and receives audio at the same time, so the user can speak while the assistant responds. A duplex session runs in [VAD](#vad) mode or [ASM](#asm) mode. See [Choose a voice mode](/sdk/how-to/voice/choose-voice-mode/).
 
 ### PCM
-**Pulse Code Modulation** - An uncompressed audio format used for streaming and storage. PromptKit uses raw PCM (no headers) at 16kHz sample rate for voice input to Gemini Live API.
 
-### Sample Rate
-The number of audio samples captured per second, measured in Hz. PromptKit uses 16000 Hz (16 kHz) for voice input, which is standard for speech recognition.
+**Pulse Code Modulation**. Uncompressed audio samples without a header. Gemini Live accepts 16 kHz PCM input. See [Audio](/runtime/reference/audio/).
+
+### Sample rate
+
+The number of audio samples per second, in Hz. Gemini Live input must be 16000 Hz, and the default VAD sample rate is 16000 Hz. See [Audio](/runtime/reference/audio/).
 
 ### STT
-**Speech-to-Text** - The process of converting spoken audio into written text. Also known as [ASR](#asr). In [VAD](#vad) mode, STT converts user speech before sending to the LLM.
+
+**Speech-to-Text**. Converts spoken audio to text. In [VAD](#vad) mode the `STTStage` transcribes the user's speech before the text reaches the model. Also called [ASR](#asr). See [Choose a voice mode](/sdk/how-to/voice/choose-voice-mode/).
 
 ### TTS
-**Text-to-Speech** - The process of converting written text into spoken audio. In [VAD](#vad) mode, TTS converts LLM responses into audio for playback.
+
+**Text-to-Speech**. Converts text to spoken audio. In [VAD](#vad) mode the `TTSStage` turns the model's reply into audio. See [Configure text-to-speech](/sdk/how-to/voice/configure-tts/).
 
 ### Turn
-A single exchange in a conversation consisting of user input followed by an AI response. See also [Multi-turn](#multi-turn).
 
-### Turn Detection
-The process of determining when a user has finished speaking. Uses [VAD](#vad) to identify speech boundaries based on silence duration and speech patterns. Also called "endpointing."
+One exchange in a conversation: user input followed by the assistant's response. See [Multi-turn](#multi-turn).
+
+### Turn detection
+
+Deciding when a user has finished speaking. In [VAD](#vad) mode the session ends a turn after a configured silence; in [ASM](#asm) mode the model decides. Also called endpointing. See [Handle turns, barge-in and transcripts](/sdk/how-to/voice/handle-turns-and-barge-in/).
 
 ### VAD
-**Voice Activity Detection** - A mode that detects when a user is speaking versus silent. Determines turn boundaries in voice conversations. VAD mode pipelines use separate [STT](#stt) and [TTS](#tts) stages. Compare with [ASM](#asm).
 
-## PromptKit Components
+**Voice Activity Detection**. A duplex voice mode for text models. A voice activity detector finds turn boundaries, [STT](#stt) transcribes the speech, the model replies in text, and [TTS](#tts) speaks the reply. Compare with [ASM](#asm). See [Choose a voice mode](/sdk/how-to/voice/choose-voice-mode/).
 
-### Arena
-**PromptArena** - PromptKit's testing framework for running scenarios against prompts. Executes conversations, validates responses, and generates reports.
-
-### Assertion
-A test check in Arena that validates expected behavior in a [scenario](#scenario). Assertions run after each turn to verify response content, format, or other criteria. Different from [guardrails](#guardrail), which are runtime checks.
+## Runtime and SDK
 
 ### DAG
-**Directed Acyclic Graph** - The structure used by PromptKit's [pipeline](#pipeline) where data flows through [stages](#stage) in a defined order with no cycles, ensuring deterministic execution.
 
-### Event Bus
-A publish-subscribe system that distributes execution events to listeners. Used for observability, logging, and monitoring pipeline execution.
+**Directed Acyclic Graph**. The shape of a [pipeline](#pipeline): [stages](#stage) connected by channels with no cycles. See [Pipeline architecture](/runtime/explanation/pipeline-architecture/).
 
-### Guardrail
-A validator that enforces policies on LLM outputs in real-time. Guardrails can detect and prevent policy violations (banned content, PII exposure, etc.) and abort responses early. Different from [assertions](#assertion), which are test-time checks.
+### Event bus
 
-### Inference Provider
-A [provider](#provider) declared with `role: inference` that answers non-LLM classification requests through one interface, `inference.Provider` (`Infer`): content in, a probability for each label out. Each type calls one vendor API — `huggingface` (the Hugging Face Inference API), `openai` (OpenAI-compatible chat completions, read through logprobs), `systemone` (the typed-decision API TypeSafe's Jev serves). Powers checks such as `audio_emotion` (does the audio sound angry?), `text_toxicity` and `topic_policy`. Inference providers don't participate in the [agent-under-test](#provider) matrix because they don't implement `Predict()`.
+The publish-subscribe bus (`events.EventBus`) that delivers runtime events to listeners. Observability, logging, and metrics subscribe to it. See [Runtime event system](/architecture/runtime-events/).
 
-### Middleware
-Historically referred to pluggable processing components in the pipeline. The current architecture uses a **stage-based** design (see [Stage](#stage)), where each stage is a discrete processing step in a [DAG](#dag) pipeline. The term "middleware" may still appear in event names and some documentation for backward compatibility.
+### Hook
 
-### Mock Provider
-A fake LLM [provider](#provider) that returns pre-configured responses. Used for deterministic testing without calling real APIs or incurring costs.
+An interception point in the runtime. `ProviderHook` wraps provider calls, `ToolHook` wraps tool calls, `ToolResultRewriter` rewrites a tool result before the model sees it, and `SessionHook` observes session lifecycle. [Guardrails](#guardrail) are hooks. See [Hooks](/runtime/reference/hooks/).
+
+### Inference provider
+
+A [provider](#provider) declared with `role: inference` that answers classification requests through one interface, `inference.Provider`: content and optional labels in, a probability per label out. Each type calls one vendor API: `huggingface` (Hugging Face Inference API), `openai` (OpenAI-compatible chat completions, read through logprobs), or `systemone`. Checks such as `audio_emotion`, `text_toxicity`, and `topic_policy` use inference providers. See [Providers](/concepts/providers/).
+
+### Mock provider
+
+A [provider](#provider) that returns configured responses instead of calling a model. Use it for deterministic tests without network calls or cost. See [Providers](/concepts/providers/).
 
 ### Pack
-A JSON file (`.pack.json`) that bundles prompts, templates, and configuration together. Packs are the primary way to organize and distribute prompts in PromptKit.
 
-### PackC
-**Pack Compiler** - PromptKit's tool for validating, compiling, and managing prompt packs.
-
-### Persona
-A configuration that defines how a self-play LLM should behave when simulating a user in Arena tests. Personas have their own system prompts and behavioral guidelines.
+A JSON file (`.pack.json`) that bundles prompts, tools, validators, evals, skills, and workflow definitions. The SDK opens a pack with `sdk.Open`. See [Prompts](/concepts/prompts/).
 
 ### Pipeline
-A sequence of processing [stages](#stage) that handle a conversation turn. Pipelines can include stages for audio processing, LLM interaction, validation, and more. Implemented as a [DAG](#dag).
+
+The [DAG](#dag) of [stages](#stage) that handles one conversation turn. Stages cover prompt assembly, state loading, the provider call, validation, and audio processing. See [Runtime pipeline](/architecture/runtime-pipeline/).
 
 ### Provider
-An abstraction layer for LLM services (OpenAI, Anthropic, Google, etc.). Providers handle API communication and normalize responses across different services.
+
+The runtime's adapter to a model service such as OpenAI, Anthropic, Google, Ollama, or vLLM. A provider sends requests, reads responses, and normalizes them to common types. See [Providers](/concepts/providers/).
 
 ### Replay
-Re-running a recorded conversation using captured provider responses instead of calling real LLMs. Enables deterministic debugging and regression testing.
+
+Re-running a recorded session through the replay provider, which returns the recorded responses instead of calling a model. See [Providers](/concepts/providers/).
 
 ### Runtime
-PromptKit's core execution engine that loads packs, manages state, executes pipelines, and coordinates providers.
 
-### Scenario
-A test definition for Arena that specifies conversations to run, expected behaviors, and [assertions](#assertion) to validate.
+The core Go library (`runtime/`): providers, the [pipeline](#pipeline), tools, [state stores](#state-store), events, and hooks. The [SDK](#sdk) builds on it. See [System overview](/architecture/system-overview/).
 
 ### SDK
-PromptKit's high-level Go library for building conversational applications. Provides a simplified API over the Runtime.
 
-### Self-play
-An Arena testing mode where an LLM generates simulated user responses based on a [persona](#persona). Combined with [TTS](#tts), enables fully automated voice testing without pre-recorded audio.
+The high-level Go library (`sdk/`) for building conversational applications. `sdk.Open` returns a `Conversation` that wires a pack, a provider, and the runtime together. See [SDK](/sdk/).
 
-### Session Recording
-Capturing detailed event streams and artifacts (audio, messages, context) from test runs. Used for debugging, [replay](#replay), and analysis.
+### Session recording
+
+The event stream and media of a session, captured so the session can be inspected, exported, or replayed. See [Runtime event system](/architecture/runtime-events/).
+
+### Skill
+
+A directory with a `SKILL.md` file that a conversation activates on demand through the `skill__activate` tool. Activation returns the skill's instructions and grants the tools it lists. See [Skills](/concepts/skills/) and the [Skills reference](/reference/skills/).
 
 ### Stage
-A single processing step within a [pipeline](#pipeline). Examples: LLMStage (calls the model), TTSStage (converts text to speech), VADStage (detects speech boundaries).
 
-### State Store
-Persistent storage backend (Redis, in-memory, file) that maintains conversation history and context across sessions.
+One processing step in a [pipeline](#pipeline). Examples: `ProviderStage` calls the model, `STTStage` transcribes audio, `TTSStage` synthesizes speech. See [Stage design](/runtime/explanation/stage-design/).
 
-### Streaming Response
-Returning LLM output in real-time as [tokens](#token) are generated, rather than waiting for the complete response. Provides faster perceived latency and enables [barge-in](#barge-in).
+### State store
 
-### Variable Provider
-A pluggable component that dynamically provides values for template variables at runtime. Examples: TimeProvider (current time), RAGProvider (retrieved context), StateProvider (conversation state).
+The backend that holds conversation history and metadata across turns and sessions. Built-in stores: in-memory, Redis, and file. See [State management](/concepts/state-management/).
 
-## LLM Concepts
+### Streaming response
 
-### Context Window
-The maximum amount of text (measured in [tokens](#token)) that an LLM can process in a single request, including both input and output.
+Model output delivered as it is generated rather than after it completes. See [Streaming](/runtime/reference/streaming/).
+
+### Variable provider
+
+A component that supplies template variable values at runtime. Examples: `TimeProvider` (current time) and `StateProvider` (conversation metadata). See [Variables](/runtime/reference/variables/).
+
+## Checks
+
+### Assertion
+
+A [check](/concepts/validation/) in a PromptArena scenario that produces a pass or fail verdict on a response. An assertion wraps an [eval](#eval) handler and applies score thresholds. Compare with [guardrail](#guardrail), which enforces at runtime. See [Checks and validation](/concepts/validation/).
+
+### Eval
+
+A scored check declared in a pack under `evals`. An eval records a score and metrics and never decides pass or fail. See [Checks and validation](/concepts/validation/) and [Evals](/runtime/reference/evals/).
+
+### Guardrail
+
+A validator declared in a pack under `validators` that enforces a policy on model input or output at runtime. A triggered guardrail truncates, replaces, or blocks the message. Compare with [assertion](#assertion), which only reports. See [Checks and validation](/concepts/validation/).
+
+## PromptArena
+
+PromptArena and PackC are separate products in the [promptarena repository](https://github.com/AltairaLabs/promptarena). PromptKit supplies the runtime they run on.
+
+### Arena
+
+**PromptArena**. The testing tool that runs [scenarios](#scenario) against packs, evaluates [assertions](#assertion), and writes reports.
+
+### PackC
+
+**Pack Compiler**. The tool that validates and compiles prompt packs. See [Prompts](/concepts/prompts/).
+
+### Persona
+
+A configuration that tells a [self-play](#self-play) model how to behave as the user in an Arena test.
+
+### Scenario
+
+An Arena test definition: the conversation to run, its inputs, and the [assertions](#assertion) to evaluate.
+
+### Self-play
+
+An Arena mode in which a model plays the user, following a [persona](#persona), to generate the user turns. Combined with [TTS](#tts), it drives voice tests without recorded audio.
+
+## LLM concepts
+
+### Context window
+
+The most text, measured in [tokens](#token), that a model processes in one request, input and output together. See [Manage context](/sdk/how-to/conversations/manage-context/).
 
 ### Embeddings
-Dense vector representations of text that capture semantic meaning. Used for similarity scoring, semantic search, and [RAG](#rag) retrieval.
 
-### Few-shot Learning
-Providing an LLM with example input/output pairs in the prompt to guide its behavior, without requiring fine-tuning.
+Vector representations of text that capture meaning. Used for similarity scoring, semantic search, and [RAG](#rag). See [Retrieval architecture](/runtime/explanation/retrieval-architecture/).
+
+### Few-shot learning
+
+Giving a model example inputs and outputs in the prompt to steer its behavior without fine-tuning.
 
 ### Grounding
-Anchoring LLM responses to factual, verifiable information from external sources. Reduces [hallucinations](#hallucination) by providing relevant context.
+
+Anchoring a response to verifiable information from an external source, which reduces [hallucinations](#hallucination).
 
 ### Hallucination
-When an LLM generates plausible-sounding but false or fabricated information not supported by its training data or provided context.
+
+A plausible but false statement that the model's training data or the supplied context does not support.
 
 ### Multi-turn
-A conversation with multiple back-and-forth exchanges that maintains context across [turns](#turn). Requires [state management](#state-store) to track history.
 
-### Ollama
-An open-source platform for running LLMs locally. PromptKit's Ollama [provider](#provider) enables cost-free local inference using models like Llama, Mistral, and LLaVA. Uses an OpenAI-compatible API.
-
-### vLLM
-A high-throughput inference engine optimized for serving LLMs with GPU acceleration. PromptKit's vLLM [provider](#provider) enables high-performance model serving with advanced features like guided decoding, beam search, and multimodal support. Like [Ollama](#ollama), it's self-hosted for zero API costs, but optimized for throughput and performance with GPU support.
+A conversation with several exchanges that keeps context across [turns](#turn). The [state store](#state-store) holds the history. See [State management](/concepts/state-management/).
 
 ### Multimodal
-Support for multiple content types (text, images, audio, video) in a single interaction. Gemini and GPT-4V are examples of multimodal models.
+
+Support for several content types (text, images, audio, video) in one interaction. See [Analyze documents](/sdk/how-to/multimodal/analyze-documents/).
+
+### Ollama
+
+An open-source tool for running models locally. The Ollama [provider](#provider) uses its OpenAI-compatible API. See [Providers](/concepts/providers/).
 
 ### Prompt
-Instructions and context provided to an LLM to guide its response. In PromptKit, prompts are defined in packs with templates for dynamic content.
 
-### Prompt Engineering
-The practice of crafting effective prompts to guide LLM behavior toward desired outputs. Includes techniques like [few-shot learning](#few-shot-learning) and chain-of-thought.
+The instructions and context sent to a model. A pack defines prompts with templates for dynamic content. See [Prompts](/concepts/prompts/).
+
+### Prompt engineering
+
+Writing prompts to steer a model toward the output you want, with techniques such as [few-shot learning](#few-shot-learning) and chain-of-thought.
 
 ### RAG
-**Retrieval-Augmented Generation** - A technique that retrieves relevant context from external data sources (documents, databases) and provides it to the LLM. Improves [grounding](#grounding) and reduces [hallucinations](#hallucination).
 
-### System Prompt
-Initial instructions that set the LLM's behavior, personality, and constraints. Defined in the `system_template` field of a prompt.
+**Retrieval-Augmented Generation**. Retrieving relevant content from documents or a database and giving it to the model with the prompt. Improves [grounding](#grounding). See [Retrieval architecture](/runtime/explanation/retrieval-architecture/).
+
+### System prompt
+
+The instructions that set a model's behavior and constraints. A pack prompt defines it in `system_template`. See [Templates](/concepts/templates/).
 
 ### Temperature
-A parameter controlling LLM output randomness. Lower values (0.0-0.3) produce more deterministic responses; higher values (0.7-1.0) produce more creative/varied responses.
+
+A sampling parameter for output randomness. Lower values give more deterministic output and higher values give more varied output.
 
 ### Token
-The basic unit of text processing for LLMs. Roughly 4 characters or 0.75 words in English. The unit for measuring [context window](#context-window) size and API costs.
+
+The unit a model reads and writes: a word fragment of about four characters in English. [Context window](#context-window) size and API cost are measured in tokens.
 
 ### Tool
-A function that an LLM can call to perform actions or retrieve information. Also known as function calling. Defined in prompt packs and executed by the runtime.
+
+A function the model can call to act or fetch information, also called function calling. A pack declares tools and the runtime executes them. See [Tools and MCP](/concepts/tools-mcp/).
+
+### vLLM
+
+A GPU inference server for high-throughput model serving. The vLLM [provider](#provider) targets a self-hosted vLLM endpoint. See [Providers](/concepts/providers/).
 
 ## Protocols
 
+### A2A
+
+**Agent-to-Agent**. A protocol for agents to call each other. PromptKit acts as an A2A client and serves conversations as A2A agents. See [A2A](/concepts/a2a/).
+
 ### HITL
-**Human-in-the-Loop** - A workflow pattern where certain decisions or [tool](#tool) executions require human approval before proceeding. Used for sensitive operations or quality control.
+
+**Human-in-the-loop**. A [tool](#tool) call held for human approval before it runs. The SDK exposes held calls through `OnToolAsync`, `PendingTools`, `ResolveTool`, and `RejectTool`. See [Tools and MCP architecture](/architecture/runtime-tools-mcp/).
 
 ### MCP
-**Model Context Protocol** - An open standard for connecting LLMs to external [tools](#tool) and data sources. PromptKit supports MCP for tool integration.
+
+**Model Context Protocol**. An open standard for connecting models to external [tools](#tool) and data. PromptKit includes an MCP client. See [Tools and MCP](/concepts/tools-mcp/).
 
 ### WebSocket
-A protocol providing full-duplex communication over a single TCP connection. Used by PromptKit for real-time [duplex](#duplex) streaming with Gemini Live API.
 
-## See Also
+A protocol for two-way messaging over one TCP connection. Gemini Live streaming uses it for [duplex](#duplex) sessions. See [Audio](/runtime/reference/audio/).
 
-- [Concepts](/concepts/) - Detailed explanations of PromptKit concepts
-- [Architecture](/architecture/) - System design and component relationships
+## See also
+
+- [Concepts](/concepts/)
+- [Architecture](/architecture/)

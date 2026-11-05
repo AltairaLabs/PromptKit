@@ -1,0 +1,54 @@
+{
+ "page": "docs/src/content/docs/reference/schema-versioning.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "g1",
+   "claim": "APIVersion and SchemaVersion constants values",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/version.go:7-10"
+   ]
+  },
+  {
+   "id": "g2",
+   "claim": "latest is $ref file, target fixed in gen-schema-latest-refs.sh as v1alpha1",
+   "verdict": "true",
+   "evidence": [
+    "scripts/gen-schema-latest-refs.sh:16-21"
+   ]
+  },
+  {
+   "id": "g3",
+   "claim": "fetch-schemas.sh downloads from promptarena schemas/v1alpha1, PROMPTARENA_SCHEMA_REF default main",
+   "verdict": "true",
+   "evidence": [
+    "scripts/fetch-schemas.sh:14-15"
+   ]
+  },
+  {
+   "id": "g4",
+   "claim": "make schemas-host runs fetch then latest refs",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:348-351"
+   ]
+  },
+  {
+   "id": "g5",
+   "claim": "loaders require apiVersion",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/loader.go:27"
+   ]
+  },
+  {
+   "id": "g6",
+   "claim": "make schemas via tools/schema-gen; npm bundles schemas and schema-map.json",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:154-156"
+   ]
+  }
+ ]
+}

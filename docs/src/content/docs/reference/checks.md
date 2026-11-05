@@ -2,47 +2,188 @@
 title: Checks Reference
 sidebar:
   order: 1
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/evals/handlers/a2a_eval.go
+    - runtime/evals/handlers/agent_invoked.go
+    - runtime/evals/handlers/agent_not_invoked.go
+    - runtime/evals/handlers/agent_response_contains.go
+    - runtime/evals/handlers/audio_emotion.go
+    - runtime/evals/handlers/classify_handler_base.go
+    - runtime/evals/handlers/composition.go
+    - runtime/evals/handlers/content_excludes.go
+    - runtime/evals/handlers/cosine_similarity.go
+    - runtime/evals/handlers/cost_budget.go
+    - runtime/evals/handlers/directional.go
+    - runtime/evals/handlers/exec_handler.go
+    - runtime/evals/handlers/external_eval.go
+    - runtime/evals/handlers/guardrail_triggered.go
+    - runtime/evals/handlers/image_dimensions.go
+    - runtime/evals/handlers/image_moderation.go
+    - runtime/evals/handlers/json_path.go
+    - runtime/evals/handlers/latency_budget.go
+    - runtime/evals/handlers/length.go
+    - runtime/evals/handlers/llm_judge.go
+    - runtime/evals/handlers/no_tool_errors.go
+    - runtime/evals/handlers/outcome_equivalent.go
+    - runtime/evals/handlers/pii_leakage.go
+    - runtime/evals/handlers/provider_binding.go
+    - runtime/evals/handlers/rag_helpers.go
+    - runtime/evals/handlers/regex.go
+    - runtime/evals/handlers/register.go
+    - runtime/evals/handlers/rest_eval.go
+    - runtime/evals/handlers/role_violation.go
+    - runtime/evals/handlers/safety_helpers.go
+    - runtime/evals/handlers/sentence_count.go
+    - runtime/evals/handlers/skill_activated.go
+    - runtime/evals/handlers/tool_call_chain.go
+    - runtime/evals/handlers/tool_call_views.go
+    - runtime/evals/handlers/tool_calls_with_args.go
+    - runtime/evals/handlers/tool_exec.go
+    - runtime/evals/handlers/tool_exec_score.go
+    - runtime/evals/handlers/tool_no_repeat.go
+    - runtime/evals/handlers/tool_result_includes.go
+    - runtime/evals/handlers/tool_result_matches.go
+    - runtime/evals/handlers/tool_result_media.go
+    - runtime/evals/handlers/tools_called.go
+    - runtime/evals/handlers/tools_called_session.go
+    - runtime/evals/handlers/tools_offered.go
+    - runtime/evals/handlers/topic_policy.go
+    - runtime/evals/handlers/topic_policy_params.go
+    - runtime/evals/handlers/topic_prompt.go
+    - runtime/evals/handlers/video_resolution.go
+    - runtime/evals/handlers/workflow_spoke_in_state.go
+    - runtime/evals/handlers/workflow_state_is.go
+    - runtime/evals/handlers/workflow_transitioned_to.go
+    - runtime/evals/normalize.go
+    - runtime/evals/types.go
+    - runtime/evals/validate.go
+    - runtime/evals/wrappers.go
+    - runtime/hooks/guardrails/factory.go
+    - runtime/inference/openai/register.go
+    - runtime/inference/systemone/register.go
+    - sdk/sdk.go
 ---
 
-PromptKit has a unified check system: one set of check types usable across three surfaces.
+Every check type registered in `runtime/evals/handlers`, with its aliases, params and defaults. One check type runs in three roles:
 
-- **Assertions** -- validate LLM behavior in Arena test scenarios (`assertions:` field in scenario YAML).
-- **Guardrails** -- enforce runtime policy in production (`validators:` field in pack YAML).
-- **Evals** -- monitor quality in production (`evals:` field in pack YAML).
+| Role | Declared in | Verdict |
+|------|-------------|---------|
+| Eval | `evals:` entry in a pack (`id`, `type`, `trigger`, `params`) | None. The result carries a `Score`; `Passed` is never set. |
+| Assertion | `assertions:` / `conversation_assertions:` entry in an Arena scenario, or the `assertion` wrapper | The wrapper sets `Passed` from the score and its thresholds. |
+| Guardrail | `validators:` entry in a pack, `sdk.WithGuardrail`, or the `guardrail` wrapper | The check triggers when the score is below the floor (or outside its thresholds), and the pipeline blocks or rewrites. |
 
-All check types are implemented as `EvalTypeHandler` instances registered in the `runtime/evals/` package. See the [Unified Check Model](/concepts/validation/) for the conceptual overview.
+Check types are `EvalTypeHandler` implementations in the `runtime/evals` registry. See the [Unified Check Model](/concepts/validation/) for the conceptual overview.
 
-**Surface legend used in the tables below:**
+## Roles
 
-| Symbol | Surface |
-|--------|---------|
-| **A** | Assertion |
-| **G** | Guardrail |
-| **E** | Eval |
+### Scores and verdicts
 
-"Streaming" indicates whether the check supports incremental evaluation during streaming responses (relevant for guardrails).
+Handlers return a `Score` (0.0 to 1.0 for the built-in checks, except `cosine_similarity` and a scored `tool_exec`, which return the raw measurement). Count-based checks return a ratio, so partial matches score between 0 and 1.
+
+| Role | Rule |
+|------|------|
+| Assertion wrapper | Passes when `Score >= min_score` and `Score <= max_score`. With neither set, `min_score` is `1.0`. A result with an `Error` fails whatever the thresholds. A result with no score passes. |
+| Guardrail | Triggers when `Score < min_score` (default `1.0`) or `Score > max_score`. A nil result or nil score triggers. |
+| Eval | No verdict. |
+
+Handlers in the classifier, judge, RAG, safety, composition, `tool_exec` and `topic_policy` families reject `min_score` and `max_score` in their own params with an error result (`tool_exec` and `topic_policy` reject them when the pack loads). Put thresholds on the [`assertion`](#assertion-wrapper) wrapper. The other handlers ignore the keys.
+
+### Guardrail scope
+
+Any registered type, alias or custom handler works as a guardrail. A guardrail evaluates one message: `CurrentOutput` is the user's message (`direction: input`) or the assistant response (`direction: output`). `contains_any` and `content_excludes` scan only that message in a guardrail, and the whole assistant transcript when used as an eval or assertion. Handlers that read `ToolCalls`, `Extras`, `Metadata` or `PriorResults` receive them derived from the message history; `SessionID`, `PromptID` and `Variables` are not set.
+
+### Triggers
+
+An eval `trigger` is one of `every_turn`, `on_session_complete`, `sample_turns`, `sample_sessions`, `on_conversation_complete` or `on_workflow_step`. `sample_percentage` defaults to `5`.
+
+## Registry
+
+### Type aliases
+
+An alias resolves to its target handler. Param aliases and defaults are keyed by the name the check is declared under; the tables below list each name they apply to.
+
+| Alias | Target type |
+|-------|-------------|
+| `content_includes` | `contains` |
+| `content_includes_any` | `contains_any` |
+| `content_matches` | `regex` |
+| `content_not_includes` | `content_excludes` |
+| `banned_words` | `content_excludes` |
+| `is_valid_json`, `valid_json` | `json_valid` |
+| `tool_called` | `tools_called` |
+| `tools_not_called_with_args` | `tool_args_excluded_session` |
+| `llm_judge_conversation` | `llm_judge_session` |
+| `length` | `max_length` |
+| `max_sentences` | `sentence_count` |
+| `required_fields` | `field_presence` |
+
+### Param aliases
+
+Before the handler runs, a legacy param name is rewritten to the canonical name unless the canonical key is already present.
+
+| Check type(s) | Legacy param | Canonical param |
+|---------------|--------------|-----------------|
+| `content_excludes`, `banned_words` | `words` | `patterns` |
+| `max_length`, `length` | `max_characters`, `max_chars` | `max` |
+| `min_length` | `min_characters`, `min_chars` | `min` |
+| `sentence_count`, `max_sentences` | `max_sentences` | `max` |
+| `field_presence`, `required_fields` | `required_fields` | `fields` |
+
+`max_length` and `min_length` also read the legacy names directly.
+
+### Param defaults
+
+Applied when the param is absent.
+
+| Check type | Param | Default |
+|------------|-------|---------|
+| `banned_words` (alias only) | `match_mode` | `word_boundary` |
+| `topic_policy` | `direction` | `input` |
+| `topic_policy` | `small_talk` | `allow` |
+| `topic_policy` | `on_deny` | `block` |
+| `topic_policy` | `on_unknown` | `deny` |
+| `topic_policy` | `on_error` | `deny` |
+| `topic_policy` | `recent_turns` | `4` |
+
+`content_excludes` used under its own name, or as `content_not_includes`, defaults `match_mode` to `substring`.
 
 ---
 
-## Content Checks
+## Content checks
 
-| Type | Aliases | Params | Surfaces | Streaming |
-|------|---------|--------|----------|-----------|
-| `contains` | `content_includes` | `patterns` (string[]) | A G E | No |
-| `regex` | `content_matches` | `pattern` (string) | A G E | No |
-| `content_excludes` | `banned_words`, `content_not_includes` | `patterns` (string[]) | A G E | Yes |
-| `contains_any` | `content_includes_any` | `patterns` (string[]) | A G E | No |
-| `min_length` | -- | `min` or `min_characters` (int) | A E | No |
-| `max_length` | `length` | `max` or `max_characters` (int), `max_tokens` (int) | A G E | Yes |
-| `sentence_count` | `max_sentences` | `max` or `max_sentences` (int) | A G E | No |
-| `field_presence` | `required_fields` | `fields` or `required_fields` (string[]) | A G E | No |
-| `cosine_similarity` | -- | `reference` (string), `min_similarity` (float) | A E | No |
+| Type | Aliases | Params | Score |
+|------|---------|--------|-------|
+| `contains` | `content_includes` | `patterns` (string[], required) | Fraction of patterns found |
+| `regex` | `content_matches` | `pattern` (string, required), `expect_match` (bool, default `true`) | 1 or 0 |
+| `content_excludes` | `banned_words`, `content_not_includes` | `patterns` (string[]), `match_mode` | 1 or 0 |
+| `contains_any` | `content_includes_any` | `patterns` (string[], required) | 1 or 0 |
+| `min_length` | none | `min` (int, required, > 0) | `min(length / min, 1)` |
+| `max_length` | `length` | `max` (int, required, > 0), `max_tokens` (int) | `min(max / length, 1)`, lowered by the token ratio |
+| `sentence_count` | `max_sentences` | none | Always 1 |
+| `field_presence` | `required_fields` | `fields` (string[]) | Fraction of fields found |
+| `cosine_similarity` | none | `reference` (float[], required), `min_similarity` (float, required) | The similarity |
 
-When `content_excludes` is invoked via the `banned_words` alias, `match_mode` defaults to `word_boundary`; otherwise it defaults to `substring`.
+| Check | Behavior |
+|-------|----------|
+| `contains`, `contains_any`, `content_excludes`, `field_presence` | Matching is case-insensitive and by substring. |
+| `contains`, `field_presence`, `regex`, lengths | Read `CurrentOutput`, the last assistant message. |
+| `regex` | Go RE2 syntax. `expect_match: false` passes when the pattern does not match. |
+| `content_excludes` | `match_mode` is `substring` or `word_boundary` (case-insensitive `\b` match around the escaped pattern). Any other value behaves as `substring`. No patterns passes. |
+| `contains_any` | Passes when any pattern appears in any assistant message. |
+| `min_length`, `max_length` | Length is in bytes. `max_tokens` estimates tokens as bytes divided by 4. |
+| `sentence_count` | A measurement: the count is in `Details.count`. The handler reads no params; `max` and `max_sentences` have no effect. |
+| `field_presence` | Looks for each name as a substring of the output. No fields passes. |
+| `cosine_similarity` | The target embedding comes from `EvalContext.Metadata["embedding"]`. A missing embedding, or a dimension mismatch, scores 0. `min_similarity` is reported in the result and does not set the verdict. |
 
-`content_excludes` matches case-insensitively. `match_mode` is `substring` (match inside words) or `word_boundary` (match whole words only). While a response streams, the check matches substrings in the partial text whatever the `match_mode`, so a stream can stop on a word that the finished response would pass.
+### Streaming
 
-**Example -- assertion (scenario YAML):**
+`content_excludes` (with its aliases) and `max_length` (with `length`) implement `StreamableEvalHandler`, so a guardrail evaluates them on each streaming chunk and can stop the stream early. While a response streams, `content_excludes` matches substrings whatever the `match_mode`, so a stream can stop on a word that the finished response would pass.
+
+### Examples
+
+Assertion (scenario YAML):
 
 ```yaml
 assertions:
@@ -51,7 +192,7 @@ assertions:
       patterns: ["thank you", "welcome"]
 ```
 
-**Example -- guardrail (pack YAML):**
+Guardrail (pack YAML):
 
 ```yaml
 validators:
@@ -60,7 +201,7 @@ validators:
       patterns: ["competitor-name", "internal-only"]
 ```
 
-**Example -- eval (pack YAML):**
+Eval (pack YAML):
 
 ```yaml
 evals:
@@ -73,49 +214,75 @@ evals:
 
 ---
 
-## JSON & Structure Checks
+## JSON and structure checks
 
-| Type | Aliases | Params | Surfaces |
-|------|---------|--------|----------|
-| `json_valid` | `is_valid_json`, `valid_json` | -- | A E |
-| `json_schema` | -- | `schema` (object) | A E |
-| `json_path` | -- | `expression` (string), `expected`, `contains`, `min_results`, `max_results` | A E |
+| Type | Aliases | Params |
+|------|---------|--------|
+| `json_valid` | `is_valid_json`, `valid_json` | `allow_wrapped` (bool), `extract_json` (bool) |
+| `json_schema` | none | `schema` (object, required), `allow_wrapped` (bool), `extract_json` (bool) |
+| `json_path` | none | `expression` (string, required; alias `jmespath_expression`), `expected`, `contains` (array), `min` / `max` (number), `min_results` / `max_results` (int), `allow_wrapped` (bool), `extract_json` (bool) |
 
-**Example:**
+All three parse `CurrentOutput` as JSON and score 1 or 0.
+
+| Param | Effect |
+|-------|--------|
+| `allow_wrapped` | Parses the first fenced code block (with or without a `json` tag). |
+| `extract_json` | Parses the first balanced `{...}` or `[...]` in the text. |
+| `expression` | A [JMESPath](https://jmespath.org/) expression evaluated against the parsed JSON. |
+| `expected` | The expression result must equal this value. Numbers compare numerically; arrays and objects compare deeply. |
+| `contains` | The result must be an array containing every listed item. |
+| `min`, `max` | The result must be a number in range. |
+| `min_results`, `max_results` | The result must be an array of that length range. `0` leaves a bound unset. |
 
 ```yaml
 assertions:
   - type: json_path
     params:
-      expression: "$.order.status"
+      expression: "order.status"
       expected: "confirmed"
 ```
 
 ---
 
-## Tool Checks (Turn-Level)
+## Tool checks (turn-level)
 
-These checks evaluate tool usage within a single assistant turn.
+These checks read `EvalContext.ToolCalls`, the tool calls in the message history passed to the eval.
 
-| Type | Aliases | Params | Surfaces |
-|------|---------|--------|----------|
-| `tools_called` | `tool_called` | `tool_names` (string[]), `min_calls` (int, default 1), `ignore_validation` (bool), `require_args` (bool) | A G E |
-| `tools_not_called` | -- | `tool_names` (string[]) | A G E |
-| `tool_args` | -- | `tool_name` (string), `expected_args` (object) | A E |
-| `tool_calls_with_args` | -- | `tool_name`, `expected_args`, `result_includes` | A E |
-| `tool_call_count` | -- | `tool` (string), `min` (int), `max` (int) | A E |
-| `tool_call_sequence` | -- | `sequence` (string[]) | A E |
-| `tool_call_chain` | -- | `chain` (string[]) | A E |
-| `tool_anti_pattern` | -- | `patterns` (array of `{sequence, message}`) | A E |
-| `tool_no_repeat` | -- | `tools` (string[]), `max_repeats` (int) | E |
-| `tool_efficiency` | -- | `max_calls`, `max_errors`, `max_error_rate` | E |
-| `no_tool_errors` | -- | -- | A E |
-| `tool_result_includes` | -- | `tool_name`, `patterns` (string[]) | A E |
-| `tool_result_matches` | -- | `tool_name`, `pattern` (string) | A E |
-| `tool_result_has_media` | -- | `tool_name` | E |
-| `tool_result_media_type` | -- | `tool_name`, `media_type` | E |
+| Type | Aliases | Params | Score |
+|------|---------|--------|-------|
+| `tools_called` | `tool_called` | `tool_names` (string[], required; alias param `tools`), `min_calls` (int, default `1`), `max_calls` (int, default unbounded), `ignore_validation` (bool), `require_args` (bool) | Fraction of tools within `min_calls`; 0 when any tool exceeds `max_calls` |
+| `tools_not_called` | none | `tool_names` (string[], required; alias param `tools`) | 1 or 0 |
+| `tools_offered` | none | `tool_names` (string[], required; alias param `tools`), `absent` (bool), `exact` (bool) | Fraction of tools matching; 1 or 0 for `exact` |
+| `tool_args` | none | `tool_name` (string, required), `expected_args` (object, required) | 1 or 0 |
+| `tool_calls_with_args` | none | `tool_name`, `expected_args`, `args_match`, `result_includes`, `result_matches`, `no_error` | 1 or 0 |
+| `tool_call_count` | none | `tool` (string), `min` (int), `max` (int) | 1 or 0 |
+| `tool_call_sequence` | none | `sequence` (string[]) | Fraction of the sequence matched |
+| `tool_call_chain` | none | `steps` (array of step objects) | Fraction of steps completed |
+| `tool_anti_pattern` | none | `patterns` (array of `{sequence, message}`) | 1 or 0 |
+| `tool_no_repeat` | none | `tools` (string[]), `max_repeats` (int, default `1`) | 1 or 0 |
+| `tool_efficiency` | none | `max_calls` (int), `max_errors` (int), `max_error_rate` (float, 0 to 1) | See below |
+| `no_tool_errors` | none | `tools` (string[]) | 1 minus the error ratio |
+| `tool_result_includes` | none | `tool` (string), `patterns` (string[], required), `occurrence` (int, default `1`) | 1 or 0 |
+| `tool_result_matches` | none | `tool` (string), `pattern` (string, required), `occurrence` (int, default `1`) | 1 or 0 |
+| `tool_result_has_media` | none | `tool` (string), `media_type` (string, required) | 1 or 0 |
+| `tool_result_media_type` | none | `tool` (string), `mime_type` (string, required) | 1 or 0 |
 
-**Example:**
+| Check | Behavior |
+|-------|----------|
+| `tools_called` | Counts calls that finished without an error. With `ignore_validation`, calls that failed argument validation also count. With `require_args`, calls with empty arguments do not count. `max_calls: 0` forbids the tool. |
+| `tools_offered` | Reads `EvalContext.ToolsOffered`, the tool names the turn handed the provider. The tools must all be offered; `absent: true` requires that none is offered; `exact: true` requires the offered set to equal `tool_names`. An empty offered set scores 0, including when the host does not populate it. |
+| `tool_args` | Passes when at least one call to `tool_name` has every expected argument. Values compare as strings. |
+| `tool_calls_with_args` | Every call to `tool_name` (every call when empty) must satisfy all constraints, or the check scores 0. `expected_args` compares values as strings. `args_match` maps an argument name to a regex. `result_includes` (string[]) matches case-insensitively against the result. `result_matches` is a regex against the result. `no_error` requires no tool error. |
+| `tool_call_count` | Counts calls to `tool`, or all calls when empty. `min` and `max` are unset by default. |
+| `tool_call_sequence` | `sequence` must appear in order as a subsequence of the calls. An empty sequence passes. |
+| `tool_call_chain` | Walks the calls in order. A step is `{tool, result_includes, result_matches, args_match, no_error}`. A call matching a step's tool must satisfy that step's constraints, or the check stops at that step. An empty chain passes. |
+| `tool_anti_pattern` | Fails when any listed `sequence` appears as a subsequence. `message` is shown in the explanation. |
+| `tool_no_repeat` | Fails when a tool is called more than `max_repeats` times in a row. An empty `tools` checks every tool. |
+| `tool_efficiency` | Needs at least one threshold. Exceeding any scores 0; otherwise the score is `1 - calls / max_calls` when `max_calls` is set, else 1. |
+| `tool_result_includes` | A call matches when its result contains every pattern (case-insensitive). The check passes when at least `occurrence` calls match. |
+| `tool_result_matches` | A call matches when its result matches the regex. The check passes when at least `occurrence` calls match. |
+| `tool_result_has_media` | Passes when a result has a content part whose type equals `media_type` (`image`, `audio`, `video` or `document`). |
+| `tool_result_media_type` | Passes when a result has a non-text part whose MIME type equals `mime_type`. |
 
 ```yaml
 assertions:
@@ -124,83 +291,51 @@ assertions:
       sequence: ["lookup_customer", "create_ticket"]
 ```
 
----
+### Session tool checks
 
-## Tool Checks (Session-Level)
+These types count every recorded call, including calls that returned an error.
 
-These checks evaluate tool usage across the entire session.
+| Type | Aliases | Params |
+|------|---------|--------|
+| `tools_called_session` | none | `tool_names` (string[]; alias param `tools`), `min_calls` (int, default `1`) |
+| `tools_not_called_session` | none | `tool_names` (string[]; alias param `tools`) |
+| `tool_args_session` | none | `tool_name` (string, required), `expected_args` (object) |
+| `tool_args_excluded_session` | `tools_not_called_with_args` | `tool_name` (string, required), `excluded_args` (object) |
 
-| Type | Aliases | Params | Surfaces |
-|------|---------|--------|----------|
-| `tools_called` (session) | `tool_called` | `tool_names` (string[]) | A G E |
-| `tools_not_called` (session) | -- | `tool_names` (string[]) | A G E |
-| `tool_args` (session) | -- | `tool_name`, `expected_args` | A E |
-| `tool_args_excluded_session` | `tools_not_called_with_args` | `tool_name`, `excluded_args` | A E |
+`tool_args_excluded_session` fails when any call to `tool_name` passes an excluded argument value. It also accepts the legacy `forbidden_args` param, which maps an argument name to a value or a list of values. `tools_called_session` scores the fraction of tools called at least `min_calls` times. `tool_args_session` with no `expected_args` passes.
 
-Session-level tool checks use the `on_session_complete` or `on_conversation_complete` trigger.
+### Tool invocation checks
 
----
+`tool_exec` invokes a tool itself and checks the result, instead of inspecting calls the agent made. Typical uses are a sandbox's `run_tests` tool, a render-and-diff utility or an HTTP probe as a gate after the conversation completes.
 
-## Tool Invocation Checks
+#### `tool_exec`
 
-Unlike the tool checks above (which evaluate tools the agent already
-called), this check **invokes a tool itself** and asserts on the
-result. Typical use is to run a verification tool (a sandbox's
-`run_tests`, a render-and-diff utility, a custom HTTP probe) as the
-hard gate after the conversation completes.
-
-### `tool_exec`
-
-Invokes a registered tool by name through the runtime tool registry
-and passes if the call succeeded. The pass condition is:
-
-- `tools.Registry.Execute` returns no error, **and**
-- the resulting `ToolResult.Error` field is empty.
-
-This makes `tool_exec` a generic "is this tool happy" gate that works
-with any registered tool — MCP-discovered (e.g. a sandbox's
-`run_tests`), HTTP, local executors, custom client tools. The handler
-doesn't know or care about the transport.
+Invokes a registered tool by name through the runtime tool registry. The call succeeds when `tools.Registry.Execute` returns no error and `ToolResult.Error` is empty. The handler works with any registered tool: MCP-discovered, HTTP, local executors and custom client tools.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
 | `tool` | string | Yes | Registry name of the tool to invoke. |
 | `args` | object | No | Arguments passed verbatim to the tool. Defaults to `{}`. |
-| `timeout_seconds` | int | No | Per-call timeout. Default `120`. Generous because the typical use case is a long-running test suite inside a sandbox. |
+| `timeout_seconds` | int | No | Per-call timeout. Default `120`. |
 | `success_pattern` | string | No | Regex the tool's text output must match. |
 | `failure_pattern` | string | No | Regex that fails the check when the tool's text output matches it. |
-| `score_path` | string | No | [JMESPath](https://jmespath.org/) expression into the tool's JSON output selecting a number to report as the score, e.g. `summary.pass_rate`. |
-| `score_pattern` | string | No | Regex with exactly one capture group, applied to the tool's text output; the captured number is the score, e.g. `PASS_RATE=([0-9.]+)`. |
-| `score_scale` | number | No | Divisor applied to the extracted value, e.g. `100` for a percentage. Default `1`. Needs `score_path` or `score_pattern`. |
+| `score_path` | string | No | [JMESPath](https://jmespath.org/) expression into the tool's JSON output selecting a number to report as the score, for example `summary.pass_rate`. |
+| `score_pattern` | string | No | Regex with exactly one capture group, applied to the tool's text output; the captured number is the score, for example `PASS_RATE=([0-9.]+)`. |
+| `score_scale` | number | No | Positive divisor applied to the extracted value, for example `100` for a percentage. Default `1`. Needs `score_path` or `score_pattern`. |
 
-#### Numeric scores
-
-Without `score_path` or `score_pattern`, the score is `1.0` when the call
-succeeds and `0.0` otherwise. With one of them set, a successful call scores
-the extracted value divided by `score_scale`, so a check can report a test
-pass rate, a findings count or a p95 latency instead of a yes/no.
+Without `score_path` or `score_pattern`, the score is `1.0` when the call succeeds and `0.0` otherwise. With one of them set, a successful call scores the extracted value divided by `score_scale`.
 
 - Set one of `score_path` and `score_pattern`, not both.
 - `score_path` reads a number, or a string holding a number (`"87.5"`).
-- When no number is taken (the tool errors, a `success_pattern` misses, a
-  `failure_pattern` matches, or the value cannot be extracted) the result is
-  an error, not a score of `0.0`, and the explanation says why. An assertion
-  fails on an error whatever its thresholds, so a `max_score: 0` findings gate
-  does not pass when the scanner crashed.
+- When no number is taken (the tool errors, a `success_pattern` misses, a `failure_pattern` matches, or the value cannot be extracted) the result is an error, not a score of `0.0`, and the explanation says why. An assertion fails on an error whatever its thresholds, so a `max_score: 0` findings gate does not pass when the scanner crashed.
 - A bad `score_path`, regex or `score_scale` is rejected when the pack loads.
-- The raw extracted value is reported in `details.raw_score`, next to
-  `details.result`.
-- The score is neither clamped nor thresholded. The pass boundary is
-  `min_score` / `max_score` on the assertion. With neither set, an assertion
-  passes when the score is `1.0` **or more**, so an unthresholded count or
-  latency passes at 1 or above and fails at 0 — the opposite of what a
-  lower-is-better metric wants. Set `max_score` for counts and latencies, and
-  `min_score` for rates. Putting `min_score` / `max_score` among a pack
-  `evals:` entry's params is rejected.
+- The raw extracted value is reported in `Details.raw_score`, next to `Details.result`.
+- The score is neither clamped nor thresholded. With no `min_score` or `max_score` on the assertion, it passes when the score is `1.0` or more, so an unthresholded count or latency passes at 1 or above and fails at 0.
+- `min_score` and `max_score` among the check's own params are rejected.
 
-**Surfaces:** A E (conversation-level / session-level — invoke at the end of the session, not per turn)
+The host must put a `*tools.Registry` in `EvalContext.Metadata["tool_registry"]`. Arena does this automatically; SDK consumers using the runtime evals API directly populate it themselves. Without it the check fails with a configuration message. The tool's own error text appears in the result explanation.
 
-**Example — gating on a sandbox's hidden test suite:**
+Gating on a sandbox's hidden test suite:
 
 ```yaml
 conversation_assertions:
@@ -210,11 +345,9 @@ conversation_assertions:
     message: "Hidden tests must pass"
 ```
 
-Pair this with a [source-backed MCP entry](https://promptarena.altairalabs.ai/arena/how-to/provision-mcp-sandbox/)
-that supplies the `run_tests` tool — the sandbox lives for the
-session, runs the agent's edits, and the gate checks them at the end.
+The `run_tests` tool comes from a [source-backed MCP entry](https://promptarena.altairalabs.ai/arena/how-to/provision-mcp-sandbox/).
 
-**Example — pack-shipped validation tool:**
+Calling a pack-shipped validation tool:
 
 ```yaml
 conversation_assertions:
@@ -227,7 +360,7 @@ conversation_assertions:
     message: "Final invoice must validate"
 ```
 
-**Example — gating on a test pass rate:**
+Gating on a test pass rate:
 
 ```yaml
 conversation_assertions:
@@ -240,7 +373,7 @@ conversation_assertions:
     message: "At least 80% of hidden tests must pass"
 ```
 
-**Example — measuring Semgrep findings without gating:**
+Measuring Semgrep findings without gating:
 
 ```yaml
 evals:
@@ -252,109 +385,80 @@ evals:
       score_path: findings_count
 ```
 
-**Notes**
-
-- The host (arena, SDK, …) must inject a `*tools.Registry` into
-  `EvalContext.Metadata["tool_registry"]`. Arena does this
-  automatically; SDK consumers using the runtime evals API directly
-  need to populate it themselves.
-- Because the gate _calls_ a tool, it counts toward whatever cost /
-  side-effect budget the tool implies (e.g. running the test suite
-  costs CPU time, an HTTP probe costs a request).
-- Errors from the tool surface in the assertion's `Explanation` so
-  failures are debuggable from the report without re-running.
-
 ---
 
-## Agent & Skill Checks
+## Agent and skill checks
 
-| Type | Params | Surfaces |
-|------|--------|----------|
-| `agent_invoked` | `agent_names` (string[]) | A E |
-| `agent_not_invoked` | `agent_names` (string[]) | A E |
-| `agent_response_contains` | `agent_name`, `patterns` | E |
-| `skill_activated` | `skill_names` (string[]) | A E |
-| `skill_not_activated` | `skill_names` (string[]) | A E |
-| `skill_activation_order` | `sequence` (string[]) | A E |
+| Type | Params | Score |
+|------|--------|-------|
+| `agent_invoked` | `agents` (string[], required) | Fraction of agents invoked |
+| `agent_not_invoked` | `agents` (string[]) | 1 or 0 |
+| `agent_response_contains` | `agent` (string, required), `contains` (string) | 1 or 0 |
+| `skill_activated` | `skill_names` (string[]), `min_calls` (int, default `1`) | Fraction of skills activated |
+| `skill_not_activated` | `skill_names` (string[]) | 1 or 0 |
+| `skill_activation_order` | `sequence` (string[], required) | Fraction of the sequence matched |
 
-**Example:**
+- Agents are invoked as tool calls, so the checks match `agents` against tool call names. `agent_response_contains` looks for `contains` (case-sensitive) in the result of a call to `agent`, or in a tool-result message from it.
+- The skill checks read calls to the `skill__activate` tool and the skill name in its `name` argument. `skill_activated` and `skill_not_activated` ignore calls that returned an error.
 
 ```yaml
 assertions:
   - type: agent_invoked
     params:
-      agent_names: ["billing-agent"]
+      agents: ["billing-agent"]
 ```
 
 ---
 
-## Workflow Checks
+## Workflow checks
 
-| Type | Params | Surfaces |
-|------|--------|----------|
-| `workflow_complete` | -- | A E |
-| `workflow_state_is` | `state` (string) | A E |
-| `workflow_transitioned_to` | `state` (string) | A E |
-| `workflow_transition_order` | `sequence` (string[]) | A E |
-| `workflow_tool_access` | `rules` (array of `{state, allowed}`) | A E |
-| `spoke_in_state` | `state` (string) | A E |
+| Type | Params | Score |
+|------|--------|-------|
+| `workflow_complete` | none | 1 or 0 |
+| `state_is` | `state` (string, required) | 1 or 0 |
+| `transitioned_to` | `state` (string, required) | 1 or 0 |
+| `workflow_transition_order` | `sequence` (string[], required) | Fraction of the sequence matched |
+| `workflow_tool_access` | `rules` (array of `{state, allowed}`) | 1 or 0 |
+| `spoke_in_state` | `state` (string, required) | 1 or 0 |
 
-**Example:**
+The registry has no `workflow_state_is` or `workflow_transitioned_to` type; the workflow checks are registered as `state_is` and `transitioned_to`.
 
-```yaml
-assertions:
-  - type: workflow_transition_order
-    params:
-      sequence: ["triage", "investigation", "resolution"]
-```
+| Check | Behavior |
+|-------|----------|
+| `workflow_complete` | Reads `Extras["workflow_complete"]`. Passes when it is `true`. |
+| `state_is` | Passes when `Extras["workflow_current_state"]` equals `state`. |
+| `transitioned_to` | Passes when a recorded transition has `to` equal to `state`. |
+| `workflow_transition_order` | `sequence` must appear in order among the `to` values of the recorded transitions. |
+| `workflow_tool_access` | Each rule lists the tools `allowed` in a state. A tool call made in a state that has a rule, and is not in its `allowed` list, fails the check. States with no rule, and turns with no known state, allow every tool. |
+| `spoke_in_state` | Passes when an assistant message with non-empty text carries a workflow-state stamp equal to `state`. |
 
-### Checking a state actually spoke
-
-Every other workflow check reads the state machine's transition history, so a
-transition that produces **no output at all** satisfies all of them — the state
-was entered, and that is all they ask. `spoke_in_state` is the one that reads
-the conversation instead: it passes only when an assistant message with
-non-empty text was produced while the workflow was in that state.
-
-Pair it with `workflow_transitioned_to` when a handoff is supposed to say
-something:
+`state_is`, `transitioned_to`, `workflow_complete` and `workflow_transition_order` read the state machine's history, so a transition that produces no output satisfies all of them. `spoke_in_state` reads the conversation: whitespace-only text does not count, and a run with no per-message state stamps fails with an explanation that names the missing stamps (the workflow resolver is not wired).
 
 ```yaml
 assertions:
-  - type: workflow_transitioned_to
+  - type: transitioned_to
     params:
       state: handoff        # the machine advanced
   - type: spoke_in_state
     params:
-      state: handoff        # ...and the destination agent actually replied
+      state: handoff        # the destination agent replied
 ```
-
-Whitespace does not count as speech. If a run produces no per-message state
-stamps at all, the failure says so explicitly rather than reporting a silent
-state — that case means the workflow resolver is not wired, which is a
-different problem from a state that stayed quiet.
 
 ---
 
-## Composition Checks
+## Composition checks
 
-These checks assert on the internal execution of a [Workflow Composition](/concepts/compositions/) (RFC 0010). They read observability data injected into `EvalContext.Metadata` by the Arena `CompositionMetadataProvider` — step outputs, branch decisions, and parallel completion status. They are **pure eval primitives**: they emit a raw score and put detail in `Details`; threshold judgment lives on the [`assertion`](#assertion-wrapper) wrapper. `min_score` / `max_score` placed directly on these handlers are rejected at parse time.
-
-**Surfaces:** A E (all four handlers are assertion- and eval-facing; not guardrail-facing because composition steps are not streaming checkpoints).
+These checks assert on the internal execution of a [Workflow Composition](/concepts/compositions/). They read observability data in `EvalContext.Metadata`: `composition_step_outputs`, `composition_branch_taken` and `composition_parallel_status`, which the Arena `CompositionMetadataProvider` injects. They score 1 or 0 and put detail in `Details`. `min_score` and `max_score` among their own params produce an error result; put thresholds on the [`assertion`](#assertion-wrapper) wrapper.
 
 ### `composition_step_output`
 
-Asserts that a named step's recorded output contains or equals an expected value.
-
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `step` | string | Yes | Step ID to inspect |
-| `contains` | string | No | The output must contain this substring |
-| `equals` | string | No | The output must equal this string exactly |
+| `step` | string | Yes | Step ID to inspect. |
+| `contains` | string | No | The output must contain this substring. |
+| `equals` | string | No | The output must equal this string exactly. Takes precedence over `contains`. |
 
-With neither `contains` nor `equals`, passes when the step produced any non-empty output.
-
-**Example — as a pack-level eval (emits raw signal every composition run):**
+With neither `contains` nor `equals`, passes when the step produced any non-empty output. A step with no recorded output scores 0.
 
 ```yaml
 evals:
@@ -366,38 +470,12 @@ evals:
       contains: '"type"'
 ```
 
-**Example — as an Arena assertion:**
-
-```yaml
-assertions:
-  - type: composition_step_output
-    params:
-      step: classify
-      contains: '"type": "research_paper"'
-```
-
 ### `composition_branch_taken`
-
-Asserts that a `branch` step routed to the expected target step.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `branch` | string | Yes | Step ID of the `branch` step |
-| `expected` | string | Yes | The step ID that should have been selected (`then` or `else` target) |
-
-**Example — as a pack-level eval:**
-
-```yaml
-evals:
-  - id: route-monitor
-    type: composition_branch_taken
-    trigger: every_turn
-    params:
-      branch: route
-      expected: extract_paper
-```
-
-**Example — as an Arena assertion:**
+| `branch` | string | Yes | Step ID of the `branch` step. |
+| `expected` | string | Yes | The step ID the branch should have selected. |
 
 ```yaml
 assertions:
@@ -409,24 +487,11 @@ assertions:
 
 ### `composition_parallel_complete`
 
-Asserts that a `parallel` step completed (all branches finished and the reducer ran).
-
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `parallel` | string | Yes | Step ID of the `parallel` step |
+| `parallel` | string | Yes | Step ID of the `parallel` step. |
 
-**Example — as a pack-level eval:**
-
-```yaml
-evals:
-  - id: meta-parallel-monitor
-    type: composition_parallel_complete
-    trigger: every_turn
-    params:
-      parallel: meta
-```
-
-**Example — as an Arena assertion:**
+Passes when the recorded status of the step is `complete`.
 
 ```yaml
 assertions:
@@ -437,27 +502,12 @@ assertions:
 
 ### `composition_output`
 
-Asserts on the composition's final structured output (the output of the step named in `compositions.<name>.output`, or the last step by default).
-
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `contains` | string | No | The final output must contain this substring |
-| `equals` | string | No | The final output must equal this string exactly |
+| `contains` | string | No | The final output must contain this substring. |
+| `equals` | string | No | The final output must equal this string exactly. Takes precedence over `contains`. |
 
-With neither param, passes when the composition produced any non-empty output.
-
-**Example — as a pack-level eval:**
-
-```yaml
-evals:
-  - id: analysis-output-monitor
-    type: composition_output
-    trigger: every_turn
-    params:
-      contains: '"key_findings"'
-```
-
-**Example — as an Arena conversation assertion:**
+The final output is `CurrentOutput`. With neither param, passes when it is non-empty.
 
 ```yaml
 conversation_assertions:
@@ -468,36 +518,43 @@ conversation_assertions:
 
 ---
 
-## Media Checks
+## Media checks
 
-| Type | Params | Surfaces |
-|------|--------|----------|
-| `image_format` | `formats` (string[]) | A E |
-| `image_dimensions` | `min_width`, `max_width`, `min_height`, `max_height` | A E |
-| `audio_format` | `formats` (string[]) | A E |
-| `audio_duration` | `min_seconds`, `max_seconds` | A E |
-| `video_duration` | `min_seconds`, `max_seconds` | A E |
-| `video_resolution` | `min_width`, `max_width`, `presets` (string[]) | A E |
+These checks read media parts from assistant messages and from the results of tool calls. They score 0 when the messages hold no media of the checked kind.
+
+| Type | Params |
+|------|--------|
+| `image_format` | `formats` (string[], required) |
+| `image_dimensions` | `min_width`, `max_width`, `min_height`, `max_height`, `width`, `height` (int) |
+| `audio_format` | `formats` (string[], required) |
+| `audio_duration` | `min_seconds`, `max_seconds` (number) |
+| `video_duration` | `min_seconds`, `max_seconds` (number) |
+| `video_resolution` | `min_width`, `max_width`, `min_height`, `max_height` (int), `presets` (string[]) |
+
+- `formats` compares case-insensitively with the MIME subtype of each part. `audio/mpeg` is `mp3`.
+- `width` and `height` on `image_dimensions` require an exact size.
+- A part without width and height (or duration) metadata violates any constraint.
+- `presets` matches the video height: `480p` or `sd`; `720p` or `hd`; `1080p`, `fhd` or `full_hd`; `1440p`, `2k` or `qhd`; `2160p`, `4k` or `uhd`; `4320p` or `8k`.
 
 ---
 
-## Inference-backed Checks
+## Inference-backed checks
 
-These eval primitives call an `inference` provider through its one interface, `Infer` (content in, a probability per label out), and emit the model's score for a configured label. They are **pure eval primitives** — they do **NOT** apply pass/fail thresholds themselves. Threshold judgment lives on the [`assertion`](#assertion-wrapper) wrapper.
+These checks call an `inference` provider through its one interface, `Infer` (content in, a probability per label out), and emit the model's score for a configured label. Threshold judgment lives on the [`assertion`](#assertion-wrapper) wrapper.
 
-They depend on a provider with `role: inference` being declared in the arena config. Without one (for example a keyless CI run with no `HF_TOKEN`), most of them **skip cleanly** rather than failing, and a skipped check passes. The exception is [`topic_policy`](#topic_policy), which is a guardrail: it treats a missing classifier as an error and applies its `on_error` param, defaulting to deny. The difference exists because a safety control that silently does not run is the failure it exists to prevent.
+The checks need a provider with `role: inference`. When a check names no provider and the host sets no default, it is skipped, and a skipped check scores 1 and passes. A check that names a `provider` the host cannot resolve returns an error. [`topic_policy`](#topic_policy) is a guardrail that treats a missing classifier as an error and applies its `on_error` param, which defaults to deny.
 
-**Two declaration sites:**
+Two declaration sites:
 
 ```yaml
-# As a pack-level runtime eval — emits the raw signal as a metric every turn.
+# As a pack-level runtime eval: emits the raw signal as a metric every turn.
 evals:
   - id: response-toxicity
     type: text_toxicity
     trigger: every_turn
     params: { model: unitary/toxic-bert, expected_label: toxic }
 
-# As an Arena assertion — wrap with `type: assertion` to apply a threshold.
+# As an Arena assertion: wrap with `type: assertion` to apply a threshold.
 conversation_assertions:
   - type: assertion
     params:
@@ -506,25 +563,21 @@ conversation_assertions:
       max_score: 0.3
 ```
 
-Putting `min_score` or `max_score` directly on one of these handlers is rejected at parse time; the error points at the wrapper. This stops the eval and assertion roles from drifting into one undifferentiated blob.
-
-**Common params** (shared across the family):
+Common params (`audio_emotion`, `image_moderation`, `text_toxicity`, `text_sentiment`):
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `model` | string | Yes | Backend model id (e.g. `unitary/toxic-bert`, `superb/wav2vec2-base-superb-er`) |
-| `expected_label` | string | Yes | Label whose score is emitted |
-| `message_role` | string | No | Whose messages to score (`user` for audio, `assistant` for text by default) |
-| `message_index` | int | No (default -1) | Pick a specific message (`-1` = latest) |
-| `provider` | string | No | A logical provider name this pack declares in `requires`, which the host binds to a classifier. Empty uses the host's default for that task, which is the first `role: inference` provider declared that serves it |
+| `model` | string | Yes | Backend model ID, for example `unitary/toxic-bert` or `superb/wav2vec2-base-superb-er`. |
+| `expected_label` | string | Yes | Label whose score is emitted. Matching is case-insensitive. If the model does not return the label, the score is 0 and `Details.found` is `false`. |
+| `message_role` | string | No | Whose messages to score. Default `user` for `audio_emotion`; `assistant` for the others. |
+| `message_index` | int | No | Which matching message to score. Default `-1` (the latest). |
+| `provider` | string | No | A logical provider name this pack declares in `requires`, which the host binds to a classifier. Empty uses the host's default inference provider. |
+
+A message with no content of the checked kind, a model still loading, and a model the configured inference path cannot serve each skip the check. The legacy `classifier_id` param is rejected.
 
 ### `audio_emotion`
 
-Speech-emotion-recognition gate. Picks an audio part from the chosen role's messages, runs it through the bound inference provider, and emits the model's score for the chosen emotion label. Used in the voice-refund-demo (wrapped in `type: assertion`) to verify aggressive selfplay callers actually sound aggressive in their TTS audio.
-
-**Surfaces:** A E (conversation assertion when wrapped; runtime eval when declared in `evals:`)
-
-**Example (Arena assertion with threshold):**
+Picks an audio part from the chosen role's messages, runs it through the bound inference provider, and emits the model's score for the emotion label.
 
 ```yaml
 conversation_assertions:
@@ -535,22 +588,15 @@ conversation_assertions:
         model: superb/wav2vec2-base-superb-er
         message_role: user
         expected_label: ang     # this model emits truncated labels: ang/neu/hap/sad
-        provider: screener   # a key this pack declares in requires
+        provider: screener      # a key this pack declares in requires
       min_score: 0.5
 ```
 
 ### `image_moderation`
 
-Visual content-moderation gate. Picks an image part from the chosen role's
-messages, runs it through an `ImageClassifier` (e.g. `Falconsai/nsfw_image_detection`
-on HuggingFace), and emits the model's score for `expected_label` (e.g. `nsfw`).
-By default it scores the agent's output (`message_role: assistant`), which also
-covers images a tool produced during the turn — so it moderates images from the
-`image__generate` tool as well as images the model emitted inline.
+Picks an image part from the chosen role's messages, runs it through an image classifier (for example `Falconsai/nsfw_image_detection`), and emits the score for `expected_label`. With the default `message_role: assistant`, it also covers images a tool produced during the turn, such as the `image__generate` tool.
 
-**Surfaces:** A E (conversation assertion / guardrail when wrapped; runtime eval when declared in `evals:`)
-
-**Example (assertion — "the generated image must not be NSFW"):**
+Assertion:
 
 ```yaml
 conversation_assertions:
@@ -560,14 +606,13 @@ conversation_assertions:
       eval_params:
         model: Falconsai/nsfw_image_detection
         expected_label: nsfw
-        # message_role defaults to assistant (covers image__generate tool output)
       max_score: 0.3
 ```
 
-**Example (guardrail — block NSFW image output at runtime):**
+Guardrail:
 
 ```yaml
-guardrails:
+validators:
   - type: guardrail
     params:
       eval_type: image_moderation
@@ -577,21 +622,12 @@ guardrails:
       max_score: 0.3
 ```
 
-Like every inference-backed eval, `image_moderation` is a pure primitive — it emits
-the raw score and rejects `min_score`/`max_score` on `eval_params`; the threshold
-lives on the `assertion`/`guardrail` wrapper. With no inference provider configured
-(keyless CI) it skips cleanly.
-
 ### `text_toxicity`
 
-Classifier-backed toxicity eval. Distinct from the LLM-judge [`toxicity`](#toxicity) — `text_toxicity` is the deterministic path through a HuggingFace text-classification model. Emits the model's score for `expected_label`; the `assertion` wrapper decides pass/fail based on `min_score` or `max_score`:
-
-**Surfaces:** A E
-
-**Examples:**
+Classifier-backed toxicity score from a text-classification model. The LLM-judge `toxicity` under [Safety checks](#safety-checks) is a separate check.
 
 ```yaml
-# Negative framing — "this output should NOT be toxic"
+# "this output should NOT be toxic"
 - type: assertion
   params:
     eval_type: text_toxicity
@@ -600,7 +636,7 @@ Classifier-backed toxicity eval. Distinct from the LLM-judge [`toxicity`](#toxic
       expected_label: toxic
     max_score: 0.3
 
-# Positive framing — "this output should sit in the neutral class"
+# "this output should sit in the neutral class"
 - type: assertion
   params:
     eval_type: text_toxicity
@@ -612,11 +648,7 @@ Classifier-backed toxicity eval. Distinct from the LLM-judge [`toxicity`](#toxic
 
 ### `text_sentiment`
 
-Classifier-backed sentiment eval. Emits the model's score for `expected_label`. Wrap with `type: assertion` and `min_score` for the typical "assistant should sound positive" framing; for inverse assertions point at the opposing label.
-
-**Surfaces:** A E
-
-**Example:**
+Classifier-backed sentiment score for `expected_label`.
 
 ```yaml
 - type: assertion
@@ -631,20 +663,12 @@ Classifier-backed sentiment eval. Emits the model's score for `expected_label`. 
 
 ### `topic_policy`
 
-Confines a conversation to a declared subject scope, decided by an inference
-provider rather than by the model being governed. Unlike the
-rest of this family it is declared and used as a **guardrail**, not an eval or
-assertion: it gates the user's message before the primary provider is called,
-and a denied turn is replaced with the configured message and never reaches
-the agent. It is default-deny — an empty or missing allow-list is rejected at
-load time rather than silently blocking everything.
+Confines a conversation to a declared subject scope, decided by an inference provider rather than by the model being governed. It is a guardrail: it gates the user's message before the primary provider is called, and a denied turn is replaced with the configured message and never reaches the agent. The policy is default-deny: an empty or missing allow-list is rejected when the pack loads.
 
-**Surfaces:** G
-
-**Two declaration sites**, both required:
+Two declarations are required:
 
 ```yaml
-# 1. The pack validator — the normal declaration site.
+# 1. The pack validator.
 validators:
   - type: topic_policy
     message: "I can only help with AltairaLabs products."
@@ -653,8 +677,7 @@ validators:
       allowed: [Omnia and PromptKit, licensing and support]
       disallowed: [politics]
 
-# 2. The host provider file — an ordinary role: inference declaration.
-# Required: the check denies every turn (on_error's default) without one.
+# 2. The host provider file: an ordinary role: inference declaration.
 id: topic-control
 role: inference
 type: nvidia-topic-control
@@ -663,169 +686,108 @@ additional_config:
   timeout_seconds: 20   # optional; default 20
 ```
 
-**Choosing the backend.** Every backend receives the same prompt (NemoGuard
-topic control's trained format: the policy as the instruction, ending with its
-required closing sentence) and is asked for `on-topic` or `off-topic`. The
-check allows whichever label gets the higher probability and records that
-probability as `confidence`.
+Every backend receives the same prompt (the policy as the instruction, ending with NemoGuard topic control's required closing sentence) and is asked for `on-topic` or `off-topic`. The check allows whichever label gets the higher probability and records that probability as `confidence`. Equal probabilities, or none, resolve through `on_unknown`.
 
-| `type` | Backend | Notes |
-|---|---|---|
+| Provider `type` | Backend | Notes |
+|-----------------|---------|-------|
 | `nvidia-topic-control` | NemoGuard topic control (`nvidia/llama-3.1-nemoguard-8b-topic-control`) on an OpenAI-compatible endpoint (NIM) | An alias for `openai` with that model; `base_url` is required, and the endpoint must return logprobs |
 | `openai` | Any OpenAI-compatible chat model that returns logprobs (OpenAI, vLLM, LiteLLM) | `model` is required. `OPENAI_API_KEY` is used only for OpenAI's own endpoint; any other `base_url` needs an explicit `credential` |
 | `systemone` | TypeSafe's Jev, through the Vercel AI Gateway (`base_url: https://ai-gateway.vercel.sh/typesafe/v1`, `model: typesafe-ai/jev`) or a self-hosted server speaking the same API | Needs an explicit `credential` unless `base_url` is loopback |
 
 :::caution[Do not point this at a reasoning model]
-A reasoning model starts its answer with its thinking rather than a bare
-label. An answer that is not a label is not a decision, so every classification
-falls to `on_unknown`, which denies, and **the guardrail blocks every turn**. It fails closed rather than leaking traffic, but the conversation stops
-working. Pick a model that will comply with "respond with `on-topic` or
-`off-topic`" and nothing else.
+A reasoning model starts its answer with its thinking rather than a bare label. An answer that is not a label is not a decision, so every classification falls to `on_unknown`, which denies, and the guardrail blocks every turn. Use a model that answers with `on-topic` or `off-topic` and nothing else.
 :::
 
-**`timeout_seconds`** (the `openai` and `nvidia-topic-control` types) bounds a
-single classification call. For `nvidia-topic-control` the default of 20s is
-tight because this call sits in the request path ahead of the agent's own
-call. Raise it for a NIM answering from cold or a shared endpoint under load: a
-timeout is an error, `on_error` denies, so a too-short timeout takes the
-conversation offline rather than letting anything through. It caps the call
-regardless of any longer deadline on the calling context; the shorter of the two
-always wins.
+`timeout_seconds` (provider types `openai` and `nvidia-topic-control`, in `additional_config`) bounds a single classification call. The default for `nvidia-topic-control` is 20 seconds. A timeout is an error, so `on_error` applies. Setting `timeout_seconds` together with the provider file's `request_timeout` is rejected.
 
-**Params:**
+Params:
 
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
-| `description` | string | *(required)* | The application's purpose in prose. An allow-list alone reads as keywords to a semantic classifier. |
-| `allowed` | string[] | *(required, non-empty)* | In-scope subjects. |
+| `description` | string | required | The application's purpose in prose. |
+| `allowed` | string[] | required, non-empty | In-scope subjects. |
 | `disallowed` | string[] | none | Explicit exclusions. |
 | `small_talk` | `allow` \| `deny` | `allow` | Whether greetings, thanks and pleasantries that match no listed subject count as in scope. |
-| `examples.allowed` / `examples.disallowed` | string[] | none | An optional labeled corpus. A classification aid, not configuration — a backend may fold it into a prompt or ignore it. |
-| `on_deny` | `block` \| `respond` | `block` | Recorded on the result for future branching; both values enforce identically today — the turn is blocked and replaced with `message`. |
-| `on_unknown` | `deny` \| `allow` | `deny` | Outcome when the classifier responds but gives no decision it will act on. |
-| `on_error` | `deny` \| `allow` | `deny` | Outcome when the classifier can't be reached or its response can't be parsed — including no provider configured at all. |
-| `recent_turns` | int (>= 0) | `4` | How many prior turns of history to replay for reference resolution (0 = judge the current message alone). A context-management knob, not a scope statement — there is no host-side surface for it. |
-| `provider` | string | none | A logical provider name this pack declares in `requires`, bound by the host to a topic classifier. Empty uses the host's default topic classifier. |
-| `direction` | `input` \| `output` \| `both` | `input` | `topic_policy` is the one eval type in this repo with a non-`output` direction default — a check that only inspects the assistant's reply never blocks the call it exists to prevent. `direction: output` remains legal ("did the assistant wander?" is a coherent question) but is not the default. |
-| `message` | string | a generic blocked message | The user-facing text substituted for a denied turn. Normally set as the validator's top-level `message:` field (shown above); also accepted inside `params`. |
+| `examples.allowed`, `examples.disallowed` | string[] | none | A labeled corpus folded into the prompt. |
+| `on_deny` | `block` \| `respond` | `block` | Recorded in the result `Details`. Both values block the turn and substitute `message`. |
+| `on_unknown` | `deny` \| `allow` | `deny` | Outcome when the classifier answers but gives no usable label, or the turn has no text to judge. |
+| `on_error` | `deny` \| `allow` | `deny` | Outcome when the classifier cannot be reached or parsed, including when no provider is bound. |
+| `recent_turns` | int (>= 0) | `4` | How many prior `user` and `assistant` turns to send for reference resolution. `0` judges the current message alone. |
+| `provider` | string | none | A logical provider name this pack declares in `requires`. Empty uses the host's default topic classifier. |
+| `direction` | `input` \| `output` \| `both` | `input` | `topic_policy` is the one check type whose default direction is not `output`. |
+| `message` | string | generic blocked message | The user-facing text for a denied turn. Normally the validator's top-level `message:` field; also accepted in `params`. |
 
-**Declaring `topic_policy` directly as a `validators:` entry is the normal
-form**, and the one `sdk/examples/topic-policy` uses. Wrapping it in `type: guardrail` or
-`type: assertion` behaves identically: a wrapper inherits the inner check's
-`direction: input` default and runs the inner check's param validation, so both
-forms gate the user's message and both reject a malformed policy at load.
-Unknown keys are rejected at load time, and rejection is fatal: a pack whose
-validator params `topic_policy` refuses (a misspelled `dissallowed:`, an empty
-`allowed:`, a bad enum value) fails to load rather than opening with the
-guardrail quietly dropped. `min_score` / `max_score` are rejected the same way,
-with a message pointing at `type: assertion` — `topic_policy` is default-deny
-and needs no threshold.
+Behavior:
 
-**A turn with no judgable text is unknown, not in scope.** A user message
-carrying only an image, audio or video part has no text for a text classifier
-to judge, so it resolves through `on_unknown` (default deny) with a reason
-recorded, rather than being sent to the classifier as an empty string.
-
-**`recent_turns` counts conversational turns**, meaning `user` and `assistant`
-messages. Tool-result messages in the transcript are filtered out before the
-window is applied, so a turn answered with several tool calls does not evict the
-history an anaphoric follow-up ("What about Azure?") needs to be resolved.
-
-**Replacement text from an earlier blocked turn is not replayed.** A denied turn
-is persisted with this check's own `message` as the assistant reply; sending it
-back as history would present the guardrail's output to the classifier as the
-agent's voice, spend the anaphora window on a refusal with no subject in it, and
-disclose prior denials the policy never asked to convey. Assistant messages
-finishing for `safety` (this check's substitutions, and provider-side content
-filtering) are dropped before the window is applied, so they do not cost a
-turn either. The user's denied *message* is kept: it is genuinely what the user
-said, and it is what a follow-up may refer back to.
-
-**`on_unknown` and `on_error` describe the same event today.** They are
-conceptually different (`on_unknown` covers a classifier that answered but
-gave no usable label, `on_error` covers a classifier that could not be
-reached or parsed, including nothing configured at all), but the only shipped
-backend (`nvidia-topic-control`) is a label-emitting chat model: any response
-that isn't exactly its two trained labels already falls to `on_unknown`, and
-everything else that can go wrong (network, non-2xx, malformed JSON) is an
-actual error. In practice both params mean "the classifier did not
-give an actionable answer," and most pack authors should set them the same
-way. The split exists for a future backend that can distinguish "infrastructure
-is down" from "genuinely unsure" with different confidence.
-
-**`policy_digest` (in the eval result's `Details`) is a digest, not a
-version.** It is a SHA-256 hash of the normalized policy fields (`description`,
-`allowed`, `disallowed`, `small_talk`, `examples`), included so a report can
-say which policy governed an interaction. Inline params carry no policy id, so
-this is the best available answer — but it changes on a purely cosmetic
-wording edit to `description`, and on its own it cannot say *what* changed
-between two digests, only *that* something did.
-
-**MVP scope:** the check claims English-language policies and `direction:
-input` only. A topic-control model tuned on English is exactly where an
-English policy classifying non-English input produces silent unknowns or false
-denials — if your traffic is multilingual, budget for that risk rather than
-assuming parity. `direction: both` and non-English policies are both explicitly
-deferred, not silently unsupported.
+- Declaring `topic_policy` as a `validators:` entry is the normal form. Wrapping it in `type: guardrail` or `type: assertion` behaves identically: the wrapper applies the inner check's `direction: input` default and param validation.
+- Unknown keys are rejected, and so are `min_score` and `max_score`. A pack whose `topic_policy` params fail validation (a misspelled `dissallowed:`, an empty `allowed:`, a bad enum value) fails to load.
+- A user message with only image, audio or video parts has no text to judge. It resolves through `on_unknown`.
+- Tool-result messages are dropped from the `recent_turns` window before it is applied. Assistant messages that finished for `safety` (this check's replacement text, and provider-side content filtering) or were interrupted are dropped too. The denied user message is kept.
+- `on_unknown` and `on_error` are separate params that describe the same events for the label-emitting backends: any response that is not one of the two labels falls to `on_unknown`; network errors, non-2xx responses and malformed JSON fall to `on_error`.
+- `Details.policy_digest` is a SHA-256 hash of the normalized `description`, `allowed`, `disallowed`, `small_talk` and `examples`. It changes on any wording edit to `description` and does not say what changed.
 
 ### `assertion` (wrapper)
 
-Generic wrapper that turns any eval primitive into a thresholded pass/fail. Cleanest way to use any classify-backed eval as a scenario assertion.
+Turns any check into a thresholded pass/fail. It resolves `eval_type` in the registry, applies the inner type's param defaults and aliases, runs the inner type's param validation, evaluates it, and sets `Passed`.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `eval_type` | string | Yes | The inner eval handler's type (e.g. `text_toxicity`, `audio_emotion`, `cosine_similarity`) |
-| `eval_params` | object | Yes | Params passed verbatim to the inner eval |
-| `min_score` | float | No | Pass when inner Score is at-or-above this |
-| `max_score` | float | No | Pass when inner Score is at-or-below this |
+| `eval_type` | string | Yes | The inner check type, for example `text_toxicity`, `audio_emotion` or `cosine_similarity`. |
+| `eval_params` | object | Yes | Params passed to the inner check. |
+| `min_score` | float | No | Pass when the inner score is at or above this. |
+| `max_score` | float | No | Pass when the inner score is at or below this. |
 
-If both `min_score` and `max_score` are set, both must hold. If neither is set, the default is `min_score: 1.0` (inner eval must fully pass). For LLM-judge and classify-backed evals that emit raw scores in `[0,1)`, **set an explicit `min_score`** on the wrapper — leaving it unset will report every result as failed.
+If both are set, both must hold. If neither is set, `min_score` is `1.0`. Judge-backed and classifier-backed checks emit raw scores in `[0, 1]`; set an explicit threshold on the wrapper, or an unset one reports every score below 1.0 as failed.
 
-Parallel handler: `guardrail` — same shape but consumes the eval at runtime to block, not assert.
+### `guardrail` (wrapper)
+
+Same shape as `assertion`, evaluated as a guardrail.
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `eval_type` | string | Yes | The inner check type. |
+| `eval_params` | object | Yes | Params passed to the inner check. |
+| `action` | string | No | Default `block`. Recorded in `Details.action`. |
+| `min_score` | float | No | Trigger when the inner score is below this. Default `1.0` when no threshold is set. |
+| `max_score` | float | No | Trigger when the inner score is above this. |
+
+The result sets `Passed` to the inverse of `Details.triggered`.
 
 ---
 
-## LLM Judge Checks
+## LLM judge checks
 
-LLM judge checks are pure eval primitives: they send the assistant output (or full session) to a language model for evaluation. The judge returns a score (0.0–1.0) and reasoning; the handler emits the raw score as `EvalResult.Score` and preserves the judge's `passed` opinion in `Details`. Threshold judgment lives on the [`assertion`](#assertion-wrapper) wrapper — putting `min_score` / `max_score` directly on an LLM-judge handler is rejected at parse time.
+LLM judge checks send the assistant output, or the full session, to a language model. The judge returns a score (0.0 to 1.0) and reasoning; the handler emits the score as `Score` and keeps the judge's own `passed` opinion in `Details`. Without a judge provider the check cannot run and scores 0. As a guardrail, a judge-backed check that names no `provider` needs a default judge from the host (`sdk.WithJudgeProvider`), or the pack fails to load.
+
+Judge params, shared by `llm_judge`, `llm_judge_session`, `llm_judge_tool_calls`, the RAG checks and the safety checks:
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `criteria` | string | See each check | What the judge should evaluate. |
+| `rubric` | string | No | Detailed scoring guidance. |
+| `model` | string | No | Model to use for judging. |
+| `system_prompt` | string | No | Override the judge's system prompt. |
+| `provider` | string | No | A logical provider name this pack declares in `requires`. Empty uses the host's default judge. |
 
 ### `llm_judge`
 
-Turn-level LLM evaluation. The judge sees the current assistant response and evaluates it against the provided criteria.
+Turn-level evaluation: the judge sees `CurrentOutput` and the `criteria`.
 
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `criteria` | string | Yes | What the judge should evaluate |
-| `rubric` | string | No | Detailed scoring guidance |
-| `model` | string | No | Model to use for judging |
-| `system_prompt` | string | No | Override the default judge system prompt |
-| `extra` | object | No | Additional provider-specific parameters |
-
-**Surfaces:** A E
-
-**Rubric dimensions.** Numeric fields in the judge's JSON besides `score` become the result's `Metrics`. A rubric judged once yields every dimension: ask for `{"score": 0.8, "clarity": 0.9, "accuracy": 0.7, "reasoning": "..."}` and the result carries `clarity` and `accuracy` alongside the score. `passed`, `reasoning` and nested objects are not dimensions. This applies to `llm_judge`, `llm_judge_session` and `llm_judge_tool_calls`; the RAG and safety judges run fixed prompts and report no dimensions. See [eval dimensions](/sdk/how-to/observability/run-evals/#eval-dimensions) for exporting them to Prometheus.
+**Rubric dimensions.** Numeric fields in the judge's JSON besides `score` become the result's `Metrics`. A judge asked for `{"score": 0.8, "clarity": 0.9, "accuracy": 0.7, "reasoning": "..."}` yields `clarity` and `accuracy` alongside the score. `passed`, `reasoning` and nested objects are not dimensions. Dimensions apply to `llm_judge`, `llm_judge_session` and `llm_judge_tool_calls`; the RAG and safety checks report none. See [eval dimensions](/sdk/how-to/observability/run-evals/#eval-dimensions) for exporting them to Prometheus.
 
 ### `llm_judge_session`
 
-Session-level LLM evaluation. The judge sees a full role-labeled transcript of the
-conversation (every turn: user, assistant, and any other role, plus every tool
-call with its arguments and result), so tool-using and observer agents are judged
-on what they actually did, not only on their prose. Alias: `llm_judge_conversation`.
-
-Same params as `llm_judge`. **Surfaces:** A E
+Alias: `llm_judge_conversation`. Session-level evaluation. The judge sees a role-labeled transcript of every user, assistant and other turn (system messages and tool-result rows are omitted), followed by every tool call with its arguments and result. Same params as `llm_judge`.
 
 ### `llm_judge_tool_calls`
 
-Evaluates tool usage patterns via an LLM judge.
+Judges tool usage. The judge sees each call's name, arguments, result and error.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `criteria` | string | Yes | What the judge should evaluate about tool usage |
-| `tools` | string[] | No | Filter to specific tools |
+| `tools` | string[] | No | Filter to these tool names. When no call matches, the check is skipped. |
 
-Plus all standard judge params (`rubric`, `model`, `system_prompt`, `extra`). **Surfaces:** A E
-
-**Example:**
+Plus the shared judge params.
 
 ```yaml
 assertions:
@@ -839,92 +801,28 @@ assertions:
 
 ---
 
-## RAG Checks
+## RAG checks
 
-RAG checks are named eval primitives for retrieval-augmented generation: they score the answer against retrieved context (`faithfulness`, `hallucination`), the answer against the question (`answer_relevancy`), or the retrieved chunks against the question / ground truth (`contextual_precision`, `contextual_recall`, `contextual_relevancy`).
+RAG checks are thin wrappers over `llm_judge` with a built-in default prompt and criteria. Supplying `system_prompt` or `criteria` overrides the default. They take the shared judge params and report no `Metrics`. A check that needs retrieved context scores 0 with an explanation when none is supplied.
 
-Each handler is a thin wrapper over `llm_judge` with a hardened default prompt drawn from public DeepEval / Ragas reference implementations (Apache 2.0). Like `llm_judge`, the RAG handlers are pure eval primitives — wrap with [`assertion`](#assertion-wrapper) to apply a threshold. The standard judge params (`rubric`, `model`, `system_prompt`, `extra`) all apply; supplying `system_prompt` or `criteria` overrides the default.
-
-**Context sources** — every handler that needs retrieved chunks accepts them in three forms:
+Every check that needs retrieved chunks accepts them in three forms, tried in this order:
 
 | Form | Example |
 |------|---------|
-| `contexts: ["chunk-1", "chunk-2"]` | Canonical list form |
-| `context: "single chunk"` | Convenience form for one chunk |
-| `context_field: retrieved_chunks` | Looks up the named key in `evalCtx.Metadata` — use this when a retrieval tool writes chunks to metadata at runtime |
+| `contexts` | `contexts: ["chunk-1", "chunk-2"]` |
+| `context` | `context: "single chunk"` |
+| `context_field` | `context_field: retrieved_chunks` reads that key from `EvalContext.Metadata` (a string, or a list of strings) |
 
-### `faithfulness`
+| Type | Params | Measures |
+|------|--------|----------|
+| `faithfulness` | one of `contexts`, `context`, `context_field` | How directly the context supports the answer |
+| `hallucination` | one of `contexts`, `context`, `context_field` | Freedom from unsupported or contradicting claims (1.0 means none) |
+| `answer_relevancy` | `question` | How directly the answer addresses the question |
+| `contextual_precision` | one of `contexts`, `context`, `context_field`; `question` | Fraction of retrieved chunks relevant to the question |
+| `contextual_recall` | one of `contexts`, `context`, `context_field`; `reference` or `expected_output` (required) | How completely the chunks cover the ground-truth answer |
+| `contextual_relevancy` | one of `contexts`, `context`, `context_field`; `question` | Mean per-chunk relevance to the question |
 
-Scores how directly the answer is supported by the supplied context. Equivalent in name to DeepEval / Ragas `faithfulness`.
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `contexts` \| `context` \| `context_field` | string[] / string / string | Yes (one of) | Retrieved context the answer should be grounded in |
-
-Plus standard judge params. **Surfaces:** A E
-
-```yaml
-assertions:
-  - type: assertion
-    params:
-      eval_type: faithfulness
-      eval_params:
-        context_field: retrieved_chunks
-      min_score: 0.8
-```
-
-### `answer_relevancy`
-
-Scores how directly the answer addresses the user's question. Equivalent in name to DeepEval / Ragas `answer_relevancy`.
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `question` | string | No | Defaults to the last user turn in the session |
-
-Plus standard judge params. **Surfaces:** A E
-
-### `contextual_precision`
-
-Scores the fraction of retrieved chunks that are relevant to the question (relevant chunks / total chunks). Equivalent in name to DeepEval `contextual_precision`.
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `contexts` \| `context` \| `context_field` | — | Yes | Retrieved chunks |
-| `question` | string | No | Defaults to the last user turn |
-
-Plus standard judge params. **Surfaces:** A E
-
-### `contextual_recall`
-
-Scores how completely the retrieved chunks cover the information the ground-truth answer relies on. Equivalent in name to DeepEval / Ragas `contextual_recall`.
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `contexts` \| `context` \| `context_field` | — | Yes | Retrieved chunks |
-| `reference` \| `expected_output` | string | Yes | Ground-truth answer |
-
-Plus standard judge params. **Surfaces:** A E
-
-### `contextual_relevancy`
-
-Scores the mean per-chunk relevance of retrieved chunks to the question (distinct from `contextual_precision`: precision is binary relevant/not; relevancy is the mean of graded scores). Equivalent in name to DeepEval `contextual_relevancy`.
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `contexts` \| `context` \| `context_field` | — | Yes | Retrieved chunks |
-| `question` | string | No | Defaults to the last user turn |
-
-Plus standard judge params. **Surfaces:** A E
-
-### `hallucination`
-
-Scores how free the answer is of unsupported / contradicting claims relative to the context — the inverse framing of `faithfulness`, kept as a distinct handler so users coming from DeepEval find the vocabulary they expect. 1.0 = no hallucination; 0.0 = entirely hallucinated. Equivalent in name to DeepEval `hallucination`.
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `contexts` \| `context` \| `context_field` | — | Yes | Retrieved context the answer should be grounded in |
-
-Plus standard judge params. **Surfaces:** A E
+`question` defaults to the last user message. `faithfulness` and `hallucination` take no question.
 
 ```yaml
 assertions:
@@ -937,44 +835,45 @@ assertions:
       min_score: 0.9
 ```
 
-:::note[Three-role model]
-RAG checks are eval primitives invoked as assertions. They can also be wired as guardrails via `runtime/hooks/guardrails/factory.go`. Guardrails always enforce (there is no monitor-only mode), but for retrieval quality the assertion shape is the natural default. See the [Validators reference](https://promptarena.altairalabs.ai/arena/reference/validators/) for the guardrail-side wiring.
-:::
-
 ---
 
-## Safety Checks
+## Safety checks
 
-Safety checks score the assistant output for a specific concern: bias, toxicity, PII leakage, role violation. Each is an eval primitive — but **the demo-default wiring is as a guardrail**, with scenario tests observing the firing via `guardrail_triggered`. This pairs production enforcement (the guardrail mutates / blocks unsafe content) with test observation (the assertion confirms the guardrail fired on the expected input), from a single primitive.
-
-The shape:
+Safety checks score the assistant output for one concern. They run as LLM judges, so they take the shared judge params, all optional. Their usual wiring is a guardrail in a pack's `validators:` block, with a scenario observing the firing through `guardrail_triggered`:
 
 ```yaml
-# In the pack's prompt config — runtime enforcement
+# In the pack: runtime enforcement
 validators:
   - type: pii_leakage
     params:
       direction: output
 
-# In a scenario turn — test predicate
+# In a scenario turn: test predicate
 assertions:
   - type: guardrail_triggered
     params:
-      validator: pii_leakage
+      validator_type: pii_leakage
       should_trigger: true
 ```
 
+| Type | Measures | Extra params |
+|------|----------|--------------|
+| `bias` | Demographic, stereotype, gender, racial or religious bias | none |
+| `toxicity` | Insults, harassment, threats, hate speech (the LLM-judge counterpart of [`text_toxicity`](#text_toxicity)) | none |
+| `pii_leakage` | Personally identifiable information | none |
+| `role_violation` | Adherence to the assigned role, persona or instructions | `agent_role` (string) |
+
+- `pii_leakage` first runs a regex pre-pass for emails, US-style SSNs and 16-digit card-shaped numbers. A hit scores 0 without an LLM call. Otherwise, when the check has a judge (a `provider` param, or a host default), the judge scores the output. With no judge, a clean pre-pass scores 1.
+- `role_violation` gives the judge the active agent role: `agent_role`, else `EvalContext.Metadata["system_prompt"]`. With neither, the judge scores generic role consistency. `agent_role` is distinct from the shared `system_prompt` param, which sets the judge's own prompt.
 ### Guardrail `direction`
 
-Any check used as a guardrail accepts a `direction` param:
+A check used as a guardrail accepts a `direction` param, inside `params`:
 
 | Value | Evaluates | On a hit |
-|---|---|---|
-| `output` (default) | the assistant response | rewrites the response (truncate/replace) and stops the provider round loop |
-| `input` | the user's message, before the LLM call | blocks the call entirely (no tokens spent) and returns a canned assistant turn |
-| `both` | input, then output | whichever fires first |
-
-`direction` lives inside `params` (the PromptPack spec allows arbitrary keys there):
+|-------|-----------|----------|
+| `output` (default) | The assistant response | Rewrites the response (truncate or replace) and stops the provider round loop |
+| `input` | The user's message, before the LLM call | Blocks the call (no tokens spent) and returns a canned assistant turn |
+| `both` | Input, then output | Whichever fires first |
 
 ```yaml
 validators:
@@ -984,31 +883,11 @@ validators:
     message: "Please don't share personal details."
 ```
 
-On the pack YAML path, an unrecognized `direction` (or a non-string value) does not fail
-to load — it logs a warning and falls back to `output`, so a typo degrades which side gets
-checked rather than silently dropping the guardrail altogether. The programmatic
-`guardrails.Input`/`Output` constructors set `direction` themselves, so an invalid value
-cannot arise on that path.
-
-Subprocess (exec) hooks reach the same behavior through the existing `before_call` phase:
-returning `{"allow": false, "enforced": true, "reason": "...", "metadata": {"replacement": "..."}}`
-blocks the call and uses `metadata.replacement` as the canned assistant text.
-
-Input guardrails are evaluated **once per user turn**, not once per provider round: the
-check runs only when the last message is a user message, so a tool-using turn does not
-re-run (and re-bill) an LLM-judged check on every round.
-
-A check marked `G` in the table above evaluates whichever side `direction` selects (the
-content under test), so the pattern-matching checks (`contains`, `regex`,
-`content_excludes` / `banned_words`, `contains_any`) work in either direction. As an output
-guardrail such a check judges that response only: neither the user's message nor an earlier
-assistant turn affects the verdict, so one tripped turn does not re-block the rest of the
-conversation.
-
-Used as an eval or assertion instead, the same checks scan the whole transcript ("was this
-ever said"), which is the behavior those surfaces rely on.
-
-Programmatically, use the directional constructors instead of raw params:
+- On the pack YAML path, an unrecognized or non-string `direction` logs a warning and falls back to `output`.
+- Subprocess (exec) hooks reach the same behavior through `before_call`: returning `{"allow": false, "enforced": true, "reason": "...", "metadata": {"replacement": "..."}}` blocks the call and uses `metadata.replacement` as the canned assistant text.
+- Input guardrails evaluate once per user turn: the check runs only when the last message is a user message, so a tool-using turn does not re-run an LLM-judged check on every round.
+- As an output guardrail, a check judges that response only. One tripped turn does not re-block later turns.
+- The directional constructors set `direction` for you:
 
 ```go
 sdk.WithGuardrail(
@@ -1017,109 +896,61 @@ sdk.WithGuardrail(
 )
 ```
 
-#### When a validator cannot be built
-
-The failure policy differs by how ambiguous the mistake is:
+### Validators that cannot be built
 
 | Problem | Behavior |
-|---|---|
-| Unknown eval `type` | **Fatal** — `Open()` returns an error naming the type |
-| Params fail validation | Logged as a warning and that validator is skipped; the rest still load |
+|---------|----------|
+| Unknown check `type` | `Open()` returns an error naming the type |
+| The check's own param validation rejects the params | `Open()` returns an error |
+| A judge-backed check with no `provider` param and no default judge | `Open()` returns an error |
 | Unrecognized `direction` value | Logged as a warning and treated as `output` |
 
-An unregistered `type` is always a typo, and silently dropping it would leave the
-conversation with no protection while load appeared to succeed — fail-open on a safety
-control. Unusable *params* keep the warn-and-skip behavior so that one bad entry does not
-break the others, and so a pack authored against a newer runtime stays loadable.
-
-To surface every problem at once without opening a conversation, use `sdk.ValidatePack`,
-which dry-run constructs each validator and reports all issues together. If your handlers
-come from a custom registry (`sdk.WithEvalRegistry`), use `sdk.ValidatePackWithRegistry`
-and pass the same registry — otherwise preflight resolves types against the built-in set
-only and reports your custom types as unknown even though `Open()` accepts them.
-
-For direct scenario invocation as a pass/fail assertion, wrap the safety primitive with `type: assertion` and set `min_score` on the wrapper. Putting `min_score` / `max_score` directly on a safety handler is rejected — see the [eval/assertion wrapper](#assertion-wrapper) for the canonical shape.
-
-LLM-judged safety checks (`bias`, `toxicity`, `role_violation`, and the LLM-judged path of `pii_leakage`) carry a known false-positive rate. Tune the wrapper's `min_score` for your scenarios and prefer the regex pre-pass (`pii_leakage`) for high-confidence patterns.
-
-### `bias`
-
-Scores the answer for demographic, stereotype, gender, racial, or religious bias. Equivalent in name to DeepEval `bias`.
-
-Standard judge params (`rubric`, `model`, `system_prompt`, `criteria`, `extra`) — all optional. **Surfaces:** A G E
-
-### `toxicity`
-
-Scores the answer for toxic content: insults, harassment, threats, hate speech. Equivalent in name to DeepEval `toxicity`. Distinct from the classifier-backed [`text_toxicity`](#text_toxicity); `toxicity` is the LLM-judge path.
-
-Same params as `bias`. **Surfaces:** A G E
-
-### `pii_leakage`
-
-Scores the answer for personally-identifiable information leakage. Equivalent in name to DeepEval `pii_leakage`.
-
-Implementation runs a **regex pre-pass** for high-confidence patterns (emails, US-style SSN, 16-digit card-shape numbers) before the LLM-judged path. A regex hit returns score 0 immediately without an LLM call — keeps the obvious cases cheap and deterministic. Ambiguous patterns fall through to the LLM judge.
-
-Same params as `bias`. **Surfaces:** A G E
-
-### `role_violation`
-
-Scores the answer for adherence to the assigned role / persona / instruction set. Equivalent in name to DeepEval `role_violation`.
-
-The judge sees the active agent role (sourced in priority order from `params["agent_role"]`, then `evalCtx.Metadata["system_prompt"]`) so it can decide whether the answer deviates. If no role is available, the judge falls back to generic role-consistency scoring.
-
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `agent_role` | string | No | The persona / system prompt the answer should follow. Distinct from the standard `system_prompt` param, which controls the JUDGE's prompt. |
-
-Plus standard judge params. **Surfaces:** A G E
+`sdk.ValidatePack` builds each validator without opening a conversation and reports every problem at once. With a custom registry (`sdk.WithEvalRegistry`), use `sdk.ValidatePackWithRegistry` with the same registry, or preflight reports your custom types as unknown.
 
 ---
 
-## External Checks
+## External checks
 
-External checks delegate evaluation to HTTP endpoints or A2A agents. These are the no-code extensibility points for teams that want custom evaluation logic without writing Go.
+External checks delegate evaluation to HTTP endpoints or A2A agents.
 
 ### `rest_eval`
 
-POSTs turn data to an HTTP endpoint. The endpoint must return `{"score": float, "reasoning": string}`. The `passed` field is accepted for backward compatibility but ignored — pass/fail is determined by the assertion or guardrail wrapper based on score thresholds.
+Sends the turn to an HTTP endpoint. The endpoint returns `{"score": float, "reasoning": string}`. A `passed` field is accepted and ignored.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `url` | string | Yes | Endpoint URL |
-| `method` | string | No | HTTP method (default: POST) |
-| `headers` | object | No | Request headers; values support `${ENV_VAR}` expansion |
-| `timeout` | string | No | Request timeout |
-| `include_messages` | bool | No | Include conversation messages in payload |
-| `include_tool_calls` | bool | No | Include tool call records in payload |
-| `criteria` | string | No | Evaluation criteria passed to the endpoint |
-| `min_score` | float | No | Minimum score threshold |
-| `extra` | object | No | Additional fields merged into the request body |
+| `url` | string | Yes | Endpoint URL. |
+| `method` | string | No | HTTP method. Default `POST`. |
+| `headers` | object | No | Request headers; values support `${ENV_VAR}` expansion. |
+| `timeout` | string | No | Go duration, for example `10s`. Default `30s`. |
+| `include_messages` | bool | No | Include conversation messages in the payload. Default `true`. |
+| `include_tool_calls` | bool | No | Include tool call records in the payload. Default `false`. |
+| `criteria` | string | No | Evaluation criteria passed to the endpoint. |
+| `extra` | object | No | Additional fields sent in the payload under `extra`. |
 
-**Surfaces:** A E
+The request body holds `current_output`, `messages`, `tool_calls`, `criteria`, `variables` and `extra`. A non-2xx status, a timeout or an unparseable body scores 0.
 
 ### `rest_eval_session`
 
-POSTs full session data to an HTTP endpoint. Same params as `rest_eval`. **Surfaces:** A E
+Same params as `rest_eval`. Sends all assistant messages joined by newlines as `current_output`.
 
 ### `a2a_eval`
 
-Sends evaluation data to an A2A-protocol eval agent.
+Sends the turn to an A2A eval agent and reads `{"score", "reasoning"}` JSON from its reply.
 
 | Param | Type | Required | Description |
 |-------|------|----------|-------------|
-| `agent_url` | string | Yes | URL of the A2A eval agent |
-| `auth_token` | string | No | Auth token; supports `${ENV_VAR}` expansion |
-| `criteria` | string | No | Evaluation criteria |
-| `min_score` | float | No | Minimum score threshold |
-
-**Surfaces:** A E
+| `agent_url` | string | Yes | URL of the A2A eval agent. |
+| `auth_token` | string | No | Bearer token; supports `${ENV_VAR}` expansion. |
+| `timeout` | string | No | Go duration. Default `60s`. |
+| `criteria` | string | No | Evaluation criteria. |
+| `include_messages` | bool | No | Default `true`. |
+| `include_tool_calls` | bool | No | Default `false`. |
+| `extra` | object | No | Additional fields sent in the payload. |
 
 ### `a2a_eval_session`
 
-Session-level A2A evaluation. Same params as `a2a_eval`. **Surfaces:** A E
-
-**Example:**
+Same params as `a2a_eval`. Sends all assistant messages.
 
 ```yaml
 evals:
@@ -1131,78 +962,70 @@ evals:
       headers:
         Authorization: "Bearer ${SAFETY_API_KEY}"
       criteria: "Content is safe for all audiences"
-      min_score: 0.9
 ```
 
 ---
 
-## Budget & Performance Checks
+## Budget and performance checks
 
-| Type | Params | Surfaces |
-|------|--------|----------|
-| `latency_budget` | `max_ms` (int) | A E |
-| `cost_budget` | `max_cost_usd`, `max_total_tokens` | E |
+| Type | Params | Reads | Score |
+|------|--------|-------|-------|
+| `latency_budget` | `max_ms` (number, required) | `Metadata["latency_ms"]` | `min(max_ms / latency, 1)` |
+| `cost_budget` | `max_cost_usd` (number), `max_input_tokens`, `max_output_tokens`, `max_total_tokens` (int) | `Metadata["total_cost"]`, `["input_tokens"]`, `["output_tokens"]` | 0 over budget; otherwise `1 - cost / max_cost_usd`, or 1 with no cost limit |
 
-`cost_budget` is session-level and fires on `on_session_complete`.
+`cost_budget` needs at least one limit. A missing `latency_ms` scores 0. In a guardrail, the runtime derives these metadata values from the messages' cost info and the call's latency; a caller-supplied `total_cost` on the request metadata wins.
 
 ---
 
-## Meta Checks
+## Meta checks
 
-| Type | Params | Surfaces |
-|------|--------|----------|
-| `guardrail_triggered` | `guardrail` (string), `should_trigger` (bool), `direction` (string, optional) | A E |
-| `invariant_fields_preserved` | `tool` (string), `fields` (string[]) | E |
+| Type | Params | Score |
+|------|--------|-------|
+| `guardrail_triggered` | `validator_type` (string, required; alias param `validator`), `should_trigger` (bool, default `true`), `direction` (`input` \| `output` \| `both`) | 1 or 0 |
+| `invariant_fields_preserved` | `tool` (string, required), `fields` (string[], required) | Fraction of fields preserved |
 
-`guardrail_triggered` inspects prior eval results in the same batch, verifying that a specific guardrail did (or did not) fire. Pipeline-level guardrail firings are seeded into those prior results from the assistant message's validations, so a guardrail that fired during the turn is visible here without any extra wiring.
+`guardrail_triggered` searches the prior results in the same batch, newest first, for one whose type or eval ID equals `validator_type`. The validator counts as triggered when its score is below `1.0`. Guardrail firings in the assistant message's validations are seeded into the prior results. With no matching result, the check passes only when `should_trigger` is `false`.
 
-`direction` narrows the match to the side the guardrail judged, `input` (the user's message, before the LLM call) or `output` (the assistant response), mirroring the [`direction` param on the guardrail declaration](#guardrail-direction):
+`direction` narrows the match to firings recorded on that side (`input`, before the LLM call; `output`, the assistant response). Omitted or `both` matches either side. A firing recorded without a direction never matches a direction-qualified check, and an unrecognized value is rejected when the eval definitions are validated.
 
 ```yaml
 assertions:
   - type: guardrail_triggered
     params:
-      validator: pii_leakage
+      validator_type: pii_leakage
       direction: input
       should_trigger: true
 ```
 
-Omit it (or pass `both`) to match a firing from either side — the default, and what you want unless the same check is declared as an input guardrail *and* an output guardrail, in which case only `direction` can tell you which one fired. A firing recorded without a direction never satisfies a direction-qualified assertion, and an unrecognized value is rejected when the eval definitions are validated rather than silently matching nothing.
+`invariant_fields_preserved` fails for a field that appeared in an earlier call to `tool` and is absent from a later call. With fewer than two calls, it passes.
 
 ---
 
-## Behavioral Testing Checks
+## Behavioral testing checks
 
-These checks compare behavior across prompt variants or input perturbations.
+These checks compare a run against an expectation recorded in the params.
 
-| Type | Params | Surfaces |
-|------|--------|----------|
-| `outcome_equivalent` | `metric` (`"tool_calls"` \| `"final_state"` \| `"content_hash"`) | E |
-| `directional` | `check` (`"same_tool_calls"` \| `"same_outcome"` \| `"similar_content"`) | E |
+| Type | Params | Score |
+|------|--------|-------|
+| `outcome_equivalent` | `metric` (`tool_calls` \| `final_state` \| `content_hash`, required), `expected_tools` (string[]), `expected_state` (string), `expected_content` (string) | 1 or 0 |
+| `directional` | `check` (`same_tool_calls` \| `same_outcome` \| `similar_content`, required), `baseline_tools` (string[]), `baseline_state` (string), `baseline_content` (string), `threshold` (float, default `0.5`) | 1 or 0; the overlap for `similar_content` |
 
----
+| Metric or check | Compares |
+|-----------------|----------|
+| `tool_calls`, `same_tool_calls` | The set of distinct tool names called against the expected set. |
+| `final_state`, `same_outcome` | `Extras["workflow_state"]` against the expected state. |
+| `content_hash` | `CurrentOutput` against `expected_content`, for equality. |
+| `similar_content` | Jaccard overlap of the word sets of `CurrentOutput` and `baseline_content`, against `threshold`. |
 
-## Param Aliases
-
-For backward compatibility, some parameter names are aliased. When you use an aliased param name, it is automatically mapped to the canonical name before the handler runs.
-
-| Check Type(s) | Alias Param | Canonical Param |
-|---------------|-------------|-----------------|
-| `content_excludes`, `banned_words` | `words` | `patterns` |
-| `max_length`, `length` | `max_characters`, `max_chars` | `max` |
-| `min_length` | `min_characters`, `min_chars` | `min` |
-| `sentence_count`, `max_sentences` | `max_sentences` | `max` |
-| `field_presence`, `required_fields` | `required_fields` | `fields` |
+When the matching expectation param is absent, the check is skipped and passes.
 
 ---
 
-## Extending the Check System
+## Extending the check system
 
-PromptKit provides several extensibility points for adding custom check logic.
+### Custom `EvalTypeHandler` (Go)
 
-### Custom EvalTypeHandler (Go)
-
-Implement the `EvalTypeHandler` interface and register it:
+Implement `EvalTypeHandler` and register it:
 
 ```go
 type EvalTypeHandler interface {
@@ -1211,21 +1034,23 @@ type EvalTypeHandler interface {
 }
 ```
 
-Register globally (available to all registries):
+Register globally (available to every new registry):
 
 ```go
 evals.RegisterDefault(handler)
 ```
 
-Or register on a specific registry instance:
+Or on one registry instance, then pass it with `sdk.WithEvalRegistry`:
 
 ```go
 registry.Register(handler)
 ```
 
-### StreamableEvalHandler (Go)
+A handler may also implement `ParamValidator` (`ValidateParams(params map[string]any) error`), which runs when a guardrail is built and in `ValidateEvalTypes`, after defaults and aliases apply.
 
-For checks that need streaming support in guardrails, implement `StreamableEvalHandler`. This enables incremental evaluation on each streaming chunk, allowing early abort.
+### `StreamableEvalHandler` (Go)
+
+Implement `StreamableEvalHandler` for incremental evaluation of each streaming chunk in a guardrail:
 
 ```go
 type StreamableEvalHandler interface {
@@ -1234,9 +1059,9 @@ type StreamableEvalHandler interface {
 }
 ```
 
-### Exec Eval Handlers (Any Language)
+### Exec eval handlers (any language)
 
-Define eval handlers as external subprocesses in RuntimeConfig YAML. The subprocess receives JSON on stdin and writes JSON to stdout, so you can use any language.
+Bind a check type to a subprocess in RuntimeConfig. The subprocess receives JSON on stdin and writes JSON to stdout.
 
 ```yaml
 spec:
@@ -1244,29 +1069,33 @@ spec:
     my_python_eval:
       command: python3
       args: ["./evaluators/my_eval.py"]
-      env: ["EVAL_TYPE=my_python_eval"]
+      env: ["MY_API_KEY"]
       timeout_ms: 5000
 ```
 
-**Stdin** receives:
+| Field | Description |
+|-------|-------------|
+| `command`, `args` | The executable and its arguments. |
+| `env` | Names of host environment variables to pass through to the process. |
+| `timeout_ms` | Per-invocation timeout. Default 30 seconds. |
+
+Stdin:
 
 ```json
-{"type": "my_python_eval", "params": {...}, "content": "...", "context": {...}}
+{"type": "my_python_eval", "params": {}, "content": "...", "context": {}}
 ```
 
-**Stdout** must return:
+Stdout:
 
 ```json
 {"score": 0.85, "detail": "Explanation text", "data": {}, "metrics": {}, "error": ""}
 ```
 
-`metrics` holds named numeric sub-scores, and `error` reports that no measurement was taken, which fails any assertion on the eval. A crash, a timeout or output that is not this JSON is also an error. See the [exec protocol](/sdk/reference/exec-protocol/#eval-protocol) for every field.
+`metrics` holds named numeric sub-scores. A non-empty `error` means no measurement was taken, and fails any assertion. A crash, a timeout or output that is not this JSON is also an error. See the [exec protocol](/sdk/reference/exec-protocol/#eval-protocol) for every field.
 
-The `score` value (0.0--1.0) is the eval's output. Pass/fail is not determined by the handler — assertion and guardrail wrappers apply score thresholds to determine pass/fail.
+`score` is the eval's output. Pass or fail comes from an assertion or guardrail wrapper.
 
-### Custom JudgeProvider (Go)
-
-Customize how LLM judge checks call language models:
+### Custom `JudgeProvider` (Go)
 
 ```go
 type JudgeProvider interface {
@@ -1274,11 +1103,11 @@ type JudgeProvider interface {
 }
 ```
 
-Register via `sdk.WithJudgeProvider(provider)` when opening a conversation.
+Register with `sdk.WithJudgeProvider(provider)` when opening a conversation.
 
-### Custom ProviderHook (Go, for guardrails)
+### Custom `ProviderHook` (Go)
 
-For custom runtime guardrails beyond the built-in check types, implement `ProviderHook` to intercept LLM calls:
+For runtime guardrails beyond the built-in check types, implement `ProviderHook`:
 
 ```go
 type ProviderHook interface {
@@ -1288,7 +1117,7 @@ type ProviderHook interface {
 }
 ```
 
-Optionally implement `ChunkInterceptor` for streaming interception:
+A hook may also implement `ChunkInterceptor` for streaming:
 
 ```go
 type ChunkInterceptor interface {
@@ -1296,18 +1125,14 @@ type ChunkInterceptor interface {
 }
 ```
 
-Register via `sdk.WithProviderHook(hook)`.
-
-### REST and A2A External Checks
-
-For no-code extensibility, use the [`rest_eval`](#rest_eval) and [`a2a_eval`](#a2a_eval) check types. These let you delegate evaluation to any HTTP endpoint or A2A-compatible agent without writing Go code.
+Register with `sdk.WithProviderHook(hook)`.
 
 ---
 
-## See Also
+## Related
 
-- [Unified Check Model](/concepts/validation/) -- How checks, assertions, guardrails, and evals relate
-- [Write Assertions](https://promptarena.altairalabs.ai/arena/reference/assertions/) -- Using checks in Arena test scenarios
-- [Add Guardrails](https://promptarena.altairalabs.ai/arena/reference/validators/) -- Using checks as runtime policy enforcers
-- [Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/) -- Production eval architecture
-- [Run Evals](/sdk/how-to/observability/run-evals/) -- Programmatic eval execution
+- [Unified Check Model](/concepts/validation/)
+- [Write Assertions](https://promptarena.altairalabs.ai/arena/reference/assertions/)
+- [Add Guardrails](https://promptarena.altairalabs.ai/arena/reference/validators/)
+- [Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/)
+- [Run Evals](/sdk/how-to/observability/run-evals/)

@@ -1,0 +1,91 @@
+{
+ "page": "docs/src/content/docs/reference/schema-validation.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "v1",
+   "claim": "SDK provider-file load fails on non-mapping, missing apiVersion/kind/spec, unknown key",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/loader.go:74-108"
+   ]
+  },
+  {
+   "id": "v10",
+   "claim": "promptarena validate flags --type/--schema-only/--verbose/--json; no --local-schemas",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": "v11",
+   "claim": "schema-map.json patterns and npm bundle; make schemas",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": "v2",
+   "claim": "spec.type required; unknown role is an error",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/loader.go:133-137"
+   ]
+  },
+  {
+   "id": "v3",
+   "claim": "top-level $schema key allowed and ignored",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/loader.go:83-85"
+   ]
+  },
+  {
+   "id": "v4",
+   "claim": "Validate*/UseSchemaFS deprecated, validate only caller-supplied schemas",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/schema_validator.go:95-98"
+   ]
+  },
+  {
+   "id": "v5",
+   "claim": "embedded PromptPack schema used by pack validation",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/schema/schema.go:5",
+    "sdk/internal/pack/validate.go:38-43"
+   ]
+  },
+  {
+   "id": "v6",
+   "claim": "docs build fetches schemas via make schemas-host",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:348-351"
+   ]
+  },
+  {
+   "id": "v7",
+   "claim": "hosted file list incl. logging, runtime-config, common/*",
+   "verdict": "true",
+   "evidence": [
+    "scripts/fetch-schemas.sh:18-31"
+   ]
+  },
+  {
+   "id": "v8",
+   "claim": "latest files hold a $ref to v1alpha1 schema of same name",
+   "verdict": "true",
+   "evidence": [
+    "scripts/gen-schema-latest-refs.sh:16-21"
+   ]
+  },
+  {
+   "id": "v9",
+   "claim": "WithProvidersDir loads every *.provider.yaml",
+   "verdict": "true",
+   "evidence": [
+    "sdk/provider_file.go:97-100"
+   ]
+  }
+ ]
+}

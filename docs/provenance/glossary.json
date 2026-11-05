@@ -1,0 +1,110 @@
+{
+ "page": "docs/src/content/docs/glossary.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "g1",
+   "claim": "ASM expands to Audio Streaming Mode",
+   "verdict": "false",
+   "evidence": []
+  },
+  {
+   "id": "g10",
+   "claim": "Middleware term describes a removed architecture",
+   "verdict": "dead",
+   "evidence": [
+    "runtime/pipeline/stage/stage.go"
+   ]
+  },
+  {
+   "id": "g11",
+   "claim": "system_template defines the system prompt in a pack prompt",
+   "verdict": "true",
+   "evidence": [
+    "runtime/prompt/schema/promptpack.schema.json:315",
+    "runtime/prompt/schema/promptpack.schema.json:345"
+   ]
+  },
+  {
+   "id": "g12",
+   "claim": "Replay provider replays recorded sessions",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/replay/provider.go:1"
+   ]
+  },
+  {
+   "id": "g2",
+   "claim": "Gemini Live input is 16 kHz, 16-bit, mono PCM",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/gemini/audio_encoder.go:30-32"
+   ]
+  },
+  {
+   "id": "g3",
+   "claim": "Stages: ProviderStage, STTStage, TTSStage exist; LLMStage/VADStage do not",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/stages_speech.go:45",
+    "runtime/pipeline/stage/stages_speech.go:729"
+   ]
+  },
+  {
+   "id": "g4",
+   "claim": "Variable providers: TimeProvider, StateProvider exist; RAGProvider does not",
+   "verdict": "false",
+   "evidence": [
+    "runtime/variables/state.go:19",
+    "runtime/variables/time.go:11"
+   ]
+  },
+  {
+   "id": "g5",
+   "claim": "State stores: in-memory, Redis, file",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/file/store.go:61",
+    "runtime/statestore/memory.go:170",
+    "runtime/statestore/redis.go:77"
+   ]
+  },
+  {
+   "id": "g6",
+   "claim": "Inference provider types huggingface, openai, systemone; role inference; interface Infer",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/role.go:25-30",
+    "runtime/inference/factory.go:20-31",
+    "runtime/inference/provider.go:72-76"
+   ]
+  },
+  {
+   "id": "g7",
+   "claim": "Hook kinds ProviderHook, ToolHook, ToolResultRewriter, SessionHook",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/hooks.go:9-47"
+   ]
+  },
+  {
+   "id": "g8",
+   "claim": "Event bus is events.EventBus",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/bus.go:254"
+   ]
+  },
+  {
+   "id": "g9",
+   "claim": "HITL via OnToolAsync, PendingTools, ResolveTool, RejectTool",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:171",
+    "sdk/conversation_tools.go:235",
+    "sdk/conversation_tools.go:305",
+    "sdk/conversation_tools.go:455"
+   ]
+  }
+ ]
+}
