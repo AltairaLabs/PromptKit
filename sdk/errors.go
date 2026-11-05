@@ -44,6 +44,24 @@ var (
 	ErrMessageTooLarge = errors.New("message exceeds maximum size")
 )
 
+// sentinelError marks err as one of the sentinels above without changing its
+// text, so errors.Is matches the sentinel while the message keeps its detail.
+type sentinelError struct {
+	err      error
+	sentinel error
+}
+
+// markSentinel returns err marked as sentinel.
+func markSentinel(err, sentinel error) error {
+	return &sentinelError{err: err, sentinel: sentinel}
+}
+
+// Error returns the wrapped error's text unchanged.
+func (e *sentinelError) Error() string { return e.err.Error() }
+
+// Unwrap exposes both the sentinel and the original error.
+func (e *sentinelError) Unwrap() []error { return []error{e.sentinel, e.err} }
+
 // ValidationError represents a validation failure.
 type ValidationError struct {
 	// ValidatorType is the type of validator that failed (e.g., "banned_words").

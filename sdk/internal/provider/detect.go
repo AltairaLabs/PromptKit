@@ -2,6 +2,7 @@
 package provider
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -53,6 +54,10 @@ const (
 	envGeminiKey    = "GEMINI_API_KEY"
 )
 
+// ErrNotDetected is returned by Detect when no API key is supplied and none is
+// found in the environment.
+var ErrNotDetected = errors.New("no provider detected: set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY")
+
 // Info contains detected provider information.
 type Info struct {
 	// Name is the provider identifier (e.g., "openai", "anthropic", "gemini").
@@ -88,7 +93,7 @@ func Detect(apiKey, model string) (providers.Provider, error) {
 	// Fall back to environment variable detection
 	info := detectInfo()
 	if info == nil && apiKey == "" {
-		return nil, fmt.Errorf("no provider detected: set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY")
+		return nil, ErrNotDetected
 	}
 
 	// If apiKey provided but no provider-specific env var detected, default to OpenAI.
