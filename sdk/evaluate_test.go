@@ -136,6 +136,26 @@ func TestEvaluate_SessionTrigger(t *testing.T) {
 	assert.Equal(t, 1.0, *results[0].Score)
 }
 
+// Evaluate with the on_workflow_step trigger runs that trigger's evals and no
+// others. It used to fall through to the turn dispatch, which skips
+// on_workflow_step, so it returned nothing (#2336).
+func TestEvaluate_WorkflowStepTrigger(t *testing.T) {
+	step := containsDef("step_check", "hello")[0]
+	step.Trigger = evals.TriggerOnWorkflowStep
+	defs := []evals.EvalDef{step, containsDef("turn_check", "hello")[0]}
+
+	results, err := Evaluate(context.Background(), EvaluateOpts{
+		EvalDefs:  defs,
+		Messages:  []types.Message{types.NewAssistantMessage("hello there")},
+		SessionID: "s1",
+		Trigger:   evals.TriggerOnWorkflowStep,
+	})
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "step_check", results[0].EvalID)
+}
+
 func TestEvaluate_ErrorCases(t *testing.T) {
 	tests := []struct {
 		name    string

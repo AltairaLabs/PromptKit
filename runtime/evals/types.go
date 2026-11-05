@@ -35,7 +35,9 @@ const (
 	TriggerSampleSessions = "sample_sessions"
 	// TriggerOnConversationComplete fires the eval when a conversation ends.
 	TriggerOnConversationComplete = "on_conversation_complete"
-	// TriggerOnWorkflowStep fires the eval after each workflow step.
+	// TriggerOnWorkflowStep fires the eval after each committed workflow state
+	// transition, against the turn that produced it. See
+	// EvalRunner.RunWorkflowStepEvals.
 	TriggerOnWorkflowStep = "on_workflow_step"
 )
 

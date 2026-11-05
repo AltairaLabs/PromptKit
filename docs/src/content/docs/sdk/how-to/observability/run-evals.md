@@ -91,7 +91,7 @@ Control when evals fire:
 | `on_conversation_complete` | `evals.TriggerOnConversationComplete` | When conversation ends |
 | `sample_turns` | `evals.TriggerSampleTurns` | Hash-based turn sampling |
 | `sample_sessions` | `evals.TriggerSampleSessions` | Hash-based session sampling |
-| `on_workflow_step` | `evals.TriggerOnWorkflowStep` | After workflow transition |
+| `on_workflow_step` | `evals.TriggerOnWorkflowStep` | After each workflow state transition, against the turn that made it |
 
 ```go
 results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{

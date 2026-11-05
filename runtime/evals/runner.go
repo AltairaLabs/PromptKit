@@ -137,6 +137,28 @@ func (r *EvalRunner) RunConversationEvals(
 	return r.runEvals(ctx, defs, evalCtx, trigCtx, conversationTriggers)
 }
 
+// RunWorkflowStepEvals runs workflow-step evals (on_workflow_step trigger).
+// Call this once for each committed workflow state transition, with an
+// EvalContext built from the turn that produced the transition.
+func (r *EvalRunner) RunWorkflowStepEvals(
+	ctx context.Context,
+	defs []EvalDef,
+	evalCtx *EvalContext,
+) []EvalResult {
+	trigCtx := &TriggerContext{
+		SessionID:         evalCtx.SessionID,
+		TurnIndex:         evalCtx.TurnIndex,
+		IsSessionComplete: false,
+	}
+	return r.runEvals(ctx, defs, evalCtx, trigCtx, workflowStepTriggers)
+}
+
+// workflowStepTriggers is the set of triggers that fire after a workflow
+// state transition.
+var workflowStepTriggers = map[EvalTrigger]bool{
+	TriggerOnWorkflowStep: true,
+}
+
 // turnTriggers is the set of triggers that fire for turn-level evals.
 var turnTriggers = map[EvalTrigger]bool{
 	TriggerEveryTurn:   true,

@@ -458,6 +458,11 @@ func (wc *WorkflowConversation) reconcileActiveConv(contextSummary string) error
 	if wc.activeConv.closed {
 		return nil
 	}
+	// The turn that committed any transition has finished, and the
+	// conversation that ran it is still open, so its on_workflow_step evals
+	// run now, before it is swapped out. A self-transition keeps the
+	// conversation, which is why this is not left to its Close.
+	wc.dispatchWorkflowStepEvals()
 	// Primary comparison: by state name. This handles composition states whose
 	// prompt_task is "" — prompt-name comparison would return early on "" == ""
 	// even when the machine moved to a different composition state, or would
@@ -652,6 +657,22 @@ func (wc *WorkflowConversation) onTransitionCommitted(result *workflow.Transitio
 	if wc.stateStore != nil && wc.workflowID != "" {
 		wc.persistWorkflowContext()
 	}
+	// A mid-turn commit runs while the turn is still going, so the step is
+	// only recorded here; reconcileActiveConv dispatches its evals once the
+	// turn has finished.
+	if wc.activeConv != nil {
+		wc.activeConv.evalMW.recordWorkflowStep()
+	}
+}
+
+// dispatchWorkflowStepEvals runs the active conversation's on_workflow_step
+// evals for every transition recorded on it since the last dispatch. Caller
+// must hold wc.mu.
+func (wc *WorkflowConversation) dispatchWorkflowStepEvals() {
+	if wc.activeConv == nil || wc.activeConv.closed {
+		return
+	}
+	wc.activeConv.evalMW.dispatchWorkflowStepEvals(context.Background())
 }
 
 // applyStateSkillFilter restricts the active conversation's skills to what the
@@ -761,6 +782,9 @@ func (wc *WorkflowConversation) Close() error {
 	wc.closed = true
 
 	if wc.activeConv != nil {
+		// A transition committed by a turn that then suspended has not had its
+		// evals dispatched; Close waits for them.
+		wc.dispatchWorkflowStepEvals()
 		return wc.activeConv.Close()
 	}
 	return nil
