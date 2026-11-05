@@ -37,12 +37,7 @@ How PromptKit implements the Agent-to-Agent (A2A) protocol: the wire format, age
 
 AI applications often need several specialized agents. A research agent might delegate citation lookups to a knowledge agent, or an orchestrator might fan out tasks to domain experts.
 
-A2A treats agents as services: each agent publishes a card describing its capabilities, and other agents call it over standard HTTP. This gives you:
-
-- Skill delegation: route tasks to the best-suited agent.
-- Composability: build complex systems from simple, focused agents.
-- Language independence: any HTTP client can call an A2A server.
-- Discovery: agents describe their skills, input and output modes, and capabilities.
+A2A treats agents as services: each agent publishes a card describing its skills and capabilities, and any HTTP client can call it, so tasks route to the best-suited agent.
 
 ---
 
@@ -118,17 +113,6 @@ An **Agent Card** is a JSON document served at `/.well-known/agent-card.json` th
 }
 ```
 
-Key fields:
-
-| Field | Description |
-|-------|-------------|
-| `name` | Human-readable agent name |
-| `description` | What the agent does |
-| `capabilities` | Feature flags (streaming, push notifications) |
-| `skills` | List of specific tasks the agent can perform |
-| `defaultInputModes` | MIME types the agent accepts (e.g., `text/plain`, `image/png`) |
-| `defaultOutputModes` | MIME types the agent can produce |
-
 A skill can override the default modes with its own `inputModes` and `outputModes`.
 
 A card should also say how to authenticate. Set `SecuritySchemes` (for example an `HTTPAuth` Bearer scheme) and `SecurityRequirements` on the `a2a.AgentCard`; the server publishes them in each version's shape.
@@ -141,6 +125,12 @@ The server completes the card before serving it:
 - `pushNotifications` is never declared, and every push method fails with `-32003`.
 
 `GetExtendedAgentCard` fails with `UnsupportedOperationError` (`-32004`) unless the card declares `extendedAgentCard`, and with `ExtendedAgentCardNotConfiguredError` (`-32007`) if it does. A request that sends `A2A-Version: 1.0` gets the 1.0 card. Any other request gets the 0.3 card: `url`, `preferredTransport` and `protocolVersion`, with `supportedInterfaces` alongside.
+
+### Where the client sends calls
+
+After `Client.Discover`, the runtime client considers only the card's interfaces on the scheme, host and port given to `a2a.NewClient` (default ports filled in). Of those it calls the first JSON-RPC interface that serves the version it speaks, otherwise the first JSON-RPC one, taking its path (an agent serving JSON-RPC at `/`, for example), its version and its `tenant`. An interface at the default `/a2a` keeps the base URL as given.
+
+A card that names a different host or port is not followed, and its tenant and version are not used. Calls go to `{base}/a2a`, and the client logs a warning once. An `http` interface on the `https` base host, as a TLS-terminating proxy reports, is not warned about. To call the other host, create a client with that host. Without a card, or with a card that declares no interfaces, calls go to `{base}/a2a`. The A2A tool executors discover the card themselves on first use.
 
 ---
 

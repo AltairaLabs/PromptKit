@@ -4,13 +4,13 @@
  "claims": [
   {
    "id": 1,
-   "claim": "Go 1.22+",
-   "verdict": "false",
+   "claim": "Go 1.26 or later",
+   "verdict": "true",
    "evidence": []
   },
   {
    "id": 2,
-   "claim": "sdk/agui targets AG-UI 1.0 through the AG-UI Go community SDK; go get path",
+   "claim": "sdk/agui targets AG-UI 1.0 through the AG-UI Go community SDK",
    "verdict": "true",
    "evidence": [
     "sdk/agui/convert.go:1"
@@ -18,16 +18,15 @@
   },
   {
    "id": 3,
-   "claim": "ToolsFromAGUI returns descriptors marked as client tools (Mode)",
+   "claim": "ToolsFromAGUI returns descriptors marked as client tools",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/convert.go:302",
-    "sdk/agui/convert.go:487"
+    "sdk/agui/convert.go:302"
    ]
   },
   {
    "id": 4,
-   "claim": "The model is offered only tools the pack's prompt declares",
+   "claim": "model offered only tools the pack's prompt declares",
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/composition_executor.go:48",
@@ -36,7 +35,7 @@
   },
   {
    "id": 5,
-   "claim": "resume entries -> RunContinue; tool messages -> ToolResultsFromAGUI + RunResume; otherwise RunSend; conversation ignores repeated server tool results",
+   "claim": "resume -> RunContinue; tool messages -> ToolResultsFromAGUI + RunResume; else RunSend; repeated server tool results ignored",
    "verdict": "true",
    "evidence": [
     "sdk/agui/adapter.go:257",
@@ -47,7 +46,7 @@
   },
   {
    "id": 6,
-   "claim": "Step 5 and complete example compile (NewEventAdapter, WithThreadID, WithRunID, Events, sse.NewSSEWriter, ResolveTool, RejectTool, ToolRegistry)",
+   "claim": "step snippets and full server compile (NewEventAdapter, WithThreadID, WithRunID, Events, sse.NewSSEWriter, ResolveTool, RejectTool, ToolRegistry)",
    "verdict": "true",
    "evidence": [
     "sdk/agui/adapter.go:164",
@@ -58,64 +57,39 @@
   },
   {
    "id": 7,
-   "claim": "Events channel holds 64 events; the run waits once full; adapter never drops events; earlier versions dropped",
+   "claim": "Events channel holds 64; run waits when full; channel closes when run ends",
    "verdict": "true",
    "evidence": [
+    "sdk/agui/adapter.go:198",
     "sdk/agui/adapter.go:20",
-    "sdk/agui/adapter.go:736"
+    "sdk/agui/adapter.go:335",
+    "sdk/agui/adapter.go:728"
    ]
   },
   {
    "id": 8,
-   "claim": "Run event sequence incl. TOOL_CALL_RESULT; text arrives in one TEXT_MESSAGE_CONTENT",
+   "claim": "curl stream: RUN_STARTED, TEXT_MESSAGE_START, one TEXT_MESSAGE_CONTENT with whole reply, TEXT_MESSAGE_END, RUN_FINISHED",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:406",
-    "sdk/agui/convert.go:6"
+    "sdk/agui/adapter.go:339",
+    "sdk/agui/adapter.go:447"
    ]
   },
   {
    "id": 9,
-   "claim": "Frontend tool call: run finishes unanswered; failed tool answered with error; run does not echo answers",
+   "claim": "StateProvider Snapshot(Sender) emits STATE_SNAPSHOT after RUN_STARTED; WithStateProvider",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:263",
-    "sdk/agui/convert.go:252"
+    "sdk/agui/adapter.go:116",
+    "sdk/agui/adapter.go:340",
+    "sdk/agui/adapter.go:86"
    ]
   },
   {
    "id": 10,
-   "claim": "Approval hold: RUN_FINISHED with interrupt outcome; interrupt fields; RunContinue emits TOOL_CALL_RESULT",
-   "verdict": "true",
-   "evidence": [
-    "sdk/agui/adapter.go:286",
-    "sdk/agui/adapter.go:382"
-   ]
-  },
-  {
-   "id": 11,
-   "claim": "NewWorkflowEventAdapter steps; WithWorkflowSteps(false)",
-   "verdict": "true",
-   "evidence": [
-    "sdk/agui/adapter.go:179",
-    "sdk/agui/adapter.go:700"
-   ]
-  },
-  {
-   "id": 12,
-   "claim": "StateProvider Snapshot at start of each run emits STATE_SNAPSHOT",
-   "verdict": "true",
-   "evidence": [
-    "sdk/agui/adapter.go:340"
-   ]
-  },
-  {
-   "id": 13,
-   "claim": "input field table (context, state, forwardedProps not read)",
-   "verdict": "true",
-   "evidence": [
-    "sdk/agui/adapter.go:339"
-   ]
+   "claim": "@ag-ui/client HttpAgent: threadId on agent, addMessage, runAgent(params, subscriber) returns promise; onTextMessageEndEvent textMessageBuffer; onRunFinishedEvent",
+   "verdict": "unverified",
+   "evidence": []
   }
  ]
 }

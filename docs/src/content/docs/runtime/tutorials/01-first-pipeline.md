@@ -1,5 +1,5 @@
 ---
-title: 'Tutorial 1: First Pipeline'
+title: 'Tutorial 1: First pipeline'
 description: Build a stage pipeline that sends a prompt to OpenAI and prints the response, token usage and cost.
 sidebar:
   order: 1
@@ -14,14 +14,9 @@ verified:
     - runtime/providers/provider.go
     - runtime/types/message.go
 ---
-In this tutorial we build a command-line program that sends a prompt to an LLM through a runtime pipeline and prints the response, the token counts and the cost.
-
-**Time**: 15 minutes
-**Level**: Beginner
-
 ## What we will build
 
-The program wires one provider stage into a pipeline and runs a single request through it.
+In this tutorial we build a command-line program that sends a prompt to an LLM through a runtime pipeline and prints the response, the token counts and the cost. The program wires one provider stage into a pipeline and runs a single request through it.
 
 ```mermaid
 flowchart LR
@@ -120,7 +115,7 @@ func main() {
 go run main.go
 ```
 
-The output looks like this:
+The output looks like this. The reply text, the output token count and the cost vary from run to run:
 
 ```text
 Response: Artificial intelligence (AI) refers to the simulation of human intelligence...
@@ -146,7 +141,7 @@ stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{
 })
 ```
 
-Run the program again. The reply is shorter because `MaxTokens` caps the output at 100 tokens.
+Run the program again. The reply is typically shorter, because `MaxTokens` caps the output at 100 tokens.
 
 ## Step 6: Ask several questions
 
@@ -171,6 +166,5 @@ Each question is independent: this pipeline stores no history. The next tutorial
 
 ## Next steps
 
-Continue to [Tutorial 2: Multi-Turn Conversations](/runtime/tutorials/02-multi-turn/) to add conversation state and build a chatbot.
-
-For other settings, see [Configure Pipeline](/runtime/how-to/pipeline/configure-pipeline/), [Setup Providers](/runtime/how-to/providers/setup-providers/) and the [Pipeline Reference](/runtime/reference/pipeline/).
+- Continue to [Tutorial 2: Multi-turn conversations](/runtime/tutorials/02-multi-turn/) to add conversation state and build a chatbot.
+- [Configure the pipeline](/runtime/how-to/pipeline/configure-pipeline/), [set up providers](/runtime/how-to/providers/setup-providers/) and the [pipeline reference](/runtime/reference/pipeline/) cover the other settings.

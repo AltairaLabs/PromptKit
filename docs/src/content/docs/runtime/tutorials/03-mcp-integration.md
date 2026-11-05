@@ -1,5 +1,5 @@
 ---
-title: 'Tutorial 3: MCP Integration'
+title: 'Tutorial 3: MCP integration'
 description: Give a stage-pipeline chatbot file tools by connecting an MCP server through the runtime's MCP registry and tool executor.
 sidebar:
   order: 3
@@ -16,14 +16,9 @@ verified:
     - runtime/tools/registry.go
     - sdk/mcp_tool_sync.go
 ---
-In this tutorial we give a chatbot tools from a Model Context Protocol (MCP) server. The chatbot reads and lists files through the MCP filesystem server.
-
-**Time**: 25 minutes
-**Level**: Intermediate
-
 ## What we will build
 
-A command-line chatbot built on the pipeline from Tutorial 2. The runtime starts an MCP server, registers its tools, and lets the model call them.
+In this tutorial we build a command-line chatbot that reads and lists files through a Model Context Protocol (MCP) server, on the pipeline from Tutorial 2. The runtime starts an MCP server, registers its tools, and lets the model call them.
 
 ```mermaid
 flowchart LR
@@ -260,7 +255,7 @@ func main() {
 go run .
 ```
 
-The program prints how many tools it registered and the absolute path of the allowed directory. Include that path in your prompts:
+The program prints how many tools it registered and the absolute path of the allowed directory. Include that path in your prompts. The replies vary, but the model typically calls a file tool for each request:
 
 ```text
 Registered 16 MCP tools
@@ -315,7 +310,7 @@ An entry ending in `*` matches a name prefix. Run the bot again and ask it to cr
 Registered 7 MCP tools
 ```
 
-The bot reads and lists files but has no tool to create them, so it tells you it cannot.
+The bot reads and lists files but has no tool to create them, so it typically tells you it cannot.
 
 ## Step 6: Add a second server
 
@@ -368,7 +363,7 @@ Keep tool names unique across servers: the tool registry holds one descriptor pe
 
 ## Next steps
 
-- Continue to [Tutorial 4: Validation & Guardrails](/runtime/tutorials/04-validation-guardrails/) to add content safety.
-- [Integrate MCP](/runtime/how-to/tools/integrate-mcp/): transports, authorization and tool list changes.
-- [Configure MCP in the SDK](/sdk/how-to/tools/configure-mcp/): the same servers through `sdk.WithMCP`.
-- [MCP Reference](/runtime/reference/mcp/): the complete API.
+- Continue to [Tutorial 4: Validation and guardrails](/runtime/tutorials/04-validation-guardrails/) to add content safety.
+- [Integrate MCP](/runtime/how-to/tools/integrate-mcp/) covers transports, authorization and tool list changes.
+- [Configure MCP in the SDK](/sdk/how-to/tools/configure-mcp/) sets up the same servers through `sdk.WithMCP`.
+- The [MCP reference](/runtime/reference/mcp/) lists the complete API.

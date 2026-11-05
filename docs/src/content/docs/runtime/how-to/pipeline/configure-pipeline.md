@@ -459,7 +459,7 @@ providerStage := stage.NewProviderStageWithTurnState(
 pipe, err := stage.NewPipelineBuilder().Chain(providerStage).Build()
 ```
 
-Providers receive these values in `PredictionRequest.Metadata`.
+Providers receive these values in `PredictionRequest.Metadata`. No built-in model provider reads `session_id`, `tenant_id` or `user_id` there; only the mock provider reads its own scenario keys. Use this map when you write a custom provider that reads these keys. For conversation and user identity inside the pipeline, set `ConversationID` and `UserID` on the `StateStoreConfig`; the load stages copy them into the typed `TurnState.ConversationID` and `TurnState.UserID` fields.
 
 ## Testing Configuration
 

@@ -1,5 +1,5 @@
 ---
-title: 'Tutorial 11: AG-UI Integration'
+title: 'Tutorial 11: AG-UI integration'
 description: Serve a PromptKit conversation to frontend applications over the AG-UI protocol with Server-Sent Events
 sidebar:
   order: 11
@@ -13,35 +13,54 @@ verified:
     - sdk/inference_integration_test.go
 ---
 
-In this tutorial we serve a PromptKit agent to frontend applications using the AG-UI protocol.
+## What we will build
 
-**Time**: 20 minutes
-**Level**: Intermediate
-
-## What we build
-
-An HTTP endpoint that accepts AG-UI `RunAgentInput` requests and streams AG-UI events via Server-Sent Events (SSE), powered by a PromptKit SDK conversation. We keep one conversation per AG-UI thread, run a turn with the `EventAdapter`, let the model call frontend tools, continue a turn held for tool approval, and write the events with the AG-UI SDK's encoder.
+In this tutorial we build an HTTP endpoint that accepts AG-UI `RunAgentInput` requests and streams AG-UI events over Server-Sent Events (SSE), powered by a PromptKit SDK conversation. We keep one conversation per AG-UI thread, run each turn with the `EventAdapter`, mark the application's tools as frontend tools, continue turns held for tool approval, send the server's state with each run, and call the endpoint from a JavaScript client.
 
 ## Prerequisites
 
-- Go 1.26+
-- A compiled pack file (`.pack.json`)
-- Completed [First Conversation tutorial](/sdk/tutorials/01-first-conversation/) (recommended)
-- Familiarity with the [AG-UI concept](/concepts/ag-ui/)
+- Go 1.26 or later
+- An OpenAI API key, exported as `OPENAI_API_KEY`
+- Node.js 18 or later, for Step 8
+- [Tutorial 1](/sdk/tutorials/01-first-conversation/) completed (recommended)
 
----
+## Step 1: Set up the project
 
-## Step 1: Add the AG-UI dependency
-
-The `sdk/agui` package targets AG-UI 1.0 through the AG-UI Go community SDK. We add it to the module:
+We create a module and add the SDK and the AG-UI Go community SDK, which `sdk/agui` uses to target AG-UI 1.0:
 
 ```bash
-go get github.com/ag-ui-protocol/ag-ui/sdks/community/go
+mkdir agui-server
+cd agui-server
+go mod init agui-server
+go get github.com/AltairaLabs/PromptKit/sdk/v2 github.com/ag-ui-protocol/ag-ui/sdks/community/go
 ```
 
-The command finishes and the dependency appears in `go.mod`.
+We create `support.pack.json`. Its system prompt has no template variables, because the handler never sets any:
 
----
+```json
+{
+  "id": "support-agent",
+  "name": "Support Agent",
+  "version": "1.0.0",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "chat": {
+      "id": "chat",
+      "name": "Support Assistant",
+      "version": "1.0.0",
+      "system_template": "You are a friendly support assistant. Keep answers short.",
+      "parameters": {
+        "max_tokens": 1024
+      }
+    }
+  }
+}
+```
+
+Both modules now appear in `go.mod`, next to the pack file.
 
 ## Step 2: Keep a conversation per thread
 
@@ -69,13 +88,11 @@ func conversationFor(threadID string) (*sdk.Conversation, error) {
 }
 ```
 
-The conversation keeps the thread's history itself. The same thread ID now returns the same conversation. Cleanup (timeouts, an explicit close endpoint) is up to the application; see [What the input's fields do](#what-the-inputs-fields-do) for what this means for `messages`.
-
----
+The same thread ID now returns the same conversation, which keeps the thread's history itself. Cleanup (timeouts, an explicit close endpoint) is up to the application. [What the input's fields do](/concepts/ag-ui/#what-the-inputs-fields-do) covers what this means for `messages`.
 
 ## Step 3: Offer the frontend tools
 
-`RunAgentInput.tools` lists the application's own tools. The application executes them, not the server, so a call to one must suspend the turn rather than run here. `ToolsFromAGUI` returns descriptors marked as client tools; copy that onto the conversation's tools of the same name:
+`RunAgentInput.tools` lists the application's own tools. The application executes them, not the server, so a call to one must suspend the turn rather than run here. `ToolsFromAGUI` returns descriptors marked as client tools; we copy that onto the conversation's tools of the same name:
 
 ```go
 func bindFrontendTools(conv *sdk.Conversation, tools []aguiTypes.Tool) {
@@ -87,17 +104,15 @@ func bindFrontendTools(conv *sdk.Conversation, tools []aguiTypes.Tool) {
 }
 ```
 
-The model is offered only the tools the pack's prompt declares, so we declare each frontend tool there too (its name, description and parameters). A frontend tool the pack does not declare is never offered to the model. After this step, a declared frontend tool in `RunAgentInput.tools` is marked as a client tool.
-
----
+The model is offered only the tools the pack's prompt declares, so a frontend tool must be declared there too (its name, description and parameters). This tutorial's pack declares none, so the function marks a tool only once you add one to the pack.
 
 ## Step 4: Choose the run
 
 Each request starts one of three kinds of run:
 
-- **The input carries `resume` entries.** The previous run was held for tool approval (see [Approval Holds](#approval-holds)). Approve or reject each held call, then `RunContinue` continues the turn. Check this first: the input can also end with tool messages, the results of server tools that ran before the hold.
-- **The input ends with tool messages.** They answer the frontend tool calls the previous run left pending. `ToolResultsFromAGUI` extracts them and `RunResume` hands them to the conversation and continues the turn. The input repeats the results of any server tools that ran in the same round; the conversation already holds those and ignores them.
-- **Otherwise** the last message is the user's new message, and `RunSend` sends it.
+- The input carries `resume` entries: the previous run was held for tool approval (see [Approval holds](/concepts/ag-ui/#approval-holds)). We approve or reject each held call, then `RunContinue` continues the turn. This is checked first, because the input can also end with tool messages, the results of server tools that ran before the hold.
+- The input ends with tool messages: they answer the frontend tool calls the previous run left pending. `ToolResultsFromAGUI` extracts them and `RunResume` hands them to the conversation and continues the turn. The input repeats the results of any server tools that ran in the same round; the conversation already holds those and ignores them.
+- Otherwise the last message is the user's new message, and `RunSend` sends it.
 
 ```go
 func applyResume(ctx context.Context, conv *sdk.Conversation, entries []aguiTypes.ResumeEntry) error {
@@ -133,9 +148,7 @@ func runFor(adapter *agui.EventAdapter, input *aguiTypes.RunAgentInput) func(con
 }
 ```
 
-What a resolved entry means is the application's decision; here a `resolved` entry approves the call and a `cancelled` one rejects it. `applyResume` runs before the response starts, so a failure can still be reported as an HTTP error. After this step, every request maps to exactly one of the three runs.
-
----
+Here a `resolved` entry approves the call and a `cancelled` one rejects it. `applyResume` runs before the response starts, so a failure can still be reported as an HTTP error. Every request now maps to exactly one of the three runs.
 
 ## Step 5: Stream SSE events
 
@@ -170,15 +183,11 @@ We create the adapter with the input's thread and run IDs, start the run in a go
 	}
 ```
 
-The run must be in its own goroutine, as here: the adapter's channel holds 64 events, and once it is full the run waits for the loop to read. Code that runs `RunSend` to completion before reading `Events()` blocks there.
-
-The `Events()` channel closes when the run ends, so the `range` loop exits cleanly. The adapter never drops an event: while the client is slow to read, the run waits. If the client disconnects, the request context is canceled, which releases the run.
-
----
+The run must be in its own goroutine: the adapter's channel holds 64 events, and once it is full the run waits for the loop to read. The `Events()` channel closes when the run ends, so the `range` loop exits on its own.
 
 ## Step 6: Run the server
 
-Here is the full server in one file:
+We put the pieces together in `main.go`:
 
 ```go
 package main
@@ -324,10 +333,10 @@ func runFor(adapter *agui.EventAdapter, input *aguiTypes.RunAgentInput) func(con
 We run it:
 
 ```bash
-go run main.go
+go run .
 ```
 
-The terminal prints `AG-UI server listening on http://localhost:8080`. We test with curl:
+The terminal prints `AG-UI server listening on http://localhost:8080`. In a second terminal, we send a run with curl:
 
 ```bash
 curl -X POST http://localhost:8080/ag-ui \
@@ -341,144 +350,83 @@ curl -X POST http://localhost:8080/ag-ui \
   }'
 ```
 
-The response is an SSE stream that begins with `RUN_STARTED`, carries the assistant's message as `TEXT_MESSAGE_*` events and ends with `RUN_FINISHED`.
+The response is an SSE stream that begins with `RUN_STARTED`, carries the assistant's message as `TEXT_MESSAGE_START`, one `TEXT_MESSAGE_CONTENT` with the whole reply, and `TEXT_MESSAGE_END`, and ends with `RUN_FINISHED`. The reply text is typically a short greeting.
 
----
+## Step 7: Send the server's state
 
-## What a run emits
+A `StateProvider` gives the frontend the server's state at the start of each run. We add one to `main.go` that reports the thread ID:
 
-A turn can take several model calls: a model that calls a tool and then answers produces two assistant messages. The run carries every message the turn produced, in order:
+```go
+type threadState struct{ threadID string }
+
+func (s threadState) Snapshot(agui.Sender) (any, error) {
+	return map[string]string{"threadId": s.threadID}, nil
+}
+```
+
+and pass it to the adapter in `handleAGUI`:
+
+```go
+	adapter := agui.NewEventAdapter(conv,
+		agui.WithThreadID(input.ThreadID),
+		agui.WithRunID(input.RunID),
+		agui.WithStateProvider(threadState{threadID: input.ThreadID}),
+	)
+```
+
+We restart the server and repeat the curl request. A `STATE_SNAPSHOT` event now follows `RUN_STARTED`:
 
 ```text
-RUN_STARTED
-TEXT_MESSAGE_START / TEXT_MESSAGE_CONTENT / TEXT_MESSAGE_END    "Let me look that up."
-TOOL_CALL_START / TOOL_CALL_ARGS / TOOL_CALL_END                lookup_order
-TOOL_CALL_RESULT                                                what lookup_order returned
-TEXT_MESSAGE_START / TEXT_MESSAGE_CONTENT / TEXT_MESSAGE_END    "Your order shipped yesterday."
-RUN_FINISHED
+data: {"type":"STATE_SNAPSHOT","timestamp":...,"snapshot":{"threadId":"thread-1"}}
 ```
 
-The events are emitted once the turn has run. Each message's text arrives in one `TEXT_MESSAGE_CONTENT`; it is not streamed token by token.
+## Step 8: Connect a frontend
 
-### Frontend tool calls
+In a new directory, we install the AG-UI client SDK:
 
-When the model calls a frontend tool, the run emits the call (`TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END`) and finishes with it unanswered: AG-UI forbids the server from answering a frontend tool. The application executes it, then starts the next run with a tool message per call appended to `messages`:
-
-```json
-{"id": "msg-4", "role": "tool", "toolCallId": "call-1", "content": "{\"city\":\"Paris\"}"}
+```bash
+mkdir agui-client
+cd agui-client
+npm install @ag-ui/client
 ```
 
-A tool that failed is still answered, with `error` set. `RunResume` hands the answers to the conversation; the run that follows carries the model's reply, without echoing the answers back.
+We create `client.mjs`. The agent carries the thread ID and the message history; `runAgent` takes the per-run fields and a subscriber, and returns a promise that settles when the run ends:
 
-### Approval holds
-
-A tool registered with `conv.OnToolAsync` can hold a call until someone approves it. The run then ends with `RUN_FINISHED` carrying an `interrupt` outcome, with one interrupt per held call:
-
-```json
-{"type": "RUN_FINISHED", "threadId": "thread-1", "runId": "run-2",
- "outcome": {"type": "interrupt", "interrupts": [
-   {"id": "call-2", "reason": "requires_approval", "message": "Approve the refund?", "toolCallId": "call-2"}]}}
-```
-
-The next run's input answers each interrupt in `resume`:
-
-```json
-"resume": [{"interruptId": "call-2", "status": "resolved"}]
-```
-
-`conv.ResolveTool` runs the approved tool (`conv.RejectTool` declines it), and `RunContinue` continues the turn: it reports the tool's result as a `TOOL_CALL_RESULT` and carries the model's reply.
-
----
-
-## What the input's fields do
-
-| Field | What this integration does with it |
-|-------|------------------------------------|
-| `threadId`, `runId` | Select the conversation, and label `RUN_STARTED` / `RUN_FINISHED` |
-| `messages` | Only the new input is read: the user's new message, or the tool messages answering pending calls. The conversation keeps the rest of the history itself, so history a client edits or replaces is not reflected |
-| `tools` | Marked as client tools when the pack's prompt declares a tool of the same name |
-| `resume` | Approves or rejects the held calls before `RunContinue` |
-| `context` | Not passed to the model. If the prompt template declares a variable for it, set it with `conv.SetVar` before the run |
-| `state` | Not read. A `StateProvider` (below) sends the server's state at the start of each run |
-| `forwardedProps` | Left to the application: read it in the handler |
-
----
-
-## Step 7: Add workflow steps
-
-For a pack with a workflow, open it with `sdk.OpenWorkflow` and create the adapter with `NewWorkflowEventAdapter`:
-
-```go
-wc, err := sdk.OpenWorkflow("./support.pack.json")
-if err != nil {
-    return err
-}
-
-adapter := agui.NewWorkflowEventAdapter(wc,
-    agui.WithThreadID(input.ThreadID),
-    agui.WithRunID(input.RunID),
-)
-```
-
-Each run opens a step named after the workflow state it starts in, and closes it before `RUN_FINISHED`. When the turn moves the workflow to another state, the run finishes that step and starts one for the new state. Pass `agui.WithWorkflowSteps(false)` to leave the steps out. With the workflow adapter, the stream now includes a step start and finish around each workflow state.
-
----
-
-## Step 8: Add state synchronization
-
-To push application state to the frontend, implement the `StateProvider` interface and attach it to the adapter:
-
-```go
-adapter := agui.NewEventAdapter(conv,
-    agui.WithThreadID(input.ThreadID),
-    agui.WithRunID(input.RunID),
-    agui.WithStateProvider(myStateProvider),
-)
-```
-
-The adapter calls `Snapshot()` at the start of each run and emits a `STATE_SNAPSHOT` event, so each run's stream includes the server's state. See the [AG-UI Reference](/sdk/reference/ag-ui/) for the `StateProvider` interface.
-
----
-
-## Step 9: Connect a frontend
-
-On the frontend, we use the AG-UI client SDK to connect:
-
-```typescript
+```javascript
 import { HttpAgent } from "@ag-ui/client";
 
 const agent = new HttpAgent({
   url: "http://localhost:8080/ag-ui",
-});
-
-const run = agent.runAgent({
   threadId: "thread-1",
-  runId: crypto.randomUUID(),
-  messages: [{ id: "msg-1", role: "user", content: "Hello!" }],
-  tools: [],
-  context: [],
 });
 
-run.on("TEXT_MESSAGE_CONTENT", (event) => {
-  process.stdout.write(event.delta);
-});
+agent.addMessage({ id: "msg-1", role: "user", content: "Hello!" });
 
-run.on("RUN_FINISHED", () => {
-  console.log("\nDone.");
-});
+await agent.runAgent(
+  { tools: [], context: [] },
+  {
+    onTextMessageEndEvent({ textMessageBuffer }) {
+      console.log(textMessageBuffer);
+    },
+    onRunFinishedEvent() {
+      console.log("Done.");
+    },
+  },
+);
 ```
 
-The `@ag-ui/client` package handles SSE parsing, reconnection, and event typing. Any AG-UI-compatible frontend framework (CopilotKit, custom React apps, etc.) can connect to the endpoint. Running the script prints the assistant's reply as it arrives, then `Done.`
+With the server still running, we run it:
 
----
+```bash
+node client.mjs
+```
+
+The script prints the assistant's reply, typically a short greeting, then `Done.`
 
 ## Next steps
 
-- [AG-UI Concept](/concepts/ag-ui/): the protocol design
-- [AG-UI Reference](/sdk/reference/ag-ui/): the complete API
-- [A2A Server Tutorial](/sdk/tutorials/10-a2a-server/): expose the agent via A2A instead
-
-## See Also
-
-- [AG-UI Protocol Repository](https://github.com/ag-ui-protocol/ag-ui): protocol specification and SDKs
-- [AG-UI Go SDK](https://github.com/ag-ui-protocol/ag-ui/tree/main/sdks/community/go): community Go SDK
+- [AG-UI](/concepts/ag-ui/): what a run emits, frontend tool calls, approval holds, workflow steps, and what the input's fields do
+- [AG-UI reference](/sdk/reference/ag-ui/): the complete `sdk/agui` API
+- [Tutorial 10: A2A server](/sdk/tutorials/10-a2a-server/): expose the agent over A2A instead
+- [AG-UI protocol repository](https://github.com/ag-ui-protocol/ag-ui): the protocol specification and SDKs
+- [AG-UI Go SDK](https://github.com/ag-ui-protocol/ag-ui/tree/main/sdks/community/go): the community Go SDK

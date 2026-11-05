@@ -5,21 +5,22 @@ sidebar:
 verified:
   commit: 885cafa787a84bfba66f158fe51cda15a077ec23
   sources:
+    - runtime/events/bus.go
     - runtime/events/types.go
-    - sdk/examples/hello/hello.pack.json
-    - sdk/examples/hooks/main_interactive.go
+    - sdk/conversation.go
     - sdk/hooks/events.go
-    - sdk/session_vars.go
 ---
-In this tutorial we subscribe to SDK events with the `hooks` package, then use them to log activity, report failures and count tool calls.
+## What we will build
+
+In this tutorial we build a weather assistant that reports what it does while it answers. We subscribe to SDK events with the `hooks` package to print provider calls and tool calls, log every event, and count tool calls and failures.
 
 ## Prerequisites
 
-Complete [Tutorial 1](/sdk/tutorials/01-first-conversation/). The examples reuse its `hello.pack.json`.
+Complete [Tutorial 3: Tools](/sdk/tutorials/03-tool-integration/). We work in the same directory and reuse its `tools.pack.json`.
 
-## Step 1: Subscribe to events
+## Step 1: Subscribe to provider events
 
-We use the `hooks` package to listen for events:
+`hooks.On` runs a handler for one event type. Replace `main.go` with:
 
 ```go
 package main
@@ -29,60 +30,59 @@ import (
     "fmt"
     "log"
 
+    "github.com/AltairaLabs/PromptKit/runtime/v2/events"
     "github.com/AltairaLabs/PromptKit/sdk/v2"
     "github.com/AltairaLabs/PromptKit/sdk/v2/hooks"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/events"
 )
 
 func main() {
-    conv, err := sdk.Open("./hello.pack.json", "chat")
+    conv, err := sdk.Open("./tools.pack.json", "assistant")
     if err != nil {
         log.Fatal(err)
     }
     defer conv.Close()
-    conv.SetVar("user_name", "World")
 
-    // Subscribe to provider call events
+    conv.OnTool("get_weather", func(args map[string]any) (any, error) {
+        city, _ := args["city"].(string)
+        return map[string]any{"city": city, "temperature": 22.5, "conditions": "Partly cloudy"}, nil
+    })
+
     hooks.On(conv, events.EventProviderCallStarted, func(e *events.Event) {
-        fmt.Printf("[PROVIDER] Call started\n")
+        fmt.Println("[PROVIDER] Call started")
     })
-
     hooks.On(conv, events.EventProviderCallCompleted, func(e *events.Event) {
-        fmt.Printf("[PROVIDER] Call completed\n")
+        fmt.Println("[PROVIDER] Call completed")
     })
 
-    ctx := context.Background()
-    resp, _ := conv.Send(ctx, "Hello!")
+    resp, err := conv.Send(context.Background(), "What's the weather in London?")
+    if err != nil {
+        log.Fatal(err)
+    }
     fmt.Println(resp.Text())
 }
 ```
 
-Run it. The output shows `[PROVIDER] Call started`, then `[PROVIDER] Call completed`, then the model's reply.
+Run it:
 
-## Step 2: Pick event types
-
-The `runtime/events` package defines each event as an `events.EventType`. These are the provider, tool, pipeline and stream events:
-
-```go
-const (
-    EventProviderCallStarted   EventType = "provider.call.started"
-    EventProviderCallCompleted EventType = "provider.call.completed"
-    EventProviderCallFailed    EventType = "provider.call.failed"
-    EventToolCallStarted       EventType = "tool.call.started"
-    EventToolCallCompleted     EventType = "tool.call.completed"
-    EventToolCallFailed        EventType = "tool.call.failed"
-    EventPipelineStarted       EventType = "pipeline.started"
-    EventPipelineCompleted     EventType = "pipeline.completed"
-    EventPipelineFailed        EventType = "pipeline.failed"
-    EventStreamInterrupted     EventType = "stream.interrupted"
-)
+```bash
+go run main.go
 ```
 
-Each constant is a type we can pass to `hooks.On`.
+When the model calls `get_weather`, the turn makes two provider calls (one that asks for the tool, one that answers), so each line prints twice:
 
-## Step 3: Monitor tool calls
+```text
+[PROVIDER] Call started
+[PROVIDER] Call completed
+[PROVIDER] Call completed
+[PROVIDER] Call started
+It's currently 22.5°C and partly cloudy in London.
+```
 
-To track tool execution:
+Each handler runs on its own goroutine, so lines from different handlers can appear in any order and can interleave with the reply. The reply's wording varies between runs.
+
+## Step 2: Watch tool calls
+
+`hooks.OnToolCall` passes each tool call's name and arguments. Add it before the `Send` call:
 
 ```go
 hooks.OnToolCall(conv, func(name string, args map[string]any) {
@@ -90,54 +90,47 @@ hooks.OnToolCall(conv, func(name string, args map[string]any) {
 })
 ```
 
-When the model calls a tool, the program prints `[TOOL] Calling <name> with <arguments>`.
+Run the program again. Among the provider lines it now prints:
 
-## Step 4: Log all events
-
-We create a logger for every event:
-
-```go
-func logAllEvents(conv *sdk.Conversation) {
-    hooks.OnEvent(conv, func(e *events.Event) {
-        log.Printf("[%s] %s",
-            e.Timestamp.Format("15:04:05"),
-            e.Type,
-        )
-    })
-}
-
-// Usage
-conv, _ := sdk.Open("./pack.json", "chat")
-logAllEvents(conv)
+```text
+[TOOL] Calling get_weather with map[city:London]
 ```
 
-Each event now writes a log line with its time and type.
+The arguments are the ones the model chose, so they typically match the city in the question.
 
-## Step 5: Monitor errors
+## Step 3: Log every event
 
-To track pipeline and provider failures:
+`hooks.OnEvent` runs one handler for every event type. Add it before the `Send` call:
 
 ```go
-hooks.On(conv, events.EventProviderCallFailed, func(e *events.Event) {
-    log.Printf("[ERROR] Provider call failed")
-})
-
-hooks.On(conv, events.EventPipelineFailed, func(e *events.Event) {
-    log.Printf("[ERROR] Pipeline failed")
+hooks.OnEvent(conv, func(e *events.Event) {
+    fmt.Println("[EVENT]", e.Type)
 })
 ```
 
-A failed provider call or pipeline logs an `[ERROR]` line.
+Run the program. A single handler sees events in the order they were published, so the `[EVENT]` lines trace the turn from `pipeline.started` to `pipeline.completed`. This excerpt shows the tool round:
 
-## Step 6: Collect metrics
+```text
+[EVENT] provider.call.started
+[EVENT] provider.call.completed
+[EVENT] tool.call.started
+[EVENT] tool.call.completed
+[EVENT] provider.call.started
+[EVENT] provider.call.completed
+```
 
-To collect metrics for monitoring systems:
+The [runtime events page](/architecture/runtime-events/#event-types) lists every event type.
+
+## Step 4: Count tool calls and failures
+
+Add a `Metrics` type below `main`. It counts started tool calls and any failed tool call, provider call or pipeline:
 
 ```go
+// Metrics counts tool calls and failures.
 type Metrics struct {
-    ToolCalls     int64
-    Errors        int64
-    mu            sync.Mutex
+    mu        sync.Mutex
+    ToolCalls int
+    Errors    int
 }
 
 func (m *Metrics) Attach(conv *sdk.Conversation) {
@@ -146,18 +139,43 @@ func (m *Metrics) Attach(conv *sdk.Conversation) {
         m.ToolCalls++
         m.mu.Unlock()
     })
-
-    hooks.On(conv, events.EventToolCallFailed, func(e *events.Event) {
-        m.mu.Lock()
-        m.Errors++
-        m.mu.Unlock()
-    })
+    for _, failed := range []events.EventType{
+        events.EventToolCallFailed,
+        events.EventProviderCallFailed,
+        events.EventPipelineFailed,
+    } {
+        hooks.On(conv, failed, func(e *events.Event) {
+            m.mu.Lock()
+            m.Errors++
+            m.mu.Unlock()
+            fmt.Println("[ERROR]", e.Type)
+        })
+    }
 }
 ```
 
-After `Attach`, `ToolCalls` counts started tool calls and `Errors` counts failed ones.
+Add `"sync"` to the imports. Attach the counter before the `Send` call:
+
+```go
+metrics := &Metrics{}
+metrics.Attach(conv)
+```
+
+Then add these lines at the end of `main`:
+
+```go
+// Close waits for the handlers to finish the events they were given.
+conv.Close()
+fmt.Printf("Tool calls: %d, errors: %d\n", metrics.ToolCalls, metrics.Errors)
+```
+
+`Close()` waits for every handler to finish, so the counts are complete when they print. The deferred `Close()` that runs afterwards does nothing. Run the program. When the model calls the tool once, as it typically does here, the last line is:
+
+```text
+Tool calls: 1, errors: 0
+```
 
 ## Next steps
 
-- **[How-To: Monitor Events](/sdk/how-to/observability/monitor-events/)** - Advanced monitoring
-- **[Explanation: Observability](/sdk/explanation/observability/)** - Architecture deep-dive
+- [Monitor Events](/sdk/how-to/observability/monitor-events/): Prometheus metrics, guardrail events and template debugging
+- [Observability](/sdk/explanation/observability/): how events, hooks and telemetry fit together

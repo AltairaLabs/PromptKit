@@ -55,6 +55,14 @@
    "claim": "Links to /runtime/reference/index/, /runtime/how-to/index/, /runtime/explanation/index/ resolve",
    "verdict": "true",
    "evidence": []
+  },
+  {
+   "id": 9,
+   "claim": "Tutorial 6 builds response caching, a custom stage with a spend budget, buffered streaming and parallel batching",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stage.go:261"
+   ]
   }
  ]
 }

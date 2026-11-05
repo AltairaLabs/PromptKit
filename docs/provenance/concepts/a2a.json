@@ -116,7 +116,7 @@
   },
   {
    "id": 13,
-   "claim": "Agent card JSON example and key fields table",
+   "claim": "Agent card JSON example",
    "verdict": "true",
    "evidence": [
     "runtime/a2a/types.go:369-415"
@@ -330,6 +330,52 @@
    "claim": "Linked pages (tutorials, how-to, references) exist",
    "verdict": "true",
    "evidence": []
+  },
+  {
+   "id": 38,
+   "claim": "After Discover, the client considers only the card's interfaces on the NewClient scheme, host and port (default ports filled in); of those it calls the first JSON-RPC interface serving the client version, otherwise the first JSON-RPC one",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/client.go:509",
+    "runtime/a2a/client.go:526",
+    "runtime/a2a/client.go:530"
+   ]
+  },
+  {
+   "id": 39,
+   "claim": "The chosen interface contributes its path, version and tenant; an interface at the default /a2a keeps the base URL",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/client.go:545",
+    "runtime/a2a/client.go:597",
+    "runtime/a2a/client.go:622"
+   ]
+  },
+  {
+   "id": 40,
+   "claim": "A different host or port is not followed; calls go to {base}/a2a with a warning logged once; http interface on the https base host is not warned about",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/client.go:607",
+    "runtime/a2a/client.go:615",
+    "runtime/a2a/client.go:632"
+   ]
+  },
+  {
+   "id": 41,
+   "claim": "Without a card or with no interfaces, calls go to {base}/a2a",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/client.go:513"
+   ]
+  },
+  {
+   "id": 42,
+   "claim": "A2A tool executors discover the card themselves on first use",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/executor.go:334"
+   ]
   }
  ]
 }

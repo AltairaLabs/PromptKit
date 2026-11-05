@@ -4,119 +4,83 @@
  "claims": [
   {
    "id": 1,
-   "claim": "Tutorial 1 page exists",
+   "claim": "`conv.Stream()` returns a channel of chunks",
    "verdict": "true",
-   "evidence": []
+   "evidence": [
+    "sdk/streaming.go:121"
+   ]
   },
   {
    "id": 2,
-   "claim": "conv.Stream() replaces conv.Send()",
+   "claim": "for chunk := range conv.Stream(ctx, \"Tell me a short story\")",
    "verdict": "true",
    "evidence": [
-    "sdk/streaming.go:121"
-   ]
-  },
-  {
-   "id": 3,
-   "claim": "Stream returns something range-able yielding chunks with Error, Type, Text",
-   "verdict": "true",
-   "evidence": [
-    "sdk/streaming.go:121"
-   ]
-  },
-  {
-   "id": 4,
-   "claim": "sdk.ChunkDone",
-   "verdict": "true",
-   "evidence": [
+    "sdk/streaming.go:121",
     "sdk/streaming.go:59"
    ]
   },
   {
+   "id": 3,
+   "claim": "Each chunk carries a `Type`, the `Text` of a text chunk, and an `Error`",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:19",
+    "sdk/streaming.go:59"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "The story appears a few words at a time",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:121"
+   ]
+  },
+  {
    "id": 5,
-   "claim": "StreamChunk has Type, Text, Error only",
-   "verdict": "false",
-   "evidence": [
-    "sdk/streaming.go:19-43"
-   ]
-  },
-  {
-   "id": 6,
-   "claim": "ChunkType values are ChunkText, ChunkToolCall, ChunkDone",
-   "verdict": "false",
-   "evidence": [
-    "sdk/streaming.go:46-62"
-   ]
-  },
-  {
-   "id": 7,
-   "claim": "ChunkDone means stream completed",
-   "verdict": "true",
-   "evidence": [
-    "sdk/streaming.go:119",
-    "sdk/streaming.go:58"
-   ]
-  },
-  {
-   "id": 8,
-   "claim": "Collect-text snippet compiles",
-   "verdict": "true",
-   "evidence": [
-    "sdk/streaming.go:121"
-   ]
-  },
-  {
-   "id": 9,
-   "claim": "Interactive streaming snippet compiles",
-   "verdict": "true",
-   "evidence": [
-    "sdk/streaming.go:121"
-   ]
-  },
-  {
-   "id": 10,
-   "claim": "Error-handling snippet with errors.Is(DeadlineExceeded)",
+   "claim": "fullText += chunk.Text",
    "verdict": "true",
    "evidence": [
     "sdk/streaming.go:19"
    ]
   },
   {
-   "id": 11,
-   "claim": "Timeout snippet",
+   "id": 6,
+   "claim": "Canceling the context ends the stream, and the failure arrives as a chunk with `Error` set",
    "verdict": "true",
    "evidence": [
-    "sdk/streaming.go:121"
+    "sdk/streaming.go:392",
+    "sdk/streaming.go:410"
    ]
   },
   {
-   "id": 12,
-   "claim": "Tutorial 4 page at /sdk/tutorials/04-state-management/",
+   "id": 7,
+   "claim": "errors.Is(chunk.Error, context.DeadlineExceeded)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:392"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "fmt.Println(\"Streaming chat ready! Type 'quit' to exit.\")",
+   "verdict": "true",
+   "evidence": [
+    "sdk/examples/streaming/main_interactive.go:1"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "/sdk/reference/conversation-manager/#StreamChunk",
    "verdict": "true",
    "evidence": []
   },
   {
-   "id": 13,
-   "claim": "sdk/examples/streaming/ exists",
+   "id": 10,
+   "claim": "The complete example is in `sdk/examples/streaming/`",
    "verdict": "true",
    "evidence": [
-    "sdk/examples/streaming/main_interactive.go"
-   ]
-  },
-  {
-   "id": 14,
-   "claim": "Users can stop generation",
-   "verdict": "true",
-   "evidence": [
-    "sdk/streaming.go:121"
-   ]
-  },
-  {
-   "id": 15,
-   "claim": "Pack hello.pack.json from tutorial 1 works for streaming",
-   "verdict": "true",
-   "evidence": [
-    "sdk/streaming.go:121"
+    "sdk/examples/streaming/main_interactive.go:1"
    ]
   }
  ]

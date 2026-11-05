@@ -4,40 +4,44 @@
  "claims": [
   {
    "id": 1,
-   "claim": "OnToolAsync(name, check, exec) registers an approval handler",
-   "verdict": "true",
-   "evidence": [
-    "sdk/conversation_tools.go:171"
-   ]
-  },
-  {
-   "id": 2,
-   "claim": "Pack with template_engine, tools, prompts.refund_agent.tools works with sdk.Open",
+   "claim": "Pack with template_engine, tools, prompts.refund_agent.tools opens with sdk.Open",
    "verdict": "true",
    "evidence": [
     "sdk/examples/hitl/hitl.pack.json:11"
    ]
   },
   {
-   "id": 3,
-   "claim": "check func takes map[string]any returns tools.PendingResult (sdk/v2/tools)",
+   "id": 2,
+   "claim": "OnToolAsync takes a check func returning tools.PendingResult and an execute func; non-empty holds, empty runs at once",
    "verdict": "true",
    "evidence": [
+    "sdk/conversation_tools.go:171",
     "sdk/tools/pending.go:52",
-    "sdk/tools/pending.go:70"
+    "sdk/tools/pending.go:63"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Execute function return value is the tool result the model sees",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:173",
+    "sdk/conversation_tools.go:291"
    ]
   },
   {
    "id": 4,
-   "claim": "exec func is func(map[string]any)(any, error)",
+   "claim": "Step 2 program compiles and runs against a mock provider with the shown output",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:173"
+    "sdk/conversation_tools.go:235",
+    "sdk/conversation_tools.go:305",
+    "sdk/conversation_tools.go:334"
    ]
   },
   {
    "id": 5,
-   "claim": "resp.PendingTools() returns pending tools with ID, Name, Reason, Message, Arguments",
+   "claim": "resp.PendingTools() returns pending tools with ID, Name, Reason, Message",
    "verdict": "true",
    "evidence": [
     "sdk/response.go:196",
@@ -46,24 +50,26 @@
   },
   {
    "id": 6,
-   "claim": "conv.ResolveTool(p.ID) returns (result, err); result.Result",
-   "verdict": "false",
+   "claim": "conv.ResolveTool(ctx, id) returns a resolution with Result",
+   "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:235"
+    "sdk/conversation_tools.go:235",
+    "sdk/tools/pending.go:146"
    ]
   },
   {
    "id": 7,
-   "claim": "conv.RejectTool(p.ID, reason) returns result with RejectionReason",
-   "verdict": "false",
+   "claim": "conv.RejectTool(ctx, id, reason) returns a resolution with RejectionReason",
+   "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:305"
+    "sdk/conversation_tools.go:305",
+    "sdk/tools/pending.go:162"
    ]
   },
   {
    "id": 8,
-   "claim": "resp.Text() printed after resolving shows the final response",
-   "verdict": "false",
+   "claim": "Continue(ctx) sends the outcomes to the model and returns the final reply",
+   "verdict": "true",
    "evidence": [
     "sdk/conversation_tools.go:334",
     "sdk/conversation_tools.go:350"
@@ -71,73 +77,41 @@
   },
   {
    "id": 9,
-   "claim": "Execute function is called after approval or immediately if auto-approved",
+   "claim": "Over the threshold Send returns the call as pending; ResolveTool runs the execute function",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:291",
-    "sdk/tools/pending.go:185"
+    "sdk/conversation_tools.go:235",
+    "sdk/conversation_tools.go:291"
    ]
   },
   {
    "id": 10,
-   "claim": "An empty PendingResult auto-approves",
+   "claim": "RejectTool records the rejection without running the execute function; Continue reports it",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:305"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "An empty PendingResult runs the tool inside Send",
    "verdict": "true",
    "evidence": [
     "sdk/tools/pending.go:63"
    ]
   },
   {
-   "id": 11,
-   "claim": "Reason is machine-readable, Message is shown to approver",
-   "verdict": "true",
-   "evidence": [
-    "sdk/tools/pending.go:55",
-    "sdk/tools/pending.go:59"
-   ]
-  },
-  {
    "id": 12,
-   "claim": "Tutorial 6 is Working with images (media)",
-   "verdict": "false",
+   "claim": "register-tools Async Tools (HITL) section covers ResolveToolWithArgs, HTTP endpoint and durable store",
+   "verdict": "true",
    "evidence": []
   },
   {
    "id": 13,
-   "claim": "Link /sdk/how-to/tools/register-tools/ covers async/HITL",
-   "verdict": "true",
-   "evidence": []
-  },
-  {
-   "id": 14,
    "claim": "sdk/examples/hitl/ is the full example",
    "verdict": "true",
    "evidence": [
     "sdk/examples/hitl/main_interactive.go:35"
-   ]
-  },
-  {
-   "id": 15,
-   "claim": "Web snippet calls conv.ResolveTool(id) with one argument",
-   "verdict": "false",
-   "evidence": [
-    "sdk/conversation_tools.go:235"
-   ]
-  },
-  {
-   "id": 16,
-   "claim": "Console snippet conv.ResolveTool(pending.ID)",
-   "verdict": "false",
-   "evidence": [
-    "sdk/conversation_tools.go:235"
-   ]
-  },
-  {
-   "id": 17,
-   "claim": "Whole program compiles against sdk/v2",
-   "verdict": "false",
-   "evidence": [
-    "sdk/conversation_tools.go:235",
-    "sdk/conversation_tools.go:305"
    ]
   }
  ]

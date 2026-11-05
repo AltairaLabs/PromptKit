@@ -1,5 +1,5 @@
 ---
-title: 'Tutorial 5: Human-in-the-Loop'
+title: 'Tutorial 5: Human-in-the-loop approval'
 sidebar:
   order: 5
 verified:
@@ -11,15 +11,15 @@ verified:
     - sdk/response.go
     - sdk/tools/pending.go
 ---
-In this tutorial we hold a tool call for human approval, then approve or reject it. We register the tool with `OnToolAsync()`, read the pending calls from a response, and send the outcome to the model with `Continue()`.
+## What we will build
 
-Human-in-the-loop (HITL) approval suits operations such as refunds, record deletion and outbound email, where a person should confirm before the tool runs.
+In this tutorial we build a refund agent that holds high-value refunds for a person to approve. We register the refund tool with `OnToolAsync()`, read the held calls from the response, approve or reject each one, and send the outcome to the model with `Continue()`.
 
 ## Prerequisites
 
-Complete [Tutorial 3: Tools](/sdk/tutorials/03-tool-integration/).
+Complete [Tutorial 3: Tools](/sdk/tutorials/03-tool-integration/), and set your provider API key as in Tutorial 1.
 
-## Step 1: Create the HITL pack
+## Step 1: Create the pack
 
 Create `hitl.pack.json`:
 
@@ -68,9 +68,13 @@ Create `hitl.pack.json`:
 }
 ```
 
-## Step 2: Register an async tool handler
+The pack declares one tool, `process_refund`, and a prompt that tells the model to use it.
 
-We use `OnToolAsync()` for approval workflows:
+## Step 2: Hold a refund and approve it
+
+`OnToolAsync()` takes two functions. The check function returns a `tools.PendingResult`: a non-empty one holds the call for approval, and an empty one lets it run at once. The execute function runs once the call is approved, and its return value is the tool result the model sees.
+
+Create `main.go`:
 
 ```go
 package main
@@ -88,42 +92,39 @@ import (
 )
 
 func main() {
+    message := "Refund $150 for order #12345, damaged product"
+    if len(os.Args) > 1 {
+        message = os.Args[1]
+    }
+
     conv, err := sdk.Open("./hitl.pack.json", "refund_agent")
     if err != nil {
         log.Fatal(err)
     }
     defer conv.Close()
 
-    // Register tool with approval check
     conv.OnToolAsync(
         "process_refund",
-        // Check function - determines if approval needed
+        // Check function: decides whether the call needs approval
         func(args map[string]any) tools.PendingResult {
             amount, _ := args["amount"].(float64)
-            
-            // High-value refunds need approval
             if amount > 100 {
                 return tools.PendingResult{
                     Reason:  "high_value_refund",
                     Message: fmt.Sprintf("Refund of $%.2f requires approval", amount),
                 }
             }
-            
-            // Auto-approve small refunds
             return tools.PendingResult{}
         },
-        // Execute function - runs after approval
+        // Execute function: runs after approval, or at once
         func(args map[string]any) (any, error) {
             orderID, _ := args["order_id"].(string)
             amount, _ := args["amount"].(float64)
-            reason, _ := args["reason"].(string)
-
+            fmt.Printf("Executing refund of $%.2f for order %s\n", amount, orderID)
             return map[string]any{
                 "status":    "completed",
-                "order_id":  orderID,
                 "refund_id": "RF-" + orderID,
                 "amount":    amount,
-                "reason":    reason,
             }, nil
         },
     )
@@ -131,41 +132,38 @@ func main() {
     ctx := context.Background()
     reader := bufio.NewReader(os.Stdin)
 
-    // Start conversation
-    resp, err := conv.Send(ctx, "Refund $150 for order #12345, damaged product")
+    resp, err := conv.Send(ctx, message)
     if err != nil {
         log.Fatal(err)
     }
 
-    // Check for pending tools
     pending := resp.PendingTools()
-    if len(pending) > 0 {
-        for _, p := range pending {
-            fmt.Printf("\nApproval required\n")
-            fmt.Printf("Tool: %s\n", p.Name)
-            fmt.Printf("Reason: %s\n", p.Reason)
-            fmt.Printf("Message: %s\n", p.Message)
-            fmt.Printf("Args: %v\n", p.Arguments)
-            fmt.Print("\nApprove? (yes/no): ")
+    for _, p := range pending {
+        fmt.Println("Approval required")
+        fmt.Println("Tool:", p.Name)
+        fmt.Println("Reason:", p.Reason)
+        fmt.Println("Message:", p.Message)
+        fmt.Print("Approve? (yes/no): ")
 
-            input, _ := reader.ReadString('\n')
-            input = strings.TrimSpace(strings.ToLower(input))
+        input, _ := reader.ReadString('\n')
+        input = strings.TrimSpace(strings.ToLower(input))
 
-            if input == "yes" || input == "y" {
-                result, err := conv.ResolveTool(ctx, p.ID)
-                if err != nil {
-                    log.Fatal(err)
-                }
-                fmt.Printf("Approved: %v\n", result.Result)
-            } else {
-                result, err := conv.RejectTool(ctx, p.ID, "Not authorized")
-                if err != nil {
-                    log.Fatal(err)
-                }
-                fmt.Printf("Rejected: %s\n", result.RejectionReason)
+        if input == "yes" || input == "y" {
+            result, err := conv.ResolveTool(ctx, p.ID)
+            if err != nil {
+                log.Fatal(err)
             }
+            fmt.Println("Approved:", result.Result)
+        } else {
+            result, err := conv.RejectTool(ctx, p.ID, "Not authorized")
+            if err != nil {
+                log.Fatal(err)
+            }
+            fmt.Println("Rejected:", result.RejectionReason)
         }
+    }
 
+    if len(pending) > 0 {
         // Send the outcomes to the model and read its final reply
         resp, err = conv.Continue(ctx)
         if err != nil {
@@ -173,161 +171,72 @@ func main() {
         }
     }
 
-    fmt.Println("\nResponse:", resp.Text())
+    fmt.Println("Response:", resp.Text())
 }
 ```
 
-Run it. The $150 refund is over the $100 threshold, so the program prints `Approval required` with the tool name, the reason `high_value_refund` and the message `Refund of $150.00 requires approval`, then waits at the `Approve?` prompt. Answer `yes` and it prints `Approved:` with the refund result, then the model's final reply. Run it again and answer `no` to see `Rejected: Not authorized` before the model's final reply.
+Run it and answer `yes`:
 
-## Step 3: Read the check function
-
-The check function returns a `tools.PendingResult`. A non-empty result holds the call for approval:
-
-```go
-func(args map[string]any) tools.PendingResult {
-    // Check conditions
-    if needsApproval(args) {
-        return tools.PendingResult{
-            Reason:  "approval_code",      // Machine-readable reason
-            Message: "Human-readable msg", // Show to approver
-        }
-    }
-    
-    // An empty result runs the tool immediately
-    return tools.PendingResult{}
-}
+```bash
+go run main.go
 ```
 
-A refund under $100 returns the empty result, so the tool runs at once and `PendingTools()` is empty.
+The output depends on the model calling `process_refund`, which it typically does for this message. The $150 refund is over the $100 threshold, so `Send()` returns the call as pending instead of running it. `ResolveTool()` then runs the execute function, and `Continue()` returns the model's reply:
 
-## Step 4: Read the execute function
-
-The execute function runs after approval, or immediately when the check function returns an empty result:
-
-```go
-func(args map[string]any) (any, error) {
-    // Perform the actual operation
-    return result, nil
-}
+```text
+Approval required
+Tool: process_refund
+Reason: high_value_refund
+Message: Refund of $150.00 requires approval
+Approve? (yes/no): yes
+Executing refund of $150.00 for order 12345
+Approved: map[amount:150 refund_id:RF-12345 status:completed]
+Response: The refund of $150.00 for order 12345 has been processed.
 ```
 
-Whatever this function returns is the tool result the model sees.
+The order ID and the final reply are the model's own wording, so they vary between runs. If the model answers without calling the tool, the program prints only the `Response:` line.
 
-## Step 5: Handle pending tools
+## Step 3: Reject the refund
 
-First we check a response for held calls:
+Run the program again and answer `no`:
 
-```go
-resp, err := conv.Send(ctx, message)
-if err != nil {
-    log.Fatal(err)
-}
-
-pending := resp.PendingTools()
-if len(pending) > 0 {
-    // Handle approvals
-}
+```bash
+go run main.go
 ```
 
-Then we approve a call:
+`RejectTool()` records the rejection without running the execute function, and `Continue()` reports it to the model:
 
-```go
-result, err := conv.ResolveTool(ctx, pendingID)
-if err != nil {
-    log.Printf("Resolve failed: %v", err)
-}
-fmt.Printf("Result: %v\n", result.Result)
+```text
+Approval required
+Tool: process_refund
+Reason: high_value_refund
+Message: Refund of $150.00 requires approval
+Approve? (yes/no): no
+Rejected: Not authorized
+Response: I'm sorry, I wasn't able to process that refund.
 ```
 
-This prints the map the execute function returned. After we resolve or reject every pending call, `Continue()` sends the results to the model and returns its reply:
+The reply typically tells the customer the refund did not go through.
 
-```go
-resp, err = conv.Continue(ctx)
-if err != nil {
-    log.Fatal(err)
-}
-fmt.Println(resp.Text())
+## Step 4: Let a small refund run at once
+
+Pass a refund under the threshold:
+
+```bash
+go run main.go 'Refund $50 for order #12346, wrong size'
 ```
 
-The printed text is the model's reply to the outcomes. To reject a call instead:
+The check function returns an empty `PendingResult`, so the tool runs inside `Send()` and nothing waits for approval:
 
-```go
-result, err := conv.RejectTool(ctx, pendingID, "Reason for rejection")
-if err != nil {
-    log.Printf("Reject failed: %v", err)
-}
+```text
+Executing refund of $50.00 for order 12346
+Response: Your refund of $50.00 for order 12346 has been processed.
 ```
 
-The rejected call is reported to the model when we call `Continue()`.
-
-## Step 6: Combine approval conditions
-
-A check function can hold a call for more than one reason:
-
-```go
-conv.OnToolAsync(
-    "delete_record",
-    func(args map[string]any) tools.PendingResult {
-        recordType := args["type"].(string)
-        count, _ := args["count"].(float64)
-        
-        // Check 1: Sensitive record types
-        if recordType == "user" || recordType == "payment" {
-            return tools.PendingResult{
-                Reason:  "sensitive_data",
-                Message: fmt.Sprintf("Deleting %s records requires approval", recordType),
-            }
-        }
-        
-        // Check 2: Bulk operations
-        if count > 10 {
-            return tools.PendingResult{
-                Reason:  "bulk_operation",
-                Message: fmt.Sprintf("Bulk delete of %d records requires approval", int(count)),
-            }
-        }
-        
-        return tools.PendingResult{}
-    },
-    func(args map[string]any) (any, error) {
-        // Perform deletion
-        return map[string]any{"deleted": true}, nil
-    },
-)
-```
-
-A delete of `user` or `payment` records, or of more than 10 records, now returns a pending result with its own reason; any other delete runs at once.
-
-## Step 7: Choose an approval interface
-
-For a console, we prompt in a loop:
-
-```go
-for _, p := range resp.PendingTools() {
-    fmt.Printf("Approve %s? [y/N]: ", p.Name)
-    input, _ := reader.ReadString('\n')
-    if strings.ToLower(strings.TrimSpace(input)) == "y" {
-        conv.ResolveTool(ctx, p.ID)
-    }
-}
-```
-
-For a web service, an endpoint resolves the call:
-
-```go
-// API endpoint handles approval
-http.HandleFunc("/approve", func(w http.ResponseWriter, r *http.Request) {
-    id := r.URL.Query().Get("id")
-    if _, err := conv.ResolveTool(r.Context(), id); err != nil {
-        http.Error(w, err.Error(), http.StatusConflict)
-    }
-})
-```
-
-A successful request returns status 200; if `ResolveTool` fails, the endpoint returns 409 with the error text.
+As in Step 2, the reply typically confirms the refund in the model's own words.
 
 ## Next steps
 
-- **[Tutorial 6: Observability](/sdk/tutorials/06-media-storage/)** - Monitor events with hooks
-- **[How-To: Register Tools](/sdk/how-to/tools/register-tools/)** - Tool registration including async/HITL patterns
-- The full example is at `sdk/examples/hitl/`.
+- [Tutorial 6: Observability](/sdk/tutorials/06-media-storage/): watch tool and provider events with hooks
+- [Register Tools](/sdk/how-to/tools/register-tools/#async-tools-hitl): approve with edited arguments, resolve from an HTTP endpoint, and keep held calls across restarts
+- The full example is in `sdk/examples/hitl/`.

@@ -112,7 +112,11 @@ providerStage := stage.NewProviderStageWithTurnState(
 )
 ```
 
-The map is read-only once the pipeline runs. Stages after the one that fills it do not modify it.
+The map is read-only after the stage that produces it runs; downstream stages must not modify it.
+
+No built-in model provider reads keys such as `session_id` or `tenant_id` from `PredictionRequest.Metadata`; only the mock provider reads its own scenario keys there. The OpenAI and Gemini realtime sessions read a few configuration keys (voice, modalities, VAD) from `StreamingInputConfig.Metadata`, a separate map this one does not feed. Session context in this map therefore reaches only a custom provider that reads it. `NewIncrementalSaveStageWithTurnState` also merges the map into the saved conversation state's `Metadata`.
+
+Conversation and user identity have typed fields. The load stages copy `StateStoreConfig.ConversationID` and `StateStoreConfig.UserID` into `TurnState.ConversationID` and `TurnState.UserID`, and stages should read those. The metadata map exists for the provider boundary, where the interface is untyped.
 
 ## Stage Interface
 

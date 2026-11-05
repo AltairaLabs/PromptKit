@@ -51,23 +51,6 @@
    ]
   },
   {
-   "id": 6,
-   "claim": "match_mode 'substring' matches inside words",
-   "verdict": "true",
-   "evidence": [
-    "runtime/evals/handlers/content_excludes.go:16"
-   ]
-  },
-  {
-   "id": 7,
-   "claim": "While a response streams, the check matches substrings in the partial text",
-   "verdict": "true",
-   "evidence": [
-    "runtime/evals/handlers/content_excludes.go:83",
-    "runtime/hooks/guardrails/adapter.go:420"
-   ]
-  },
-  {
    "id": 8,
    "claim": "length guardrail truncates a response longer than max_characters",
    "verdict": "true",
@@ -98,7 +81,7 @@
   },
   {
    "id": 11,
-   "claim": "guardrails.CompileValidators([]prompt.ValidatorConfig) returns hooks; Message sets the blocked text; Enabled false skips; validators always enforce",
+   "claim": "guardrails.CompileValidators([]prompt.ValidatorConfig) returns hooks; Message sets the blocked text",
    "verdict": "true",
    "evidence": [
     "runtime/hooks/guardrails/factory.go:213",
@@ -112,15 +95,6 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/guardrails/factory.go:345"
-   ]
-  },
-  {
-   "id": 13,
-   "claim": "NewGuardrailHook and CompileValidators return an error for an invalid eval type or params",
-   "verdict": "true",
-   "evidence": [
-    "runtime/hooks/guardrails/factory.go:213",
-    "runtime/hooks/guardrails/factory.go:96"
    ]
   },
   {

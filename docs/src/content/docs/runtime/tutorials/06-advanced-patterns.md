@@ -15,12 +15,7 @@ verified:
     - runtime/providers/streaming.go
     - runtime/types/message.go
 ---
-Add caching, cost control, buffered streaming and parallel requests to a runtime application.
-
-**Time**: 30 minutes
-**Level**: Advanced
-
-## What we build
+## What we will build
 
 In this tutorial we build four small building blocks, each in its own file of one `package main`: a response cache, a spend budget, a stream buffer and a parallel batch runner. A `main.go` runs all four.
 
@@ -439,9 +434,7 @@ The first two prompts print a reply. The repeated third prompt prints with a `[c
 
 ## Next steps
 
-- Explore the [Runtime Reference](/runtime/reference/) for the complete API.
-- Read the [Runtime Explanation](/runtime/explanation/) pages for architecture.
-- Browse the [Runtime How-To](/runtime/how-to/) guides for specific tasks.
-- [Pipeline Reference](/runtime/reference/pipeline/)
-- [Handle Errors](/runtime/how-to/pipeline/handle-errors/)
-- [Monitor Costs](/runtime/how-to/observability/monitor-costs/)
+- Continue to [Tutorial 7: A2A client](/runtime/tutorials/07-a2a-client/) to call another agent.
+- The [pipeline reference](/runtime/reference/pipeline/) and the rest of the [runtime reference](/runtime/reference/) list the complete API.
+- The [runtime explanation](/runtime/explanation/) pages cover the architecture.
+- [Handle errors](/runtime/how-to/pipeline/handle-errors/) and [monitor costs](/runtime/how-to/observability/monitor-costs/) go further with the patterns from this tutorial.

@@ -1,12 +1,11 @@
 ---
-title: 'Tutorial 4: Validation & Guardrails'
+title: 'Tutorial 4: Validation and guardrails'
 description: Add input and output guardrails to a stage-pipeline chatbot with guardrail hooks, then write your own.
 sidebar:
   order: 4
 verified:
   commit: 885cafa787a84bfba66f158fe51cda15a077ec23
   sources:
-    - runtime/evals/handlers/content_excludes.go
     - runtime/evals/handlers/length.go
     - runtime/evals/normalize.go
     - runtime/hooks/errors.go
@@ -19,14 +18,9 @@ verified:
     - runtime/prompt/registry.go
     - runtime/types/message.go
 ---
-In this tutorial we add content guardrails to a chatbot: banned words on the way in and out, a length limit, and custom checks.
-
-**Time**: 20 minutes
-**Level**: Intermediate
-
 ## What we will build
 
-A command-line chatbot whose guardrails block a request before it reaches the model, replace a response that breaks a rule, and reject a response that contains personal data. Each guardrail is a hook on the `ProviderStage`.
+In this tutorial we build a command-line chatbot whose guardrails block a request before it reaches the model, replace a response that breaks a rule, and reject a response that contains personal data. Each guardrail is a hook on the `ProviderStage`.
 
 ```mermaid
 flowchart LR
@@ -151,6 +145,8 @@ func main() {
 go run .
 ```
 
+Send these three messages. The first reply varies. The third reply is replaced when the model's answer uses the word "password", which it typically does:
+
 ```text
 You: Hello!
 
@@ -167,9 +163,9 @@ Bot: I can't share credentials.
 [guardrail enforced: banned_words]
 ```
 
-The input guardrail blocks the first request before the model call, so it costs no tokens. The output guardrail replaces a response that contains a banned word. Neither returns an error: the pipeline returns the replacement text, and the reply message's `Validations` records which guardrail fired.
+The input guardrail blocks the `hack` request before the model call, so it costs no tokens. The output guardrail replaces a response that contains a banned word. Neither returns an error: the pipeline returns the replacement text, and the reply message's `Validations` records which guardrail fired.
 
-Banned-word matching is case-insensitive and matches whole words, so `hack` blocks "HACK it" but not "hackers". Set `"match_mode": "substring"` in the params to match inside words. While a response streams, the check matches substrings in the partial text, so a stream can stop on a word that the finished response would pass. The length guardrail truncates a response longer than `max_characters`.
+Banned-word matching is case-insensitive and matches whole words; the [checks reference](/reference/checks/#content-checks) covers the other match modes. The length guardrail truncates a response longer than `max_characters`.
 
 ## Step 3: Add a function guardrail
 
@@ -245,7 +241,7 @@ if errors.As(err, &denied) {
 }
 ```
 
-Ask the bot to "make up a fake contact card with an email address":
+Ask the bot to "make up a fake contact card with an email address". The reply typically contains an address, so the hook blocks it:
 
 ```text
 Bot: [blocked: response contains an email address]
@@ -278,25 +274,17 @@ for _, h := range declared {
 registry := hooks.NewRegistry(opts...)
 ```
 
-A validator checks the response unless its `direction` param is `input`. The `Message` field sets the text the user sees when the validator fires. A validator always enforces; set `Enabled` to a pointer to `false` to switch one off. Ask "Tell me about competitor_name":
+A validator checks the response unless its `direction` param is `input`. The `Message` field sets the text the user sees when the validator fires. Ask "Tell me about competitor_name":
 
 ```text
 Bot: I can't discuss that.
 [guardrail enforced: banned_words]
 ```
 
-## Common issues
-
-| Symptom | Fix |
-|---|---|
-| Legitimate messages blocked | Shorten the word list, and keep the default whole-word `match_mode` instead of `"substring"`. |
-| Inappropriate content gets through | Add guardrails, or write a custom `hooks.ProviderHook` for a domain-specific check. |
-| `NewGuardrailHook` or `CompileValidators` returns an error | The eval type or its params are invalid. Check the error before you build the pipeline. |
-
 ## Next steps
 
-- Continue to [Tutorial 5: Production Deployment](/runtime/tutorials/05-production-deployment/).
-- [Checks Reference](/reference/checks/): all check types and parameters.
-- [Unified Check Model](/concepts/validation/): how guardrails, assertions and evals relate.
-- [Hooks & Guardrails Reference](/runtime/reference/hooks/): the runtime hook API.
-- [Handle Errors](/runtime/how-to/pipeline/handle-errors/): error strategies.
+- Continue to [Tutorial 5: Production deployment](/runtime/tutorials/05-production-deployment/).
+- The [checks reference](/reference/checks/) lists every check type and its parameters.
+- The [unified check model](/concepts/validation/) explains how guardrails, assertions and evals relate.
+- The [hooks and guardrails reference](/runtime/reference/hooks/) covers the runtime hook API.
+- [Handle errors](/runtime/how-to/pipeline/handle-errors/) covers error strategies.

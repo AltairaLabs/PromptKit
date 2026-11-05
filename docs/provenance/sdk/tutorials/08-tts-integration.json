@@ -4,99 +4,54 @@
  "claims": [
   {
    "id": 1,
-   "claim": "tts.Service interface methods",
+   "claim": "tts.NewOpenAI(apiKey) and SynthesisConfig Voice/Format/Speed",
    "verdict": "true",
    "evidence": [
-    "runtime/tts/service.go:49"
+    "runtime/tts/openai.go:95",
+    "runtime/tts/service.go:103"
    ]
   },
   {
    "id": 2,
-   "claim": "tts.NewOpenAI, NewElevenLabs, NewCartesia take an API key",
+   "claim": "constructor makes no request; Synthesize returns the response body",
    "verdict": "true",
    "evidence": [
-    "runtime/tts/cartesia.go:120",
-    "runtime/tts/elevenlabs.go:76",
+    "runtime/tts/openai.go:215",
     "runtime/tts/openai.go:95"
    ]
   },
   {
    "id": 3,
-   "claim": "OpenAI models tts-1, tts-1-hd",
+   "claim": "SupportedVoices output for OpenAI",
    "verdict": "true",
-   "evidence": [
-    "runtime/tts/openai.go:32",
-    "runtime/tts/openai.go:36",
-    "runtime/tts/openai.go:40"
-   ]
-  },
-  {
-   "id": 4,
-   "claim": "SynthesisConfig fields Voice, Format, Speed, Pitch, Language, Model",
-   "verdict": "true",
-   "evidence": [
-    "runtime/tts/service.go:103"
-   ]
-  },
-  {
-   "id": 5,
-   "claim": "Format constants MP3, Opus, AAC, FLAC, PCM16, WAV",
-   "verdict": "true",
-   "evidence": [
-    "runtime/tts/service.go:181",
-    "runtime/tts/service.go:226"
-   ]
-  },
-  {
-   "id": 6,
-   "claim": "ttsService.(tts.StreamingService) assertion on tts.NewOpenAI result",
-   "verdict": "false",
-   "evidence": [
-    "runtime/tts/cartesia_interactive.go:35",
-    "runtime/tts/service.go:80"
-   ]
-  },
-  {
-   "id": 7,
-   "claim": "tts.DefaultSynthesisConfig()",
-   "verdict": "true",
-   "evidence": [
-    "runtime/tts/service.go:130"
-   ]
-  },
-  {
-   "id": 8,
-   "claim": "OpenAI voice characteristics (echo warm smooth, nova youthful, shimmer clear professional)",
-   "verdict": "false",
    "evidence": [
     "runtime/tts/openai.go:323"
    ]
   },
   {
-   "id": 9,
-   "claim": "tts.ErrTextTooLong exists",
-   "verdict": "false",
-   "evidence": [
-    "runtime/tts/errors.go:23",
-    "runtime/tts/errors.go:8"
-   ]
-  },
-  {
-   "id": 10,
-   "claim": "OpenAI, ElevenLabs, Cartesia price per character",
+   "id": 4,
+   "claim": "ModelTTS1HD constant; default model tts-1",
    "verdict": "true",
    "evidence": [
-    "runtime/tts/cartesia.go:68",
-    "runtime/tts/elevenlabs.go:52",
-    "runtime/tts/openai.go:60"
+    "runtime/tts/openai.go:101",
+    "runtime/tts/openai.go:36"
    ]
   },
   {
-   "id": 11,
-   "claim": "ElevenLabs per-character pricing has tiers",
-   "verdict": "unverified",
+   "id": 5,
+   "claim": "sdk.Open, Send, Response.Text",
+   "verdict": "true",
    "evidence": [
-    "runtime/tts/elevenlabs.go:52"
+    "sdk/conversation.go:268",
+    "sdk/response.go:99"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "VADModeConfig Voice and Speed feed the TTS stage",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:3116"
    ]
   }
  ]

@@ -8,6 +8,7 @@ verified:
   sources:
     - runtime/a2a/client.go
     - runtime/hooks/guardrails/factory.go
+    - runtime/pipeline/stage/stage.go
     - sdk/examples/mcp-tools/main_interactive.go
 ---
 The runtime tutorials build on each other.
@@ -16,13 +17,13 @@ The runtime tutorials build on each other.
 
 | # | Tutorial | You build | Time |
 |---|---|---|---|
-| 1 | [First Pipeline](/runtime/tutorials/01-first-pipeline/) | A program that sends a prompt through a stage pipeline and prints the response, tokens and cost | 15 min |
-| 2 | [Multi-Turn Conversations](/runtime/tutorials/02-multi-turn/) | A chatbot that keeps its history in a state store, in memory and in Redis | 20 min |
-| 3 | [MCP Integration](/runtime/tutorials/03-mcp-integration/) | A chatbot with file tools from an MCP server | 20 min |
-| 4 | [Validation & Guardrails](/runtime/tutorials/04-validation-guardrails/) | A chatbot whose guardrails block, replace or reject content | 20 min |
-| 5 | [Production Deployment](/runtime/tutorials/05-production-deployment/) | An API server with error handling, monitoring and cost tracking | 40 min |
-| 6 | [Advanced Patterns](/runtime/tutorials/06-advanced-patterns/) | Response caching, custom stages, streaming, provider pools and batching | 30 min |
-| 7 | [A2A Client](/runtime/tutorials/07-a2a-client/) | A client that discovers an A2A agent and sends it messages | 10 min |
+| 1 | [First pipeline](/runtime/tutorials/01-first-pipeline/) | A program that sends a prompt through a stage pipeline and prints the response, tokens and cost | 15 min |
+| 2 | [Multi-turn conversations](/runtime/tutorials/02-multi-turn/) | A chatbot that keeps its history in a state store, in memory and in Redis | 20 min |
+| 3 | [MCP integration](/runtime/tutorials/03-mcp-integration/) | A chatbot with file tools from an MCP server | 20 min |
+| 4 | [Validation and guardrails](/runtime/tutorials/04-validation-guardrails/) | A chatbot whose guardrails block, replace or reject content | 20 min |
+| 5 | [Production deployment](/runtime/tutorials/05-production-deployment/) | An API server with error handling, monitoring and cost tracking | 40 min |
+| 6 | [Advanced patterns](/runtime/tutorials/06-advanced-patterns/) | Response caching, a custom stage with a spend budget, buffered streaming and parallel batching | 30 min |
+| 7 | [A2A client](/runtime/tutorials/07-a2a-client/) | A client that discovers an A2A agent and sends it messages | 10 min |
 
 ## Prerequisites
 
@@ -41,7 +42,7 @@ Tutorial 5 uses keys for more than one provider. Tutorial 7 needs a running A2A 
 | Production ready | 1-5 | 115 min |
 | Complete | 1-7 | 155 min |
 
-Start with [First Pipeline](/runtime/tutorials/01-first-pipeline/).
+Start with [First pipeline](/runtime/tutorials/01-first-pipeline/).
 
 ## See also
 

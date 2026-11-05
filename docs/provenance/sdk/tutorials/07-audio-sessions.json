@@ -4,102 +4,99 @@
  "claims": [
   {
    "id": 1,
-   "claim": "stt.NewOpenAI(apiKey) and tts.NewOpenAI(apiKey) signatures",
+   "claim": "VAD pipeline is AudioTurnStage -> STTStage -> ProviderStage -> TTSStageWithInterruption",
    "verdict": "true",
    "evidence": [
-    "runtime/stt/openai.go:68",
-    "runtime/tts/openai.go:95"
+    "sdk/internal/pipeline/builder_vad.go:100",
+    "sdk/internal/pipeline/builder_vad.go:41"
    ]
   },
   {
    "id": 2,
-   "claim": "sdk.WithVADMode(stt, tts, cfg) and DefaultVADModeConfig",
+   "claim": "OpenAI TTS FormatPCM16 returns raw 16-bit mono PCM at 24 kHz",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:3012",
-    "sdk/options.go:3053"
+    "runtime/tts/openai.go:267",
+    "runtime/tts/openai.go:342"
    ]
   },
   {
    "id": 3,
-   "claim": "OpenDuplex with WithVADMode needs no streaming provider",
+   "claim": "tts.NewOpenAI(apiKey), Synthesize returns io.ReadCloser",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:132",
-    "sdk/sdk.go:321"
+    "runtime/tts/openai.go:95",
+    "runtime/tts/service.go:55"
    ]
   },
   {
    "id": 4,
-   "claim": "VADModeConfig defaults and fields (800ms, 200ms, 30s, 16000, en, alloy, 1.0, OutputSampleRate)",
+   "claim": "VADModeConfig.SampleRate sets the input rate; VAD mode does not resample",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:2969",
-    "sdk/options.go:3012"
+    "sdk/internal/pipeline/builder_vad.go:89",
+    "sdk/options.go:3096"
    ]
   },
   {
    "id": 5,
-   "claim": "ASM is Gemini Live only",
-   "verdict": "false",
+   "claim": "OpenDuplex with WithVADMode needs no streaming provider",
+   "verdict": "true",
    "evidence": [
-    "runtime/providers/gemini/streaming_support.go:50",
-    "runtime/providers/openai/streaming_support.go:136",
-    "sdk/sdk.go:126"
+    "sdk/options.go:3053",
+    "sdk/sdk.go:322"
    ]
   },
   {
    "id": 6,
-   "claim": "gemini.NewStreamSession(ctx, wsURL, key, *StreamingInputConfig) builds a session passed to OpenDuplex",
-   "verdict": "false",
+   "claim": "duplex session renders system prompt once on first chunk",
+   "verdict": "true",
    "evidence": [
-    "runtime/providers/gemini/stream_session_integration.go:150",
-    "sdk/options.go:2957"
+    "sdk/session/duplex_session.go:214"
    ]
   },
   {
    "id": 7,
-   "claim": "StreamingInputConfig has flat Type/SampleRate/Channels fields",
-   "verdict": "false",
+   "claim": "SendChunk with MediaData sends audio; first chunk starts the pipeline",
+   "verdict": "true",
    "evidence": [
-    "runtime/providers/streaming_input.go:133",
-    "runtime/types/streaming.go:52"
+    "sdk/conversation.go:1054",
+    "sdk/session/duplex_session.go:201"
    ]
   },
   {
    "id": 8,
-   "claim": "audioIn / audioOut channels carry audio",
-   "verdict": "false",
+   "claim": "turn ends after 800ms of silence by default, measured in audio time",
+   "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1054",
-    "sdk/conversation.go:1157"
+    "runtime/pipeline/stage/stages_speech.go:510",
+    "sdk/options.go:3017"
    ]
   },
   {
    "id": 9,
-   "claim": "audio.NewSilenceDetector(threshold) and WithTurnDetector in VAD mode",
+   "claim": "input_transcription and assistant_turn_complete metadata on Response()",
    "verdict": "true",
    "evidence": [
-    "runtime/audio/silence.go:99",
-    "sdk/conversation.go:846",
-    "sdk/options.go:2539"
+    "sdk/session/duplex_session.go:890",
+    "sdk/session/duplex_session.go:905"
    ]
   },
   {
    "id": 10,
-   "claim": "Interrupted chunk, input_transcription, assistant_turn_complete metadata",
+   "claim": "turn boundary arrives after the reply's audio",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/streaming.go:89",
-    "sdk/examples/openai-realtime/main.go:114"
+    "sdk/session/duplex_session.go:918"
    ]
   },
   {
    "id": 11,
-   "claim": "16kHz best compatibility",
-   "verdict": "unverified",
+   "claim": "VAD default voice alloy; reply audio at TTS service PCM rate 24 kHz",
+   "verdict": "true",
    "evidence": [
-    "sdk/options.go:3017"
+    "runtime/pipeline/stage/stages_speech.go:973",
+    "sdk/options.go:3023"
    ]
   }
  ]

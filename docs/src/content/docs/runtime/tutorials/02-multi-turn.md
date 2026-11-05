@@ -1,5 +1,5 @@
 ---
-title: 'Tutorial 2: Multi-Turn Conversations'
+title: 'Tutorial 2: Multi-turn conversations'
 description: Build a chatbot that remembers earlier turns by adding a state store, a token budget and Redis persistence to a stage pipeline.
 sidebar:
   order: 2
@@ -15,14 +15,9 @@ verified:
     - runtime/statestore/memory.go
     - runtime/statestore/redis.go
 ---
-In this tutorial we build a command-line chatbot that remembers what you said earlier in the conversation, first in memory and then in Redis.
-
-**Time**: 20 minutes
-**Level**: Beginner
-
 ## What we will build
 
-The chatbot runs each message through four stages. The first loads the conversation history, the last saves the new messages.
+In this tutorial we build a command-line chatbot that remembers what you said earlier in the conversation, first in memory and then in Redis. The chatbot runs each message through four stages. The first loads the conversation history, the last saves the new messages.
 
 ```mermaid
 flowchart LR
@@ -143,7 +138,7 @@ Run the chatbot:
 go run main.go
 ```
 
-Try this conversation:
+Try this conversation. The replies vary, but they typically use what you said earlier:
 
 ```text
 You: My name is Alice
@@ -205,6 +200,5 @@ To watch it, lower `TokenBudget` to `800`, tell the bot your name, then ask it a
 
 ## Next steps
 
-Continue to [Tutorial 3: MCP Integration](/runtime/tutorials/03-mcp-integration/) to add external tools to your chatbot.
-
-For more on state, see [Manage State](/runtime/how-to/state/manage-state/) and the [StateStore Reference](/runtime/reference/statestore/).
+- Continue to [Tutorial 3: MCP integration](/runtime/tutorials/03-mcp-integration/) to add external tools to your chatbot.
+- [Manage state](/runtime/how-to/state/manage-state/) and the [StateStore reference](/runtime/reference/statestore/) cover state in more depth.

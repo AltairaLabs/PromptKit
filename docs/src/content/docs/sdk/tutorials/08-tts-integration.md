@@ -1,307 +1,223 @@
 ---
-title: "Tutorial 8: TTS Integration"
+title: "Tutorial 8: TTS integration"
 sidebar:
   order: 8
 verified:
   commit: 885cafa787a84bfba66f158fe51cda15a077ec23
   sources:
-    - runtime/tts/cartesia.go
-    - runtime/tts/cartesia_interactive.go
-    - runtime/tts/elevenlabs.go
-    - runtime/tts/errors.go
     - runtime/tts/openai.go
     - runtime/tts/service.go
+    - sdk/conversation.go
+    - sdk/options.go
+    - sdk/response.go
 ---
-In this tutorial we add text-to-speech to a conversation. We set up a TTS provider (OpenAI, ElevenLabs or Cartesia), choose a voice, speed and audio format, synthesize speech in one shot and as a stream, and wire the service into a conversation.
+## What we will build
+
+In this tutorial we build programs that speak. We synthesize a sentence to an MP3 file with OpenAI text-to-speech, pick a voice, speak a model's reply from a text conversation, and give the voice session from Tutorial 7 a different voice.
 
 ## Prerequisites
 
-- Completed [Tutorial 7: Audio Sessions](/sdk/tutorials/07-audio-sessions/)
-- API key for a TTS provider
+- Completed [Tutorial 7: Audio sessions](/sdk/tutorials/07-audio-sessions/), with its module, `voice-assistant.pack.json` and `voice/main.go`
+- `OPENAI_API_KEY` set in the environment
+- `ffplay` (part of FFmpeg) to play the audio
 
-## The TTS service interface
+## Step 1: Synthesize a sentence
 
-All TTS providers implement the same interface:
-
-```go
-type Service interface {
-    Name() string
-    Synthesize(ctx context.Context, text string, config SynthesisConfig) (io.ReadCloser, error)
-    SupportedVoices() []Voice
-    SupportedFormats() []AudioFormat
-}
-```
-
-## Step 1: Set up a TTS provider
-
-### OpenAI TTS
+Create `speak/main.go`:
 
 ```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/tts"
+package main
 
-// Create OpenAI TTS service
-ttsService := tts.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
+import (
+	"context"
+	"io"
+	"log"
+	"os"
 
-// Available voices: alloy, echo, fable, onyx, nova, shimmer
-// Available models: tts-1 (fast), tts-1-hd (high quality), gpt-4o-mini-tts (expressive)
-```
-
-The service is ready to use; no network call happens until the first `Synthesize`.
-
-### ElevenLabs TTS
-
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/tts"
-
-// Create ElevenLabs TTS service
-ttsService := tts.NewElevenLabs(os.Getenv("ELEVENLABS_API_KEY"))
-
-// Wide variety of voices available
-// Check SupportedVoices() for options
-```
-
-### Cartesia TTS
-
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/tts"
-
-// Create Cartesia TTS service
-ttsService := tts.NewCartesia(os.Getenv("CARTESIA_API_KEY"))
-
-// Supports interactive streaming mode for low latency
-```
-
-## Step 2: Configure synthesis
-
-```go
-config := tts.SynthesisConfig{
-    Voice:    "nova",      // Voice ID
-    Format:   tts.FormatMP3, // Output format
-    Speed:    1.0,         // Speech rate (0.25-4.0)
-    Pitch:    0,           // Pitch adjustment (-20 to 20)
-    Language: "en-US",     // Language code
-    Model:    "tts-1-hd",  // Model (provider-specific)
-}
-```
-
-### Available formats
-
-| Format | Constant | Use Case |
-|--------|----------|----------|
-| MP3 | `tts.FormatMP3` | Most compatible |
-| Opus | `tts.FormatOpus` | Best for streaming |
-| AAC | `tts.FormatAAC` | Apple devices |
-| FLAC | `tts.FormatFLAC` | Lossless quality |
-| PCM | `tts.FormatPCM16` | Raw audio processing |
-| WAV | `tts.FormatWAV` | PCM with header |
-
-## Step 3: Synthesize speech
-
-### Single-shot synthesis
-
-```go
-ctx := context.Background()
-
-config := tts.SynthesisConfig{
-    Voice:  "alloy",
-    Format: tts.FormatMP3,
-    Speed:  1.0,
-}
-
-// Synthesize text to audio
-reader, err := ttsService.Synthesize(ctx, "Hello, how can I help you?", config)
-if err != nil {
-    log.Fatal(err)
-}
-defer reader.Close()
-
-// Read audio data
-audioData, _ := io.ReadAll(reader)
-// Play or save audioData...
-```
-
-`audioData` holds the complete MP3 for the sentence. Writing it to a `.mp3` file with `os.WriteFile` gives a clip we can play.
-
-### Streaming synthesis
-
-For lower latency, use streaming synthesis (if supported):
-
-```go
-// Check if provider supports streaming (Cartesia does)
-var ttsService tts.Service = tts.NewCartesia(os.Getenv("CARTESIA_API_KEY"))
-streamingService, ok := ttsService.(tts.StreamingService)
-if !ok {
-    log.Fatal("Provider doesn't support streaming")
-}
-
-// Start streaming synthesis
-chunks, err := streamingService.SynthesizeStream(ctx, "Hello, how can I help you?", config)
-if err != nil {
-    log.Fatal(err)
-}
-
-// Process chunks as they arrive
-for chunk := range chunks {
-    if chunk.Error != nil {
-        log.Printf("Error: %v", chunk.Error)
-        break
-    }
-    playAudioChunk(chunk.Data)
-    if chunk.Final {
-        break
-    }
-}
-```
-
-Audio chunks arrive and play while the rest of the sentence is still being synthesized; the loop ends on the final chunk.
-
-## Step 4: Integrate with conversations
-
-### VAD mode with TTS
-
-```go
-sttService := stt.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
-ttsService := tts.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
-
-// Configure VAD mode with custom TTS settings
-vadConfig := &sdk.VADModeConfig{
-    Voice: "nova",  // Use Nova voice
-    Speed: 1.1,     // Slightly faster
-}
-
-conv, _ := sdk.OpenDuplex("./assistant.pack.json", "voice",
-    sdk.WithVADMode(sttService, ttsService, vadConfig),
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 )
-```
 
-### Manual TTS in text mode
+func main() {
+	speaker := tts.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
 
-```go
-// Open text conversation
-conv, _ := sdk.Open("./assistant.pack.json", "chat")
+	cfg := tts.SynthesisConfig{
+		Voice:  "alloy",
+		Format: tts.FormatMP3,
+		Speed:  1.0,
+	}
 
-// Send message and get response
-resp, _ := conv.Send(ctx, "Tell me a joke")
+	audio, err := speaker.Synthesize(context.Background(), "Hello, how can I help you?", cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer audio.Close()
 
-// Synthesize the response
-ttsService := tts.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
-reader, _ := ttsService.Synthesize(ctx, resp.Text(), tts.DefaultSynthesisConfig())
-defer reader.Close()
-
-// Play the audio
-audioData, _ := io.ReadAll(reader)
-playAudio(audioData)
-```
-
-The model's joke plays aloud.
-
-## Step 5: Choose a voice
-
-### Listing available voices
-
-```go
-voices := ttsService.SupportedVoices()
-for _, voice := range voices {
-    fmt.Printf("%s: %s (%s, %s)\n",
-        voice.ID,
-        voice.Name,
-        voice.Language,
-        voice.Gender,
-    )
+	mp3, err := io.ReadAll(audio)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := os.WriteFile("greeting.mp3", mp3, 0o644); err != nil {
+		log.Fatal(err)
+	}
 }
 ```
 
-### Voice characteristics (OpenAI)
+`tts.NewOpenAI` makes no network call. The request goes out when `Synthesize` runs, and the returned reader streams the audio.
 
-| Voice | Character |
-|-------|-----------|
-| alloy | Balanced, versatile |
-| echo | Clear male voice |
-| fable | Expressive, British |
-| onyx | Deep, authoritative |
-| nova | Warm, friendly |
-| shimmer | Soft, calm |
+Run it and play the file:
 
-Listing the voices prints one line per voice with its ID, name, language and gender.
+```bash
+go run ./speak
+ffplay -autoexit greeting.mp3
+```
 
-## Step 6: Handle errors
+`greeting.mp3` holds the sentence, spoken in the `alloy` voice.
+
+## Step 2: List the voices
+
+Create `voices/main.go`:
 
 ```go
-reader, err := ttsService.Synthesize(ctx, text, config)
-if err != nil {
-    switch {
-    case errors.Is(err, tts.ErrInvalidVoice):
-        log.Printf("Voice '%s' not supported", config.Voice)
-    case errors.Is(err, tts.ErrRateLimited):
-        log.Printf("Rate limited, retrying...")
-        time.Sleep(time.Second)
-        // Retry...
-    case errors.Is(err, tts.ErrQuotaExceeded):
-        log.Printf("Quota exceeded")
-    default:
-        log.Printf("Synthesis failed: %v", err)
-    }
-    return
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
+)
+
+func main() {
+	speaker := tts.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
+
+	for _, voice := range speaker.SupportedVoices() {
+		fmt.Printf("%s: %s (%s, %s)\n", voice.ID, voice.Name, voice.Language, voice.Gender)
+	}
 }
 ```
 
-An unsupported voice now logs `Voice '...' not supported` instead of a generic failure.
+Run it:
 
-## Step 7: Cache synthesized audio
+```bash
+go run ./voices
+```
 
-For repeated phrases, we cache the synthesized audio:
+The program prints the six OpenAI voices:
+
+```text
+alloy: Alloy (en, neutral)
+echo: Echo (en, male)
+fable: Fable (en, female)
+onyx: Onyx (en, male)
+nova: Nova (en, female)
+shimmer: Shimmer (en, female)
+```
+
+## Step 3: Change the voice, speed and model
+
+In `speak/main.go`, change the config to use the `nova` voice, a slightly faster rate and the higher-quality model:
 
 ```go
-var cache = make(map[string][]byte)
+	cfg := tts.SynthesisConfig{
+		Voice:  "nova",
+		Format: tts.FormatMP3,
+		Speed:  1.1,
+		Model:  tts.ModelTTS1HD,
+	}
+```
 
-func synthesizeWithCache(text string, config tts.SynthesisConfig) ([]byte, error) {
-    key := text + config.Voice + config.Format.Name
-    if cached, ok := cache[key]; ok {
-        return cached, nil
-    }
+Run it and play the file again:
 
-    reader, err := ttsService.Synthesize(ctx, text, config)
-    if err != nil {
-        return nil, err
-    }
-    defer reader.Close()
+```bash
+go run ./speak
+ffplay -autoexit greeting.mp3
+```
 
-    data, err := io.ReadAll(reader)
-    if err != nil {
-        return nil, err
-    }
+The same sentence now plays in the `nova` voice, a little faster. Without `Model`, the service uses `tts-1`.
 
-    cache[key] = data
-    return data, nil
+## Step 4: Speak a model's reply
+
+Create `reply/main.go`. It opens a text conversation on the Tutorial 7 pack, sends a message, and synthesizes the reply:
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"log"
+	"os"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
+)
+
+func main() {
+	ctx := context.Background()
+
+	conv, err := sdk.Open("./voice-assistant.pack.json", "assistant")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conv.Close()
+
+	conv.SetVar("user_name", "Alice")
+
+	resp, err := conv.Send(ctx, "Tell me a joke")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(resp.Text())
+
+	speaker := tts.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
+	audio, err := speaker.Synthesize(ctx, resp.Text(), tts.SynthesisConfig{Voice: "nova", Format: tts.FormatMP3})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer audio.Close()
+
+	mp3, err := io.ReadAll(audio)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := os.WriteFile("joke.mp3", mp3, 0o644); err != nil {
+		log.Fatal(err)
+	}
 }
 ```
 
-The second call with the same text, voice and format returns the cached bytes without a request to the provider.
+Run it and play the joke:
 
-### Pre-synthesis
+```bash
+go run ./reply
+ffplay -autoexit joke.mp3
+```
 
-For common responses, we synthesize in advance:
+The program prints the joke, which differs from run to run, and `joke.mp3` speaks it in the `nova` voice.
+
+## Step 5: Give the voice session a voice
+
+A VAD voice session synthesizes its replies with the same TTS service. Its voice and speed come from `VADModeConfig`. In `voice/main.go` from Tutorial 7, set them after the sample rate:
 
 ```go
-greetings := []string{
-    "Hello! How can I help you today?",
-    "I'm sorry, I didn't catch that.",
-    "Is there anything else I can help with?",
-}
-
-for _, text := range greetings {
-    reader, _ := ttsService.Synthesize(ctx, text, config)
-    data, _ := io.ReadAll(reader)
-    reader.Close()
-    cache[text] = data
-}
+	vadCfg := sdk.DefaultVADModeConfig()
+	vadCfg.SampleRate = sampleRate
+	vadCfg.Voice = "nova"
+	vadCfg.Speed = 1.1
 ```
+
+Run the session and play its reply:
+
+```bash
+go run ./voice
+ffplay -autoexit -f s16le -ar 24000 reply.pcm
+```
+
+The reply to the spoken question now plays in the `nova` voice instead of `alloy`.
 
 ## Next steps
 
-- [Tutorial 9: Variable Providers](/sdk/tutorials/09-variable-providers/) - Dynamic context injection
-
-## See Also
-
-- [TTS API Reference](/runtime/reference/tts/) - Complete API documentation
-- [Audio Sessions Tutorial](/sdk/tutorials/07-audio-sessions/) - Full voice integration
+- [Configure text-to-speech](/sdk/how-to/voice/configure-tts/) covers the ElevenLabs and Cartesia services, streaming synthesis, formats, error handling and caching.
+- [Tutorial 9: Variable providers](/sdk/tutorials/09-variable-providers/) injects dynamic context into prompts.
+- The [`tts` package reference](/runtime/reference/tts/) lists every type and function.

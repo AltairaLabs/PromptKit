@@ -6,7 +6,7 @@ sidebar:
 ---
 
 `server/a2a` speaks the A2A protocol. Who owns the conversations behind it is
-your choice, and it is the only choice that matters when you set the server up.
+your choice.
 
 ## The two modes
 
@@ -41,6 +41,39 @@ is keyed on the `contextID` the **caller** sends. Two callers presenting the
 same one share a conversation — unless you scope tasks by caller with
 `WithTaskOwner` (below), which refuses a message into a conversation another
 caller opened.
+
+`sdk.NewA2AServer` and the `sdk.WithA2A*` options wrap this constructor and its
+options. The [server reference](/sdk/reference/a2a-server/) lists them all.
+
+### Keep tasks in your own store
+
+Tasks live in memory by default. To persist them, implement
+`a2aserver.TaskStore` (`sdk.A2ATaskStore`) and pass it in:
+
+```go
+srv := a2aserver.NewServer(opener,
+    a2aserver.WithCard(&card),
+    a2aserver.WithPort(9999),
+    a2aserver.WithTaskStore(myStore),
+)
+```
+
+### Mount the server on an existing HTTP server
+
+`Handler()` returns the server as an `http.Handler` serving the agent card,
+`POST /a2a`, `/healthz` and `/readyz`. Mount it at the root of your mux:
+
+```go
+srv := a2aserver.NewServer(opener, a2aserver.WithCard(&card))
+
+mux := http.NewServeMux()
+mux.Handle("/", srv.Handler())
+
+log.Fatal(http.ListenAndServe(":8080", mux))
+```
+
+The card is then at `http://localhost:8080/.well-known/agent-card.json`, and a
+card that declares no interfaces points callers at `/a2a` on that host.
 
 ## Stateless: `NewStatelessServer`
 
@@ -82,10 +115,6 @@ Your handler returns a channel and closes it when the turn is over:
 | `EventDone` | the turn is complete |
 | `Error` set | the turn failed |
 
-`EventPending` exists because a pause is invisible from outside. Without it a
-turn waiting on an approval would be reported `completed`, which is a control
-that did not run reporting clean.
-
 For `message/send`, the server drains your stream and builds the result: the
 text is the concatenation of your text events, and the parts are one per text
 run and one per media event. If you need a distinct part, emit a distinct event.
@@ -104,8 +133,7 @@ func (h *runtimeHandler) HandleToolResult(
 ```
 
 A stateless server whose handler does not implement it refuses tool-result
-messages rather than delivering them as a fresh turn — it is holding nothing to
-resume, and pretending otherwise would produce a turn with no history behind it.
+messages rather than delivering them as a fresh turn.
 
 ## Callers and replicas
 

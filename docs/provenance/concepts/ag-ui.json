@@ -13,62 +13,62 @@
    "claim": "AG-UI request/response: RunAgentInput POST, SSE stream of typed events",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:224-261"
+    "sdk/agui/adapter.go:257"
    ]
   },
   {
    "id": 3,
-   "claim": "RunAgentInput JSON shape and fields threadId, runId, messages, tools, context, state, forwardedProps",
+   "claim": "RunAgentInput fields threadId, runId, messages, tools, context, state, forwardedProps",
    "verdict": "true",
    "evidence": []
   },
   {
    "id": 4,
-   "claim": "tools are frontend tools: application executes",
+   "claim": "tools are frontend tools the application executes",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:132-141",
-    "sdk/agui/convert.go:225-250"
+    "sdk/agui/adapter.go:142",
+    "sdk/agui/convert.go:240"
    ]
   },
   {
    "id": 5,
-   "claim": "Example SSE events RUN_STARTED ... RUN_FINISHED",
+   "claim": "Example SSE events",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:339-376",
-    "sdk/agui/adapter.go:447-466"
+    "sdk/agui/adapter.go:339",
+    "sdk/agui/adapter.go:447"
    ]
   },
   {
    "id": 6,
-   "claim": "Adapter emits lifecycle/text/tool/state snapshot/step events; does not emit state deltas, message snapshots, reasoning, activity, subagent",
+   "claim": "Adapter emits lifecycle/text/tool/state snapshot/step events only",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:339-376",
-    "sdk/agui/adapter.go:447-483"
+    "sdk/agui/adapter.go:339",
+    "sdk/agui/adapter.go:447"
    ]
   },
   {
    "id": 7,
-   "claim": "RUN_FINISHED with interrupt outcome when stopped for outside input",
+   "claim": "RUN_FINISHED with interrupt outcome",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:379-403"
+    "sdk/agui/adapter.go:382"
    ]
   },
   {
    "id": 8,
-   "claim": "sdk/agui bridges SDK conversations; converters and EventAdapter",
+   "claim": "sdk/agui converters and EventAdapter",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:148-170",
-    "sdk/agui/convert.go:86-310"
+    "sdk/agui/adapter.go:164",
+    "sdk/agui/convert.go:86"
    ]
   },
   {
    "id": 9,
-   "claim": "sdk/agui targets AG-UI 1.0 via AG-UI community Go SDK",
+   "claim": "targets AG-UI 1.0 via community Go SDK",
    "verdict": "true",
    "evidence": [
     "sdk/agui/convert.go:1"
@@ -76,116 +76,101 @@
   },
   {
    "id": 10,
-   "claim": "EventAdapter runs one turn as one run; event mapping table",
+   "claim": "event mapping table",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:339-377",
-    "sdk/agui/adapter.go:406-483",
-    "sdk/agui/adapter.go:700-726"
+    "sdk/agui/adapter.go:339",
+    "sdk/agui/adapter.go:406"
    ]
   },
   {
    "id": 11,
-   "claim": "TOOL_CALL_ARGS emitted per call (published without the 'when it has arguments' condition)",
-   "verdict": "false",
+   "claim": "TOOL_CALL_ARGS only when the call has arguments",
+   "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:459-465"
+    "sdk/agui/adapter.go:447"
    ]
   },
   {
    "id": 12,
-   "claim": "Tool-then-answer turn yields two assistant messages in one run",
+   "claim": "tool-then-answer turn: two assistant messages, sequence block",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:406-419"
+    "sdk/agui/adapter.go:406"
    ]
   },
   {
    "id": 13,
-   "claim": "TOOL_CALL_RESULT never empty: error, media description, or JSON encoding (null when none)",
-   "verdict": "false",
+   "claim": "OpenWorkflow + NewWorkflowEventAdapter steps; WithWorkflowSteps(false)",
+   "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:485-521",
-    "sdk/agui/adapter.go:601-615"
+    "sdk/agui/adapter.go:126",
+    "sdk/agui/adapter.go:179",
+    "sdk/workflow.go:103"
    ]
   },
   {
    "id": 14,
-   "claim": "Frontend tool call ends the run unanswered; answered in next run's input; RunResume continues",
+   "claim": "TOOL_CALL_RESULT never empty",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:263-284",
-    "sdk/agui/convert.go:225-250"
+    "sdk/agui/adapter.go:485"
    ]
   },
   {
    "id": 15,
-   "claim": "OnToolAsync holds a call; interrupt outcome; ResolveTool/RejectTool then RunContinue reports the approved tool's result",
+   "claim": "frontend tool call ends run unanswered; tool message JSON; error set; RunResume; no echo",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:286-307",
-    "sdk/agui/adapter.go:379-403"
+    "sdk/agui/adapter.go:277",
+    "sdk/agui/convert.go:240"
    ]
   },
   {
    "id": 16,
-   "claim": "Adapter never drops events; waits for consumer; ctx cancel releases",
+   "claim": "approval hold interrupt outcome JSON; resume JSON; ResolveTool/RejectTool; RunContinue emits TOOL_CALL_RESULT",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:732-746"
+    "sdk/agui/adapter.go:299",
+    "sdk/agui/adapter.go:382",
+    "sdk/conversation_tools.go:171",
+    "sdk/conversation_tools.go:235",
+    "sdk/conversation_tools.go:305"
    ]
   },
   {
    "id": 17,
-   "claim": "Events buffer of 64; code that lets RunSend finish before reading blocks",
+   "claim": "input fields table",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:198",
-    "sdk/agui/adapter.go:20"
+    "sdk/agui/adapter.go:339",
+    "sdk/agui/convert.go:240",
+    "sdk/agui/convert.go:302"
    ]
   },
   {
    "id": 18,
-   "claim": "Adapter does not stream tokens; one TEXT_MESSAGE_CONTENT per message",
+   "claim": "never drops events; 64 buffer",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:447-458"
+    "sdk/agui/adapter.go:20",
+    "sdk/agui/adapter.go:728"
    ]
   },
   {
    "id": 19,
-   "claim": "RUN_FINISHED names no pending frontend calls",
+   "claim": "does not stream tokens; no pending calls on RUN_FINISHED; new ids; new input only",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:382-386"
+    "sdk/agui/adapter.go:382",
+    "sdk/agui/adapter.go:447",
+    "sdk/agui/convert.go:86"
    ]
   },
   {
    "id": 20,
-   "claim": "Converters mint a new message id each conversion",
-   "verdict": "true",
-   "evidence": [
-    "sdk/agui/convert.go:86-90"
-   ]
-  },
-  {
-   "id": 21,
-   "claim": "Only the new input is passed to the conversation; client-edited history not reflected",
-   "verdict": "true",
-   "evidence": [
-    "sdk/agui/convert.go:225-250"
-   ]
-  },
-  {
-   "id": 22,
-   "claim": "HttpAgent from @ag-ui/client example",
+   "claim": "@ag-ui/client HttpAgent example",
    "verdict": "unverified",
-   "evidence": []
-  },
-  {
-   "id": 23,
-   "claim": "Linked pages exist: sdk/reference/ag-ui, sdk/tutorials/11-ag-ui-integration, concepts/a2a",
-   "verdict": "true",
    "evidence": []
   }
  ]

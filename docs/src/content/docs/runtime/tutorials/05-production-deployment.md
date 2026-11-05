@@ -25,12 +25,7 @@ verified:
     - runtime/statestore/memory.go
     - runtime/types/message.go
 ---
-Build a chat API server that survives a provider outage, keeps conversation history, and reports its own cost.
-
-**Time**: 40 minutes
-**Level**: Advanced
-
-## What we build
+## What we will build
 
 In this tutorial we build an HTTP server with a `/chat` endpoint, `/health` and `/metrics` endpoints, guardrails on every reply, conversation history in a state store, and fallback from OpenAI to Claude.
 
@@ -368,7 +363,7 @@ curl http://localhost:8080/health
 curl http://localhost:8080/metrics
 ```
 
-The chat call returns the reply and its cost. The health call returns `{"status":"ok"}`. The metrics call reports one request served by `openai`:
+The chat call returns the reply and its cost. The health call returns `{"status":"ok"}`. The metrics call reports one request served by `openai`. The cost varies with the length of the reply:
 
 ```json
 {"errors":0,"provider_usage":{"openai":1},"requests":1,"total_cost_usd":0.000041}
@@ -378,7 +373,7 @@ We send a second message with the same `session_id`. The model sees the first ex
 
 ## Next steps
 
-- Continue to [Tutorial 6: Advanced Patterns](/runtime/tutorials/06-advanced-patterns/).
-- [Handle Errors](/runtime/how-to/pipeline/handle-errors/)
-- [Monitor Costs](/runtime/how-to/observability/monitor-costs/)
-- [Manage State](/runtime/how-to/state/manage-state/)
+- Continue to [Tutorial 6: Advanced patterns](/runtime/tutorials/06-advanced-patterns/).
+- [Handle errors](/runtime/how-to/pipeline/handle-errors/)
+- [Monitor costs](/runtime/how-to/observability/monitor-costs/)
+- [Manage state](/runtime/how-to/state/manage-state/)

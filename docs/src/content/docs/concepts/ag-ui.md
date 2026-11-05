@@ -8,6 +8,8 @@ verified:
   sources:
     - sdk/agui/adapter.go
     - sdk/agui/convert.go
+    - sdk/conversation_tools.go
+    - sdk/workflow.go
 ---
 
 How the AG-UI protocol bridges AI agents and frontend applications, enabling real-time streaming of agent activity to user interfaces.
@@ -173,17 +175,62 @@ The `EventAdapter` runs one conversation turn as one AG-UI run. When the turn ha
 | Turn held for tool approval | `RUN_FINISHED` with an `interrupt` outcome naming the held calls |
 | Error occurs | `RUN_ERROR` |
 
-A model that calls a tool and then answers produces two assistant messages in one turn; the run carries both, with the call and its result between them.
+A model that calls a tool and then answers produces two assistant messages in one turn; the run carries both, with the call and its result between them:
+
+```text
+RUN_STARTED
+TEXT_MESSAGE_START / TEXT_MESSAGE_CONTENT / TEXT_MESSAGE_END    "Let me look that up."
+TOOL_CALL_START / TOOL_CALL_ARGS / TOOL_CALL_END                lookup_order
+TOOL_CALL_RESULT                                                what lookup_order returned
+TEXT_MESSAGE_START / TEXT_MESSAGE_CONTENT / TEXT_MESSAGE_END    "Your order shipped yesterday."
+RUN_FINISHED
+```
+
+For a pack with a workflow, open it with `sdk.OpenWorkflow` and create the adapter with `NewWorkflowEventAdapter`. Each run then opens a step named after the workflow state it starts in and closes it before `RUN_FINISHED`; a turn that moves the workflow to another state finishes that step and starts one for the new state. `WithWorkflowSteps(false)` leaves the steps out.
 
 A `TOOL_CALL_RESULT` is never empty, because the AG-UI Go SDK rejects an event with empty content. A result with no text carries its error, a description of the media it holds (such as `[image/png image]`), or the JSON encoding of its value (`""` for an empty string).
 
 ### Frontend Tools
 
-The tools in `RunAgentInput.tools` belong to the application: the agent proposes a call, the application executes it. AG-UI has no channel for the application to answer while a run is in progress, so a run that calls a frontend tool ends with the call unanswered (no `TOOL_CALL_RESULT`), and the application answers it in the next run's input, as a tool message. `EventAdapter.RunResume` takes those answers and continues the turn.
+The tools in `RunAgentInput.tools` belong to the application: the agent proposes a call, the application executes it. AG-UI has no channel for the application to answer while a run is in progress, so a run that calls a frontend tool ends with the call unanswered (no `TOOL_CALL_RESULT`), and the application answers it in the next run's input, as a tool message per call appended to `messages`:
+
+```json
+{"id": "msg-4", "role": "tool", "toolCallId": "call-1", "content": "{\"city\":\"Paris\"}"}
+```
+
+A tool that failed is still answered, with `error` set. `EventAdapter.RunResume` takes those answers and continues the turn; the run that follows carries the model's reply, without echoing the answers back.
 
 ### Approval Holds
 
-A tool registered with `OnToolAsync` can hold a call for approval. The run then ends with `RUN_FINISHED` carrying an `interrupt` outcome whose interrupts name each held call. Once your application approves or rejects the calls (`ResolveTool` / `RejectTool`), `EventAdapter.RunContinue` continues the turn and reports the approved tool's result.
+A tool registered with `OnToolAsync` can hold a call for approval. The run then ends with `RUN_FINISHED` carrying an `interrupt` outcome, with one interrupt per held call:
+
+```json
+{"type": "RUN_FINISHED", "threadId": "thread-1", "runId": "run-2",
+ "outcome": {"type": "interrupt", "interrupts": [
+   {"id": "call-2", "reason": "requires_approval", "message": "Approve the refund?", "toolCallId": "call-2"}]}}
+```
+
+The next run's input answers each interrupt in `resume`:
+
+```json
+"resume": [{"interruptId": "call-2", "status": "resolved"}]
+```
+
+Once your application approves or rejects the calls (`ResolveTool` / `RejectTool`), `EventAdapter.RunContinue` continues the turn: it reports the approved tool's result as a `TOOL_CALL_RESULT` and carries the model's reply.
+
+### What the Input's Fields Do
+
+The integration in the [tutorial](/sdk/tutorials/11-ag-ui-integration/) uses each `RunAgentInput` field as follows:
+
+| Field | What the integration does with it |
+|-------|------------------------------------|
+| `threadId`, `runId` | Select the conversation, and label `RUN_STARTED` / `RUN_FINISHED` |
+| `messages` | Only the new input is read: the user's new message, or the tool messages answering pending calls. The conversation keeps the rest of the history itself, so history a client edits or replaces is not reflected |
+| `tools` | Marked as client tools when the pack's prompt declares a tool of the same name |
+| `resume` | Approves or rejects the held calls before `RunContinue` |
+| `context` | Not passed to the model. If the prompt template declares a variable for it, set it with `conv.SetVar` before the run |
+| `state` | Not read. A `StateProvider` sends the server's state at the start of each run |
+| `forwardedProps` | Left to the application: read it in the handler |
 
 ### Delivery
 
@@ -203,20 +250,18 @@ Read `Events()` while the run is in progress, from another goroutine. Once its b
 
 ## Frontend Connectivity
 
-AG-UI frontends connect using standard HTTP. The official AG-UI client SDK provides `HttpAgent` for JavaScript/TypeScript applications:
+AG-UI frontends connect using standard HTTP. The AG-UI client SDK, `@ag-ui/client`, provides `HttpAgent` for JavaScript and TypeScript applications. The agent holds the thread ID and the message history; `runAgent` takes the per-run fields and a subscriber, and returns a promise that settles when the run ends:
 
-```typescript
+```javascript
 import { HttpAgent } from "@ag-ui/client";
 
-const agent = new HttpAgent({ url: "http://localhost:8080/ag-ui" });
+const agent = new HttpAgent({ url: "http://localhost:8080/ag-ui", threadId: "thread-1" });
+agent.addMessage({ id: "msg-1", role: "user", content: "Hello" });
 
-agent.runAgent({
-  threadId: "thread-1",
-  runId: "run-1",
-  messages: [{ id: "msg-1", role: "user", content: "Hello" }],
-  tools: [],
-  context: [],
-});
+await agent.runAgent(
+  { tools: [], context: [] },
+  { onTextMessageEndEvent: ({ textMessageBuffer }) => console.log(textMessageBuffer) },
+);
 ```
 
 Any HTTP client that can consume SSE streams works with AG-UI. The protocol is not tied to a frontend framework.
