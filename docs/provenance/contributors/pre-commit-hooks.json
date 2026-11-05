@@ -1,0 +1,94 @@
+{
+ "page": "docs/src/content/docs/contributors/pre-commit-hooks.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "p1",
+   "claim": "Hook runs lint, build and tests per changed module; reference drift, weak assertions and coverage once; no TypeScript lint step documented",
+   "verdict": "true",
+   "evidence": [
+    "scripts/pre-commit.sh:173",
+    "scripts/pre-commit.sh:223",
+    "scripts/pre-commit.sh:289",
+    "scripts/pre-commit.sh:349",
+    "scripts/pre-commit.sh:372",
+    "scripts/pre-commit.sh:572"
+   ]
+  },
+  {
+   "id": "p10",
+   "claim": "Sonar coverage exclusions in sonar-project.properties",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": "p11",
+   "claim": "make verify runs only lint-diff and test-fast against HEAD",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:262"
+   ]
+  },
+  {
+   "id": "p2",
+   "claim": "Hook exits early when no Go files staged",
+   "verdict": "true",
+   "evidence": [
+    "scripts/pre-commit.sh:72-75"
+   ]
+  },
+  {
+   "id": "p4",
+   "claim": "Coverage threshold 80 per file; exemptions list; examples/tests/benchmarks/tools skipped",
+   "verdict": "true",
+   "evidence": [
+    "scripts/pre-commit.sh:435-489"
+   ]
+  },
+  {
+   "id": "p5",
+   "claim": "install-hooks copies the sources into .git/hooks",
+   "verdict": "true",
+   "evidence": [
+    "scripts/install-hooks.sh:45",
+    "scripts/install-hooks.sh:59"
+   ]
+  },
+  {
+   "id": "p6",
+   "claim": "gosec is optional and runs via make lint-diff, not the hook",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:189-214",
+    "scripts/install-hooks.sh:78"
+   ]
+  },
+  {
+   "id": "p7",
+   "claim": "commit-msg skips merge commits",
+   "verdict": "true",
+   "evidence": [
+    "scripts/commit-msg.sh:28"
+   ]
+  },
+  {
+   "id": "p8",
+   "claim": "Old claim: security check in pre-commit hook via gosec; four checks; diff-cover; verify CI job; make test-coverage-diff; [skip-pre-commit] works",
+   "verdict": "false",
+   "evidence": [
+    "Makefile:262",
+    "scripts/pre-commit.sh:43-49",
+    "scripts/pre-commit.sh:59-635"
+   ]
+  },
+  {
+   "id": "p9",
+   "claim": "CI runs on pull requests touching files outside its ignored paths; job names and reference-drift workflow",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:3-25",
+    ".github/workflows/reference-drift.yml:1-20"
+   ]
+  }
+ ]
+}

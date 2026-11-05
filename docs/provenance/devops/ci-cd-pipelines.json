@@ -1,0 +1,348 @@
+{
+ "page": "docs/src/content/docs/devops/ci-cd-pipelines.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Eleven workflows exist in .github/workflows",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml",
+    ".github/workflows/cla.yml",
+    ".github/workflows/dependabot-gate.yml",
+    ".github/workflows/docs-checks.yml",
+    ".github/workflows/docs-freshness.yml",
+    ".github/workflows/docs.yml",
+    ".github/workflows/mcp-conformance.yml",
+    ".github/workflows/promptpack-schema-sync.yml",
+    ".github/workflows/reference-drift.yml",
+    ".github/workflows/release.yml",
+    ".github/workflows/schemas.yml"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "ci.yml triggers on push and pull_request to main with paths-ignore list",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:3-25"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "ci.yml jobs: test, sonarcloud, integration-tests, lint, build, weak-assertions, perf-regression",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:37-363"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "test job runs gotestsum -race with coverage over runtime, sdk, pkg, server/a2a and sdk/integration",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:69-78"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "test job merges profiles into coverage.out and rewrites paths",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:80-92"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "test job vets and tests nested example modules",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:101-134"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "test job publishes Test Results and uploads coverage-report for 5 days",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:136-157"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "integration-tests runs ./sdk/integration/... with -race -count=1",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:195-225"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "lint uses golangci-lint v2.14.0 across four modules, skipped for dependabot",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:227-289"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "sonarcloud needs test and lint, skipped for dependabot, uses SONAR_TOKEN",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:159-193"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "build runs make build and four guard scripts",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:291-326"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "weak-assertions runs on pull requests only against the base sha",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:328-361",
+    "scripts/check-weak-assertions.sh"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "perf-regression builds base revision on the same runner and interleaves runs",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:363-411",
+    "scripts/perf-interleave.sh:1-80"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "fails when head median under 85% of base or under 600 rps; fallback floor 1300",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:420-423",
+    "scripts/perf-compare.sh:1-48",
+    "scripts/perf-interleave.sh:5-27"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "500 concurrent clients and 5000 requests, 2 rounds",
+   "verdict": "true",
+   "evidence": [
+    "scripts/perf-interleave.sh:22",
+    "scripts/perf-run.sh:20-21"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "RSS ceiling 512 MB, CPU ceiling 150% (plain), 175% (event store), floor 1100 with event store",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:425-441",
+    ".github/workflows/ci.yml:451-498"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "event-store run fails on lost events, <90% started, >=2000 goroutines",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:461-484"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "dependabot-gate job is named SonarCloud Analysis and runs when branch starts with dependabot/",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/dependabot-gate.yml:1-16"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "cla.yml CLAAssistant stores signatures in AltairaLabs/cla-signatures, allowlists bots, recheck comment",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/cla.yml:1-33"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "docs.yml triggers: release published, pull_request on paths, workflow_dispatch",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/docs.yml:3-23"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "docs.yml build steps (node 22, go, gomarkdoc, D2, docs-install, mermaid, docs-build, link checks, upload)",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/docs.yml:31-131"
+   ]
+  },
+  {
+   "id": 22,
+   "claim": "deploy runs unless pull request; pages concurrency group does not cancel",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/docs.yml:133-148",
+    ".github/workflows/docs.yml:24-28"
+   ]
+  },
+  {
+   "id": 23,
+   "claim": "docs-checks runs docs script tests, voice check, stale report on every PR",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/docs-checks.yml:12-69"
+   ]
+  },
+  {
+   "id": 24,
+   "claim": "docs-freshness weekly Monday 07:00 UTC, issue label docs-freshness",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/docs-freshness.yml:7-60"
+   ]
+  },
+  {
+   "id": 25,
+   "claim": "reference-drift runs make docs-reference-check and docs-sdk-reference-check",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/reference-drift.yml:40-60"
+   ]
+  },
+  {
+   "id": 26,
+   "claim": "schemas.yml jobs and commands; promptpack check only on push/PR",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/schemas.yml:15-90"
+   ]
+  },
+  {
+   "id": 27,
+   "claim": "promptpack-schema-sync opens chore/promptpack-schema-v<version> PR and never merges",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/promptpack-schema-sync.yml:28-186"
+   ]
+  },
+  {
+   "id": 28,
+   "claim": "mcp-conformance jobs spec-parity, mirror, official-suite and their commands",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/mcp-conformance.yml:48-85"
+   ]
+  },
+  {
+   "id": 29,
+   "claim": "release.yml inputs version, phase (full, libs-only, tools-only), skip_tests, ignore_previous_release_check",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/release.yml:3-26"
+   ]
+  },
+  {
+   "id": 30,
+   "claim": "validate: version format, newer than latest runtime tag, previous go.mod check, tests, dep skew, standalone, API compat",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/release.yml:34-232"
+   ]
+  },
+  {
+   "id": 31,
+   "claim": "tag-dependencies tags root and runtime from main, pkg from release/libs branch with replace dropped, verifies go proxy",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/release.yml:234-379"
+   ]
+  },
+  {
+   "id": 32,
+   "claim": "update-tools tags server/a2a and sdk from release/tools branch, drops replaces",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/release.yml:381-551"
+   ]
+  },
+  {
+   "id": 33,
+   "claim": "create-release draft release, SPDX SBOM, attestation",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/release.yml:553-653"
+   ]
+  },
+  {
+   "id": 34,
+   "claim": "verify-docs publishes release using HOMEBREW_TAP_TOKEN and waits for docs.yml run",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/release.yml:655-703"
+   ]
+  },
+  {
+   "id": 35,
+   "claim": "notify-downstream waits for Go proxy then dispatches promptkit-release to four adapter repos with DOWNSTREAM_DISPATCH_TOKEN",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/release.yml:705-785"
+   ]
+  },
+  {
+   "id": 36,
+   "claim": "summary runs always and prints go get commands",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/release.yml:787-832"
+   ]
+  },
+  {
+   "id": 37,
+   "claim": "secrets: SONAR_TOKEN, NODE_AUTH_TOKEN, PERSONAL_ACCESS_TOKEN, HOMEBREW_TAP_TOKEN, DOWNSTREAM_DISPATCH_TOKEN",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:193",
+    ".github/workflows/cla.yml:24-27",
+    ".github/workflows/docs.yml:97-102",
+    ".github/workflows/release.yml:664",
+    ".github/workflows/release.yml:759"
+   ]
+  },
+  {
+   "id": 38,
+   "claim": "scripts check-no-audio-device-leak imports purego for runtime/providers/base, pkg/config, sdk",
+   "verdict": "true",
+   "evidence": [
+    "scripts/check-no-audio-device-leak.sh:1-30"
+   ]
+  },
+  {
+   "id": 39,
+   "claim": "make lint checks golangci-lint version via check-lint-version.sh",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:165-188"
+   ]
+  },
+  {
+   "id": 40,
+   "claim": "Previously claimed: Jekyll build, Ruby 3.1, deploy on push to main, only-new-issues, Go 1.25.1, dorny v1.9.1",
+   "verdict": "false",
+   "evidence": [
+    ".github/workflows/ci.yml:45",
+    ".github/workflows/docs.yml:3-23"
+   ]
+  }
+ ]
+}

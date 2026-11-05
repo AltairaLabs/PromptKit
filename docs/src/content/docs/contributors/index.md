@@ -4,46 +4,41 @@ sidebar:
   order: 0
 ---
 
-Thank you for your interest in contributing to PromptKit! This section provides comprehensive guidelines and information for contributors to our open source project.
+This section holds the guidelines for contributing to PromptKit, the Go SDK and runtime libraries.
 
-## Getting Started
+## Start here
 
-- [Code of Conduct](/contributors/code-of-conduct/) - Community standards and expectations
-- [Contribution Guide](/contributors/contributing/) - How to contribute to the project
-- [Governance](/contributors/governance/) - Project structure and decision-making
-- [DevOps](/contributors/devops/) - CI/CD, releases, and infrastructure
+- [Code of Conduct](/contributors/code-of-conduct/): community standards
+- [Contribution Guide](/contributors/contributing/): sign-off, setup and the pull request process
+- [Pre-commit hooks](/contributors/pre-commit-hooks/): the checks that run on every commit
+- [Governance](/contributors/governance/): project structure and decision-making
+- [DevOps](/contributors/devops/): CI/CD, releases and branch protection
 
-## Quick Links
+## New contributors
 
-### For New Contributors
+1. Read the [Code of Conduct](/contributors/code-of-conduct/).
+2. Read the [Contribution Guide](/contributors/contributing/).
+3. Pick a [good first issue](https://github.com/AltairaLabs/PromptKit/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
+4. Ask questions in a GitHub issue.
 
-1. Read our [Code of Conduct](/contributors/code-of-conduct/)
-2. Review the [Contribution Guide](/contributors/contributing/)
-3. Check out [good first issues](https://github.com/AltairaLabs/PromptKit/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
-4. Join discussions on GitHub
+## Maintainers
 
-### For Maintainers
+- [DevOps](/contributors/devops/): CI/CD pipelines, releases, branch protection
+- [Governance](/contributors/governance/): project structure and responsibilities
 
-- [DevOps Documentation](/contributors/devops/) - CI/CD pipelines, releases, branch protection
-- [Governance Model](/contributors/governance/) - Project structure and responsibilities
+## Ways to contribute
 
-## Community
+- Code: bug fixes, features, optimizations
+- Documentation: guides, tutorials, API docs
+- Testing: writing tests, reporting bugs
+- Community: helping others, answering issues
+- Design: UX improvements, diagrams
 
-We welcome contributions from everyone! Whether you're fixing bugs, adding features, improving documentation, or helping others, your contributions are valued.
+## Questions
 
-### Ways to Contribute
-
-- **Code**: Bug fixes, features, optimizations
-- **Documentation**: Guides, tutorials, API docs
-- **Testing**: Writing tests, reporting bugs
-- **Community**: Helping others, discussions
-- **Design**: UX improvements, diagrams
-
-## Questions?
-
-- Open a [GitHub issue](https://github.com/AltairaLabs/PromptKit/issues)
-- Check existing [documentation](/)
-- Review closed issues and PRs
+- Open a [GitHub issue](https://github.com/AltairaLabs/PromptKit/issues).
+- Check the existing [documentation](/).
+- Review closed issues and pull requests.
 
 ## License
 

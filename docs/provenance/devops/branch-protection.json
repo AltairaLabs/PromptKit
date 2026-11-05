@@ -1,0 +1,97 @@
+{
+ "page": "docs/src/content/docs/devops/branch-protection.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Ruleset Protect Main active, targets default branch (verified live via gh api; repo evidence is the gate job comment)",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/dependabot-gate.yml:9-11"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "Rules: deletion, non_fast_forward, creation, pull_request (0 approvals), required_status_checks (verified live via gh api; repo evidence is the gate job comment)",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/dependabot-gate.yml:9-11"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Required checks: CLAAssistant, DCO, SonarCloud Analysis; not strict (verified live via gh api; repo evidence is the gate job comment)",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:159-161",
+    ".github/workflows/cla.yml:15-17",
+    ".github/workflows/dependabot-gate.yml:9-16"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "No classic branch protection and no tag ruleset (live gh api 404)",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/dependabot-gate.yml:9-11"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "One integration bypass actor, mode always (verified live via gh api; repo evidence is the gate job comment)",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/dependabot-gate.yml:9-11"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "docs-only PRs satisfy SonarCloud Analysis through skipped dependabot-gate job",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:3-25",
+    ".github/workflows/dependabot-gate.yml:9-16"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "DCO sign-off enforced by commit-msg hook scripts/commit-msg.sh",
+   "verdict": "true",
+   "evidence": [
+    "scripts/commit-msg.sh:1-40"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "CODEOWNERS paths all owned by @AltairaLabs/maintainers",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 9,
+   "claim": "release creates tags vX.Y.Z, runtime/, pkg/, sdk/, server/a2a/ with github-actions[bot]",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/release.yml:272-296",
+    ".github/workflows/release.yml:358-369",
+    ".github/workflows/release.yml:517-541"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "setup-branch-protection.sh requires test, lint, build, coverage checks, 1 review, signed commits, linear history",
+   "verdict": "true",
+   "evidence": [
+    "scripts/setup-branch-protection.sh:44-70"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "Removed claims: 1 approving review required, linear history, signed commits, tag protection, restrictions",
+   "verdict": "false",
+   "evidence": [
+    "scripts/setup-branch-protection.sh:44-70"
+   ]
+  }
+ ]
+}

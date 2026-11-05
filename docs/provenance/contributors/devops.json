@@ -1,0 +1,28 @@
+{
+ "page": "docs/src/content/docs/contributors/devops.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "d1",
+   "claim": "Release command is gh workflow run release.yml with version and phase=full; inputs are documented in ci-cd-pipelines",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/release.yml:3-26"
+   ]
+  },
+  {
+   "id": "d2",
+   "claim": "release.yml is the only supported release path",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": "d3",
+   "claim": "Workflows live in .github/workflows",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:1"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,150 @@
+{
+ "page": "docs/src/content/docs/devops/ci-cd-quickref.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "make verify = lint-diff + test-fast, what pre-commit runs",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:262"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "make test, test-race, build, coverage, lint targets exist",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:33-165"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "make lint runs go fmt, go vet, golangci-lint, gosec and message-pattern check",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:165-188"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "make lint-diff lints changed code only",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:189"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "make build / make test skip nested example modules; CI vets them",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:101-134",
+    "Makefile:33-51"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "make check-weak-assertions target",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:545"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "make docs-reference docs-sdk-reference regenerate pages",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:400-416"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "make packspec-check, module-dep-skew-check, modules-standalone-check, spec-version-check, promptpack-schema-check targets",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:268-346"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "make api-compat-check VERSION=vX.Y.Z",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:274"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "make docs-voice, docs-scripts-test, docs-install, docs-serve, docs-build targets",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:363-475"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "make sonar-quick = coverage + sonar-scan, needs SONAR_TOKEN",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:506-543"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "workflow_dispatch workflows: docs, docs-checks, docs-freshness, schemas, promptpack-schema-sync, mcp-conformance, release",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/docs-checks.yml:15",
+    ".github/workflows/docs-freshness.yml:9",
+    ".github/workflows/docs.yml:18",
+    ".github/workflows/mcp-conformance.yml:38",
+    ".github/workflows/promptpack-schema-sync.yml:30",
+    ".github/workflows/release.yml:3",
+    ".github/workflows/schemas.yml:17"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "docs.yml workflow_dispatch input reason",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/docs.yml:19-23"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "release.yml accepts phase libs-only/tools-only, skip_tests, ignore_previous_release_check",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/release.yml:5-26"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "coverage-report artifact name",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:145-148"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "Configuration files: .golangci.yml, sonar-project.properties, CODEOWNERS",
+   "verdict": "true",
+   "evidence": [
+    ".golangci.yml"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "Removed claims: make fmt, go work sync, release-checklist artifact, admin CI bypass, docs rebuild by editing docs/README.md",
+   "verdict": "false",
+   "evidence": [
+    ".github/workflows/docs.yml:3-23",
+    "Makefile:15-30"
+   ]
+  }
+ ]
+}

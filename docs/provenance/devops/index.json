@@ -1,0 +1,47 @@
+{
+ "page": "docs/src/content/docs/devops/index.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "PromptKit ships runtime, pkg, sdk, server/a2a Go modules; release.yml tags them and creates the GitHub release",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/release.yml:234-379",
+    ".github/workflows/release.yml:381-551",
+    ".github/workflows/release.yml:553-653"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "CLIs release from promptarena repository",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/release.yml:572-575",
+    ".github/workflows/release.yml:819-820"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "gh workflow run release.yml -f version=... -f phase=full",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/release.yml:3-26"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Pages listed exist: ci-cd-pipelines, ci-cd-quickref, ci-cd-diagrams, branch-protection, branch-protection-quickref",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 5,
+   "claim": "Removed claim: Documentation Pipeline is a GitHub Pages Jekyll deployment",
+   "verdict": "false",
+   "evidence": [
+    ".github/workflows/docs.yml:31-148"
+   ]
+  }
+ ]
+}

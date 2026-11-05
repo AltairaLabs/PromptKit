@@ -1,56 +1,32 @@
 ---
-title: DevOps Guide
-description: DevOps and release management documentation
+title: DevOps
+description: How PromptKit's CI/CD workflows, branch protection and releases work.
 sidebar:
   order: 0
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - .github/workflows/docs.yml
+    - .github/workflows/release.yml
 ---
-This directory contains operational and release management documentation for PromptKit maintainers.
+Operational documentation for people who maintain PromptKit or change its CI/CD. For general development, see the [contributors guide](/contributors/).
 
-## Contents
+## Pages
 
-### Repository Management
+| Page | Contents |
+|---|---|
+| [CI/CD pipelines](/devops/ci-cd-pipelines/) | Every GitHub Actions workflow: triggers, jobs, required secrets and the release process |
+| [CI/CD quick reference](/devops/ci-cd-quickref/) | Commands to run CI checks locally, watch runs and trigger workflows |
+| [CI/CD diagrams](/devops/ci-cd-diagrams/) | Mermaid diagrams of workflow triggers, job dependencies, required checks and the release flow |
+| [Branch protection](/devops/branch-protection/) | The ruleset that protects `main` and the checks it requires |
+| [Branch protection quick reference](/devops/branch-protection-quickref/) | What the ruleset means for a pull request and how to fix a blocked one |
 
-- **[branch-protection](/devops/branch-protection/)** - Complete branch protection rules and configuration guide
-- **[branch-protection-quickref](/devops/branch-protection-quickref/)** - Quick reference for working with protected branches
+## Releases
 
-### CI/CD & Pipelines
-
-- **[ci-cd-pipelines](/devops/ci-cd-pipelines/)** - Complete documentation of all GitHub Actions workflows
-  - CI Pipeline - Automated testing, linting, and quality checks
-  - Documentation Pipeline - GitHub Pages deployment
-- **[ci-cd-quickref](/devops/ci-cd-quickref/)** - Quick reference for common CI/CD commands and tasks
-- **[ci-cd-diagrams](/devops/ci-cd-diagrams/)** - Visual diagrams of pipeline architecture and flows
-
-### Release Management
-
-PromptKit ships libraries only (`runtime`, `pkg`, `sdk`). Releases are cut by
-the automated `release.yml` GitHub Actions workflow, which tags the library
-modules and publishes them to the Go module proxy. The Arena and PackC CLIs
-release from their own repository — see the
-[PromptArena docs](https://promptarena.altairalabs.ai/).
-
-### Workflows
-
-GitHub Actions workflows:
-
-- `.github/workflows/release.yml` - **Automated library release workflow**
-- `.github/workflows/ci.yml` - Continuous integration
-- `.github/workflows/docs.yml` - Documentation deployment
-
-## Quick Links
-
-### Releasing a New Version
+PromptKit ships Go library modules only: `runtime`, `pkg`, `sdk` and `server/a2a`. The `release.yml` workflow tags them and creates the GitHub release. The PromptArena and PackC CLIs, their binaries and their packages release from the [promptarena](https://github.com/AltairaLabs/promptarena) repository.
 
 ```bash
-# Trigger the automated library release workflow
-gh workflow run release.yml -f version=v1.0.0 -f phase=full
+gh workflow run release.yml -f version=v2.16.2 -f phase=full
 ```
 
-## For Maintainers
-
-This documentation is primarily for:
-- Repository maintainers preparing releases
-- Contributors working on CI/CD improvements
-- Anyone needing to understand the release workflow
-
-For general development documentation, see [contributors guide](/contributors/).
+[CI/CD pipelines](/devops/ci-cd-pipelines/#releases-releaseyml) lists the inputs, phases and jobs.

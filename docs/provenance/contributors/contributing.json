@@ -1,0 +1,149 @@
+{
+ "page": "docs/src/content/docs/contributors/contributing.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "c1",
+   "claim": "The commit-msg hook rejects a commit without a Signed-off-by trailer matching the author email",
+   "verdict": "true",
+   "evidence": [
+    "scripts/commit-msg.sh:56"
+   ]
+  },
+  {
+   "id": "c10",
+   "claim": "Hook requires 80% per-file coverage on changed non-test files",
+   "verdict": "true",
+   "evidence": [
+    "scripts/pre-commit.sh:435"
+   ]
+  },
+  {
+   "id": "c11",
+   "claim": "check-weak-assertions rejects tests asserting only NoError/Nil/NotNil",
+   "verdict": "true",
+   "evidence": [
+    "scripts/check-weak-assertions.sh:4"
+   ]
+  },
+  {
+   "id": "c12",
+   "claim": "Maintainers release via release.yml",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/release.yml:4"
+   ]
+  },
+  {
+   "id": "c13",
+   "claim": "CLA Assistant bot requires signing the CLA on first PR",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/cla.yml:19"
+   ]
+  },
+  {
+   "id": "c14",
+   "claim": "make coverage, make lint, make docs-reference, make docs-sdk-reference, make docs-voice exist",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:142",
+    "Makefile:165",
+    "Makefile:462"
+   ]
+  },
+  {
+   "id": "c15",
+   "claim": "Integration tests use the integration build tag",
+   "verdict": "true",
+   "evidence": [
+    "sdk/a2a_governance_live_integration_test.go:1"
+   ]
+  },
+  {
+   "id": "c16",
+   "claim": "make lint runs go vet, go fmt, golangci-lint, gosec and the message-pattern check",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:165-187"
+   ]
+  },
+  {
+   "id": "c17",
+   "claim": "The SDK entry points are Open, OpenDuplex and OpenWorkflow",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:132",
+    "sdk/sdk.go:84",
+    "sdk/workflow.go:103"
+   ]
+  },
+  {
+   "id": "c2",
+   "claim": "install-hooks.sh installs the pre-commit and commit-msg hooks",
+   "verdict": "true",
+   "evidence": [
+    "scripts/install-hooks.sh:45",
+    "scripts/install-hooks.sh:59"
+   ]
+  },
+  {
+   "id": "c3",
+   "claim": "make verify runs lint-diff (golangci-lint then gosec on changed modules) and test-fast (go test on changed modules); it skips the hook build, coverage, weak-assertion and drift steps and is not what CI runs",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:189-262",
+    "scripts/pre-commit.sh:171-420"
+   ]
+  },
+  {
+   "id": "c4",
+   "claim": "Go version is the one go.work declares",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": "c5",
+   "claim": "golangci-lint version is pinned in ci.yml and check-lint-version.sh refuses others",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:263",
+    "scripts/check-lint-version.sh:31"
+   ]
+  },
+  {
+   "id": "c6",
+   "claim": "No root go.mod; go.work lists modules; make targets iterate modules",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:35"
+   ]
+  },
+  {
+   "id": "c7",
+   "claim": "make install downloads module dependencies",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:15-31"
+   ]
+  },
+  {
+   "id": "c8",
+   "claim": "Twelve sdk/examples directories have their own go.mod (listed); others such as hello belong to the sdk module; make build does not build them",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:33-41"
+   ]
+  },
+  {
+   "id": "c9",
+   "claim": "CI runs test, lint, build, weak-assertions jobs",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:227",
+    ".github/workflows/ci.yml:291",
+    ".github/workflows/ci.yml:328"
+   ]
+  }
+ ]
+}

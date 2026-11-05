@@ -1,0 +1,79 @@
+{
+ "page": "docs/src/content/docs/devops/branch-protection-quickref.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Install hooks with ./scripts/install-hooks.sh",
+   "verdict": "true",
+   "evidence": [
+    "scripts/install-hooks.sh:1-20"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "make verify runs lint-diff and test-fast",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:262"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "required checks CLAAssistant, DCO, SonarCloud Analysis (live ruleset)",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/cla.yml:15-33",
+    ".github/workflows/dependabot-gate.yml:9-16"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "CLA sign comment text and recheck",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/cla.yml:17-33"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "sonarcloud job needs test and lint",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/ci.yml:159-165"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "git rebase --signoff and commit --amend -s fix DCO",
+   "verdict": "true",
+   "evidence": [
+    "scripts/commit-msg.sh:1-40"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "make lint runs go fmt and rewrites files",
+   "verdict": "true",
+   "evidence": [
+    "Makefile:165-188"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "tags created by release workflow",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/release.yml:272-296"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Removed claims: needs 1 approval, signed commits, status checks test/lint/build/coverage, Code owner review, conversation resolution, up-to-date branch",
+   "verdict": "false",
+   "evidence": [
+    "scripts/setup-branch-protection.sh:44-70"
+   ]
+  }
+ ]
+}
