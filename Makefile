@@ -367,7 +367,7 @@ docs-install: ## Install documentation dependencies
 		go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@v1.1.0; \
 	}
 	@echo "Installing Astro dependencies..."
-	@cd docs && npm install
+	@cd docs && npm ci
 	@echo "✅ Documentation dependencies installed"
 
 docs-api: ## Generate API documentation from Go code
