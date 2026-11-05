@@ -3,6 +3,15 @@ title: Retrieval Architecture
 description: Why retrieval has two shapes in an agent, what each costs, and why PromptKit ships interfaces for it rather than an implementation.
 sidebar:
   order: 6
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/memory/corpus/corpus.go
+    - runtime/memory/retriever.go
+    - runtime/memory/tools.go
+    - runtime/pipeline/stage/stages_memory.go
+    - sdk/internal/pipeline/builder.go
+    - sdk/options.go
 ---
 Why retrieval has two shapes in an agent, what each costs, and why PromptKit ships interfaces for it rather than an implementation.
 

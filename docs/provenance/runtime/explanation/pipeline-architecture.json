@@ -1,0 +1,220 @@
+{
+ "page": "docs/src/content/docs/runtime/explanation/pipeline-architecture.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "StreamElement fields (incl. Reasoning)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/element.go:77-110"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "Stage interface Name/Type/Process",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stage.go:49-63"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Stage types: 5 StageType values; no Observe type",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/stage.go:99-124"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "TemplateStage, RecordingStage and MessageBroadcastStage are StageTypeTransform",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_message_broadcast.go:94",
+    "runtime/pipeline/stage/stages_recording.go:125",
+    "runtime/pipeline/stage/stages_utilities.go:144"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Text-mode order incl recording_input after template, recording_output after provider",
+   "verdict": "false",
+   "evidence": [
+    "sdk/internal/pipeline/builder.go:458-533"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "VAD stage order audio_turn, stt, provider, tts_interruptible",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pipeline/builder_vad.go:93-123"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "Execute creates channels sized ChannelBufferSize, default 32",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/config.go:17",
+    "runtime/pipeline/stage/pipeline.go:630"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Shutdown(ctx) waits for in-flight executions; ErrShutdownTimeout after GracefulShutdownTimeout (10s)",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/config.go:31",
+    "runtime/pipeline/stage/pipeline.go:994-1019"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Execute returns ErrPipelineShuttingDown after shutdown",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:58-60"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Branch fork output copies to all downstream",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:339-346",
+    "runtime/pipeline/stage/pipeline_fanout_test.go:76-79"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "Build validates cycles, duplicates, connectivity",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/builder.go:185-231"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "Returning an error from Process stops the pipeline",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:136-165",
+    "runtime/pipeline/stage/pipeline.go:348-382"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "Pipeline events emitted per stage and pipeline",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:18-37",
+    "runtime/pipeline/stage/pipeline.go:765-796"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "RecordingStage re-captures history each turn (N copies)",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/stages_recording.go:256-258"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "RecordingStage event mapping message/audio/image/video/toolcall/error",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_recording.go:178-196"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "MessageBroadcastStage added when emitter configured; strips binary",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/message_created_data.go:30-39",
+    "sdk/internal/pipeline/builder.go:528-530"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "ProviderStage copies ProviderRequestMetadata each call",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:545",
+    "runtime/pipeline/stage/stages_provider.go:574-576"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "IncrementalSave merges metadata (only on full-save fallback)",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/stages_save.go:271-275",
+    "runtime/pipeline/stage/stages_save.go:67-79"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "Load stages copy ConversationID/UserID to TurnState",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_core.go:189-190"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "Latency targets table (<10ms, <50ms, ~1-2ms)",
+   "verdict": "dead",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "Priority scheduling in pipeline channels",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:630",
+    "runtime/pipeline/stage/stages_advanced.go:396"
+   ]
+  },
+  {
+   "id": 22,
+   "claim": "Element pooling available",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/element_pool.go:27-44"
+   ]
+  },
+  {
+   "id": 23,
+   "claim": "Voice chain snippet constructors and signatures",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:276",
+    "runtime/pipeline/stage/stages_speech.go:115",
+    "runtime/pipeline/stage/stages_speech.go:742",
+    "runtime/pipeline/stage/stages_speech.go:958"
+   ]
+  },
+  {
+   "id": 24,
+   "claim": "Builder methods Chain/Connect/Branch/Merge/AddStage",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/builder.go:54-121"
+   ]
+  },
+  {
+   "id": 25,
+   "claim": "RouterStage routes by returned names; MergeStage fans in",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_advanced.go:20-73"
+   ]
+  }
+ ]
+}

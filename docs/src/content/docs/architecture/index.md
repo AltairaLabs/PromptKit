@@ -3,6 +3,11 @@ title: Architecture
 description: How the PromptKit modules, pipeline, providers, tools and event system fit together
 sidebar:
   order: 0
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/events/bus.go
+    - runtime/pipeline/stage/pipeline.go
 ---
 These pages explain how PromptKit works internally: the components, the data flow between them, and the reasons for the main design choices.
 

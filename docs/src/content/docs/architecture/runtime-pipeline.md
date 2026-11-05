@@ -2,6 +2,21 @@
 title: Runtime Pipeline
 sidebar:
   order: 2
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/events/types.go
+    - runtime/hooks/hooks.go
+    - runtime/pipeline/stage/builder.go
+    - runtime/pipeline/stage/config.go
+    - runtime/pipeline/stage/element.go
+    - runtime/pipeline/stage/errors.go
+    - runtime/pipeline/stage/pipeline.go
+    - runtime/pipeline/stage/stage.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/stages_utilities.go
+    - sdk/internal/pipeline/builder.go
+    - sdk/internal/pipeline/builder_vad.go
 ---
 The runtime pipeline turns a user message into a model reply, and decides what happens when part of that fails. It is a streaming execution engine: a directed acyclic graph of stages that pass `StreamElement` values over channels, with each stage running in its own goroutine.
 
@@ -66,11 +81,6 @@ Constructors build the common shapes:
 ```go
 textElem := stage.NewTextElement("Hello")
 msgElem := stage.NewMessageElement(&types.Message{Role: "user", Content: "Hello"})
-audioElem := stage.NewAudioElement(&stage.AudioData{
-    Samples:    audioBytes,
-    SampleRate: 16000,
-    Format:     stage.AudioFormatPCM16,
-})
 errorElem := stage.NewErrorElement(err)
 ```
 
@@ -150,7 +160,6 @@ Every hook lives on one `hooks.Registry`, whether it came from a pack `validator
 
 - `AudioTurnStage` combines voice activity detection, turn boundaries, audio accumulation and interruption detection. `STTStage` transcribes audio elements. `TTSStage` and `TTSStageWithInterruption` synthesize speech, and the interruption variant supports barge-in. `AudioResampleStage` normalizes sample rates.
 - `DuplexProviderStage` holds one bidirectional session with a native audio model such as the Gemini Live API.
-- `ResponseVADStage`, `AudioPacingStage` and `FrameRateLimitStage` shape realtime output and input.
 
 ### Routing and utility stages
 
@@ -266,26 +275,7 @@ Stages react to the signal as follows:
 
 The caller receives the failure as the last element of the output channel, with the error in `Error`. `ExecuteSync` returns it as its error, together with the messages collected so far. `errors.As` finds the `*StageError`, and `errors.Is` reaches the cause. The pipeline reports `pipeline.failed` instead of `pipeline.completed`.
 
-A stage can also report a problem without failing the turn by sending `NewErrorElement` and carrying on. The consumer sees the element. `ExecuteSync` returns the last error element it saw as its error:
-
-```go
-func (s *MyStage) Process(ctx context.Context, input <-chan stage.StreamElement, output chan<- stage.StreamElement) error {
-    defer close(output)
-
-    for elem := range input {
-        if err := s.process(elem); err != nil {
-            // Report and continue
-            output <- stage.NewErrorElement(err)
-            continue
-
-            // Or fail the turn
-            // return err
-        }
-        output <- elem
-    }
-    return nil
-}
-```
+A stage can also report a problem without failing the turn by sending `NewErrorElement` and carrying on. The consumer sees the element, and `ExecuteSync` returns the last error element it saw as its error.
 
 ## Custom stages
 

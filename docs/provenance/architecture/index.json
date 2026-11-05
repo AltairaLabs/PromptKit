@@ -1,0 +1,15 @@
+{
+ "page": "docs/src/content/docs/architecture/index.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "c1",
+   "claim": "Sibling pages system-overview, runtime-pipeline, runtime-events, runtime-providers, runtime-tools-mcp exist",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/bus.go",
+    "runtime/pipeline/stage/pipeline.go"
+   ]
+  }
+ ]
+}

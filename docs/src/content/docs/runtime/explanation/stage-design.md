@@ -1,17 +1,39 @@
 ---
 title: Stage Design
+description: Why the runtime builds pipelines from composable streaming stages, and how stage types, ordering and hooks fit together.
 sidebar:
   order: 3
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/evals/handlers/content_excludes.go
+    - runtime/evals/handlers/register.go
+    - runtime/hooks/hooks.go
+    - runtime/pipeline/stage/builder.go
+    - runtime/pipeline/stage/config.go
+    - runtime/pipeline/stage/element.go
+    - runtime/pipeline/stage/pipeline.go
+    - runtime/pipeline/stage/stage.go
+    - runtime/pipeline/stage/stages_advanced.go
+    - runtime/pipeline/stage/stages_core.go
+    - runtime/pipeline/stage/stages_duplex_provider_session.go
+    - runtime/pipeline/stage/stages_message_broadcast.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/stages_recording.go
+    - runtime/pipeline/stage/stages_save.go
+    - runtime/pipeline/stage/stages_speech.go
+    - runtime/pipeline/stage/stages_tts.go
+    - runtime/pipeline/stage/stages_utilities.go
+    - runtime/pipeline/stage/structured_output_mode.go
+    - sdk/options.go
+    - sdk/sdk.go
 ---
-Understanding Runtime's composable stage architecture.
 
-## Overview
+Every component that processes streaming data in the runtime is a stage. This page explains why, how stages compose, and which trade-offs the design makes.
 
-Stages are the core abstraction in Runtime. Every component that processes streaming data is a stage.
+## What a stage is
 
-## Core Concept
-
-A stage transforms streaming elements:
+A stage reads `StreamElement` values from an input channel, writes to an output channel, and closes the output when it finishes:
 
 ```go
 type Stage interface {
@@ -21,7 +43,7 @@ type Stage interface {
 }
 ```
 
-Stages connect via channels to form pipelines:
+The pipeline connects stages with channels and runs each stage in its own goroutine.
 
 ```mermaid
 flowchart LR
@@ -29,59 +51,26 @@ flowchart LR
     B -->|channel| C[Stage C]
 ```
 
-Each stage runs in its own goroutine, enabling concurrent processing.
+A `StreamElement` carries one content type (text, audio, video, image, a complete message, a tool call) plus metadata and control signals such as `EndOfStream`, `EndOfTurn` and `Interrupt`.
 
-## Why Stages?
+## Why stages
 
-### Problem: Cross-Cutting Concerns
-
-Applications need many features:
-
-- State management
-- Prompt assembly
-- Validation
-- LLM execution
-- Speech-to-text
-- Text-to-speech
-- Metrics
-- Error handling
-
-Without stages, code becomes tangled:
+An application needs state loading, prompt assembly, validation, an LLM call, speech conversion, metrics and error handling. Written as one function, these concerns tangle and the function cannot stream:
 
 ```go
-// Bad: Everything in one function
 func execute(audio []byte) []byte {
-    // VAD detection
     if !detectSpeech(audio) {
         return nil
     }
-
-    // Transcribe
     text := transcribe(audio)
-
-    // Load state
     history := loadFromRedis(sessionID)
-
-    // Call LLM
     response := openai.Complete(text, history)
-
-    // Save state
     saveToRedis(sessionID, response)
-
-    // Generate speech
     return synthesize(response)
 }
 ```
 
-**Problems**:
-- Hard to test individual components
-- Can't reuse logic
-- No streaming support
-- Difficult to add features
-
-### Solution: Stage Pipeline
-
-With stages, concerns are separate and stream-capable:
+Each step waits for the previous one to finish, none can be tested alone, and none can be reused. As stages, each concern is a unit that you test alone and the builder wires together:
 
 ```go
 audioTurn, err := stage.NewAudioTurnStage(vadConfig)
@@ -101,113 +90,72 @@ pipeline, err := stage.NewPipelineBuilder().
     Build()
 ```
 
-Each stage focuses on one thing, and data streams through.
+## Design principles
 
-## Design Principles
+### Single responsibility
 
-### 1. Single Responsibility
+`StateStoreLoadStage` loads history. `PromptAssemblyStage` assembles the prompt. `ProviderStage` calls the LLM and runs the tool loop. `IncrementalSaveStage` persists new messages.
 
-Each stage does one thing:
+Validation is not a stage. It runs as `ProviderHook` and `ToolHook` chains that `ProviderStage` invokes (`BeforeCall`, `AfterCall`, and `ChunkInterceptor` for streaming). Pack-declared validators, guardrails added with `WithGuardrail`, and hooks added with `WithProviderHook` or `WithToolHook` all register on one `hooks.Registry`. A hook sees the request, the response and each streamed chunk, which a separate stage placed before or after the provider could not.
 
-**StateStoreLoadStage**: Only loads conversation history
-**PromptAssemblyStage**: Only assembles prompts
-**ProviderStage**: Only calls the LLM and runs the tool loop
+`ProviderStage` also decides how a response schema applies to a tool loop. When a turn has tools and a `ResponseFormat`, the stage withholds the schema from the tool-calling rounds and re-asks the closing answer under it, because a schema sent on every round suppresses tool calls. The turn costs one extra provider call. `WithStructuredOutputMode("every_round")` restores per-round schemas; it is an escape hatch, and it is the configuration that loses tool calls.
 
-:::note[Structured output and the tool loop]
-When a turn combines tools with a `ResponseFormat`, the schema is **withheld
-from the tool-calling rounds** and the final answer is re-asked under it. A
-schema applied to every round competes with tool calling and suppresses it —
-measured bimodally: the model either runs the whole loop or skips it entirely
-and answers the schema with no work behind it.
+### Composability
 
-This costs **one extra provider call** per such turn, since the closing answer
-is generated twice — once unconstrained and discarded, once under the schema.
-Prompt caching covers the input side. Turns without tools are unaffected and
-keep their single constrained call.
-
-`WithStructuredOutputMode("every_round")` restores the old behavior. It is an
-escape hatch, not a supported alternative — it is the configuration that loses
-tool calls.
-:::
-**IncrementalSaveStage**: Only persists new messages
-
-Validation is not a stage. It runs as `ProviderHook` / `ToolHook` chains invoked from inside `ProviderStage` (`BeforeCall`, `AfterCall`, `ChunkInterceptor` for streaming). Three authoring sources (pack-declared validators, eval-handler-as-guardrail, and user-registered `WithProviderHook` / `WithToolHook` calls) all converge on a single `hooks.Registry`.
-
-### 2. Composability
-
-Stages combine easily:
-
-```go
-// Simple pipeline
-pipeline, err := stage.NewPipelineBuilder().
-    Chain(
-        stage.NewPromptAssemblyStage(registry, task, vars),
-        stage.NewProviderStage(provider, tools, policy, config),
-    ).
-    Build()
-
-// Add state management
-pipeline, err := stage.NewPipelineBuilder().
-    Chain(
-        stage.NewStateStoreLoadStage(stateConfig),  // Added
-        stage.NewPromptAssemblyStage(registry, task, vars),
-        stage.NewProviderStage(provider, tools, policy, config),
-        stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),  // Added
-    ).
-    Build()
-
-// Add validation — registered on hooks.Registry, invoked from inside ProviderStage
-hook, err := guardrails.NewGuardrailHook("banned_words", map[string]any{"words": []any{"secret"}})
-hookRegistry := hooks.NewRegistry(hooks.WithProviderHook(hook))
-// pass hookRegistry to stage.NewProviderStageWithHooks
-// (the same pipeline as above; validators run inside ProviderStage via the hook chain,
-// not as a separate stage)
-```
-
-### 3. Explicit Ordering
-
-Order matters. User controls it:
+Stages combine by listing them. Add state by adding two stages:
 
 ```go
 pipeline, err := stage.NewPipelineBuilder().
     Chain(
-        stage.NewStateStoreLoadStage(stateConfig),   // 1. Load history
-        stage.NewPromptAssemblyStage(registry, task, vars), // 2. Assemble prompt
-        stage.NewProviderStage(provider, tools, policy, config), // 3. Execute (hooks validate before/after)
-        stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),  // 4. Save state
+        stage.NewStateStoreLoadStage(stateConfig),
+        stage.NewPromptAssemblyStage(registry, task, vars),
+        stage.NewProviderStage(provider, tools, policy, config),
+        stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),
     ).
     Build()
 ```
 
-### 4. Streaming First
-
-Stages process elements as they flow, not in batches:
+Add validation by passing a hook registry to `NewProviderStageWithHooks`. The pipeline shape does not change:
 
 ```go
-func (s *MyStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
-    defer close(output)
-
-    for elem := range input {
-        // Process each element immediately
-        result := s.transform(elem)
-        output <- result
-    }
-    return nil
+hook, err := guardrails.NewGuardrailHook("banned_words", map[string]any{"patterns": []any{"secret"}})
+if err != nil {
+    return err
 }
+hookRegistry := hooks.NewRegistry(hooks.WithProviderHook(hook))
+providerStage := stage.NewProviderStageWithHooks(provider, tools, policy, config, nil, hookRegistry)
 ```
 
-## Stage Types
+### Explicit ordering
 
-### Transform Stage
+You choose the order, and order matters: a stage sees only what upstream stages emitted. `Build` rejects an empty pipeline, duplicate stage names, edges to unknown stages, cycles, and a stage with several upstreams that does not implement `MultiInputStage`.
 
-Transforms elements 1:1 or 1:N:
+### Streaming first
+
+Stages process elements as they arrive rather than in batches, so audio can reach the model while the user is still speaking and text can reach the speaker while the model is still generating.
+
+## Stage types
+
+`StageType` declares a stage's processing model:
+
+| Type | Model | Examples |
+|------|-------|----------|
+| `StageTypeTransform` | 1:1 or 1:N | `TemplateStage`, `STTStage` |
+| `StageTypeAccumulate` | N:1 | `AudioTurnStage`, `ContextBuilderStage` |
+| `StageTypeGenerate` | 0:N | `ProviderStage` |
+| `StageTypeSink` | N:0 | `IncrementalSaveStage` |
+| `StageTypeBidirectional` | full duplex | `DuplexProviderStage` |
+
+The type labels the stage in pipeline events and errors; it does not change how the pipeline runs the stage. A transform stage forwards elements as it reads them:
 
 ```go
 type UppercaseStage struct {
     stage.BaseStage
 }
 
-func (s *UppercaseStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
+func (s *UppercaseStage) Process(
+    ctx context.Context, input <-chan stage.StreamElement, output chan<- stage.StreamElement,
+) error {
     defer close(output)
 
     for elem := range input {
@@ -215,159 +163,8 @@ func (s *UppercaseStage) Process(ctx context.Context, input <-chan StreamElement
             upper := strings.ToUpper(*elem.Text)
             elem.Text = &upper
         }
-        output <- elem
-    }
-    return nil
-}
-```
-
-### Accumulate Stage
-
-Collects multiple elements into one:
-
-```go
-type MessageCollectorStage struct {
-    stage.BaseStage
-}
-
-func (s *MessageCollectorStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
-    defer close(output)
-
-    var messages []types.Message
-    for elem := range input {
-        if elem.Message != nil {
-            messages = append(messages, *elem.Message)
-        }
-    }
-
-    // Emit a single element with all messages joined
-    var joined []string
-    for _, m := range messages {
-        joined = append(joined, m.GetContent())
-    }
-    output <- stage.NewTextElement(strings.Join(joined, "\n"))
-    return nil
-}
-```
-
-### Generate Stage
-
-Produces multiple elements from one input:
-
-```go
-type TokenizerStage struct {
-    stage.BaseStage
-}
-
-func (s *TokenizerStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
-    defer close(output)
-
-    for elem := range input {
-        if elem.Text != nil {
-            // Split into tokens, emit each
-            tokens := strings.Fields(*elem.Text)
-            for _, token := range tokens {
-                t := token
-                output <- stage.StreamElement{Text: &t}
-            }
-        }
-    }
-    return nil
-}
-```
-
-### Sink Stage
-
-Terminal stage that consumes without producing:
-
-```go
-type LoggerStage struct {
-    stage.BaseStage
-    logger *log.Logger
-}
-
-func (s *LoggerStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
-    defer close(output)
-
-    for elem := range input {
-        s.logger.Printf("Element: %+v", elem)
-        // Don't emit anything
-    }
-    return nil
-}
-```
-
-## Built-In Stages
-
-### Core Stages
-
-| Stage | Purpose |
-|-------|---------|
-| `StateStoreLoadStage` | Load conversation history |
-| `IncrementalSaveStage` | Persist new messages (via `MessageAppender` if available, otherwise full save) |
-| `PromptAssemblyStage` | Assemble prompts from registry |
-| `TemplateStage` | Variable substitution |
-| `ProviderStage` | LLM execution with tool support; validation runs here as `ProviderHook` chains |
-| `MessageBroadcastStage` | Publish `message.created` on the EventBus as each complete message arrives (live route; needs only an emitter) |
-| `RecordingStage` | Write content-carrying events directly to an `EventStore` (fidelity route; synchronous, lossless, retains binary) |
-
-### Streaming Stages
-
-| Stage | Purpose |
-|-------|---------|
-| `AudioTurnStage` | VAD-based turn detection |
-| `STTStage` | Speech-to-text transcription |
-| `TTSStage` | Text-to-speech synthesis |
-| `TTSStageWithInterruption` | TTS with barge-in support |
-| `DuplexProviderStage` | Bidirectional WebSocket streaming |
-| `VADAccumulatorStage` | Audio buffering with VAD |
-
-### Advanced Stages
-
-| Stage | Purpose |
-|-------|---------|
-| `RouterStage` | Dynamic routing to multiple outputs |
-| `MergeStage` | Combine multiple inputs |
-| `MetricsStage` | Performance monitoring |
-| `TracingStage` | Distributed tracing |
-| `PriorityChannel` | Priority-based scheduling |
-
-### Utility Stages
-
-| Stage | Purpose |
-|-------|---------|
-| `DebugStage` | Pipeline debugging |
-| `VariableProviderStage` | Dynamic variable resolution |
-| `MediaExternalizerStage` | External media storage |
-| `ContextBuilderStage` | Token budget management |
-
-## Creating Custom Stages
-
-### Basic Pattern
-
-```go
-type MyStage struct {
-    stage.BaseStage
-    config MyConfig
-}
-
-func NewMyStage(config MyConfig) *MyStage {
-    return &MyStage{
-        BaseStage: stage.NewBaseStage("my_stage", stage.StageTypeTransform),
-        config:    config,
-    }
-}
-
-func (s *MyStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
-    defer close(output)  // Always close output
-
-    for elem := range input {
-        // Transform element
-        result := s.transform(elem)
-
-        // Send with cancellation check
         select {
-        case output <- result:
+        case output <- elem:
         case <-ctx.Done():
             return ctx.Err()
         }
@@ -376,164 +173,100 @@ func (s *MyStage) Process(ctx context.Context, input <-chan StreamElement, outpu
 }
 ```
 
-### With Configuration
+An accumulate stage reads until its input closes or a boundary arrives, then emits once. A generate stage emits many elements from one input, as a tokenizer or a streaming LLM does. A sink consumes elements and emits none, but still closes its output.
+
+## Built-in stages
+
+| Group | Stages |
+|-------|--------|
+| Core | `StateStoreLoadStage`, `IncrementalSaveStage`, `PromptAssemblyStage`, `TemplateStage`, `ProviderStage`, `MessageBroadcastStage`, `RecordingStage` |
+| Streaming and speech | `AudioTurnStage`, `STTStage`, `TTSStage`, `TTSStageWithInterruption`, `DuplexProviderStage` |
+| Routing and monitoring | `RouterStage`, `MergeStage`, `MetricsStage` |
+| Utility | `DebugStage`, `VariableProviderStage`, `MediaExternalizerStage`, `ContextBuilderStage` |
+
+`MessageBroadcastStage` publishes `message.created` on the event bus as each complete message arrives. `RecordingStage` writes content-carrying events directly to an `EventStore`. `IncrementalSaveStage` appends through `MessageAppender` when the store implements it and otherwise falls back to a full save through `BulkWriter`. The [pipeline reference](/runtime/reference/pipeline/) lists every stage and constructor.
+
+## Writing a custom stage
+
+Embed `stage.BaseStage` and name the stage. Close the output, honor `ctx.Done()` when sending, and return an error only for failures that should fail the turn:
 
 ```go
-type RateLimitConfig struct {
-    RequestsPerSecond int
-    BurstSize         int
-}
-
-type RateLimitStage struct {
+type MyStage struct {
     stage.BaseStage
-    limiter *rate.Limiter
 }
 
-func NewRateLimitStage(config RateLimitConfig) *RateLimitStage {
-    return &RateLimitStage{
-        BaseStage: stage.NewBaseStage("rate_limit", stage.StageTypeTransform),
-        limiter:   rate.NewLimiter(rate.Limit(config.RequestsPerSecond), config.BurstSize),
-    }
-}
-
-func (s *RateLimitStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
-    defer close(output)
-
-    for elem := range input {
-        if err := s.limiter.Wait(ctx); err != nil {
-            return err
-        }
-        output <- elem
-    }
-    return nil
+func NewMyStage() *MyStage {
+    return &MyStage{BaseStage: stage.NewBaseStage("my_stage", stage.StageTypeTransform)}
 }
 ```
 
-### Error Handling
+A stage reports a problem in one of two ways. It can emit an error element with `stage.NewErrorElement(err)` and keep reading, or return the error, which fails the turn:
 
 ```go
-func (s *MyStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
-    defer close(output)
-
-    for elem := range input {
-        result, err := s.process(elem)
-        if err != nil {
-            // Option 1: Send error element and continue
-            output <- stage.NewErrorElement(err)
-            continue
-
-            // Option 2: Return error to stop pipeline
-            // return err
-        }
-        output <- result
+for elem := range input {
+    result, err := s.process(elem)
+    if err != nil {
+        output <- stage.NewErrorElement(err)
+        continue
     }
-    return nil
+    output <- result
 }
 ```
 
-## Design Patterns
+## Branching, routing and merging
 
-### Pre-Processing
-
-Stages that prepare input:
-
-- **StateStoreLoadStage**: Load conversation history
-- **PromptAssemblyStage**: Build prompt from registry
-- **TemplateStage**: Substitute variables
-
-Input validation runs inside `ProviderStage` via `ProviderHook.BeforeCall`, not as a separate stage.
-
-### Post-Processing
-
-Stages that handle output:
-
-- **IncrementalSaveStage**: Persist new messages
-- **MetricsStage**: Record performance
-- **DebugStage**: Log for debugging
-
-Output validation runs inside `ProviderStage` via `ProviderHook.AfterCall` (and `ChunkInterceptor` for streaming), not as a separate stage.
-
-### Branching
-
-Split stream to multiple destinations:
+`Branch` connects one stage to several readers. The readers share one channel, and each element goes to whichever reader takes it. The element is not copied to every branch:
 
 ```go
 pipeline, err := stage.NewPipelineBuilder().
-    Chain(
-        stage.NewProviderStage(provider, tools, policy, config),
-    ).
+    Chain(stage.NewProviderStage(provider, tools, policy, config)).
+    Chain(ttsStage).
+    Chain(loggerStage).
     Branch("provider", "tts", "logger").
     Build()
 ```
 
-### Merging
+To send an element to named destinations, use `RouterStage`, which takes a function that returns the output names for each element. Returning both names copies the element to both. A pipeline that contains a `RouterStage` suits a single `Execute` call, such as a duplex session, not concurrent calls.
 
-Combine multiple streams:
+To combine streams, wire several upstream stages into a `MergeStage`:
 
 ```go
-mergeStage := stage.NewMergeStage("merge", len(inputChannels))
+mergeStage := stage.NewMergeStage("merge", 2)
 ```
 
-## Ordering Best Practices
+## Ordering
 
-### Recommended Order
+A typical request/response pipeline:
 
 ```go
 pipeline, err := stage.NewPipelineBuilder().
     Chain(
-        // 1. Load state first
         stage.NewStateStoreLoadStage(stateConfig),
-
-        // 2. Resolve variables
-        stage.NewVariableProviderStage(providers),
-
-        // 3. Assemble prompt
+        stage.NewVariableProviderStage(providers...),
         stage.NewPromptAssemblyStage(registry, task, vars),
-
-        // 4. Apply templates
         stage.NewTemplateStage(),
-
-        // 5. Execute LLM. Input/output validation runs here as ProviderHook chains
-        //    (BeforeCall / AfterCall / ChunkInterceptor), not as a separate stage.
         stage.NewProviderStage(provider, tools, policy, config),
-
-        // 6. Save state
         stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),
     ).
     Build()
 ```
 
-### Order Principles
+Load state first so later stages see history. Resolve variables before templates substitute them. Save last so the save sees everything the turn produced. Validation needs no slot because it runs inside `ProviderStage`.
 
-**State early**: Load history before prompt assembly
-**Variables before templates**: Resolve values, then substitute
-**Validation via hooks**: Pre/post-call validation runs inside `ProviderStage` via the hook registry, not as separate stages
-**Save last**: Persist after all processing complete
+## Performance
 
-## Performance Considerations
-
-### Channel Buffer Size
-
-Control latency vs. throughput:
+`PipelineConfig.ChannelBufferSize` sets the buffer between stages (default 32). Smaller buffers lower latency and apply backpressure sooner. Larger buffers raise throughput and use more memory:
 
 ```go
-config := stage.DefaultPipelineConfig().
-    WithChannelBufferSize(32)  // Larger buffer = higher throughput, more latency
+config := stage.DefaultPipelineConfig().WithChannelBufferSize(64)
+pipeline, err := stage.NewPipelineBuilderWithConfig(config).Chain(stages...).Build()
 ```
 
-### Concurrent Processing
+Stages run concurrently, so a slow stage does not block a fast one until the channel between them fills. A slow consumer throttles its producers through channel blocking.
 
-Stages run in parallel by default. Heavy stages don't block light ones.
+## Testing stages
 
-### Backpressure
-
-Slow consumers automatically throttle producers via channel blocking.
-
-## Testing Stages
-
-### Unit Testing
-
-Test stages in isolation:
+A stage is a function of channels, so you can drive it without a pipeline:
 
 ```go
 func TestUppercaseStage(t *testing.T) {
@@ -553,47 +286,18 @@ func TestUppercaseStage(t *testing.T) {
 }
 ```
 
-### Integration Testing
+To test composition, build a pipeline from the stages and read the channel that `pipeline.Execute(ctx, input)` returns.
 
-Test stages in pipeline:
+## Trade-offs
 
-```go
-func TestPipeline(t *testing.T) {
-    pipeline, err := stage.NewPipelineBuilder().
-        Chain(
-            NewUppercaseStage(),
-            NewTrimStage(),
-        ).
-        Build()
-    if err != nil {
-        t.Fatal(err)
-    }
+Channels and goroutines give concurrency and backpressure at the cost of a goroutine and a channel hop per stage. A hop is cheap next to an LLM call, and it is what lets audio and text stream.
 
-    text := "  hello  "
-    input := make(chan stage.StreamElement, 1)
-    input <- stage.StreamElement{Text: &text}
-    close(input)
+A fixed stage order makes data flow visible and leaves correct order to you. `Build` catches structural mistakes, not semantic ones such as saving before the provider runs.
 
-    output, _ := pipeline.Execute(context.Background(), input)
+Hooks keep validation inside the provider call at the price of one more concept beside stages. Validation stages around the provider could not see streamed chunks or abort a stream early.
 
-    result := <-output
-    assert.Equal(t, "HELLO", *result.Text)
-}
-```
+## Related
 
-## Summary
-
-Stage design provides:
-
-- **Single Responsibility**: Each stage has one job
-- **Composability**: Mix and match stages
-- **Streaming**: Process elements as they flow
-- **Concurrency**: Stages run in parallel
-- **Testability**: Test stages independently
-- **Extensibility**: Easy to add custom stages
-
-## Related Topics
-
-- [Pipeline Architecture](/runtime/explanation/pipeline-architecture/) - How stages form pipelines
-- [State Management](/runtime/explanation/state-management/) - StateStore stages
-- [Stage Reference](/runtime/reference/pipeline/) - Complete API
+- [Pipeline architecture](/runtime/explanation/pipeline-architecture/) covers how stages form pipelines.
+- [State management](/runtime/explanation/state-management/) covers the state store stages.
+- [Pipeline reference](/runtime/reference/pipeline/) lists the complete API.

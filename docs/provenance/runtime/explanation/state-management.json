@@ -1,0 +1,216 @@
+{
+ "page": "docs/src/content/docs/runtime/explanation/state-management.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "StateStoreConfig{Store, ConversationID, UserID} selects the conversation",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/types.go:175"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "StateStoreLoadStage loads history, emits before input; ErrNotFound is empty history; other errors fail",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_core.go:180",
+    "runtime/pipeline/stage/stages_core.go:253"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "IncrementalSaveStage persists only new messages",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_save.go:196"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Without a state store each Open creates private memory store",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:983",
+    "sdk/sdk.go:838"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "WithStateStore, WithConversationID options",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:943",
+    "sdk/options.go:992"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "Store interface Load, Fork; BulkWriter Save",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/interface.go:18",
+    "runtime/statestore/interface.go:35"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "MessageAppender/MetadataAccessor/SummaryAccessor/MessageReader optional interfaces",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/interface.go:106",
+    "runtime/statestore/interface.go:66",
+    "runtime/statestore/interface.go:79",
+    "runtime/statestore/interface.go:91"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Stages never take BulkWriter as a config field",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/interface.go:31"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "ConversationState fields",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/types.go:20"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Backend table: memory/file/redis durability and multi-process",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/file/store.go:10",
+    "runtime/statestore/memory.go:135",
+    "runtime/statestore/redis.go:29"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "Memory store cleanup is manual (no eviction)",
+   "verdict": "false",
+   "evidence": [
+    "runtime/statestore/memory.go:53",
+    "runtime/statestore/memory.go:61"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "Messages expire after TTL",
+   "verdict": "false",
+   "evidence": [
+    "runtime/statestore/memory.go:72",
+    "runtime/statestore/redis.go:41"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "NewRedisStore(client *redis.Client, WithTTL, WithPrefix); default TTL 24h, prefix promptkit",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/redis.go:54",
+    "runtime/statestore/redis.go:62",
+    "runtime/statestore/redis.go:77"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "Redis Cluster is eventually consistent; single-instance strongly consistent",
+   "verdict": "unverified",
+   "evidence": [
+    "runtime/statestore/redis.go:77"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "file.NewStore(Options{Root, FSync, TTL}); FSyncOff/OnSave(default)/OnAppend; state.json plus JSONL; no cross-process locking",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/file/store.go:33",
+    "runtime/statestore/file/store.go:45",
+    "runtime/statestore/file/store.go:73"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "Fork copies a conversation, original unchanged, ErrNotFound if missing",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/interface.go:22",
+    "runtime/statestore/memory.go:273"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "WithContextWindow(n) uses ContextAssemblyStage with MessageReader, falls back to full load",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_context.go:61",
+    "sdk/options.go:1703"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "ContextAssemblyStage keeps at most 200 messages by default, preserving leading system messages",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_context.go:18",
+    "runtime/pipeline/stage/stages_context.go:40"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "WithTokenBudget/WithTruncation truncate or summarize",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:689",
+    "sdk/options.go:1595",
+    "sdk/options.go:1616"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "MemoryStore implements Save/AppendMessages/Load; ErrNotFound on unknown ID; test snippet compiles",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/memory.go:236",
+    "runtime/statestore/memory.go:527"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "Typed MessageAppender appends race-safely",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/interface.go:31",
+    "runtime/statestore/redis.go:1026"
+   ]
+  },
+  {
+   "id": 22,
+   "claim": "Load times memory 1-10us, redis local 1-2ms, remote 5-10ms",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 23,
+   "claim": "Redis RDB/AOF durability advice",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 24,
+   "claim": "Original Optimistic-locking, LazyStore, CompressedStore, MockStore snippets",
+   "verdict": "false",
+   "evidence": [
+    "runtime/statestore/interface.go:18"
+   ]
+  }
+ ]
+}

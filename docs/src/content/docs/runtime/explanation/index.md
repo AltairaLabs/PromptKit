@@ -1,136 +1,102 @@
 ---
 title: Runtime Explanation
+description: Why the PromptKit runtime is built as a stage-based streaming pipeline, and how its parts fit together.
 sidebar:
   order: 0
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/pipeline/stage/pipeline.go
+    - runtime/providers/provider.go
+    - runtime/tools/registry.go
+    - runtime/tools/types.go
+    - sdk/internal/pipeline/builder.go
 ---
-Understanding the architecture and design of PromptKit Runtime.
-
-## Purpose
-
-These explanations help you understand *why* Runtime works the way it does. They cover architectural decisions, design patterns, and the reasoning behind Runtime's implementation.
+These pages explain why the runtime works the way it does: the architectural decisions, the design patterns, and the trade-offs behind them.
 
 ## Topics
 
 ### Architecture
-- [Pipeline Architecture](/runtime/explanation/pipeline-architecture/) - How the stage-based streaming pipeline works
-- [Provider System](/runtime/explanation/provider-system/) - LLM provider abstraction and implementation
+
+- [Pipeline Architecture](/runtime/explanation/pipeline-architecture/): how the stage-based streaming pipeline works
+- [Provider System](/runtime/explanation/provider-system/): the LLM provider abstraction
 
 ### Integration
-- [Stage Design](/runtime/explanation/stage-design/) - Composable stage patterns
-- [State Management](/runtime/explanation/state-management/) - Conversation history and persistence
-- [Media Storage](/runtime/explanation/media-storage/) - Deduplication and crash-safe writes for stored media
-- [Retrieval Architecture](/runtime/explanation/retrieval-architecture/) - Model-initiated vs pipeline-initiated retrieval, and what each costs
 
-## When to Read These
+- [Stage Design](/runtime/explanation/stage-design/): composable stage patterns
+- [State Management](/runtime/explanation/state-management/): conversation history and persistence
+- [Media Storage](/runtime/explanation/media-storage/): deduplication and atomic writes for stored media
+- [Retrieval Architecture](/runtime/explanation/retrieval-architecture/): model-initiated and pipeline-initiated retrieval, and what each costs
 
-**Read explanations when you want to:**
-- Understand architectural decisions
-- Learn design patterns used in Runtime
-- Extend Runtime with custom components
-- Troubleshoot complex issues
-- Contribute to Runtime development
+## When to read these
 
-**Don't read these when you need to:**
-- Quickly complete a specific task → See [How-To Guides](/runtime/how-to/index/)
-- Learn Runtime from scratch → See [Tutorials](/runtime/tutorials/index/)
-- Look up API details → See [Reference](/runtime/reference/index/)
+Read an explanation page to understand an architectural decision, to extend the runtime with custom components, to troubleshoot a complex issue, or to contribute.
 
-## Key Concepts
+To complete a task, see the [how-to guides](/runtime/how-to/index/). To learn the runtime from scratch, see the [tutorials](/runtime/tutorials/index/). To look up an API, see the [reference](/runtime/reference/index/).
 
-### Stage-Based Architecture
+## Key concepts
 
-Runtime uses a stage-based streaming architecture where each stage processes elements in its own goroutine. This provides:
+### Stage-based architecture
 
-- **True Streaming**: Elements flow through as they're produced
-- **Concurrency**: Stages run in parallel
-- **Composability**: Mix and match stages
-- **Backpressure**: Channel-based flow control
-- **Testability**: Test stages in isolation
+Each stage processes elements in its own goroutine, and channels connect the stages. The design gives you:
 
-### Provider Abstraction
+- Streaming: elements flow as they are produced.
+- Concurrency: stages run in parallel.
+- Composability: you assemble pipelines from stages.
+- Backpressure: a full channel blocks the producer.
+- Testability: you test a stage in isolation.
 
-Runtime abstracts LLM providers behind a common interface, enabling:
+### Provider abstraction
 
-- **Provider independence**: Switch providers without code changes
-- **Fallback strategies**: Try multiple providers automatically
-- **Consistent API**: Same code for OpenAI, Claude, Gemini
-- **Easy testing**: Mock providers for tests
+The runtime puts LLM providers behind a common interface, so the same pipeline code runs against OpenAI, Claude, Gemini and the other supported providers. A mock provider replaces the model in tests.
 
-### Tool System
+### Tool system
 
-Runtime implements function calling through:
+The runtime implements function calling through tool descriptors that define a tool and its schema, executors that run it, and MCP integration for external tool servers. The model decides when to call a tool.
 
-- **Tool descriptors**: Define tools with schemas
-- **Executors**: Pluggable tool execution backends
-- **MCP integration**: Connect external tool servers
-- **Automatic calling**: LLM decides when to use tools
+## Architecture overview
 
-## Architecture Overview
+The diagram shows the text-mode stages that the SDK assembles, in order.
 
-```d2
-direction: down
-
-input: Input
-
-pipeline: Pipeline {
-  statestore: StateStoreLoad Stage (load conversation)
-  prompt: PromptAssembly Stage (apply templates)
-  validation: Validation Stage (check content)
-  provider_stage: Provider Stage (call LLM) {
-    tools: Tool Registry (available tools)
-    provider: Provider (OpenAI/Claude/Gemini)
-  }
-}
-
-output: Output
-
-input -> pipeline -> output
+```mermaid
+flowchart TD
+    Input --> statestore_load
+    statestore_load --> variable_provider
+    variable_provider --> prompt_assembly
+    prompt_assembly --> template
+    template --> provider
+    provider --> incremental_save
+    incremental_save --> Output
+    provider -.-> Tools[tools.Registry]
+    provider -.-> LLM[providers.Provider]
 ```
 
-Each stage runs concurrently in its own goroutine, connected by channels.
+The provider stage calls the LLM and runs the tool loop.
 
-## Pipeline Modes
+## Pipeline modes
 
-Runtime supports three execution modes:
+### Text mode
 
-### Text Mode
-Standard HTTP-based LLM interactions for chat and completion.
+Request/response interactions with a text LLM over HTTP.
 
-### VAD Mode
-Voice Activity Detection for voice applications using text-based LLMs:
-Audio → STT → LLM → TTS
+### VAD mode
 
-### ASM Mode
-Audio Streaming Mode for native multimodal LLMs with real-time audio via WebSocket.
+Voice activity detection for voice applications that use a text LLM: audio, speech-to-text, LLM, text-to-speech.
 
-## Design Principles
+### ASM mode
 
-**1. Streaming First**
-- Channel-based data flow
-- Concurrent stage execution
-- True streaming (not simulated)
+Audio streaming mode for native multimodal LLMs, with real-time audio over a WebSocket.
 
-**2. Composability**
-- Stage pipeline is flexible
-- Mix components as needed
-- Build custom pipelines
+## Design principles
 
-**3. Extensibility**
-- Custom stages supported
-- Custom providers possible
-- Custom tools and executors
+- Streaming first: channel-based data flow and concurrent stages.
+- Composability: you build custom pipelines from stages.
+- Extensibility: custom stages, providers, tools and executors plug in through interfaces.
 
-**4. Production-Ready**
-- Error handling built-in
-- Resource cleanup automatic
-- Monitoring capabilities
+## Related documentation
 
-## Related Documentation
+- [Reference](/runtime/reference/index/): API documentation
+- [How-to guides](/runtime/how-to/index/): task-focused guides
+- [Tutorials](/runtime/tutorials/index/): step-by-step learning
 
-- **[Reference](/runtime/reference/index/)**: Complete API documentation
-- **[How-To Guides](/runtime/how-to/index/)**: Task-focused guides
-- **[Tutorials](/runtime/tutorials/index/)**: Step-by-step learning
-
-## Contributing
-
-Understanding these architectural concepts is valuable when contributing to Runtime. See the [Runtime codebase](https://github.com/AltairaLabs/PromptKit/tree/main/runtime) for implementation details.
+See the [runtime codebase](https://github.com/AltairaLabs/PromptKit/tree/main/runtime) for implementation details.

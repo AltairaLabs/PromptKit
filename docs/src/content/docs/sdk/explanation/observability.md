@@ -102,7 +102,7 @@ Audio samples and image data never travel on the bus, whether or not recording i
 This is about bytes, not content. Message text, an eval's structured value and a judge's reasoning all travel on the bus.
 :::
 
-Before adding an event, read [Adding a new event](/architecture/runtime-events/#adding-a-new-event).
+Before adding an event, read [Adding an event](/architecture/runtime-events/#adding-an-event).
 
 ## Evals
 
@@ -171,4 +171,3 @@ Splitting redaction from recording keeps one policy from degrading the other. Th
 - [How-to: export traces with OTLP](/runtime/how-to/observability/export-traces-otlp)
 - [Telemetry reference](/runtime/reference/telemetry)
 - [Runtime events architecture](/architecture/runtime-events/)
-- [Tutorial 6: Observability](/sdk/tutorials/06-media-storage/)

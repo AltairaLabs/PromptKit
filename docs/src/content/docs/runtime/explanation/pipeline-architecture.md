@@ -1,54 +1,64 @@
 ---
 title: Pipeline Architecture
+description: How the runtime's stage-based streaming pipeline executes LLM requests, and why it is built on goroutines and channels.
 sidebar:
   order: 1
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/events/message_created_data.go
+    - runtime/events/types.go
+    - runtime/pipeline/stage/builder.go
+    - runtime/pipeline/stage/config.go
+    - runtime/pipeline/stage/element.go
+    - runtime/pipeline/stage/element_pool.go
+    - runtime/pipeline/stage/pipeline.go
+    - runtime/pipeline/stage/pipeline_fanout_test.go
+    - runtime/pipeline/stage/stage.go
+    - runtime/pipeline/stage/stages_advanced.go
+    - runtime/pipeline/stage/stages_core.go
+    - runtime/pipeline/stage/stages_message_broadcast.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/stages_recording.go
+    - runtime/pipeline/stage/stages_save.go
+    - runtime/pipeline/stage/stages_speech.go
+    - runtime/pipeline/stage/stages_utilities.go
+    - sdk/internal/pipeline/builder.go
+    - sdk/internal/pipeline/builder_vad.go
 ---
-Understanding Runtime's stage-based streaming pipeline design.
+The runtime processes LLM requests with a stage-based streaming pipeline. This page explains the design: what a stage is, how elements flow, how execution, errors and shutdown behave, and why the pipeline uses channels.
 
-## Overview
+## Core concept
 
-Runtime uses a **stage-based streaming architecture** for processing LLM requests. This design provides true streaming execution, concurrent processing, and a composable DAG (Directed Acyclic Graph) of processing units.
+A pipeline is a directed acyclic graph (DAG) of stages that process streaming elements. Most pipelines are a linear chain; `Branch`, `Merge` and `RouterStage` build fan-out and fan-in.
 
-## Core Concept
+The diagram shows a linear chain.
 
-A pipeline is a DAG of stages that process streaming elements:
-
-```d2
-direction: right
-
-input: Input
-stage1: Stage 1
-stage2: Stage 2
-stageN: Stage N
-output: Output
-branchA: Branch A
-branchB: Branch B
-
-input -> stage1 -> stage2 -> stageN -> output
-stage1 -> branchA
-stage2 -> branchB
+```mermaid
+flowchart LR
+    Input --> Stage1[Stage 1] --> Stage2[Stage 2] --> StageN[Stage N] --> Output
 ```
 
 Each stage:
-- Runs in its own goroutine
-- Receives elements via input channel
-- Sends processed elements via output channel
-- Supports true streaming (elements flow as they're produced)
 
-## Why Stages?
+- runs in its own goroutine
+- receives elements on an input channel
+- sends processed elements on an output channel
+- passes elements on as they are produced, without waiting for the input to finish
 
-### Streaming First
+## Why stages
 
-The stage architecture is designed for streaming scenarios like voice applications:
-1. **Streaming input**: Audio chunks from microphone
-2. **Accumulation**: VAD detects turn boundaries
-3. **Processing**: Transcribe, call LLM, generate TTS
-4. **Streaming output**: Audio chunks to speaker
+The design targets streaming scenarios such as voice applications:
 
-Stages model this as a reactive stream where data flows through connected processing units:
+1. Streaming input: audio chunks from a microphone.
+2. Accumulation: voice activity detection finds turn boundaries.
+3. Processing: transcribe, call the LLM, generate speech.
+4. Streaming output: audio chunks to a speaker.
+
+Stages model this as a reactive stream:
 
 ```go
-audioTurn, err := stage.NewAudioTurnStage(vadConfig) // Accumulate until turn complete
+audioTurn, err := stage.NewAudioTurnStage(vadConfig) // accumulate until the turn completes
 if err != nil {
     return err
 }
@@ -56,16 +66,16 @@ if err != nil {
 pipeline, err := stage.NewPipelineBuilder().
     Chain(
         audioTurn,
-        stage.NewSTTStage(sttService, sttConfig), // Transcribe audio
-        stage.NewProviderStage(provider, tools, policy, config), // Call LLM
-        stage.NewTTSStageWithInterruption(ttsService, ttsConfig), // Generate audio
+        stage.NewSTTStage(sttService, sttConfig),                 // transcribe audio
+        stage.NewProviderStage(provider, tools, policy, config),  // call the LLM
+        stage.NewTTSStageWithInterruption(ttsService, ttsConfig), // generate audio
     ).
     Build()
 ```
 
 ## StreamElement
 
-The fundamental unit of data flowing through the pipeline:
+`StreamElement` is the unit of data in the pipeline:
 
 ```go
 type StreamElement struct {
@@ -84,7 +94,10 @@ type StreamElement struct {
     Timestamp time.Time
     Source    string
     Priority  Priority        // Low, Normal, High, Critical
-    Meta      ElementMetadata // Typed per-element coordination data
+    Meta      ElementMetadata // typed per-element coordination data
+
+    // Non-content: incremental model reasoning for live display
+    Reasoning *ReasoningDelta
 
     // Control signals
     EndOfStream bool
@@ -94,9 +107,9 @@ type StreamElement struct {
 }
 ```
 
-**Key insight**: Each element carries one content type, enabling type-safe routing and priority scheduling.
+Each element carries one content type, so a stage can route on type.
 
-### Provider Request Metadata
+### Provider request metadata
 
 Session-level context (for example `session_id`, `tenant_id`, `user_id`) travels on the pipeline's `TurnState`. A `ProviderStage` built with `NewProviderStageWithTurnState` copies `TurnState.ProviderRequestMetadata` into `PredictionRequest.Metadata` on every call.
 
@@ -114,11 +127,11 @@ providerStage := stage.NewProviderStageWithTurnState(
 
 The map is read-only after the stage that produces it runs; downstream stages must not modify it.
 
-No built-in model provider reads keys such as `session_id` or `tenant_id` from `PredictionRequest.Metadata`; only the mock provider reads its own scenario keys there. The OpenAI and Gemini realtime sessions read a few configuration keys (voice, modalities, VAD) from `StreamingInputConfig.Metadata`, a separate map this one does not feed. Session context in this map therefore reaches only a custom provider that reads it. `NewIncrementalSaveStageWithTurnState` also merges the map into the saved conversation state's `Metadata`.
+No built-in model provider reads keys such as `session_id` or `tenant_id` from `PredictionRequest.Metadata`; only the mock provider reads its own scenario keys there. The OpenAI and Gemini realtime sessions read a few configuration keys (voice, modalities, VAD) from `StreamingInputConfig.Metadata`, a separate map this one does not feed. Session context in this map therefore reaches only a custom provider that reads it. When the state store does not implement `MessageAppender`, `IncrementalSaveStage` built with `NewIncrementalSaveStageWithTurnState` also merges the map into the saved conversation state's `Metadata`.
 
 Conversation and user identity have typed fields. The load stages copy `StateStoreConfig.ConversationID` and `StateStoreConfig.UserID` into `TurnState.ConversationID` and `TurnState.UserID`, and stages should read those. The metadata map exists for the provider boundary, where the interface is untyped.
 
-## Stage Interface
+## Stage interface
 
 All stages implement:
 
@@ -130,34 +143,34 @@ type Stage interface {
 }
 ```
 
-### Stage Types
+A stage with several upstream edges also implements `MultiInputStage` (`MergeStage` does), and a stage that routes to named outputs implements `MultiOutputStage` (`RouterStage` does).
+
+### Stage types
 
 | Type | Pattern | Example |
 |------|---------|---------|
-| Transform | 1:1 or 1:N | Validation, enrichment |
-| Accumulate | N:1 | VAD buffering, message collection |
-| Generate | 0:N | LLM streaming, TTS |
-| Sink | N:0 | State store save, metrics |
-| Observe | 1:1 (pass-through) | RecordingStage, MessageBroadcastStage |
-| Bidirectional | Varies | WebSocket session |
+| `StageTypeTransform` | 1:1 or 1:N | `TemplateStage`, prompt assembly, `RecordingStage`, `MessageBroadcastStage` |
+| `StageTypeAccumulate` | N:1 | VAD buffering, context building |
+| `StageTypeGenerate` | 0:N | LLM streaming |
+| `StageTypeSink` | N:0 | State store save |
+| `StageTypeBidirectional` | Varies | Duplex provider session |
 
 ### Contract
 
-Every stage must:
-1. Read from input channel until closed
-2. Send results to output channel
-3. Close output channel when done
-4. Respect context cancellation
+Every stage:
+
+1. reads from the input channel until it closes
+2. sends results to the output channel
+3. closes the output channel when done
+4. respects context cancellation
 
 ```go
 func (s *MyStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
-    defer close(output)  // Always close output
+    defer close(output) // always close output
 
     for elem := range input {
-        // Process element
         result := s.transform(elem)
 
-        // Send with cancellation check
         select {
         case output <- result:
         case <-ctx.Done():
@@ -168,11 +181,11 @@ func (s *MyStage) Process(ctx context.Context, input <-chan StreamElement, outpu
 }
 ```
 
-## Pipeline Execution
+## Pipeline execution
 
-### Streaming Execution
+### Streaming execution
 
-Elements flow through the pipeline as they're produced:
+`Execute` starts every stage and returns an output channel. Elements arrive as the stages produce them:
 
 ```go
 output, err := pipeline.Execute(ctx, input)
@@ -181,124 +194,82 @@ if err != nil {
 }
 
 for elem := range output {
-    // Process elements as they arrive
     if elem.Text != nil {
         fmt.Print(*elem.Text)
     }
 }
 ```
 
-### Synchronous Execution
+### Synchronous execution
 
-For request/response patterns, `ExecuteSync` collects all output:
+For request/response patterns, `ExecuteSync` runs `Execute`, drains the output and accumulates it:
 
 ```go
 result, err := pipeline.ExecuteSync(ctx, inputElements...)
 // result.Messages contains all messages
-// result.Response contains the final response
+// result.Response contains the final assistant response
 ```
 
-This is `Execute()` + drain and accumulate.
+## Execution modes
 
-## Execution Modes
+The SDK assembles a different stage chain for each mode. The diagrams use the stage names that `Name()` returns.
 
-### Text Mode (Request/Response)
+### Text mode (request/response)
 
 Standard HTTP-based LLM interactions:
 
-```d2
-direction: right
-Message -> RecordingIn -> StateStoreLoad -> PromptAssembly -> Template -> Provider -> RecordingOut -> StateStoreSave -> Response
+```mermaid
+flowchart LR
+    Message --> statestore_load --> variable_provider --> prompt_assembly --> template --> recording_input --> provider --> recording_output --> message_broadcast --> incremental_save --> Response
 ```
 
-`RecordingIn` and `RecordingOut` are optional `RecordingStage` instances that capture user input and assistant output as events written **directly to an `EventStore`** — recording does not go through the EventBus. They pass data through unchanged.
+`recording_input` and `recording_output` are optional `RecordingStage` instances. They capture user input and assistant output as events written directly to an `EventStore`, not through the EventBus, and pass elements through unchanged. `message_broadcast` is present when an event emitter is configured.
 
-Hooks (guardrails, tool hooks) run inside `ProviderStage` — they are not separate pipeline stages. Provider hooks execute before/after each LLM call, and chunk interceptors run on each streaming chunk within the provider stage.
+Hooks (guardrails, tool hooks) run inside `ProviderStage`; they are not separate stages. Provider hooks run before and after each LLM call, and chunk interceptors run on each streaming chunk.
 
-**Use cases**: Chat applications, content generation
+Use it for chat applications and content generation.
 
-### VAD Mode (Voice Activity Detection)
+### VAD mode (voice activity detection)
 
-For voice applications using text-based LLMs:
+For voice applications that use a text LLM:
 
-```d2
-direction: right
-Audio -> AudioTurn -> STT -> StateStoreLoad -> PromptAssembly -> Template -> Provider -> TTS -> StateStoreSave -> Audio
+```mermaid
+flowchart LR
+    Audio --> statestore_load --> variable_provider --> prompt_assembly --> template --> audio_turn --> stt --> provider --> tts_interruptible --> incremental_save --> Out[Audio]
 ```
 
-**Use cases**: Voice assistants, telephony integrations
+Use it for voice assistants and telephony integrations.
 
-### ASM Mode (Audio Streaming)
+### ASM mode (audio streaming)
 
-For native multimodal LLMs with real-time audio:
+For native multimodal LLMs with real-time audio. A `duplex_provider` stage replaces `provider`:
 
-```d2
-direction: right
-"Audio/Text" -> StateStoreLoad -> PromptAssembly -> Template -> DuplexProvider -> StateStoreSave -> "Audio/Text"
+```mermaid
+flowchart LR
+    In["Audio/Text"] --> statestore_load --> variable_provider --> prompt_assembly --> template --> duplex_provider --> incremental_save --> Out["Audio/Text"]
 ```
 
-**Use cases**: Gemini Live API, real-time voice conversations
+Use it for Gemini Live and other real-time voice conversations.
 
-## Concurrency Model
+## Concurrency model
 
-### Goroutine Lifecycle
+### Goroutine lifecycle
 
-Each stage runs in its own goroutine, managed by the pipeline:
-
-```go
-func (p *Pipeline) Execute(ctx context.Context, input <-chan StreamElement) (<-chan StreamElement, error) {
-    ctx, cancel := context.WithCancel(ctx)
-
-    // Start each stage in its own goroutine
-    current := input
-    for _, stg := range p.stages {
-        output := make(chan StreamElement, p.config.ChannelBufferSize)
-
-        go func(s Stage, in <-chan StreamElement, out chan<- StreamElement) {
-            if err := s.Process(ctx, in, out); err != nil {
-                // Error handling
-            }
-        }(stg, current, output)
-
-        current = output
-    }
-
-    return current, nil
-}
-```
+`Execute` creates one buffered channel per stage, sized by `PipelineConfig.ChannelBufferSize` (default 32), and starts each stage in its own goroutine. A stage that returns an error ends its turn; the pipeline reports the first such error. The output channel closes when the leaf stages finish.
 
 ### Backpressure
 
-Channel-based communication naturally handles backpressure:
-- Slow consumers block producers
-- Buffer size controls latency vs. throughput tradeoff
-- No unbounded buffering
+Channel-based communication handles backpressure without extra machinery:
+
+- Slow consumers block producers.
+- The buffer size trades latency against throughput.
+- Buffering is bounded.
 
 ### Shutdown
 
-Graceful shutdown propagates through the pipeline:
+`Shutdown(ctx)` stops the pipeline from accepting new executions, then waits for in-flight executions to finish. It returns `ErrShutdownTimeout` if they outlast `PipelineConfig.GracefulShutdownTimeout` (default 10 seconds). `Execute` returns `ErrPipelineShuttingDown` after shutdown begins.
 
-```go
-func (p *Pipeline) Shutdown(timeout time.Duration) error {
-    p.cancel()  // Cancel context
-
-    // Wait for all stages to complete
-    done := make(chan struct{})
-    go func() {
-        p.wg.Wait()
-        close(done)
-    }()
-
-    select {
-    case <-done:
-        return nil
-    case <-time.After(timeout):
-        return ErrShutdownTimeout
-    }
-}
-```
-
-## Pipeline Builder
+## Pipeline builder
 
 The builder constructs pipelines with a fluent API:
 
@@ -315,201 +286,144 @@ pipeline, err := stage.NewPipelineBuilder().
 
 ### Branching
 
-For parallel processing paths:
+`Branch` connects one stage to several downstream stages. The downstream stages share the upstream stage's output channel and compete for elements: each element goes to one of them, not to all. To send an element to chosen destinations, or to several at once, use a `RouterStage` and connect its named outputs:
 
 ```go
+router := stage.NewRouterStage("router", func(elem *stage.StreamElement) []string {
+    if elem.Audio != nil {
+        return []string{"tts"}
+    }
+    return []string{"log"}
+})
+
 pipeline, err := stage.NewPipelineBuilder().
-    Chain(
-        stage.NewProviderStage(provider, tools, policy, config),
-    ).
-    Branch("provider", "tts", "text_output").  // Fork output
-    Chain(
-        stage.NewTTSStage(ttsService, config),
-    ).
+    AddStage(router).
+    AddStage(ttsStage).
+    AddStage(logStage).
+    Connect("router", "tts").
+    Connect("router", "log").
     Build()
 ```
 
-### DAG Validation
+Use `Merge` with a `MergeStage` to fan several stages back into one.
 
-The builder validates the pipeline structure:
-- Detects cycles
-- Verifies all stages are connected
-- Checks for duplicate stage names
+### DAG validation
 
-## Error Handling
+`Build` rejects a pipeline that:
 
-### Error Elements
+- has no stages
+- has an invalid `PipelineConfig`
+- repeats a stage name
+- has an edge to a stage that does not exist
+- contains a cycle
+- sends several upstream edges into a stage that is not a `MultiInputStage`, or repeats an edge between the same pair of stages
 
-Errors can be sent as elements for downstream handling:
+## Error handling
+
+### Error elements
+
+A stage can send an error as an element for downstream handling and keep processing:
 
 ```go
 if err := s.validate(elem); err != nil {
     output <- stage.NewErrorElement(err)
-    continue  // Process next element
+    continue
 }
 ```
 
-### Fatal Errors
+### Fatal errors
 
-Returning an error from `Process()` stops the pipeline:
+Returning an error from `Process()` fails the turn:
 
 ```go
 if err := s.criticalOperation(elem); err != nil {
-    return err  // Pipeline stops
+    return err
 }
 ```
 
-### Context Cancellation
+The pipeline does not cancel the other stages. It tells the failed stage's downstream stages by sending the error as the last element on their input, so a stage such as the provider stage does not act on a turn that failed. The other stages drain and persist, and the output channel ends with the error as an element.
 
-All stages should respect context cancellation:
+### Context cancellation
+
+Stages respect context cancellation:
 
 ```go
 select {
 case output <- elem:
-    // Success
 case <-ctx.Done():
-    return ctx.Err()  // Pipeline cancelled
+    return ctx.Err()
 }
 ```
 
-## Event Integration
+## Event integration
 
-The pipeline emits events for observability:
+When the builder has an event emitter, the pipeline emits these events for every stage and for the pipeline itself. Stage authors do not emit them.
 
-```go
-// Automatic events for all stages
-EventStageStarted    // When stage begins processing
-EventStageCompleted  // When stage finishes successfully
-EventStageFailed     // When stage encounters an error
-
-// Pipeline lifecycle
-EventPipelineStarted
-EventPipelineCompleted
-EventPipelineFailed
-```
-
-These events are automatically emitted by the pipeline — stage authors don't need to emit them manually.
+| Event | Emitted when |
+|-------|--------------|
+| `events.EventStageStarted` | a stage begins processing |
+| `events.EventStageCompleted` | a stage finishes successfully |
+| `events.EventStageFailed` | a stage returns an error |
+| `events.EventPipelineStarted` | an execution starts |
+| `events.EventPipelineCompleted` | an execution ends successfully |
+| `events.EventPipelineFailed` | an execution ends with an error |
 
 ### RecordingStage
 
-`RecordingStage` is an observe-only stage that writes content-carrying events
-**directly to an `EventStore`**, bypassing the EventBus. That is what lets it
-stay synchronous, lossless and full-fidelity (it retains binary content for
-replay) at the cost of back-pressuring the pipeline on a slow sink.
+`RecordingStage` is an observe-only stage. It writes content-carrying events directly to an `EventStore`, bypassing the EventBus. That keeps it synchronous, lossless and full-fidelity (it retains binary content for replay), at the cost of back-pressuring the pipeline on a slow store.
 
 ```go
 stage.NewRecordingStage(eventStore, stage.RecordingStageConfig{
-    Position:       "output",       // "input" for user messages, "output" for assistant
+    Position:       stage.RecordingPositionOutput, // RecordingPositionInput for user messages
     SessionID:      sessionID,
     ConversationID: conversationID,
 })
 ```
 
-It records different element types as events:
-- **Message** → `EventMessageCreated` (with index, tool calls and results if present)
-- **Audio / Image / Video** → corresponding multimodal events with metadata
-- **ToolCall** → `EventToolCallStarted`
-- **Error** → `EventStreamInterrupted`
+It records elements as events:
 
-Because it is placed after the state store load stage, it also re-captures
-replayed history on every turn: an N-turn recording holds turn 1 N times.
+- A complete message becomes `message.created`, with its index, tool calls and tool results.
+- Audio, image and video elements become the matching multimodal events when `IncludeAudio`, `IncludeImages` or `IncludeVideo` is set.
+- Text deltas become `message.text.delta` when `IncludeStreamingText` is set.
+- A tool call becomes `tool.call.started`.
+- An error becomes `stream.interrupted`.
 
-These events are consumed by whatever `EventStore` you supply — for example
-**FileEventStore** for JSONL persistence and replay.
+Replayed history counts toward the message index but is not recorded again, so each message is recorded once, on the turn it is new.
+
+Any `EventStore` receives these events, for example `FileEventStore` for JSONL persistence and replay.
 
 ### MessageBroadcastStage
 
-`MessageBroadcastStage` is the live counterpart. It publishes `message.created`
-on the **EventBus** as each complete message arrives, and forwards every element
-unchanged:
+`MessageBroadcastStage` is the live counterpart. It publishes `message.created` on the EventBus as each complete message arrives, and forwards every element unchanged:
 
 ```go
 stage.NewMessageBroadcastStage(emitter)
 ```
 
-It is added whenever an event emitter is configured, so it needs no
-`EventStore`, no `WithRecording()` and no state store. It is the route a TUI, an
-SSE relay or a log tail wants.
+The SDK adds it whenever an event emitter is configured, so it needs no `EventStore`, no `WithRecording()` and no state store. A TUI, an SSE relay or a log tail uses this route.
 
-The two stages differ in exactly one payload field: the bus route
-strips binary content parts to metadata, the recording route retains them. Both
-build through `events.NewMessageCreatedData`, so nothing else can drift.
+The two stages differ in one payload field: the bus route strips binary content parts to metadata, and the recording route retains them. Both build the payload with `events.NewMessageCreatedData`.
 
-Replayed history (`Meta.FromHistory`) is counted for position but never
-re-published, which is what makes `Index` transcript-absolute. Read `Index`
-rather than arrival order: each listener receives events in the order the bus
-accepted them, which for concurrent publishers need not be transcript order.
+`MessageBroadcastStage` also counts replayed history for position without publishing it again, so `Index` is transcript-absolute. Read `Index` rather than arrival order: with concurrent publishers, the bus order need not match transcript order.
 
-See [Observability](/sdk/explanation/observability/) for EventBus architecture and [Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/) for how recorded events trigger evals.
+See [Observability](/sdk/explanation/observability/) for the EventBus architecture and the [Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/) for how recorded events trigger evals.
 
-## Performance Characteristics
+## Design decisions
 
-### Latency
+### Why channels over callbacks
 
-| Scenario | Target | Notes |
-|----------|--------|-------|
-| Audio chunk → VAD | < 10ms | Minimal buffering |
-| Turn complete → LLM request | < 50ms | Channel hop only |
-| LLM token → TTS chunk | < 50ms | Parallel processing |
-| Channel hop overhead | ~1-2ms | Per stage |
+Channels fit Go's concurrency model, give backpressure for free, are easy to reason about, and propagate cancellation through the context.
 
-### Memory
+### Why one goroutine per stage
 
-- Channel buffers control memory usage
-- No full response accumulation needed for streaming
-- Element pooling available for high-throughput scenarios
+Each stage has a clear lifecycle owner and predictable resource use, is easy to debug (one goroutine per stage), and is easy to instrument with metrics and tracing.
 
-### Throughput
+### Why stages close their output channel
 
-- Concurrent stage execution
-- Backpressure prevents unbounded growth
-- Priority scheduling for QoS
+Closing signals completion downstream, enables `for range` iteration, prevents goroutine leaks, and gives shutdown clear semantics.
 
-## Design Decisions
+## Related topics
 
-### Why Channels Over Callbacks?
-
-**Decision**: Use Go channels for inter-stage communication
-
-**Rationale**:
-- Natural fit for Go's concurrency model
-- Built-in backpressure
-- Easy to reason about
-- Standard error propagation via context
-
-### Why One Goroutine Per Stage?
-
-**Decision**: Each stage runs in exactly one goroutine
-
-**Rationale**:
-- Clear ownership of lifecycle
-- Predictable resource usage
-- Simple debugging (goroutine per stage)
-- Easy to add metrics/tracing
-
-### Why Close Output Channel?
-
-**Decision**: Stages must close their output channel when done
-
-**Rationale**:
-- Signal completion to downstream stages
-- Enable `for range` iteration
-- Prevent goroutine leaks
-- Clear shutdown semantics
-
-## Summary
-
-The stage-based pipeline architecture provides:
-
-- **True Streaming**: Elements flow as they're produced
-- **Concurrency**: Each stage runs independently
-- **Backpressure**: Slow consumers naturally throttle producers
-- **Composability**: Build complex pipelines from simple stages
-- **Observability**: Automatic events for all stages
-- **Type Safety**: Strongly typed elements with clear contracts
-
-## Related Topics
-
-- [Stage Reference](/runtime/reference/pipeline/) - Complete stage API
-- [Provider System](/runtime/explanation/provider-system/) - How providers integrate
-- [State Management](/runtime/explanation/state-management/) - Conversation persistence
+- [Stage Reference](/runtime/reference/pipeline/): the stage API
+- [Provider System](/runtime/explanation/provider-system/): how providers integrate
+- [State Management](/runtime/explanation/state-management/): conversation persistence

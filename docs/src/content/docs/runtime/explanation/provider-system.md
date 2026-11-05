@@ -3,6 +3,25 @@ title: Provider System
 description: How Runtime abstracts LLM services behind one interface, what each provider translates, and where multi-provider logic belongs.
 sidebar:
   order: 2
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/providers/base_provider.go
+    - runtime/providers/claude/claude.go
+    - runtime/providers/claude/claude_tools.go
+    - runtime/providers/gemini/gemini.go
+    - runtime/providers/gemini/gemini_tools.go
+    - runtime/providers/imagen/factory.go
+    - runtime/providers/mock/mock.go
+    - runtime/providers/ollama/ollama_tools.go
+    - runtime/providers/openai/openai.go
+    - runtime/providers/openai/openai_responses_integration.go
+    - runtime/providers/openai/openai_tools.go
+    - runtime/providers/provider.go
+    - runtime/providers/registry.go
+    - runtime/providers/replay/factory.go
+    - runtime/providers/retry.go
+    - runtime/providers/vllm/factory.go
 ---
 Runtime talks to Claude, OpenAI, Gemini, Ollama and vLLM through one Go interface. This page explains how that abstraction is built, what it hides, and what it leaves to your application.
 

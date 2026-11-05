@@ -1,0 +1,46 @@
+{
+ "page": "docs/src/content/docs/sdk/explanation/index.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "sdk.Open validates pack",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pack/load.go:52"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "Packs are validated by Arena",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 3,
+   "claim": "Lifecycle Open/SetVar/OnTool/Send/Stream/Close",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1575",
+    "sdk/sdk.go:132"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Event system flows through the hooks package",
+   "verdict": "false",
+   "evidence": [
+    "runtime/events/types.go:175",
+    "sdk/hooks/events.go:123"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Links to observability, variables, runtime-config pages",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:132"
+   ]
+  }
+ ]
+}

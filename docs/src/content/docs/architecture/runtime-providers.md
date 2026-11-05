@@ -3,6 +3,36 @@ title: Runtime Provider System Architecture
 description: How the runtime puts OpenAI, Claude, Gemini and other LLM APIs behind one Go interface, and what the provider layer handles for every call.
 sidebar:
   order: 6
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/pipeline/stage/compactor.go
+    - runtime/providers/base_provider.go
+    - runtime/providers/claude/claude.go
+    - runtime/providers/claude/claude_multimodal.go
+    - runtime/providers/claude/claude_streaming.go
+    - runtime/providers/errors.go
+    - runtime/providers/gemini/gemini.go
+    - runtime/providers/gemini/gemini_multimodal.go
+    - runtime/providers/gemini/gemini_tools.go
+    - runtime/providers/gemini/interactions_mode.go
+    - runtime/providers/gemini/streaming_support.go
+    - runtime/providers/mock/mock.go
+    - runtime/providers/mock/mock_repository.go
+    - runtime/providers/mock/mock_streaming.go
+    - runtime/providers/openai/openai.go
+    - runtime/providers/openai/openai_multimodal.go
+    - runtime/providers/openai/openai_responses_integration.go
+    - runtime/providers/openai/streaming_support_integration.go
+    - runtime/providers/provider.go
+    - runtime/providers/registry.go
+    - runtime/providers/rejected_params.go
+    - runtime/providers/retry.go
+    - runtime/providers/sse.go
+    - runtime/providers/stream_retry.go
+    - runtime/providers/streaming.go
+    - runtime/providers/streaming_input.go
+    - runtime/types/content.go
 ---
 This page explains how the runtime reaches many LLM APIs through one Go interface: the interfaces, how a provider is created, what an adapter translates, and what the shared layer does for streaming, retries and cost. For what a provider is and how to configure one, see [Providers](/concepts/providers/).
 
@@ -37,7 +67,7 @@ Capabilities beyond a single prediction are separate interfaces. You detect them
 |---|---|---|
 | `ToolSupport` | `BuildTooling`, `PredictWithTools`, `PredictStreamWithTools` | the `claude`, `gemini`, `openai`, `ollama`, `vllm` and `mock` tool providers |
 | `StreamInputSupport` | `CreateStreamSession`, `SupportsStreamInput`, `GetStreamingCapabilities` | `gemini` (Live API), `openai` (Realtime), `mock` |
-| `ContextWindowProvider` | `MaxContextTokens`, used to size the compactor | providers that know their window |
+| `ContextWindowProvider` | `MaxContextTokens`, which sizes the compactor | any provider that reports its context window |
 | `MessageMetadataTemplater` | `MessageMetadataTemplate`, the text appended to each message's metadata | every chat provider |
 | `MediaScoped` | `WithMediaSettings`, a per-conversation view of a shared provider | providers that resolve media |
 
@@ -114,17 +144,17 @@ Each adapter package registers a factory for its type in an `init` function, so 
 ```mermaid
 sequenceDiagram
     participant App
-    participant Create as CreateProviderFromSpec
+    participant Spec as CreateProviderFromSpec
     participant Factory
     participant Provider
     participant Registry
 
-    App->>Create: ProviderSpec
-    Create->>Create: fill default base URL for the type
-    Create->>Factory: factory(spec)
-    Factory-->>Create: Provider
-    Create->>Provider: apply timeouts, stream retry, transport, headers, media store
-    Create-->>App: Provider
+    App->>Spec: ProviderSpec
+    Spec->>Spec: fill default base URL for the type
+    Spec->>Factory: factory(spec)
+    Factory-->>Spec: Provider
+    Spec->>Provider: apply timeouts, stream retry, transport, headers, media store
+    Spec-->>App: Provider
     App->>Registry: Register(provider)
     App->>Registry: Get(id)
     Registry-->>App: Provider

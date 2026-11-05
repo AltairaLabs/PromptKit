@@ -1,48 +1,46 @@
 ---
 title: SDK Explanation
+description: "Background on how the SDK is built and why: the pack-first design, variables, hooks and events."
 sidebar:
   order: 0
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/events/types.go
+    - sdk/conversation.go
+    - sdk/hooks/events.go
+    - sdk/internal/pack/load.go
+    - sdk/sdk.go
 ---
-Deep-dive documentation explaining SDK architecture and design.
 
-## Architecture
+These pages explain how the SDK works and the reasons behind its design.
 
-- **[SDK Architecture](/sdk/explanation/architecture/)** - Pack-first design and components
-- **[Observability](/sdk/explanation/observability/)** - Event system and monitoring
-- **[How Variables Resolve](/sdk/explanation/variables/)** - Sources, precedence, and the single substitution point
+## Pages
 
-## Design Philosophy
+- [SDK Architecture](/sdk/explanation/architecture/): the pack-first design, the components behind a `Conversation`, and how a message flows through the runtime.
+- [How Variables Resolve](/sdk/explanation/variables/): sources, precedence and the single point where the system prompt renders.
+- [The Hook System](/sdk/explanation/hooks/): the hook contracts, what each can change, and the order hooks run in.
+- [Observability](/sdk/explanation/observability/): the event system and how to monitor a conversation.
+- [RuntimeConfig Design](/sdk/explanation/runtime-config/): how RuntimeConfig separates what an agent does from how it runs.
 
-### Pack-First Architecture
+## Why pack first
 
-The SDK is built around the pack file as the single source of truth:
+The pack file is the single source of truth. It holds the prompts, tools, validators and evals, and `sdk.Open()` builds the conversation from it.
 
-```d2
-direction: down
-
-pack: Pack File {
-  label: "Pack File\n← Configuration, prompts, tools"
-}
-
-open: sdk.Open() {
-  label: "sdk.Open()\n← Load and validate"
-}
-
-conv: Conversation {
-  label: "Conversation\n← Ready to use"
-}
-
-pack -> open -> conv
+```mermaid
+flowchart LR
+  Pack["Pack file: prompts, tools, validators, evals"] --> Open["sdk.Open()"]
+  Open --> Conv["Conversation"]
 ```
 
-### Why Pack-First?
+This design has four consequences:
 
-1. **Reduced Boilerplate** - No manual provider/manager setup
-2. **Tested Configuration** - Packs are validated by Arena
-3. **Portable** - Same pack works across environments
-4. **Versioned** - Pack files are version controlled
+1. You do not wire providers or managers by hand.
+2. `Open()` validates the pack against the PromptPack schema, so a malformed pack fails at startup.
+3. The same pack file runs in every environment.
+4. The pack is a file, so you version it with your code.
 
-### Minimal API
+A working conversation takes three calls:
 
 ```go
 conv, _ := sdk.Open("./pack.json", "chat")
@@ -50,47 +48,15 @@ defer conv.Close()
 resp, _ := conv.Send(ctx, "Hello")
 ```
 
-Three lines to a working conversation.
+## Conversation lifecycle
 
-## Key Concepts
+1. Open: `sdk.Open()` loads the pack and creates the conversation.
+2. Configure: `SetVar()` and `OnTool()` set variables and tool handlers.
+3. Use: `Send()` and `Stream()` run turns.
+4. Close: `Close()` ends the session and releases resources.
 
-### Conversation Lifecycle
-
-1. **Open** - `sdk.Open()` loads pack, creates conversation
-2. **Configure** - `SetVar()`, `OnTool()` setup
-3. **Use** - `Send()`, `Stream()` interactions
-4. **Close** - `Close()` cleanup
-
-### Tool Execution
-
-Tools are registered with handlers:
-
-```mermaid
-flowchart TD
-  LR["LLM Request"] --> TCD["Tool Call Decision"] --> HL["Handler Lookup"]
-  HL --> OT["OnTool handler"] --> EX1["Execute immediately"]
-  HL --> OTA["OnToolAsync handler"]
-  OTA --> AA["Auto-approve"] --> EX2["Execute"]
-  OTA --> PD["Pending"] --> W["Wait for ResolveTool/RejectTool"]
-```
-
-### Event System
-
-Events flow through the hooks package:
-
-```mermaid
-flowchart TD
-  SD["Send()"] --> E1["EventPipelineStarted"]
-  SD --> PC["Provider Call"] --> E2["EventProviderCallStarted"]
-  PC --> RS["Response"] --> E3["EventProviderCallCompleted"]
-  RS --> TC["Tool Call"] --> E4["EventToolCallStarted"]
-  TC --> H["Handler"] --> E5["EventToolCallCompleted"]
-  RS --> ER["Error"] --> E6["EventProviderCallFailed"]
-  RS --> E7["EventPipelineCompleted"]
-```
-
-## See Also
+## See also
 
 - [Tutorials](/sdk/tutorials/)
-- [How-To Guides](/sdk/how-to/)
-- [API Reference](/sdk/reference/)
+- [How-to guides](/sdk/how-to/)
+- [API reference](/sdk/reference/)

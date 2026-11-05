@@ -1,0 +1,65 @@
+{
+ "page": "docs/src/content/docs/runtime/explanation/retrieval-architecture.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Pipeline retrieval writes the memory_context template variable the system template renders",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_memory.go:114",
+    "sdk/options.go:1364"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "Retriever error is logged and the turn proceeds with empty context",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_memory.go:80"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Stage runs between prompt assembly and template stage; retriever sees messages before substitution",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pipeline/builder.go:462",
+    "sdk/internal/pipeline/builder.go:484"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Duplex sessions with a retriever are refused",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pipeline/builder.go:481"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "corpus.Retriever scores by term overlap over a fixed document set; empty result when nothing matches",
+   "verdict": "true",
+   "evidence": [
+    "runtime/memory/corpus/corpus.go:91"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "Memory tool path goes to the store directly",
+   "verdict": "true",
+   "evidence": [
+    "runtime/memory/tools.go:62"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "memory.Retriever has no production implementation in PromptKit",
+   "verdict": "true",
+   "evidence": [
+    "runtime/memory/corpus/corpus.go:62",
+    "runtime/memory/retriever.go:13"
+   ]
+  }
+ ]
+}

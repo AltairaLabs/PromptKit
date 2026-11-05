@@ -1,0 +1,148 @@
+{
+ "page": "docs/src/content/docs/runtime/explanation/provider-system.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Provider interface embeds base.Provider and has ID, Model, Predict, PredictStream, SupportsStreaming, ShouldIncludeRawOutput, CalculateCost",
+   "verdict": "false",
+   "evidence": [
+    "runtime/providers/provider.go:242",
+    "runtime/providers/provider.go:262"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "ProviderConfig struct with MaxTokens, Temperature, TopP, Seed, StopSequences exists",
+   "verdict": "dead",
+   "evidence": [
+    "runtime/providers/provider.go:56"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Registered chat types are claude, openai, gemini, ollama, vllm, mock, replay; imagen registers an image provider",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude_tools.go:958",
+    "runtime/providers/gemini/gemini_tools.go:854",
+    "runtime/providers/imagen/factory.go:12",
+    "runtime/providers/mock/mock.go:64",
+    "runtime/providers/ollama/ollama_tools.go:394",
+    "runtime/providers/openai/openai_tools.go:708",
+    "runtime/providers/registry.go:48",
+    "runtime/providers/replay/factory.go:12",
+    "runtime/providers/vllm/factory.go:9"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Unknown type fails with UnsupportedProviderError; platforms (bedrock/vertex/azure) are not types; bad pairs fail with UnsupportedProviderPlatformError",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/registry.go:362",
+    "runtime/providers/registry.go:508",
+    "runtime/providers/registry.go:544"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "NormalizeMessages folds system-role messages into System",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:145"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "A provider that cannot send top_k/penalties drops them and logs one warning per provider and param",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:100"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "OpenAI Responses API drops seed with a warning; Chat Completions sends it",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/openai/openai.go:541",
+    "runtime/providers/openai/openai_responses_integration.go:233"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Defaults resolve request, then ProviderDefaults, then no limit; Claude sends 4096 and rejects MaxTokensUnlimited at construction",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude.go:668",
+    "runtime/providers/claude/claude.go:687",
+    "runtime/providers/provider.go:204",
+    "runtime/providers/provider.go:229"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Translation table: assistant->model for Gemini with parts; Claude content blocks; Claude top-level system; Gemini systemInstruction; OpenAI system message",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude.go:347",
+    "runtime/providers/claude/claude.go:518",
+    "runtime/providers/gemini/gemini.go:207",
+    "runtime/providers/gemini/gemini.go:411",
+    "runtime/providers/openai/openai.go:705"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Tool wire shapes: OpenAI type/function/parameters; Claude input_schema; Gemini function_declarations",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude_tools.go:77",
+    "runtime/providers/gemini/gemini_tools.go:74",
+    "runtime/providers/openai/openai_tools.go:57"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "providers.Registry stores instances by ID and does not choose between them",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/registry.go:21"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "Providers retry transient HTTP failures",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude.go:929",
+    "runtime/providers/retry.go:186"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "mock.NewProvider(id, model, false) returns 'Mock response from <id> model <model>'",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/mock/mock.go:35"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "Close closes the HTTP client's idle connections",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base_provider.go:284"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "Multi-provider registry was considered but rejected",
+   "verdict": "false",
+   "evidence": [
+    "runtime/providers/registry.go:27"
+   ]
+  }
+ ]
+}

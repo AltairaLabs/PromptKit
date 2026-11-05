@@ -1,0 +1,300 @@
+{
+ "page": "docs/src/content/docs/architecture/runtime-providers.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "c1",
+   "claim": "Provider embeds base.Provider and adds ID, Model, Predict, PredictStream, SupportsStreaming, ShouldIncludeRawOutput, CalculateCost",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:242-262"
+   ]
+  },
+  {
+   "id": "c10",
+   "claim": "API 400 rejecting a sampling param is recorded, not resent, call repeated",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/rejected_params.go:124-138"
+   ]
+  },
+  {
+   "id": "c11",
+   "claim": "PredictionResponse fields incl Reasoning and FinishReason",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:181-196"
+   ]
+  },
+  {
+   "id": "c12",
+   "claim": "StreamChunk fields Reasoning, FinishReason nil until end, CostInfo final chunk, Reset",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/streaming.go:49-123"
+   ]
+  },
+  {
+   "id": "c13",
+   "claim": "Factories registered in init; unknown type returns UnsupportedProviderError; platform names produce hint",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/registry.go:47-52"
+   ]
+  },
+  {
+   "id": "c14",
+   "claim": "CreateProviderFromSpec applies timeouts, stream retry, concurrency, transport, headers, media store after factory",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/registry.go:431-506"
+   ]
+  },
+  {
+   "id": "c15",
+   "claim": "Registry keyed by ID; Register/Get/List/Close; GetByType/GetAll; no mutex; CreateProviderFromSpec does not register",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/registry.go:27-133"
+   ]
+  },
+  {
+   "id": "c16",
+   "claim": "OpenAI sends seed on Chat Completions not Responses",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/openai/openai.go:541",
+    "runtime/providers/openai/openai_responses_integration.go:233"
+   ]
+  },
+  {
+   "id": "c17",
+   "claim": "Claude falls back to 4096 max tokens; factory rejects unlimited",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude.go:664-695"
+   ]
+  },
+  {
+   "id": "c18",
+   "claim": "Claude prompt caching on unless DisablePromptCaching",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude.go:575-578"
+   ]
+  },
+  {
+   "id": "c19",
+   "claim": "Gemini systemInstruction and function_declarations; Interactions mode",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/gemini/gemini.go:207",
+    "runtime/providers/gemini/gemini_tools.go:74",
+    "runtime/providers/gemini/interactions_mode.go:28"
+   ]
+  },
+  {
+   "id": "c2",
+   "claim": "ToolSupport adds BuildTooling, PredictWithTools, PredictStreamWithTools",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:319-343"
+   ]
+  },
+  {
+   "id": "c20",
+   "claim": "Ollama and vllm default base URLs are localhost",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/registry.go:420-423"
+   ]
+  },
+  {
+   "id": "c21",
+   "claim": "MediaContent sources and per-provider encoding",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude_multimodal.go:175",
+    "runtime/providers/gemini/gemini_multimodal.go:177",
+    "runtime/providers/openai/openai_multimodal.go:170-176",
+    "runtime/types/content.go:28-50"
+   ]
+  },
+  {
+   "id": "c22",
+   "claim": "SSEScanner yields data: payloads; Bedrock event-stream scanner behind StreamScanner",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude_streaming.go:60",
+    "runtime/providers/sse.go:9-57"
+   ]
+  },
+  {
+   "id": "c23",
+   "claim": "DefaultStreamIdleTimeout 30s; reasoning chunks reset idle timer",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/streaming.go:41-44"
+   ]
+  },
+  {
+   "id": "c24",
+   "claim": "Request timeout does not apply to SSE streams",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/registry.go:171-177"
+   ]
+  },
+  {
+   "id": "c25",
+   "claim": "Stream retry defaults, pre_first_chunk vs always with Reset, Retry-After cap, full jitter",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/stream_retry.go:27-81"
+   ]
+  },
+  {
+   "id": "c26",
+   "claim": "StreamMaxConcurrent and retry budget",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/registry.go:191-205"
+   ]
+  },
+  {
+   "id": "c27",
+   "claim": "DoWithRetry defaults: 3 retries, exponential 500ms, cap 60s, jitter up to 50%, Retry-After replaces delay",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/retry.go:19-31"
+   ]
+  },
+  {
+   "id": "c28",
+   "claim": "Retryable statuses 429/502/503/504 and network errors; 500 and ctx errors not",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/retry.go:45-85"
+   ]
+  },
+  {
+   "id": "c29",
+   "claim": "Error types ProviderHTTPError, ProviderTransportError, RetryableHTTPError, ErrPayloadTooLarge",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/errors.go:13-58",
+    "runtime/providers/retry.go:351"
+   ]
+  },
+  {
+   "id": "c3",
+   "claim": "StreamInputSupport adds CreateStreamSession, SupportsStreamInput, GetStreamingCapabilities",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/streaming_input.go:191-206"
+   ]
+  },
+  {
+   "id": "c30",
+   "claim": "IsTransient false for ctx cancel and stream idle timeout",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/errors.go:64-84"
+   ]
+  },
+  {
+   "id": "c31",
+   "claim": "SetRateLimit and HTTPTransportOptions",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base_provider.go:73"
+   ]
+  },
+  {
+   "id": "c32",
+   "claim": "ResolveMaxTokens order and MaxTokensUnlimited",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:204-237"
+   ]
+  },
+  {
+   "id": "c33",
+   "claim": "Pricing precedence descriptor > flat > table",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/openai/openai.go:836-842"
+   ]
+  },
+  {
+   "id": "c34",
+   "claim": "Mock: in-memory and file repositories, interruption and closure simulation, estimated tokens",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/mock/mock.go:128-139",
+    "runtime/providers/mock/mock_repository.go:146",
+    "runtime/providers/mock/mock_streaming.go:176-185"
+   ]
+  },
+  {
+   "id": "c35",
+   "claim": "Example program output",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/mock/mock.go:36"
+   ]
+  },
+  {
+   "id": "c4",
+   "claim": "gemini, openai and mock implement stream input",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/gemini/streaming_support.go:50",
+    "runtime/providers/mock/mock_streaming.go",
+    "runtime/providers/openai/streaming_support_integration.go:51"
+   ]
+  },
+  {
+   "id": "c5",
+   "claim": "ContextWindowProvider MaxContextTokens sizes the compactor",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/compactor.go:98",
+    "runtime/providers/provider.go:278-282"
+   ]
+  },
+  {
+   "id": "c6",
+   "claim": "MessageMetadataTemplater and MediaScoped interfaces",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:290",
+    "runtime/providers/registry.go:338"
+   ]
+  },
+  {
+   "id": "c7",
+   "claim": "PredictionRequest fields",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:56-77"
+   ]
+  },
+  {
+   "id": "c8",
+   "claim": "NormalizeMessages moves system-role messages into System",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:145-178"
+   ]
+  },
+  {
+   "id": "c9",
+   "claim": "WarnUnsentParams logs once per provider and parameter",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:100-116"
+   ]
+  }
+ ]
+}

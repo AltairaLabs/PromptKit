@@ -1,0 +1,94 @@
+{
+ "page": "docs/src/content/docs/sdk/explanation/variables.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Variables substitute only into system_template; messages untouched",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:195"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "Render once per turn",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:235"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Precedence: pack defaults < WithVariables < variables.Provider < SetVar < WithJSONInput",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/stages_utilities.go:203",
+    "sdk/conversation.go:685",
+    "sdk/sdk.go:848",
+    "sdk/session_vars.go:45"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "SetVar value persists until changed and is re-read each turn",
+   "verdict": "true",
+   "evidence": [
+    "sdk/session_vars.go:31"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Duplex renders once; late SetVar stored, warned once",
+   "verdict": "true",
+   "evidence": [
+    "sdk/session/duplex_session.go:651",
+    "sdk/session/duplex_session.go:660"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "variables.Provider values read once at duplex session start",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 7,
+   "claim": "Unresolved placeholder fails send; error text format",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/errors.go:84",
+    "runtime/pipeline/stage/stages_utilities.go:251"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Error lists names not values; ErrTemplateUnresolved in runtime/pipeline/stage",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/errors.go:110",
+    "runtime/pipeline/stage/stages_utilities.go:288"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "EventTemplateRendered, TemplateRenderedData SystemPrompt/VariablesUsed/UnusedVariables; NewEventBus, Subscribe, WithEventBus",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/bus.go:563",
+    "runtime/events/types.go:1159",
+    "runtime/events/types.go:153",
+    "sdk/options.go:1096"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "memory_context written as ordinary variable before render, every turn including empty",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_memory.go:114",
+    "runtime/pipeline/stage/stages_memory.go:84"
+   ]
+  }
+ ]
+}

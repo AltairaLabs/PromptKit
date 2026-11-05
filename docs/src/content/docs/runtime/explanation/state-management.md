@@ -1,122 +1,70 @@
 ---
 title: State Management
+description: How the runtime keeps conversation history across turns, how the memory, file and Redis stores differ, and how to bound and scale stored history.
 sidebar:
   order: 4
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/pipeline/stage/stages_context.go
+    - runtime/pipeline/stage/stages_core.go
+    - runtime/pipeline/stage/stages_save.go
+    - runtime/pipeline/stage/stages_utilities.go
+    - runtime/pipeline/types.go
+    - runtime/statestore/file/store.go
+    - runtime/statestore/interface.go
+    - runtime/statestore/memory.go
+    - runtime/statestore/redis.go
+    - runtime/statestore/types.go
+    - sdk/options.go
+    - sdk/sdk.go
 ---
-Understanding how Runtime manages conversation state.
 
-## Overview
+LLMs keep no memory between calls, so the runtime stores each conversation and replays its history on every turn. This page explains the model, the store implementations, and the trade-offs of each.
 
-Runtime uses **session-based state management** to maintain conversation history across multiple turns.
+## The model
 
-## Core Concept
+A conversation has an ID, a message history, and a state store that holds both. The ID is the key: the load and save stages share one `StateStoreConfig`, and its `ConversationID` selects which conversation they read and write.
 
-Every conversation has:
-
-- **Session ID**: Unique identifier
-- **Message History**: Past conversation turns
-- **State Store**: Persistent storage
-
+```mermaid
+flowchart LR
+    Input[User input] --> Load[StateStoreLoadStage]
+    Load --> Provider[ProviderStage]
+    Provider --> Save[IncrementalSaveStage]
+    Load <-->|Load| Store[(statestore.Store)]
+    Save -->|AppendMessages| Store
 ```
-User → [Session: abc123] → Pipeline → LLM
-         ↓                    ↓
-    [Redis/Memory Store]   Response
-         ↓
-    Persisted History
-```
-
-## Why State Management?
-
-### Problem: Stateless LLMs
-
-LLMs don't remember previous interactions:
 
 ```go
-// First call
-response1 := llm.Predict("What's the capital of France?")
-// Response: "Paris"
-
-// Second call - LLM has no memory
-response2 := llm.Predict("What about Germany?")
-// Response: "Germany? What about it?" (No context!)
-```
-
-### Solution: Conversation History
-
-Pass history with each request:
-
-```go
-messages := []Message{
-    {Role: "user", Content: "What's the capital of France?"},
-    {Role: "assistant", Content: "Paris"},
-    {Role: "user", Content: "What about Germany?"},
+stateConfig := &pipeline.StateStoreConfig{
+    Store:          store,
+    ConversationID: "user-123-conv-456",
+    UserID:         "user-123",
 }
-response := llm.Predict(messages)
-// Response: "The capital of Germany is Berlin"
 ```
 
-## Session-Based Architecture
+Before the provider runs, `StateStoreLoadStage` loads the history for the ID and emits it ahead of the new input. A conversation that does not exist yet is an empty history. After the turn, `IncrementalSaveStage` persists only the messages the turn produced. Any other load error fails the turn.
 
-### Session ID
-
-Each conversation has a unique ID:
+With the SDK, `WithStateStore` supplies the store and `WithConversationID` the ID. Without a state store, each `Open` creates a private in-memory store, so reusing an ID in a second `Open` reaches a different, empty conversation:
 
 ```go
-sessionID := "user-123-conv-456"
-
-// The session ID is the conversation ID on the state store config that the
-// pipeline's load and save stages share.
-stateConfig := &pipeline.StateStoreConfig{Store: store, ConversationID: sessionID}
+conv, err := sdk.Open("./chat.pack.json", "assistant",
+    sdk.WithStateStore(store),
+    sdk.WithConversationID("user-123-conv-456"),
+)
 ```
 
-Sessions enable:
+## Why a separate store
 
-- **Multi-user support**: Separate conversations
-- **History isolation**: Users don't see each other's history
-- **Concurrent access**: Multiple requests per session
+The store is an interface that the pipeline stages call, not logic inside the pipeline. You swap backends without touching stages, test with an in-memory store, and use a store outside a pipeline, for example to seed or inspect conversations. Embedding storage in the pipeline would couple every stage to one backend.
 
-### State Management Flow
+The store holds full `types.Message` values, not text. Roles, tool calls and metadata survive, so a conversation replays exactly and maps onto each provider's wire format.
 
-State is managed through the Store interface:
+The conversation ID is a caller-chosen string, not derived from the user. A user can then have one ongoing conversation (`user-<id>`), many (`user-<id>-conv-<n>`), or a throwaway (a UUID). An implicit per-user session would make multiple conversations and fresh starts impossible.
 
-```go
-// Load conversation state by ID
-state, _ := store.Load(ctx, conversationID)
+## The store interfaces
 
-// Access message history
-messages := state.Messages
-
-// Execute with loaded context
-// ... pipeline execution ...
-
-// Save updated state
-state.Messages = append(state.Messages, newMessages...)
-store.Save(ctx, state)
-```
-
-**Before execution**:
-- Load history for session ID
-
-**After execution**:
-- Save new messages to store
-
-## Choosing a Backend
-
-| Backend  | Durable across restarts | Multi-process | Ops surface     |
-|----------|--------------------------|----------------|------------------|
-| In-memory | No                       | No             | None             |
-| File     | Yes                      | No (single process per root) | Local disk only |
-| Redis    | Yes                      | Yes            | Redis server     |
-
-File-backed state closes the gap between volatile memory and a network-attached Redis: solo
-developers, single-box deployments, and one-process-per-agent setups (e.g. Omnia function-mode
-AgentRuntimes) get crash-survivable mid-tool-loop state without standing up Redis. Two processes
-pointed at the same root will corrupt each other's data — use Redis for horizontally-scaled
-deployments.
-
-## State Store Interface
-
-All stores implement the read-shaped `Store` interface. Whole-state replacement is the optional `BulkWriter`; pipeline stages write through the typed interfaces (`MessageAppender`, `MetadataAccessor`, `SummaryAccessor`) instead:
+`Store` is read-shaped. Writes go through optional typed interfaces that stores implement as they can:
 
 ```go
 type Store interface {
@@ -129,7 +77,9 @@ type BulkWriter interface {
 }
 ```
 
-The `ConversationState` struct holds all conversation data:
+`MessageAppender`, `MetadataAccessor` and `SummaryAccessor` append messages, merge metadata and save summaries without rewriting the whole state. `MessageReader` loads only the most recent messages. `IncrementalSaveStage` appends through `MessageAppender` when the store implements it; otherwise it loads the state, appends, and writes it back through `BulkWriter`. Pipeline stages never take a `BulkWriter` directly, because a load-modify-save cycle loses updates when two requests overlap.
+
+`ConversationState` holds the data:
 
 ```go
 type ConversationState struct {
@@ -140,531 +90,137 @@ type ConversationState struct {
     Summaries      []Summary
     TokenCount     int
     LastAccessedAt time.Time
-    Metadata       map[string]any
+    Metadata       map[string]interface{}
 }
 ```
 
-### In-Memory Store
+## Choosing a backend
 
-Fast, but not persistent:
+| Backend | Durable across restarts | Multi-process | Operations surface |
+|---------|-------------------------|---------------|--------------------|
+| Memory | No | No | None |
+| File | Yes | No (one process per root) | Local disk |
+| Redis | Yes | Yes | Redis server |
+
+### Memory store
 
 ```go
 store := statestore.NewMemoryStore()
 ```
 
-**Characteristics**:
-- Speed: ~1-10µs per operation
-- Persistence: Lost on restart
-- Scalability: Single instance only
-- Cleanup: Manual eviction needed
+The memory store suits tests, development and short-lived single-instance deployments. State is lost on restart. By default it expires a conversation one hour after its last use (`WithMemoryTTL`, `WithNoTTL`) and holds at most 10,000 conversations, evicting the least recently used (`WithMemoryMaxEntries`, `WithNoMaxEntries`). Eviction happens on access; `WithMemoryEvictionInterval` adds a background sweep.
 
-**Use cases**:
-- Testing
-- Development
-- Single-instance deployments
-- Short-lived sessions
-
-### Redis Store
-
-Persistent and scalable:
+### Redis store
 
 ```go
-redisClient := redis.NewClient(&redis.Options{
-    Addr: "localhost:6379",
-})
-store := statestore.NewRedisStore(redisClient)
+redisClient := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+store := statestore.NewRedisStore(redisClient,
+    statestore.WithTTL(24*time.Hour),
+    statestore.WithPrefix("myapp"),
+)
 ```
 
-**Characteristics**:
-- Speed: ~1-5ms per operation
-- Persistence: Survives restarts
-- Scalability: Multi-instance support
-- Cleanup: TTL-based expiration
+Redis suits production, multiple instances and long-lived sessions. State survives restarts and every instance sees the same conversations. The default TTL is 24 hours and the default key prefix is `promptkit`. The constructor takes a `*redis.Client`.
 
-**Use cases**:
-- Production deployments
-- Multi-instance scaling
-- Long-lived sessions
-- High availability
+### File store
 
-### File-Backed Store
-
-`runtime/statestore/file` persists each conversation to disk as a `state.json` snapshot plus
-append-only JSONL files, so it survives restarts like Redis but with no daemon to run:
+`runtime/statestore/file` persists each conversation as a `state.json` snapshot plus append-only JSONL files. It survives restarts like Redis, with no daemon to run:
 
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/v2/statestore/file"
 
 store, err := file.NewStore(file.Options{
     Root:  "/var/lib/promptkit/conversations",
-    FSync: file.FSyncOnSave, // off | on-save (default) | on-append
+    FSync: file.FSyncOnSave, // FSyncOff, FSyncOnSave (default) or FSyncOnAppend
 })
 ```
 
-**Use cases**:
-- Solo developer / single-box deployments where Redis is overkill
-- Per-process agents (e.g. Omnia function-mode AgentRuntimes) on a node with a persistent volume
-- Anywhere mid-tool-loop crash recovery matters more than horizontal scale
+The file store suits single-box deployments and per-process agents on a node with a persistent volume, where recovering mid-tool-loop state matters more than horizontal scale. Two processes pointed at the same `Root` have undefined behavior, because the store has no cross-process locking. Use Redis once more than one process needs the same conversation. `Options.TTL` removes conversation directories older than the TTL when the store opens.
 
-**Not a fit for**: two PromptKit processes pointed at the same `Root` — undefined behavior, since
-the store has no cross-process locking. Use Redis once more than one process needs to see the same
-conversation.
+## TTL
 
-## Design Decisions
+All three stores can expire conversations. Memory and Redis treat the TTL as a sliding window from last use: loading a conversation extends it, so an active conversation is never collected under its owner, while diagnostic reads such as `MessageCount` do not extend it. Expiry cleans up old sessions, limits how long conversations are kept, and bounds storage cost. The trade-off is that a conversation idle past the TTL is gone, so choose a TTL longer than your longest expected gap between turns.
 
-### Why Session IDs?
+## Bounding history
 
-**Decision**: Use session IDs to identify conversations
+Sending the full history every turn costs tokens and I/O, so the SDK bounds it in three ways.
 
-**Rationale**:
-- **Isolation**: Separate conversations
-- **Multi-user**: Support concurrent users
-- **Flexibility**: Sessions can be user-scoped, conversation-scoped, or any other scope
+With `sdk.WithContextWindow(n)`, `ContextAssemblyStage` loads only the last `n` messages through `MessageReader`, and falls back to a full load when the store does not implement it. With `sdk.WithTokenBudget(tokens)` and `sdk.WithTruncation(strategy)`, history that exceeds the budget is truncated or summarized. Without a context window, `ContextAssemblyStage` keeps at most 200 messages and preserves the leading system messages. The [conversation manager reference](/sdk/reference/conversation-manager/) lists the options.
 
-**Alternative considered**: Implicit session based on user ID. Rejected because:
-- Users may have multiple conversations
-- No way to start new conversation
-- Harder to manage session lifecycle
+A smaller window loads less and costs fewer tokens but forgets older context. Summaries and semantic retrieval (`WithContextRetrieval`) recover some of it.
 
-### Why Separate Store Interface?
+## Forking
 
-**Decision**: Store is separate from pipeline logic
-
-**Rationale**:
-- **Pluggable**: Easy to swap storage backends
-- **Testable**: Mock stores for testing
-- **Reusable**: Stores can be used outside pipelines
-
-**Alternative considered**: Embedding storage in pipeline. Rejected as too coupled.
-
-### Why Message History?
-
-**Decision**: Store full messages, not raw text
-
-**Rationale**:
-- **Rich context**: Preserve roles, tool calls, metadata
-- **Accurate replay**: Reconstruct exact conversation
-- **Provider compatibility**: Messages map to provider formats
-
-**Alternative considered**: Store only text. Rejected because:
-- Loses role information
-- Can't reconstruct tool interactions
-- Harder to debug
-
-### Why TTL?
-
-**Decision**: Messages expire after TTL
-
-**Rationale**:
-- **Cleanup**: Automatic deletion of old sessions
-- **Privacy**: Don't store conversations forever
-- **Cost**: Reduce storage costs
-
-**Trade-off**: Active conversations may expire. Acceptable with reasonable TTL (e.g., 24 hours).
-
-## Storage Strategies
-
-### Message Limits
-
-Limit history size:
+`Fork` copies a conversation under a new ID and leaves the original unchanged, so you can explore a different direction from the same history:
 
 ```go
-// Load and trim messages before execution
-state, _ := store.Load(ctx, conversationID)
-if len(state.Messages) > 10 {
-    state.Messages = state.Messages[len(state.Messages)-10:]
-}
+err := store.Fork(ctx, "user-123", "user-123-branch-a")
 ```
 
-**Benefits**:
-- **Performance**: Less data to load
-- **Cost**: Fewer tokens sent to LLM
-- **Relevance**: Focus on recent context
+It returns `ErrNotFound` if the source does not exist.
 
-**Trade-off**: Loses older context. Use higher limits for long conversations.
+## Scaling
 
-### Sliding Window
+A memory or file store ties a conversation to one process. Run one instance, or route each conversation to the same instance with session affinity at the load balancer.
 
-Keep recent messages:
-
-```
-[Old messages...] [Recent 10 messages] ← Kept
-        ↓
-    Discarded
+```mermaid
+flowchart LR
+    U1[User A] --> I1[Instance 1]
+    U2[User B] --> I2[Instance 2]
+    I1 --> R[(Redis)]
+    I2 --> R
 ```
 
-### Time-Based Expiration
+With Redis, any instance serves any conversation, and instances add availability and capacity. Session affinity still helps if you cache per-instance state, because it lowers Redis load.
 
-Use Redis TTL or application-level expiration to auto-expire sessions.
+Concurrent requests on one conversation need care. Two requests that each load, execute and save can overwrite each other when the store only supports `BulkWriter`. Stores that implement `MessageAppender` append atomically, which removes the race for messages. Serialize requests per conversation if you also depend on whole-state writes.
 
-### Forking Sessions
+## Load performance
 
-Branch conversations:
+Typical load times:
 
-```go
-// Fork a conversation to try a different direction
-store.Fork(ctx, sessionID, newSessionID)
-```
+- Memory: 1-10µs
+- Redis, local: 1-2ms
+- Redis, remote: 5-10ms
 
-## Scaling Considerations
+Loading fewer messages helps most with a remote store, which is why `WithContextWindow` reads through `MessageReader`.
 
-### Single-Instance (In-Memory)
+## Testing
 
-```
-User → [Instance] → In-Memory Store
-```
-
-**Limitations**:
-- Single point of failure
-- No persistence
-- Limited to one instance
-
-### Multi-Instance (Redis)
-
-```
-User → [Instance 1] ↘
-                      [Redis Store]
-User → [Instance 2] ↗
-```
-
-**Benefits**:
-- High availability
-- Persistence
-- Horizontal scaling
-
-### Session Affinity
-
-Route users to same instance:
-
-```
-User (session-123) → Instance 1
-User (session-456) → Instance 2
-```
-
-**Benefits**:
-- Reduced latency (local cache)
-- Lower Redis load
-
-**Implementation**: Load balancer with session affinity
-
-## State Loading Performance
-
-### Load Time
-
-Typical performance:
-
-- **In-Memory**: 1-10µs
-- **Redis (local)**: 1-2ms
-- **Redis (remote)**: 5-10ms
-
-### Optimization Strategies
-
-**1. Message Limits**
-
-```go
-// Fast: Load and trim to last 10 messages
-state, _ := store.Load(ctx, conversationID)
-if len(state.Messages) > 10 {
-    state.Messages = state.Messages[len(state.Messages)-10:]
-}
-
-// Slow: Load all messages (no trimming)
-state, _ := store.Load(ctx, conversationID)
-```
-
-**2. Lazy Loading**
-
-Load on demand:
-
-```go
-type LazyStore struct {
-    inner statestore.Store
-    cache map[string]*statestore.ConversationState
-}
-
-func (s *LazyStore) Load(ctx context.Context, id string) (*statestore.ConversationState, error) {
-    if cached, ok := s.cache[id]; ok {
-        return cached, nil  // Cache hit
-    }
-
-    state, err := s.inner.Load(ctx, id)
-    if err == nil {
-        s.cache[id] = state
-    }
-    return state, err
-}
-```
-
-**3. Compression**
-
-Compress stored messages:
-
-```go
-type CompressedStore struct {
-    inner statestore.BulkWriter
-}
-
-func (s *CompressedStore) Save(ctx context.Context, state *statestore.ConversationState) error {
-    // Compress messages before saving
-    state.Messages = compress(state.Messages)
-    return s.inner.Save(ctx, state)
-}
-```
-
-**Trade-off**: CPU for storage. Worth it for large histories.
-
-## Concurrency and Consistency
-
-### Race Conditions
-
-Multiple requests per session:
-
-```
-Request 1: Load → Execute → Save
-Request 2:     Load → Execute → Save
-```
-
-**Problem**: Request 2 may overwrite Request 1's changes.
-
-### Solution: Optimistic Locking
-
-```go
-type Message struct {
-    // ... fields
-    Version int
-}
-
-func (s *VersionedStore) Save(sessionID string, messages []Message, expectedVersion int) error {
-    currentVersion := s.getVersion(sessionID)
-    if currentVersion != expectedVersion {
-        return ErrVersionMismatch
-    }
-    
-    s.saveWithVersion(sessionID, messages, currentVersion+1)
-    return nil
-}
-```
-
-Retry on version mismatch.
-
-### Eventual Consistency
-
-With Redis:
-
-- **Single-instance Redis**: Strongly consistent
-- **Redis Cluster**: Eventually consistent
-
-**Impact**: Rare edge cases where history may be stale. Acceptable for most applications.
-
-## Testing State Management
-
-### In-Memory for Tests
-
-Use in-memory store for fast tests:
+Use `NewMemoryStore` in tests. It implements `Store`, `BulkWriter`, `MessageAppender` and the other optional interfaces, so tests exercise the same paths as production:
 
 ```go
 func TestStateManagement(t *testing.T) {
     store := statestore.NewMemoryStore()
-    
     ctx := context.Background()
 
-    // Test save
-    state := &statestore.ConversationState{
-        ID:       "session-1",
-        Messages: []types.Message{},
+    state := &statestore.ConversationState{ID: "session-1", Messages: []types.Message{}}
+    if err := store.Save(ctx, state); err != nil {
+        t.Fatal(err)
     }
-    err := store.Save(ctx, state)
-    assert.NoError(t, err)
 
-    // Test load
     loaded, err := store.Load(ctx, "session-1")
-    assert.NoError(t, err)
-    assert.Equal(t, state.Messages, loaded.Messages)
-}
-```
-
-### Mock Store
-
-For testing state management:
-
-```go
-type MockStore struct {
-    states map[string]*statestore.ConversationState
-}
-
-func (m *MockStore) Load(ctx context.Context, id string) (*statestore.ConversationState, error) {
-    state, ok := m.states[id]
-    if !ok {
-        return nil, statestore.ErrNotFound
+    if err != nil {
+        t.Fatal(err)
     }
-    return state, nil
-}
-
-func (m *MockStore) Save(ctx context.Context, state *statestore.ConversationState) error {
-    m.states[state.ID] = state
-    return nil
-}
-
-func (m *MockStore) Fork(ctx context.Context, sourceID, newID string) error {
-    source, ok := m.states[sourceID]
-    if !ok {
-        return statestore.ErrNotFound
+    if loaded.ID != "session-1" {
+        t.Fatalf("got %q", loaded.ID)
     }
-    newState := *source
-    newState.ID = newID
-    newState.Messages = append([]types.Message{}, source.Messages...)
-    m.states[newID] = &newState
-    return nil
 }
 ```
 
-## Common Patterns
+`Load` on an unknown ID returns `statestore.ErrNotFound`.
 
-### User Sessions
+## Production considerations
 
-One session per user:
+Monitor load latency, save latency, history size and active conversations. For Redis, enable RDB snapshots and AOF for durability. Stored messages hold user data, so encrypt at rest, set a TTL that matches your retention policy, and provide a way to delete or export a user's conversations.
 
-```go
-sessionID := fmt.Sprintf("user-%s", userID)
-// The session ID is the conversation ID on the state store config that the
-// pipeline's load and save stages share.
-stateConfig := &pipeline.StateStoreConfig{Store: store, ConversationID: sessionID}
-```
+## Trade-offs
 
-**Use case**: Single ongoing conversation per user
+Replaying full history is simple and exact, and its cost grows with conversation length; windows and summaries trade fidelity for cost. Durable stores trade latency for survival: memory is microseconds and volatile, Redis is milliseconds and shared, the file store sits between and is single-process. Optional store interfaces let a minimal store work everywhere and a capable store skip the load-modify-save cycle.
 
-### Conversation Sessions
+## Related
 
-Multiple conversations per user:
-
-```go
-sessionID := fmt.Sprintf("user-%s-conv-%s", userID, conversationID)
-// The session ID is the conversation ID on the state store config that the
-// pipeline's load and save stages share.
-stateConfig := &pipeline.StateStoreConfig{Store: store, ConversationID: sessionID}
-```
-
-**Use case**: User can start multiple conversations
-
-### Temporary Sessions
-
-Anonymous sessions:
-
-```go
-sessionID := uuid.New().String()
-// The session ID is the conversation ID on the state store config that the
-// pipeline's load and save stages share.
-stateConfig := &pipeline.StateStoreConfig{Store: store, ConversationID: sessionID}
-```
-
-**Use case**: Guest users, temporary chats
-
-### Branching Conversations
-
-Fork a session to explore different directions:
-
-```go
-func branchConversation(userID, newBranchID string) {
-    sessionID := fmt.Sprintf("user-%s", userID)
-    newSessionID := fmt.Sprintf("user-%s-branch-%s", userID, newBranchID)
-    store.Fork(ctx, sessionID, newSessionID)
-}
-```
-
-## Production Considerations
-
-### Monitoring
-
-Track state metrics:
-
-- **Load latency**: Time to load history
-- **Save latency**: Time to save messages
-- **History size**: Bytes per session
-- **Active sessions**: Number of sessions
-
-### Error Handling
-
-Handle store failures gracefully:
-
-```go
-state, err := store.Load(ctx, conversationID)
-if err != nil {
-    log.Printf("Failed to load state: %v", err)
-    // Continue with empty state
-    state = &statestore.ConversationState{ID: conversationID}
-}
-```
-
-### Backup and Recovery
-
-Redis persistence:
-
-- **RDB**: Periodic snapshots
-- **AOF**: Append-only file
-
-Enable both for best durability.
-
-### Privacy Compliance
-
-- **Data deletion**: Implement cleanup mechanisms
-- **Data export**: Allow users to export history
-- **Encryption**: Encrypt messages at rest
-- **TTL**: Automatically delete old data
-
-## Example: Complete Setup
-
-### Development (In-Memory)
-
-```go
-store := statestore.NewMemoryStore()
-
-// Use store directly for state management
-state, _ := store.Load(ctx, conversationID)
-// ... execute pipeline with state.Messages ...
-state.Messages = append(state.Messages, newMessages...)
-store.Save(ctx, state)
-```
-
-### Production (Redis)
-
-```go
-redisClient := redis.NewClient(&redis.Options{
-    Addr:         "redis:6379",
-    Password:     os.Getenv("REDIS_PASSWORD"),
-    DB:           0,
-    MaxRetries:   3,
-    PoolSize:     10,
-})
-
-store := statestore.NewRedisStore(redisClient)
-
-// Use store directly for state management
-state, _ := store.Load(ctx, conversationID)
-// ... execute pipeline with state.Messages ...
-state.Messages = append(state.Messages, newMessages...)
-store.Save(ctx, state)
-```
-
-## Summary
-
-State management provides:
-
-✅ **Multi-turn conversations**: Maintain context across requests  
-✅ **Multi-user support**: Isolated sessions per user  
-✅ **Scalability**: Redis for distributed deployments  
-✅ **Performance**: Configurable history limits  
-✅ **Flexibility**: Pluggable storage backends  
-
-## Related Topics
-
-- [Pipeline Architecture](/runtime/explanation/pipeline-architecture/) - How state fits in pipelines
-- [State Store Reference](/runtime/reference/statestore/) - Store interface details
-- [StateStore Reference](/runtime/reference/statestore/) - Complete API
-- [Multi-turn Conversations Tutorial](/runtime/tutorials/02-multi-turn/) - Hands-on guide
-
-## Further Reading
-
-- Redis persistence strategies
-- Session management patterns
-- Distributed state management
-- CAP theorem and consistency
+- [Pipeline architecture](/runtime/explanation/pipeline-architecture/) shows where state fits in a pipeline.
+- [State store reference](/runtime/reference/statestore/) lists the complete API.
+- [Multi-turn conversations tutorial](/runtime/tutorials/02-multi-turn/) walks through it hands-on.

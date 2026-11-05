@@ -285,7 +285,7 @@ A pipeline without an emitter emits nothing, so observability costs nothing unti
 
 ## Adding an event
 
-Four decisions, in order. Each has been got wrong before, silently: the code compiled, the tests passed, and a consumer received nothing or the wrong thing.
+Four decisions, in order. A wrong choice compiles and passes tests, and the consumer receives nothing or the wrong thing.
 
 1. Pick the route. The bus (`Emitter` to `EventBus`) is asynchronous, lossy, metadata only and available wherever an emitter is configured. Recording (`RecordingStage` to `EventStore`) is synchronous, lossless, retains binary and needs `sdk.WithRecording` and an `EventStore`. An event may take both, as `message.created` does, but then both producers build the payload through one shared constructor, as `events.NewMessageCreatedData` does, so the two cannot drift.
 2. Keep binary off the bus. Text and structured content may go on it, bounded and redactable; raw bytes go on the recording route.

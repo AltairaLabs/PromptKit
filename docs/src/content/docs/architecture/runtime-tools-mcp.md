@@ -3,6 +3,30 @@ title: Runtime tool and MCP architecture
 description: How a model's tool call becomes a result, how MCP servers plug into the same path, and where the limits on tool use are enforced.
 sidebar:
   order: 7
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/mcp/options.go
+    - runtime/mcp/registry.go
+    - runtime/mcp/types.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/types.go
+    - runtime/tools/child_registry.go
+    - runtime/tools/exec_executor.go
+    - runtime/tools/executors.go
+    - runtime/tools/http_executor.go
+    - runtime/tools/mcp_executor.go
+    - runtime/tools/registry.go
+    - runtime/tools/types.go
+    - runtime/tools/validator.go
+    - sdk/client_tools.go
+    - sdk/conversation.go
+    - sdk/conversation_tools.go
+    - sdk/exec_tools.go
+    - sdk/internal/pack/load.go
+    - sdk/mcp_tool_sync.go
+    - sdk/options.go
+    - sdk/sdk.go
 ---
 A tool call passes through policy checks, hooks, schema validation and an executor before the model sees a result. This page explains how the `tools` package routes a call, how Model Context Protocol (MCP) servers join the same path, and where each limit on tool use is enforced.
 
@@ -49,7 +73,7 @@ type Executor interface {
 
 Two optional interfaces extend it. A `MultimodalExecutor` also returns content parts (images, audio), and the registry prefers it when an executor implements it. An `AsyncToolExecutor` can return a pending result instead of blocking, which is how approval and deferred client tools work.
 
-The registry chooses the executor by mode. `mock` uses the scripted executor when the tool has a template and the static one otherwise, `live` uses the executor named `http`, and `local`, `client` and `mcp` use the executors with those names. Any other mode names a registered executor directly, which is how `exec` and custom executors plug in. A new registry holds only the two mock executors. The host registers the rest, and the SDK registers `local`, `client` and `exec`, plus `mcp` when you configure an MCP server.
+The registry chooses the executor by mode. `mock` uses the scripted executor when the tool has a template and the static one otherwise, `live` uses the executor named `http`, and `local`, `client` and `mcp` use the executors with those names. Any other mode names a registered executor directly, which is how `exec` and custom executors plug in. A new registry holds only the two mock executors. The host registers the rest. The SDK registers `local` and `client`, `mcp` when you configure an MCP server, and `exec` when you configure an exec tool. A host that wants `live` tools registers an `HTTPExecutor` itself.
 
 A pack declares a tool's schema and description but not how it runs. The SDK loads pack tools with mode `local` as a placeholder, and the host binds the real execution mode and any consent policy. Execution mode and consent are hosting concerns, not pack fields.
 
@@ -157,7 +181,7 @@ sequenceDiagram
 
 When the SDK builds the pipeline, it registers the `MCPExecutor` and lists every server's tools in parallel. Each tool becomes a descriptor named `mcp__<server>__<tool>` with mode `mcp`, after the server's `ToolFilter` is applied. If a server cannot be listed, the SDK retries in the background with exponential backoff, from one second up to one minute, so a slow-starting server does not leave the conversation without its tools. When a server reports that its tool list changed, the registry re-reads it and the SDK replaces or removes the descriptors, so the next turn offers the new set.
 
-Registry clients connect lazily. The first `GetClient` for a server starts it, and a client that is no longer alive is replaced on the next use. `RegistryOptions.MaxProcesses` caps concurrent server processes. A client whose connection drops reconnects up to `MaxReconnectAttempts` times (3 by default), and connecting is retried up to `MaxRetries` times. A `tools/call` is never retried, because a tool may have side effects.
+Registry clients connect lazily. The first `GetClient` for a server starts it, and a dead client is replaced on the next use. `RegistryOptions.MaxProcesses` caps concurrent server processes. A client whose connection drops reconnects up to `MaxReconnectAttempts` times (3 by default), and connecting is retried up to `MaxRetries` times. A `tools/call` is never retried, because a tool may have side effects.
 
 MCP tools are not implicit. The model sees one only when the prompt's tool list names it, either exactly or with a wildcard such as `mcp__filesystem__*`. Capability tools (`skill__`, `a2a__`, `workflow__`, `memory__`, `image__`, `video__`) are offered without a listing.
 
