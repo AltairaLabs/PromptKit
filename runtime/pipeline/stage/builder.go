@@ -202,6 +202,11 @@ func (b *PipelineBuilder) validate() error {
 			return fmt.Errorf("%w: %s", ErrDuplicateStageName, stage.Name())
 		}
 		stageNames[stage.Name()] = true
+		if bv, ok := stage.(buildValidator); ok {
+			if err := bv.validateBuild(); err != nil {
+				return fmt.Errorf("%w: stage %s: %w", ErrInvalidPipeline, stage.Name(), err)
+			}
+		}
 	}
 
 	// Validate all edges reference existing stages

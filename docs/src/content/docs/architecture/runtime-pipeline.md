@@ -197,14 +197,18 @@ A context window or retrieval index swaps `StateStoreLoad` for `ContextAssembly`
 
 ## Running a pipeline
 
-`PipelineBuilder` wires the graph. `Chain` builds a line, `Connect`, `Branch` and `Merge` build other shapes, and `Build` rejects an empty graph, duplicate stage names, cycles, and a stage with several upstreams that is not a `MultiInputStage`.
+`PipelineBuilder` wires the graph. `Chain` builds a line, `Connect`, `Branch` and `Merge` build other shapes, and `Build` rejects an empty graph, duplicate stage names, cycles, a stage with several upstreams that is not a `MultiInputStage`, and a `PromptAssemblyStage` or `TemplateStage` built without a `TurnState` (`stage.ErrTurnStateRequired`), which would leave the provider with an empty system prompt.
 
 ```go
+// Prompt, template and provider stages share the turn's system prompt through
+// one TurnState; Build rejects a prompt stage constructed without one.
+turnState := stage.NewTurnState()
 pipeline, err := stage.NewPipelineBuilder().
     Chain(
         stage.NewStateStoreLoadStage(stateConfig),
-        stage.NewPromptAssemblyStage(registry, taskType, vars),
-        stage.NewProviderStage(provider, toolRegistry, toolPolicy, config),
+        stage.NewPromptAssemblyStageWithTurnState(registry, taskType, vars, turnState),
+        stage.NewTemplateStageWithTurnState(nil, turnState),
+        stage.NewProviderStageWithTurnState(provider, toolRegistry, toolPolicy, config, nil, nil, turnState),
         stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),
     ).
     Build()

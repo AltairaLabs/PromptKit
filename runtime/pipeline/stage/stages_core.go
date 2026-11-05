@@ -28,9 +28,10 @@ type PromptAssemblyStage struct {
 }
 
 // NewPromptAssemblyStage creates a prompt assembly stage with no TurnState
-// wired. Useful for tests that only need the loadTemplate side; production
-// callers should use NewPromptAssemblyStageWithTurnState so downstream
-// stages can read the loaded template.
+// wired. Such a stage loads the template and has nowhere to publish it, so
+// PipelineBuilder.Build rejects it with ErrTurnStateRequired; use
+// NewPromptAssemblyStageWithTurnState in a pipeline so downstream stages can
+// read the loaded template.
 func NewPromptAssemblyStage(
 	promptRegistry *prompt.Registry,
 	taskType string,
@@ -56,6 +57,15 @@ func NewPromptAssemblyStageWithTurnState(
 	s := NewPromptAssemblyStage(promptRegistry, taskType, baseVariables)
 	s.turnState = turnState
 	return s
+}
+
+// validateBuild rejects a stage with no TurnState: the template it loads would
+// reach no downstream stage and the provider would get no system prompt.
+func (s *PromptAssemblyStage) validateBuild() error {
+	if s.turnState == nil {
+		return ErrTurnStateRequired
+	}
+	return nil
 }
 
 // WithModel sets the model of the provider that runs this prompt, so the

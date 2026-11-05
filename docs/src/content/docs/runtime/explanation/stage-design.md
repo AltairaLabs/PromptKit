@@ -105,11 +105,15 @@ Validation is not a stage. It runs as `ProviderHook` and `ToolHook` chains that 
 Stages combine by listing them. Add state by adding two stages:
 
 ```go
+// Prompt, template and provider stages share the turn's system prompt through
+// one TurnState; Build rejects a prompt stage constructed without one.
+turnState := stage.NewTurnState()
 pipeline, err := stage.NewPipelineBuilder().
     Chain(
         stage.NewStateStoreLoadStage(stateConfig),
-        stage.NewPromptAssemblyStage(registry, task, vars),
-        stage.NewProviderStage(provider, tools, policy, config),
+        stage.NewPromptAssemblyStageWithTurnState(registry, task, vars, turnState),
+        stage.NewTemplateStageWithTurnState(nil, turnState),
+        stage.NewProviderStageWithTurnState(provider, tools, policy, config, nil, nil, turnState),
         stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),
     ).
     Build()
@@ -239,13 +243,16 @@ mergeStage := stage.NewMergeStage("merge", 2)
 A typical request/response pipeline:
 
 ```go
+// Prompt, template and provider stages share the turn's system prompt through
+// one TurnState; Build rejects a prompt stage constructed without one.
+turnState := stage.NewTurnState()
 pipeline, err := stage.NewPipelineBuilder().
     Chain(
         stage.NewStateStoreLoadStage(stateConfig),
-        stage.NewVariableProviderStage(providers...),
-        stage.NewPromptAssemblyStage(registry, task, vars),
-        stage.NewTemplateStage(),
-        stage.NewProviderStage(provider, tools, policy, config),
+        stage.NewVariableProviderStageWithVarsAndTurnState(nil, providers, turnState),
+        stage.NewPromptAssemblyStageWithTurnState(registry, task, vars, turnState),
+        stage.NewTemplateStageWithTurnState(nil, turnState),
+        stage.NewProviderStageWithTurnState(provider, tools, policy, config, nil, nil, turnState),
         stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),
     ).
     Build()

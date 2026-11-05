@@ -31,7 +31,7 @@ func evalTestConversation(t *testing.T, msgs []types.Message) *Conversation {
 	}}
 	promptRegistry := pack.ToPromptRegistry(p)
 	pipeline, err := stage.NewPipelineBuilder().
-		Chain(stage.NewPromptAssemblyStage(promptRegistry, "chat", nil)).
+		Chain(stage.NewPromptAssemblyStageWithTurnState(promptRegistry, "chat", nil, stage.NewTurnState())).
 		Build()
 	require.NoError(t, err)
 

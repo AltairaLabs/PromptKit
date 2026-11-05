@@ -402,7 +402,7 @@ func TestNewTextSession(t *testing.T) {
 
 		builder := stage.NewPipelineBuilder()
 		pipe, _ := builder.
-			Chain(stage.NewPromptAssemblyStage(registry, "chat", nil)).
+			Chain(stage.NewPromptAssemblyStageWithTurnState(registry, "chat", nil, stage.NewTurnState())).
 			Build()
 
 		cfg := UnarySessionConfig{

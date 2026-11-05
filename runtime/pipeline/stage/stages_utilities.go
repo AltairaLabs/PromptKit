@@ -134,11 +134,14 @@ type TemplateStage struct {
 	// turnState provides the template, merged variables, and the per-Turn
 	// render cache: render fires exactly once per Send (the first
 	// non-history element) and the rendered SystemPrompt is reused for
-	// every subsequent element. Nil-safe (the stage no-ops without it).
+	// every subsequent element. Required: PipelineBuilder.Build rejects a
+	// TemplateStage without one (ErrTurnStateRequired).
 	turnState *TurnState
 }
 
-// NewTemplateStage creates a template substitution stage.
+// NewTemplateStage creates a template substitution stage with no TurnState.
+// It has no template to render, so PipelineBuilder.Build rejects it with
+// ErrTurnStateRequired; use NewTemplateStageWithTurnState in a pipeline.
 func NewTemplateStage() *TemplateStage {
 	return &TemplateStage{
 		BaseStage: NewBaseStage("template", StageTypeTransform),
@@ -146,7 +149,9 @@ func NewTemplateStage() *TemplateStage {
 	}
 }
 
-// NewTemplateStageWithEmitter creates a template stage that emits lifecycle events.
+// NewTemplateStageWithEmitter creates a template stage that emits lifecycle
+// events. Like NewTemplateStage it has no TurnState, so Build rejects it; use
+// NewTemplateStageWithTurnState.
 func NewTemplateStageWithEmitter(emitter *events.Emitter) *TemplateStage {
 	return &TemplateStage{
 		BaseStage: NewBaseStage("template", StageTypeTransform),
@@ -166,6 +171,15 @@ func NewTemplateStageWithTurnState(emitter *events.Emitter, turnState *TurnState
 		renderer:  template.NewRenderer(),
 		turnState: turnState,
 	}
+}
+
+// validateBuild rejects a stage with no TurnState: it would render nothing and
+// the provider would get an empty system prompt.
+func (s *TemplateStage) validateBuild() error {
+	if s.turnState == nil {
+		return ErrTurnStateRequired
+	}
+	return nil
 }
 
 // Process substitutes variables in messages and system prompt metadata.
