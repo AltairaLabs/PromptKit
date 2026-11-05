@@ -58,7 +58,7 @@ log.Printf("cached: %d tokens, $%.6f", ci.CachedTokens, ci.CachedCostUSD)
 log.Printf("total:  $%.6f", ci.TotalCost)
 ```
 
-`TotalCost` equals `InputCostUSD + OutputCostUSD + CachedCostUSD`. `InputTokens` and `OutputTokens` add up every modality (text, audio, image, video on input; text, audio, image on output). `CachedTokens` counts cache reads. Cache writes and reasoning tokens appear only in `Quantities` and `Breakdown`.
+`TotalCost` equals `InputCostUSD + OutputCostUSD + CachedCostUSD`. `InputTokens` and `OutputTokens` add up every modality (text, audio, image, video on input; text, audio, image on output). `CachedTokens` counts cache reads. Cache-write and reasoning token counts appear only in `Quantities`; their cost is included in `InputCostUSD` and `OutputCostUSD`.
 
 ## 2. Break the cost down by unit
 

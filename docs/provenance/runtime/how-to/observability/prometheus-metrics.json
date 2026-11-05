@@ -54,22 +54,24 @@
   },
   {
    "id": 6,
-   "claim": "Audio counters audio_frame_underruns_total, audio_frame_underrun_samples_total, audio_frame_drops_total{direction,reason=overflow}, audio_pacing_behind_deadline_total registered by NewCollector; direction is input/output",
+   "claim": "Audio counters audio_frame_underruns_total, audio_frame_underrun_samples_total, audio_frame_drops_total{direction,reason=overflow}, audio_pacing_behind_deadline_total registered by NewCollector; direction is input/output; metric table descriptions follow the Help strings in stream_metrics.go",
    "verdict": "true",
    "evidence": [
     "runtime/metrics/collector.go:245",
     "runtime/pipeline/stage/stages_pacing.go:257",
     "runtime/providers/stream_metrics.go:186",
+    "runtime/providers/stream_metrics.go:189",
     "runtime/providers/stream_metrics.go:201",
     "runtime/providers/stream_metrics.go:208"
    ]
   },
   {
    "id": 7,
-   "claim": "metrics.NewEventBusHealthCollector(bus, ns, constLabels) exports eventbus_events_dropped_total with no labels, read at scrape time",
+   "claim": "metrics.NewEventBusHealthCollector(bus, ns, constLabels) exports eventbus_events_dropped_total with no labels, read at scrape time; counts events dropped because the bus buffer or a listener queue was full, once per listener",
    "verdict": "true",
    "evidence": [
     "runtime/metrics/eventbus_health.go:21",
+    "runtime/metrics/eventbus_health.go:33",
     "runtime/metrics/eventbus_health.go:55"
    ]
   },

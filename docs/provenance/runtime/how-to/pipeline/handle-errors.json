@@ -4,10 +4,11 @@
  "claims": [
   {
    "id": 1,
-   "claim": "A stage that returns an error ends the turn; ExecuteSync returns it with a non-nil result",
+   "claim": "A stage that returns an error ends the turn; ExecuteSync returns it with a result holding what was emitted before the failure, and a nil result only when the pipeline could not start",
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/pipeline.go:162",
+    "runtime/pipeline/stage/pipeline.go:896",
     "runtime/pipeline/stage/pipeline.go:990"
    ]
   },

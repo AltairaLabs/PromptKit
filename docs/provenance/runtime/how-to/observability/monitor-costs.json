@@ -29,10 +29,11 @@
   },
   {
    "id": 4,
-   "claim": "InputTokens and OutputTokens add up every modality (input: text, audio, image, video; output: text, audio, image); CachedTokens counts cache reads; cache writes and reasoning appear only in Quantities",
+   "claim": "InputTokens and OutputTokens add up every modality (input: text, audio, image, video; output: text, audio, image); CachedTokens counts cache reads; cache-write and reasoning token counts appear only in Quantities, and their cost is included in InputCostUSD and OutputCostUSD",
    "verdict": "true",
    "evidence": [
     "runtime/providers/base/priceusage.go:57-60",
+    "runtime/providers/base/priceusage.go:61-75",
     "runtime/providers/base/priceusage.go:76-79"
    ]
   },

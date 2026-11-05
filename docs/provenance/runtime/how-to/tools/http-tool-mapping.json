@@ -129,12 +129,6 @@
    ]
   },
   {
-   "id": 16,
-   "claim": "Geocoding response reduced from ~3,400 to ~87 bytes (97%)",
-   "verdict": "unverified",
-   "evidence": []
-  },
-  {
    "id": 17,
    "claim": "Common JMESPath patterns table",
    "verdict": "true",

@@ -112,33 +112,11 @@ if err != nil {
 defer pipe.Shutdown(ctx)
 ```
 
-## Verify
-
-Call a discovered tool through the tool registry:
-
-```go
-result, err := toolRegistry.Execute(ctx, "read_file", json.RawMessage(`{"path": "/allowed/example.txt"}`))
-if err != nil {
-    log.Fatal(err)
-}
-log.Printf("Result: %s", result.Result)
-```
-
-To skip the tool registry, call the client directly:
-
-```go
-client, err := registry.GetClientForTool(ctx, "read_file")
-if err != nil {
-    log.Fatal(err)
-}
-response, err := client.CallTool(ctx, "read_file", json.RawMessage(`{"path": "/allowed/example.txt"}`))
-```
-
-## Tune the client
+### 5. Tune the client (optional)
 
 Pass a `ClientOptions` to a client constructor, or set it per server through `RegistryOptions.ConfigureClient`.
 
-### Timeouts and retries
+#### Timeouts and retries
 
 ```go
 options := mcp.DefaultClientOptions()
@@ -155,7 +133,7 @@ Progress notifications from the server restart a `tools/call` timeout; the conte
 
 Retries apply only to connecting, and only to failures that are not the server's answer. `tools/call` is never retried, because a tool may have side effects. If the connection is lost, the next request reconnects, up to `MaxReconnectAttempts` times.
 
-### Elicitation
+#### Elicitation
 
 A server can ask the user for input during a tool call. The client advertises the `elicitation` capability only when you supply a handler:
 
@@ -169,7 +147,7 @@ options.ElicitationHandler = func(ctx context.Context, server string, req mcp.El
 
 Without a handler, any elicitation request is refused. With one, fields the user leaves out are filled from the defaults in the requested schema. Only form mode is supported. The same handler answers a 2026-07-28 server's `input_required` results.
 
-### Authorization
+#### Authorization
 
 For an HTTP server with static credentials, set `ServerConfig.Headers`. For [MCP authorization](https://modelcontextprotocol.io/specification/latest/basic/authorization) (OAuth 2.1), implement `mcp.Authorizer`. PromptKit runs no OAuth flow and stores no secrets: your code does both.
 
@@ -196,7 +174,7 @@ conv, _ := sdk.Open(packPath, "assistant",
 
 With the runtime, set `ClientOptions.Authorizer` and `ElicitationHandler` in `RegistryOptions.ConfigureClient`.
 
-### Tool list changes
+#### Tool list changes
 
 When a server sends `notifications/tools/list_changed`, the registry lists its tools again. To update your own tool registry, set `RegistryOptions.OnToolsChanged`:
 
@@ -210,7 +188,7 @@ registry := mcp.NewRegistryWithOptions(mcp.RegistryOptions{
 
 The callback runs on its own goroutine with the server's complete new list. If the list cannot be read, the registry keeps the previous tools and does not call it. The SDK sets the callback for you: from the next turn, a conversation and its forks stop offering removed tools and offer new ones that the prompt allows, for example through an `mcp__<server>__*` entry in its tools.
 
-## Handle errors
+### 6. Handle errors (optional)
 
 A protocol error (unknown tool, invalid arguments) is a JSON-RPC error, returned as `*mcp.RPCError`. A tool that ran and failed returns a normal result with `IsError` set.
 
@@ -225,6 +203,28 @@ case err != nil:
 case response.IsError:
     log.Printf("Tool reported an error: %s", response.Content[0].Text)
 }
+```
+
+## Verify
+
+Call a discovered tool through the tool registry:
+
+```go
+result, err := toolRegistry.Execute(ctx, "read_file", json.RawMessage(`{"path": "/allowed/example.txt"}`))
+if err != nil {
+    log.Fatal(err)
+}
+log.Printf("Result: %s", result.Result)
+```
+
+To skip the tool registry, call the client directly:
+
+```go
+client, err := registry.GetClientForTool(ctx, "read_file")
+if err != nil {
+    log.Fatal(err)
+}
+response, err := client.CallTool(ctx, "read_file", json.RawMessage(`{"path": "/allowed/example.txt"}`))
 ```
 
 ## Troubleshoot

@@ -178,10 +178,11 @@
   },
   {
    "id": 20,
-   "claim": "ToolPolicy MaxIdenticalToolCalls default 3, StopOnTool, and prompt tool_policy merge rules (smaller non-zero MaxRounds/MaxToolCallsPerTurn, union Blocklist, caller ToolChoice wins)",
+   "claim": "ToolPolicy MaxIdenticalToolCalls default 3 (a second identical-call loop after the self-correction nudge fails the turn), StopOnTool, and prompt tool_policy merge rules (smaller non-zero MaxRounds/MaxToolCallsPerTurn, union Blocklist, caller ToolChoice wins)",
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/stages_provider.go:1320",
+    "runtime/pipeline/stage/stages_provider.go:1661",
     "runtime/pipeline/stage/stages_provider.go:1707",
     "runtime/pipeline/types.go:27",
     "runtime/pipeline/types.go:30",

@@ -174,7 +174,7 @@ for serverName, tools := range serverTools {
 | `MaxParallelToolCalls` | `int` | 10 | Maximum concurrent tool executions |
 | `MaxCostUSD` | `float64` | 0 (unlimited) | Cumulative cost budget; the turn fails with an error once exceeded |
 | `Blocklist` | `[]string` | none | Tool names the stage refuses to execute; the model receives a "blocked by policy" result |
-| `MaxIdenticalToolCalls` | `int` | 3 | The call that repeats the same tool and arguments this many times is skipped; the model receives a stop-repeating result |
+| `MaxIdenticalToolCalls` | `int` | 3 | The call that repeats the same tool and arguments this many times is skipped; the model receives a stop-repeating result; a second loop after that fails the turn |
 | `StopOnTool` | `string` | none | Ends the tool loop after the round in which this tool was called |
 
 A prompt's `tool_policy` narrows these limits. `MaxRounds` and `MaxToolCallsPerTurn` take the smaller non-zero value, `Blocklist` is the union, and the caller's `ToolChoice` wins when set.

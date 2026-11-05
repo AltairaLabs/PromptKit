@@ -31,9 +31,9 @@ func send(ctx context.Context, pipe *stage.StreamPipeline, content string) (*sta
 }
 ```
 
-## Read the error
+## 1. Read the error
 
-A stage that returns an error ends the turn. `ExecuteSync` returns that error, together with a non-nil result that holds whatever the pipeline emitted before the failure.
+A stage that returns an error ends the turn. `ExecuteSync` returns that error with a result holding whatever the pipeline emitted before the failure. The result is nil only when the pipeline could not start.
 
 ```go
 result, err := send(ctx, pipe, "Your message")
@@ -42,7 +42,7 @@ if err != nil {
 	if errors.As(err, &stageErr) {
 		log.Printf("stage %q (%s) failed: %v", stageErr.StageName, stageErr.StageType, stageErr.Err)
 	}
-	if result.Response != nil {
+	if result != nil && result.Response != nil {
 		log.Printf("partial response: %s", result.Response.Content)
 	}
 	return err
@@ -51,7 +51,7 @@ if err != nil {
 
 A stage that returns an error without emitting it (a validation or template stage, for example) reaches you as a `*stage.StageError`. The provider stage emits its own error, so a provider failure reaches you as the provider's error, without the wrapper. Match on the cause with `errors.Is` and `errors.As`, which work in both cases.
 
-## Classify the error
+## 2. Classify the error
 
 ```go
 var httpErr *providers.ProviderHTTPError
@@ -69,7 +69,7 @@ case providers.IsTransient(err):
 
 `providers.IsTransient` is false for context cancellation and deadlines, and for stream idle timeouts.
 
-## Retry transient failures
+## 3. Retry transient failures
 
 Retry only errors that `providers.IsTransient` accepts, and stop when the context is done:
 
@@ -97,7 +97,7 @@ func sendWithRetry(ctx context.Context, pipe *stage.StreamPipeline, content stri
 
 A provider's `ProviderHTTPError.RetryAfter` holds the delay a `Retry-After` header asked for. Use it instead of the computed backoff when it is non-zero.
 
-## Fall back to another provider
+## 4. Fall back to another provider (optional)
 
 Build one pipeline per provider and try them in order:
 
@@ -115,7 +115,7 @@ func sendWithFallback(ctx context.Context, pipes []*stage.StreamPipeline, conten
 }
 ```
 
-## Handle errors while streaming
+## 5. Handle errors while streaming (optional)
 
 `Execute` returns an error only when it cannot start (for example, while the pipeline shuts down). A failure during the turn arrives as the last element on the output channel, with `Error` set:
 
@@ -136,7 +136,7 @@ for elem := range output {
 }
 ```
 
-## Bound a turn
+## 6. Bound a turn (optional)
 
 Two pipeline settings bound a turn. When `ExecutionTimeout` passes, the running stage fails with `context.DeadlineExceeded`.
 

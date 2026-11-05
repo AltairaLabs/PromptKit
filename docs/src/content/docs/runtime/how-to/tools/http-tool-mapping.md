@@ -113,7 +113,7 @@ The request is `GET /v1/search?count=1&language=en&name=London`. For POST, PUT a
       body_mapping: "results[*].{name: name, latitude: latitude, longitude: longitude, country: country}"
 ```
 
-This reduced the geocoding response from ~3,400 bytes to ~87 bytes, a 97% reduction in tokens sent to the model. A response that is not JSON is wrapped in a JSON object first.
+A response that is not JSON is wrapped in a JSON object first.
 
 | Pattern | Result |
 |---------|--------|

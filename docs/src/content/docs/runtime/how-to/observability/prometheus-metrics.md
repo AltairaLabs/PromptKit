@@ -173,22 +173,22 @@ The output has a `myapp_provider_requests_total` series per provider, model, sou
 
 All names carry the `{ns}_` prefix. Const labels and instance labels appear on every series.
 
-| Metric | Type | Labels |
-|--------|------|--------|
-| `pipeline_duration_seconds` | Histogram | `status` (`success`, `error`) |
-| `provider_request_duration_seconds` | Histogram | `provider`, `model`, `source` |
-| `provider_requests_total` | Counter | `provider`, `model`, `source`, `status` (`success`, `error`) |
-| `provider_input_tokens_total`, `provider_output_tokens_total`, `provider_cached_tokens_total` | Counter | `provider`, `model`, `source` |
-| `provider_cost_total` | Counter, USD | `provider`, `model`, `source` |
-| `tool_call_duration_seconds` | Histogram | `tool` |
-| `tool_calls_total` | Counter | `tool`, `status` (`error` when the call failed, otherwise `success`) |
-| `validation_duration_seconds` | Histogram | `validator`, `validator_type` |
-| `validations_total` | Counter | `validator`, `validator_type`, `status` (`passed`, `failed`) |
-| `audio_frame_underruns_total` | Counter | `direction` |
-| `audio_frame_underrun_samples_total` | Counter | `direction` |
-| `audio_frame_drops_total` | Counter | `direction`, `reason` (`overflow`) |
-| `audio_pacing_behind_deadline_total` | Counter | `direction` |
-| `eventbus_events_dropped_total` | Counter | none |
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `pipeline_duration_seconds` | Histogram | `status` (`success`, `error`) | Duration of each pipeline execution |
+| `provider_request_duration_seconds` | Histogram | `provider`, `model`, `source` | Duration of each provider API call |
+| `provider_requests_total` | Counter | `provider`, `model`, `source`, `status` (`success`, `error`) | Provider API calls |
+| `provider_input_tokens_total`, `provider_output_tokens_total`, `provider_cached_tokens_total` | Counter | `provider`, `model`, `source` | Input, output and cached tokens in provider calls |
+| `provider_cost_total` | Counter, USD | `provider`, `model`, `source` | Cost of provider calls |
+| `tool_call_duration_seconds` | Histogram | `tool` | Duration of each tool call |
+| `tool_calls_total` | Counter | `tool`, `status` (`error` when the call failed, otherwise `success`) | Tool calls |
+| `validation_duration_seconds` | Histogram | `validator`, `validator_type` | Duration of each validation check |
+| `validations_total` | Counter | `validator`, `validator_type`, `status` (`passed`, `failed`) | Validation checks |
+| `audio_frame_underruns_total` | Counter | `direction` | Pulls from the audio buffer that were short-filled with silence because it was starved |
+| `audio_frame_underrun_samples_total` | Counter | `direction` | Silence samples substituted on underrun |
+| `audio_frame_drops_total` | Counter | `direction`, `reason` (`overflow`) | Audio samples dropped because the producer exceeded buffer capacity |
+| `audio_pacing_behind_deadline_total` | Counter | `direction` | Times audio pacing was already past a chunk's playback deadline when it forwarded it |
+| `eventbus_events_dropped_total` | Counter | none | Events dropped because the bus buffer or a listener queue was full, counted once per listener |
 
 `source` is `agent` for pipeline calls, `judge` for LLM judge evals and `selfplay` for self-play generation. `direction` is `input` or `output`. The collector also records `tts_`, `stt_`, `embedding_`, `image_gen_` and `inference_` families, each with `request_duration_seconds`, `requests_total` and `cost_total` series and the same `provider`, `model` and `source` labels.
 
