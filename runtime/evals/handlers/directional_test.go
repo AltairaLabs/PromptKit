@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
@@ -176,7 +177,6 @@ func TestDirectional_SimilarContent_AboveThreshold(t *testing.T) {
 	result, err := h.Eval(context.Background(), evalCtx, map[string]any{
 		"check":            "similar_content",
 		"baseline_content": "The quick brown fox leaps over the lazy dog",
-		"threshold":        0.5,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -197,7 +197,6 @@ func TestDirectional_SimilarContent_BelowThreshold(t *testing.T) {
 	result, err := h.Eval(context.Background(), evalCtx, map[string]any{
 		"check":            "similar_content",
 		"baseline_content": "The quick brown fox jumps over the lazy dog",
-		"threshold":        0.9,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -247,7 +246,6 @@ func TestDirectional_SimilarContent_IdenticalContent(t *testing.T) {
 	result, err := h.Eval(context.Background(), evalCtx, map[string]any{
 		"check":            "similar_content",
 		"baseline_content": "exact same content",
-		"threshold":        1.0,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -266,7 +264,6 @@ func TestDirectional_SimilarContent_EmptyBoth(t *testing.T) {
 	result, err := h.Eval(context.Background(), evalCtx, map[string]any{
 		"check":            "similar_content",
 		"baseline_content": " ", // whitespace-only becomes empty word set
-		"threshold":        0.5,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -315,5 +312,42 @@ func TestWordOverlap(t *testing.T) {
 				t.Errorf("wordOverlap(%q, %q) = %f, want %f", tt.a, tt.b, score, tt.expected)
 			}
 		})
+	}
+}
+
+func TestDirectional_RejectsThreshold(t *testing.T) {
+	h := &DirectionalHandler{}
+	for _, check := range []string{"similar_content", "same_tool_calls", "same_outcome"} {
+		result, err := h.Eval(context.Background(), &evals.EvalContext{CurrentOutput: "a b"}, map[string]any{
+			"check":            check,
+			"baseline_content": "a b",
+			"threshold":        0.1,
+		})
+		if err != nil {
+			t.Fatalf("%s: unexpected error: %v", check, err)
+		}
+		if result.Error == "" || !strings.Contains(result.Error, "type: assertion") {
+			t.Errorf("%s: want error pointing at the assertion wrapper, got %q", check, result.Error)
+		}
+		if result.Score == nil || *result.Score != 0 {
+			t.Errorf("%s: want score 0 on a rejected param, got %v", check, result.Score)
+		}
+	}
+}
+
+func TestDirectional_SimilarContent_ScoreIsRawOverlap(t *testing.T) {
+	h := &DirectionalHandler{}
+	result, err := h.Eval(context.Background(), &evals.EvalContext{CurrentOutput: "a b c d"}, map[string]any{
+		"check":            "similar_content",
+		"baseline_content": "a b x y",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Error != "" || result.Score == nil || *result.Score != 2.0/6.0 {
+		t.Errorf("want raw overlap 1/3 and no error, got %v / %q", result.Score, result.Error)
+	}
+	if strings.Contains(result.Explanation, "threshold") {
+		t.Errorf("explanation must not state a verdict against a threshold: %q", result.Explanation)
 	}
 }

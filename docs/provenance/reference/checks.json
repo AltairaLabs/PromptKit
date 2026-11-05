@@ -336,7 +336,7 @@
   },
   {
    "id": "c44",
-   "claim": "outcome_equivalent / directional params: expected_*, baseline_*, threshold default 0.5",
+   "claim": "outcome_equivalent / directional params: expected_*, baseline_*, threshold rejected, the assertion wrapper owns it",
    "verdict": "false",
    "evidence": [
     "runtime/evals/handlers/directional.go:13-19",

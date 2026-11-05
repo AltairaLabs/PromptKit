@@ -52,7 +52,7 @@ func runJudgeEval(
 	params map[string]any,
 	content string,
 ) *evals.EvalResult {
-	if msg := rejectThresholdParams(params); msg != "" {
+	if msg := rejectJudgeParams(params); msg != "" {
 		return errorResult(handlerType, msg)
 	}
 	provider, extractErr := resolveJudgeProvider(ctx, evalCtx, params)
@@ -219,9 +219,6 @@ func buildJudgeOpts(
 	if v, ok := params["rubric"].(string); ok {
 		opts.Rubric = v
 	}
-	if v, ok := params["model"].(string); ok {
-		opts.Model = v
-	}
 	if v, ok := params["system_prompt"].(string); ok {
 		opts.SystemPrompt = v
 	}
@@ -252,6 +249,23 @@ func buildEvalResult(
 			resultFieldReasoning: jr.Reasoning,
 		},
 	}
+}
+
+// rejectJudgeParams refuses the params a judge check cannot honor: a
+// threshold (see rejectThresholdParams) and a `model`. A judge grades with the
+// model of the provider it is bound to, and providers take no per-call model,
+// so accepting `model` would silently grade with a different model than the
+// author asked for. Returns "" when the params pass.
+func rejectJudgeParams(params map[string]any) string {
+	if msg := rejectThresholdParams(params); msg != "" {
+		return msg
+	}
+	if _, present := params["model"]; present {
+		return "model is not a valid param on a judge check: a judge grades with the model of its " +
+			"bound provider and a call cannot switch it; to grade with another model, bind a " +
+			"different provider (a `provider` name from the pack's `requires`, or sdk.WithNamedProvider)"
+	}
+	return ""
 }
 
 // rejectThresholdParams surfaces a clear Error when callers put a

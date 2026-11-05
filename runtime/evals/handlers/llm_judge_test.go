@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
@@ -52,7 +53,6 @@ func TestLLMJudgeHandler_PassingEval(t *testing.T) {
 	params := map[string]any{
 		"criteria": "Is it helpful?",
 		"rubric":   "Score 1.0 for helpful",
-		"model":    "gpt-4",
 	}
 
 	result, err := h.Eval(context.Background(), evalCtx, params)
@@ -79,8 +79,32 @@ func TestLLMJudgeHandler_PassingEval(t *testing.T) {
 	if mock.opts.Rubric != "Score 1.0 for helpful" {
 		t.Errorf("rubric not forwarded: %s", mock.opts.Rubric)
 	}
-	if mock.opts.Model != "gpt-4" {
-		t.Errorf("model not forwarded: %s", mock.opts.Model)
+}
+
+func TestJudgeHandlers_RejectModelParam(t *testing.T) {
+	t.Parallel()
+	handlers := map[string]evals.EvalTypeHandler{
+		"llm_judge":            &LLMJudgeHandler{},
+		"llm_judge_tool_calls": &LLMJudgeToolCallsHandler{},
+		"llm_judge_session":    &LLMJudgeSessionHandler{},
+		"role_violation":       &RoleViolationHandler{},
+	}
+	for name, h := range handlers {
+		mock := &llmJudgeMock{result: &JudgeResult{Score: 1}}
+		evalCtx := &evals.EvalContext{
+			CurrentOutput: "x",
+			Metadata:      map[string]any{"judge_provider": mock},
+		}
+		res, err := h.Eval(context.Background(), evalCtx, map[string]any{"criteria": "c", "model": "gpt-4"})
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if !strings.Contains(res.Error, "WithNamedProvider") || !strings.Contains(res.Error, "model") {
+			t.Errorf("%s: want an error naming provider binding, got %q", name, res.Error)
+		}
+		if mock.opts.Content != "" {
+			t.Errorf("%s: judge must not be called when model is rejected", name)
+		}
 	}
 }
 

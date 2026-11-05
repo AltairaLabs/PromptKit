@@ -15,7 +15,10 @@ import (
 //   - baseline_tools ([]string, optional): expected tool names for same_tool_calls
 //   - baseline_state (string, optional): expected workflow state for same_outcome
 //   - baseline_content (string, optional): expected content substring for similar_content
-//   - threshold (float64, optional): minimum overlap ratio for similar_content (default 0.5)
+//
+// The score for similar_content is the word-overlap ratio itself. Like every
+// eval handler this one applies no threshold: `threshold` is rejected, and the
+// pass line belongs on the `type: assertion` wrapper (`min_score`).
 type DirectionalHandler struct{}
 
 // Type returns the eval type identifier.
@@ -27,6 +30,11 @@ func (h *DirectionalHandler) Eval(
 	evalCtx *evals.EvalContext,
 	params map[string]any,
 ) (*evals.EvalResult, error) {
+	if _, present := params["threshold"]; present {
+		return errorResult(h.Type(), "threshold is not a valid param on an eval handler; "+
+			"wrap with `type: assertion` and put the threshold there as min_score "+
+			"(see runtime/evals/wrappers.go)"), nil
+	}
 	check, _ := params["check"].(string)
 	if check == "" {
 		return &evals.EvalResult{
@@ -95,32 +103,14 @@ func (h *DirectionalHandler) checkSimilarContent(
 		}, nil
 	}
 
-	threshold := 0.5
-	if t, ok := extractFloat64(params, "threshold"); ok {
-		threshold = t
-	}
-
-	actual := evalCtx.CurrentOutput
-	score := wordOverlap(actual, baselineContent)
-	passed := score >= threshold
-
-	result := &evals.EvalResult{
-		Type:  h.Type(),
-		Score: &score,
-		Value: map[string]any{keyOverlapScore: score, keyThreshold: threshold},
-		Details: map[string]any{
-			keyOverlapScore: score,
-			keyThreshold:    threshold,
-		},
-	}
-
-	if passed {
-		result.Explanation = fmt.Sprintf("content similarity %.2f >= threshold %.2f", score, threshold)
-	} else {
-		result.Explanation = fmt.Sprintf("content similarity %.2f < threshold %.2f", score, threshold)
-	}
-
-	return result, nil
+	score := wordOverlap(evalCtx.CurrentOutput, baselineContent)
+	return &evals.EvalResult{
+		Type:        h.Type(),
+		Score:       &score,
+		Value:       map[string]any{keyOverlapScore: score},
+		Details:     map[string]any{keyOverlapScore: score},
+		Explanation: fmt.Sprintf("content similarity %.2f", score),
+	}, nil
 }
 
 // wordOverlap computes the Jaccard similarity of word sets between two strings.
