@@ -1,65 +1,73 @@
 ---
 title: Memory and Grounding
+description: Give a conversation knowledge from outside the current chat, by injecting retrieved content into the prompt or by giving the model memory tools.
 sidebar:
   order: 6
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/memory/corpus/corpus.go
+    - runtime/memory/formatter.go
+    - runtime/memory/memory_store.go
+    - runtime/memory/retriever.go
+    - runtime/memory/store.go
+    - runtime/memory/tools.go
+    - runtime/memory/types.go
+    - runtime/pipeline/stage/errors.go
+    - runtime/pipeline/stage/stages_memory.go
+    - runtime/template/renderer.go
+    - sdk/capability_memory.go
+    - sdk/conversation.go
+    - sdk/internal/pipeline/builder.go
+    - sdk/options.go
+    - sdk/voice.go
 ---
-Learn how to give an agent knowledge it did not get from the current conversation — either facts it manages itself, or content injected into its prompt before it runs.
+Give a conversation knowledge it did not get from the current chat, either by injecting retrieved content into the system prompt (ambient grounding) or by giving the model tools to manage facts about its subject (memory tools).
 
-## Two mechanisms, two jobs
+[Retrieval Architecture](/runtime/explanation/retrieval-architecture/) explains what each shape costs and when to use which.
 
-PromptKit has two ways to put outside knowledge in front of a model. They are configured separately and answer different questions.
+## Prerequisites
 
-| | Memory tools | Ambient grounding |
-|---|---|---|
-| Who decides | The model, by calling a tool | The pipeline, every turn |
-| Source | A `memory.Store` you provide | Any corpus, via a `memory.Retriever` you provide |
-| Scoped to | A subject (a user, a workspace) | Whatever your retriever chooses |
-| Reaches the model as | A tool result mid-turn | The `{{memory_context}}` template variable |
-| Configured with | `WithMemory` | `WithRetriever`, or `WithMemoryRetriever` inside `WithMemory` |
+- A conversation opened with `sdk.Open()`.
+- For grounding, a `memory.Retriever`. For memory tools, a `memory.Store`.
 
-Use memory tools when the model should remember things about the person it is talking to. Use grounding when every answer should be anchored in your documentation, catalog, or knowledge base — the model never has to think to ask for it. [Retrieval Architecture](/runtime/explanation/retrieval-architecture/) covers the tradeoff in full: what each shape costs, and when to reach for which.
+## Ground answers in your content
 
-They compose. An agent can remember that a customer prefers email while grounding its answers in the current returns policy.
+1. Put `{{memory_context}}` in the prompt's system template:
 
-## Ambient grounding
+   ```json
+   {
+     "prompts": {
+       "support": {
+         "system_template": "You are a support agent. Answer from the reference material below.\n\nReference material:\n{{memory_context}}"
+       }
+     }
+   }
+   ```
 
-Put the variable in your system prompt:
+2. Pass a retriever to `Open()`:
 
-```json
-{
-  "prompts": {
-    "support": {
-      "system_template": "You are a support agent. Answer from the reference material below.\n\nReference material:\n{{memory_context}}"
-    }
-  }
-}
-```
+   ```go
+   import (
+       "github.com/AltairaLabs/PromptKit/runtime/v2/memory/corpus"
+       "github.com/AltairaLabs/PromptKit/sdk/v2"
+   )
 
-Then wire a retriever:
+   kb := corpus.New([]corpus.Document{
+       {ID: "returns", Title: "Returns policy", Text: "Faulty items may be returned within 37 days of delivery."},
+       {ID: "shipping", Title: "Shipping", Text: "Orders ship the next business day."},
+   })
 
-```go
-import (
-    "github.com/AltairaLabs/PromptKit/runtime/v2/memory/corpus"
-    "github.com/AltairaLabs/PromptKit/sdk/v2"
-)
+   conv, err := sdk.Open("./support.pack.json", "support",
+       sdk.WithRetriever(kb),
+   )
+   ```
 
-kb := corpus.New([]corpus.Document{
-    {ID: "returns", Title: "Returns policy", Text: "Faulty items may be returned within 37 days of delivery."},
-    {ID: "shipping", Title: "Shipping", Text: "Orders ship the next business day."},
-})
+Before each turn renders, the retriever receives the conversation so far, and the result replaces `{{memory_context}}`. Grounding needs no store, no scope and no memory capability. A turn that retrieves nothing renders the variable empty.
 
-conv, _ := sdk.Open("./support.pack.json", "support",
-    sdk.WithRetriever(kb),
-)
-```
+### Write a retriever
 
-Before each turn renders, the retriever is asked what is relevant to the conversation so far and its answer is substituted into `{{memory_context}}`. No store, no scope, no memory capability — grounding needs only a retriever.
-
-Retrieval runs on every turn, so grounding follows the conversation. A turn that retrieves nothing renders the variable empty rather than inheriting the previous turn's material.
-
-### Writing a retriever
-
-`corpus.Retriever` is a reference implementation: it scores documents by term overlap with the latest user turn and returns the best few. It is for development and tests. Production hosts implement the interface against a real index:
+`corpus.Retriever` scores documents by term overlap with the latest user turn and returns the top three. Use it for development and tests. In production, implement `memory.Retriever` against your index:
 
 ```go
 type Retriever interface {
@@ -67,13 +75,11 @@ type Retriever interface {
 }
 ```
 
-You get the turn's messages, so relevance can depend on the whole conversation rather than the last message alone, and the scope map, which is empty unless a memory capability supplied one. Use it to filter a shared index by tenant.
+You receive the turn's messages, and a scope map that is empty unless a memory capability supplied one. Return an empty slice when nothing is relevant.
 
-Return an empty slice when nothing is relevant. Injecting an unrelated document is worse than injecting none — the model cannot tell that it was not chosen.
+### Format the injected text
 
-### Formatting what gets injected
-
-By default each item is rendered as `[type] content (confidence: N.N)`. Override that to surface whatever the prompt needs to cite:
+The default format is one line per item: `[type] content (confidence: N.N)`. Override it with `WithRetrievalFormatter`:
 
 ```go
 sdk.WithRetrievalFormatter(func(items []*memory.Memory) string {
@@ -85,44 +91,42 @@ sdk.WithRetrievalFormatter(func(items []*memory.Memory) string {
 })
 ```
 
-## Memory tools
+## Give the model memory tools
 
-`WithMemory` gives the model four tools (`memory__remember`, `memory__recall`, `memory__list` and `memory__forget`), backed by a store you supply:
+1. Create a store and a scope, and pass them to `WithMemory`:
 
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/memory"
+   ```go
+   import "github.com/AltairaLabs/PromptKit/runtime/v2/memory"
 
-store := memory.NewInMemoryStore()
-scope := map[string]string{"user_id": "u-1234"}
+   store := memory.NewInMemoryStore()
+   scope := map[string]string{"user_id": "u-1234"}
 
-conv, _ := sdk.Open("./assistant.pack.json", "assistant",
-    sdk.WithMemory(store, scope),
-)
-```
+   conv, err := sdk.Open("./assistant.pack.json", "assistant",
+       sdk.WithMemory(store, scope),
+   )
+   ```
 
-The model calls them on its own initiative. It already knows they exist and what they are for: the descriptors go to the provider as tool definitions, and each ships with a description that says when to reach for it — `memory__recall` is described as *"Search your memories for relevant information. Use this to recall facts, preferences, or context from previous conversations."* You do not have to restate any of that in the system prompt.
+2. Run the conversation. The model sees four tools (`memory__remember`, `memory__recall`, `memory__list` and `memory__forget`) and calls them on its own initiative. Each tool's description says when to use it, so the system prompt does not need to.
 
-When the defaults are not right for your deployment, edit the descriptor rather than the prompt — [`WithToolDescriptorOverride`](/sdk/how-to/tools/override-capability-tools/) patches the description the model sees. Keep the system prompt for policy a tool description cannot carry: when *not* to store something, or which of several sources to trust first.
+`InMemoryStore` matches by case-insensitive substring and keeps nothing between processes. In production, implement `memory.Store` against your backend.
 
-Configured like the above (a store and a scope, no retriever), nothing reaches the prompt unless the model calls a tool. That is the default of this configuration, not a property of the capability: `WithMemory` also accepts a retriever, and a capability carrying one injects `{{memory_context}}` every turn exactly as `WithRetriever` does, whether or not the tools are registered. See [Retrieval without tools](#retrieval-without-tools).
+To change what the model sees for a tool, patch its descriptor with [`WithToolDescriptorOverride`](/sdk/how-to/tools/override-capability-tools/). Keep the system prompt for policy a description cannot carry, such as what not to store.
 
 ### Scope
 
-The scope map is the isolation boundary. Every store operation takes it, so `memory__recall` sees only what was saved under the same scope. Keys are yours to choose — `{"user_id": "u-1234", "workspace_id": "acme"}` is typical.
+The scope map is the isolation boundary: every store operation takes it, so `memory__recall` sees only what was saved under the same scope. The keys are yours to choose.
 
-Scope also gates the tools. The capability looks for a subject key (`user_id` by default) and registers nothing when it is absent, so an anonymous conversation cannot write into a shared bucket:
+The capability registers no tools unless the scope has a non-empty subject key (`user_id` by default). Without one, it logs a warning and skips the tools:
 
-```
+```text
 WARN memory tools skipped: scope has no subject key  expected_key=user_id scope_keys=[]
 ```
 
-Name a different key with `WithMemorySubjectKey("account_id")`.
+Name a different key with `sdk.WithMemorySubjectKey("account_id")`. Passing an empty string removes the check.
 
-`InMemoryStore` matches by substring and keeps nothing between processes; it exists for development and tests. Production stores implement `memory.Store` against a real backend, where a vector search replaces the substring match.
+### Extract memories automatically
 
-### Extraction
-
-An extractor writes memories without the model calling a tool, from the conversation after each turn:
+An extractor writes memories from the conversation after each turn, without the model calling a tool:
 
 ```go
 sdk.WithMemory(store, scope,
@@ -130,11 +134,11 @@ sdk.WithMemory(store, scope,
 )
 ```
 
-PromptKit defines the interface; platform layers implement it, typically with an LLM that classifies what is worth keeping.
+`myExtractor` implements `memory.Extractor`.
 
 ### Retrieval without tools
 
-To wire memory retrieval but keep the tools out of the model's hands, combine the capability's retriever with `WithMemoryToolsDisabled`:
+To inject memories into the prompt but keep the tools away from the model, combine `WithMemoryRetriever` with `WithMemoryToolsDisabled`:
 
 ```go
 sdk.WithMemory(store, scope,
@@ -143,16 +147,14 @@ sdk.WithMemory(store, scope,
 )
 ```
 
-The two options are independent. `WithMemoryRetriever` on its own adds ambient injection while leaving the tools registered; `WithMemoryToolsDisabled` is what removes them. Drop the second line above and the model gets both paths — it can call `memory__recall`, and `{{memory_context}}` is filled every turn regardless.
-
-`WithMemoryContextFormatter` is the formatter for this path — the capability's equivalent of `WithRetrievalFormatter`. When both a capability retriever and `WithRetriever` are configured, `WithRetriever` wins.
+`WithMemoryRetriever` alone injects `{{memory_context}}` every turn and leaves the tools registered. `WithMemoryToolsDisabled` without a retriever disables memory entirely. `WithMemoryContextFormatter` is the formatter for this path. When both `WithRetriever` and a capability retriever are set, `WithRetriever` wins.
 
 ### Backend-specific arguments
 
-A store with capabilities the four tools do not model (graph expansion, point-in-time reads, a namespace) can accept extra arguments without forking PromptKit. Extend the tool's input schema with [`WithToolDescriptorOverride`](/sdk/reference/conversation-manager/#WithToolDescriptorOverride), and the executor forwards anything it does not type itself:
+If your store supports options the four tools do not model (graph expansion, point-in-time reads, a namespace), extend a tool's input schema with [`WithToolDescriptorOverride`](/sdk/reference/conversation-manager/#WithToolDescriptorOverride). The executor forwards the arguments it does not type itself:
 
 ```go
-conv, _ := sdk.Open("./assistant.pack.json", "assistant",
+conv, err := sdk.Open("./assistant.pack.json", "assistant",
     sdk.WithMemory(store, scope),
     sdk.WithToolDescriptorOverride(memory.RecallToolName,
         func(d *tools.ToolDescriptor) {
@@ -162,7 +164,7 @@ conv, _ := sdk.Open("./assistant.pack.json", "assistant",
 )
 ```
 
-Your store reads them off the options struct:
+Your store reads them from `RetrieveOptions.Extras`:
 
 ```go
 func (s *GraphStore) Retrieve(
@@ -170,13 +172,13 @@ func (s *GraphStore) Retrieve(
 ) ([]*memory.Memory, error) {
     seed, _ := opts.Extras["seed_name"].(string)
     hops, _ := opts.Extras["max_hops"].(float64) // JSON numbers arrive as float64
-    ...
+    // ...
 }
 ```
 
-`memory__list` works the same way through `ListOptions.Extras`, and `memory__remember` merges its extras into `Memory.Metadata` alongside the typed `metadata` argument, where a typed key wins a collision.
+`memory__list` forwards extras through `ListOptions.Extras`. `memory__remember` merges them into `Memory.Metadata`, and a typed `metadata` key wins a collision.
 
-`memory__forget` is the one that needs opting in. `Store.Delete` takes no options parameter, so implement `memory.ExtrasDeleter` and the executor prefers it:
+`Store.Delete` takes no options, so `memory__forget` forwards extras only to stores that implement `memory.ExtrasDeleter`:
 
 ```go
 func (s *GraphStore) DeleteWithOptions(
@@ -184,51 +186,48 @@ func (s *GraphStore) DeleteWithOptions(
 ) error
 ```
 
-A store that ignores `Extras`, or does not implement `ExtrasDeleter`, behaves exactly as it did before: the extras are dropped. [Override Capability Tools](/sdk/how-to/tools/override-capability-tools/#getting-a-new-parameter-to-the-host) has the same matrix for workflow, A2A and skills.
+A store that does not read `Extras` drops them. Fields you return in `Memory.Metadata` serialize into the tool result without any extra setup. [Override Capability Tools](/sdk/how-to/tools/override-capability-tools/#getting-a-new-parameter-to-the-host) has the matrix for workflow, A2A and skills.
 
-Backend-specific fields in the **result** need nothing special: return them in each `Memory.Metadata` and they serialize into the tool result the model sees.
-
-## Using both
+## Use both
 
 ```go
-conv, _ := sdk.Open("./support.pack.json", "support",
-    // Facts about this customer, managed by the model.
+conv, err := sdk.Open("./support.pack.json", "support",
     sdk.WithMemory(store, map[string]string{"user_id": "u-1234"}),
-    // Grounding from your content, injected every turn.
     sdk.WithRetriever(kb),
 )
 ```
 
-Keep the sources separate. Pointing grounding at the memory store means the model finds the same rows twice (once by asking, once without), and a filter you apply inside your `Retriever` does not run on the tool path, since the tool reaches the store directly. See [Retrieval Architecture](/runtime/explanation/retrieval-architecture/#keep-the-sources-apart).
+Keep the sources separate. Pointing grounding at the memory store surfaces the same rows twice, and a filter inside your `Retriever` does not run on the tool path. See [Retrieval Architecture](/runtime/explanation/retrieval-architecture/#keep-the-sources-apart).
 
-## Duplex is not supported
+## Verify
 
-Ambient grounding is a per-turn operation: the retrieval stage reads the turn's messages once the input closes, then writes the context the template renders. A duplex session has no such boundary: its input stays open until the session ends, so the stage would never forward and the provider session would never start.
+- Grounding: log the rendered system prompt, or have the model quote the reference material.
+- Tools: send "Remember that I prefer email", then call `store.List(ctx, scope, memory.ListOptions{})`. The saved memory appears in the result.
 
-`OpenDuplex` and `OpenVoice` therefore refuse a configured retriever rather than returning a session that cannot reply:
+## Troubleshoot
 
-```
+`OpenDuplex` and `OpenVoice` return an error when a retriever is configured, because the retrieval stage waits for the turn's input to close and a duplex session's input stays open:
+
+```text
 ambient grounding (a memory retriever) is not supported with a duplex provider: ...
 ```
 
-Use the memory tools for retrieval in a voice or realtime session, or do the retrieval yourself and pass the result as a variable.
+In a voice or realtime session, use the memory tools, or retrieve yourself and pass the result as a variable.
 
-## Gotchas
+The model never sees retrieved text if `{{memory_context}}` is missing from `system_template`. Check the rendered prompt, not the retrieval log.
 
-**The variable has to be in the prompt.** Retrieval runs and produces nothing visible if `{{memory_context}}` does not appear in `system_template`. Check the rendered prompt, not the retrieval log.
+A turn fails when `{{memory_context}}` cannot be resolved, for instance with no retriever configured:
 
-**An unresolved placeholder fails the turn.** If `{{memory_context}}` cannot be resolved (no retriever configured, for instance), `Send` returns an error rather than sending the model a prompt it cannot use:
-
-```
+```text
 stage 'template' (transform) failed: system prompt has unresolved variables:
 support: unresolved template placeholders: [{{memory_context}}] (variables available: customer_name)
 ```
 
-**Your retriever sees the user's words verbatim.** Message text is never variable-substituted, so what reaches `RetrieveContext` is exactly what was sent — including any `{{...}}` a user happened to type.
+Your retriever receives user text verbatim, including any `{{...}}` the user typed.
 
-## See also
+## Related
 
-- [Manage Context](/sdk/how-to/conversations/manage-context/) — token budget and truncation for long conversations
-- [Memory reference](/runtime/reference/memory/) — `Store`, `Retriever`, `Extractor`, `Memory`
-- [Memory Corpus reference](/runtime/reference/memory-corpus/) — the reference retriever
-- [Retrieval Architecture](/runtime/explanation/retrieval-architecture/) — why retrieval has two shapes, and why PromptKit ships no retriever
+- [Manage Context](/sdk/how-to/conversations/manage-context/): token budget and truncation for long conversations
+- [Memory reference](/runtime/reference/memory/): `Store`, `Retriever`, `Extractor`, `Memory`
+- [Memory Corpus reference](/runtime/reference/memory-corpus/): the reference retriever
+- [Retrieval Architecture](/runtime/explanation/retrieval-architecture/): why retrieval has two shapes

@@ -1,215 +1,186 @@
 ---
 title: Run Evals
+description: Score a conversation snapshot with sdk.Evaluate(), supply judges, and send the results to metrics, traces and events
 sidebar:
   order: 7
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/evals/handlers/exec_handler.go
+    - runtime/evals/handlers/judge_required.go
+    - runtime/evals/handlers/llm_judge.go
+    - runtime/evals/handlers/rag_helpers.go
+    - runtime/evals/hooks.go
+    - runtime/evals/metrics.go
+    - runtime/evals/runner.go
+    - runtime/evals/types.go
+    - runtime/evals/wrappers.go
+    - runtime/events/types.go
+    - runtime/hooks/guardrails/factory.go
+    - runtime/metrics/collector.go
+    - runtime/metrics/eval_dimensions.go
+    - runtime/prompt/schema/promptpack.schema.json
+    - runtime/telemetry/listener.go
+    - sdk/binding.go
+    - sdk/eval_middleware.go
+    - sdk/evaluate.go
+    - sdk/evaluate_binding.go
+    - sdk/options.go
+    - sdk/provider_keys.go
+    - sdk/provider_refs.go
 ---
-Run quality checks against conversation snapshots with `sdk.Evaluate()`.
+Score a conversation snapshot against the evals in a pack with `sdk.Evaluate()`. Messages go in and results come out; no live agent connection is needed.
 
-## Basic Usage
+Evals measure: a result carries a score, not a pass or fail. Only an assertion or guardrail wrapper sets a verdict.
 
-```go
-import (
-    "context"
-    "fmt"
+## Prerequisites
 
-    "github.com/AltairaLabs/PromptKit/sdk/v2"
-)
+- A pack with `evals`, or a list of `evals.EvalDef` values.
+- The conversation to score as `[]types.Message`.
+- For judge-backed evals, a judge provider (see [Supply a judge](#supply-a-judge)).
 
-results, err := sdk.Evaluate(ctx, sdk.EvaluateOpts{
-    PackPath:  "./app.pack.json",
-    PromptName: "assistant",
-    Messages:  messages, // []types.Message
-    SessionID: "session-123",
-    TurnIndex: 0,
-})
-if err != nil {
-    log.Fatal(err)
-}
+## Run the evals
 
-for _, r := range results {
-    fmt.Printf("%s: score=%v explanation=%s\n", r.EvalID, r.Score, r.Explanation)
-}
-```
+1. Pass the pack and the messages:
 
-No live provider connection is needed: messages in, results out.
+   ```go
+   import (
+       "context"
+       "fmt"
+       "log"
 
-## Eval Sources
+       "github.com/AltairaLabs/PromptKit/sdk/v2"
+   )
 
-Provide eval definitions from one of three sources (checked in order):
+   results, err := sdk.Evaluate(ctx, sdk.EvaluateOpts{
+       PackPath:   "./app.pack.json",
+       PromptName: "assistant", // merge this prompt's evals with the pack-level evals
+       Messages:   messages,    // []types.Message
+       SessionID:  "session-123",
+       TurnIndex:  0,
+   })
+   if err != nil {
+       log.Fatal(err)
+   }
 
-### From a pack file
+   for _, r := range results {
+       if r.Score != nil {
+           fmt.Printf("%s: score=%.2f %s\n", r.EvalID, *r.Score, r.Explanation)
+       }
+   }
+   ```
 
-```go
-results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
-    PackPath:   "./app.pack.json",
-    PromptName: "assistant",  // merge prompt-level evals with pack-level
-    Messages:   messages,
-})
-```
+   `Evaluate` takes the eval definitions from the first source that is set: `EvalDefs`, then `PackData` (JSON bytes), then `PackPath`. To pass definitions directly:
 
-### From JSON bytes
+   ```go
+   import "github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 
-```go
-results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
-    PackData:   packJSON,  // []byte
-    PromptName: "assistant",
-    Messages:   messages,
-})
-```
+   results, err := sdk.Evaluate(ctx, sdk.EvaluateOpts{
+       EvalDefs: []evals.EvalDef{
+           {
+               ID:      "no_profanity",
+               Type:    "content_excludes",
+               Trigger: evals.TriggerEveryTurn,
+               Params:  map[string]any{"patterns": []string{"damn", "hell"}},
+           },
+       },
+       Messages: messages,
+   })
+   ```
 
-### From explicit definitions
+   2. Choose which trigger class runs with `Trigger`. The default is `every_turn`.
 
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+   | `Trigger` | Runs evals with trigger |
+   |---|---|
+   | `evals.TriggerEveryTurn` (default) | `every_turn`, `sample_turns` |
+   | `evals.TriggerOnSessionComplete` | `on_session_complete`, `sample_sessions` |
+   | `evals.TriggerOnConversationComplete` | `on_conversation_complete` |
+   | `evals.TriggerOnWorkflowStep` | `on_workflow_step`: after each workflow state transition, against the turn that made it |
 
-results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
-    EvalDefs: []evals.EvalDef{
-        {
-            ID:      "no_profanity",
-            Type:    "content_excludes",
-            Trigger: evals.TriggerEveryTurn,
-            Params:  map[string]any{"patterns": []string{"damn", "hell"}},
-        },
-        {
-            ID:      "valid_json",
-            Type:    "json_valid",
-            Trigger: evals.TriggerEveryTurn,
-        },
-    },
-    Messages: messages,
-})
-```
+   Sampled triggers hash `SessionID`.
 
-## Triggers
+3. Filter by group with `EvalGroups`. An eval with no explicit `groups` belongs to `default` plus one classification group:
 
-Control when evals fire:
+   | Group | Constant | Eval types |
+   |---|---|---|
+   | `fast-running` | `evals.GroupFastRunning` | Deterministic checks: string matching, regex, JSON validation |
+   | `long-running` | `evals.GroupLongRunning` | LLM calls, embeddings, network requests |
+   | `external` | `evals.GroupExternal` | REST APIs, A2A agents, exec subprocesses, LLM judges |
 
-| Trigger | Constant | Description |
-|---------|----------|-------------|
-| `every_turn` | `evals.TriggerEveryTurn` | After each assistant response (default) |
-| `on_session_complete` | `evals.TriggerOnSessionComplete` | When session ends |
-| `on_conversation_complete` | `evals.TriggerOnConversationComplete` | When conversation ends |
-| `sample_turns` | `evals.TriggerSampleTurns` | Hash-based turn sampling |
-| `sample_sessions` | `evals.TriggerSampleSessions` | Hash-based session sampling |
-| `on_workflow_step` | `evals.TriggerOnWorkflowStep` | After each workflow state transition, against the turn that made it |
+   ```go
+   results, err := sdk.Evaluate(ctx, sdk.EvaluateOpts{
+       PackPath:   "./app.pack.json",
+       Messages:   messages,
+       EvalGroups: []string{evals.GroupFastRunning},
+   })
+   ```
 
-```go
-results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
-    PackPath: "./app.pack.json",
-    Messages: messages,
-    Trigger:  evals.TriggerOnSessionComplete,
-})
-```
+   Explicit `groups` on an eval definition (`"groups": ["safety", "compliance"]`) replace the classification.
 
-## LLM Judge Support
+## Supply a judge
 
-Judge-backed checks (`llm_judge`, `llm_judge_session`, `bias`, `toxicity`,
-`pii_leakage`, `role_violation` and the RAG primitives) need an LLM to grade
-with. They get it the same way every other ancillary provider is supplied: the
-pack names what it needs, the host decides what answers.
+Judge-backed evals (`llm_judge`, `llm_judge_session`, `bias`, `toxicity`, `pii_leakage`, `role_violation` and the RAG primitives) need an LLM to grade with. The pack declares a logical name, the eval points at it, and you decide which model answers.
 
-The name is the pack author's own and means nothing outside the pack. You stay
-free to change the model behind it whenever you like, which is the point.
+1. Declare the provider in the pack and name it in the eval:
 
-Declare it, and point the check at it:
+   ```yaml
+   requires:
+     providers:
+       - key: grader                 # any name this pack likes
+         role: llm
+         description: grades the toxicity and PII checks
+         required: true
 
-```yaml
-requires:
-  providers:
-    - key: grader                 # any name this pack likes
-      role: llm
-      description: grades the toxicity and PII checks
-      required: true
+   prompts:
+     chat:
+       evals:
+         - id: toxicity
+           type: toxicity
+           trigger: every_turn
+           params:
+             provider: grader        # the name declared above
+   ```
 
-prompts:
-  chat:
-    validators:
-      - type: toxicity
-        params:
-          provider: grader        # the name declared above
-```
+2. Bind the name for `Evaluate` with `JudgeTargets`, keyed by the pack's logical name:
 
-Bind that name when you open the conversation:
+   ```go
+   import "github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 
-```go
-conv, _ := sdk.Open("./app.pack.json", "chat",
-    sdk.WithProvider(agent),
-    sdk.WithLLMProvider(sdk.ProviderSpec{
-        ID: "grader", Type: "openai", Model: "gpt-4.1-mini",
-    }),
-)
-```
+   results, err := sdk.Evaluate(ctx, sdk.EvaluateOpts{
+       PackPath:   "./app.pack.json",
+       PromptName: "chat",
+       Messages:   messages,
+       JudgeTargets: map[string]any{
+           "grader": providers.ProviderSpec{ID: "grader", Type: "openai", Model: "gpt-4.1-mini"},
+       },
+   })
+   ```
 
-Nothing falls back to the conversation's own provider. Which model grades the
-output is your decision, and self-grading on the agent model (with the agent's
-bill) is a decision rather than a default.
+   To resolve names yourself, set `ProviderBinding` to an `evals.ProviderBinding`. It takes precedence over `JudgeTargets`.
 
-Everything that can go wrong is caught at `Open()`, and the error says whose
-problem it is:
+3. For a live conversation, bind the name with `WithNamedProvider`. It registers the grader without replacing the conversation's agent:
 
-| What is wrong | Whose | What you see |
-|---|---|---|
-| The check names a provider the pack never declares | pack | names the check, the name, and what the pack does declare |
-| The pack declares it, you bound nothing | host | names the key the pack asked for |
-| You bound something that cannot do the job | host | names the key and says what it needs instead — "bound to an inference provider, and this check needs one that runs completions" |
-| A judge-backed check names nothing at all | pack | tells you to add `params.provider` |
+   ```go
+   conv, err := sdk.Open("./app.pack.json", "chat",
+       sdk.WithProvider(agent),
+       sdk.WithNamedProvider(sdk.ProviderSpec{
+           ID: "grader", Type: "openai", Model: "gpt-4.1-mini",
+       }),
+   )
+   ```
 
-For a host driving a pack whose checks name nothing, `sdk.WithJudgeProvider`
-supplies a default judge. A check that names a provider always wins over it.
+Nothing falls back to the conversation's own provider. A host that drives packs whose checks name no provider can set a default judge: `sdk.WithJudgeProvider` for a conversation, `EvaluateOpts.JudgeProvider` for `Evaluate`. A check that names a provider ignores the default.
 
-For the offline path, pass the judge in the options:
+For checks in a prompt's `evals` or `validators`, `Open()` fails before the first turn when the name is undeclared in `requires`, declared but unbound, or bound to an inference provider. A judge-backed guardrail that names no provider, with no default judge, also fails `Open()` and the error says to add `params.provider`.
 
-```go
-results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
-    PackPath:      "./app.pack.json",
-    Messages:      messages,
-    JudgeProvider: judgeProvider, // pre-built provider instance
-})
-```
+## Record metrics
 
-## Eval Groups
-
-Evals are automatically classified into well-known groups based on their handler type. When no explicit groups are configured, each eval belongs to `default` plus a classification group:
-
-| Group | Constant | Description |
-|-------|----------|-------------|
-| `default` | `evals.DefaultEvalGroup` | All evals with no explicit groups |
-| `fast-running` | `evals.GroupFastRunning` | Deterministic checks (string matching, regex, JSON validation) |
-| `long-running` | `evals.GroupLongRunning` | LLM calls, embeddings, network requests |
-| `external` | `evals.GroupExternal` | External systems (REST APIs, A2A agents, exec subprocesses) |
-
-Filter which groups to run with `EvalGroups`:
-
-```go
-// Only run fast, deterministic evals
-results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
-    PackPath:   "./app.pack.json",
-    Messages:   messages,
-    EvalGroups: []string{evals.GroupFastRunning},
-})
-```
-
-Override automatic classification by setting explicit groups on an eval definition:
-
-```json
-{
-  "id": "custom_check",
-  "type": "llm_judge",
-  "trigger": "every_turn",
-  "groups": ["safety", "compliance"],
-  "params": { "criteria": "..." }
-}
-```
-
-When explicit groups are set, they fully replace the automatic classification.
-
-## Metrics
-
-Record eval results as Prometheus metrics by passing a `MetricsCollector` — the SDK calls `Bind()` internally, matching the `WithMetrics()` pattern from the conversation API:
+Pass a `MetricsCollector` to record results as Prometheus metrics. `Evaluate` binds it for you:
 
 ```go
 import (
     "github.com/prometheus/client_golang/prometheus"
+
     "github.com/AltairaLabs/PromptKit/runtime/v2/metrics"
 )
 
@@ -220,7 +191,7 @@ collector := metrics.NewEvalOnlyCollector(metrics.CollectorOpts{
     InstanceLabels: []string{"tenant"},
 })
 
-results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
+results, err := sdk.Evaluate(ctx, sdk.EvaluateOpts{
     PackPath:              "./app.pack.json",
     Messages:              messages,
     MetricsCollector:      collector,
@@ -228,9 +199,7 @@ results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
 })
 ```
 
-`NewEvalOnlyCollector` skips pipeline metric registration — use it for standalone eval workers that don't run a live pipeline. For consumers that also need pipeline metrics, use `metrics.NewCollector()` instead.
-
-You can also pass a raw `MetricRecorder` for custom implementations, but `MetricsCollector` is preferred for new code.
+`NewEvalOnlyCollector` skips pipeline metrics. Use `metrics.NewCollector()` when the process also runs conversations. An eval without a `metric` definition is recorded as a gauge named after the eval ID.
 
 ### Eval dimensions
 
@@ -243,166 +212,91 @@ collector := metrics.NewEvalOnlyCollector(metrics.CollectorOpts{
 })
 ```
 
-Each dimension becomes a gauge in a family derived from the eval's metric, leaving the eval's own series unchanged:
+Each dimension becomes a gauge in a family derived from the eval's metric. The eval's own series is unchanged:
 
-```
+```text
 promptkit_eval_rubric_score 0.8
 promptkit_eval_rubric_score_dimension{dimension="clarity"} 0.9
 promptkit_eval_rubric_score_dimension{dimension="accuracy"} 0.7
 ```
 
-The names come from handler output, and a judge model can invent a new one on any call, so the export is bounded:
+Dimension names come from handler output, so the export is bounded:
 
-- A name must be snake_case (`^[a-z_][a-z0-9_]{0,63}$`). Others are not exported, and nothing is case-folded: `Clarity` is dropped, not merged into `clarity`.
-- Each eval metric exports at most `EvalDimensionLimit` distinct dimensions for the life of the process, admitted in sorted name order. A series, once created, is never removed, so this cap is the bound on cardinality.
-- Dropped dimensions are counted in `promptkit_eval_dimensions_dropped_total{metric, reason}`, with `reason` either `invalid_name` or `over_limit`.
-- A result with `Error` set exports no dimensions.
-- Collectors sharing a registry share the drop counter. A derived family that cannot be registered (an eval metric already named `<metric>_dimension`, or a metric label already called `dimension`) is skipped with a warning; the eval's own metric still records.
+- A name must match `^[a-z_][a-z0-9_]{0,63}$`. Other names are dropped, not case-folded.
+- Each eval metric exports at most `EvalDimensionLimit` distinct dimensions for the life of the process, admitted in sorted name order. A series is never removed.
+- Dropped dimensions are counted in `<namespace>_eval_dimensions_dropped_total{metric, reason}`, where `reason` is `invalid_name` or `over_limit`.
+- A result with `Error` set exports no dimensions. A derived family that cannot register is skipped with a warning.
 
-Keep `Metrics` to a handful of summary scores. A per-test or per-finding breakdown belongs in `Details`.
+## Send results to traces, events and hooks
 
-Evals must have a `metric` definition in the pack to be recorded. See [Metrics & Prometheus](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/#metrics--prometheus) for metric types and label configuration, and [Monitor Events](/sdk/how-to/observability/monitor-events/#prometheus-metrics) for the full metrics reference.
+Set `TracerProvider` to emit one span per result, named `promptkit.eval.{evalID}`. A span carries the result's `Metrics` as `promptkit.eval.metric.<name>` attributes, at most 32 in name order, and sets `promptkit.eval.metrics_truncated` when more were dropped.
 
-## Type Validation
-
-Use `ValidateEvalTypes()` as a preflight check to ensure all eval types have registered handlers:
+Set `EventBus` to receive `eval.completed` and `eval.failed` events:
 
 ```go
-missing, err := sdk.ValidateEvalTypes(sdk.ValidateEvalTypesOpts{
-    PackPath:          "./app.pack.json",
-    RuntimeConfigPath: "./runtime-config.yaml", // registers exec handlers
-})
-if len(missing) > 0 {
-    for _, def := range missing {
-        log.Printf("missing handler for eval %q (type: %s)", def.ID, def.Type)
-    }
-}
-```
+import "github.com/AltairaLabs/PromptKit/runtime/v2/events"
 
-This catches configuration errors (typos, missing RuntimeConfig bindings) at startup or in CI before evals are actually executed.
-
-## Observability
-
-### OpenTelemetry Tracing
-
-```go
-results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
-    PackPath:       "./app.pack.json",
-    Messages:       messages,
-    TracerProvider: tp, // trace.TracerProvider
-})
-```
-
-Each eval result emits a span named `promptkit.eval.{evalID}`.
-
-### Event Bus
-
-```go
 bus := events.NewEventBus()
 defer bus.Close()
 
 bus.Subscribe(events.EventEvalCompleted, func(e *events.Event) {
-    log.Printf("Eval passed: %s", e.Data)
+    if d, ok := e.Data.(*events.EvalEventData); ok {
+        log.Printf("eval %s scored", d.EvalID)
+    }
 })
 
-results, _ := sdk.Evaluate(ctx, sdk.EvaluateOpts{
+results, err := sdk.Evaluate(ctx, sdk.EvaluateOpts{
     PackPath: "./app.pack.json",
     Messages: messages,
     EventBus: bus,
 })
 ```
 
-## EvaluateOpts Reference
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `PackPath` | `string` | Load pack from filesystem |
-| `PackData` | `[]byte` | Parse pack from JSON bytes |
-| `EvalDefs` | `[]evals.EvalDef` | Pre-resolved eval definitions |
-| `PromptName` | `string` | Select prompt-level evals to merge |
-| `Messages` | `[]types.Message` | Conversation history to evaluate |
-| `SessionID` | `string` | Session ID for sampling determinism |
-| `TurnIndex` | `int` | Current turn index (0-based) |
-| `EvalGroups` | `[]string` | Filter evals by group (default: all) |
-| `Trigger` | `evals.EvalTrigger` | Trigger filter (default: `every_turn`) |
-| `JudgeProvider` | `any` | Pre-built LLM judge provider |
-| `JudgeTargets` | `map[string]any` | Provider specs for LLM judge evals |
-| `TracerProvider` | `trace.TracerProvider` | OpenTelemetry tracing |
-| `EventBus` | `events.Bus` | Event emission |
-| `Logger` | `*slog.Logger` | Structured logging |
-| `RuntimeConfigPath` | `string` | Load exec eval handlers from RuntimeConfig YAML |
-| `MetricsCollector` | `*metrics.Collector` | Unified Prometheus collector (preferred — SDK calls `Bind()` internally) |
-| `MetricsInstanceLabels` | `map[string]string` | Per-invocation label values for `MetricsCollector` |
-| `MetricRecorder` | `evals.MetricRecorder` | Custom metric recorder (use `MetricsCollector` for new code) |
-| `Registry` | `*evals.EvalTypeRegistry` | Custom handler registry |
-| `Timeout` | `time.Duration` | Per-eval timeout (default: 30s) |
-| `SkipSchemaValidation` | `bool` | Skip JSON schema validation |
-
-## EvalResult
-
-Each result contains, among other fields:
+To observe or rewrite each result as the runner produces it, implement `evals.EvalHook` (`Name()` and `OnEvalResult(ctx, def, evalCtx, result)`) and register it on a conversation:
 
 ```go
-type EvalResult struct {
-    EvalID      string             // Eval identifier
-    Type        string             // Handler type
-    Kind        events.EvalKind    // Role: eval, assertion or guardrail
-    Passed      *bool              // Verdict; set only by assertion and guardrail wrappers
-    Score       *float64           // The eval's score
-    MetricValue *float64           // The number a metric pipeline graphs
-    Metrics     map[string]float64 // Named sub-scores from the same eval
-    Explanation string             // Human-readable explanation
-    DurationMs  int64              // Execution time
-    Error       string             // Set when no measurement was taken
-    Details     map[string]any     // Handler-specific structured detail
-    Violations  []EvalViolation    // Detailed violations
-    Skipped     bool               // Was eval skipped?
-    SkipReason  string             // Why skipped
-}
-```
-
-Eval handlers measure; they do not pass or fail. `Passed` is nil for a plain eval and is set only when the eval runs under `type: assertion` or `type: guardrail`. An assertion fails any result with `Error` set.
-
-`Metrics` holds named sub-scores an eval produced alongside its score, such as a judge's per-dimension rubric scores or an exec eval's `metrics`. The names come from the handler's output, not from the pack. They travel on `eval.completed` events and as `promptkit.eval.metric.<name>` span attributes; a span carries at most 32 of them, in name order, and is marked `promptkit.eval.metrics_truncated` when more were dropped. They are exported to Prometheus only when the collector opts in; see [Eval dimensions](#eval-dimensions).
-
-## Observing Results with EvalHook
-
-Register an `EvalHook` to observe (or mutate) each eval result as it's produced. Useful for:
-
-- Pushing results to external metrics/tracing systems.
-- Redacting sensitive content from `Explanation` or `Details` before results propagate.
-- Fanning out to a subprocess via `ExecEvalHook` (configured in `RuntimeConfig`).
-
-```go
-type MetricsHook struct {
-    exporter MetricExporter
-}
-
-func (h *MetricsHook) Name() string { return "metrics_exporter" }
-
-func (h *MetricsHook) OnEvalResult(
-    ctx context.Context,
-    def *evals.EvalDef,
-    _ *evals.EvalContext,
-    result *evals.EvalResult,
-) {
-    h.exporter.Record(ctx, def.ID, result.Score, result.DurationMs)
-}
-
-conv, _ := sdk.Open("./app.pack.json", "chat",
-    sdk.WithEvalHook(&MetricsHook{exporter: exp}),
+conv, err := sdk.Open("./app.pack.json", "chat",
+    sdk.WithEvalHook(hook),
 )
 ```
 
-Eval hooks are observational by contract — they cannot gate execution. Every registered hook runs for every eval result, in registration order, with per-hook panic recovery. See [Hooks Explanation](/sdk/explanation/hooks/) for the full mental model, [`EvalHook`](/runtime/reference/evals/#EvalHook) for the interface details, and [`WithEvalHook`](/sdk/reference/conversation-manager/#WithEvalHook) for the registration API.
+A hook may mutate the result, for example to redact `Explanation`. It cannot gate execution. Hooks run in registration order, each with panic recovery. See [`EvalHook`](/runtime/reference/evals/#EvalHook) and [`WithEvalHook`](/sdk/reference/conversation-manager/#WithEvalHook).
 
-## See Also
+## Verify
 
-- [Metrics Reference](/runtime/reference/metrics/) -- Complete catalog of all emitted metrics
-- [Checks Reference](/reference/checks/) -- All check types and parameters
-- [Unified Check Model](/concepts/validation/) -- How evals, assertions, and guardrails relate
-- [Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/) -- Eval architecture, triggers, and metrics
-- [Evals Reference](/runtime/reference/evals/#EvalHook) -- the `EvalHook` interface
-- [`WithEvalHook`](/sdk/reference/conversation-manager/#WithEvalHook) -- registering one
-- [Exec Hooks How-To](/sdk/how-to/hooks/exec-hooks/) -- subprocess-backed eval hooks in any language
-- [Monitor Events](/sdk/how-to/observability/monitor-events/) -- Event-based observability
+Check each result:
+
+- `Score` holds the eval's measurement. `Passed` is nil for a plain eval and set only under `type: assertion` or `type: guardrail`.
+- `Error` is set when no measurement was taken. An assertion fails any result with `Error` set.
+- `Skipped` and `SkipReason` explain an eval that did not run.
+
+Run `ValidateEvalTypes` at startup or in CI to find evals whose type has no registered handler:
+
+```go
+missing, err := sdk.ValidateEvalTypes(sdk.ValidateEvalTypesOpts{
+    PackPath:          "./app.pack.json",
+    RuntimeConfigPath: "./runtime-config.yaml", // registers exec handlers
+})
+if err != nil {
+    log.Fatal(err)
+}
+for _, def := range missing {
+    log.Printf("missing handler for eval %q (type: %s)", def.ID, def.Type)
+}
+```
+
+## Troubleshoot
+
+- No results and no error: `Trigger`, `EvalGroups`, `enabled: false` or sampling filtered out every definition.
+- A judge name does not resolve: `llm_judge` sets `Error`. Safety and RAG judges (`toxicity`, `bias` and the others) score 0 and put the cause in `Explanation`, leaving `Error` empty.
+- An eval stops with a timeout: `Timeout` defaults to 30 seconds per eval; raise it on `EvaluateOpts`.
+
+## Related
+
+- [`EvaluateOpts`](/sdk/reference/conversation-manager/#EvaluateOpts): every option
+- [`EvalResult`](/runtime/reference/evals/#EvalResult): every result field
+- [Checks reference](/reference/checks/): check types and parameters
+- [Unified check model](/concepts/validation/): how evals, assertions and guardrails relate
+- [Monitor events](/sdk/how-to/observability/monitor-events/)
+- [Prometheus metrics](/runtime/how-to/observability/prometheus-metrics/)
+- [Exec hooks](/sdk/how-to/hooks/exec-hooks/)

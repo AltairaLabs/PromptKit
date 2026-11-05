@@ -1,448 +1,155 @@
 ---
-title: Monitor Events
+title: Monitor events
+description: How to observe tool calls, provider usage, guardrails and messages with the hooks package
 sidebar:
   order: 5
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/events/bus.go
+    - runtime/events/message_created_data.go
+    - runtime/events/types.go
+    - runtime/metrics/collector.go
+    - runtime/pipeline/stage/stages_message_broadcast.go
+    - sdk/conversation.go
+    - sdk/hooks/events.go
+    - sdk/options.go
+    - sdk/sdk.go
 ---
-Learn how to observe SDK operations with the `hooks` package.
 
-## Basic Subscription
+Subscribe to the runtime events a conversation publishes, using the `hooks` package.
 
-```go
-import (
-    "github.com/AltairaLabs/PromptKit/sdk/v2/hooks"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/events"
-)
+## Prerequisites
 
-hooks.On(conv, events.EventProviderCallStarted, func(e *events.Event) {
-    fmt.Printf("Provider call started\n")
-})
-```
+- A conversation from `sdk.Open`. Every conversation has an event bus; you do not configure one.
+- These imports:
 
-## Watch the conversation live
+  ```go
+  import (
+      "github.com/AltairaLabs/PromptKit/runtime/v2/events"
+      "github.com/AltairaLabs/PromptKit/sdk/v2/hooks"
+  )
+  ```
 
-Subscribe to `message.created` to receive each complete message as it arrives —
-the user turn, every tool-calling round, and the final answer, as separate
-events rather than one batch at the end of the turn.
+## Steps
 
-```go
-bus := events.NewEventBus()
+1. Subscribe to one event type with `hooks.On`:
 
-conv, _ := sdk.Open("./app.pack.json", "assistant", sdk.WithEventBus(bus))
+   ```go
+   hooks.On(conv, events.EventProviderCallStarted, func(e *events.Event) {
+       log.Printf("provider call started at %s", e.Timestamp.Format("15:04:05"))
+   })
+   ```
 
-hooks.On(conv, events.EventMessageCreated, func(e *events.Event) {
-    d, ok := e.Data.(*events.MessageCreatedData)
-    if !ok {
-        return
-    }
-    fmt.Printf("[%d] %s: %s\n", d.Index, d.Role, d.Content)
-})
-```
+   To see every event, use `hooks.OnEvent`:
 
-This needs no `EventStore`, no `WithRecording()` and no state store — only a bus.
+   ```go
+   hooks.OnEvent(conv, func(e *events.Event) {
+       log.Printf("[%s] %s", e.Timestamp.Format("15:04:05"), e.Type)
+   })
+   ```
 
-A handler registered through `hooks` stops when the conversation closes, along
-with any forks sharing its bus. That holds for a bus you supply too, so a
-service that shares one bus across conversations doesn't collect handlers. To
-keep listening after the conversation closes, subscribe on the bus directly
-with `bus.Subscribe`, which returns its own unsubscribe function.
+   The [runtime events](/architecture/runtime-events/) page lists the event types and their payloads.
 
-:::caution[An event bus is required]
-`hooks.On` does nothing when the conversation has no event bus. If you do not
-pass `sdk.WithEventBus(...)`, the handler is never called and no error is
-raised.
-:::
+2. Track tool calls and token usage with the typed helpers:
 
-:::caution[Read `GetContent()`, not `.Content`]
-The two carry text in different fields depending on who produced the message.
-Observed on a real turn: the **user** message arrives with `Content` empty and
-its text in `Parts[0].Text`, while the **assistant** reply arrives with
-`Content` set and no `Parts`. A consumer reading `.Content` directly renders a
-blank user turn for every conversation.
+   ```go
+   hooks.OnToolCall(conv, func(name string, args map[string]any) {
+       log.Printf("tool %s(%v)", name, args)
+   })
 
-`GetContent()` applies the canonical precedence (tool result, then text parts,
-then the legacy `Content` field), matching `types.Message.GetContent`.
-:::
+   hooks.OnProviderCall(conv, func(model string, inputTokens, outputTokens int, cost float64) {
+       log.Printf("%s: %d in, %d out, $%.4f", model, inputTokens, outputTokens, cost)
+   })
+   ```
 
-Three things to know before you rely on it:
+   `OnProviderCall` fires on `provider.call.completed`. `hooks.OnPipelineComplete` reports the totals for a whole turn.
 
-- **`Index` is transcript-absolute**, continuing across turns rather than
-  restarting. Replayed history is not re-published, so each message arrives
-  once.
-- **Arrival order is not publish order.** The bus dispatches through a worker
-  pool. Order by `Index` rather than by arrival.
-- **The bus is lossy.** Under burst an event can be dropped, so
-  observability never blocks the pipeline. For a transcript that must be
-  complete, read the state store; for a lossless record, use
-  [session recording](/sdk/examples/session-recording/), which takes a
-  different route with full binary content retained.
+3. Catch guardrail violations. The payload of every validation event is `*events.ValidationEventData`:
 
-## Event Types
+   ```go
+   hooks.On(conv, events.EventValidationFailed, func(e *events.Event) {
+       data := e.Data.(*events.ValidationEventData)
+       log.Printf("guardrail %s: score=%.2f enforced=%v violations=%v",
+           data.ValidatorName, data.Score, data.Enforced, data.Violations)
+   })
+   ```
 
-Events are defined as `events.EventType` in the `runtime/events` package, grouped by category:
+   `Enforced` is true when the guardrail modified the content. `hooks.OnValidationFailed` delivers only the validator name and error.
 
-```go
-// Pipeline lifecycle
-EventPipelineStarted   EventType = "pipeline.started"
-EventPipelineCompleted EventType = "pipeline.completed"
-EventPipelineFailed    EventType = "pipeline.failed"
+4. Watch the conversation as it happens. `message.created` publishes each complete message: the user turn, every tool-calling round and the final answer.
 
-// Middleware execution
-EventMiddlewareStarted   EventType = "middleware.started"
-EventMiddlewareCompleted EventType = "middleware.completed"
-EventMiddlewareFailed    EventType = "middleware.failed"
+   ```go
+   hooks.On(conv, events.EventMessageCreated, func(e *events.Event) {
+       d, ok := e.Data.(*events.MessageCreatedData)
+       if !ok {
+           return
+       }
+       fmt.Printf("[%d] %s: %s\n", d.Index, d.Role, d.GetContent())
+   })
+   ```
 
-// Stage execution (streaming pipeline)
-EventStageStarted   EventType = "stage.started"
-EventStageCompleted EventType = "stage.completed"
-EventStageFailed    EventType = "stage.failed"
+   Read `GetContent()` rather than `Content`. A user message carries its text in `Parts` with `Content` empty, and an assistant reply carries it in `Content` with no `Parts`.
 
-// Provider (LLM) calls
-EventProviderCallStarted   EventType = "provider.call.started"
-EventProviderCallCompleted EventType = "provider.call.completed"
-EventProviderCallFailed    EventType = "provider.call.failed"
+   `Index` is the message's position in the whole transcript and continues across turns. Replayed history is not published again, so each message arrives once.
 
-// Tool calls
-EventToolCallStarted   EventType = "tool.call.started"
-EventToolCallCompleted EventType = "tool.call.completed"
-EventToolCallFailed    EventType = "tool.call.failed"
+5. Debug prompt rendering. `prompt.template.rendered` reports the final system prompt and which variables it used; `prompt.template.failed` reports unresolved placeholders:
 
-// Validation
-EventValidationStarted EventType = "validation.started"
-EventValidationPassed  EventType = "validation.passed"
-EventValidationFailed  EventType = "validation.failed"
+   ```go
+   hooks.On(conv, events.EventTemplateRendered, func(e *events.Event) {
+       data := e.Data.(*events.TemplateRenderedData)
+       log.Printf("prompt %s: %d variables, unused=%v",
+           data.PromptHash[:8], len(data.VariablesUsed), data.UnusedVariables)
+   })
 
-// Prompt template rendering
-EventTemplateStarted  EventType = "prompt.template.started"
-EventTemplateRendered EventType = "prompt.template.rendered"
-EventTemplateFailed   EventType = "prompt.template.failed"
+   hooks.On(conv, events.EventTemplateFailed, func(e *events.Event) {
+       data := e.Data.(*events.TemplateFailedData)
+       log.Printf("template failed: %s unresolved=%v", data.Error, data.UnresolvedPlaceholders)
+   })
+   ```
 
-// Context & state
-EventContextBuilt          EventType = "context.built"
-EventTokenBudgetExceeded   EventType = "context.token_budget_exceeded"
-EventContextCompacted      EventType = "context.compacted"
-EventStateLoaded           EventType = "state.loaded"
-EventStateSaved            EventType = "state.saved"
+6. To share one bus across conversations, create it and pass it to each:
 
-// Messages & conversation
-EventMessageCreated      EventType = "message.created"
-EventMessageUpdated      EventType = "message.updated"
-EventConversationStarted EventType = "conversation.started"
+   ```go
+   bus := events.NewEventBus()
+   conv1, _ := sdk.Open("./app.pack.json", "support", sdk.WithEventBus(bus))
+   conv2, _ := sdk.Open("./app.pack.json", "sales", sdk.WithEventBus(bus))
+   ```
 
-// Multimodal
-EventAudioInput         EventType = "audio.input"
-EventAudioOutput        EventType = "audio.output"
-EventAudioTranscription EventType = "audio.transcription"
-EventVideoFrame         EventType = "video.frame"
-EventScreenshot         EventType = "screenshot"
-EventImageInput         EventType = "image.input"
-EventImageOutput        EventType = "image.output"
+   You close a bus you supply. A handler registered through `hooks` stops when its conversation and any forks sharing the bus have closed, so a long-lived shared bus does not collect handlers. To keep listening after the conversation closes, call `bus.Subscribe` or `bus.SubscribeAll` on the bus directly; each returns its own unsubscribe function.
 
-// Evals
-EventEvalCompleted EventType = "eval.completed"  // eval finished (any score)
-EventEvalFailed    EventType = "eval.failed"      // eval errored (not low score)
+7. To export Prometheus metrics, attach a collector with `sdk.WithMetrics`:
 
-// Client tool lifecycle
-EventClientToolRequest  EventType = "tool.client.request"   // client tool awaiting fulfillment
-EventClientToolResolved EventType = "tool.client.resolved"  // client tool resolved by caller
+   ```go
+   collector := metrics.NewCollector(metrics.CollectorOpts{
+       Registerer: prometheus.NewRegistry(),
+       Namespace:  "myapp",
+   })
 
-// Stream control
-EventStreamInterrupted EventType = "stream.interrupted"
-```
+   conv, _ := sdk.Open("./app.pack.json", "chat", sdk.WithMetrics(collector, nil))
+   ```
 
-## Monitor Tool Calls
+   `metrics` is `github.com/AltairaLabs/PromptKit/runtime/v2/metrics`. Instance labels, eval metrics and the HTTP endpoint are in [Export Prometheus metrics](/runtime/how-to/observability/prometheus-metrics/).
+
+## Verify
+
+Register the handlers from steps 1 and 2, then send a message:
 
 ```go
-hooks.OnToolCall(conv, func(name string, args map[string]any) {
-    fmt.Printf("Tool called: %s(%v)\n", name, args)
-})
+resp, err := conv.Send(ctx, "Hello!")
 ```
 
-## Monitor Guardrail Violations
+Each handler logs a line for the turn. Handlers run asynchronously, so a short program should call `conv.Close()` before it exits: `Close` waits for the turn's pipeline events to reach subscribers.
 
-```go
-hooks.On(conv, events.EventValidationFailed, func(e *events.Event) {
-    data := e.Data.(*events.ValidationEventData)
-    log.Printf("Guardrail %s triggered: score=%.2f enforced=%v",
-        data.ValidatorName, data.Score, data.Enforced)
-})
-```
+## Troubleshoot
 
-The `ValidationEventData` includes:
+- A message is missing from a live view. The bus never blocks the pipeline, so it drops an event when its buffer or a handler's queue is full. Read the state store for a transcript that must be complete, or use [session recording](/sdk/examples/session-recording/) for a lossless record with binary content.
+- A handler stops after a few slow calls. The bus disables a handler whose calls exceed the subscriber timeout three times. Hand slow work to another goroutine.
+- A type assertion on `e.Data` panics. Each event type has its own payload type; use the checked form (`d, ok := e.Data.(*events.X)`) when you subscribe with `OnEvent`.
 
-| Field | Description |
-|-------|-------------|
-| `ValidatorName` | Validator type (e.g., `banned_words`, `max_length`) |
-| `Score` | Evaluation score (0.0–1.0, lower means more violation) |
-| `Enforced` | `true` if content was modified (truncated/replaced) |
-| `Violations` | Violation details (reason strings) |
-| `Duration` | How long the evaluation took |
+## Related
 
-## Monitor Provider Calls
-
-```go
-hooks.OnProviderCall(conv, func(model string, inputTokens, outputTokens int, cost float64) {
-    log.Printf("Model %s: %d in, %d out, $%.4f", model, inputTokens, outputTokens, cost)
-})
-```
-
-## Log All Events
-
-```go
-func attachLogger(conv *sdk.Conversation) {
-    hooks.OnEvent(conv, func(e *events.Event) {
-        log.Printf("[%s] %s", e.Timestamp.Format("15:04:05"), e.Type)
-    })
-}
-```
-
-## Event Structure
-
-```go
-// From runtime/events package
-type Event struct {
-    Type           EventType
-    Timestamp      time.Time
-    RunID          string
-    SessionID      string
-    ConversationID string
-    Data           EventData  // Type-specific payload
-}
-```
-
-## Prometheus Metrics
-
-`WithMetrics()` enables automatic Prometheus metrics for both pipeline operations and eval results. It follows the same pattern as `WithTracerProvider()` — pass a collector, and the SDK handles the rest.
-
-### Basic Setup
-
-```go
-import (
-    "net/http"
-
-    "github.com/prometheus/client_golang/prometheus"
-    "github.com/prometheus/client_golang/prometheus/promhttp"
-
-    "github.com/AltairaLabs/PromptKit/runtime/v2/metrics"
-    "github.com/AltairaLabs/PromptKit/sdk/v2"
-)
-
-// 1. Create collector once per process
-reg := prometheus.NewRegistry()
-collector := metrics.NewCollector(metrics.CollectorOpts{
-    Registerer:  reg,
-    Namespace:   "myapp",
-    ConstLabels: prometheus.Labels{"env": "prod"},
-})
-
-// 2. Attach to conversations
-conv, _ := sdk.Open("./app.pack.json", "chat",
-    sdk.WithMetrics(collector, nil),
-)
-defer conv.Close()
-
-// 3. Expose via your own HTTP server
-http.Handle("/metrics", promhttp.HandlerFor(collector.Registry(), promhttp.HandlerOpts{}))
-```
-
-### Multi-Tenant Setup
-
-When multiple conversations share one Prometheus endpoint, use instance labels to distinguish them:
-
-```go
-collector := metrics.NewCollector(metrics.CollectorOpts{
-    Registerer:     reg,
-    Namespace:      "myapp",
-    ConstLabels:    prometheus.Labels{"env": "prod"},
-    InstanceLabels: []string{"tenant", "prompt_name"},
-})
-
-conv1, _ := sdk.Open(pack, "support", sdk.WithMetrics(collector, map[string]string{
-    "tenant": "acme", "prompt_name": "support",
-}))
-conv2, _ := sdk.Open(pack, "sales", sdk.WithMetrics(collector, map[string]string{
-    "tenant": "globex", "prompt_name": "sales",
-}))
-```
-
-### Pipeline Metrics
-
-These are recorded automatically from EventBus events:
-
-| Metric | Type | Labels |
-|--------|------|--------|
-| `{ns}_pipeline_duration_seconds` | histogram | status |
-| `{ns}_provider_request_duration_seconds` | histogram | provider, model |
-| `{ns}_provider_requests_total` | counter | provider, model, status |
-| `{ns}_provider_input_tokens_total` | counter | provider, model |
-| `{ns}_provider_output_tokens_total` | counter | provider, model |
-| `{ns}_provider_cached_tokens_total` | counter | provider, model |
-| `{ns}_provider_cost_total` | counter | provider, model |
-| `{ns}_tool_call_duration_seconds` | histogram | tool |
-| `{ns}_tool_calls_total` | counter | tool, status |
-| `{ns}_validation_duration_seconds` | histogram | validator, validator_type |
-| `{ns}_validations_total` | counter | validator, validator_type, status |
-
-### Eval Metrics
-
-Pack-defined eval metrics (from `EvalDef.Metric`) are also recorded through the same collector under the `{ns}_eval_` sub-namespace. For example, the metric below becomes `myapp_eval_response_relevance_score`. No extra wiring needed — `WithMetrics()` handles both pipeline and eval metrics.
-
-```json
-{
-  "evals": [
-    {
-      "id": "response_relevance",
-      "type": "llm_judge",
-      "trigger": "every_turn",
-      "metric": {
-        "name": "response_relevance_score",
-        "type": "gauge",
-        "labels": {
-          "eval_type": "llm_judge",
-          "category": "quality"
-        }
-      },
-      "params": {
-        "criteria": "Is the response relevant to the user's question?"
-      }
-    }
-  ]
-}
-```
-
-#### Eval Metric Types
-
-| Type | Behavior |
-|------|----------|
-| `gauge` | Set to the eval's score value |
-| `counter` | Increment on each eval execution |
-| `histogram` | Observe score with configurable buckets |
-| `boolean` | Record 1.0 if score ≥ 1.0, 0.0 otherwise |
-
-### CollectorOpts Reference
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `Registerer` | `prometheus.Registerer` | Registry to register into (default: `DefaultRegisterer`) |
-| `Namespace` | `string` | Metric name prefix (default: `"promptkit"`) |
-| `ConstLabels` | `prometheus.Labels` | Process-level constant labels (env, region) |
-| `InstanceLabels` | `[]string` | Label names that vary per conversation (tenant, prompt_name). Sorted internally — `Bind()` label order doesn't matter. |
-| `DisablePipelineMetrics` | `bool` | Disable operational metrics (use for eval-only consumers, or use `NewEvalOnlyCollector`) |
-| `DisableEvalMetrics` | `bool` | Disable eval result metrics |
-
-### Custom Event Counters
-
-For ad-hoc counters not covered by the built-in metrics, use hooks:
-
-```go
-type Metrics struct {
-    ToolCalls int64
-    Errors    int64
-    mu        sync.Mutex
-}
-
-func (m *Metrics) Attach(conv *sdk.Conversation) {
-    hooks.On(conv, events.EventToolCallStarted, func(e *events.Event) {
-        m.mu.Lock()
-        m.ToolCalls++
-        m.mu.Unlock()
-    })
-
-    hooks.On(conv, events.EventToolCallFailed, func(e *events.Event) {
-        m.mu.Lock()
-        m.Errors++
-        m.mu.Unlock()
-    })
-}
-```
-
-## Debug Prompt Templates
-
-Monitor how system prompts are assembled from templates and variables:
-
-```go
-hooks.On(conv, events.EventTemplateRendered, func(e *events.Event) {
-    data := e.Data.(*events.TemplateRenderedData)
-    log.Printf("System prompt rendered: hash=%s vars=%d passes=%d",
-        data.PromptHash[:8], len(data.VariablesUsed), data.RenderPasses)
-    for k, v := range data.VariablesUsed {
-        log.Printf("  %s = %q", k, v)
-    }
-    if len(data.UnusedVariables) > 0 {
-        log.Printf("  unused: %v", data.UnusedVariables)
-    }
-})
-```
-
-The `TemplateRenderedData` includes:
-
-| Field | Description |
-|-------|-------------|
-| `TaskType` | Which prompt was rendered |
-| `SystemPrompt` | Final rendered system prompt text |
-| `PromptHash` | SHA-256 hash for deduplication/comparison |
-| `VariablesUsed` | Variables that were actually substituted (key→value) |
-| `UnusedVariables` | Variables available but not referenced in the template |
-| `FragmentsUsed` | Fragment names that contributed variables |
-| `RenderPasses` | Number of recursive substitution passes |
-
-To catch template errors (e.g., unresolved `{{placeholders}}`):
-
-```go
-hooks.On(conv, events.EventTemplateFailed, func(e *events.Event) {
-    data := e.Data.(*events.TemplateFailedData)
-    log.Printf("Template render failed: %s unresolved=%v", data.Error, data.UnresolvedPlaceholders)
-})
-```
-
-## Debug Mode
-
-```go
-func enableDebug(conv *sdk.Conversation) {
-    hooks.OnEvent(conv, func(e *events.Event) {
-        log.Printf("[DEBUG] %s: %s", e.Timestamp.Format("15:04:05"), e.Type)
-    })
-}
-```
-
-## Complete Example
-
-```go
-package main
-
-import (
-    "context"
-    "fmt"
-    "log"
-
-    "github.com/AltairaLabs/PromptKit/sdk/v2"
-    "github.com/AltairaLabs/PromptKit/sdk/v2/hooks"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/events"
-)
-
-func main() {
-    conv, _ := sdk.Open("./app.pack.json", "chat")
-    defer conv.Close()
-
-    // Monitor all activity
-    hooks.OnEvent(conv, func(e *events.Event) {
-        log.Printf("[%s] %s", e.Timestamp.Format("15:04:05"), e.Type)
-    })
-
-    // Monitor tool calls specifically
-    hooks.OnToolCall(conv, func(name string, args map[string]any) {
-        log.Printf("Tool called: %s", name)
-    })
-
-    // Use normally
-    ctx := context.Background()
-    resp, _ := conv.Send(ctx, "Hello!")
-    fmt.Println(resp.Text())
-}
-```
-
-## See Also
-
-- [Metrics Reference](/runtime/reference/metrics/) — Complete catalog of all emitted metrics
-- [Tutorial 6: Observability](/sdk/tutorials/06-media-storage/)
-- [Explanation: Observability](/sdk/explanation/observability/)
-- [Arena Eval Framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/)
+- [Runtime events](/architecture/runtime-events/)
+- [Observability](/sdk/explanation/observability/)
+- [Export Prometheus metrics](/runtime/how-to/observability/prometheus-metrics/)
+- [Metrics reference](/runtime/reference/metrics/)

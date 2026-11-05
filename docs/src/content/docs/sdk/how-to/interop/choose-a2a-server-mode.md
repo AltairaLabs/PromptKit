@@ -1,144 +1,144 @@
 ---
 title: Choose an A2A Server Mode
-description: Decide whether the A2A server owns conversations or your platform does
+description: Decide whether the A2A server owns conversations or your platform does, then serve, scope and scale it
 sidebar:
   order: 8
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/a2a/client.go
+    - sdk/a2a.go
+    - sdk/a2a_exports.go
+    - server/a2a/conversation.go
+    - server/a2a/handler.go
+    - server/a2a/handler_send.go
+    - server/a2a/ownership.go
+    - server/a2a/protocol.go
+    - server/a2a/server.go
+    - server/a2a/task_events.go
 ---
 
-`server/a2a` speaks the A2A protocol. Who owns the conversations behind it is
-your choice.
+`server/a2a` speaks the A2A protocol. This guide picks the constructor that fits where your conversations live, then covers task storage, mounting, caller scoping and replicas.
 
-## The two modes
+## Prerequisites
+
+- The `github.com/AltairaLabs/PromptKit/server/a2a/v2` module, imported as `a2aserver`.
+- An agent card (`a2a.AgentCard`) describing your agent.
+- For `NewServer`, a pack and prompt to open conversations from. For `NewStatelessServer`, something that can answer a message with a stream of events.
+
+## Choose a mode
 
 | | `NewServer` | `NewStatelessServer` |
 |---|---|---|
 | You supply | a `ConversationOpener` | a `MessageHandler` |
 | The server | opens a conversation per `contextID`, caches it, reuses it, expires it on a TTL | keeps nothing between calls |
-| Your code sees | the `contextID` | the `contextID` **and the HTTP request's context** |
-| Fits | A2A and the runtime in one process | a runtime elsewhere, or a platform that already tracks sessions |
+| Your code sees | the `contextID` | the `contextID` and the HTTP request's context |
 
-Both serve the identical protocol: same JSON-RPC methods, same task lifecycle,
-same SSE streaming, same agent card. A client cannot tell which one it is
-talking to.
+Both serve the same protocol: JSON-RPC methods, task lifecycle, SSE streaming and agent card.
 
-## Conversation-owning: `NewServer`
+Choose `NewStatelessServer` if any of these is true:
 
-```go
-opener := sdk.A2AOpener("./assistant.pack.json", "chat")
+- your runtime runs in a different process or service;
+- you already have sessions, with their own storage and expiry;
+- your handler needs to know who is calling;
+- you want several replicas behind a load balancer without sharing conversation state;
+- callers do not trust each other and you want to decide what a shared `contextID` means.
 
-srv := a2aserver.NewServer(opener,
-    a2aserver.WithCard(&card),
-    a2aserver.WithPort(9999),
-)
-```
+Otherwise `NewServer` is less to write.
 
-The server does the bookkeeping. This is the shortest path when everything runs
-in one binary, and it is what the [A2A server
-tutorial](/sdk/tutorials/10-a2a-server/) uses.
+## Serve conversations with `NewServer`
 
-What you are accepting: the server decides conversation lifetime, and its cache
-is keyed on the `contextID` the **caller** sends. Two callers presenting the
-same one share a conversation — unless you scope tasks by caller with
-`WithTaskOwner` (below), which refuses a message into a conversation another
-caller opened.
+1. Build an opener and pass it with the card and port:
 
-`sdk.NewA2AServer` and the `sdk.WithA2A*` options wrap this constructor and its
-options. The [server reference](/sdk/reference/a2a-server/) lists them all.
+   ```go
+   opener := sdk.A2AOpener("./assistant.pack.json", "chat")
 
-### Keep tasks in your own store
+   srv := a2aserver.NewServer(opener,
+       a2aserver.WithCard(&card),
+       a2aserver.WithPort(9999),
+   )
+   ```
 
-Tasks live in memory by default. To persist them, implement
-`a2aserver.TaskStore` (`sdk.A2ATaskStore`) and pass it in:
+   The server caches each conversation under the `contextID` the caller sends. Two callers presenting the same `contextID` share a conversation unless you scope tasks by caller with `WithTaskOwner` (see [Callers and replicas](#callers-and-replicas)).
 
-```go
-srv := a2aserver.NewServer(opener,
-    a2aserver.WithCard(&card),
-    a2aserver.WithPort(9999),
-    a2aserver.WithTaskStore(myStore),
-)
-```
+   `sdk.NewA2AServer` wraps this constructor, and the `sdk.WithA2A*` options wrap the card, port, task store, timeout, body-size and TTL options. Pass options that have no wrapper, such as `a2aserver.WithTaskOwner`, to `sdk.NewA2AServer` directly. The [server reference](/sdk/reference/a2a-server/) lists every option, and the [A2A server tutorial](/sdk/tutorials/10-a2a-server/) builds one end to end.
 
-### Mount the server on an existing HTTP server
+2. Optionally keep tasks in your own store. Tasks live in memory by default. Implement `a2aserver.TaskStore` (`sdk.A2ATaskStore`) and pass it in:
 
-`Handler()` returns the server as an `http.Handler` serving the agent card,
-`POST /a2a`, `/healthz` and `/readyz`. Mount it at the root of your mux:
+   ```go
+   srv := a2aserver.NewServer(opener,
+       a2aserver.WithCard(&card),
+       a2aserver.WithPort(9999),
+       a2aserver.WithTaskStore(myStore),
+   )
+   ```
 
-```go
-srv := a2aserver.NewServer(opener, a2aserver.WithCard(&card))
+3. Start it with `srv.ListenAndServe()`, or mount it on an existing HTTP server. `Handler()` returns an `http.Handler` serving the agent card, `POST /a2a`, `/healthz` and `/readyz`. Mount it at the root of your mux:
 
-mux := http.NewServeMux()
-mux.Handle("/", srv.Handler())
+   ```go
+   srv := a2aserver.NewServer(opener, a2aserver.WithCard(&card))
 
-log.Fatal(http.ListenAndServe(":8080", mux))
-```
+   mux := http.NewServeMux()
+   mux.Handle("/", srv.Handler())
 
-The card is then at `http://localhost:8080/.well-known/agent-card.json`, and a
-card that declares no interfaces points callers at `/a2a` on that host.
+   log.Fatal(http.ListenAndServe(":8080", mux))
+   ```
 
-## Stateless: `NewStatelessServer`
+   The card is then at `http://localhost:8080/.well-known/agent-card.json`. A card that declares no interfaces points callers at `/a2a` on that host.
 
-```go
-type runtimeHandler struct{ client *grpcRuntimeClient }
+## Serve through your own handler with `NewStatelessServer`
 
-func (h *runtimeHandler) Handle(
-    ctx context.Context, req a2aserver.MessageRequest,
-) <-chan a2aserver.StreamEvent {
-    identity := auth.IdentityFromContext(ctx) // your middleware put it there
-    return h.client.Converse(ctx, h.sessionFor(req.ContextID, identity), req.Message)
-}
+1. Implement `MessageHandler`. Every message reaches `Handle` with the context of the request it arrived on, so caller identity, tenant and trace are readable there. Map `contextID` to whatever a session means in your system:
 
-srv := a2aserver.NewStatelessServer(&runtimeHandler{client: c},
-    a2aserver.WithTaskStore(redisStore),
-    a2aserver.WithCardProvider(cards),
-)
-```
+   ```go
+   type runtimeHandler struct{ client *grpcRuntimeClient }
 
-Every message reaches your handler with the context of the request it arrived
-on, so caller identity, tenant and trace are readable exactly where you decide
-what to do. You map `contextID` to whatever a session means in your system —
-including deciding that two callers sharing one share nothing.
+   func (h *runtimeHandler) Handle(
+       ctx context.Context, req a2aserver.MessageRequest,
+   ) <-chan a2aserver.StreamEvent {
+       identity := auth.IdentityFromContext(ctx) // your middleware put it there
+       return h.client.Converse(ctx, h.sessionFor(req.ContextID, identity), req.Message)
+   }
+   ```
 
-No conversation is held in the process, so any replica can serve any message;
-the task store is shared. Canceling and subscribing to a task that another
-replica is running need more. See [Callers and replicas](#callers-and-replicas).
+2. Pass the handler to the constructor. The server holds no conversation, so any replica can serve any message as long as the task store is shared:
 
-### Answering with events
+   ```go
+   srv := a2aserver.NewStatelessServer(&runtimeHandler{client: c},
+       a2aserver.WithTaskStore(redisStore),
+       a2aserver.WithCardProvider(cards),
+   )
+   ```
 
-Your handler returns a channel and closes it when the turn is over:
+3. Answer with events. Return a channel and close it when the turn is over:
 
-| Event | Meaning |
-|---|---|
-| `EventText` | a chunk of the reply |
-| `EventMedia` | a media part of the reply |
-| `EventClientTool` | you need the caller to run a tool; the task goes to `input_required` |
-| `EventPending` | you are waiting on something the server cannot see, such as a human approval |
-| `EventDone` | the turn is complete |
-| `Error` set | the turn failed |
+   | Event | Meaning |
+   |---|---|
+   | `EventText` | a chunk of the reply |
+   | `EventMedia` | a media part of the reply |
+   | `EventClientTool` | you need the caller to run a tool; the task goes to `input_required` |
+   | `EventPending` | you are waiting on something the server cannot see, such as a human approval |
+   | `EventDone` | the turn is complete |
+   | `Error` set | the turn failed |
 
-For `message/send`, the server drains your stream and builds the result: the
-text is the concatenation of your text events, and the parts are one per text
-run and one per media event. If you need a distinct part, emit a distinct event.
+   For `message/send`, the server drains your stream and builds the result. The text is the concatenation of your text events, and the parts are one per text run and one per media event, text first. To get a distinct part, emit a distinct event.
 
-### Client tools
+4. If callers run client tools, also implement `ToolResultHandler`, and their results come back to you:
 
-Implement `ToolResultHandler` as well, and the caller's tool results come back
-to you:
+   ```go
+   func (h *runtimeHandler) HandleToolResult(
+       ctx context.Context, req a2aserver.ToolResultRequest,
+   ) <-chan a2aserver.StreamEvent {
+       identity := auth.IdentityFromContext(ctx)
+       return h.client.Resume(ctx, h.sessionFor(req.ContextID, identity), req.Results)
+   }
+   ```
 
-```go
-func (h *runtimeHandler) HandleToolResult(
-    ctx context.Context, req a2aserver.ToolResultRequest,
-) <-chan a2aserver.StreamEvent {
-    return h.client.Resume(ctx, h.sessionFor(req.ContextID, ...), req.Results)
-}
-```
-
-A stateless server whose handler does not implement it refuses tool-result
-messages rather than delivering them as a fresh turn.
+   A stateless server whose handler does not implement it refuses tool-result messages.
 
 ## Callers and replicas
 
-Both modes take the same options for serving more than one caller and running
-more than one instance.
+Both modes take the same options for serving more than one caller and running more than one instance.
 
 ### Scope tasks to the caller that created them
 
@@ -151,41 +151,22 @@ srv := a2aserver.NewStatelessServer(handler,
 )
 ```
 
-With `WithTaskOwner`, every task records the caller that created it. For
-anyone else, `GetTask`, `CancelTask` and `SubscribeToTask` answer
-`TaskNotFound`, so the task's existence is not revealed. `ListTasks` returns
-only the caller's tasks, and without a `contextId` it lists all of them. A
-request whose owner is empty is refused with 401.
+With `WithTaskOwner`, every task records the caller that created it. For anyone else, `GetTask`, `CancelTask` and `SubscribeToTask` answer `TaskNotFound`, so the task's existence is not revealed. `ListTasks` returns only the caller's tasks, and works without a `contextId`. A request whose owner is empty is refused with 401.
 
-With `NewServer`, a conversation belongs to the caller that opened it. Another
-caller naming its `contextId` is refused. This also holds after the
-conversation is evicted from the cache, for as long as the caller's tasks in
-that context remain. With `NewStatelessServer`, your handler owns contexts and
-decides what a shared one means. An opener that restores conversation state
-from a store shared across replicas should key that state on the caller as
-well as the context.
+Without `WithTaskOwner`, the server cannot tell callers apart, so `ListTasks` requires a `contextId`.
 
-Without `WithTaskOwner`, the server cannot tell callers apart, so `ListTasks`
-requires a `contextId`.
+With `NewServer`, a conversation belongs to the caller that opened it, and another caller naming its `contextId` is refused. That holds after the conversation leaves the cache, for as long as the caller's tasks in that context remain. With `NewStatelessServer`, your handler owns contexts and decides what a shared one means. An opener that restores conversation state from a store shared across replicas should key that state on the caller as well as the context.
 
-The task store must implement `OwnedTaskStore` (`CreateOwned`, `Owner`). The
-in-memory store does. A store that also implements `TaskQuerier` must filter by
-`TaskQuery.Owner`. `NewServer` panics if `WithTaskOwner` is given a store that
-cannot record owners, rather than serve with scoping silently off.
+The task store must implement `OwnedTaskStore` (`CreateOwned`, `Owner`). The in-memory store does. A store that also implements `TaskQuerier` must filter by `TaskQuery.Owner`. Both constructors panic if `WithTaskOwner` is given a store that cannot record owners.
 
 ### Run several replicas
 
-A task's turn runs on the instance that received its message. Two operations
-have to reach that instance:
+A task's turn runs on the instance that received its message. Two operations have to reach that instance:
 
-- **`CancelTask`** marks the task canceled in the shared store, then has to
-  stop the running turn. That goes through a `TaskCanceler`.
-- **`SubscribeToTask`** needs the turn's updates. Those go through a
-  `TaskEventBus`.
+- `CancelTask` marks the task canceled in the shared store, then stops the running turn through a `TaskCanceler`.
+- `SubscribeToTask` receives the turn's updates through a `TaskEventBus`.
 
-Both default to in-process. For several replicas behind one task store,
-either pin each caller's requests to one replica (session affinity), or supply
-shared implementations — Redis pub/sub, NATS, or whatever you already run:
+Both default to in-process. For several replicas behind one task store, either pin each caller's requests to one replica (session affinity), or supply shared implementations such as Redis pub/sub or NATS:
 
 ```go
 srv := a2aserver.NewServer(opener,
@@ -195,23 +176,21 @@ srv := a2aserver.NewServer(opener,
 )
 ```
 
-A `TaskEvent` is version-neutral JSON, so it can cross a process boundary. Each
-subscriber encodes it for its own protocol version and request id. The server
-calls `TaskCanceler.Listen` once at start-up. It passes the function that stops
-a turn running locally, and that function is a no-op for tasks the instance is
-not running. So a broadcast canceler only has to deliver every cancel to every
-instance.
+A `TaskEvent` is version-neutral JSON, so it can cross a process boundary. Each subscriber encodes it for its own protocol version and request id. The server calls `TaskCanceler.Listen` once at start-up and passes it the function that stops a turn running locally. That function does nothing for tasks the instance is not running, so a broadcast canceler only has to deliver every cancel to every instance.
 
-## Which one
+## Verify
 
-Choose `NewStatelessServer` if any of these is true:
+Fetch the agent card and the liveness probe:
 
-- your runtime runs in a different process or service;
-- you already have sessions, with their own storage and expiry;
-- your handler needs to know who is calling;
-- you want to run more than one replica behind a load balancer without
-  sharing conversation state;
-- callers are not mutually trusting and you want to decide what a shared
-  `contextID` means yourself (with `NewServer`, `WithTaskOwner` refuses it).
+```bash
+curl http://localhost:9999/.well-known/agent-card.json
+curl http://localhost:9999/healthz
+```
 
-Otherwise `NewServer` is less to write.
+The card's `supportedInterfaces` lists a JSON-RPC interface, and `/healthz` returns `{"status":"ok"}`.
+
+## Related
+
+- [A2A server reference](/sdk/reference/a2a-server/): every option and interface
+- [A2A server tutorial](/sdk/tutorials/10-a2a-server/): build a server step by step
+- [Connect A2A agents](/sdk/how-to/interop/connect-a2a-agents/): call remote agents from a conversation

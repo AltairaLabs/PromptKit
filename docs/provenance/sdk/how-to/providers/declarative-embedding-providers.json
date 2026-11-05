@@ -1,0 +1,164 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/providers/declarative-embedding-providers.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "A spec.providers entry with role: embedding declares an embedding provider",
+   "verdict": "true",
+   "evidence": [
+    "sdk/provider_file.go:68",
+    "sdk/runtime_config.go:128"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "credential.credential_env names the env var holding the key",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/resolver.go:135"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "The first declared entry becomes the default RAG provider unless WithContextRetrieval set one",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1733",
+    "sdk/options.go:2881",
+    "sdk/runtime_config.go:380"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Declaring the provider in YAML gives RAG retrieval without passing an instance to WithContextRetrieval",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/stages_context.go:208",
+    "sdk/options.go:1733",
+    "sdk/sdk.go:401",
+    "sdk/sdk.go:405"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "The same instance reaches selectors as SelectorContext.Embeddings on Init",
+   "verdict": "true",
+   "evidence": [
+    "sdk/runtime_config.go:280",
+    "sdk/runtime_config.go:281"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "The embedding_providers block still works identically, is deprecated and removed in v3",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:174",
+    "sdk/runtime_config.go:193",
+    "sdk/runtime_config.go:198"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "The same ID in both spellings is rejected",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:2853",
+    "sdk/runtime_config.go:352"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Supported types are openai, gemini, voyageai, ollama",
+   "verdict": "false",
+   "evidence": [
+    "runtime/providers/bedrock/embedding_register.go:9",
+    "runtime/providers/embedding_factory.go:62",
+    "runtime/providers/embedding_platform.go:28",
+    "runtime/providers/huggingface/embedding_register.go:11",
+    "runtime/providers/vertex/embedding_register.go:9"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "additional_config.dimensions is sent to the API as dimensions/outputDimensionality/output_dimension and every response is checked against it",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base_embedding.go:96",
+    "runtime/providers/gemini/embedding.go:190",
+    "runtime/providers/openai/embedding.go:219",
+    "runtime/providers/voyageai/embedding.go:211"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "VoyageAI input_type accepts query or document",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/voyageai/embedding.go:120",
+    "runtime/providers/voyageai/embedding_register.go:42"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "Without dimensions the provider reports a known model's size, else 0 until the first response",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base_embedding.go:103",
+    "runtime/providers/base_embedding.go:82"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "WithContextRetrieval(provider, topK) wins over the YAML default",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1733",
+    "sdk/options.go:2881"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "LoadRuntimeConfig rejects a missing type",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:405"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "LoadRuntimeConfig rejects a type outside the supported set",
+   "verdict": "false",
+   "evidence": [
+    "pkg/config/runtime_config.go:405",
+    "pkg/config/runtime_config.go:473",
+    "runtime/providers/embedding_factory.go:95"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "LoadRuntimeConfig rejects two entries with the same effective ID",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:419",
+    "pkg/config/runtime_config.go:426"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "Link '/sdk/how-to/' labeled 'Plug in an external selector'",
+   "verdict": "false",
+   "evidence": []
+  },
+  {
+   "id": 17,
+   "claim": "TTS and STT declare at the same level with role: tts / role: stt",
+   "verdict": "true",
+   "evidence": [
+    "sdk/provider_file.go:64",
+    "sdk/provider_file.go:66"
+   ]
+  }
+ ]
+}

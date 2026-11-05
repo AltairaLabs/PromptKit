@@ -1,0 +1,104 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/multimodal/preprocess-images.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "WithImagePreprocessing(nil) enables defaults max 1024x1024, 85% quality",
+   "verdict": "true",
+   "evidence": [
+    "runtime/media/image.go:72-82",
+    "sdk/options.go:3154-3163"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "WithAutoResize(w,h) sets max dimensions",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:3173-3181"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "stage.ImagePreprocessConfig{Resize: stage.ImageResizeStageConfig{MaxWidth, MaxHeight, MaxSizeBytes, Quality, PreserveAspectRatio, SkipIfSmaller}, EnableResize}",
+   "verdict": "true",
+   "evidence": [
+    "runtime/media/image.go:45-70",
+    "runtime/pipeline/stage/stages_image_preprocess.go:16-23"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Option defaults: MaxWidth 1024, MaxHeight 1024, MaxSizeBytes 0 no limit, Quality 85, PreserveAspectRatio true, SkipIfSmaller true, EnableResize true",
+   "verdict": "false",
+   "evidence": [
+    "runtime/media/image.go:36-82",
+    "runtime/pipeline/stage/stages_image_preprocess.go:148",
+    "runtime/pipeline/stage/stages_image_preprocess.go:26-31"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Quality is JPEG/WebP quality 1-100",
+   "verdict": "false",
+   "evidence": [
+    "runtime/media/image.go:232-247"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "If dimensions exceed limits the image is resized; aspect ratio preserved if configured; re-encoded with quality; over MaxSizeBytes quality reduced iteratively; processed image replaces original in message",
+   "verdict": "true",
+   "evidence": [
+    "runtime/media/image.go:98-180",
+    "runtime/pipeline/stage/stages_image_preprocess.go:184-191"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "Input formats JPEG, PNG, GIF, WebP; output formats JPEG (default), PNG",
+   "verdict": "false",
+   "evidence": [
+    "runtime/media/image.go:13-16",
+    "runtime/media/image.go:144-148",
+    "runtime/media/image.go:232-242"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Mobile example: config literal with MaxWidth 512, MaxHeight 512, MaxSizeBytes 100KB, Quality 70, EnableResize true behaves as aggressive compression",
+   "verdict": "false",
+   "evidence": [
+    "runtime/media/image.go:122",
+    "runtime/media/image.go:183-221"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Preprocessing runs as a pipeline stage StateStoreLoad -> PromptAssembly -> Template -> ContextBuilder -> ImagePreprocess -> Provider -> StateStoreSave",
+   "verdict": "false",
+   "evidence": [
+    "sdk/internal/pipeline/builder.go:488-499",
+    "sdk/internal/pipeline/builder.go:550-573"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "sdk.WithImageFile(path) sends an image that is auto resized; example compiles",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pipeline/builder.go:565-566",
+    "sdk/options.go:3360"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "Links /sdk/examples/multimodal/, /sdk/how-to/conversations/send-messages/ exist",
+   "verdict": "true",
+   "evidence": [
+    "sdk/examples/image-preprocessing/main.go:33"
+   ]
+  }
+ ]
+}

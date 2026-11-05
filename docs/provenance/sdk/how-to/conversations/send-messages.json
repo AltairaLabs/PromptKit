@@ -1,0 +1,279 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/conversations/send-messages.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "conv.Send(ctx, message any, opts ...SendOption) (*Response, error)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:275"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "resp.Text()",
+   "verdict": "true",
+   "evidence": [
+    "sdk/response.go:99"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "resp.HasToolCalls()/ToolCalls() with call.Name",
+   "verdict": "true",
+   "evidence": [
+    "sdk/response.go:138",
+    "sdk/response.go:143"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "resp.PendingTools() returns []PendingTool with Name",
+   "verdict": "true",
+   "evidence": [
+    "sdk/response.go:196",
+    "sdk/response.go:201"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "conv.Stream(ctx, msg) returns a channel of StreamChunk",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:121"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "chunk.Error, chunk.Type == sdk.ChunkDone, chunk.Text",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:21",
+    "sdk/streaming.go:41",
+    "sdk/streaming.go:59"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "the final ChunkDone chunk holds the complete Response in Message",
+   "verdict": "true",
+   "evidence": [
+    "sdk/streaming.go:336",
+    "sdk/streaming.go:36"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "the SDK maintains conversation history",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:275"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "conv.Messages(ctx) returns []types.Message",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1342"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "msg.Content holds the message text",
+   "verdict": "false",
+   "evidence": [
+    "runtime/types/message.go:97"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "conv.Clear() returns error and starts fresh",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1359"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "context.WithTimeout; errors.Is(err, context.DeadlineExceeded)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:275"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "errors.Is(err, sdk.ErrConversationClosed) from Send",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:215",
+    "sdk/errors.go:11"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "errors.Is(err, sdk.ErrProviderNotDetected) from Send",
+   "verdict": "dead",
+   "evidence": [
+    "sdk/errors.go:26"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "Send accepts a string or *types.Message",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:352",
+    "sdk/conversation.go:360"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "WithMessageMetadata attaches key-value data to the user message of one Send or Stream",
+   "verdict": "true",
+   "evidence": [
+    "sdk/message_metadata.go:32"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "the model does not receive the metadata by default",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/message_metadata_template.go:35"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "metadata appears in Messages(), the state store, evals; Metadata() reads it",
+   "verdict": "true",
+   "evidence": [
+    "runtime/types/message.go:97",
+    "sdk/message_metadata.go:77"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "message.created event carries Metadata; events.Redacting redacts as message.metadata",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/redact.go:101",
+    "runtime/events/redact.go:27",
+    "runtime/events/types.go:591"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "values must be JSON-serializable or Send returns an error; kept in decoded JSON form (float64, []any, map[string]any); Metadata() returns a copy",
+   "verdict": "true",
+   "evidence": [
+    "runtime/types/message.go:97",
+    "sdk/message_metadata.go:40",
+    "sdk/message_metadata.go:44"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "passing *types.Message: metadata goes on a copy",
+   "verdict": "true",
+   "evidence": [
+    "sdk/message_metadata.go:74"
+   ]
+  },
+  {
+   "id": 22,
+   "claim": "MessageMetadataTemplate on the provider renders {{key}} from message metadata",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/message_metadata_template.go:13",
+    "runtime/pipeline/stage/message_metadata_template.go:79",
+    "runtime/providers/registry.go:503"
+   ]
+  },
+  {
+   "id": 23,
+   "claim": "sdk.WithLLMProvider(sdk.ProviderSpec{Type, Model, MessageMetadataTemplate})",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:2572",
+    "sdk/options.go:2621",
+    "sdk/options.go:2741"
+   ]
+  },
+  {
+   "id": 24,
+   "claim": "rendered text appended after the user message as '<context>Selected: [\"s1\",\"s2\",\"s3\"]</context>'",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/message_metadata_template.go:17",
+    "runtime/pipeline/stage/message_metadata_template.go:86"
+   ]
+  },
+  {
+   "id": 25,
+   "claim": "string inserted as is, other values compact JSON, missing key renders empty",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/message_metadata_template.go:86"
+   ]
+  },
+  {
+   "id": 26,
+   "claim": "every message with metadata is rendered, including earlier turns",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/message_metadata_template.go:39"
+   ]
+  },
+  {
+   "id": 27,
+   "claim": "rendered text is added to the request only",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/message_metadata_template.go:28"
+   ]
+  },
+  {
+   "id": 28,
+   "claim": "providers.CreateProviderFromSpec takes providers.ProviderSpec.MessageMetadataTemplate",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/registry.go:233",
+    "runtime/providers/registry.go:503"
+   ]
+  },
+  {
+   "id": 29,
+   "claim": "provider file / RuntimeConfig field message_metadata_template",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/types.go:239"
+   ]
+  },
+  {
+   "id": 30,
+   "claim": "WithJSONInput gives structured input that fills pack template variables",
+   "verdict": "true",
+   "evidence": [
+    "sdk/json_input.go:32"
+   ]
+  },
+  {
+   "id": 31,
+   "claim": "if the model's stream fails after it started replying, Send returns the error and a non-nil Response with FinishReasonInterrupted",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:270",
+    "sdk/conversation.go:324"
+   ]
+  },
+  {
+   "id": 32,
+   "claim": "Tutorial 2 link",
+   "verdict": "true",
+   "evidence": []
+  }
+ ]
+}

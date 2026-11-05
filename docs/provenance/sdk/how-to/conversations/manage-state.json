@@ -1,0 +1,140 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/conversations/manage-state.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "conv.SetVar(name, value string)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1265"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "conv.GetVar(name) returns (string, bool)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1329"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "conv.SetVars(map[string]any) sets many",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1282"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "variables are strings; SetVars formats values with %v",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1291"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "variables substitute into system prompts only; message text sent as written",
+   "verdict": "true",
+   "evidence": [
+    "sdk/session_vars.go:50"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "system_template with {{user_name}} placeholders",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pipeline/builder.go:622"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "System prompt becomes 'You are helping Alice. They are a premium user.'",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1265"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "precedence: WithVariables < variables.Provider < SetVar/SetVars < WithJSONInput",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:685",
+    "sdk/json_input.go:104",
+    "sdk/session_vars.go:50"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "sdk.WithVariables(map[string]string) at Open",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:2508"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "values are resolved on every turn (unary)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1259"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "duplex renders the system prompt once; later SetVar stored but not reaching the provider; first logged as a warning",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1259"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "SetVarsFromEnv(prefix) strips prefix, lowercases name",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1303",
+    "sdk/conversation.go:1321"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "variable methods are thread-safe",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1265",
+    "sdk/conversation.go:1329"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "Fork returns a conversation with isolated variables",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1414"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "unresolved placeholder fails the send and nothing reaches the model",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 16,
+   "claim": "events.NewEventBus, bus.Subscribe(events.EventTemplateRendered), TemplateRenderedData.SystemPrompt, sdk.WithEventBus",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": 17,
+   "claim": "Tutorial 4 link /sdk/tutorials/04-state-management/",
+   "verdict": "true",
+   "evidence": []
+  }
+ ]
+}

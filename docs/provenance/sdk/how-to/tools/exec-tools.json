@@ -1,0 +1,117 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/tools/exec-tools.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "c1",
+   "claim": "exec block in RuntimeConfig binds a pack tool to a subprocess reading JSON on stdin and writing JSON on stdout",
+   "verdict": "true",
+   "evidence": [
+    "sdk/runtime_config.go:510-525"
+   ]
+  },
+  {
+   "id": "c10",
+   "claim": "Unmatched tools: key is skipped, logged at WARN with name and registered_tools; the tool keeps its pack-declared mode; other entries apply",
+   "verdict": "true",
+   "evidence": [
+    "sdk/exec_tools.go:40-46"
+   ]
+  },
+  {
+   "id": "c11",
+   "claim": "WithToolDescriptorOverride treats an unknown name the same way (skip with warning)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/tool_descriptor_override.go:144-149"
+   ]
+  },
+  {
+   "id": "c12",
+   "claim": "Server processes are stopped when the conversation closes",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1622-1624"
+   ]
+  },
+  {
+   "id": "c13",
+   "claim": "Pack tool schema and prompt tools list shape",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:116-124"
+   ]
+  },
+  {
+   "id": "c2",
+   "claim": "One-shot input is {\"args\": {...}}; output is {\"result\": ...} or {\"error\": ...}",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/exec_executor.go:38-48",
+    "runtime/tools/exec_executor.go:65",
+    "runtime/tools/exec_executor.go:84-90"
+   ]
+  },
+  {
+   "id": "c3",
+   "claim": "runtime: server keeps one process running and speaks JSON-RPC 2.0 over stdio, one JSON object per line, method execute with params.args",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/server_executor.go:30-36",
+    "runtime/tools/server_executor.go:305-310"
+   ]
+  },
+  {
+   "id": "c4",
+   "claim": "Server response is {jsonrpc,id,result}; error object reports failure",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/server_executor.go:373-392"
+   ]
+  },
+  {
+   "id": "c5",
+   "claim": "Only the listed env variable names are forwarded; the subprocess does not inherit the full host environment",
+   "verdict": "false",
+   "evidence": [
+    "runtime/tools/exec_executor.go:111-121",
+    "runtime/tools/server_executor.go:189-196"
+   ]
+  },
+  {
+   "id": "c6",
+   "claim": "env values are read from the host at invocation time",
+   "verdict": "false",
+   "evidence": [
+    "runtime/tools/exec_executor.go:117",
+    "runtime/tools/server_executor.go:189-196"
+   ]
+  },
+  {
+   "id": "c7",
+   "claim": "On timeout the subprocess is killed and the tool returns an error to the LLM",
+   "verdict": "false",
+   "evidence": [
+    "runtime/tools/exec_executor.go:100",
+    "runtime/tools/server_executor.go:326-331"
+   ]
+  },
+  {
+   "id": "c8",
+   "claim": "If timeout_ms is omitted the runtime uses a default timeout",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/registry.go:26-29",
+    "runtime/tools/registry.go:771-773"
+   ]
+  },
+  {
+   "id": "c9",
+   "claim": "No OnTool registration is required for exec-bound tools; the runtime handles lifecycle",
+   "verdict": "true",
+   "evidence": [
+    "sdk/exec_tools.go:13-58"
+   ]
+  }
+ ]
+}

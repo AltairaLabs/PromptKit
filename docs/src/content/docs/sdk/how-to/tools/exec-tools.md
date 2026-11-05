@@ -1,158 +1,30 @@
 ---
-title: Define Exec Tools
-description: Bind tools to external subprocesses in any language
+title: Define exec tools
+description: Run a tool as an external subprocess in any language that reads and writes JSON.
 sidebar:
   order: 16
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/tools/exec_executor.go
+    - runtime/tools/registry.go
+    - runtime/tools/server_executor.go
+    - sdk/conversation.go
+    - sdk/conversation_tools.go
+    - sdk/exec_tools.go
+    - sdk/runtime_config.go
+    - sdk/tool_descriptor_override.go
 ---
-Bind tool definitions to external subprocesses using the `exec` block in RuntimeConfig. This lets you implement tool logic in Python, Node.js, Rust, or any language that reads JSON from stdin and writes JSON to stdout.
+Bind a tool declared in your pack to an external subprocess with the `exec` block in RuntimeConfig. The subprocess reads JSON from stdin and writes JSON to stdout, so you can write the tool in Python, Node.js, Rust or any other language.
 
-## Quick Start
+## Prerequisites
 
-Define a tool in your pack and bind it to a script in `runtimeconfig.yaml`:
+- A pack that declares the tool and lists it in a prompt's `tools`.
+- A RuntimeConfig file. See [Use RuntimeConfig](/sdk/how-to/conversations/use-runtime-config/).
 
-```yaml
-spec:
-  tools:
-    sentiment_check:
-      exec:
-        command: python3
-        args: [./tools/sentiment-check.py]
-        timeout_ms: 5000
-        env: [NLTK_DATA]
-```
+## 1. Declare the tool in the pack
 
-When the LLM calls `sentiment_check`, the runtime spawns the subprocess, sends the tool arguments as JSON on stdin, and reads the result from stdout.
-
-## One-Shot Mode (Default)
-
-In one-shot mode, the runtime spawns a new subprocess for each tool invocation. The process receives a single JSON object on stdin, writes a single JSON object to stdout, and exits.
-
-### Input (stdin)
-
-```json
-{"args": {"text": "This product is amazing!"}}
-```
-
-### Output (stdout) -- success
-
-```json
-{"result": {"sentiment": "positive", "score": 0.85}}
-```
-
-### Output (stdout) -- error
-
-```json
-{"error": "model not loaded"}
-```
-
-One-shot mode is the simplest option. Use it when the tool has no persistent state and startup cost is acceptable.
-
-## Server Mode
-
-For tools that need persistent state, connection pooling, or expensive initialization, use `runtime: server`. The runtime starts the subprocess once and communicates over JSON-RPC 2.0 on stdio.
-
-```yaml
-spec:
-  tools:
-    db_query:
-      exec:
-        command: ./tools/db-query
-        runtime: server
-        timeout_ms: 10000
-        env: [DATABASE_URL]
-```
-
-### Request (stdin)
-
-```json
-{"jsonrpc": "2.0", "id": 1, "method": "execute", "params": {"args": {"query": "SELECT count(*) FROM users"}}}
-```
-
-### Response (stdout)
-
-```json
-{"jsonrpc": "2.0", "id": 1, "result": {"count": 42}}
-```
-
-The subprocess must keep reading from stdin and writing responses to stdout until the runtime closes the pipe. Each request/response pair is a single line of JSON.
-
-## Environment Variables
-
-The `env` field lists environment variable names to forward to the subprocess. The runtime reads their values from the host process at invocation time.
-
-```yaml
-spec:
-  tools:
-    translate:
-      exec:
-        command: python3
-        args: [./tools/translate.py]
-        env: [DEEPL_API_KEY, TARGET_LANG]
-```
-
-Only the listed variable names are forwarded -- the subprocess does not inherit the full host environment.
-
-## Timeouts
-
-Set `timeout_ms` to limit how long the runtime waits for a response. If the subprocess exceeds the timeout, it is killed and the tool returns an error to the LLM.
-
-```yaml
-spec:
-  tools:
-    slow_analysis:
-      exec:
-        command: python3
-        args: [./tools/analyze.py]
-        timeout_ms: 30000  # 30 seconds
-```
-
-If omitted, the runtime uses a default timeout.
-
-## Complete Example
-
-### Tool script (`tools/sentiment-check.py`)
-
-```python
-#!/usr/bin/env python3
-import json, sys
-
-request = json.loads(sys.stdin.read())
-args = request["args"]
-text = args.get("text", "")
-
-# Your logic here
-score = 0.85 if "amazing" in text.lower() else 0.3
-sentiment = "positive" if score > 0.5 else "negative"
-
-result = {"sentiment": sentiment, "score": score}
-print(json.dumps({"result": result}))
-```
-
-### RuntimeConfig (`runtimeconfig.yaml`)
-
-```yaml
-spec:
-  tools:
-    # One-shot mode (default)
-    sentiment_check:
-      exec:
-        command: python3
-        args: [./tools/sentiment-check.py]
-        timeout_ms: 5000
-        env: [NLTK_DATA]
-
-    # Server mode — long-running subprocess
-    db_query:
-      exec:
-        command: ./tools/db-query
-        runtime: server
-        timeout_ms: 10000
-        env: [DATABASE_URL]
-```
-
-### Pack file (`assistant.pack.json`)
-
-Define matching tool schemas so the LLM knows how to call them:
+The pack gives the model the tool's name, description and parameter schema:
 
 ```json
 {
@@ -180,7 +52,52 @@ Define matching tool schemas so the LLM knows how to call them:
 }
 ```
 
-### SDK usage
+## 2. Write the script
+
+A one-shot tool reads one JSON object from stdin and writes one JSON object to stdout:
+
+```python
+#!/usr/bin/env python3
+import json, sys
+
+request = json.loads(sys.stdin.read())
+text = request["args"].get("text", "")
+
+score = 0.85 if "amazing" in text.lower() else 0.3
+sentiment = "positive" if score > 0.5 else "negative"
+
+print(json.dumps({"result": {"sentiment": sentiment, "score": score}}))
+```
+
+The request is `{"args": {"text": "This product is amazing!"}}`. Return `{"result": ...}` on success or `{"error": "model not loaded"}` on failure. The runtime reports an error response, a non-zero exit or invalid JSON to the model as a tool error.
+
+## 3. Bind the script in RuntimeConfig
+
+The key under `spec.tools` is the tool name from the pack:
+
+```yaml
+spec:
+  tools:
+    sentiment_check:
+      exec:
+        command: python3
+        args: [./tools/sentiment-check.py]
+        timeout_ms: 5000
+        env: [NLTK_DATA]
+```
+
+| Field | Meaning |
+|---|---|
+| `command`, `args` | The executable and its arguments. |
+| `timeout_ms` | How long the runtime waits for a result. Defaults to 30000 (30 seconds). |
+| `env` | Host environment variable names to pass to the subprocess. |
+| `runtime` | `exec` (default) starts a new process per call. `server` keeps one process running. |
+
+When `env` lists at least one name, a one-shot subprocess receives only those variables. When `env` is empty or omitted, it inherits the host environment.
+
+After `timeout_ms` the runtime kills a one-shot subprocess and returns an error to the model.
+
+## 4. Open the conversation
 
 ```go
 conv, err := sdk.Open("./assistant.pack.json", "assistant",
@@ -192,24 +109,63 @@ if err != nil {
 defer conv.Close()
 
 resp, err := conv.Send(ctx, "Is this review positive? 'This product is amazing!'")
+if err != nil {
+    log.Fatal(err)
+}
 fmt.Println(resp.Text())
 ```
 
-The runtime handles subprocess lifecycle, timeout enforcement, and JSON marshalling automatically. Your Go code only needs to load the RuntimeConfig -- no `OnTool` registration is required for exec-bound tools.
+Exec-bound tools need no `OnTool` registration.
 
-## Unmatched tool names
+## Keep a process running (server mode)
 
-A `tools:` entry whose key matches no tool in the registry is skipped and logged at WARN, naming the key and the tools that are registered. The tool the entry was meant for keeps its pack-declared mode, so a misspelled key or a tool renamed in the pack shows up here rather than as a tool that quietly keeps running its old executor:
+Set `runtime: server` for tools with expensive startup, connection pools or other state:
 
+```yaml
+spec:
+  tools:
+    db_query:
+      exec:
+        command: ./tools/db-query
+        runtime: server
+        timeout_ms: 10000
+        env: [DATABASE_URL]
 ```
+
+The runtime starts the process on the first call, restarts it if it exits, and stops it when you call `conv.Close()`. It speaks JSON-RPC 2.0 over stdio, one JSON object per line.
+
+```json
+{"jsonrpc": "2.0", "id": 1, "method": "execute", "params": {"args": {"query": "SELECT count(*) FROM users"}}}
+```
+
+Answer each request with the same `id`:
+
+```json
+{"jsonrpc": "2.0", "id": 1, "result": {"count": 42}}
+```
+
+Return an `error` object (`{"code": -32000, "message": "..."}`) instead of `result` to report a failure. Keep reading stdin until the runtime closes the pipe.
+
+A server process inherits the host environment, and `env` adds to it. On a timeout the call returns an error and the process keeps running.
+
+## Verify
+
+Send a message that makes the model call the tool. The tool's result appears in the model's reply. To confirm the binding applied, check that the logs hold no `exec tool config skipped` warning.
+
+## Troubleshoot
+
+A `tools:` key that matches no tool in the pack is skipped with a warning that names the key and the registered tools:
+
+```text
 WARN exec tool config skipped: tool not registered  name=fetch_invoice registered_tools=[fetch_invoices send_email]
 ```
 
-Other entries still apply. This matches how [`WithToolDescriptorOverride`](/sdk/how-to/tools/override-capability-tools/#tolerance-to-version-skew) treats an unknown name.
+The tool the entry was meant for keeps its pack-declared mode, and other entries still apply. Check the key for a misspelling or a renamed tool. [`WithToolDescriptorOverride`](/sdk/how-to/tools/override-capability-tools/#tolerance-to-version-skew) treats an unknown name the same way.
 
-## See Also
+## Related
 
-- [Register Tools](/sdk/how-to/tools/register-tools/) -- programmatic tool registration in Go
-- [HTTP Tools](/sdk/how-to/tools/http-tools/) -- bind tools to HTTP APIs
-- [Use RuntimeConfig](/sdk/how-to/conversations/use-runtime-config/) -- RuntimeConfig reference
-- [Exec Hooks](/sdk/how-to/hooks/exec-hooks/) -- lifecycle hooks using external processes
+- [Register tools](/sdk/how-to/tools/register-tools/): register tools in Go
+- [HTTP tools](/sdk/how-to/tools/http-tools/): bind tools to HTTP APIs
+- [Exec protocol](/sdk/reference/exec-protocol/): the stdin/stdout contract
+- [RuntimeConfig reference](/sdk/reference/runtime-config/): every `spec` field
+- [Exec hooks](/sdk/how-to/hooks/exec-hooks/): lifecycle hooks in external processes

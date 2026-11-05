@@ -1,0 +1,142 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/providers/bring-your-own-classifier.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Inference-backed checks (audio_emotion, image_moderation, text_toxicity, topic_policy) call one interface, inference.Provider, with Infer(ctx, Request) (Response, error)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/judge_required.go:101",
+    "runtime/evals/handlers/judge_required.go:113",
+    "runtime/inference/provider.go:74"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "Request fields Model, Inputs []types.Message, Labels, Prompt, Params; Response has Scores []LabelScore{Label, Score}, highest first, plus Model, Usage, Raw",
+   "verdict": "true",
+   "evidence": [
+    "runtime/inference/provider.go:25",
+    "runtime/inference/provider.go:40",
+    "runtime/inference/provider.go:54"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "audio_emotion with expected_label reads that label's score; topic_policy compares on-topic with off-topic",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/audio_emotion.go:127",
+    "runtime/evals/handlers/topic_policy.go:138",
+    "runtime/evals/handlers/topic_policy.go:153"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Audio and image checks deliver media as an inline part on the first input message; audio arrives at the target rate (16 kHz mono), provider owns decode/normalize, not resampling",
+   "verdict": "false",
+   "evidence": [
+    "runtime/evals/handlers/audio_emotion.go:105",
+    "runtime/evals/handlers/audio_emotion.go:292",
+    "sdk/examples/onnx-audio-emotion/audio.go:11"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "WithClassifier(id, provider) registers an instance with no credential resolution; reports inference metrics",
+   "verdict": "true",
+   "evidence": [
+    "runtime/inference/instrument.go:33",
+    "sdk/options.go:2656",
+    "sdk/options.go:2672"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "inference.RegisterFactory(type, func(spec inference.ProviderSpec) (inference.Provider, error)) plus sdk.WithInferenceProvider(sdk.ProviderSpec{ID, Type, Model}); spec.Model, spec.AdditionalConfig",
+   "verdict": "true",
+   "evidence": [
+    "runtime/inference/factory.go:14",
+    "runtime/inference/factory.go:24",
+    "runtime/providers/base/factory.go:18",
+    "sdk/options.go:2637",
+    "sdk/options.go:644"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "A type names one vendor API",
+   "verdict": "true",
+   "evidence": [
+    "runtime/inference/provider.go:6"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Pack declares requires.providers key/role inference/description/required; check params.provider names the key; the bound ID is the logical name",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/provider_binding.go:40",
+    "runtime/prompt/schema/promptpack.schema.json:254",
+    "sdk/binding.go:49"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "A check whose name is undeclared, unbound or bound to the wrong kind fails Open and says which",
+   "verdict": "false",
+   "evidence": [
+    "sdk/binding.go:60",
+    "sdk/provider_keys.go:114",
+    "sdk/provider_keys.go:48",
+    "sdk/requires.go:48"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Observe results with sdk.WithEvalHook or a metrics recorder",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:3654"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "onnx-audio-emotion example implements inference.Provider with ONNX wav2vec2, registers via WithClassifier, scores with audio_emotion, offline with no token, cgo in standalone module, runtime CGO-free",
+   "verdict": "true",
+   "evidence": [
+    "sdk/examples/onnx-audio-emotion/main.go:3",
+    "sdk/examples/onnx-audio-emotion/main.go:69"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "Snippets compile and Open succeeds with WithClassifier and with a registered factory",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:2637",
+    "sdk/options.go:2662"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "Registered providers emit inference.call.completed / inference.call.failed events and inference_* metrics",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:1047",
+    "runtime/inference/instrument.go:53",
+    "runtime/metrics/collector.go:460",
+    "runtime/metrics/collector.go:592"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "inference.Response.Score(label) is case-insensitive",
+   "verdict": "true",
+   "evidence": [
+    "runtime/inference/provider.go:63"
+   ]
+  }
+ ]
+}

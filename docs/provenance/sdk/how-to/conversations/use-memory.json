@@ -1,0 +1,169 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/conversations/use-memory.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "c1",
+   "claim": "WithRetriever wires ambient grounding with no store/scope/capability",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1364-1384"
+   ]
+  },
+  {
+   "id": "c10",
+   "claim": "InMemoryStore matches by case-insensitive substring",
+   "verdict": "true",
+   "evidence": [
+    "runtime/memory/memory_store.go:59-65"
+   ]
+  },
+  {
+   "id": "c11",
+   "claim": "Tools are registered only when scope has non-empty subject key (default user_id); otherwise Warn log with expected_key and scope_keys",
+   "verdict": "true",
+   "evidence": [
+    "sdk/capability_memory.go:31"
+   ]
+  },
+  {
+   "id": "c12",
+   "claim": "WithMemorySubjectKey names another key; empty string removes the check",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1466-1485"
+   ]
+  },
+  {
+   "id": "c13",
+   "claim": "WithMemoryExtractor sets an extractor",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1436"
+   ]
+  },
+  {
+   "id": "c14",
+   "claim": "WithMemoryRetriever alone injects memory_context and leaves tools registered; WithMemoryToolsDisabled without retriever disables memory entirely",
+   "verdict": "true",
+   "evidence": [
+    "sdk/capability_memory.go:71-91",
+    "sdk/options.go:1440-1464"
+   ]
+  },
+  {
+   "id": "c15",
+   "claim": "WithRetriever wins over capability retriever",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:829-839"
+   ]
+  },
+  {
+   "id": "c16",
+   "claim": "WithMemoryContextFormatter is the capability's formatter",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1504"
+   ]
+  },
+  {
+   "id": "c17",
+   "claim": "Extras forwarded: RetrieveOptions.Extras, ListOptions.Extras, remember merges into Metadata (typed key wins), forget via ExtrasDeleter",
+   "verdict": "true",
+   "evidence": [
+    "runtime/memory/store.go:25-41",
+    "runtime/memory/tools.go:117-248",
+    "runtime/memory/types.go:93-119"
+   ]
+  },
+  {
+   "id": "c18",
+   "claim": "OpenDuplex and OpenVoice return an error when a retriever is configured",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pipeline/builder.go:40-44",
+    "sdk/voice.go:55"
+   ]
+  },
+  {
+   "id": "c19",
+   "claim": "Unresolved placeholder fails the turn with the quoted error",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/errors.go:110",
+    "runtime/template/renderer.go:63"
+   ]
+  },
+  {
+   "id": "c2",
+   "claim": "The retriever's output replaces {{memory_context}} before each turn renders",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_memory.go:79-115"
+   ]
+  },
+  {
+   "id": "c20",
+   "claim": "WithToolDescriptorOverride anchor exists in generated reference",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": "c3",
+   "claim": "A turn that retrieves nothing renders the variable empty",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_memory.go:84-89"
+   ]
+  },
+  {
+   "id": "c4",
+   "claim": "corpus.Retriever scores by term overlap with the latest user turn and returns top three",
+   "verdict": "true",
+   "evidence": [
+    "runtime/memory/corpus/corpus.go:77-125"
+   ]
+  },
+  {
+   "id": "c5",
+   "claim": "memory.Retriever interface signature RetrieveContext(ctx, scope, messages)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/memory/retriever.go:13-14"
+   ]
+  },
+  {
+   "id": "c6",
+   "claim": "Default formatter renders [type] content (confidence: N.N)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/memory/formatter.go:20-26"
+   ]
+  },
+  {
+   "id": "c7",
+   "claim": "WithRetrievalFormatter overrides the format",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1408"
+   ]
+  },
+  {
+   "id": "c8",
+   "claim": "WithMemory gives four tools memory__remember/recall/list/forget",
+   "verdict": "true",
+   "evidence": [
+    "runtime/memory/tools.go:13-16"
+   ]
+  },
+  {
+   "id": "c9",
+   "claim": "memory__recall description text",
+   "verdict": "true",
+   "evidence": [
+    "runtime/memory/tools.go:289-292"
+   ]
+  }
+ ]
+}

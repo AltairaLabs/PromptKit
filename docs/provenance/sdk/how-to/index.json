@@ -1,0 +1,36 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/index.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "p1",
+   "claim": "Index links every existing how-to page (28)",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": "p2",
+   "claim": "hooks.On(conv, events.EventProviderCallCompleted, handler) subscribes to events",
+   "verdict": "true",
+   "evidence": [
+    "sdk/hooks/events.go:53"
+   ]
+  },
+  {
+   "id": "p3",
+   "claim": "OnToolHTTP registers HTTP tools",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:84"
+   ]
+  },
+  {
+   "id": "p4",
+   "claim": "Stream/Send/SetVar/GetVar exist on Conversation",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:275"
+   ]
+  }
+ ]
+}

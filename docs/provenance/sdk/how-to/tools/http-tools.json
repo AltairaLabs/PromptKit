@@ -1,0 +1,110 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/tools/http-tools.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "c1",
+   "claim": "OnToolHTTP(name, cfg) registers an HTTP-backed tool; cfg.Handler() works with OnTool, cfg.HandlerCtx() with OnToolCtx",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:84-91",
+    "sdk/tools/http.go:144-159"
+   ]
+  },
+  {
+   "id": "c10",
+   "claim": "Custom RequestMapper embedding DefaultRequestMapper and assigning executor.RequestMapper customizes header rendering",
+   "verdict": "unverified",
+   "evidence": [
+    "runtime/tools/http_executor.go:385-399"
+   ]
+  },
+  {
+   "id": "c11",
+   "claim": "Args become a JSON body for POST/PUT/PATCH and query params otherwise; non-2xx returns an error",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/http_executor.go:231-247",
+    "runtime/tools/http_executor.go:494-496"
+   ]
+  },
+  {
+   "id": "c12",
+   "claim": "Runtime logs 'HTTP tool call' and 'HTTP tool call completed'",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/http_executor.go:148",
+    "runtime/tools/http_executor.go:177"
+   ]
+  },
+  {
+   "id": "c2",
+   "claim": "WithMethod sets the method; default is POST",
+   "verdict": "true",
+   "evidence": [
+    "sdk/tools/http.go:40",
+    "sdk/tools/http.go:73-77"
+   ]
+  },
+  {
+   "id": "c3",
+   "claim": "WithHeader sets a static header",
+   "verdict": "true",
+   "evidence": [
+    "sdk/tools/http.go:80-84"
+   ]
+  },
+  {
+   "id": "c4",
+   "claim": "WithHeaderFromEnv(\"Header=ENV\") sets the header to the env var's value at runtime",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/http_executor.go:455-468"
+   ]
+  },
+  {
+   "id": "c5",
+   "claim": "WithPreRequest modifies the *http.Request before sending",
+   "verdict": "dead",
+   "evidence": [
+    "sdk/tools/http.go:116-120",
+    "sdk/tools/http.go:52"
+   ]
+  },
+  {
+   "id": "c6",
+   "claim": "WithTransform reshapes arguments before the request",
+   "verdict": "true",
+   "evidence": [
+    "sdk/tools/http.go:166-172"
+   ]
+  },
+  {
+   "id": "c7",
+   "claim": "WithPostProcess processes raw response bytes",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/http_executor.go:498-501",
+    "sdk/tools/http.go:193-198"
+   ]
+  },
+  {
+   "id": "c8",
+   "claim": "WithTimeout is milliseconds",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/http_executor.go:140-145",
+    "sdk/tools/http.go:94-98"
+   ]
+  },
+  {
+   "id": "c9",
+   "claim": "WithRedact redacts fields from the response",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/http_executor.go:498-501",
+    "runtime/tools/http_executor.go:610-628"
+   ]
+  }
+ ]
+}

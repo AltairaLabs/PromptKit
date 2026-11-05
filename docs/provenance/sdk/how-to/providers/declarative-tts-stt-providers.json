@@ -1,0 +1,157 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/providers/declarative-tts-stt-providers.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Entries under spec.providers with role tts/stt declare providers",
+   "verdict": "true",
+   "evidence": [
+    "sdk/provider_file.go:64",
+    "sdk/provider_file.go:66"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "credential.credential_env names the key env var",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/resolver.go:135"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Cartesia reads additional_config.ws_url",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tts/cartesia_register.go:16"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "First declared tts/stt entry becomes the default ttsService/sttService unless WithTTS or WithVADMode set one",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:2529",
+    "sdk/options.go:2799",
+    "sdk/options.go:2837",
+    "sdk/options.go:3063"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "WithTTS and WithVADMode win over the YAML default",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:2529",
+    "sdk/options.go:2799",
+    "sdk/options.go:3063"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "The tts_providers/stt_providers blocks behave identically, are deprecated and removed in v3",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:209",
+    "pkg/config/runtime_config.go:236",
+    "sdk/runtime_config.go:193"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "The same ID in both spellings is rejected",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:2775",
+    "sdk/runtime_config.go:409"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Supported types: tts openai, elevenlabs, cartesia; stt openai",
+   "verdict": "true",
+   "evidence": [
+    "runtime/stt/openai_register.go:7",
+    "runtime/tts/cartesia_register.go:7",
+    "runtime/tts/elevenlabs_register.go:7",
+    "runtime/tts/openai_register.go:7"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "LoadRuntimeConfig rejects a missing type",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:405"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "LoadRuntimeConfig rejects an unknown role",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/role.go:66",
+    "pkg/config/runtime_config.go:398"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "LoadRuntimeConfig rejects duplicate effective IDs within a role; the same ID under two roles is allowed",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:419",
+    "pkg/config/runtime_config.go:423",
+    "pkg/config/runtime_config.go:426"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "model is optional for role tts and stt",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:386",
+    "pkg/config/runtime_config.go:412"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "An unsupported type is caught at construction, not by a hardcoded list in the config loader",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:405",
+    "runtime/providers/base/factory.go:81"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "The unsupported-type error names the type and the registered alternatives",
+   "verdict": "false",
+   "evidence": [
+    "runtime/providers/base/factory.go:85",
+    "sdk/provider_introspection.go:30"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "The deprecated blocks check type against a fixed allowlist at load time",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:510",
+    "pkg/config/runtime_config.go:524",
+    "pkg/config/runtime_config.go:547",
+    "pkg/config/runtime_config.go:561"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "tts.RegisterFactory(type, func(tts.ProviderSpec)(tts.Service, error)) and tts.APIKeyFromCredential(spec.Credential) exist; a side-effect import makes the type usable in YAML",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base/factory.go:79",
+    "runtime/tts/factory.go:23",
+    "runtime/tts/factory.go:49"
+   ]
+  }
+ ]
+}

@@ -1,7 +1,23 @@
 ---
 title: Write Custom Hooks
+description: Implement each PromptKit hook type in Go and register it with an SDK conversation.
 sidebar:
   order: 8
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/evals/hooks.go
+    - runtime/evals/runner.go
+    - runtime/evals/types.go
+    - runtime/hooks/errors.go
+    - runtime/hooks/hooks.go
+    - runtime/hooks/registry.go
+    - runtime/hooks/types.go
+    - runtime/pipeline/stage/stages_provider.go
+    - sdk/conversation.go
+    - sdk/options.go
+    - sdk/sdk.go
+    - sdk/session_hooks.go
 ---
 
 How to implement each PromptKit hook type in Go and register it with an SDK conversation. For subprocess-backed hooks in any language, see [Exec Hooks](/sdk/how-to/hooks/exec-hooks/).
@@ -21,7 +37,7 @@ For the conceptual difference between Decision-based and observational hooks, se
 
 ## ProviderHook
 
-Implement `Name`, `BeforeCall`, and `AfterCall`. Return `hooks.Allow` to continue, `hooks.Deny(reason)` to abort with a `*hooks.HookDeniedError`, or `hooks.Enforced(reason, metadata)` if you mutated the request/response in place and want the pipeline to continue with the modified content.
+Implement `Name`, `BeforeCall`, and `AfterCall`. Return `hooks.Allow` to continue, `hooks.Deny(reason)` to abort with a `*hooks.HookDeniedError`, or `hooks.Enforced(reason, metadata)` when the hook has already enforced the result. In `AfterCall`, mutate `resp.Message` in place and return `Enforced`: the pipeline continues with the modified response. In `BeforeCall`, `Enforced` skips the provider call and the reply is `req.Replacement`, or the default blocked message when it is empty.
 
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
@@ -80,11 +96,11 @@ func (h *StreamingPIIHook) OnChunk(_ context.Context, chunk *providers.StreamChu
 }
 ```
 
-A streaming denial surfaces as `*providers.ValidationAbortError` rather than `*hooks.HookDeniedError` — the chunk loop has already started by the time it fires. Handle both in your error path if you care which one tripped.
+A streaming denial surfaces as `*providers.ValidationAbortError` rather than `*hooks.HookDeniedError`, because the chunk loop has already started by the time it fires. Handle both in your error path if you care which one tripped.
 
 ## ToolHook
 
-Same shape as `ProviderHook` but firing around tool execution. Use `BeforeExecution` to gate calls (e.g. allowlist) and `AfterExecution` to observe results. `AfterExecution` runs after the result is built, so it can't change it; to change a result, also implement [`ToolResultRewriter`](#toolhook--toolresultrewriter).
+Same shape as `ProviderHook` but firing around tool execution. Use `BeforeExecution` to gate calls (for example, an allowlist) and `AfterExecution` to observe results. A denied call does not make `Send` return an error: the model receives an error tool result naming the hook's reason. `AfterExecution` runs after the result is built, so it can't change it, and the `Decision` it returns is ignored. To change a result, also implement [`ToolResultRewriter`](#toolhook--toolresultrewriter).
 
 ```go
 type AuditToolHook struct {
@@ -123,16 +139,16 @@ func (h *RedactHook) RewriteResult(_ context.Context, req hooks.ToolRequest, con
 }
 ```
 
-- **Order.** Rewriters run in registration order, each on the previous one's output.
-- **What they see.** The whole text of a plain result, before the result size limit applies; the limit then applies to what they return. A multimodal result is rewritten one text part at a time, with media parts left where they are; a result with no text isn't rewritten.
-- **What sees the rewrite.** The model, the `tool.call.completed` event and `AfterExecution` all see the rewritten result.
-- **Errors.** A failed call isn't rewritten. A rewriter that returns an error fails the call: the model gets an error result, `tool.call.failed` is emitted, and the original text is not passed on.
-- **Concurrency.** Parallel tool calls are rewritten concurrently, so `RewriteResult` must be safe for concurrent use.
-- **Scope.** Only tools the pipeline runs are rewritten. Client tools, calls resumed after approval, and tools in duplex sessions are not.
+- Rewriters run in registration order, each on the previous one's output.
+- The whole text of a plain result, before the result size limit applies; the limit then applies to what they return. A multimodal result is rewritten one text part at a time, with media parts left where they are; a result with no text isn't rewritten.
+- The model, the `tool.call.completed` event and `AfterExecution` all see the rewritten result.
+- A failed call isn't rewritten. A rewriter that returns an error fails the call: the model gets an error result, `tool.call.failed` is emitted, and the original text is not passed on.
+- Parallel tool calls are rewritten concurrently, so `RewriteResult` must be safe for concurrent use.
+- Only tools the pipeline runs are rewritten. Client tools, calls resumed after approval, and tools in duplex sessions are not.
 
 ## SessionHook
 
-Returns plain Go `error` — there's no decision/enforcement distinction. Non-nil errors propagate to the caller. Hooks that only observe should always return `nil`.
+Returns plain Go `error`, with no decision/enforcement distinction. The SDK discards a returned error, so a failing session hook never blocks `Open`, `Send` or `Close`, and the first error stops the remaining session hooks for that event. `TurnIndex` is the number of completed turns.
 
 ```go
 type SessionLogger struct {
@@ -152,7 +168,7 @@ func (h *SessionLogger) OnSessionUpdate(_ context.Context, e hooks.SessionEvent)
 }
 
 func (h *SessionLogger) OnSessionEnd(_ context.Context, e hooks.SessionEvent) error {
-    h.logger.Info("session ended", "session_id", e.SessionID, "turns", e.TurnIndex+1)
+    h.logger.Info("session ended", "session_id", e.SessionID, "turns", e.TurnIndex)
     return nil
 }
 ```
@@ -161,7 +177,7 @@ Register via `sdk.WithSessionHook(&SessionLogger{logger: slog.Default()})`.
 
 ## EvalHook
 
-Observational. The runner hands you a pointer to the result; you can mutate it in place (redact, enrich, attach metadata) and the mutated result is what propagates to the caller and the event bus. There is no allow/deny decision — every registered hook always runs for every result.
+Observational. The runner hands you a pointer to the result. Mutate it in place (redact, enrich, attach metadata) and the mutated result propagates to the caller and the event bus. There is no allow/deny decision: every registered hook runs for every result.
 
 ```go
 import "github.com/AltairaLabs/PromptKit/runtime/v2/evals"
@@ -216,11 +232,11 @@ if err != nil {
 }
 ```
 
-`HookType` is one of `"provider_before"`, `"provider_after"`, `"chunk"`, `"tool_before"`, `"tool_after"` — useful when you have multiple hooks and want to know which phase fired.
+`HookType` is `"provider_before"` or `"provider_after"`, which tells you which phase fired. Only provider hooks produce a `HookDeniedError`: streaming denials return `*providers.ValidationAbortError`, and tool hook denials reach the model as an error tool result.
 
 ## See also
 
-- [Hooks Reference](/runtime/reference/hooks/) — full interface signatures, types, registry
-- [Exec Hooks](/sdk/how-to/hooks/exec-hooks/) — implement hooks as subprocesses in any language
-- [The Hook System](/sdk/explanation/hooks/) — when to use which hook type, design rationale
-- [Run Evals](/sdk/how-to/observability/run-evals/) — registering eval hooks via `sdk.WithEvalHook`
+- [Hooks Reference](/runtime/reference/hooks/): full interface signatures, types, registry
+- [Exec Hooks](/sdk/how-to/hooks/exec-hooks/): implement hooks as subprocesses in any language
+- [The Hook System](/sdk/explanation/hooks/): when to use which hook type, design rationale
+- [Run Evals](/sdk/how-to/observability/run-evals/): registering eval hooks via `sdk.WithEvalHook`

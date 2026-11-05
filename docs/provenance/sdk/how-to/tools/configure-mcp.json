@@ -1,0 +1,115 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/tools/configure-mcp.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "WithMCP registers all tools from the server",
+   "verdict": "true",
+   "evidence": [
+    "sdk/mcp_tool_sync.go:148",
+    "sdk/options.go:2080"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "NewMCPServer builder methods WithEnv, WithArgs, WithWorkingDir, WithTimeout(ms), WithToolFilter",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/client.go:330",
+    "runtime/mcp/client.go:338",
+    "runtime/mcp/registry.go:95",
+    "sdk/options.go:2104",
+    "sdk/options.go:2116",
+    "sdk/options.go:2141"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "WithMCPServer(server) adds a configured server",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:2159"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Allowlist exposes only named tools; Blocklist exposes all but named; allowlist takes precedence when both are set",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/types.go:315",
+    "runtime/mcp/types.go:324"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Entries ending in * match a prefix",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/types.go:306"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "Tool names are registered as mcp__{serverName}__{toolName}",
+   "verdict": "true",
+   "evidence": [
+    "sdk/mcp_tool_sync.go:142"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "Reference the names in allowed_tools if you want to restrict which MCP tools are available",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:3666",
+    "runtime/pipeline/stage/stages_provider.go:3700",
+    "runtime/prompt/pack.go:934",
+    "runtime/prompt/registry.go:111",
+    "runtime/tools/types.go:83"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Multiple servers register with one WithMCPServer option each",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:2159"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Third-party server tool names (search_repositories, get_file_contents, read_file, echo)",
+   "verdict": "unverified",
+   "evidence": [
+    "sdk/options.go:2080"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "WithMCP/builder commands run as an unsandboxed subprocess",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:2074"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "A server whose tools cannot be listed is retried in the background and logs a warning",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:505",
+    "sdk/conversation_tools.go:508"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "conv.ToolRegistry().List() returns the registered tool names",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/registry.go:227",
+    "sdk/conversation_tools.go:472"
+   ]
+  }
+ ]
+}

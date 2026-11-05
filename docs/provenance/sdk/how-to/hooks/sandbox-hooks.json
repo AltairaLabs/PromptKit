@@ -1,0 +1,121 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/hooks/sandbox-hooks.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "c1",
+   "claim": "spec.sandboxes entries have mode; rest passed to factory as config map",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/exec_build.go:22-42",
+    "runtime/hooks/execconfig/execconfig.go:21-34"
+   ]
+  },
+  {
+   "id": "c10",
+   "claim": "Sandbox implementations must enforce Request.Timeout; Err reports non-zero exit/timeout/transport",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/sandbox/sandbox.go:33-50"
+   ]
+  },
+  {
+   "id": "c11",
+   "claim": "ExecHookConfig.Sandbox with NewExecProviderHook/ToolHook/SessionHook bypasses registry",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/exec_hooks.go:25-34"
+   ]
+  },
+  {
+   "id": "c12",
+   "claim": "Old page: anything that works under direct works under every backend",
+   "verdict": "false",
+   "evidence": [
+    "runtime/hooks/sandbox/sandbox.go:33-50"
+   ]
+  },
+  {
+   "id": "c13",
+   "claim": "Example sandboxes importable at sdk/v2/examples/sandboxes/*",
+   "verdict": "true",
+   "evidence": []
+  },
+  {
+   "id": "c14",
+   "claim": "command is resolved inside the sandbox for kubectl/docker backends",
+   "verdict": "true",
+   "evidence": [
+    "sdk/examples/sandboxes/kubectlexec/kubectlexec.go:98-116"
+   ]
+  },
+  {
+   "id": "c2",
+   "claim": "direct mode is built in, default, registered by init",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/exec_hooks.go:75-78",
+    "runtime/hooks/sandbox/direct/direct.go:41-54"
+   ]
+  },
+  {
+   "id": "c3",
+   "claim": "docker_run keys image, network, mounts, extra_args",
+   "verdict": "true",
+   "evidence": [
+    "sdk/examples/sandboxes/dockerrun/dockerrun.go:99-107"
+   ]
+  },
+  {
+   "id": "c4",
+   "claim": "kubectl_exec keys pod (required), namespace, container, kubeconfig, context, extra_args, kubectl_path",
+   "verdict": "true",
+   "evidence": [
+    "sdk/examples/sandboxes/kubectlexec/kubectlexec.go:79-93"
+   ]
+  },
+  {
+   "id": "c5",
+   "claim": "Old page: ${POD_NAME} in runtime config is expanded",
+   "verdict": "false",
+   "evidence": [
+    "pkg/config/runtime_config.go:309-340"
+   ]
+  },
+  {
+   "id": "c6",
+   "claim": "WithSandboxFactory registers process-wide; duplicate registration errors",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/sandbox/registry.go:29-43",
+    "sdk/options.go:1904-1908"
+   ]
+  },
+  {
+   "id": "c7",
+   "claim": "Factory must be registered before WithRuntimeConfig; missing factory error text",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/exec_build.go:31-34",
+    "runtime/hooks/sandbox/registry.go:68",
+    "sdk/runtime_config.go:163-168"
+   ]
+  },
+  {
+   "id": "c8",
+   "claim": "Hook naming an undeclared sandbox fails config validation",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/runtime_config.go:869-874"
+   ]
+  },
+  {
+   "id": "c9",
+   "claim": "Sandbox interface: Name, Spawn(ctx, Request) (Response, error); Factory(name, cfg)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/sandbox/sandbox.go:37-104"
+   ]
+  }
+ ]
+}
