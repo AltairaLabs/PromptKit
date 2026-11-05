@@ -373,23 +373,7 @@ func (e *HTTPExecutor) buildMappedRequest(
 		mapping = &RequestMapping{}
 	}
 
-	queryArgs, _, bodyArgs := mapper.PartitionArgs(argsMap, mapping, cfg.URL)
-	if queryArgs == nil {
-		queryArgs = make(map[string]any)
-	}
-	if bodyArgs == nil {
-		bodyArgs = make(map[string]any)
-	}
-	if cfg.Request == nil && !isBodyMethod(method) {
-		for k, v := range bodyArgs {
-			queryArgs[k] = v
-		}
-	}
-
-	// Merge static query params (config-defined values the LLM doesn't control).
-	for k, v := range mapping.StaticQuery {
-		queryArgs[k] = v
-	}
+	queryArgs, bodyArgs := partitionMappedArgs(mapper, argsMap, cfg, mapping, method)
 
 	targetURL, err = appendMappedQueryParams(targetURL, queryArgs)
 	if err != nil {
@@ -425,6 +409,30 @@ func (e *HTTPExecutor) buildMappedRequest(
 
 	e.applyHeaders(req, cfg)
 	return req, nil
+}
+
+// partitionMappedArgs splits args into query and body maps. Without a request
+// block, body args of a non-body method move to the query; static query params
+// (config-defined values the LLM doesn't control) are always merged in.
+func partitionMappedArgs(
+	mapper RequestMapper, argsMap map[string]any, cfg *HTTPConfig, mapping *RequestMapping, method string,
+) (queryArgs, bodyArgs map[string]any) {
+	queryArgs, _, bodyArgs = mapper.PartitionArgs(argsMap, mapping, cfg.URL)
+	if queryArgs == nil {
+		queryArgs = make(map[string]any)
+	}
+	if bodyArgs == nil {
+		bodyArgs = make(map[string]any)
+	}
+	if cfg.Request == nil && !isBodyMethod(method) {
+		for k, v := range bodyArgs {
+			queryArgs[k] = v
+		}
+	}
+	for k, v := range mapping.StaticQuery {
+		queryArgs[k] = v
+	}
+	return queryArgs, bodyArgs
 }
 
 // applyMappedHeaders renders and sets headers from the request mapping config.

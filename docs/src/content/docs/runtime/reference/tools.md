@@ -381,7 +381,7 @@ func ReadMultimodalResponse(resp *http.Response, aggregateSize *atomic.Int64, ma
 ReadMultimodalResponse reads a binary HTTP response and returns it as a ContentPart with base64\-encoded data. It enforces per\-response and aggregate size limits.
 
 <a name="RedactFields"></a>
-## func [RedactFields](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L657>)
+## func [RedactFields](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L665>)
 
 ```go
 func RedactFields(data []byte, fields []string) []byte
@@ -842,7 +842,7 @@ func (e *HTTPExecutor) Execute(ctx context.Context, descriptor *ToolDescriptor, 
 Execute performs an HTTP request based on the tool descriptor's HTTPConfig.
 
 <a name="HTTPExecutor.ExecuteMultimodal"></a>
-### func \(\*HTTPExecutor\) [ExecuteMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L574-L578>)
+### func \(\*HTTPExecutor\) [ExecuteMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L582-L586>)
 
 ```go
 func (e *HTTPExecutor) ExecuteMultimodal(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, []types.ContentPart, error)
