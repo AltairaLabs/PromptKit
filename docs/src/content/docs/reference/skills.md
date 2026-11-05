@@ -101,7 +101,7 @@ An inline skill has no directory, so `skill__read_resource` fails for it and a p
 
 ### Preload
 
-A source with `preload: true` registers its skills as preloaded. The SDK activates preloaded skills into each conversation's active set when the conversation opens, so their `allowed-tools` grants apply from the first message. Preloaded skills count toward the maximum active skills limit. A preload that fails is logged at WARN and does not abort `Open`.
+A source with `preload: true` registers its skills as preloaded. The SDK activates preloaded skills into each conversation's active set when the conversation opens, so their `allowed-tools` grants apply from the first round. Their instructions are appended to the system prompt on every turn, under a `## Skill: <name>` heading. If a workflow state's `skills` filter later drops a preloaded skill, its instructions leave the prompt with it. Each preloaded skill costs context on every turn. Preloaded skills count toward the maximum active skills limit. A preload that fails is logged at WARN and does not abort `Open`.
 
 ### Name collisions
 

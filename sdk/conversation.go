@@ -471,6 +471,17 @@ func (c *Conversation) skillsCapability() *SkillsCapability {
 	return nil
 }
 
+// preloadedSkillInstructions is the text appended to this conversation's system
+// prompt on every Send: the instructions of the skills marked preload that are
+// still active (intpipeline.Config.SystemPromptSuffix).
+func (c *Conversation) preloadedSkillInstructions() string {
+	sc := c.skillsCapability()
+	if sc == nil {
+		return ""
+	}
+	return sc.preloadedInstructions(c.skillSet)
+}
+
 // describeTool gives the provider stage this conversation's view of a
 // registered tool on every tools build (intpipeline.Config.DescribeTool).
 // Today only skill__activate differs: its index lists just the skills this
@@ -711,6 +722,7 @@ func (c *Conversation) buildPipelineConfig(
 		ToolSelector:          c.config.selectors[c.config.toolSelectorName],
 		ToolGrants:            c.skillToolGrants,
 		DescribeTool:          c.describeTool,
+		SystemPromptSuffix:    c.preloadedSkillInstructions,
 		ApprovalChecker:       c.newApprovalChecker(),
 		InferenceRegistry:     c.config.inferenceRegistry,
 		ProviderBinding:       newHostBinding(c.config),

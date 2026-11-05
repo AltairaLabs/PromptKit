@@ -151,6 +151,12 @@ type Config struct {
 	// stage.ProviderConfig.DescribeTool.
 	DescribeTool func(*tools.ToolDescriptor) *tools.ToolDescriptor
 
+	// SystemPromptSuffix, when set, returns text appended to the rendered system
+	// prompt on every Send — the instructions of preloaded skills. Live because
+	// the pipeline is built once, at Open(), and the set of active skills
+	// changes afterwards. See stage.TemplateStage.WithSystemPromptSuffix.
+	SystemPromptSuffix func() string
+
 	// ApprovalChecker, when set, gates tool execution for human-in-the-loop
 	// approval on the standard ProviderStage: a tool the checker holds is
 	// surfaced as pending instead of executing. Optional; nil executes normally.
@@ -623,7 +629,8 @@ func appendTemplateStage(stages []stage.Stage, cfg *Config, turnState *stage.Tur
 	if cfg.ActiveComposition != nil {
 		return stages
 	}
-	return append(stages, stage.NewTemplateStageWithTurnState(cfg.EventEmitter, turnState))
+	return append(stages, stage.NewTemplateStageWithTurnState(cfg.EventEmitter, turnState).
+		WithSystemPromptSuffix(cfg.SystemPromptSuffix))
 }
 
 // appendMemoryRetrievalStage adds ambient grounding when a host has wired a

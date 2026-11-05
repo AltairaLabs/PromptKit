@@ -1356,22 +1356,35 @@ func ensureA2ACapability(caps []Capability, cfg *config) []Capability {
 	return append(caps, NewA2ACapability())
 }
 
-// ensureSkillsCapability adds a SkillsCapability if config has skill sources
-// but no SkillsCapability was already inferred or explicit.
+// ensureSkillsCapability makes the skill sources set in code (WithSkillsDir,
+// WithSkillSource) available. With no SkillsCapability yet it adds one. With one
+// already present — inferred from the pack's skills, or passed explicitly — it
+// merges the sources into it, so skills added in code do not disappear when the
+// pack declares its own (#2355). A source the capability already holds is not
+// added twice, so a capability reused across opens does not grow.
 func ensureSkillsCapability(caps []Capability, cfg *config) []Capability {
 	if len(cfg.skillsDirs) == 0 && len(cfg.skillSources) == 0 {
 		return caps
-	}
-	for _, cap := range caps {
-		if cap.Name() == capabilityNameSkills {
-			return caps
-		}
 	}
 	sources := make([]skills.SkillSource, 0, len(cfg.skillsDirs)+len(cfg.skillSources))
 	for _, dir := range cfg.skillsDirs {
 		sources = append(sources, skills.SkillSource{Dir: dir})
 	}
 	sources = append(sources, cfg.skillSources...)
+
+	for _, cap := range caps {
+		if cap.Name() != capabilityNameSkills {
+			continue
+		}
+		if sc, ok := cap.(*SkillsCapability); ok {
+			for _, src := range sources {
+				if !slices.Contains(sc.sources, src) {
+					sc.sources = append(sc.sources, src)
+				}
+			}
+		}
+		return caps
+	}
 	return append(caps, NewSkillsCapability(sources))
 }
 
