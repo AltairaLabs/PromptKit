@@ -15,7 +15,7 @@ import (
 // PromptKit runs no OAuth flow and stores no secrets. Discovering the
 // authorization server (RFC 9728 protected resource metadata, RFC 8414),
 // registering the client, obtaining the user's consent, validating the
-// issuer, and storing and refreshing tokens belong to the host — the hosting
+// issuer, and storing and refreshing tokens belong to the host, the hosting
 // runtime that owns secret storage and the user. The client calls the
 // Authorizer at the two points the protocol defines, and bounds the retries.
 type Authorizer interface {
@@ -66,7 +66,7 @@ type WWWAuthenticate struct {
 }
 
 // AuthError is returned when a request stays unauthorized: the Authorizer
-// failed, or the server kept refusing after maxAuthChallenges challenges.
+// failed, or the server kept refusing after three challenges.
 type AuthError struct {
 	Server string
 	Status int

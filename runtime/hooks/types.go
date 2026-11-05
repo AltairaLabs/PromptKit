@@ -32,8 +32,8 @@ func DenyWithMetadata(reason string, metadata map[string]any) Decision {
 	return Decision{Allow: false, Reason: reason, Metadata: metadata}
 }
 
-// Enforced creates an enforced decision — the hook applied enforcement
-// (truncation, content replacement) and the pipeline should continue.
+// Enforced creates an enforced decision: the hook applied enforcement
+// (truncation, content replacement) and the pipeline continues.
 func Enforced(reason string, metadata map[string]any) Decision {
 	return Decision{Allow: false, Reason: reason, Metadata: metadata, Enforced: true}
 }
@@ -41,10 +41,8 @@ func Enforced(reason string, metadata map[string]any) Decision {
 // Guardrail directions: which side of a provider call a check gates, and the
 // vocabulary a firing is tagged with.
 //
-// These live here rather than in hooks/guardrails because both the guardrail
-// adapter and the pipeline stage need them, and the stage's use is about its
-// own two call phases — it should not have to depend on a concrete hook
-// implementation for a set of string labels.
+// Both the guardrail adapter and the pipeline stage use these labels, so they
+// live here rather than in hooks/guardrails.
 const (
 	// DirectionInput gates the user's input, in BeforeCall.
 	DirectionInput = "input"
@@ -69,8 +67,7 @@ type ProviderRequest struct {
 	TurnIndex int
 
 	// Prompt is the pack's definition of the prompt the model is being
-	// invoked for (RFC 0016), a read-only copy taken when the conversation
-	// was built.
+	// invoked for, a read-only copy taken when the conversation was built.
 	// After a workflow handoff it is the destination state's prompt. Nil means
 	// undeclared. PromptKit never reads it.
 	Prompt *packspec.Prompt

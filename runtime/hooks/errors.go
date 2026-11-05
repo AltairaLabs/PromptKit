@@ -6,7 +6,7 @@ import "fmt"
 
 // HookDeniedError is returned when a hook denies an operation.
 //
-// The provider stage returns it today, and sets HookName to the fixed string
+// The provider stage returns it and sets HookName to the fixed string
 // "provider_hook" rather than the denying hook's own Name().
 type HookDeniedError struct {
 	HookName string

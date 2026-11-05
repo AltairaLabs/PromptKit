@@ -36,11 +36,13 @@ const (
 
 // Default configuration values for HTTP tool execution.
 const (
-	defaultHTTPMethod       = "POST"
-	executorNameHTTP        = "http"
-	maxResponseSize         = 10 * 1024 * 1024 // 10MB per response
-	DefaultMaxAggregateSize = 50 * 1024 * 1024 // 50MB cumulative across all responses
-	envHeaderParts          = 2                // key=value split parts
+	defaultHTTPMethod = "POST"
+	executorNameHTTP  = "http"
+	maxResponseSize   = 10 * 1024 * 1024 // 10MB per response
+	// DefaultMaxAggregateSize is the default limit, in bytes, on the response
+	// bytes an HTTPExecutor reads across all its calls (50MB).
+	DefaultMaxAggregateSize = 50 * 1024 * 1024
+	envHeaderParts          = 2 // key=value split parts
 )
 
 // ErrAggregateResponseSizeExceeded is returned when the cumulative response
@@ -120,6 +122,9 @@ func (e *HTTPExecutor) Name() string {
 }
 
 // Execute performs an HTTP request based on the tool descriptor's HTTPConfig.
+// A non-2xx status is an error that includes the response body. A response
+// that is not JSON is returned wrapped as {"result": "<body>"}. Redaction runs
+// before response mapping.
 func (e *HTTPExecutor) Execute(
 	ctx context.Context,
 	descriptor *ToolDescriptor,
@@ -661,7 +666,9 @@ func (e *HTTPExecutor) handleBinaryResponse(
 	return jsonResult, parts, nil
 }
 
-// RedactFields removes or masks sensitive fields from a JSON response.
+// RedactFields replaces the value of each listed top-level key of a JSON
+// object with "[REDACTED]". Keys that are absent are ignored. Data that is not
+// a JSON object is returned unchanged.
 func RedactFields(data []byte, fields []string) []byte {
 	var obj map[string]any
 	if err := json.Unmarshal(data, &obj); err != nil {

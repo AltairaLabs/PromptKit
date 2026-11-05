@@ -1,14 +1,16 @@
-// Package tools provides tool/function calling infrastructure for LLM testing.
+// Package tools provides the tool-calling infrastructure: descriptors, a
+// registry that executes them, and the built-in executors.
 //
-// This package implements a flexible tool execution system with:
-//   - Tool descriptor registry with JSON Schema validation
-//   - Mock executors for testing (static and template-based)
-//   - HTTP executor for live API calls
-//   - Type coercion and result validation
-//   - Adapter for prompt registry integration
+// The package contains:
+//   - A tool descriptor registry with JSON Schema validation of arguments and results
+//   - Mock executors (static and template-based)
+//   - An HTTP executor for live API calls, with request and response mapping
+//   - Exec and server executors that run tools as subprocesses
+//   - An MCP executor that calls tools on MCP servers
+//   - Argument coercion for common model mistakes, such as "10" for an integer
 //
-// Tools can be loaded from YAML/JSON files and executed with argument validation,
-// result schema checking, and automatic type coercion for common mismatches.
+// Tools load from YAML or JSON files with Registry.LoadToolFromBytes, or are
+// registered directly with Registry.Register.
 package tools
 
 import (
@@ -115,7 +117,7 @@ type ToolDescriptor struct {
 	Description  string          `json:"description" yaml:"description"`
 	InputSchema  json.RawMessage `json:"input_schema" yaml:"input_schema"`   // JSON Schema Draft-07
 	OutputSchema json.RawMessage `json:"output_schema" yaml:"output_schema"` // JSON Schema Draft-07
-	Mode         string          `json:"mode" yaml:"mode"`                   // mock|live|local|mcp|client
+	Mode         string          `json:"mode" yaml:"mode"`                   // mock|live|local|mcp|client|<executor name>
 	TimeoutMs    int             `json:"timeout_ms" yaml:"timeout_ms"`
 
 	// Static mock data (in-memory)
@@ -137,7 +139,7 @@ type ToolDescriptor struct {
 	ClientConfig *ClientConfig `json:"client,omitempty" yaml:"client,omitempty"` // Client-side execution configuration
 	ExecConfig   *ExecConfig   `json:"exec,omitempty" yaml:"exec,omitempty"`     // Exec subprocess configuration
 
-	// Declaration is the pack's definition of this tool (RFC 0016), so a
+	// Declaration is the pack's definition of this tool, so a
 	// host's executor can apply its own policy to action_scope and
 	// extensions. It is a copy, never the loaded pack, and is read-only: it
 	// may be shared by every conversation opened from one PackTemplate. Nil
@@ -155,12 +157,22 @@ type ToolDescriptor struct {
 
 // HTTPConfig defines configuration for live HTTP tool execution
 type HTTPConfig struct {
-	URL            string            `json:"url" yaml:"url"`
-	Method         string            `json:"method" yaml:"method"`
-	HeadersFromEnv []string          `json:"headers_from_env,omitempty" yaml:"headers_from_env,omitempty"`
-	TimeoutMs      int               `json:"timeout_ms" yaml:"timeout_ms"`
-	Redact         []string          `json:"redact,omitempty" yaml:"redact,omitempty"`
-	Headers        map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	// URL is the endpoint. It may contain Go template references to tool
+	// arguments in the path and query, but not in the scheme or host.
+	URL string `json:"url" yaml:"url"`
+	// Method is the HTTP method. It defaults to POST.
+	Method string `json:"method" yaml:"method"`
+	// HeadersFromEnv lists headers to set from environment variables, each
+	// entry in the form "Header-Name=ENV_VAR_NAME". A variable that is unset or
+	// empty sets no header.
+	HeadersFromEnv []string `json:"headers_from_env,omitempty" yaml:"headers_from_env,omitempty"`
+	// TimeoutMs bounds the request, in milliseconds. 0 sets no limit here.
+	TimeoutMs int `json:"timeout_ms" yaml:"timeout_ms"`
+	// Redact lists top-level keys of a JSON object response whose values are
+	// replaced with "[REDACTED]" before the result is returned.
+	Redact []string `json:"redact,omitempty" yaml:"redact,omitempty"`
+	// Headers are literal headers set on every request.
+	Headers map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 
 	// Request/response mapping configuration
 	Request  *RequestMapping  `json:"request,omitempty" yaml:"request,omitempty"`
@@ -276,9 +288,11 @@ func (f *A2ASkillFilter) IncludesSkill(skillID string) bool {
 // The runtime spawns the command per invocation, passing tool arguments as JSON on stdin
 // and reading the result from stdout.
 type ExecConfig struct {
-	Command   string   `json:"command" yaml:"command"`
-	Runtime   string   `json:"runtime,omitempty" yaml:"runtime,omitempty"` // "exec" (default) or "server"
-	Args      []string `json:"args,omitempty" yaml:"args,omitempty"`
+	Command string   `json:"command" yaml:"command"`
+	Runtime string   `json:"runtime,omitempty" yaml:"runtime,omitempty"` // "exec" (default) or "server"
+	Args    []string `json:"args,omitempty" yaml:"args,omitempty"`
+	// Env lists the names of the environment variables passed to the exec
+	// subprocess. When it is empty the subprocess inherits the full environment.
 	Env       []string `json:"env,omitempty" yaml:"env,omitempty"`
 	TimeoutMs int      `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
 }
@@ -304,14 +318,14 @@ type ClientConfig struct {
 type ConsentConfig struct {
 	// Required is carried but never read.
 	//
-	// Deprecated: nothing enforces it and it will be removed in v3. Consent is
+	// Deprecated: nothing enforces it. Consent is
 	// a hosting concern: ask for it in the client tool handler, or before
 	// answering a deferred call, using Message and ClientConfig.Categories.
 	Required bool   `json:"required" yaml:"required"`
 	Message  string `json:"message,omitempty" yaml:"message,omitempty"`
 	// DeclineStrategy is carried but never read.
 	//
-	// Deprecated: nothing acts on it and it will be removed in v3. When the
+	// Deprecated: nothing acts on it. When the
 	// user declines, the host answers the call itself: in the SDK, return an
 	// error from the client tool handler (the model sees a failed call), or
 	// call Conversation.RejectClientTool for a deferred call (the model is
@@ -322,7 +336,7 @@ type ConsentConfig struct {
 // Decline strategy constants for ConsentConfig.DeclineStrategy.
 //
 // Deprecated: ConsentConfig.DeclineStrategy is never read; see it for what
-// to do instead. These will be removed in v3.
+// to do instead.
 const (
 	DeclineStrategyFallback = "fallback"
 	DeclineStrategyError    = "error"

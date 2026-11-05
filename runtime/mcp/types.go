@@ -9,10 +9,6 @@ import (
 
 // ProtocolVersion is the newest MCP protocol revision the client speaks: the
 // stateless revision it uses with servers that support it.
-//
-// ProtocolVersion and LegacyProtocolVersion are the claims the conformance
-// checks grade against: the mirrored schemas in testdata/spec, the parity
-// test, the generated docs and the official suite all follow them.
 const ProtocolVersion = "2026-07-28"
 
 // LegacyProtocolVersion is the newest handshake-era revision the client
@@ -294,7 +290,8 @@ type Client interface {
 // ToolFilter controls which tools from an MCP server are exposed to the LLM.
 // If Allowlist is non-empty, only those tools are included.
 // If Blocklist is non-empty, those tools are excluded.
-// Allowlist takes precedence over Blocklist.
+// Allowlist takes precedence over Blocklist. An entry ending in "*" matches
+// every tool name with that prefix; any other entry matches one name exactly.
 type ToolFilter struct {
 	Allowlist []string `json:"allowlist,omitempty" yaml:"allowlist,omitempty"`
 	Blocklist []string `json:"blocklist,omitempty" yaml:"blocklist,omitempty"`
@@ -332,8 +329,8 @@ func (f ToolFilter) Includes(name string) bool {
 // ServerConfig represents configuration for an MCP server.
 //
 // Exactly one transport should be specified:
-//   - Command: stdio transport — PromptKit spawns a local subprocess.
-//   - URL:     HTTP transport — Streamable HTTP, falling back to the
+//   - Command: stdio transport. PromptKit spawns a local subprocess.
+//   - URL:     HTTP transport. Streamable HTTP, falling back to the
 //     deprecated HTTP+SSE transport when the server does not host a
 //     Streamable HTTP endpoint. Set TransportName to pin one.
 //
@@ -353,8 +350,8 @@ type ServerConfig struct {
 	// Headers are sent on HTTP transports (both SSE and Streamable HTTP).
 	Headers map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 	// TransportName selects the transport adapter explicitly. When empty it
-	// is inferred: URL → Streamable HTTP (with the HTTP+SSE fallback),
-	// Command → stdio.
+	// is inferred: a URL selects Streamable HTTP (with the HTTP+SSE fallback),
+	// a Command selects stdio.
 	TransportName Transport `json:"transport,omitempty" yaml:"transport,omitempty"`
 	// TimeoutMs sets the per-request timeout in milliseconds.
 	TimeoutMs int `json:"timeout_ms,omitempty" yaml:"timeout_ms,omitempty"`
@@ -379,10 +376,10 @@ const (
 )
 
 // Transport returns the resolved transport. An explicit TransportName field
-// wins; otherwise URL → TransportStreamableHTTP, Command → TransportStdio.
+// wins; otherwise a URL gives TransportStreamableHTTP and a Command gives
+// TransportStdio.
 // For a URL with no TransportName the registry also falls back to HTTP+SSE
 // when the server does not host a Streamable HTTP endpoint.
-// Pointer receiver to avoid copying the (~120-byte) struct.
 func (c *ServerConfig) Transport() Transport {
 	if c.TransportName != "" {
 		return c.TransportName

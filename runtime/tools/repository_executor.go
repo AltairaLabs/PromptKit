@@ -131,9 +131,9 @@ type ToolErrorData struct {
 	Message string `json:"message"` // Error message
 }
 
-// FileToolResponseRepository implements ToolResponseRepository using
-// the provider's MockConfig YAML structure. This allows Arena scenarios
-// to define tool responses alongside LLM responses.
+// FileToolResponseRepository implements ToolResponseRepository from a
+// scenario's configured tool responses. It answers only for calls whose context
+// key equals its scenario ID.
 type FileToolResponseRepository struct {
 	scenarioID    string
 	toolResponses map[string][]MockToolResponseConfig // tool name -> response configs
@@ -163,8 +163,10 @@ func NewFileToolResponseRepository(
 	}
 }
 
-// GetToolResponse implements ToolResponseRepository.
-// It finds the first matching response based on argument comparison.
+// GetToolResponse implements ToolResponseRepository. It returns the first
+// configured response for the tool whose CallArgs all appear, with deeply equal
+// values, in args; an entry with no CallArgs matches any call. It returns nil
+// when the context key is not the scenario ID or nothing matches.
 func (r *FileToolResponseRepository) GetToolResponse(
 	toolName string, args map[string]any, contextKey string,
 ) (*ToolResponseData, error) {

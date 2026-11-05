@@ -6,7 +6,7 @@
 //   - Selective argument routing to query params, headers, or body
 //   - JMESPath-based body reshaping (both request and response)
 //
-// All mapping is optional and backward compatible — tools without mapping
+// All mapping is optional and backward compatible: tools without mapping
 // config fall through to the existing behavior.
 
 package tools
@@ -62,6 +62,7 @@ type DefaultResponseMapper struct{}
 
 // RenderURL applies Go text/template substitution to a URL string.
 // Template variables like {{.user_id}} are replaced with values from args.
+// Values are inserted as they are, without URL escaping.
 func (m *DefaultRequestMapper) RenderURL(urlTemplate string, args map[string]any) (string, error) {
 	if !strings.Contains(urlTemplate, "{{") {
 		return urlTemplate, nil
@@ -69,9 +70,11 @@ func (m *DefaultRequestMapper) RenderURL(urlTemplate string, args map[string]any
 	return renderTemplate("url", urlTemplate, args)
 }
 
-// PartitionArgs splits tool arguments into three buckets: query parameters,
-// header values, and body fields. Arguments consumed by URL templates and
-// header templates are automatically excluded from the body.
+// PartitionArgs splits tool arguments into query parameters and body fields.
+// The header bucket is always empty: headers come from RequestMapping.HeaderParams
+// templates. Arguments consumed by URL templates and header templates, listed
+// in Exclude, or routed to the query are left out of the body. With a nil cfg
+// every argument goes to the body.
 func (m *DefaultRequestMapper) PartitionArgs(
 	args map[string]any, cfg *RequestMapping, urlTemplate string,
 ) (query, header, body map[string]any) {

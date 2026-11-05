@@ -154,7 +154,7 @@ func (r *RegistryImpl) Fork() *RegistryImpl {
 }
 
 // RegisterServer adds a new MCP server configuration. Child registries
-// (produced by Fork) accept names that exist in the parent — registration
+// (produced by Fork) accept names that exist in the parent: registration
 // is local-only.
 func (r *RegistryImpl) RegisterServer(config ServerConfig) error {
 	r.mu.Lock()
@@ -337,8 +337,9 @@ func (r *RegistryImpl) releaseProcessSlot() {
 	}
 }
 
-// ActiveProcessCount returns the number of active MCP processes.
-// Returns -1 if no process limit is configured.
+// ActiveProcessCount returns the number of active MCP processes. With a
+// process limit it is the number of occupied slots; without one it is the
+// number of clients the registry holds.
 func (r *RegistryImpl) ActiveProcessCount() int {
 	if r.processSem == nil {
 		r.mu.RLock()
@@ -382,8 +383,7 @@ func (r *RegistryImpl) GetClientForTool(ctx context.Context, toolName string) (C
 }
 
 // ListServers returns all registered server names. For child registries
-// (produced by Fork), this is the union of local and parent entries —
-// child names override parent names with the same key.
+// (produced by Fork), this is the union of local and parent names.
 func (r *RegistryImpl) ListServers() []string {
 	r.mu.RLock()
 	seen := make(map[string]struct{}, len(r.servers))
@@ -421,7 +421,10 @@ func (r *RegistryImpl) GetServerConfig(serverName string) (ServerConfig, bool) {
 	return ServerConfig{}, false
 }
 
-// ListAllTools returns all tools from all connected servers
+// ListAllTools returns the tools of every registered server, keyed by server
+// name, connecting to servers as needed. A server that cannot be listed is
+// logged and left out of the result; an error is returned only when no server
+// could be listed.
 func (r *RegistryImpl) ListAllTools(ctx context.Context) (map[string][]Tool, error) {
 	serverNames := r.getServerNames()
 
@@ -607,9 +610,8 @@ func (r *RegistryImpl) GetToolSchema(ctx context.Context, toolName string) (*Too
 }
 
 // ServerConfigData holds MCP server configuration matching config.MCPServerConfig.
-// Kept in field-for-field sync with ServerConfig; adding a field here that
-// isn't on ServerConfig (or vice versa) breaks the direct conversion used in
-// NewRegistryWithServers.
+// Its fields mirror ServerConfig one for one, without struct tags;
+// NewRegistryWithServers converts it to a ServerConfig.
 type ServerConfigData struct {
 	Name          string
 	Command       string

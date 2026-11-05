@@ -120,7 +120,11 @@ func NewSchemaValidatorWithSize(maxSize int) *SchemaValidator {
 	}
 }
 
-// ValidateArgs validates tool arguments against the input schema
+// ValidateArgs validates tool arguments against the descriptor's input schema
+// and returns a *ValidationError of type "args_invalid" when they do not
+// conform. Nil, empty or null args are validated as an empty object. A
+// descriptor with no input schema, or a schema with a $ref to an external
+// document, is not validated.
 func (sv *SchemaValidator) ValidateArgs(descriptor *ToolDescriptor, args json.RawMessage) error {
 	return sv.validateAgainstSchema(descriptor.InputSchema, args, descriptor.Name, schemaCheck{
 		schemaKind:   "input",
@@ -129,7 +133,9 @@ func (sv *SchemaValidator) ValidateArgs(descriptor *ToolDescriptor, args json.Ra
 	})
 }
 
-// ValidateResult validates tool result against the output schema
+// ValidateResult validates a tool result against the descriptor's output schema
+// and returns a *ValidationError of type "result_invalid" when it does not
+// conform. The same skip rules as ValidateArgs apply.
 func (sv *SchemaValidator) ValidateResult(descriptor *ToolDescriptor, result json.RawMessage) error {
 	return sv.validateAgainstSchema(descriptor.OutputSchema, result, descriptor.Name, schemaCheck{
 		schemaKind:   "output",
@@ -256,10 +262,10 @@ func (sv *SchemaValidator) CacheLen() int {
 
 // CoerceResult attempts to coerce simple type mismatches in tool results.
 //
-// This is a pass-through: if the result validates, it is returned as-is;
-// otherwise validation is re-attempted after a round-trip through JSON (which
-// normalises whitespace/encoding). Actual type coercion (e.g., string↔number)
-// is not implemented — the Coercion slice is always empty.
+// A result that validates is returned as-is. Otherwise validation is
+// re-attempted after a round-trip through JSON, which normalizes whitespace and
+// encoding. It does not convert types (for example string to number), and the
+// returned Coercion slice is always nil.
 func (sv *SchemaValidator) CoerceResult(
 	descriptor *ToolDescriptor, result json.RawMessage,
 ) (json.RawMessage, []Coercion, error) {

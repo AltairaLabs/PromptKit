@@ -11,7 +11,6 @@
 // user interaction (elicitation) to the host through Authorizer and
 // ElicitationHandler.
 //
-// The types results arrive in are checked against the claimed revisions'
-// published schemas by spec_parity_test.go, and behavior by the official
-// conformance suite (make mcp-conformance).
+// The types results arrive in follow the published schemas of the revisions
+// the client claims, ProtocolVersion and LegacyProtocolVersion.
 package mcp

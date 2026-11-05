@@ -11,7 +11,7 @@ import (
 )
 
 // Registry holds registered hooks and provides chain-execution methods.
-// A nil *Registry is safe to use — all Run* methods return Allow / nil.
+// A nil *Registry is safe to use: all Run* methods return Allow / nil.
 type Registry struct {
 	providerHooks     []ProviderHook
 	toolHooks         []ToolHook
@@ -25,9 +25,8 @@ type Registry struct {
 // events must carry are only known once the conversation exists, long after
 // hooks are compiled from the pack.
 //
-// The provider stage constructor is the single place holding both the emitter
-// and the hook registry, so that is where the two are joined — which is why
-// SDK and Arena both get this without wiring anything themselves.
+// The provider stage constructor holds both the emitter and the hook registry,
+// so it joins the two.
 type EmitterAware interface {
 	SetEmitter(*events.Emitter)
 }
@@ -97,8 +96,8 @@ func (r *Registry) IsEmpty() bool {
 
 // Log messages for a non-Allow provider hook decision. Enforced and Deny are
 // different outcomes and must not read alike: Enforced is a guardrail doing its
-// job — the provider call is skipped (before-call) or the response is replaced
-// (after-call), the round loop stops, and the pipeline continues. Deny aborts
+// job (the provider call is skipped before the call, or the response is replaced
+// after it), the round loop stops, and the pipeline continues. Deny aborts
 // the pipeline with a HookDeniedError.
 const (
 	msgEnforcedBeforeCall = "provider hook enforced before-call: provider call skipped, canned turn substituted"
@@ -109,7 +108,7 @@ const (
 
 // logProviderHookDecision logs a non-Allow provider hook decision at the level
 // its outcome warrants. A graceful enforcement is routine policy work, so it
-// logs at INFO; only a genuine denial — which aborts the pipeline — is a WARN.
+// logs at INFO; only a genuine denial, which aborts the pipeline, is a WARN.
 func logProviderHookDecision(h ProviderHook, d Decision, enforcedMsg, deniedMsg string) {
 	if d.Enforced {
 		logger.Info(enforcedMsg, "hook", fmt.Sprintf("%T", h), "reason", d.Reason)

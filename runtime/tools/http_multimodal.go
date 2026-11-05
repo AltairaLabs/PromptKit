@@ -122,7 +122,7 @@ func ReadMultimodalResponse(
 		},
 	}
 
-	// JSON result is a summary object — the actual binary data is in Parts.
+	// JSON result is a summary object; the actual binary data is in Parts.
 	summary := map[string]any{
 		"type":         mediaType,
 		"content_type": mimeType,
