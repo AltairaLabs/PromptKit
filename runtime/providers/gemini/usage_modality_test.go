@@ -34,6 +34,14 @@ func TestUsageCounts_Tokens(t *testing.T) {
 			},
 		},
 		{
+			name: "generated images split out of text output",
+			in: usageCounts{
+				prompt: 50, response: 1200, thoughts: 80,
+				output: []ModalityTokenCount{{Modality: "TEXT", TokenCount: 80}, {Modality: "IMAGE", TokenCount: 1120}},
+			},
+			want: base.TokenUsage{Input: 50, Output: 80, ImageOutput: 1120, Reasoning: 80},
+		},
+		{
 			name: "cached tokens leave their own modality, not text",
 			in: usageCounts{
 				prompt: 1000, cached: 400,

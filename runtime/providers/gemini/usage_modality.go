@@ -48,7 +48,8 @@ func nonNegative(n int) int {
 // video are priced apart from text where a model charges differently for them
 // (audio input costs up to ~4x text), so each modality's uncached tokens get
 // their own unit and the rest (text, documents, anything unbroken-down) stays
-// input. Tool-use prompt tokens bill as input too. Thoughts bill on top of the
+// input. Generated audio and images likewise leave the text output count for
+// their own units. Tool-use prompt tokens bill as input too. Thoughts bill on top of the
 // response at the output rate, so they become the reasoning unit. Without a
 // breakdown on the wire everything prices as text, as before.
 func (u usageCounts) tokens() base.TokenUsage {
@@ -57,7 +58,7 @@ func (u usageCounts) tokens() base.TokenUsage {
 			modalitySum(u.toolUseDetails, modality))
 	}
 	audioIn, imageIn, videoIn := uncached(modalityAudio), uncached(modalityImage), uncached(modalityVideo)
-	audioOut := modalitySum(u.output, modalityAudio)
+	audioOut, imageOut := modalitySum(u.output, modalityAudio), modalitySum(u.output, modalityImage)
 
 	return base.TokenUsage{
 		Input:       nonNegative(u.prompt + u.toolUse - u.cached - audioIn - imageIn - videoIn),
@@ -65,8 +66,9 @@ func (u usageCounts) tokens() base.TokenUsage {
 		AudioInput:  audioIn,
 		ImageInput:  imageIn,
 		VideoInput:  videoIn,
-		Output:      nonNegative(u.response - audioOut),
+		Output:      nonNegative(u.response - audioOut - imageOut),
 		AudioOutput: audioOut,
+		ImageOutput: imageOut,
 		Reasoning:   u.thoughts,
 	}
 }

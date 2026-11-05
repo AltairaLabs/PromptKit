@@ -20,7 +20,7 @@ func TestTokenUsage_Quantities_OnlyNonzero(t *testing.T) {
 func TestTokenUsage_Quantities_IncludesAllUnitsAndExtra(t *testing.T) {
 	u := base.TokenUsage{
 		Input: 1, CacheRead: 2, CacheWrite: 3, Output: 4, Reasoning: 5,
-		AudioInput: 6, AudioOutput: 7, ImageInput: 9, VideoInput: 10,
+		AudioInput: 6, AudioOutput: 7, ImageInput: 9, VideoInput: 10, ImageOutput: 11,
 		Extra: map[string]float64{"custom_token": 8},
 	}
 	q := u.Quantities()
@@ -34,6 +34,7 @@ func TestTokenUsage_Quantities_IncludesAllUnitsAndExtra(t *testing.T) {
 	assert.Equal(t, 8.0, q["custom_token"])
 	assert.Equal(t, 9.0, q[base.UnitImageInputToken])
 	assert.Equal(t, 10.0, q[base.UnitVideoInputToken])
+	assert.Equal(t, 11.0, q[base.UnitImageOutputToken])
 }
 
 // TestPriceUsage_ImageAndVideoAreInputCost checks the headline split: image and

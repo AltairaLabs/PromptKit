@@ -41,6 +41,12 @@ func TestPricingReachableForServedModels(t *testing.T) {
 		"gemini-3.8-live-extended-thinking",
 		"gemini-3.1-flash-live-preview",
 		"gemini-2.5-flash-native-audio-preview-12-2025",
+		// Image-generation models.
+		"gemini-nano-banana-2.1",
+		"gemini-3.1-flash-image",
+		"gemini-3.1-flash-lite-image",
+		"gemini-3-pro-image",
+		"gemini-2.5-flash-image",
 	}
 	for _, model := range served {
 		t.Run(model, func(t *testing.T) {
@@ -117,6 +123,19 @@ func TestModalityRates(t *testing.T) {
 		{"gemini-2.5-flash-native-audio-preview-12-2025", base.UnitAudioInputToken, 3.00},
 		{"gemini-2.5-flash-native-audio-preview-12-2025", base.UnitImageInputToken, 3.00},
 		{"gemini-2.5-flash-native-audio-preview-12-2025", base.UnitAudioOutputToken, 12.00},
+		// Generated images bill far above text output.
+		{"gemini-nano-banana-2.1", base.UnitOutputToken, 7.50},
+		{"gemini-nano-banana-2.1", base.UnitImageOutputToken, 30.00},
+		{"gemini-3.1-flash-image", base.UnitInputToken, 0.50},
+		{"gemini-3.1-flash-image", base.UnitImageOutputToken, 60.00},
+		{"gemini-3.1-flash-lite-image", base.UnitImageOutputToken, 30.00},
+		{"gemini-3-pro-image", base.UnitOutputToken, 12.00},
+		{"gemini-3-pro-image", base.UnitImageOutputToken, 120.00},
+		{"gemini-2.5-flash-image", base.UnitOutputToken, 2.50},
+		{"gemini-2.5-flash-image", base.UnitImageOutputToken, 30.00},
+		{"gemini-2.5-flash-image", base.UnitReasoningToken, -1},
+		// A text model does not price image out.
+		{"gemini-3.8-flash", base.UnitImageOutputToken, -1},
 		// A text-only model does not price audio out, so stray audio is warned
 		// about instead of billed at a guess.
 		{"gemini-3.8-flash", base.UnitAudioOutputToken, -1},

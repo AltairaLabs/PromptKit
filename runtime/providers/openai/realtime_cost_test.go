@@ -234,3 +234,12 @@ func TestRealtimeSession_calculateCost_DelegatesOverrides(t *testing.T) {
 		t.Error("calculateCost(nil) should return nil")
 	}
 }
+
+// TestRealtimeCost_HeadlineTokensIncludeAudio checks an audio turn reports its
+// real token counts. The headlines used to count text alone, so a voice session
+// showed almost no tokens in metrics and telemetry.
+func TestRealtimeCost_HeadlineTokensIncludeAudio(t *testing.T) {
+	ci := realtimeCostInfo(usageWith(1000, 500, 800, 200, 400, 100), 0, 0)
+	assert.Equal(t, 1000, ci.InputTokens)
+	assert.Equal(t, 500, ci.OutputTokens)
+}

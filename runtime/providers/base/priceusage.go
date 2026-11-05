@@ -48,14 +48,16 @@ func PriceUsage(
 //
 //	InputCostUSD  <- input + cache_write + audio_input + image_input + video_input
 //	CachedCostUSD <- cache_read
-//	OutputCostUSD <- output + reasoning + audio_output
+//	OutputCostUSD <- output + reasoning + audio_output + image_output
 //
 // Any other unit (e.g. a custom unit priced via TokenUsage.Extra) falls into
 // the default arm below and is folded into OutputCostUSD, so the invariant
 // holds for every priced unit, canonical or not.
 //
-// Token headlines: InputTokens<-input, CachedTokens<-cache_read,
-// OutputTokens<-output (visible-only). Other token counts live in Quantities.
+// Token headlines count every modality: InputTokens is the uncached input of
+// all modalities (text, audio, image, video), OutputTokens the visible output
+// of all modalities (text, audio, image), CachedTokens the cache reads. Cache
+// writes and reasoning stay out of the headlines; every count is in Quantities.
 func deriveHeadlines(ci *types.CostInfo) {
 	for _, li := range ci.Breakdown {
 		switch li.Unit {
@@ -63,7 +65,7 @@ func deriveHeadlines(ci *types.CostInfo) {
 			ci.InputCostUSD += li.USD
 		case UnitCacheReadToken:
 			ci.CachedCostUSD += li.USD
-		case UnitOutputToken, UnitReasoningToken, UnitAudioOutputToken:
+		case UnitOutputToken, UnitReasoningToken, UnitAudioOutputToken, UnitImageOutputToken:
 			ci.OutputCostUSD += li.USD
 		default:
 			// Unknown/custom priced units (e.g. TokenUsage.Extra) default to
@@ -71,9 +73,10 @@ func deriveHeadlines(ci *types.CostInfo) {
 			ci.OutputCostUSD += li.USD
 		}
 	}
-	ci.InputTokens = int(ci.Quantities[UnitInputToken])
-	ci.CachedTokens = int(ci.Quantities[UnitCacheReadToken])
-	ci.OutputTokens = int(ci.Quantities[UnitOutputToken])
+	q := ci.Quantities
+	ci.InputTokens = int(q[UnitInputToken] + q[UnitAudioInputToken] + q[UnitImageInputToken] + q[UnitVideoInputToken])
+	ci.CachedTokens = int(q[UnitCacheReadToken])
+	ci.OutputTokens = int(q[UnitOutputToken] + q[UnitAudioOutputToken] + q[UnitImageOutputToken])
 }
 
 // warnUnpriced surfaces nonzero units that had no matching price item. Each
