@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
 )
@@ -86,7 +87,9 @@ func (p PackIssue) String() string {
 // Validator and eval types are resolved against the built-in eval
 // registry. Callers who supply their own handlers to Open() via
 // WithEvalRegistry must use ValidatePackWithRegistry instead, or
-// preflight will report those types as unknown.
+// preflight will report those types as unknown. Likewise a judge-backed
+// validator that relies on the host's default judge (WithJudgeProvider) is
+// reported as needing one; use ValidatePackWithOptions to supply it.
 func ValidatePack(path string, skipSchemaValidation bool) ([]PackIssue, error) {
 	return ValidatePackWithRegistry(path, skipSchemaValidation, nil)
 }
@@ -108,6 +111,32 @@ func ValidatePack(path string, skipSchemaValidation bool) ([]PackIssue, error) {
 func ValidatePackWithRegistry(
 	path string, skipSchemaValidation bool, registry *evals.EvalTypeRegistry,
 ) ([]PackIssue, error) {
+	return validatePack(path, skipSchemaValidation, registry, nil)
+}
+
+// ValidatePackWithOptions is ValidatePack taking the same host configuration
+// Open() would. Pass the options the host passes to Open so preflight builds
+// each validator under the same conditions: [WithEvalRegistry] supplies custom
+// handlers, and [WithJudgeProvider] supplies the default judge a judge-backed
+// validator that names no provider relies on. Without that judge such a
+// validator is reported as an error, although Open() builds it.
+//
+// Options other than those two are accepted and ignored. An option that
+// returns an error fails the call. Everything else is as documented on
+// ValidatePack.
+func ValidatePackWithOptions(path string, skipSchemaValidation bool, opts ...Option) ([]PackIssue, error) {
+	cfg := &config{}
+	for _, opt := range opts {
+		if err := opt(cfg); err != nil {
+			return nil, err
+		}
+	}
+	return validatePack(path, skipSchemaValidation, cfg.evalRegistry, cfg.judgeProvider)
+}
+
+func validatePack(
+	path string, skipSchemaValidation bool, registry *evals.EvalTypeRegistry, judge handlers.JudgeProvider,
+) ([]PackIssue, error) {
 	loaded, err := pack.Load(path, pack.LoadOptions{
 		SkipSchemaValidation: skipSchemaValidation,
 	})
@@ -125,7 +154,8 @@ func ValidatePackWithRegistry(
 		if promptDef == nil {
 			continue
 		}
-		issues = append(issues, validatePromptValidators(promptID, pack.ValidatorValues(promptDef.Validators), reg)...)
+		vs := pack.ValidatorValues(promptDef.Validators)
+		issues = append(issues, validatePromptValidators(promptID, vs, reg, judge)...)
 	}
 
 	// Pack-level evals (apply to all prompts, PromptID="").
@@ -166,8 +196,12 @@ func evalRegistryOrDefault(registry *evals.EvalTypeRegistry) *evals.EvalTypeRegi
 // validators are skipped (matching convertPackValidatorsToHooks behavior
 // at Open() time).
 func validatePromptValidators(
-	promptID string, vs []pack.Validator, registry *evals.EvalTypeRegistry,
+	promptID string, vs []pack.Validator, registry *evals.EvalTypeRegistry, judge handlers.JudgeProvider,
 ) []PackIssue {
+	var opts []guardrails.GuardrailOption
+	if judge != nil {
+		opts = append(opts, guardrails.WithJudge(judge))
+	}
 	var issues []PackIssue
 	for i, v := range vs {
 		// Enabled is *bool on the generated type: absent means enabled, which
@@ -175,7 +209,7 @@ func validatePromptValidators(
 		if v.Enabled != nil && !*v.Enabled {
 			continue
 		}
-		if _, err := guardrails.NewGuardrailHookFromRegistry(v.Type, v.Params, registry); err != nil {
+		if _, err := guardrails.NewGuardrailHookFromRegistry(v.Type, v.Params, registry, opts...); err != nil {
 			issues = append(issues, PackIssue{
 				Severity: packIssueSeverityError,
 				Kind:     "validator",
