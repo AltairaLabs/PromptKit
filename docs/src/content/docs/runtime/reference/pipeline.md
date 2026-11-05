@@ -3721,7 +3721,7 @@ pipeline := NewPipelineBuilder().
 ```
 
 <a name="PipelineBuilder.Clone"></a>
-### func \(\*PipelineBuilder\) [Clone](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L362>)
+### func \(\*PipelineBuilder\) [Clone](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L378>)
 
 ```go
 func (b *PipelineBuilder) Clone() *PipelineBuilder
