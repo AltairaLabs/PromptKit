@@ -11,6 +11,10 @@ import (
 // CosineSimilarityHandler computes cosine similarity between
 // embeddings. Params: reference []float64, min_similarity float64.
 // Target embedding comes from Metadata["embedding"].
+//
+// min_similarity is the check's threshold: Score is 1.0 when the similarity
+// meets it and the fraction of it reached otherwise (see thresholdScore). The
+// raw similarity is reported in Value and Details.
 type CosineSimilarityHandler struct{}
 
 // Type returns the eval type identifier.
@@ -77,10 +81,12 @@ func (h *CosineSimilarityHandler) computeAndCheck(
 		similarity, minSim,
 	)
 
+	score := thresholdScore(similarity, minSim)
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Score:       &similarity,
-		Value:       map[string]any{"similarity": similarity, keyThreshold: minSim},
+		Score:       &score,
+		Value:       map[string]any{keySimilarity: similarity, keyThreshold: minSim},
+		Details:     map[string]any{keySimilarity: similarity, keyThreshold: minSim},
 		Explanation: explanation,
 	}, nil
 }

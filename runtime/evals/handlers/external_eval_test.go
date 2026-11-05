@@ -178,7 +178,7 @@ func TestParseExternalResponse(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			result := parseExternalResponse([]byte(tt.body))
+			result := parseExternalResponse([]byte(tt.body), nil)
 			if tt.hasError {
 				if result.Explanation == "" {
 					t.Error("expected non-empty explanation for parse error")

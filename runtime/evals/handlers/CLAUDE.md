@@ -53,6 +53,8 @@ Every handler in this package that takes a measurement (classify-backed, embeddi
 - **Bundling "passed" boolean into the inner result.** Same problem — the wrapper decides pass/fail.
 - **Two thresholds modes on the same handler** (`min_score` AND `max_score` selectable via flag). Pick neither — both are wrapper concerns.
 
-## Legacy exceptions (none currently)
+## Exceptions
 
-The LLM-judge family (`bias`, `toxicity`, `pii_leakage`, `role_violation`, `llm_judge`, `llm_judge_session`, the RAG primitives) used to accept `min_score` as a no-op param. That was cleaned up in #1233 — they now reject threshold params at parse time like every other classify-backed handler. There are no current exceptions to the convention.
+The LLM-judge family (`bias`, `toxicity`, `pii_leakage`, `role_violation`, `llm_judge`, `llm_judge_session`, the RAG primitives) used to accept `min_score` as a no-op param. That was cleaned up in #1233 — they now reject threshold params at parse time like every other classify-backed handler.
+
+`rest_eval`, `a2a_eval` and their session variants accept `min_score` (#2354), and `cosine_similarity` requires `min_similarity`. Each is the check's own threshold, like `min_length`'s `min` or `latency_budget`'s `max_ms`, and is applied with `thresholdScore`: Score 1.0 when met, the fraction reached below it, the raw measurement in `Details`. No verdict is stated — the wrapper's default perfect-score gate is what passes or fails it. When these checks are wrapped, the wrapper consumes `min_score` itself (the guardrail adapter strips it; Arena lifts it to the assertion), so the handler never sees it and the threshold is not applied twice. Don't add another handler-level `min_score`: new handlers reject it.

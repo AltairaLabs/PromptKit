@@ -47,7 +47,7 @@ var packFacingParams = map[string]string{
 	// wrapper rather than by a handler.
 	"direction": "which side of the provider call a guardrail gates",
 	"message":   "user-facing text when a guardrail blocks",
-	"min_score": "assertion threshold; handlers reject it",
+	"min_score": "assertion threshold; handlers reject it, but rest_eval/a2a_eval apply it (#2354)",
 	"max_score": "assertion threshold; handlers reject it",
 
 	// tool_exec score extraction (#2272). They describe the shape of the

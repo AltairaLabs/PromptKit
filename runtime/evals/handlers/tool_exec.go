@@ -182,7 +182,7 @@ func (h *ToolExecHandler) scoredResult(
 		return res
 	}
 	score := raw / spec.scale
-	details["raw_score"] = raw
+	details[keyRawScore] = raw
 	return &evals.EvalResult{
 		Type:        h.Type(),
 		Score:       scorePtr(score),
