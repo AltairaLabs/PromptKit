@@ -3,16 +3,61 @@ package skills
 import (
 	"context"
 	"strings"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
 )
 
 // SkillSelector determines which skills from the available set should be presented
 // to the model in the Phase 1 index. Implementations can filter, rank, or transform
 // the available skill list.
+//
+// It runs on the selection.Selector path (see AdaptSkillSelector), so it follows
+// that path's rules: it is consulted once per user turn with the user's text as
+// the query, never for an empty query, and an error or an empty choice lists
+// every admitted skill. New selectors should implement selection.Selector.
 type SkillSelector interface {
 	// Select returns the names of skills that should appear in the Phase 1 index.
 	// The query is typically the latest user message or conversation context.
 	// Available contains all skills that passed directory filtering for the current state.
 	Select(ctx context.Context, query string, available []SkillMetadata) ([]string, error)
+}
+
+// AdaptSkillSelector adapts a SkillSelector into a selection.Selector, the
+// interface the skill index is narrowed through, so ExecutorConfig.Selector and
+// the SDK's skill-selector options feed the same path as a selector bound in
+// RuntimeConfig. Each candidate is handed over as SkillMetadata carrying its
+// name, description and metadata. A nil SkillSelector adapts to nil.
+func AdaptSkillSelector(s SkillSelector) selection.Selector {
+	if s == nil {
+		return nil
+	}
+	return skillSelectorAdapter{inner: s}
+}
+
+// skillSelectorAdapter is the selection.Selector over a SkillSelector.
+type skillSelectorAdapter struct {
+	inner SkillSelector
+}
+
+// Name identifies the adapter in logs.
+func (a skillSelectorAdapter) Name() string { return "skill-selector" }
+
+// Init is a no-op: a SkillSelector takes no shared infrastructure.
+func (a skillSelectorAdapter) Init(selection.SelectorContext) error { return nil }
+
+// Select converts the candidates to SkillMetadata and asks the SkillSelector.
+func (a skillSelectorAdapter) Select(
+	ctx context.Context, q selection.Query, candidates []selection.Candidate,
+) ([]string, error) {
+	available := make([]SkillMetadata, 0, len(candidates))
+	for _, c := range candidates {
+		available = append(available, SkillMetadata{
+			Name:        c.ID,
+			Description: c.Description,
+			Metadata:    c.Metadata,
+		})
+	}
+	return a.inner.Select(ctx, q.Text, available)
 }
 
 // ModelDrivenSelector is the default selector — it returns all available skills,

@@ -3508,7 +3508,7 @@ conv2, _ := sdk.Open("./chat.pack.json", "assistant", sdk.WithEventBus(bus))
 ```
 
 <a name="WithEventRedactor"></a>
-### func [WithEventRedactor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3948>)
+### func [WithEventRedactor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3950>)
 
 ```go
 func WithEventRedactor(r events.Redactor) Option
@@ -3878,7 +3878,7 @@ conv, _ := sdk.Open("./assistant.pack.json", "assistant",
 ```
 
 <a name="WithMaxActiveSkillsOption"></a>
-### func [WithMaxActiveSkillsOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3863>)
+### func [WithMaxActiveSkillsOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3865>)
 
 ```go
 func WithMaxActiveSkillsOption(n int) Option
@@ -4363,7 +4363,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithShutdownManager"></a>
-### func [WithShutdownManager](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3884>)
+### func [WithShutdownManager](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3886>)
 
 ```go
 func WithShutdownManager(mgr *ShutdownManager) Option
@@ -4382,13 +4382,13 @@ defer conv.Close()
 ```
 
 <a name="WithSkillSelectorOption"></a>
-### func [WithSkillSelectorOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3850>)
+### func [WithSkillSelectorOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3852>)
 
 ```go
 func WithSkillSelectorOption(s skills.SkillSelector) Option
 ```
 
-WithSkillSelectorOption sets the skill selector for filtering available skills. The selector determines which skills from the available set are presented to the model in the skill index.
+WithSkillSelectorOption sets the skill selector for filtering available skills. The selector determines which skills from the available set are presented to the model in the skill index. It is consulted once per turn with the user's message, as a selection.Selector bound in RuntimeConfig is, and that RuntimeConfig selector takes precedence over it.
 
 ```
 conv, _ := sdk.Open("./assistant.pack.json", "chat",
@@ -4591,7 +4591,7 @@ func WithTTSProvider(spec ProviderSpec) Option
 WithTTSProvider builds a TTS service from a spec and sets it as the default ttsService \(first\-wins; does not overwrite one already set by WithTTS or a prior WithTTSProvider call\). Registering the same ID twice is an error, matching the declarative path.
 
 <a name="WithTelemetryContentCapture"></a>
-### func [WithTelemetryContentCapture](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3917>)
+### func [WithTelemetryContentCapture](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3919>)
 
 ```go
 func WithTelemetryContentCapture(enabled bool) Option
@@ -6120,7 +6120,7 @@ type SkillsCapability struct {
 ```
 
 <a name="NewSkillsCapability"></a>
-### func [NewSkillsCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L50-L52>)
+### func [NewSkillsCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L52-L54>)
 
 ```go
 func NewSkillsCapability(sources []skills.SkillSource, opts ...SkillsOption) *SkillsCapability
@@ -6129,7 +6129,7 @@ func NewSkillsCapability(sources []skills.SkillSource, opts ...SkillsOption) *Sk
 NewSkillsCapability creates a new SkillsCapability from the given sources.
 
 <a name="SkillsCapability.Close"></a>
-### func \(\*SkillsCapability\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L192>)
+### func \(\*SkillsCapability\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L199>)
 
 ```go
 func (c *SkillsCapability) Close() error
@@ -6138,7 +6138,7 @@ func (c *SkillsCapability) Close() error
 Close is a no\-op for SkillsCapability.
 
 <a name="SkillsCapability.Executor"></a>
-### func \(\*SkillsCapability\) [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L255>)
+### func \(\*SkillsCapability\) [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L262>)
 
 ```go
 func (c *SkillsCapability) Executor() *skills.Executor
@@ -6147,7 +6147,7 @@ func (c *SkillsCapability) Executor() *skills.Executor
 Executor returns the underlying skills executor for testing.
 
 <a name="SkillsCapability.Init"></a>
-### func \(\*SkillsCapability\) [Init](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L66>)
+### func \(\*SkillsCapability\) [Init](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L68>)
 
 ```go
 func (c *SkillsCapability) Init(ctx CapabilityContext) error
@@ -6156,7 +6156,7 @@ func (c *SkillsCapability) Init(ctx CapabilityContext) error
 Init discovers skills from sources and creates an executor.
 
 <a name="SkillsCapability.Name"></a>
-### func \(\*SkillsCapability\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L63>)
+### func \(\*SkillsCapability\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L65>)
 
 ```go
 func (c *SkillsCapability) Name() string
@@ -6165,7 +6165,7 @@ func (c *SkillsCapability) Name() string
 Name returns the capability identifier.
 
 <a name="SkillsCapability.NewActiveSet"></a>
-### func \(\*SkillsCapability\) [NewActiveSet](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L139>)
+### func \(\*SkillsCapability\) [NewActiveSet](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L146>)
 
 ```go
 func (c *SkillsCapability) NewActiveSet() *skills.ActiveSet
@@ -6176,7 +6176,7 @@ NewActiveSet returns a fresh ActiveSet for one conversation, with the preloaded 
 Preloading is best\-effort — a skill that fails here can still be activated on first use, so a failure does not abort the open. It is reported, though: when the cause is MaxActive the "activate later" recovery does not hold, because the limit is as full at first use as it is now.
 
 <a name="SkillsCapability.RefreshSkillIndex"></a>
-### func \(\*SkillsCapability\) [RefreshSkillIndex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L204>)
+### func \(\*SkillsCapability\) [RefreshSkillIndex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L211>)
 
 ```go
 func (c *SkillsCapability) RefreshSkillIndex(ctx context.Context, query string, registry *tools.Registry)
@@ -6187,7 +6187,7 @@ RefreshSkillIndex re\-materializes the skill\_\_activate tool's description in r
 A Conversation does not call this: it runs the selector once per Send and narrows the index per provider round, to the skills its own workflow state admits, without re\-registering anything. This remains for hosts that drive a tools.Registry directly; the index it writes ignores any workflow state's skills filter.
 
 <a name="SkillsCapability.RegisterTools"></a>
-### func \(\*SkillsCapability\) [RegisterTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L178>)
+### func \(\*SkillsCapability\) [RegisterTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L185>)
 
 ```go
 func (c *SkillsCapability) RegisterTools(registry *tools.Registry)
@@ -6205,7 +6205,7 @@ type SkillsOption func(*SkillsCapability)
 ```
 
 <a name="WithMaxActiveSkills"></a>
-### func [WithMaxActiveSkills](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L43>)
+### func [WithMaxActiveSkills](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L45>)
 
 ```go
 func WithMaxActiveSkills(n int) SkillsOption
@@ -6214,13 +6214,13 @@ func WithMaxActiveSkills(n int) SkillsOption
 WithMaxActiveSkills sets the maximum number of concurrently active skills.
 
 <a name="WithSkillSelector"></a>
-### func [WithSkillSelector](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L36>)
+### func [WithSkillSelector](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L38>)
 
 ```go
 func WithSkillSelector(s skills.SkillSelector) SkillsOption
 ```
 
-WithSkillSelector sets a custom skill selector for filtering available skills.
+WithSkillSelector sets a custom skill selector for filtering available skills. It narrows the skill\_\_activate index once per turn, as a selector bound in RuntimeConfig does; a RuntimeConfig selector takes precedence over it.
 
 <a name="StatefulCapability"></a>
 ## type [StatefulCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability.go#L34-L37>)

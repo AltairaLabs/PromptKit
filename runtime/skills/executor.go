@@ -45,7 +45,6 @@ func SkillFilterFromContext(ctx context.Context) string {
 // backs the deprecated stateful methods only.
 type Executor struct {
 	registry    *Registry
-	selector    SkillSelector
 	newSelector selection.Selector
 	own         *ActiveSet      // backs the deprecated stateful methods only
 	packTools   []string        // all tools declared in the pack (the ceiling)
@@ -57,20 +56,26 @@ type Executor struct {
 
 // ExecutorConfig configures the skill executor.
 type ExecutorConfig struct {
-	Registry    *Registry
-	Selector    SkillSelector      // nil = ModelDrivenSelector
-	NewSelector selection.Selector // optional external selector for narrowing the skill index
-	PackTools   []string           // all tools declared in the pack
-	MaxActive   int                // 0 = unlimited
-	ConfigDir   string             // base directory for computing relative skill paths in filters
+	Registry *Registry
+	// Selector narrows the skill index with a SkillSelector. It is adapted
+	// onto the selection.Selector path (see AdaptSkillSelector) and used when
+	// NewSelector is nil. Nil lists every admitted skill.
+	Selector SkillSelector
+	// NewSelector is the external selector for narrowing the skill index. It
+	// takes precedence over Selector.
+	NewSelector selection.Selector
+	PackTools   []string // all tools declared in the pack
+	MaxActive   int      // 0 = unlimited
+	ConfigDir   string   // base directory for computing relative skill paths in filters
 }
 
-// NewExecutor creates a new Executor from the given configuration.
-// If Selector is nil, a ModelDrivenSelector is used.
+// NewExecutor creates a new Executor from the given configuration. With
+// neither selector configured, every admitted skill is listed, which is what
+// ModelDrivenSelector would choose.
 func NewExecutor(cfg ExecutorConfig) *Executor {
-	sel := cfg.Selector
+	sel := cfg.NewSelector
 	if sel == nil {
-		sel = NewModelDrivenSelector()
+		sel = AdaptSkillSelector(cfg.Selector)
 	}
 	// Pre-build the packSet map once so intersectPackTools avoids
 	// rebuilding it on every call.
@@ -80,8 +85,7 @@ func NewExecutor(cfg ExecutorConfig) *Executor {
 	}
 	return &Executor{
 		registry:    cfg.Registry,
-		selector:    sel,
-		newSelector: cfg.NewSelector,
+		newSelector: sel,
 		own:         NewActiveSet(),
 		packTools:   cfg.PackTools,
 		packSet:     packSet,
@@ -467,6 +471,7 @@ func (e *Executor) applyNewSelector(ctx context.Context, query string, skills []
 			ID:          s.Name,
 			Name:        s.Name,
 			Description: s.Description,
+			Metadata:    s.Metadata,
 		})
 	}
 
