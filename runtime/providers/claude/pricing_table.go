@@ -147,6 +147,8 @@ const (
 // down to the bare id before matching — there is no substring/heuristic
 // fallback, so a model absent here prices as $0 with a loud warning rather
 // than silently guessing a wrong constant.
+//
+//nolint:goconst // ids are shared with the context-window table by value; each table spells its own keys
 var claudePricingTable = map[string]*base.PricingDescriptor{
 	// Claude 3
 	idClaude3Haiku20240307:  claude3Haiku,

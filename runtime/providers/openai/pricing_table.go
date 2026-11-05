@@ -112,6 +112,8 @@ var (
 // before matching — there is no substring/heuristic fallback, so a model
 // absent here prices as $0 with a loud warning rather than silently
 // guessing a wrong constant.
+//
+//nolint:goconst // ids are shared with the context-window table by value; each table spells its own keys
 var openaiPricingTable = map[string]*base.PricingDescriptor{
 	// Legacy
 	"gpt-4":         gpt4,
