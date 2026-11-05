@@ -1423,8 +1423,12 @@ func (c *Conversation) forkToolRegistry() *tools.Registry {
 //	conv.Send(ctx, "Tell me about Tokyo")     // Original path
 //	branch.Send(ctx, "Tell me about Kyoto")   // Branch path
 //
-// The forked conversation is completely independent - changes to one
-// do not affect the other.
+// The fork gets a copy of the message history and variables, its own session
+// ID (the original's with a "-fork" suffix), tool registry, pending tool calls,
+// active skills and memory scope. Handlers registered with OnTool, OnToolAsync
+// and the client tool handlers are copied. The fork shares the original's
+// providers, MCP servers, hooks and event bus, and the event bus stays open
+// until the original and every fork have closed.
 func (c *Conversation) Fork() (*Conversation, error) {
 	// Need write lock because buildPipelineWithParams mutates shared tool registry
 	c.mu.Lock()
@@ -1581,8 +1585,8 @@ func (c *Conversation) startOTelSession(ctx context.Context) {
 // responses you expect before closing.
 //
 // An event bus the SDK created is closed last, once this conversation and
-// any forks of it are all closed. Before closing it, Close waits up to
-// pipelineFlushTimeout for pipeline executions still in flight, so the events
+// any forks of it are all closed. Before closing it, Close waits up to one
+// second for pipeline executions still in flight, so the events
 // a turn publishes after it returns (pipeline.completed among them) reach the
 // bus's subscribers. A bus supplied via [WithEventBus] is left open for the
 // caller to close.

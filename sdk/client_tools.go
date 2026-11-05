@@ -38,7 +38,7 @@ type ClientToolRequest struct {
 	Descriptor *tools.ToolDescriptor
 }
 
-// ClientToolHandler is a function that fulfillls a client-side tool call.
+// ClientToolHandler is a function that fulfills a client-side tool call.
 // It receives a context (carrying the tool timeout from ClientConfig.TimeoutMs)
 // and a [ClientToolRequest] with the invocation details.
 //

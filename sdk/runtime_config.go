@@ -85,9 +85,11 @@ func applyExecHooks(c *config, hookBindings map[string]*pkgconfig.ExecHook, reso
 // to the SDK conversation. This provides a declarative alternative to
 // programmatic configuration via individual With* options.
 //
-// RuntimeConfig sections are applied in order: providers, MCP servers,
-// state store, logging, tools. Programmatic options applied after
-// WithRuntimeConfig take precedence.
+// The file's providers, MCP servers, state store, logging, exec tools, eval
+// handlers, hooks, sandboxes and selectors are applied in that order. The file
+// does not replace an agent provider, state store or logger that an earlier
+// option already set, and options applied after WithRuntimeConfig replace what
+// the file set.
 //
 // Example:
 //

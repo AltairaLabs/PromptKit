@@ -80,7 +80,10 @@ func setLoggerOnce(l *slog.Logger) {
 // The packPath can be:
 //   - Absolute path: "/path/to/assistant.pack.json"
 //   - Relative path: "./packs/assistant.pack.json"
-//   - Remote URL pointing at a .pack.json (future)
+//
+// The file must exist, or Open returns [ErrPackNotFound]. Open caches each
+// loaded pack by absolute path for the life of the process, so later Open calls
+// for the same path do not re-read the file.
 //
 // The promptName must match a prompt ID defined in the pack's "prompts" section.
 func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
@@ -120,7 +123,7 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 //	// Receive streaming output
 //	respCh, _ := conv.Response()
 //	for chunk := range respCh {
-//	    fmt.Print(chunk.Content)
+//	    fmt.Print(chunk.Delta)
 //	}
 //
 // Provider requirements depend on how the input side is driven:
@@ -1287,12 +1290,12 @@ func ResumeDuplex(conversationID, packPath, promptName string, opts ...Option) (
 }
 
 // OpenComposition loads a pack and creates a Conversation that runs the named
-// composition directly (RFC 0010 function-mode surface).
+// composition directly.
 //
-// Unlike [OpenWorkflow], no workflow state machine is involved — the composition
+// Unlike [OpenWorkflow], no workflow state machine is involved: the composition
 // is active from the first [Conversation.Send] call onward. The named composition
 // must be present in the pack's "compositions" map; if it is absent an error is
-// returned before any further initialisation.
+// returned before any further initialization.
 //
 // Basic usage:
 //

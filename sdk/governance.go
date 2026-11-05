@@ -4,7 +4,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 )
 
-// Governance is a pack's RFC 0013 governance declaration: who is accountable
+// Governance is a pack's governance declaration: who is accountable
 // for the agent, how autonomously it acts, what it was built for, whether it
 // must disclose itself as AI.
 //
@@ -21,9 +21,8 @@ type Governance = prompt.Governance
 // single-prompt conversation, which is not an agent, it is the pack-level
 // declaration.
 //
-// Nothing in PromptKit acts on the result. RFC 0013 is explicit that a
-// governance block describes and does not gate: this is here so a host can
-// SHOW what the pack claims — surface an AI disclosure in its UI, log the
+// Nothing in PromptKit acts on the result. A governance block describes and
+// does not gate: it is here so a host can show what the pack claims — surface an AI disclosure in its UI, log the
 // accountable owner beside a transcript, refuse to deploy a pack whose
 // approved_environments do not include the one it is being deployed to.
 // Those are the host's decisions to make, on its own policy, with these facts.

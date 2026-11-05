@@ -77,7 +77,7 @@ func (p PackIssue) String() string {
 // Returns (issues, nil) if the pack loads cleanly but has semantic
 // problems (unknown validator/eval types, missing required params)
 // the caller should address, or governance warnings (an undeclared CURIE
-// prefix, RFC 0016 rule 10). A governance reference that does not resolve
+// prefix). A governance reference that does not resolve
 // fails the load, so it is returned as an error.
 //
 // This is a pre-flight check for CI gates and operator tools. It runs

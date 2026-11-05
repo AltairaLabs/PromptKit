@@ -81,9 +81,9 @@ func turnMessagesOf(msgs []types.Message) []types.Message {
 }
 
 // CompositionOutput returns the composition's structured output for a turn that
-// ran a composition state (RFC 0010), as raw JSON. For non-composition turns it
-// returns the assistant message content encoded as a JSON string. Nil when there
-// is no message.
+// ran a composition state, as raw JSON. For other turns it returns the assistant
+// message content unchanged, which is valid JSON only if the model produced JSON.
+// Nil when there is no message.
 func (r *Response) CompositionOutput() json.RawMessage {
 	if r == nil || r.message == nil {
 		return nil

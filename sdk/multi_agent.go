@@ -6,8 +6,8 @@ import (
 )
 
 // Agent is a sendable agent pipeline. It is either a single-prompt
-// *Conversation (RFC 0007) or a workflow-backed *WorkflowConversation entered
-// at the agent's state (RFC 0011) — both are driven through Send identically.
+// *Conversation or a workflow-backed *WorkflowConversation entered at the
+// agent's state. Both are driven through Send identically.
 type Agent interface {
 	Send(ctx context.Context, message any, opts ...SendOption) (*Response, error)
 	Close() error
