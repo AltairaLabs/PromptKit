@@ -2,7 +2,9 @@ package stage
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
@@ -131,19 +133,108 @@ func (p *StreamPipeline) executeBackground(
 	// field for why edgeChannels must not be stored on *StreamPipeline.
 	channels, edgeChannels := p.createChannels()
 
+	// The first stage error ends the turn (#2312). It is recorded here and
+	// signaled to the failed stage's downstream stages in-band, as an error
+	// element on their input (see gateInput). Nothing is canceled, so the
+	// other stages drain and persist exactly as before.
+	failure := &turnFailure{parent: ctx}
+
 	// Start stages and collect output. totals accumulates the message/token/cost
 	// counts as output elements flow through, so the completion event reports
 	// real numbers instead of zeros.
 	totals := &completionTotals{}
-	stageErrors := p.startStages(ctx, input, channels, edgeChannels)
+	stageErrors, runs := p.startStages(ctx, input, channels, edgeChannels, failure)
 	outputDone := p.startOutputCollection(channels, output, totals)
-
-	// Wait for errors and output collection
-	firstError := p.waitForStageErrors(stageErrors)
 	<-outputDone
+
+	// The output is complete once the leaf stages have returned. Their own
+	// errors are recorded by then, and so is any upstream failure that ended
+	// their input: the input gates hold a stage's input open until its
+	// upstream has returned. Hand the turn's failure to the caller
+	// as the last element, unless a stage already did. Do not wait for every
+	// stage: in a duplex session the input stages run until the session
+	// closes its input, which it does only after this output closes.
+	for _, stage := range p.stages {
+		if len(p.edges[stage.Name()]) == 0 {
+			<-runs[stage.Name()].done
+		}
+	}
+	if err := failure.get(); err != nil && !totals.delivered(err) {
+		deliverTurnFailure(ctx, output, err)
+	}
+	close(output)
+
+	firstError := p.waitForStageErrors(stageErrors)
+	if err := failure.get(); err != nil {
+		firstError = err
+	}
 
 	// Emit completion event with the real totals observed during collection.
 	p.emitCompletionEvent(firstError, time.Since(start), totals)
+}
+
+// deliverTurnFailure sends the turn's error to the caller. A consumer that
+// has stopped reading would block it forever, so once ctx is done it gives up
+// rather than wait.
+func deliverTurnFailure(ctx context.Context, output chan<- StreamElement, err error) {
+	elem := NewErrorElement(err)
+	select {
+	case output <- elem:
+		return
+	default:
+	}
+	select {
+	case output <- elem:
+	case <-ctx.Done():
+	}
+}
+
+// turnFailure records the error that ends a turn: the first stage error that
+// is not just the caller's own cancellation showing through.
+type turnFailure struct {
+	parent context.Context
+
+	mu  sync.Mutex
+	err error
+}
+
+// counts reports whether a stage error fails the turn. A context error while
+// the caller's context is done is that cancellation showing through, not a
+// stage failure.
+func (f *turnFailure) counts(err error) bool {
+	if err == nil {
+		return false
+	}
+	isCtxErr := errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+	return f.parent.Err() == nil || !isCtxErr
+}
+
+// record notes a stage error that counts. The first failure wins.
+func (f *turnFailure) record(err error) {
+	if !f.counts(err) {
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err == nil {
+		f.err = err
+	}
+}
+
+func (f *turnFailure) get() error {
+	if f == nil {
+		return nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.err
+}
+
+// stageRun is one stage's state within an execution. err is set, before done
+// closes, to the stage's error when that error fails the turn.
+type stageRun struct {
+	done chan struct{}
+	err  error
 }
 
 // monitorExecutionTimeout logs when execution timeout triggers.
@@ -174,28 +265,257 @@ func (p *StreamPipeline) startStages(
 	input <-chan StreamElement,
 	channels map[string]chan StreamElement,
 	edgeChannels map[string]map[string]chan StreamElement,
-) <-chan error {
+	failure *turnFailure,
+) (stageErrors <-chan error, runs map[string]*stageRun) {
 	stageWg := sync.WaitGroup{}
-	stageErrors := make(chan error, len(p.stages))
+	errs := make(chan error, len(p.stages))
+
+	runs = make(map[string]*stageRun, len(p.stages))
+	for _, stage := range p.stages {
+		runs[stage.Name()] = &stageRun{done: make(chan struct{})}
+	}
+
+	// A shared channel read by several downstream stages (competitive Branch
+	// fan-out) gets one distributor, which hands each element to whichever
+	// reader takes it and gives every reader its own gated end of input.
+	distributed := make(map[string]map[string]<-chan StreamElement)
+	for _, stage := range p.stages {
+		if p.isCompetitiveFanOut(stage.Name()) {
+			distributed[stage.Name()] = distributeInput(channels[stage.Name()], runs[stage.Name()],
+				p.edges[stage.Name()], runs)
+		}
+	}
 
 	for _, stage := range p.stages {
 		stageInputs := p.getStageInputs(stage, input, channels, edgeChannels)
+		if !p.isRootStage(stage.Name()) {
+			stageInputs = p.gateStageInputs(stageInputs, p.findUpstreamStages(stage.Name()),
+				runs, distributed, stage.Name())
+		}
 		stageOutput := p.getStageOutput(stage, channels)
 
 		stageWg.Add(1)
-		go p.runStage(ctx, stage, stageInputs, stageOutput, &stageWg, stageErrors)
+		go p.runStage(ctx, stage, stageInputs, stageOutput, &stageWg, errs, failure, runs[stage.Name()])
 	}
 
 	// Close error channel when all stages complete
 	go func() {
 		stageWg.Wait()
-		close(stageErrors)
+		close(errs)
 	}()
 
-	return stageErrors
+	return errs, runs
 }
 
-// startOutputCollection starts collecting output from leaf stages.
+// gateStageInputs wraps each upstream channel of a stage so that its end is
+// seen only after the upstream stage has returned. A stage closes its output
+// before it returns its error, so without the gate a downstream stage could
+// take a failed upstream's closed output for the end of a complete turn and act
+// on it — the provider stage calling the model with no system prompt (#2312).
+// With it, a failed upstream's error reaches the downstream stage as the last
+// element of its input, as a turn-failure signal (see isTurnFailureSignal).
+//
+// ups is in the same order as inputs (both come from findUpstreamStages). A
+// gate stops reading once its own stage has returned. An input from a shared
+// competitive fan-out channel comes from that channel's distributor instead.
+func (p *StreamPipeline) gateStageInputs(
+	inputs []<-chan StreamElement, ups []string, runs map[string]*stageRun,
+	distributed map[string]map[string]<-chan StreamElement, self string,
+) []<-chan StreamElement {
+	gated := make([]<-chan StreamElement, len(inputs))
+	for i, in := range inputs {
+		switch {
+		case i >= len(ups) || runs[ups[i]] == nil:
+			gated[i] = in
+		case distributed[ups[i]][self] != nil:
+			gated[i] = distributed[ups[i]][self]
+		default:
+			gated[i] = gateInput(in, runs[ups[i]], runs[self].done)
+		}
+	}
+	return gated
+}
+
+// isCompetitiveFanOut reports whether several downstream stages read the
+// stage's shared output channel.
+func (p *StreamPipeline) isCompetitiveFanOut(stageName string) bool {
+	if _, ok := p.multiOutputStages[stageName]; ok {
+		return false
+	}
+	return len(p.edges[stageName]) > 1
+}
+
+// gateInput forwards in to the returned channel and closes it once in is
+// closed and the upstream stage has returned. If the upstream failed, the gate
+// first sends its error as an error element, unless the upstream already put
+// that error on its output. consumerDone stops it when the stage reading the
+// returned channel has returned.
+func gateInput(in <-chan StreamElement, upstream *stageRun, consumerDone <-chan struct{}) <-chan StreamElement {
+	out := make(chan StreamElement)
+	go func() {
+		defer close(out)
+		var carried []error
+		for elem := range in {
+			if elem.Error != nil {
+				carried = append(carried, elem.Error)
+			}
+			select {
+			case out <- elem:
+			case <-consumerDone:
+				return
+			}
+		}
+		select {
+		case <-upstream.done:
+		case <-consumerDone:
+			return
+		}
+		if upstream.err == nil || errorCarried(carried, upstream.err) {
+			return
+		}
+		select {
+		case out <- newTurnFailureSignal(upstream.err):
+		case <-consumerDone:
+		}
+	}()
+	return out
+}
+
+// distributeInput is the gate for a shared channel read by several downstream
+// stages. Each element goes to whichever still-running reader takes it first,
+// as on the shared channel itself, and no element is lost to a reader that has
+// returned. Each reader's input closes once in is closed and the upstream has
+// returned; if the upstream failed, every reader still reading first gets the
+// turn-failure signal.
+func distributeInput(
+	in <-chan StreamElement, upstream *stageRun, readers []string, runs map[string]*stageRun,
+) map[string]<-chan StreamElement {
+	d := &distributor{
+		outs:       make([]chan StreamElement, len(readers)),
+		readerDone: make([]<-chan struct{}, len(readers)),
+		live:       make([]bool, len(readers)),
+	}
+	result := make(map[string]<-chan StreamElement, len(readers))
+	for i, name := range readers {
+		d.outs[i] = make(chan StreamElement)
+		d.readerDone[i] = runs[name].done
+		d.live[i] = true
+		result[name] = d.outs[i]
+	}
+	go d.run(in, upstream)
+	return result
+}
+
+// distributor is the state of one distributeInput goroutine.
+type distributor struct {
+	outs       []chan StreamElement
+	readerDone []<-chan struct{}
+	live       []bool
+}
+
+func (d *distributor) run(in <-chan StreamElement, upstream *stageRun) {
+	defer func() {
+		for _, o := range d.outs {
+			close(o)
+		}
+	}()
+	var carried []error
+	for elem := range in {
+		if elem.Error != nil {
+			carried = append(carried, elem.Error)
+		}
+		if !sendToAnyReader(elem, d.outs, d.readerDone, d.live) {
+			return
+		}
+	}
+	<-upstream.done
+	if upstream.err != nil && !errorCarried(carried, upstream.err) {
+		d.signalLiveReaders(newTurnFailureSignal(upstream.err))
+	}
+}
+
+// signalLiveReaders sends signal to every reader still reading.
+func (d *distributor) signalLiveReaders(signal StreamElement) {
+	for i := range d.outs {
+		if !d.live[i] {
+			continue
+		}
+		select {
+		case d.outs[i] <- signal:
+		case <-d.readerDone[i]:
+		}
+	}
+}
+
+// sendToAnyReader hands elem to the first live reader ready for it, marking
+// readers that have returned as no longer live. It reports false when none is
+// left.
+func sendToAnyReader(
+	elem StreamElement, outs []chan StreamElement, readerDone []<-chan struct{}, live []bool,
+) bool {
+	for {
+		var cases []reflect.SelectCase
+		var index []int
+		for i := range outs {
+			if !live[i] {
+				continue
+			}
+			cases = append(cases,
+				reflect.SelectCase{Dir: reflect.SelectSend, Chan: reflect.ValueOf(outs[i]), Send: reflect.ValueOf(elem)},
+				reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(readerDone[i])})
+			index = append(index, i)
+		}
+		if len(cases) == 0 {
+			return false
+		}
+		chosen, _, _ := reflect.Select(cases)
+		if chosen%2 == 0 {
+			return true
+		}
+		live[index[chosen/2]] = false
+	}
+}
+
+// turnFailureSignal is the error of the element that tells a downstream stage
+// an upstream stage failed the turn. It reads and unwraps as the failure itself
+// (a *StageError); its type is what marks the element as the signal, apart
+// from error elements stages emit as non-fatal reports.
+type turnFailureSignal struct{ err error }
+
+func (e *turnFailureSignal) Error() string { return e.err.Error() }
+func (e *turnFailureSignal) Unwrap() error { return e.err }
+
+func newTurnFailureSignal(err error) StreamElement {
+	return NewErrorElement(&turnFailureSignal{err: err})
+}
+
+// isTurnFailureSignal reports whether elem tells that an upstream stage failed
+// the turn. A stage acting on its input's end (calling a model, say) must not
+// act on a turn that failed.
+func isTurnFailureSignal(elem *StreamElement) bool {
+	var sig *turnFailureSignal
+	return elem.Error != nil && errors.As(elem.Error, &sig)
+}
+
+// errorCarried reports whether err, a stage's returned error wrapped in a
+// StageError, is already among carried: the stage's own error, or a wrap of it.
+func errorCarried(carried []error, err error) bool {
+	inner := err
+	var se *StageError
+	if errors.As(err, &se) {
+		inner = se.Err
+	}
+	for _, e := range carried {
+		if errors.Is(err, e) || errors.Is(e, inner) {
+			return true
+		}
+	}
+	return false
+}
+
+// startOutputCollection starts collecting output from leaf stages. The returned
+// channel closes when every leaf's output has been forwarded; closing output
+// is left to the caller, which may still have the turn's error to deliver.
 func (p *StreamPipeline) startOutputCollection(
 	channels map[string]chan StreamElement,
 	output chan<- StreamElement,
@@ -204,7 +524,6 @@ func (p *StreamPipeline) startOutputCollection(
 	outputDone := make(chan struct{})
 	go func() {
 		p.collectOutput(channels, output, totals)
-		close(output)
 		close(outputDone)
 	}()
 	return outputDone
@@ -233,22 +552,42 @@ type completionTotals struct {
 	inputTokens  int
 	outputTokens int
 	totalCost    float64
+
+	// errs are the errors already delivered to the caller on output elements.
+	errs []error
 }
 
 // observe records a single output element's contribution to the totals. Nil-safe
 // on the receiver so callers (and tests) can pass a nil accumulator to opt out.
 func (t *completionTotals) observe(elem *StreamElement) {
-	if t == nil || elem.Message == nil {
+	if t == nil || (elem.Message == nil && elem.Error == nil) {
 		return
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if elem.Error != nil {
+		t.errs = append(t.errs, elem.Error)
+	}
+	if elem.Message == nil {
+		return
+	}
 	t.messageCount++
 	if elem.Message.Role == roleAssistant && elem.Message.CostInfo != nil {
 		t.inputTokens += elem.Message.CostInfo.InputTokens
 		t.outputTokens += elem.Message.CostInfo.OutputTokens
 		t.totalCost += elem.Message.CostInfo.TotalCost
 	}
+}
+
+// delivered reports whether err already reached the caller on an output
+// element — a stage that emits its error and also returns it.
+func (t *completionTotals) delivered(err error) bool {
+	if t == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return errorCarried(t.errs, err)
 }
 
 // snapshot returns the accumulated totals. Nil-safe (returns zeros).
@@ -412,9 +751,14 @@ func (p *StreamPipeline) runStage(
 	inputs []<-chan StreamElement,
 	output chan<- StreamElement,
 	wg *sync.WaitGroup,
-	errors chan<- error,
+	errs chan<- error,
+	failure *turnFailure,
+	run *stageRun,
 ) {
 	defer wg.Done()
+	// Closed after the error below is set on run, so a gated downstream stage
+	// sees this stage's output end only once it can tell whether it failed.
+	defer close(run.done)
 	// Note: We don't close output here because the stage's Process() method
 	// is responsible for closing it according to the Stage interface contract.
 
@@ -459,7 +803,12 @@ func (p *StreamPipeline) runStage(
 		logger.Info("pipeline stage returned with error",
 			"stage", stage.Name(), "type", stage.Type(),
 			"duration", duration, "error", err)
-		errors <- NewStageError(stage.Name(), stage.Type(), err)
+		stageErr := NewStageError(stage.Name(), stage.Type(), err)
+		failure.record(stageErr)
+		if failure.counts(stageErr) {
+			run.err = stageErr
+		}
+		errs <- stageErr
 	} else {
 		logger.Debug("pipeline stage completed",
 			"stage", stage.Name(), "type", stage.Type(),

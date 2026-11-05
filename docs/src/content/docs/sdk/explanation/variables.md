@@ -45,11 +45,11 @@ A duplex conversation (`OpenDuplex`) has no per-turn render. The system prompt i
 A placeholder with no value fails the send. Nothing reaches the model.
 
 ```
-system prompt has unresolved variables: support: unresolved template
-placeholders: [{{tier}}] (variables available: customer_name, locale)
+stage 'template' (transform) failed: system prompt has unresolved variables:
+support: unresolved template placeholders: [{{tier}}] (variables available: customer_name, locale)
 ```
 
-The message lists variable names, never values.
+The message lists variable names, never values. To detect this failure in code, use `errors.Is(err, stage.ErrTemplateUnresolved)` (package `runtime/pipeline/stage`).
 
 ## Seeing the rendered prompt
 

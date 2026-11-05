@@ -177,8 +177,12 @@ func (s *TemplateStage) Process(
 	defer close(output)
 
 	for elem := range input {
-		if err := s.renderTurnPrompt(); err != nil {
-			return err
+		// An upstream failure's error element passes through: rendering for a
+		// turn that already failed would only report a second, derived error.
+		if !isTurnFailureSignal(&elem) {
+			if err := s.renderTurnPrompt(); err != nil {
+				return err
+			}
 		}
 
 		select {
@@ -747,7 +751,16 @@ func (s *ContextBuilderStage) Process(
 		return passThroughElements(ctx, input, output)
 	}
 
-	messages, fromHistory, firstElem := collectContextMessages(input)
+	messages, fromHistory, firstElem, errorSignals := collectContextMessages(input)
+
+	// An upstream stage failed: pass the turn and its error on untouched, with
+	// no truncation (which may summarize with a model call).
+	if len(errorSignals) > 0 {
+		if err := s.emitMessages(ctx, messages, fromHistory, firstElem, output, false); err != nil {
+			return err
+		}
+		return forwardUpstreamErrors(ctx, errorSignals, output)
+	}
 
 	systemPrompt := ""
 	if s.turnState != nil {
@@ -806,8 +819,12 @@ func passThroughElements(ctx context.Context, input <-chan StreamElement, output
 // first element seen (nil when input was empty).
 func collectContextMessages(
 	input <-chan StreamElement,
-) (messages []types.Message, fromHistory []bool, firstElem *StreamElement) {
+) (messages []types.Message, fromHistory []bool, firstElem *StreamElement, errorSignals []StreamElement) {
 	for elem := range input {
+		if isTurnFailureSignal(&elem) {
+			errorSignals = append(errorSignals, elem)
+			continue
+		}
 		if firstElem == nil {
 			firstElem = &elem
 		}
@@ -817,7 +834,7 @@ func collectContextMessages(
 			fromHistory = append(fromHistory, elem.Meta.FromHistory)
 		}
 	}
-	return messages, fromHistory, firstElem
+	return messages, fromHistory, firstElem, errorSignals
 }
 
 // emitMessages emits accumulated messages as elements.

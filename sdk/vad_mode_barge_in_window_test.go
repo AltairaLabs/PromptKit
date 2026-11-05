@@ -171,6 +171,10 @@ func TestVADMode_SpeechDuringGenerationInterrupts(t *testing.T) {
 	assert.Contains(t, userTextsIn(provider.turnAt(1)), "what is the capital of france")
 	assert.True(t, boundaryBeforeInterrupt(rec.snapshot()),
 		"the cut-short reply closes before its Interrupted chunk; got %+v", rec.snapshot())
+	// The provider holding turn 2 says nothing about whether its transcript
+	// has reached the caller yet: that chunk travels on through the pipeline
+	// and the response channel. Wait for it there.
+	waitFor(func() bool { return len(rec.transcripts()) >= 2 }, 8*time.Second)
 	assert.Equal(t, []string{"tell me a long story", "what is the capital of france"}, rec.transcripts())
 }
 

@@ -26,6 +26,9 @@ func TestSmoke(t *testing.T) {
 	conv, err := sdk.Open("assistant.pack.json", "assistant",
 		sdk.WithProvider(provider),
 		sdk.WithSkipSchemaValidation(),
+		// The pack's template uses {{current_month}} and {{current_year}},
+		// which only the TimeProvider supplies — as main_interactive.go wires it.
+		sdk.WithVariableProvider(variables.NewTimeProvider()),
 		sdk.WithVariableProvider(&testVarProvider{}),
 	)
 	require.NoError(t, err)

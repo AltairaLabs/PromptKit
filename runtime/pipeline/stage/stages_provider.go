@@ -440,6 +440,22 @@ type providerInput struct {
 	systemPrompt string
 	allowedTools []string
 	metadata     map[string]interface{}
+
+	// upstreamErrors are the error elements an upstream stage's failure put
+	// on the input (see isTurnFailureSignal). Any of them means the turn failed.
+	upstreamErrors []StreamElement
+}
+
+// forwardUpstreamErrors passes a failed turn's error elements downstream.
+func forwardUpstreamErrors(ctx context.Context, elems []StreamElement, output chan<- StreamElement) error {
+	for i := range elems {
+		select {
+		case output <- elems[i]:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
 }
 
 // Process executes the LLM provider call and handles tool execution.
@@ -459,6 +475,14 @@ func (s *ProviderStage) Process(
 	}
 
 	accumulated := s.accumulateInput(input)
+
+	// An upstream stage failed: the input ended because the turn did, not
+	// because it was complete. Calling the model now would answer an
+	// incomplete request — without its system prompt, say (#2312). Pass the
+	// failure on instead.
+	if len(accumulated.upstreamErrors) > 0 {
+		return forwardUpstreamErrors(ctx, accumulated.upstreamErrors, output)
+	}
 
 	logger.Debug("ProviderStage accumulated input",
 		"messages", len(accumulated.messages),
@@ -485,6 +509,9 @@ func (s *ProviderStage) accumulateInput(input <-chan StreamElement) *providerInp
 	}
 
 	for elem := range input {
+		if isTurnFailureSignal(&elem) {
+			acc.upstreamErrors = append(acc.upstreamErrors, elem)
+		}
 		if elem.Message != nil {
 			acc.messages = append(acc.messages, *elem.Message)
 		}

@@ -188,7 +188,10 @@ func (rs *RecordingStage) recordElement(ctx context.Context, elem *StreamElement
 		rs.recordVideoElement(ctx, elem, role)
 	case elem.ToolCall != nil:
 		rs.recordToolCallElement(ctx, elem)
-	case elem.Error != nil:
+	case elem.Error != nil && !isTurnFailureSignal(elem):
+		// A turn-failure signal is not recorded: it repeats an upstream
+		// stage's failure at every recorder it passes, and the pipeline's
+		// completion event already carries that failure.
 		rs.recordErrorElement(ctx, elem)
 	}
 }
