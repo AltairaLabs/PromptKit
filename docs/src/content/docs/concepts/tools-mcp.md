@@ -4,7 +4,7 @@ description: How the runtime lets a model call functions, how the Model Context 
 sidebar:
   order: 6
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
   sources:
     - runtime/events/types.go
     - runtime/mcp/client.go

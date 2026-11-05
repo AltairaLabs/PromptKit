@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/concepts/skills.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
  "claims": [
   {
    "id": 1,
@@ -52,8 +52,8 @@
    "claim": "Pack tools are the ceiling for tools",
    "verdict": "true",
    "evidence": [
-    "runtime/skills/executor.go:431",
-    "sdk/capability_skills.go:76"
+    "runtime/skills/executor.go:206",
+    "sdk/capability_skills.go:72"
    ]
   },
   {
@@ -69,9 +69,9 @@
    "claim": "A skill's allowed-tools extend the prompt's tool set, capped at the pack's tools",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3600",
-    "runtime/skills/executor.go:431",
-    "sdk/conversation.go:388"
+    "runtime/pipeline/stage/stages_provider.go:3756",
+    "runtime/skills/executor.go:206",
+    "sdk/conversation.go:395"
    ]
   },
   {
@@ -92,27 +92,34 @@
   },
   {
    "id": 12,
-   "claim": "skill__activate description includes the discovery index",
+   "claim": "skill__activate description includes the discovery index, listing only the skills the current workflow state admits; withheld when the state admits none",
    "verdict": "true",
    "evidence": [
-    "runtime/skills/tool_executor.go:81"
+    "runtime/pipeline/stage/stages_provider.go:3724",
+    "runtime/skills/executor.go:305",
+    "sdk/capability_skills.go:210",
+    "sdk/conversation.go:480"
    ]
   },
   {
    "id": 13,
-   "claim": "Workflow state `skills: ./skills/billing` limits which skills are available; no field means all",
-   "verdict": "dead",
+   "claim": "Workflow state `skills: ./skills/billing` limits which skills are available; `none` disables skills; no field means all; applied on open, resume and transition",
+   "verdict": "true",
    "evidence": [
     "runtime/packspec/types.go:2794",
-    "runtime/skills/active_set.go:56"
+    "runtime/skills/active_set.go:57",
+    "sdk/conversation.go:442",
+    "sdk/workflow.go:601",
+    "sdk/workflow.go:664"
    ]
   },
   {
    "id": 14,
-   "claim": "skills organized into subdirectories; top-level skills always available",
-   "verdict": "dead",
+   "claim": "Skills organized into subdirectories: a state's directory filter admits skills at or under it; skills outside it are not available in that state",
+   "verdict": "true",
    "evidence": [
-    "runtime/skills/active_set.go:56"
+    "runtime/skills/active_set.go:103",
+    "runtime/skills/active_set.go:121"
    ]
   },
   {
@@ -128,8 +135,8 @@
    "claim": "sdk.WithSkillsDir and sdk.WithMaxActiveSkillsOption exist",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:3749",
-    "sdk/options.go:3811"
+    "sdk/options.go:3753",
+    "sdk/options.go:3815"
    ]
   },
   {
@@ -137,8 +144,8 @@
    "claim": "Go snippet compiles against current API",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:3749",
-    "sdk/sdk.go:1378"
+    "sdk/options.go:3753",
+    "sdk/sdk.go:1380"
    ]
   },
   {
@@ -161,7 +168,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/skills/executor.go:151",
-    "sdk/conversation.go:418"
+    "sdk/conversation.go:425"
    ]
   }
  ]

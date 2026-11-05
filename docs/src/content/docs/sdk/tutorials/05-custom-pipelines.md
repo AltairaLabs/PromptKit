@@ -3,7 +3,7 @@ title: 'Tutorial 5: Human-in-the-loop approval'
 sidebar:
   order: 5
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
   sources:
     - sdk/conversation_tools.go
     - sdk/examples/hitl/hitl.pack.json

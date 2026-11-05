@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/concepts/tools-mcp.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
  "claims": [
   {
    "id": 1,
@@ -59,7 +59,7 @@
    "claim": "max_rounds defaults to 50",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1251",
+    "runtime/pipeline/stage/stages_provider.go:1301",
     "runtime/pipeline/stage/stages_provider.go:33"
    ]
   },
@@ -69,7 +69,7 @@
    "verdict": "false",
    "evidence": [
     "runtime/pipeline/stage/errors.go:128",
-    "runtime/pipeline/stage/stages_provider.go:1595"
+    "runtime/pipeline/stage/stages_provider.go:1645"
    ]
   },
   {
@@ -86,9 +86,9 @@
    "claim": "max_tool_calls_per_turn: calls over the limit are not run, get an error result, next round offers no tools",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1576",
-    "runtime/pipeline/stage/stages_provider.go:1666",
-    "runtime/pipeline/stage/stages_provider.go:1682"
+    "runtime/pipeline/stage/stages_provider.go:1626",
+    "runtime/pipeline/stage/stages_provider.go:1718",
+    "runtime/pipeline/stage/stages_provider.go:1734"
    ]
   },
   {
@@ -96,7 +96,7 @@
    "claim": "tool_choice is auto, required or none; none sends no tools",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3653",
+    "runtime/pipeline/stage/stages_provider.go:3813",
     "runtime/prompt/schema/promptpack.schema.json:884"
    ]
   },
@@ -105,7 +105,7 @@
    "claim": "blocklist: tools the prompt may not run even when listed in tools",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2712"
+    "runtime/pipeline/stage/stages_provider.go:2764"
    ]
   },
   {
