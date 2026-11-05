@@ -10,6 +10,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // vadContractEvent is one chunk from Response() reduced to the parts of the
@@ -17,6 +18,7 @@ import (
 type vadContractEvent struct {
 	transcript   string
 	turnComplete bool
+	finishReason string
 	interrupted  bool
 }
 
@@ -31,6 +33,7 @@ func (r *vadContractRecorder) consume(ch <-chan providers.StreamChunk) {
 		var ev vadContractEvent
 		ev.transcript, _ = chunk.Metadata["input_transcription"].(string)
 		ev.turnComplete, _ = chunk.Metadata["assistant_turn_complete"].(bool)
+		ev.finishReason, _ = chunk.Metadata["finish_reason"].(string)
 		ev.interrupted = chunk.Interrupted
 		if ev.transcript == "" && !ev.turnComplete && !ev.interrupted {
 			continue
@@ -130,6 +133,9 @@ func TestVADMode_ResponseCarriesTranscriptAndTurnBoundary(t *testing.T) {
 	assert.True(t, events[1].turnComplete)
 	assert.Equal(t, "second question", events[2].transcript)
 	assert.True(t, events[3].turnComplete)
+	// Each boundary says why the reply ended (#2307).
+	assert.Equal(t, types.FinishReasonStop, events[1].finishReason)
+	assert.Equal(t, types.FinishReasonStop, events[3].finishReason)
 }
 
 // TestVADMode_BargeInTurnStillGetsBoundary checks a reply cut short by barge-in

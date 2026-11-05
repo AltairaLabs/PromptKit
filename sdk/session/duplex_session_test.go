@@ -820,6 +820,28 @@ func TestStreamElementToStreamChunk_AssistantTurnComplete(t *testing.T) {
 		assert.Nil(t, chunk.FinishReason)
 	})
 
+	t.Run("the turn boundary reports why the turn ended", func(t *testing.T) {
+		realtime := stage.NewMessageElement(&types.Message{Role: "assistant", Content: "cut"})
+		realtime.EndOfStream = true
+		fr := types.FinishReasonMaxOutputTokens
+		realtime.Meta.FinishReason = &fr
+
+		vad := stage.NewEndOfTurnElement()
+		safety := types.FinishReasonSafety
+		vad.Meta.FinishReason = &safety
+
+		assert.Equal(t, types.FinishReasonMaxOutputTokens, streamElementToStreamChunk(&realtime).Metadata["finish_reason"])
+		assert.Equal(t, types.FinishReasonSafety, streamElementToStreamChunk(&vad).Metadata["finish_reason"])
+		assert.Nil(t, streamElementToStreamChunk(&realtime).FinishReason,
+			"the reason rides in metadata; FinishReason would end a continuous caller's read loop")
+	})
+
+	t.Run("no finish_reason when the provider reported none", func(t *testing.T) {
+		elem := stage.NewEndOfTurnElement()
+		_, ok := streamElementToStreamChunk(&elem).Metadata["finish_reason"]
+		assert.False(t, ok)
+	})
+
 	t.Run("assistant message without a boundary is not turn complete", func(t *testing.T) {
 		elem := stage.NewMessageElement(&types.Message{Role: "assistant", Content: "mid-turn"})
 

@@ -147,6 +147,36 @@ func TestDuplexChunkToElement_TurnIDWithoutTranscription(t *testing.T) {
 	assert.Nil(t, elem.Meta.Transcription, "no transcription captured")
 }
 
+// TestDuplexChunkToElement_TurnCompleteCarriesFinishReason checks the turn's
+// finish reason reaches the element that closes the turn, where the session
+// reads it (#2307).
+func TestDuplexChunkToElement_TurnCompleteCarriesFinishReason(t *testing.T) {
+	s := newDuplexStageForUnit()
+	s.accumulatedText.WriteString("cut short")
+	fr := types.FinishReasonMaxOutputTokens
+	elem := s.chunkToElement(&providers.StreamChunk{FinishReason: &fr})
+	require.True(t, elem.EndOfStream)
+	require.NotNil(t, elem.Meta.FinishReason)
+	assert.Equal(t, types.FinishReasonMaxOutputTokens, *elem.Meta.FinishReason)
+}
+
+// TestEndOfTurnFor_CarriesLastAssistantFinishReason checks the VAD path's turn
+// boundary reports why the turn's reply ended.
+func TestEndOfTurnFor_CarriesLastAssistantFinishReason(t *testing.T) {
+	elem := endOfTurnFor([]types.Message{
+		{Role: "assistant", FinishReason: types.FinishReasonToolUse},
+		{Role: "tool", Content: "42"},
+		{Role: "assistant", Content: "it is 42", FinishReason: types.FinishReasonSafety},
+	})
+	require.True(t, elem.EndOfTurn)
+	require.NotNil(t, elem.Meta.FinishReason)
+	assert.Equal(t, types.FinishReasonSafety, *elem.Meta.FinishReason)
+
+	assert.Nil(t, endOfTurnFor(nil).Meta.FinishReason, "a turn with no reply reports no reason")
+	assert.Nil(t, endOfTurnFor([]types.Message{{Role: "assistant"}}).Meta.FinishReason,
+		"an unreported reason stays unset")
+}
+
 // TestDuplexBuildAssistantParts covers both the text-only and the
 // text+audio-media shapes.
 func TestDuplexBuildAssistantParts(t *testing.T) {

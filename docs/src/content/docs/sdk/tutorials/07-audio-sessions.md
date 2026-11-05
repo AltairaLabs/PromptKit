@@ -317,8 +317,9 @@ VAD and ASM mode mark turns on `Response()` the same way, through chunk metadata
 
 - `Metadata["input_transcription"]` (a string) carries what the user said, once per user turn. In VAD mode it is the STT stage's transcript.
 - `Metadata["assistant_turn_complete"]` (a bool) marks the end of each assistant turn. In VAD mode that includes a reply cut short by barge-in, whose boundary arrives before its `Interrupted` chunk. A reply interrupted before the model produced any of it has no assistant turn to close, so only the `Interrupted` chunk arrives.
+- `Metadata["finish_reason"]` (a string), on the same chunk, says why the assistant turn ended, in the same values as `Message.FinishReason` on a text turn: `stop`, `max_output_tokens`, `safety`, `interrupted` and so on. It is absent when the provider reported no reason.
 
-Neither sets `FinishReason`, so a loop over `Response()` keeps reading across turns.
+None of these sets `FinishReason`, so a loop over `Response()` keeps reading across turns.
 
 ```go
 for chunk := range responses {

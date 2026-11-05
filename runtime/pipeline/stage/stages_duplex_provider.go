@@ -254,6 +254,10 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 				"latencyMs", msg.LatencyMs)
 		}
 		elem.EndOfStream = true
+		// Carry the turn's finish reason on the element, as the streaming text
+		// path does, so the session can report why the turn ended (#2307).
+		finishReason := *chunk.FinishReason
+		elem.Meta.FinishReason = &finishReason
 		// Clear the interrupted flag - we got a real turn complete
 		s.wasInterrupted = false
 	}

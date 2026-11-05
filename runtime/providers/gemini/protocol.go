@@ -24,7 +24,7 @@ func (s *StreamSession) handleToolCalls(toolCall *ToolCallMsg) error {
 		}
 	}
 
-	finishReason := "tool_calls"
+	finishReason := types.FinishReasonToolUse
 	response := providers.StreamChunk{
 		ToolCalls:    toolCalls,
 		FinishReason: &finishReason,
