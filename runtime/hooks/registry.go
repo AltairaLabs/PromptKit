@@ -16,6 +16,7 @@ type Registry struct {
 	toolHooks         []ToolHook
 	sessionHooks      []SessionHook
 	chunkInterceptors []ChunkInterceptor // cached from providerHooks that implement ChunkInterceptor
+	resultRewriters   []ToolResultRewriter // cached from toolHooks that implement ToolResultRewriter
 }
 
 // EmitterAware is implemented by hooks that report their own events. A hook
@@ -61,6 +62,9 @@ func WithProviderHook(h ProviderHook) Option {
 func WithToolHook(h ToolHook) Option {
 	return func(r *Registry) {
 		r.toolHooks = append(r.toolHooks, h)
+		if rw, ok := h.(ToolResultRewriter); ok {
+			r.resultRewriters = append(r.resultRewriters, rw)
+		}
 	}
 }
 
@@ -205,6 +209,28 @@ func (r *Registry) RunAfterToolExecution(ctx context.Context, req ToolRequest, r
 		}
 	}
 	return Allow
+}
+
+// HasToolResultRewriters reports whether any tool hook rewrites results.
+func (r *Registry) HasToolResultRewriters() bool {
+	return r != nil && len(r.resultRewriters) > 0
+}
+
+// RunToolResultRewriters passes a tool result's text through every tool hook
+// that implements ToolResultRewriter, in order. The first error stops the
+// chain and is returned.
+func (r *Registry) RunToolResultRewriters(ctx context.Context, req ToolRequest, content string) (string, error) {
+	if r == nil {
+		return content, nil
+	}
+	for _, rw := range r.resultRewriters {
+		out, err := rw.RewriteResult(ctx, req, content)
+		if err != nil {
+			return "", fmt.Errorf("rewriting the %s result: %w", req.Name, err)
+		}
+		content = out
+	}
+	return content, nil
 }
 
 // --- Session hooks ---

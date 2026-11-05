@@ -3,7 +3,9 @@ package stage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
@@ -1310,4 +1312,156 @@ func TestProviderStage_InputGuardrail_EvaluatesOncePerToolLoop(t *testing.T) {
 	assert.Empty(t, msg2.Validations,
 		"round 2 must not be blocked — its tail is a tool result, not user input")
 	assert.Equal(t, 1, provider.callCount(), "round 2 must reach the provider")
+}
+
+// rewriteToolHook rewrites tool results with fn.
+type rewriteToolHook struct {
+	allowToolHookWithMetadata
+	fn func(req hooks.ToolRequest, content string) (string, error)
+}
+
+func (h *rewriteToolHook) RewriteResult(_ context.Context, req hooks.ToolRequest, content string) (string, error) {
+	return h.fn(req, content)
+}
+
+func rewriterStage(t *testing.T, status tools.ToolExecutionStatus, hook hooks.ToolHook) *ProviderStage {
+	t.Helper()
+	return rewriterStageWith(t, &mockAsyncExecutor{status: status, content: []byte(`{"order":"shipped"}`)}, hook, nil)
+}
+
+// rewriterStageWith runs exec as the lookup tool, with hook registered and
+// emitter, when set, receiving events.
+func rewriterStageWith(
+	t *testing.T, exec *mockAsyncExecutor, hook hooks.ToolHook, emitter *events.Emitter, opts ...tools.RegistryOption,
+) *ProviderStage {
+	t.Helper()
+	toolReg := tools.NewRegistry(opts...)
+	exec.name = "rewrite-executor"
+	if exec.status == tools.ToolStatusFailed {
+		exec.errorMsg = "lookup failed"
+	}
+	toolReg.RegisterExecutor(exec)
+	toolReg.Register(&tools.ToolDescriptor{
+		Name: "lookup", Description: "test", Mode: "rewrite-executor", InputSchema: []byte(`{"type":"object"}`),
+	})
+	return NewProviderStageWithHooks(mock.NewProvider("p", "m", false), toolReg, nil, nil, emitter,
+		hooks.NewRegistry(hooks.WithToolHook(hook)))
+}
+
+func lookupCall(t *testing.T, stage *ProviderStage) types.MessageToolResult {
+	t.Helper()
+	results, err := stage.executeToolCalls(context.Background(),
+		[]types.MessageToolCall{{ID: "c1", Name: "lookup", Args: json.RawMessage(`{}`)}}, roundRef{round: 1})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	return *results[0].ToolResult
+}
+
+func TestProviderStage_ToolResultRewriter_RewritesEachTextPartInPlace(t *testing.T) {
+	img := types.ContentPart{Type: types.ContentTypeImage, Media: &types.MediaContent{MIMEType: "image/png"}}
+	exec := &mockAsyncExecutor{status: tools.ToolStatusComplete, parts: []types.ContentPart{
+		types.NewTextPart("Page 1:"), img, types.NewTextPart("Page 2:"), img,
+	}}
+	var calls []string
+	stage := rewriterStageWith(t, exec, &rewriteToolHook{fn: func(_ hooks.ToolRequest, c string) (string, error) {
+		calls = append(calls, c)
+		return strings.ToUpper(c), nil
+	}}, nil)
+	result := lookupCall(t, stage)
+	assert.Equal(t, []string{"Page 1:", "Page 2:"}, calls, "once per text part")
+	require.Len(t, result.Parts, 4)
+	assert.Equal(t, "PAGE 1:", *result.Parts[0].Text)
+	assert.Equal(t, types.ContentTypeImage, result.Parts[1].Type, "media stays where it was")
+	assert.Equal(t, "PAGE 2:", *result.Parts[2].Text)
+	assert.Equal(t, types.ContentTypeImage, result.Parts[3].Type)
+}
+
+func TestProviderStage_ToolResultRewriter_MediaOnlyIsLeftAlone(t *testing.T) {
+	img := types.ContentPart{Type: types.ContentTypeImage, Media: &types.MediaContent{MIMEType: "image/png"}}
+	called := false
+	stage := rewriterStageWith(t, &mockAsyncExecutor{status: tools.ToolStatusComplete, parts: []types.ContentPart{img}},
+		&rewriteToolHook{fn: func(_ hooks.ToolRequest, c string) (string, error) { called = true; return c, nil }}, nil)
+	result := lookupCall(t, stage)
+	assert.False(t, called, "no text, nothing to rewrite")
+	assert.Equal(t, []types.ContentPart{img}, result.Parts, "no empty text part is added")
+}
+
+func TestProviderStage_ToolResultRewriter_SeesTheWholeResultAndIsCapped(t *testing.T) {
+	var seen string
+	stage := rewriterStageWith(t,
+		&mockAsyncExecutor{status: tools.ToolStatusComplete, content: []byte(strings.Repeat("a", 30))},
+		&rewriteToolHook{fn: func(_ hooks.ToolRequest, c string) (string, error) {
+			seen = c
+			return c + strings.Repeat("b", 30), nil
+		}}, nil, tools.WithMaxToolResultSize(40))
+	result := lookupCall(t, stage)
+	assert.Equal(t, strings.Repeat("a", 30), seen, "the rewriter sees the result before the size limit")
+	assert.Contains(t, result.GetTextContent(), "[truncated, 60 bytes exceeded limit of 40 bytes]",
+		"and its output is held to the limit")
+}
+
+func TestProviderStage_ToolResultRewriter_FailureEmitsToolCallFailed(t *testing.T) {
+	bus := events.NewEventBus()
+	var mu sync.Mutex
+	var types_ []events.EventType
+	var wg sync.WaitGroup
+	wg.Add(2) // started + failed
+	bus.SubscribeAll(func(e *events.Event) {
+		mu.Lock()
+		types_ = append(types_, e.Type)
+		mu.Unlock()
+		wg.Done()
+	})
+	stage := rewriterStageWith(t, &mockAsyncExecutor{status: tools.ToolStatusComplete, content: []byte(`{}`)},
+		&rewriteToolHook{fn: func(hooks.ToolRequest, string) (string, error) { return "", context.DeadlineExceeded }},
+		events.NewEmitter(bus, "run-1", "session-1", "conv-1"))
+	result := lookupCall(t, stage)
+	wg.Wait()
+	assert.Equal(t, types.ToolErrorType(classifyToolError(context.DeadlineExceeded)), result.ErrorType,
+		"classified like any other tool error")
+	mu.Lock()
+	defer mu.Unlock()
+	assert.ElementsMatch(t, []events.EventType{events.EventToolCallStarted, events.EventToolCallFailed}, types_)
+}
+
+func TestProviderStage_ToolResultRewriter_RewritesTheResultTheModelSees(t *testing.T) {
+	var name, seen string
+	stage := rewriterStage(t, tools.ToolStatusComplete, &rewriteToolHook{fn: func(req hooks.ToolRequest, c string) (string, error) {
+		name, seen = req.Name, c
+		return c + "\nNOTE: planted", nil
+	}})
+	results, err := stage.executeToolCalls(context.Background(),
+		[]types.MessageToolCall{{ID: "c1", Name: "lookup", Args: json.RawMessage(`{}`)}}, roundRef{round: 1})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "lookup", name, "the rewriter gets the tool's request")
+	assert.Contains(t, seen, `"shipped"`, "and its result")
+	assert.Equal(t, seen+"\nNOTE: planted", results[0].ToolResult.GetTextContent())
+	assert.Empty(t, results[0].ToolResult.Error)
+	assert.Equal(t, "c1", results[0].ToolResult.ID)
+}
+
+func TestProviderStage_ToolResultRewriter_ErrorFailsTheCall(t *testing.T) {
+	stage := rewriterStage(t, tools.ToolStatusComplete, &rewriteToolHook{fn: func(hooks.ToolRequest, string) (string, error) {
+		return "", errors.New("transform crashed")
+	}})
+	results, err := stage.executeToolCalls(context.Background(),
+		[]types.MessageToolCall{{ID: "c1", Name: "lookup", Args: json.RawMessage(`{}`)}}, roundRef{round: 1})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Contains(t, results[0].ToolResult.Error, "rewriting the lookup result: transform crashed")
+	assert.NotContains(t, results[0].ToolResult.GetTextContent(), "shipped", "the unrewritten result is not passed on")
+}
+
+func TestProviderStage_ToolResultRewriter_SkipsFailedCalls(t *testing.T) {
+	called := false
+	stage := rewriterStage(t, tools.ToolStatusFailed, &rewriteToolHook{fn: func(_ hooks.ToolRequest, c string) (string, error) {
+		called = true
+		return c, nil
+	}})
+	results, err := stage.executeToolCalls(context.Background(),
+		[]types.MessageToolCall{{ID: "c1", Name: "lookup", Args: json.RawMessage(`{}`)}}, roundRef{round: 1})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.False(t, called, "a failed call has no result to rewrite")
 }
