@@ -15,17 +15,17 @@ import (
 //
 // The handler injects the active system prompt (if available via
 // evalCtx.Metadata["system_prompt"]) into the judge prompt so the
-// judge can decide whether the answer deviates from it. If no system
-// prompt is supplied via metadata or params, the judge falls back to
-// generic role-consistency scoring.
+// judge can decide whether the answer deviates from it. If no role
+// is supplied via metadata or the agent_role param, the judge falls
+// back to generic role-consistency scoring.
 //
 // Default prompts adapted from the public DeepEval reference
 // implementation (Apache 2.0).
 //
 // Params (all optional):
-//   - system_prompt (string): the role / persona the answer should adhere
+//   - agent_role (string): the role / persona the answer should adhere
 //     to; overrides metadata. Distinct from the standard llm_judge
-//     `system_prompt` which controls the JUDGE's prompt.
+//     `system_prompt` param, which controls the JUDGE's prompt.
 //   - rubric, model, criteria: standard llm_judge knobs
 type RoleViolationHandler struct{}
 

@@ -25,7 +25,7 @@ type SkillsCapability struct {
 	packTools   []string
 	// preload names the skills to activate into every conversation's own
 	// ActiveSet. They used to be activated into the executor at Init, which
-	// made them one shared set (#2011).
+	// made them one shared set.
 	preload []string
 }
 
@@ -73,7 +73,7 @@ func (c *SkillsCapability) Init(ctx CapabilityContext) error {
 	// the prompt's. The prompt's list is the baseline the model always sees;
 	// a skill's allowed-tools extend it on activation, capped by the pack.
 	// Using the prompt's list here made every grant a no-op: a skill could
-	// only "add" a tool the model already had (#1957).
+	// only "add" a tool the model already had.
 	packTools := make([]string, 0, len(ctx.Pack.Tools))
 	for name := range ctx.Pack.Tools {
 		packTools = append(packTools, name)
@@ -94,7 +94,7 @@ func (c *SkillsCapability) Init(ctx CapabilityContext) error {
 	// on a later Init would orphan the ToolExecutor the earlier conversation
 	// already registered, so build it once. The executor holds no
 	// conversation state, so sharing it is safe — each conversation activates
-	// into its own ActiveSet (#2011).
+	// into its own ActiveSet.
 	if c.executor != nil {
 		if !slices.Equal(c.packTools, packTools) {
 			logger.Warn("skills: capability reused across packs with different tools; "+

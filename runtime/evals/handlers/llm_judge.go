@@ -11,8 +11,8 @@ import (
 )
 
 // LLMJudgeHandler evaluates a single assistant turn using an LLM judge.
-// Pure eval primitive (see docs/reference/checks.md for the
-// `type: assertion` wrapper pattern that adds thresholds). The
+// Pure eval primitive: it reports a score and
+// never states pass or fail; a `type: assertion` wrapper adds thresholds. The
 // JudgeProvider must be supplied in evalCtx.Metadata["judge_provider"].
 //
 // Params:

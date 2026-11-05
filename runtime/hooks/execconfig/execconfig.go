@@ -42,9 +42,13 @@ type ExecBinding struct {
 	// Runtime selects the execution mode: "exec" (one-shot, default) or "server" (long-running JSON-RPC).
 	//nolint:lll // jsonschema tags require single line
 	Runtime string `yaml:"runtime,omitempty" json:"runtime,omitempty" jsonschema:"enum=exec,enum=server,default=exec,title=Runtime,description=Execution mode"`
-	// Env lists environment variable names required by the process. Values come from the host environment.
+	// Env lists environment variable names the process needs. Values come from the host environment.
+	// What the process otherwise inherits depends on where the binding is used. A one-shot exec tool
+	// (runtime "exec") that lists any names receives only those variables and nothing else from the
+	// host; with none listed it inherits the whole host environment. A server tool, an exec eval
+	// handler and an exec hook receive the host environment plus the listed variables.
 	//nolint:lll // jsonschema tags require single line
-	Env []string `yaml:"env,omitempty" json:"env,omitempty" jsonschema:"title=Env,description=Required environment variable names"`
+	Env []string `yaml:"env,omitempty" json:"env,omitempty" jsonschema:"title=Env,description=Environment variable names to pass from the host. A one-shot exec tool that lists any gets only those variables; server tools / eval handlers / exec hooks get the host environment plus the listed ones"`
 	// Args are additional arguments passed to the command.
 	//nolint:lll // jsonschema tags require single line
 	Args []string `yaml:"args,omitempty" json:"args,omitempty" jsonschema:"title=Args,description=Additional command arguments"`
@@ -65,13 +69,14 @@ type ExecHook struct {
 	ExecBinding `yaml:",inline"`
 	// Hook identifies the hook interface: "provider", "tool", "session", or "eval".
 	// "eval" hooks are observational and ignore Phases / Mode — they run
-	// once per eval result, fire-and-forget.
+	// once per eval result; the result is discarded.
 	//nolint:lll // jsonschema tags require single line
 	Hook string `yaml:"hook" json:"hook" jsonschema:"enum=provider,enum=tool,enum=session,enum=eval,title=Hook,description=Hook interface type"`
 	// Phases lists the hook phases to intercept (e.g. before_call, after_call).
 	//nolint:lll // jsonschema tags require single line
 	Phases []string `yaml:"phases,omitempty" json:"phases,omitempty" jsonschema:"title=Phases,description=Hook phases to intercept"`
-	// Mode is the hook execution mode: "filter" (synchronous, can modify/deny) or "observe" (async, fire-and-forget).
+	// Mode is the hook execution mode: "filter" (synchronous, can modify/deny) or "observe" (waits for the process,
+	// bounded by the timeout, then discards its output and any failure).
 	//nolint:lll // jsonschema tags require single line
 	Mode string `yaml:"mode,omitempty" json:"mode,omitempty" jsonschema:"enum=filter,enum=observe,default=filter,title=Mode,description=Hook execution mode"`
 }

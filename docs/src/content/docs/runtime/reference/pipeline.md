@@ -5756,7 +5756,7 @@ func (s *TokenBudgetStage) Process(ctx context.Context, input <-chan StreamEleme
 Process reads all messages, enforces the token budget, and forwards the \(possibly truncated\) messages downstream.
 
 <a name="ToolCallRecorder"></a>
-## type [ToolCallRecorder](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/state_handoff.go#L94-L100>)
+## type [ToolCallRecorder](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/state_handoff.go#L93-L99>)
 
 ToolCallRecorder is an optional interface a WorkflowStateResolver may implement to receive the number of tool calls each round executed.
 
@@ -6262,11 +6262,11 @@ func (r *WeightedRouter) RegisterOutput(name string, output chan<- StreamElement
 RegisterOutput registers an output channel with a name.
 
 <a name="WorkflowStateResolver"></a>
-## type [WorkflowStateResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/state_handoff.go#L66-L80>)
+## type [WorkflowStateResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/state_handoff.go#L65-L79>)
 
 WorkflowStateResolver lets a workflow consumer keep a turn aligned with the workflow's current state.
 
-A workflow state change is a different system prompt, a different tool set and, when the state's prompt runs elsewhere \(RFC 0017\), a different provider and parameters \(Handoff.Call\). All are per\-round inputs to the provider tool loop, so reconciling them between rounds is sufficient to make the turn run as the current state — no new conversation, no new pipeline, and no user message required. Without this, a transition advances the state machine and the destination state never speaks \(see docs/local\-backlog/WORKFLOW\_IN\_TURN\_STATE\_HANDOFF\_DESIGN.md\).
+A workflow state change is a different system prompt, a different tool set and, when the state's prompt runs elsewhere \(RFC 0017\), a different provider and parameters \(Handoff.Call\). All are per\-round inputs to the provider tool loop, so reconciling them between rounds is sufficient to make the turn run as the current state — no new conversation, no new pipeline, and no user message required. Without this, a transition advances the state machine and the destination state never speaks.
 
 runtime must not import sdk, so the interface is defined here and implemented by consumers \(SDK WorkflowConversation, Arena's per\-run transition executor\). Nil is the non\-workflow case and is always safe.
 
