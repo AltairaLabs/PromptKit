@@ -1,0 +1,175 @@
+{
+ "page": "docs/src/content/docs/runtime/index.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Runtime provides provider interfaces for implementing custom LLM providers",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/provider.go:242"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "Quick start compiles: stage.NewPipelineBuilder().Chain(stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{MaxTokens, Temperature})).Build()",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/builder.go:125",
+    "runtime/pipeline/stage/builder.go:20",
+    "runtime/pipeline/stage/builder.go:72",
+    "runtime/pipeline/stage/stages_provider.go:126",
+    "runtime/pipeline/stage/stages_provider.go:276"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "openai.NewProvider(id, model, baseURL, providers.ProviderDefaults{Temperature, MaxTokens}, includeRawOutput)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/openai/openai.go:199",
+    "runtime/providers/provider.go:214"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "types.Message{Role: \"user\"}.AddTextPart; stage.NewMessageElement(&msg); pipeline.Execute(ctx, input) returns (output, err); elem.Text is *string",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/element.go:343",
+    "runtime/pipeline/stage/element.go:79",
+    "runtime/pipeline/stage/pipeline.go:56",
+    "runtime/types/message.go:413"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Stage interface has Name, Type, Process(ctx, input, output)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stage.go:49"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "Stage types Transform, Accumulate, Generate, Sink with patterns 1:1/1:N, N:1, 0:N, N:0",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stage.go:97"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "tools Executor interface: Execute(ctx, descriptor, args) and Name()",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/types.go:393"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Architecture diagram: SDK -> Pipeline -> Stages -> Providers/Tools/Hooks; Providers -> OpenAI, Anthropic; Tools -> MCP",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:276",
+    "sdk/internal/pipeline/builder.go:499"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Text mode flow: StateStoreLoad -> PromptAssembly -> Provider -> StateStoreSave",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/stages_save.go:53",
+    "sdk/internal/pipeline/builder.go:597",
+    "sdk/internal/pipeline/builder.go:614",
+    "sdk/internal/pipeline/builder.go:749"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "VAD mode flow: AudioTurn -> STT -> Provider -> TTS",
+   "verdict": "true",
+   "evidence": [
+    "sdk/internal/pipeline/builder_vad.go:107",
+    "sdk/internal/pipeline/builder_vad.go:123",
+    "sdk/internal/pipeline/builder_vad.go:41",
+    "sdk/internal/pipeline/builder_vad.go:46"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "ASM mode flow: DuplexProvider",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_duplex_provider_session.go:147",
+    "sdk/internal/pipeline/builder.go:678"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "StreamElement struct fields (Text, Audio, Video, Image, Message, ToolCall, Part, MediaData, Sequence, Timestamp, Source, Priority, Meta, EndOfStream, EndOfTurn, Interrupt, Error)",
+   "verdict": "false",
+   "evidence": [
+    "runtime/pipeline/stage/element.go:103",
+    "runtime/pipeline/stage/element.go:97"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "types.Message has Role, Content, Parts",
+   "verdict": "false",
+   "evidence": [
+    "runtime/types/message.go:12"
+   ]
+  },
+  {
+   "id": 14,
+   "claim": "PredictionResponse has Content, Parts, CostInfo, Latency, ToolCalls",
+   "verdict": "false",
+   "evidence": [
+    "runtime/providers/provider.go:181"
+   ]
+  },
+  {
+   "id": 15,
+   "claim": "Priority values Low, Normal, High, Critical",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/element.go:116"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "Runtime has backpressure support, minimal allocations, connection pooling",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": 17,
+   "claim": "All linked docs pages exist; Storage API page covers state storage",
+   "verdict": "false",
+   "evidence": [
+    "runtime/storage/instrumented.go:1",
+    "runtime/storage/interfaces.go:10"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "Questions link goes to GitHub Discussions",
+   "verdict": "false",
+   "evidence": [
+    "runtime/providers/openai/openai.go:199"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "OpenAI provider reads its API key from OPENAI_API_KEY or OPENAI_TOKEN",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/resolver.go:46",
+    "runtime/providers/openai/openai.go:322"
+   ]
+  }
+ ]
+}

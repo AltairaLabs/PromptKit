@@ -1,23 +1,28 @@
 ---
 title: Configure HTTP Tool Mapping
+description: Route tool arguments to the query string, headers and URL path, inject fixed parameters, and filter responses.
 sidebar:
   order: 4
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/tools/http_executor.go
+    - runtime/tools/http_mapping.go
+    - runtime/tools/http_multimodal.go
+    - runtime/tools/types.go
 ---
-Map LLM tool arguments to HTTP request components and filter responses to reduce token usage.
+Map the arguments the model sends to HTTP request components, and shrink API responses to the fields the model needs.
 
-## Goal
+## Prerequisites
 
-Configure declarative request and response mapping for HTTP tools so you can:
-- Route arguments to query params, headers, or URL path segments
-- Inject static API parameters the LLM doesn't need to know about
-- Filter large API responses down to the fields the LLM actually needs
-- Handle multimodal (binary) responses like images and audio
+- A tool definition with `mode: live` and a `spec.http` block (see [HTTP Tools SDK](/sdk/how-to/tools/http-tools/)).
+- A `request` block under `spec.http` for every mapping on this page. Without it, a GET sends all arguments as query parameters, a POST, PUT or PATCH sends them as the JSON body, and nothing is templated.
 
-## Request Mapping
+## Steps
 
-### Route Arguments to Query Parameters
+### 1. Route arguments to query parameters
 
-By default, all LLM arguments are sent as the JSON body. Use `query_params` to route specific arguments to the URL query string instead:
+List the arguments that belong in the query string under `query_params`:
 
 ```yaml
 spec:
@@ -30,43 +35,40 @@ spec:
         - limit
 ```
 
-When the LLM calls the tool with `{"query": "London", "limit": 5}`, the request becomes `GET /search?query=London&limit=5`.
+For `{"query": "London", "limit": 5}` the request is `GET /search?limit=5&query=London`.
 
-### URL Path Parameters
+With a `request` block, arguments not listed in `query_params` go in the JSON body for POST, PUT and PATCH. On other methods they are dropped.
 
-Use Go `text/template` syntax to interpolate arguments into the URL path:
+### 2. Put arguments in the URL path
+
+Use Go `text/template` syntax in the URL. Add a `request` block, even an empty one, so the executor renders the template:
 
 ```yaml
 spec:
   http:
     url: "https://api.example.com/users/{{.user_id}}/repos/{{.repo}}"
     method: GET
+    request: {}
 ```
 
-Path-consumed arguments are automatically excluded from the request body.
+Arguments used in the path are excluded from the body.
 
-Arguments go in the path and query only. The URL from the scheme through the host and port must be fixed text, so the model cannot choose where the request goes. A template such as `https://{{.region}}.api.example.com` fails when the tool is called. To reach several hosts, declare one tool per host.
+The URL from the scheme through the host and port must be fixed text, so the model cannot choose where the request goes. A template such as `https://{{.region}}.api.example.com` fails when the tool is called. To reach several hosts, declare one tool per host.
 
-### Header Parameters
-
-Route arguments to HTTP headers using templates:
+### 3. Put arguments in headers
 
 ```yaml
-spec:
-  http:
-    url: "https://api.example.com/data"
-    method: GET
     request:
       header_params:
         Authorization: "Bearer {{.token}}"
         X-Workspace: "{{.workspace_id}}"
 ```
 
-Header-consumed arguments are automatically excluded from the body.
+Arguments used in a header template are excluded from the body.
 
-### Body Reshaping
+### 4. Reshape or exclude body fields
 
-Use JMESPath to reshape the request body before sending:
+`body_mapping` is a JMESPath expression applied to the body arguments of a POST, PUT or PATCH:
 
 ```yaml
 spec:
@@ -75,29 +77,15 @@ spec:
     method: POST
     request:
       body_mapping: "{name: first_name, surname: last_name}"
-```
-
-This transforms `{"first_name": "John", "last_name": "Doe", "age": 30}` into `{"name": "John", "surname": "Doe"}`.
-
-### Exclude Arguments
-
-Explicitly exclude arguments from the request:
-
-```yaml
-spec:
-  http:
-    url: "https://api.example.com/data"
-    method: POST
-    request:
       exclude:
         - internal_id
 ```
 
-## Static Parameters
+`{"first_name": "John", "last_name": "Doe", "age": 30}` becomes `{"name": "John", "surname": "Doe"}`. `exclude` drops the listed arguments from the request.
 
-Inject fixed parameters that the LLM doesn't need to know about. These are invisible to the LLM's input schema.
+### 5. Inject fixed parameters
 
-### Static Query Parameters
+Static values are not part of the model's input schema:
 
 ```yaml
 spec:
@@ -110,76 +98,34 @@ spec:
       static_query:
         count: "1"
         language: "en"
-        format: "json"
-```
-
-The LLM only sees `name` in the input schema. The request becomes `GET /search?name=London&count=1&language=en&format=json`.
-
-### Static Headers
-
-```yaml
-spec:
-  http:
-    url: "https://api.example.com/data"
-    method: GET
-    request:
       static_headers:
         X-Api-Version: "2024-01"
-        Accept: "application/json"
 ```
 
-### Static Body Fields
+The request is `GET /v1/search?count=1&language=en&name=London`. For POST, PUT and PATCH, `static_body` merges fixed fields into the JSON body. A static value replaces an argument with the same key.
 
-Merge fixed fields into the JSON body for POST/PUT/PATCH requests:
+### 6. Filter the response
 
-```yaml
-spec:
-  http:
-    url: "https://api.example.com/data"
-    method: POST
-    request:
-      static_body:
-        api_version: "v2"
-        format: "json"
-```
-
-LLM-provided body fields and static body fields are merged. Static fields do not override LLM-provided fields with the same key.
-
-## Response Mapping
-
-### Filter Response Fields
-
-Use JMESPath to extract only the fields the LLM needs from large API responses:
+`response.body_mapping` is a JMESPath expression applied to the JSON response before the model sees it:
 
 ```yaml
-spec:
-  http:
-    url: "https://geocoding-api.open-meteo.com/v1/search"
-    method: GET
-    request:
-      query_params:
-        - name
-      static_query:
-        count: "1"
     response:
       body_mapping: "results[*].{name: name, latitude: latitude, longitude: longitude, country: country}"
 ```
 
-This reduced the geocoding response from ~3,400 bytes to ~87 bytes — a 97% reduction in tokens sent to the LLM.
+This reduced the geocoding response from ~3,400 bytes to ~87 bytes, a 97% reduction in tokens sent to the model. A response that is not JSON is wrapped in a JSON object first.
 
-### Common JMESPath Patterns
-
-| Pattern | Description |
-|---------|-------------|
+| Pattern | Result |
+|---------|--------|
 | `results[0]` | First element of an array |
-| `results[*].name` | Extract one field from each array element |
-| `results[*].{a: field_a, b: field_b}` | Pick specific fields from each element |
-| `{temp: current.temperature, wind: current.wind_speed}` | Reshape nested objects |
-| `data.items[?status=='active']` | Filter array elements |
+| `results[*].name` | One field from each element |
+| `results[*].{a: field_a, b: field_b}` | Selected fields from each element |
+| `{temp: current.temperature, wind: current.wind_speed}` | Reshaped nested object |
+| `data.items[?status=='active']` | Filtered elements |
 
-## Multimodal Responses
+### 7. Return binary responses (optional)
 
-Handle binary responses (images, audio, video) from HTTP APIs:
+Enable `multimodal` for APIs that return images, audio or video:
 
 ```yaml
 spec:
@@ -197,11 +143,11 @@ spec:
         - image/jpeg
 ```
 
-When `multimodal.enabled` is true, the executor detects binary Content-Type headers and returns the response as a `ContentPart` with base64-encoded data. If `accept_types` is empty, common image/audio/video types are auto-detected.
+When the response Content-Type matches, the executor returns it as a `ContentPart` with base64-encoded data. The JSON result is a summary with `type`, `content_type` and `size_bytes`. `accept_types` also sets the request's `Accept` header. If `accept_types` is empty, any `image/`, `audio/` or `video/` type matches.
 
-## Complete Example
+## Verify
 
-A weather tool with query routing, static params, and response filtering:
+A weather tool that combines query routing, static parameters and response filtering:
 
 ```yaml
 apiVersion: promptkit.altairalabs.ai/v1alpha1
@@ -246,7 +192,16 @@ spec:
       body_mapping: "{temperature_2m: current.temperature_2m, wind_speed_10m: current.wind_speed_10m, weather_code: current.weather_code}"
 ```
 
-## See Also
+Call the tool with `{"latitude": 51.5, "longitude": -0.12}`. The runtime logs `HTTP tool call` with the final URL, which carries the static parameters, and the result holds only the three mapped fields.
 
-- [Register Tools](/runtime/how-to/tools/integrate-mcp/) - MCP tool integration
-- [HTTP Tools SDK](/sdk/how-to/tools/http-tools/) - Programmatic HTTP tools with custom auth
+## Troubleshoot
+
+- The URL still contains `{{.user_id}}` or the arguments appear in the query string: add a `request` block.
+- An argument is missing from a GET request: list it under `query_params` or put it in the path.
+- The call fails with "URL templates may use arguments in the path and query": remove the template from the scheme, host or port.
+- `JMESPath expression ... failed`: test the expression against the raw response.
+
+## Related
+
+- [Integrate MCP](/runtime/how-to/tools/integrate-mcp/)
+- [HTTP Tools SDK](/sdk/how-to/tools/http-tools/)

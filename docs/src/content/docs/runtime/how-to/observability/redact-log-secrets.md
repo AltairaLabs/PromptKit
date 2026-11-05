@@ -1,40 +1,54 @@
 ---
-title: Redact Secrets from Logs
-description: Understand and use PromptKit's automatic API-key redaction in debug logs
+title: Redact secrets from logs
+description: Keep provider API keys and bearer tokens out of debug logs
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/logger/logger.go
 ---
 
-PromptKit's structured logger automatically redacts common secret patterns before writing debug
-logs, so provider API keys and bearer tokens don't end up in log output even when full request/
-response bodies are logged for debugging.
+Strip API keys and bearer tokens from strings before they reach your logs, using `logger.RedactSensitiveData`.
 
-## Automatic Redaction
+## Prerequisites
 
-Debug-level logging helpers such as `logger.APIRequest` run their input through
-`runtime/logger.RedactSensitiveData` before writing:
+- The runtime logger package: `github.com/AltairaLabs/PromptKit/runtime/v2/logger`.
 
-```go
-// API keys are redacted automatically
-logger.APIRequest("openai", "POST", url, headers, body)
-// Output: sk-1234...[REDACTED] instead of the full key
-```
+## Steps
 
-### Supported Patterns
+1. Use the API logging helpers for provider traffic. `logger.APIRequest` and `logger.APIResponse` write at debug level and redact the URL, header values and bodies before writing. Both return immediately when debug logging is off.
 
-| Pattern | Example | Redacted form |
-|---------|---------|----------------|
-| OpenAI keys | `sk-abc123...` | first 4 chars + `...[REDACTED]` |
-| Google keys | `AIzaXYZ...` | first 4 chars + `...[REDACTED]` |
-| Bearer tokens | `Bearer xyz...`, including dotted JWTs | `Bearer [REDACTED]` |
+   ```go
+   logger.APIRequest("openai", "POST", url, headers, body)
+   logger.APIResponse("openai", resp.StatusCode, string(respBody), nil)
+   ```
 
-## Manual Redaction
+2. Redact any other string you log yourself, such as in a custom hook or stage.
 
-Call `RedactSensitiveData` directly to sanitize a string before logging it yourself (e.g. in a
-custom hook or middleware):
+   ```go
+   logger.Debug("calling provider", "endpoint", logger.RedactSensitiveData(endpoint))
+   ```
+
+## Verify
+
+Redact a sample string and print it.
 
 ```go
-redacted := logger.RedactSensitiveData(sensitiveString)
+fmt.Println(logger.RedactSensitiveData("Authorization: Bearer abc123"))
+// Authorization: Bearer [REDACTED]
 ```
 
-## See Also
+`RedactSensitiveData` replaces three patterns:
 
-- [Logging Reference](/runtime/reference/logging/) — complete `logger` package API
+| Pattern | Matches | Result |
+|---|---|---|
+| OpenAI keys | `sk-` followed by 32 or more letters or digits | first 4 characters + `...[REDACTED]` |
+| Google keys | `AIza` followed by 35 letters, digits, `_` or `-` | first 4 characters + `...[REDACTED]` |
+| Bearer tokens | `Bearer`, whitespace, then an opaque, base64 or dotted JWT token | `Bearer [REDACTED]` |
+
+## Troubleshoot
+
+- A secret still appears in a log line: the function matches only the patterns above. Keys from other providers and values logged through `logger.Debug` or `logger.Info` are not redacted unless you pass them through `RedactSensitiveData`.
+
+## Related
+
+- [Logging reference](/runtime/reference/logging/)

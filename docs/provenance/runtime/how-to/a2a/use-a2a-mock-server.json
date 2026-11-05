@@ -1,0 +1,94 @@
+{
+ "page": "docs/src/content/docs/runtime/how-to/a2a/use-a2a-mock-server.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": "c1",
+   "claim": "Mock server is backed by httptest.Server",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/mock/mock.go:42-48"
+   ]
+  },
+  {
+   "id": "c10",
+   "claim": "URL() panics before Start",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/mock/mock.go:116-121"
+   ]
+  },
+  {
+   "id": "c11",
+   "claim": "Arena YAML a2a_agents key layout",
+   "verdict": "unverified",
+   "evidence": []
+  },
+  {
+   "id": "c2",
+   "claim": "First matching rule wins, rules evaluated in order",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/mock/mock.go:173-192"
+   ]
+  },
+  {
+   "id": "c3",
+   "claim": "Skill ID is read from message then request metadata skillId",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/mock/mock.go:198-210"
+   ]
+  },
+  {
+   "id": "c4",
+   "claim": "WithLatency delays each message/send response",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/mock/mock.go:166-168"
+   ]
+  },
+  {
+   "id": "c5",
+   "claim": "WithSkillError returns failed task with message in status message",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/mock/mock.go:183-185",
+    "runtime/a2a/mock/mock.go:230-241"
+   ]
+  },
+  {
+   "id": "c6",
+   "claim": "Config contains is case-insensitive; regex; both must match",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/mock/config.go:84-109"
+   ]
+  },
+  {
+   "id": "c7",
+   "claim": "RuleConfig has an error field returning a failed task",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/mock/config.go:22",
+    "runtime/a2a/mock/config.go:45-48"
+   ]
+  },
+  {
+   "id": "c8",
+   "claim": "A rule with an empty skill ID matches any request",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/mock/mock.go:174"
+   ]
+  },
+  {
+   "id": "c9",
+   "claim": "Unmatched request fails with 'no matching rule'",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/mock/mock.go:194"
+   ]
+  }
+ ]
+}

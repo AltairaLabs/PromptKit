@@ -1,518 +1,171 @@
 ---
-title: Manage State
+title: Manage state
+description: Persist conversation history across pipeline executions with a state store.
 sidebar:
   order: 4
+verified:
+  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  sources:
+    - runtime/pipeline/stage/stages_core.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/stages_save.go
+    - runtime/pipeline/types.go
+    - runtime/statestore/interface.go
+    - runtime/statestore/memory.go
+    - runtime/statestore/redis.go
+    - runtime/statestore/types.go
 ---
-Persist conversation state across pipeline executions.
 
-## Goal
+Persist conversation history so each turn sees the earlier ones, across executions and processes.
 
-Store and retrieve conversation state for continuity.
+## Prerequisites
 
-## Quick Start
+- A provider. See [Set up providers](/runtime/how-to/providers/setup-providers/).
+- A pipeline built with `stage.NewPipelineBuilder`. See [Configure a pipeline](/runtime/how-to/pipeline/configure-pipeline/).
 
-### Step 1: Create State Store
+## 1. Create a state store
 
-```go
-import "github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
-
-// In-memory store (dev/testing)
-store := statestore.NewMemoryStore()
-
-// Redis store (production)
-store := statestore.NewRedisStore(redisClient)
-```
-
-### Step 2: Use Session IDs
-
-```go
-ctx := context.Background()
-
-// The conversation ID on the state config is the session ID. With the load
-// stage first and the save stage last, every Execute reads and writes history.
-stateConfig := &pipeline.StateStoreConfig{
-    Store:          store,
-    ConversationID: "user-123-conversation",
-}
-
-pipe, err := stage.NewPipelineBuilder().
-    Chain(
-        stage.NewStateStoreLoadStage(stateConfig),
-        stage.NewProviderStage(provider, nil, nil, nil),
-        stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: stateConfig}),
-    ).
-    Build()
-
-// First message - state auto-saved
-first := types.Message{Role: "user"}
-first.AddTextPart("Hi, I'm Alice")
-result, err := pipe.ExecuteSync(ctx, stage.NewMessageElement(&first))
-
-// Subsequent messages - state auto-loaded
-second := types.Message{Role: "user"}
-second.AddTextPart("What's my name?")
-result2, err := pipe.ExecuteSync(ctx, stage.NewMessageElement(&second))
-// Response: "Your name is Alice"
-```
-
-## In-Memory State Store
-
-### Basic Setup
+In-memory, for development, tests and single-instance servers:
 
 ```go
 store := statestore.NewMemoryStore()
+defer store.Close()
 ```
 
-**Use Cases**:
-- Development
-- Testing
-- Single-instance applications
-- Non-persistent sessions
-
-### Save and Load
+A memory store expires a conversation after one hour without use and holds at most 10,000 conversations, evicting the least recently used. Change the limits with options:
 
 ```go
-// Save state manually
-state := &statestore.ConversationState{
-    ID: "session-1",
-    Messages: []types.Message{
-        {Role: "user", Content: "Hello"},
-        {Role: "assistant", Content: "Hi there!"},
-    },
-}
-
-err := store.Save(ctx, state)
-if err != nil {
-    log.Fatal(err)
-}
-
-// Load state
-loaded, err := store.Load(ctx, "session-1")
-if err != nil {
-    log.Fatal(err)
-}
-
-for _, msg := range loaded.Messages {
-    log.Printf("%s: %s\n", msg.Role, msg.Content)
-}
+store := statestore.NewMemoryStore(
+	statestore.WithMemoryTTL(2*time.Hour),
+	statestore.WithMemoryMaxEntries(1000),
+)
 ```
 
-### Fork State
+`statestore.WithNoTTL()` and `statestore.WithNoMaxEntries()` remove a limit.
 
-```go
-// Fork creates a copy of the session state under a new session ID
-err := store.Fork(ctx, sourceSessionID, newSessionID)
-if err != nil {
-    log.Fatal(err)
-}
-```
-
-## Redis State Store
-
-### Basic Setup
+Redis, for production and multiple instances:
 
 ```go
 import "github.com/redis/go-redis/v9"
 
-redisClient := redis.NewClient(&redis.Options{
-    Addr: "localhost:6379",
+client := redis.NewClient(&redis.Options{
+	Addr:     os.Getenv("REDIS_HOST"),
+	Password: os.Getenv("REDIS_PASSWORD"),
 })
 
-store := statestore.NewRedisStore(redisClient)
-```
-
-### With Authentication and Options
-
-```go
-redisClient := redis.NewClient(&redis.Options{
-    Addr:     os.Getenv("REDIS_HOST"),
-    Password: os.Getenv("REDIS_PASSWORD"),
-    DB:       0,
-})
-
-store := statestore.NewRedisStore(redisClient,
-    statestore.WithTTL(24*time.Hour),
-    statestore.WithPrefix("myapp:"),
+store := statestore.NewRedisStore(client,
+	statestore.WithTTL(24*time.Hour), // default 24 hours; 0 disables expiry
+	statestore.WithPrefix("myapp"),   // default "promptkit"
 )
 ```
 
-### Connection Pooling
+For both stores the TTL slides: reading or writing a conversation extends it.
+
+## 2. Wire the store into the pipeline
+
+Put the load stage first and the save stage last. The conversation ID selects the history to load and save.
 
 ```go
-// Redis client auto-manages connection pool
-// Default settings work for most cases
-// For high load, tune Redis server config
-```
-
-### TTL and Expiration
-
-```go
-// Redis keys auto-expire based on server TTL settings
-// Set global TTL in Redis config:
-// config set maxmemory-policy volatile-lru
-
-// Or use EXPIRE in custom implementation:
-redisClient.Expire(ctx, key, 24*time.Hour)
-```
-
-## Complete Examples
-
-### Multi-User Chat
-
-```go
-package main
-
-import (
-    "context"
-    "log"
-    
-    "github.com/redis/go-redis/v9"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
-    "github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
-)
-
-func main() {
-    // Create Redis store
-    redisClient := redis.NewClient(&redis.Options{
-        Addr: "localhost:6379",
-    })
-    store := statestore.NewRedisStore(redisClient)
-
-    // Create provider
-    provider := openai.NewProvider(
-        "openai",
-        "gpt-4o-mini",
-        "",
-        providers.ProviderDefaults{Temperature: 0.7, MaxTokens: 2000},
-        false,
-    )
-    defer provider.Close()
-
-    ctx := context.Background()
-
-    // User 1 conversation - save state
-    state1 := &statestore.ConversationState{
-        ID:       "user-alice",
-        Messages: []types.Message{{Role: "user", Content: "My favorite color is blue"}},
-    }
-    store.Save(ctx, state1)
-
-    // User 2 conversation - separate state
-    state2 := &statestore.ConversationState{
-        ID:       "user-bob",
-        Messages: []types.Message{{Role: "user", Content: "I love pizza"}},
-    }
-    store.Save(ctx, state2)
-
-    // Load each user's state independently
-    loaded1, _ := store.Load(ctx, "user-alice")
-    log.Printf("User 1 messages: %d\n", len(loaded1.Messages))
-
-    loaded2, _ := store.Load(ctx, "user-bob")
-    log.Printf("User 2 messages: %d\n", len(loaded2.Messages))
+cfg := &pipeline.StateStoreConfig{
+	Store:          store,
+	ConversationID: "user-123-support",
+	UserID:         "user-123", // optional
 }
-```
 
-### Session Cleanup
-
-```go
-package main
-
-import (
-    "context"
-    "log"
-    "time"
-    
-    "github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
-)
-
-func cleanupOldSessions(store interface {
-    statestore.Store
-    statestore.BulkWriter
-}) {
-    // Redis TTL handles expiration automatically via WithTTL option
-    // For manual cleanup, load and re-save trimmed state
-    ctx := context.Background()
-    conversationIDs := []string{"old-session-1", "old-session-2"}
-
-    for _, id := range conversationIDs {
-        state, err := store.Load(ctx, id)
-        if err != nil {
-            log.Printf("Failed to load conversation %s: %v", id, err)
-            continue
-        }
-        // Trim old messages
-        if len(state.Messages) > 20 {
-            state.Messages = state.Messages[len(state.Messages)-20:]
-            if err := store.Save(ctx, state); err != nil {
-                log.Printf("Failed to save conversation %s: %v", id, err)
-            }
-        }
-    }
-}
-```
-
-## State Management Patterns
-
-### Session ID Strategy
-
-```go
-// User-based sessions
-sessionID := fmt.Sprintf("user-%s", userID)
-
-// Conversation-based sessions
-sessionID := fmt.Sprintf("conv-%s", conversationID)
-
-// Time-based sessions
-sessionID := fmt.Sprintf("user-%s-%s", userID, time.Now().Format("2006-01-02"))
-
-// Feature-based sessions
-sessionID := fmt.Sprintf("support-%s", ticketID)
-```
-
-### Context Window Management
-
-```go
-// Load existing state
-state, err := store.Load(ctx, conversationID)
+pipe, err := stage.NewPipelineBuilder().
+	Chain(
+		stage.NewStateStoreLoadStage(cfg),
+		stage.NewProviderStage(provider, nil, nil, nil),
+		stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: cfg}),
+	).
+	Build()
 if err != nil {
-    log.Fatal(err)
+	log.Fatal(err)
 }
-
-// Keep only recent messages (sliding window)
-maxMessages := 10
-if len(state.Messages) > maxMessages {
-    state.Messages = state.Messages[len(state.Messages)-maxMessages:]
-}
-
-// Save trimmed state
-err = store.Save(ctx, state)
 ```
 
-### Token Limit Management
+Each `ExecuteSync` loads the stored messages, sends them with the new message, and appends the new messages to the store:
 
 ```go
-// Load state
-state, _ := store.Load(ctx, conversationID)
+first := types.Message{Role: "user"}
+first.AddTextPart("Hi, I'm Alice")
+if _, err := pipe.ExecuteSync(ctx, stage.NewMessageElement(&first)); err != nil {
+	log.Fatal(err)
+}
 
-// Estimate and trim by token count
-// Rough estimate: 4 chars per token
-totalChars := 0
+second := types.Message{Role: "user"}
+second.AddTextPart("What's my name?")
+result, err := pipe.ExecuteSync(ctx, stage.NewMessageElement(&second))
+```
+
+The second call sends the first exchange to the model as history.
+
+## 3. Read the stored state
+
+```go
+state, err := store.Load(ctx, "user-123-support")
+if errors.Is(err, statestore.ErrNotFound) {
+	// No such conversation, or it expired.
+} else if err != nil {
+	return err
+}
 for _, msg := range state.Messages {
-    totalChars += len(msg.Content)
+	log.Printf("%s: %s", msg.Role, msg.GetContent())
 }
-estimatedTokens := totalChars / 4
-
-// Trim if too many tokens
-maxTokens := 4000
-for estimatedTokens > maxTokens && len(state.Messages) > 1 {
-    state.Messages = state.Messages[1:]
-    totalChars = 0
-    for _, msg := range state.Messages {
-        totalChars += len(msg.Content)
-    }
-    estimatedTokens = totalChars / 4
-}
-
-// Save trimmed state
-store.Save(ctx, state)
 ```
 
-### State Sharing (Fork)
+The load stage treats `ErrNotFound` as an empty history. Any other load error fails the turn.
+
+## 4. Branch a conversation
+
+`Fork` copies a conversation to a new ID and leaves the original unchanged. It returns `ErrNotFound` when the source does not exist.
 
 ```go
-// Fork state to a new session
-sourceSession := "user-123-original"
-targetSession := "user-123-new-topic"
-
-err := store.Fork(ctx, sourceSession, targetSession)
-if err != nil {
-    log.Fatal(err)
-}
+err := store.Fork(ctx, "user-123-support", "user-123-new-topic")
 ```
 
-## Error Handling
+## 5. Trim history
 
-### Connection Errors
+`Store` only reads and forks. Replacing a conversation needs the optional `BulkWriter` interface, which both built-in stores implement:
 
 ```go
-state, err := store.Load(ctx, conversationID)
-if err != nil {
-    log.Printf("Failed to load state: %v", err)
-    // Start with empty state
-    state = &statestore.ConversationState{ID: conversationID}
+func trim(ctx context.Context, store statestore.Store, id string, keep int) error {
+	state, err := store.Load(ctx, id)
+	if err != nil {
+		return err
+	}
+	if len(state.Messages) <= keep {
+		return nil
+	}
+	state.Messages = state.Messages[len(state.Messages)-keep:]
+	writer, ok := store.(statestore.BulkWriter)
+	if !ok {
+		return errors.New("store does not support replacing state")
+	}
+	return writer.Save(ctx, state)
 }
 ```
 
-### Save Failures
+Run `trim` between turns, not during one.
 
-```go
-err := store.Save(ctx, state)
-if err != nil {
-    log.Printf("Warning: Failed to save state: %v", err)
-    // Continue execution, state may be lost
-}
-```
+## Verify
 
-### Retry Logic
+After two turns, `store.Load` returns four messages: user, assistant, user, assistant. A `Load` for an ID you never used returns `statestore.ErrNotFound`. With Redis, `redis-cli keys 'myapp:*'` lists the conversation's keys.
 
-```go
-func saveWithRetry(store statestore.BulkWriter, state *statestore.ConversationState, maxRetries int) error {
-    ctx := context.Background()
+## Troubleshoot
 
-    for i := 0; i < maxRetries; i++ {
-        err := store.Save(ctx, state)
-        if err == nil {
-            return nil
-        }
+History does not carry over: use the same `ConversationID` for every turn, and check that the load stage comes before the provider stage and the save stage after it.
 
-        log.Printf("Save failed (attempt %d/%d): %v", i+1, maxRetries, err)
-        time.Sleep(time.Second * time.Duration(i+1))
-    }
+History disappears: the conversation expired. Raise the TTL (`WithMemoryTTL` or `WithTTL`) or disable it.
 
-    return fmt.Errorf("failed after %d retries", maxRetries)
-}
-```
+The memory store grows too large: lower `WithMemoryMaxEntries`, trim long conversations, or move to Redis.
 
-## Troubleshooting
+Redis connection fails: confirm the server answers `redis-cli ping` and that `Addr` and `Password` are correct. A failed connection fails the turn at the load stage.
 
-### Issue: State Not Persisting
+## Related
 
-**Problem**: Messages not saved between requests.
-
-**Solutions**:
-
-1. Verify store is properly initialized:
-   ```go
-   store := statestore.NewMemoryStore()
-   // or
-   store := statestore.NewRedisStore(redisClient)
-   ```
-
-2. Check session ID consistency:
-   ```go
-   // Use the same ConversationID for both calls
-   stateConfig := &pipeline.StateStoreConfig{Store: store, ConversationID: "user-123"}
-   ```
-
-3. Verify store connection:
-
-   ```go
-   // Test save/load
-   testState := &statestore.ConversationState{ID: "test-session"}
-   store.Save(ctx, testState)
-   loaded, err := store.Load(ctx, "test-session")
-   if err != nil {
-       log.Fatal("Store not working")
-   }
-   ```
-   
-
-### Issue: Redis Connection Failed
-
-**Problem**: Cannot connect to Redis.
-
-**Solutions**:
-
-1. Check Redis is running:
-   ```bash
-   redis-cli ping
-   # Should return: PONG
-   ```
-
-2. Verify connection details:
-   ```go
-   redisClient := redis.NewClient(&redis.Options{
-       Addr: "localhost:6379",
-   })
-   store := statestore.NewRedisStore(redisClient)
-   ```
-
-3. Test network connectivity:
-   ```bash
-   telnet localhost 6379
-   ```
-
-### Issue: Memory Growth
-
-**Problem**: In-memory store consuming too much memory.
-
-**Solutions**:
-
-1. Switch to Redis for production
-2. Implement periodic cleanup
-3. Limit messages per conversation:
-   ```go
-   state, _ := store.Load(ctx, conversationID)
-   if len(state.Messages) > 50 {
-       state.Messages = state.Messages[len(state.Messages)-50:]
-       store.Save(ctx, state)
-   }
-   ```
-
-## Best Practices
-
-1. **Use Redis for production**:
-   ```go
-   // Production
-   redisClient := redis.NewClient(&redis.Options{
-       Addr: os.Getenv("REDIS_URL"),
-   })
-   store := statestore.NewRedisStore(redisClient)
-
-   // Development
-   store := statestore.NewMemoryStore()
-   ```
-
-2. **Use TTL for Redis store**:
-   ```go
-   store := statestore.NewRedisStore(redisClient, statestore.WithTTL(24*time.Hour))
-   ```
-
-3. **Use descriptive session IDs**:
-   ```go
-   // Good
-   sessionID := fmt.Sprintf("user-%s-support", userID)
-   
-   // Bad
-   sessionID := "session1"
-   ```
-
-4. **Implement session cleanup**:
-   ```go
-   // Set Redis TTL
-   config set maxmemory-policy volatile-lru
-   
-   // Or periodic cleanup
-   go cleanupOldSessions(store, 24*time.Hour)
-   ```
-
-5. **Handle state errors gracefully**:
-   ```go
-   state, err := store.Load(ctx, conversationID)
-   if err != nil {
-       log.Printf("State load failed: %v", err)
-       state = &statestore.ConversationState{ID: conversationID}  // Start fresh
-   }
-   ```
-
-6. **Manage context window**:
-   ```go
-   // Trim old messages
-   maxMessages := 20
-   if len(state.Messages) > maxMessages {
-       state.Messages = state.Messages[len(state.Messages)-maxMessages:]
-   }
-   ```
-
-## Next Steps
-
-- [Handle Errors](/runtime/how-to/pipeline/handle-errors/) - Error management
-- [Monitor Costs](/runtime/how-to/observability/monitor-costs/) - Track usage
-- [Configure Pipeline](/runtime/how-to/pipeline/configure-pipeline/) - Complete setup
-
-## See Also
-
-- [StateStore Reference](/runtime/reference/statestore/) - Complete API
-- [Pipeline Reference](/runtime/reference/pipeline/) - Middleware order
+- [Handle errors](/runtime/how-to/pipeline/handle-errors/)
+- [Monitor costs](/runtime/how-to/observability/monitor-costs/)
+- [Configure a pipeline](/runtime/how-to/pipeline/configure-pipeline/)
+- [State store reference](/runtime/reference/statestore/)
+- [Pipeline reference](/runtime/reference/pipeline/)

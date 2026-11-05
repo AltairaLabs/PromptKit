@@ -1,0 +1,114 @@
+{
+ "page": "docs/src/content/docs/runtime/how-to/state/manage-state.md",
+ "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "MemoryStore defaults: TTL 1 hour, max 10,000 entries, LRU eviction; options WithMemoryTTL, WithMemoryMaxEntries, WithNoTTL, WithNoMaxEntries; Close()",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/memory.go:106",
+    "runtime/statestore/memory.go:119",
+    "runtime/statestore/memory.go:196",
+    "runtime/statestore/memory.go:56",
+    "runtime/statestore/memory.go:61",
+    "runtime/statestore/memory.go:86",
+    "runtime/statestore/memory.go:95"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "NewRedisStore(client, WithTTL, WithPrefix); default TTL 24h, 0 disables, default prefix promptkit",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/redis.go:53",
+    "runtime/statestore/redis.go:54",
+    "runtime/statestore/redis.go:62",
+    "runtime/statestore/redis.go:77"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "TTL slides: reading or writing a conversation extends it, for both stores",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/memory.go:74",
+    "runtime/statestore/redis.go:43"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Redis keys are <prefix>:conversation:<id>:...",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/redis.go:697",
+    "runtime/statestore/redis.go:707"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "pipeline.StateStoreConfig has Store, ConversationID, UserID",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/types.go:175"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "NewStateStoreLoadStage, NewProviderStage(provider,nil,nil,nil), NewIncrementalSaveStage(&IncrementalSaveConfig{StateStoreConfig}) chain loads and appends history",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_core.go:166",
+    "runtime/pipeline/stage/stages_provider.go:276",
+    "runtime/pipeline/stage/stages_save.go:23",
+    "runtime/pipeline/stage/stages_save.go:60"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "Load stage treats ErrNotFound as empty history; other load errors fail the turn",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_core.go:263",
+    "runtime/pipeline/stage/stages_core.go:264"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Store has Load and Fork only; BulkWriter.Save replaces state; both built-in stores implement it",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/interface.go:18",
+    "runtime/statestore/interface.go:35",
+    "runtime/statestore/memory.go:236",
+    "runtime/statestore/redis.go:290"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Fork copies a conversation to a new ID, leaves original unchanged, returns ErrNotFound for missing source",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/interface.go:22",
+    "runtime/statestore/memory.go:273",
+    "runtime/statestore/redis.go:511"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "ConversationState.Messages and Message.GetContent exist",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/types.go:20"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "Page snippets compile and behave as described (two turns -> four messages; trim; fork; redis)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/memory.go:170"
+   ]
+  }
+ ]
+}
