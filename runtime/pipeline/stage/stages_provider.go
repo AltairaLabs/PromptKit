@@ -3653,45 +3653,14 @@ func classifyToolError(err error) types.ToolErrorType {
 func (s *ProviderStage) collectProviderDescriptors(
 	allowedTools []string, excluded map[string]bool,
 ) []*providers.ToolDescriptor {
-	seen := make(map[string]bool)
-	var descriptors []*providers.ToolDescriptor
-	add := func(tool *tools.ToolDescriptor) {
-		seen[tool.Name] = true
-		if s.config != nil && s.config.DescribeTool != nil {
-			if tool = s.config.DescribeTool(tool); tool == nil {
-				return
-			}
-		}
-		descriptors = append(descriptors, &providers.ToolDescriptor{
-			Name:        tool.Name,
-			Description: tool.Description,
-			InputSchema: tool.InputSchema,
-		})
-	}
+	c := &descriptorCollector{stage: s, excluded: excluded, seen: make(map[string]bool)}
 
 	// 1. Pack-declared tools from the prompt's allowed list (slice order). An
 	//    entry ending in "*" (e.g. mcp__server__*) is a wildcard expanded against
 	//    the registry: MCP servers reveal their tool sets only at connection time,
 	//    so authors can't enumerate exact names (issue #1578).
 	for _, entry := range allowedTools {
-		if strings.HasSuffix(entry, "*") {
-			s.toolRegistry.IterateTools(func(name string, tool *tools.ToolDescriptor) {
-				if seen[name] || excluded[name] || !tools.MatchToolPattern(entry, name) {
-					return
-				}
-				add(tool)
-			})
-			continue
-		}
-		if excluded[entry] {
-			continue
-		}
-		tool, err := s.toolRegistry.GetTool(entry)
-		if err != nil {
-			logger.Warn("Tool not found in registry", "tool", entry, "error", err)
-			continue
-		}
-		add(tool)
+		c.addAllowedEntry(entry)
 	}
 
 	// 2. Implicit capability tools (skill__, a2a__, workflow__, memory__, media),
@@ -3699,16 +3668,71 @@ func (s *ProviderStage) collectProviderDescriptors(
 	//    stable. MCP tools are NOT implicit: they surface only via an explicit
 	//    allowed_tools entry in loop 1 above (issue #1578).
 	s.toolRegistry.IterateTools(func(name string, tool *tools.ToolDescriptor) {
-		if seen[name] || excluded[name] || !tools.IsImplicitTool(name) {
+		if c.skip(name) || !tools.IsImplicitTool(name) {
 			return
 		}
-		add(tool)
+		c.add(tool)
 	})
 
-	sort.Slice(descriptors, func(i, j int) bool {
-		return descriptors[i].Name < descriptors[j].Name
+	sort.Slice(c.descriptors, func(i, j int) bool {
+		return c.descriptors[i].Name < c.descriptors[j].Name
 	})
-	return descriptors
+	return c.descriptors
+}
+
+// descriptorCollector accumulates one provider call's tool descriptors,
+// skipping excluded and already-added names and applying the configured
+// DescribeTool to each.
+type descriptorCollector struct {
+	stage       *ProviderStage
+	excluded    map[string]bool
+	seen        map[string]bool
+	descriptors []*providers.ToolDescriptor
+}
+
+// skip reports whether name is excluded or already collected.
+func (c *descriptorCollector) skip(name string) bool {
+	return c.seen[name] || c.excluded[name]
+}
+
+// addAllowedEntry adds the tool an allowed_tools entry names, expanding a
+// trailing "*" wildcard against the registry.
+func (c *descriptorCollector) addAllowedEntry(entry string) {
+	reg := c.stage.toolRegistry
+	if strings.HasSuffix(entry, "*") {
+		reg.IterateTools(func(name string, tool *tools.ToolDescriptor) {
+			if c.skip(name) || !tools.MatchToolPattern(entry, name) {
+				return
+			}
+			c.add(tool)
+		})
+		return
+	}
+	if c.excluded[entry] {
+		return
+	}
+	tool, err := reg.GetTool(entry)
+	if err != nil {
+		logger.Warn("Tool not found in registry", "tool", entry, "error", err)
+		return
+	}
+	c.add(tool)
+}
+
+// add records tool, passing it through DescribeTool when one is configured;
+// a nil result withholds the tool.
+func (c *descriptorCollector) add(tool *tools.ToolDescriptor) {
+	c.seen[tool.Name] = true
+	if cfg := c.stage.config; cfg != nil && cfg.DescribeTool != nil {
+		if tool = cfg.DescribeTool(tool); tool == nil {
+			return
+		}
+	}
+	c.descriptors = append(c.descriptors, &providers.ToolDescriptor{
+		Name:        tool.Name,
+		Description: tool.Description,
+		InputSchema: tool.InputSchema,
+	})
 }
 
 // grantedTools returns the currently granted tool names, sorted, or nil when
