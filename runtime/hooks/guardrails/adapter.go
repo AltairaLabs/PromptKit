@@ -218,10 +218,8 @@ func (a *GuardrailHookAdapter) BeforeCall(
 	if !d.Allow {
 		// Supply the user-facing text for the canned assistant turn the
 		// pipeline returns in place of the blocked call.
-		req.Replacement = a.message
-		if req.Replacement == "" {
-			req.Replacement = prompt.DefaultBlockedMessage
-		}
+		replacement, _ := d.Metadata[evals.ResultDetailReplacement].(string)
+		req.Replacement = a.blockText(replacement)
 	}
 	return d
 }
@@ -389,7 +387,7 @@ func (a *GuardrailHookAdapter) evaluateMessage(
 
 	if thresholds.Triggered(result) {
 		if enforceTarget != nil {
-			a.enforce(enforceTarget, params)
+			a.enforce(enforceTarget, params, evals.ResultReplacement(result))
 		}
 		d := a.enforced(result)
 		if timedOut {
@@ -445,7 +443,7 @@ func (a *GuardrailHookAdapter) OnChunk(
 		// Deltas already emitted to a consumer cannot be recalled — that is
 		// inherent to streaming — but the accumulated content the stage keeps,
 		// which becomes the assistant message, is corrected here.
-		chunk.Content = a.enforcedContent(chunk.Content, params)
+		chunk.Content = a.enforcedContent(chunk.Content, params, evals.ResultReplacement(result))
 		return a.enforced(result)
 	}
 
@@ -453,8 +451,9 @@ func (a *GuardrailHookAdapter) OnChunk(
 }
 
 // enforce modifies the message content based on the validator type.
-func (a *GuardrailHookAdapter) enforce(msg *types.Message, params map[string]any) {
-	msg.Content = a.enforcedContent(msg.Content, params)
+// replacement is the check's own replacement text, or "" for none.
+func (a *GuardrailHookAdapter) enforce(msg *types.Message, params map[string]any, replacement string) {
+	msg.Content = a.enforcedContent(msg.Content, params, replacement)
 }
 
 // enforcedContent returns the content that should replace the offending text.
@@ -468,7 +467,7 @@ func (a *GuardrailHookAdapter) enforce(msg *types.Message, params map[string]any
 // Getting that wrong leaked the banned text: a chunk check fired on a substring,
 // the stream stopped, and the final check then judged the same content clean
 // under word_boundary mode and left it in place (#1697).
-func (a *GuardrailHookAdapter) enforcedContent(content string, params map[string]any) string {
+func (a *GuardrailHookAdapter) enforcedContent(content string, params map[string]any, replacement string) string {
 	if maxLen := extractMaxLen(params); maxLen > 0 && len(content) > maxLen {
 		logger.Info("Guardrail enforced: truncating content",
 			"type", a.evalType, "original_length", len(content), "max_length", maxLen)
@@ -476,21 +475,34 @@ func (a *GuardrailHookAdapter) enforcedContent(content string, params map[string
 	}
 
 	// Content blocker — replace with the user-facing message.
-	blockedMsg := a.message
-	if blockedMsg == "" {
-		blockedMsg = prompt.DefaultBlockedMessage
-	}
 	logger.Info("Guardrail enforced: content blocked", "type", a.evalType)
-	return blockedMsg
+	return a.blockText(replacement)
+}
+
+// blockText is the user-facing text that replaces a blocked turn: the
+// validator's message, else the check's own replacement (see
+// evals.ResultDetailReplacement), else the default blocked message.
+func (a *GuardrailHookAdapter) blockText(replacement string) string {
+	if a.message != "" {
+		return a.message
+	}
+	if replacement != "" {
+		return replacement
+	}
+	return prompt.DefaultBlockedMessage
 }
 
 // enforced builds an Enforced decision from an EvalResult.
 func (a *GuardrailHookAdapter) enforced(result *evals.EvalResult) hooks.Decision {
-	return a.withDeclaration(hooks.Enforced(result.Explanation, map[string]any{
+	metadata := map[string]any{
 		metadataKeyValidatorType: a.evalType,
 		"score":                  result.Score,
 		"value":                  result.Value,
-	}))
+	}
+	if r := evals.ResultReplacement(result); r != "" {
+		metadata[evals.ResultDetailReplacement] = r
+	}
+	return a.withDeclaration(hooks.Enforced(result.Explanation, metadata))
 }
 
 // withDeclaration adds the validator's pack declaration to a firing's

@@ -709,13 +709,13 @@ Params:
 | `disallowed` | string[] | none | Explicit exclusions. |
 | `small_talk` | `allow` \| `deny` | `allow` | Whether greetings, thanks and pleasantries that match no listed subject count as in scope. |
 | `examples.allowed`, `examples.disallowed` | string[] | none | A labeled corpus folded into the prompt. |
-| `on_deny` | `block` \| `respond` | `block` | Recorded in the result `Details`. Both values block the turn and substitute `message`. |
+| `on_deny` | `block` \| `respond` | `block` | What replaces a denied turn. Both skip the agent for an input check and replace its reply for an output check. `block` answers with `message`, else the generic blocked message. `respond` answers with the policy's own response, naming the allowed subjects: `I can only help with: Omnia and PromptKit; licensing and support.` A `message` you set still wins under `respond`. |
 | `on_unknown` | `deny` \| `allow` | `deny` | Outcome when the classifier answers but gives no usable label, or the turn has no text to judge. |
 | `on_error` | `deny` \| `allow` | `deny` | Outcome when the classifier cannot be reached or parsed, including when no provider is bound. |
 | `recent_turns` | int (>= 0) | `4` | How many prior `user` and `assistant` turns to send for reference resolution. `0` judges the current message alone. |
 | `provider` | string | none | A logical provider name this pack declares in `requires`. Empty uses the host's default topic classifier. |
 | `direction` | `input` \| `output` \| `both` | `input` | `topic_policy` is the one check type whose default direction is not `output`. |
-| `message` | string | generic blocked message | The user-facing text for a denied turn. Normally the validator's top-level `message:` field; also accepted in `params`. |
+| `message` | string | generic blocked message (`on_deny: block`) or the policy's response (`on_deny: respond`) | The user-facing text for a denied turn. Normally the validator's top-level `message:` field; also accepted in `params`. |
 
 Behavior:
 

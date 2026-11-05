@@ -100,6 +100,22 @@ func (t ScoreThresholds) Triggered(result *EvalResult) bool {
 	return false
 }
 
+// ResultDetailReplacement is the EvalResult.Details key under which a check
+// supplies the text that replaces a turn it denies, when the check itself
+// decides what to answer (topic_policy's on_deny: respond). A guardrail uses it
+// when the validator sets no message of its own.
+const ResultDetailReplacement = "replacement"
+
+// ResultReplacement returns the replacement text a result supplies under
+// ResultDetailReplacement, or "" when it supplies none.
+func ResultReplacement(result *EvalResult) string {
+	if result == nil {
+		return ""
+	}
+	s, _ := result.Details[ResultDetailReplacement].(string)
+	return s
+}
+
 // extractOptionalFloat64 extracts a float64 from params, handling int->float64.
 func extractOptionalFloat64(params map[string]any, key string) *float64 {
 	v, ok := params[key]
