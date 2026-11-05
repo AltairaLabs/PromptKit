@@ -3788,6 +3788,9 @@ func WithMetricRecorder(r evals.MetricRecorder) Option {
 // times to register skills from multiple directories — sources are processed
 // in order and the first source to register a given skill name wins.
 //
+// Directories added here are merged with the skills the pack declares; neither
+// replaces the other.
+//
 // This is a thin convenience over [WithSkillSource] for the common case of a
 // plain directory with no MountAs. For virtual-path mounting, preloading, or
 // inline skill definitions, use [WithSkillSource] directly.

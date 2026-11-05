@@ -149,6 +149,31 @@ func (c *SkillsCapability) NewActiveSet() *skills.ActiveSet {
 	return set
 }
 
+// preloadedInstructions renders the instructions of the preloaded skills that
+// are active in set, ready to append to the system prompt. A preloaded skill the
+// conversation has since deactivated — or that a workflow state's filter
+// dropped — is left out, so its instructions leave the prompt with its tools.
+// Empty when there are none.
+func (c *SkillsCapability) preloadedInstructions(set *skills.ActiveSet) string {
+	if c.executor == nil || set == nil || len(c.preload) == 0 {
+		return ""
+	}
+	active := set.Names()
+	var sections []string
+	for _, name := range c.preload {
+		if !slices.Contains(active, name) {
+			continue
+		}
+		// Already active, so this returns the instructions without changing the set.
+		act, err := c.executor.ActivateIn(set, name)
+		if err != nil || act.Instructions == "" {
+			continue
+		}
+		sections = append(sections, "## Skill: "+name+"\n\n"+act.Instructions)
+	}
+	return strings.Join(sections, "\n\n")
+}
+
 // RegisterTools registers the skill management tools into the registry.
 func (c *SkillsCapability) RegisterTools(registry *tools.Registry) {
 	if c.executor == nil {

@@ -137,6 +137,20 @@ type TemplateStage struct {
 	// every subsequent element. Required: PipelineBuilder.Build rejects a
 	// TemplateStage without one (ErrTurnStateRequired).
 	turnState *TurnState
+
+	// systemPromptSuffix, when set, returns text appended to the rendered system
+	// prompt on every render. See WithSystemPromptSuffix.
+	systemPromptSuffix func() string
+}
+
+// WithSystemPromptSuffix makes the stage append fn's text to every system
+// prompt it renders, separated by a blank line. fn runs once per render (once
+// per Send), so it may read state that changes between turns. An empty result
+// appends nothing. The suffix is added after variable substitution, so it is
+// not itself a template.
+func (s *TemplateStage) WithSystemPromptSuffix(fn func() string) *TemplateStage {
+	s.systemPromptSuffix = fn
+	return s
 }
 
 // NewTemplateStage creates a template substitution stage with no TurnState.
@@ -275,13 +289,20 @@ func (s *TemplateStage) renderSystemTemplate(
 		return wrapped
 	}
 
-	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(result.Text)))
-	s.turnState.SystemPrompt = result.Text
+	text := result.Text
+	if s.systemPromptSuffix != nil {
+		if suffix := s.systemPromptSuffix(); suffix != "" {
+			text += "\n\n" + suffix
+		}
+	}
+
+	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(text)))
+	s.turnState.SystemPrompt = text
 
 	if s.emitter != nil {
 		s.emitter.TemplateRendered(&events.TemplateRenderedData{
 			TaskType:        taskType,
-			SystemPrompt:    result.Text,
+			SystemPrompt:    text,
 			PromptHash:      hash,
 			VariablesUsed:   result.UsedVars,
 			UnusedVariables: result.UnusedVars,
