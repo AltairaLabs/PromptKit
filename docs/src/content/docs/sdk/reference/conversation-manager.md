@@ -6379,7 +6379,7 @@ type RelevanceConfig struct {
     AlwaysKeepSystemRole bool
 
     // SimilarityThreshold is the minimum score (0.0-1.0) to consider a message relevant.
-    // Messages below this threshold are dropped first. Default: 0.0 (no threshold)
+    // Messages that are not protected and score below it are dropped. Default: 0.0 (no threshold)
     SimilarityThreshold float64
 
     // QuerySource determines what text to compare messages against.
