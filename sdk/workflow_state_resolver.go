@@ -110,6 +110,13 @@ type workflowStateResolver struct {
 	// because ResolveCurrentState re-renders on every execution, including
 	// resumes long after the transition committed and cleared the record.
 	contextSummary string
+
+	// systemPromptSuffix is the text TemplateStage appends to every prompt it
+	// renders (the conversation's preloaded skill instructions). The handoff
+	// appends it too: the stage compares this render against the prompt it has
+	// loaded, and a render without the suffix never matches, so the suffix was
+	// stripped before every round of a workflow conversation.
+	systemPromptSuffix func() string
 }
 
 func newWorkflowStateResolver(
@@ -133,6 +140,7 @@ func (r *workflowStateResolver) withConversation(conv *Conversation) *workflowSt
 	r.pack = conv.pack
 	r.cfg = conv.config
 	r.model = conv.callModel()
+	r.systemPromptSuffix = conv.preloadedSkillInstructions
 	return r
 }
 
@@ -222,6 +230,7 @@ func (r *workflowStateResolver) ResolveCurrentState(_ context.Context) (stage.Ha
 	if err != nil {
 		return stage.Handoff{}, err
 	}
+	systemPrompt = r.withSuffix(systemPrompt)
 	return stage.Handoff{
 		Valid:        true,
 		SystemPrompt: systemPrompt,
@@ -306,6 +315,19 @@ func (r *workflowStateResolver) renderState(
 		return tmpl.RawTemplate, tmpl.AllowedTools, nil //nolint:nilerr // deliberate degrade
 	}
 	return rendered.Text, tmpl.AllowedTools, nil
+}
+
+// withSuffix appends the conversation's system prompt suffix exactly as
+// TemplateStage does (stage.TemplateStage.WithSystemPromptSuffix), so the
+// handoff's render and the stage's render agree for the same state.
+func (r *workflowStateResolver) withSuffix(systemPrompt string) string {
+	if r.systemPromptSuffix == nil {
+		return systemPrompt
+	}
+	if suffix := r.systemPromptSuffix(); suffix != "" {
+		return systemPrompt + "\n\n" + suffix
+	}
+	return systemPrompt
 }
 
 // CurrentStateMeta implements stage.WorkflowStateResolver. The returned map is
