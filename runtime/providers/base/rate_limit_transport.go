@@ -44,21 +44,48 @@ func NewRequestLimiter(requestsPerSecond float64, burst int) *rate.Limiter {
 // client's Timeout here: http.Client.Timeout puts a deadline on the request
 // before any RoundTripper runs, which would make the wait eat the timeout and
 // refuse every request whose turn is further off than the timeout.
+//
+// Authorize, when set, applies the sender's credential to a copy of each
+// request after its wait ends and before it is sent. A provider that signs or
+// attaches its credential while building the request sets it, so a SigV4
+// signature or a bearer token is never older than the wait. It must be safe to
+// apply to a request that already carries the credential: it replaces it. An
+// Authorize error fails the request without sending it. Redirect hops are not
+// re-authorized, so a redirect to another host never receives the credential.
 type RateLimitTransport struct {
-	Next    http.RoundTripper
-	Limiter *rate.Limiter
-	Timeout time.Duration
+	Next      http.RoundTripper
+	Limiter   TokenWaiter
+	Timeout   time.Duration
+	Authorize func(ctx context.Context, req *http.Request) error
+}
+
+// TokenWaiter is what RateLimitTransport waits on before each request: it
+// returns once the request may be sent, or with an error when the request's
+// context ends first. *rate.Limiter implements it.
+type TokenWaiter interface {
+	Wait(ctx context.Context) error
 }
 
 // RoundTrip implements http.RoundTripper.
 func (t *RateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if t.Limiter != nil {
+	if hasLimiter(t.Limiter) {
 		if err := waitForToken(req.Context(), t.Limiter); err != nil {
-			if req.Body != nil {
-				_ = req.Body.Close()
-			}
+			closeBody(req)
 			return nil, err
 		}
+	}
+	// A redirect hop (req.Response set) is left as http.Client built it: the
+	// client strips the credential when the redirect leaves the original
+	// host, and re-authorizing would put it back.
+	if t.Authorize != nil && req.Response == nil {
+		// Clone before applying: the RoundTripper contract forbids modifying
+		// the caller's request.
+		authed := req.Clone(req.Context())
+		if err := t.Authorize(authed.Context(), authed); err != nil {
+			closeBody(req)
+			return nil, err
+		}
+		req = authed
 	}
 	next := t.Next
 	if next == nil {
@@ -82,10 +109,25 @@ func (t *RateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error
 
 func useLastResponse(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 
+func closeBody(req *http.Request) {
+	if req.Body != nil {
+		_ = req.Body.Close()
+	}
+}
+
+// hasLimiter reports whether w waits at all: a nil interface or a nil
+// *rate.Limiter in it both mean unlimited.
+func hasLimiter(w TokenWaiter) bool {
+	if l, ok := w.(*rate.Limiter); ok {
+		return l != nil
+	}
+	return w != nil
+}
+
 // waitForToken waits for one token. rate.Limiter.Wait fails at once, without
 // a context error, when the token would arrive after the deadline; that case
 // is reported as ErrRateLimitPastDeadline wrapping context.DeadlineExceeded.
-func waitForToken(ctx context.Context, limiter *rate.Limiter) error {
+func waitForToken(ctx context.Context, limiter TokenWaiter) error {
 	err := limiter.Wait(ctx)
 	if err == nil {
 		return nil

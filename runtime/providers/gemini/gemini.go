@@ -107,13 +107,15 @@ func (p *Provider) setCapabilities(capabilities []string) {
 func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool) *Provider {
 	baseProvider, apiKey := providers.NewBaseProviderWithAPIKey(id, includeRawOutput, "GEMINI_API_KEY", "GOOGLE_API_KEY")
 
-	return &Provider{
+	p := &Provider{
 		BaseProvider: baseProvider,
 		model:        model,
 		baseURL:      baseURL,
 		apiKey:       apiKey,
 		defaults:     defaults,
 	}
+	p.SetRequestAuth(p.applyAuth)
+	return p
 }
 
 // NewProviderWithCredential creates a new Gemini provider with explicit credential.
@@ -135,7 +137,7 @@ func NewProviderWithCredential(
 		baseURL = vertexGeminiEndpoint(platformConfig.Region, platformConfig.Project)
 	}
 
-	return &Provider{
+	p := &Provider{
 		BaseProvider:   baseProvider,
 		model:          model,
 		baseURL:        baseURL,
@@ -145,6 +147,10 @@ func NewProviderWithCredential(
 		platform:       platform,
 		platformConfig: platformConfig,
 	}
+	// Under a rate limit the credential is applied again after each wait, so
+	// a Vertex token is never older than the wait.
+	p.SetRequestAuth(p.applyAuth)
+	return p
 }
 
 // isVertex returns true if this provider is hosted on Google Vertex AI.

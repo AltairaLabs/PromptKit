@@ -350,6 +350,10 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 	if p.isAzure() || p.isBedrock() {
 		p.apiMode = APIModeCompletions
 	}
+	// Under a rate limit the credential is applied again after each wait, so
+	// an Azure or Vertex token or a SigV4 signature is never older than the
+	// wait.
+	p.SetRequestAuth(p.applyAuth)
 	return p
 }
 
