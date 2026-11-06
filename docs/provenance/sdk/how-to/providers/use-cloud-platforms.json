@@ -1,0 +1,85 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/providers/use-cloud-platforms.md",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "WithBedrock, WithVertex and WithAzure signatures",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:898",
+    "sdk/options.go:922",
+    "sdk/options.go:947"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "Bedrock credential: role ARN beats profile beats the default chain",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:820",
+    "sdk/options.go:835",
+    "sdk/platform_credential.go:37"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Vertex credential: service account key file, else Application Default Credentials",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:850",
+    "sdk/platform_credential.go:58"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Azure credential: client secret beats managed identity client ID beats the default chain; an empty client ID selects nothing",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:866",
+    "sdk/options.go:880",
+    "sdk/platform_credential.go:77"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Credential errors are prefixed bedrock credentials, vertex credentials and azure credentials",
+   "verdict": "true",
+   "evidence": [
+    "sdk/platform_credential.go:46",
+    "sdk/platform_credential.go:64",
+    "sdk/platform_credential.go:90"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "WithPlatformRegion, WithPlatformProject, WithPlatformEndpoint; Bedrock/Vertex endpoint replaces the base URL; Azure defers to the openai factory",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:791",
+    "sdk/options.go:798",
+    "sdk/options.go:805",
+    "sdk/sdk.go:678"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "Bedrock model names are mapped through the Bedrock model mapping; Vertex base URL differs by provider type",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:620",
+    "sdk/sdk.go:696"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Default chains: AWS (IRSA, instance profile, env), GCP ADC, Azure (managed identity, CLI)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/aws_integration.go:35",
+    "runtime/credentials/azure_integration.go:22",
+    "runtime/credentials/gcp_integration.go:23"
+   ]
+  }
+ ]
+}

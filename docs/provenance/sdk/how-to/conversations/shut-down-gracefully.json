@@ -1,0 +1,54 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/conversations/shut-down-gracefully.md",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "GracefulShutdown waits for SIGTERM or SIGINT then calls Shutdown with the timeout, and returns afterward",
+   "verdict": "true",
+   "evidence": [
+    "sdk/shutdown.go:150",
+    "sdk/shutdown.go:158"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "WithShutdownManager makes Open and OpenDuplex register the conversation, and Close deregisters it",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:1874",
+    "sdk/options.go:4044",
+    "sdk/sdk.go:368"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "After Shutdown, Register returns ErrShutdownManagerClosed and Open closes the conversation and returns an error wrapping it",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:369",
+    "sdk/shutdown.go:17",
+    "sdk/shutdown.go:50"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Shutdown closes at most 100 conversations at a time, returns the ctx error on deadline, otherwise joins Close errors with errors.Join",
+   "verdict": "true",
+   "evidence": [
+    "sdk/shutdown.go:73",
+    "sdk/shutdown.go:83"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Register accepts any io.Closer; Deregister is safe for unknown IDs; Len returns the tracked count",
+   "verdict": "true",
+   "evidence": [
+    "sdk/shutdown.go:138",
+    "sdk/shutdown.go:50",
+    "sdk/shutdown.go:63"
+   ]
+  }
+ ]
+}

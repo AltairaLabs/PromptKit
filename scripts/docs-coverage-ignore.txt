@@ -1,2 +1,32 @@
 # Public-surface files that deliberately have no docs page (one path per line).
 # scripts/docs-coverage.sh skips these.
+
+# pkg/config: provider YAML loader used by promptarena, which owns that config file.
+pkg/config/compat.go
+# pkg/config: package comment only.
+pkg/config/config.go
+# pkg/config: path-resolution helpers for the arena loader.
+pkg/config/helpers.go
+# pkg/config: manifest accessor methods that satisfy an internal interface.
+pkg/config/manifest_helpers.go
+# pkg/config: VoiceBinding type for arena persona voices.
+pkg/config/voice.go
+
+# sdk: unexported adapters that wrap a Conversation for server/a2a. The server pages document the surface.
+sdk/a2a_server_adapter.go
+# sdk: WorkflowCapability is inferred from pack.Workflow and registers workflow__transition, with no option of its own.
+sdk/capability_workflow.go
+# sdk: package comment; the generated Conversation reference renders it.
+sdk/doc.go
+# sdk: unexported reference counting for a conversation's event bus.
+sdk/event_bus_ref.go
+# sdk: unexported registration of image__generate and video__generate; the tools live in runtime/mediagen.
+sdk/mediagen_tools.go
+# sdk: constructors for building a Response in tests outside the package.
+sdk/response_export.go
+# sdk: unexported workflow event emission.
+sdk/workflow_events.go
+# sdk: unexported resolver that hands a tool-loop round to the destination workflow state.
+sdk/workflow_state_resolver.go
+# sdk: unexported helpers for explicit workflow transitions.
+sdk/workflow_transition.go

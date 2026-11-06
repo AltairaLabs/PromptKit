@@ -854,8 +854,9 @@ func WithGCPServiceAccount(keyPath string) PlatformOption {
 }
 
 // WithAzureManagedIdentity configures Azure Managed Identity for authentication.
-// The clientID is optional — pass an empty string to use system-assigned identity,
-// or a client ID for user-assigned identity.
+// A non-empty clientID selects that user-assigned identity. An empty string
+// selects nothing: the SDK then uses the default credential chain, which
+// includes the system-assigned identity.
 //
 //	conv, _ := sdk.Open("./chat.pack.json", "assistant",
 //	    sdk.WithAzure("https://my-resource.openai.azure.com", "openai", "gpt-4o",

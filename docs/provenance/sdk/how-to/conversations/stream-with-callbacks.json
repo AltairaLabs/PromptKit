@@ -1,0 +1,42 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/conversations/stream-with-callbacks.md",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "OnStreamEvent stores one handler on the conversation; a second call replaces it",
+   "verdict": "true",
+   "evidence": [
+    "sdk/stream_events.go:66"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "StreamWithCallback streams, calls the handler per event, and returns the complete response; returns nil and the error when a chunk carries one",
+   "verdict": "true",
+   "evidence": [
+    "sdk/stream_events.go:80",
+    "sdk/stream_events.go:87"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Events: TextDeltaEvent{Delta}, ClientToolRequestEvent{CallID, ToolName, Args, ConsentMsg, Categories}, StreamDoneEvent{Response}",
+   "verdict": "true",
+   "evidence": [
+    "sdk/stream_events.go:12",
+    "sdk/stream_events.go:21",
+    "sdk/stream_events.go:41"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Tool-call and media chunks produce no event; with no handler chunks are discarded and the final response returned",
+   "verdict": "true",
+   "evidence": [
+    "sdk/stream_events.go:112",
+    "sdk/stream_events.go:92"
+   ]
+  }
+ ]
+}

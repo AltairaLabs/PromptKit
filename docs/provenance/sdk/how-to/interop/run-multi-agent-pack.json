@@ -1,0 +1,77 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/interop/run-multi-agent-pack.md",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "OpenMultiAgent requires an agents section with members and an entry, applies options to every agent, opens members first then the entry, and closes opened members if a later open fails",
+   "verdict": "true",
+   "evidence": [
+    "sdk/multi_agent_open.go:16",
+    "sdk/multi_agent_open.go:64",
+    "sdk/multi_agent_open.go:75"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "A member with state runs the workflow from that state; otherwise it runs the prompt named by its key",
+   "verdict": "true",
+   "evidence": [
+    "runtime/packspec/types.go:60",
+    "sdk/multi_agent_open.go:113"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Members listed in the agent's prompt tools, bare or a2a-qualified, resolve to agent tools with a required query argument",
+   "verdict": "true",
+   "evidence": [
+    "sdk/agent_resolver.go:105",
+    "sdk/agent_resolver.go:131",
+    "sdk/capability_a2a.go:84"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "MultiAgentSession Send, Entry, Members (copy), Close (errors.Join); Agent interface Send and Close",
+   "verdict": "true",
+   "evidence": [
+    "sdk/multi_agent.go:11",
+    "sdk/multi_agent.go:25",
+    "sdk/multi_agent.go:30",
+    "sdk/multi_agent.go:40",
+    "sdk/multi_agent_open.go:37"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "LocalAgentExecutor is named a2a; takes {query}, returns {response}; resolves the bare member name; unknown member errors; 5 minute timeout without a deadline",
+   "verdict": "true",
+   "evidence": [
+    "sdk/local_agent_executor.go:16",
+    "sdk/local_agent_executor_impl.go:21",
+    "sdk/local_agent_executor_impl.go:25",
+    "sdk/local_agent_executor_impl.go:41"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "Only the entry agent receives the local executor; members open with plain options; WithA2AToolExecutor attaches a custom executor registered as a2a",
+   "verdict": "true",
+   "evidence": [
+    "sdk/multi_agent_open.go:106",
+    "sdk/multi_agent_open.go:85",
+    "sdk/options.go:2459"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "The entry agent gets the LocalAgentExecutor; NewLocalAgentExecutor takes a map of Agents",
+   "verdict": "true",
+   "evidence": [
+    "sdk/local_agent_executor.go:11",
+    "sdk/multi_agent_open.go:103"
+   ]
+  }
+ ]
+}

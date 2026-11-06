@@ -20,6 +20,9 @@ Task-focused guides for the PromptKit SDK. Each page assumes you have a conversa
 - [Manage Context](/sdk/how-to/conversations/manage-context/): configure token budgets and truncation for long conversations
 - [Memory and Grounding](/sdk/how-to/conversations/use-memory/): give the model memory tools or inject retrieved content into the prompt
 - [Use RuntimeConfig](/sdk/how-to/conversations/use-runtime-config/): load providers, tools, MCP servers, hooks, state store and logging from one YAML file
+- [Stream with typed event callbacks](/sdk/how-to/conversations/stream-with-callbacks/): handle text deltas and tool requests with `OnStreamEvent`
+- [Shut down conversations gracefully](/sdk/how-to/conversations/shut-down-gracefully/): close every open conversation on SIGTERM with a `ShutdownManager`
+- [Handle SDK errors](/sdk/how-to/conversations/handle-errors/): match `ValidationError`, `ProviderError`, `PackError` and the sentinel errors
 
 ## Tools
 
@@ -29,6 +32,7 @@ Task-focused guides for the PromptKit SDK. Each page assumes you have a conversa
 - [Define Exec Tools](/sdk/how-to/tools/exec-tools/): bind tools to external subprocesses in any language
 - [Configure MCP Servers](/sdk/how-to/tools/configure-mcp/): connect MCP tool servers with `NewMCPServer()` and `WithMCPServer()`
 - [Override Capability Tool Definitions](/sdk/how-to/tools/override-capability-tools/): patch the descriptors that memory, workflow and A2A register
+- [Resolve MCP Server Endpoints at Runtime](/sdk/how-to/tools/resolve-mcp-endpoints/): declare servers by name and supply URLs with `WithMCPEndpoints`
 
 ## Hooks
 
@@ -42,12 +46,16 @@ Task-focused guides for the PromptKit SDK. Each page assumes you have a conversa
 - [Bring Your Own Inference Provider](/sdk/how-to/providers/bring-your-own-classifier/): plug a custom classifier into the SDK
 - [Configure Embedding Providers Declaratively](/sdk/how-to/providers/declarative-embedding-providers/): set up embeddings from RuntimeConfig YAML
 - [Configure TTS / STT Providers Declaratively](/sdk/how-to/providers/declarative-tts-stt-providers/): set up speech synthesis and transcription from RuntimeConfig YAML
+- [Rerank Retrieved Candidates](/sdk/how-to/providers/use-rerank-provider/): reorder candidates by relevance with `WithRerankProvider`
+- [Run Models on Bedrock, Vertex AI or Azure](/sdk/how-to/providers/use-cloud-platforms/): host a provider on a cloud platform and choose its credential
 
 ## Voice
 
 - [Choose a voice mode](/sdk/how-to/voice/choose-voice-mode/): open a duplex session in VAD mode or ASM mode
 - [Configure text-to-speech](/sdk/how-to/voice/configure-tts/): pick a TTS service, set the voice and format, and stream synthesis
 - [Handle turns, barge-in and transcripts](/sdk/how-to/voice/handle-turns-and-barge-in/): stream live audio, tune turn endings and flush playback on barge-in
+- [Monitor audio in a voice session](/sdk/how-to/voice/monitor-audio/): read the user's and the agent's audio with `WithAudioMonitor`
+- [Ingest several audio tracks into one agent](/sdk/how-to/voice/ingest-multiple-tracks/): feed named tracks to one agent with `MultiTrackIngestion`
 
 ## Multimodal
 
@@ -58,6 +66,7 @@ Task-focused guides for the PromptKit SDK. Each page assumes you have a conversa
 
 - [Connect A2A Agents](/sdk/how-to/interop/connect-a2a-agents/): register remote A2A agents with `NewA2AAgent()` and `WithA2AAgent()`
 - [Choose an A2A Server Mode](/sdk/how-to/interop/choose-a2a-server-mode/): decide whether the A2A server or your platform owns conversations
+- [Run a Multi-Agent Pack in Process](/sdk/how-to/interop/run-multi-agent-pack/): open an entry agent and its members with `OpenMultiAgent`
 
 ## Observability and evals
 

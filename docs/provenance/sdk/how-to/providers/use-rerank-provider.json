@@ -1,0 +1,65 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/providers/use-rerank-provider.md",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "WithRerankProvider builds a rerank provider from a ProviderSpec; unknown types fail with the registered types named; a provider file with role rerank declares the same",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/rerank_factory.go:81",
+    "sdk/options.go:3093",
+    "sdk/provider_file.go:73"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "Supported types voyageai and cohere, with API keys from VOYAGE_API_KEY and COHERE_API_KEY",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/cohere/rerank.go:95",
+    "runtime/providers/cohere/rerank_register.go:7",
+    "runtime/providers/voyageai/rerank.go:86",
+    "runtime/providers/voyageai/rerank_register.go:7",
+    "sdk/runtime_config.go:28"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Nothing in the pipeline calls the reranker; RerankProvider returns the provider, and an error when none is configured",
+   "verdict": "true",
+   "evidence": [
+    "sdk/rerank.go:20"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "RerankRequest fields Query (required), Documents, TopN (zero means all), Model; empty Documents returns empty result; empty Query is an error",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/rerank.go:15",
+    "runtime/providers/rerank.go:81"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Results ordered best first; Index is the position in Documents; Score not comparable across providers; MaxDocuments reports per-call limit",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/rerank.go:51",
+    "runtime/providers/rerank.go:81"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "RerankProvider returns the first declared, RerankProviderByID returns by ID or errors listing IDs, RerankProviderIDs in declaration order",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:3119",
+    "sdk/rerank.go:20",
+    "sdk/rerank.go:30",
+    "sdk/rerank.go:44"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,97 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/voice/monitor-audio.md",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "WithAudioMonitor(AudioMonitorOptions) validates Mode and Rate and returns an error for values outside auto/on/off and 16000/24000/48000; Rate 0 means 24000",
+   "verdict": "true",
+   "evidence": [
+    "sdk/audio_monitor.go:62",
+    "sdk/options.go:1284"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "Mode auto monitors when stdout is a terminal; on always; off never; unset means auto",
+   "verdict": "true",
+   "evidence": [
+    "sdk/audio_monitor.go:55",
+    "sdk/audio_monitor.go:78",
+    "sdk/options.go:1242"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Conversation.AudioMonitor returns a receive channel of AudioMonitorFrame, nil when monitoring is off",
+   "verdict": "true",
+   "evidence": [
+    "sdk/audio_monitor.go:197",
+    "sdk/audio_monitor.go:214"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "AudioMonitorFrame fields Direction, Samples (mono PCM16, receiver-owned copy), SampleRate, Level, Timestamp",
+   "verdict": "true",
+   "evidence": [
+    "sdk/audio_monitor.go:39"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Direction input is the user's audio before the provider, output is the agent's audio; taps sit before the provider stage and after the provider stage",
+   "verdict": "true",
+   "evidence": [
+    "sdk/audio_monitor.go:30",
+    "sdk/internal/pipeline/builder.go:549",
+    "sdk/internal/pipeline/builder.go:596"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "Only PCM16 audio produces frames; chunks are resampled to Rate when the source rate differs",
+   "verdict": "true",
+   "evidence": [
+    "sdk/audio_monitor.go:110",
+    "sdk/audio_monitor.go:157"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "Level is RMS from 0 to 1 and set only when LevelMeter is true",
+   "verdict": "true",
+   "evidence": [
+    "sdk/audio_monitor.go:127",
+    "sdk/audio_monitor.go:175"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "LocalSink and SSEPlayback are hints for the host; the SDK has no audio device and runs no HTTP server",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:1252",
+    "sdk/options.go:1256"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Channel buffer holds 256 frames; a frame that finds it full is dropped",
+   "verdict": "true",
+   "evidence": [
+    "sdk/audio_monitor.go:133",
+    "sdk/audio_monitor.go:22"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Conversation.Close closes the monitor channel",
+   "verdict": "true",
+   "evidence": [
+    "sdk/audio_monitor.go:147",
+    "sdk/conversation.go:1647"
+   ]
+  }
+ ]
+}
