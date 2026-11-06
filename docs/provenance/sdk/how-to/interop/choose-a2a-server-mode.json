@@ -1,14 +1,14 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/interop/choose-a2a-server-mode.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "NewServer takes a ConversationOpener; NewStatelessServer takes a MessageHandler",
    "verdict": "true",
    "evidence": [
-    "server/a2a/handler.go:93",
-    "server/a2a/server.go:269"
+    "server/a2a/handler.go:97",
+    "server/a2a/server.go:276"
    ]
   },
   {
@@ -16,8 +16,8 @@
    "claim": "NewServer opens a conversation per contextID, caches it, reuses it, expires it on a TTL",
    "verdict": "true",
    "evidence": [
-    "server/a2a/server.go:1229",
-    "server/a2a/server.go:167"
+    "server/a2a/server.go:1225",
+    "server/a2a/server.go:173"
    ]
   },
   {
@@ -41,8 +41,10 @@
    "claim": "sdk.A2AOpener(pack, prompt) returns an opener; WithCard, WithPort, WithTaskStore options",
    "verdict": "true",
    "evidence": [
-    "sdk/a2a.go:10",
-    "server/a2a/server.go:101"
+    "sdk/a2a.go:12",
+    "server/a2a/server.go:102",
+    "server/a2a/server.go:112",
+    "server/a2a/server.go:117"
    ]
   },
   {
@@ -50,7 +52,7 @@
    "claim": "Two callers presenting the same contextID share a conversation unless WithTaskOwner scopes tasks",
    "verdict": "true",
    "evidence": [
-    "server/a2a/server.go:1235-1241"
+    "server/a2a/server.go:1231-1237"
    ]
   },
   {
@@ -68,7 +70,7 @@
    "verdict": "true",
    "evidence": [
     "sdk/a2a_exports.go:13",
-    "server/a2a/server.go:116"
+    "server/a2a/server.go:117"
    ]
   },
   {
@@ -76,7 +78,7 @@
    "claim": "Handler() returns http.Handler serving agent card, POST /a2a, /healthz, /readyz",
    "verdict": "true",
    "evidence": [
-    "server/a2a/server.go:318-326"
+    "server/a2a/server.go:328-335"
    ]
   },
   {
@@ -84,7 +86,7 @@
    "claim": "Card at /.well-known/agent-card.json; a card with no interfaces points at /a2a on that host",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:266",
+    "runtime/a2a/client.go:277",
     "server/a2a/protocol.go:129-140"
    ]
   },
@@ -93,7 +95,7 @@
    "claim": "WithCardProvider option exists",
    "verdict": "true",
    "evidence": [
-    "server/a2a/server.go:106"
+    "server/a2a/server.go:107"
    ]
   },
   {
@@ -101,9 +103,9 @@
    "claim": "Event kinds EventText, EventMedia, EventClientTool, EventPending, EventDone; Error set fails the turn; EventClientTool moves task to input_required",
    "verdict": "true",
    "evidence": [
-    "server/a2a/conversation.go:44-67",
-    "server/a2a/handler.go:142-177",
-    "server/a2a/server.go:1016-1023"
+    "server/a2a/conversation.go:57-93",
+    "server/a2a/server.go:1012-1018",
+    "server/a2a/server_stream.go:262-276"
    ]
   },
   {
@@ -111,7 +113,7 @@
    "claim": "message/send: text is concatenation of text events; parts one per text run and one per media event",
    "verdict": "true",
    "evidence": [
-    "server/a2a/handler.go:188-209"
+    "server/a2a/handler.go:192-213"
    ]
   },
   {
@@ -119,7 +121,7 @@
    "claim": "ToolResultHandler lets caller tool results come back; stateless server without it refuses tool-result messages",
    "verdict": "true",
    "evidence": [
-    "server/a2a/handler.go:55-63",
+    "server/a2a/handler.go:56-64",
     "server/a2a/handler_send.go:25-29"
    ]
   },
@@ -128,7 +130,7 @@
    "claim": "WithTaskOwner: GetTask, CancelTask, SubscribeToTask answer TaskNotFound for others; ListTasks returns caller's tasks, works without contextId; empty owner refused with 401",
    "verdict": "true",
    "evidence": [
-    "server/a2a/ownership.go:39-51",
+    "server/a2a/ownership.go:39-48",
     "server/a2a/server.go:1155-1164",
     "server/a2a/server.go:583-588"
    ]
@@ -138,7 +140,7 @@
    "claim": "Without WithTaskOwner ListTasks requires a contextId",
    "verdict": "true",
    "evidence": [
-    "server/a2a/server.go:1160-1164"
+    "server/a2a/server.go:1156-1160"
    ]
   },
   {
@@ -147,7 +149,7 @@
    "verdict": "true",
    "evidence": [
     "server/a2a/ownership.go:112-132",
-    "server/a2a/server.go:1236"
+    "server/a2a/server.go:1232"
    ]
   },
   {
@@ -163,9 +165,9 @@
    "claim": "NewServer panics if WithTaskOwner is given a store that cannot record owners",
    "verdict": "false",
    "evidence": [
-    "server/a2a/handler.go:93-96",
+    "server/a2a/handler.go:97-100",
     "server/a2a/ownership.go:68-75",
-    "server/a2a/server.go:297"
+    "server/a2a/server.go:303"
    ]
   },
   {
@@ -174,7 +176,7 @@
    "verdict": "true",
    "evidence": [
     "server/a2a/ownership.go:140-164",
-    "server/a2a/server.go:1120-1137"
+    "server/a2a/server.go:1116-1133"
    ]
   },
   {
@@ -183,7 +185,7 @@
    "verdict": "true",
    "evidence": [
     "server/a2a/ownership.go:154-176",
-    "server/a2a/server.go:304"
+    "server/a2a/server.go:310"
    ]
   },
   {

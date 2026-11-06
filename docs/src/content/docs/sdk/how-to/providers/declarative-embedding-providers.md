@@ -4,7 +4,7 @@ description: Declare embedding providers in RuntimeConfig YAML and wire them int
 sidebar:
   order: 19
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - pkg/config/runtime_config.go
     - runtime/credentials/resolver.go
@@ -118,7 +118,7 @@ A `nil` result means every provider builds. It resolves credentials but does not
 | Error | Cause |
 |---|---|
 | `unsupported embedding provider type: <type>` | The `type` has no registered factory. `LoadRuntimeConfig` does not check it; the error appears when `Open` or `ValidateOptions` applies the option. |
-| `an embedding provider is configured for retrieval ... which also requires WithContextWindow and WithStateStore` | An embedding provider is declared and the conversation lacks a context window, a state store, or both. The message names the missing options. |
+| `an embedding provider is configured for retrieval ... which also requires WithContextWindow and WithStateStore (or state_store in the runtime config)` | An embedding provider is declared and the conversation lacks a context window, a state store, or both. The message names the missing options. |
 | `duplicate provider id within role "embedding"` | Two embedding entries share an effective ID (the `id`, or the `type` when `id` is empty). `LoadRuntimeConfig` reports it, and also rejects an entry with no `type`. |
 | `embedding provider "<id>": duplicate ID` | The same ID appears under `role: embedding` and in the top-level `embedding_providers:` block. |
 

@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/observability/monitor-events.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -21,7 +21,7 @@
    "verdict": "false",
    "evidence": [
     "sdk/hooks/events.go:23",
-    "sdk/sdk.go:710"
+    "sdk/sdk.go:721"
    ]
   },
   {
@@ -29,7 +29,8 @@
    "claim": "message.created needs no EventStore, WithRecording or state store",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_message_broadcast.go:85",
+    "runtime/pipeline/stage/stages_message_broadcast.go:14-18",
+    "runtime/pipeline/stage/stages_message_broadcast.go:86-102",
     "sdk/sdk.go:710"
    ]
   },
@@ -38,7 +39,7 @@
    "claim": "A hooks handler stops when the conversation and forks sharing its bus close, also on a supplied bus",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1819",
+    "sdk/conversation.go:1902",
     "sdk/hooks/events.go:29"
    ]
   },
@@ -47,7 +48,7 @@
    "claim": "bus.Subscribe returns its own unsubscribe function",
    "verdict": "true",
    "evidence": [
-    "runtime/events/bus.go:157"
+    "runtime/events/bus.go:156"
    ]
   },
   {
@@ -55,8 +56,8 @@
    "claim": "message.created publishes each complete message: user turn, each tool round, final answer; Index is transcript-absolute; history not re-published",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_message_broadcast.go:132",
-    "runtime/pipeline/stage/stages_message_broadcast.go:38"
+    "runtime/pipeline/stage/stages_message_broadcast.go:113-125",
+    "runtime/pipeline/stage/stages_message_broadcast.go:30-34"
    ]
   },
   {
@@ -65,7 +66,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/events/message_created_data.go:91",
-    "runtime/events/types.go:580"
+    "runtime/events/types.go:590"
    ]
   },
   {
@@ -73,8 +74,8 @@
    "claim": "Arrival order is not publish order; the bus dispatches through a worker pool",
    "verdict": "false",
    "evidence": [
-    "runtime/events/bus.go:245",
-    "runtime/events/bus.go:39"
+    "runtime/events/bus.go:244",
+    "runtime/events/bus.go:38"
    ]
   },
   {
@@ -82,8 +83,8 @@
    "claim": "The bus is lossy under burst: events can be dropped",
    "verdict": "true",
    "evidence": [
-    "runtime/events/bus.go:353",
-    "runtime/events/bus.go:590"
+    "runtime/events/bus.go:352",
+    "runtime/events/bus.go:589"
    ]
   },
   {
@@ -91,7 +92,7 @@
    "claim": "Listed EventType constants and their string values exist",
    "verdict": "true",
    "evidence": [
-    "runtime/events/types.go:166",
+    "runtime/events/types.go:176",
     "runtime/events/types.go:19"
    ]
   },
@@ -100,8 +101,8 @@
    "claim": "ValidationEventData fields ValidatorName, Score (0-1), Enforced, Violations, Duration",
    "verdict": "true",
    "evidence": [
-    "runtime/events/types.go:386",
-    "runtime/events/types.go:394"
+    "runtime/events/types.go:396",
+    "runtime/events/types.go:404"
    ]
   },
   {
@@ -109,7 +110,7 @@
    "claim": "Event struct has Type, Timestamp, RunID, SessionID, ConversationID, Data",
    "verdict": "false",
    "evidence": [
-    "runtime/events/types.go:175"
+    "runtime/events/types.go:185"
    ]
   },
   {
@@ -117,8 +118,8 @@
    "claim": "TemplateRenderedData fields TaskType, SystemPrompt, PromptHash, VariablesUsed, UnusedVariables, FragmentsUsed, RenderPasses; TemplateFailedData Error, UnresolvedPlaceholders",
    "verdict": "true",
    "evidence": [
-    "runtime/events/types.go:1159",
-    "runtime/events/types.go:1171"
+    "runtime/events/types.go:1169",
+    "runtime/events/types.go:1181"
    ]
   },
   {
@@ -126,9 +127,9 @@
    "claim": "metrics.NewCollector(metrics.CollectorOpts{Registerer, Namespace, ConstLabels, InstanceLabels}) and sdk.WithMetrics(collector, labels) and collector.Registry()",
    "verdict": "true",
    "evidence": [
-    "runtime/metrics/collector.go:203",
-    "runtime/metrics/collector.go:269",
-    "sdk/options.go:1287"
+    "runtime/metrics/collector.go:211",
+    "runtime/metrics/collector.go:277",
+    "sdk/options.go:1332"
    ]
   },
   {
@@ -136,7 +137,7 @@
    "claim": "Pipeline metric names and labels table ({ns}_provider_requests_total etc.)",
    "verdict": "unverified",
    "evidence": [
-    "runtime/metrics/collector.go:287"
+    "runtime/metrics/collector.go:295"
    ]
   },
   {
@@ -144,7 +145,7 @@
    "claim": "Eval metric types gauge/counter/histogram/boolean behavior",
    "verdict": "unverified",
    "evidence": [
-    "runtime/metrics/collector.go:203"
+    "runtime/metrics/collector.go:211"
    ]
   },
   {
@@ -152,8 +153,8 @@
    "claim": "CollectorOpts defaults: Registerer DefaultRegisterer, Namespace promptkit",
    "verdict": "true",
    "evidence": [
-    "runtime/metrics/collector.go:203",
-    "runtime/metrics/collector.go:48"
+    "runtime/metrics/collector.go:211",
+    "runtime/metrics/collector.go:56"
    ]
   },
   {
@@ -167,7 +168,7 @@
    "claim": "Session recording example at /sdk/examples/session-recording/ gives a lossless record with full binary",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:735"
+    "sdk/sdk.go:746"
    ]
   },
   {
@@ -175,7 +176,8 @@
    "claim": "Close waits for in-flight pipeline events to reach subscribers",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1569"
+    "sdk/conversation.go:1633-1638",
+    "sdk/conversation.go:1709-1723"
    ]
   },
   {
@@ -183,8 +185,8 @@
    "claim": "A bus listener whose calls exceed the subscriber timeout three times is disabled",
    "verdict": "true",
    "evidence": [
-    "runtime/events/bus.go:129",
-    "runtime/events/bus.go:144"
+    "runtime/events/bus.go:128",
+    "runtime/events/bus.go:143"
    ]
   },
   {
@@ -192,7 +194,7 @@
    "claim": "A supplied bus is left open by Close; the caller closes it",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1573"
+    "sdk/conversation.go:1633-1638"
    ]
   },
   {
@@ -200,7 +202,7 @@
    "claim": "Every validation event payload is *events.ValidationEventData; hooks.OnValidationFailed delivers only name and error",
    "verdict": "true",
    "evidence": [
-    "runtime/events/types.go:383",
+    "runtime/events/types.go:393",
     "sdk/hooks/events.go:85"
    ]
   },
@@ -209,7 +211,7 @@
    "claim": "Page Go snippets compile and run against sdk.Open with a mock provider",
    "verdict": "true",
    "evidence": [
-    "runtime/events/types.go:1159",
+    "runtime/events/types.go:1169",
     "sdk/hooks/events.go:53"
    ]
   },
@@ -218,7 +220,7 @@
    "claim": "Event payload for provider.call.completed feeds OnProviderCall; each handler sees events in publish order",
    "verdict": "true",
    "evidence": [
-    "runtime/events/bus.go:245",
+    "runtime/events/bus.go:244",
     "sdk/hooks/events.go:103"
    ]
   }

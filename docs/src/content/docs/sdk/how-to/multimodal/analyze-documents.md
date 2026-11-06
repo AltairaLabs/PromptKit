@@ -4,12 +4,11 @@ description: How to send PDF documents to an LLM for analysis
 sidebar:
   order: 50
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/providers/base_provider.go
     - runtime/providers/claude/claude_multimodal.go
     - runtime/providers/gemini/gemini_multimodal.go
-    - runtime/pipeline/stage/stages_provider.go
     - runtime/providers/media_loader.go
     - runtime/providers/multimodal.go
     - runtime/providers/openai/openai_multimodal.go
@@ -68,7 +67,7 @@ Attach PDF documents to a message so the model can summarize, compare or extract
    )
    ```
 
-3. To compare documents, or to combine a document with other media, pass several options. A single message accepts up to 20 media items.
+3. To compare documents, or to combine a document with other media, pass several options.
 
    ```go
    resp, err := conv.Send(ctx, "List all changes between version 1 and version 2",
@@ -121,7 +120,6 @@ Before each provider call, the SDK checks every attachment against the modalitie
 | `<provider-id>: unsupported document format: <mime> (part N)` | The provider does not take this document type. Claude takes PDF only. Convert the file before sending. |
 | `<provider-id>: provider does not support document inputs (part N)` | The provider takes no documents: OpenAI, Ollama and vLLM do not. Use Claude or Gemini. |
 | `file size N bytes exceeds maximum M bytes for <path>` | The file is over the 50 MB per-file limit the media loader applies. |
-| `media item limit exceeded` | The message carries more than 20 media items. |
 
 The providers declare their own document size limits: 32 MB for Claude and 20 MB for Gemini. The check does not apply these limits, so a larger file within the 50 MB loader limit reaches the provider, which rejects it.
 

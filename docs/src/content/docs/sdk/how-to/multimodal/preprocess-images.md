@@ -4,7 +4,7 @@ description: Resize and compress images in the SDK before they reach the provide
 sidebar:
   order: 7
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/media/image.go
     - runtime/pipeline/stage/stages_image_preprocess.go
@@ -75,7 +75,7 @@ The defaults apply to `WithImagePreprocessing(nil)`, `WithAutoResize` and `stage
 
 ## Choose the output format
 
-The SDK decodes JPEG, PNG, GIF and WebP input. It encodes JPEG or PNG output. With `Format` empty, a resized PNG stays PNG and any other input is re-encoded as JPEG. Set `Format` to `"jpeg"` or `"png"` when you accept GIF or WebP input, so the bytes and the MIME type agree.
+The SDK decodes JPEG, PNG, GIF and WebP input. It encodes JPEG or PNG output. With `Format` empty, a resized PNG stays PNG and any other input is re-encoded as JPEG. Any format other than PNG, requested or preserved, is written as JPEG, and the reported format and MIME type describe the bytes produced. A resized GIF or WebP is therefore always JPEG.
 
 ## Compress for constrained clients
 

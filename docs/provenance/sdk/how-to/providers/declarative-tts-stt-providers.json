@@ -1,14 +1,14 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/providers/declarative-tts-stt-providers.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "Entries under spec.providers with role tts/stt declare providers",
    "verdict": "true",
    "evidence": [
-    "sdk/provider_file.go:64",
-    "sdk/provider_file.go:66"
+    "sdk/provider_file.go:65",
+    "sdk/provider_file.go:67"
    ]
   },
   {
@@ -32,10 +32,10 @@
    "claim": "First declared tts/stt entry becomes the default ttsService/sttService unless WithTTS or WithVADMode set one",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:2529",
-    "sdk/options.go:2799",
-    "sdk/options.go:2837",
-    "sdk/options.go:3063"
+    "sdk/options.go:2695-2699",
+    "sdk/options.go:2954-2984",
+    "sdk/options.go:2992-3023",
+    "sdk/options.go:3242-3258"
    ]
   },
   {
@@ -43,9 +43,10 @@
    "claim": "WithTTS and WithVADMode win over the YAML default",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:2529",
-    "sdk/options.go:2799",
-    "sdk/options.go:3063"
+    "sdk/options.go:2695-2699",
+    "sdk/options.go:2980",
+    "sdk/options.go:3018",
+    "sdk/options.go:3242-3258"
    ]
   },
   {
@@ -63,8 +64,8 @@
    "claim": "The same ID in both spellings is rejected",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:2775",
-    "sdk/runtime_config.go:409"
+    "sdk/options.go:2956",
+    "sdk/runtime_config.go:411"
    ]
   },
   {

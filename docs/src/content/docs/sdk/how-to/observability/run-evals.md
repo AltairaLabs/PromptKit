@@ -4,8 +4,9 @@ description: Score a conversation snapshot with sdk.Evaluate(), supply judges, a
 sidebar:
   order: 7
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
+    - runtime/evals/handlers/audio_emotion.go
     - runtime/evals/handlers/exec_handler.go
     - runtime/evals/handlers/judge_required.go
     - runtime/evals/handlers/llm_judge.go
@@ -289,7 +290,7 @@ for _, def := range missing {
 ## Troubleshoot
 
 - No results and no error: `Trigger`, `EvalGroups`, `enabled: false` or sampling filtered out every definition.
-- A judge name does not resolve: `llm_judge` sets `Error`. Safety and RAG judges (`toxicity`, `bias` and the others) score 0 and put the cause in `Explanation`, leaving `Error` empty.
+- A judge name does not resolve: the result has score 0, and `Error` and `Explanation` both name the cause. This holds for `llm_judge`, the safety judges (`toxicity`, `bias` and the others) and the RAG judges.
 - An eval stops with a timeout: `Timeout` defaults to 30 seconds per eval; raise it on `EvaluateOpts`.
 
 ## Related
