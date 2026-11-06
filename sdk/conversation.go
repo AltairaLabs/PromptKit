@@ -731,6 +731,7 @@ func (c *Conversation) buildPipelineConfig(
 		DescribeTool:          c.describeTool,
 		SystemPromptSuffix:    c.preloadedSkillInstructions,
 		ApprovalChecker:       c.newApprovalChecker(),
+		SkipContentValidation: c.config.skipContentValidation,
 		InferenceRegistry:     c.config.inferenceRegistry,
 		ProviderBinding:       newHostBinding(c.config),
 		// A bound audio session (OpenVoice) plays response audio to a realtime

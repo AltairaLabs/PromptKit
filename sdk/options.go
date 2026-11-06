@@ -392,6 +392,9 @@ type config struct {
 	// Compaction control (nil = default enabled, false = disabled)
 	compactionEnabled *bool
 
+	// skipContentValidation turns off the provider stage's media-part check.
+	skipContentValidation bool
+
 	// Custom compaction strategy (replaces default ContextCompactor entirely)
 	compactionStrategy stage.CompactionStrategy
 
@@ -1330,6 +1333,20 @@ func WithMetrics(collector *metrics.Collector, instanceLabels map[string]string)
 func WithLogger(l *slog.Logger) Option {
 	return func(c *config) error {
 		c.logger = l
+		return nil
+	}
+}
+
+// WithoutContentValidation turns off the check made before every provider
+// call that each image, audio, video and document part of the request is a
+// modality and MIME type the provider declares supporting. By default an
+// unsupported part fails the Send with a *providers.UnsupportedContentError
+// before any request is sent. Use this when a provider's declared
+// capabilities are narrower than what its model accepts; the parts are then
+// passed to the provider as they are.
+func WithoutContentValidation() Option {
+	return func(c *config) error {
+		c.skipContentValidation = true
 		return nil
 	}
 }

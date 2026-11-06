@@ -90,6 +90,10 @@ type CompositionExecutorDeps struct {
 	// reports turn 1 and no guardrail event inside a composition can be
 	// placed against the transcript. Optional.
 	ParentTurnState *TurnState
+
+	// SkipContentValidation is ProviderConfig.SkipContentValidation for every
+	// prompt and agent step. False validates.
+	SkipContentValidation bool
 }
 
 // NewCompositionStepExecutor returns an engine.StepExecutor that runs prompt/agent
@@ -156,6 +160,26 @@ func stepToolPolicy(step *composition.Step) *pipeline.ToolPolicy {
 	return policy
 }
 
+// stepProviderConfig builds the provider stage config for a prompt/agent step.
+func (deps CompositionExecutorDeps) stepProviderConfig(
+	step *composition.Step, provider providers.Provider,
+) (*ProviderConfig, error) {
+	cfg := &ProviderConfig{
+		Source:                "agent",
+		PromptDeclarations:    deps.PromptDeclarations,
+		SkipContentValidation: deps.SkipContentValidation,
+	}
+	// The step's prompt parameters, with its model_overrides entry for the
+	// provider that runs the step, as an opened prompt gets them.
+	cfg.ApplyCallParams(deps.PromptRegistry.CallParameters(step.PromptTask, provider.Model()))
+	rf, err := deps.responseFormat(step)
+	if err != nil {
+		return nil, err
+	}
+	cfg.ResponseFormat = rf
+	return cfg, nil
+}
+
 // execLLM runs a prompt/agent step as a minimal PromptAssembly → Template →
 // Provider sub-pipeline. Agent steps pass their tools + termination bounds to the
 // tool loop; prompt steps run a single round with no tools.
@@ -192,15 +216,10 @@ func (deps CompositionExecutorDeps) execLLM(
 	).WithModel(provider.Model())
 	templateStage := NewTemplateStageWithTurnState(deps.Emitter, turnState)
 
-	cfg := &ProviderConfig{Source: "agent", PromptDeclarations: deps.PromptDeclarations}
-	// The step's prompt parameters, with its model_overrides entry for the
-	// provider that runs the step, as an opened prompt gets them.
-	cfg.ApplyCallParams(deps.PromptRegistry.CallParameters(step.PromptTask, provider.Model()))
-	rf, err := deps.responseFormat(step)
+	cfg, err := deps.stepProviderConfig(step, provider)
 	if err != nil {
 		return nil, fmt.Errorf("step %q: %w", step.ID, err)
 	}
-	cfg.ResponseFormat = rf
 
 	policy := stepToolPolicy(step)
 

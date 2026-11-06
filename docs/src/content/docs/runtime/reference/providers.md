@@ -587,7 +587,7 @@ func ApplyExtraBody(providerID string, body, extra map[string]any)
 ApplyExtraBody adds each extra field to body unless body already sets it.
 
 <a name="CapabilitySet"></a>
-## func [CapabilitySet](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L27>)
+## func [CapabilitySet](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L31>)
 
 ```go
 func CapabilitySet(capabilities []string) map[string]bool
@@ -672,7 +672,7 @@ func ExtractOrderedEmbeddings[T any](data []T, getIndex func(T) int, getEmbeddin
 ExtractOrderedEmbeddings places each item's embedding at the position getIndex reports, in a slice of expectedCount entries. It returns an error when the response does not hold exactly one embedding per input: a count other than expectedCount, an index outside \[0, expectedCount\), or an index that appears twice. Each case would otherwise hand the caller a nil vector in place of one it asked for.
 
 <a name="HasAudioSupport"></a>
-## func [HasAudioSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L94>)
+## func [HasAudioSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L98>)
 
 ```go
 func HasAudioSupport(p Provider) bool
@@ -681,7 +681,7 @@ func HasAudioSupport(p Provider) bool
 HasAudioSupport checks if a provider supports audio inputs
 
 <a name="HasDocumentSupport"></a>
-## func [HasDocumentSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L112>)
+## func [HasDocumentSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L116>)
 
 ```go
 func HasDocumentSupport(p Provider) bool
@@ -690,7 +690,7 @@ func HasDocumentSupport(p Provider) bool
 HasDocumentSupport checks if a provider supports document inputs
 
 <a name="HasImageSupport"></a>
-## func [HasImageSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L85>)
+## func [HasImageSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L89>)
 
 ```go
 func HasImageSupport(p Provider) bool
@@ -699,7 +699,7 @@ func HasImageSupport(p Provider) bool
 HasImageSupport checks if a provider supports image inputs
 
 <a name="HasVideoSupport"></a>
-## func [HasVideoSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L103>)
+## func [HasVideoSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L107>)
 
 ```go
 func HasVideoSupport(p Provider) bool
@@ -726,7 +726,7 @@ func IntFromConfig(cfg map[string]any, key string) (int, bool)
 IntFromConfig returns cfg\[key\] coerced to int, supporting the common YAML number shapes \(int, int64, float64\). Returns ok=false when the key is missing or the value isn't numeric.
 
 <a name="IsFormatSupported"></a>
-## func [IsFormatSupported](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L121>)
+## func [IsFormatSupported](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L125>)
 
 ```go
 func IsFormatSupported(p Provider, contentType, mimeType string) bool
@@ -1093,7 +1093,7 @@ func StringPtr(s string) *string
 StringPtr is a helper function that returns a pointer to a string. This is commonly used across provider implementations for optional fields.
 
 <a name="SupportsMultimodal"></a>
-## func [SupportsMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L70>)
+## func [SupportsMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L74>)
 
 ```go
 func SupportsMultimodal(p Provider) bool
@@ -1120,22 +1120,24 @@ func UnmarshalResponse(body []byte, resp any) error
 UnmarshalResponse unmarshals a response body from JSON with standardized error handling.
 
 <a name="ValidateMultimodalMessage"></a>
-## func [ValidateMultimodalMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L172>)
+## func [ValidateMultimodalMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L186>)
 
 ```go
 func ValidateMultimodalMessage(p Provider, msg types.Message) error
 ```
 
-ValidateMultimodalMessage checks that the provider supports the image, audio, video and document parts of a message and their MIME types. It returns an \*UnsupportedContentError for the first part that fails.
+ValidateMultimodalMessage checks that the provider supports the image, audio, video and document parts of a message and their MIME types. It returns an \*UnsupportedContentError for the first part that fails. A message with no media parts is always valid, even when its text is carried in Parts. A part with no MIME type is checked for its modality only.
 
 <a name="ValidateMultimodalRequest"></a>
-## func [ValidateMultimodalRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L265>)
+## func [ValidateMultimodalRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L286>)
 
 ```go
 func ValidateMultimodalRequest(p Provider, req *PredictionRequest) error
 ```
 
-ValidateMultimodalRequest validates all messages in a predict request for multimodal compatibility This is a helper function to reduce duplication across provider implementations
+ValidateMultimodalRequest checks the input messages of a predict request with ValidateMultimodalMessage and returns the first \*UnsupportedContentError. Assistant messages are not checked: their parts are what a model produced, not input the provider's capabilities describe, and each provider replays them in its own way.
+
+The provider stage calls it before every predict and stream call to a provider that implements MultimodalCapabilityProvider, unless stage.ProviderConfig.SkipContentValidation is set.
 
 <a name="ValidatePredictReturnsLatency"></a>
 ## func [ValidatePredictReturnsLatency](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider_contract_integration.go#L150>)
@@ -2381,7 +2383,7 @@ func (r *IdleTimeoutReader) Read(p []byte) (int, error)
 Read reads from the underlying reader and resets the idle timer on success. If the idle timer fired and closed the underlying reader, the resulting read error is reported as ErrStreamIdleTimeout so callers can distinguish a deliberate idle abort from a transient network drop.
 
 <a name="ImageDetail"></a>
-## type [ImageDetail](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L55>)
+## type [ImageDetail](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L59>)
 
 ImageDetail specifies the level of detail for image processing
 
@@ -2741,7 +2743,7 @@ func (p *MockRerankProvider) Rerank(ctx context.Context, req RerankRequest) (Rer
 Rerank orders documents by term overlap with the query.
 
 <a name="MultimodalCapabilities"></a>
-## type [MultimodalCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L39-L52>)
+## type [MultimodalCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L43-L56>)
 
 MultimodalCapabilities describes what types of multimodal content a provider supports
 
@@ -2763,7 +2765,7 @@ type MultimodalCapabilities struct {
 ```
 
 <a name="MultimodalCapabilityProvider"></a>
-## type [MultimodalCapabilityProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L65-L67>)
+## type [MultimodalCapabilityProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L69-L71>)
 
 MultimodalCapabilityProvider is implemented by providers that support multimodal content.
 
@@ -2774,7 +2776,7 @@ type MultimodalCapabilityProvider interface {
 ```
 
 <a name="GetMultimodalProvider"></a>
-### func [GetMultimodalProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L77>)
+### func [GetMultimodalProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L81>)
 
 ```go
 func GetMultimodalProvider(p Provider) MultimodalCapabilityProvider
@@ -4919,7 +4921,7 @@ type ToolSupport interface {
 ```
 
 <a name="UnsupportedContentError"></a>
-## type [UnsupportedContentError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L247-L253>)
+## type [UnsupportedContentError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L261-L267>)
 
 UnsupportedContentError is returned when a provider doesn't support certain content types
 
@@ -4934,7 +4936,7 @@ type UnsupportedContentError struct {
 ```
 
 <a name="UnsupportedContentError.Error"></a>
-### func \(\*UnsupportedContentError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L256>)
+### func \(\*UnsupportedContentError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L270>)
 
 ```go
 func (e *UnsupportedContentError) Error() string

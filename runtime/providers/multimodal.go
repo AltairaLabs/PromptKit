@@ -2,9 +2,13 @@ package providers
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
+
+// roleAssistant is the role of a model reply, which request validation skips.
+const roleAssistant = "assistant"
 
 // Declared capability names used in a provider's Capabilities list. These are
 // the source of truth for multimodal support when a provider config declares
@@ -152,14 +156,22 @@ func IsFormatSupported(p Provider, contentType, mimeType string) bool {
 		return false
 	}
 
-	// If no formats specified, assume all formats are supported
+	return formatListed(formats, mimeType)
+}
+
+// formatListed reports whether mimeType appears in formats. An empty list
+// admits every format. An entry ending in "/*" (for example "text/*") admits
+// every subtype of that type.
+func formatListed(formats []string, mimeType string) bool {
 	if len(formats) == 0 {
 		return true
 	}
-
-	// Check if the MIME type is in the supported formats list
 	for _, format := range formats {
 		if format == mimeType {
+			return true
+		}
+		if prefix, ok := strings.CutSuffix(format, "*"); ok && strings.HasSuffix(prefix, "/") &&
+			strings.HasPrefix(mimeType, prefix) {
 			return true
 		}
 	}
@@ -168,9 +180,11 @@ func IsFormatSupported(p Provider, contentType, mimeType string) bool {
 
 // ValidateMultimodalMessage checks that the provider supports the image, audio,
 // video and document parts of a message and their MIME types. It returns an
-// *UnsupportedContentError for the first part that fails.
+// *UnsupportedContentError for the first part that fails. A message with no
+// media parts is always valid, even when its text is carried in Parts. A part
+// with no MIME type is checked for its modality only.
 func ValidateMultimodalMessage(p Provider, msg types.Message) error {
-	if !msg.IsMultimodal() {
+	if !msg.HasMediaContent() {
 		return nil // Text-only message, no validation needed
 	}
 
@@ -230,7 +244,7 @@ func validateMediaPart(p Provider, part types.ContentPart, index int, supported 
 		}
 	}
 
-	if part.Media != nil && !IsFormatSupported(p, part.Type, part.Media.MIMEType) {
+	if part.Media != nil && part.Media.MIMEType != "" && !IsFormatSupported(p, part.Type, part.Media.MIMEType) {
 		return &UnsupportedContentError{
 			Provider:    p.ID(),
 			ContentType: contentType,
@@ -260,10 +274,20 @@ func (e *UnsupportedContentError) Error() string {
 	return e.Provider + ": " + e.Message
 }
 
-// ValidateMultimodalRequest validates all messages in a predict request for multimodal compatibility
-// This is a helper function to reduce duplication across provider implementations
+// ValidateMultimodalRequest checks the input messages of a predict request
+// with ValidateMultimodalMessage and returns the first *UnsupportedContentError.
+// Assistant messages are not checked: their parts are what a model produced,
+// not input the provider's capabilities describe, and each provider replays
+// them in its own way.
+//
+// The provider stage calls it before every predict and stream call to a
+// provider that implements MultimodalCapabilityProvider, unless
+// stage.ProviderConfig.SkipContentValidation is set.
 func ValidateMultimodalRequest(p Provider, req *PredictionRequest) error {
 	for i := range req.Messages {
+		if req.Messages[i].Role == roleAssistant {
+			continue
+		}
 		if err := ValidateMultimodalMessage(p, req.Messages[i]); err != nil {
 			return err
 		}
