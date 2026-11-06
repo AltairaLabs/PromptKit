@@ -262,6 +262,14 @@ func (h *TimeBasedPolicyHandler) enforceEntry(entry expiryEntry, now time.Time) 
 		delete(h.expiryIndex, entry.metaPath)
 		return false, false
 	}
+	if meta, err := h.loadPolicyMetadata(entry.metaPath); err == nil &&
+		meta.ExpiresAt != nil && !meta.ExpiresAt.Before(now) {
+		// The .meta was rewritten with a later expiry without a re-track; keep
+		// enforcing it at the expiry on disk rather than dropping it.
+		entry.expiresAt = *meta.ExpiresAt
+		h.expiryIndex[entry.metaPath] = entry
+		return false, false
+	}
 	if !h.processMetaFile(entry.metaPath, now) {
 		return false, true
 	}

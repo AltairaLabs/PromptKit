@@ -98,6 +98,29 @@ func TestBuildExpiryIndex_PrefersTrackedEntry(t *testing.T) {
 	assert.Equal(t, fresh, got)
 }
 
+// When the .meta was rewritten with a later timestamp but never re-tracked,
+// the index pass must keep enforcing the item at its new expiry rather than
+// dropping it from the index.
+func TestEnforceFromIndex_UntrackedRewriteKeepsEnforcing(t *testing.T) {
+	dir := t.TempDir()
+	now := restoreNow
+	h := NewTimeBasedPolicyHandler(0, WithClock(func() time.Time { return now }))
+	media := filepath.Join(dir, "rewritten.jpg")
+	writeRestoreMedia(t, media, restoreNow.Add(-6*time.Minute))
+	require.NoError(t, h.BuildExpiryIndex(dir))
+	writeRestoreMedia(t, media, restoreNow) // rewritten on disk, not re-tracked
+
+	require.NoError(t, h.EnforcePolicy(context.Background(), dir))
+	assert.FileExists(t, media)
+	got, ok := h.indexedExpiry(media + ".meta")
+	require.True(t, ok, "an item that has not expired on disk must stay in the index")
+	assert.Equal(t, restoreNow.Add(5*time.Minute), got)
+
+	now = restoreNow.Add(6 * time.Minute)
+	require.NoError(t, h.EnforcePolicy(context.Background(), dir))
+	assert.NoFileExists(t, media, "the item must expire at its on-disk expiry")
+}
+
 // A re-track that lands while the old files are already gone must not be
 // pruned as a stale entry.
 func TestEnforceFromIndex_RetrackAfterFilesGoneIsNotPruned(t *testing.T) {
