@@ -84,8 +84,8 @@ type CompositionExecutorDeps struct {
 	BaseMetadata map[string]interface{}
 
 	// ParentTurnState is the enclosing turn's state, read only for its
-	// TurnIndex. Each step gets a fresh TurnState — its prompt, tools and
-	// system prompt are the step's, not the turn's — but the turn number is
+	// TurnIndex. Each step gets a fresh TurnState (its prompt, tools and
+	// system prompt are the step's, not the turn's), but the turn number is
 	// the one thing that must survive the boundary: without it every step
 	// reports turn 1 and no guardrail event inside a composition can be
 	// placed against the transcript. Optional.

@@ -2285,6 +2285,19 @@ func TestBuildRelevanceQuery(t *testing.T) {
 		query := stage.buildRelevanceQuery(messages, cfg)
 		assert.Equal(t, "", query)
 	})
+
+	t.Run("empty QuerySource defaults to last user message", func(t *testing.T) {
+		messages := []types.Message{
+			{Role: "user", Content: "First question"},
+			{Role: "assistant", Content: "First answer"},
+			{Role: "user", Content: "Second question"},
+			{Role: "assistant", Content: "Second answer"},
+		}
+		cfg := &RelevanceConfig{}
+
+		query := stage.buildRelevanceQuery(messages, cfg)
+		assert.Equal(t, "Second question", query)
+	})
 }
 
 func TestBuildScoredMessages(t *testing.T) {

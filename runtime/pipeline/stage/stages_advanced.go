@@ -345,9 +345,12 @@ func (s *MetricsStage) GetMetrics() StageMetrics {
 }
 
 // PriorityChannel is a channel that supports priority-based element delivery.
-// Higher priority elements are delivered before lower priority elements.
+// Higher priority elements are delivered before lower priority elements, and
+// elements of equal priority in the order they were sent. With
+// PipelineConfig.PrioritizeElements set, each stage reads its input through one.
 type PriorityChannel struct {
-	queues   [4][]StreamElement // One queue per priority level
+	queues   [PriorityCritical + 1][]StreamElement // One queue per priority level
+	heads    [PriorityCritical + 1]int             // Index of each queue's next element
 	cond     *sync.Cond
 	closed   bool
 	mu       sync.Mutex
@@ -364,89 +367,117 @@ func NewPriorityChannel(capacity int) *PriorityChannel {
 	return pc
 }
 
+// wakeOnDone wakes every waiter when ctx ends, so a blocked Send or Receive
+// sees the cancellation. The caller holds pc.mu; the returned func unregisters.
+func (pc *PriorityChannel) wakeOnDone(ctx context.Context) func() bool {
+	return context.AfterFunc(ctx, func() {
+		pc.mu.Lock()
+		pc.cond.Broadcast()
+		pc.mu.Unlock()
+	})
+}
+
 // Send sends an element to the priority channel.
-// Blocks if the channel is at capacity.
+// Blocks if the channel is at capacity, until there is room or ctx ends.
+// A priority outside PriorityLow..PriorityCritical is treated as the nearest
+// of the two.
 func (pc *PriorityChannel) Send(ctx context.Context, elem StreamElement) error {
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
 
-	// Wait while at capacity
+	if pc.size >= pc.capacity && !pc.closed {
+		defer pc.wakeOnDone(ctx)()
+	}
 	for pc.size >= pc.capacity && !pc.closed {
-		// Check context before waiting
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 		pc.cond.Wait()
-		// Re-check context after waking from Wait — the wake-up may be spurious
-		// or from a Broadcast unrelated to capacity change.
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
 	}
 
 	if pc.closed {
 		return errors.New("priority channel closed")
 	}
 
-	// Add to appropriate queue based on priority
-	priority := elem.Priority
-	pc.queues[priority] = append(pc.queues[priority], elem)
-	pc.size++
+	pc.push(min(max(elem.Priority, PriorityLow), PriorityCritical), elem)
 
-	// Signal waiting receivers
-	pc.cond.Signal()
+	// Senders and receivers share the condition, so wake them all.
+	pc.cond.Broadcast()
 	return nil
 }
 
 // Receive receives the highest priority element from the channel.
-// Blocks if the channel is empty.
+// Blocks if the channel is empty, until an element arrives, the channel is
+// closed, or ctx ends.
 func (pc *PriorityChannel) Receive(ctx context.Context) (StreamElement, bool, error) {
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
 
-	// Wait while empty
+	if pc.size == 0 && !pc.closed {
+		defer pc.wakeOnDone(ctx)()
+	}
 	for pc.size == 0 && !pc.closed {
-		// Check context before waiting
-		select {
-		case <-ctx.Done():
-			return StreamElement{}, false, ctx.Err()
-		default:
+		if err := ctx.Err(); err != nil {
+			return StreamElement{}, false, err
 		}
 		pc.cond.Wait()
-		// Re-check context after waking from Wait.
-		select {
-		case <-ctx.Done():
-			return StreamElement{}, false, ctx.Err()
-		default:
-		}
 	}
 
 	// If closed and empty, return closed signal
-	if pc.size == 0 && pc.closed {
+	if pc.size == 0 {
 		return StreamElement{}, false, nil
 	}
 
-	// Get highest priority element
-	// Priority order: Critical > High > Normal > Low
+	elem, _ := pc.pop()
+	// Senders and receivers share the condition, so wake them all.
+	pc.cond.Broadcast()
+	return elem, true, nil
+}
+
+// peek returns the element Receive would return next, without removing it.
+func (pc *PriorityChannel) peek() (StreamElement, bool) {
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
 	for priority := PriorityCritical; priority >= PriorityLow; priority-- {
-		if len(pc.queues[priority]) == 0 {
+		if pc.heads[priority] < len(pc.queues[priority]) {
+			return pc.queues[priority][pc.heads[priority]], true
+		}
+	}
+	return StreamElement{}, false
+}
+
+// push appends elem to the priority's queue. A full backing array whose front
+// has been consumed is compacted rather than grown, so a queue that never
+// quite empties stays bounded by the channel's capacity. The caller holds pc.mu.
+func (pc *PriorityChannel) push(priority Priority, elem StreamElement) {
+	q, head := pc.queues[priority], pc.heads[priority]
+	if len(q) == cap(q) && head > 0 {
+		n := copy(q, q[head:])
+		clear(q[n:])
+		q, pc.heads[priority] = q[:n], 0
+	}
+	pc.queues[priority] = append(q, elem)
+	pc.size++
+}
+
+// pop removes and returns the highest priority element. The caller holds pc.mu.
+func (pc *PriorityChannel) pop() (StreamElement, bool) {
+	for priority := PriorityCritical; priority >= PriorityLow; priority-- {
+		q, head := pc.queues[priority], pc.heads[priority]
+		if head == len(q) {
 			continue
 		}
-		elem := pc.queues[priority][0]
-		pc.queues[priority] = pc.queues[priority][1:]
+		elem := q[head]
+		q[head] = StreamElement{}
+		pc.heads[priority]++
+		if pc.heads[priority] == len(q) {
+			// Emptied: reuse the backing array for the next elements.
+			pc.queues[priority], pc.heads[priority] = q[:0], 0
+		}
 		pc.size--
-
-		// Signal waiting senders
-		pc.cond.Signal()
-		return elem, true, nil
+		return elem, true
 	}
-
-	// Should never reach here
-	return StreamElement{}, false, errors.New("priority channel: inconsistent state")
+	return StreamElement{}, false
 }
 
 // Close closes the priority channel.

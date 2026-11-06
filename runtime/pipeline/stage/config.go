@@ -39,10 +39,28 @@ type PipelineConfig struct {
 	// Default: 32
 	ChannelBufferSize int
 
-	// MaxConcurrentPipelines limits the number of concurrent pipeline executions.
-	// Validate rejects negative values. The pipeline does not enforce the limit.
+	// MaxConcurrentPipelines limits how many executions of one pipeline run at
+	// once. When the limit is reached, Execute waits for a running execution to
+	// finish. It returns the context's error if ctx ends first, and
+	// ErrPipelineShuttingDown if Shutdown is called first. Zero means no limit.
+	// Validate rejects negative values. Build reads it, so changing it later
+	// has no effect on a built pipeline.
 	// Default: 100
 	MaxConcurrentPipelines int
+
+	// PrioritizeElements makes each stage read its input in priority order: a
+	// higher-priority element queued behind lower-priority ones is delivered
+	// first, and elements of equal priority keep the order they were sent in.
+	// Up to ChannelBufferSize elements wait in each stage's priority queue.
+	//
+	// With it a control element can overtake content sent before it: an
+	// EndOfTurn or EndOfStream (PriorityCritical) can reach a stage ahead of
+	// the turn's text or audio. Enable it only when every stage tolerates that.
+	// The streaming provider stage does not: it fires a turn on EndOfTurn, so
+	// an EndOfTurn ahead of the turn's messages fires nothing and holds the
+	// messages for the next turn. False (the default) delivers every element
+	// in the order it was sent, whatever its priority.
+	PrioritizeElements bool
 
 	// ExecutionTimeout sets a hard maximum duration for a single pipeline execution.
 	// This is a safety ceiling. Prefer IdleTimeout for liveness detection.
@@ -119,6 +137,12 @@ func (c *PipelineConfig) WithChannelBufferSize(size int) *PipelineConfig {
 // WithMaxConcurrentPipelines sets the maximum number of concurrent pipeline executions.
 func (c *PipelineConfig) WithMaxConcurrentPipelines(maxPipelines int) *PipelineConfig {
 	c.MaxConcurrentPipelines = maxPipelines
+	return c
+}
+
+// WithPrioritizeElements sets whether stages read their input in priority order.
+func (c *PipelineConfig) WithPrioritizeElements(prioritize bool) *PipelineConfig {
+	c.PrioritizeElements = prioritize
 	return c
 }
 

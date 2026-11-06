@@ -20,7 +20,7 @@ type Handoff struct {
 	// False when there is no workflow state to apply.
 	Valid bool
 	// Stop ends the turn without a further provider round. Set for states the
-	// runtime must not continue into — externally orchestrated states pause for
+	// runtime must not continue into: externally orchestrated states pause for
 	// an injected event, and composition states are run by
 	// CompositionStage rather than the tool loop.
 	Stop bool
@@ -81,8 +81,8 @@ type WorkflowStateResolver interface {
 // implement to receive the number of tool calls each round executed.
 //
 // The workflow engine's tool-call budget (engine.budget.max_tool_calls) needs a per-round count, and the tool
-// loop is the only place that sees every call on every path — unary, streaming,
-// and resumed-after-HITL. Counting here rather than in each consumer keeps one
+// loop is the only place that sees every call on every path (unary, streaming,
+// and resumed-after-HITL). Counting here rather than in each consumer keeps one
 // counting site, so the SDK's and Arena's totals cannot drift apart; consumers
 // only forward the number to the workflow context they own.
 //
@@ -91,7 +91,7 @@ type WorkflowStateResolver interface {
 // implementer, and a resolver with no budget to enforce need not implement this.
 type ToolCallRecorder interface {
 	// RecordToolCalls reports that n tool calls executed in a round. Calls held
-	// pending (HITL approval, deferred client tools) are excluded — they have
+	// pending (HITL approval, deferred client tools) are excluded. They have
 	// not run yet and are reported when they execute on resume, so counting
 	// them here would charge a gated call twice.
 	RecordToolCalls(n int)

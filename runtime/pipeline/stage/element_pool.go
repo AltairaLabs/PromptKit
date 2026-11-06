@@ -38,10 +38,9 @@ func PutElement(elem *StreamElement) {
 	elementPool.Put(elem)
 }
 
-// Reset clears the content fields, Sequence, Timestamp, Source, Meta, EndOfStream
-// and Error, and sets Priority to PriorityNormal. It leaves Reasoning, EndOfTurn
-// and Interrupt unchanged. PutElement calls it before returning the element to
-// the pool.
+// Reset clears every field and sets Priority to PriorityNormal, leaving the
+// element equal to a new one. PutElement calls it before returning the element
+// to the pool.
 func (e *StreamElement) Reset() {
 	// Clear content types
 	e.Text = nil
@@ -59,11 +58,14 @@ func (e *StreamElement) Reset() {
 	e.Source = ""
 	e.Priority = PriorityNormal
 
-	// Clear typed metadata
+	// Clear non-content reasoning and typed metadata
+	e.Reasoning = nil
 	e.Meta = ElementMetadata{}
 
 	// Clear control signals
 	e.EndOfStream = false
+	e.EndOfTurn = false
+	e.Interrupt = false
 	e.Error = nil
 }
 

@@ -155,7 +155,7 @@ func NewAudioPacingStage() *AudioPacingStage {
 // NewNamedAudioPacingStage is like NewAudioPacingStage but lets the
 // caller pick the stage name. Necessary when two pacing stages
 // coexist in the same pipeline (e.g. one for the input audio path,
-// one for the output) — the pipeline builder treats stage names as
+// one for the output). The pipeline builder treats stage names as
 // unique IDs and would reject a second "audio-pacing".
 func NewNamedAudioPacingStage(name string) *AudioPacingStage {
 	return &AudioPacingStage{

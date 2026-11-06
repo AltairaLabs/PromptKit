@@ -43,7 +43,9 @@ type StreamPipeline struct {
 	config       *PipelineConfig
 	eventEmitter *events.Emitter
 
-	// Concurrency control
+	// Concurrency control. slots holds one token per running execution when
+	// MaxConcurrentPipelines is positive; nil means no limit.
+	slots      chan struct{}
 	wg         sync.WaitGroup
 	shutdown   chan struct{}
 	shutdownMu sync.RWMutex
@@ -65,9 +67,16 @@ type StreamPipeline struct {
 // The output closes once the terminal stages have returned.
 //
 // Execute returns ErrPipelineShuttingDown if the pipeline is shutting down.
+// When PipelineConfig.MaxConcurrentPipelines executions are already running,
+// Execute waits for one to finish. It returns ctx's error if ctx ends first, and
+// ErrPipelineShuttingDown if Shutdown is called first.
 func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement) (<-chan StreamElement, error) {
+	if err := p.acquireSlot(ctx); err != nil {
+		return nil, err
+	}
 	// Register for graceful shutdown, or refuse if shutting down.
 	if !p.beginExecution() {
+		p.releaseSlot()
 		return nil, ErrPipelineShuttingDown
 	}
 
@@ -127,10 +136,11 @@ func (p *StreamPipeline) executeBackground(
 	ctx context.Context, input <-chan StreamElement, output chan<- StreamElement, cancel context.CancelFunc,
 ) {
 	defer func() {
-		p.wg.Done()
 		if cancel != nil {
 			cancel()
 		}
+		p.releaseSlot()
+		p.wg.Done()
 	}()
 
 	start := time.Now()
@@ -787,15 +797,15 @@ func (p *StreamPipeline) runStage(
 	if mi, ok := stage.(MultiInputStage); ok && len(inputs) > 1 {
 		instrumented := make([]<-chan StreamElement, len(inputs))
 		for i, in := range inputs {
-			instrumented[i] = instrumentStageInput(stage.Name(), in)
+			instrumented[i] = p.orderInput(instrumentStageInput(stage.Name(), in), run.done)
 		}
 		err = mi.ProcessMultiple(ctx, instrumented, output)
 	} else {
 		var in <-chan StreamElement
 		if len(inputs) > 0 {
-			in = inputs[0]
+			in = p.orderInput(instrumentStageInput(stage.Name(), inputs[0]), run.done)
 		}
-		err = stage.Process(ctx, instrumentStageInput(stage.Name(), in), output)
+		err = stage.Process(ctx, in, output)
 	}
 	duration := time.Since(start)
 
@@ -826,6 +836,76 @@ func (p *StreamPipeline) runStage(
 			"stage", stage.Name(), "type", stage.Type(),
 			"duration", duration)
 	}
+}
+
+// orderInput returns a stage's input as the stage reads it: in priority order
+// through a PriorityChannel when PrioritizeElements is set, otherwise unchanged.
+// stageDone is closed when the reading stage has returned.
+func (p *StreamPipeline) orderInput(in <-chan StreamElement, stageDone <-chan struct{}) <-chan StreamElement {
+	if in == nil || p.config == nil || !p.config.PrioritizeElements {
+		return in
+	}
+	return prioritizeInput(in, p.config.ChannelBufferSize, stageDone)
+}
+
+// prioritizeInput relays in to the returned channel through a PriorityChannel
+// holding up to capacity elements (at least one). Each element the relay can
+// take without waiting is queued before the next one is offered, so the reader
+// gets the highest-priority element waiting. The returned channel closes once
+// in is closed and the queue is empty, or when stop is closed.
+func prioritizeInput(in <-chan StreamElement, capacity int, stop <-chan struct{}) <-chan StreamElement {
+	out := make(chan StreamElement)
+	go runPriorityRelay(in, out, NewPriorityChannel(max(capacity, 1)), stop)
+	return out
+}
+
+func runPriorityRelay(in <-chan StreamElement, out chan<- StreamElement, pc *PriorityChannel, stop <-chan struct{}) {
+	defer close(out)
+	ctx := context.Background()
+	for {
+		in = queueReady(ctx, in, pc)
+		head, queued := pc.peek()
+		if in == nil && !queued {
+			return
+		}
+		var recv <-chan StreamElement
+		if pc.Len() < pc.capacity {
+			recv = in
+		}
+		var send chan<- StreamElement
+		if queued {
+			send = out
+		}
+		select {
+		case elem, ok := <-recv:
+			if !ok {
+				in = nil
+				continue
+			}
+			_ = pc.Send(ctx, elem) // has room: never blocks
+		case send <- head:
+			_, _, _ = pc.Receive(ctx) // removes head: never blocks
+		case <-stop:
+			return
+		}
+	}
+}
+
+// queueReady moves every element in has ready into pc, while pc has room. It
+// returns nil once in is closed.
+func queueReady(ctx context.Context, in <-chan StreamElement, pc *PriorityChannel) <-chan StreamElement {
+	for in != nil && pc.Len() < pc.capacity {
+		select {
+		case elem, ok := <-in:
+			if !ok {
+				return nil
+			}
+			_ = pc.Send(ctx, elem) // has room: never blocks
+		default:
+			return in
+		}
+	}
+	return in
 }
 
 // instrumentStageInput wraps an input channel with Prometheus counters
@@ -1032,6 +1112,34 @@ func (p *StreamPipeline) Shutdown(ctx context.Context) error {
 		return nil
 	case <-shutdownCtx.Done():
 		return fmt.Errorf("%w: %v", ErrShutdownTimeout, p.config.GracefulShutdownTimeout)
+	}
+}
+
+// acquireSlot takes an execution slot when MaxConcurrentPipelines is set,
+// waiting for one to free up.
+func (p *StreamPipeline) acquireSlot(ctx context.Context) error {
+	if p.slots == nil {
+		return nil
+	}
+	select {
+	case p.slots <- struct{}{}:
+		return nil
+	default:
+	}
+	select {
+	case p.slots <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-p.shutdown:
+		return ErrPipelineShuttingDown
+	}
+}
+
+// releaseSlot frees the slot acquireSlot took.
+func (p *StreamPipeline) releaseSlot() {
+	if p.slots != nil {
+		<-p.slots
 	}
 }
 

@@ -14,7 +14,7 @@ import (
 // tool loop.
 //
 // A response schema competes with tool calling. Applied to every round it
-// suppresses tool use — silently, intermittently, and more the more work the
+// suppresses tool use: silently, intermittently, and more the more work the
 // task requires. Measured on an identical 7-tool task, mean tools called
 // (n=5, no schema -> schema):
 //
@@ -24,7 +24,7 @@ import (
 //	gemini-3.7-flash     terminates 5/5 -> 1/5
 //
 // On a production underwriting pack the same model that scores 5.8 here reached
-// tool_use in 1 run out of 5 — the effect scales with task complexity, so these
+// tool_use in 1 run out of 5. The effect scales with task complexity, so these
 // numbers understate it. Every failure arrives as a successful HTTP 200.
 //
 // The fix is to constrain only the turn that produces the final answer, which
@@ -39,7 +39,7 @@ const (
 	// rounds and re-asks the final answer under the schema. Default.
 	StructuredOutputFinalTurn StructuredOutputMode = "final_turn"
 
-	// StructuredOutputEveryRound sends ResponseFormat on every round — the
+	// StructuredOutputEveryRound sends ResponseFormat on every round. This is the
 	// older behavior, from before the final-turn rule existed.
 	//
 	// This is an escape hatch, not a supported alternative: it is the
@@ -331,7 +331,7 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 //
 // Exported because detecting it is a caller's decision. Returning prose is the
 // right trade against losing a completed tool loop's work, but only if the
-// caller can tell it happened — an unmarked fallback is indistinguishable from
+// caller can tell it happened. An unmarked fallback is indistinguishable from
 // a model that answered in prose, which is the unobservable-success
 // failure this whole mode exists to remove.
 const SchemaUnappliedMetaKey = "structured_output_schema_unapplied"
