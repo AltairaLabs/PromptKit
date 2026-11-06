@@ -352,8 +352,8 @@ func TestFramesToMessageStage_BasicOperation(t *testing.T) {
 	if gotConfig.CompletionTimeout != 30*time.Second {
 		t.Errorf("Expected completion timeout 30s, got %v", gotConfig.CompletionTimeout)
 	}
-	if gotConfig.MaxFramesPerMessage != 30 {
-		t.Errorf("Expected max frames 30, got %d", gotConfig.MaxFramesPerMessage)
+	if gotConfig.MaxFramesPerMessage != 20 {
+		t.Errorf("Expected max frames 20, got %d", gotConfig.MaxFramesPerMessage)
 	}
 	if gotConfig.FrameSelectionStrategy != FrameSelectionUniform {
 		t.Errorf("Expected uniform selection strategy, got %v", gotConfig.FrameSelectionStrategy)

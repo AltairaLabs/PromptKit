@@ -82,7 +82,10 @@ type streamStep struct {
 func (p *ToolProvider) predictStreamWithInteractions(
 	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools,
 ) (<-chan providers.StreamChunk, error) {
-	body := p.buildInteractionsRequest(req, tools)
+	body, err := p.buildInteractionsRequest(ctx, req, tools)
+	if err != nil {
+		return nil, err
+	}
 	body.Stream = true
 
 	raw, err := json.Marshal(body)

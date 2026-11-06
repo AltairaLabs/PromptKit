@@ -35,27 +35,39 @@ var geminiAudioFormats = []string{
 	types.MIMETypeAudioWebM,
 }
 
-// geminiVideoFormats are the video MIME types the Gemini API accepts
-// (ai.google.dev/gemini-api/docs/video-understanding). "video/flv" is kept
-// alongside the documented "video/x-flv" because earlier releases declared it.
-var geminiVideoFormats = []string{
+// geminiImageFormats are the image MIME types the Gemini API accepts
+// (ai.google.dev/gemini-api/docs/image-understanding).
+var geminiImageFormats = []string{
+	types.MIMETypeImageJPEG,
+	types.MIMETypeImagePNG,
+	types.MIMETypeImageWebP,
+	types.MIMETypeImageGIF,
+	"image/heic",
+	"image/heif",
+}
+
+// geminiDocumentedVideoFormats are the video MIME types the Gemini API
+// documents accepting (ai.google.dev/gemini-api/docs/video-understanding).
+var geminiDocumentedVideoFormats = []string{
 	types.MIMETypeVideoMP4,
 	"video/mpeg",
 	"video/mov",
 	"video/avi",
 	"video/x-flv",
-	"video/flv",
 	"video/mpg",
 	types.MIMETypeVideoWebM,
 	"video/wmv",
 	"video/3gpp",
 }
 
-// geminiDocumentFormats are the document MIME types the Gemini API accepts
-// (ai.google.dev/gemini-api/docs/document-processing): PDF, Microsoft Office
-// and OpenDocument files, and text formats, which it reads as plain text.
-var geminiDocumentFormats = []string{
-	types.MIMETypePDF,
+// geminiVideoFormats are the video MIME types the adapter sends on
+// generateContent: the documented ones, and "video/flv" alongside
+// "video/x-flv" because earlier releases declared it.
+var geminiVideoFormats = append(slices.Clone(geminiDocumentedVideoFormats), "video/flv")
+
+// geminiOfficeDocumentFormats are the Microsoft Office and OpenDocument MIME
+// types the Gemini API reads natively, on generateContent and Interactions.
+var geminiOfficeDocumentFormats = []string{
 	types.MIMETypeDocx,
 	types.MIMETypeDoc,
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.template",
@@ -66,11 +78,16 @@ var geminiDocumentFormats = []string{
 	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 	"application/vnd.ms-excel",
 	"application/vnd.oasis.opendocument.spreadsheet",
-	"text/*",
-	types.MIMETypeJSON,
-	types.MIMETypeXML,
-	"application/rtf",
 }
+
+// geminiDocumentFormats are the document MIME types the Gemini API accepts
+// (ai.google.dev/gemini-api/docs/document-processing): PDF, Microsoft Office
+// and OpenDocument files, and text formats, which it reads as plain text.
+var geminiDocumentFormats = slices.Concat(
+	[]string{types.MIMETypePDF},
+	geminiOfficeDocumentFormats,
+	[]string{"text/*", types.MIMETypeJSON, types.MIMETypeXML, "application/rtf"},
+)
 
 // GetMultimodalCapabilities returns Gemini's multimodal support capabilities.
 // When the provider config declares its capabilities, the declaration is
@@ -89,14 +106,7 @@ func (p *Provider) SendableMultimodalCapabilities() providers.MultimodalCapabili
 		SupportsAudio:     true,
 		SupportsVideo:     true,
 		SupportsDocuments: true,
-		ImageFormats: []string{
-			types.MIMETypeImageJPEG,
-			types.MIMETypeImagePNG,
-			types.MIMETypeImageWebP,
-			types.MIMETypeImageGIF,
-			"image/heic",
-			"image/heif",
-		},
+		ImageFormats:      slices.Clone(geminiImageFormats),
 		// The adapter sends every media part as inlineData with its own MIME
 		// type, so these lists are what the Gemini API documents accepting.
 		AudioFormats: slices.Clone(geminiAudioFormats),

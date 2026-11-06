@@ -405,22 +405,9 @@ func (p *Provider) convertMediaPartToMap(
 		return nil, nil
 	}
 
-	// Get MIME type
-	mimeType := part.Media.MIMEType
+	mimeType := mediaMIMEType(part)
 	if mimeType == "" {
-		// Default mime types based on content type
-		switch part.Type {
-		case types.ContentTypeImage:
-			mimeType = types.MIMETypeImagePNG
-		case types.ContentTypeAudio:
-			mimeType = types.MIMETypeAudioWAV
-		case types.ContentTypeVideo:
-			mimeType = types.MIMETypeVideoMP4
-		case types.ContentTypeDocument:
-			mimeType = "application/pdf"
-		default:
-			return nil, nil
-		}
+		return nil, nil
 	}
 
 	// Resolve base64 data from any source via the store-aware MediaLoader.
@@ -435,6 +422,25 @@ func (p *Provider) convertMediaPartToMap(
 			wireKeyData:     base64Data,
 		},
 	}, nil
+}
+
+// mediaMIMEType returns a media part's MIME type, defaulting by content type
+// when the part names none, or "" for a part type with no default.
+func mediaMIMEType(part types.ContentPart) string {
+	if part.Media != nil && part.Media.MIMEType != "" {
+		return part.Media.MIMEType
+	}
+	switch part.Type {
+	case types.ContentTypeImage:
+		return types.MIMETypeImagePNG
+	case types.ContentTypeAudio:
+		return types.MIMETypeAudioWAV
+	case types.ContentTypeVideo:
+		return types.MIMETypeVideoMP4
+	case types.ContentTypeDocument:
+		return types.MIMETypePDF
+	}
+	return ""
 }
 
 // addToolConfig adds tool configuration to the request based on toolChoice

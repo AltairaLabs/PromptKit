@@ -21,9 +21,12 @@ func (p *Provider) interactionsURL() string {
 
 // buildInteractionsRequest assembles one stateless Interactions call: the whole
 // transcript as input, the tools, and the caller's schema.
+//
+// It fails, before any HTTP call, when a message's media cannot be loaded or
+// is a kind this API cannot carry.
 func (p *ToolProvider) buildInteractionsRequest(
-	req providers.PredictionRequest, tools providers.ProviderTools,
-) interactionsRequest {
+	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools,
+) (interactionsRequest, error) {
 	messages := req.Messages
 
 	// generateContent carries the system prompt in a dedicated field. This API
@@ -34,16 +37,21 @@ func (p *ToolProvider) buildInteractionsRequest(
 		messages = append([]types.Message{sys}, messages...)
 	}
 
+	input, err := p.buildInteractionsInput(ctx, messages)
+	if err != nil {
+		return interactionsRequest{}, err
+	}
+
 	out := interactionsRequest{
 		Model:          p.model,
-		Input:          buildInteractionsInput(messages),
+		Input:          input,
 		Tools:          buildInteractionsTools(tools),
 		ResponseFormat: interactionsResponseFormat(req.ResponseFormat),
 	}
 
 	// Thinking config has no equivalent field here — thought steps are returned
 	// by default — so it is deliberately not forwarded rather than guessed at.
-	return out
+	return out, nil
 }
 
 // predictWithInteractions runs a non-streaming turn through the Interactions
@@ -53,9 +61,11 @@ func (p *ToolProvider) buildInteractionsRequest(
 func (p *ToolProvider) predictWithInteractions(
 	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools,
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
-	body := p.buildInteractionsRequest(req, tools)
-
 	predictResp := providers.PredictionResponse{}
+	body, err := p.buildInteractionsRequest(ctx, req, tools)
+	if err != nil {
+		return predictResp, nil, err
+	}
 	if p.ShouldIncludeRawOutput() {
 		predictResp.RawRequest = body
 	}

@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -17,7 +18,9 @@ import (
 
 func marshalInput(t *testing.T, msgs []types.Message) []map[string]any {
 	t.Helper()
-	raw, err := json.Marshal(buildInteractionsInput(msgs))
+	input, err := (&Provider{}).buildInteractionsInput(context.Background(), msgs)
+	require.NoError(t, err)
+	raw, err := json.Marshal(input)
 	require.NoError(t, err)
 	var out []map[string]any
 	require.NoError(t, json.Unmarshal(raw, &out))
@@ -79,7 +82,8 @@ func TestToolResultStep_ResultIsSingleItem(t *testing.T) {
 	msg := types.NewToolResultMessage(
 		types.NewTextToolResult("call_1", "get_temperature", `{"celsius":21}`))
 
-	step := toolResultStep(&msg)
+	step, err := (&Provider{}).toolResultStep(context.Background(), &msg)
+	require.NoError(t, err)
 	require.NotNil(t, step)
 
 	raw, err := json.Marshal(step)
@@ -101,9 +105,10 @@ func TestToolResultStep_PrefersErrorText(t *testing.T) {
 	msg := types.Message{Role: roleToolMessage, ToolResult: &types.MessageToolResult{
 		ID: "c1", Name: "probe", Error: "boom",
 	}}
-	step := toolResultStep(&msg)
+	step, err := (&Provider{}).toolResultStep(context.Background(), &msg)
+	require.NoError(t, err)
 	require.NotNil(t, step)
-	assert.Equal(t, "boom", step.Result.Text)
+	assert.Equal(t, interactionsContent{Type: stepTypeText, Text: "boom"}, step.Result)
 }
 
 // TestToolResultStep_PresenceChangesTheWire pins the outcome that matters: a
