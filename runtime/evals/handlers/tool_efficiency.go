@@ -14,6 +14,10 @@ const percentMultiplier = 100.0
 //   - max_calls: int — maximum total tool calls allowed (optional)
 //   - max_errors: int — maximum tool errors allowed (optional)
 //   - max_error_rate: float64 — maximum error rate 0.0-1.0 (optional)
+//
+// Breaking any limit scores 0. Within the limits the score is
+// (max_calls + 1 - calls) / (max_calls + 1) when max_calls is set, else 1, so a
+// run at exactly max_calls still scores above one that exceeds it.
 type ToolEfficiencyHandler struct{}
 
 // Type returns the eval type identifier.
@@ -68,12 +72,13 @@ func (h *ToolEfficiencyHandler) Eval(
 		}, nil
 	}
 
+	// The remaining call headroom, counting the cap itself as within limits:
+	// 1 with no calls, 1/(max_calls+1) at exactly max_calls. Only a broken
+	// limit scores 0, so a min_score can always express "within limits".
 	score := 1.0
 	if maxCalls != nil && *maxCalls > 0 {
-		score = 1.0 - float64(stats.totalCalls)/float64(*maxCalls)
-		if score < 0 {
-			score = 0
-		}
+		budget := float64(*maxCalls + 1)
+		score = (budget - float64(stats.totalCalls)) / budget
 	}
 
 	return &evals.EvalResult{

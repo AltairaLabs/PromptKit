@@ -278,7 +278,7 @@ These checks read `EvalContext.ToolCalls`, the tool calls in the message history
 | `tool_call_chain` | Walks the calls in order. A step is `{tool, result_includes, result_matches, args_match, no_error}`. A call matching a step's tool must satisfy that step's constraints, or the check stops at that step. An empty chain passes. |
 | `tool_anti_pattern` | Fails when any listed `sequence` appears as a subsequence. `message` is shown in the explanation. |
 | `tool_no_repeat` | Fails when a tool is called more than `max_repeats` times in a row. An empty `tools` checks every tool. |
-| `tool_efficiency` | Needs at least one threshold. Exceeding any scores 0; otherwise the score is `1 - calls / max_calls` when `max_calls` is set, else 1. |
+| `tool_efficiency` | Needs at least one threshold. Exceeding any scores 0; otherwise the score is `(max_calls + 1 - calls) / (max_calls + 1)` when `max_calls` is set, else 1. A run at exactly `max_calls` scores `1 / (max_calls + 1)`, above a run that exceeds it. |
 | `tool_result_includes` | A call matches when its result contains every pattern (case-insensitive). The check passes when at least `occurrence` calls match. |
 | `tool_result_matches` | A call matches when its result matches the regex. The check passes when at least `occurrence` calls match. |
 | `tool_result_has_media` | Passes when a result has a content part whose type equals `media_type` (`image`, `audio`, `video` or `document`). |
