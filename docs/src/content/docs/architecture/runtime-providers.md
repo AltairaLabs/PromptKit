@@ -179,7 +179,7 @@ Adapters own the places where vendors differ:
 - Gemini sends the system prompt as `systemInstruction` and tools as `function_declarations`. It supports a Live API for streaming input and an Interactions API mode.
 - Ollama and vLLM call servers you run. The factory defaults their base URLs to `localhost`.
 
-Media is the clearest example. A message holds `ContentPart` values whose `MediaContent` is inline base64, a file path, a URL or a storage reference. `MediaLoader` resolves any of these, and each adapter encodes the result for its API.
+Media is the clearest example. A message holds `ContentPart` values whose `MediaContent` is inline base64, a file path, a URL or a storage reference. `MediaLoader` resolves any of these, and each adapter encodes the result for its API. An adapter shares one loader across a message's parts, so the loader's limits, `MaxMediaItems` and `MaxAggregateMediaSize`, apply to each message. Per message rather than per request, because every call resends the conversation's earlier messages.
 
 ```mermaid
 graph LR

@@ -139,6 +139,7 @@ Enable debug logging and send an image larger than your limits. The runtime logs
 - Images are unchanged: the config has `EnableResize` false, or the images are URLs. Start from `stage.DefaultImagePreprocessConfig()` and send files or bytes.
 - Images look stretched: `PreserveAspectRatio` is false in your config.
 - The log shows `Image preprocessing failed`: the image could not be decoded or read. Check that it is one of the supported formats.
+- The send fails with `media item limit exceeded`: the message carries more than 20 images the provider loads (`providers.MaxMediaItems`). Preprocessing shrinks images but does not change how many there are, so send them across several messages.
 
 ## Related
 

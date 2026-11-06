@@ -533,7 +533,7 @@ func TestOpenAIProvider_ConvertImageMissingDataSource(t *testing.T) {
 		},
 	}
 
-	_, err := provider.convertImagePartToOpenAI(context.Background(), msg.Parts[0])
+	_, err := provider.convertImagePartToOpenAI(context.Background(), provider.MediaLoader(), msg.Parts[0])
 	if err == nil {
 		t.Fatal("Expected error when image has no data source, got nil")
 	}
@@ -1106,7 +1106,7 @@ func TestOpenAIProvider_ConvertAudioPartToOpenAI(t *testing.T) {
 			},
 		}
 
-		result, err := provider.convertAudioPartToOpenAI(context.Background(), part)
+		result, err := provider.convertAudioPartToOpenAI(context.Background(), provider.MediaLoader(), part)
 		require.NoError(t, err)
 
 		assert.Equal(t, "input_audio", result["type"])
@@ -1126,7 +1126,7 @@ func TestOpenAIProvider_ConvertAudioPartToOpenAI(t *testing.T) {
 			},
 		}
 
-		result, err := provider.convertAudioPartToOpenAI(context.Background(), part)
+		result, err := provider.convertAudioPartToOpenAI(context.Background(), provider.MediaLoader(), part)
 		require.NoError(t, err)
 
 		inputAudio := result["input_audio"].(map[string]interface{})
@@ -1143,7 +1143,7 @@ func TestOpenAIProvider_ConvertAudioPartToOpenAI(t *testing.T) {
 			},
 		}
 
-		_, err := provider.convertAudioPartToOpenAI(context.Background(), part)
+		_, err := provider.convertAudioPartToOpenAI(context.Background(), provider.MediaLoader(), part)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "unsupported audio format")
 	})
@@ -1154,7 +1154,7 @@ func TestOpenAIProvider_ConvertAudioPartToOpenAI(t *testing.T) {
 			Media: nil,
 		}
 
-		_, err := provider.convertAudioPartToOpenAI(context.Background(), part)
+		_, err := provider.convertAudioPartToOpenAI(context.Background(), provider.MediaLoader(), part)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "missing media content")
 	})
@@ -1217,7 +1217,7 @@ func TestOpenAIProvider_AudioModelWithResponsesAPI(t *testing.T) {
 		t.Error("audio model on the Responses API must not declare audio: the adapter cannot send it")
 	}
 	part := types.NewAudioPartFromData("AAAA", types.MIMETypeAudioWAV)
-	if _, err := provider.convertContentPartToOpenAI(context.Background(), part); err == nil {
+	if _, err := provider.convertContentPartToOpenAI(context.Background(), provider.MediaLoader(), part); err == nil {
 		t.Error("Responses-mode adapter accepted an audio part; the declaration above would then be too narrow")
 	}
 }

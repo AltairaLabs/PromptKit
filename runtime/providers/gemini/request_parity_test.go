@@ -44,7 +44,7 @@ func TestRequestParity_ToolsRequestCarriesEveryPlainKey(t *testing.T) {
 
 	// No tools, so the response schema is sent on both paths and the
 	// generationConfig can be compared whole.
-	tooled := tp.buildToolRequest(ctx, req, nil, "")
+	tooled := mustBuildToolRequest(t, tp, req, nil, "")
 
 	plainMap := toJSONMap(t, plain)
 	toolsMap := toJSONMap(t, tooled)

@@ -1,7 +1,6 @@
 package openai
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -57,7 +56,7 @@ func TestBuildToolRequest_ParallelToolCallsSentWithTools(t *testing.T) {
 	p := newParallelToolCallsProvider(map[string]any{"parallel_tool_calls": false})
 	p.apiMode = APIModeCompletions
 
-	got := p.buildToolRequest(context.Background(), providers.PredictionRequest{}, sampleTools(), "")
+	got := mustBuildToolRequest(t, p, providers.PredictionRequest{}, sampleTools(), "")
 
 	v, ok := got["parallel_tool_calls"]
 	require.True(t, ok, "parallel_tool_calls must be serialized when configured")
@@ -72,7 +71,7 @@ func TestBuildToolRequest_ParallelToolCallsOmittedWithoutTools(t *testing.T) {
 	p := newParallelToolCallsProvider(map[string]any{"parallel_tool_calls": false})
 	p.apiMode = APIModeCompletions
 
-	got := p.buildToolRequest(context.Background(), providers.PredictionRequest{}, nil, "")
+	got := mustBuildToolRequest(t, p, providers.PredictionRequest{}, nil, "")
 
 	_, ok := got["parallel_tool_calls"]
 	assert.False(t, ok,
@@ -83,7 +82,7 @@ func TestBuildToolRequest_ParallelToolCallsAbsentWhenUnconfigured(t *testing.T) 
 	p := newParallelToolCallsProvider(nil)
 	p.apiMode = APIModeCompletions
 
-	got := p.buildToolRequest(context.Background(), providers.PredictionRequest{}, sampleTools(), "")
+	got := mustBuildToolRequest(t, p, providers.PredictionRequest{}, sampleTools(), "")
 
 	_, ok := got["parallel_tool_calls"]
 	assert.False(t, ok, "unset config must not put the key on the wire at all")

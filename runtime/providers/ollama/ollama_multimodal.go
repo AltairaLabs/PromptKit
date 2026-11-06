@@ -43,8 +43,11 @@ func (p *Provider) convertMessageToOllama(
 	}
 
 	// Handle multimodal messages - Ollama uses OpenAI-compatible structure
-	// Content becomes an array of content parts
+	// Content becomes an array of content parts. The parts share one
+	// MediaLoader, so the message's media is held to providers.MaxMediaItems
+	// and providers.MaxAggregateMediaSize.
 	var contentParts []any
+	loader := p.MediaLoader()
 
 	for _, part := range msg.Parts {
 		switch part.Type {
@@ -61,7 +64,7 @@ func (p *Provider) convertMessageToOllama(
 				return ollamaMessage{}, fmt.Errorf("image part missing media content")
 			}
 
-			imagePart, err := p.convertImagePartToOllama(ctx, part)
+			imagePart, err := p.convertImagePartToOllama(ctx, loader, part)
 			if err != nil {
 				return ollamaMessage{}, err
 			}
@@ -83,7 +86,7 @@ func (p *Provider) convertMessageToOllama(
 
 // convertImagePartToOllama converts an image ContentPart to Ollama's format
 func (p *Provider) convertImagePartToOllama(
-	ctx context.Context, part types.ContentPart,
+	ctx context.Context, loader *providers.MediaLoader, part types.ContentPart,
 ) (map[string]any, error) {
 	if part.Media == nil {
 		return nil, fmt.Errorf("image part missing media content")
@@ -100,7 +103,6 @@ func (p *Provider) convertImagePartToOllama(
 	// inlined, never passed on: an Ollama server usually sits inside the host's
 	// network, so letting it fetch a caller-chosen URL would reach whatever
 	// the host can reach. The loader refuses non-public addresses.
-	loader := p.MediaLoader()
 	if url, ok, err := resolveStorageURL(ctx, loader, part.Media); err != nil {
 		return nil, fmt.Errorf("failed to resolve image: %w", err)
 	} else if ok {

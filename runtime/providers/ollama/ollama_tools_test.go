@@ -315,7 +315,10 @@ func TestToolProvider_ConvertSingleMessageForTools(t *testing.T) {
 			Content: "Hello",
 		}
 
-		result := provider.convertSingleMessageForTools(context.Background(), msg)
+		result, err := provider.convertSingleMessageForTools(context.Background(), msg)
+		if err != nil {
+			t.Fatalf("convertSingleMessageForTools: %v", err)
+		}
 
 		if result["role"] != "user" {
 			t.Error("Role mismatch")
@@ -333,7 +336,10 @@ func TestToolProvider_ConvertSingleMessageForTools(t *testing.T) {
 			},
 		}
 
-		result := provider.convertSingleMessageForTools(context.Background(), msg)
+		result, err := provider.convertSingleMessageForTools(context.Background(), msg)
+		if err != nil {
+			t.Fatalf("convertSingleMessageForTools: %v", err)
+		}
 
 		if result["tool_calls"] == nil {
 			t.Error("Expected tool_calls in result")
@@ -348,7 +354,10 @@ func TestToolProvider_ConvertSingleMessageForTools(t *testing.T) {
 			ToolResult: &toolResult,
 		}
 
-		result := provider.convertSingleMessageForTools(context.Background(), msg)
+		result, err := provider.convertSingleMessageForTools(context.Background(), msg)
+		if err != nil {
+			t.Fatalf("convertSingleMessageForTools: %v", err)
+		}
 
 		if result["tool_call_id"] != "call_1" {
 			t.Error("Expected tool_call_id")
@@ -671,4 +680,16 @@ func TestToolProvider_PredictStreamWithTools_Retries503(t *testing.T) {
 	if atomic.LoadInt32(&attempts) < 2 {
 		t.Errorf("Expected at least 2 attempts, got %d", attempts)
 	}
+}
+
+// mustBuildToolRequest builds a tool request and fails the test on error.
+func mustBuildToolRequest(
+	t *testing.T, tp *ToolProvider, req providers.PredictionRequest, tools any, toolChoice string,
+) map[string]any {
+	t.Helper()
+	built, err := tp.buildToolRequest(context.Background(), req, tools, toolChoice)
+	if err != nil {
+		t.Fatalf("buildToolRequest: %v", err)
+	}
+	return built
 }

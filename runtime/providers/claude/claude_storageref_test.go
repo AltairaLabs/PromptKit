@@ -37,7 +37,7 @@ func TestClaude_ImageStorageRef_UsesURL(t *testing.T) {
 	p.SetMediaStorageService(refStore{url: "https://s3/img?sig=1"})
 
 	part := types.NewImagePartFromStorageRef("s3://b/k", types.MIMETypeImagePNG, nil)
-	block, err := p.convertImagePartToClaude(context.Background(), part)
+	block, err := p.convertImagePartToClaude(context.Background(), p.MediaLoader(), part)
 	if err != nil {
 		t.Fatalf("convertImagePartToClaude returned error: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestClaude_DocumentStorageRef_UsesBytes(t *testing.T) {
 	p.SetMediaStorageService(refStore{bytes: encoded})
 
 	part := types.NewDocumentPartFromStorageRef("s3://b/doc", types.MIMETypePDF)
-	block, err := p.convertDocumentPartToClaude(context.Background(), part)
+	block, err := p.convertDocumentPartToClaude(context.Background(), p.MediaLoader(), part)
 	if err != nil {
 		t.Fatalf("convertDocumentPartToClaude returned error: %v", err)
 	}

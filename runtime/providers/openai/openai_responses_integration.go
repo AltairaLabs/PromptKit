@@ -148,8 +148,10 @@ type responsesStreamEvent struct {
 // prepareResponsesMessages checks req's content parts and loads each image
 // the way the Chat Completions path does (convertContentPartToOpenAI): a part
 // the API cannot take is an error rather than silently dropped, and an image
-// held in media storage or a local file is resolved to a URL or data URL. It
-// returns req with resolved copies of the messages it changed.
+// held in media storage or a local file is resolved to a URL or data URL. Each
+// message's parts share one MediaLoader, so its media is held to
+// providers.MaxMediaItems and providers.MaxAggregateMediaSize. It returns req
+// with resolved copies of the messages it changed.
 func (p *Provider) prepareResponsesMessages(
 	ctx context.Context, req providers.PredictionRequest,
 ) (providers.PredictionRequest, error) {
@@ -160,8 +162,9 @@ func (p *Provider) prepareResponsesMessages(
 			continue
 		}
 		parts := make([]types.ContentPart, len(msgs[i].Parts))
+		loader := p.MediaLoader()
 		for j, part := range msgs[i].Parts {
-			converted, err := p.convertContentPartToOpenAI(ctx, part)
+			converted, err := p.convertContentPartToOpenAI(ctx, loader, part)
 			if err != nil {
 				return req, err
 			}

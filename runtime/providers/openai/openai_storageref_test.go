@@ -50,7 +50,7 @@ func TestOpenAI_ImageStorageRef_UsesURL(t *testing.T) {
 		},
 	}
 
-	out, err := p.convertImagePartToOpenAI(context.Background(), part)
+	out, err := p.convertImagePartToOpenAI(context.Background(), p.MediaLoader(), part)
 	if err != nil {
 		t.Fatalf("convertImagePartToOpenAI returned error: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestOpenAI_AudioStorageRef_UsesBytes(t *testing.T) {
 		},
 	}
 
-	out, err := p.convertAudioPartToOpenAI(context.Background(), part)
+	out, err := p.convertAudioPartToOpenAI(context.Background(), p.MediaLoader(), part)
 	if err != nil {
 		t.Fatalf("convertAudioPartToOpenAI returned error: %v", err)
 	}

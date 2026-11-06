@@ -220,7 +220,10 @@ func (p *ToolProvider) predictWithCompletions(
 	start := time.Now()
 
 	// Build OpenAI request with tools
-	openaiReq := p.buildToolRequest(ctx, req, tools, toolChoice)
+	openaiReq, err := p.buildToolRequest(ctx, req, tools, toolChoice)
+	if err != nil {
+		return providers.PredictionResponse{}, nil, err
+	}
 	providers.ApplyExtraBody(p.ID(), openaiReq, p.extraBody)
 
 	// Prepare response with raw request if configured (set early to preserve on error)
@@ -257,8 +260,11 @@ func (p *ToolProvider) predictWithCompletions(
 // buildToolRequest constructs the OpenAI API request with tools
 func (p *ToolProvider) buildToolRequest(
 	ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string,
-) map[string]interface{} {
-	messages := p.convertRequestMessagesToOpenAI(ctx, req)
+) (map[string]interface{}, error) {
+	messages, err := p.convertRequestMessagesToOpenAI(ctx, req)
+	if err != nil {
+		return nil, err
+	}
 
 	// Build request
 	openaiReq := map[string]interface{}{
@@ -286,13 +292,13 @@ func (p *ToolProvider) buildToolRequest(
 		}
 	}
 
-	return openaiReq
+	return openaiReq, nil
 }
 
 // convertRequestMessagesToOpenAI converts all messages in a request to OpenAI format
 func (p *ToolProvider) convertRequestMessagesToOpenAI(
 	ctx context.Context, req providers.PredictionRequest,
-) []map[string]interface{} {
+) ([]map[string]interface{}, error) {
 	messages := make([]map[string]interface{}, 0, len(req.Messages)+1)
 
 	// Add system message if present
@@ -305,24 +311,26 @@ func (p *ToolProvider) convertRequestMessagesToOpenAI(
 
 	// Add conversation messages
 	for i := range req.Messages {
-		openaiMsg := p.convertSingleMessageForTools(ctx, req.Messages[i])
+		openaiMsg, err := p.convertSingleMessageForTools(ctx, req.Messages[i])
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert message %d: %w", i, err)
+		}
 		messages = append(messages, openaiMsg)
 	}
 
-	return messages
+	return messages, nil
 }
 
-// convertSingleMessageForTools converts a single message to OpenAI format including tool metadata
-func (p *ToolProvider) convertSingleMessageForTools(ctx context.Context, msg types.Message) map[string]interface{} {
+// convertSingleMessageForTools converts a single message to OpenAI format including tool metadata.
+// A part that cannot be converted is an error, as on the non-tool path: falling
+// back to the message's text used to send the model the question without its media.
+func (p *ToolProvider) convertSingleMessageForTools(
+	ctx context.Context, msg types.Message,
+) (map[string]interface{}, error) {
 	// Convert message to OpenAI format (handles both legacy and multimodal)
 	convertedMsg, err := p.convertMessageToOpenAI(ctx, msg)
 	if err != nil {
-		// Log error but continue with best effort (use Content as fallback)
-		// This allows tool calls to work even if multimodal conversion fails
-		convertedMsg = openAIMessage{
-			Role:    msg.Role,
-			Content: msg.GetContent(),
-		}
+		return nil, err
 	}
 
 	// Build the message map with content
@@ -340,22 +348,34 @@ func (p *ToolProvider) convertSingleMessageForTools(ctx context.Context, msg typ
 	if msg.Role == "tool" && msg.ToolResult != nil {
 		openaiMsg["tool_call_id"] = msg.ToolResult.ID
 		openaiMsg[keyName] = msg.ToolResult.Name
-		openaiMsg[keyContent] = convertToolResultContent(msg.ToolResult)
+		content, err := p.convertToolResultContent(ctx, msg.ToolResult)
+		if err != nil {
+			return nil, fmt.Errorf("tool result %s: %w", msg.ToolResult.ID, err)
+		}
+		openaiMsg[keyContent] = content
 	}
 
-	return openaiMsg
+	return openaiMsg, nil
 }
 
 // convertToolResultContent converts a MessageToolResult's Parts into OpenAI content format.
 // For text-only results (single text part), it returns a plain string.
 // For multimodal results (containing images), it returns an array of content blocks.
-func convertToolResultContent(result *types.MessageToolResult) interface{} {
+// Images resolve as on a user message: a URL when there is one (including a
+// storage reference's), otherwise a data URL from inline, file or stored bytes.
+// The parts share one MediaLoader, so the result's media is held to
+// providers.MaxMediaItems and providers.MaxAggregateMediaSize, and an image that
+// cannot be loaded is an error.
+func (p *ToolProvider) convertToolResultContent(
+	ctx context.Context, result *types.MessageToolResult,
+) (interface{}, error) {
 	if !result.HasMedia() {
 		// Text-only: return plain string for backward compatibility
-		return result.GetTextContent()
+		return result.GetTextContent(), nil
 	}
 
 	// Multimodal: build content array
+	loader := p.MediaLoader()
 	parts := make([]map[string]interface{}, 0, len(result.Parts))
 	for _, part := range result.Parts {
 		switch part.Type {
@@ -368,12 +388,11 @@ func convertToolResultContent(result *types.MessageToolResult) interface{} {
 			}
 		case types.ContentTypeImage:
 			if part.Media != nil {
-				if imgURL := resolveImageURL(part.Media); imgURL != "" {
-					parts = append(parts, map[string]interface{}{
-						keyType:     partTypeImageURL,
-						keyImageURL: map[string]interface{}{"url": imgURL},
-					})
+				imagePart, err := p.convertImagePartToOpenAI(ctx, loader, part)
+				if err != nil {
+					return nil, err
 				}
+				parts = append(parts, imagePart)
 			}
 		default:
 			// Unsupported media types in tool results are skipped
@@ -381,30 +400,9 @@ func convertToolResultContent(result *types.MessageToolResult) interface{} {
 	}
 
 	if len(parts) == 0 {
-		return result.GetTextContent()
+		return result.GetTextContent(), nil
 	}
-	return parts
-}
-
-// resolveImageURL returns the URL string for an image media content.
-// For URL-referenced images, it returns the URL directly.
-// For base64 data, it returns a data URI (data:<mime>;base64,<data>).
-// For file paths, it reads and encodes the file as base64.
-func resolveImageURL(media *types.MediaContent) string {
-	if media.URL != nil && *media.URL != "" {
-		return *media.URL
-	}
-	if media.Data != nil && *media.Data != "" {
-		return "data:" + media.MIMEType + ";base64," + *media.Data
-	}
-	if media.FilePath != nil && *media.FilePath != "" {
-		b64, err := media.GetBase64Data() //nolint:staticcheck // simple file read; MediaLoader not needed
-		if err != nil {
-			return ""
-		}
-		return "data:" + media.MIMEType + ";base64," + b64
-	}
-	return ""
+	return parts, nil
 }
 
 // replayArgs renders a tool call's arguments for replay in history. Arguments
@@ -648,7 +646,10 @@ func (p *ToolProvider) predictStreamWithCompletions(
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
 	// Build OpenAI request with tools (same as non-streaming)
-	openaiReq := p.buildToolRequest(ctx, req, tools, toolChoice)
+	openaiReq, err := p.buildToolRequest(ctx, req, tools, toolChoice)
+	if err != nil {
+		return nil, err
+	}
 
 	// Add streaming options
 	openaiReq["stream"] = true

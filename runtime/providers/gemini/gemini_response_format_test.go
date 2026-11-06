@@ -1,7 +1,6 @@
 package gemini
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 
@@ -155,7 +154,7 @@ func toolRequestGenConfig(t *testing.T, model string, rf *providers.ResponseForm
 		MaxTokens:      512,
 		ResponseFormat: rf,
 	}
-	built := tp.buildToolRequest(context.Background(), req, tools, "auto")
+	built := mustBuildToolRequest(t, tp, req, tools, "auto")
 
 	raw, err := json.Marshal(built)
 	require.NoError(t, err)

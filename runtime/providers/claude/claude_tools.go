@@ -178,7 +178,10 @@ func (p *ToolProvider) predictWithToolsOnce(
 	start := time.Now()
 
 	// Build Claude request with tools
-	claudeReq := p.buildToolRequest(ctx, req, tools, toolChoice)
+	claudeReq, err := p.buildToolRequest(ctx, req, tools, toolChoice)
+	if err != nil {
+		return providers.PredictionResponse{}, nil, err
+	}
 
 	// Prepare response with raw request if configured (set early to preserve on error)
 	predictResp := providers.PredictionResponse{}
@@ -203,7 +206,8 @@ func (p *ToolProvider) predictWithToolsOnce(
 // processClaudeToolResult converts a tool message to Claude's tool_result format.
 // For text-only results, content is a plain string.
 // For multimodal results (containing images, documents, etc.), content is an array of content blocks.
-func (p *Provider) processClaudeToolResult(ctx context.Context, msg types.Message) claudeToolResult {
+// Media that cannot be loaded is an error, not a block silently left out.
+func (p *Provider) processClaudeToolResult(ctx context.Context, msg types.Message) (claudeToolResult, error) {
 	result := claudeToolResult{
 		Type:      "tool_result",
 		ToolUseID: msg.ToolResult.ID,
@@ -211,51 +215,63 @@ func (p *Provider) processClaudeToolResult(ctx context.Context, msg types.Messag
 
 	// If the tool result has media parts, serialize as an array of content blocks
 	if msg.ToolResult.HasMedia() {
-		result.Content = p.buildToolResultContentBlocks(ctx, msg.ToolResult.Parts)
-		return result
+		blocks, err := p.buildToolResultContentBlocks(ctx, msg.ToolResult.Parts)
+		if err != nil {
+			return claudeToolResult{}, fmt.Errorf("tool result %s: %w", msg.ToolResult.ID, err)
+		}
+		result.Content = blocks
+		return result, nil
 	}
 
 	// Text-only: use plain string to avoid unnecessary array wrapping
 	result.Content = msg.ToolResult.GetTextContent()
-	return result
+	return result, nil
 }
 
-// buildToolResultContentBlocks converts tool result parts to Claude content block array.
-// Each part is converted independently via convertToolResultPart.
-func (p *Provider) buildToolResultContentBlocks(ctx context.Context, parts []types.ContentPart) []interface{} {
+// buildToolResultContentBlocks converts one tool result's parts to a Claude
+// content block array. The parts share one MediaLoader, so the result's media
+// is held to providers.MaxMediaItems and providers.MaxAggregateMediaSize.
+func (p *Provider) buildToolResultContentBlocks(ctx context.Context, parts []types.ContentPart) ([]interface{}, error) {
+	loader := p.MediaLoader()
 	blocks := make([]interface{}, 0, len(parts))
 	for _, part := range parts {
-		if block := p.convertToolResultPart(ctx, part); block != nil {
+		block, err := p.convertToolResultPart(ctx, loader, part)
+		if err != nil {
+			return nil, err
+		}
+		if block != nil {
 			blocks = append(blocks, block)
 		}
 	}
-	return blocks
+	return blocks, nil
 }
 
 // convertToolResultPart converts a single content part to a Claude content block.
-// Returns nil if the part cannot be converted.
-func (p *Provider) convertToolResultPart(ctx context.Context, part types.ContentPart) interface{} {
+// Returns nil for a part with nothing to send.
+func (p *Provider) convertToolResultPart(
+	ctx context.Context, loader *providers.MediaLoader, part types.ContentPart,
+) (interface{}, error) {
 	switch part.Type {
 	case types.ContentTypeText:
 		if part.Text != nil && *part.Text != "" {
-			return claudeTextContent{Type: contentTypeText, Text: *part.Text}
+			return claudeTextContent{Type: contentTypeText, Text: *part.Text}, nil
 		}
 	case types.ContentTypeImage:
 		if part.Media != nil {
-			return p.buildToolResultMediaBlock(ctx, "image", part)
+			return p.buildToolResultMediaBlock(ctx, loader, "image", part)
 		}
 	case types.ContentTypeDocument:
 		if part.Media != nil {
-			return p.buildToolResultMediaBlock(ctx, "document", part)
+			return p.buildToolResultMediaBlock(ctx, loader, "document", part)
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // buildToolResultMediaBlock creates a Claude media content block (image or document).
 func (p *Provider) buildToolResultMediaBlock(
-	ctx context.Context, blockType string, part types.ContentPart,
-) interface{} {
+	ctx context.Context, loader *providers.MediaLoader, blockType string, part types.ContentPart,
+) (interface{}, error) {
 	block := claudeContentBlockMultimodal{
 		Type: blockType,
 		Source: &claudeImageSource{
@@ -267,17 +283,17 @@ func (p *Provider) buildToolResultMediaBlock(
 	if blockType == "image" && part.Media.URL != nil && *part.Media.URL != "" {
 		block.Source.Type = sourceTypeURL
 		block.Source.URL = *part.Media.URL
-		return block
+		return block, nil
 	}
 
 	// Use the store-aware MediaLoader for base64 data (Data, FilePath, StorageReference)
-	data, err := p.MediaLoader().GetBase64Data(ctx, part.Media)
+	data, err := loader.GetBase64Data(ctx, part.Media)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("failed to load %s data: %w", blockType, err)
 	}
 	block.Source.Type = sourceTypeBase64
 	block.Source.Data = data
-	return block
+	return block, nil
 }
 
 // buildClaudeMessageContent creates content array for a message including text, images, and tool calls
@@ -285,7 +301,7 @@ func (p *ToolProvider) buildClaudeMessageContent(
 	ctx context.Context,
 	msg types.Message,
 	pendingToolResults []claudeToolResult,
-) []interface{} {
+) ([]interface{}, error) {
 	content := make([]interface{}, 0)
 
 	// Add pending tool results first if this is a user message
@@ -296,7 +312,11 @@ func (p *ToolProvider) buildClaudeMessageContent(
 	}
 
 	// Add message content (text and/or media)
-	content = append(content, p.buildMessageContentBlocks(ctx, msg)...)
+	blocks, err := p.buildMessageContentBlocks(ctx, msg)
+	if err != nil {
+		return nil, err
+	}
+	content = append(content, blocks...)
 
 	// Add tool calls if this is an assistant message
 	if msg.Role == roleAssistant && len(msg.ToolCalls) > 0 {
@@ -313,32 +333,30 @@ func (p *ToolProvider) buildClaudeMessageContent(
 		}
 	}
 
-	return content
+	return content, nil
 }
 
 // buildMessageContentBlocks creates content blocks for text and media parts of a message.
 // This is extracted to reduce cognitive complexity of buildClaudeMessageContent.
-func (p *ToolProvider) buildMessageContentBlocks(ctx context.Context, msg types.Message) []interface{} {
+// A part that cannot be converted is an error, as on the non-tool path:
+// falling back to the message's text used to send the model the question
+// without its media.
+func (p *ToolProvider) buildMessageContentBlocks(ctx context.Context, msg types.Message) ([]interface{}, error) {
 	// Check if message has multimodal content (images, etc.)
 	if msg.HasMediaContent() {
-		// Use multimodal conversion path
-		blocks, err := p.convertPartsToClaudeBlocks(ctx, msg.Parts)
-		if err == nil {
-			return blocks
-		}
-		// Fallback to text-only on conversion error
+		return p.convertPartsToClaudeBlocks(ctx, msg.Parts)
 	}
 
-	// Text-only path (either no media or conversion failed)
+	// Text-only path
 	textContent := msg.GetContent()
 	if textContent != "" {
 		return []interface{}{claudeTextContent{
 			Type: contentTypeText,
 			Text: textContent,
-		}}
+		}}, nil
 	}
 
-	return nil
+	return nil, nil
 }
 
 // addClaudeToolConfig sets the tools and tool_choice fields on the request based
@@ -383,20 +401,23 @@ func (p *ToolProvider) processMessageForTools(
 	pendingToolResults []claudeToolResult,
 	messages []claudeToolMessage,
 	tools interface{},
-) ([]claudeToolMessage, []claudeToolResult) {
+) ([]claudeToolMessage, []claudeToolResult, error) {
 	// If we have pending tool results and this is not a user message, create a user message for them
 	if len(pendingToolResults) > 0 && msg.Role != roleUser {
 		messages = append(messages, flushPendingToolResults(pendingToolResults))
 		pendingToolResults = nil
 	}
 
-	content := p.buildClaudeMessageContent(ctx, msg, pendingToolResults)
+	content, err := p.buildClaudeMessageContent(ctx, msg, pendingToolResults)
+	if err != nil {
+		return nil, nil, err
+	}
 	if msg.Role == roleUser {
 		pendingToolResults = nil
 	}
 
 	if len(content) == 0 {
-		return messages, pendingToolResults
+		return messages, pendingToolResults, nil
 	}
 
 	claudeMsg := claudeToolMessage{
@@ -417,7 +438,7 @@ func (p *ToolProvider) processMessageForTools(
 	}
 
 	messages = append(messages, claudeMsg)
-	return messages, pendingToolResults
+	return messages, pendingToolResults, nil
 }
 
 // markLastBlockCacheable sets a cache_control breakpoint on the final content
@@ -450,18 +471,26 @@ func markLastBlockCacheable(messages []claudeToolMessage) {
 
 func (p *ToolProvider) buildToolRequest(
 	ctx context.Context, req providers.PredictionRequest, tools any, toolChoice string,
-) claudeRequest {
+) (claudeRequest, error) {
 	messages := make([]claudeToolMessage, 0, len(req.Messages))
 	var pendingToolResults []claudeToolResult
 
 	for i := range req.Messages {
 		msg := &req.Messages[i]
 		if msg.Role == roleTool {
-			pendingToolResults = append(pendingToolResults, p.processClaudeToolResult(ctx, *msg))
+			result, err := p.processClaudeToolResult(ctx, *msg)
+			if err != nil {
+				return claudeRequest{}, fmt.Errorf("failed to convert message %d: %w", i, err)
+			}
+			pendingToolResults = append(pendingToolResults, result)
 			continue
 		}
 
-		messages, pendingToolResults = p.processMessageForTools(ctx, *msg, pendingToolResults, messages, tools)
+		var err error
+		messages, pendingToolResults, err = p.processMessageForTools(ctx, *msg, pendingToolResults, messages, tools)
+		if err != nil {
+			return claudeRequest{}, fmt.Errorf("failed to convert message %d: %w", i, err)
+		}
 	}
 
 	// If there are still pending tool results at the end, add them as a final user message
@@ -500,7 +529,7 @@ func (p *ToolProvider) buildToolRequest(
 		addClaudeToolConfig(&request, tools, toolChoice)
 	}
 
-	return request
+	return request, nil
 }
 
 // extractTextContentFromResponse extracts text content from Claude response
@@ -749,7 +778,10 @@ func (p *ToolProvider) predictStreamWithToolsOnce(
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
 	// Build Claude request with tools
-	claudeReq := p.buildToolRequest(ctx, req, tools, toolChoice)
+	claudeReq, err := p.buildToolRequest(ctx, req, tools, toolChoice)
+	if err != nil {
+		return nil, err
+	}
 
 	// Add streaming flag
 	claudeReq.Stream = true

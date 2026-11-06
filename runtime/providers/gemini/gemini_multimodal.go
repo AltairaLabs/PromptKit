@@ -163,8 +163,9 @@ func (p *Provider) convertMessageToGemini(ctx context.Context, msg types.Message
 	}
 
 	var parts []geminiPart
+	loader := p.MediaLoader()
 	for _, part := range msg.Parts {
-		gPart, err := p.convertPartToGemini(ctx, part)
+		gPart, err := p.convertPartToGemini(ctx, loader, part)
 		if err != nil {
 			return geminiContent{}, err
 		}
@@ -177,8 +178,11 @@ func (p *Provider) convertMessageToGemini(ctx context.Context, msg types.Message
 	}, nil
 }
 
-// convertPartToGemini converts a ContentPart to Gemini's format
-func (p *Provider) convertPartToGemini(ctx context.Context, part types.ContentPart) (geminiPart, error) {
+// convertPartToGemini converts a ContentPart to Gemini's format, loading its
+// media through loader, which the caller shares across one message's parts.
+func (p *Provider) convertPartToGemini(
+	ctx context.Context, loader *providers.MediaLoader, part types.ContentPart,
+) (geminiPart, error) {
 	switch part.Type {
 	case types.ContentTypeText:
 		if part.Text == nil || *part.Text == "" {
@@ -187,7 +191,7 @@ func (p *Provider) convertPartToGemini(ctx context.Context, part types.ContentPa
 		return geminiPart{Text: *part.Text}, nil
 
 	case types.ContentTypeImage, types.ContentTypeAudio, types.ContentTypeVideo, types.ContentTypeDocument:
-		return p.convertMediaPartToGemini(ctx, part)
+		return p.convertMediaPartToGemini(ctx, loader, part)
 
 	default:
 		return geminiPart{}, fmt.Errorf("unsupported part type: %s", part.Type)
@@ -195,7 +199,9 @@ func (p *Provider) convertPartToGemini(ctx context.Context, part types.ContentPa
 }
 
 // convertMediaPartToGemini converts image/audio/video/document parts to Gemini format
-func (p *Provider) convertMediaPartToGemini(ctx context.Context, part types.ContentPart) (geminiPart, error) {
+func (p *Provider) convertMediaPartToGemini(
+	ctx context.Context, loader *providers.MediaLoader, part types.ContentPart,
+) (geminiPart, error) {
 	if part.Media == nil {
 		return geminiPart{}, fmt.Errorf("%s part missing media field", part.Type)
 	}
@@ -208,7 +214,7 @@ func (p *Provider) convertMediaPartToGemini(ctx context.Context, part types.Cont
 
 	// Use the provider's store-aware MediaLoader to get base64 data from any
 	// source (Data, FilePath, URL, StorageReference).
-	base64Data, err := p.MediaLoader().GetBase64Data(ctx, part.Media)
+	base64Data, err := loader.GetBase64Data(ctx, part.Media)
 	if err != nil {
 		return geminiPart{}, fmt.Errorf("failed to load %s data: %w", part.Type, err)
 	}
