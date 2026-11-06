@@ -70,6 +70,16 @@ type MultimodalCapabilityProvider interface {
 	GetMultimodalCapabilities() MultimodalCapabilities
 }
 
+// SendableContentProvider is implemented by providers whose
+// GetMultimodalCapabilities applies a config's declared capabilities list.
+// SendableMultimodalCapabilities reports what the adapter itself can send,
+// whatever the config declares. Request validation (ValidateMultimodalMessage)
+// checks against it, so a partial capabilities list, often written for
+// scenario selection, never rejects a part the adapter would send.
+type SendableContentProvider interface {
+	SendableMultimodalCapabilities() MultimodalCapabilities
+}
+
 // SupportsMultimodal checks if a provider implements multimodal support
 func SupportsMultimodal(p Provider) bool {
 	_, ok := p.(MultimodalCapabilityProvider)
@@ -182,7 +192,9 @@ func formatListed(formats []string, mimeType string) bool {
 // video and document parts of a message and their MIME types. It returns an
 // *UnsupportedContentError for the first part that fails. A message with no
 // media parts is always valid, even when its text is carried in Parts. A part
-// with no MIME type is checked for its modality only.
+// with no MIME type is checked for its modality only. A provider that
+// implements SendableContentProvider is checked against what its adapter can
+// send, so a config's capabilities list never narrows the check.
 func ValidateMultimodalMessage(p Provider, msg types.Message) error {
 	if !msg.HasMediaContent() {
 		return nil // Text-only message, no validation needed
@@ -199,6 +211,9 @@ func ValidateMultimodalMessage(p Provider, msg types.Message) error {
 	}
 
 	caps := mp.GetMultimodalCapabilities()
+	if sp, ok := p.(SendableContentProvider); ok {
+		caps = sp.SendableMultimodalCapabilities()
+	}
 
 	// Check each content part
 	for i, part := range msg.Parts {
@@ -213,28 +228,27 @@ func ValidateMultimodalMessage(p Provider, msg types.Message) error {
 // validateContentPart validates a single content part against provider capabilities
 func validateContentPart(p Provider, part types.ContentPart, index int, caps MultimodalCapabilities) error {
 	switch part.Type {
-	case types.ContentTypeText:
-		return nil // Text is always supported
-
 	case types.ContentTypeImage:
-		return validateMediaPart(p, part, index, caps.SupportsImages, "image")
+		return validateMediaPart(p, part, index, caps.SupportsImages, caps.ImageFormats, "image")
 
 	case types.ContentTypeAudio:
-		return validateMediaPart(p, part, index, caps.SupportsAudio, "audio")
+		return validateMediaPart(p, part, index, caps.SupportsAudio, caps.AudioFormats, "audio")
 
 	case types.ContentTypeVideo:
-		return validateMediaPart(p, part, index, caps.SupportsVideo, "video")
+		return validateMediaPart(p, part, index, caps.SupportsVideo, caps.VideoFormats, "video")
 
 	case types.ContentTypeDocument:
-		return validateMediaPart(p, part, index, caps.SupportsDocuments, "document")
+		return validateMediaPart(p, part, index, caps.SupportsDocuments, caps.DocumentFormats, "document")
 
 	default:
-		return nil
+		return nil // Text and other non-media parts are always supported
 	}
 }
 
 // validateMediaPart validates a media content part (image, audio, video or document)
-func validateMediaPart(p Provider, part types.ContentPart, index int, supported bool, contentType string) error {
+func validateMediaPart(
+	p Provider, part types.ContentPart, index int, supported bool, formats []string, contentType string,
+) error {
 	if !supported {
 		return &UnsupportedContentError{
 			Provider:    p.ID(),
@@ -244,7 +258,7 @@ func validateMediaPart(p Provider, part types.ContentPart, index int, supported 
 		}
 	}
 
-	if part.Media != nil && part.Media.MIMEType != "" && !IsFormatSupported(p, part.Type, part.Media.MIMEType) {
+	if part.Media != nil && part.Media.MIMEType != "" && !formatListed(formats, part.Media.MIMEType) {
 		return &UnsupportedContentError{
 			Provider:    p.ID(),
 			ContentType: contentType,

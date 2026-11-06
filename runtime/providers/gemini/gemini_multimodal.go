@@ -77,7 +77,20 @@ var geminiDocumentFormats = []string{
 // authoritative for which modalities are enabled; otherwise Gemini's built-in
 // defaults apply (images + audio + video + documents).
 func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
-	caps := providers.MultimodalCapabilities{
+	caps := p.SendableMultimodalCapabilities()
+	if p.capabilities != nil {
+		caps.SupportsImages = p.capabilities[providers.CapabilityVision]
+		caps.SupportsAudio = p.capabilities[providers.CapabilityAudio]
+		caps.SupportsVideo = p.capabilities[providers.CapabilityVideo]
+		caps.SupportsDocuments = p.capabilities[providers.CapabilityDocuments]
+	}
+	return caps
+}
+
+// SendableMultimodalCapabilities returns what the adapter sends whatever the
+// config declares: every image, audio, video and document part, as inlineData.
+func (p *Provider) SendableMultimodalCapabilities() providers.MultimodalCapabilities {
+	return providers.MultimodalCapabilities{
 		SupportsImages:    true,
 		SupportsAudio:     true,
 		SupportsVideo:     true,
@@ -102,13 +115,6 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 		MaxVideoSizeMB:    20, //nolint:mnd // Gemini's documented media size limit
 		MaxDocumentSizeMB: 20, //nolint:mnd // Gemini's documented media size limit
 	}
-	if p.capabilities != nil {
-		caps.SupportsImages = p.capabilities[providers.CapabilityVision]
-		caps.SupportsAudio = p.capabilities[providers.CapabilityAudio]
-		caps.SupportsVideo = p.capabilities[providers.CapabilityVideo]
-		caps.SupportsDocuments = p.capabilities[providers.CapabilityDocuments]
-	}
-	return caps
 }
 
 // convertMessagesToGemini converts PromptKit messages to Gemini format

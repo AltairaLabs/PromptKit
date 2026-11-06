@@ -14,7 +14,21 @@ import (
 // authoritative for which modalities are enabled; otherwise Claude's built-in
 // defaults apply (images + documents, no audio/video).
 func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
-	caps := providers.MultimodalCapabilities{
+	caps := p.SendableMultimodalCapabilities()
+	if p.capabilities != nil {
+		caps.SupportsImages = p.capabilities[providers.CapabilityVision]
+		caps.SupportsAudio = p.capabilities[providers.CapabilityAudio]
+		caps.SupportsVideo = p.capabilities[providers.CapabilityVideo]
+		caps.SupportsDocuments = p.capabilities[providers.CapabilityDocuments]
+	}
+	return caps
+}
+
+// SendableMultimodalCapabilities returns what the adapter sends whatever the
+// config declares: images (convertImagePartToClaude) and PDF documents
+// (convertDocumentPartToClaude). Audio and video parts fail conversion.
+func (p *Provider) SendableMultimodalCapabilities() providers.MultimodalCapabilities {
+	return providers.MultimodalCapabilities{
 		SupportsImages:    true,
 		SupportsAudio:     false,
 		SupportsVideo:     false,
@@ -35,13 +49,6 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 		MaxVideoSizeMB:    0,  // Not supported
 		MaxDocumentSizeMB: 32, //nolint:mnd // Claude's documented PDF size limit
 	}
-	if p.capabilities != nil {
-		caps.SupportsImages = p.capabilities[providers.CapabilityVision]
-		caps.SupportsAudio = p.capabilities[providers.CapabilityAudio]
-		caps.SupportsVideo = p.capabilities[providers.CapabilityVideo]
-		caps.SupportsDocuments = p.capabilities[providers.CapabilityDocuments]
-	}
-	return caps
 }
 
 // claudeImageSource represents an image or document source in Claude's format

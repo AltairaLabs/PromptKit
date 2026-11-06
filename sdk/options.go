@@ -1339,11 +1339,12 @@ func WithLogger(l *slog.Logger) Option {
 
 // WithoutContentValidation turns off the check made before every provider
 // call that each image, audio, video and document part of the request is a
-// modality and MIME type the provider declares supporting. By default an
-// unsupported part fails the Send with a *providers.UnsupportedContentError
-// before any request is sent. Use this when a provider's declared
-// capabilities are narrower than what its model accepts; the parts are then
-// passed to the provider as they are.
+// modality and MIME type the provider's adapter can send. A provider config's
+// capabilities list never narrows the check. By default an unsupported part
+// fails the Send with a *providers.UnsupportedContentError before any request
+// is sent. Use this for a custom provider whose declared capabilities are
+// narrower than what it sends; the parts are then passed to the provider as
+// they are.
 func WithoutContentValidation() Option {
 	return func(c *config) error {
 		c.skipContentValidation = true

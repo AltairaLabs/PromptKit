@@ -52,6 +52,15 @@ func (p *multimodalNonStreaming) GetMultimodalCapabilities() providers.Multimoda
 	return p.caps.GetMultimodalCapabilities()
 }
 
+// SendableMultimodalCapabilities forwards the wrapped provider's sendable
+// capabilities, falling back to its declared ones, as validation would.
+func (p *multimodalNonStreaming) SendableMultimodalCapabilities() providers.MultimodalCapabilities {
+	if sp, ok := p.caps.(providers.SendableContentProvider); ok {
+		return sp.SendableMultimodalCapabilities()
+	}
+	return p.caps.GetMultimodalCapabilities()
+}
+
 func withoutStreaming(t *testing.T, p providers.Provider) providers.Provider {
 	t.Helper()
 	caps, ok := p.(providers.MultimodalCapabilityProvider)
@@ -129,12 +138,6 @@ func contentCases() []contentCase {
 			unsupported: bmpPart,
 		},
 		{
-			name:        "gemini declared capabilities",
-			spec:        providers.ProviderSpec{Type: "gemini", Model: "gemini-2.5-flash", Capabilities: []string{"text", "vision"}},
-			supported:   pngPart,
-			unsupported: wavPart,
-		},
-		{
 			name:        "ollama",
 			spec:        providers.ProviderSpec{Type: "ollama", Model: "llava"},
 			supported:   pngPart,
@@ -200,6 +203,54 @@ func TestProviderStage_ValidatesContentBeforeCallingProvider(t *testing.T) {
 	}
 }
 
+// A config's capabilities list never narrows validation. Configs often list
+// capabilities for scenario selection, not to describe the model, so a part
+// the adapter can send must reach the API even when the list leaves its
+// modality out.
+func TestProviderStage_ConfigCapabilitiesNeverNarrowValidation(t *testing.T) {
+	setContentProviderKeys(t)
+	cases := []struct {
+		name string
+		spec providers.ProviderSpec
+		part types.ContentPart
+	}{
+		{
+			name: "claude without documents sends a PDF",
+			spec: providers.ProviderSpec{Type: "claude", Model: "claude-sonnet-4-6", Capabilities: []string{"text", "vision"}},
+			part: pdfPart,
+		},
+		{
+			name: "gemini without audio sends audio",
+			spec: providers.ProviderSpec{Type: "gemini", Model: "gemini-2.5-flash", Capabilities: []string{"text", "vision"}},
+			part: wavPart,
+		},
+		{
+			name: "openai without vision sends an image",
+			spec: providers.ProviderSpec{
+				Type: "openai", Model: "gpt-4o", Capabilities: []string{"text", "tools"},
+				AdditionalConfig: map[string]any{"api_mode": "completions"},
+			},
+			part: pngPart,
+		},
+	}
+	paths := map[string]func(*testing.T, providers.Provider) providers.Provider{
+		"streaming":     func(_ *testing.T, p providers.Provider) providers.Provider { return p },
+		"non-streaming": withoutStreaming,
+	}
+	for _, tc := range cases {
+		for pathName, wrap := range paths {
+			t.Run(tc.name+"/"+pathName, func(t *testing.T) {
+				srv, hits := countingServer(t)
+				p := wrap(t, newContentProvider(t, tc.spec, srv.URL))
+				err := runContentStage(p, &ProviderConfig{}, messageWith(tc.part))
+				var unsupported *providers.UnsupportedContentError
+				assert.False(t, errors.As(err, &unsupported), "config list narrowed validation: %v", err)
+				assert.Positive(t, hits.Load(), "a part the adapter can send must reach the provider API")
+			})
+		}
+	}
+}
+
 // SkipContentValidation hands the part to the provider as it is: Gemini sends
 // a BMP image, which it does not declare, to the API.
 func TestProviderStage_SkipContentValidationSendsUndeclaredParts(t *testing.T) {
@@ -254,13 +305,11 @@ func TestProviderStage_UndeclaredProviderIsNotValidated(t *testing.T) {
 }
 
 // Media in an assistant reply is what a model produced, not input, so it is
-// not checked: a Gemini config declaring only text still sends a history
-// holding an assistant audio reply.
+// not checked: vLLM, which declares no audio, still sends a history holding
+// an assistant audio reply (its adapter sends the reply's text).
 func TestProviderStage_AssistantMediaIsNotValidated(t *testing.T) {
-	setContentProviderKeys(t)
 	srv, hits := countingServer(t)
-	p := withoutStreaming(t, newContentProvider(t, providers.ProviderSpec{Type: "gemini", Model: "gemini-2.5-flash",
-		Capabilities: []string{"text"}}, srv.URL))
+	p := withoutStreaming(t, newContentProvider(t, providers.ProviderSpec{Type: "vllm", Model: "qwen-vl"}, srv.URL))
 	history := []types.Message{
 		{Role: "user", Content: "say hi"},
 		{Role: "assistant", Parts: []types.ContentPart{types.NewTextPart("hi"), wavPart}},

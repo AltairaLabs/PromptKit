@@ -19,6 +19,21 @@ const openAIMaxImageSizeMB = 20
 
 // GetMultimodalCapabilities returns OpenAI's multimodal capabilities
 func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
+	caps := p.SendableMultimodalCapabilities()
+	// When the provider declares its capabilities, they are authoritative for
+	// images/vision too; otherwise images stay on by default.
+	if p.capabilities != nil {
+		caps.SupportsImages = p.capabilities[providers.CapabilityVision]
+	}
+	return caps
+}
+
+// SendableMultimodalCapabilities returns what the adapter sends: images
+// always, whatever the config declares, and audio only where
+// convertContentPartToOpenAI accepts it (an audio model on the Chat
+// Completions API). Audio is gated by the adapter itself, so a config that
+// leaves audio out of its capabilities makes the adapter refuse it too.
+func (p *Provider) SendableMultimodalCapabilities() providers.MultimodalCapabilities {
 	caps := providers.MultimodalCapabilities{
 		SupportsImages: true,
 		SupportsAudio:  false,
@@ -34,12 +49,6 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 		MaxImageSizeMB: openAIMaxImageSizeMB,
 		MaxAudioSizeMB: 0,
 		MaxVideoSizeMB: 0,
-	}
-
-	// When the provider declares its capabilities, they are authoritative for
-	// images/vision too; otherwise images stay on by default (above).
-	if p.capabilities != nil {
-		caps.SupportsImages = p.capabilities[providers.CapabilityVision]
 	}
 
 	// Audio input is sent only on the Chat Completions API, as an input_audio

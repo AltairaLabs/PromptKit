@@ -114,18 +114,18 @@ Ask a question only the document can answer, such as "What is the refund policy 
 
 ## Troubleshoot
 
-Before each provider call, the SDK checks every attachment against the modalities and MIME types the provider declares. An attachment the provider does not declare fails the `Send` with a `*providers.UnsupportedContentError`, and no request is sent. Use `errors.As` to read its `ContentType`, `MIMEType` and `PartIndex`.
+Before each provider call, the SDK checks every attachment against the modalities and MIME types the provider's adapter can send. The `capabilities` list in a provider config does not narrow this check. An attachment the adapter cannot send fails the `Send` with a `*providers.UnsupportedContentError`, and no request is sent. Use `errors.As` to read its `ContentType`, `MIMEType` and `PartIndex`.
 
 | Error text | Cause |
 |---|---|
 | `<provider-id>: unsupported document format: <mime> (part N)` | The provider does not take this document type. Claude takes PDF only. Convert the file before sending. |
-| `<provider-id>: provider does not support document inputs (part N)` | The provider takes no documents: OpenAI, Ollama and vLLM do not. A Claude or Gemini config whose `capabilities` list omits `documents` gives the same error. |
+| `<provider-id>: provider does not support document inputs (part N)` | The provider takes no documents: OpenAI, Ollama and vLLM do not. Use Claude or Gemini. |
 | `file size N bytes exceeds maximum M bytes for <path>` | The file is over the 50 MB per-file limit the media loader applies. |
 | `media item limit exceeded` | The message carries more than 20 media items. |
 
 The providers declare their own document size limits: 32 MB for Claude and 20 MB for Gemini. The check does not apply these limits, so a larger file within the 50 MB loader limit reaches the provider, which rejects it.
 
-If a provider's declaration is narrower than what its model accepts, open the conversation with `sdk.WithoutContentValidation()` to turn the check off. Attachments then go to the provider as they are.
+If a custom provider declares less than it sends, open the conversation with `sdk.WithoutContentValidation()` to turn the check off. Attachments then go to the provider as they are.
 
 ## Related
 

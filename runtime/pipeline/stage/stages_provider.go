@@ -239,11 +239,12 @@ type ProviderConfig struct {
 
 	// SkipContentValidation turns off the check, made before every provider
 	// call, that each image, audio, video and document part of the request's
-	// input messages is a modality and MIME type the provider declares
-	// (providers.ValidateMultimodalRequest). With the check on, an unsupported
-	// part fails the round with a *providers.UnsupportedContentError before
-	// any request is sent. Set it for a provider whose declaration is narrower
-	// than what its model accepts. Providers that do not implement
+	// input messages is a modality and MIME type the provider's adapter can
+	// send (providers.ValidateMultimodalRequest). A config's capabilities list
+	// never narrows the check. With the check on, an unsupported part fails
+	// the round with a *providers.UnsupportedContentError before any request
+	// is sent. Set it for a custom provider whose declaration is narrower than
+	// what it sends. Providers that do not implement
 	// providers.MultimodalCapabilityProvider are never checked.
 	SkipContentValidation bool
 }
