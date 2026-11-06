@@ -4,7 +4,7 @@ description: YAML schema reference for declarative SDK configuration
 sidebar:
   order: 8
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - pkg/config/logging.go
     - pkg/config/provider_tuning.go
@@ -25,6 +25,8 @@ verified:
     - runtime/mcp/types.go
     - runtime/providers/all/all.go
     - runtime/providers/base/http_tuning.go
+    - runtime/providers/base/llmpricing.go
+    - runtime/providers/base/rate_limit_transport.go
     - runtime/providers/base_provider.go
     - runtime/providers/bedrock/embedding_register.go
     - runtime/providers/claude/claude_multimodal.go
@@ -37,6 +39,7 @@ verified:
     - runtime/providers/multimodal.go
     - runtime/providers/ollama/embedding_register.go
     - runtime/providers/openai/embedding_register.go
+    - runtime/providers/provider.go
     - runtime/providers/registry.go
     - runtime/providers/replay/factory.go
     - runtime/providers/rerank_factory.go
@@ -247,7 +250,8 @@ Credentials are resolved in order of precedence: `api_key` > `credential_file` >
 #### defaults
 
 Default generation parameters, applied to a request that does not set its own. A
-prompt's `parameters` override them.
+prompt's `parameters` override them. Every field is optional: an omitted field, or a
+zero, is unset, and the provider's own default applies.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -258,7 +262,7 @@ prompt's `parameters` override them.
 
 #### pricing
 
-Used for cost tracking and reporting.
+Used for cost tracking and reporting. Both fields are optional: an omitted field, or a zero, is unset. The provider prices usage from its built-in price table unless both rates are positive.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -308,8 +312,8 @@ A waiting request gives up when its context is canceled. When the request has a 
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `rps` | int | Sustained requests per second. Default: `0` (unlimited). |
-| `burst` | int | Requests that may go out at once before the rate applies. Default: `1`, which spaces requests `1/rps` seconds apart. Ignored when `rps` is `0`. |
+| `rps` | int | Sustained requests per second. Optional. Default: `0` (unlimited). |
+| `burst` | int | Requests that may go out at once before the rate applies. Optional. Default: `1`, which spaces requests `1/rps` seconds apart. Ignored when `rps` is `0`. |
 
 ```yaml
 rate_limit:
@@ -338,7 +342,7 @@ Subprocess binding for tools. A relative `command` is resolved against the proce
 | `command` | string | Path to the executable. |
 | `args` | string[] | Additional command arguments. |
 | `runtime` | string | Execution mode: `exec` (one-shot, default) or `server` (long-running JSON-RPC). |
-| `env` | string[] | Environment variable names to pass through from the host. |
+| `env` | string[] | Environment variable names to pass through from the host. A one-shot (`exec`) tool that lists any receives only those variables. With none listed, it inherits the whole host environment. A `server` tool receives the host environment plus the listed variables. |
 | `timeout_ms` | int | Timeout for each call in milliseconds. Overrides the tool descriptor's timeout (30 seconds when the pack sets none). |
 
 ---
@@ -368,7 +372,7 @@ Map of external hook bindings. Keys are hook names (arbitrary identifiers). Each
 | `args` | string[] | no | Additional command arguments. |
 | `hook` | string | yes | Hook interface type: `provider`, `tool`, `session`, or `eval`. |
 | `phases` | string[] | no | Lifecycle phases to intercept. See below. |
-| `mode` | string | no | Execution mode: `filter` (synchronous, can modify/deny; default) or `observe` (async, fire-and-forget). |
+| `mode` | string | no | Execution mode: `filter` (synchronous, can modify/deny; default) or `observe` (the runtime waits for the process, bounded by `timeout_ms`, then discards its output and any failure). |
 | `env` | string[] | no | Environment variable names to pass through from the host. |
 | `timeout_ms` | int | no | Per-invocation timeout in milliseconds. |
 | `sandbox` | string | no | Name of a sandbox declared under [`spec.sandboxes`](#specsandboxes). Without it, the hook process runs directly on the host. |

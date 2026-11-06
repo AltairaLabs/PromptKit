@@ -4,14 +4,12 @@ description: Connect MCP tool servers to a conversation with WithMCP and the MCP
 sidebar:
   order: 6
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/mcp/client.go
     - runtime/mcp/registry.go
     - runtime/mcp/types.go
     - runtime/pipeline/stage/stages_provider.go
-    - runtime/prompt/pack.go
-    - runtime/prompt/registry.go
     - runtime/tools/registry.go
     - runtime/tools/types.go
     - sdk/conversation_tools.go

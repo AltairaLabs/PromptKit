@@ -3,7 +3,7 @@ title: SDK Reference
 sidebar:
   order: 0
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - sdk/conversation.go
     - sdk/conversation_tools.go

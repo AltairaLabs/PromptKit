@@ -1,14 +1,14 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/tools/override-capability-tools.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": "c1",
    "claim": "WithToolDescriptorOverride patches a capability tool descriptor after the capability registers it",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:791-809",
-    "sdk/tool_descriptor_override.go:116-130"
+    "sdk/conversation.go:823-841",
+    "sdk/tool_descriptor_override.go:115-129"
    ]
   },
   {
@@ -24,7 +24,7 @@
    "claim": "The executor stays the one the capability registered; Registry.Register is last-write-wins",
    "verdict": "true",
    "evidence": [
-    "sdk/tool_descriptor_override.go:132-139"
+    "sdk/tool_descriptor_override.go:131-138"
    ]
   },
   {
@@ -32,8 +32,8 @@
    "claim": "conv.ToolRegistry().Get(name).Description returns the patched description",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:472-474",
-    "sdk/tool_descriptor_override.go:150-153"
+    "sdk/conversation_tools.go:492",
+    "sdk/tool_descriptor_override.go:115"
    ]
   },
   {
@@ -41,8 +41,8 @@
    "claim": "The patch function receives a clone of the descriptor",
    "verdict": "true",
    "evidence": [
-    "sdk/tool_descriptor_override.go:150-151",
-    "sdk/tool_descriptor_override.go:165-177"
+    "sdk/tool_descriptor_override.go:149-150",
+    "sdk/tool_descriptor_override.go:164-176"
    ]
   },
   {
@@ -50,7 +50,7 @@
    "claim": "Overrides for one tool compose in registration order",
    "verdict": "true",
    "evidence": [
-    "sdk/tool_descriptor_override.go:143-158"
+    "sdk/tool_descriptor_override.go:142-157"
    ]
   },
   {
@@ -58,7 +58,7 @@
    "claim": "An override naming an unregistered tool is logged at WARN and skipped; other overrides apply; log text 'tool descriptor override skipped: tool not registered name=...'",
    "verdict": "true",
    "evidence": [
-    "sdk/tool_descriptor_override.go:146-148"
+    "sdk/tool_descriptor_override.go:145-147"
    ]
   },
   {
@@ -75,7 +75,7 @@
    "verdict": "true",
    "evidence": [
     "sdk/capability_memory.go:73",
-    "sdk/options.go:1462"
+    "sdk/options.go:1574"
    ]
   },
   {
@@ -83,7 +83,7 @@
    "claim": "WithMemorySubjectKey declares a different subject key",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1483"
+    "sdk/options.go:1595"
    ]
   },
   {
@@ -97,8 +97,8 @@
    "claim": "Unknown top-level args route per tool: remember->Memory.Metadata, recall->RetrieveOptions.Extras, list->ListOptions.Extras, forget->DeleteOptions.Extras (ExtrasDeleter), A2A->Message.Metadata, workflow__transition->TransitionResult.HostExtras; set_artifact and skills tools drop them",
    "verdict": "true",
    "evidence": [
-    "runtime/memory/store.go:25-37",
-    "sdk/tool_descriptor_override.go:51-82"
+    "runtime/memory/store.go",
+    "sdk/tool_descriptor_override.go:51"
    ]
   }
  ]

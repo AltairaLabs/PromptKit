@@ -4,14 +4,13 @@ description: Wire protocol reference for subprocess tools, evals, and hooks
 sidebar:
   order: 9
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/evals/exec_hook.go
     - runtime/evals/handlers/exec_handler.go
     - runtime/evals/handlers/external_eval.go
     - runtime/evals/handlers/tool_call_views.go
     - runtime/evals/runner.go
-    - runtime/evals/types.go
     - runtime/evals/wrappers.go
     - runtime/hooks/exec_build.go
     - runtime/hooks/exec_hooks.go
@@ -204,8 +203,8 @@ The result is an error, not a score of 0, when the process exits non-zero, runs 
 
 ### How callers use the result
 
-- Assertions: `AssertionEvalHandler` (`runtime/evals/wrappers.go`) fails a result that carries an error, then checks `min_score` / `max_score`. With neither set, the score must be at least 1.0.
-- Guardrails: `GuardrailHookAdapter` triggers on a result with no score, a score below the minimum (default 1.0), or a score above the maximum (`ScoreThresholds.Triggered`, `runtime/evals/wrappers.go`), then enforces or monitors.
+- Assertions: `AssertionEvalHandler` (`runtime/evals/wrappers.go`) fails a result that carries an error, then checks `min_score` / `max_score`. With neither set, the score must be at least 1.0. A result with no score passes.
+- Guardrails: `GuardrailHookAdapter` triggers on a result with no score, a score below `min_score`, or a score above `max_score` (`ScoreThresholds.Triggered`, `runtime/evals/wrappers.go`). With neither threshold set, `min_score` is 1.0. The adapter then enforces or monitors.
 - Standalone evals: the score is recorded as a metric.
 
 ## Hook protocol

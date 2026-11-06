@@ -4,7 +4,7 @@ description: "The pack-first Go SDK: open a pack, send messages, register tools,
 sidebar:
   order: 0
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/a2a/types.go
     - runtime/evals/handlers/skill_activated.go
@@ -15,8 +15,10 @@ verified:
     - sdk/a2a_exports.go
     - sdk/conversation_tools.go
     - sdk/errors.go
+    - sdk/errors_wrap.go
     - sdk/hooks/events.go
     - sdk/options.go
+    - sdk/response.go
     - sdk/sdk.go
     - sdk/streaming.go
     - sdk/tools/http.go

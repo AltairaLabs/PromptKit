@@ -4,8 +4,10 @@ description: Give the model Go functions to call with OnTool, custom executors a
 sidebar:
   order: 3
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
+    - runtime/pipeline/stage/tool_call_rate.go
+    - runtime/pipeline/types.go
     - sdk/a2a.go
     - sdk/conversation.go
     - sdk/conversation_tools.go
@@ -177,6 +179,8 @@ To approve with edits, pass overrides that shallow-merge over the arguments the 
 ```go
 conv.ResolveToolWithArgs(ctx, pending.ID, map[string]any{"amount": 500})
 ```
+
+An approval counts toward `ToolPolicy.MaxCallsPerMinute` (see `WithToolPolicy`). When the tool has already reached the limit, the handler does not run and the model receives the limit error as the call's result.
 
 To approve from a web service, resolve the call in a handler:
 

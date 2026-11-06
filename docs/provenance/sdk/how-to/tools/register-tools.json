@@ -1,14 +1,14 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/tools/register-tools.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": "c1",
    "claim": "OnTool handler signature is func(args map[string]any) (any, error)",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:235",
-    "sdk/conversation_tools.go:33"
+    "sdk/conversation.go:248",
+    "sdk/conversation_tools.go:34"
    ]
   },
   {
@@ -16,8 +16,8 @@
    "claim": "OnToolAsync takes a check func and exec func; a non-empty PendingResult holds the call",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:171-196",
-    "sdk/sdk.go:1034-1058"
+    "sdk/conversation_tools.go:172-197",
+    "sdk/sdk.go:1045-1069"
    ]
   },
   {
@@ -31,7 +31,9 @@
    "claim": "ResolveTool/RejectTool/Continue/ResolveToolWithArgs semantics; overrides shallow-merge",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:235-322"
+    "sdk/conversation_tools.go:236",
+    "sdk/conversation_tools.go:268",
+    "sdk/conversation_tools.go:321"
    ]
   },
   {
@@ -39,8 +41,8 @@
    "claim": "Default pending store is in-process; WithPendingStore injects a durable one",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:198-206",
-    "sdk/options.go:966"
+    "sdk/conversation_tools.go:199-207",
+    "sdk/options.go:995"
    ]
   },
   {
@@ -48,8 +50,8 @@
    "claim": "A resolving process must register the same OnToolAsync handler; recovered by tool name",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:208-220",
-    "sdk/conversation_tools.go:279-282"
+    "sdk/conversation_tools.go:213",
+    "sdk/conversation_tools.go:268"
    ]
   },
   {
@@ -66,7 +68,7 @@
    "claim": "conv.PendingTools(ctx) lists held calls from the store, surviving restarts",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:455-460"
+    "sdk/conversation_tools.go:476-481"
    ]
   },
   {
@@ -74,6 +76,16 @@
    "claim": "A returned error is delivered to the model as the tool result",
    "verdict": "unverified",
    "evidence": []
+  },
+  {
+   "id": "c18",
+   "claim": "An approval counts toward ToolPolicy.MaxCallsPerMinute; at the limit the handler does not run and the model receives the limit error as the call's result",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/tool_call_rate.go:34",
+    "runtime/pipeline/types.go:36",
+    "sdk/conversation_tools.go:268"
+   ]
   },
   {
    "id": "c2",
@@ -86,8 +98,8 @@
    "claim": "OnToolCtx passes a context.Context",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:243",
-    "sdk/conversation_tools.go:47"
+    "sdk/conversation.go:256",
+    "sdk/conversation_tools.go:48"
    ]
   },
   {
@@ -95,7 +107,7 @@
    "claim": "OnTools registers a map of handlers",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:63-69"
+    "sdk/conversation_tools.go:64-70"
    ]
   },
   {
@@ -103,9 +115,8 @@
    "claim": "tools.OnTyped(conv, ...) registers a typed handler with the conversation",
    "verdict": "false",
    "evidence": [
-    "sdk/conversation.go:235",
-    "sdk/tools/typed.go:111",
-    "sdk/tools/typed.go:123-129"
+    "sdk/tools/typed.go:117",
+    "sdk/tools/typed.go:132"
    ]
   },
   {
@@ -113,7 +124,7 @@
    "claim": "A field without a map tag is keyed by its lowercase name",
    "verdict": "false",
    "evidence": [
-    "sdk/tools/typed.go:72-75"
+    "sdk/tools/typed.go:117"
    ]
   },
   {
@@ -121,7 +132,7 @@
    "claim": "OnToolHTTP registers an HTTP tool from NewHTTPToolConfig with WithMethod/WithHeader",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:84-91"
+    "sdk/conversation_tools.go:85-92"
    ]
   },
   {
@@ -129,7 +140,7 @@
    "claim": "OnToolExecutor registers a runtime tools.Executor",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:102-146"
+    "sdk/conversation_tools.go:103"
    ]
   },
   {
@@ -137,9 +148,8 @@
    "claim": "WithToolExecutor is OnToolExecutor applied at open time; works with A2AOpener and any constructor taking options",
    "verdict": "true",
    "evidence": [
-    "sdk/a2a.go:10",
-    "sdk/options.go:1069-1083",
-    "sdk/sdk.go:263"
+    "sdk/a2a.go:12",
+    "sdk/options.go:1098"
    ]
   }
  ]

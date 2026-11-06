@@ -1,34 +1,35 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/tools/client-tools.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "A client tool is defined with mode: client in the tool YAML",
    "verdict": "false",
    "evidence": [
-    "runtime/tools/registry.go:615",
-    "sdk/internal/pack/load.go:129",
-    "sdk/internal/pack/load.go:133",
-    "sdk/tool_descriptor_override.go:116"
+    "runtime/tools/registry.go:650",
+    "sdk/internal/pack/load.go:131",
+    "sdk/internal/pack/load.go:135",
+    "sdk/tool_descriptor_override.go:115"
    ]
   },
   {
    "id": 2,
    "claim": "client.consent.required: if true, consent metadata is surfaced before execution",
-   "verdict": "dead",
+   "verdict": "true",
    "evidence": [
-    "runtime/tools/types.go:298",
-    "sdk/client_tools.go:433"
+    "runtime/tools/types.go:324",
+    "sdk/client_tools.go:73"
    ]
   },
   {
    "id": 3,
    "claim": "client.consent.decline_strategy accepts reject or skip",
-   "verdict": "dead",
+   "verdict": "true",
    "evidence": [
-    "runtime/tools/types.go:301",
-    "runtime/tools/types.go:306"
+    "runtime/tools/types.go:333",
+    "runtime/tools/types.go:348",
+    "sdk/client_tools.go:478"
    ]
   },
   {
@@ -36,8 +37,8 @@
    "claim": "client.consent.message is the consent message shown to the user",
    "verdict": "true",
    "evidence": [
-    "sdk/client_tools.go:178",
-    "sdk/client_tools.go:433"
+    "sdk/client_tools.go:241",
+    "sdk/client_tools.go:619"
    ]
   },
   {
@@ -45,9 +46,9 @@
    "claim": "OnClientTool(name, func(ctx, sdk.ClientToolRequest)(any, error)) runs immediately and the pipeline sends the result to the model",
    "verdict": "true",
    "evidence": [
-    "sdk/client_tools.go:131",
-    "sdk/client_tools.go:153",
-    "sdk/client_tools.go:64"
+    "sdk/client_tools.go:197",
+    "sdk/client_tools.go:220",
+    "sdk/client_tools.go:73"
    ]
   },
   {
@@ -55,9 +56,9 @@
    "claim": "With no handler the pipeline suspends and returns pending calls via HasPendingClientTools/ClientTools (ToolName, ConsentMsg, CallID)",
    "verdict": "true",
    "evidence": [
-    "sdk/client_tools.go:168",
+    "sdk/client_tools.go:117",
     "sdk/response.go:224",
-    "sdk/response.go:238"
+    "sdk/response.go:230"
    ]
   },
   {
@@ -65,9 +66,9 @@
    "claim": "SendToolResult, RejectClientTool and Resume complete a deferred call",
    "verdict": "true",
    "evidence": [
-    "sdk/client_tools.go:201",
-    "sdk/client_tools.go:249",
-    "sdk/client_tools.go:272"
+    "sdk/client_tools.go:264",
+    "sdk/client_tools.go:312",
+    "sdk/client_tools.go:335"
    ]
   },
   {
@@ -75,7 +76,7 @@
    "claim": "ChunkClientTool carries chunk.ClientTool.CallID and ResumeStream resumes the stream",
    "verdict": "true",
    "evidence": [
-    "sdk/client_tools.go:314",
+    "sdk/client_tools.go:377",
     "sdk/streaming.go:460"
    ]
   },
@@ -84,8 +85,8 @@
    "claim": "A2A: client tool suspension surfaces as an input-required task with tool metadata on status message parts",
    "verdict": "true",
    "evidence": [
-    "server/a2a/server.go:1022",
-    "server/a2a/server.go:1071"
+    "server/a2a/server.go:1018",
+    "server/a2a/server.go:1067"
    ]
   },
   {
@@ -93,9 +94,9 @@
    "claim": "A 1.0 caller sees TASK_STATE_INPUT_REQUIRED, ROLE_AGENT and SendMessage",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/types.go:116",
-    "runtime/a2a/types.go:15",
-    "runtime/a2a/types.go:205"
+    "runtime/a2a/types.go:122",
+    "runtime/a2a/types.go:21",
+    "runtime/a2a/types.go:211"
    ]
   },
   {
@@ -103,9 +104,9 @@
    "claim": "The caller sends results via message/send with taskId; each result is a data part with metadata tool_call_id; the task returns to working",
    "verdict": "true",
    "evidence": [
-    "server/a2a/server.go:671",
-    "server/a2a/server.go:754",
-    "server/a2a/server.go:790"
+    "server/a2a/server.go:667",
+    "server/a2a/server.go:750",
+    "server/a2a/server.go:786"
    ]
   },
   {
@@ -113,7 +114,7 @@
    "claim": "Metadata tool_result takes precedence over data",
    "verdict": "true",
    "evidence": [
-    "server/a2a/server.go:765"
+    "server/a2a/server.go:761"
    ]
   },
   {
@@ -121,8 +122,8 @@
    "claim": "A message without taskId resumes the conversation under a new task and leaves the input-required one behind",
    "verdict": "true",
    "evidence": [
-    "server/a2a/server.go:810",
-    "server/a2a/server.go:821"
+    "server/a2a/server.go:806",
+    "server/a2a/server.go:817"
    ]
   },
   {
@@ -130,17 +131,17 @@
    "claim": "Metadata rejected: reason rejects the call",
    "verdict": "true",
    "evidence": [
-    "server/a2a/server.go:762",
-    "server/a2a/server.go:795"
+    "server/a2a/server.go:758",
+    "server/a2a/server.go:791"
    ]
   },
   {
    "id": 15,
    "claim": "SendToolResultMultimodal(ctx, callID, []types.ContentPart) returns rich content; the snippet reads tool.Arguments",
-   "verdict": "false",
+   "verdict": "true",
    "evidence": [
-    "sdk/client_tools.go:228",
-    "sdk/response.go:246"
+    "sdk/client_tools.go:291",
+    "sdk/response.go:238"
    ]
   },
   {
@@ -148,8 +149,8 @@
    "claim": "A handler returning []types.ContentPart produces a multimodal result; other return values are serialized as JSON text",
    "verdict": "true",
    "evidence": [
-    "sdk/client_tools.go:480",
-    "sdk/client_tools.go:488"
+    "sdk/client_tools.go:666",
+    "sdk/client_tools.go:674"
    ]
   }
  ]
