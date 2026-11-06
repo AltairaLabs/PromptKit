@@ -37,12 +37,13 @@ func initTaggedSkills(t *testing.T, cap *SkillsCapability, ctx CapabilityContext
 }
 
 // A SkillSelector given through WithSkillSelector, or through
-// WithSkillSelectorOption (which wireSkillsConfig copies onto the
-// capability), narrows the conversation's skill index each turn.
+// WithSkillSelectorOption (which ensureSkillsCapability copies onto the
+// conversation's capability), narrows the conversation's skill index each turn.
 func TestSkillsCapability_SkillSelectorNarrowsTheTurnsSkills(t *testing.T) {
 	tag := skills.NewTagSelector([]string{"coding"})
-	viaOption := NewSkillsCapability(nil)
-	wireSkillsConfig([]Capability{viaOption}, &config{skillSelector: tag})
+	viaOption := ensureSkillsCapability(
+		[]Capability{NewSkillsCapability(nil)}, &config{skillSelector: tag},
+	)[0].(*SkillsCapability)
 
 	for name, cap := range map[string]*SkillsCapability{
 		"WithSkillSelector":       NewSkillsCapability(nil, WithSkillSelector(tag)),

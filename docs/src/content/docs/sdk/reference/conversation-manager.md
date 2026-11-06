@@ -1490,7 +1490,7 @@ true
 </details>
 
 <a name="OpenComposition"></a>
-### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1314>)
+### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1313>)
 
 ```go
 func OpenComposition(packPath, name string, opts ...Option) (*Conversation, error)
@@ -1577,7 +1577,7 @@ _ = conv.Start(ctx) // blocks: mic → LLM → speaker, until ctx is canceled
 ```
 
 <a name="Resume"></a>
-### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1212>)
+### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1211>)
 
 ```go
 func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1605,7 +1605,7 @@ if errors.Is(err, sdk.ErrConversationNotFound) {
 Resume requires a state store to be configured. If no state store is provided, it returns [ErrNoStateStore](<#ErrConversationClosed>).
 
 <a name="ResumeDuplex"></a>
-### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1288>)
+### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1287>)
 
 ```go
 func ResumeDuplex(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -6955,7 +6955,7 @@ At most 100 conversations are closed at a time.
 Errors from individual Close calls are collected and returned as a combined error using [errors.Join](<https://pkg.go.dev/errors/#Join>).
 
 <a name="SkillsCapability"></a>
-## type [SkillsCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L19-L30>)
+## type [SkillsCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L20-L35>)
 
 SkillsCapability provides skill activation/deactivation tools to conversations. Skills are loaded from directories or inline definitions and can be dynamically activated by the LLM via the skill\_\_activate tool.
 
@@ -6966,7 +6966,7 @@ type SkillsCapability struct {
 ```
 
 <a name="NewSkillsCapability"></a>
-### func [NewSkillsCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L52-L54>)
+### func [NewSkillsCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L57-L59>)
 
 ```go
 func NewSkillsCapability(sources []skills.SkillSource, opts ...SkillsOption) *SkillsCapability
@@ -6975,7 +6975,7 @@ func NewSkillsCapability(sources []skills.SkillSource, opts ...SkillsOption) *Sk
 NewSkillsCapability creates a new SkillsCapability from the given sources.
 
 <a name="SkillsCapability.Close"></a>
-### func \(\*SkillsCapability\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L199>)
+### func \(\*SkillsCapability\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L244>)
 
 ```go
 func (c *SkillsCapability) Close() error
@@ -6984,7 +6984,7 @@ func (c *SkillsCapability) Close() error
 Close is a no\-op for SkillsCapability.
 
 <a name="SkillsCapability.Executor"></a>
-### func \(\*SkillsCapability\) [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L262>)
+### func \(\*SkillsCapability\) [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L307>)
 
 ```go
 func (c *SkillsCapability) Executor() *skills.Executor
@@ -6993,7 +6993,7 @@ func (c *SkillsCapability) Executor() *skills.Executor
 Executor returns the underlying skills executor for testing.
 
 <a name="SkillsCapability.Init"></a>
-### func \(\*SkillsCapability\) [Init](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L68>)
+### func \(\*SkillsCapability\) [Init](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L110>)
 
 ```go
 func (c *SkillsCapability) Init(ctx CapabilityContext) error
@@ -7002,7 +7002,7 @@ func (c *SkillsCapability) Init(ctx CapabilityContext) error
 Init discovers skills from sources and creates an executor.
 
 <a name="SkillsCapability.Name"></a>
-### func \(\*SkillsCapability\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L65>)
+### func \(\*SkillsCapability\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L107>)
 
 ```go
 func (c *SkillsCapability) Name() string
@@ -7011,7 +7011,7 @@ func (c *SkillsCapability) Name() string
 Name returns the capability identifier.
 
 <a name="SkillsCapability.NewActiveSet"></a>
-### func \(\*SkillsCapability\) [NewActiveSet](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L146>)
+### func \(\*SkillsCapability\) [NewActiveSet](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L191>)
 
 ```go
 func (c *SkillsCapability) NewActiveSet() *skills.ActiveSet
@@ -7022,7 +7022,7 @@ NewActiveSet returns a fresh ActiveSet for one conversation, with the preloaded 
 Preloading is best\-effort — a skill that fails here can still be activated on first use, so a failure does not abort the open. It is reported, though: when the cause is MaxActive the "activate later" recovery does not hold, because the limit is as full at first use as it is now.
 
 <a name="SkillsCapability.RefreshSkillIndex"></a>
-### func \(\*SkillsCapability\) [RefreshSkillIndex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L211>)
+### func \(\*SkillsCapability\) [RefreshSkillIndex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L256>)
 
 ```go
 func (c *SkillsCapability) RefreshSkillIndex(ctx context.Context, query string, registry *tools.Registry)
@@ -7033,7 +7033,7 @@ RefreshSkillIndex re\-materializes the skill\_\_activate tool's description in r
 A Conversation does not call this: it runs the selector once per Send and narrows the index per provider round, to the skills its own workflow state admits, without re\-registering anything. This remains for hosts that drive a tools.Registry directly; the index it writes ignores any workflow state's skills filter.
 
 <a name="SkillsCapability.RegisterTools"></a>
-### func \(\*SkillsCapability\) [RegisterTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L185>)
+### func \(\*SkillsCapability\) [RegisterTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L230>)
 
 ```go
 func (c *SkillsCapability) RegisterTools(registry *tools.Registry)
@@ -7042,7 +7042,7 @@ func (c *SkillsCapability) RegisterTools(registry *tools.Registry)
 RegisterTools registers the skill management tools into the registry.
 
 <a name="SkillsOption"></a>
-## type [SkillsOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L33>)
+## type [SkillsOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L38>)
 
 SkillsOption configures a SkillsCapability.
 
@@ -7051,7 +7051,7 @@ type SkillsOption func(*SkillsCapability)
 ```
 
 <a name="WithMaxActiveSkills"></a>
-### func [WithMaxActiveSkills](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L45>)
+### func [WithMaxActiveSkills](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L50>)
 
 ```go
 func WithMaxActiveSkills(n int) SkillsOption
@@ -7060,7 +7060,7 @@ func WithMaxActiveSkills(n int) SkillsOption
 WithMaxActiveSkills sets the maximum number of concurrently active skills.
 
 <a name="WithSkillSelector"></a>
-### func [WithSkillSelector](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L38>)
+### func [WithSkillSelector](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L43>)
 
 ```go
 func WithSkillSelector(s skills.SkillSelector) SkillsOption
