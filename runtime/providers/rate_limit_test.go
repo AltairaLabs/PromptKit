@@ -113,7 +113,9 @@ func TestMakeRawRequest_WithRateLimit(t *testing.T) {
 }
 
 func TestMakeRawRequest_RateLimitCancelled(t *testing.T) {
+	var hits atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
@@ -121,7 +123,7 @@ func TestMakeRawRequest_RateLimitCancelled(t *testing.T) {
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	base := NewBaseProvider("test", false, client)
-	base.SetRateLimit(1.0, 1) // 1 rps, burst 1
+	base.SetRateLimit(0.001, 1) // the next token is 1000s away
 
 	body := []byte(`{}`)
 	headers := RequestHeaders{"Content-Type": "application/json"}
@@ -130,13 +132,21 @@ func TestMakeRawRequest_RateLimitCancelled(t *testing.T) {
 	_, err := base.MakeRawRequest(t.Context(), server.URL, body, headers, "Test")
 	require.NoError(t, err)
 
-	// Cancel context before rate limiter allows next request
+	// The next request waits for its turn; canceling it ends the wait
+	// without sending anything.
 	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		_, err := base.MakeRawRequest(ctx, server.URL, body, headers, "Test")
+		done <- err
+	}()
+	require.Eventually(t, func() bool { return base.RateLimiter().Tokens() < 0 }, 5*time.Second, time.Millisecond)
 	cancel()
 
-	_, err = base.MakeRawRequest(ctx, server.URL, body, headers, "Test")
+	err = <-done
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "rate limit wait")
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, int32(1), hits.Load())
 }
 
 func TestMakeJSONRequest_WithRateLimit(t *testing.T) {

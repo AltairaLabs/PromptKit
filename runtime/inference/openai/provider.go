@@ -27,6 +27,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	provbase "github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 )
 
 const (
@@ -100,7 +101,7 @@ func New(cfg Config) (*Provider, error) {
 // HTTPTimeout reports the per-call timeout this Provider will apply.
 // Exported for tests: the timeout is only observable otherwise by waiting
 // for it to expire.
-func (p *Provider) HTTPTimeout() time.Duration { return p.http.Timeout }
+func (p *Provider) HTTPTimeout() time.Duration { return provbase.ClientTimeout(p.http) }
 
 // Infer asks the configured model to answer with exactly one of req.Labels,
 // and returns the renormalized label distribution read from the

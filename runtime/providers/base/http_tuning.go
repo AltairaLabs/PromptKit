@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 // HTTPTuning carries the request-tuning settings a provider file can declare
 // for a capability provider (tts, stt, embedding, inference, rerank): custom
-// headers, a per-request timeout and a pre-built HTTP transport. The zero
-// value changes nothing.
+// headers, a per-request timeout, a pre-built HTTP transport and a request
+// rate limit. The zero value changes nothing.
 type HTTPTuning struct {
 	// Headers are added to every HTTP request the provider makes. A header
 	// the provider itself sets (its credential, its content type) is not
@@ -22,11 +24,16 @@ type HTTPTuning struct {
 	// transport that applies platform auth keeps doing so: only the
 	// connection layer beneath it is replaced.
 	Transport http.RoundTripper
+	// RateLimiter, when non-nil, makes every request the provider sends wait for
+	// a token first (see RateLimitTransport). It sits outside any auth layer, so a
+	// request is signed after its wait, not before. Build it with
+	// NewRequestLimiter; each provider should get its own.
+	RateLimiter *rate.Limiter
 }
 
 // IsZero reports whether t carries no settings.
 func (t HTTPTuning) IsZero() bool {
-	return len(t.Headers) == 0 && t.RequestTimeout <= 0 && t.Transport == nil
+	return len(t.Headers) == 0 && t.RequestTimeout <= 0 && t.Transport == nil && t.RateLimiter == nil
 }
 
 // layeredTransport is a RoundTripper that wraps a base transport — typically
@@ -50,6 +57,9 @@ func (t HTTPTuning) Client(c *http.Client) *http.Client {
 	}
 	if t.Transport != nil || len(t.Headers) > 0 {
 		out.Transport = t.tuneTransport(out.Transport)
+	}
+	if t.RateLimiter != nil {
+		ApplyRateLimit(out, t.RateLimiter)
 	}
 	return out
 }
@@ -89,7 +99,7 @@ func ApplyHTTPTuning(provider any, providerType string, t HTTPTuning) error {
 	tunable, ok := provider.(HTTPTunable)
 	if !ok {
 		return fmt.Errorf(
-			"provider type %q does not support headers, request_timeout or http_transport for this role",
+			"provider type %q does not support headers, request_timeout, http_transport or rate_limit for this role",
 			providerType)
 	}
 	return tunable.ApplyHTTPTuning(t)

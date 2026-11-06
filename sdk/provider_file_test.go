@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 
 	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 )
 
@@ -363,6 +365,7 @@ func TestProviderSpecFromConfig_RoundTripsTuningFields(t *testing.T) {
 		StreamRetry:             &pkgconfig.StreamRetryConfig{Enabled: true, MaxAttempts: 2},
 		StreamMaxConcurrent:     5,
 		HTTPTransport:           &pkgconfig.HTTPTransportConfig{MaxConnsPerHost: 9},
+		RateLimit:               pkgconfig.RateLimit{RPS: 4, Burst: 2},
 		Defaults:                pkgconfig.ProviderDefaults{PromptCaching: &caching},
 		MessageMetadataTemplate: "[{{selection}}]",
 	}
@@ -379,4 +382,45 @@ func TestWithLLMProvider_HonorsStreamIdleTimeout(t *testing.T) {
 	tuned, ok := c.getAgentProvider().(interface{ StreamIdleTimeout() time.Duration })
 	require.True(t, ok, "provider %T does not expose its tuning", c.getAgentProvider())
 	assert.Equal(t, 45*time.Second, tuned.StreamIdleTimeout())
+}
+
+// rate_limit in a provider file reaches both kinds of provider the SDK builds.
+// rps 1, burst 1: the second call's token is a second away, past its 500ms
+// deadline, so it is refused at once without being sent.
+func TestWithProviderFile_EmbeddingHonorsRateLimit(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(tunedEmbeddingBody))
+	}))
+	t.Cleanup(srv.Close)
+	c := loadTunedProvider(t, tunedProviderYAML("embedding", "openai", srv.URL,
+		embeddingDims+"  rate_limit:\n    rps: 1\n    burst: 1\n"))
+	req := providers.EmbeddingRequest{Texts: []string{"a"}}
+
+	_, err := c.embeddingProviders["tuned"].Embed(context.Background(), req)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	_, err = c.embeddingProviders["tuned"].Embed(ctx, req)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, base.ErrRateLimitPastDeadline)
+	assert.Equal(t, int32(1), hits.Load(), "the limited call must not be sent")
+}
+
+func TestWithProviderFile_LLMHonorsRateLimit(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "sk-test")
+	c := loadTunedProvider(t, tunedProviderYAML("llm", "openai", "http://127.0.0.1:1",
+		"  model: gpt-4o-mini\n  rate_limit:\n    rps: 3\n    burst: 2\n"))
+	hc, ok := c.getAgentProvider().(interface{ GetHTTPClient() *http.Client })
+	require.True(t, ok, "provider %T does not expose its client", c.getAgentProvider())
+	rlt, ok := hc.GetHTTPClient().Transport.(*base.RateLimitTransport)
+	require.True(t, ok, "rate_limit was dropped on the way to the provider: transport is %T",
+		hc.GetHTTPClient().Transport)
+	l := rlt.Limiter
+	require.NotNil(t, l)
+	assert.InDelta(t, 3, float64(l.Limit()), 1e-9)
+	assert.Equal(t, 2, l.Burst())
 }

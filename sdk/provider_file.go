@@ -28,6 +28,7 @@ func providerSpecFromConfig(p *pkgconfig.Provider) ProviderSpec {
 		StreamRetry:             p.StreamRetry,
 		StreamMaxConcurrent:     p.StreamMaxConcurrent,
 		HTTPTransport:           p.HTTPTransport,
+		RateLimit:               p.RateLimit,
 		PromptCaching:           p.Defaults.PromptCaching,
 		MessageMetadataTemplate: p.MessageMetadataTemplate,
 	}

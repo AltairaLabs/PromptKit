@@ -2722,8 +2722,8 @@ type ProviderSpec struct {
 	// same name. Completion providers (WithLLMProvider, WithImageProvider,
 	// WithNamedProvider) honor all of them. Capability providers
 	// (WithTTSProvider, WithSTTProvider, WithEmbeddingProvider,
-	// WithInferenceProvider, WithRerankProvider) honor Headers, RequestTimeout
-	// and HTTPTransport, and fail to build when a streaming field or
+	// WithInferenceProvider, WithRerankProvider) honor Headers, RequestTimeout,
+	// HTTPTransport and RateLimit, and fail to build when a streaming field or
 	// PromptCaching is set. Durations are Go duration strings ("30s").
 
 	// Headers mirrors headers: custom HTTP headers added to every request. A
@@ -2747,6 +2747,14 @@ type ProviderSpec struct {
 	// settings. For a capability role, setting it also replaces the
 	// provider's own transport with the pooled, instrumented one. All roles.
 	HTTPTransport *pkgconfig.HTTPTransportConfig
+	// RateLimit mirrors rate_limit: a token-bucket cap on the HTTP requests
+	// this provider sends, RPS sustained with up to Burst at once. Each request
+	// waits for its turn, and the wait ends with the request's context; it does
+	// not count against RequestTimeout. Every provider an option builds gets its
+	// own bucket, so conversations opened separately are limited separately;
+	// pass one provider to them all (WithProvider) to share a cap. WebSocket
+	// sessions are not limited. Zero RPS is unlimited. All roles.
+	RateLimit pkgconfig.RateLimit
 	// PromptCaching mirrors defaults.prompt_caching: false disables
 	// Anthropic prompt caching. Completion roles only.
 	PromptCaching *bool
@@ -2828,6 +2836,7 @@ func (s ProviderSpec) toPkgProvider() *pkgconfig.Provider {
 		StreamRetry:             s.StreamRetry,
 		StreamMaxConcurrent:     s.StreamMaxConcurrent,
 		HTTPTransport:           s.HTTPTransport,
+		RateLimit:               s.RateLimit,
 		Defaults:                pkgconfig.ProviderDefaults{PromptCaching: s.PromptCaching},
 		MessageMetadataTemplate: s.MessageMetadataTemplate,
 	}

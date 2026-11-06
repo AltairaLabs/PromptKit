@@ -225,6 +225,11 @@ type ProviderSpec struct {
 	// streams one process can hold open to a host.
 	HTTPTransport HTTPTransportOptions
 
+	// RateLimit caps how fast this provider instance sends requests (see
+	// RateLimitOptions). The zero value is unlimited. It is applied through
+	// SetRateLimit on providers that embed BaseProvider.
+	RateLimit RateLimitOptions
+
 	// MessageMetadataTemplate renders a message's application metadata
 	// (types.Message.Metadata, set with the SDK's WithMessageMetadata) as
 	// text the model reads. Its {{key}} placeholders are filled from each
@@ -232,6 +237,17 @@ type ProviderSpec struct {
 	// in the request only; stored history is unchanged. Empty means the model
 	// does not see the metadata. Exposed via MessageMetadataTemplater.
 	MessageMetadataTemplate string
+}
+
+// RateLimitOptions is a token-bucket limit on one provider instance's
+// outbound requests: RequestsPerSecond sustained, with up to Burst sent at
+// once. Every HTTP request the provider sends (a Predict, a PredictStream,
+// and each retry attempt of either) takes one token, waiting for it before
+// the request goes out. A RequestsPerSecond of zero or less is unlimited; a
+// Burst below 1 counts as 1. The wait respects the request's context.
+type RateLimitOptions struct {
+	RequestsPerSecond float64
+	Burst             int
 }
 
 // Credential applies authentication to HTTP requests.
@@ -289,6 +305,12 @@ type streamObserverConfigurable interface {
 // instrumentation wrapper so trace propagation is not lost.
 type httpTransportConfigurable interface {
 	SetHTTPTransport(http.RoundTripper)
+}
+
+// rateLimitConfigurable is implemented by any provider that embeds
+// *BaseProvider. CreateProviderFromSpec uses it to apply spec.RateLimit.
+type rateLimitConfigurable interface {
+	SetRateLimit(requestsPerSecond float64, burst int)
 }
 
 // headersConfigurable is implemented by any provider that embeds
@@ -369,8 +391,8 @@ func openAIBuildsPlatformBaseURL(platform string) bool {
 // It fills in spec.BaseURL with the type's default (OpenAI, Gemini, Claude,
 // Ollama and vLLM have one) when it is empty, calls the factory registered for
 // spec.Type, then applies the spec's timeouts, stream retry and concurrency
-// settings, stream observer, HTTP transport, custom headers, media storage and
-// message metadata template to the provider. It returns an UnsupportedProviderError
+// settings, stream observer, HTTP transport, rate limit, custom headers, media
+// storage and message metadata template to the provider. It returns an UnsupportedProviderError
 // when no factory is registered for spec.Type.
 func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 	baseURL := defaultBaseURLForSpec(&spec)
@@ -502,6 +524,13 @@ func applyTransportConfig(provider Provider, spec *ProviderSpec) {
 	// conn-tracking layer.
 	if htc, ok := provider.(httpTransportConfigurable); ok {
 		htc.SetHTTPTransport(NewProviderTransport(spec.HTTPTransport))
+	}
+
+	// Rate-limit every outbound request. Applied after the transport swap
+	// (SetHTTPTransport keeps an existing limit in front either way). A
+	// non-positive rate leaves the provider unlimited.
+	if rlc, ok := provider.(rateLimitConfigurable); ok && spec.RateLimit.RequestsPerSecond > 0 {
+		rlc.SetRateLimit(spec.RateLimit.RequestsPerSecond, spec.RateLimit.Burst)
 	}
 
 	// Apply custom HTTP headers for gateway compatibility (OpenRouter,
