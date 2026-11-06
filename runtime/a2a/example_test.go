@@ -7,8 +7,8 @@ import (
 )
 
 // ExampleMessageToMessage shows converting an A2A protocol Message into
-// PromptKit's internal types.Message. This is a pure conversion — no
-// network call or running A2A server required. The "agent" role maps to
+// PromptKit's internal types.Message. It is a pure conversion: it
+// needs no network call and no running A2A server. The "agent" role maps to
 // PromptKit's "assistant" role.
 func ExampleMessageToMessage() {
 	text := "hello from agent"

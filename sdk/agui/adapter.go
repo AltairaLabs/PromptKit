@@ -78,9 +78,9 @@ type ToolResult struct {
 	Error string
 }
 
-// EventBusProvider abstracts access to the conversation's event bus.
-// NewEventAdapter requires it, but the adapter does not read the bus: every
-// event it emits comes from the turn's own messages.
+// EventBusProvider abstracts access to the conversation's event bus. The
+// adapter reads the bus only for [WithRuntimeEvents]: the run's messages, tool
+// calls and steps come from the turn itself, which keeps them ordered.
 type EventBusProvider interface {
 	EventBus() events.Bus
 }
@@ -100,7 +100,14 @@ type adapterConfig struct {
 	stateProvider      StateProvider
 	workflowSteps      bool
 	toolResultProvider ToolResultProvider
+	// runtimeEvents enables forwarding bus events as RAW events; eventTypes
+	// limits it to those types (all types when empty).
+	runtimeEvents bool
+	eventTypes    []events.EventType
 }
+
+// rawEventSource is the RAW event source naming PromptKit's runtime events.
+const rawEventSource = "promptkit"
 
 // WithThreadID sets the AG-UI thread ID for emitted events. By default the
 // adapter generates one.
@@ -152,12 +159,33 @@ func WithToolResultProvider(provider ToolResultProvider) AdapterOption {
 	}
 }
 
+// WithRuntimeEvents forwards the conversation's runtime events, read from its
+// event bus ([EventBusProvider]), as AG-UI RAW events with source "promptkit"
+// and the [events.Event] as the payload. Name event types to forward only
+// those (for example events.EventToolCallStarted); with none, every event is
+// forwarded. By default no runtime event is forwarded.
+//
+// The bus delivers asynchronously, so a RAW event is not ordered against the
+// run's other events, and only events delivered while the run is open are
+// forwarded: one the bus delivers after the run's RUN_FINISHED or RUN_ERROR is
+// not sent. For a workflow conversation the bus is the active conversation's
+// when the run starts. A bus shared by several conversations (sdk.WithEventBus)
+// carries all of their events; filter on the payload's SessionID or
+// ConversationID to keep one conversation's.
+func WithRuntimeEvents(eventTypes ...events.EventType) AdapterOption {
+	return func(c *adapterConfig) {
+		c.runtimeEvents = true
+		c.eventTypes = append([]events.EventType(nil), eventTypes...)
+	}
+}
+
 // EventAdapter bridges a PromptKit conversation to an AG-UI event channel.
 // It runs one conversation turn and translates the turn's messages into
 // AG-UI protocol events. An adapter carries one run: its channel closes when
 // the run ends.
 type EventAdapter struct {
 	sender Sender
+	bus    EventBusProvider
 	cfg    adapterConfig
 	events chan aguievents.Event
 	once   sync.Once
@@ -189,9 +217,8 @@ func NewWorkflowEventAdapter(wc *sdk.WorkflowConversation, opts ...AdapterOption
 }
 
 // newAdapter creates an adapter from separate sender and event bus provider.
-// The event bus is no longer read: every event the adapter emits comes from
-// the turn's own messages, which keeps the stream ordered.
-func newAdapter(sender Sender, _ EventBusProvider, opts ...AdapterOption) *EventAdapter {
+// The bus is read only for WithRuntimeEvents.
+func newAdapter(sender Sender, bus EventBusProvider, opts ...AdapterOption) *EventAdapter {
 	cfg := adapterConfig{
 		threadID: aguievents.GenerateThreadID(),
 		runID:    aguievents.GenerateRunID(),
@@ -201,6 +228,7 @@ func newAdapter(sender Sender, _ EventBusProvider, opts ...AdapterOption) *Event
 	}
 	return &EventAdapter{
 		sender: sender,
+		bus:    bus,
 		cfg:    cfg,
 		events: make(chan aguievents.Event, eventChannelBufferSize),
 	}
@@ -328,6 +356,8 @@ type runState struct {
 	resuming bool
 	step     string // the open step, when stepOpen
 	stepOpen bool
+	// runtime forwards bus events while the run is open (WithRuntimeEvents).
+	runtime *runtimeForwarder
 }
 
 // run emits one AG-UI run around start, which produces the turn's response.
@@ -341,6 +371,8 @@ func (a *EventAdapter) run(
 	st := &runState{a: a, ctx: ctx, answered: map[string]bool{}, resuming: resuming}
 
 	st.emit(aguievents.NewRunStartedEvent(a.cfg.threadID, a.cfg.runID))
+	st.runtime = a.forwardRuntimeEvents(st)
+	defer st.runtime.stop()
 	if a.cfg.stateProvider != nil {
 		if snapshot, err := a.cfg.stateProvider.Snapshot(a.sender); err == nil {
 			st.emit(aguievents.NewStateSnapshotEvent(snapshot))
@@ -350,7 +382,7 @@ func (a *EventAdapter) run(
 
 	resp, err := start(ctx)
 	if err != nil {
-		st.emit(aguievents.NewRunErrorEvent(err.Error()))
+		st.finish(aguievents.NewRunErrorEvent(err.Error()))
 		return err
 	}
 
@@ -366,7 +398,7 @@ func (a *EventAdapter) run(
 		}
 		next, err := st.fulfillAndResume(resp.ClientTools())
 		if err != nil {
-			st.emit(aguievents.NewRunErrorEvent(err.Error()))
+			st.finish(aguievents.NewRunErrorEvent(err.Error()))
 			return err
 		}
 		if next == nil {
@@ -376,8 +408,72 @@ func (a *EventAdapter) run(
 	}
 
 	st.closeStep()
-	st.emit(runFinished(a.cfg.threadID, a.cfg.runID, resp))
+	st.finish(runFinished(a.cfg.threadID, a.cfg.runID, resp))
 	return nil
+}
+
+// finish emits the run's terminal event, after which no runtime event is
+// forwarded.
+func (st *runState) finish(event aguievents.Event) {
+	st.runtime.stop()
+	st.emit(event)
+}
+
+// runtimeForwarder sends the bus events one run receives as RAW events, until
+// the run stops it.
+type runtimeForwarder struct {
+	st     *runState
+	mu     sync.Mutex
+	open   bool
+	unsubs []func()
+}
+
+// forwardRuntimeEvents subscribes the run to the conversation's event bus when
+// WithRuntimeEvents is set. The forwarder it returns is safe to stop when it
+// subscribed to nothing.
+func (a *EventAdapter) forwardRuntimeEvents(st *runState) *runtimeForwarder {
+	f := &runtimeForwarder{st: st}
+	if !a.cfg.runtimeEvents || a.bus == nil {
+		return f
+	}
+	bus := a.bus.EventBus()
+	if bus == nil {
+		return f
+	}
+	f.open = true
+	if len(a.cfg.eventTypes) == 0 {
+		f.unsubs = append(f.unsubs, bus.SubscribeAll(f.forward))
+		return f
+	}
+	for _, t := range a.cfg.eventTypes {
+		f.unsubs = append(f.unsubs, bus.Subscribe(t, f.forward))
+	}
+	return f
+}
+
+// forward emits one bus event as a RAW event, while the run is open. The
+// event is copied, since the bus hands the same one to every listener.
+func (f *runtimeForwarder) forward(e *events.Event) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.open || e == nil {
+		return
+	}
+	payload := *e
+	f.st.emit(aguievents.NewRawEvent(payload, aguievents.WithSource(rawEventSource)))
+}
+
+// stop ends forwarding: it unsubscribes, and waits for a forward in progress,
+// so nothing is forwarded once it returns. It is safe to call more than once.
+func (f *runtimeForwarder) stop() {
+	f.mu.Lock()
+	f.open = false
+	unsubs := f.unsubs
+	f.unsubs = nil
+	f.mu.Unlock()
+	for _, unsub := range unsubs {
+		unsub()
+	}
 }
 
 // runFinished builds the RUN_FINISHED event. A turn held for approval ends

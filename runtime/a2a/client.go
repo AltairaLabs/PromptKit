@@ -86,8 +86,9 @@ type StreamEvent struct {
 	Message        *Message
 	StatusUpdate   *TaskStatusUpdateEvent
 	ArtifactUpdate *TaskArtifactUpdateEvent
-	// Error is set when the agent ends the stream with a JSON-RPC error
-	// (an *RPCError). It is the last event on the channel.
+	// Error is set when the stream ends in an error: the agent sent a
+	// JSON-RPC error (an *RPCError), or the stream went idle
+	// ([ErrSSEIdleTimeout]). It is the last event on the channel.
 	Error error
 }
 
@@ -141,16 +142,17 @@ func WithRequestTimeout(d time.Duration) ClientOption {
 
 // WithSSEIdleTimeout sets the idle timeout for SSE streams; the default is
 // [DefaultSSEIdleTimeout]. If no line is received within this duration, the
-// stream is considered stale: reading stops and the channel returned by
-// SendMessageStream is closed, so callers can reconnect. A zero or negative
-// value disables the idle timeout.
+// stream is considered stale: reading stops, the channel returned by
+// SendMessageStream receives a last event whose Error is [ErrSSEIdleTimeout],
+// and the channel is closed, so callers can tell a stall from a finished
+// stream and reconnect. A zero or negative value disables the idle timeout.
 func WithSSEIdleTimeout(d time.Duration) ClientOption {
 	return func(c *Client) { c.sseIdleTimeout = d }
 }
 
-// ErrSSEIdleTimeout names an SSE stream that received nothing within the idle
-// timeout. The client does not return it: an idle stream ends and its event
-// channel is closed, with no error.
+// ErrSSEIdleTimeout is the StreamEvent.Error of the last event on an SSE
+// stream that received nothing within the idle timeout. Test for it with
+// errors.Is.
 var ErrSSEIdleTimeout = fmt.Errorf("a2a: SSE idle timeout exceeded")
 
 // Client is an HTTP client for discovering and calling external A2A agents over
@@ -820,8 +822,9 @@ func decodeMessageResult(raw json.RawMessage) (*Task, error) {
 // SendMessageStream sends a streaming message (SendStreamingMessage; 0.3:
 // message/stream) and returns a channel of streaming events. The channel is
 // closed when the stream ends, the context is canceled, or the stream is idle
-// for longer than the SSE idle timeout. An error the agent sends in the stream
-// arrives as the last event, with StreamEvent.Error set. An agent that refuses
+// for longer than the SSE idle timeout. An error the agent sends in the stream,
+// and an idle timeout ([ErrSSEIdleTimeout]), arrive as the last event, with
+// StreamEvent.Error set. An agent that refuses
 // the request before streaming returns an *RPCError from this call.
 func (c *Client) SendMessageStream(ctx context.Context, params *SendMessageRequest) (<-chan StreamEvent, error) {
 	var resp *http.Response
@@ -1116,8 +1119,9 @@ func processSSELine(ctx context.Context, line string, buf *strings.Builder, ch c
 
 // ReadSSEWithIdleTimeout reads SSE events from r and sends parsed StreamEvents
 // to ch. If idleTimeout is positive and no line is received within that
-// duration, reading stops without an error (callers should reconnect). A zero or
-// negative idleTimeout disables idle detection. It does not close ch.
+// duration, it sends a last event whose Error is [ErrSSEIdleTimeout] and stops
+// reading, so the caller can tell a stall from a clean end and reconnect. A zero
+// or negative idleTimeout disables idle detection. It does not close ch.
 func ReadSSEWithIdleTimeout(ctx context.Context, r io.Reader, ch chan<- StreamEvent, idleTimeout time.Duration) {
 	var buf strings.Builder
 	lineCh := startScanner(r)
@@ -1129,6 +1133,7 @@ func ReadSSEWithIdleTimeout(ctx context.Context, r io.Reader, ch chan<- StreamEv
 		case <-ctx.Done():
 			return
 		case <-idle.C:
+			sendStreamEvent(ctx, StreamEvent{Error: ErrSSEIdleTimeout}, ch)
 			return
 		case sl, open := <-lineCh:
 			if !open {
@@ -1166,9 +1171,15 @@ func emitEvent(ctx context.Context, data string, ch chan<- StreamEvent) bool {
 	if !ok {
 		return true
 	}
+	return sendStreamEvent(ctx, evt, ch) && evt.Error == nil
+}
+
+// sendStreamEvent sends evt to ch, giving up when ctx is canceled. It reports
+// whether evt was sent.
+func sendStreamEvent(ctx context.Context, evt StreamEvent, ch chan<- StreamEvent) bool {
 	select {
 	case ch <- evt:
-		return evt.Error == nil
+		return true
 	case <-ctx.Done():
 		return false
 	}

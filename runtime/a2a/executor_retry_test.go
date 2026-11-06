@@ -354,6 +354,32 @@ func TestIsA2ARetryableError(t *testing.T) {
 	}
 }
 
+// backoffSamples draws n delays for one attempt.
+func backoffSamples(policy RetryPolicy, attempt, n int) []time.Duration {
+	out := make([]time.Duration, n)
+	for i := range out {
+		out[i] = a2aCalculateBackoff(policy, attempt)
+	}
+	return out
+}
+
+// requireJitteredWithin fails unless every delay lies in [base/2, base] and
+// the delays are not all equal.
+func requireJitteredWithin(t *testing.T, delays []time.Duration, base time.Duration) {
+	t.Helper()
+	for _, d := range delays {
+		if d < base/2 || d > base {
+			t.Fatalf("delay = %v, want within [%v, %v]", d, base/2, base)
+		}
+	}
+	for _, d := range delays[1:] {
+		if d != delays[0] {
+			return
+		}
+	}
+	t.Fatalf("all %d delays are %v: no jitter", len(delays), delays[0])
+}
+
 func TestA2ACalculateBackoff(t *testing.T) {
 	policy := RetryPolicy{
 		MaxRetries:   3,
@@ -361,23 +387,11 @@ func TestA2ACalculateBackoff(t *testing.T) {
 		MaxDelay:     5 * time.Second,
 	}
 
-	// Attempt 0: base delay ~100ms (+ jitter up to 50ms).
-	d0 := a2aCalculateBackoff(policy, 0)
-	if d0 < 100*time.Millisecond || d0 > 200*time.Millisecond {
-		t.Errorf("attempt 0 delay = %v, want [100ms, 200ms]", d0)
-	}
-
-	// Attempt 1: base delay ~200ms (+ jitter up to 100ms).
-	d1 := a2aCalculateBackoff(policy, 1)
-	if d1 < 200*time.Millisecond || d1 > 400*time.Millisecond {
-		t.Errorf("attempt 1 delay = %v, want [200ms, 400ms]", d1)
-	}
-
-	// Attempt 2: base delay ~400ms (+ jitter up to 200ms).
-	d2 := a2aCalculateBackoff(policy, 2)
-	if d2 < 400*time.Millisecond || d2 > 800*time.Millisecond {
-		t.Errorf("attempt 2 delay = %v, want [400ms, 800ms]", d2)
-	}
+	// Below the cap the base delay doubles per attempt; jitter shortens it by
+	// up to half.
+	requireJitteredWithin(t, backoffSamples(policy, 0, 50), 100*time.Millisecond)
+	requireJitteredWithin(t, backoffSamples(policy, 1, 50), 200*time.Millisecond)
+	requireJitteredWithin(t, backoffSamples(policy, 2, 50), 400*time.Millisecond)
 }
 
 func TestA2ACalculateBackoff_CapsAtMaxDelay(t *testing.T) {
@@ -387,22 +401,23 @@ func TestA2ACalculateBackoff_CapsAtMaxDelay(t *testing.T) {
 		MaxDelay:     2 * time.Second,
 	}
 
-	// Attempt 5 would be 32s without cap, but should be capped at 2s + jitter.
-	d := a2aCalculateBackoff(policy, 5)
-	// Max possible: 2s + 50% jitter = 3s
-	if d > 3*time.Second {
-		t.Errorf("delay = %v, should be capped at ~3s (2s + jitter)", d)
-	}
+	// Attempt 5 would be 32s without the cap. No delay exceeds MaxDelay, and
+	// delays at the cap still vary, so retries do not fall into step.
+	requireJitteredWithin(t, backoffSamples(policy, 5, 50), policy.MaxDelay)
+}
+
+func TestA2ACalculateBackoff_LargeAttemptStaysCapped(t *testing.T) {
+	policy := RetryPolicy{InitialDelay: time.Second, MaxDelay: 3 * time.Second}
+
+	// 2^100 seconds overflows time.Duration; the cap must still hold.
+	requireJitteredWithin(t, backoffSamples(policy, 100, 50), policy.MaxDelay)
 }
 
 func TestA2ACalculateBackoff_DefaultsOnZero(t *testing.T) {
 	policy := RetryPolicy{} // All zeros.
 
-	d := a2aCalculateBackoff(policy, 0)
-	// Should use DefaultA2AInitialDelay (500ms) + jitter.
-	if d < DefaultA2AInitialDelay {
-		t.Errorf("delay = %v, expected >= %v", d, DefaultA2AInitialDelay)
-	}
+	// Uses DefaultA2AInitialDelay, shortened by jitter.
+	requireJitteredWithin(t, backoffSamples(policy, 0, 50), DefaultA2AInitialDelay)
 }
 
 func TestHTTPStatusError(t *testing.T) {

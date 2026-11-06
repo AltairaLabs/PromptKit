@@ -1537,8 +1537,8 @@ func TestServerDefaultTimeouts(t *testing.T) {
 	if srv.readTimeout != defaultReadTimeout {
 		t.Errorf("readTimeout = %v, want %v", srv.readTimeout, defaultReadTimeout)
 	}
-	if srv.writeTimeout != defaultWriteTimeout {
-		t.Errorf("writeTimeout = %v, want %v", srv.writeTimeout, defaultWriteTimeout)
+	if srv.writeTimeout != 0 {
+		t.Errorf("writeTimeout = %v, want 0 (no write timeout)", srv.writeTimeout)
 	}
 	if srv.idleTimeout != defaultIdleTimeout {
 		t.Errorf("idleTimeout = %v, want %v", srv.idleTimeout, defaultIdleTimeout)
