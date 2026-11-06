@@ -3,7 +3,7 @@ title: Runtime Event System
 sidebar:
   order: 3
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: ebf8d92f226c18ca12b790f73b09a762bd8d2512
   sources:
     - runtime/events/bus.go
     - runtime/events/emitter.go
@@ -237,6 +237,8 @@ hooks.On(conv, events.EventToolCallStarted, func(e *events.Event) {
     fmt.Printf("tool call: %+v\n", e.Data)
 })
 ```
+
+The AG-UI adapter forwards a conversation's bus events to the frontend as `RAW` events when you pass `agui.WithRuntimeEvents`. Name event types to forward only those; with none, every event is forwarded. The bus delivers asynchronously, so a `RAW` event is not ordered against the run's other events, and the adapter sends only events delivered while the run is open. A bus shared by several conversations carries all of their events, so filter on the payload's `SessionID` or `ConversationID`. See [AG-UI](/concepts/ag-ui/).
 
 ## Use cases
 

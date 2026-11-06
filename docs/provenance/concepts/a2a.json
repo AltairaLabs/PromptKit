@@ -1,14 +1,14 @@
 {
  "page": "docs/src/content/docs/concepts/a2a.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "ebf8d92f226c18ca12b790f73b09a762bd8d2512",
  "claims": [
   {
    "id": 1,
    "claim": "JSON-RPC 2.0 over HTTP; all calls to POST /a2a",
    "verdict": "true",
    "evidence": [
-    "server/a2a/server.go:554",
-    "server/a2a/server.go:572"
+    "server/a2a/server.go:550",
+    "server/a2a/server.go:568"
    ]
   },
   {
@@ -17,7 +17,7 @@
    "verdict": "true",
    "evidence": [
     "server/a2a/protocol.go:35-50",
-    "server/a2a/server.go:572-582"
+    "server/a2a/server.go:568-578"
    ]
   },
   {
@@ -25,7 +25,7 @@
    "claim": "Method name table 1.0 vs 0.3 (SendMessage/message/send ... SubscribeToTask/tasks/resubscribe; ListTasks 1.0 only)",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/types.go:13-56",
+    "runtime/a2a/types.go:19-62",
     "runtime/a2a/version.go:77-108"
    ]
   },
@@ -34,8 +34,8 @@
    "claim": "Card at GET /.well-known/agent-card.json; legacy /.well-known/agent.json serves same card",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:266-267",
-    "server/a2a/server.go:506-520"
+    "runtime/a2a/client.go:277-278",
+    "server/a2a/server.go:502-516"
    ]
   },
   {
@@ -43,9 +43,9 @@
    "claim": "Wire differences: task states, roles, SendMessage result, stream events, file parts, blocking default",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/types.go:110-120",
-    "runtime/a2a/types.go:222-244",
-    "runtime/a2a/types.go:486-494",
+    "runtime/a2a/types.go:116-126",
+    "runtime/a2a/types.go:228-250",
+    "runtime/a2a/types.go:492-500",
     "runtime/a2a/wire.go:32-45"
    ]
   },
@@ -54,10 +54,10 @@
    "claim": "URL media: OpenAI and Claude pass image URL to vendor; host fetches Gemini all media, Claude documents, OpenAI audio, Ollama images",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude_multimodal.go:171-178",
-    "runtime/providers/gemini/gemini_multimodal.go:170",
+    "runtime/providers/claude/claude_multimodal.go:172-179",
+    "runtime/providers/gemini/gemini_multimodal.go:211",
     "runtime/providers/ollama/ollama_multimodal.go:98-135",
-    "runtime/providers/openai/openai_multimodal.go:166-200"
+    "runtime/providers/openai/openai_multimodal.go:180-214"
    ]
   },
   {
@@ -74,7 +74,7 @@
    "claim": "sdk.WithUnsafePrivateNetworkMedia() turns the check off",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:506-520"
+    "sdk/options.go:532-546"
    ]
   },
   {
@@ -82,8 +82,8 @@
    "claim": "Blocking SendMessage holds until turn ends; caller disconnect stops waiting, turn runs on; WithMaxBlockingWait caps wait and returns working task",
    "verdict": "true",
    "evidence": [
-    "server/a2a/server.go:132-143",
-    "server/a2a/server.go:978-1011"
+    "server/a2a/server.go:134-155",
+    "server/a2a/server.go:974-1007"
    ]
   },
   {
@@ -91,9 +91,9 @@
    "claim": "Tool executor sends with returnImmediately, polls via Client.WaitForTask, cancels task on tool timeout",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:926",
-    "runtime/a2a/executor.go:245",
-    "runtime/a2a/executor.go:343-350"
+    "runtime/a2a/client.go:943",
+    "runtime/a2a/executor.go:265",
+    "runtime/a2a/executor.go:363-370"
    ]
   },
   {
@@ -101,7 +101,7 @@
    "claim": "Executor does not resend after a response timeout",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/executor.go:508-516"
+    "runtime/a2a/executor.go:528-536"
    ]
   },
   {
@@ -109,9 +109,9 @@
    "claim": "Client sends A2A-Version 1.0; on unknown method retries once in 0.3 and remembers; WithProtocolVersion pins",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:114-123",
-    "runtime/a2a/client.go:410-445",
-    "runtime/a2a/client.go:479"
+    "runtime/a2a/client.go:121-130",
+    "runtime/a2a/client.go:429-445",
+    "runtime/a2a/client.go:492"
    ]
   },
   {
@@ -119,7 +119,7 @@
    "claim": "Agent card JSON example",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/types.go:369-415"
+    "runtime/a2a/types.go:375-421"
    ]
   },
   {
@@ -127,7 +127,7 @@
    "claim": "Skills can override default input/output modes with inputModes/outputModes",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/types.go:391-401"
+    "runtime/a2a/types.go:397-407"
    ]
   },
   {
@@ -136,7 +136,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/a2a/security.go:9-31",
-    "runtime/a2a/types.go:382-387",
+    "runtime/a2a/types.go:388-393",
     "runtime/a2a/wire.go:419-442"
    ]
   },
@@ -155,8 +155,8 @@
    "verdict": "true",
    "evidence": [
     "server/a2a/protocol.go:152-157",
-    "server/a2a/server.go:602-604",
-    "server/a2a/server_stream.go:499-507"
+    "server/a2a/server.go:598-600",
+    "server/a2a/server_stream.go:507-515"
    ]
   },
   {
@@ -164,8 +164,8 @@
    "claim": "GetExtendedAgentCard: -32004 unless card declares extendedAgentCard, else -32007",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/types.go:74",
-    "server/a2a/server.go:540-551"
+    "runtime/a2a/types.go:80",
+    "server/a2a/server.go:536-547"
    ]
   },
   {
@@ -174,7 +174,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/a2a/wire.go:356-376",
-    "server/a2a/server.go:506-520"
+    "server/a2a/server.go:502-516"
    ]
   },
   {
@@ -182,7 +182,7 @@
    "claim": "Task state diagram transitions",
    "verdict": "true",
    "evidence": [
-    "server/a2a/task_store.go:29-50"
+    "server/a2a/task_store.go:54-75"
    ]
   },
   {
@@ -190,8 +190,8 @@
    "claim": "State table meanings; terminal states completed/failed/canceled/rejected",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/types.go:141-155",
-    "runtime/a2a/types.go:96-107"
+    "runtime/a2a/types.go:102-113",
+    "runtime/a2a/types.go:147-161"
    ]
   },
   {
@@ -199,7 +199,7 @@
    "claim": "Resume via taskId; -32001 unknown task; -32004 finished/not waiting; -32602 contextId mismatch; context from task; no taskId starts new task",
    "verdict": "true",
    "evidence": [
-    "server/a2a/server.go:632-690"
+    "server/a2a/server.go:628-686"
    ]
   },
   {
@@ -207,8 +207,8 @@
    "claim": "Streaming caller disconnect closes only its stream; task runs on; subscribers keep receiving; CancelTask stops it",
    "verdict": "true",
    "evidence": [
-    "server/a2a/server.go:1104-1146",
-    "server/a2a/server_stream.go:367-389"
+    "server/a2a/server.go:1100-1142",
+    "server/a2a/server_stream.go:375-397"
    ]
   },
   {
@@ -216,8 +216,8 @@
    "claim": "Go names a2a.TaskStateInputRequired; wire TASK_STATE_INPUT_REQUIRED (1.0) and input-required (0.3)",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/types.go:102",
-    "runtime/a2a/types.go:116"
+    "runtime/a2a/types.go:108",
+    "runtime/a2a/types.go:122"
    ]
   },
   {
@@ -225,8 +225,8 @@
    "claim": "CancelTask on finished task -32002; SubscribeToTask on finished task -32004",
    "verdict": "true",
    "evidence": [
-    "server/a2a/server.go:1114-1118",
-    "server/a2a/server_stream.go:407-411"
+    "server/a2a/server.go:1110-1114",
+    "server/a2a/server_stream.go:415-419"
    ]
   },
   {
@@ -234,7 +234,7 @@
    "claim": "Part struct fields",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/types.go:248-262"
+    "runtime/a2a/types.go:254-268"
    ]
   },
   {
@@ -242,7 +242,7 @@
    "claim": "Message struct (published snippet omitted ReferenceTaskIDs and Extensions)",
    "verdict": "false",
    "evidence": [
-    "runtime/a2a/types.go:328-337"
+    "runtime/a2a/types.go:334-343"
    ]
   },
   {
@@ -250,7 +250,7 @@
    "claim": "Server generates a contextId when omitted",
    "verdict": "true",
    "evidence": [
-    "server/a2a/server.go:633-638"
+    "server/a2a/server.go:629-634"
    ]
   },
   {
@@ -258,7 +258,7 @@
    "claim": "Artifact struct (published snippet omitted Extensions and Metadata)",
    "verdict": "false",
    "evidence": [
-    "runtime/a2a/types.go:340-347"
+    "runtime/a2a/types.go:346-353"
    ]
   },
   {
@@ -266,8 +266,8 @@
    "claim": "Stream: Task first (working), artifact updates (text run is one artifact with append/lastChunk; media own artifacts), closing status update",
    "verdict": "true",
    "evidence": [
-    "server/a2a/server_stream.go:133-184",
-    "server/a2a/server_stream.go:357-365"
+    "server/a2a/server_stream.go:141-192",
+    "server/a2a/server_stream.go:365-373"
    ]
   },
   {
@@ -275,7 +275,7 @@
    "claim": "1.0 SSE examples wrap by kind; 0.3 bare with kind and final",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/types.go:546-553",
+    "runtime/a2a/types.go:552-559",
     "runtime/a2a/wire.go:105-108",
     "runtime/a2a/wire.go:279-290",
     "runtime/a2a/wire.go:39-45"
@@ -286,8 +286,8 @@
    "claim": "SubscribeToTask streams updates for a running task incl. non-streaming SendMessage; opens with the task as it stands",
    "verdict": "true",
    "evidence": [
-    "server/a2a/server.go:1042-1046",
-    "server/a2a/server_stream.go:392-439"
+    "server/a2a/server.go:1038-1042",
+    "server/a2a/server_stream.go:400-447"
    ]
   },
   {
@@ -295,7 +295,7 @@
    "claim": "Client delivers StreamEvent with exactly one of Task, Message, StatusUpdate, ArtifactUpdate",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:80-91"
+    "runtime/a2a/client.go:84-92"
    ]
   },
   {
@@ -303,7 +303,7 @@
    "claim": "Tool Bridge generates tool descriptors from agent skills",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/bridge.go:46-65"
+    "runtime/a2a/bridge.go:44-60"
    ]
   },
   {
@@ -336,9 +336,9 @@
    "claim": "After Discover, the client considers only the card's interfaces on the NewClient scheme, host and port (default ports filled in); of those it calls the first JSON-RPC interface serving the client version, otherwise the first JSON-RPC one",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:509",
-    "runtime/a2a/client.go:526",
-    "runtime/a2a/client.go:530"
+    "runtime/a2a/client.go:522",
+    "runtime/a2a/client.go:539",
+    "runtime/a2a/client.go:543"
    ]
   },
   {
@@ -346,9 +346,9 @@
    "claim": "The chosen interface contributes its path, version and tenant; an interface at the default /a2a keeps the base URL",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:545",
-    "runtime/a2a/client.go:597",
-    "runtime/a2a/client.go:622"
+    "runtime/a2a/client.go:558",
+    "runtime/a2a/client.go:610",
+    "runtime/a2a/client.go:635"
    ]
   },
   {
@@ -356,9 +356,9 @@
    "claim": "A different host or port is not followed; calls go to {base}/a2a with a warning logged once; http interface on the https base host is not warned about",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:607",
-    "runtime/a2a/client.go:615",
-    "runtime/a2a/client.go:632"
+    "runtime/a2a/client.go:620",
+    "runtime/a2a/client.go:628",
+    "runtime/a2a/client.go:645"
    ]
   },
   {
@@ -366,7 +366,7 @@
    "claim": "Without a card or with no interfaces, calls go to {base}/a2a",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:513"
+    "runtime/a2a/client.go:526"
    ]
   },
   {
@@ -374,7 +374,34 @@
    "claim": "A2A tool executors discover the card themselves on first use",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/executor.go:334"
+    "runtime/a2a/executor.go:354"
+   ]
+  },
+  {
+   "id": "36",
+   "claim": "StreamEvent last event carries Error: agent JSON-RPC error or ErrSSEIdleTimeout (default idle 5m)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/client.go:44-50",
+    "runtime/a2a/client.go:84-98"
+   ]
+  },
+  {
+   "id": "37",
+   "claim": "WithWriteTimeout default 0; SSE streams lift it per connection; blocking SendMessage does not",
+   "verdict": "true",
+   "evidence": [
+    "server/a2a/server.go:127-135",
+    "server/a2a/server_stream.go:48-54"
+   ]
+  },
+  {
+   "id": "38",
+   "claim": "Tool bridge names tools a2a__<agent>__<skill>",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/bridge.go:109",
+    "runtime/a2a/bridge.go:44-50"
    ]
   }
  ]

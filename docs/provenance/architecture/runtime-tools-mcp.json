@@ -1,14 +1,14 @@
 {
  "page": "docs/src/content/docs/architecture/runtime-tools-mcp.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "ebf8d92f226c18ca12b790f73b09a762bd8d2512",
  "claims": [
   {
    "id": 1,
    "claim": "Registry reads ToolRepository once at construction and copies descriptors; Unregister removes from every read path",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/registry.go:101",
-    "runtime/tools/registry.go:203"
+    "runtime/tools/registry.go:102",
+    "runtime/tools/registry.go:208"
    ]
   },
   {
@@ -16,8 +16,8 @@
    "claim": "A registry holds one executor per name; second registration evicts the first",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/registry.go:385",
-    "runtime/tools/registry.go:398"
+    "runtime/tools/registry.go:404",
+    "runtime/tools/registry.go:418"
    ]
   },
   {
@@ -25,7 +25,7 @@
    "claim": "Registry.Child() derives per-conversation registry",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/child_registry.go:29"
+    "runtime/tools/child_registry.go:21"
    ]
   },
   {
@@ -33,7 +33,7 @@
    "claim": "Namespaces a2a, mcp, workflow, memory, skill, image, video are system namespaces",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/types.go:34"
+    "runtime/tools/types.go:36"
    ]
   },
   {
@@ -41,7 +41,7 @@
    "claim": "Executor interface: Execute(ctx, descriptor, args) and Name()",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/types.go:393"
+    "runtime/tools/types.go:441"
    ]
   },
   {
@@ -49,8 +49,8 @@
    "claim": "MultimodalExecutor preferred when implemented; AsyncToolExecutor returns pending",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/registry.go:441",
-    "runtime/tools/registry.go:591"
+    "runtime/tools/registry.go:447",
+    "runtime/tools/registry.go:626"
    ]
   },
   {
@@ -58,7 +58,7 @@
    "claim": "Mode routing: mock->scripted if template else static; live->http; local/client/mcp by name; other modes name an executor",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/registry.go:611"
+    "runtime/tools/registry.go:646"
    ]
   },
   {
@@ -66,7 +66,7 @@
    "claim": "New registry holds only two mock executors",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/registry.go:122"
+    "runtime/tools/registry.go:123"
    ]
   },
   {
@@ -74,8 +74,8 @@
    "claim": "SDK registers local, client, mcp when MCP configured, exec when exec tools configured; http is host-registered",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:633",
-    "sdk/conversation_tools.go:494",
+    "sdk/conversation.go:654-680",
+    "sdk/conversation_tools.go:514",
     "sdk/exec_tools.go:28"
    ]
   },
@@ -84,7 +84,7 @@
    "claim": "SDK loads pack tools with mode local as a placeholder; host binds mode",
    "verdict": "true",
    "evidence": [
-    "sdk/internal/pack/load.go:117"
+    "sdk/internal/pack/load.go:119"
    ]
   },
   {
@@ -92,9 +92,9 @@
    "claim": "Call order: blocklist, BeforeToolExecution hook, ApprovalChecker, ExecuteAsync, result rewriters, AfterToolExecution",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2764",
-    "runtime/pipeline/stage/stages_provider.go:2836",
-    "runtime/pipeline/stage/stages_provider.go:2855"
+    "runtime/pipeline/stage/stages_provider.go:2860",
+    "runtime/pipeline/stage/stages_provider.go:2872",
+    "runtime/pipeline/stage/stages_provider.go:2944"
    ]
   },
   {
@@ -102,7 +102,7 @@
    "claim": "Errors yield error results for the call, not an aborted turn",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2894"
+    "runtime/pipeline/stage/stages_provider.go:2998"
    ]
   },
   {
@@ -110,7 +110,7 @@
    "claim": "Registry coerces string-encoded numbers/booleans before validation",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/registry.go:461"
+    "runtime/tools/registry.go:473"
    ]
   },
   {
@@ -118,7 +118,7 @@
    "claim": "Pending call held out; loop returns ErrToolsPending",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2751"
+    "runtime/pipeline/stage/stages_provider.go:2847"
    ]
   },
   {
@@ -126,7 +126,7 @@
    "claim": "Parallel up to MaxParallelToolCalls default 10; results in model order",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2736",
+    "runtime/pipeline/stage/stages_provider.go:2832",
     "runtime/pipeline/stage/stages_provider.go:34"
    ]
   },
@@ -135,7 +135,7 @@
    "claim": "Results over MaxToolResultSize (1 MB default) truncated with notice",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3480",
+    "runtime/pipeline/stage/stages_provider.go:3593",
     "runtime/tools/registry.go:33"
    ]
   },
@@ -144,7 +144,7 @@
    "claim": "SchemaValidator uses gojsonschema draft-07 with LRU cache; external $ref skipped",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/validator.go:154",
+    "runtime/tools/validator.go:160",
     "runtime/tools/validator.go:98"
    ]
   },
@@ -153,8 +153,8 @@
    "claim": "Registered descriptor has no timeout unless set; manifest/JSON loaded gets DefaultToolTimeout 30s",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/registry.go:166",
-    "runtime/tools/registry.go:771"
+    "runtime/tools/registry.go:170",
+    "runtime/tools/registry.go:806"
    ]
   },
   {
@@ -163,7 +163,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/tools/mcp_executor.go:131",
-    "runtime/tools/registry.go:526"
+    "runtime/tools/registry.go:538"
    ]
   },
   {
@@ -180,9 +180,9 @@
    "claim": "HTTP: headers_from_env as Header=ENV, timeout, redact, wraps non-JSON, non-2xx error, no retry",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/http_executor.go:458",
-    "runtime/tools/http_executor.go:494",
-    "runtime/tools/http_executor.go:504"
+    "runtime/tools/http_executor.go:525",
+    "runtime/tools/http_executor.go:561",
+    "runtime/tools/http_executor.go:571"
    ]
   },
   {
@@ -198,9 +198,9 @@
    "claim": "client tool: handler sync; without handler pending with consent message and categories; SendToolResult then Resume",
    "verdict": "true",
    "evidence": [
-    "sdk/client_tools.go:153",
-    "sdk/client_tools.go:201",
-    "sdk/client_tools.go:272"
+    "sdk/client_tools.go:220",
+    "sdk/client_tools.go:264",
+    "sdk/client_tools.go:335"
    ]
   },
   {
@@ -209,7 +209,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/mcp/registry.go:93",
-    "runtime/mcp/types.go:381"
+    "runtime/mcp/types.go:383"
    ]
   },
   {
@@ -217,8 +217,8 @@
    "claim": "sdk.WithMCP snippet compiles",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:2080",
-    "sdk/sdk.go:84"
+    "sdk/options.go:2245",
+    "sdk/sdk.go:84-95"
    ]
   },
   {
@@ -226,8 +226,8 @@
    "claim": "Discovery: MCPExecutor registered, ListAllTools in parallel, descriptors mcp__server__tool mode mcp after ToolFilter",
    "verdict": "true",
    "evidence": [
-    "runtime/mcp/registry.go:425",
-    "sdk/conversation_tools.go:482",
+    "runtime/mcp/registry.go:428",
+    "sdk/conversation_tools.go:502",
     "sdk/mcp_tool_sync.go:148"
    ]
   },
@@ -244,7 +244,7 @@
    "claim": "tools/list_changed re-read and descriptors replaced",
    "verdict": "true",
    "evidence": [
-    "runtime/mcp/registry.go:568",
+    "runtime/mcp/registry.go:571",
     "sdk/mcp_tool_sync.go:132"
    ]
   },
@@ -253,8 +253,8 @@
    "claim": "Lazy clients; dead client replaced; MaxProcesses cap; MaxReconnectAttempts 3; MaxRetries 3; tools/call never retried",
    "verdict": "true",
    "evidence": [
-    "runtime/mcp/options.go:19",
-    "runtime/mcp/options.go:70",
+    "runtime/mcp/options.go:20-35",
+    "runtime/mcp/options.go:74",
     "runtime/mcp/registry.go:208"
    ]
   },
@@ -263,8 +263,8 @@
    "claim": "MCP tools not implicit; need allowed_tools entry or wildcard; capability tools implicit",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3662",
-    "runtime/tools/types.go:88"
+    "runtime/pipeline/stage/stages_provider.go:3782",
+    "runtime/tools/types.go:90"
    ]
   },
   {
@@ -272,7 +272,7 @@
    "claim": "MCPExecutor strips prefix, uses registry client for raw name; two servers same tool name share index entry",
    "verdict": "true",
    "evidence": [
-    "runtime/mcp/registry.go:507",
+    "runtime/mcp/registry.go:510",
     "runtime/tools/mcp_executor.go:158"
    ]
   },
@@ -299,8 +299,8 @@
    "claim": "ToolPolicy merge only narrows (min of set limits, blocklist union)",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/types.go:54",
-    "runtime/pipeline/types.go:77"
+    "runtime/pipeline/types.go:72",
+    "runtime/pipeline/types.go:95"
    ]
   },
   {
@@ -308,8 +308,8 @@
    "claim": "tool_choice none sends no tools; MaxRounds default 50 -> MaxRoundsError",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1640",
-    "runtime/pipeline/stage/stages_provider.go:3813"
+    "runtime/pipeline/stage/stages_provider.go:1711",
+    "runtime/pipeline/stage/stages_provider.go:3924"
    ]
   },
   {
@@ -317,7 +317,7 @@
    "claim": "MaxToolCallsPerTurn across rounds; once spent no tools offered",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1626"
+    "runtime/pipeline/stage/stages_provider.go:1697"
    ]
   },
   {
@@ -325,8 +325,8 @@
    "claim": "MaxCostUSD bounds whole run, checked after each provider round",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1524",
-    "runtime/pipeline/stage/stages_provider.go:1570"
+    "runtime/pipeline/stage/stages_provider.go:1595",
+    "runtime/pipeline/stage/stages_provider.go:1641"
    ]
   },
   {
@@ -334,7 +334,7 @@
    "claim": "Identical calls threshold 3: one synthetic nudge, abort on repeat",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1661",
+    "runtime/pipeline/stage/stages_provider.go:1732",
     "runtime/pipeline/stage/stages_provider.go:35"
    ]
   },
@@ -343,7 +343,7 @@
    "claim": "StopOnTool ends loop after round calling named tool",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1635"
+    "runtime/pipeline/stage/stages_provider.go:1706"
    ]
   },
   {
@@ -351,7 +351,7 @@
    "claim": "Blocklist exact-name match",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3505"
+    "runtime/pipeline/stage/stages_provider.go:3618"
    ]
   },
   {
@@ -359,7 +359,7 @@
    "claim": "Tool excluded from later rounds after second error result",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3541"
+    "runtime/pipeline/stage/stages_provider.go:3654"
    ]
   },
   {
@@ -367,8 +367,8 @@
    "claim": "Limits enforced by provider stage, not Registry.Execute",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2764",
-    "runtime/tools/registry.go:452"
+    "runtime/pipeline/stage/stages_provider.go:2860",
+    "runtime/tools/registry.go:464"
    ]
   }
  ]

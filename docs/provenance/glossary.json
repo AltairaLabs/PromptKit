@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/glossary.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "ebf8d92f226c18ca12b790f73b09a762bd8d2512",
  "claims": [
   {
    "id": "g1",
@@ -92,7 +92,7 @@
    "claim": "Event bus is events.EventBus",
    "verdict": "true",
    "evidence": [
-    "runtime/events/bus.go:254"
+    "runtime/events/bus.go:253"
    ]
   },
   {
@@ -100,10 +100,10 @@
    "claim": "HITL via OnToolAsync, PendingTools, ResolveTool, RejectTool",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:171",
-    "sdk/conversation_tools.go:235",
-    "sdk/conversation_tools.go:305",
-    "sdk/conversation_tools.go:455"
+    "sdk/conversation_tools.go:172",
+    "sdk/conversation_tools.go:236",
+    "sdk/conversation_tools.go:321",
+    "sdk/conversation_tools.go:476"
    ]
   }
  ]
