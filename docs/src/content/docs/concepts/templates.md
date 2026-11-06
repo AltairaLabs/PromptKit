@@ -4,7 +4,7 @@ description: How a pack's system template substitutes variables, which syntax th
 sidebar:
   order: 2
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/packspec/types.go
     - runtime/pipeline/stage/stages_utilities.go

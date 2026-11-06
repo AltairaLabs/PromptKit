@@ -1,13 +1,13 @@
 {
  "page": "docs/src/content/docs/concepts/state-management.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "State management maintains conversation history across turns",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:943"
+    "sdk/options.go:972"
    ]
   },
   {
@@ -21,7 +21,7 @@
    "claim": "Each conversation has a session ID (conversation ID)",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:992"
+    "sdk/options.go:1021"
    ]
   },
   {
@@ -29,7 +29,7 @@
    "claim": "sdk.Open with WithModel and conv.Send(ctx, text) example",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:1201"
+    "sdk/sdk.go:1212"
    ]
   },
   {
@@ -38,7 +38,7 @@
    "verdict": "false",
    "evidence": [
     "runtime/statestore/interface.go:18",
-    "runtime/statestore/interface.go:35"
+    "runtime/statestore/interface.go:34"
    ]
   },
   {
@@ -46,7 +46,7 @@
    "claim": "statestore.NewMemoryStore(); store.Save(ctx, state)",
    "verdict": "true",
    "evidence": [
-    "runtime/statestore/interface.go:38",
+    "runtime/statestore/interface.go:37",
     "runtime/statestore/memory.go:170"
    ]
   },
@@ -96,7 +96,7 @@
    "verdict": "false",
    "evidence": [
     "runtime/statestore/interface.go:20",
-    "sdk/options.go:1703"
+    "sdk/options.go:1830"
    ]
   },
   {
@@ -104,7 +104,7 @@
    "claim": "sessionID patterns with fmt.Sprintf and uuid",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:992"
+    "sdk/options.go:1021"
    ]
   },
   {
@@ -114,7 +114,7 @@
    "evidence": [
     "runtime/workflow/types.go:274",
     "runtime/workflow/types.go:297",
-    "sdk/workflow.go:560"
+    "sdk/workflow.go:469"
    ]
   },
   {
@@ -131,7 +131,7 @@
    "claim": "transient: state is not persisted to the store; persistent: saved",
    "verdict": "true",
    "evidence": [
-    "sdk/workflow.go:805"
+    "sdk/workflow.go:836"
    ]
   },
   {
@@ -189,7 +189,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/workflow/types.go:275",
-    "sdk/workflow.go:722"
+    "sdk/workflow.go:754"
    ]
   },
   {
@@ -197,8 +197,7 @@
    "claim": "sdk.ResumeWorkflow(workflowID, packPath) without a state store",
    "verdict": "true",
    "evidence": [
-    "sdk/workflow.go:228",
-    "sdk/workflow.go:236"
+    "sdk/workflow.go:239"
    ]
   },
   {
@@ -206,16 +205,16 @@
    "claim": "Carry-forward injects summaries of previous states into the next state's conversation",
    "verdict": "true",
    "evidence": [
-    "sdk/workflow.go:33",
-    "sdk/workflow.go:574"
+    "sdk/workflow.go:34",
+    "sdk/workflow.go:590"
    ]
   },
   {
    "id": 26,
-   "claim": "sdk.WithContextCarryForward(true)",
+   "claim": "sdk.WithContextCarryForward() enables carry-forward",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:2024"
+    "sdk/options.go:2188"
    ]
   },
   {
@@ -224,7 +223,7 @@
    "verdict": "false",
    "evidence": [
     "runtime/statestore/redis.go:54",
-    "sdk/options.go:1703"
+    "sdk/options.go:1830"
    ]
   },
   {
@@ -266,7 +265,7 @@
    "claim": "Testing: store.Save(\"session-1\", messages); pipe.ExecuteWithSession",
    "verdict": "false",
    "evidence": [
-    "runtime/statestore/interface.go:38"
+    "runtime/statestore/interface.go:37"
    ]
   },
   {
@@ -296,7 +295,7 @@
    "evidence": [
     "runtime/statestore/interface.go:106",
     "runtime/statestore/interface.go:128",
-    "runtime/statestore/interface.go:35",
+    "runtime/statestore/interface.go:34",
     "runtime/statestore/interface.go:79",
     "runtime/statestore/interface.go:91"
    ]
@@ -306,18 +305,18 @@
    "claim": "Without a state store, Open uses a private in-memory store; Resume returns ErrNoStateStore",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:1228",
-    "sdk/sdk.go:838"
+    "sdk/sdk.go:1239",
+    "sdk/sdk.go:849"
    ]
   },
   {
    "id": 38,
-   "claim": "WithContextWindow(n) loads the most recent n messages; WithTokenBudget; WithTruncation sliding/summarize/relevance",
+   "claim": "WithContextWindow(n) loads the most recent n messages; WithTokenBudget bounds history; WithTruncation takes sliding (alias oldest), summarize, relevance or fail, and only with a token budget",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1595",
-    "sdk/options.go:1616",
-    "sdk/options.go:1703"
+    "sdk/options.go:1708",
+    "sdk/options.go:1735",
+    "sdk/options.go:1830"
    ]
   },
   {
@@ -326,8 +325,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/packspec/types.go:2794",
-    "sdk/workflow.go:601",
-    "sdk/workflow.go:664"
+    "sdk/workflow.go:693"
    ]
   }
  ]

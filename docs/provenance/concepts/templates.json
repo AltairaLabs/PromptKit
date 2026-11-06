@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/concepts/templates.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -31,7 +31,7 @@
    "claim": "variables as map[string]string passed in Go",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:2506"
+    "sdk/options.go:2680"
    ]
   },
   {
@@ -47,7 +47,7 @@
    "claim": "PackC manages templates as .prompt files with name/version/system keys",
    "verdict": "false",
    "evidence": [
-    "runtime/prompt/registry.go:600"
+    "runtime/prompt/registry.go:603"
    ]
   },
   {
@@ -69,7 +69,7 @@
    "claim": "SDK uses sdk.Open(pack, prompt, WithModel)",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:1200"
+    "sdk/sdk.go:1212"
    ]
   },
   {
@@ -85,7 +85,7 @@
    "claim": "Defaults inside the template with a pipe/default syntax",
    "verdict": "false",
    "evidence": [
-    "runtime/prompt/registry.go:850",
+    "runtime/prompt/registry.go:853",
     "runtime/template/renderer.go:43"
    ]
   },
@@ -145,10 +145,10 @@
   },
   {
    "id": 19,
-   "claim": "Unresolved variable renders as empty",
-   "verdict": "false",
+   "claim": "A placeholder with no value fails the turn with an error matching stage.ErrTemplateUnresolved",
+   "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:235",
+    "runtime/pipeline/stage/stages_utilities.go:284",
     "runtime/template/renderer.go:53"
    ]
   },
@@ -166,7 +166,7 @@
    "claim": "Variables apply to system_template only, not message text",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:211"
+    "runtime/pipeline/stage/stages_utilities.go:236"
    ]
   },
   {
@@ -182,7 +182,7 @@
    "claim": "Variable fields name, type, required, default; string defaults applied for optional variables; required needs a non-empty value",
    "verdict": "true",
    "evidence": [
-    "runtime/prompt/registry.go:850",
+    "runtime/prompt/registry.go:853",
     "runtime/template/renderer.go:148"
    ]
   },
@@ -200,8 +200,8 @@
    "claim": "Unresolved placeholder error text lists variable names, not values",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:235",
-    "runtime/pipeline/stage/stages_utilities.go:262"
+    "runtime/pipeline/stage/stages_utilities.go:286",
+    "runtime/pipeline/stage/stages_utilities.go:325"
    ]
   },
   {
@@ -209,8 +209,8 @@
    "claim": "Variable sources WithVariables, SetVar",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1209",
-    "sdk/options.go:2506"
+    "sdk/conversation.go:1318",
+    "sdk/options.go:2680"
    ]
   },
   {

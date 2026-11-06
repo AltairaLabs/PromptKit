@@ -4,7 +4,7 @@ description: How skills load instructions and tools into a conversation on deman
 sidebar:
   order: 8
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/packspec/types.go
     - runtime/pipeline/stage/stages_provider.go
@@ -151,6 +151,8 @@ conv, _ = sdk.Open("base.pack.json", "assistant",
     sdk.WithMaxActiveSkillsOption(5),
 )
 ```
+
+Sources added in code combine with the sources the pack declares.
 
 Activation fails when a conversation already holds the maximum number of active skills. Each conversation tracks its own active skills, so one conversation reaching the limit does not affect another.
 
