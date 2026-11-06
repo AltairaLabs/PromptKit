@@ -1,15 +1,14 @@
 {
  "page": "docs/src/content/docs/runtime/how-to/pipeline/handle-errors.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "A stage that returns an error ends the turn; ExecuteSync returns it with a result holding what was emitted before the failure, and a nil result only when the pipeline could not start",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:162",
-    "runtime/pipeline/stage/pipeline.go:896",
-    "runtime/pipeline/stage/pipeline.go:990"
+    "runtime/pipeline/stage/pipeline.go:1370-1394",
+    "runtime/pipeline/stage/pipeline.go:72-98"
    ]
   },
   {
@@ -17,8 +16,8 @@
    "claim": "A stage returning an error without emitting it arrives as *stage.StageError (StageName, StageType, Err)",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:76",
-    "runtime/pipeline/stage/pipeline.go:806"
+    "runtime/pipeline/stage/errors.go:98-118",
+    "runtime/pipeline/stage/pipeline.go:79-83"
    ]
   },
   {
@@ -26,9 +25,8 @@
    "claim": "The provider stage emits its own error, so provider failures reach ExecuteSync callers as the provider error, not a *StageError",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:162",
-    "runtime/pipeline/stage/pipeline.go:500",
-    "runtime/pipeline/stage/stages_provider.go:827"
+    "runtime/pipeline/stage/pipeline.go:79-82",
+    "runtime/pipeline/stage/stages_provider.go:62-67"
    ]
   },
   {
@@ -36,7 +34,7 @@
    "claim": "errors.Is works through StageError",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:88"
+    "runtime/pipeline/stage/errors.go:116-118"
    ]
   },
   {
@@ -44,7 +42,7 @@
    "claim": "stage.ErrMaxRoundsExceeded is returned when the tool loop reaches its round limit",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:117"
+    "runtime/pipeline/stage/errors.go:135-157"
    ]
   },
   {
@@ -52,7 +50,7 @@
    "claim": "providers.ProviderHTTPError has StatusCode and RetryAfter",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/errors.go:17"
+    "runtime/providers/errors.go:19"
    ]
   },
   {
@@ -60,8 +58,8 @@
    "claim": "providers.IsTransient is true for 429/502/503/504 and connection failures, false for context errors and stream idle timeouts",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/errors.go:64",
-    "runtime/providers/stream_retry.go:216"
+    "runtime/providers/errors.go:61-90",
+    "runtime/providers/stream_retry.go:209-215"
    ]
   },
   {
@@ -69,8 +67,8 @@
    "claim": "Execute returns an error only when it cannot start (ErrPipelineShuttingDown); failures arrive as the last output element",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:162",
-    "runtime/pipeline/stage/pipeline.go:56"
+    "runtime/pipeline/stage/pipeline.go:109-116",
+    "runtime/pipeline/stage/pipeline.go:72-98"
    ]
   },
   {
@@ -87,7 +85,9 @@
    "claim": "ExecutionTimeout expiry fails the running stage with context.DeadlineExceeded",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:65"
+    "runtime/pipeline/stage/errors.go:22-25",
+    "runtime/pipeline/stage/pipeline.go:391-410",
+    "runtime/pipeline/stage/pipeline.go:84-86"
    ]
   },
   {
@@ -96,7 +96,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/builder.go:29",
-    "runtime/pipeline/stage/config.go:120"
+    "runtime/pipeline/stage/config.go:138"
    ]
   },
   {
@@ -104,7 +104,7 @@
    "claim": "ErrTemplateUnresolved fails the turn when a system prompt variable is unsupplied",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:110"
+    "runtime/pipeline/stage/errors.go:129-133"
    ]
   },
   {
@@ -112,7 +112,7 @@
    "claim": "StreamPipeline.Shutdown(ctx) releases in-flight executions",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:994"
+    "runtime/pipeline/stage/pipeline.go:1504"
    ]
   },
   {
@@ -120,7 +120,7 @@
    "claim": "Page snippets (send, classify, sendWithRetry, sendWithFallback, stream) compile and behave as described against mock provider",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:886"
+    "runtime/pipeline/stage/pipeline.go:1377-1394"
    ]
   }
  ]

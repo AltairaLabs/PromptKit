@@ -1,15 +1,15 @@
 {
  "page": "docs/src/content/docs/runtime/how-to/observability/prometheus-metrics.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "metrics.NewCollector(CollectorOpts{Registerer, Namespace, ConstLabels, InstanceLabels}); Namespace default promptkit; Registerer default DefaultRegisterer",
    "verdict": "true",
    "evidence": [
-    "runtime/metrics/collector.go:203",
-    "runtime/metrics/collector.go:48",
-    "runtime/metrics/collector.go:71"
+    "runtime/metrics/collector.go:211",
+    "runtime/metrics/collector.go:56",
+    "runtime/metrics/collector.go:79"
    ]
   },
   {
@@ -17,8 +17,8 @@
    "claim": "sdk.WithMetrics(collector, instanceLabels map[string]string)",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1287",
-    "sdk/sdk.go:760"
+    "sdk/options.go:1332",
+    "sdk/sdk.go:771"
    ]
   },
   {
@@ -26,9 +26,9 @@
    "claim": "Provider metrics carry provider, model labels (original) / provider, model, source (true)",
    "verdict": "false",
    "evidence": [
-    "runtime/metrics/collector.go:293",
-    "runtime/metrics/collector.go:300",
-    "runtime/metrics/collector.go:636"
+    "runtime/metrics/collector.go:301",
+    "runtime/metrics/collector.go:308",
+    "runtime/metrics/collector.go:644"
    ]
   },
   {
@@ -36,11 +36,11 @@
    "claim": "pipeline_duration_seconds{status}, tool_call_duration_seconds{tool}, tool_calls_total{tool,status}, validation_* labels",
    "verdict": "true",
    "evidence": [
-    "runtime/metrics/collector.go:286",
-    "runtime/metrics/collector.go:330",
-    "runtime/metrics/collector.go:337",
-    "runtime/metrics/collector.go:343",
-    "runtime/metrics/collector.go:350"
+    "runtime/metrics/collector.go:294",
+    "runtime/metrics/collector.go:338",
+    "runtime/metrics/collector.go:345",
+    "runtime/metrics/collector.go:351",
+    "runtime/metrics/collector.go:358"
    ]
   },
   {
@@ -48,8 +48,8 @@
    "claim": "tool_calls_total status is error when the call failed, otherwise success",
    "verdict": "true",
    "evidence": [
-    "runtime/metrics/collector.go:687",
-    "runtime/metrics/collector.go:712"
+    "runtime/metrics/collector.go:695-698",
+    "runtime/metrics/collector.go:715-721"
    ]
   },
   {
@@ -57,8 +57,8 @@
    "claim": "Audio counters audio_frame_underruns_total, audio_frame_underrun_samples_total, audio_frame_drops_total{direction,reason=overflow}, audio_pacing_behind_deadline_total registered by NewCollector; direction is input/output; metric table descriptions follow the Help strings in stream_metrics.go",
    "verdict": "true",
    "evidence": [
-    "runtime/metrics/collector.go:245",
-    "runtime/pipeline/stage/stages_pacing.go:257",
+    "runtime/metrics/collector.go:253",
+    "runtime/pipeline/stage/stages_pacing.go:256",
     "runtime/providers/stream_metrics.go:186",
     "runtime/providers/stream_metrics.go:189",
     "runtime/providers/stream_metrics.go:201",
@@ -80,8 +80,8 @@
    "claim": "Eval metrics named {ns}_eval_<metric>, prefix idempotent",
    "verdict": "true",
    "evidence": [
-    "runtime/metrics/collector.go:1126",
-    "runtime/metrics/collector.go:971"
+    "runtime/metrics/collector.go:1134",
+    "runtime/metrics/collector.go:979"
    ]
   },
   {
@@ -89,7 +89,7 @@
    "claim": "NewEvalOnlyCollector equals NewCollector with DisablePipelineMetrics; sdk.EvaluateOpts has MetricsCollector and MetricsInstanceLabels",
    "verdict": "true",
    "evidence": [
-    "runtime/metrics/collector.go:262",
+    "runtime/metrics/collector.go:270",
     "sdk/evaluate.go:103",
     "sdk/evaluate.go:108"
    ]
@@ -99,11 +99,11 @@
    "claim": "Collector also records tts_, stt_, embedding_, image_gen_, inference_ families with provider, model, source labels",
    "verdict": "true",
    "evidence": [
-    "runtime/metrics/collector.go:356",
-    "runtime/metrics/collector.go:384",
-    "runtime/metrics/collector.go:407",
-    "runtime/metrics/collector.go:435",
-    "runtime/metrics/collector.go:458"
+    "runtime/metrics/collector.go:364",
+    "runtime/metrics/collector.go:392",
+    "runtime/metrics/collector.go:415",
+    "runtime/metrics/collector.go:443",
+    "runtime/metrics/collector.go:466"
    ]
   },
   {
@@ -111,9 +111,9 @@
    "claim": "source values agent, judge, selfplay",
    "verdict": "true",
    "evidence": [
-    "runtime/events/types.go:270",
-    "runtime/events/types.go:272",
-    "runtime/events/types.go:274"
+    "runtime/events/types.go:280",
+    "runtime/events/types.go:282",
+    "runtime/events/types.go:284"
    ]
   },
   {
@@ -121,18 +121,16 @@
    "claim": "Grafana dashboard at runtime/metrics/grafana/pipeline-dashboard.json; panels for pipeline overview, provider, tool and validation; queries use promptkit namespace",
    "verdict": "true",
    "evidence": [
-    "runtime/metrics/grafana/pipeline-dashboard.json:1630"
+    "runtime/metrics/grafana/pipeline-dashboard.json:1477"
    ]
   },
   {
    "id": 13,
    "claim": "Dashboard includes Active Pipelines and stage panels backed by promptkit_pipelines_active, promptkit_stage_duration_seconds, promptkit_stage_elements_total",
-   "verdict": "dead",
+   "verdict": "false",
    "evidence": [
-    "runtime/metrics/grafana/pipeline-dashboard.json:688",
-    "runtime/metrics/grafana/pipeline-dashboard.json:792",
-    "runtime/metrics/grafana/pipeline-dashboard.json:97",
-    "runtime/providers/stream_metrics.go:171"
+    "runtime/metrics/grafana/pipeline-dashboard.json:639-644",
+    "runtime/providers/stream_metrics.go:169-176"
    ]
   },
   {
@@ -140,9 +138,9 @@
    "claim": "Alert expressions use promptkit_pipeline_duration_seconds_count{status}, provider_request_duration_seconds_bucket, provider_input/output_tokens_total",
    "verdict": "true",
    "evidence": [
-    "runtime/metrics/collector.go:286",
-    "runtime/metrics/collector.go:293",
-    "runtime/metrics/collector.go:306"
+    "runtime/metrics/collector.go:294",
+    "runtime/metrics/collector.go:301",
+    "runtime/metrics/collector.go:314"
    ]
   },
   {
@@ -150,8 +148,8 @@
    "claim": "Pipeline, provider, tool and validation metrics are event-derived and under-report when the bus drops; audio and eventbus counters are direct",
    "verdict": "true",
    "evidence": [
-    "runtime/metrics/collector.go:245",
-    "runtime/metrics/collector.go:557"
+    "runtime/metrics/collector.go:253",
+    "runtime/metrics/collector.go:565"
    ]
   },
   {
@@ -159,7 +157,7 @@
    "claim": "Go snippets compile and a collector exposes the documented series",
    "verdict": "true",
    "evidence": [
-    "runtime/metrics/collector.go:203"
+    "runtime/metrics/collector.go:211"
    ]
   }
  ]

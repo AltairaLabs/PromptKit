@@ -1,14 +1,14 @@
 {
  "page": "docs/src/content/docs/runtime/how-to/a2a/use-a2a-tool-bridge.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": "c1",
    "claim": "Tool name is a2a__{agent}__{skill}, lowercased, non-alnum runs to underscore",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/bridge.go:102",
-    "runtime/a2a/bridge.go:203-212"
+    "runtime/a2a/bridge.go:109",
+    "runtime/a2a/bridge.go:210-219"
    ]
   },
   {
@@ -16,8 +16,8 @@
    "claim": "Bridge adds image_url/image_data for image/* input, audio_data for audio/*, media_url/media_type for image/audio output",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/bridge.go:147-160",
-    "runtime/a2a/bridge.go:177-187"
+    "runtime/a2a/bridge.go:154-167",
+    "runtime/a2a/bridge.go:184-194"
    ]
   },
   {
@@ -25,7 +25,7 @@
    "claim": "Skill modes fall back to card default modes",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/bridge.go:92-100"
+    "runtime/a2a/bridge.go:99-107"
    ]
   },
   {
@@ -33,8 +33,8 @@
    "claim": "Tools take required query and return response",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/bridge.go:141-146",
-    "runtime/a2a/bridge.go:173-175"
+    "runtime/a2a/bridge.go:148-153",
+    "runtime/a2a/bridge.go:180-182"
    ]
   },
   {
@@ -42,8 +42,8 @@
    "claim": "Listing a2a tools in allowed_tools is required to enable them",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3666-3675",
-    "runtime/tools/types.go:88-91"
+    "runtime/pipeline/stage/stages_provider.go:3777-3786",
+    "runtime/tools/types.go:90-93"
    ]
   },
   {
@@ -51,9 +51,9 @@
    "claim": "Each WithA2ATools call adds a bridge; duplicate tool names across bridges fail Open",
    "verdict": "false",
    "evidence": [
-    "sdk/capability_a2a.go:145-159",
+    "sdk/capability_a2a.go:147-160",
     "sdk/capability_a2a.go:80-82",
-    "sdk/options.go:2268-2276"
+    "sdk/options.go:2433-2440"
    ]
   },
   {
@@ -61,8 +61,9 @@
    "claim": "WithA2AAgent fetches card on open; unreachable agent is skipped unless Required",
    "verdict": "true",
    "evidence": [
-    "sdk/capability_a2a.go:69-76",
-    "sdk/options.go:2414-2417"
+    "sdk/capability_a2a.go:190-216",
+    "sdk/capability_a2a.go:76-78",
+    "sdk/options.go:2561"
    ]
   },
   {
@@ -70,7 +71,7 @@
    "claim": "RegisterAgent appends tools; multi-agent via GetToolDescriptors",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/bridge.go:39-70"
+    "runtime/a2a/bridge.go:44-70"
    ]
   },
   {
@@ -78,7 +79,7 @@
    "claim": "Discover tries /.well-known/agent-card.json then legacy agent.json",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:264-267"
+    "runtime/a2a/client.go:275-278"
    ]
   }
  ]

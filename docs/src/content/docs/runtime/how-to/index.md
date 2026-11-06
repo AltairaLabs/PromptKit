@@ -3,6 +3,26 @@ title: Runtime how-to guides
 description: Task-focused guides for building and operating applications on the PromptKit runtime
 sidebar:
   order: 0
+verified:
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
+  sources:
+    - runtime/a2a/bridge.go
+    - runtime/a2a/mock/mock.go
+    - runtime/logger/logger.go
+    - runtime/mcp/registry.go
+    - runtime/metrics/collector.go
+    - runtime/pipeline/stage/builder.go
+    - runtime/pipeline/stage/errors.go
+    - runtime/pipeline/stage/pipeline.go
+    - runtime/pipeline/stage/stages_provider.go
+    - runtime/providers/claude/claude.go
+    - runtime/providers/errors.go
+    - runtime/providers/gemini/gemini.go
+    - runtime/providers/openai/openai.go
+    - runtime/statestore/interface.go
+    - runtime/telemetry/provider.go
+    - runtime/tools/types.go
+    - runtime/types/message.go
 ---
 
 Each guide covers one task, with the code to carry it out. For the APIs behind them, see the [runtime reference](/runtime/reference/). To learn by building, start with the [runtime tutorials](/runtime/tutorials/). For the reasoning behind the design, see the [runtime explanation](/runtime/explanation/).

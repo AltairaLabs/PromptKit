@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/runtime/how-to/state/manage-state.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -50,7 +50,7 @@
    "claim": "pipeline.StateStoreConfig has Store, ConversationID, UserID",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/types.go:175"
+    "runtime/pipeline/types.go:193"
    ]
   },
   {
@@ -58,10 +58,10 @@
    "claim": "NewStateStoreLoadStage, NewProviderStage(provider,nil,nil,nil), NewIncrementalSaveStage(&IncrementalSaveConfig{StateStoreConfig}) chain loads and appends history",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_core.go:166",
-    "runtime/pipeline/stage/stages_provider.go:276",
+    "runtime/pipeline/stage/stages_core.go:175",
+    "runtime/pipeline/stage/stages_provider.go:314",
     "runtime/pipeline/stage/stages_save.go:23",
-    "runtime/pipeline/stage/stages_save.go:60"
+    "runtime/pipeline/stage/stages_save.go:64"
    ]
   },
   {
@@ -69,8 +69,8 @@
    "claim": "Load stage treats ErrNotFound as empty history; other load errors fail the turn",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_core.go:263",
-    "runtime/pipeline/stage/stages_core.go:264"
+    "runtime/pipeline/stage/stages_core.go:272",
+    "runtime/pipeline/stage/stages_core.go:273"
    ]
   },
   {
@@ -78,8 +78,8 @@
    "claim": "Store has Load and Fork only; BulkWriter.Save replaces state; both built-in stores implement it",
    "verdict": "true",
    "evidence": [
-    "runtime/statestore/interface.go:18",
-    "runtime/statestore/interface.go:35",
+    "runtime/statestore/interface.go:18-25",
+    "runtime/statestore/interface.go:34-38",
     "runtime/statestore/memory.go:236",
     "runtime/statestore/redis.go:290"
    ]

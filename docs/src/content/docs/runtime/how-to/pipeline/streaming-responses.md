@@ -4,7 +4,7 @@ description: Read a model reply as it is generated, from a stage pipeline or str
 sidebar:
   order: 6
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/pipeline/stage/builder.go
     - runtime/pipeline/stage/config.go
@@ -41,7 +41,7 @@ A `ProviderStage` streams on its own when its provider supports it. It emits eac
 
 2. Range over the output channel. A text element (`elem.Text`) carries one fragment, not the accumulated reply. A message element (`elem.Message`) carries the complete assistant message with its token counts and cost.
 
-3. Check `elem.Error` in the loop. `Execute` returns an error only when the pipeline is shutting down. A failure during the call arrives as an element with `Error` set.
+3. Check `elem.Error` in the loop. `Execute` returns an error only when the execution cannot start: the pipeline is shutting down, or `ctx` ended while `Execute` waited for a free execution slot. A failure during the call arrives as an element with `Error` set.
 
 The loop ends when the pipeline closes the output channel. Keep reading until it closes, even after you stop using the elements: the pipeline blocks on an output channel nobody reads.
 

@@ -1,0 +1,115 @@
+{
+ "page": "docs/src/content/docs/runtime/how-to/index.md",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "Build and configure a pipeline: stage.NewPipelineBuilder and PipelineConfig",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/builder.go:20",
+    "runtime/pipeline/stage/builder.go:29"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "Handle provider and pipeline errors: StageError and providers.IsTransient",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/errors.go:104-108",
+    "runtime/providers/errors.go:65"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "Read a reply as it is generated: StreamPipeline.Execute emits text fragments",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/pipeline.go:99",
+    "runtime/pipeline/stage/stages_provider.go:2652"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Connect to an LLM provider: openai, claude, gemini NewProvider",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/claude.go:137",
+    "runtime/providers/gemini/gemini.go:107",
+    "runtime/providers/openai/openai.go:199"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Persist conversations: statestore.Store",
+   "verdict": "true",
+   "evidence": [
+    "runtime/statestore/interface.go:18"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "Connect MCP servers and use their tools: mcp.Registry",
+   "verdict": "true",
+   "evidence": [
+    "runtime/mcp/registry.go:82"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "Map HTTP endpoints to tools: tools.RequestMapping",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/types.go:186"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Register a remote agent's skills as tools: a2a.ToolBridge.RegisterAgent",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/bridge.go:50"
+   ]
+  },
+  {
+   "id": 9,
+   "claim": "Test A2A calls against canned responses: mock.NewA2AServer",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/mock/mock.go:94"
+   ]
+  },
+  {
+   "id": 10,
+   "claim": "Track token usage and cost: types.CostInfo",
+   "verdict": "true",
+   "evidence": [
+    "runtime/types/message.go:242"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "Expose Prometheus metrics: metrics.NewCollector",
+   "verdict": "true",
+   "evidence": [
+    "runtime/metrics/collector.go:211"
+   ]
+  },
+  {
+   "id": 12,
+   "claim": "Send traces to an OpenTelemetry backend: telemetry.NewTracerProvider over OTLP/HTTP",
+   "verdict": "true",
+   "evidence": [
+    "runtime/telemetry/provider.go:41"
+   ]
+  },
+  {
+   "id": 13,
+   "claim": "Keep API keys out of debug logs: logger.RedactSensitiveData",
+   "verdict": "true",
+   "evidence": [
+    "runtime/logger/logger.go:335"
+   ]
+  }
+ ]
+}
