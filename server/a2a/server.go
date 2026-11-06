@@ -34,10 +34,6 @@ const (
 	// request, including the body.
 	defaultReadTimeout = 30 * time.Second
 
-	// defaultWriteTimeout is the maximum duration before timing out
-	// writes of the response.
-	defaultWriteTimeout = 60 * time.Second
-
 	// defaultIdleTimeout is the maximum amount of time to wait for the
 	// next request when keep-alives are enabled.
 	defaultIdleTimeout = 120 * time.Second
@@ -128,10 +124,13 @@ func WithReadTimeout(d time.Duration) Option {
 	return func(s *Server) { s.readTimeout = d }
 }
 
-// WithWriteTimeout records a write timeout, default 60s. ListenAndServe and
-// Serve do not apply it: they leave the HTTP server's WriteTimeout at 0 so SSE
-// streams stay open. Apply write timeouts in a proxy or by serving Handler from
-// your own http.Server.
+// WithWriteTimeout sets the HTTP server's WriteTimeout for ListenAndServe and
+// Serve: the most time a response may take, from the end of reading the
+// request headers. Default: 0, no write timeout. SSE streams
+// (SendStreamingMessage, SubscribeToTask) lift it for their own connection, so
+// they stay open for as long as the turn runs; a blocking SendMessage does
+// not, so set it above the longest turn a caller waits on, or cap that wait
+// with WithMaxBlockingWait.
 func WithWriteTimeout(d time.Duration) Option {
 	return func(s *Server) { s.writeTimeout = d }
 }
@@ -283,18 +282,17 @@ func NewServer(opener ConversationOpener, opts ...Option) *Server {
 // newServer builds the parts both modes share.
 func newServer(opts ...Option) *Server {
 	s := &Server{
-		convs:        make(map[string]Conversation),
-		convLastUse:  make(map[string]time.Time),
-		convOwner:    make(map[string]string),
-		cancels:      make(map[string]context.CancelFunc),
-		cancelRegs:   make(map[string]uint64),
-		readTimeout:  defaultReadTimeout,
-		writeTimeout: defaultWriteTimeout,
-		idleTimeout:  defaultIdleTimeout,
-		maxBodySize:  defaultMaxBodySize,
-		taskTTL:      defaultTaskTTL,
-		convTTL:      defaultConversationTTL,
-		stopCh:       make(chan struct{}),
+		convs:       make(map[string]Conversation),
+		convLastUse: make(map[string]time.Time),
+		convOwner:   make(map[string]string),
+		cancels:     make(map[string]context.CancelFunc),
+		cancelRegs:  make(map[string]uint64),
+		readTimeout: defaultReadTimeout,
+		idleTimeout: defaultIdleTimeout,
+		maxBodySize: defaultMaxBodySize,
+		taskTTL:     defaultTaskTTL,
+		convTTL:     defaultConversationTTL,
+		stopCh:      make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -353,29 +351,28 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 }
 
 // ListenAndServe starts the HTTP server on the configured port and blocks until
-// it stops.
-//
-// WriteTimeout is set to 0 (disabled) because SSE streaming endpoints
-// (SendStreamingMessage, SubscribeToTask) hold the connection open indefinitely.
-// A non-zero WriteTimeout would kill long-lived SSE connections.
+// it stops. The server applies the read, write and idle timeouts the options
+// set; see WithWriteTimeout for how SSE streams treat the write timeout.
 func (s *Server) ListenAndServe() error {
+	return s.newHTTPServer(fmt.Sprintf(":%d", s.port)).ListenAndServe()
+}
+
+// newHTTPServer builds the http.Server that ListenAndServe and Serve run, and
+// records it for Shutdown.
+func (s *Server) newHTTPServer(addr string) *http.Server {
 	srv := &http.Server{
-		Addr:              fmt.Sprintf(":%d", s.port),
+		Addr:              addr,
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: defaultReadHeaderTimeout,
 		ReadTimeout:       s.readTimeout,
-		// TODO: WriteTimeout: 0 disables write timeouts on all endpoints, not
-		// just SSE. Consider per-handler timeouts via http.TimeoutHandler for
-		// non-streaming endpoints.
-		WriteTimeout: 0,
-		IdleTimeout:  s.idleTimeout,
+		WriteTimeout:      s.writeTimeout,
+		IdleTimeout:       s.idleTimeout,
 	}
 
 	s.httpSrvMu.Lock()
 	s.httpSrv = srv
 	s.httpSrvMu.Unlock()
-
-	return srv.ListenAndServe()
+	return srv
 }
 
 // Shutdown gracefully shuts down the server: it marks the server not ready,
@@ -431,24 +428,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 // Serve starts the HTTP server on the given listener and blocks until it stops.
-// See ListenAndServe for the rationale behind WriteTimeout: 0.
+// It applies the same timeouts as ListenAndServe.
 func (s *Server) Serve(ln net.Listener) error {
-	srv := &http.Server{
-		Handler:           s.Handler(),
-		ReadHeaderTimeout: defaultReadHeaderTimeout,
-		ReadTimeout:       s.readTimeout,
-		// TODO: WriteTimeout: 0 disables write timeouts on all endpoints, not
-		// just SSE. Consider per-handler timeouts via http.TimeoutHandler for
-		// non-streaming endpoints.
-		WriteTimeout: 0,
-		IdleTimeout:  s.idleTimeout,
-	}
-
-	s.httpSrvMu.Lock()
-	s.httpSrv = srv
-	s.httpSrvMu.Unlock()
-
-	return srv.Serve(ln)
+	return s.newHTTPServer("").Serve(ln)
 }
 
 // JSON keys and values used in the health probe response bodies.

@@ -387,11 +387,32 @@ func TestA2ACalculateBackoff_CapsAtMaxDelay(t *testing.T) {
 		MaxDelay:     2 * time.Second,
 	}
 
-	// Attempt 5 would be 32s without cap, but should be capped at 2s + jitter.
-	d := a2aCalculateBackoff(policy, 5)
-	// Max possible: 2s + 50% jitter = 3s
-	if d > 3*time.Second {
-		t.Errorf("delay = %v, should be capped at ~3s (2s + jitter)", d)
+	// Attempt 5 would be 32s without the cap. Jitter is applied before the
+	// cap, so no delay exceeds MaxDelay.
+	for range 50 {
+		if d := a2aCalculateBackoff(policy, 5); d != policy.MaxDelay {
+			t.Fatalf("delay = %v, want exactly MaxDelay %v", d, policy.MaxDelay)
+		}
+	}
+}
+
+func TestA2ACalculateBackoff_JitterBelowTheCap(t *testing.T) {
+	policy := RetryPolicy{InitialDelay: 100 * time.Millisecond, MaxDelay: 120 * time.Millisecond}
+
+	// The base delay is 100ms, under the cap; jitter adds up to 50ms, and the
+	// cap holds the result at 120ms.
+	sawJitter := false
+	for range 50 {
+		d := a2aCalculateBackoff(policy, 0)
+		if d < policy.InitialDelay || d > policy.MaxDelay {
+			t.Fatalf("delay = %v, want within [%v, %v]", d, policy.InitialDelay, policy.MaxDelay)
+		}
+		if d > policy.InitialDelay {
+			sawJitter = true
+		}
+	}
+	if !sawJitter {
+		t.Error("no delay carried jitter")
 	}
 }
 

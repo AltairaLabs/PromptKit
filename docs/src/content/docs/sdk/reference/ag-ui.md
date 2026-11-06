@@ -26,6 +26,7 @@ Not produced: token\-by\-token text streaming \(each message's text arrives in o
 - [func ToolsToAGUI\(descs \[\]tools.ToolDescriptor\) \[\]aguitypes.Tool](<#ToolsToAGUI>)
 - [type AdapterOption](<#AdapterOption>)
   - [func WithRunID\(id string\) AdapterOption](<#WithRunID>)
+  - [func WithRuntimeEvents\(eventTypes ...events.EventType\) AdapterOption](<#WithRuntimeEvents>)
   - [func WithStateProvider\(sp StateProvider\) AdapterOption](<#WithStateProvider>)
   - [func WithThreadID\(id string\) AdapterOption](<#WithThreadID>)
   - [func WithToolResultProvider\(provider ToolResultProvider\) AdapterOption](<#WithToolResultProvider>)
@@ -196,7 +197,7 @@ type AdapterOption func(*adapterConfig)
 ```
 
 <a name="WithRunID"></a>
-### func [WithRunID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L115>)
+### func [WithRunID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L122>)
 
 ```go
 func WithRunID(id string) AdapterOption
@@ -204,8 +205,19 @@ func WithRunID(id string) AdapterOption
 
 WithRunID sets the AG\-UI run ID for emitted events. By default the adapter generates one.
 
+<a name="WithRuntimeEvents"></a>
+### func [WithRuntimeEvents](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L175>)
+
+```go
+func WithRuntimeEvents(eventTypes ...events.EventType) AdapterOption
+```
+
+WithRuntimeEvents forwards the conversation's runtime events, read from its event bus \([EventBusProvider](<#EventBusProvider>)\), as AG\-UI RAW events with source "promptkit" and the \[events.Event\] as the payload. Name event types to forward only those \(for example events.EventToolCallStarted\); with none, every event is forwarded. By default no runtime event is forwarded.
+
+The bus delivers asynchronously, so a RAW event is not ordered against the run's other events, and only events delivered while the run is open are forwarded: one the bus delivers after the run's RUN\_FINISHED or RUN\_ERROR is not sent. For a workflow conversation the bus is the active conversation's when the run starts. A bus shared by several conversations \(sdk.WithEventBus\) carries all of their events; filter on the payload's SessionID or ConversationID to keep one conversation's.
+
 <a name="WithStateProvider"></a>
-### func [WithStateProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L123>)
+### func [WithStateProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L130>)
 
 ```go
 func WithStateProvider(sp StateProvider) AdapterOption
@@ -214,7 +226,7 @@ func WithStateProvider(sp StateProvider) AdapterOption
 WithStateProvider sets a provider that produces the STATE\_SNAPSHOT event at the start of each run.
 
 <a name="WithThreadID"></a>
-### func [WithThreadID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L107>)
+### func [WithThreadID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L114>)
 
 ```go
 func WithThreadID(id string) AdapterOption
@@ -223,7 +235,7 @@ func WithThreadID(id string) AdapterOption
 WithThreadID sets the AG\-UI thread ID for emitted events. By default the adapter generates one.
 
 <a name="WithToolResultProvider"></a>
-### func [WithToolResultProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L149>)
+### func [WithToolResultProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L156>)
 
 ```go
 func WithToolResultProvider(provider ToolResultProvider) AdapterOption
@@ -234,7 +246,7 @@ WithToolResultProvider sets a callback that answers pending client tools on the 
 Use it only for tools the server itself can answer. A frontend tool, one the application advertised in RunAgentInput.tools, must not be answered by the producer.
 
 <a name="WithWorkflowSteps"></a>
-### func [WithWorkflowSteps](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L133>)
+### func [WithWorkflowSteps](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L140>)
 
 ```go
 func WithWorkflowSteps(enabled bool) AdapterOption
@@ -243,7 +255,7 @@ func WithWorkflowSteps(enabled bool) AdapterOption
 WithWorkflowSteps enables STEP\_STARTED / STEP\_FINISHED events naming the workflow state a run executes in. It has an effect only when the conversation runs a workflow, as one passed to [NewWorkflowEventAdapter](<#NewWorkflowEventAdapter>) does; [NewWorkflowEventAdapter](<#NewWorkflowEventAdapter>) enables it by default.
 
 <a name="EventAdapter"></a>
-## type [EventAdapter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L159-L166>)
+## type [EventAdapter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L186-L194>)
 
 EventAdapter bridges a PromptKit conversation to an AG\-UI event channel. It runs one conversation turn and translates the turn's messages into AG\-UI protocol events. An adapter carries one run: its channel closes when the run ends.
 
@@ -254,7 +266,7 @@ type EventAdapter struct {
 ```
 
 <a name="NewEventAdapter"></a>
-### func [NewEventAdapter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L171-L175>)
+### func [NewEventAdapter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L199-L203>)
 
 ```go
 func NewEventAdapter(conv interface {
@@ -266,7 +278,7 @@ func NewEventAdapter(conv interface {
 NewEventAdapter creates a new EventAdapter for the given conversation. The conversation must implement both Sender and EventBusProvider. \*sdk.Conversation satisfies both interfaces.
 
 <a name="NewWorkflowEventAdapter"></a>
-### func [NewWorkflowEventAdapter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L186>)
+### func [NewWorkflowEventAdapter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L214>)
 
 ```go
 func NewWorkflowEventAdapter(wc *sdk.WorkflowConversation, opts ...AdapterOption) *EventAdapter
@@ -277,7 +289,7 @@ NewWorkflowEventAdapter creates an EventAdapter for a workflow conversation. Eac
 Client\-tool results and approval resolutions go to the workflow's active conversation, the one serving the current state.
 
 <a name="EventAdapter.Events"></a>
-### func \(\*EventAdapter\) [Events](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L217>)
+### func \(\*EventAdapter\) [Events](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L245>)
 
 ```go
 func (a *EventAdapter) Events() <-chan aguievents.Event
@@ -288,7 +300,7 @@ Events returns the read\-only channel of AG\-UI events. The channel is closed wh
 Drain it concurrently with RunSend, RunResume or RunContinue, for example from another goroutine. The adapter never drops an event. When the channel's buffer is full it waits for the reader, so a reader that stops reading holds the run until the run's context is canceled; cancel it \(an HTTP handler's request context is canceled when the client disconnects\) to release the run.
 
 <a name="EventAdapter.RunContinue"></a>
-### func \(\*EventAdapter\) [RunContinue](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L303>)
+### func \(\*EventAdapter\) [RunContinue](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L331>)
 
 ```go
 func (a *EventAdapter) RunContinue(ctx context.Context) error
@@ -303,7 +315,7 @@ The held calls' results are emitted as TOOL\_CALL\_RESULT events, since only the
 It returns [ErrContinueUnsupported](<#ErrContinueUnsupported>) \(after a RUN\_ERROR\) when the conversation has no Continue method.
 
 <a name="EventAdapter.RunID"></a>
-### func \(\*EventAdapter\) [RunID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L227>)
+### func \(\*EventAdapter\) [RunID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L255>)
 
 ```go
 func (a *EventAdapter) RunID() string
@@ -312,7 +324,7 @@ func (a *EventAdapter) RunID() string
 RunID returns the run ID used by this adapter.
 
 <a name="EventAdapter.RunResume"></a>
-### func \(\*EventAdapter\) [RunResume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L282>)
+### func \(\*EventAdapter\) [RunResume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L310>)
 
 ```go
 func (a *EventAdapter) RunResume(ctx context.Context, results []ToolResult) error
@@ -325,7 +337,7 @@ Read Events\(\) concurrently with the run, or cancel ctx: the run waits for the 
 In AG\-UI the application answers a frontend tool call in the next run's input, as a tool message per call; [ToolResultsFromAGUI](<#ToolResultsFromAGUI>) extracts them. The answers are the application's own, so the run does not echo them back as TOOL\_CALL\_RESULT events. Nor does it repeat answers a ToolResultProvider gave in the earlier run, which reported them then: the resumed turn feeds every answer to the model, but none of them is new to the client.
 
 <a name="EventAdapter.RunSend"></a>
-### func \(\*EventAdapter\) [RunSend](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L263>)
+### func \(\*EventAdapter\) [RunSend](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L291>)
 
 ```go
 func (a *EventAdapter) RunSend(ctx context.Context, msg *types.Message) error
@@ -353,7 +365,7 @@ On error, a RUN\_ERROR ends the run. The events channel is always closed when Ru
 Read Events\(\) concurrently with the run, or cancel ctx: the run waits for the reader once the channel's buffer of 64 events is full, so a caller that lets the run finish before reading blocks there.
 
 <a name="EventAdapter.ThreadID"></a>
-### func \(\*EventAdapter\) [ThreadID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L222>)
+### func \(\*EventAdapter\) [ThreadID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L250>)
 
 ```go
 func (a *EventAdapter) ThreadID() string
@@ -364,7 +376,7 @@ ThreadID returns the thread ID used by this adapter.
 <a name="EventBusProvider"></a>
 ## type [EventBusProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L84-L86>)
 
-EventBusProvider abstracts access to the conversation's event bus. NewEventAdapter requires it, but the adapter does not read the bus: every event it emits comes from the turn's own messages.
+EventBusProvider abstracts access to the conversation's event bus. The adapter reads the bus only for [WithRuntimeEvents](<#WithRuntimeEvents>): the run's messages, tool calls and steps come from the turn itself, which keeps them ordered.
 
 ```go
 type EventBusProvider interface {

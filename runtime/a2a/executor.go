@@ -84,15 +84,16 @@ func (h *clientHeap) Pop() interface{} {
 // RetryPolicy configures retry behavior for the A2A executor. The executor
 // retries only the SendMessage call, on HTTP 429, 502, 503 and 504 and on
 // transient network errors, and waits an exponentially growing delay between
-// attempts, with random jitter of up to 50% added on top.
+// attempts, with random jitter of up to 50% added on top and the total capped
+// at MaxDelay.
 type RetryPolicy struct {
 	// MaxRetries is the number of retries after the first attempt.
 	MaxRetries int
 	// InitialDelay is the delay before the first retry. Zero or negative means
 	// DefaultA2AInitialDelay.
 	InitialDelay time.Duration
-	// MaxDelay caps the exponential delay before jitter is added. Zero or
-	// negative means DefaultA2AMaxDelay.
+	// MaxDelay caps each delay, jitter included. Zero or negative means
+	// DefaultA2AMaxDelay.
 	MaxDelay time.Duration
 }
 
@@ -563,8 +564,9 @@ func isA2ARetryableStatusCode(code int) bool {
 	}
 }
 
-// a2aCalculateBackoff computes the delay for a given retry attempt
-// using exponential backoff with jitter, capped at MaxDelay.
+// a2aCalculateBackoff computes the delay for a given retry attempt: the
+// exponential delay plus jitter, then capped at MaxDelay, so no delay exceeds
+// it.
 func a2aCalculateBackoff(policy RetryPolicy, attempt int) time.Duration {
 	initialDelay := policy.InitialDelay
 	if initialDelay <= 0 {
@@ -577,17 +579,16 @@ func a2aCalculateBackoff(policy RetryPolicy, attempt int) time.Duration {
 	}
 
 	multiplier := math.Pow(a2aExponentialBase, float64(attempt))
-	delay := time.Duration(float64(initialDelay) * multiplier)
-
-	if delay > maxDelay {
-		delay = maxDelay
-	}
+	delay := float64(initialDelay) * multiplier
 
 	// Add jitter: uniform random in [0, delay * maxJitterFraction].
-	jitter := time.Duration(a2aCryptoRandFloat64() * a2aMaxJitterFraction * float64(delay))
-	delay += jitter
+	delay += a2aCryptoRandFloat64() * a2aMaxJitterFraction * delay
 
-	return delay
+	// Cap in float64: a large attempt overflows time.Duration.
+	if delay > float64(maxDelay) {
+		return maxDelay
+	}
+	return time.Duration(delay)
 }
 
 // a2aCryptoRandFloat64 returns a cryptographically secure random float64

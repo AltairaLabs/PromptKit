@@ -135,7 +135,7 @@ Fetched task state: completed
 
 ## Step 4: Stream a reply
 
-Replace `// Step 4 goes here.` with a `SendMessageStream` call. It returns a channel of events: status updates and artifact updates that carry the reply text.
+Replace `// Step 4 goes here.` with a `SendMessageStream` call. It returns a channel of events: status updates and artifact updates that carry the reply text. A stream that fails ends with an event whose `Error` is set: an `*a2a.RPCError` from the agent, or `a2a.ErrSSEIdleTimeout` when nothing arrives within the idle timeout (five minutes by default).
 
 ```go
 	streamText := "Tell me a short story"
@@ -150,6 +150,9 @@ Replace `// Step 4 goes here.` with a `SendMessageStream` call. It returns a cha
 	}
 
 	for event := range events {
+		if event.Error != nil {
+			log.Fatalf("stream: %v", event.Error)
+		}
 		if event.StatusUpdate != nil {
 			fmt.Printf("\n[status] %s\n", event.StatusUpdate.Status.State)
 		}

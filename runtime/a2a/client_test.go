@@ -950,6 +950,16 @@ func TestReadSSEWithIdleTimeout(t *testing.T) {
 		case <-time.After(2 * time.Second):
 			t.Fatal("ReadSSEWithIdleTimeout did not return within expected time")
 		}
+
+		// The idle stream is reported as an error, not as a clean end.
+		close(ch)
+		var events []StreamEvent
+		for evt := range ch {
+			events = append(events, evt)
+		}
+		if len(events) != 1 || !errors.Is(events[0].Error, ErrSSEIdleTimeout) {
+			t.Fatalf("events = %+v, want one event with Error = ErrSSEIdleTimeout", events)
+		}
 	})
 
 	t.Run("resets timer on activity", func(t *testing.T) {
@@ -1016,6 +1026,56 @@ func TestReadSSEWithIdleTimeout(t *testing.T) {
 			t.Errorf("got %d events, want 1", count)
 		}
 	})
+}
+
+func TestSendMessageStream_IdleStreamEndsWithErrSSEIdleTimeout(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		status := TaskStatusUpdateEvent{TaskID: "t1", Status: TaskStatus{State: TaskStateWorking}}
+		payload, _ := json.Marshal(status)
+		fmt.Fprintf(w, "data: %s\n\n", payload)
+		w.(http.Flusher).Flush()
+		// Then go silent until the test ends.
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	c := NewClient(srv.URL, WithSSEIdleTimeout(50*time.Millisecond))
+	ch, err := c.SendMessageStream(context.Background(), &SendMessageRequest{
+		Message: Message{Role: RoleUser, Parts: []Part{{Text: strPtr("hi")}}},
+	})
+	if err != nil {
+		t.Fatalf("SendMessageStream() error = %v", err)
+	}
+
+	var events []StreamEvent
+	timeout := time.After(2 * time.Second)
+	for done := false; !done; {
+		select {
+		case evt, ok := <-ch:
+			if !ok {
+				done = true
+				break
+			}
+			events = append(events, evt)
+		case <-timeout:
+			t.Fatal("stream did not end on idle")
+		}
+	}
+	if len(events) != 2 {
+		t.Fatalf("got %d events, want the status update and the idle error: %+v", len(events), events)
+	}
+	if events[0].StatusUpdate == nil {
+		t.Errorf("event 0 = %+v, want the status update", events[0])
+	}
+	if !errors.Is(events[1].Error, ErrSSEIdleTimeout) {
+		t.Errorf("last event Error = %v, want ErrSSEIdleTimeout", events[1].Error)
+	}
 }
 
 func TestWithSSEIdleTimeout(t *testing.T) {

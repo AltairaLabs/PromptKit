@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -43,6 +44,13 @@ func newStreamWriter(call *rpcCall) *streamWriter {
 	if !ok {
 		call.fail(a2a.ErrCodeUnsupportedOperation, "Streaming is not supported on this connection")
 		return nil
+	}
+	// A stream stays open for as long as its turn runs, so a server write
+	// timeout (WithWriteTimeout, or the embedder's own http.Server) would cut
+	// it off. Lift the deadline for this response only.
+	if err := http.NewResponseController(call.w).SetWriteDeadline(time.Time{}); err != nil &&
+		!errors.Is(err, http.ErrNotSupported) {
+		log.Printf("a2a: stream: clear write deadline: %v", err)
 	}
 	return &streamWriter{w: call.w, flusher: flusher, id: call.req.ID, v: call.v}
 }

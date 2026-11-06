@@ -76,10 +76,14 @@ func NewEmptyEvalTypeRegistry() *EvalTypeRegistry {
 //	import _ "github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
 func NewEvalTypeRegistry() *EvalTypeRegistry {
 	r := NewEmptyEvalTypeRegistry()
-	for _, h := range defaultHandlers {
+	defaultsMu.RLock()
+	handlers := append([]EvalTypeHandler(nil), defaultHandlers...)
+	aliases := append([][2]string(nil), defaultAliases...)
+	defaultsMu.RUnlock()
+	for _, h := range handlers {
 		r.Register(h)
 	}
-	for _, pair := range defaultAliases {
+	for _, pair := range aliases {
 		_ = r.RegisterAlias(pair[0], pair[1])
 	}
 	// Register wrapper handlers that resolve inner evals from the registry.
@@ -87,6 +91,9 @@ func NewEvalTypeRegistry() *EvalTypeRegistry {
 	r.Register(&GuardrailEvalHandler{registry: r})
 	return r
 }
+
+// defaultsMu guards defaultHandlers and defaultAliases.
+var defaultsMu sync.RWMutex
 
 // defaultHandlers holds handlers registered via RegisterDefault.
 // This avoids a circular import between evals and handlers.
@@ -96,24 +103,31 @@ var defaultHandlers []EvalTypeHandler
 var defaultAliases [][2]string
 
 // RegisterDefault adds a handler to the default set used by
-// NewEvalTypeRegistry. Call it from an init function; it affects only registries
-// created afterward and is not safe to call concurrently.
+// NewEvalTypeRegistry. It affects only registries created afterward. It is
+// safe to call concurrently, though it is usually called from an init function.
 func RegisterDefault(h EvalTypeHandler) {
+	defaultsMu.Lock()
+	defer defaultsMu.Unlock()
 	defaultHandlers = append(defaultHandlers, h)
 }
 
 // RegisterDefaultAlias registers an alias mapping applied by NewEvalTypeRegistry.
 // The target must be registered with RegisterDefault before the registry is
-// created; an alias whose target is missing is skipped.
+// created; an alias whose target is missing is skipped. It is safe to call
+// concurrently.
 func RegisterDefaultAlias(aliasType, targetType string) {
+	defaultsMu.Lock()
+	defer defaultsMu.Unlock()
 	defaultAliases = append(defaultAliases, [2]string{aliasType, targetType})
 }
 
 // DefaultAliases returns a copy of the pairs registered with RegisterDefaultAlias,
 // as alias and target, sorted by alias.
 func DefaultAliases() [][2]string {
+	defaultsMu.RLock()
 	out := make([][2]string, len(defaultAliases))
 	copy(out, defaultAliases)
+	defaultsMu.RUnlock()
 	sort.Slice(out, func(i, j int) bool { return out[i][0] < out[j][0] })
 	return out
 }

@@ -15,6 +15,8 @@
 package evals
 
 import (
+	"sync"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
@@ -106,15 +108,21 @@ var externalTypes = map[string]bool{
 }
 
 // customTypeGroups holds dynamically registered type→groups mappings
-// for eval types not in the built-in maps (e.g. exec handlers).
-var customTypeGroups = make(map[string][]string)
+// for eval types not in the built-in maps (e.g. exec handlers). typeGroupsMu
+// guards it.
+var (
+	customTypeGroups = make(map[string][]string)
+	typeGroupsMu     sync.RWMutex
+)
 
 // RegisterTypeGroups registers the classification groups DefaultGroupsForType
 // returns for a dynamic eval type, such as an exec handler that classifies itself
-// as long-running or external. It is not safe to call concurrently with
-// DefaultGroupsForType; register types during setup.
+// as long-running or external. It keeps a copy of groups, and is safe to call
+// concurrently with DefaultGroupsForType.
 func RegisterTypeGroups(evalType string, groups []string) {
-	customTypeGroups[evalType] = groups
+	typeGroupsMu.Lock()
+	defer typeGroupsMu.Unlock()
+	customTypeGroups[evalType] = append([]string(nil), groups...)
 }
 
 // DefaultGroupsForType returns the groups for a given eval type. The result
@@ -125,7 +133,10 @@ func DefaultGroupsForType(evalType string) []string {
 	groups := []string{DefaultEvalGroup}
 
 	// Check custom registrations first (exec handlers, etc.)
-	if custom, ok := customTypeGroups[evalType]; ok {
+	typeGroupsMu.RLock()
+	custom, ok := customTypeGroups[evalType]
+	typeGroupsMu.RUnlock()
+	if ok {
 		return append(groups, custom...)
 	}
 
