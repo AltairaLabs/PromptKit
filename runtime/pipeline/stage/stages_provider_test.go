@@ -2247,6 +2247,24 @@ type delayedStreamProvider struct {
 	providers.Provider
 	delay    time.Duration
 	response string
+
+	// gate, when set, replaces delay: the reply waits until gate closes.
+	// waiting, when set, is closed once the call has started waiting.
+	gate    chan struct{}
+	waiting chan struct{}
+}
+
+// wait returns a channel that is ready when the provider should reply.
+func (p *delayedStreamProvider) wait() <-chan struct{} {
+	if p.waiting != nil {
+		close(p.waiting)
+	}
+	if p.gate != nil {
+		return p.gate
+	}
+	ready := make(chan struct{})
+	time.AfterFunc(p.delay, func() { close(ready) })
+	return ready
 }
 
 func (p *delayedStreamProvider) ID() string              { return "delayed" }
@@ -2262,7 +2280,7 @@ func (p *delayedStreamProvider) PredictStream(
 	go func() {
 		defer close(ch)
 		select {
-		case <-time.After(p.delay):
+		case <-p.wait():
 			finish := "stop"
 			ch <- providers.StreamChunk{
 				Content:      p.response,
@@ -2280,7 +2298,7 @@ func (p *delayedStreamProvider) Predict(
 	ctx context.Context, _ providers.PredictionRequest,
 ) (providers.PredictionResponse, error) {
 	select {
-	case <-time.After(p.delay):
+	case <-p.wait():
 		return providers.PredictionResponse{Content: p.response}, nil
 	case <-ctx.Done():
 		return providers.PredictionResponse{}, ctx.Err()
@@ -2329,9 +2347,13 @@ func TestIdleTimeout_SlowProviderExceedsTimeout(t *testing.T) {
 }
 
 func TestIdleTimeout_SlowProviderWithinTimeout(t *testing.T) {
-	// Provider delays 50ms before first chunk; idle timeout is 200ms.
-	// The pipeline should succeed because the chunk arrives in time.
-	provider := &delayedStreamProvider{delay: 50 * time.Millisecond, response: "hello"}
+	// The provider holds its reply while the idle clock moves on by 150ms of a
+	// 200ms window, then answers. The pipeline must succeed: the window never
+	// ran out. The test moves a fake clock, so runner speed does not matter.
+	const idle = 200 * time.Millisecond
+	provider := &delayedStreamProvider{
+		response: "hello", gate: make(chan struct{}), waiting: make(chan struct{}),
+	}
 
 	turnState := NewTurnState()
 	turnState.SystemPrompt = "You are a helper"
@@ -2341,23 +2363,37 @@ func TestIdleTimeout_SlowProviderWithinTimeout(t *testing.T) {
 	}, nil, nil, turnState)
 
 	config := DefaultPipelineConfig()
-	config.IdleTimeout = 200 * time.Millisecond
+	config.IdleTimeout = idle
 	config.ExecutionTimeout = 0
 
 	pl, err := NewPipelineBuilderWithConfig(config).
 		Chain(providerStage).
 		Build()
 	require.NoError(t, err)
+	clock := &fakeIdleTimer{}
+	pl.idleAfterFunc = clock.afterFunc
 
 	userMsg := types.Message{Role: "user", Content: "hello"}
 	elem := NewMessageElement(&userMsg)
 
-	result, execErr := pl.ExecuteSync(context.Background(), elem)
+	type outcome struct {
+		result *ExecutionResult
+		err    error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		result, execErr := pl.ExecuteSync(context.Background(), elem)
+		done <- outcome{result, execErr}
+	}()
 
-	// Should succeed — chunk arrives at 50ms, well within 200ms timeout
-	require.NoError(t, execErr)
-	require.NotNil(t, result.Response)
-	assert.Equal(t, "hello", result.Response.Content)
+	<-provider.waiting
+	clock.advance(idle * 3 / 4)
+	close(provider.gate)
+	got := <-done
+
+	require.NoError(t, got.err)
+	require.NotNil(t, got.result.Response)
+	assert.Equal(t, "hello", got.result.Response.Content)
 }
 
 // =============================================================================

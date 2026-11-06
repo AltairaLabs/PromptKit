@@ -127,12 +127,17 @@ func TestDuplexProviderStage_ActivityDefeatsIdleTimeout(t *testing.T) {
 	out := make(chan StreamElement, chunks*2)
 
 	var held atomic.Int64
+	stageDone := make(chan struct{})
 	go func() {
 		for range chunks {
 			probe.openWindow()
-			sess.respCh <- providers.StreamChunk{MediaData: &providers.StreamMediaData{
+			select {
+			case sess.respCh <- providers.StreamChunk{MediaData: &providers.StreamMediaData{
 				Data: []byte{1, 2}, SampleRate: 24000, Channels: 1,
-			}}
+			}}:
+			case <-stageDone: // the stage gave up early; nobody reads any more
+				return
+			}
 			if !probe.closeWindow() {
 				break // the timer would have fired: the session is already dead
 			}
@@ -141,7 +146,9 @@ func TestDuplexProviderStage_ActivityDefeatsIdleTimeout(t *testing.T) {
 		close(sess.respCh)
 	}()
 
-	require.NoError(t, s.forwardResponseElements(ctx, out))
+	err := s.forwardResponseElements(ctx, out)
+	close(stageDone)
+	require.NoError(t, err)
 	assert.Equal(t, int64(chunks), held.Load(),
 		"every response chunk must reset the idle timer, or the timer fires mid-reply")
 }

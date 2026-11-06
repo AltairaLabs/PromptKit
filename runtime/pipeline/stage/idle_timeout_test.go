@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -27,26 +28,34 @@ func TestWithIdleTimeout_CancelsAfterIdle(t *testing.T) {
 // fakeIdleTimer is a virtual clock with one AfterFunc timer on it, for
 // withIdleTimer. The timer fires only when advance moves the clock to its
 // deadline, so a test decides exactly when the idle window ends relative to
-// the resets it makes.
+// the resets it makes. It is safe for the pipeline's goroutines to reset it
+// while the test advances it.
 type fakeIdleTimer struct {
+	mu            sync.Mutex
 	now, deadline time.Duration
 	armed         bool
 	fire          func()
 }
 
 func (f *fakeIdleTimer) afterFunc(d time.Duration, fn func()) idleTimer {
+	f.mu.Lock()
 	f.fire = fn
+	f.mu.Unlock()
 	f.Reset(d)
 	return f
 }
 
 func (f *fakeIdleTimer) Stop() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	was := f.armed
 	f.armed = false
 	return was
 }
 
 func (f *fakeIdleTimer) Reset(d time.Duration) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	was := f.armed
 	f.deadline, f.armed = f.now+d, true
 	return was
@@ -55,10 +64,16 @@ func (f *fakeIdleTimer) Reset(d time.Duration) bool {
 // advance moves the clock on by d, firing the timer if its deadline falls in
 // that time.
 func (f *fakeIdleTimer) advance(d time.Duration) {
+	f.mu.Lock()
 	f.now += d
-	if f.armed && f.now >= f.deadline {
+	fire := f.armed && f.now >= f.deadline
+	if fire {
 		f.armed = false
-		f.fire()
+	}
+	fn := f.fire
+	f.mu.Unlock()
+	if fire {
+		fn()
 	}
 }
 
