@@ -76,8 +76,8 @@ func stripCredentialHeaders(h http.Header, names func() []string) {
 
 // SameOriginAsFirstHop reports whether req goes to the scheme and host of the
 // request that started its redirect chain. A request that is not a redirect
-// hop (req.Response nil) is its own first hop. A default port spelled out
-// (https://h:443) is the same host as one left implicit.
+// hop (req.Response nil) is its own first hop. A default port spelled out,
+// such as port 443 on an https URL, is the same host as one left implicit.
 func SameOriginAsFirstHop(req *http.Request) bool {
 	first := req
 	for first.Response != nil && first.Response.Request != nil {
