@@ -1,0 +1,27 @@
+name: Deprecation Gate
+
+# Adding a `// Deprecated:` marker to exported API needs a maintainer's
+# explicit decision, signalled by the `deprecation-approved` label. Callers of
+# a public library are invisible from inside it, so "nothing here uses it" is
+# never enough: a deprecation fails staticcheck (SA1019) in downstream modules
+# that still use the symbol.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  deprecations:
+    name: New deprecations need approval
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'deprecation-approved') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Check for added Deprecated markers
+        run: bash scripts/check-new-deprecations.sh "origin/${{ github.base_ref }}"

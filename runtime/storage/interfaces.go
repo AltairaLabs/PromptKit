@@ -97,9 +97,8 @@ type MediaStorageService interface {
 // PolicyHandler defines the interface for applying and enforcing storage policies.
 // Policies control media retention, cleanup, and other lifecycle management.
 //
-// Deprecated: no PromptKit type implements PolicyHandler and nothing consumes
-// it. Use MediaPolicyHandler, which policy.TimeBasedPolicyHandler implements
-// and local.FileStore applies.
+// The built-in policy.TimeBasedPolicyHandler implements MediaPolicyHandler,
+// which is the interface local.FileStore applies, not this one.
 type PolicyHandler interface {
 	// ApplyPolicy applies a named policy to a media file.
 	// This typically stores policy metadata alongside the media.
