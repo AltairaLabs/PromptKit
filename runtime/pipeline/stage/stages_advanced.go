@@ -49,7 +49,7 @@ func (s *RouterStage) Process(
 	output chan<- StreamElement,
 ) error {
 	defer close(output)
-	defer s.closeAllOutputs()
+	defer closeRegisteredOutputs(&s.mu, s.outputs)
 
 	for elem := range input {
 		// Get routing destinations
@@ -91,14 +91,24 @@ func (s *RouterStage) routeToDestination(ctx context.Context, dest string, elem 
 	}
 }
 
-// closeAllOutputs closes all registered output channels.
-func (s *RouterStage) closeAllOutputs() {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+// closeRegisteredOutputs closes every output channel registered through
+// RegisterOutput. A MultiOutputStage must close them when Process returns: in a
+// built pipeline each downstream stage reads its own registered channel, not the
+// stage's main output, and only finishes when that channel closes. Every router
+// (RouterStage and the strategy routers) defers it in Process. A channel
+// registered under several names is closed once.
+func closeRegisteredOutputs(mu *sync.RWMutex, outputs map[string]chan<- StreamElement) {
+	mu.RLock()
+	defer mu.RUnlock()
 
-	for name, ch := range s.outputs {
+	closed := make(map[chan<- StreamElement]struct{}, len(outputs))
+	for name, ch := range outputs {
+		if _, done := closed[ch]; done {
+			continue
+		}
+		closed[ch] = struct{}{}
 		close(ch)
-		logger.Debug("RouterStage: closed output", "name", name)
+		logger.Debug("router: closed output", "name", name)
 	}
 }
 

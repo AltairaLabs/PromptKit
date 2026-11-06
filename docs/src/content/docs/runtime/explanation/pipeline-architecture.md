@@ -13,6 +13,7 @@ verified:
     - runtime/pipeline/stage/element.go
     - runtime/pipeline/stage/element_pool.go
     - runtime/pipeline/stage/pipeline.go
+    - runtime/pipeline/stage/router_strategies.go
     - runtime/pipeline/stage/stage.go
     - runtime/pipeline/stage/stages_advanced.go
     - runtime/pipeline/stage/stages_core.go
@@ -313,6 +314,8 @@ pipeline, err := stage.NewPipelineBuilder().
     Connect("router", "log").
     Build()
 ```
+
+To copy every element to every downstream stage, use a `BroadcastRouter` in place of the `RouterStage`. The package also has routers that pick one destination per element: `ContentRouter` (first matching rule), `RoundRobinRouter`, `WeightedRouter`, `HashRouter` (same key, same destination) and `RandomRouter`. Their destination names (rule outputs, output names or weight keys) must be the downstream stage names; an element bound for any other name is dropped, as is one that matches no `ContentRouter` rule. The pipeline gives each stage downstream of a router its own channel, and the router closes all of them when it returns, so the downstream stages finish.
 
 Use `Merge` with a `MergeStage` to fan several stages back into one.
 

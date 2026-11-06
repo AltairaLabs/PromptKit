@@ -223,6 +223,19 @@
     "runtime/pipeline/stage/config.go:36-80",
     "runtime/pipeline/stage/pipeline.go:115-135"
    ]
+  },
+  {
+   "id": 27,
+   "claim": "BroadcastRouter copies every element to every downstream stage; Content/RoundRobin/Weighted/Hash/Random pick one destination by name and drop elements bound for unregistered names; the pipeline registers a per-edge channel per downstream stage and every router closes all of them when Process returns",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/router_strategies.go:103-139",
+    "runtime/pipeline/stage/router_strategies.go:180-204",
+    "runtime/pipeline/stage/router_strategies.go:455-477",
+    "runtime/pipeline/stage/stages_advanced.go:94-113",
+    "runtime/pipeline/stage/pipeline.go:1056-1069",
+    "runtime/pipeline/stage/router_strategies_pipeline_test.go"
+   ]
   }
  ]
 }
