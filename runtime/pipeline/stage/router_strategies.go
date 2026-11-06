@@ -106,6 +106,7 @@ func (r *ContentRouter) Process(
 	output chan<- StreamElement,
 ) error {
 	defer close(output)
+	defer closeRegisteredOutputs(&r.mu, r.outputs)
 
 	for elem := range input {
 		destinations := r.route(elem)
@@ -182,6 +183,7 @@ func (r *RoundRobinRouter) Process(
 	output chan<- StreamElement,
 ) error {
 	defer close(output)
+	defer closeRegisteredOutputs(&r.mu, r.outputs)
 
 	for elem := range input {
 		idx := r.counter.Add(1) - 1
@@ -258,6 +260,7 @@ func (r *WeightedRouter) Process(
 	output chan<- StreamElement,
 ) error {
 	defer close(output)
+	defer closeRegisteredOutputs(&r.mu, r.outputs)
 
 	for elem := range input {
 		destName := r.selectDestination()
@@ -345,6 +348,7 @@ func (r *HashRouter) Process(
 	output chan<- StreamElement,
 ) error {
 	defer close(output)
+	defer closeRegisteredOutputs(&r.mu, r.outputs)
 
 	for elem := range input {
 		key := r.keyFunc(elem)
@@ -403,6 +407,7 @@ func (r *RandomRouter) Process(
 	output chan<- StreamElement,
 ) error {
 	defer close(output)
+	defer closeRegisteredOutputs(&r.mu, r.outputs)
 
 	for elem := range input {
 		idx := cryptoRandIntn(len(r.outputNames))
@@ -453,6 +458,7 @@ func (r *BroadcastRouter) Process(
 	output chan<- StreamElement,
 ) error {
 	defer close(output)
+	defer closeRegisteredOutputs(&r.mu, r.outputs)
 
 	for elem := range input {
 		r.mu.RLock()

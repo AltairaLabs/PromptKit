@@ -98,7 +98,9 @@ func (b *PipelineBuilder) Connect(fromStage, toStage string) *PipelineBuilder {
 // Branch creates multiple outgoing connections from a single stage.
 // The downstream stages share stage B's output channel and compete for it: each
 // element goes to whichever downstream stage reads it first, not to all of them.
-// To deliver every element to every branch, route through a BroadcastRouter.
+// To deliver every element to every branch, make the branching stage a
+// BroadcastRouter: the pipeline gives each stage downstream of a router its own
+// channel, and the router closes them all when it returns.
 //
 // Example:
 //

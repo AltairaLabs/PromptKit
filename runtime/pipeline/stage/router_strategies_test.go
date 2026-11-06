@@ -83,12 +83,14 @@ func TestContentRouter_DropsUnmatchedElements(t *testing.T) {
 		t.Fatalf("Process failed: %v", err)
 	}
 
-	// Text output should be empty
+	// Text output should carry no element; Process closes it on return.
 	select {
-	case <-textOutput:
-		t.Error("Should not have received element in text output")
+	case _, ok := <-textOutput:
+		if ok {
+			t.Error("Should not have received element in text output")
+		}
 	default:
-		// Expected
+		t.Error("text output should be closed when Process returns")
 	}
 }
 

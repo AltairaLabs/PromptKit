@@ -1128,7 +1128,7 @@ func (b *BaseStage) Type() StageType
 Type returns the stage type.
 
 <a name="BroadcastRouter"></a>
-## type [BroadcastRouter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L428-L432>)
+## type [BroadcastRouter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L433-L437>)
 
 BroadcastRouter sends each element to ALL registered outputs. Useful for fan\-out scenarios where all consumers need every element.
 
@@ -1140,7 +1140,7 @@ type BroadcastRouter struct {
 ```
 
 <a name="NewBroadcastRouter"></a>
-### func [NewBroadcastRouter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L435>)
+### func [NewBroadcastRouter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L440>)
 
 ```go
 func NewBroadcastRouter(name string) *BroadcastRouter
@@ -1149,7 +1149,7 @@ func NewBroadcastRouter(name string) *BroadcastRouter
 NewBroadcastRouter creates a router that broadcasts to all outputs.
 
 <a name="BroadcastRouter.Process"></a>
-### func \(\*BroadcastRouter\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L450-L454>)
+### func \(\*BroadcastRouter\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L455-L459>)
 
 ```go
 func (r *BroadcastRouter) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -1158,7 +1158,7 @@ func (r *BroadcastRouter) Process(ctx context.Context, input <-chan StreamElemen
 Process broadcasts each element to all outputs.
 
 <a name="BroadcastRouter.RegisterOutput"></a>
-### func \(\*BroadcastRouter\) [RegisterOutput](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L443>)
+### func \(\*BroadcastRouter\) [RegisterOutput](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L448>)
 
 ```go
 func (r *BroadcastRouter) RegisterOutput(name string, output chan<- StreamElement)
@@ -2586,7 +2586,7 @@ type HandoffCall struct {
 ```
 
 <a name="HashRouter"></a>
-## type [HashRouter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L314-L320>)
+## type [HashRouter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L317-L323>)
 
 HashRouter routes elements based on consistent hashing of a key. This ensures elements with the same key always go to the same destination.
 
@@ -2598,7 +2598,7 @@ type HashRouter struct {
 ```
 
 <a name="NewHashRouter"></a>
-### func [NewHashRouter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L325>)
+### func [NewHashRouter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L328>)
 
 ```go
 func NewHashRouter(name string, outputNames []string, keyFunc func(StreamElement) string) *HashRouter
@@ -2607,7 +2607,7 @@ func NewHashRouter(name string, outputNames []string, keyFunc func(StreamElement
 NewHashRouter creates a router that uses consistent hashing. The keyFunc extracts a key from each element \(e.g., session ID\). Elements with the same key always route to the same destination.
 
 <a name="HashRouter.Process"></a>
-### func \(\*HashRouter\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L342-L346>)
+### func \(\*HashRouter\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L345-L349>)
 
 ```go
 func (r *HashRouter) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -2616,7 +2616,7 @@ func (r *HashRouter) Process(ctx context.Context, input <-chan StreamElement, ou
 Process routes elements based on hash of key.
 
 <a name="HashRouter.RegisterOutput"></a>
-### func \(\*HashRouter\) [RegisterOutput](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L335>)
+### func \(\*HashRouter\) [RegisterOutput](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L338>)
 
 ```go
 func (r *HashRouter) RegisterOutput(name string, output chan<- StreamElement)
@@ -3424,7 +3424,7 @@ func (s *MemoryRetrievalStage) WithContextFormatter(fn memory.ContextFormatter) 
 WithContextFormatter overrides the formatter that renders retrieved memories into the "memory\_context" template variable. Falls back to \[memory.DefaultContextFormatter\] when nil.
 
 <a name="MergeStage"></a>
-## type [MergeStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L109-L112>)
+## type [MergeStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L119-L122>)
 
 MergeStage merges multiple input channels into a single output channel. This enables fan\-in patterns where multiple stages feed into one.
 
@@ -3438,7 +3438,7 @@ type MergeStage struct {
 ```
 
 <a name="NewMergeStage"></a>
-### func [NewMergeStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L115>)
+### func [NewMergeStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L125>)
 
 ```go
 func NewMergeStage(name string, inputCount int) *MergeStage
@@ -3447,7 +3447,7 @@ func NewMergeStage(name string, inputCount int) *MergeStage
 NewMergeStage creates a new merge stage that merges N inputs into 1 output.
 
 <a name="MergeStage.Process"></a>
-### func \(\*MergeStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L156-L160>)
+### func \(\*MergeStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L166-L170>)
 
 ```go
 func (s *MergeStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -3456,7 +3456,7 @@ func (s *MergeStage) Process(ctx context.Context, input <-chan StreamElement, ou
 Process implements the Stage interface \(single input\). For merge stage, this is not typically used \- use ProcessMultiple instead.
 
 <a name="MergeStage.ProcessMultiple"></a>
-### func \(\*MergeStage\) [ProcessMultiple](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L124-L128>)
+### func \(\*MergeStage\) [ProcessMultiple](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L134-L138>)
 
 ```go
 func (s *MergeStage) ProcessMultiple(ctx context.Context, inputs []<-chan StreamElement, output chan<- StreamElement) error
@@ -3519,7 +3519,7 @@ func (s *MessageBroadcastStage) Process(ctx context.Context, input <-chan Stream
 Process publishes each new complete message and forwards all elements.
 
 <a name="MetricsStage"></a>
-## type [MetricsStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L285-L289>)
+## type [MetricsStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L295-L299>)
 
 MetricsStage wraps another stage and collects metrics about its performance. This is a transparent wrapper that doesn't modify element flow.
 
@@ -3531,7 +3531,7 @@ type MetricsStage struct {
 ```
 
 <a name="NewMetricsStage"></a>
-### func [NewMetricsStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L292>)
+### func [NewMetricsStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L302>)
 
 ```go
 func NewMetricsStage(wrappedStage Stage) *MetricsStage
@@ -3540,7 +3540,7 @@ func NewMetricsStage(wrappedStage Stage) *MetricsStage
 NewMetricsStage wraps a stage with metrics collection.
 
 <a name="MetricsStage.GetMetrics"></a>
-### func \(\*MetricsStage\) [GetMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L343>)
+### func \(\*MetricsStage\) [GetMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L353>)
 
 ```go
 func (s *MetricsStage) GetMetrics() StageMetrics
@@ -3549,7 +3549,7 @@ func (s *MetricsStage) GetMetrics() StageMetrics
 GetMetrics returns the collected metrics.
 
 <a name="MetricsStage.Process"></a>
-### func \(\*MetricsStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L301-L305>)
+### func \(\*MetricsStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L311-L315>)
 
 ```go
 func (s *MetricsStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -3763,13 +3763,13 @@ func (b *PipelineBuilder) AddStage(stage Stage) *PipelineBuilder
 AddStage adds a stage to the builder without connecting it. This is useful when building complex topologies manually.
 
 <a name="PipelineBuilder.Branch"></a>
-### func \(\*PipelineBuilder\) [Branch](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L109>)
+### func \(\*PipelineBuilder\) [Branch](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L111>)
 
 ```go
 func (b *PipelineBuilder) Branch(fromStage string, toStages ...string) *PipelineBuilder
 ```
 
-Branch creates multiple outgoing connections from a single stage. The downstream stages share stage B's output channel and compete for it: each element goes to whichever downstream stage reads it first, not to all of them. To deliver every element to every branch, route through a BroadcastRouter.
+Branch creates multiple outgoing connections from a single stage. The downstream stages share stage B's output channel and compete for it: each element goes to whichever downstream stage reads it first, not to all of them. To deliver every element to every branch, make the branching stage a BroadcastRouter: the pipeline gives each stage downstream of a router its own channel, and the router closes them all when it returns.
 
 Example:
 
@@ -3781,7 +3781,7 @@ pipeline, err := NewPipelineBuilder().
 ```
 
 <a name="PipelineBuilder.Build"></a>
-### func \(\*PipelineBuilder\) [Build](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L133>)
+### func \(\*PipelineBuilder\) [Build](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L135>)
 
 ```go
 func (b *PipelineBuilder) Build() (*StreamPipeline, error)
@@ -3811,7 +3811,7 @@ pipeline, err := NewPipelineBuilder().
 ```
 
 <a name="PipelineBuilder.Clone"></a>
-### func \(\*PipelineBuilder\) [Clone](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L386>)
+### func \(\*PipelineBuilder\) [Clone](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L388>)
 
 ```go
 func (b *PipelineBuilder) Clone() *PipelineBuilder
@@ -3829,7 +3829,7 @@ func (b *PipelineBuilder) Connect(fromStage, toStage string) *PipelineBuilder
 Connect creates a directed edge from one stage to another. The output of fromStage will be connected to the input of toStage.
 
 <a name="PipelineBuilder.Merge"></a>
-### func \(\*PipelineBuilder\) [Merge](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L118>)
+### func \(\*PipelineBuilder\) [Merge](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L120>)
 
 ```go
 func (b *PipelineBuilder) Merge(into string, from ...string) *PipelineBuilder
@@ -4024,7 +4024,7 @@ const (
 ```
 
 <a name="PriorityChannel"></a>
-## type [PriorityChannel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L351-L359>)
+## type [PriorityChannel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L361-L369>)
 
 PriorityChannel is a channel that supports priority\-based element delivery. Higher priority elements are delivered before lower priority elements, and elements of equal priority in the order they were sent. With PipelineConfig.PrioritizeElements set, each stage reads its input through one.
 
@@ -4035,7 +4035,7 @@ type PriorityChannel struct {
 ```
 
 <a name="NewPriorityChannel"></a>
-### func [NewPriorityChannel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L362>)
+### func [NewPriorityChannel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L372>)
 
 ```go
 func NewPriorityChannel(capacity int) *PriorityChannel
@@ -4044,7 +4044,7 @@ func NewPriorityChannel(capacity int) *PriorityChannel
 NewPriorityChannel creates a new priority channel with the given capacity.
 
 <a name="PriorityChannel.Close"></a>
-### func \(\*PriorityChannel\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L484>)
+### func \(\*PriorityChannel\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L494>)
 
 ```go
 func (pc *PriorityChannel) Close()
@@ -4053,7 +4053,7 @@ func (pc *PriorityChannel) Close()
 Close closes the priority channel.
 
 <a name="PriorityChannel.Len"></a>
-### func \(\*PriorityChannel\) [Len](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L493>)
+### func \(\*PriorityChannel\) [Len](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L503>)
 
 ```go
 func (pc *PriorityChannel) Len() int
@@ -4062,7 +4062,7 @@ func (pc *PriorityChannel) Len() int
 Len returns the current number of elements in the channel.
 
 <a name="PriorityChannel.Receive"></a>
-### func \(\*PriorityChannel\) [Receive](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L412>)
+### func \(\*PriorityChannel\) [Receive](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L422>)
 
 ```go
 func (pc *PriorityChannel) Receive(ctx context.Context) (StreamElement, bool, error)
@@ -4071,7 +4071,7 @@ func (pc *PriorityChannel) Receive(ctx context.Context) (StreamElement, bool, er
 Receive receives the highest priority element from the channel. Blocks if the channel is empty, until an element arrives, the channel is closed, or ctx ends.
 
 <a name="PriorityChannel.Send"></a>
-### func \(\*PriorityChannel\) [Send](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L384>)
+### func \(\*PriorityChannel\) [Send](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L394>)
 
 ```go
 func (pc *PriorityChannel) Send(ctx context.Context, elem StreamElement) error
@@ -4374,7 +4374,7 @@ const (
 ```
 
 <a name="RandomRouter"></a>
-## type [RandomRouter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L376-L381>)
+## type [RandomRouter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L380-L385>)
 
 RandomRouter distributes elements randomly across outputs.
 
@@ -4386,7 +4386,7 @@ type RandomRouter struct {
 ```
 
 <a name="NewRandomRouter"></a>
-### func [NewRandomRouter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L384>)
+### func [NewRandomRouter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L388>)
 
 ```go
 func NewRandomRouter(name string, outputNames []string) *RandomRouter
@@ -4395,7 +4395,7 @@ func NewRandomRouter(name string, outputNames []string) *RandomRouter
 NewRandomRouter creates a router that distributes elements randomly.
 
 <a name="RandomRouter.Process"></a>
-### func \(\*RandomRouter\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L400-L404>)
+### func \(\*RandomRouter\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L404-L408>)
 
 ```go
 func (r *RandomRouter) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4404,7 +4404,7 @@ func (r *RandomRouter) Process(ctx context.Context, input <-chan StreamElement, 
 Process distributes elements randomly.
 
 <a name="RandomRouter.RegisterOutput"></a>
-### func \(\*RandomRouter\) [RegisterOutput](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L393>)
+### func \(\*RandomRouter\) [RegisterOutput](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L397>)
 
 ```go
 func (r *RandomRouter) RegisterOutput(name string, output chan<- StreamElement)
@@ -4682,7 +4682,7 @@ func (s *ResponseVADStage) Process(ctx context.Context, input <-chan StreamEleme
 Process implements the Stage interface. Monitors response audio for silence and delays EndOfStream until confirmed.
 
 <a name="RoundRobinRouter"></a>
-## type [RoundRobinRouter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L154-L160>)
+## type [RoundRobinRouter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L155-L161>)
 
 RoundRobinRouter distributes elements across outputs in sequence.
 
@@ -4694,7 +4694,7 @@ type RoundRobinRouter struct {
 ```
 
 <a name="NewRoundRobinRouter"></a>
-### func [NewRoundRobinRouter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L163>)
+### func [NewRoundRobinRouter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L164>)
 
 ```go
 func NewRoundRobinRouter(name string, outputNames []string) *RoundRobinRouter
@@ -4703,7 +4703,7 @@ func NewRoundRobinRouter(name string, outputNames []string) *RoundRobinRouter
 NewRoundRobinRouter creates a router that cycles through outputs sequentially.
 
 <a name="RoundRobinRouter.Process"></a>
-### func \(\*RoundRobinRouter\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L179-L183>)
+### func \(\*RoundRobinRouter\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L180-L184>)
 
 ```go
 func (r *RoundRobinRouter) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4712,7 +4712,7 @@ func (r *RoundRobinRouter) Process(ctx context.Context, input <-chan StreamEleme
 Process distributes elements in round\-robin fashion.
 
 <a name="RoundRobinRouter.RegisterOutput"></a>
-### func \(\*RoundRobinRouter\) [RegisterOutput](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L172>)
+### func \(\*RoundRobinRouter\) [RegisterOutput](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L173>)
 
 ```go
 func (r *RoundRobinRouter) RegisterOutput(name string, output chan<- StreamElement)
@@ -5104,7 +5104,7 @@ func (sf *StageFunc) Process(ctx context.Context, input <-chan StreamElement, ou
 Process executes the stage function.
 
 <a name="StageMetrics"></a>
-## type [StageMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L200-L211>)
+## type [StageMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L210-L221>)
 
 StageMetrics contains performance metrics for a stage.
 
@@ -5124,7 +5124,7 @@ type StageMetrics struct {
 ```
 
 <a name="NewStageMetrics"></a>
-### func [NewStageMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L214>)
+### func [NewStageMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L224>)
 
 ```go
 func NewStageMetrics(stageName string) *StageMetrics
@@ -5133,7 +5133,7 @@ func NewStageMetrics(stageName string) *StageMetrics
 NewStageMetrics creates a new metrics collector for a stage.
 
 <a name="StageMetrics.GetMetrics"></a>
-### func \(\*StageMetrics\) [GetMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L251>)
+### func \(\*StageMetrics\) [GetMetrics](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L261>)
 
 ```go
 func (m *StageMetrics) GetMetrics() StageMetrics
@@ -5142,7 +5142,7 @@ func (m *StageMetrics) GetMetrics() StageMetrics
 GetMetrics returns a copy of the current metrics \(thread\-safe\).
 
 <a name="StageMetrics.RecordElement"></a>
-### func \(\*StageMetrics\) [RecordElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L223>)
+### func \(\*StageMetrics\) [RecordElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L233>)
 
 ```go
 func (m *StageMetrics) RecordElement(latency time.Duration, hasError bool)
@@ -5151,7 +5151,7 @@ func (m *StageMetrics) RecordElement(latency time.Duration, hasError bool)
 RecordElement records metrics for a processed element.
 
 <a name="StageMetrics.Reset"></a>
-### func \(\*StageMetrics\) [Reset](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L269>)
+### func \(\*StageMetrics\) [Reset](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L279>)
 
 ```go
 func (m *StageMetrics) Reset()
@@ -6403,7 +6403,7 @@ func (s *VideoToFramesStage) Process(ctx context.Context, input <-chan StreamEle
 Process implements the Stage interface. Extracts frames from videos and emits individual image elements for each frame.
 
 <a name="WeightedRouter"></a>
-## type [WeightedRouter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L206-L212>)
+## type [WeightedRouter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L208-L214>)
 
 WeightedRouter distributes elements across outputs based on configured weights.
 
@@ -6415,7 +6415,7 @@ type WeightedRouter struct {
 ```
 
 <a name="NewWeightedRouter"></a>
-### func [NewWeightedRouter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L222>)
+### func [NewWeightedRouter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L224>)
 
 ```go
 func NewWeightedRouter(name string, weights map[string]float64) *WeightedRouter
@@ -6424,7 +6424,7 @@ func NewWeightedRouter(name string, weights map[string]float64) *WeightedRouter
 NewWeightedRouter creates a router that distributes elements based on weights. Weights are normalized to sum to 1.0. Example: \{"primary": 0.7, "secondary": 0.3\} routes 70% to primary, 30% to secondary.
 
 <a name="WeightedRouter.Process"></a>
-### func \(\*WeightedRouter\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L255-L259>)
+### func \(\*WeightedRouter\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L257-L261>)
 
 ```go
 func (r *WeightedRouter) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -6433,7 +6433,7 @@ func (r *WeightedRouter) Process(ctx context.Context, input <-chan StreamElement
 Process distributes elements based on weights.
 
 <a name="WeightedRouter.RegisterOutput"></a>
-### func \(\*WeightedRouter\) [RegisterOutput](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L248>)
+### func \(\*WeightedRouter\) [RegisterOutput](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/router_strategies.go#L250>)
 
 ```go
 func (r *WeightedRouter) RegisterOutput(name string, output chan<- StreamElement)
