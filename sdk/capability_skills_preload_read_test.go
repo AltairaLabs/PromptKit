@@ -1,8 +1,6 @@
 package sdk
 
 import (
-	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -10,33 +8,37 @@ import (
 	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
 )
 
-// Reading the preloaded instructions must never activate a skill. A skill the
-// conversation deactivates while the instructions are being rendered stays
-// deactivated, whatever the interleaving.
-func TestPreloadedInstructions_NeverReactivatesADeactivatedSkill(t *testing.T) {
-	names := make([]string, 0, 32)
-	for i := range 32 {
-		names = append(names, fmt.Sprintf("s%02d", i))
-	}
-	last := names[len(names)-1] // rendered last, so the widest window
+func initPreloadedCapability(t *testing.T, names ...string) *SkillsCapability {
+	t.Helper()
 	c := NewSkillsCapability(preloadInlineSources(names...))
 	require.NoError(t, c.Init(CapabilityContext{Pack: &pack.Pack{}, PromptName: "chat"}))
+	return c
+}
 
-	for iter := range 500 {
-		set := c.NewActiveSet()
-		var wg sync.WaitGroup
-		wg.Add(2)
-		go func() { defer wg.Done(); _ = c.preloadedInstructions(set) }()
-		go func() { defer wg.Done(); _, _ = c.executor.DeactivateIn(set, last) }()
-		wg.Wait()
-		require.NotContains(t, set.Names(), last,
-			"iteration %d: reading instructions re-activated a skill the conversation had deactivated", iter)
+// Reading the preloaded instructions must never activate a skill. The seam lands
+// a deactivation after rendering has started and just before that skill is read,
+// the interleaving a concurrent skill__deactivate can produce. The skill must
+// stay deactivated and its instructions must be left out (#2399).
+func TestPreloadedInstructions_NeverReactivatesADeactivatedSkill(t *testing.T) {
+	c := initPreloadedCapability(t, "alpha", "beta")
+	set := c.NewActiveSet()
+	require.Equal(t, []string{"alpha", "beta"}, set.Names())
+
+	c.beforePreloadRead = func(name string) {
+		if name == "beta" {
+			_, err := c.executor.DeactivateIn(set, "beta")
+			require.NoError(t, err)
+		}
 	}
+
+	got := c.preloadedInstructions(set)
+	require.Equal(t, "## Skill: alpha\n\ndo alpha", got)
+	require.Equal(t, []string{"alpha"}, set.Names(),
+		"reading instructions re-activated a skill the conversation had deactivated")
 }
 
 func TestPreloadedInstructions_SkipsInactiveAndKeepsActive(t *testing.T) {
-	c := NewSkillsCapability(preloadInlineSources("alpha", "beta"))
-	require.NoError(t, c.Init(CapabilityContext{Pack: &pack.Pack{}, PromptName: "chat"}))
+	c := initPreloadedCapability(t, "alpha", "beta")
 	set := c.NewActiveSet()
 	_, err := c.executor.DeactivateIn(set, "alpha")
 	require.NoError(t, err)

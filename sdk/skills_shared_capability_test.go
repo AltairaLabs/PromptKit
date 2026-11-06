@@ -89,3 +89,54 @@ func TestSharedSkillsCapability_ConcurrentOpens(t *testing.T) {
 	}
 	assert.Equal(t, hostSkillsCapability().sources, sc.sources)
 }
+
+// openSharedIndex opens a conversation on sc, sends one message and returns the
+// skill__activate description its first round offered.
+func openSharedIndex(t *testing.T, sc *SkillsCapability, extra ...Option) string {
+	t.Helper()
+	provider := newSystemRecorder()
+	opts := append([]Option{WithProvider(provider), WithSkipSchemaValidation(), WithCapability(sc)}, extra...)
+	conv, err := Open(writeWorkflowTestPack(t, skillsPlainPackJSON), "chat", opts...)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conv.Close() })
+	_, err = conv.Send(context.Background(), "which skill?")
+	require.NoError(t, err)
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	require.NotEmpty(t, provider.descs)
+	return provider.descs[0]
+}
+
+// withRuntimeSkillsSelector binds a selector the way a RuntimeConfig's
+// spec.skills.selector does: registered by name, then named for skills.
+func withRuntimeSkillsSelector(name string, selected ...string) []Option {
+	return []Option{
+		WithSelector(name, &capTestSelector{name: name, selected: selected}),
+		func(c *config) error { c.skillsSelectorName = name; return nil },
+	}
+}
+
+// Each open's RuntimeConfig selector narrows its own conversation's index, even
+// when the capability is shared and was already built by an earlier open.
+func TestSharedSkillsCapability_RuntimeSelectorIsPerOpen(t *testing.T) {
+	sc := NewSkillsCapability([]skills.SkillSource{
+		{Name: "alpha", Description: "a", Instructions: "A"},
+		{Name: "beta", Description: "b", Instructions: "B"},
+	})
+
+	plain := openSharedIndex(t, sc)
+	assert.Contains(t, plain, "- alpha:")
+	assert.Contains(t, plain, "- beta:")
+
+	chooseAlpha := openSharedIndex(t, sc, withRuntimeSkillsSelector("s", "alpha")...)
+	assert.Contains(t, chooseAlpha, "- alpha:")
+	assert.NotContains(t, chooseAlpha, "- beta:", "this open's selector chose alpha")
+
+	chooseBeta := openSharedIndex(t, sc, withRuntimeSkillsSelector("s", "beta")...)
+	assert.Contains(t, chooseBeta, "- beta:")
+	assert.NotContains(t, chooseBeta, "- alpha:", "this open's selector chose beta")
+
+	again := openSharedIndex(t, sc)
+	assert.Contains(t, again, "- alpha:")
+	assert.Contains(t, again, "- beta:", "an earlier open's selector must not stick to the shared capability")
+}
