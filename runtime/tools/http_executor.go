@@ -307,16 +307,21 @@ func appendMappedQueryParams(targetURL string, queryArgs map[string]any) (string
 	return parsed.String(), nil
 }
 
-// buildMappedBody produces a JSON body from partitioned body args using the mapper.
-func buildMappedBody(mapper RequestMapper, bodyArgs map[string]any, bodyExpr string) io.Reader {
+// buildMappedBody produces a JSON body from partitioned body args using the
+// mapper. A mapper error, such as a body_mapping JMESPath expression that does
+// not compile, is returned so the call fails instead of sending no body.
+func buildMappedBody(mapper RequestMapper, bodyArgs map[string]any, bodyExpr string) (io.Reader, error) {
 	if len(bodyArgs) == 0 {
-		return nil
+		return nil, nil
 	}
 	bodyJSON, err := mapper.BuildBody(bodyArgs, bodyExpr)
-	if err != nil || bodyJSON == nil {
-		return nil
+	if err != nil {
+		return nil, fmt.Errorf("request body mapping failed: %w", err)
 	}
-	return bytes.NewReader(bodyJSON)
+	if bodyJSON == nil {
+		return nil, nil
+	}
+	return bytes.NewReader(bodyJSON), nil
 }
 
 // ErrTemplatedURLHost is returned for an HTTP tool whose URL template puts an
@@ -391,7 +396,10 @@ func (e *HTTPExecutor) buildMappedRequest(
 		for k, v := range mapping.StaticBody {
 			bodyArgs[k] = v
 		}
-		body = buildMappedBody(mapper, bodyArgs, mapping.BodyMapping)
+		body, err = buildMappedBody(mapper, bodyArgs, mapping.BodyMapping)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, targetURL, body)

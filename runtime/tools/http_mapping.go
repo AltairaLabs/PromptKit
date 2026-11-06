@@ -14,10 +14,13 @@ package tools
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 	"text/template"
+	"text/template/parse"
 
 	"github.com/jmespath/go-jmespath"
 )
@@ -60,14 +63,39 @@ type DefaultResponseMapper struct{}
 
 // --- RequestMapper implementation ---
 
+// ErrURLDotSegment is returned by [DefaultRequestMapper.RenderURL] when the
+// rendered path has a "." or ".." segment. Escaping cannot neutralize a value
+// that is a whole dot segment, and a server resolving it would serve a
+// different path from the one the template names.
+var ErrURLDotSegment = errors.New(`http tool URL path has a "." or ".." segment`)
+
 // RenderURL applies Go text/template substitution to a URL string.
 // Template variables like {{.user_id}} are replaced with values from args.
-// Values are inserted as they are, without URL escaping.
+//
+// Every value is escaped for where it lands, so an argument cannot change the
+// request's path or query: values before the template's first literal "?" or
+// "#" are escaped with [url.PathEscape], and values after it with
+// [url.QueryEscape]. A rendered path with a "." or ".." segment fails with
+// [ErrURLDotSegment].
 func (m *DefaultRequestMapper) RenderURL(urlTemplate string, args map[string]any) (string, error) {
 	if !strings.Contains(urlTemplate, "{{") {
 		return urlTemplate, nil
 	}
-	return renderTemplate("url", urlTemplate, args)
+	tmpl, err := template.New("url").Option("missingkey=default").Funcs(urlEscapeFuncs).Parse(urlTemplate)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse template: %w", err)
+	}
+	escapeURLActions(tmpl.Root, urlQueryOffset(tmpl.Root))
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, args); err != nil {
+		return "", fmt.Errorf("failed to execute template: %w", err)
+	}
+	rendered := buf.String()
+	if hasDotSegment(rendered) {
+		return "", fmt.Errorf("%w: %s", ErrURLDotSegment, rendered)
+	}
+	return rendered, nil
 }
 
 // PartitionArgs splits tool arguments into query parameters and body fields.
@@ -175,6 +203,105 @@ func renderTemplate(name, tmplStr string, data any) (string, error) {
 		return "", fmt.Errorf("failed to execute template: %w", err)
 	}
 	return buf.String(), nil
+}
+
+const (
+	urlPathEscapeFunc  = "promptkitURLPathEscape"
+	urlQueryEscapeFunc = "promptkitURLQueryEscape"
+)
+
+// urlEscapeFuncs are appended to every URL template action by
+// escapeURLActions. A missing argument arrives as nil and renders as
+// "<no value>", as an unescaped template action would print it.
+var urlEscapeFuncs = template.FuncMap{
+	urlPathEscapeFunc:  func(v any) string { return url.PathEscape(urlValueString(v)) },
+	urlQueryEscapeFunc: func(v any) string { return url.QueryEscape(urlValueString(v)) },
+}
+
+func urlValueString(v any) string {
+	if v == nil {
+		return "<no value>"
+	}
+	return fmt.Sprint(v)
+}
+
+// urlQueryOffset returns the byte offset of the first literal "?" or "#" in
+// the template text, where the path ends, or -1 when the template has none.
+func urlQueryOffset(root *parse.ListNode) int {
+	for _, n := range root.Nodes {
+		text, ok := n.(*parse.TextNode)
+		if !ok {
+			continue
+		}
+		if i := bytes.IndexAny(text.Text, "?#"); i >= 0 {
+			return int(text.Pos) + i
+		}
+	}
+	return -1
+}
+
+// escapeURLActions pipes the output of every action in the template through
+// the path or query escaper, chosen by whether the action sits before or after
+// queryOffset. Actions nested in if, range and with blocks are escaped too.
+func escapeURLActions(list *parse.ListNode, queryOffset int) {
+	if list == nil {
+		return
+	}
+	for _, n := range list.Nodes {
+		switch node := n.(type) {
+		case *parse.ActionNode:
+			escapeURLAction(node, queryOffset)
+		case *parse.IfNode:
+			escapeURLActions(node.List, queryOffset)
+			escapeURLActions(node.ElseList, queryOffset)
+		case *parse.RangeNode:
+			escapeURLActions(node.List, queryOffset)
+			escapeURLActions(node.ElseList, queryOffset)
+		case *parse.WithNode:
+			escapeURLActions(node.List, queryOffset)
+			escapeURLActions(node.ElseList, queryOffset)
+		}
+	}
+}
+
+// escapeURLAction appends the escaper to one action's pipeline. Variable
+// declarations print nothing, so they are left alone.
+func escapeURLAction(node *parse.ActionNode, queryOffset int) {
+	if len(node.Pipe.Decl) > 0 {
+		return
+	}
+	fn := urlPathEscapeFunc
+	if queryOffset >= 0 && int(node.Pos) > queryOffset {
+		fn = urlQueryEscapeFunc
+	}
+	node.Pipe.Cmds = append(node.Pipe.Cmds, &parse.CommandNode{
+		NodeType: parse.NodeCommand,
+		Pos:      node.Pos,
+		Args:     []parse.Node{parse.NewIdentifier(fn).SetPos(node.Pos)},
+	})
+}
+
+// hasDotSegment reports whether the path of a rendered URL has a "." or ".."
+// segment.
+func hasDotSegment(rendered string) bool {
+	path := rendered
+	if i := strings.Index(path, "://"); i >= 0 {
+		path = path[i+len("://"):]
+		if j := strings.IndexByte(path, '/'); j >= 0 {
+			path = path[j:]
+		} else {
+			return false
+		}
+	}
+	if i := strings.IndexAny(path, "?#"); i >= 0 {
+		path = path[:i]
+	}
+	for _, seg := range strings.Split(path, "/") {
+		if seg == "." || seg == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 // extractTemplateVars returns the set of variable names referenced in a

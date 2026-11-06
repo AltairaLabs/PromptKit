@@ -277,6 +277,12 @@ var ErrTemplatedURLHost = errors.New(
     "http tool URL templates may use arguments in the path and query, not the scheme or host")
 ```
 
+<a name="ErrURLDotSegment"></a>ErrURLDotSegment is returned by [DefaultRequestMapper.RenderURL](<#DefaultRequestMapper.RenderURL>) when the rendered path has a "." or ".." segment. Escaping cannot neutralize a value that is a whole dot segment, and a server resolving it would serve a different path from the one the template names.
+
+```go
+var ErrURLDotSegment = errors.New(`http tool URL path has a "." or ".." segment`)
+```
+
 <a name="CallIDFromContext"></a>
 ## func [CallIDFromContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/context.go#L18>)
 
@@ -385,7 +391,7 @@ func ReadMultimodalResponse(resp *http.Response, aggregateSize *atomic.Int64, ma
 ReadMultimodalResponse reads a binary HTTP response and returns it as a ContentPart with base64\-encoded data. It enforces per\-response and aggregate size limits.
 
 <a name="RedactFields"></a>
-## func [RedactFields](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L672>)
+## func [RedactFields](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L680>)
 
 ```go
 func RedactFields(data []byte, fields []string) []byte
@@ -568,7 +574,7 @@ type ConsentConfig struct {
 ```
 
 <a name="DefaultRequestMapper"></a>
-## type [DefaultRequestMapper](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L55>)
+## type [DefaultRequestMapper](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L58>)
 
 DefaultRequestMapper is the built\-in implementation of RequestMapper. It uses text/template for URL/header interpolation and JMESPath for body reshaping.
 
@@ -577,7 +583,7 @@ type DefaultRequestMapper struct{}
 ```
 
 <a name="DefaultRequestMapper.BuildBody"></a>
-### func \(\*DefaultRequestMapper\) [BuildBody](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L113>)
+### func \(\*DefaultRequestMapper\) [BuildBody](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L141>)
 
 ```go
 func (m *DefaultRequestMapper) BuildBody(bodyArgs map[string]any, jmespathExpr string) (json.RawMessage, error)
@@ -586,7 +592,7 @@ func (m *DefaultRequestMapper) BuildBody(bodyArgs map[string]any, jmespathExpr s
 BuildBody produces the JSON body from args, optionally reshaped via JMESPath.
 
 <a name="DefaultRequestMapper.PartitionArgs"></a>
-### func \(\*DefaultRequestMapper\) [PartitionArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L78-L80>)
+### func \(\*DefaultRequestMapper\) [PartitionArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L106-L108>)
 
 ```go
 func (m *DefaultRequestMapper) PartitionArgs(args map[string]any, cfg *RequestMapping, urlTemplate string) (query, header, body map[string]any)
@@ -595,7 +601,7 @@ func (m *DefaultRequestMapper) PartitionArgs(args map[string]any, cfg *RequestMa
 PartitionArgs splits tool arguments into query parameters and body fields. The header bucket is always empty: headers come from RequestMapping.HeaderParams templates. Arguments consumed by URL templates and header templates, listed in Exclude, or routed to the query are left out of the body. With a nil cfg every argument goes to the body.
 
 <a name="DefaultRequestMapper.RenderHeaders"></a>
-### func \(\*DefaultRequestMapper\) [RenderHeaders](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L124-L126>)
+### func \(\*DefaultRequestMapper\) [RenderHeaders](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L152-L154>)
 
 ```go
 func (m *DefaultRequestMapper) RenderHeaders(templates map[string]string, args map[string]any) (map[string]string, error)
@@ -604,16 +610,18 @@ func (m *DefaultRequestMapper) RenderHeaders(templates map[string]string, args m
 RenderHeaders applies text/template substitution to header value templates.
 
 <a name="DefaultRequestMapper.RenderURL"></a>
-### func \(\*DefaultRequestMapper\) [RenderURL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L66>)
+### func \(\*DefaultRequestMapper\) [RenderURL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L80>)
 
 ```go
 func (m *DefaultRequestMapper) RenderURL(urlTemplate string, args map[string]any) (string, error)
 ```
 
-RenderURL applies Go text/template substitution to a URL string. Template variables like \{\{.user\_id\}\} are replaced with values from args. Values are inserted as they are, without URL escaping.
+RenderURL applies Go text/template substitution to a URL string. Template variables like \{\{.user\_id\}\} are replaced with values from args.
+
+Every value is escaped for where it lands, so an argument cannot change the request's path or query: values before the template's first literal "?" or "\#" are escaped with \[url.PathEscape\], and values after it with \[url.QueryEscape\]. A rendered path with a "." or ".." segment fails with [ErrURLDotSegment](<#ErrURLDotSegment>).
 
 <a name="DefaultResponseMapper"></a>
-## type [DefaultResponseMapper](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L59>)
+## type [DefaultResponseMapper](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L62>)
 
 DefaultResponseMapper is the built\-in implementation of ResponseMapper. It uses JMESPath for response extraction and reshaping.
 
@@ -622,7 +630,7 @@ type DefaultResponseMapper struct{}
 ```
 
 <a name="DefaultResponseMapper.MapResponse"></a>
-### func \(\*DefaultResponseMapper\) [MapResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L149-L151>)
+### func \(\*DefaultResponseMapper\) [MapResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L177-L179>)
 
 ```go
 func (m *DefaultResponseMapper) MapResponse(response json.RawMessage, jmespathExpr string) (json.RawMessage, error)
@@ -733,7 +741,7 @@ type Executor interface {
 ```
 
 <a name="FileToolResponseRepository"></a>
-## type [FileToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L137-L140>)
+## type [FileToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L136-L139>)
 
 FileToolResponseRepository implements ToolResponseRepository from a scenario's configured tool responses. It answers only for calls whose context key equals its scenario ID.
 
@@ -744,7 +752,7 @@ type FileToolResponseRepository struct {
 ```
 
 <a name="NewFileToolResponseRepository"></a>
-### func [NewFileToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L157-L159>)
+### func [NewFileToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L156-L158>)
 
 ```go
 func NewFileToolResponseRepository(scenarioID string, toolResponses map[string][]MockToolResponseConfig) *FileToolResponseRepository
@@ -759,7 +767,7 @@ NewFileToolResponseRepository creates a repository from scenario tool responses.
 func (r *FileToolResponseRepository) GetToolResponse(toolName string, args map[string]any, contextKey string) (*ToolResponseData, error)
 ```
 
-GetToolResponse implements ToolResponseRepository. It returns the first configured response for the tool whose CallArgs all appear, with deeply equal values, in args; an entry with no CallArgs matches any call. It returns nil when the context key is not the scenario ID or nothing matches.
+GetToolResponse implements ToolResponseRepository. It returns the first configured response for the tool whose CallArgs all appear, with deeply equal values, in args. Numbers compare by value at any depth, so int, float64 and json.Number forms of 42 are equal. An entry with no CallArgs matches any call. It returns nil when the context key is not the scenario ID or nothing matches.
 
 <a name="HTTPConfig"></a>
 ## type [HTTPConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L159-L183>)
@@ -869,7 +877,7 @@ func (e *HTTPExecutor) Execute(ctx context.Context, descriptor *ToolDescriptor, 
 Execute performs an HTTP request based on the tool descriptor's HTTPConfig. A non\-2xx status is an error that includes the response body. A response that is not JSON is returned wrapped as \{"result": "\<body\>"\}. Redaction runs before response mapping.
 
 <a name="HTTPExecutor.ExecuteMultimodal"></a>
-### func \(\*HTTPExecutor\) [ExecuteMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L587-L591>)
+### func \(\*HTTPExecutor\) [ExecuteMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_executor.go#L595-L599>)
 
 ```go
 func (e *HTTPExecutor) ExecuteMultimodal(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, []types.ContentPart, error)
@@ -913,7 +921,7 @@ type HostExtras map[string]any
 ```
 
 <a name="InMemoryToolResponseRepository"></a>
-## type [InMemoryToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L249-L251>)
+## type [InMemoryToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L250-L252>)
 
 InMemoryToolResponseRepository implements ToolResponseRepository using in\-memory storage. This is useful for SDK unit tests and programmatic configuration of tool responses.
 
@@ -924,7 +932,7 @@ type InMemoryToolResponseRepository struct {
 ```
 
 <a name="NewInMemoryToolResponseRepository"></a>
-### func [NewInMemoryToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L254>)
+### func [NewInMemoryToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L255>)
 
 ```go
 func NewInMemoryToolResponseRepository() *InMemoryToolResponseRepository
@@ -933,7 +941,7 @@ func NewInMemoryToolResponseRepository() *InMemoryToolResponseRepository
 NewInMemoryToolResponseRepository creates a new in\-memory tool response repository.
 
 <a name="InMemoryToolResponseRepository.AddResponse"></a>
-### func \(\*InMemoryToolResponseRepository\) [AddResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L262>)
+### func \(\*InMemoryToolResponseRepository\) [AddResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L263>)
 
 ```go
 func (r *InMemoryToolResponseRepository) AddResponse(contextKey, toolName string, response *ToolResponseData)
@@ -942,7 +950,7 @@ func (r *InMemoryToolResponseRepository) AddResponse(contextKey, toolName string
 AddResponse adds a tool response for a specific context and tool name. This method supports simple responses where argument matching is not needed.
 
 <a name="InMemoryToolResponseRepository.GetToolResponse"></a>
-### func \(\*InMemoryToolResponseRepository\) [GetToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L273-L275>)
+### func \(\*InMemoryToolResponseRepository\) [GetToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L274-L276>)
 
 ```go
 func (r *InMemoryToolResponseRepository) GetToolResponse(toolName string, args map[string]any, contextKey string) (*ToolResponseData, error)
@@ -1090,7 +1098,7 @@ func (e *MockStaticExecutor) Name() string
 Name returns the executor name
 
 <a name="MockToolErrorConfig"></a>
-## type [MockToolErrorConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L150-L153>)
+## type [MockToolErrorConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L149-L152>)
 
 MockToolErrorConfig represents an error configuration.
 
@@ -1102,7 +1110,7 @@ type MockToolErrorConfig struct {
 ```
 
 <a name="MockToolResponseConfig"></a>
-## type [MockToolResponseConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L143-L147>)
+## type [MockToolResponseConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L142-L146>)
 
 MockToolResponseConfig represents a single tool response configuration.
 
@@ -1469,7 +1477,7 @@ func WithRateLimit(maxCallsPerMinute int) RegistryOption
 WithRateLimit sets a per\-tool rate limit \(maximum calls per minute\). Pass 0 to disable rate limiting \(the default\).
 
 <a name="RepositoryToolExecutor"></a>
-## type [RepositoryToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L16-L20>)
+## type [RepositoryToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L15-L19>)
 
 RepositoryToolExecutor wraps existing tool executors to provide repository\-backed mock responses with fallback to real execution. This enables deterministic tool testing while maintaining the ability to fall back to real tool execution when needed.
 
@@ -1480,7 +1488,7 @@ type RepositoryToolExecutor struct {
 ```
 
 <a name="NewRepositoryToolExecutor"></a>
-### func [NewRepositoryToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L25-L27>)
+### func [NewRepositoryToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L24-L26>)
 
 ```go
 func NewRepositoryToolExecutor(baseExecutor Executor, repo ToolResponseRepository, contextKey string) *RepositoryToolExecutor
@@ -1489,7 +1497,7 @@ func NewRepositoryToolExecutor(baseExecutor Executor, repo ToolResponseRepositor
 NewRepositoryToolExecutor creates a new repository\-backed tool executor. The executor will first check the repository for configured responses, and fall back to the base executor if no match is found.
 
 <a name="RepositoryToolExecutor.Execute"></a>
-### func \(\*RepositoryToolExecutor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L43-L45>)
+### func \(\*RepositoryToolExecutor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L42-L44>)
 
 ```go
 func (e *RepositoryToolExecutor) Execute(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error)
@@ -1498,7 +1506,7 @@ func (e *RepositoryToolExecutor) Execute(ctx context.Context, descriptor *ToolDe
 Execute executes a tool, first checking the repository for mock responses. If a matching response is found in the repository, it returns that response. Otherwise, it falls back to the base executor for real execution.
 
 <a name="RepositoryToolExecutor.Name"></a>
-### func \(\*RepositoryToolExecutor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L36>)
+### func \(\*RepositoryToolExecutor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L35>)
 
 ```go
 func (e *RepositoryToolExecutor) Name() string
@@ -1507,7 +1515,7 @@ func (e *RepositoryToolExecutor) Name() string
 Name returns the executor name with repository suffix.
 
 <a name="RequestMapper"></a>
-## type [RequestMapper](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L30-L44>)
+## type [RequestMapper](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L33-L47>)
 
 RequestMapper maps tool arguments to HTTP request components. Implementations can customize URL templating, argument partitioning, and body building.
 
@@ -1568,7 +1576,7 @@ type RequestMapping struct {
 ```
 
 <a name="ResponseMapper"></a>
-## type [ResponseMapper](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L48-L51>)
+## type [ResponseMapper](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_mapping.go#L51-L54>)
 
 ResponseMapper maps HTTP response bodies to tool results. Implementations can customize response extraction and reshaping.
 
@@ -1830,7 +1838,7 @@ func (d ToolDescriptor) MarshalJSON() ([]byte, error)
 MarshalJSON normalizes the descriptor's schemas \(empty \-\> \{\}\).
 
 <a name="ToolErrorData"></a>
-## type [ToolErrorData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L129-L132>)
+## type [ToolErrorData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L128-L131>)
 
 ToolErrorData represents an error response for tool execution.
 
@@ -1894,7 +1902,7 @@ type ToolRepository interface {
 ```
 
 <a name="ToolResponseData"></a>
-## type [ToolResponseData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L123-L126>)
+## type [ToolResponseData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L122-L125>)
 
 ToolResponseData represents a configured tool response with optional error.
 
@@ -1906,7 +1914,7 @@ type ToolResponseData struct {
 ```
 
 <a name="ToolResponseRepository"></a>
-## type [ToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L116-L120>)
+## type [ToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L115-L119>)
 
 ToolResponseRepository defines the interface for repositories that can provide mock tool responses based on tool name, arguments, and context.
 

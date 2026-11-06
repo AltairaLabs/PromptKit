@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
@@ -165,7 +164,8 @@ func NewFileToolResponseRepository(
 
 // GetToolResponse implements ToolResponseRepository. It returns the first
 // configured response for the tool whose CallArgs all appear, with deeply equal
-// values, in args; an entry with no CallArgs matches any call. It returns nil
+// values, in args. Numbers compare by value at any depth, so int, float64 and
+// json.Number forms of 42 are equal. An entry with no CallArgs matches any call. It returns nil
 // when the context key is not the scenario ID or nothing matches.
 func (r *FileToolResponseRepository) GetToolResponse(
 	toolName string, args map[string]any, contextKey string,
@@ -222,7 +222,8 @@ func (r *FileToolResponseRepository) GetToolResponse(
 }
 
 // argumentsMatch checks if the provided arguments match the expected arguments.
-// It performs a deep comparison of argument values.
+// It performs a deep comparison of argument values in which numbers compare by
+// value, so a YAML call_args 42 (int) matches a JSON argument 42 (float64).
 func (r *FileToolResponseRepository) argumentsMatch(provided, expected map[string]any) bool {
 	if len(expected) == 0 {
 		return true // Empty expected args match any provided args
@@ -235,7 +236,7 @@ func (r *FileToolResponseRepository) argumentsMatch(provided, expected map[strin
 			return false
 		}
 
-		if !reflect.DeepEqual(providedValue, expectedValue) {
+		if !argValuesEqual(providedValue, expectedValue) {
 			return false
 		}
 	}
