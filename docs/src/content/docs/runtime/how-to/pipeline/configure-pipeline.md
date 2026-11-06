@@ -96,7 +96,7 @@ for elem := range output {
 
 ## 4. Tune the pipeline
 
-`DefaultPipelineConfig` sets a channel buffer of 32, an idle timeout of 30 seconds, no execution timeout and a graceful shutdown timeout of 10 seconds.
+`DefaultPipelineConfig` sets a channel buffer of 32, an idle timeout of 30 seconds, no execution timeout, a graceful shutdown timeout of 10 seconds and at most 100 concurrent executions of one pipeline. Past that limit `Execute` waits for a running execution to finish, or returns the context's error if the context ends first. `WithMaxConcurrentPipelines(0)` removes the limit.
 
 ```go
 config := stage.DefaultPipelineConfig().

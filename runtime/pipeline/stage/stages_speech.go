@@ -20,7 +20,7 @@ import (
 // AudioTurnConfig configures the AudioTurnStage.
 type AudioTurnConfig struct {
 	// VAD is the voice activity detector.
-	// If nil, an AdaptiveVAD with default params is created — it tracks the
+	// If nil, an AdaptiveVAD with default params is created. It tracks the
 	// noise floor rather than holding a fixed threshold, so it follows a speaker
 	// down through the quiet parts of an utterance.
 	VAD audio.VADAnalyzer

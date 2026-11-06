@@ -270,6 +270,7 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
   - [func \(c \*PipelineConfig\) WithGracefulShutdownTimeout\(timeout time.Duration\) \*PipelineConfig](<#PipelineConfig.WithGracefulShutdownTimeout>)
   - [func \(c \*PipelineConfig\) WithIdleTimeout\(timeout time.Duration\) \*PipelineConfig](<#PipelineConfig.WithIdleTimeout>)
   - [func \(c \*PipelineConfig\) WithMaxConcurrentPipelines\(maxPipelines int\) \*PipelineConfig](<#PipelineConfig.WithMaxConcurrentPipelines>)
+  - [func \(c \*PipelineConfig\) WithPrioritizeElements\(prioritize bool\) \*PipelineConfig](<#PipelineConfig.WithPrioritizeElements>)
 - [type Priority](<#Priority>)
 - [type PriorityChannel](<#PriorityChannel>)
   - [func NewPriorityChannel\(capacity int\) \*PriorityChannel](<#NewPriorityChannel>)
@@ -561,7 +562,7 @@ const (
 
 Two causes reach it: the re\-ask failed at the provider, or the tool loop exhausted its rounds and never produced a final turn to constrain.
 
-Exported because detecting it is a caller's decision. Returning prose is the right trade against losing a completed tool loop's work, but only if the caller can tell it happened — an unmarked fallback is indistinguishable from a model that answered in prose, which is the unobservable\-success failure this whole mode exists to remove.
+Exported because detecting it is a caller's decision. Returning prose is the right trade against losing a completed tool loop's work, but only if the caller can tell it happened. An unmarked fallback is indistinguishable from a model that answered in prose, which is the unobservable\-success failure this whole mode exists to remove.
 
 ```go
 const SchemaUnappliedMetaKey = "structured_output_schema_unapplied"
@@ -904,7 +905,7 @@ Use NewNamedAudioPacingStage when wiring two instances in the same pipeline \(in
 func NewNamedAudioPacingStage(name string) *AudioPacingStage
 ```
 
-NewNamedAudioPacingStage is like NewAudioPacingStage but lets the caller pick the stage name. Necessary when two pacing stages coexist in the same pipeline \(e.g. one for the input audio path, one for the output\) — the pipeline builder treats stage names as unique IDs and would reject a second "audio\-pacing".
+NewNamedAudioPacingStage is like NewAudioPacingStage but lets the caller pick the stage name. Necessary when two pacing stages coexist in the same pipeline \(e.g. one for the input audio path, one for the output\). The pipeline builder treats stage names as unique IDs and would reject a second "audio\-pacing".
 
 <a name="AudioPacingStage.Process"></a>
 ### func \(\*AudioPacingStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_pacing.go#L171-L175>)
@@ -990,7 +991,7 @@ AudioTurnConfig configures the AudioTurnStage.
 ```go
 type AudioTurnConfig struct {
     // VAD is the voice activity detector.
-    // If nil, an AdaptiveVAD with default params is created — it tracks the
+    // If nil, an AdaptiveVAD with default params is created. It tracks the
     // noise floor rather than holding a fixed threshold, so it follows a speaker
     // down through the quiet parts of an utterance.
     VAD audio.VADAnalyzer
@@ -1364,8 +1365,8 @@ type CompositionExecutorDeps struct {
     BaseMetadata map[string]interface{}
 
     // ParentTurnState is the enclosing turn's state, read only for its
-    // TurnIndex. Each step gets a fresh TurnState — its prompt, tools and
-    // system prompt are the step's, not the turn's — but the turn number is
+    // TurnIndex. Each step gets a fresh TurnState (its prompt, tools and
+    // system prompt are the step's, not the turn's), but the turn number is
     // the one thing that must survive the boundary: without it every step
     // reports turn 1 and no guardrail event inside a composition can be
     // placed against the transcript. Optional.
@@ -2084,9 +2085,9 @@ type ElementMetadata struct {
     // StreamingDelta marks an incremental content Text element emitted by a
     // streaming provider mid-generation (see ProviderStage.emitChunkElement).
     // These are the live-text feed for UI consumers; the same reply also arrives
-    // as a complete assistant Message. A speech-out stage must skip the deltas —
-    // the TTS provider takes a complete string, so synthesizing per-fragment
-    // would be one request per token and choppy audio — and speak the Message.
+    // as a complete assistant Message. A speech-out stage must skip the deltas
+    // and speak the Message: the TTS provider takes a complete string, so
+    // synthesizing per fragment would be one request per token and choppy audio.
     StreamingDelta bool
 
     // TokenCount is the per-chunk token count emitted by streaming providers.
@@ -2100,8 +2101,8 @@ type ElementMetadata struct {
 
     // Passthrough marks media elements that should bypass per-stage
     // accumulation (audio/image/video buffering) and be forwarded
-    // immediately to the next stage. Producers: streaming.AudioStreamer,
-    // streaming.ImageStreamer, streaming.VideoStreamer. Consumer:
+    // immediately to the next stage. streaming.ImageStreamer and
+    // streaming.VideoStreamer set it on the elements they send.
     // AudioTurnStage forwards passthrough audio without VAD-driven
     // accumulation.
     Passthrough bool
@@ -2130,7 +2131,7 @@ type EndInputter interface {
 ```
 
 <a name="ExecutionResult"></a>
-## type [ExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L923-L930>)
+## type [ExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1003-L1010>)
 
 ExecutionResult represents the final result of a pipeline execution. This matches the existing pipeline.ExecutionResult for compatibility.
 
@@ -2146,7 +2147,7 @@ type ExecutionResult struct {
 ```
 
 <a name="ExecutionTrace"></a>
-## type [ExecutionTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L942-L946>)
+## type [ExecutionTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1022-L1026>)
 
 ExecutionTrace captures execution history \(for compatibility\).
 
@@ -2448,7 +2449,7 @@ type Handoff struct {
     // False when there is no workflow state to apply.
     Valid bool
     // Stop ends the turn without a further provider round. Set for states the
-    // runtime must not continue into — externally orchestrated states pause for
+    // runtime must not continue into: externally orchestrated states pause for
     // an injected event, and composition states are run by
     // CompositionStage rather than the tool loop.
     Stop bool
@@ -3707,7 +3708,7 @@ pipeline, err := NewPipelineBuilder().
 ```
 
 <a name="PipelineBuilder.Clone"></a>
-### func \(\*PipelineBuilder\) [Clone](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L384>)
+### func \(\*PipelineBuilder\) [Clone](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L385>)
 
 ```go
 func (b *PipelineBuilder) Clone() *PipelineBuilder
@@ -3752,7 +3753,7 @@ func (b *PipelineBuilder) WithEventEmitter(emitter *events.Emitter) *PipelineBui
 WithEventEmitter sets the event emitter for the pipeline.
 
 <a name="PipelineConfig"></a>
-## type [PipelineConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L35-L80>)
+## type [PipelineConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L35-L98>)
 
 PipelineConfig defines configuration options for pipeline execution.
 
@@ -3764,10 +3765,28 @@ type PipelineConfig struct {
     // Default: 32
     ChannelBufferSize int
 
-    // MaxConcurrentPipelines limits the number of concurrent pipeline executions.
-    // Validate rejects negative values. The pipeline does not enforce the limit.
+    // MaxConcurrentPipelines limits how many executions of one pipeline run at
+    // once. When the limit is reached, Execute waits for a running execution to
+    // finish. It returns the context's error if ctx ends first, and
+    // ErrPipelineShuttingDown if Shutdown is called first. Zero means no limit.
+    // Validate rejects negative values. Build reads it, so changing it later
+    // has no effect on a built pipeline.
     // Default: 100
     MaxConcurrentPipelines int
+
+    // PrioritizeElements makes each stage read its input in priority order: a
+    // higher-priority element queued behind lower-priority ones is delivered
+    // first, and elements of equal priority keep the order they were sent in.
+    // Up to ChannelBufferSize elements wait in each stage's priority queue.
+    //
+    // With it a control element can overtake content sent before it: an
+    // EndOfTurn or EndOfStream (PriorityCritical) can reach a stage ahead of
+    // the turn's text or audio. Enable it only when every stage tolerates that.
+    // The streaming provider stage does not: it fires a turn on EndOfTurn, so
+    // an EndOfTurn ahead of the turn's messages fires nothing and holds the
+    // messages for the next turn. False (the default) delivers every element
+    // in the order it was sent, whatever its priority.
+    PrioritizeElements bool
 
     // ExecutionTimeout sets a hard maximum duration for a single pipeline execution.
     // This is a safety ceiling. Prefer IdleTimeout for liveness detection.
@@ -3806,7 +3825,7 @@ type PipelineConfig struct {
 ```
 
 <a name="DefaultPipelineConfig"></a>
-### func [DefaultPipelineConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L83>)
+### func [DefaultPipelineConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L101>)
 
 ```go
 func DefaultPipelineConfig() *PipelineConfig
@@ -3815,7 +3834,7 @@ func DefaultPipelineConfig() *PipelineConfig
 DefaultPipelineConfig returns a PipelineConfig with sensible defaults.
 
 <a name="PipelineConfig.Validate"></a>
-### func \(\*PipelineConfig\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L94>)
+### func \(\*PipelineConfig\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L112>)
 
 ```go
 func (c *PipelineConfig) Validate() error
@@ -3824,7 +3843,7 @@ func (c *PipelineConfig) Validate() error
 Validate checks if the configuration is valid.
 
 <a name="PipelineConfig.WithChannelBufferSize"></a>
-### func \(\*PipelineConfig\) [WithChannelBufferSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L114>)
+### func \(\*PipelineConfig\) [WithChannelBufferSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L132>)
 
 ```go
 func (c *PipelineConfig) WithChannelBufferSize(size int) *PipelineConfig
@@ -3833,7 +3852,7 @@ func (c *PipelineConfig) WithChannelBufferSize(size int) *PipelineConfig
 WithChannelBufferSize sets the channel buffer size.
 
 <a name="PipelineConfig.WithExecutionTimeout"></a>
-### func \(\*PipelineConfig\) [WithExecutionTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L126>)
+### func \(\*PipelineConfig\) [WithExecutionTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L150>)
 
 ```go
 func (c *PipelineConfig) WithExecutionTimeout(timeout time.Duration) *PipelineConfig
@@ -3842,7 +3861,7 @@ func (c *PipelineConfig) WithExecutionTimeout(timeout time.Duration) *PipelineCo
 WithExecutionTimeout sets the execution timeout.
 
 <a name="PipelineConfig.WithGracefulShutdownTimeout"></a>
-### func \(\*PipelineConfig\) [WithGracefulShutdownTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L138>)
+### func \(\*PipelineConfig\) [WithGracefulShutdownTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L162>)
 
 ```go
 func (c *PipelineConfig) WithGracefulShutdownTimeout(timeout time.Duration) *PipelineConfig
@@ -3851,7 +3870,7 @@ func (c *PipelineConfig) WithGracefulShutdownTimeout(timeout time.Duration) *Pip
 WithGracefulShutdownTimeout sets the graceful shutdown timeout.
 
 <a name="PipelineConfig.WithIdleTimeout"></a>
-### func \(\*PipelineConfig\) [WithIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L132>)
+### func \(\*PipelineConfig\) [WithIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L156>)
 
 ```go
 func (c *PipelineConfig) WithIdleTimeout(timeout time.Duration) *PipelineConfig
@@ -3860,7 +3879,7 @@ func (c *PipelineConfig) WithIdleTimeout(timeout time.Duration) *PipelineConfig
 WithIdleTimeout sets the idle timeout.
 
 <a name="PipelineConfig.WithMaxConcurrentPipelines"></a>
-### func \(\*PipelineConfig\) [WithMaxConcurrentPipelines](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L120>)
+### func \(\*PipelineConfig\) [WithMaxConcurrentPipelines](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L138>)
 
 ```go
 func (c *PipelineConfig) WithMaxConcurrentPipelines(maxPipelines int) *PipelineConfig
@@ -3868,10 +3887,19 @@ func (c *PipelineConfig) WithMaxConcurrentPipelines(maxPipelines int) *PipelineC
 
 WithMaxConcurrentPipelines sets the maximum number of concurrent pipeline executions.
 
+<a name="PipelineConfig.WithPrioritizeElements"></a>
+### func \(\*PipelineConfig\) [WithPrioritizeElements](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/config.go#L144>)
+
+```go
+func (c *PipelineConfig) WithPrioritizeElements(prioritize bool) *PipelineConfig
+```
+
+WithPrioritizeElements sets whether stages read their input in priority order.
+
 <a name="Priority"></a>
 ## type [Priority](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L115>)
 
-Priority defines the scheduling priority for stream elements. PriorityChannel delivers higher priority elements first. The channels between pipeline stages deliver elements in the order they were sent, whatever their priority.
+Priority defines the scheduling priority for stream elements. PriorityChannel delivers higher priority elements first. The channels between pipeline stages deliver elements in the order they were sent, whatever their priority, unless PipelineConfig.PrioritizeElements is set.
 
 ```go
 type Priority int
@@ -3893,9 +3921,9 @@ const (
 ```
 
 <a name="PriorityChannel"></a>
-## type [PriorityChannel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L349-L356>)
+## type [PriorityChannel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L351-L359>)
 
-PriorityChannel is a channel that supports priority\-based element delivery. Higher priority elements are delivered before lower priority elements.
+PriorityChannel is a channel that supports priority\-based element delivery. Higher priority elements are delivered before lower priority elements, and elements of equal priority in the order they were sent. With PipelineConfig.PrioritizeElements set, each stage reads its input through one.
 
 ```go
 type PriorityChannel struct {
@@ -3904,7 +3932,7 @@ type PriorityChannel struct {
 ```
 
 <a name="NewPriorityChannel"></a>
-### func [NewPriorityChannel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L359>)
+### func [NewPriorityChannel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L362>)
 
 ```go
 func NewPriorityChannel(capacity int) *PriorityChannel
@@ -3913,7 +3941,7 @@ func NewPriorityChannel(capacity int) *PriorityChannel
 NewPriorityChannel creates a new priority channel with the given capacity.
 
 <a name="PriorityChannel.Close"></a>
-### func \(\*PriorityChannel\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L453>)
+### func \(\*PriorityChannel\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L484>)
 
 ```go
 func (pc *PriorityChannel) Close()
@@ -3922,7 +3950,7 @@ func (pc *PriorityChannel) Close()
 Close closes the priority channel.
 
 <a name="PriorityChannel.Len"></a>
-### func \(\*PriorityChannel\) [Len](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L462>)
+### func \(\*PriorityChannel\) [Len](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L493>)
 
 ```go
 func (pc *PriorityChannel) Len() int
@@ -3931,22 +3959,22 @@ func (pc *PriorityChannel) Len() int
 Len returns the current number of elements in the channel.
 
 <a name="PriorityChannel.Receive"></a>
-### func \(\*PriorityChannel\) [Receive](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L407>)
+### func \(\*PriorityChannel\) [Receive](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L412>)
 
 ```go
 func (pc *PriorityChannel) Receive(ctx context.Context) (StreamElement, bool, error)
 ```
 
-Receive receives the highest priority element from the channel. Blocks if the channel is empty.
+Receive receives the highest priority element from the channel. Blocks if the channel is empty, until an element arrives, the channel is closed, or ctx ends.
 
 <a name="PriorityChannel.Send"></a>
-### func \(\*PriorityChannel\) [Send](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L369>)
+### func \(\*PriorityChannel\) [Send](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_advanced.go#L384>)
 
 ```go
 func (pc *PriorityChannel) Send(ctx context.Context, elem StreamElement) error
 ```
 
-Send sends an element to the priority channel. Blocks if the channel is at capacity.
+Send sends an element to the priority channel. Blocks if the channel is at capacity, until there is room or ctx ends. A priority outside PriorityLow..PriorityCritical is treated as the nearest of the two.
 
 <a name="PromptAssemblyStage"></a>
 ## type [PromptAssemblyStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L19-L28>)
@@ -4420,8 +4448,8 @@ type RelevanceConfig struct {
     // the threshold.
     SimilarityThreshold float64
 
-    // QuerySource determines what text to compare messages against. Set it: an
-    // empty value produces no query, and truncation falls back to TruncateOldest.
+    // QuerySource determines what text to compare messages against. Empty
+    // means QuerySourceLastUser.
     QuerySource QuerySourceType
 
     // LastNCount is the number of messages to use when QuerySource is QuerySourceLastN.
@@ -4442,7 +4470,7 @@ type RelevanceConfig struct {
 ```
 
 <a name="Response"></a>
-## type [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L933-L939>)
+## type [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1013-L1019>)
 
 Response represents a response message \(for compatibility with existing pipeline\).
 
@@ -5180,7 +5208,7 @@ Error element: test error
 </details>
 
 <a name="GetAudioElement"></a>
-### func [GetAudioElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L92>)
+### func [GetAudioElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L94>)
 
 ```go
 func GetAudioElement(audio *AudioData) *StreamElement
@@ -5198,7 +5226,7 @@ func GetElement() *StreamElement
 GetElement retrieves a StreamElement from the pool or creates a new one. The returned element has been through Reset. Callers should call PutElement once they are done with the element.
 
 <a name="GetEndOfStreamElement"></a>
-### func [GetEndOfStreamElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L132>)
+### func [GetEndOfStreamElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L134>)
 
 ```go
 func GetEndOfStreamElement() *StreamElement
@@ -5207,7 +5235,7 @@ func GetEndOfStreamElement() *StreamElement
 GetEndOfStreamElement retrieves a StreamElement from the pool and marks it as end\-of\-stream. This is a pooled alternative to NewEndOfStreamElement.
 
 <a name="GetErrorElement"></a>
-### func [GetErrorElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L122>)
+### func [GetErrorElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L124>)
 
 ```go
 func GetErrorElement(err error) *StreamElement
@@ -5216,7 +5244,7 @@ func GetErrorElement(err error) *StreamElement
 GetErrorElement retrieves a StreamElement from the pool and initializes it with an error. This is a pooled alternative to NewErrorElement.
 
 <a name="GetImageElement"></a>
-### func [GetImageElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L112>)
+### func [GetImageElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L114>)
 
 ```go
 func GetImageElement(image *ImageData) *StreamElement
@@ -5225,7 +5253,7 @@ func GetImageElement(image *ImageData) *StreamElement
 GetImageElement retrieves a StreamElement from the pool and initializes it with image data. This is a pooled alternative to NewImageElement.
 
 <a name="GetMessageElement"></a>
-### func [GetMessageElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L82>)
+### func [GetMessageElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L84>)
 
 ```go
 func GetMessageElement(msg *types.Message) *StreamElement
@@ -5234,7 +5262,7 @@ func GetMessageElement(msg *types.Message) *StreamElement
 GetMessageElement retrieves a StreamElement from the pool and initializes it with a message. This is a pooled alternative to NewMessageElement.
 
 <a name="GetTextElement"></a>
-### func [GetTextElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L72>)
+### func [GetTextElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L74>)
 
 ```go
 func GetTextElement(text string) *StreamElement
@@ -5243,7 +5271,7 @@ func GetTextElement(text string) *StreamElement
 GetTextElement retrieves a StreamElement from the pool and initializes it with text content. This is a pooled alternative to NewTextElement.
 
 <a name="GetVideoElement"></a>
-### func [GetVideoElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L102>)
+### func [GetVideoElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L104>)
 
 ```go
 func GetVideoElement(video *VideoData) *StreamElement
@@ -5369,13 +5397,13 @@ func (e *StreamElement) IsEmpty() bool
 IsEmpty returns true if the element contains no content.
 
 <a name="StreamElement.Reset"></a>
-### func \(\*StreamElement\) [Reset](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L45>)
+### func \(\*StreamElement\) [Reset](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L44>)
 
 ```go
 func (e *StreamElement) Reset()
 ```
 
-Reset clears the content fields, Sequence, Timestamp, Source, Meta, EndOfStream and Error, and sets Priority to PriorityNormal. It leaves Reasoning, EndOfTurn and Interrupt unchanged. PutElement calls it before returning the element to the pool.
+Reset clears every field and sets Priority to PriorityNormal, leaving the element equal to a new one. PutElement calls it before returning the element to the pool.
 
 <a name="StreamElement.WithPriority"></a>
 ### func \(\*StreamElement\) [WithPriority](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L460>)
@@ -5405,7 +5433,7 @@ func (e *StreamElement) WithSource(source string) *StreamElement
 WithSource sets the source stage name for this element.
 
 <a name="StreamPipeline"></a>
-## type [StreamPipeline](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L24-L51>)
+## type [StreamPipeline](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L24-L53>)
 
 StreamPipeline represents an executable pipeline of stages. It manages the DAG of stages, creates channels between them, and orchestrates execution.
 
@@ -5416,7 +5444,7 @@ type StreamPipeline struct {
 ```
 
 <a name="StreamPipeline.Execute"></a>
-### func \(\*StreamPipeline\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L68>)
+### func \(\*StreamPipeline\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L73>)
 
 ```go
 func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement) (<-chan StreamElement, error)
@@ -5426,10 +5454,10 @@ Execute starts the pipeline execution with the given input channel. Returns an o
 
 The first stage error ends the turn. Nothing is canceled: the failed stage's downstream stages receive the error in\-band and pass it on without acting on the incomplete turn, and the other stages drain as usual. The error reaches the caller as an element with Error set, the last element before the output closes. A stage that emits its own error as an error element before returning it \(the provider stage does\) delivers that error as emitted. Any other stage's error arrives as a \*StageError, which unwraps to the stage's error. A context error that comes from the caller's own cancellation is not treated as a stage failure. The output closes once the terminal stages have returned.
 
-Execute returns ErrPipelineShuttingDown if the pipeline is shutting down.
+Execute returns ErrPipelineShuttingDown if the pipeline is shutting down. When PipelineConfig.MaxConcurrentPipelines executions are already running, Execute waits for one to finish. It returns ctx's error if ctx ends first, and ErrPipelineShuttingDown if Shutdown is called first.
 
 <a name="StreamPipeline.ExecuteSync"></a>
-### func \(\*StreamPipeline\) [ExecuteSync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L902>)
+### func \(\*StreamPipeline\) [ExecuteSync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L982>)
 
 ```go
 func (p *StreamPipeline) ExecuteSync(ctx context.Context, input ...StreamElement) (*ExecutionResult, error)
@@ -5440,7 +5468,7 @@ ExecuteSync runs the pipeline synchronously and returns the accumulated result. 
 The returned error is the last error element on the output. When a stage failed the turn, that is the failure \(see Execute for its form\). The result is non\-nil alongside the error and holds whatever the pipeline produced.
 
 <a name="StreamPipeline.Shutdown"></a>
-### func \(\*StreamPipeline\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1010>)
+### func \(\*StreamPipeline\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1090>)
 
 ```go
 func (p *StreamPipeline) Shutdown(ctx context.Context) error
@@ -5453,7 +5481,7 @@ Shutdown gracefully shuts down the pipeline, waiting for in\-flight executions t
 
 StructuredOutputMode selects when a caller's ResponseFormat is applied to a tool loop.
 
-A response schema competes with tool calling. Applied to every round it suppresses tool use — silently, intermittently, and more the more work the task requires. Measured on an identical 7\-tool task, mean tools called \(n=5, no schema \-\> schema\):
+A response schema competes with tool calling. Applied to every round it suppresses tool use: silently, intermittently, and more the more work the task requires. Measured on an identical 7\-tool task, mean tools called \(n=5, no schema \-\> schema\):
 
 ```
 claude-sonnet-5      7.0 -> 7.0   (no detectable effect)
@@ -5462,7 +5490,7 @@ claude-sonnet-4-6    7.0 -> 5.8   (one run did almost no work)
 gemini-3.7-flash     terminates 5/5 -> 1/5
 ```
 
-On a production underwriting pack the same model that scores 5.8 here reached tool\_use in 1 run out of 5 — the effect scales with task complexity, so these numbers understate it. Every failure arrives as a successful HTTP 200.
+On a production underwriting pack the same model that scores 5.8 here reached tool\_use in 1 run out of 5. The effect scales with task complexity, so these numbers understate it. Every failure arrives as a successful HTTP 200.
 
 The fix is to constrain only the turn that produces the final answer, which is what the providers that hold up are already doing server\-side \(Anthropic's stronger models; Gemini's Interactions API\). Doing it in the stage rather than per provider means no per\-model support table: the rule is mechanical and every provider gets it, including ones added later.
 
@@ -5478,7 +5506,7 @@ const (
     // rounds and re-asks the final answer under the schema. Default.
     StructuredOutputFinalTurn StructuredOutputMode = "final_turn"
 
-    // StructuredOutputEveryRound sends ResponseFormat on every round — the
+    // StructuredOutputEveryRound sends ResponseFormat on every round. This is the
     // older behavior, from before the final-turn rule existed.
     //
     // This is an escape hatch, not a supported alternative: it is the
@@ -5783,14 +5811,14 @@ Process reads all messages, enforces the token budget, and forwards the \(possib
 
 ToolCallRecorder is an optional interface a WorkflowStateResolver may implement to receive the number of tool calls each round executed.
 
-The workflow engine's tool\-call budget \(engine.budget.max\_tool\_calls\) needs a per\-round count, and the tool loop is the only place that sees every call on every path — unary, streaming, and resumed\-after\-HITL. Counting here rather than in each consumer keeps one counting site, so the SDK's and Arena's totals cannot drift apart; consumers only forward the number to the workflow context they own.
+The workflow engine's tool\-call budget \(engine.budget.max\_tool\_calls\) needs a per\-round count, and the tool loop is the only place that sees every call on every path \(unary, streaming, and resumed\-after\-HITL\). Counting here rather than in each consumer keeps one counting site, so the SDK's and Arena's totals cannot drift apart; consumers only forward the number to the workflow context they own.
 
 It is separate from WorkflowStateResolver and type\-asserted at the call site: adding a method to that interface would break every existing implementer, and a resolver with no budget to enforce need not implement this.
 
 ```go
 type ToolCallRecorder interface {
     // RecordToolCalls reports that n tool calls executed in a round. Calls held
-    // pending (HITL approval, deferred client tools) are excluded — they have
+    // pending (HITL approval, deferred client tools) are excluded. They have
     // not run yet and are reported when they execute on resume, so counting
     // them here would charge a gated call twice.
     RecordToolCalls(n int)
@@ -5800,9 +5828,9 @@ type ToolCallRecorder interface {
 <a name="TranscriptReorderStage"></a>
 ## type [TranscriptReorderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/transcript_reorder.go#L34-L55>)
 
-TranscriptReorderStage guarantees that, within a turn, the user's input transcript is emitted before that turn's assistant text — even when the provider delivers the transcript late \(e.g. OpenAI Realtime, whose Whisper transcription can land after the assistant reply, or even after the whole turn, has finished\).
+TranscriptReorderStage guarantees that, within a turn, the user's input transcript is emitted before that turn's assistant text, even when the provider delivers the transcript late \(e.g. OpenAI Realtime, whose Whisper transcription can land after the assistant reply, or even after the whole turn, has finished\).
 
-It buffers assistant TEXT elements and HOLDS the turn\-end until the user turn for that turn arrives \(or a short timeout elapses\), then emits user\-then\-text in order. AUDIO passes through immediately, so playback stays realtime — only the transcript log is reordered. The turn\-end \(EndOfStream\) is held too, so a late transcript is never emitted after the turn boundary \(which both mis\-orders the log and can confuse downstream turn\-scoped stages\). If the transcript never arrives, a configurable placeholder user turn is emitted.
+It buffers assistant TEXT elements and HOLDS the turn\-end until the user turn for that turn arrives \(or a short timeout elapses\), then emits user\-then\-text in order. AUDIO passes through immediately, so playback stays realtime. Only the transcript log is reordered. The turn\-end \(EndOfStream\) is held too, so a late transcript is never emitted after the turn boundary \(which both mis\-orders the log and can confuse downstream turn\-scoped stages\). If the transcript never arrives, a configurable placeholder user turn is emitted.
 
 The mechanism is provider\-agnostic; whether it is wired is decided upstream. It is a Transform stage: state is per\-turn and reset on each turn boundary, so a single instance handles one continuous duplex conversation.
 
@@ -5936,7 +5964,7 @@ type TurnState struct {
     // provider whose ABI is itself untyped (map[string]any).
     //
     // Outside that boundary, prefer typed fields. This map exists only
-    // because the provider interface is opaque by design — adding new
+    // because the provider interface is opaque by design. Adding new
     // keys here means you're crossing that boundary.
     //
     // Read-only after the producer stage runs; downstream stages must

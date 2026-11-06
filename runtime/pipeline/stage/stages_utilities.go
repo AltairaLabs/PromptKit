@@ -680,8 +680,8 @@ type RelevanceConfig struct {
 	// the threshold.
 	SimilarityThreshold float64
 
-	// QuerySource determines what text to compare messages against. Set it: an
-	// empty value produces no query, and truncation falls back to TruncateOldest.
+	// QuerySource determines what text to compare messages against. Empty
+	// means QuerySourceLastUser.
 	QuerySource QuerySourceType
 
 	// LastNCount is the number of messages to use when QuerySource is QuerySourceLastN.
@@ -1166,8 +1166,8 @@ func (s *ContextBuilderStage) buildRelevanceQuery(
 		}
 		return strings.Join(parts, " ")
 
-	case QuerySourceLastUser:
-		// Use last user message as query
+	case QuerySourceLastUser, "":
+		// Use last user message as query (the default)
 		for i := len(messages) - 1; i >= 0; i-- {
 			if messages[i].Role == roleUser {
 				return s.extractMessageText(&messages[i])

@@ -186,6 +186,7 @@ func (b *PipelineBuilder) Build() (*StreamPipeline, error) {
 		config:            b.config,
 		eventEmitter:      b.eventEmitter,
 		shutdown:          make(chan struct{}),
+		slots:             executionSlots(b.config),
 	}, nil
 }
 
@@ -399,4 +400,13 @@ func (b *PipelineBuilder) Clone() *PipelineBuilder {
 	}
 
 	return clone
+}
+
+// executionSlots returns the semaphore bounding concurrent executions, or nil
+// when MaxConcurrentPipelines sets no limit.
+func executionSlots(config *PipelineConfig) chan struct{} {
+	if config == nil || config.MaxConcurrentPipelines <= 0 {
+		return nil
+	}
+	return make(chan struct{}, config.MaxConcurrentPipelines)
 }

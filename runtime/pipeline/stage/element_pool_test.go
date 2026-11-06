@@ -2,12 +2,15 @@ package stage
 
 import (
 	"errors"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetElement(t *testing.T) {
@@ -310,4 +313,39 @@ func BenchmarkPoolParallel(b *testing.B) {
 			PutElement(elem)
 		}
 	})
+}
+
+// TestReset_ClearsEveryField populates every StreamElement field and checks
+// Reset leaves the element equal to a fresh one. The reflection guard makes a
+// newly added field fail here until it is both populated below and cleared by
+// Reset, so a pooled element cannot carry it into its next use.
+func TestReset_ClearsEveryField(t *testing.T) {
+	elem := &StreamElement{
+		Text:        testutil.Ptr("text"),
+		Audio:       &AudioData{},
+		Video:       &VideoData{},
+		Image:       &ImageData{},
+		Message:     &types.Message{},
+		ToolCall:    &types.MessageToolCall{},
+		Part:        &types.ContentPart{},
+		MediaData:   &types.MediaContent{},
+		Sequence:    7,
+		Timestamp:   time.Now(),
+		Source:      "src",
+		Priority:    PriorityCritical,
+		Reasoning:   &ReasoningDelta{Text: "thinking"},
+		Meta:        ElementMetadata{FromHistory: true},
+		EndOfStream: true,
+		EndOfTurn:   true,
+		Interrupt:   true,
+		Error:       errors.New("boom"),
+	}
+	v := reflect.ValueOf(elem).Elem()
+	for i := 0; i < v.NumField(); i++ {
+		require.Falsef(t, v.Field(i).IsZero(), "test must populate StreamElement.%s", v.Type().Field(i).Name)
+	}
+
+	elem.Reset()
+
+	assert.Equal(t, StreamElement{Priority: PriorityNormal}, *elem)
 }

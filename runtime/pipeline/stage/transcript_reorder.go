@@ -15,14 +15,14 @@ import (
 const defaultTranscriptHoldTimeout = 3 * time.Second
 
 // TranscriptReorderStage guarantees that, within a turn, the user's input
-// transcript is emitted before that turn's assistant text — even when the
+// transcript is emitted before that turn's assistant text, even when the
 // provider delivers the transcript late (e.g. OpenAI Realtime, whose Whisper
 // transcription can land after the assistant reply, or even after the whole
 // turn, has finished).
 //
 // It buffers assistant TEXT elements and HOLDS the turn-end until the user turn
 // for that turn arrives (or a short timeout elapses), then emits user-then-text
-// in order. AUDIO passes through immediately, so playback stays realtime — only
+// in order. AUDIO passes through immediately, so playback stays realtime. Only
 // the transcript log is reordered. The turn-end (EndOfStream) is held
 // too, so a late transcript is never emitted after the turn boundary (which both
 // mis-orders the log and can confuse downstream turn-scoped stages). If the

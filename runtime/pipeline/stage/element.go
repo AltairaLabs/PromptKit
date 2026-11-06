@@ -111,7 +111,7 @@ type StreamElement struct {
 // Priority defines the scheduling priority for stream elements.
 // PriorityChannel delivers higher priority elements first. The channels between
 // pipeline stages deliver elements in the order they were sent, whatever their
-// priority.
+// priority, unless PipelineConfig.PrioritizeElements is set.
 type Priority int
 
 const (
