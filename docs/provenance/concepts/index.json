@@ -1,17 +1,17 @@
 {
  "page": "docs/src/content/docs/concepts/index.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "ebf8d92f226c18ca12b790f73b09a762bd8d2512",
  "claims": [
   {
    "id": 1,
    "claim": "pipeline stages StateStoreLoad, PromptAssembly, Template, ProviderStage, IncrementalSave in order",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_core.go:166",
-    "runtime/pipeline/stage/stages_core.go:34",
-    "runtime/pipeline/stage/stages_provider.go:286",
-    "runtime/pipeline/stage/stages_save.go:60",
-    "runtime/pipeline/stage/stages_utilities.go:142"
+    "runtime/pipeline/stage/stages_core.go:175",
+    "runtime/pipeline/stage/stages_core.go:19-60",
+    "runtime/pipeline/stage/stages_provider.go:339",
+    "runtime/pipeline/stage/stages_save.go:64",
+    "runtime/pipeline/stage/stages_utilities.go:186"
    ]
   },
   {
@@ -19,11 +19,11 @@
    "claim": "validation runs as hooks in ProviderStage",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_core.go:166",
-    "runtime/pipeline/stage/stages_core.go:34",
-    "runtime/pipeline/stage/stages_provider.go:286",
-    "runtime/pipeline/stage/stages_save.go:60",
-    "runtime/pipeline/stage/stages_utilities.go:142"
+    "runtime/pipeline/stage/stages_core.go:175",
+    "runtime/pipeline/stage/stages_core.go:19-60",
+    "runtime/pipeline/stage/stages_provider.go:339",
+    "runtime/pipeline/stage/stages_save.go:64",
+    "runtime/pipeline/stage/stages_utilities.go:186"
    ]
   },
   {

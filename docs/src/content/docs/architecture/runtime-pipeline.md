@@ -3,7 +3,7 @@ title: Runtime Pipeline
 sidebar:
   order: 2
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: ebf8d92f226c18ca12b790f73b09a762bd8d2512
   sources:
     - runtime/events/types.go
     - runtime/hooks/hooks.go
@@ -11,10 +11,12 @@ verified:
     - runtime/pipeline/stage/config.go
     - runtime/pipeline/stage/element.go
     - runtime/pipeline/stage/errors.go
+    - runtime/pipeline/stage/idle_timeout.go
     - runtime/pipeline/stage/pipeline.go
     - runtime/pipeline/stage/stage.go
     - runtime/pipeline/stage/stages_provider.go
     - runtime/pipeline/stage/stages_utilities.go
+    - runtime/pipeline/types.go
     - sdk/internal/pipeline/builder.go
     - sdk/internal/pipeline/builder_vad.go
 ---
@@ -107,7 +109,7 @@ A stage with several upstreams implements `MultiInputStage`, and a stage that ro
 | `StateStoreLoadStage` | Loads the conversation history, tags each message `Meta.FromHistory`, emits it before the current input, and derives the turn index from the persisted transcript. |
 | `VariableProviderStage` | Merges static variables and the output of each `variables.Provider` into `TurnState.Variables`. A failing provider fails the turn. |
 | `PromptAssemblyStage` | Loads the raw prompt template for the task type and publishes the template, its allowed tools and its validator configs to `TurnState`. It does not render. |
-| `TemplateStage` | Renders the system prompt once per turn from the template, its default and fragment variables, and `TurnState.Variables`. A variable nothing supplied fails the turn with `ErrTemplateUnresolved`. Message content is not substituted. |
+| `TemplateStage` | Renders the system prompt once per turn from the template, its default and fragment variables, and `TurnState.Variables`, then appends the text from `WithSystemPromptSuffix` when one is set. A variable nothing supplied fails the turn with `ErrTemplateUnresolved`. Message content is not substituted. |
 | `ProviderStage` | Calls the model, runs the tool loop, and runs the hooks. |
 | `IncrementalSaveStage` | Persists the messages this turn produced, through `MessageAppender` when the store implements it and through a full save otherwise. |
 
@@ -146,9 +148,10 @@ sequenceDiagram
 
 - Tool calls within a round run in parallel, up to 10 at a time by default.
 - A turn runs at most 50 rounds by default. `ToolPolicy.MaxRounds` and the prompt's own policy lower it. Reaching the limit returns a `MaxRoundsError` that matches `ErrMaxRoundsExceeded`.
-- `ToolPolicy` also carries a blocklist, a `ToolChoice`, and `MaxCostUSD`, which bounds the whole run rather than one turn.
+- `ToolPolicy` also carries a blocklist, a `ToolChoice`, `MaxCallsPerMinute`, which caps each tool's calls in any one-minute window of a conversation, and `MaxCostUSD`, which bounds the whole run rather than one turn.
 - A tool whose result carries an error twice is left out of the tool list for the remaining rounds.
 - A compactor folds stale tool results between rounds so the context does not overflow.
+- Before each model call, the stage checks that every image, audio, video and document part of the request's input (non-assistant) messages is a modality and MIME type the provider declares it supports. An unsupported part fails the round with a `*providers.UnsupportedContentError` before any request is sent. `ProviderConfig.SkipContentValidation` turns the check off, and providers that declare no multimodal capabilities are never checked.
 
 ### Hooks
 
@@ -240,11 +243,13 @@ pipeline, err := stage.NewPipelineBuilderWithConfig(config).
     Build()
 ```
 
-The channel buffer holds 32 elements by default. The execution timeout is off by default. The idle timeout is 30 seconds. It resets on every streamed chunk, finished round and finished tool call, and stays open while a tool runs. `Shutdown` waits up to the graceful shutdown timeout (10 seconds by default) for in-flight executions, and `Execute` on a pipeline that is shutting down returns `ErrPipelineShuttingDown`.
+`MaxConcurrentPipelines` (100 by default, 0 for no limit) bounds how many executions of one pipeline run at once. `Execute` waits for a slot, and returns the context's error if the context ends first. `PrioritizeElements` (off by default) makes each stage read its input in priority order, so an `EndOfTurn` can overtake the turn's content. The streaming provider stage does not tolerate that, so leave it off for pipelines that contain one.
+
+The channel buffer holds 32 elements by default. The execution timeout is off by default. The idle timeout is 30 seconds. It resets on every streamed chunk, finished round and finished tool call, and stays open while a tool runs. `Shutdown` waits up to the graceful shutdown timeout (10 seconds by default) for in-flight executions, and `Execute` on a pipeline that is shutting down returns `ErrPipelineShuttingDown`. When the grace period ends with an execution still running and its reader has stopped reading, the execution drops the rest of its output and ends the stream with an error that wraps `ErrOutputTruncated`.
 
 ## When a stage fails
 
-A stage fails the turn by returning an error from `Process`. The pipeline wraps the error in a `StageError` that names the stage, emits a stage-failed event, and records the first failure. A context error that is only the cancellation of the pipeline's own context, a caller cancel or a timeout, is not a failure.
+A stage fails the turn by returning an error from `Process`. The pipeline emits a stage-failed event and records the first failure. The caller receives the error wrapped in a `StageError` that names the stage, except when the stage already emitted it as an error element (the provider stage does), in which case the caller receives it as emitted. A context error that comes from the caller's own cancellation is not a failure. The pipeline's own `ExecutionTimeout` or `IdleTimeout` is: it fails the turn with an error that wraps `ErrExecutionTimeout` or `ErrIdleTimeout`.
 
 The pipeline does not cancel anything. The other stages keep running and drain, so the messages the turn already produced still reach `IncrementalSaveStage` and persist.
 
@@ -268,7 +273,7 @@ sequenceDiagram
     Save-->>Caller: error element, then output closes
 ```
 
-Every stage after the root has an input gate. It forwards elements untouched. When the upstream channel closes, it waits for the upstream stage to return. If that stage failed, and the error did not already travel on the channel, the gate appends an error element that wraps the `StageError` as the last element of the input. A shared channel read by several downstream stages gets one distributor that signals every reader still running.
+Every stage after the root has an input gate. It forwards elements untouched. When the upstream channel closes, it waits for the upstream stage to return. If that stage failed and no turn-failure signal has passed through yet, the gate appends an error element that wraps the `StageError` as the last element of the input. It does so even when the stage also sent its error as an ordinary error element, because a downstream stage cannot tell that element from a non-fatal report. A shared channel read by several downstream stages gets one distributor that signals every reader still running.
 
 Stages react to the signal as follows:
 
@@ -277,7 +282,7 @@ Stages react to the signal as follows:
 - `IncrementalSaveStage` saves what it collected and forwards the error, and `RecordingStage` does not record it as content.
 - Any other stage forwards an error element like any other element.
 
-The caller receives the failure as the last element of the output channel, with the error in `Error`. `ExecuteSync` returns it as its error, together with the messages collected so far. `errors.As` finds the `*StageError`, and `errors.Is` reaches the cause. The pipeline reports `pipeline.failed` instead of `pipeline.completed`.
+The caller receives the failure as the last element of the output channel, with the error in `Error`. `ExecuteSync` returns it as its error, together with the messages collected so far. The caller must read the output to its end or cancel the context: an execution whose output nobody reads blocks until the context ends or `Shutdown`'s grace period runs out. For a stage that did not emit its own error, `errors.As` finds the `*StageError` and `errors.Is` reaches the cause. The pipeline reports `pipeline.failed` instead of `pipeline.completed`.
 
 A stage can also report a problem without failing the turn by sending `NewErrorElement` and carrying on. The consumer sees the element, and `ExecuteSync` returns the last error element it saw as its error.
 

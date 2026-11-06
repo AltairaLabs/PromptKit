@@ -1,13 +1,41 @@
 {
  "page": "docs/src/content/docs/architecture/runtime-providers.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "ebf8d92f226c18ca12b790f73b09a762bd8d2512",
  "claims": [
+  {
+   "id": "36",
+   "claim": "Rate limit applies to every HTTP request incl. retries, wait not counted against request timeout, credential applied after wait; ProviderSpec.RateLimit",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base_provider.go:961",
+    "runtime/providers/registry.go:231-256"
+   ]
+  },
+  {
+   "id": "37",
+   "claim": "StreamChunk.FinalResult is *PredictionResponse on provider streams; StreamObserver receives chunks via SetStreamObserver / ProviderSpec.StreamObserver",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base_provider.go:630-636",
+    "runtime/providers/streaming.go:112-118",
+    "runtime/providers/streaming.go:155-180"
+   ]
+  },
+  {
+   "id": "38",
+   "claim": "Credential that cannot be applied is not retried and not transient (ErrRequestAuthorization)",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/errors.go:78-84",
+    "runtime/providers/retry.go:67-72"
+   ]
+  },
   {
    "id": "c1",
    "claim": "Provider embeds base.Provider and adds ID, Model, Predict, PredictStream, SupportsStreaming, ShouldIncludeRawOutput, CalculateCost",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/provider.go:242-262"
+    "runtime/providers/provider.go:253-273"
    ]
   },
   {
@@ -15,7 +43,7 @@
    "claim": "API 400 rejecting a sampling param is recorded, not resent, call repeated",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/rejected_params.go:124-138"
+    "runtime/providers/rejected_params.go:126-140"
    ]
   },
   {
@@ -23,7 +51,7 @@
    "claim": "PredictionResponse fields incl Reasoning and FinishReason",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/provider.go:181-196"
+    "runtime/providers/provider.go:190-205"
    ]
   },
   {
@@ -31,7 +59,7 @@
    "claim": "StreamChunk fields Reasoning, FinishReason nil until end, CostInfo final chunk, Reset",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/streaming.go:49-123"
+    "runtime/providers/streaming.go:54-135"
    ]
   },
   {
@@ -39,7 +67,7 @@
    "claim": "Factories registered in init; unknown type returns UnsupportedProviderError; platform names produce hint",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/registry.go:47-52"
+    "runtime/providers/registry.go:49-60"
    ]
   },
   {
@@ -47,7 +75,7 @@
    "claim": "CreateProviderFromSpec applies timeouts, stream retry, concurrency, transport, headers, media store after factory",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/registry.go:431-506"
+    "runtime/providers/registry.go:397-545"
    ]
   },
   {
@@ -55,7 +83,7 @@
    "claim": "Registry keyed by ID; Register/Get/List/Close; GetByType/GetAll; no mutex; CreateProviderFromSpec does not register",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/registry.go:27-133"
+    "runtime/providers/registry.go:28-143"
    ]
   },
   {
@@ -63,7 +91,7 @@
    "claim": "OpenAI sends seed on Chat Completions not Responses",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/openai/openai.go:541",
+    "runtime/providers/openai/openai.go:542",
     "runtime/providers/openai/openai_responses_integration.go:233"
    ]
   },
@@ -72,7 +100,7 @@
    "claim": "Claude falls back to 4096 max tokens; factory rejects unlimited",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude.go:664-695"
+    "runtime/providers/claude/claude.go:669-700"
    ]
   },
   {
@@ -80,7 +108,7 @@
    "claim": "Claude prompt caching on unless DisablePromptCaching",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude.go:575-578"
+    "runtime/providers/claude/claude.go:580-583"
    ]
   },
   {
@@ -88,7 +116,7 @@
    "claim": "Gemini systemInstruction and function_declarations; Interactions mode",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/gemini/gemini.go:207",
+    "runtime/providers/gemini/gemini.go:211",
     "runtime/providers/gemini/gemini_tools.go:74",
     "runtime/providers/gemini/interactions_mode.go:28"
    ]
@@ -98,7 +126,7 @@
    "claim": "ToolSupport adds BuildTooling, PredictWithTools, PredictStreamWithTools",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/provider.go:319-343"
+    "runtime/providers/provider.go:329-353"
    ]
   },
   {
@@ -106,7 +134,7 @@
    "claim": "Ollama and vllm default base URLs are localhost",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/registry.go:420-423"
+    "runtime/providers/registry.go:455-458"
    ]
   },
   {
@@ -114,10 +142,10 @@
    "claim": "MediaContent sources and per-provider encoding",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude_multimodal.go:175",
-    "runtime/providers/gemini/gemini_multimodal.go:177",
-    "runtime/providers/openai/openai_multimodal.go:170-176",
-    "runtime/types/content.go:28-50"
+    "runtime/providers/claude/claude_multimodal.go:176",
+    "runtime/providers/gemini/gemini_multimodal.go:218",
+    "runtime/providers/openai/openai_multimodal.go:184-190",
+    "runtime/types/content.go:29-52"
    ]
   },
   {
@@ -126,7 +154,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/providers/claude/claude_streaming.go:60",
-    "runtime/providers/sse.go:9-57"
+    "runtime/providers/sse.go:18-68"
    ]
   },
   {
@@ -134,7 +162,7 @@
    "claim": "DefaultStreamIdleTimeout 30s; reasoning chunks reset idle timer",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/streaming.go:41-44"
+    "runtime/providers/streaming.go:44"
    ]
   },
   {
@@ -142,7 +170,7 @@
    "claim": "Request timeout does not apply to SSE streams",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/registry.go:171-177"
+    "runtime/providers/registry.go:181-190"
    ]
   },
   {
@@ -150,7 +178,7 @@
    "claim": "Stream retry defaults, pre_first_chunk vs always with Reset, Retry-After cap, full jitter",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/stream_retry.go:27-81"
+    "runtime/providers/stream_retry.go:27-83"
    ]
   },
   {
@@ -158,7 +186,7 @@
    "claim": "StreamMaxConcurrent and retry budget",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/registry.go:191-205"
+    "runtime/providers/registry.go:197-215"
    ]
   },
   {
@@ -166,7 +194,7 @@
    "claim": "DoWithRetry defaults: 3 retries, exponential 500ms, cap 60s, jitter up to 50%, Retry-After replaces delay",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/retry.go:19-31"
+    "runtime/providers/retry.go:20-32"
    ]
   },
   {
@@ -174,7 +202,7 @@
    "claim": "Retryable statuses 429/502/503/504 and network errors; 500 and ctx errors not",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/retry.go:45-85"
+    "runtime/providers/retry.go:60-90"
    ]
   },
   {
@@ -182,8 +210,8 @@
    "claim": "Error types ProviderHTTPError, ProviderTransportError, RetryableHTTPError, ErrPayloadTooLarge",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/errors.go:13-58",
-    "runtime/providers/retry.go:351"
+    "runtime/providers/errors.go:15-60",
+    "runtime/providers/retry.go:358"
    ]
   },
   {
@@ -199,7 +227,7 @@
    "claim": "IsTransient false for ctx cancel and stream idle timeout",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/errors.go:64-84"
+    "runtime/providers/errors.go:65-90"
    ]
   },
   {
@@ -207,7 +235,7 @@
    "claim": "SetRateLimit and HTTPTransportOptions",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/base_provider.go:73"
+    "runtime/providers/base_provider.go:74"
    ]
   },
   {
@@ -215,7 +243,7 @@
    "claim": "ResolveMaxTokens order and MaxTokensUnlimited",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/provider.go:204-237"
+    "runtime/providers/provider.go:215-248"
    ]
   },
   {
@@ -260,7 +288,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/compactor.go:98",
-    "runtime/providers/provider.go:278-282"
+    "runtime/providers/provider.go:294-298"
    ]
   },
   {
@@ -268,8 +296,8 @@
    "claim": "MessageMetadataTemplater and MediaScoped interfaces",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/provider.go:290",
-    "runtime/providers/registry.go:338"
+    "runtime/providers/provider.go:304",
+    "runtime/providers/registry.go:368"
    ]
   },
   {
@@ -277,7 +305,7 @@
    "claim": "PredictionRequest fields",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/provider.go:56-77"
+    "runtime/providers/provider.go:65-86"
    ]
   },
   {
@@ -285,7 +313,7 @@
    "claim": "NormalizeMessages moves system-role messages into System",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/provider.go:145-178"
+    "runtime/providers/provider.go:154-187"
    ]
   },
   {
@@ -293,7 +321,7 @@
    "claim": "WarnUnsentParams logs once per provider and parameter",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/provider.go:100-116"
+    "runtime/providers/provider.go:109-125"
    ]
   }
  ]

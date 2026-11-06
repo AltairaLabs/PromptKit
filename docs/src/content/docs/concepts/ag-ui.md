@@ -4,7 +4,7 @@ description: How the AG-UI protocol connects agents to frontend applications in 
 sidebar:
   order: 8
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: ebf8d92f226c18ca12b790f73b09a762bd8d2512
   sources:
     - sdk/agui/adapter.go
     - sdk/agui/convert.go
@@ -136,6 +136,12 @@ AG-UI defines events for the whole lifecycle of a run. The ones below are those 
 | `STEP_STARTED` | A step of the run has begun |
 | `STEP_FINISHED` | The step has finished |
 
+### Raw Events
+
+| Event | Description |
+|-------|-------------|
+| `RAW` | A PromptKit runtime event, with source `promptkit`. Emitted only with `WithRuntimeEvents` |
+
 ---
 
 ## How PromptKit Integrates
@@ -165,12 +171,13 @@ The `EventAdapter` runs one conversation turn as one AG-UI run. When the turn ha
 | PromptKit Activity | AG-UI Event(s) |
 |--------------------|----------------|
 | Turn starts | `RUN_STARTED` |
-| State provider configured | `STATE_SNAPSHOT` |
+| State provider configured | `STATE_SNAPSHOT`, omitted if the provider returns an error |
 | Workflow conversation | `STEP_STARTED` naming the workflow state the run starts in |
 | Each assistant message in the turn | `TEXT_MESSAGE_START` → `TEXT_MESSAGE_CONTENT` (its whole text) → `TEXT_MESSAGE_END` |
 | Each tool call the model made | `TOOL_CALL_START` → `TOOL_CALL_ARGS` (when the call has arguments) → `TOOL_CALL_END` |
 | Each result of a tool the agent ran | `TOOL_CALL_RESULT` carrying what the tool returned |
 | Workflow transition committed | `STEP_FINISHED` for the old state, `STEP_STARTED` for the new one |
+| `WithRuntimeEvents` set | `RAW` for each runtime event the conversation's event bus delivers while the run is open |
 | Turn completes | `STEP_FINISHED` for the open step, then `RUN_FINISHED` |
 | Turn held for tool approval | `RUN_FINISHED` with an `interrupt` outcome naming the held calls |
 | Error occurs | `RUN_ERROR` |
@@ -189,6 +196,8 @@ RUN_FINISHED
 For a pack with a workflow, open it with `sdk.OpenWorkflow` and create the adapter with `NewWorkflowEventAdapter`. Each run then opens a step named after the workflow state it starts in and closes it before `RUN_FINISHED`; a turn that moves the workflow to another state finishes that step and starts one for the new state. `WithWorkflowSteps(false)` leaves the steps out.
 
 A `TOOL_CALL_RESULT` is never empty, because the AG-UI Go SDK rejects an event with empty content. A result with no text carries its error, a description of the media it holds (such as `[image/png image]`), or the JSON encoding of its value (`""` for an empty string).
+
+`WithRuntimeEvents` forwards the conversation's [runtime events](/architecture/runtime-events/) as `RAW` events, with the `events.Event` as the payload. Name event types to forward only those, such as `events.EventToolCallStarted`; with none, every event is forwarded. By default none are. The bus delivers asynchronously, so a `RAW` event is not ordered against the run's other events, and an event the bus delivers after `RUN_FINISHED` or `RUN_ERROR` is not sent. A bus shared by several conversations carries all of their events; filter on the payload's `SessionID` or `ConversationID`.
 
 ### Frontend Tools
 
@@ -241,6 +250,7 @@ Read `Events()` while the run is in progress, from another goroutine. Once its b
 ### What the Adapter Does Not Do
 
 - Stream tokens. Each message's text arrives as one `TEXT_MESSAGE_CONTENT` once the turn has run.
+- Order runtime events against the run's messages, tool calls and steps. Those come from the turn itself, which keeps them ordered.
 - Emit `STATE_DELTA`, `MESSAGES_SNAPSHOT`, or reasoning events.
 - Name pending calls on `RUN_FINISHED`. A run that ends with a frontend tool call unanswered finishes without an outcome, which means success; a consumer finds the pending calls as the calls that received no `TOOL_CALL_RESULT`.
 - Keep message ids stable. The converters mint a new id each time they convert a message.

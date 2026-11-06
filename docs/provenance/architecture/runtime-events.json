@@ -1,13 +1,22 @@
 {
  "page": "docs/src/content/docs/architecture/runtime-events.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "ebf8d92f226c18ca12b790f73b09a762bd8d2512",
  "claims": [
+  {
+   "id": "19",
+   "claim": "AG-UI adapter WithRuntimeEvents forwards bus events as RAW events with source promptkit while the run is open",
+   "verdict": "true",
+   "evidence": [
+    "sdk/agui/adapter.go:175",
+    "sdk/agui/adapter.go:434"
+   ]
+  },
   {
    "id": "c1",
    "claim": "The bus has one dispatcher goroutine and a goroutine per listener; no worker pool",
    "verdict": "true",
    "evidence": [
-    "runtime/events/bus.go:243-251"
+    "runtime/events/bus.go:242-250"
    ]
   },
   {
@@ -16,7 +25,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/events/bus.go:14-21",
-    "runtime/events/bus.go:144"
+    "runtime/events/bus.go:143"
    ]
   },
   {
@@ -24,7 +33,7 @@
    "claim": "PROMPTKIT_EVENT_BUS_BUFFER_SIZE and _SUBSCRIBER_TIMEOUT env vars",
    "verdict": "true",
    "evidence": [
-    "runtime/events/bus.go:35-46"
+    "runtime/events/bus.go:34-45"
    ]
   },
   {
@@ -32,8 +41,8 @@
    "claim": "MaxEvalValueBytes, ValueOmitted, SetValue; Kind/Passed/TurnIndex semantics",
    "verdict": "true",
    "evidence": [
-    "runtime/events/types.go:1178-1205",
-    "runtime/events/types.go:830-922"
+    "runtime/events/types.go:1188-1215",
+    "runtime/events/types.go:840-932"
    ]
   },
   {
@@ -42,8 +51,8 @@
    "verdict": "true",
    "evidence": [
     "sdk/hooks/events.go:41-53",
-    "sdk/options.go:1096",
-    "sdk/sdk.go:705-713"
+    "sdk/options.go:1125",
+    "sdk/sdk.go:716-724"
    ]
   },
   {
@@ -52,7 +61,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/builder.go:47",
-    "runtime/pipeline/stage/stages_provider.go:288"
+    "runtime/pipeline/stage/stages_provider.go:326"
    ]
   },
   {
@@ -60,7 +69,7 @@
    "claim": "Arena TUI NewEventAdapter(bus, program)",
    "verdict": "dead",
    "evidence": [
-    "sdk/agui/adapter.go:164"
+    "sdk/agui/adapter.go:199"
    ]
   },
   {
@@ -91,7 +100,7 @@
    "claim": "Publish returns false when dropped (buffer full) or closed",
    "verdict": "true",
    "evidence": [
-    "runtime/events/bus.go:575-605"
+    "runtime/events/bus.go:574-604"
    ]
   },
   {
@@ -99,7 +108,7 @@
    "claim": "Listener panics are recovered",
    "verdict": "true",
    "evidence": [
-    "runtime/events/bus.go:700-703"
+    "runtime/events/bus.go:699-702"
    ]
   },
   {
@@ -107,7 +116,7 @@
    "claim": "Emitter sets Timestamp, ExecutionID, SessionID, ConversationID, UserID; Sequence is set by the bus",
    "verdict": "false",
    "evidence": [
-    "runtime/events/bus.go:587-588",
+    "runtime/events/bus.go:586-587",
     "runtime/events/emitter.go:75-88"
    ]
   },
@@ -124,8 +133,8 @@
    "claim": "middleware.started/completed/failed events and MiddlewareStats are emitted by the pipeline",
    "verdict": "dead",
    "evidence": [
-    "runtime/events/types.go:25-30",
-    "runtime/pipeline/stage/pipeline.go:126"
+    "runtime/events/types.go:25-40",
+    "runtime/pipeline/stage/pipeline.go:198"
    ]
   },
   {
@@ -133,7 +142,7 @@
    "claim": "stage.started/completed/failed emitted per stage",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:768-795"
+    "runtime/pipeline/stage/pipeline.go:1167-1195"
    ]
   },
   {
@@ -141,7 +150,7 @@
    "claim": "EmitCustom signature (eventType, middlewareName, eventName, data, message)",
    "verdict": "false",
    "evidence": [
-    "runtime/events/emitter.go:536-548"
+    "runtime/events/emitter.go:546-558"
    ]
   },
   {
@@ -149,7 +158,7 @@
    "claim": "DroppedCount counts publish drops and full listener queues; stuck/disabled misses are logged only",
    "verdict": "true",
    "evidence": [
-    "runtime/events/bus.go:607-614"
+    "runtime/events/bus.go:606-613"
    ]
   }
  ]

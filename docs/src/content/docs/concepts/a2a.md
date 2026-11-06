@@ -4,7 +4,7 @@ description: The A2A wire format, agent cards, task lifecycle and streaming as P
 sidebar:
   order: 7
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: ebf8d92f226c18ca12b790f73b09a762bd8d2512
   sources:
     - runtime/a2a/bridge.go
     - runtime/a2a/client.go
@@ -82,7 +82,7 @@ The two versions carry the same operations in different wire shapes:
 
 A file part sent by URL is a URL the caller chose. OpenAI and Claude hand an image URL to the vendor to fetch. The host fetches the other parts itself: every media part for Gemini, documents for Claude, audio for OpenAI, and every image for Ollama, whose server usually sits inside the host's network. The host refuses to fetch from loopback, private, link-local or otherwise non-public addresses, including redirects to them, so a caller cannot point it at the cloud metadata service or the internal network. The same applies to AG-UI messages. `sdk.WithUnsafePrivateNetworkMedia()` turns the check off; use it only when every media URL comes from a source you trust, and use your egress policy to allow specific internal destinations.
 
-A blocking `SendMessage` holds its request until the turn ends. If the caller disconnects first, the server stops waiting and the turn runs on under its task. `a2aserver.WithMaxBlockingWait` caps the wait: past the cap, the caller gets the task still working, and polls `GetTask` or subscribes. The runtime's A2A tool executor does not block. It sends with `returnImmediately`, polls the task until it finishes (`Client.WaitForTask`), and cancels the task if the tool's timeout runs out first. It does not resend a message after a response timeout, because the agent may already have started the turn.
+A blocking `SendMessage` holds its request until the turn ends. If the caller disconnects first, the server stops waiting and the turn runs on under its task. `a2aserver.WithMaxBlockingWait` caps the wait: past the cap, the caller gets the task still working, and polls `GetTask` or subscribes. `a2aserver.WithWriteTimeout` sets the HTTP server's write timeout, which is 0 (none) by default. Streaming responses lift it for their own connection and a blocking `SendMessage` does not, so set it above the longest turn a caller waits on. The runtime's A2A tool executor does not block. It sends with `returnImmediately`, polls the task until it finishes (`Client.WaitForTask`), and cancels the task if the tool's timeout runs out first. It does not resend a message after a response timeout, because the agent may already have started the turn.
 
 The runtime client sends `A2A-Version: 1.0`. If the agent rejects a 1.0 method as unknown or unsupported, the client retries once in 0.3 and remembers the answer; `a2a.WithProtocolVersion` pins a version instead. The client reads every version's shapes, so its callers see one set of Go types.
 
@@ -254,7 +254,7 @@ In 0.3 each result is sent bare, tagged with `"kind"` (`task`, `artifact-update`
 
 `SubscribeToTask` (0.3: `tasks/resubscribe`) streams the same updates for a task already running. That includes a task started with a non-streaming `SendMessage`. The subscription opens with the task as it stands.
 
-The client parses every version's events and delivers them as a channel of `StreamEvent` values. Each holds exactly one of `Task`, `Message`, `StatusUpdate` or `ArtifactUpdate`.
+The client parses every version's events and delivers them as a channel of `StreamEvent` values. Each holds exactly one of `Task`, `Message`, `StatusUpdate` or `ArtifactUpdate`, except the last event of a stream that ends in an error. That event holds an `Error`: a JSON-RPC error the agent sent, or `ErrSSEIdleTimeout` when the stream received nothing within the idle timeout (5 minutes by default, `a2a.WithSSEIdleTimeout`), so a caller can tell a stall from a finished stream.
 
 ---
 
@@ -266,7 +266,7 @@ JSON-RPC gives typed methods, error codes and request IDs over a single HTTP end
 
 ### Why Agent Cards?
 
-Agent cards enable dynamic discovery. A client can connect to any A2A server, fetch its card, and learn what it can do without hardcoded knowledge. The Tool Bridge uses the card to generate a tool descriptor for each agent skill.
+Agent cards enable dynamic discovery. A client can connect to any A2A server, fetch its card, and learn what it can do without hardcoded knowledge. The Tool Bridge uses the card to generate a tool descriptor for each agent skill, named `a2a__<agent>__<skill>`.
 
 ### Architecture Split
 

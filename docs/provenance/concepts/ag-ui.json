@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/concepts/ag-ui.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "ebf8d92f226c18ca12b790f73b09a762bd8d2512",
  "claims": [
   {
    "id": 1,
@@ -13,7 +13,7 @@
    "claim": "AG-UI request/response: RunAgentInput POST, SSE stream of typed events",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:257"
+    "sdk/agui/adapter.go:291"
    ]
   },
   {
@@ -27,8 +27,8 @@
    "claim": "tools are frontend tools the application executes",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:142",
-    "sdk/agui/convert.go:240"
+    "sdk/agui/adapter.go:156",
+    "sdk/agui/convert.go:241"
    ]
   },
   {
@@ -36,8 +36,8 @@
    "claim": "Example SSE events",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:339",
-    "sdk/agui/adapter.go:447"
+    "sdk/agui/adapter.go:364-415",
+    "sdk/agui/adapter.go:547"
    ]
   },
   {
@@ -45,8 +45,8 @@
    "claim": "Adapter emits lifecycle/text/tool/state snapshot/step events only",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:339",
-    "sdk/agui/adapter.go:447"
+    "sdk/agui/adapter.go:364-415",
+    "sdk/agui/adapter.go:547"
    ]
   },
   {
@@ -54,7 +54,7 @@
    "claim": "RUN_FINISHED with interrupt outcome",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:382"
+    "sdk/agui/adapter.go:482-500"
    ]
   },
   {
@@ -62,7 +62,7 @@
    "claim": "sdk/agui converters and EventAdapter",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:164",
+    "sdk/agui/adapter.go:186-200",
     "sdk/agui/convert.go:86"
    ]
   },
@@ -79,8 +79,8 @@
    "claim": "event mapping table",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:339",
-    "sdk/agui/adapter.go:406"
+    "sdk/agui/adapter.go:364-415",
+    "sdk/agui/adapter.go:506"
    ]
   },
   {
@@ -88,7 +88,7 @@
    "claim": "TOOL_CALL_ARGS only when the call has arguments",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:447"
+    "sdk/agui/adapter.go:547"
    ]
   },
   {
@@ -96,7 +96,7 @@
    "claim": "tool-then-answer turn: two assistant messages, sequence block",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:406"
+    "sdk/agui/adapter.go:506"
    ]
   },
   {
@@ -104,9 +104,9 @@
    "claim": "OpenWorkflow + NewWorkflowEventAdapter steps; WithWorkflowSteps(false)",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:126",
-    "sdk/agui/adapter.go:179",
-    "sdk/workflow.go:103"
+    "sdk/agui/adapter.go:140",
+    "sdk/agui/adapter.go:214",
+    "sdk/workflow.go:104"
    ]
   },
   {
@@ -114,7 +114,7 @@
    "claim": "TOOL_CALL_RESULT never empty",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:485"
+    "sdk/agui/adapter.go:585"
    ]
   },
   {
@@ -122,8 +122,8 @@
    "claim": "frontend tool call ends run unanswered; tool message JSON; error set; RunResume; no echo",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:277",
-    "sdk/agui/convert.go:240"
+    "sdk/agui/adapter.go:310",
+    "sdk/agui/convert.go:241"
    ]
   },
   {
@@ -131,11 +131,11 @@
    "claim": "approval hold interrupt outcome JSON; resume JSON; ResolveTool/RejectTool; RunContinue emits TOOL_CALL_RESULT",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:299",
-    "sdk/agui/adapter.go:382",
-    "sdk/conversation_tools.go:171",
-    "sdk/conversation_tools.go:235",
-    "sdk/conversation_tools.go:305"
+    "sdk/agui/adapter.go:331",
+    "sdk/agui/adapter.go:482-500",
+    "sdk/conversation_tools.go:172",
+    "sdk/conversation_tools.go:236",
+    "sdk/conversation_tools.go:321"
    ]
   },
   {
@@ -143,9 +143,9 @@
    "claim": "input fields table",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:339",
-    "sdk/agui/convert.go:240",
-    "sdk/agui/convert.go:302"
+    "sdk/agui/adapter.go:364-415",
+    "sdk/agui/convert.go:241",
+    "sdk/agui/convert.go:303"
    ]
   },
   {
@@ -154,7 +154,7 @@
    "verdict": "true",
    "evidence": [
     "sdk/agui/adapter.go:20",
-    "sdk/agui/adapter.go:728"
+    "sdk/agui/adapter.go:828"
    ]
   },
   {
@@ -162,8 +162,8 @@
    "claim": "does not stream tokens; no pending calls on RUN_FINISHED; new ids; new input only",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:382",
-    "sdk/agui/adapter.go:447",
+    "sdk/agui/adapter.go:482-500",
+    "sdk/agui/adapter.go:547",
     "sdk/agui/convert.go:86"
    ]
   },
@@ -172,6 +172,16 @@
    "claim": "@ag-ui/client HttpAgent example",
    "verdict": "unverified",
    "evidence": []
+  },
+  {
+   "id": "21",
+   "claim": "WithRuntimeEvents forwards bus events as RAW events, source promptkit; asynchronous; closed after terminal event; state snapshot omitted on provider error",
+   "verdict": "true",
+   "evidence": [
+    "sdk/agui/adapter.go:175",
+    "sdk/agui/adapter.go:376-380",
+    "sdk/agui/adapter.go:417-480"
+   ]
   }
  ]
 }

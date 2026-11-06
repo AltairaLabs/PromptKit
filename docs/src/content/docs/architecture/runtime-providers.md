@@ -4,10 +4,9 @@ description: How the runtime puts OpenAI, Claude, Gemini and other LLM APIs behi
 sidebar:
   order: 6
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: ebf8d92f226c18ca12b790f73b09a762bd8d2512
   sources:
     - runtime/pipeline/stage/compactor.go
-    - runtime/pipeline/stage/stages_provider.go
     - runtime/providers/base_provider.go
     - runtime/providers/claude/claude.go
     - runtime/providers/claude/claude_multimodal.go
@@ -21,8 +20,6 @@ verified:
     - runtime/providers/mock/mock.go
     - runtime/providers/mock/mock_repository.go
     - runtime/providers/mock/mock_streaming.go
-    - runtime/providers/multimodal.go
-    - runtime/providers/ollama/ollama_multimodal.go
     - runtime/providers/openai/openai.go
     - runtime/providers/openai/openai_multimodal.go
     - runtime/providers/openai/openai_responses_integration.go
@@ -35,7 +32,6 @@ verified:
     - runtime/providers/stream_retry.go
     - runtime/providers/streaming.go
     - runtime/providers/streaming_input.go
-    - runtime/providers/vllm/vllm_multimodal.go
     - runtime/types/content.go
 ---
 This page explains how the runtime reaches many LLM APIs through one Go interface: the interfaces, how a provider is created, what an adapter translates, and what the shared layer does for streaming, retries and cost. For what a provider is and how to configure one, see [Providers](/concepts/providers/).
@@ -142,6 +138,7 @@ Before every predict or stream call, the provider stage checks the image, audio,
 - `Reasoning` carries reasoning tokens, which are never part of the content.
 - `FinishReason` is nil until the stream ends. `CostInfo` is set only on that final chunk.
 - `Error` signals a failure in-band, on the channel.
+- `FinalResult` is set on the final chunk of a stream that ends without an error. For a provider stream it is a `*PredictionResponse` holding the content, tool calls, cost, finish reason and latency.
 - `Reset` tells the consumer to discard everything accumulated so far because the stream restarted.
 
 ## Creating providers and the registry
@@ -160,7 +157,7 @@ sequenceDiagram
     Spec->>Spec: fill default base URL for the type
     Spec->>Factory: factory(spec)
     Factory-->>Spec: Provider
-    Spec->>Provider: apply timeouts, stream retry, transport, headers, media store
+    Spec->>Provider: apply timeouts, stream retry, observer, transport, rate limit, headers, media store
     Spec-->>App: Provider
     App->>Registry: Register(provider)
     App->>Registry: Get(id)
@@ -169,7 +166,7 @@ sequenceDiagram
     Registry->>Provider: Close()
 ```
 
-After the factory returns, `CreateProviderFromSpec` applies the spec's optional settings through small interfaces such as `timeoutConfigurable` and `streamRetryConfigurable`. Factories therefore stay short, and any provider that embeds `BaseProvider` picks up timeouts, stream retry, the concurrent-stream cap, the HTTP transport, custom headers and the media store without per-adapter code.
+After the factory returns, `CreateProviderFromSpec` applies the spec's optional settings through small interfaces such as `timeoutConfigurable` and `streamRetryConfigurable`. Factories therefore stay short, and any provider that embeds `BaseProvider` picks up timeouts, stream retry, the concurrent-stream cap, the stream observer, the HTTP transport, the rate limit, custom headers and the media store without per-adapter code.
 
 `Registry` is a map of providers keyed by `ID()`. `Register`, `Get`, `List` and `Close` work on that map, and `GetByType` and `GetAll` look up ancillary providers (TTS, STT, embedding, image, video, rerank) by capability. Registering a second provider under an ID that is already taken replaces the first for every lookup, typed or not. `CreateProviderFromSpec` does not register what it builds. You call `Register` yourself. The registry is not safe for concurrent use.
 
@@ -222,7 +219,7 @@ Request timeouts do not apply to streams. A streaming call lasts as long as the 
 
 Retries are opt-in. With `StreamRetryPolicy` enabled, a failure before the first content chunk retries with full-jitter backoff, up to two attempts by default. The `always` window also retries after content has been sent: the provider emits a chunk with `Reset` set and starts over, which costs tokens. A server `Retry-After` longer than `MaxRetryAfter` stops the retry.
 
-The runtime can also cap the number of streams in flight per provider (`StreamMaxConcurrent`) and share a retry budget across requests.
+The runtime can also cap the number of streams in flight per provider (`StreamMaxConcurrent`) and share a retry budget across requests. A `StreamObserver` set on the spec or with `SetStreamObserver` receives every chunk, the final completion and each error of every stream the provider opens. Its callbacks run on the stream's relay goroutine, so they must return quickly.
 
 ## Errors and retries
 
@@ -239,16 +236,16 @@ graph TD
     Wait --> Request
 ```
 
-The runtime does not retry a 500, a 400-class error or a cancelled context. Errors keep their structure so callers can classify them:
+The runtime does not retry a 500, a 400-class error, a cancelled context or a credential that could not be applied. Errors keep their structure so callers can classify them:
 
 - `ProviderHTTPError` carries the status, body and `RetryAfter` of a non-2xx response. Its message redacts credentials in the URL.
 - `ProviderTransportError` wraps connection-level failures.
 - `RetryableHTTPError` reports that retries ran out on a retryable status.
 - `ErrPayloadTooLarge` reports a request over the provider's size limit.
 
-`IsTransient` is true for a retryable HTTP status or a transport error. It is false for context cancellation and for a stream idle timeout, because a stall is a deadline and not a blip.
+`IsTransient` is true for a retryable HTTP status or a transport error. It is false for context cancellation, for a stream idle timeout (a stall is a deadline and not a blip) and for a credential that could not be applied.
 
-A per-provider rate limiter (`SetRateLimit`) delays requests before they are sent, and connection pooling is built into the base provider's transport, tunable through `HTTPTransportOptions`.
+A per-provider rate limiter (`SetRateLimit`, or `ProviderSpec.RateLimit`) holds every HTTP request the provider sends, each retry attempt included, until a token is free. The wait ends when the request's context ends, and it does not count against the request timeout. The provider's credential is applied after the wait. Connection pooling is built into the base provider's transport, tunable through `HTTPTransportOptions`.
 
 ## Defaults and cost
 

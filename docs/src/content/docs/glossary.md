@@ -4,7 +4,7 @@ description: Definitions of key terms used throughout PromptKit documentation
 sidebar:
   order: 100
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: ebf8d92f226c18ca12b790f73b09a762bd8d2512
   sources:
     - pkg/config/role.go
     - runtime/events/bus.go

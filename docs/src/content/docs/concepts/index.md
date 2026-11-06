@@ -4,7 +4,7 @@ description: Fundamental concepts that apply across all PromptKit components
 sidebar:
   order: 0
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: ebf8d92f226c18ca12b790f73b09a762bd8d2512
   sources:
     - runtime/pipeline/stage/stages_core.go
     - runtime/pipeline/stage/stages_provider.go
