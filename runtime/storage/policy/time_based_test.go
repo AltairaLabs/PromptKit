@@ -646,6 +646,19 @@ func TestTimeBasedPolicyHandler_TrackingDoesNotSkipTheWalk(t *testing.T) {
 	assert.Equal(t, 1, h.ExpiryIndexLen())
 }
 
+func TestTimeBasedPolicyHandler_BuildExpiryIndexKeepsTrackedEntries(t *testing.T) {
+	ctx := context.Background()
+	h := policy.NewTimeBasedPolicyHandler(0, policy.WithClock(testClock))
+
+	// Tracked before (or while) the scan runs, in a place the scan does not see.
+	elsewhere := writeExpiringMedia(t, t.TempDir(), "tracked.jpg", testNow.Add(-6*time.Minute))
+	h.TrackFile(elsewhere+".meta", testNow.Add(-1*time.Minute))
+
+	require.NoError(t, h.BuildExpiryIndex(t.TempDir()))
+	require.NoError(t, h.EnforcePolicy(ctx, t.TempDir()))
+	assert.NoFileExists(t, elsewhere, "building the index must not discard tracked media")
+}
+
 func TestTimeBasedPolicyHandler_IndexDropsEntriesWhoseFilesAreGone(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

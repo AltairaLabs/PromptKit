@@ -404,6 +404,14 @@ func (h *TimeBasedPolicyHandler) BuildExpiryIndex(baseDir string) error {
 	}
 
 	h.expiryMu.Lock()
+	// Keep entries tracked before or during the scan that it did not see;
+	// replacing the map outright would lose media stored while it ran.
+	// Entries whose files are gone are pruned by enforceFromIndex.
+	for path, entry := range h.expiryIndex {
+		if _, scanned := index[path]; !scanned {
+			index[path] = entry
+		}
+	}
 	h.expiryIndex = index
 	h.indexBuilt = true
 	h.expiryMu.Unlock()
