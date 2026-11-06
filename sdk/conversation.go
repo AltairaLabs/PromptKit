@@ -1707,14 +1707,32 @@ func (c *Conversation) awaitPipelines() {
 	pipelines := c.pipelines
 	c.pipelinesMu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), pipelineFlushTimeout)
+	shutdownPipelines(pipelines, pipelineFlushTimeout)
+}
+
+// pipelineShutdowner is the part of a pipeline Close needs.
+type pipelineShutdowner interface {
+	Shutdown(ctx context.Context) error
+}
+
+// shutdownPipelines shuts every pipeline down at once, so each gets the whole
+// timeout for its in-flight executions rather than what an earlier one left,
+// and the total wait is still one timeout however many there are.
+func shutdownPipelines[P pipelineShutdowner](pipelines []P, timeout time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+	var wg sync.WaitGroup
 	for _, p := range pipelines {
-		if err := p.Shutdown(ctx); err != nil {
-			logger.Warn("conversation closed with a pipeline execution still running; "+
-				"events it publishes from now on are dropped", "error", err)
-		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := p.Shutdown(ctx); err != nil {
+				logger.Warn("conversation closed with a pipeline execution still running; "+
+					"events it publishes from now on are dropped", "error", err)
+			}
+		}()
 	}
+	wg.Wait()
 }
 
 // closeLocked releases everything Close releases except the pipelines and
