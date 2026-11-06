@@ -1,14 +1,15 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/tools/http-tools.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": "c1",
    "claim": "OnToolHTTP(name, cfg) registers an HTTP-backed tool; cfg.Handler() works with OnTool, cfg.HandlerCtx() with OnToolCtx",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:84-91",
-    "sdk/tools/http.go:144-159"
+    "sdk/conversation_tools.go:85",
+    "sdk/tools/http.go:146",
+    "sdk/tools/http.go:155"
    ]
   },
   {
@@ -16,7 +17,7 @@
    "claim": "Custom RequestMapper embedding DefaultRequestMapper and assigning executor.RequestMapper customizes header rendering",
    "verdict": "unverified",
    "evidence": [
-    "runtime/tools/http_executor.go:385-399"
+    "runtime/tools/http_executor.go:69"
    ]
   },
   {
@@ -24,8 +25,8 @@
    "claim": "Args become a JSON body for POST/PUT/PATCH and query params otherwise; non-2xx returns an error",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/http_executor.go:231-247",
-    "runtime/tools/http_executor.go:494-496"
+    "runtime/tools/http_executor.go:264-280",
+    "runtime/tools/http_executor.go:561-563"
    ]
   },
   {
@@ -33,8 +34,8 @@
    "claim": "Runtime logs 'HTTP tool call' and 'HTTP tool call completed'",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/http_executor.go:148",
-    "runtime/tools/http_executor.go:177"
+    "runtime/tools/http_executor.go:159",
+    "runtime/tools/http_executor.go:188"
    ]
   },
   {
@@ -59,16 +60,18 @@
    "claim": "WithHeaderFromEnv(\"Header=ENV\") sets the header to the env var's value at runtime",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/http_executor.go:455-468"
+    "runtime/tools/http_executor.go:522-535"
    ]
   },
   {
    "id": "c5",
    "claim": "WithPreRequest modifies the *http.Request before sending",
-   "verdict": "dead",
+   "verdict": "true",
    "evidence": [
-    "sdk/tools/http.go:116-120",
-    "sdk/tools/http.go:52"
+    "runtime/tools/http_executor.go:231",
+    "runtime/tools/http_executor.go:79",
+    "sdk/tools/http.go:118",
+    "sdk/tools/http.go:157"
    ]
   },
   {
@@ -76,7 +79,7 @@
    "claim": "WithTransform reshapes arguments before the request",
    "verdict": "true",
    "evidence": [
-    "sdk/tools/http.go:166-172"
+    "sdk/tools/http.go:169-175"
    ]
   },
   {
@@ -84,8 +87,8 @@
    "claim": "WithPostProcess processes raw response bytes",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/http_executor.go:498-501",
-    "sdk/tools/http.go:193-198"
+    "runtime/tools/http_executor.go:565-568",
+    "sdk/tools/http.go:196-201"
    ]
   },
   {
@@ -93,7 +96,7 @@
    "claim": "WithTimeout is milliseconds",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/http_executor.go:140-145",
+    "runtime/tools/http_executor.go:151-156",
     "sdk/tools/http.go:94-98"
    ]
   },
@@ -102,8 +105,7 @@
    "claim": "WithRedact redacts fields from the response",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/http_executor.go:498-501",
-    "runtime/tools/http_executor.go:610-628"
+    "runtime/tools/http_executor.go:680"
    ]
   }
  ]

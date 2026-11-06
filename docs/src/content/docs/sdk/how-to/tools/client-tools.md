@@ -4,7 +4,7 @@ description: Run tools on the caller's device, answering a tool call with a hand
 sidebar:
   order: 5
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/a2a/types.go
     - runtime/tools/registry.go

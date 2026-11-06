@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/voice/choose-voice-mode.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -9,7 +9,7 @@
    "evidence": [
     "runtime/providers/gemini/streaming_support.go:50",
     "runtime/providers/openai/streaming_support.go:136",
-    "sdk/sdk.go:322"
+    "sdk/sdk.go:327"
    ]
   },
   {
@@ -25,7 +25,7 @@
    "claim": "non-streaming provider refused unless VAD or ingestion",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:322"
+    "sdk/sdk.go:327"
    ]
   },
   {
@@ -33,7 +33,7 @@
    "claim": "nil VADModeConfig uses DefaultVADModeConfig",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:3057"
+    "sdk/options.go:3242"
    ]
   },
   {
@@ -41,10 +41,8 @@
    "claim": "Zero-valued VADModeConfig fields take defaults: 800ms silence, 200ms minimum speech, 30s maximum turn, 16000 Hz, voice alloy",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:2973",
-    "sdk/options.go:3016",
-    "sdk/options.go:3085",
-    "sdk/options.go:3116"
+    "sdk/options.go:3198",
+    "sdk/options.go:51"
    ]
   },
   {
@@ -61,7 +59,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/providers/gemini/setup.go:70",
-    "sdk/options.go:2961"
+    "sdk/options.go:3147"
    ]
   },
   {
@@ -85,7 +83,18 @@
    "claim": "ingestion and VAD mutually exclusive",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:874"
+    "sdk/conversation.go:982"
+   ]
+  },
+  {
+   "id": 11,
+   "claim": "A nil STT or TTS service passed to WithVADMode keeps the one an earlier WithSTTProvider, WithTTS or WithTTSProvider option configured",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:2695",
+    "sdk/options.go:2954",
+    "sdk/options.go:2992",
+    "sdk/options.go:3242"
    ]
   }
  ]

@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/reference/runtime-config.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -34,7 +34,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/role.go:57",
-    "sdk/provider_file.go:48"
+    "sdk/provider_file.go:49"
    ]
   },
   {
@@ -53,7 +53,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:419",
-    "sdk/provider_file.go:44-47"
+    "sdk/provider_file.go:45-48"
    ]
   },
   {
@@ -61,10 +61,10 @@
    "claim": "LLM provider types registered by SDK import: claude, openai, gemini, ollama; mock needs a blank import",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/all/all.go:30",
-    "runtime/providers/mock/mock.go:64",
-    "sdk/internal/provider/detect.go",
-    "sdk/runtime_config.go:26"
+    "runtime/providers/all/all.go",
+    "runtime/providers/mock/mock.go",
+    "sdk/internal/provider/detect.go:59",
+    "sdk/runtime_config.go"
    ]
   },
   {
@@ -97,7 +97,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/providers/cohere/rerank_register.go:7",
-    "runtime/providers/rerank_mock.go:131",
+    "runtime/providers/rerank_mock.go:129",
     "runtime/providers/voyageai/rerank_register.go:7",
     "sdk/runtime_config.go:28"
    ]
@@ -147,7 +147,7 @@
     "runtime/credentials/resolver.go:117",
     "runtime/credentials/resolver.go:124",
     "runtime/credentials/resolver.go:135",
-    "sdk/runtime_config.go:624"
+    "sdk/runtime_config.go:626"
    ]
   },
   {
@@ -155,9 +155,9 @@
    "claim": "stream_retry retry_window default is pre_first_chunk",
    "verdict": "true",
    "evidence": [
-    "pkg/config/provider_tuning.go:47",
+    "pkg/config/provider_tuning.go:48",
     "pkg/config/types.go:327",
-    "runtime/providers/stream_retry.go:44"
+    "runtime/providers/stream_retry.go:43"
    ]
   },
   {
@@ -165,27 +165,25 @@
    "claim": "stream_retry retry_window values: pre_first_chunk (default) or always",
    "verdict": "true",
    "evidence": [
-    "pkg/config/provider_tuning.go:50-52",
+    "pkg/config/provider_tuning.go:51-53",
     "pkg/config/types.go:327"
    ]
   },
   {
    "id": 18,
    "claim": "stream_retry max_attempts default: 2",
-   "verdict": "dead",
+   "verdict": "true",
    "evidence": [
-    "pkg/config/types.go:317",
-    "runtime/providers/stream_retry.go:28",
+    "runtime/providers/stream_retry.go:27",
     "runtime/providers/stream_retry.go:96"
    ]
   },
   {
    "id": 19,
    "claim": "stream_retry initial_delay default: `250ms` (Go duration string)",
-   "verdict": "dead",
+   "verdict": "true",
    "evidence": [
-    "pkg/config/types.go:321",
-    "runtime/providers/stream_retry.go:29"
+    "runtime/providers/stream_retry.go:28"
    ]
   },
   {
@@ -193,9 +191,9 @@
    "claim": "stream_retry max_delay default: 2s (Go duration string)",
    "verdict": "true",
    "evidence": [
-    "pkg/config/provider_tuning.go:46",
+    "pkg/config/provider_tuning.go:47",
     "pkg/config/types.go:324",
-    "runtime/providers/stream_retry.go:30"
+    "runtime/providers/stream_retry.go:29"
    ]
   },
   {
@@ -203,19 +201,15 @@
    "claim": "StreamRetryPolicy.MaxRetryAfter can be changed in code to adjust 60-second cap",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/stream_retry.go:131",
-    "runtime/providers/stream_retry.go:33",
-    "runtime/providers/stream_retry.go:80",
-    "runtime/providers/stream_retry_driver.go:142"
+    "runtime/providers/stream_retry.go:32",
+    "runtime/providers/stream_retry_driver.go"
    ]
   },
   {
    "id": 22,
    "claim": "stream_idle_timeout default: `30s` (Go duration string)",
-   "verdict": "dead",
+   "verdict": "true",
    "evidence": [
-    "pkg/config/types.go:208",
-    "runtime/providers/registry.go:448",
     "runtime/providers/streaming.go:44"
    ]
   },
@@ -224,38 +218,31 @@
    "claim": "stream_max_concurrent default: 0 (unlimited)",
    "verdict": "true",
    "evidence": [
-    "pkg/config/types.go:220",
-    "runtime/providers/registry.go:469"
+    "runtime/providers/registry.go:504"
    ]
   },
   {
    "id": 24,
    "claim": "http_transport max_conns_per_host default: 100",
-   "verdict": "false",
+   "verdict": "true",
    "evidence": [
-    "pkg/config/types.go:296",
-    "runtime/providers/base_provider.go:105",
-    "runtime/providers/base_provider.go:37"
+    "runtime/providers/base_provider.go:39"
    ]
   },
   {
    "id": 25,
    "claim": "http_transport max_idle_conns_per_host default: 100",
-   "verdict": "dead",
+   "verdict": "true",
    "evidence": [
-    "pkg/config/types.go:299",
-    "runtime/providers/base_provider.go:109",
-    "runtime/providers/base_provider.go:31"
+    "runtime/providers/base_provider.go:33"
    ]
   },
   {
    "id": 26,
    "claim": "http_transport idle_conn_timeout default: `90s` (Go duration string)",
-   "verdict": "dead",
+   "verdict": "true",
    "evidence": [
-    "pkg/config/types.go:304",
-    "runtime/providers/base_provider.go:113",
-    "runtime/providers/base_provider.go:38"
+    "runtime/providers/base_provider.go:40"
    ]
   },
   {
@@ -263,8 +250,8 @@
    "claim": "Tool spec modes: `mock` (canned responses), `live` (HTTP), `exec` (subprocess), or `client` (client-side execution)",
    "verdict": "false",
    "evidence": [
-    "pkg/config/types.go:391",
-    "sdk/runtime_config.go:510"
+    "pkg/config/types.go:396",
+    "sdk/runtime_config.go:512"
    ]
   },
   {
@@ -273,7 +260,7 @@
    "verdict": "false",
    "evidence": [
     "pkg/config/runtime_config.go:343",
-    "sdk/runtime_config.go:510"
+    "sdk/runtime_config.go:512"
    ]
   },
   {
@@ -282,7 +269,7 @@
    "verdict": "false",
    "evidence": [
     "pkg/config/runtime_config.go:343",
-    "sdk/runtime_config.go:510"
+    "sdk/runtime_config.go:512"
    ]
   },
   {
@@ -291,7 +278,7 @@
    "verdict": "false",
    "evidence": [
     "pkg/config/runtime_config.go:343",
-    "sdk/runtime_config.go:510"
+    "sdk/runtime_config.go:512"
    ]
   },
   {
@@ -300,7 +287,7 @@
    "verdict": "false",
    "evidence": [
     "pkg/config/runtime_config.go:343",
-    "sdk/runtime_config.go:510"
+    "sdk/runtime_config.go:512"
    ]
   },
   {
@@ -309,31 +296,26 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/execconfig/execconfig.go:44",
-    "sdk/exec_tools.go:20",
-    "sdk/exec_tools.go:47",
-    "sdk/runtime_config.go:520"
+    "runtime/hooks/execconfig/execconfig.go:51",
+    "sdk/exec_tools.go"
    ]
   },
   {
    "id": 33,
    "claim": "Hook interface types: `provider`, `tool`, or `session`",
-   "verdict": "false",
+   "verdict": "true",
    "evidence": [
-    "pkg/config/runtime_config.go:845",
-    "runtime/hooks/exec_build.go:11",
-    "runtime/hooks/execconfig/execconfig.go:69",
-    "sdk/runtime_config.go:59"
+    "runtime/hooks/exec_build.go",
+    "runtime/hooks/execconfig/execconfig.go:74"
    ]
   },
   {
    "id": 34,
-   "claim": "Hook mode values: `filter` (synchronous, can modify/deny; default) or `observe` (async, fire-and-forget)",
+   "claim": "Hook mode values: filter (synchronous, can modify/deny; default) or observe (the runtime waits for the process, bounded by timeout_ms, then discards its output and any failure)",
    "verdict": "true",
    "evidence": [
     "runtime/hooks/exec_hooks.go:102",
-    "runtime/hooks/exec_hooks.go:171",
-    "runtime/hooks/exec_hooks.go:71",
-    "runtime/hooks/execconfig/execconfig.go:73"
+    "runtime/hooks/execconfig/execconfig.go:81"
    ]
   },
   {
@@ -384,10 +366,9 @@
   {
    "id": 40,
    "claim": "tool_filter allowlist is applied first, then blocklist removes from the result",
-   "verdict": "false",
+   "verdict": "true",
    "evidence": [
-    "runtime/mcp/types.go:295",
-    "runtime/mcp/types.go:313",
+    "runtime/mcp/types.go:312",
     "sdk/mcp_tool_sync.go:157"
    ]
   },
@@ -397,7 +378,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:442",
-    "sdk/runtime_config.go:660"
+    "sdk/runtime_config.go:662"
    ]
   },
   {
@@ -406,7 +387,7 @@
    "verdict": "false",
    "evidence": [
     "pkg/config/types.go:96",
-    "sdk/runtime_config.go:669"
+    "sdk/runtime_config.go:671"
    ]
   },
   {
@@ -416,7 +397,7 @@
    "evidence": [
     "runtime/statestore/redis.go:80",
     "runtime/statestore/types.go:16",
-    "sdk/runtime_config.go:673"
+    "sdk/runtime_config.go:675"
    ]
   },
   {
@@ -425,7 +406,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/statestore/redis.go:81",
-    "sdk/runtime_config.go:680"
+    "sdk/runtime_config.go:682"
    ]
   },
   {
@@ -434,7 +415,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:80",
-    "sdk/runtime_config.go:699"
+    "sdk/runtime_config.go:701"
    ]
   },
   {
@@ -444,7 +425,7 @@
    "evidence": [
     "pkg/config/types.go:84",
     "runtime/statestore/file/store.go:86",
-    "sdk/runtime_config.go:711"
+    "sdk/runtime_config.go:713"
    ]
   },
   {
@@ -453,7 +434,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/logging.go:21",
-    "sdk/runtime_config.go:580"
+    "sdk/runtime_config.go:582"
    ]
   },
   {
@@ -462,7 +443,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/logging.go:96",
-    "sdk/runtime_config.go:557"
+    "sdk/runtime_config.go:559"
    ]
   },
   {
@@ -470,9 +451,9 @@
    "claim": "More specific module names take precedence over less specific ones in logging",
    "verdict": "dead",
    "evidence": [
-    "runtime/logger/config.go:104",
-    "runtime/logger/config.go:52",
-    "sdk/runtime_config.go:551"
+    "runtime/logger/config.go",
+    "runtime/logger/config.go:117",
+    "sdk/runtime_config.go:553"
    ]
   },
   {
@@ -489,7 +470,7 @@
    "claim": "Example shows Claude model claude-sonnet-4-20250514",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/pricing_table.go:171"
+    "runtime/providers/claude/pricing_table.go:173"
    ]
   },
   {
@@ -497,9 +478,9 @@
    "claim": "Example shows embedding provider type `voyageai` with model `voyage-3`",
    "verdict": "false",
    "evidence": [
-    "runtime/providers/registry.go:48",
+    "runtime/providers/registry.go:49",
     "runtime/providers/voyageai/embedding_register.go:7",
-    "sdk/provider_file.go:68"
+    "sdk/provider_file.go:69"
    ]
   },
   {
@@ -507,9 +488,7 @@
    "claim": "Example tool mode `exec` with runtime `server`",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/types.go:278",
-    "sdk/exec_tools.go:20",
-    "sdk/runtime_config.go:510"
+    "runtime/tools/types.go:292"
    ]
   },
   {
@@ -517,8 +496,8 @@
    "claim": "Example tool mode `live` with HTTP method GET",
    "verdict": "dead",
    "evidence": [
-    "pkg/config/types.go:391",
-    "sdk/runtime_config.go:510"
+    "pkg/config/types.go:396",
+    "sdk/runtime_config.go:512"
    ]
   },
   {
@@ -544,7 +523,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:621",
-    "sdk/runtime_config.go:236-246"
+    "sdk/runtime_config.go:238-248"
    ]
   },
   {
@@ -552,7 +531,7 @@
    "claim": "Example MCP server tool_filter blocklist includes `delete_file`",
    "verdict": "true",
    "evidence": [
-    "runtime/mcp/types.go:313",
+    "runtime/mcp/types.go:310",
     "sdk/mcp_tool_sync.go:157"
    ]
   },
@@ -561,8 +540,8 @@
    "claim": "Example state_store type `redis` with database `1`",
    "verdict": "true",
    "evidence": [
-    "sdk/runtime_config.go:662",
-    "sdk/runtime_config.go:669"
+    "sdk/runtime_config.go:664",
+    "sdk/runtime_config.go:671"
    ]
   },
   {
@@ -571,7 +550,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/logging.go:21",
-    "sdk/runtime_config.go:551"
+    "sdk/runtime_config.go:553"
    ]
   },
   {
@@ -605,9 +584,8 @@
    "claim": "Provider capabilities values: `text`, `streaming`, `vision`, `tools`, `json`, `audio`, `video`, `documents`",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude_multimodal.go:39",
-    "runtime/providers/multimodal.go:13",
-    "runtime/providers/multimodal.go:27"
+    "runtime/providers/claude/claude_multimodal.go",
+    "runtime/providers/multimodal.go:17"
    ]
   },
   {
@@ -616,7 +594,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:201",
-    "runtime/providers/registry.go:445-447"
+    "runtime/providers/registry.go:480-482"
    ]
   },
   {
@@ -625,8 +603,8 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:183",
-    "runtime/providers/base/http_tuning.go:117-131",
-    "runtime/providers/registry.go:494"
+    "runtime/providers/base/http_tuning.go:127-141",
+    "runtime/providers/registry.go:540"
    ]
   },
   {
@@ -634,8 +612,8 @@
    "claim": "request_timeout on capability roles keeps the provider's own default when unset",
    "verdict": "true",
    "evidence": [
-    "pkg/config/provider_tuning.go:107",
-    "runtime/providers/base/http_tuning.go:48"
+    "pkg/config/provider_tuning.go:109",
+    "runtime/providers/base/http_tuning.go:55"
    ]
   },
   {
@@ -643,9 +621,9 @@
    "claim": "Roles llm, image and video honor all tuning fields; tts, stt, embedding, inference and rerank honor headers, request_timeout and http_transport and reject stream_idle_timeout, stream_retry, stream_max_concurrent and defaults.prompt_caching with an error naming field and role",
    "verdict": "true",
    "evidence": [
-    "pkg/config/provider_tuning.go:107",
-    "pkg/config/provider_tuning.go:130",
-    "sdk/provider_file.go:49"
+    "pkg/config/provider_tuning.go:109",
+    "pkg/config/provider_tuning.go:133",
+    "sdk/provider_file.go:50"
    ]
   },
   {
@@ -653,8 +631,8 @@
    "claim": "On a capability role, http_transport replaces the provider's transport with a pooled, instrumented one",
    "verdict": "true",
    "evidence": [
-    "pkg/config/provider_tuning.go:122-123",
-    "runtime/providers/base_provider.go:150"
+    "pkg/config/provider_tuning.go:109",
+    "pkg/config/provider_tuning.go:124"
    ]
   },
   {
@@ -662,8 +640,8 @@
    "claim": "A provider type that cannot take tuning for its role (mock reranker) fails to load when any is set",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/base/http_tuning.go:88",
-    "runtime/providers/rerank_factory.go:102"
+    "runtime/providers/base/http_tuning.go:98",
+    "runtime/providers/rerank_factory.go:100"
    ]
   },
   {
@@ -672,6 +650,80 @@
    "verdict": "true",
    "evidence": [
     "runtime/inference/openai/register.go:76-80"
+   ]
+  },
+  {
+   "id": 72,
+   "claim": "rate_limit has optional rps and burst; rps 0 is unlimited, a burst below 1 counts as 1 and is ignored when rps is 0",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/types.go:182",
+    "pkg/config/types.go:371",
+    "runtime/providers/base/rate_limit_transport.go:32"
+   ]
+  },
+  {
+   "id": 73,
+   "claim": "rate_limit takes a token per HTTP request: completion calls, capability calls and every retry attempt; requests through one provider share a bucket and providers built from one entry each get their own",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/provider_tuning.go:127",
+    "runtime/providers/base_provider.go:961",
+    "runtime/providers/registry.go:532"
+   ]
+  },
+  {
+   "id": 74,
+   "claim": "A waiting request gives up when its context is canceled; a request whose turn falls past its deadline fails at once, is not sent and is not retried; waiting does not count against request_timeout",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base/rate_limit_transport.go:83",
+    "runtime/providers/base_provider.go:961"
+   ]
+  },
+  {
+   "id": 75,
+   "claim": "The credential is applied once per attempt after the wait; a redirect to the same scheme and host is authorized again, a redirect to another host is sent without the credential",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base/rate_limit_transport.go:83",
+    "runtime/providers/base_provider.go:961"
+   ]
+  },
+  {
+   "id": 76,
+   "claim": "The rate limit counts HTTP requests only; a WebSocket realtime or duplex session is not limited",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base_provider.go:961"
+   ]
+  },
+  {
+   "id": 77,
+   "claim": "Pricing fields are optional; the provider prices from its built-in table unless both rates are positive",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/types.go:364",
+    "runtime/providers/base/llmpricing.go:25",
+    "runtime/providers/base/llmpricing.go:32"
+   ]
+  },
+  {
+   "id": 78,
+   "claim": "Every defaults field is optional; an omitted field or a zero is unset and the request's own value or the provider's default applies",
+   "verdict": "true",
+   "evidence": [
+    "pkg/config/types.go:379",
+    "runtime/providers/provider.go:92"
+   ]
+  },
+  {
+   "id": 79,
+   "claim": "A one-shot exec tool that lists env names receives only those variables, none listed inherits the host environment, a server tool receives the host environment plus the listed names",
+   "verdict": "true",
+   "evidence": [
+    "runtime/hooks/execconfig/execconfig.go:51",
+    "runtime/tools/types.go:292"
    ]
   }
  ]

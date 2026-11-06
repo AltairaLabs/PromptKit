@@ -4,7 +4,7 @@ description: Open a duplex voice session in VAD mode, with a text LLM and separa
 sidebar:
   order: 1
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/providers/gemini/setup.go
     - runtime/providers/gemini/streaming_support.go
@@ -37,7 +37,7 @@ Open a duplex voice session in the mode that fits your model: VAD mode for a tex
 
 ## Step 2a: Open in VAD mode
 
-Pass the STT service, the TTS service and a `VADModeConfig` to `WithVADMode`. A `nil` config uses `DefaultVADModeConfig()`.
+Pass the STT service, the TTS service and a `VADModeConfig` to `WithVADMode`. A `nil` config uses `DefaultVADModeConfig()`. A `nil` service keeps the one an earlier `WithSTTProvider`, `WithTTS` or `WithTTSProvider` option configured.
 
 ```go
 package main

@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/reference/exec-protocol.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": "c1",
@@ -23,11 +23,11 @@
   {
    "id": "c11",
    "claim": "Assertion fails on error then checks min/max, default min 1.0; guardrail triggers via ScoreThresholds.Triggered (nil score, below min default 1.0, above max).",
-   "verdict": "false",
+   "verdict": "true",
    "evidence": [
-    "runtime/evals/wrappers.go:189-213",
-    "runtime/evals/wrappers.go:85-101",
-    "runtime/hooks/guardrails/adapter.go:390"
+    "runtime/evals/wrappers.go:200",
+    "runtime/evals/wrappers.go:75",
+    "runtime/hooks/guardrails/adapter.go:388"
    ]
   },
   {
@@ -35,8 +35,8 @@
    "claim": "Hook envelope fields are tagged; payload structs have no json tags so Go field names are used; ProviderRequest includes TurnIndex, Prompt, Replacement; ToolRequest includes Declaration.",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/exec_hooks.go:37-43",
-    "runtime/hooks/types.go:57-155"
+    "runtime/hooks/types.go:56",
+    "runtime/hooks/types.go:73"
    ]
   },
   {
@@ -78,9 +78,8 @@
    "claim": "enforced applies to provider hooks only; metadata.replacement supplies the before_call replacement text.",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/registry.go:97-143",
-    "runtime/pipeline/stage/stages_provider.go:2516",
-    "runtime/pipeline/stage/stages_provider.go:3279-3293"
+    "runtime/hooks/registry.go:97",
+    "runtime/pipeline/stage/stages_provider.go:3403"
    ]
   },
   {
@@ -88,9 +87,8 @@
    "claim": "Eval hook receives the JSON EvalResult (snake_case tags) on stdin, stdout discarded, phases and mode ignored.",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/exec_hook.go:83-124",
-    "runtime/evals/types.go:336-415",
-    "runtime/hooks/execconfig/execconfig.go:62-76"
+    "runtime/evals/exec_hook.go:16",
+    "runtime/hooks/execconfig/execconfig.go:74"
    ]
   },
   {
@@ -108,10 +106,7 @@
    "claim": "stderr is not forwarded to the runtime logger; it is appended to the error message on failure.",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/exec_hook.go:117-123",
-    "runtime/evals/handlers/exec_handler.go:128-132",
-    "runtime/hooks/exec_hooks.go:137-141",
-    "runtime/tools/exec_executor.go:70-77"
+    "runtime/tools/exec_executor.go:124"
    ]
   },
   {
@@ -140,7 +135,7 @@
    "evidence": [
     "runtime/evals/handlers/exec_handler.go:217-225",
     "runtime/hooks/sandbox/direct/direct.go:93-130",
-    "runtime/tools/exec_executor.go:111-121",
+    "runtime/tools/exec_executor.go:163-173",
     "runtime/tools/server_executor.go:189-196"
    ]
   },
@@ -152,8 +147,7 @@
     "runtime/evals/exec_hook.go:16",
     "runtime/evals/handlers/exec_handler.go:18",
     "runtime/hooks/exec_hooks.go:14",
-    "runtime/tools/registry.go:29",
-    "sdk/exec_tools.go:53-57"
+    "runtime/tools/registry.go:29"
    ]
   },
   {
@@ -162,7 +156,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/handlers/exec_handler.go:102-104",
-    "runtime/evals/runner.go:269-283"
+    "runtime/evals/runner.go:291-305"
    ]
   },
   {
@@ -170,7 +164,8 @@
    "claim": "Tool response: error checked first, then result, else raw stdout is returned.",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/exec_executor.go:79-93"
+    "runtime/tools/exec_executor.go:107",
+    "runtime/tools/exec_executor.go:81"
    ]
   },
   {

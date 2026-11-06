@@ -1,13 +1,13 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/tools/exec-tools.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": "c1",
    "claim": "exec block in RuntimeConfig binds a pack tool to a subprocess reading JSON on stdin and writing JSON on stdout",
    "verdict": "true",
    "evidence": [
-    "sdk/runtime_config.go:510-525"
+    "sdk/runtime_config.go:512-527"
    ]
   },
   {
@@ -23,7 +23,7 @@
    "claim": "WithToolDescriptorOverride treats an unknown name the same way (skip with warning)",
    "verdict": "true",
    "evidence": [
-    "sdk/tool_descriptor_override.go:144-149"
+    "sdk/tool_descriptor_override.go:143-148"
    ]
   },
   {
@@ -31,7 +31,7 @@
    "claim": "Server processes are stopped when the conversation closes",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1622-1624"
+    "sdk/conversation.go:1687-1689"
    ]
   },
   {
@@ -39,7 +39,7 @@
    "claim": "Pack tool schema and prompt tools list shape",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:116-124"
+    "sdk/conversation_tools.go:117-125"
    ]
   },
   {
@@ -47,9 +47,9 @@
    "claim": "One-shot input is {\"args\": {...}}; output is {\"result\": ...} or {\"error\": ...}",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/exec_executor.go:38-48",
-    "runtime/tools/exec_executor.go:65",
-    "runtime/tools/exec_executor.go:84-90"
+    "runtime/tools/exec_executor.go:107",
+    "runtime/tools/exec_executor.go:44",
+    "runtime/tools/exec_executor.go:81"
    ]
   },
   {
@@ -74,7 +74,7 @@
    "claim": "Only the listed env variable names are forwarded; the subprocess does not inherit the full host environment",
    "verdict": "false",
    "evidence": [
-    "runtime/tools/exec_executor.go:111-121",
+    "runtime/tools/exec_executor.go:163-173",
     "runtime/tools/server_executor.go:189-196"
    ]
   },
@@ -83,7 +83,7 @@
    "claim": "env values are read from the host at invocation time",
    "verdict": "false",
    "evidence": [
-    "runtime/tools/exec_executor.go:117",
+    "runtime/tools/exec_executor.go:169",
     "runtime/tools/server_executor.go:189-196"
    ]
   },
@@ -92,7 +92,7 @@
    "claim": "On timeout the subprocess is killed and the tool returns an error to the LLM",
    "verdict": "false",
    "evidence": [
-    "runtime/tools/exec_executor.go:100",
+    "runtime/tools/exec_executor.go:152",
     "runtime/tools/server_executor.go:326-331"
    ]
   },
@@ -101,8 +101,8 @@
    "claim": "If timeout_ms is omitted the runtime uses a default timeout",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/registry.go:26-29",
-    "runtime/tools/registry.go:771-773"
+    "runtime/tools/registry.go:29",
+    "runtime/tools/registry.go:434"
    ]
   },
   {

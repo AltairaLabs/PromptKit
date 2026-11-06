@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/index.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -13,8 +13,8 @@
    "claim": "Quick Start, Core API, tool, HTTP tool, streaming snippets compile",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:33",
-    "sdk/sdk.go:84",
+    "sdk/conversation_tools.go:34",
+    "sdk/sdk.go:89",
     "sdk/streaming.go:121",
     "sdk/tools/http.go:60"
    ]
@@ -22,10 +22,12 @@
   {
    "id": 3,
    "claim": "HITL snippet: OnToolAsync, tools.PendingResult, PendingTools, ResolveTool(pending.ID), RejectTool(pending.ID, reason)",
-   "verdict": "false",
+   "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:235",
-    "sdk/conversation_tools.go:305"
+    "sdk/conversation_tools.go:172",
+    "sdk/conversation_tools.go:236",
+    "sdk/conversation_tools.go:321",
+    "sdk/response.go:201"
    ]
   },
   {
@@ -33,7 +35,7 @@
    "claim": "hooks.On, hooks.OnToolCall, events.EventProviderCallCompleted",
    "verdict": "true",
    "evidence": [
-    "runtime/events/types.go:42",
+    "runtime/events/types.go:52",
     "sdk/hooks/events.go:53",
     "sdk/hooks/events.go:67"
    ]
@@ -46,7 +48,7 @@
     "sdk/errors.go:20",
     "sdk/errors.go:23",
     "sdk/errors.go:26",
-    "sdk/errors.go:29"
+    "sdk/errors.go:33"
    ]
   },
   {
@@ -60,12 +62,12 @@
    "claim": "workflow snippet: OpenWorkflow, Send, Transition, CurrentState, IsComplete, AvailableEvents",
    "verdict": "true",
    "evidence": [
-    "sdk/workflow.go:103",
-    "sdk/workflow.go:342",
-    "sdk/workflow.go:560",
-    "sdk/workflow.go:671",
-    "sdk/workflow.go:685",
-    "sdk/workflow.go:692"
+    "sdk/workflow.go:104",
+    "sdk/workflow.go:353",
+    "sdk/workflow.go:576",
+    "sdk/workflow.go:725",
+    "sdk/workflow.go:739",
+    "sdk/workflow.go:746"
    ]
   },
   {
@@ -74,7 +76,7 @@
    "verdict": "false",
    "evidence": [
     "runtime/workflow/types.go:252",
-    "sdk/workflow.go:709"
+    "sdk/workflow.go:763"
    ]
   },
   {
@@ -82,7 +84,7 @@
    "claim": "WithContextCarryForward(true)",
    "verdict": "false",
    "evidence": [
-    "sdk/options.go:2022"
+    "sdk/options.go:2188"
    ]
   },
   {
@@ -90,7 +92,7 @@
    "claim": "A2A server snippet",
    "verdict": "false",
    "evidence": [
-    "runtime/a2a/types.go:369",
+    "runtime/a2a/types.go:375",
     "sdk/a2a_exports.go:45"
    ]
   },
@@ -102,8 +104,8 @@
     "runtime/evals/handlers/skill_activated.go:11",
     "runtime/prompt/schema/promptpack.schema.json:1746",
     "runtime/skills/types.go:9",
-    "sdk/options.go:3749",
-    "sdk/options.go:3811"
+    "sdk/options.go:3958",
+    "sdk/options.go:4022"
    ]
   },
   {
@@ -111,6 +113,18 @@
    "claim": "Questions link goes to GitHub Discussions",
    "verdict": "unverified",
    "evidence": []
+  },
+  {
+   "id": 13,
+   "claim": "Open returns a *PackError for a missing or invalid pack; Send and Stream return *ProviderError or *ValidationError wrapping the runtime error; ResolveTool returns an error matching ErrToolNotRegistered and sets a *ToolError on a failed handler",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:288",
+    "sdk/errors.go:121",
+    "sdk/errors.go:144",
+    "sdk/errors.go:175",
+    "sdk/errors_wrap.go:18"
+   ]
   }
  ]
 }
