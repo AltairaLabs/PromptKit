@@ -280,12 +280,13 @@ func TestFileStore_DedupHitChecksTheFileInsideTheWriteGuard(t *testing.T) {
 	}
 }
 
-// TestFileStore_DedupHitRetentionWithNoExpiry checks how retention merges when
-// one of the two stores asks for media that never expires.
+// TestFileStore_DedupHitRetentionWithNoExpiry checks that a file an earlier
+// store asked to keep forever is not given a later store's expiry. A later
+// store with no policy does not extend a file that has one; see
+// TestFileStore_DedupHitWithNoPolicyKeepsTheFilesPolicy.
 func TestFileStore_DedupHitRetentionWithNoExpiry(t *testing.T) {
 	for name, policies := range map[string][2]string{
-		"a later store that never expires keeps the file": {"delete-after-5min", ""},
-		"an earlier store that never expires is kept":     {"", "delete-after-5min"},
+		"an earlier store that never expires is kept": {"", "delete-after-5min"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()

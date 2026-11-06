@@ -351,12 +351,16 @@ func (fs *FileStore) dedupHitLocked(
 	return existingPath, "", true
 }
 
-// extendRetention rewrites the metadata of the shared file at filePath with
-// this store's metadata when the policy handler reports that it retains the
-// media longer than the metadata on disk does, so a dedup hit never hands out
-// a reference that expires before the store asked. It does nothing when the
-// handler does not implement storage.MediaExpiryReporter. The caller holds the
-// file's write guard.
+// extendRetention extends the retention of the shared file at filePath when
+// the policy handler reports that this store's metadata retains the media
+// longer than the metadata on disk does, so a dedup hit never hands out a
+// reference that expires before the store asked. Only the retention changes:
+// the metadata on disk takes this store's policy and expiry and keeps the rest,
+// such as the run, session and timestamp of the store that wrote the file. A
+// store with no policy, and no DefaultPolicy to fall back on, never extends it:
+// asking for no policy is not asking to outlast a file that has one. It does
+// nothing when the handler does not implement storage.MediaExpiryReporter.
+// The caller holds the file's write guard.
 func (fs *FileStore) extendRetention(filePath string, metadata *storage.MediaMetadata) {
 	reporter, ok := fs.config.PolicyHandler.(storage.MediaExpiryReporter)
 	if !ok || metadata == nil {
@@ -366,21 +370,38 @@ func (fs *FileStore) extendRetention(filePath string, metadata *storage.MediaMet
 	if effective.PolicyName == "" {
 		effective.PolicyName = fs.config.DefaultPolicy
 	}
-	if current, err := fs.loadMetadata(filePath); err == nil && !outlasts(reporter, &effective, current) {
+	if effective.PolicyName == "" {
+		// A store that asks for no retention policy leaves the shared file's
+		// retention as it is, and never strips the policy from its metadata.
 		return
 	}
-	if err := fs.storeMetadata(filePath, metadata); err != nil {
+	nextAt, nextExpires, err := reporter.MediaExpiresAt(&effective)
+	if err != nil {
+		return
+	}
+	current, err := fs.loadMetadata(filePath)
+	if err != nil {
+		// Nothing on disk to keep; record this store's metadata.
+		current = &effective
+	} else if !outlasts(reporter, nextAt, nextExpires, current) {
+		return
+	}
+	extended := *current
+	extended.PolicyName = effective.PolicyName
+	extended.ExpiresAt = nil
+	if nextExpires {
+		extended.ExpiresAt = &nextAt
+	}
+	if err := fs.storeMetadata(filePath, &extended); err != nil {
 		logger.Warn("Failed to extend retention of deduplicated media", "path", filePath, "error", err)
 	}
 }
 
-// outlasts reports whether reporter retains media with metadata next longer
-// than media with metadata current.
-func outlasts(reporter storage.MediaExpiryReporter, next, current *storage.MediaMetadata) bool {
-	nextAt, nextExpires, err := reporter.MediaExpiresAt(next)
-	if err != nil {
-		return false
-	}
+// outlasts reports whether media that expires at nextAt, or never when
+// nextExpires is false, is retained longer than reporter retains media with
+// metadata current.
+func outlasts(reporter storage.MediaExpiryReporter, nextAt time.Time, nextExpires bool,
+	current *storage.MediaMetadata) bool {
 	currentAt, currentExpires, err := reporter.MediaExpiresAt(current)
 	switch {
 	case err != nil:

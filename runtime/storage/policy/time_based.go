@@ -4,6 +4,7 @@ package policy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -118,6 +119,12 @@ type TimeBasedPolicyHandler struct {
 	// by writeKey; guarded by expiryMu. Enforcement skips those paths.
 	writing map[string]int
 
+	// enforcing holds, per writeKey, a channel for each item an enforcement
+	// step is handling; it is closed when the step ends. Guarded by expiryMu,
+	// which a step releases for its disk I/O. BeginMediaWrite waits for it, and
+	// other enforcement steps skip the item.
+	enforcing map[string]chan struct{}
+
 	// indexBuilt indicates whether the expiry index has been populated
 	indexBuilt bool
 
@@ -125,6 +132,14 @@ type TimeBasedPolicyHandler struct {
 	// taken its snapshot of expired entries and before it enforces each one,
 	// so a test can interleave a concurrent TrackFile deterministically.
 	beforeEnforceEntry func(metaPath string)
+
+	// beforeEnforceIO, when set by a test, runs before each disk operation an
+	// enforcement step makes on an item: "stat", "read" or "remove".
+	beforeEnforceIO func(op, path string)
+
+	// waitForEnforcement, when set by a test, runs when BeginMediaWrite starts
+	// waiting for an enforcement step handling its path.
+	waitForEnforcement func(metaPath string)
 
 	// cancel stops the auto-started enforcement goroutine. Set only when
 	// autoStart is true; nil otherwise. Call Stop() to invoke it.
@@ -218,7 +233,7 @@ func (h *TimeBasedPolicyHandler) EnforcePolicy(ctx context.Context, baseDir stri
 func (h *TimeBasedPolicyHandler) enforceFromIndex(_ context.Context) error {
 	now := h.now()
 	deleted := 0
-	errors := 0
+	failures := 0
 
 	// Collect expired entries under read lock
 	h.expiryMu.RLock()
@@ -240,79 +255,188 @@ func (h *TimeBasedPolicyHandler) enforceFromIndex(_ context.Context) error {
 			deleted++
 		}
 		if failed {
-			errors++
+			failures++
 		}
 	}
 
-	if deleted > 0 || errors > 0 {
-		logger.Info("Policy enforcement completed (indexed)", "deleted", deleted, "errors", errors)
+	if deleted > 0 || failures > 0 {
+		logger.Info("Policy enforcement completed (indexed)", "deleted", deleted, "errors", failures)
 	}
 
 	return nil
 }
 
-// enforceEntry enforces one entry from enforceFromIndex's snapshot. It holds
-// expiryMu throughout, so a TrackFile for the same path cannot land between
-// the check that the entry is unchanged and the removal of its files and its
-// index entry. An entry re-tracked or untracked since the snapshot is skipped:
-// its files are left alone and a fresh entry is kept. It reports whether it
-// enforced the entry and whether enforcing it failed.
+// diskOutcome is what an enforcement step found, and did, on disk.
+type diskOutcome int
+
+const (
+	diskGone       diskOutcome = iota // the .meta was already gone
+	diskNoPolicy                      // the .meta names no policy: never expires
+	diskNotExpired                    // not expired yet
+	diskDeleted                       // expired, and its files were deleted
+	diskFailed                        // unreadable, or a delete failed
+)
+
+// enforceEntry enforces one entry from enforceFromIndex's snapshot. Under
+// expiryMu it checks that the entry is unchanged and no store is writing the
+// item, and claims the item; it then releases the lock for the disk I/O, and
+// takes it again to commit the result to the index. A store's BeginMediaWrite
+// for the item waits for the claim, so a guarded write cannot land between the
+// check and the deletion, while stores of other items are not held up. An
+// entry re-tracked or untracked since the snapshot, before or during the I/O,
+// keeps its fresh entry. It reports whether it enforced the entry and whether
+// enforcing it failed.
 func (h *TimeBasedPolicyHandler) enforceEntry(entry expiryEntry, now time.Time) (enforced, failed bool) {
 	h.expiryMu.Lock()
-	defer h.expiryMu.Unlock()
+	if !h.unchangedLocked(entry) {
+		h.expiryMu.Unlock()
+		return false, false
+	}
+	release, claimed := h.claimLocked(entry.metaPath)
+	h.expiryMu.Unlock()
+	if !claimed {
+		// A store is replacing these files, or another pass is enforcing them;
+		// the entry is retried next pass.
+		return false, false
+	}
 
-	if cur, ok := h.expiryIndex[entry.metaPath]; !ok || cur.gen != entry.gen {
-		return false, false
+	outcome, expiresAt := h.enforceClaimed(entry.metaPath, now, release)
+
+	h.expiryMu.Lock()
+	defer h.expiryMu.Unlock()
+	release()
+	if h.unchangedLocked(entry) {
+		switch outcome {
+		case diskGone, diskNoPolicy, diskDeleted:
+			// Nothing left to enforce: deleted here or elsewhere, or the .meta
+			// was rewritten with no policy and the media never expires.
+			delete(h.expiryIndex, entry.metaPath)
+		case diskNotExpired:
+			// The .meta was rewritten with a later expiry without a re-track;
+			// keep enforcing it at the expiry on disk rather than dropping it.
+			entry.expiresAt = expiresAt
+			h.expiryIndex[entry.metaPath] = entry
+		case diskFailed:
+			// Kept, and retried next pass.
+		}
 	}
-	if h.beingWrittenLocked(entry.metaPath) {
-		// A store is replacing these files; the entry is retried next pass.
-		return false, false
-	}
-	if _, err := os.Stat(entry.metaPath); os.IsNotExist(err) {
-		// Already deleted elsewhere; nothing left to enforce.
-		delete(h.expiryIndex, entry.metaPath)
-		return false, false
-	}
-	if meta, err := h.loadPolicyMetadata(entry.metaPath); err == nil &&
-		meta.ExpiresAt != nil && !meta.ExpiresAt.Before(now) {
-		// The .meta was rewritten with a later expiry without a re-track; keep
-		// enforcing it at the expiry on disk rather than dropping it.
-		entry.expiresAt = *meta.ExpiresAt
-		h.expiryIndex[entry.metaPath] = entry
-		return false, false
-	}
-	if !h.processMetaFile(entry.metaPath, now) {
-		return false, true
-	}
-	delete(h.expiryIndex, entry.metaPath)
-	return true, false
+	return outcome == diskDeleted, outcome == diskFailed
+}
+
+// unchangedLocked reports whether the index still holds entry with the
+// generation it was snapshotted with. The caller holds expiryMu.
+func (h *TimeBasedPolicyHandler) unchangedLocked(entry expiryEntry) bool {
+	cur, ok := h.expiryIndex[entry.metaPath]
+	return ok && cur.gen == entry.gen
 }
 
 // enforceWalkedFile enforces the .meta file the directory walk found at
-// metaPath. It holds expiryMu so a store cannot open its write guard for the
-// path between the check and the deletion, and it skips a path a store is
-// writing. It reports whether it enforced the file and whether that failed.
+// metaPath. Like enforceEntry, it skips a path a store is writing and claims
+// the path under expiryMu, so a store cannot open its write guard for it
+// between the check and the deletion, then does the disk I/O with the lock
+// released. It reports whether it deleted the file and whether that failed.
 func (h *TimeBasedPolicyHandler) enforceWalkedFile(metaPath string, now time.Time) (enforced, failed bool) {
 	h.expiryMu.Lock()
-	defer h.expiryMu.Unlock()
-
-	if h.beingWrittenLocked(metaPath) {
+	release, claimed := h.claimLocked(metaPath)
+	h.expiryMu.Unlock()
+	if !claimed {
 		return false, false
 	}
-	if h.processMetaFile(metaPath, now) {
-		return true, false
+
+	outcome, _ := h.enforceClaimed(metaPath, now, release)
+
+	h.expiryMu.Lock()
+	release()
+	h.expiryMu.Unlock()
+	return outcome == diskDeleted, outcome == diskFailed
+}
+
+// claimLocked claims the item at metaPath for an enforcement step, unless a
+// store is writing it or another step has claimed it. The returned function
+// ends the claim; the caller calls it with expiryMu held. The caller holds
+// expiryMu.
+func (h *TimeBasedPolicyHandler) claimLocked(metaPath string) (release func(), claimed bool) {
+	key := writeKey(metaPath)
+	if h.beingWrittenLocked(metaPath) || h.enforcing[key] != nil {
+		return nil, false
 	}
-	return false, true
+	if h.enforcing == nil {
+		h.enforcing = make(map[string]chan struct{})
+	}
+	done := make(chan struct{})
+	h.enforcing[key] = done
+	return func() {
+		delete(h.enforcing, key)
+		close(done)
+	}, true
+}
+
+// enforceClaimed runs enforceOnDisk for an item the caller has claimed. If the
+// disk I/O panics, it ends the claim before the panic propagates, so writers
+// waiting in BeginMediaWrite for the item are not left blocked forever.
+func (h *TimeBasedPolicyHandler) enforceClaimed(
+	metaPath string, now time.Time, release func(),
+) (diskOutcome, time.Time) {
+	defer func() {
+		if r := recover(); r != nil {
+			h.expiryMu.Lock()
+			release()
+			h.expiryMu.Unlock()
+			panic(r)
+		}
+	}()
+	return h.enforceOnDisk(metaPath, now)
+}
+
+// enforceOnDisk reads the .meta at metaPath and, when its media has expired,
+// deletes the media and the .meta. It takes no lock; the caller has claimed
+// the item. For diskNotExpired it also returns the expiry on disk.
+func (h *TimeBasedPolicyHandler) enforceOnDisk(metaPath string, now time.Time) (diskOutcome, time.Time) {
+	h.enforceIO("stat", metaPath)
+	if _, err := os.Stat(metaPath); os.IsNotExist(err) {
+		return diskGone, time.Time{}
+	}
+	meta, err := h.loadPolicyMetadata(metaPath)
+	switch {
+	case errors.Is(err, errNoPolicy):
+		return diskNoPolicy, time.Time{}
+	case err != nil:
+		return diskFailed, time.Time{}
+	case meta.ExpiresAt == nil:
+		return diskNoPolicy, time.Time{}
+	case !meta.ExpiresAt.Before(now):
+		return diskNotExpired, *meta.ExpiresAt
+	}
+
+	mediaPath := strings.TrimSuffix(metaPath, ".meta")
+	h.enforceIO("remove", mediaPath)
+	if err := os.Remove(mediaPath); err != nil && !os.IsNotExist(err) {
+		return diskFailed, time.Time{}
+	}
+	h.enforceIO("remove", metaPath)
+	if err := os.Remove(metaPath); err != nil && !os.IsNotExist(err) {
+		return diskFailed, time.Time{}
+	}
+	return diskDeleted, time.Time{}
 }
 
 // BeginMediaWrite implements storage.MediaWriteGuard. Until the returned
 // function is called, neither the index pass nor the directory walk deletes
 // the item whose metadata file is at metaPath. It waits for an enforcement
-// step already handling that path to finish. Overlapping writes to one path
-// nest, and the returned function is safe to call more than once.
+// step already handling that path to finish, but not for steps handling other
+// items. Overlapping writes to one path nest, and the returned function is
+// safe to call more than once.
 func (h *TimeBasedPolicyHandler) BeginMediaWrite(metaPath string) func() {
 	key := writeKey(metaPath)
 	h.expiryMu.Lock()
+	for done := h.enforcing[key]; done != nil; done = h.enforcing[key] {
+		h.expiryMu.Unlock()
+		if h.waitForEnforcement != nil {
+			h.waitForEnforcement(metaPath)
+		}
+		<-done
+		h.expiryMu.Lock()
+	}
 	if h.writing == nil {
 		h.writing = make(map[string]int)
 	}
@@ -354,13 +478,13 @@ func writeKey(metaPath string) string {
 func (h *TimeBasedPolicyHandler) enforceFromWalk(_ context.Context, baseDir string) error {
 	now := h.now()
 	deleted := 0
-	errors := 0
+	failures := 0
 
 	// Walk the base directory looking for .meta files
 	err := filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			// Log and continue on errors (e.g., permission denied)
-			errors++
+			failures++
 			return nil
 		}
 
@@ -375,7 +499,7 @@ func (h *TimeBasedPolicyHandler) enforceFromWalk(_ context.Context, baseDir stri
 			deleted++
 		}
 		if failed {
-			errors++
+			failures++
 		}
 
 		return nil
@@ -386,41 +510,11 @@ func (h *TimeBasedPolicyHandler) enforceFromWalk(_ context.Context, baseDir stri
 	}
 
 	// Log enforcement results
-	if deleted > 0 || errors > 0 {
-		logger.Info("Policy enforcement completed", "deleted", deleted, "errors", errors)
+	if deleted > 0 || failures > 0 {
+		logger.Info("Policy enforcement completed", "deleted", deleted, "errors", failures)
 	}
 
 	return nil
-}
-
-// processMetaFile checks if a .meta file's media has expired and deletes it if so.
-// Returns true if deletion succeeded, false otherwise.
-func (h *TimeBasedPolicyHandler) processMetaFile(metaPath string, now time.Time) bool {
-	// Load metadata from .meta file
-	metaData, err := h.loadPolicyMetadata(metaPath)
-	if err != nil {
-		// Skip files we can't read
-		return false
-	}
-
-	// Check if expired
-	if metaData.ExpiresAt == nil || !metaData.ExpiresAt.Before(now) {
-		// Not expired or no expiration
-		return true // Not an error, just nothing to do
-	}
-
-	// Delete the media file
-	mediaPath := strings.TrimSuffix(metaPath, ".meta")
-	if err := os.Remove(mediaPath); err != nil && !os.IsNotExist(err) {
-		return false
-	}
-
-	// Delete the .meta file
-	if err := os.Remove(metaPath); err != nil && !os.IsNotExist(err) {
-		return false
-	}
-
-	return true
 }
 
 // StartEnforcement starts a background goroutine that periodically enforces policies.
@@ -558,32 +652,39 @@ func (h *TimeBasedPolicyHandler) TrackFile(metaPath string, expiresAt time.Time)
 }
 
 // TrackMedia implements storage.MediaPolicyTracker. It adds the media whose
-// metadata file is at metaPath to the expiry index, expiring at
-// metadata.Timestamp plus the policy's duration, so media stored after
-// StartEnforcement has built the index still expires. Media with no policy is
-// not tracked; a policy ParsePolicyName cannot parse is an error.
+// metadata file is at metaPath to the expiry index, expiring when
+// MediaExpiresAt says, so media stored after StartEnforcement has built the
+// index still expires. Media with no policy is not tracked; a policy
+// ParsePolicyName cannot parse is an error.
 func (h *TimeBasedPolicyHandler) TrackMedia(metaPath string, metadata *storage.MediaMetadata) error {
-	if metadata == nil || metadata.PolicyName == "" {
-		return nil
+	expiresAt, expires, err := mediaExpiry(metadata)
+	if err != nil || !expires {
+		return err
 	}
-	_, duration, err := ParsePolicyName(metadata.PolicyName)
-	if err != nil {
-		return fmt.Errorf("failed to parse policy name: %w", err)
-	}
-	h.TrackFile(metaPath, metadata.Timestamp.Add(duration))
+	h.TrackFile(metaPath, expiresAt)
 	return nil
 }
 
 // MediaExpiresAt implements storage.MediaExpiryReporter: media expires at its
-// Timestamp plus its policy's duration. Media with no policy never expires; a
-// policy ParsePolicyName cannot parse is an error.
+// ExpiresAt when that is set, and otherwise at its Timestamp plus its policy's
+// duration. Media with no policy never expires; a policy ParsePolicyName
+// cannot parse is an error.
 func (h *TimeBasedPolicyHandler) MediaExpiresAt(metadata *storage.MediaMetadata) (time.Time, bool, error) {
+	return mediaExpiry(metadata)
+}
+
+// mediaExpiry returns when media with metadata expires, as MediaExpiresAt
+// documents.
+func mediaExpiry(metadata *storage.MediaMetadata) (time.Time, bool, error) {
 	if metadata == nil || metadata.PolicyName == "" {
 		return time.Time{}, false, nil
 	}
 	_, duration, err := ParsePolicyName(metadata.PolicyName)
 	if err != nil {
 		return time.Time{}, false, fmt.Errorf("failed to parse policy name: %w", err)
+	}
+	if metadata.ExpiresAt != nil {
+		return *metadata.ExpiresAt, true, nil
 	}
 	return metadata.Timestamp.Add(duration), true, nil
 }
@@ -605,8 +706,13 @@ func (h *TimeBasedPolicyHandler) ExpiryIndexLen() int {
 	return len(h.expiryIndex)
 }
 
+// errNoPolicy is returned by loadPolicyMetadata for a .meta that names no
+// policy: media that never expires.
+var errNoPolicy = errors.New("no policy name in metadata")
+
 // loadPolicyMetadata loads policy metadata from a .meta file.
 func (h *TimeBasedPolicyHandler) loadPolicyMetadata(metaPath string) (*Metadata, error) {
+	h.enforceIO("read", metaPath)
 	data, err := os.ReadFile(filepath.Clean(metaPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read metadata file: %w", err)
@@ -620,21 +726,25 @@ func (h *TimeBasedPolicyHandler) loadPolicyMetadata(metaPath string) (*Metadata,
 	}
 
 	if mediaMetadata.PolicyName == "" {
-		return nil, fmt.Errorf("no policy name in metadata")
+		return nil, errNoPolicy
 	}
 
-	// Parse policy to get duration
-	_, duration, err := ParsePolicyName(mediaMetadata.PolicyName)
+	expiresAt, _, err := mediaExpiry(&mediaMetadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse policy: %w", err)
 	}
-
-	// Calculate expiration time
-	expiresAt := mediaMetadata.Timestamp.Add(duration)
 
 	return &Metadata{
 		PolicyName: mediaMetadata.PolicyName,
 		ExpiresAt:  &expiresAt,
 		CreatedAt:  mediaMetadata.Timestamp,
 	}, nil
+}
+
+// enforceIO runs the beforeEnforceIO test hook, when set, before a disk
+// operation of an enforcement step.
+func (h *TimeBasedPolicyHandler) enforceIO(op, path string) {
+	if h.beforeEnforceIO != nil {
+		h.beforeEnforceIO(op, path)
+	}
 }
