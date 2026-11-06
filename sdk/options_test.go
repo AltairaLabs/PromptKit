@@ -164,6 +164,16 @@ func TestWithRelevanceTruncation(t *testing.T) {
 		assert.Equal(t, "last_user", cfg.relevanceConfig.QuerySource)
 	})
 
+	t.Run("carries CacheEmbeddings to the stage config", func(t *testing.T) {
+		for _, want := range []bool{true, false} {
+			conv := &Conversation{config: &config{}}
+			require.NoError(t, WithRelevanceTruncation(&RelevanceConfig{CacheEmbeddings: want})(conv.config))
+			got := conv.buildRelevanceConfig()
+			require.NotNil(t, got)
+			assert.Equal(t, want, got.CacheEmbeddings)
+		}
+	})
+
 	t.Run("with nil config", func(t *testing.T) {
 		opt := WithRelevanceTruncation(nil)
 		cfg := &config{}

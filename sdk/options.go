@@ -1677,6 +1677,14 @@ type RelevanceConfig struct {
 
 	// CustomQuery is the query text when QuerySource is "custom".
 	CustomQuery string
+
+	// CacheEmbeddings reuses message embeddings across turns, so a message
+	// whose text has not changed is not embedded again on the next truncation.
+	// Vectors are keyed on the embedded text and the embedding provider's ID
+	// and model, last only as long as the Conversation, and are released once
+	// a message leaves the input. Default: false (embed every message on every
+	// truncation).
+	CacheEmbeddings bool
 }
 
 // WithRelevanceTruncation configures embedding-based relevance truncation.
