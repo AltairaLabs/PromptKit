@@ -6975,7 +6975,7 @@ func NewSkillsCapability(sources []skills.SkillSource, opts ...SkillsOption) *Sk
 NewSkillsCapability creates a new SkillsCapability from the given sources.
 
 <a name="SkillsCapability.Close"></a>
-### func \(\*SkillsCapability\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L244>)
+### func \(\*SkillsCapability\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L242>)
 
 ```go
 func (c *SkillsCapability) Close() error
@@ -6984,7 +6984,7 @@ func (c *SkillsCapability) Close() error
 Close is a no\-op for SkillsCapability.
 
 <a name="SkillsCapability.Executor"></a>
-### func \(\*SkillsCapability\) [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L307>)
+### func \(\*SkillsCapability\) [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L305>)
 
 ```go
 func (c *SkillsCapability) Executor() *skills.Executor
@@ -7022,7 +7022,7 @@ NewActiveSet returns a fresh ActiveSet for one conversation, with the preloaded 
 Preloading is best\-effort — a skill that fails here can still be activated on first use, so a failure does not abort the open. It is reported, though: when the cause is MaxActive the "activate later" recovery does not hold, because the limit is as full at first use as it is now.
 
 <a name="SkillsCapability.RefreshSkillIndex"></a>
-### func \(\*SkillsCapability\) [RefreshSkillIndex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L256>)
+### func \(\*SkillsCapability\) [RefreshSkillIndex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L254>)
 
 ```go
 func (c *SkillsCapability) RefreshSkillIndex(ctx context.Context, query string, registry *tools.Registry)
@@ -7033,7 +7033,7 @@ RefreshSkillIndex re\-materializes the skill\_\_activate tool's description in r
 A Conversation does not call this: it runs the selector once per Send and narrows the index per provider round, to the skills its own workflow state admits, without re\-registering anything. This remains for hosts that drive a tools.Registry directly; the index it writes ignores any workflow state's skills filter.
 
 <a name="SkillsCapability.RegisterTools"></a>
-### func \(\*SkillsCapability\) [RegisterTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L230>)
+### func \(\*SkillsCapability\) [RegisterTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_skills.go#L228>)
 
 ```go
 func (c *SkillsCapability) RegisterTools(registry *tools.Registry)

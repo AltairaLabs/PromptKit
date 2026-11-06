@@ -141,6 +141,31 @@ func TestActivateIn_ConcurrentSetsAreRaceFree(t *testing.T) {
 	}
 }
 
+// Instructions reads an active skill's instructions and never activates one.
+func TestActiveSet_InstructionsOnlyReads(t *testing.T) {
+	dir := t.TempDir()
+	writeSkillWithTools(t, dir, "billing", "Billing", "Handle billing.", []string{"refund"})
+	exec := newTestExecutor(t, dir, []string{"refund"}, 0)
+
+	set := NewActiveSet()
+	got, ok := set.Instructions("billing")
+	assert.False(t, ok)
+	assert.Empty(t, got)
+	assert.Empty(t, set.Names(), "reading must not activate the skill")
+
+	_, err := exec.ActivateIn(set, "billing")
+	require.NoError(t, err)
+	got, ok = set.Instructions("billing")
+	assert.True(t, ok)
+	assert.Equal(t, "Handle billing.", got)
+
+	_, err = exec.DeactivateIn(set, "billing")
+	require.NoError(t, err)
+	_, ok = set.Instructions("billing")
+	assert.False(t, ok)
+	assert.Empty(t, set.Names())
+}
+
 // An ActiveSet reports its own filter and size.
 func TestActiveSet_ReportsFilterAndLen(t *testing.T) {
 	set := NewActiveSet()

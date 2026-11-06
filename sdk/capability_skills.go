@@ -206,22 +206,20 @@ func (c *SkillsCapability) NewActiveSet() *skills.ActiveSet {
 // conversation has since deactivated — or that a workflow state's filter
 // dropped — is left out, so its instructions leave the prompt with its tools.
 // Empty when there are none.
+//
+// It only reads set, so a skill deactivated while this runs stays deactivated
+// (#2399).
 func (c *SkillsCapability) preloadedInstructions(set *skills.ActiveSet) string {
 	if c.executor == nil || set == nil || len(c.preload) == 0 {
 		return ""
 	}
-	active := set.Names()
 	var sections []string
 	for _, name := range c.preload {
-		if !slices.Contains(active, name) {
+		instructions, active := set.Instructions(name)
+		if !active || instructions == "" {
 			continue
 		}
-		// Already active, so this returns the instructions without changing the set.
-		act, err := c.executor.ActivateIn(set, name)
-		if err != nil || act.Instructions == "" {
-			continue
-		}
-		sections = append(sections, "## Skill: "+name+"\n\n"+act.Instructions)
+		sections = append(sections, "## Skill: "+name+"\n\n"+instructions)
 	}
 	return strings.Join(sections, "\n\n")
 }
