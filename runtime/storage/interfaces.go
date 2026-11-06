@@ -154,3 +154,16 @@ type MediaPolicyTracker interface {
 	// PolicyName.
 	TrackMedia(metaPath string, metadata *MediaMetadata) error
 }
+
+// MediaWriteGuard is implemented by a MediaPolicyHandler that deletes media
+// while stores are writing it. A store calls BeginMediaWrite before it writes a
+// media item's files, and calls the returned function once it has written them
+// and called TrackMedia. Until then the handler must not delete the files of
+// the item whose metadata file is at metaPath, so a store that replaces an
+// item's files cannot have them deleted on the strength of the old metadata.
+type MediaWriteGuard interface {
+	// BeginMediaWrite marks the item at metaPath as being written and returns
+	// the function that ends the write. The returned function is safe to call
+	// more than once.
+	BeginMediaWrite(metaPath string) (end func())
+}

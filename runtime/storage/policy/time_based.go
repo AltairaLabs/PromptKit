@@ -56,10 +56,12 @@ type expiryEntry struct {
 }
 
 // compile-time checks that TimeBasedPolicyHandler implements
-// storage.MediaPolicyHandler and storage.MediaPolicyTracker.
+// storage.MediaPolicyHandler, storage.MediaPolicyTracker and
+// storage.MediaWriteGuard.
 var (
 	_ storage.MediaPolicyHandler = (*TimeBasedPolicyHandler)(nil)
 	_ storage.MediaPolicyTracker = (*TimeBasedPolicyHandler)(nil)
+	_ storage.MediaWriteGuard    = (*TimeBasedPolicyHandler)(nil)
 )
 
 // TimeBasedPolicyHandler implements storage.MediaPolicyHandler for time-based retention policies.
@@ -110,6 +112,10 @@ type TimeBasedPolicyHandler struct {
 	// nextGen is the last generation handed to an index entry; guarded by
 	// expiryMu.
 	nextGen uint64
+
+	// writing counts the open BeginMediaWrite calls per metadata path, keyed
+	// by writeKey; guarded by expiryMu. Enforcement skips those paths.
+	writing map[string]int
 
 	// indexBuilt indicates whether the expiry index has been populated
 	indexBuilt bool
@@ -257,6 +263,10 @@ func (h *TimeBasedPolicyHandler) enforceEntry(entry expiryEntry, now time.Time) 
 	if cur, ok := h.expiryIndex[entry.metaPath]; !ok || cur.gen != entry.gen {
 		return false, false
 	}
+	if h.beingWrittenLocked(entry.metaPath) {
+		// A store is replacing these files; the entry is retried next pass.
+		return false, false
+	}
 	if _, err := os.Stat(entry.metaPath); os.IsNotExist(err) {
 		// Already deleted elsewhere; nothing left to enforce.
 		delete(h.expiryIndex, entry.metaPath)
@@ -275,6 +285,67 @@ func (h *TimeBasedPolicyHandler) enforceEntry(entry expiryEntry, now time.Time) 
 	}
 	delete(h.expiryIndex, entry.metaPath)
 	return true, false
+}
+
+// enforceWalkedFile enforces the .meta file the directory walk found at
+// metaPath. It holds expiryMu so a store cannot open its write guard for the
+// path between the check and the deletion, and it skips a path a store is
+// writing. It reports whether it enforced the file and whether that failed.
+func (h *TimeBasedPolicyHandler) enforceWalkedFile(metaPath string, now time.Time) (enforced, failed bool) {
+	h.expiryMu.Lock()
+	defer h.expiryMu.Unlock()
+
+	if h.beingWrittenLocked(metaPath) {
+		return false, false
+	}
+	if h.processMetaFile(metaPath, now) {
+		return true, false
+	}
+	return false, true
+}
+
+// BeginMediaWrite implements storage.MediaWriteGuard. Until the returned
+// function is called, neither the index pass nor the directory walk deletes
+// the item whose metadata file is at metaPath. It waits for an enforcement
+// step already handling that path to finish. Overlapping writes to one path
+// nest, and the returned function is safe to call more than once.
+func (h *TimeBasedPolicyHandler) BeginMediaWrite(metaPath string) func() {
+	key := writeKey(metaPath)
+	h.expiryMu.Lock()
+	if h.writing == nil {
+		h.writing = make(map[string]int)
+	}
+	h.writing[key]++
+	h.expiryMu.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			h.expiryMu.Lock()
+			defer h.expiryMu.Unlock()
+			if h.writing[key] <= 1 {
+				delete(h.writing, key)
+				return
+			}
+			h.writing[key]--
+		})
+	}
+}
+
+// beingWrittenLocked reports whether a store holds a write guard for
+// metaPath. The caller holds expiryMu.
+func (h *TimeBasedPolicyHandler) beingWrittenLocked(metaPath string) bool {
+	return h.writing[writeKey(metaPath)] > 0
+}
+
+// writeKey normalizes a metadata path so a guard opened by a store and a path
+// found by the directory walk match even when one was built from a relative
+// base directory and the other from an absolute one.
+func writeKey(metaPath string) string {
+	if abs, err := filepath.Abs(metaPath); err == nil {
+		return abs
+	}
+	return filepath.Clean(metaPath)
 }
 
 // enforceFromWalk is the original full directory walk implementation, used
@@ -298,9 +369,11 @@ func (h *TimeBasedPolicyHandler) enforceFromWalk(_ context.Context, baseDir stri
 		}
 
 		// Process this .meta file
-		if h.processMetaFile(path, now) {
+		enforced, failed := h.enforceWalkedFile(path, now)
+		if enforced {
 			deleted++
-		} else {
+		}
+		if failed {
 			errors++
 		}
 

@@ -16,7 +16,7 @@ Set `FileStoreConfig.EnableDeduplication` to turn on deduplication. The store th
 
 1. It hashes the content with SHA-256 on store.
 2. It looks the hash up in an in-memory index, persisted as `.dedup_index.json` in the store's base directory and loaded when the store opens.
-3. If the hash exists, the store returns the existing file's reference and increments its reference count. It writes no new copy.
+3. If the hash exists and its file is still on disk, the store returns the existing file's reference and increments its reference count. It writes no new copy. If a retention policy or anything else has deleted the file, the store drops the index entry and treats the hash as new.
 4. If the hash is new, the store writes the content and adds an index entry with a count of one.
 5. `DeleteMedia` decrements the count while it is above one. The file and its index entry are removed when the last reference is deleted.
 

@@ -74,7 +74,9 @@ type FileStoreConfig struct {
 	// policy (its PolicyName, or DefaultPolicy when that is empty) before the
 	// item is written. If it returns an error, StoreMedia fails and nothing is
 	// written. If it also implements storage.MediaPolicyTracker, each item is
-	// passed to TrackMedia once its metadata file is written. When nil, policy
+	// passed to TrackMedia once its metadata file is written. If it implements
+	// storage.MediaWriteGuard, each item's files are written and tracked
+	// between BeginMediaWrite and the end of the write. When nil, policy
 	// names are stored without being checked.
 	PolicyHandler storage.MediaPolicyHandler
 }
@@ -243,7 +245,8 @@ func (fs *FileStore) StoreMedia(
 		// Keep dedupMu locked — will update index after write below
 	}
 
-	filePath, err := fs.writeNewMediaFile(metadata, contentHash, content.MIMEType, data)
+	filePath, endWrite, err := fs.writeNewMediaFile(metadata, contentHash, content.MIMEType, data)
+	defer endWrite()
 	if err != nil {
 		if fs.config.EnableDeduplication {
 			fs.dedupMu.Unlock()
@@ -291,7 +294,7 @@ func (fs *FileStore) prepareInlineData(content *types.MediaContent) ([]byte, err
 // must release it (directly or via registerDedupLocked).
 func (fs *FileStore) lookupDedupLocked(contentHash string) (string, bool) {
 	fs.dedupMu.Lock()
-	existingPath, exists := fs.dedupIndex[contentHash]
+	existingPath, exists := fs.liveDedupPathLocked(contentHash)
 	if !exists {
 		return "", false
 	}
@@ -303,24 +306,60 @@ func (fs *FileStore) lookupDedupLocked(contentHash string) (string, bool) {
 	return existingPath, true
 }
 
-// writeNewMediaFile generates the file path for new media, creates its
-// directory and writes data atomically (temp file then rename).
+// liveDedupPathLocked returns the path the dedup index holds for contentHash,
+// if that file still exists. The caller holds dedupMu. An entry whose file is
+// gone, for example because a retention policy deleted it, is dropped, so the
+// content is stored again instead of returning a reference to a missing file.
+func (fs *FileStore) liveDedupPathLocked(contentHash string) (string, bool) {
+	existingPath, exists := fs.dedupIndex[contentHash]
+	if !exists {
+		return "", false
+	}
+	if _, err := os.Stat(existingPath); os.IsNotExist(err) {
+		delete(fs.dedupIndex, contentHash)
+		fs.dedupDirty = true
+		fs.refMu.Lock()
+		delete(fs.refCounts, existingPath)
+		fs.refMu.Unlock()
+		return "", false
+	}
+	return existingPath, true
+}
+
+// beginMediaWrite opens the policy handler's write guard for the media at
+// filePath when the handler implements storage.MediaWriteGuard, so policy
+// enforcement does not delete the item's files while they are written and
+// tracked. It returns the function that closes the guard.
+func (fs *FileStore) beginMediaWrite(filePath string) func() {
+	guard, ok := fs.config.PolicyHandler.(storage.MediaWriteGuard)
+	if !ok {
+		return func() {}
+	}
+	return guard.BeginMediaWrite(filePath + ".meta")
+}
+
+// writeNewMediaFile generates the file path for new media, opens the policy
+// handler's write guard for it, creates its directory and writes data
+// atomically (temp file then rename). It returns the function that closes the
+// guard; the caller calls it once the item's metadata is written and tracked,
+// including on error.
 func (fs *FileStore) writeNewMediaFile(
 	metadata *storage.MediaMetadata, contentHash, mimeType string, data []byte,
-) (string, error) {
-	filePath, err := fs.generateFilePath(metadata, contentHash, mimeType)
+) (filePath string, endWrite func(), err error) {
+	filePath, err = fs.generateFilePath(metadata, contentHash, mimeType)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate file path: %w", err)
+		return "", func() {}, fmt.Errorf("failed to generate file path: %w", err)
 	}
+	endWrite = fs.beginMediaWrite(filePath)
 
 	if err := os.MkdirAll(filepath.Dir(filePath), mediaDirPerm); err != nil {
-		return "", fmt.Errorf("failed to create directory: %w", err)
+		return "", endWrite, fmt.Errorf("failed to create directory: %w", err)
 	}
 
 	if err := fs.writeFileAtomic(filePath, data); err != nil {
-		return "", fmt.Errorf("failed to write file: %w", err)
+		return "", endWrite, fmt.Errorf("failed to write file: %w", err)
 	}
-	return filePath, nil
+	return filePath, endWrite, nil
 }
 
 // registerDedupLocked records filePath under contentHash, releases dedupMu
@@ -439,7 +478,7 @@ func (fs *FileStore) storeMediaStreaming(
 	// Dedup check (mirrors the buffered path's locking discipline).
 	if fs.config.EnableDeduplication {
 		fs.dedupMu.Lock()
-		if existingPath, exists := fs.dedupIndex[hashStr]; exists {
+		if existingPath, exists := fs.liveDedupPathLocked(hashStr); exists {
 			fs.dedupMu.Unlock()
 			fs.refMu.Lock()
 			fs.refCounts[existingPath]++
@@ -464,6 +503,9 @@ func (fs *FileStore) storeMediaStreaming(
 		}
 		return "", fmt.Errorf("failed to create directory: %w", err)
 	}
+
+	endWrite := fs.beginMediaWrite(finalPath)
+	defer endWrite()
 
 	// Atomic rename — same filesystem because both paths are under
 	// BaseDir. After this, the temp path no longer exists, so the
