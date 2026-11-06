@@ -232,23 +232,43 @@ hooks.OnToolCall(conv, func(name string, args map[string]any) {
 
 ## Error Handling
 
+`Open` returns a `*sdk.PackError` when the pack file is missing, unreadable or invalid, and sentinels for the other setup failures:
+
 ```go
-resp, err := conv.Send(ctx, input)
+conv, err := sdk.Open("./app.pack.json", "chat")
 if err != nil {
+    var packErr *sdk.PackError
     switch {
     case errors.Is(err, sdk.ErrPackNotFound):
-        // Pack file doesn't exist
+        // Pack file doesn't exist (also a *PackError)
+    case errors.As(err, &packErr):
+        // Pack failed to load or validate: packErr.Path, packErr.Cause
     case errors.Is(err, sdk.ErrPromptNotFound):
         // Prompt ID not in pack
     case errors.Is(err, sdk.ErrProviderNotDetected):
         // No provider API key found
-    case errors.Is(err, sdk.ErrToolNotRegistered):
-        // Tool handler missing
-    default:
-        log.Printf("Unexpected error: %v", err)
     }
 }
 ```
+
+`Send` and `Stream` return a `*sdk.ProviderError` when the provider's API answers with an error status or the connection fails, and a `*sdk.ValidationError` when a hook denies the turn. Each wraps the runtime error, so `errors.As` still finds `*providers.ProviderHTTPError` or `*hooks.HookDeniedError`:
+
+```go
+resp, err := conv.Send(ctx, input)
+if err != nil {
+    var provErr *sdk.ProviderError
+    switch {
+    case errors.As(err, &provErr):
+        // provErr.Provider, provErr.StatusCode
+    default:
+        if vErr, ok := sdk.AsValidationError(err); ok {
+            // vErr.ValidatorType, vErr.Message
+        }
+    }
+}
+```
+
+A tool handler approved with `ResolveTool` that fails sets a `*sdk.ToolError` as the resolution's `Error`. `ResolveTool` returns an error matching `sdk.ErrToolNotRegistered` when the held call's tool has no handler.
 
 ---
 

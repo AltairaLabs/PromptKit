@@ -108,11 +108,82 @@ func TestErrors_PackNotFound(t *testing.T) {
 	)
 	require.Error(t, err, "Open should fail for nonexistent pack path")
 
-	// The error should indicate that the pack file was not found.
+	// The error is a *PackError naming the path, and still the sentinel.
 	var packErr *sdk.PackError
-	if errors.As(err, &packErr) {
-		assert.Contains(t, packErr.Path, "nonexistent/path.pack.json")
+	require.ErrorAs(t, err, &packErr)
+	assert.Contains(t, packErr.Path, "nonexistent/path.pack.json")
+	assert.ErrorIs(t, err, sdk.ErrPackNotFound)
+}
+
+func TestErrors_MalformedPackIsPackError(t *testing.T) {
+	packPath := writePackFile(t, `{"id": "broken",`)
+
+	_, err := sdk.Open(packPath, "chat",
+		sdk.WithProvider(mock.NewProvider("mock-test", "mock-model", false)),
+		sdk.WithSkipSchemaValidation(),
+	)
+	var packErr *sdk.PackError
+	require.ErrorAs(t, err, &packErr)
+	assert.Equal(t, packPath, packErr.Path)
+	assert.ErrorContains(t, err, "failed to load pack")
+
+	_, err = sdk.ValidatePack(packPath, true)
+	require.ErrorAs(t, err, &packErr, "ValidatePack reports a load failure as a *PackError")
+}
+
+// ---------------------------------------------------------------------------
+// 7.1b — Provider HTTP failures are *sdk.ProviderError
+// ---------------------------------------------------------------------------
+
+// httpErrorProvider fails every call the way a provider API answering 429 does.
+type httpErrorProvider struct {
+	errorProvider
+}
+
+func (e *httpErrorProvider) httpErr() error {
+	return &providers.ProviderHTTPError{
+		StatusCode: 429, URL: "https://api.example.com/v1/chat", Body: "rate limited", Provider: "example",
 	}
+}
+
+func (e *httpErrorProvider) Predict(context.Context, providers.PredictionRequest) (providers.PredictionResponse, error) {
+	return providers.PredictionResponse{}, e.httpErr()
+}
+
+func (e *httpErrorProvider) PredictStream(context.Context, providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+	return nil, e.httpErr()
+}
+
+func TestErrors_ProviderHTTPFailureIsProviderError(t *testing.T) {
+	conv, err := sdk.Open(writePackFile(t, minimalPackJSON), "chat",
+		sdk.WithProvider(&httpErrorProvider{}),
+		sdk.WithSkipSchemaValidation(),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conv.Close() })
+
+	assertProviderError := func(t *testing.T, err error) {
+		t.Helper()
+		var pErr *sdk.ProviderError
+		require.ErrorAs(t, err, &pErr)
+		assert.Equal(t, "example", pErr.Provider)
+		assert.Equal(t, 429, pErr.StatusCode)
+		assert.Contains(t, pErr.Error(), "rate limited")
+		var httpErr *providers.ProviderHTTPError
+		assert.ErrorAs(t, err, &httpErr, "the runtime error stays reachable")
+		assert.True(t, providers.IsTransient(err), "a 429 is still classified as transient")
+	}
+
+	_, sendErr := conv.Send(context.Background(), "hello")
+	assertProviderError(t, sendErr)
+
+	var streamErr error
+	for chunk := range conv.Stream(context.Background(), "hello") {
+		if chunk.Error != nil {
+			streamErr = chunk.Error
+		}
+	}
+	assertProviderError(t, streamErr)
 }
 
 func TestErrors_PromptNotFound(t *testing.T) {

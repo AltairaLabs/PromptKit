@@ -205,7 +205,8 @@ func (e *clientExecutor) Execute(
 	// Snapshot first, then live via the mutex accessor.
 	handler, ok := e.lookupClientHandler(descriptor.Name)
 	if !ok {
-		return nil, fmt.Errorf("no client handler registered for tool: %s", descriptor.Name)
+		return nil, markSentinel(
+			fmt.Errorf("no client handler registered for tool: %s", descriptor.Name), ErrToolNotRegistered)
 	}
 
 	return e.executeHandler(ctx, handler, descriptor, argsMap)
@@ -345,7 +346,7 @@ func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
 	// Inject tool results into session history and re-execute
 	result, err := c.unarySession.ResumeWithToolResults(c.withConversationState(ctx), toolMsgs)
 	if err != nil {
-		return nil, fmt.Errorf("resume failed: %w", err)
+		return nil, fmt.Errorf("resume failed: %w", c.wrapTurnError(err))
 	}
 
 	resp := c.buildResponse(ctx, result, startTime)
@@ -394,7 +395,7 @@ func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk {
 
 		streamCh, err := c.unarySession.ResumeStreamWithToolResults(c.withConversationState(ctx), toolMsgs)
 		if err != nil {
-			ch <- StreamChunk{Error: fmt.Errorf("resume stream failed: %w", err)}
+			ch <- StreamChunk{Error: fmt.Errorf("resume stream failed: %w", c.wrapTurnError(err))}
 			return
 		}
 
@@ -435,7 +436,7 @@ func (c *Conversation) buildToolResultMessages(ctx context.Context) ([]types.Mes
 				fmt.Sprintf("Tool rejected: %s", res.RejectionReason))
 		case res.Error != nil:
 			toolResult = types.NewTextToolResult(res.ID, "", toolErrorContent(res))
-			toolResult.Error = res.Error.Error()
+			toolResult.Error = toolResultErrorText(res.Error)
 		case len(res.Parts) > 0:
 			toolResult = types.MessageToolResult{
 				ID:    res.ID,
@@ -693,9 +694,9 @@ func answeredSinceLastAssistant(history []types.Message) []string {
 // the partial output it produced, if any, then the error.
 func toolErrorContent(res *sdktools.ToolResolution) string {
 	if len(res.ResultJSON) > 0 {
-		return fmt.Sprintf("%s\n\nTool error: %v", res.ResultJSON, res.Error)
+		return fmt.Sprintf("%s\n\nTool error: %s", res.ResultJSON, toolResultErrorText(res.Error))
 	}
-	return fmt.Sprintf("Tool error: %v", res.Error)
+	return "Tool error: " + toolResultErrorText(res.Error)
 }
 
 // FailClientTool reports that a deferred client tool failed.

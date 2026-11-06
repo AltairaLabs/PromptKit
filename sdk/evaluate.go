@@ -248,7 +248,7 @@ func resolveEvalDefs(opts *EvaluateOpts) ([]evals.EvalDef, error) {
 		loadOpts := pack.LoadOptions{SkipSchemaValidation: opts.SkipSchemaValidation}
 		p, err = pack.Load(opts.PackPath, loadOpts)
 		if err != nil {
-			return nil, fmt.Errorf("load pack: %w", err)
+			return nil, packLoadError(opts.PackPath, err)
 		}
 	default:
 		return nil, fmt.Errorf("one of EvalDefs, PackData, or PackPath must be provided")

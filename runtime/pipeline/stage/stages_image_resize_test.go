@@ -238,3 +238,53 @@ func TestDefaultImageResizeStageConfig(t *testing.T) {
 		t.Error("Expected SkipIfSmaller to be true")
 	}
 }
+
+// runResizeStage runs one image element through an ImageResizeStage.
+func runResizeStage(t *testing.T, config ImageResizeStageConfig, img *ImageData) StreamElement {
+	t.Helper()
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 1)
+	input <- StreamElement{Image: img}
+	close(input)
+	if err := NewImageResizeStage(config).Process(context.Background(), input, output); err != nil {
+		t.Fatalf("Process returned error: %v", err)
+	}
+	return <-output
+}
+
+// Width and Height are optional on an ImageData (SendFrame leaves them 0 when
+// the caller omits them); the stage must decode the frame rather than assume
+// it already fits.
+func TestImageResizeStage_ResizesWhenDimensionsUnknown(t *testing.T) {
+	config := ImageResizeStageConfig{MaxWidth: 320, MaxHeight: 240, Quality: 80,
+		PreserveAspectRatio: true, SkipIfSmaller: true}
+
+	result := runResizeStage(t, config, &ImageData{Data: createTestImageData(640, 480), MIMEType: "image/jpeg"})
+	if result.Error != nil {
+		t.Fatalf("Unexpected error: %v", result.Error)
+	}
+	if result.Image.Width != 320 || result.Image.Height != 240 {
+		t.Errorf("Expected 320x240, got %dx%d", result.Image.Width, result.Image.Height)
+	}
+	decoded, _, err := image.Decode(bytes.NewReader(result.Image.Data))
+	if err != nil {
+		t.Fatalf("decode resized frame: %v", err)
+	}
+	if b := decoded.Bounds(); b.Dx() != 320 || b.Dy() != 240 {
+		t.Errorf("Expected encoded frame 320x240, got %dx%d", b.Dx(), b.Dy())
+	}
+}
+
+func TestImageResizeStage_UnknownDimensionsWithinLimitsUnchanged(t *testing.T) {
+	config := ImageResizeStageConfig{MaxWidth: 1024, MaxHeight: 1024, Quality: 80,
+		PreserveAspectRatio: true, SkipIfSmaller: true}
+	data := createTestImageData(64, 48)
+
+	result := runResizeStage(t, config, &ImageData{Data: data, MIMEType: "image/jpeg"})
+	if result.Error != nil {
+		t.Fatalf("Unexpected error: %v", result.Error)
+	}
+	if !bytes.Equal(result.Image.Data, data) {
+		t.Error("Expected a frame within limits to keep its bytes")
+	}
+}

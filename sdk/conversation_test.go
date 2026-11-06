@@ -332,6 +332,9 @@ func TestConversationFork(t *testing.T) {
 
 	conv.SetVar("name", "Alice")
 	conv.OnTool("tool1", func(args map[string]any) (any, error) { return nil, nil })
+	conv.OnToolCtx("ctx_tool", func(ctx context.Context, args map[string]any) (any, error) {
+		return "from-ctx-handler", nil
+	})
 
 	// Set up state in the session's store
 	state := &statestore.ConversationState{
@@ -351,8 +354,13 @@ func TestConversationFork(t *testing.T) {
 	assert.Equal(t, "Alice", forkVal)
 	fork.handlersMu.RLock()
 	_, hasHandler := fork.handlers["tool1"]
+	forkCtxHandler, hasCtxHandler := fork.ctxHandlers["ctx_tool"]
 	fork.handlersMu.RUnlock()
 	assert.True(t, hasHandler)
+	require.True(t, hasCtxHandler, "Fork must copy handlers registered with OnToolCtx")
+	ctxResult, err := forkCtxHandler(ctx, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "from-ctx-handler", ctxResult)
 
 	// Verify fork has independent ID
 	assert.Contains(t, fork.ID(), "fork")
@@ -588,8 +596,8 @@ func TestOnToolExecutor(t *testing.T) {
 		conv.handlersMu.RUnlock()
 
 		_, err := handler(context.Background(), map[string]any{})
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "not found in pack")
+		assert.ErrorIs(t, err, ErrToolNotInPack)
+		assert.Equal(t, `tool "missing_tool" not found in pack`, err.Error(), "the text is unchanged")
 	})
 }
 
@@ -641,8 +649,8 @@ func TestLocalExecutorExecute(t *testing.T) {
 		args := json.RawMessage(`{}`)
 
 		_, err := executor.Execute(context.Background(), descriptor, args)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "no handler registered")
+		assert.ErrorIs(t, err, ErrToolNotRegistered)
+		assert.Equal(t, "no handler registered for tool: unknown", err.Error(), "the text is unchanged")
 	})
 
 	t.Run("invalid args JSON", func(t *testing.T) {

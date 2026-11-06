@@ -60,6 +60,7 @@ const defaultMaxMessageSize = 10 * 1024 * 1024
 const (
 	defaultVideoStreamFPS     = streaming.DefaultTargetFPS
 	defaultVideoStreamQuality = streaming.DefaultImageQuality
+	maxVideoStreamQuality     = 100
 )
 
 // config holds the configuration for a conversation.
@@ -1214,34 +1215,52 @@ const (
 // conversations: the monitoring mode, the sample rate, and which outputs (local
 // sink, SSE relay, level meter) to enable. [WithAudioMonitor] accepts it.
 type AudioMonitorOptions struct {
-	// Mode is "auto" | "on" | "off". Defaults to "auto" when unset.
+	// Mode is "auto" | "on" | "off". Defaults to "auto" when unset: monitoring
+	// is on when the process's standard output is a terminal.
 	Mode AudioMonitorMode
-	// Rate is the canonical sample rate. Must be 16000, 24000, or 48000.
+	// Rate is the sample rate frames are resampled to. Must be 16000, 24000,
+	// or 48000; 0 means 24000.
 	Rate int
-	// LocalSink enables host-audio playback via the system audio device.
+	// LocalSink asks for host-audio playback via the system audio device. The
+	// SDK has no audio device of its own: a host that plays the frames from
+	// [Conversation.AudioMonitor] reads this to decide whether to.
 	LocalSink bool
-	// SSEPlayback enables audio relay over SSE for the embedded web UI.
+	// SSEPlayback asks for audio relay over SSE to a web UI. The SDK runs no
+	// HTTP server: a host that relays the frames reads this to decide whether
+	// to.
 	SSEPlayback bool
-	// LevelMeter enables RMS-level frames for TUI / browser meters.
+	// LevelMeter sets [AudioMonitorFrame].Level, each frame's RMS level, for
+	// TUI and browser meters.
 	LevelMeter bool
 }
 
-// WithAudioMonitor stores the audio monitoring options on the conversation
-// configuration. No SDK component reads them, so setting this option has no
-// effect on a conversation.
+// WithAudioMonitor turns on real-time audio monitoring. When the mode resolves
+// to on, the pipeline taps the user's audio before the provider and the
+// agent's audio after it, and delivers both, resampled to Rate, on
+// [Conversation.AudioMonitor]. Monitoring never slows the conversation: frames
+// that find the channel full are dropped.
+//
+// It returns an error for a Mode or Rate outside the documented values.
 //
 // Example:
 //
-//	conv, err := sdk.Open("./chat.pack.json", "assistant",
+//	conv, err := sdk.OpenDuplex("./voice.pack.json", "assistant",
 //	    sdk.WithAudioMonitor(sdk.AudioMonitorOptions{
 //	        Mode:       sdk.AudioMonitorOn,
 //	        Rate:       24000,
-//	        LocalSink:  true,
 //	        LevelMeter: true,
 //	    }),
 //	)
+//	go func() {
+//	    for frame := range conv.AudioMonitor() {
+//	        meter.Set(frame.Direction, frame.Level)
+//	    }
+//	}()
 func WithAudioMonitor(opts AudioMonitorOptions) Option {
 	return func(c *config) error {
+		if err := validateAudioMonitorOptions(&opts); err != nil {
+			return err
+		}
 		c.audioMonitorOpts = &opts
 		return nil
 	}
@@ -3086,6 +3105,9 @@ func DefaultVADModeConfig() *VADModeConfig {
 // SilenceDuration), and conversation history threads across turns for the life
 // of the session, so a caller hears a reply without the session having to end.
 //
+// A nil sttService or ttsService leaves the service an earlier option set in
+// place, so WithTTS or WithTTSProvider can supply the TTS side.
+//
 // Example:
 //
 //	sttService := stt.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
@@ -3111,8 +3133,14 @@ func WithVADMode(sttService stt.Service, ttsService tts.Service, cfg *VADModeCon
 			cfg = DefaultVADModeConfig()
 		}
 		c.vadModeConfig = cfg
-		c.sttService = sttService
-		c.ttsService = ttsService
+		// A nil service keeps whatever an earlier option (WithTTS,
+		// WithTTSProvider, WithSTTProvider) configured.
+		if sttService != nil {
+			c.sttService = sttService
+		}
+		if ttsService != nil {
+			c.ttsService = ttsService
+		}
 		return nil
 	}
 }
@@ -3305,28 +3333,32 @@ func WithJSONMode() Option {
 // VideoStreamConfig configures realtime video/image streaming for duplex sessions.
 // This enables webcam feeds, screen sharing, and continuous frame analysis.
 //
-// Only TargetFPS takes effect. The pipeline does not read the other fields.
+// TargetFPS drops frames; MaxWidth, MaxHeight, Quality and EnableResize resize
+// the image frames that survive (sent with SendFrame). Encoded video chunks
+// (SendVideoChunk) are rate limited but never resized.
 type VideoStreamConfig struct {
 	// TargetFPS is the target frame rate for streaming.
 	// Frames exceeding this rate will be dropped.
 	// Default: 1.0 (one frame per second, suitable for most LLM vision scenarios)
 	TargetFPS float64
 
-	// MaxWidth is the maximum frame width in pixels. The pipeline does not read
-	// it, so frames are never resized.
+	// MaxWidth is the maximum frame width in pixels. A wider image frame is
+	// scaled down, keeping its aspect ratio. 0 means no width limit.
 	MaxWidth int
 
-	// MaxHeight is the maximum frame height in pixels. The pipeline does not
-	// read it, so frames are never resized.
+	// MaxHeight is the maximum frame height in pixels. A taller image frame is
+	// scaled down, keeping its aspect ratio. 0 means no height limit.
 	MaxHeight int
 
-	// Quality is a JPEG compression quality (1-100). The pipeline does not read
-	// it, so frames are never re-encoded. When it is 0 or less,
-	// [WithStreamingVideo] sets it to streaming.DefaultImageQuality (85).
+	// Quality is the JPEG compression quality (1-100) used when a frame is
+	// re-encoded after resizing. 0 or less uses streaming.DefaultImageQuality
+	// (85); [DefaultVideoStreamConfig] sets 85. A frame already within MaxWidth
+	// and MaxHeight is not re-encoded.
 	Quality int
 
-	// EnableResize is a resize switch that the pipeline does not read.
-	// [DefaultVideoStreamConfig] sets true.
+	// EnableResize turns frame resizing on. Frames are resized only when it is
+	// true and MaxWidth or MaxHeight is set. [DefaultVideoStreamConfig] sets
+	// true, with no dimensions, so its frames pass through unchanged.
 	EnableResize bool
 }
 
@@ -3346,6 +3378,8 @@ func DefaultVideoStreamConfig() *VideoStreamConfig {
 //
 // The FrameRateLimitStage is added to the pipeline when TargetFPS > 0, dropping
 // frames to maintain the target frame rate for LLM processing.
+// When EnableResize is set with MaxWidth or MaxHeight, an image resize stage
+// follows it and scales each surviving image frame to fit.
 //
 // Example with defaults (1 FPS):
 //
@@ -3357,7 +3391,11 @@ func DefaultVideoStreamConfig() *VideoStreamConfig {
 //
 //	session, _ := sdk.OpenDuplex("./assistant.pack.json", "vision-chat",
 //	    sdk.WithStreamingVideo(&sdk.VideoStreamConfig{
-//	        TargetFPS: 2.0, // 2 frames per second
+//	        TargetFPS:    2.0, // 2 frames per second
+//	        MaxWidth:     640, // scale frames down to at most 640x480
+//	        MaxHeight:    480,
+//	        Quality:      80,
+//	        EnableResize: true,
 //	    }),
 //	)
 //

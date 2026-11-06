@@ -572,6 +572,31 @@ func TestDefaultVideoStreamConfig(t *testing.T) {
 	assert.True(t, cfg.EnableResize)
 }
 
+// The resize fields of VideoStreamConfig reach the pipeline as an image resize
+// config; a config without dimensions, or with EnableResize off, adds none.
+func TestBuildVideoFrameResize(t *testing.T) {
+	build := func(vc *VideoStreamConfig) *stage.ImageResizeStageConfig {
+		return (&Conversation{config: &config{videoStreamConfig: vc}}).buildVideoFrameResize()
+	}
+
+	got := build(&VideoStreamConfig{TargetFPS: 2, MaxWidth: 640, MaxHeight: 480, Quality: 70, EnableResize: true})
+	require.NotNil(t, got, "MaxWidth/MaxHeight with EnableResize must configure a resize")
+	assert.Equal(t, 640, got.MaxWidth)
+	assert.Equal(t, 480, got.MaxHeight)
+	assert.Equal(t, 70, got.Quality)
+	assert.True(t, got.PreserveAspectRatio)
+	assert.True(t, got.SkipIfSmaller, "frames within the limits must not be re-encoded")
+
+	got = build(&VideoStreamConfig{MaxWidth: 640, EnableResize: true})
+	require.NotNil(t, got)
+	assert.Equal(t, 0, got.MaxHeight, "an unset dimension stays unlimited")
+	assert.Equal(t, defaultVideoStreamQuality, got.Quality, "Quality 0 uses the default")
+
+	assert.Nil(t, build(nil))
+	assert.Nil(t, build(DefaultVideoStreamConfig()), "defaults carry no dimensions, so no resize")
+	assert.Nil(t, build(&VideoStreamConfig{MaxWidth: 640, MaxHeight: 480}), "EnableResize off means no resize")
+}
+
 func TestWithStreamingVideo(t *testing.T) {
 	t.Run("with custom config", func(t *testing.T) {
 		cfg := &VideoStreamConfig{
@@ -670,6 +695,24 @@ func TestWithVADMode(t *testing.T) {
 	err := opt(cfg)
 	assert.NoError(t, err)
 	assert.NotNil(t, cfg.vadModeConfig)
+}
+
+// A nil service passed to WithVADMode leaves an earlier WithTTS / WithSTT
+// setting in place instead of clearing it; a non-nil one replaces it.
+func TestWithVADMode_NilServicesKeepEarlierSettings(t *testing.T) {
+	earlierTTS := newConvMockTTSService()
+	earlierSTT := &convMockSTTService{}
+	cfg := &config{ttsService: earlierTTS, sttService: earlierSTT}
+
+	require.NoError(t, WithVADMode(nil, nil, nil)(cfg))
+	assert.Same(t, earlierTTS, cfg.ttsService, "nil TTS must not clobber WithTTS")
+	assert.Same(t, earlierSTT, cfg.sttService, "nil STT must not clobber an earlier STT service")
+
+	laterTTS := newConvMockTTSService()
+	laterSTT := &convMockSTTService{}
+	require.NoError(t, WithVADMode(laterSTT, laterTTS, nil)(cfg))
+	assert.Same(t, laterTTS, cfg.ttsService)
+	assert.Same(t, laterSTT, cfg.sttService)
 }
 
 func TestVADModeConfigConversions(t *testing.T) {

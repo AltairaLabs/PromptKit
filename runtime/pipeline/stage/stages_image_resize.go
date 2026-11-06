@@ -78,11 +78,7 @@ func (s *ImageResizeStage) resizeElement(elem *StreamElement) error {
 	// Check if processing is needed based on size constraints
 	origWidth := imageData.Width
 	origHeight := imageData.Height
-	needsResize := (s.config.MaxWidth > 0 && origWidth > s.config.MaxWidth) ||
-		(s.config.MaxHeight > 0 && origHeight > s.config.MaxHeight) ||
-		(s.config.MaxSizeBytes > 0 && int64(len(imageData.Data)) > s.config.MaxSizeBytes)
-
-	if !needsResize && s.config.SkipIfSmaller {
+	if !s.mayNeedResize(imageData) && s.config.SkipIfSmaller {
 		if !s.loggedPassthrough {
 			logger.Debug("ImageResizeStage: image within limits, passthrough",
 				"width", origWidth,
@@ -122,6 +118,20 @@ func (s *ImageResizeStage) resizeElement(elem *StreamElement) error {
 	elem.Image.Format = result.Format
 
 	return nil
+}
+
+// mayNeedResize reports whether img may exceed the configured limits.
+// Width and Height are optional metadata: when either is unknown (0) and a
+// dimension limit is set, the image must be decoded to find out rather than
+// assumed to fit. ResizeImage leaves an image within limits untouched.
+func (s *ImageResizeStage) mayNeedResize(img *ImageData) bool {
+	limited := s.config.MaxWidth > 0 || s.config.MaxHeight > 0
+	if limited && (img.Width <= 0 || img.Height <= 0) {
+		return true
+	}
+	return (s.config.MaxWidth > 0 && img.Width > s.config.MaxWidth) ||
+		(s.config.MaxHeight > 0 && img.Height > s.config.MaxHeight) ||
+		(s.config.MaxSizeBytes > 0 && int64(len(img.Data)) > s.config.MaxSizeBytes)
 }
 
 // GetConfig returns the stage configuration.

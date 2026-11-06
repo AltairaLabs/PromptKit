@@ -129,7 +129,8 @@ func (e *localExecutor) Execute(
 			handler, hok = e.handlers[descriptor.Name]
 		}
 		if !hok {
-			return nil, fmt.Errorf("no handler registered for tool: %s", descriptor.Name)
+			return nil, markSentinel(
+				fmt.Errorf("no handler registered for tool: %s", descriptor.Name), ErrToolNotRegistered)
 		}
 		result, err = handler(argsMap)
 	}
