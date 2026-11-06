@@ -4,13 +4,15 @@ description: Serve a PromptKit conversation to frontend applications over the AG
 sidebar:
   order: 11
 verified:
-  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
+  commit: ebf8d92f226c18ca12b790f73b09a762bd8d2512
   sources:
     - runtime/pipeline/stage/composition_executor.go
     - sdk/agui/adapter.go
     - sdk/agui/convert.go
+    - sdk/client_tools.go
     - sdk/conversation_tools.go
     - sdk/inference_integration_test.go
+    - sdk/tool_executors.go
 ---
 
 ## What we will build
@@ -92,19 +94,17 @@ The same thread ID now returns the same conversation, which keeps the thread's h
 
 ## Step 3: Offer the frontend tools
 
-`RunAgentInput.tools` lists the application's own tools. The application executes them, not the server, so a call to one must suspend the turn rather than run here. `ToolsFromAGUI` returns descriptors marked as client tools; we copy that onto the conversation's tools of the same name:
+`RunAgentInput.tools` lists the application's own tools. The application executes them, not the server, so a call to one must suspend the turn rather than run here. `Conversation.DeferClientTool` binds a tool on this conversation as a client tool: a call to it suspends the turn until the application answers, and no other conversation is affected. We bind each tool the input lists:
 
 ```go
 func bindFrontendTools(conv *sdk.Conversation, tools []aguiTypes.Tool) {
-	for _, tool := range agui.ToolsFromAGUI(tools) {
-		if desc, err := conv.ToolRegistry().GetTool(tool.Name); err == nil {
-			desc.Mode = tool.Mode
-		}
+	for _, tool := range tools {
+		conv.DeferClientTool(tool.Name)
 	}
 }
 ```
 
-The model is offered only the tools the pack's prompt declares, so a frontend tool must be declared there too (its name, description and parameters). This tutorial's pack declares none, so the function marks a tool only once you add one to the pack.
+The model is offered only the tools the pack's prompt declares, so a frontend tool must be declared there too (its name, description and parameters). This tutorial's pack declares none, so the binding has an effect only once you add one to the pack.
 
 ## Step 4: Choose the run
 
@@ -290,10 +290,8 @@ func conversationFor(threadID string) (*sdk.Conversation, error) {
 }
 
 func bindFrontendTools(conv *sdk.Conversation, tools []aguiTypes.Tool) {
-	for _, tool := range agui.ToolsFromAGUI(tools) {
-		if desc, err := conv.ToolRegistry().GetTool(tool.Name); err == nil {
-			desc.Mode = tool.Mode
-		}
+	for _, tool := range tools {
+		conv.DeferClientTool(tool.Name)
 	}
 }
 
