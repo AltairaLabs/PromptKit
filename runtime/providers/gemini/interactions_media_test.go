@@ -324,3 +324,20 @@ func TestInteractions_ErrorNamesTheCallersMessageIndex(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to convert message 0:")
 }
+
+// Only an unlisted MIME type is skipped on an assistant message: assistant
+// media in a listed type that cannot be loaded still fails the request.
+func TestInteractions_UnloadableAssistantMediaFails(t *testing.T) {
+	assistant := types.Message{Role: roleAssistant}
+	assistant.AddTextPart("here it is")
+	assistant.AddPart(types.ContentPart{Type: types.ContentTypeImage, Media: &types.MediaContent{
+		MIMEType: types.MIMETypeImagePNG}})
+
+	srv := newInteractionsMediaServer(t)
+	err := predictInteractions(t, srv.URL, false, []types.Message{
+		{Role: roleUser, Content: "draw"}, assistant, {Role: roleUser, Content: "again"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to convert message 1: image part")
+	assert.Zero(t, srv.hits.Load())
+}
