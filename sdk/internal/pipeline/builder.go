@@ -713,6 +713,8 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			// turn as everything outside it.
 			ParentTurnState:       turnState,
 			SkipContentValidation: cfg.SkipContentValidation,
+			ToolPolicy:            cfg.ToolPolicy,
+			CallRate:              cfg.CallRate,
 		}
 		name := cfg.CompositionName
 		if name == "" {

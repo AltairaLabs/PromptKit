@@ -53,6 +53,8 @@ func Load(path string, opts ...LoadOptions) (*Pack, error) {
 		if validationErr := ValidateAgainstSchema(data); validationErr != nil {
 			return nil, validationErr
 		}
+	} else {
+		warnDroppedToolPolicyKeys(absPath, data)
 	}
 
 	pack, err := Parse(data)

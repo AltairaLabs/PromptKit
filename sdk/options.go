@@ -28,6 +28,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/metrics"
+	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
@@ -394,6 +395,10 @@ type config struct {
 
 	// skipContentValidation turns off the provider stage's media-part check.
 	skipContentValidation bool
+
+	// toolPolicy is the caller tool policy (WithToolPolicy), merged per turn
+	// with the prompt's tool_policy. Nil: the prompt's alone.
+	toolPolicy *rtpipeline.ToolPolicy
 
 	// Custom compaction strategy (replaces default ContextCompactor entirely)
 	compactionStrategy stage.CompactionStrategy
@@ -1352,6 +1357,37 @@ func WithoutContentValidation() Option {
 	}
 }
 
+// WithToolPolicy sets the tool policy the conversation's tool loop runs under,
+// for every pipeline it builds: text, voice (VAD), each workflow state, and
+// each prompt and agent step of a composition. A realtime duplex session runs
+// its tool calls outside the tool loop, and the policy does not reach them.
+// It is how a host sets the limits a pack cannot declare: MaxCallsPerMinute,
+// MaxCostUSD, MaxIdenticalToolCalls, MaxParallelToolCalls and StopOnTool.
+//
+// The prompt's tool_policy still applies. Each turn runs under
+// pipeline.MergeToolPolicy of this policy and the prompt's: MaxRounds and
+// MaxToolCallsPerTurn take the lower of the two values that are set, so
+// either side can tighten a limit and neither can loosen the other's;
+// Blocklist is the union; ToolChoice is this policy's when set, otherwise the
+// prompt's; every other field comes from this policy. A composition agent
+// step's termination.max_steps narrows MaxRounds the same way, and its
+// termination.tool_called replaces StopOnTool for that step.
+//
+// The policy is copied, so changing it afterwards does not affect the
+// conversation. Nil clears a policy set by an earlier option.
+func WithToolPolicy(policy *rtpipeline.ToolPolicy) Option {
+	return func(c *config) error {
+		if policy == nil {
+			c.toolPolicy = nil
+			return nil
+		}
+		cp := *policy
+		cp.Blocklist = slices.Clone(policy.Blocklist)
+		c.toolPolicy = &cp
+		return nil
+	}
+}
+
 // WithCompaction controls context compaction in tool loops.
 // When enabled (default), stale tool results are folded between rounds to
 // prevent context overflow. The budget is auto-detected from the provider's
@@ -2085,7 +2121,11 @@ func WithSessionHook(h hooks.SessionHook) Option {
 //
 // By default, packs are validated against the PromptPack JSON schema to ensure
 // they are well-formed. Use this option to skip validation, for example when
-// loading legacy packs or during development.
+// loading legacy packs or during development. Without validation, keys the
+// spec does not define are ignored; a prompt's tool_policy is the one place
+// this is logged, as a warning naming each ignored key, because such a key
+// usually names a limit the author expects to apply (set host-side limits with
+// WithToolPolicy).
 //
 //	conv, _ := sdk.Open("./legacy.pack.json", "assistant",
 //	    sdk.WithSkipSchemaValidation(),

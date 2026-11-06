@@ -45,8 +45,8 @@ func NewCallRateWindow() *CallRateWindow {
 }
 
 // Admit records a call to tool in conversationID that was admitted to run
-// outside the provider stage — a held call a human approved — so it counts
-// against MaxCallsPerMinute like a call the stage ran. It records without
+// outside the provider stage, such as a held call a human approved, so it
+// counts against MaxCallsPerMinute like a call the stage ran. It records without
 // checking the limit: the approval is the admission. Nil-safe.
 func (w *CallRateWindow) Admit(conversationID, tool string) {
 	if w == nil {
