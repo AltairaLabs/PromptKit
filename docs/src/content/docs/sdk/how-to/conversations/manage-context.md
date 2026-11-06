@@ -4,11 +4,12 @@ description: Keep long conversations inside the model's context window with a to
 sidebar:
   order: 5
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/events/types.go
     - runtime/pipeline/stage/compactor.go
     - runtime/pipeline/stage/compactor_fold.go
+    - runtime/pipeline/stage/relevance_embedding_cache.go
     - runtime/pipeline/stage/stages_provider.go
     - runtime/pipeline/stage/stages_utilities.go
     - runtime/providers/claude/context_window_table.go
@@ -42,6 +43,17 @@ Keep a long conversation inside the model's context window.
    )
    ```
 
+   `sdk.WithTruncation` selects another strategy and takes effect only with a budget:
+
+   | Strategy | Behavior when over budget |
+   |---|---|
+   | `"sliding"` (default), `"oldest"` | Drops the oldest messages first |
+   | `"summarize"` | Replaces old messages with a summary from the provider given to `WithAutoSummarize`; without one, drops the oldest |
+   | `"relevance"` | Drops the least relevant messages (set by `WithRelevanceTruncation`) |
+   | `"fail"` | Returns an error |
+
+   An unrecognized value behaves as `"sliding"`.
+
 2. To keep the messages most similar to the latest user message instead, use relevance truncation:
 
    ```go
@@ -56,7 +68,7 @@ Keep a long conversation inside the model's context window.
    )
    ```
 
-   `MinRecentMessages` (default 3) always keeps the newest messages. `SimilarityThreshold` (default 0) drops messages scoring below it first. `AlwaysKeepSystemRole` (default `false`) keeps system-role messages whatever their score.
+   `MinRecentMessages` (default 3) always keeps the newest messages. `SimilarityThreshold` (default 0, which disables it) drops unprotected messages scoring below it. `AlwaysKeepSystemRole` (default `false`) keeps system-role messages whatever their score.
 
 3. Change what messages are compared against with `QuerySource`:
 
@@ -93,7 +105,7 @@ Use these options with a state store instead of loading the full history on ever
    )
    ```
 
-2. Add semantic retrieval. Each turn, the SDK embeds the user's message and inserts the best matches from older messages, in chronological order between the summaries and the hot window. `WithContextRetrieval` requires `WithContextWindow`:
+2. Add semantic retrieval. Each turn, the SDK embeds the user's message and inserts the best matches from older messages, in chronological order between the summaries and the hot window. `WithContextRetrieval` requires `WithContextWindow` and `WithStateStore`. An embedding provider declared in a runtime config, or added with `WithEmbeddingProvider`, enables the same retrieval with a top-k of 3:
 
    ```go
    sdk.WithContextRetrieval(embProvider, 5), // top 5 matches

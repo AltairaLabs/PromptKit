@@ -1,13 +1,13 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/conversations/initialize.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "sdk.Open(packPath, promptName, opts...) returns (*Conversation, error)",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:84"
+    "sdk/sdk.go:89"
    ]
   },
   {
@@ -15,7 +15,7 @@
    "claim": "first argument is a relative or absolute pack path",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:1547"
+    "sdk/sdk.go:1563"
    ]
   },
   {
@@ -23,7 +23,7 @@
    "claim": "second argument is a prompt name under prompts in the pack",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:470"
+    "sdk/sdk.go:477"
    ]
   },
   {
@@ -31,7 +31,7 @@
    "claim": "sdk.WithModel overrides the pack's model",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:453"
+    "sdk/options.go:478"
    ]
   },
   {
@@ -41,7 +41,7 @@
    "evidence": [
     "runtime/hooks/guardrails/spec.go:55",
     "runtime/hooks/guardrails/spec.go:60",
-    "sdk/options.go:1812"
+    "sdk/options.go:1972"
    ]
   },
   {
@@ -66,8 +66,8 @@
    "claim": "sdk.WithToolHook and sdk.WithSessionHook register hooks",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1947",
-    "sdk/options.go:1990"
+    "sdk/options.go:2107",
+    "sdk/options.go:2150"
    ]
   },
   {
@@ -81,36 +81,36 @@
    "claim": "one of OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY is required for auto-detection",
    "verdict": "true",
    "evidence": [
-    "sdk/internal/provider/detect.go:50",
-    "sdk/internal/provider/detect.go:53",
-    "sdk/internal/provider/detect.go:91"
+    "sdk/internal/provider/detect.go:59",
+    "sdk/internal/provider/detect.go:96"
    ]
   },
   {
    "id": 11,
    "claim": "errors.Is(err, sdk.ErrPackNotFound) matches a missing pack file",
-   "verdict": "dead",
+   "verdict": "true",
    "evidence": [
     "sdk/errors.go:23",
-    "sdk/sdk.go:1551"
+    "sdk/sdk.go:1567",
+    "sdk/sdk.go:1579"
    ]
   },
   {
    "id": 12,
    "claim": "errors.Is(err, sdk.ErrPromptNotFound) matches a missing prompt",
-   "verdict": "dead",
+   "verdict": "true",
    "evidence": [
     "sdk/errors.go:20",
-    "sdk/sdk.go:476"
+    "sdk/sdk.go:483"
    ]
   },
   {
    "id": 13,
    "claim": "errors.Is(err, sdk.ErrProviderNotDetected) matches when no provider is found",
-   "verdict": "dead",
+   "verdict": "true",
    "evidence": [
     "sdk/errors.go:26",
-    "sdk/sdk.go:513"
+    "sdk/sdk.go:521"
    ]
   },
   {
@@ -118,7 +118,7 @@
    "claim": "Always close; conv.Close() releases the conversation",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1575"
+    "sdk/conversation.go:1639"
    ]
   },
   {
@@ -126,7 +126,7 @@
    "claim": "conv.SetVar(name, value string)",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1265"
+    "sdk/conversation.go:1318"
    ]
   },
   {
@@ -134,17 +134,18 @@
    "claim": "conv.Send(ctx, string) returns (*Response, error); resp.Text()",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:275",
+    "sdk/conversation.go:288",
     "sdk/response.go:99"
    ]
   },
   {
    "id": 17,
-   "claim": "Open error for missing pack: 'failed to resolve pack path: pack file not found: <path>'",
+   "claim": "Open error for missing pack: 'failed to load pack <path>: failed to resolve pack path: pack file not found: <path>'",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:1563",
-    "sdk/sdk.go:430"
+    "sdk/errors.go:131",
+    "sdk/sdk.go:1567",
+    "sdk/sdk.go:437"
    ]
   },
   {
@@ -152,8 +153,8 @@
    "claim": "Open error for no provider: 'failed to detect provider: no provider detected: set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY'",
    "verdict": "true",
    "evidence": [
-    "sdk/internal/provider/detect.go:91",
-    "sdk/sdk.go:513"
+    "sdk/internal/provider/detect.go:59",
+    "sdk/sdk.go:521"
    ]
   },
   {
@@ -161,7 +162,7 @@
    "claim": "Open error for bad prompt: 'prompt \"x\" not found in pack (available: [...])'",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:476"
+    "sdk/sdk.go:483"
    ]
   },
   {
@@ -169,7 +170,16 @@
    "claim": "An input guardrail that matches blocks the LLM call and returns a canned assistant reply",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1789"
+    "sdk/options.go:1949"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "Open caches each loaded pack by absolute path for the life of the process",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:441",
+    "sdk/sdk.go:84"
    ]
   }
  ]

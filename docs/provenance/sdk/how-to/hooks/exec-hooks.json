@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/hooks/exec-hooks.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": "c1",
@@ -8,7 +8,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/exec_hooks.go:37-43",
-    "runtime/hooks/types.go:57-155"
+    "runtime/hooks/types.go:56-59"
    ]
   },
   {
@@ -17,7 +17,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/exec_hooks.go:152-157",
-    "runtime/hooks/types.go:11-39"
+    "runtime/hooks/types.go:37"
    ]
   },
   {
@@ -30,7 +30,7 @@
   },
   {
    "id": "c12",
-   "claim": "env: bare name forwards host value, KEY=value literal",
+   "claim": "env: bare name forwards host value, KEY=value literal; the subprocess also inherits the host environment",
    "verdict": "true",
    "evidence": [
     "runtime/hooks/sandbox/direct/direct.go:105-129"
@@ -74,7 +74,7 @@
    "claim": "Old examples used snake_case keys (messages, name, args, session_id) inside request/event",
    "verdict": "false",
    "evidence": [
-    "runtime/hooks/types.go:58-155"
+    "runtime/hooks/types.go:56-152"
    ]
   },
   {
@@ -132,7 +132,7 @@
    "claim": "Eval hooks ignore mode/phases, stdout discarded, errors logged, run after handler before emit",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/exec_hook.go:83-124",
+    "runtime/evals/exec_hook.go:85",
     "runtime/evals/runner.go:184-185"
    ]
   }

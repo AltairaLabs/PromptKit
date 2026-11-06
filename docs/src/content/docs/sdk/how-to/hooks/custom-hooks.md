@@ -4,7 +4,7 @@ description: Implement each PromptKit hook type in Go and register it with an SD
 sidebar:
   order: 8
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/evals/hooks.go
     - runtime/evals/runner.go
@@ -152,7 +152,7 @@ func (h *RedactHook) RewriteResult(_ context.Context, req hooks.ToolRequest, con
 
 ## SessionHook
 
-Returns plain Go `error`, with no decision/enforcement distinction. The SDK discards a returned error, so a failing session hook never blocks `Open`, `Send` or `Close`, and the first error stops the remaining session hooks for that event. `TurnIndex` is the number of completed turns.
+Returns plain Go `error`, with no decision/enforcement distinction. The SDK discards a returned error, so a failing session hook never blocks `Open`, `Send` or `Close`. The registry logs each failure at WARN with the hook's name and still runs the remaining session hooks for that event. `TurnIndex` is the number of completed turns.
 
 ```go
 type SessionLogger struct {

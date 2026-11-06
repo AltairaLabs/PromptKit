@@ -1,14 +1,14 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/hooks/custom-hooks.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "Deny aborts with *hooks.HookDeniedError",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3010",
-    "runtime/pipeline/stage/stages_provider.go:3073"
+    "runtime/pipeline/stage/stages_provider.go:3123",
+    "runtime/pipeline/stage/stages_provider.go:3186"
    ]
   },
   {
@@ -16,9 +16,9 @@
    "claim": "hooks.Enforced: you mutated the request/response in place and the pipeline continues with the modified content",
    "verdict": "false",
    "evidence": [
-    "runtime/hooks/types.go:78",
-    "runtime/pipeline/stage/stages_provider.go:3017",
-    "runtime/pipeline/stage/stages_provider.go:3081"
+    "runtime/hooks/types.go:75",
+    "runtime/pipeline/stage/stages_provider.go:3130",
+    "runtime/pipeline/stage/stages_provider.go:3194"
    ]
   },
   {
@@ -26,7 +26,7 @@
    "claim": "sdk.WithProviderHook",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1782"
+    "sdk/options.go:1942"
    ]
   },
   {
@@ -35,7 +35,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/hooks.go:19",
-    "runtime/pipeline/stage/stages_provider.go:2495"
+    "runtime/pipeline/stage/stages_provider.go:2591"
    ]
   },
   {
@@ -43,7 +43,7 @@
    "claim": "A streaming denial surfaces as *providers.ValidationAbortError, not *hooks.HookDeniedError",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2522"
+    "runtime/pipeline/stage/stages_provider.go:2618"
    ]
   },
   {
@@ -51,8 +51,8 @@
    "claim": "AfterExecution runs after the result is built so it can't change it",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2876",
-    "runtime/pipeline/stage/stages_provider.go:3371"
+    "runtime/pipeline/stage/stages_provider.go:2980",
+    "runtime/pipeline/stage/stages_provider.go:3484"
    ]
   },
   {
@@ -60,8 +60,8 @@
    "claim": "Tool BeforeExecution deny gates the call",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2776",
-    "runtime/pipeline/stage/stages_provider.go:2778"
+    "runtime/pipeline/stage/stages_provider.go:2872",
+    "runtime/pipeline/stage/stages_provider.go:2874"
    ]
   },
   {
@@ -69,7 +69,7 @@
    "claim": "sdk.WithToolHook",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1947"
+    "sdk/options.go:2107"
    ]
   },
   {
@@ -78,7 +78,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/registry.go:222",
-    "runtime/pipeline/stage/stages_provider.go:3436"
+    "runtime/pipeline/stage/stages_provider.go:3549"
    ]
   },
   {
@@ -94,9 +94,9 @@
    "claim": "Whole text of plain result before size limit; limit applies to returned; multimodal one text part at a time; media left; no text not rewritten",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3436",
-    "runtime/pipeline/stage/stages_provider.go:3443",
-    "runtime/pipeline/stage/stages_provider.go:3463"
+    "runtime/pipeline/stage/stages_provider.go:3549",
+    "runtime/pipeline/stage/stages_provider.go:3556",
+    "runtime/pipeline/stage/stages_provider.go:3576"
    ]
   },
   {
@@ -104,9 +104,9 @@
    "claim": "Model, tool.call.completed and AfterExecution see the rewritten result",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2860",
-    "runtime/pipeline/stage/stages_provider.go:2876",
-    "runtime/pipeline/stage/stages_provider.go:3367"
+    "runtime/pipeline/stage/stages_provider.go:2964",
+    "runtime/pipeline/stage/stages_provider.go:2980",
+    "runtime/pipeline/stage/stages_provider.go:3480"
    ]
   },
   {
@@ -114,9 +114,10 @@
    "claim": "Failed call isn't rewritten; rewriter error fails the call: error result to model, tool.call.failed, original not passed on",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2857",
-    "runtime/pipeline/stage/stages_provider.go:2899",
-    "runtime/pipeline/stage/stages_provider.go:3404"
+    "runtime/pipeline/stage/stages_provider.go:2959",
+    "runtime/pipeline/stage/stages_provider.go:2961",
+    "runtime/pipeline/stage/stages_provider.go:3517",
+    "runtime/pipeline/stage/stages_provider.go:3551"
    ]
   },
   {
@@ -133,16 +134,17 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/hooks.go:38",
-    "runtime/pipeline/stage/stages_provider.go:3379"
+    "runtime/pipeline/stage/stages_provider.go:3492"
    ]
   },
   {
    "id": 16,
-   "claim": "SessionHook returns plain error; non-nil errors propagate to the caller",
-   "verdict": "false",
+   "claim": "SessionHook returns plain error; the SDK discards a returned error, so a failing session hook never blocks Open, Send or Close; the registry logs each failure at WARN with the hook's name and runs the remaining session hooks",
+   "verdict": "true",
    "evidence": [
-    "runtime/hooks/registry.go:244",
-    "sdk/session_hooks.go:83",
+    "runtime/hooks/registry.go:262",
+    "runtime/hooks/registry.go:266",
+    "sdk/session_hooks.go:86",
     "sdk/session_hooks.go:93"
    ]
   },
@@ -151,9 +153,9 @@
    "claim": "OnSessionStart/Update/End with SessionEvent{SessionID,ConversationID,TurnIndex}",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/types.go:149",
-    "sdk/conversation.go:1709",
-    "sdk/sdk.go:381"
+    "runtime/hooks/types.go:146",
+    "sdk/conversation.go:1792",
+    "sdk/sdk.go:386"
    ]
   },
   {
@@ -161,7 +163,7 @@
    "claim": "OnSessionUpdate fires after each turn",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:335"
+    "sdk/conversation.go:348"
    ]
   },
   {
@@ -169,7 +171,7 @@
    "claim": "On end, turns = e.TurnIndex+1",
    "verdict": "false",
    "evidence": [
-    "sdk/conversation.go:335",
+    "sdk/conversation.go:348",
     "sdk/session_hooks.go:100",
     "sdk/session_hooks.go:68"
    ]
@@ -179,7 +181,7 @@
    "claim": "sdk.WithSessionHook",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1990"
+    "sdk/options.go:2150"
    ]
   },
   {
@@ -188,8 +190,8 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/hooks.go:13",
-    "runtime/evals/runner.go:184",
-    "runtime/evals/runner.go:359"
+    "runtime/evals/runner.go:206",
+    "runtime/evals/runner.go:381"
    ]
   },
   {
@@ -198,8 +200,9 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/hooks.go:27",
-    "runtime/evals/types.go:362",
-    "runtime/evals/types.go:389"
+    "runtime/evals/types.go:354",
+    "runtime/evals/types.go:375",
+    "runtime/evals/types.go:376"
    ]
   },
   {
@@ -207,8 +210,8 @@
    "claim": "sdk.WithEvalHook; panic in eval hook is caught and logged, later hooks still run",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/runner.go:370",
-    "sdk/options.go:3654"
+    "runtime/evals/runner.go:392",
+    "sdk/options.go:3855"
    ]
   },
   {
@@ -216,18 +219,17 @@
    "claim": "Denial wrapped in *hooks.HookDeniedError, detect with errors.As; fields HookName, HookType, Reason",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/errors.go:8"
+    "runtime/hooks/errors.go:11"
    ]
   },
   {
    "id": 25,
    "claim": "HookType is one of provider_before, provider_after, chunk, tool_before, tool_after",
-   "verdict": "false",
+   "verdict": "true",
    "evidence": [
-    "runtime/hooks/errors.go:10",
-    "runtime/pipeline/stage/stages_provider.go:3012",
-    "runtime/pipeline/stage/stages_provider.go:3075",
-    "runtime/pipeline/stage/stages_provider.go:44"
+    "runtime/hooks/errors.go:13",
+    "runtime/pipeline/stage/stages_provider.go:3123",
+    "runtime/pipeline/stage/stages_provider.go:3186"
    ]
   },
   {
@@ -235,8 +237,8 @@
    "claim": "A ProviderHook whose BeforeCall returns hooks.Deny makes conv.Send return an error matching *hooks.HookDeniedError via errors.As, with HookType provider_before and the given Reason",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/errors.go:8",
-    "runtime/pipeline/stage/stages_provider.go:3010"
+    "runtime/hooks/errors.go:11",
+    "runtime/pipeline/stage/stages_provider.go:3123"
    ]
   },
   {
@@ -244,7 +246,7 @@
    "claim": "HookDeniedError.HookName is the fixed string provider_hook, not the hook's Name()",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3011",
+    "runtime/pipeline/stage/stages_provider.go:3124",
     "runtime/pipeline/stage/stages_provider.go:43"
    ]
   },
@@ -254,7 +256,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/providers/mock/mock.go:35",
-    "sdk/options.go:482"
+    "sdk/options.go:508"
    ]
   }
  ]

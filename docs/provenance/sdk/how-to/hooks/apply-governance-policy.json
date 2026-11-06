@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/hooks/apply-governance-policy.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -15,7 +15,7 @@
    "claim": "An eval hook's def shares its extensions with the pack",
    "verdict": "unverified",
    "evidence": [
-    "runtime/evals/runner.go:184"
+    "runtime/evals/runner.go:206"
    ]
   },
   {
@@ -23,7 +23,7 @@
    "claim": "Conversation.Governance() returns declaration resolved against pack's when opened as agent",
    "verdict": "true",
    "evidence": [
-    "sdk/governance.go:32"
+    "sdk/governance.go:31"
    ]
   },
   {
@@ -48,7 +48,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/prompt/pack.go:661",
-    "sdk/validate_pack.go:142"
+    "sdk/validate_pack.go:172"
    ]
   },
   {
@@ -57,7 +57,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/packspec/types.go:2490",
-    "runtime/tools/types.go:147"
+    "runtime/tools/types.go:149"
    ]
   },
   {
@@ -73,8 +73,8 @@
    "claim": "sdk.WithToolExecutor(name, executor) or Conversation.OnToolExecutor",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:102",
-    "sdk/options.go:1069"
+    "sdk/conversation_tools.go:103",
+    "sdk/options.go:1098"
    ]
   },
   {
@@ -82,7 +82,7 @@
    "claim": "hooks.ToolRequest.Declaration carries the same value the executor receives",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/types.go:136"
+    "runtime/hooks/types.go:133"
    ]
   },
   {
@@ -90,7 +90,7 @@
    "claim": "sdk.WithToolHook registers a ToolHook",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1947"
+    "sdk/options.go:2107"
    ]
   },
   {
@@ -98,9 +98,9 @@
    "claim": "A2A executor via sdk.WithA2AToolExecutor receives callee definition on ToolDescriptor.Agent; remote-card tools carry no Agent",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/types.go:149",
+    "runtime/tools/types.go:151",
     "sdk/agent_resolver.go:178",
-    "sdk/options.go:2286"
+    "sdk/options.go:2458"
    ]
   },
   {
@@ -108,7 +108,7 @@
    "claim": "hooks.ProviderRequest.Prompt carries the prompt; after a workflow handoff it is the destination state's",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/types.go:76"
+    "runtime/hooks/types.go:73"
    ]
   },
   {
@@ -116,7 +116,7 @@
    "claim": "sdk.WithProviderHook",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1782"
+    "sdk/options.go:1942"
    ]
   },
   {
@@ -124,8 +124,8 @@
    "claim": "validation.started/passed/failed events carry ValidationEventData.Validator with id and extensions",
    "verdict": "true",
    "evidence": [
-    "runtime/events/types.go:416",
-    "runtime/events/types.go:54"
+    "runtime/events/types.go:426",
+    "runtime/events/types.go:64"
    ]
   },
   {
@@ -133,7 +133,7 @@
    "claim": "events.NewEventBus, Subscribe(events.EventValidationFailed, func(*events.Event)), sdk.WithEventBus",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1096"
+    "sdk/options.go:1125"
    ]
   },
   {
@@ -141,7 +141,8 @@
    "claim": "A validator's handler never receives its declaration",
    "verdict": "unverified",
    "evidence": [
-    "runtime/hooks/guardrails/adapter.go:496"
+    "runtime/hooks/guardrails/adapter.go:105",
+    "runtime/hooks/guardrails/adapter.go:341"
    ]
   },
   {
@@ -150,7 +151,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/hooks.go:27",
-    "sdk/options.go:3654"
+    "sdk/options.go:3855"
    ]
   },
   {
@@ -159,7 +160,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/workflow/authorizer.go:11",
-    "sdk/options.go:1973"
+    "sdk/options.go:2133"
    ]
   },
   {
@@ -183,7 +184,7 @@
    "claim": "Refused host-fired Transition returns the error",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1962"
+    "sdk/options.go:2122"
    ]
   },
   {
@@ -208,8 +209,8 @@
    "claim": "Seams pass nil for capability tools, MCP tools, handlers with no pack entry, guardrails from sdk.WithGuardrail",
    "verdict": "true",
    "evidence": [
-    "runtime/events/types.go:414",
-    "runtime/hooks/types.go:135"
+    "runtime/events/types.go:424",
+    "runtime/hooks/types.go:132"
    ]
   }
  ]
