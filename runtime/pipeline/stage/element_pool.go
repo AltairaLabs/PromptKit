@@ -67,6 +67,8 @@ func (e *StreamElement) Reset() {
 	e.EndOfTurn = false
 	e.Interrupt = false
 	e.Error = nil
+	e.errorStage = ""
+	e.errorTagged = nil
 }
 
 // GetTextElement retrieves a StreamElement from the pool and initializes it with text content.

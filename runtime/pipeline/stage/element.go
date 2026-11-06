@@ -106,6 +106,14 @@ type StreamElement struct {
 	EndOfTurn   bool  // End of one conversational turn's input; stream stays open
 	Interrupt   bool  // Barge-in: cancel in-flight generation/playback
 	Error       error // Error carried to downstream stages and the caller
+
+	// errorStage names the stage that put Error on the stream, and errorTagged
+	// is the error it was recorded for. The pipeline sets them as the element
+	// leaves that stage, so the turn's failure is matched to the elements its
+	// own stage emitted. A stage that replaces Error makes the tag stale, and
+	// the element is tagged again as it leaves that stage (see errorSourceOf).
+	errorStage  string
+	errorTagged error
 }
 
 // Priority defines the scheduling priority for stream elements.

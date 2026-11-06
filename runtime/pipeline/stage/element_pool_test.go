@@ -339,6 +339,8 @@ func TestReset_ClearsEveryField(t *testing.T) {
 		EndOfTurn:   true,
 		Interrupt:   true,
 		Error:       errors.New("boom"),
+		errorStage:  "stt",
+		errorTagged: errors.New("tagged"),
 	}
 	v := reflect.ValueOf(elem).Elem()
 	for i := 0; i < v.NumField(); i++ {

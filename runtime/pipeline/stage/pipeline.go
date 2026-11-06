@@ -318,6 +318,7 @@ func (f *turnFailure) get() error {
 // stageRun is one stage's state within an execution. err is set, before done
 // closes, to the stage's error when that error fails the turn.
 type stageRun struct {
+	name string
 	done chan struct{}
 	err  error
 }
@@ -357,7 +358,7 @@ func (p *StreamPipeline) startStages(
 
 	runs = make(map[string]*stageRun, len(p.stages))
 	for _, stage := range p.stages {
-		runs[stage.Name()] = &stageRun{done: make(chan struct{})}
+		runs[stage.Name()] = &stageRun{name: stage.Name(), done: make(chan struct{})}
 	}
 
 	// A shared channel read by several downstream stages (competitive Branch
@@ -432,21 +433,22 @@ func (p *StreamPipeline) isCompetitiveFanOut(stageName string) bool {
 
 // gateInput forwards in to the returned channel and closes it once in is
 // closed and the upstream stage has returned. If the upstream failed, the gate
-// first sends its error as a turn-failure signal, unless the upstream only passed
-// on a signal it got for that error. It does so even when the upstream put the
-// error on its output as an ordinary error element: a downstream stage cannot tell
-// that element from a non-fatal report. The caller still gets the error once (see
-// collectOutput). consumerDone stops it when the stage reading the
-// returned channel has returned.
+// first sends its error as a turn-failure signal, unless a signal already came
+// through: the turn has failed once, and the downstream stage knows it. It does
+// so even when the upstream put the error on its output as an ordinary error
+// element: a downstream stage cannot tell that element from a non-fatal report.
+// The caller still gets the error once (see collectOutput). Each error element
+// that passes is tagged with the upstream as its source, unless an earlier
+// stage already was. consumerDone stops it when the stage reading the returned
+// channel has returned.
 func gateInput(in <-chan StreamElement, upstream *stageRun, consumerDone <-chan struct{}) <-chan StreamElement {
 	out := make(chan StreamElement)
 	go func() {
 		defer close(out)
-		var carried []error
+		signaled := false
 		for elem := range in {
-			if isTurnFailureSignal(&elem) {
-				carried = append(carried, elem.Error)
-			}
+			signaled = signaled || isTurnFailureSignal(&elem)
+			tagErrorSource(&elem, upstream.name)
 			select {
 			case out <- elem:
 			case <-consumerDone:
@@ -458,11 +460,11 @@ func gateInput(in <-chan StreamElement, upstream *stageRun, consumerDone <-chan 
 		case <-consumerDone:
 			return
 		}
-		if upstream.err == nil || errorCarried(carried, upstream.err) {
+		if upstream.err == nil || signaled {
 			return
 		}
 		select {
-		case out <- newTurnFailureSignal(upstream.err):
+		case out <- upstreamFailureSignal(upstream):
 		case <-consumerDone:
 		}
 	}()
@@ -482,6 +484,7 @@ func distributeInput(
 		outs:       make([]chan StreamElement, len(readers)),
 		readerDone: make([]<-chan struct{}, len(readers)),
 		live:       make([]bool, len(readers)),
+		signaled:   make([]bool, len(readers)),
 	}
 	result := make(map[string]<-chan StreamElement, len(readers))
 	for i, name := range readers {
@@ -502,6 +505,8 @@ type distributor struct {
 	outs       []chan StreamElement
 	readerDone []<-chan struct{}
 	live       []bool
+	// signaled marks the readers that have had a turn-failure signal.
+	signaled []bool
 
 	// cases holds the reflect.Select cases for the live readers, a send case
 	// and a done case per reader, and index the reader of each pair. Built on
@@ -520,25 +525,36 @@ func (d *distributor) run(in <-chan StreamElement, upstream *stageRun) {
 			close(o)
 		}
 	}()
-	var carried []error
+	// forwarded is the first turn-failure signal that came through, which
+	// went to one reader only.
+	var forwarded *StreamElement
 	for elem := range in {
-		if isTurnFailureSignal(&elem) {
-			carried = append(carried, elem.Error)
+		tagErrorSource(&elem, upstream.name)
+		if forwarded == nil && isTurnFailureSignal(&elem) {
+			sig := elem
+			forwarded = &sig
 		}
 		if !d.send(elem) {
 			return
 		}
 	}
 	<-upstream.done
-	if upstream.err != nil && !errorCarried(carried, upstream.err) {
-		d.signalLiveReaders(newTurnFailureSignal(upstream.err))
+	// The readers that missed the forwarded signal get that same signal: the
+	// turn failed once, with that failure. Otherwise a failed upstream's own.
+	switch {
+	case forwarded != nil:
+		d.signalLiveReaders(*forwarded)
+	case upstream.err != nil:
+		d.signalLiveReaders(upstreamFailureSignal(upstream))
 	}
 }
 
-// signalLiveReaders sends signal to every reader still reading.
+// signalLiveReaders sends signal to every reader still reading that has not
+// already had a turn-failure signal: a forwarded signal went to one reader
+// only, and the others must still learn the turn failed.
 func (d *distributor) signalLiveReaders(signal StreamElement) {
 	for i := range d.outs {
-		if !d.live[i] {
+		if !d.live[i] || d.signaled[i] {
 			continue
 		}
 		select {
@@ -562,6 +578,7 @@ func (d *distributor) send(elem StreamElement) bool {
 		select {
 		case d.outs[i] <- elem:
 			d.next = (i + 1) % n
+			d.handedTo(i, &elem)
 			return true
 		case <-d.readerDone[i]:
 			d.retire(i)
@@ -581,9 +598,18 @@ func (d *distributor) send(elem StreamElement) bool {
 		}
 		chosen, _, _ := reflect.Select(d.cases)
 		if chosen%casesPerReader == 0 {
+			d.handedTo(d.index[chosen/casesPerReader], &elem)
 			return true
 		}
 		d.retire(d.index[chosen/casesPerReader])
+	}
+}
+
+// handedTo notes that reader i took elem, and whether it was a turn-failure
+// signal.
+func (d *distributor) handedTo(i int, elem *StreamElement) {
+	if d.signaled != nil && isTurnFailureSignal(elem) {
+		d.signaled[i] = true
 	}
 }
 
@@ -630,39 +656,74 @@ func isTurnFailureSignal(elem *StreamElement) bool {
 	return elem.Error != nil && errors.As(elem.Error, &sig)
 }
 
-// errorCarried reports whether err, a stage's returned error wrapped in a
-// StageError, is already among carried: the stage's own error, or a wrap of it.
-//
-// It matches on the stage's own error, not on whatever err wraps: an earlier
-// element carrying a bare sentinel that err also wraps (io.EOF, say, reported
-// by another stage) is not this failure. The timeout cause the pipeline adds
-// (see withTimeoutCause) is set aside, so a stage that emits ctx.Err() and
-// returns it still matches. That context error is a bare sentinel, so there
-// only the same error matches, not an earlier one that wraps it (a tool's
-// "lookup timed out: context deadline exceeded", say).
-func errorCarried(carried []error, err error) bool {
-	timedOut, inner := stageOwnError(err)
-	for _, e := range carried {
-		if errors.Is(e, inner) && (!timedOut || errors.Is(inner, e)) {
-			return true
-		}
-	}
-	return false
+// upstreamFailureSignal is the turn-failure signal for a failed upstream,
+// tagged with the stage it came from.
+func upstreamFailureSignal(upstream *stageRun) StreamElement {
+	elem := newTurnFailureSignal(upstream.err)
+	tagErrorSource(&elem, upstream.name)
+	return elem
 }
 
-// stageOwnError is the error a failed stage itself returned: err's
-// StageError.Err, without the timeout cause the pipeline added to it.
-// timedOut reports whether there was such a cause to set aside.
-func stageOwnError(err error) (timedOut bool, inner error) {
-	inner = err
+// tagErrorSource records stage as the source of elem's error when nothing has
+// yet: the first stage whose output carried the error put it there.
+func tagErrorSource(elem *StreamElement, stage string) {
+	if elem.Error == nil || errorSourceOf(elem) != "" {
+		return
+	}
+	elem.errorStage = stage
+	elem.errorTagged = elem.Error
+}
+
+// errorSourceOf is the stage that put elem's error on the stream, or "" when
+// that is not known: never tagged, or the error was replaced after tagging.
+func errorSourceOf(elem *StreamElement) string {
+	if elem.errorStage == "" || !sameErrorValue(elem.errorTagged, elem.Error) {
+		return ""
+	}
+	return elem.errorStage
+}
+
+// sameErrorValue reports whether a and b are the same error value. Unlike ==
+// it does not panic on an error whose dynamic type is not comparable; such an
+// error is never the same value as another.
+func sameErrorValue(a, b error) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	t := reflect.TypeOf(a)
+	if t != reflect.TypeOf(b) || !t.Comparable() {
+		return false
+	}
+	return a == b
+}
+
+// sourcedError is an error and the stage it came from ("" when unknown).
+type sourcedError struct {
+	stage string
+	err   error
+}
+
+// failureSource returns the stage a turn failure (a *StageError, or a
+// turn-failure signal carrying one) belongs to, and that stage's own error.
+func failureSource(failure error) (stage string, own error) {
 	var se *StageError
-	if errors.As(err, &se) {
-		inner = se.Err
+	if errors.As(failure, &se) {
+		return se.StageName, se.Err
 	}
-	if tc, ok := inner.(*timeoutCauseError); ok {
-		return true, tc.err
+	return "", failure
+}
+
+// sameFailure reports whether e, an error element's error, is the failure
+// itself: an error from the failed stage that the failure wraps, or that
+// wraps the stage's own error. It is matched on the stage, not on error
+// identity alone, so a bare sentinel another stage reports is not the
+// failure. An element whose source is unknown is matched on the error alone.
+func sameFailure(failure error, e sourcedError) bool {
+	stage, own := failureSource(failure)
+	if e.stage != "" && stage != "" && e.stage != stage {
+		return false
 	}
-	return false, inner
+	return errors.Is(failure, e.err) || errors.Is(e.err, own)
 }
 
 // startOutputCollection starts collecting output from leaf stages. The returned
@@ -708,8 +769,8 @@ type completionTotals struct {
 
 	// errs are the errors already delivered to the caller on output elements;
 	// signals are those of them that were turn-failure signals.
-	errs    []error
-	signals []error
+	errs    []sourcedError
+	signals []sourcedError
 }
 
 // observe records a single output element's contribution to the totals and
@@ -728,9 +789,10 @@ func (t *completionTotals) observe(elem *StreamElement) bool {
 		if t.repeatsFailure(elem) {
 			return false
 		}
-		t.errs = append(t.errs, elem.Error)
+		e := sourcedErrorOf(elem)
+		t.errs = append(t.errs, e)
 		if isTurnFailureSignal(elem) {
-			t.signals = append(t.signals, elem.Error)
+			t.signals = append(t.signals, e)
 		}
 	}
 	if elem.Message == nil {
@@ -745,15 +807,40 @@ func (t *completionTotals) observe(elem *StreamElement) bool {
 	return true
 }
 
+// sourcedErrorOf is elem's error with the stage it came from. A turn-failure
+// signal belongs to the stage whose failure it carries, even when a later
+// stage re-created the element and dropped its tag.
+func sourcedErrorOf(elem *StreamElement) sourcedError {
+	e := sourcedError{stage: errorSourceOf(elem), err: elem.Error}
+	if isTurnFailureSignal(elem) {
+		if stage, _ := failureSource(elem.Error); stage != "" {
+			e.stage = stage
+		}
+	}
+	return e
+}
+
 // repeatsFailure reports whether an error element repeats a failure the caller
 // already got: a turn-failure signal whose error was delivered, or an error
 // element whose error a delivered signal carries. Called with t.mu held.
 func (t *completionTotals) repeatsFailure(elem *StreamElement) bool {
 	if isTurnFailureSignal(elem) {
-		return errorCarried(t.errs, elem.Error)
+		return t.carries(elem.Error)
 	}
-	for _, s := range t.signals {
-		if errorCarried([]error{elem.Error}, s) {
+	e := sourcedError{stage: errorSourceOf(elem), err: elem.Error}
+	for _, sig := range t.signals {
+		if sameFailure(sig.err, e) {
+			return true
+		}
+	}
+	return false
+}
+
+// carries reports whether failure already reached the caller on an error
+// element. Called with t.mu held.
+func (t *completionTotals) carries(failure error) bool {
+	for _, e := range t.errs {
+		if sameFailure(failure, e) {
 			return true
 		}
 	}
@@ -768,7 +855,7 @@ func (t *completionTotals) delivered(err error) bool {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return errorCarried(t.errs, err)
+	return t.carries(err)
 }
 
 // snapshot returns the accumulated totals. Nil-safe (returns zeros).
@@ -1090,13 +1177,15 @@ func instrumentStageInput(stageName string, input <-chan StreamElement) <-chan S
 	return instrumented
 }
 
-// forwardOutput hands one leaf element to the caller. A turn-failure signal
-// whose error already reached the caller (a stage that emitted its error and
-// also returned it) is not sent again. Once Shutdown has given up on the
+// forwardOutput hands one element from the leaf stage leaf to the caller,
+// tagging an error the leaf itself emitted with its name. A failure that
+// already reached the caller (a stage that emitted its error and also
+// returned it) is not sent again. Once Shutdown has given up on the
 // execution (see abandoned), elements are dropped rather than waited on.
 func (p *StreamPipeline) forwardOutput(
-	elem StreamElement, output chan<- StreamElement, totals *completionTotals, failure *turnFailure,
+	leaf string, elem StreamElement, output chan<- StreamElement, totals *completionTotals, failure *turnFailure,
 ) {
+	tagErrorSource(&elem, leaf)
 	if !totals.observe(&elem) {
 		return
 	}
@@ -1116,18 +1205,18 @@ func (p *StreamPipeline) collectOutput(
 	failure *turnFailure,
 ) {
 	// Identify leaf stages (stages with no outgoing edges).
-	var leafChans []<-chan StreamElement
+	var leaves []string
 	for _, stage := range p.stages {
 		if len(p.edges[stage.Name()]) == 0 {
-			leafChans = append(leafChans, channels[stage.Name()])
+			leaves = append(leaves, stage.Name())
 		}
 	}
 
-	if len(leafChans) <= 1 {
+	if len(leaves) <= 1 {
 		// Fast path: single leaf — no extra goroutines needed.
-		for _, ch := range leafChans {
-			for elem := range ch {
-				p.forwardOutput(elem, output, totals, failure)
+		for _, leaf := range leaves {
+			for elem := range channels[leaf] {
+				p.forwardOutput(leaf, elem, output, totals, failure)
 			}
 		}
 		return
@@ -1135,14 +1224,14 @@ func (p *StreamPipeline) collectOutput(
 
 	// Fan-in: one goroutine per leaf forwards to the shared output channel.
 	var wg sync.WaitGroup
-	wg.Add(len(leafChans))
-	for _, ch := range leafChans {
-		go func(src <-chan StreamElement) {
+	wg.Add(len(leaves))
+	for _, leaf := range leaves {
+		go func(leaf string, src <-chan StreamElement) {
 			defer wg.Done()
 			for elem := range src {
-				p.forwardOutput(elem, output, totals, failure)
+				p.forwardOutput(leaf, elem, output, totals, failure)
 			}
-		}(ch)
+		}(leaf, channels[leaf])
 	}
 	wg.Wait()
 }
