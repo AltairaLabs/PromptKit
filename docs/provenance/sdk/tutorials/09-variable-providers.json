@@ -1,15 +1,15 @@
 {
  "page": "docs/src/content/docs/sdk/tutorials/09-variable-providers.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "WithVariableProvider registers a variables.Provider; pipeline calls every provider on each Send before rendering",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:375",
+    "runtime/pipeline/stage/stages_utilities.go:416",
     "runtime/variables/provider.go:16",
-    "sdk/options.go:2488"
+    "sdk/options.go:2660"
    ]
   },
   {
@@ -35,7 +35,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/variables/state.go:38",
-    "runtime/variables/state.go:67"
+    "runtime/variables/state.go:69"
    ]
   },
   {
@@ -52,8 +52,8 @@
    "claim": "WithStateStore and WithConversationID options",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:944",
-    "sdk/options.go:993"
+    "sdk/options.go:1022",
+    "sdk/options.go:973"
    ]
   },
   {
@@ -61,7 +61,7 @@
    "claim": "{{plan}} renders as premium (verified with mock echo)",
    "verdict": "true",
    "evidence": [
-    "runtime/variables/state.go:99"
+    "runtime/variables/state.go:104"
    ]
   },
   {

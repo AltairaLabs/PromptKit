@@ -3,7 +3,7 @@ title: 'Tutorial 10: A2A server'
 sidebar:
   order: 10
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/a2a/client.go
     - runtime/credentials/resolver.go

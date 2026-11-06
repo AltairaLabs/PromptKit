@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/tutorials/04-state-management.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -16,7 +16,7 @@
    "claim": "`SetVar()` sets one variable",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1265"
+    "sdk/conversation.go:1318"
    ]
   },
   {
@@ -24,8 +24,8 @@
    "claim": "sdk.Open(\"./dynamic.pack.json\", \"support\")",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1265",
-    "sdk/sdk.go:84"
+    "sdk/conversation.go:1318",
+    "sdk/sdk.go:89"
    ]
   },
   {
@@ -33,7 +33,7 @@
    "claim": "`SetVars()` sets several variables in one call",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1282"
+    "sdk/conversation.go:1335"
    ]
   },
   {
@@ -41,7 +41,7 @@
    "claim": "`GetVar()` returns a variable's value and whether it is set",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1329"
+    "sdk/conversation.go:1382"
    ]
   },
   {
@@ -49,7 +49,7 @@
    "claim": "`SetVarsFromEnv()` takes a prefix",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1303"
+    "sdk/conversation.go:1356"
    ]
   },
   {
@@ -57,7 +57,7 @@
    "claim": "converts each value with `fmt.Sprintf(\"%v\", value)`",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1291"
+    "sdk/conversation.go:1344"
    ]
   },
   {
@@ -65,7 +65,7 @@
    "claim": "A conversation renders the system prompt on every `Send()`",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1258",
+    "sdk/conversation.go:1311",
     "sdk/session_vars.go:31"
    ]
   },
@@ -74,7 +74,7 @@
    "claim": "Several goroutines can set variables on one conversation",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1265",
+    "sdk/conversation.go:1318",
     "sdk/session/unary_session.go:244"
    ]
   },
@@ -83,7 +83,7 @@
    "claim": "`Fork()` copies a conversation, including its variables",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1414",
+    "sdk/conversation.go:1472",
     "sdk/session/unary_session.go:283"
    ]
   },

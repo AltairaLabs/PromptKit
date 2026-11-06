@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/tutorials/11-ag-ui-integration.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -21,7 +21,7 @@
    "claim": "ToolsFromAGUI returns descriptors marked as client tools",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/convert.go:302"
+    "sdk/agui/convert.go:303"
    ]
   },
   {
@@ -29,7 +29,7 @@
    "claim": "model offered only tools the pack's prompt declares",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/composition_executor.go:48",
+    "runtime/pipeline/stage/composition_executor.go:49",
     "sdk/inference_integration_test.go:65"
    ]
   },
@@ -38,9 +38,9 @@
    "claim": "resume -> RunContinue; tool messages -> ToolResultsFromAGUI + RunResume; else RunSend; repeated server tool results ignored",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:257",
-    "sdk/agui/adapter.go:277",
-    "sdk/agui/adapter.go:299",
+    "sdk/agui/adapter.go:291",
+    "sdk/agui/adapter.go:310",
+    "sdk/agui/adapter.go:331",
     "sdk/agui/convert.go:240"
    ]
   },
@@ -49,10 +49,10 @@
    "claim": "step snippets and full server compile (NewEventAdapter, WithThreadID, WithRunID, Events, sse.NewSSEWriter, ResolveTool, RejectTool, ToolRegistry)",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:164",
-    "sdk/conversation_tools.go:235",
-    "sdk/conversation_tools.go:305",
-    "sdk/conversation_tools.go:472"
+    "sdk/agui/adapter.go:199",
+    "sdk/conversation_tools.go:236",
+    "sdk/conversation_tools.go:321",
+    "sdk/conversation_tools.go:492"
    ]
   },
   {
@@ -60,10 +60,10 @@
    "claim": "Events channel holds 64; run waits when full; channel closes when run ends",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:198",
     "sdk/agui/adapter.go:20",
-    "sdk/agui/adapter.go:335",
-    "sdk/agui/adapter.go:728"
+    "sdk/agui/adapter.go:233",
+    "sdk/agui/adapter.go:369",
+    "sdk/agui/adapter.go:828"
    ]
   },
   {
@@ -71,8 +71,8 @@
    "claim": "curl stream: RUN_STARTED, TEXT_MESSAGE_START, one TEXT_MESSAGE_CONTENT with whole reply, TEXT_MESSAGE_END, RUN_FINISHED",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:339",
-    "sdk/agui/adapter.go:447"
+    "sdk/agui/adapter.go:373",
+    "sdk/agui/adapter.go:547"
    ]
   },
   {
@@ -80,9 +80,9 @@
    "claim": "StateProvider Snapshot(Sender) emits STATE_SNAPSHOT after RUN_STARTED; WithStateProvider",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/adapter.go:116",
-    "sdk/agui/adapter.go:340",
-    "sdk/agui/adapter.go:86"
+    "sdk/agui/adapter.go:130",
+    "sdk/agui/adapter.go:376",
+    "sdk/agui/adapter.go:90"
    ]
   },
   {

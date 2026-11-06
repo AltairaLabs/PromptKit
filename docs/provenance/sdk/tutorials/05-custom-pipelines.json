@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/tutorials/05-custom-pipelines.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -15,7 +15,7 @@
    "claim": "OnToolAsync takes a check func returning tools.PendingResult and an execute func; non-empty holds, empty runs at once",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:171",
+    "sdk/conversation_tools.go:172",
     "sdk/tools/pending.go:52",
     "sdk/tools/pending.go:63"
    ]
@@ -25,8 +25,8 @@
    "claim": "Execute function return value is the tool result the model sees",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:173",
-    "sdk/conversation_tools.go:291"
+    "sdk/conversation_tools.go:174",
+    "sdk/conversation_tools.go:304"
    ]
   },
   {
@@ -34,9 +34,9 @@
    "claim": "Step 2 program compiles and runs against a mock provider with the shown output",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:235",
-    "sdk/conversation_tools.go:305",
-    "sdk/conversation_tools.go:334"
+    "sdk/conversation_tools.go:236",
+    "sdk/conversation_tools.go:321",
+    "sdk/conversation_tools.go:350"
    ]
   },
   {
@@ -53,7 +53,7 @@
    "claim": "conv.ResolveTool(ctx, id) returns a resolution with Result",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:235",
+    "sdk/conversation_tools.go:236",
     "sdk/tools/pending.go:146"
    ]
   },
@@ -62,7 +62,7 @@
    "claim": "conv.RejectTool(ctx, id, reason) returns a resolution with RejectionReason",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:305",
+    "sdk/conversation_tools.go:321",
     "sdk/tools/pending.go:162"
    ]
   },
@@ -71,8 +71,8 @@
    "claim": "Continue(ctx) sends the outcomes to the model and returns the final reply",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:334",
-    "sdk/conversation_tools.go:350"
+    "sdk/conversation_tools.go:350",
+    "sdk/conversation_tools.go:366"
    ]
   },
   {
@@ -80,8 +80,8 @@
    "claim": "Over the threshold Send returns the call as pending; ResolveTool runs the execute function",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:235",
-    "sdk/conversation_tools.go:291"
+    "sdk/conversation_tools.go:236",
+    "sdk/conversation_tools.go:304"
    ]
   },
   {
@@ -89,7 +89,7 @@
    "claim": "RejectTool records the rejection without running the execute function; Continue reports it",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:305"
+    "sdk/conversation_tools.go:321"
    ]
   },
   {
