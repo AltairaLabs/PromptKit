@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -16,6 +17,12 @@ import (
 // wraps context.DeadlineExceeded, so retry loops treat it as a deadline and
 // do not retry it.
 var ErrRateLimitPastDeadline = errors.New("provider rate limit: the next request slot is past the context deadline")
+
+// ErrRequestAuthorization wraps an error from RateLimitTransport.Authorize:
+// the request's credential could not be applied, so it was not sent. Retry
+// loops do not retry it, and providers do not class it as transient: a
+// credential that cannot be fetched or signed is not an infrastructure blip.
+var ErrRequestAuthorization = errors.New("provider credential could not be applied")
 
 // NewRequestLimiter returns the token bucket for a provider's rate_limit: a
 // sustained requestsPerSecond with room for burst requests at once. A
@@ -46,12 +53,18 @@ func NewRequestLimiter(requestsPerSecond float64, burst int) *rate.Limiter {
 // refuse every request whose turn is further off than the timeout.
 //
 // Authorize, when set, applies the sender's credential to a copy of each
-// request after its wait ends and before it is sent. A provider that signs or
-// attaches its credential while building the request sets it, so a SigV4
-// signature or a bearer token is never older than the wait. It must be safe to
-// apply to a request that already carries the credential: it replaces it. An
-// Authorize error fails the request without sending it. Redirect hops are not
-// re-authorized, so a redirect to another host never receives the credential.
+// request after its wait ends and before it is sent, so a SigV4 signature or a
+// bearer token is never older than the wait. It runs once per request: the
+// sender does not apply the credential while building a request that goes
+// through this transport. An Authorize error fails the request without sending
+// it.
+//
+// A redirect hop is a request of its own, with its own wait. http.Client
+// builds a hop's headers from the original request, which carries no
+// credential, so a hop to the same scheme and host as the original request is
+// authorized after its wait like any other. A hop to another scheme or host is
+// never authorized, so the credential does not follow a redirect off the
+// origin.
 type RateLimitTransport struct {
 	Next      http.RoundTripper
 	Limiter   TokenWaiter
@@ -74,16 +87,13 @@ func (t *RateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error
 			return nil, err
 		}
 	}
-	// A redirect hop (req.Response set) is left as http.Client built it: the
-	// client strips the credential when the redirect leaves the original
-	// host, and re-authorizing would put it back.
-	if t.Authorize != nil && req.Response == nil {
+	if t.Authorize != nil && sameOriginAsFirstHop(req) {
 		// Clone before applying: the RoundTripper contract forbids modifying
 		// the caller's request.
 		authed := req.Clone(req.Context())
 		if err := t.Authorize(authed.Context(), authed); err != nil {
 			closeBody(req)
-			return nil, err
+			return nil, fmt.Errorf("%w: %w", ErrRequestAuthorization, err)
 		}
 		req = authed
 	}
@@ -105,6 +115,33 @@ func (t *RateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error
 		return nil, urlErr.Err
 	}
 	return resp, err
+}
+
+// sameOriginAsFirstHop reports whether req goes to the scheme and host of the
+// request that started its redirect chain. A request that is not a redirect
+// hop (req.Response nil) is its own first hop.
+func sameOriginAsFirstHop(req *http.Request) bool {
+	first := req
+	for first.Response != nil && first.Response.Request != nil {
+		first = first.Response.Request
+	}
+	return strings.EqualFold(first.URL.Scheme, req.URL.Scheme) &&
+		strings.EqualFold(canonicalHost(first.URL), canonicalHost(req.URL))
+}
+
+// canonicalHost returns u's host with its port, adding the scheme's default
+// port when u names none, so https://h and https://h:443 compare equal.
+func canonicalHost(u *url.URL) string {
+	if u.Port() != "" {
+		return u.Host
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+		return u.Host + ":443"
+	case "http":
+		return u.Host + ":80"
+	}
+	return u.Host
 }
 
 func useLastResponse(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }

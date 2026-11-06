@@ -19,6 +19,16 @@ type Credential interface {
 	Type() string
 }
 
+// HeaderNamer is implemented by a Credential that can name the request
+// headers its Apply sets without applying it. A provider that defers applying
+// its credential until a request is sent (under a rate limit, after the wait)
+// uses the names to refuse a custom header that the credential would replace.
+type HeaderNamer interface {
+	// HeaderNames returns the canonical or literal names of the headers Apply
+	// may set. Matching is case-insensitive.
+	HeaderNames() []string
+}
+
 // APIKeyCredential implements header-based API key authentication.
 // It supports flexible header names for different providers.
 type APIKeyCredential struct {
@@ -78,6 +88,14 @@ func (c *APIKeyCredential) Type() string {
 	return "api_key"
 }
 
+// HeaderNames returns the header Apply sets, or none when the key is empty.
+func (c *APIKeyCredential) HeaderNames() []string {
+	if c.apiKey == "" {
+		return nil
+	}
+	return []string{c.headerName}
+}
+
 // APIKey returns the raw API key value.
 // This is useful for providers that need the key for non-HTTP operations.
 func (c *APIKeyCredential) APIKey() string {
@@ -92,6 +110,9 @@ type NoOpCredential struct{}
 func (c *NoOpCredential) Apply(_ context.Context, _ *http.Request) error {
 	return nil
 }
+
+// HeaderNames returns no headers: Apply sets none.
+func (c *NoOpCredential) HeaderNames() []string { return nil }
 
 // Type returns "none".
 func (c *NoOpCredential) Type() string {

@@ -110,6 +110,7 @@ func TestRateLimitTransport_AuthorizeErrorIsNotSent(t *testing.T) {
 	}
 	err := get(t.Context(), &http.Client{Transport: rlt}, srv.URL)
 	require.ErrorIs(t, err, authErr)
+	require.ErrorIs(t, err, ErrRequestAuthorization, "marked so retry loops leave it alone")
 	assert.Zero(t, hits.Load())
 }
 
@@ -131,6 +132,77 @@ func TestRateLimitTransport_NilRateLimiterInWaiterIsUnlimited(t *testing.T) {
 	}
 	assert.Equal(t, int32(3), hits.Load())
 	assert.Equal(t, 3, authorized)
+}
+
+// A redirect back to the same host is a new request with its own wait, and is
+// authorized after that wait: http.Client builds the hop's headers from the
+// original request, which the transport never authorized.
+func TestRateLimitTransport_ReauthorizesSameHostRedirect(t *testing.T) {
+	var mu sync.Mutex
+	var hops []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		hops = append(hops, r.Header.Get("Authorization"))
+		first := len(hops) == 1
+		mu.Unlock()
+		if first {
+			http.Redirect(w, r, r.URL.RequestURI(), http.StatusTemporaryRedirect)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	log := &eventLog{}
+	applied := 0
+	rlt := &RateLimitTransport{
+		Next:    http.DefaultTransport,
+		Limiter: countingWaiter{log: log},
+		Authorize: func(_ context.Context, r *http.Request) error {
+			applied++
+			log.add(fmt.Sprintf("auth-%d", applied))
+			r.Header.Set("Authorization", fmt.Sprintf("token-%d", applied))
+			return nil
+		},
+	}
+	require.NoError(t, get(t.Context(), &http.Client{Transport: rlt}, srv.URL))
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []string{"token-1", "token-2"}, hops, "each hop carries its own post-wait credential")
+	assert.Equal(t, []string{"wait-end", "auth-1", "wait-end", "auth-2"}, log.snapshot())
+}
+
+// countingWaiter never blocks; it logs each wait.
+type countingWaiter struct{ log *eventLog }
+
+func (w countingWaiter) Wait(context.Context) error {
+	w.log.add("wait-end")
+	return nil
+}
+
+// A redirect to another scheme or host keeps none of the credential: the
+// original request never carried it, and the hop is not authorized.
+func TestSameOriginAsFirstHop(t *testing.T) {
+	first, err := http.NewRequest(http.MethodGet, "https://api.example.com/v1", http.NoBody)
+	require.NoError(t, err)
+	hop := func(target string) *http.Request {
+		r, hopErr := http.NewRequest(http.MethodGet, target, http.NoBody)
+		require.NoError(t, hopErr)
+		r.Response = &http.Response{Request: first}
+		return r
+	}
+	assert.True(t, sameOriginAsFirstHop(first), "a request that is not a hop")
+	assert.True(t, sameOriginAsFirstHop(hop("https://API.example.com/v2")), "same host, any path")
+	assert.False(t, sameOriginAsFirstHop(hop("http://api.example.com/v1")), "scheme downgrade")
+	assert.False(t, sameOriginAsFirstHop(hop("https://api.example.com:8443/v1")), "another port")
+	assert.True(t, sameOriginAsFirstHop(hop("https://api.example.com:443/v1")), "the default port spelled out")
+	assert.False(t, sameOriginAsFirstHop(hop("https://api.example.com:80/v1")), "another port, not https's default")
+	assert.False(t, sameOriginAsFirstHop(hop("https://evil.example.com/v1")), "another host")
+	// Another host that redirects to itself is still another host.
+	second := hop("https://evil.example.com/a")
+	third, err := http.NewRequest(http.MethodGet, "https://evil.example.com/b", http.NoBody)
+	require.NoError(t, err)
+	third.Response = &http.Response{Request: second}
+	assert.False(t, sameOriginAsFirstHop(third), "compared with the first request, not the previous hop")
 }
 
 // http.Client strips Authorization on a redirect to another host. The

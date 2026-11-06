@@ -548,7 +548,7 @@ func (p *ToolProvider) makeCredentialRequest(ctx context.Context, url string, re
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+	if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
 		return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 	}
 	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
@@ -675,7 +675,7 @@ func (p *ToolProvider) predictStreamWithCompletions(
 			return nil, fmt.Errorf("failed to create request: %w", reqErr)
 		}
 		httpReq.Header.Set(contentTypeHeader, applicationJSON)
-		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+		if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
 			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 		}
 		httpReq.Header.Set("Accept", "text/event-stream")

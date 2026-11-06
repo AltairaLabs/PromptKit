@@ -146,7 +146,7 @@ func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults,
 		apiKey:       apiKey,
 		defaults:     defaults,
 	}
-	p.SetRequestAuth(p.applyAuth)
+	p.SetCredential(p.authCredential())
 	return p
 }
 
@@ -185,9 +185,7 @@ func NewProviderWithCredential(
 		platform:       platform,
 		platformConfig: platformConfig,
 	}
-	// Under a rate limit the credential is applied again after each wait, so
-	// a SigV4 signature or token is never older than the wait.
-	p.SetRequestAuth(p.applyAuth)
+	p.SetCredential(p.authCredential())
 	return p
 }
 
@@ -326,17 +324,15 @@ func (p *Provider) marshalPartnerRequest(cr *claudeRequest) ([]byte, error) {
 	return json.Marshal(reqMap)
 }
 
-// applyAuth applies authentication to an HTTP request.
-// Uses credential interface if available, falls back to legacy apiKey.
-func (p *Provider) applyAuth(ctx context.Context, req *http.Request) error {
+// authCredential returns the credential Claude requests carry: the explicit
+// credential if there is one, otherwise the legacy API key in X-API-Key. The
+// BaseProvider applies it (AuthorizeRequest), after the wait under a rate
+// limit.
+func (p *Provider) authCredential() providers.Credential {
 	if p.credential != nil {
-		return p.credential.Apply(ctx, req)
+		return p.credential
 	}
-	// Legacy behavior: use apiKey directly
-	if p.apiKey != "" {
-		req.Header.Set("X-API-Key", p.apiKey)
-	}
-	return nil
+	return providers.HeaderKeyCredential(p.apiKey, "X-API-Key", "")
 }
 
 // Close implements provider cleanup (uses BaseProvider.Close)
@@ -744,7 +740,7 @@ func (p *Provider) makeClaudeHTTPRequest(
 	}
 
 	// Apply authentication
-	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+	if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
 		predictResp.Latency = time.Since(start)
 		return nil, predictResp, fmt.Errorf("failed to apply authentication: %w", authErr)
 	}

@@ -11,12 +11,14 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"golang.org/x/time/rate"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/httputil"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
@@ -173,7 +175,7 @@ type BaseProvider struct {
 	streamSemaphore       *StreamSemaphore
 	streamObserver        StreamObserver
 	rateLimiter           *rate.Limiter
-	requestAuth           func(ctx context.Context, req *http.Request) error
+	credential            Credential
 	retryPolicy           pipeline.RetryPolicy
 	maxRequestPayloadSize int64
 	customHeaders         map[string]string
@@ -259,6 +261,10 @@ func ExtractAPIKey(cred Credential) string {
 // It creates an HTTP client with the given timeout, builds the BaseProvider, and
 // extracts the API key from the credential (if it is an api_key credential).
 // This eliminates the duplicated credential-setup boilerplate across providers.
+//
+// The BaseProvider authenticates its requests with cred (see
+// AuthorizeRequest). A provider that sends a different credential, such as the
+// extracted key in its own header, replaces it with SetCredential.
 func NewBaseProviderWithCredential(
 	id string, includeRawOutput bool, timeout time.Duration, cred Credential,
 ) (bp BaseProvider, apiKey string) {
@@ -267,6 +273,7 @@ func NewBaseProviderWithCredential(
 		Transport: NewInstrumentedTransport(NewPooledTransport()),
 	}
 	bp = NewBaseProvider(id, includeRawOutput, client)
+	bp.credential = cred
 	apiKey = ExtractAPIKey(cred)
 	return bp, apiKey
 }
@@ -372,6 +379,7 @@ func (b *BaseProvider) SetHTTPTransport(rt http.RoundTripper) {
 // X-Title). Called by CreateProviderFromSpec after factory construction.
 func (b *BaseProvider) SetCustomHeaders(headers map[string]string) {
 	b.customHeaders = headers
+	b.applyRateLimit()
 }
 
 // SetMediaStorageService injects the media storage service that resolves
@@ -437,17 +445,129 @@ func (b *BaseProvider) MediaLoader() *MediaLoader {
 
 // ApplyCustomHeaders applies stored custom headers to the HTTP request.
 // Must be called AFTER the provider sets its own built-in headers
-// (Authorization, Content-Type, etc.). Returns an error if any custom
-// header collides with a header already set on the request
+// (Authorization, Content-Type, etc.) and calls AuthorizeRequest. Returns an
+// error if any custom header collides with a header already set on the
+// request, or with a header the credential sets once the request is sent
 // (case-insensitive per HTTP spec).
 func (b *BaseProvider) ApplyCustomHeaders(req *http.Request) error {
+	// A credential applied at build time is already on req; one deferred to
+	// the transport is checked by name.
+	var deferred http.Header
+	if b.credentialDeferred() {
+		deferred = b.credentialHeaders()
+	}
 	for key, value := range b.customHeaders {
-		if req.Header.Get(key) != "" {
-			return fmt.Errorf("custom header %q collides with built-in header set by provider", key)
+		if req.Header.Get(key) != "" || deferred.Get(key) != "" {
+			return customHeaderCollision(key)
 		}
 		req.Header.Set(key, value)
 	}
 	return nil
+}
+
+func customHeaderCollision(key string) error {
+	return fmt.Errorf("custom header %q collides with built-in header set by provider", key)
+}
+
+// HeaderKeyCredential returns a credential that sends key in header, after
+// prefix (for example "Bearer "). An empty key returns nil, which sends no
+// credential. Providers that authenticate with a static key use it with
+// SetCredential.
+func HeaderKeyCredential(key, header, prefix string) Credential {
+	if key == "" {
+		return nil
+	}
+	return credentials.NewAPIKeyCredential(key, credentials.WithHeaderName(header), credentials.WithPrefix(prefix))
+}
+
+// SetCredential sets the credential the provider authenticates its requests
+// with, replacing the one NewBaseProviderWithCredential stored. Nil sends no
+// credential. See AuthorizeRequest.
+func (b *BaseProvider) SetCredential(cred Credential) {
+	b.credential = cred
+	b.applyRateLimit()
+}
+
+// Credential returns the credential the provider authenticates its requests
+// with, or nil when it sends none.
+func (b *BaseProvider) Credential() Credential {
+	return b.credential
+}
+
+// AuthorizeRequest applies the provider's credential to req while the request
+// is being built; a provider calls it once for each request it builds, before
+// ApplyCustomHeaders. With no rate limit it applies the credential at once,
+// as it always has. Under a rate limit it does nothing: the limiter's
+// transport applies the credential once, after the request's wait ends, so a
+// SigV4 signature or a token is never older than the wait and is computed
+// once per attempt. With no credential it does nothing.
+func (b *BaseProvider) AuthorizeRequest(ctx context.Context, req *http.Request) error {
+	if b.credential == nil || b.credentialDeferred() {
+		return nil
+	}
+	return b.credential.Apply(ctx, req)
+}
+
+// credentialDeferred reports whether the credential is applied by the rate
+// limiter's transport rather than while the request is built. It reads the
+// client's transport, not b.rateLimiter: a WithMedia view shares the clients
+// of the provider it was copied from, so the transport is what will actually
+// send the request.
+func (b *BaseProvider) credentialDeferred() bool {
+	if b.credential == nil {
+		return false
+	}
+	c := b.client
+	if c == nil {
+		c = b.streamingClient
+	}
+	if c == nil {
+		return false
+	}
+	rlt, ok := c.Transport.(*base.RateLimitTransport)
+	return ok && rlt.Authorize != nil
+}
+
+// credentialHeaders returns, as header keys, the headers the credential sets,
+// when it can name them (credentials.HeaderNamer). Values are placeholders.
+func (b *BaseProvider) credentialHeaders() http.Header {
+	namer, ok := b.credential.(credentials.HeaderNamer)
+	if !ok {
+		return nil
+	}
+	h := http.Header{}
+	for _, name := range namer.HeaderNames() {
+		h.Set(name, "credential")
+	}
+	return h
+}
+
+// transportAuthorizer returns what the rate limiter's transport runs after
+// each wait: the credential's Apply. A credential that cannot name its headers
+// is checked there instead of at build time: if applying it changes a custom
+// header, the request fails without being sent.
+func transportAuthorizer(cred Credential, custom map[string]string) func(context.Context, *http.Request) error {
+	if cred == nil {
+		return nil
+	}
+	if _, named := cred.(credentials.HeaderNamer); named || len(custom) == 0 {
+		return cred.Apply
+	}
+	return func(ctx context.Context, req *http.Request) error {
+		before := make(map[string][]string, len(custom))
+		for key := range custom {
+			before[key] = req.Header.Values(key)
+		}
+		if err := cred.Apply(ctx, req); err != nil {
+			return err
+		}
+		for key, values := range before {
+			if !slices.Equal(values, req.Header.Values(key)) {
+				return customHeaderCollision(key)
+			}
+		}
+		return nil
+	}
 }
 
 // StreamIdleTimeout returns the configured SSE body idle timeout or the
@@ -835,39 +955,28 @@ func (b *BaseProvider) HTTPTimeout() time.Duration {
 // request's context is canceled, or at once when its turn falls past the
 // context deadline (base.ErrRateLimitPastDeadline). The wait does not count
 // against the request timeout, which starts when the request is sent. The
-// credential registered with SetRequestAuth is applied again after the wait
-// ends. CreateProviderFromSpec calls it with spec.RateLimit.
+// provider's credential is applied once per attempt, after its wait ends, and
+// to a redirect only when it stays on the same scheme and host (see
+// AuthorizeRequest). CreateProviderFromSpec calls it with spec.RateLimit.
 func (b *BaseProvider) SetRateLimit(requestsPerSecond float64, burst int) {
 	b.rateLimiter = base.NewRequestLimiter(requestsPerSecond, burst)
 	b.applyRateLimit()
 }
 
-// SetRequestAuth registers the function a provider uses to apply its
-// credential to a request (a SigV4 signature, a bearer token, an API key
-// header). Providers still apply it while building each request; under a rate
-// limit the limiter's transport applies it once more to every request,
-// including each retry attempt, after the request's wait ends. A long wait
-// therefore never sends a stale signature or an expired token. fn must replace
-// whatever credential the request already carries. A nil fn stops the
-// re-application.
-func (b *BaseProvider) SetRequestAuth(fn func(ctx context.Context, req *http.Request) error) {
-	b.requestAuth = fn
-	b.applyRateLimit()
-}
-
 // applyRateLimit installs b.rateLimiter (or removes the limit when nil) on
-// both clients, with b.requestAuth applied after each wait. The request
+// both clients, with b.credential applied after each wait. The request
 // client's timeout moves behind the wait (see base.ApplyRateLimit), so
 // request_timeout bounds the upstream call, not the time spent queued for a
 // token.
 func (b *BaseProvider) applyRateLimit() {
+	authorize := transportAuthorizer(b.credential, b.customHeaders)
 	for _, c := range []*http.Client{b.client, b.streamingClient} {
 		base.ApplyRateLimit(c, b.rateLimiter)
 		if c == nil {
 			continue
 		}
 		if rlt, ok := c.Transport.(*base.RateLimitTransport); ok {
-			rlt.Authorize = b.requestAuth
+			rlt.Authorize = authorize
 		}
 	}
 }
@@ -1019,9 +1128,11 @@ func (b *BaseProvider) mergeCustomHeaders(headers RequestHeaders) (RequestHeader
 	for k, v := range headers {
 		merged.Set(k, v)
 	}
+	// The credential is applied to each attempt after these headers.
+	credHeaders := b.credentialHeaders()
 	for k, v := range b.customHeaders {
-		if merged.Get(k) != "" {
-			return nil, fmt.Errorf("custom header %q collides with built-in header set by provider", k)
+		if merged.Get(k) != "" || credHeaders.Get(k) != "" {
+			return nil, customHeaderCollision(k)
 		}
 		merged.Set(k, v)
 	}
@@ -1054,8 +1165,10 @@ func maskHeadersForLog(headers RequestHeaders) map[string]string {
 //
 // Custom headers set with SetCustomHeaders are merged into the outgoing
 // request headers up front, with a case-insensitive collision check against
-// the headers the caller passed. A collision fails before the retry loop runs,
-// so it does not consume retries.
+// the headers the caller passed and the headers the provider's credential
+// sets. A collision fails before the retry loop runs, so it does not consume
+// retries. Each attempt is authorized with the provider's credential (see
+// AuthorizeRequest).
 func (b *BaseProvider) MakeRawRequest(
 	ctx context.Context,
 	url string,
@@ -1087,6 +1200,9 @@ func (b *BaseProvider) MakeRawRequest(
 		}
 		for key, value := range effectiveHeaders {
 			req.Header.Set(key, value)
+		}
+		if authErr := b.AuthorizeRequest(ctx, req); authErr != nil {
+			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 		}
 		return b.client.Do(req)
 	}

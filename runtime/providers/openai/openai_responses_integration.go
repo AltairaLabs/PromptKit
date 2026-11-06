@@ -339,7 +339,7 @@ func (p *Provider) predictWithResponses(
 	}
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+	if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
 		return predictResp, nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 	}
 
@@ -484,7 +484,7 @@ func (p *Provider) predictStreamWithResponses(
 		}
 		httpReq.Header.Set(contentTypeHeader, applicationJSON)
 		httpReq.Header.Set("Accept", "text/event-stream")
-		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+		if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
 			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 		}
 		return httpReq, nil

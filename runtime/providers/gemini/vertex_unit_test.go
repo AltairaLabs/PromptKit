@@ -84,7 +84,7 @@ func TestProvider_GenerateContentURL(t *testing.T) {
 		// This assertion is inverted from what it once was: the URL used to
 		// embed ?key=<credential>, which put a live key inside *url.Error on
 		// any transport failure and so into the logs. The key now travels in
-		// the x-goog-api-key header — see applyAuth. The URL shape is otherwise
+		// the x-goog-api-key header — see authCredential. The URL shape is otherwise
 		// unchanged, which is what this still pins.
 		p := &Provider{
 			platform: "",
@@ -108,19 +108,19 @@ func TestProvider_ApplyAuth(t *testing.T) {
 		cred := &mockBearerCredential{}
 		p := &Provider{platform: vertexPlatform, credential: cred}
 		req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://example.com", http.NoBody)
-		if err := p.applyAuth(context.Background(), req); err != nil {
-			t.Fatalf("applyAuth returned error: %v", err)
+		if err := applyAuthCredential(context.Background(), p, req); err != nil {
+			t.Fatalf("authCredential returned error: %v", err)
 		}
 		if !cred.applied {
-			t.Error("vertex applyAuth did not invoke credential.Apply")
+			t.Error("vertex authCredential did not invoke credential.Apply")
 		}
 	})
 
 	t.Run("vertex with nil credential is a no-op", func(t *testing.T) {
 		p := &Provider{platform: vertexPlatform, credential: nil}
 		req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://example.com", http.NoBody)
-		if err := p.applyAuth(context.Background(), req); err != nil {
-			t.Errorf("applyAuth with nil credential should not error, got %v", err)
+		if err := applyAuthCredential(context.Background(), p, req); err != nil {
+			t.Errorf("authCredential with nil credential should not error, got %v", err)
 		}
 	})
 
@@ -128,11 +128,11 @@ func TestProvider_ApplyAuth(t *testing.T) {
 		cred := &mockBearerCredential{}
 		p := &Provider{platform: "", credential: cred}
 		req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://example.com", http.NoBody)
-		if err := p.applyAuth(context.Background(), req); err != nil {
-			t.Fatalf("applyAuth returned error: %v", err)
+		if err := applyAuthCredential(context.Background(), p, req); err != nil {
+			t.Fatalf("authCredential returned error: %v", err)
 		}
 		if cred.applied {
-			t.Error("ai studio applyAuth must not call credential.Apply (key is in URL)")
+			t.Error("ai studio authCredential must not call credential.Apply (it sends the API key header)")
 		}
 	})
 }
@@ -193,4 +193,14 @@ func TestNewProviderWithCredential_DerivesVertexURL(t *testing.T) {
 			t.Errorf("non-vertex platform should not derive URL, got %q", p.baseURL)
 		}
 	})
+}
+
+// applyAuthCredential applies the credential p's requests carry, as
+// BaseProvider.AuthorizeRequest does.
+func applyAuthCredential(ctx context.Context, p *Provider, req *http.Request) error {
+	cred := p.authCredential()
+	if cred == nil {
+		return nil
+	}
+	return cred.Apply(ctx, req)
 }

@@ -114,7 +114,7 @@ func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults,
 		apiKey:       apiKey,
 		defaults:     defaults,
 	}
-	p.SetRequestAuth(p.applyAuth)
+	p.SetCredential(p.authCredential())
 	return p
 }
 
@@ -147,9 +147,7 @@ func NewProviderWithCredential(
 		platform:       platform,
 		platformConfig: platformConfig,
 	}
-	// Under a rate limit the credential is applied again after each wait, so
-	// a Vertex token is never older than the wait.
-	p.SetRequestAuth(p.applyAuth)
+	p.SetCredential(p.authCredential())
 	return p
 }
 
@@ -166,7 +164,7 @@ func (p *Provider) isVertex() bool {
 //
 // Neither shape carries a credential. The API key used to travel as a ?key=
 // query parameter, which put it inside *url.Error on any transport failure and
-// so into the logs. See applyAuth.
+// so into the logs. See authCredential.
 //
 // The Vertex URL shape relies on baseURL ending in `/publishers/google/models`,
 // which vertexGeminiEndpoint produces and which the SDK platformBaseURL also
@@ -178,7 +176,7 @@ func (p *Provider) generateContentURL(action string) string {
 	return fmt.Sprintf("%s/models/%s:%s", p.baseURL, p.model, action)
 }
 
-// applyAuth attaches platform-appropriate authentication to a request.
+// authCredential returns the platform-appropriate credential for requests.
 //
 // Vertex requires an OAuth Bearer token in the Authorization header (sourced
 // from the GCP credential chain). Direct Google AI Studio sends the API key in
@@ -190,19 +188,16 @@ func (p *Provider) generateContentURL(action string) string {
 // error reformats it, so a single network blip wrote a live key to the log
 // several times over. Error-string redaction is the backstop; keeping the
 // credential out of the URL is the fix.
-func (p *Provider) applyAuth(ctx context.Context, req *http.Request) error {
+//
+// The BaseProvider applies it (AuthorizeRequest), after the wait under a rate
+// limit.
+func (p *Provider) authCredential() providers.Credential {
 	if p.isVertex() {
-		if p.credential != nil {
-			return p.credential.Apply(ctx, req)
-		}
 		// Vertex authenticates by OAuth only. Falling back to the API-key
 		// header here would send an AI Studio credential to Vertex.
-		return nil
+		return p.credential
 	}
-	if p.apiKey != "" {
-		req.Header.Set(apiKeyHeader, p.apiKey)
-	}
-	return nil
+	return providers.HeaderKeyCredential(p.apiKey, apiKeyHeader, "")
 }
 
 // Model returns the model name/identifier used by this provider.
@@ -733,7 +728,7 @@ func (p *Provider) makeGeminiHTTPRequest(
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
 
-	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+	if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
 		predictResp.Latency = time.Since(start)
 		return nil, predictResp, fmt.Errorf("failed to apply authentication: %w", authErr)
 	}

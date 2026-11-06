@@ -15,7 +15,7 @@ import (
 // path, so this is a single collection endpoint.
 func (p *Provider) interactionsURL() string {
 	// No credential in the URL on either platform — auth is applied as a
-	// header by applyAuth.
+	// header by authCredential.
 	return p.baseURL + interactionsPath
 }
 

@@ -86,6 +86,9 @@ func (c *GCPCredential) Apply(ctx context.Context, req *http.Request) error {
 	return nil
 }
 
+// HeaderNames returns the header Apply sets.
+func (c *GCPCredential) HeaderNames() []string { return []string{headerAuthorization} }
+
 // Type returns "gcp".
 func (c *GCPCredential) Type() string {
 	return "gcp"

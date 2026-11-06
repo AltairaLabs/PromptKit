@@ -58,7 +58,7 @@ func TestApplyAuth_SetsAPIKeyHeaderForAIStudio(t *testing.T) {
 		context.Background(), http.MethodPost, p.generateContentURL("generateContent"), http.NoBody)
 	require.NoError(t, err)
 
-	require.NoError(t, p.applyAuth(context.Background(), req))
+	require.NoError(t, applyAuthCredential(context.Background(), p, req))
 
 	assert.Equal(t, urlProbeKey, req.Header.Get("x-goog-api-key"),
 		"AI Studio authenticates by header now")
@@ -82,9 +82,9 @@ func TestApplyAuth_VertexUnaffected(t *testing.T) {
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, u, http.NoBody)
 	require.NoError(t, err)
-	// No credential wired: applyAuth is a no-op and must not fall back to the
+	// No credential wired: authCredential is a no-op and must not fall back to the
 	// API-key header on Vertex.
-	require.NoError(t, p.applyAuth(context.Background(), req))
+	require.NoError(t, applyAuthCredential(context.Background(), p, req))
 	assert.Empty(t, req.Header.Get("x-goog-api-key"),
 		"Vertex must never authenticate with the AI Studio API key")
 }
@@ -95,7 +95,7 @@ func TestApplyAuth_VertexUnaffected(t *testing.T) {
 // because the HTTP transport supplies the credential. Setting a PRESENT but
 // empty x-goog-api-key is rejected by Google's front end as an invalid key
 // rather than falling through to the transport, so the header must be absent
-// rather than blank — the same guard applyAuth has.
+// rather than blank — the same guard authCredential has.
 func TestEmbeddingHeaders_OmittedWhenKeyIsEmpty(t *testing.T) {
 	assert.Nil(t, apiKeyHeaders(""),
 		"an empty key must send no header at all, not an empty one")

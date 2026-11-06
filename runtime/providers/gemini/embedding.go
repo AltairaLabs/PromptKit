@@ -260,9 +260,9 @@ func (p *EmbeddingProvider) embedSingle(
 	body, err := p.DoEmbeddingRequest(ctx, providers.HTTPRequestConfig{
 		URL:  url,
 		Body: jsonBody,
-		// Key by header, never in the URL — see gemini.applyAuth.
+		// Key by header, never in the URL — see gemini.authCredential.
 		//
-		// Guarded like applyAuth: under WithGeminiEmbeddingPlatformAuth the key
+		// Guarded like authCredential: under WithGeminiEmbeddingPlatformAuth the key
 		// is deliberately empty because the transport supplies the credential,
 		// and sending a PRESENT but empty x-goog-api-key is rejected as an
 		// invalid key rather than falling through to the transport.
@@ -331,9 +331,9 @@ func (p *EmbeddingProvider) embedBatchSingle(
 	body, err := p.DoEmbeddingRequest(ctx, providers.HTTPRequestConfig{
 		URL:  url,
 		Body: jsonBody,
-		// Key by header, never in the URL — see gemini.applyAuth.
+		// Key by header, never in the URL — see gemini.authCredential.
 		//
-		// Guarded like applyAuth: under WithGeminiEmbeddingPlatformAuth the key
+		// Guarded like authCredential: under WithGeminiEmbeddingPlatformAuth the key
 		// is deliberately empty because the transport supplies the credential,
 		// and sending a PRESENT but empty x-goog-api-key is rejected as an
 		// invalid key rather than falling through to the transport.

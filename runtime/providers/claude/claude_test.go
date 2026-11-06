@@ -663,9 +663,9 @@ func TestApplyAuth_WithCredential(t *testing.T) {
 	provider := &Provider{credential: cred}
 
 	req, _ := http.NewRequest("POST", "https://example.com", nil)
-	err := provider.applyAuth(context.Background(), req)
+	err := applyAuthCredential(context.Background(), provider, req)
 	if err != nil {
-		t.Fatalf("applyAuth failed: %v", err)
+		t.Fatalf("auth failed: %v", err)
 	}
 	if !applied {
 		t.Error("expected credential.Apply() to be called")
@@ -676,9 +676,9 @@ func TestApplyAuth_FallbackAPIKey(t *testing.T) {
 	provider := &Provider{apiKey: "sk-test-key"}
 
 	req, _ := http.NewRequest("POST", "https://example.com", nil)
-	err := provider.applyAuth(context.Background(), req)
+	err := applyAuthCredential(context.Background(), provider, req)
 	if err != nil {
-		t.Fatalf("applyAuth failed: %v", err)
+		t.Fatalf("auth failed: %v", err)
 	}
 	if got := req.Header.Get("X-API-Key"); got != "sk-test-key" {
 		t.Errorf("X-API-Key = %q, want 'sk-test-key'", got)
@@ -824,4 +824,14 @@ func TestParseAndValidateClaudeResponse_APIError(t *testing.T) {
 	if !strings.Contains(err.Error(), "Rate limit exceeded") {
 		t.Errorf("expected rate limit error message, got: %v", err)
 	}
+}
+
+// applyAuthCredential applies the credential p's requests carry, as
+// BaseProvider.AuthorizeRequest does.
+func applyAuthCredential(ctx context.Context, p *Provider, req *http.Request) error {
+	cred := p.authCredential()
+	if cred == nil {
+		return nil
+	}
+	return cred.Apply(ctx, req)
 }

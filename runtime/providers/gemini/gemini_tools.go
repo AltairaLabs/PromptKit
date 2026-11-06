@@ -725,7 +725,7 @@ func (p *ToolProvider) postJSON(ctx context.Context, url string, requestBytes []
 
 	req.Header.Set(contentTypeHeader, applicationJSON)
 
-	if authErr := p.applyAuth(ctx, req); authErr != nil {
+	if authErr := p.AuthorizeRequest(ctx, req); authErr != nil {
 		return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 	}
 
@@ -802,7 +802,7 @@ func (p *ToolProvider) predictStreamWithToolsOnce(
 			return nil, fmt.Errorf("failed to create request: %w", reqErr)
 		}
 		httpReq.Header.Set(contentTypeHeader, applicationJSON)
-		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+		if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
 			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 		}
 		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {

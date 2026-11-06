@@ -211,6 +211,7 @@ func TestProvider_ApplyToolRequestHeaders_VertexUsesCredential(t *testing.T) {
 			apiKey:     "should-not-be-used",
 		},
 	}
+	tp.SetCredential(tp.authCredential())
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://example.com", http.NoBody)
 	if err := tp.applyToolRequestHeaders(context.Background(), req); err != nil {
 		t.Fatalf("applyToolRequestHeaders: %v", err)
