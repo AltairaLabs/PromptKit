@@ -2174,7 +2174,7 @@ type EndInputter interface {
 ```
 
 <a name="ExecutionResult"></a>
-## type [ExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1178-L1185>)
+## type [ExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1136-L1143>)
 
 ExecutionResult represents the final result of a pipeline execution. This matches the existing pipeline.ExecutionResult for compatibility.
 
@@ -2190,7 +2190,7 @@ type ExecutionResult struct {
 ```
 
 <a name="ExecutionTrace"></a>
-## type [ExecutionTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1197-L1201>)
+## type [ExecutionTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1155-L1159>)
 
 ExecutionTrace captures execution history \(for compatibility\).
 
@@ -3751,7 +3751,7 @@ pipeline, err := NewPipelineBuilder().
 ```
 
 <a name="PipelineBuilder.Clone"></a>
-### func \(\*PipelineBuilder\) [Clone](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L386>)
+### func \(\*PipelineBuilder\) [Clone](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/builder.go#L385>)
 
 ```go
 func (b *PipelineBuilder) Clone() *PipelineBuilder
@@ -4535,7 +4535,7 @@ type RelevanceConfig struct {
 ```
 
 <a name="Response"></a>
-## type [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1188-L1194>)
+## type [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1146-L1152>)
 
 Response represents a response message \(for compatibility with existing pipeline\).
 
@@ -5498,7 +5498,7 @@ func (e *StreamElement) WithSource(source string) *StreamElement
 WithSource sets the source stage name for this element.
 
 <a name="StreamPipeline"></a>
-## type [StreamPipeline](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L24-L57>)
+## type [StreamPipeline](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L24-L53>)
 
 StreamPipeline represents an executable pipeline of stages. It manages the DAG of stages, creates channels between them, and orchestrates execution.
 
@@ -5509,7 +5509,7 @@ type StreamPipeline struct {
 ```
 
 <a name="StreamPipeline.Execute"></a>
-### func \(\*StreamPipeline\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L81>)
+### func \(\*StreamPipeline\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L75>)
 
 ```go
 func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement) (<-chan StreamElement, error)
@@ -5517,12 +5517,12 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 
 Execute starts the pipeline execution with the given input channel. Returns an output channel that will receive all elements from terminal stages. The pipeline executes in background goroutines and closes the output channel when complete.
 
-The first stage error ends the turn. Nothing is canceled: the failed stage's downstream stages receive the error in\-band and pass it on without acting on the incomplete turn, and the other stages drain as usual. The error reaches the caller as an element with Error set, the last element before the output closes. A stage that emits its own error as an error element before returning it \(the provider stage does\) delivers that error as emitted. Any other stage's error arrives as a \*StageError, which unwraps to the stage's error. A context error that comes from the caller's own cancellation is not treated as a stage failure. One from the pipeline's own ExecutionTimeout or IdleTimeout is: it fails the turn, and its error wraps ErrExecutionTimeout or ErrIdleTimeout. The caller must read the output to its end or cancel ctx: an execution whose output nobody reads blocks until ctx ends, or until Shutdown's grace period runs out. The output closes once the terminal stages have returned.
+The first stage error ends the turn. Nothing is canceled: the failed stage's downstream stages receive the error in\-band and pass it on without acting on the incomplete turn, and the other stages drain as usual. The error reaches the caller as an element with Error set, the last element before the output closes. A stage that emits its own error as an error element before returning it \(the provider stage does\) delivers that error as emitted. Any other stage's error arrives as a \*StageError, which unwraps to the stage's error. A context error that comes from the caller's own cancellation is not treated as a stage failure. One from the pipeline's own ExecutionTimeout or IdleTimeout is: it fails the turn, and its error wraps ErrExecutionTimeout or ErrIdleTimeout. The output closes once the terminal stages have returned.
 
 Execute returns ErrPipelineShuttingDown if the pipeline is shutting down. When PipelineConfig.MaxConcurrentPipelines executions are already running, Execute waits for one to finish. It returns ctx's error if ctx ends first, and ErrPipelineShuttingDown if Shutdown is called first.
 
 <a name="StreamPipeline.ExecuteSync"></a>
-### func \(\*StreamPipeline\) [ExecuteSync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1157>)
+### func \(\*StreamPipeline\) [ExecuteSync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1115>)
 
 ```go
 func (p *StreamPipeline) ExecuteSync(ctx context.Context, input ...StreamElement) (*ExecutionResult, error)
@@ -5533,13 +5533,13 @@ ExecuteSync runs the pipeline synchronously and returns the accumulated result. 
 The returned error is the last error element on the output. When a stage failed the turn, that is the failure \(see Execute for its form\). The result is non\-nil alongside the error and holds whatever the pipeline produced.
 
 <a name="StreamPipeline.Shutdown"></a>
-### func \(\*StreamPipeline\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1268>)
+### func \(\*StreamPipeline\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1223>)
 
 ```go
 func (p *StreamPipeline) Shutdown(ctx context.Context) error
 ```
 
-Shutdown gracefully shuts down the pipeline, waiting for in\-flight executions to complete. When GracefulShutdownTimeout \(or ctx\) ends first it returns ErrShutdownTimeout, and executions still blocked on a consumer that stopped reading their output drop that output and return.
+Shutdown gracefully shuts down the pipeline, waiting for in\-flight executions to complete.
 
 <a name="StructuredOutputMode"></a>
 ## type [StructuredOutputMode](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/structured_output_mode.go#L35>)

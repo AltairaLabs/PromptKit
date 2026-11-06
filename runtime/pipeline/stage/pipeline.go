@@ -65,7 +65,7 @@ type StreamPipeline struct {
 // arrives as a *StageError, which unwraps to the stage's error. A context error
 // that comes from the caller's own cancellation is not treated as a stage failure.
 // One from the pipeline's own ExecutionTimeout or IdleTimeout is: it fails the
-// turn, and an idle timeout's error wraps ErrIdleTimeout.
+// turn, and its error wraps ErrExecutionTimeout or ErrIdleTimeout.
 // The output closes once the terminal stages have returned.
 //
 // Execute returns ErrPipelineShuttingDown if the pipeline is shutting down.
@@ -86,7 +86,7 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 	execCtx := ctx
 	var cancel context.CancelFunc
 	if p.config.ExecutionTimeout > 0 {
-		execCtx, cancel = context.WithTimeout(ctx, p.config.ExecutionTimeout)
+		execCtx, cancel = context.WithTimeoutCause(ctx, p.config.ExecutionTimeout, ErrExecutionTimeout)
 		logger.Debug("Pipeline ExecutionTimeout configured",
 			"timeout", p.config.ExecutionTimeout,
 			"stages", len(p.stages))
