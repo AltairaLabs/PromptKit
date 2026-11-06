@@ -17,6 +17,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/httputil"
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 
@@ -255,7 +257,31 @@ func NewClient(baseURL string, opts ...ClientOption) *Client {
 	for _, opt := range opts {
 		opt(c)
 	}
+	c.guardRedirects()
 	return c
+}
+
+// guardRedirects makes both clients copies that keep the Authorization token
+// and the WithHeaders headers off a redirect to another host
+// (httputil.CredentialRedirectPolicy), running the client's own CheckRedirect
+// after. A client passed with WithHTTPClient is copied, never modified.
+func (c *Client) guardRedirects() {
+	custom := c.customHeaders
+	names := func() []string {
+		keys := make([]string, 0, len(custom))
+		for k := range custom {
+			keys = append(keys, k)
+		}
+		return keys
+	}
+	for _, hc := range []**http.Client{&c.httpClient, &c.sseClient} {
+		if *hc == nil {
+			continue
+		}
+		guarded := **hc
+		guarded.CheckRedirect = httputil.CredentialRedirectPolicy(names, (*hc).CheckRedirect)
+		*hc = &guarded
+	}
 }
 
 func (c *Client) setAuth(req *http.Request) {

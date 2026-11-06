@@ -7,6 +7,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
@@ -57,7 +59,7 @@ func WithRerankAPIKey(key string) RerankOption {
 
 // WithRerankHTTPClient sets a custom HTTP client.
 func WithRerankHTTPClient(client *http.Client) RerankOption {
-	return func(p *RerankProvider) { p.HTTPClient = client }
+	return func(p *RerankProvider) { p.HTTPClient = base.WithCredentialRedirectPolicy(client) }
 }
 
 // WithRerankTruncation asks Voyage to truncate over-long documents instead of

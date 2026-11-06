@@ -135,7 +135,9 @@ func NewClient(cfg Config) (*Client, error) {
 	if base == "" {
 		base = DefaultBaseURL
 	}
-	httpClient := cfg.HTTPClient
+	// A caller-supplied client is used through a copy carrying the credential
+	// redirect policy, so the key never follows a redirect to another host.
+	httpClient := provbase.WithCredentialRedirectPolicy(cfg.HTTPClient)
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: defaultHTTPTimeout, CheckRedirect: provbase.CredentialRedirectPolicy(nil, nil)}
 	}

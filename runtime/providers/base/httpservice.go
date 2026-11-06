@@ -70,7 +70,7 @@ func WithBaseURL(url string) HTTPServiceOption {
 
 // WithClient overrides the HTTP client (custom timeout / transport).
 func WithClient(c *http.Client) HTTPServiceOption {
-	return func(f *HTTPServiceFields) { f.Client = c }
+	return func(f *HTTPServiceFields) { f.Client = WithCredentialRedirectPolicy(c) }
 }
 
 // WithModel overrides the model name.

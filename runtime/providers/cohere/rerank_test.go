@@ -138,7 +138,7 @@ func TestCohereRerank_RegisteredWithTheFactory(t *testing.T) {
 
 // TestCohereRerankOptions_AllApply covers the setters.
 func TestCohereRerankOptions_AllApply(t *testing.T) {
-	client := &http.Client{}
+	client := &http.Client{Transport: &http.Transport{}}
 	p, err := NewRerankProvider(
 		WithAPIKey("k"),
 		WithModel(ModelRerankEnglishV30),
@@ -155,7 +155,9 @@ func TestCohereRerankOptions_AllApply(t *testing.T) {
 	if p.BaseURL != "https://example.test" {
 		t.Errorf("baseURL = %q", p.BaseURL)
 	}
-	if p.HTTPClient != client {
+	// The option keeps a copy that shares the caller's transport and carries the
+	// credential redirect policy; the caller's own client is not modified.
+	if p.HTTPClient == client || p.HTTPClient.Transport != client.Transport || client.CheckRedirect != nil {
 		t.Error("HTTP client not applied")
 	}
 	if p.maxTokensPerDoc != 512 {
