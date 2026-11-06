@@ -50,6 +50,10 @@ type StreamPipeline struct {
 	// execTimeoutFunc applies the ExecutionTimeout. Nil means
 	// context.WithTimeoutCause; tests set one whose deadline they end.
 	execTimeoutFunc func(context.Context, time.Duration, error) (context.Context, context.CancelFunc)
+	// stallTimerFunc starts the timer an abandoned execution's send waits on
+	// before the reader counts as gone (see callerOutput). Nil means
+	// time.NewTimer; tests set one they fire.
+	stallTimerFunc func(time.Duration) (<-chan time.Time, func() bool)
 
 	// Concurrency control. slots holds one token per running execution when
 	// MaxConcurrentPipelines is positive; nil means no limit.
@@ -87,14 +91,28 @@ type StreamPipeline struct {
 // When PipelineConfig.MaxConcurrentPipelines executions are already running,
 // Execute waits for one to finish. It returns ctx's error if ctx ends first, and
 // ErrPipelineShuttingDown if Shutdown is called first.
+//
+// When Shutdown has abandoned the execution and output had to be dropped
+// because the reader fell behind (see Shutdown), the stream still ends in an
+// error: one wrapping ErrOutputTruncated, and the turn's own error when the
+// turn failed. It is delivered with one last bounded wait for the reader.
 func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement) (<-chan StreamElement, error) {
+	output, _, err := p.execute(ctx, input)
+	return output, err
+}
+
+// execute is Execute, also returning the execution's callerOutput so that
+// ExecuteSync can see an error the reader missed.
+func (p *StreamPipeline) execute(
+	ctx context.Context, input <-chan StreamElement,
+) (<-chan StreamElement, *callerOutput, error) {
 	if err := p.acquireSlot(ctx); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// Register for graceful shutdown, or refuse if shutting down.
 	if !p.beginExecution() {
 		p.releaseSlot()
-		return nil, ErrPipelineShuttingDown
+		return nil, nil, ErrPipelineShuttingDown
 	}
 
 	// Apply execution timeout if configured (hard ceiling)
@@ -147,11 +165,12 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 
 	// Create output channel
 	output := make(chan StreamElement, p.config.ChannelBufferSize)
+	out := p.newCallerOutput(output)
 
 	// Execute pipeline in background
-	go p.executeBackground(ctx, execCtx, input, output, cancel)
+	go p.executeBackground(ctx, execCtx, input, out, cancel)
 
-	return output, nil
+	return output, out, nil
 }
 
 // executeBackground runs the pipeline execution in a background goroutine.
@@ -163,7 +182,7 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 // callerCtx ending is the caller's cancellation: a stage cut off by the
 // pipeline's own timeout fails the turn.
 func (p *StreamPipeline) executeBackground(
-	callerCtx, ctx context.Context, input <-chan StreamElement, output chan<- StreamElement,
+	callerCtx, ctx context.Context, input <-chan StreamElement, out *callerOutput,
 	cancel context.CancelFunc,
 ) {
 	defer func() {
@@ -196,7 +215,6 @@ func (p *StreamPipeline) executeBackground(
 	// counts as output elements flow through, so the completion event reports
 	// real numbers instead of zeros.
 	totals := &completionTotals{}
-	out := p.newCallerOutput(output)
 	stageErrors, runs := p.startStages(ctx, input, channels, edgeChannels, failure)
 	outputDone := p.startOutputCollection(channels, out, totals, failure)
 	<-outputDone
@@ -219,11 +237,17 @@ func (p *StreamPipeline) executeBackground(
 		// failure must still reach a caller that is reading.
 		deliverTurnFailure(callerCtx, out, err)
 	}
-	close(output)
+	// A stream that lost output to a reader that fell behind must not look
+	// complete: end it with an error saying so.
+	out.finish(failure.get(), callerCtx.Done())
+	close(out.ch)
 
 	firstError := p.waitForStageErrors(stageErrors)
 	if err := failure.get(); err != nil {
 		firstError = err
+	}
+	if out.truncation != nil {
+		firstError = out.truncation
 	}
 
 	// Emit completion event with the real totals observed during collection.
@@ -246,14 +270,21 @@ func deliverTurnFailure(ctx context.Context, out *callerOutput, err error) {
 // Send whose model call outlasted the grace period, gets every element. A
 // send that then waits a further grace period (at least minReaderStall) with
 // nothing taken means the reader is gone: that element is dropped, and every
-// later one is dropped without waiting, so the execution returns.
+// later one is dropped without waiting, so the execution returns. A stream that
+// lost output that way still ends in an error (see finish).
 type callerOutput struct {
-	ch        chan<- StreamElement
+	ch        chan StreamElement
 	abandoned <-chan struct{}
 	// stall is how long a send waits, once the execution is abandoned, before
 	// the reader counts as gone.
 	stall time.Duration
-	gone  atomic.Bool
+	// newTimer starts a stall timer; nil means time.NewTimer.
+	newTimer func(time.Duration) (<-chan time.Time, func() bool)
+	gone     atomic.Bool
+	// truncation is the error that ended a stream that lost output, nil when
+	// none was lost. It is set before ch closes, so a reader that has seen the
+	// close can read it.
+	truncation error
 }
 
 // minReaderStall is the least a send waits for the reader once the execution
@@ -261,11 +292,12 @@ type callerOutput struct {
 // previous element for an instant would otherwise count as gone.
 const minReaderStall = 100 * time.Millisecond
 
-func (p *StreamPipeline) newCallerOutput(ch chan<- StreamElement) *callerOutput {
+func (p *StreamPipeline) newCallerOutput(ch chan StreamElement) *callerOutput {
 	return &callerOutput{
 		ch:        ch,
 		abandoned: p.abandoned,
 		stall:     max(p.config.GracefulShutdownTimeout, minReaderStall),
+		newTimer:  p.stallTimerFunc,
 	}
 }
 
@@ -287,14 +319,47 @@ func (o *callerOutput) send(elem StreamElement, stop <-chan struct{}) {
 		return
 	case <-o.abandoned:
 	}
-	timer := time.NewTimer(o.stall)
-	defer timer.Stop()
+	if !o.sendWithin(elem, stop) {
+		o.gone.Store(true)
+	}
+}
+
+// sendWithin waits up to the stall for the reader to take elem. It reports
+// false when the stall ran out with nothing taken.
+func (o *callerOutput) sendWithin(elem StreamElement, stop <-chan struct{}) bool {
+	newTimer := o.newTimer
+	if newTimer == nil {
+		newTimer = func(d time.Duration) (<-chan time.Time, func() bool) {
+			t := time.NewTimer(d)
+			return t.C, t.Stop
+		}
+	}
+	expired, stopTimer := newTimer(o.stall)
+	defer stopTimer()
 	select {
 	case o.ch <- elem:
 	case <-stop:
-	case <-timer.C:
-		o.gone.Store(true)
+	case <-expired:
+		return false
 	}
+	return true
+}
+
+// finish ends a stream that lost output to a reader that fell behind with an
+// error saying so: ErrOutputTruncated, wrapping turnErr too when the turn
+// failed. A stream that lost nothing is left as it is. The error is
+// recorded for ExecuteSync and offered to the reader with one last wait of up
+// to the stall, so a reader that has stopped reading still cannot hold the
+// execution. Called once, after every other send, before ch closes.
+func (o *callerOutput) finish(turnErr error, stop <-chan struct{}) {
+	if !o.gone.Load() {
+		return
+	}
+	o.truncation = ErrOutputTruncated
+	if turnErr != nil {
+		o.truncation = fmt.Errorf("%w: %w", ErrOutputTruncated, turnErr)
+	}
+	o.sendWithin(NewErrorElement(o.truncation), stop)
 }
 
 // turnFailure records the error that ends a turn: the first stage error that
@@ -1306,7 +1371,9 @@ func (p *StreamPipeline) collectOutput(
 //
 // The returned error is the last error element on the output. When a stage
 // failed the turn, that is the failure (see Execute for its form). The result is
-// non-nil alongside the error and holds whatever the pipeline produced.
+// non-nil alongside the error and holds whatever the pipeline produced. When
+// Shutdown abandoned the execution and output was dropped, the error wraps
+// ErrOutputTruncated (see Shutdown).
 func (p *StreamPipeline) ExecuteSync(ctx context.Context, input ...StreamElement) (*ExecutionResult, error) {
 	// Create input channel
 	inputChan := make(chan StreamElement, len(input))
@@ -1317,13 +1384,24 @@ func (p *StreamPipeline) ExecuteSync(ctx context.Context, input ...StreamElement
 	close(inputChan)
 
 	// Execute as stream
-	output, err := p.Execute(ctx, inputChan)
+	output, out, err := p.execute(ctx, inputChan)
 	if err != nil {
 		return nil, err
 	}
 
 	// Accumulate all output elements
-	return p.accumulateResult(output)
+	return p.accumulateSync(output, out)
+}
+
+// accumulateSync is accumulateResult for ExecuteSync: when the execution
+// dropped output, its error is the one that ended the stream, even if this
+// reader missed that error's element.
+func (p *StreamPipeline) accumulateSync(output <-chan StreamElement, out *callerOutput) (*ExecutionResult, error) {
+	result, err := p.accumulateResult(output)
+	if out.truncation != nil {
+		err = out.truncation
+	}
+	return result, err
 }
 
 // ExecutionResult represents the final result of a pipeline execution.
@@ -1419,7 +1497,10 @@ func (p *StreamPipeline) accumulateResult(output <-chan StreamElement) (*Executi
 // executions still running carry on, and a consumer still reading their output gets
 // all of it, the turn's error included. An execution whose consumer has stopped
 // reading, so that a send waits a further GracefulShutdownTimeout (at least 100ms)
-// with nothing taken, drops the rest of its output and returns.
+// with nothing taken, drops the rest of its output and returns. Its output still
+// ends in an error wrapping ErrOutputTruncated (and the turn's error, if the
+// turn failed), offered with one last wait of the same length; ExecuteSync returns
+// that error even when its element was not taken.
 func (p *StreamPipeline) Shutdown(ctx context.Context) error {
 	p.shutdownMu.Lock()
 	if p.isShutdown {
