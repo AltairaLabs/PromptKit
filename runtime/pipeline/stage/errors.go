@@ -10,6 +10,12 @@ var (
 	// ErrPipelineShuttingDown is returned when attempting to execute a pipeline that is shutting down.
 	ErrPipelineShuttingDown = errors.New("pipeline is shutting down")
 
+	// ErrOutputTruncated ends the output of a turn that ran but lost output:
+	// Shutdown abandoned the execution and the reader fell behind, so elements
+	// were dropped (see StreamPipeline.Shutdown). Unlike ErrPipelineShuttingDown,
+	// the turn did run, so its side effects may have happened.
+	ErrOutputTruncated = errors.New("pipeline output was dropped after shutdown abandoned the execution")
+
 	// ErrShutdownTimeout is returned when pipeline shutdown times out.
 	ErrShutdownTimeout = errors.New("shutdown timeout exceeded")
 

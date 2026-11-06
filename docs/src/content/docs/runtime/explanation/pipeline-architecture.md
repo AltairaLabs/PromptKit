@@ -267,7 +267,7 @@ Channel-based communication handles backpressure without extra machinery:
 
 ### Shutdown
 
-`Shutdown(ctx)` stops the pipeline from accepting new executions, then waits for in-flight executions to finish. It returns `ErrShutdownTimeout` if they outlast `PipelineConfig.GracefulShutdownTimeout` (default 10 seconds). The executions still running carry on, and a caller still reading their output gets all of it, the turn's error included. An execution whose caller has stopped reading drops the rest of its output once a send has waited a further grace period, and returns. `Execute` returns `ErrPipelineShuttingDown` after shutdown begins.
+`Shutdown(ctx)` stops the pipeline from accepting new executions, then waits for in-flight executions to finish. It returns `ErrShutdownTimeout` if they outlast `PipelineConfig.GracefulShutdownTimeout` (default 10 seconds). The executions still running carry on, and a caller still reading their output gets all of it, the turn's error included. An execution whose caller has stopped reading drops the rest of its output once a send has waited a further grace period, and returns. A stream cut short that way still ends in an error wrapping `ErrOutputTruncated`, and the turn's own error if the turn failed. Unlike `ErrPipelineShuttingDown`, it means the turn ran, so its side effects may have happened. The caller is offered that error with one last wait of the same length, and `ExecuteSync` returns it even when the caller missed that element. `Execute` returns `ErrPipelineShuttingDown` after shutdown begins.
 
 ## Pipeline builder
 

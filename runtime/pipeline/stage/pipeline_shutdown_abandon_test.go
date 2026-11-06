@@ -131,8 +131,10 @@ func TestShutdown_GoneReaderIsWaitedOnOnce(t *testing.T) {
 	require.NoError(t, err)
 
 	require.ErrorIs(t, p.Shutdown(context.Background()), ErrShutdownTimeout)
-	// Waiting out the grace period once per element would take n*20ms.
-	assert.True(t, waitExecutionsDone(p, 500*time.Millisecond),
+	// The stall is max(grace, 100ms). Dropping takes one stall, and the last
+	// attempt to deliver the truncation error one more; waiting once per
+	// element would take n stalls.
+	assert.True(t, waitExecutionsDone(p, time.Second),
 		"after one send to a gone reader times out, the rest must be dropped without waiting")
 }
 
