@@ -98,6 +98,18 @@ func ResetIdleFromContext(ctx context.Context) {
 //
 // Returns a no-op stop when no idle timeout is configured.
 func keepIdleAlive(ctx context.Context) (stop func()) {
+	return keepIdleAliveWith(ctx, func(d time.Duration) (<-chan time.Time, func()) {
+		ticker := time.NewTicker(d)
+		return ticker.C, ticker.Stop
+	})
+}
+
+// keepIdleAliveWith is keepIdleAlive with its heartbeat ticker started by
+// newTicker, which returns the tick channel and the function that stops it.
+// Tests pass a fake ticker so they decide when the heartbeat ticks.
+func keepIdleAliveWith(
+	ctx context.Context, newTicker func(time.Duration) (<-chan time.Time, func()),
+) (stop func()) {
 	c, ok := ctx.Value(idleResetKey{}).(idleControl)
 	if !ok || c.reset == nil || c.timeout <= 0 {
 		return func() { /* no-op: idle timeout disabled */ }
@@ -106,16 +118,16 @@ func keepIdleAlive(ctx context.Context) (stop func()) {
 	interval := max(c.timeout/2, minIdleHeartbeatInterval)
 
 	done := make(chan struct{})
+	ticks, stopTicker := newTicker(interval)
 	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
+		defer stopTicker()
 		for {
 			select {
 			case <-done:
 				return
 			case <-ctx.Done():
 				return
-			case <-ticker.C:
+			case <-ticks:
 				c.reset()
 			}
 		}

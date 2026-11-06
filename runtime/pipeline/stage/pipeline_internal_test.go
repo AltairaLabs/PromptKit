@@ -3,10 +3,13 @@ package stage
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestIsRootStage tests the precomputed root stage O(1) lookup.
@@ -323,40 +326,96 @@ func (s *blockingStage) Process(ctx context.Context, _ <-chan StreamElement, out
 	return ctx.Err()
 }
 
+// fakeExecDeadline stands in for the ExecutionTimeout's deadline (see
+// StreamPipeline.execTimeoutFunc). The deadline ends only when the test calls
+// expire, with the cause the pipeline gave it. timeout is the duration the
+// pipeline asked for.
+//
+// Unlike a real deadline, the context it ends reports context.Canceled, not
+// context.DeadlineExceeded, from Err. The pipeline classifies a timeout by its
+// cause, so the tests that use it do not depend on the difference.
+type fakeExecDeadline struct {
+	mu      sync.Mutex
+	timeout time.Duration
+	cancel  context.CancelCauseFunc
+	cause   error
+}
+
+func (f *fakeExecDeadline) withTimeoutCause(
+	parent context.Context, d time.Duration, cause error,
+) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancelCause(parent)
+	f.mu.Lock()
+	f.timeout, f.cancel, f.cause = d, cancel, cause
+	f.mu.Unlock()
+	return ctx, func() { cancel(nil) }
+}
+
+func (f *fakeExecDeadline) appliedTimeout() time.Duration {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.timeout
+}
+
+// expire ends the deadline. It reports false when the pipeline never applied
+// one.
+func (f *fakeExecDeadline) expire() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.cancel == nil {
+		return false
+	}
+	f.cancel(f.cause)
+	return true
+}
+
+// outputErrors reads output to its end and returns its error elements. The
+// bound only limits how long a failing test waits for an output that never
+// closes.
+func outputErrors(t *testing.T, output <-chan StreamElement) []error {
+	t.Helper()
+	var errs []error
+	bound := time.After(idleProbeBound)
+	for {
+		select {
+		case e, ok := <-output:
+			if !ok {
+				return errs
+			}
+			if e.Error != nil {
+				errs = append(errs, e.Error)
+			}
+		case <-bound:
+			t.Fatal("output never closed: the timeout did not end the execution")
+			return nil
+		}
+	}
+}
+
 func TestExecute_IdleTimeoutCancelsWhenIdle(t *testing.T) {
+	const idle = 100 * time.Millisecond
 	config := DefaultPipelineConfig()
-	config.IdleTimeout = 100 * time.Millisecond
+	config.IdleTimeout = idle
 	config.ExecutionTimeout = 0
 
 	p, err := NewPipelineBuilderWithConfig(config).
 		Chain(&blockingStage{name: "block"}).
 		Build()
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
+	require.NoError(t, err)
+	clock := &fakeIdleTimer{}
+	p.idleAfterFunc = clock.afterFunc
 
-	// Input that never sends — stage will block until idle timeout fires
+	// Input that never sends: the stage blocks until the idle timeout fires.
 	input := make(chan StreamElement)
 	defer close(input)
 
 	output, err := p.Execute(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
+	require.NoError(t, err)
 
-	// Output should close within ~300ms (idle timeout at 100ms + processing)
-	timer := time.NewTimer(500 * time.Millisecond)
-	defer timer.Stop()
-	for {
-		select {
-		case _, ok := <-output:
-			if !ok {
-				return // output closed — idle timeout worked
-			}
-		case <-timer.C:
-			t.Fatal("output not closed within 500ms — idle timeout did not fire")
-		}
-	}
+	clock.advance(idle)
+	errs := outputErrors(t, output)
+	require.Len(t, errs, 1)
+	assert.ErrorIs(t, errs[0], ErrIdleTimeout)
 }
 
 func TestExecute_IdleTimeoutDisabledWhenZero(t *testing.T) {
@@ -383,34 +442,44 @@ func TestExecute_IdleTimeoutDisabledWhenZero(t *testing.T) {
 	_ = result // completes normally — no spurious timeout
 }
 
+// TestExecute_BothTimeoutsCoexist: with ExecutionTimeout and IdleTimeout both
+// set, whichever ends first ends the execution, and the error names that one.
 func TestExecute_BothTimeoutsCoexist(t *testing.T) {
-	config := DefaultPipelineConfig()
-	config.ExecutionTimeout = 500 * time.Millisecond
-	config.IdleTimeout = 100 * time.Millisecond
+	for _, idleFirst := range []bool{true, false} {
+		config := DefaultPipelineConfig()
+		config.ExecutionTimeout = 500 * time.Millisecond
+		config.IdleTimeout = 100 * time.Millisecond
 
-	p, err := NewPipelineBuilderWithConfig(config).
-		Chain(&blockingStage{name: "block"}).
-		Build()
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
+		p, err := NewPipelineBuilderWithConfig(config).
+			Chain(&blockingStage{name: "block"}).
+			Build()
+		require.NoError(t, err)
+		clock, deadline := &fakeIdleTimer{}, &fakeExecDeadline{}
+		p.idleAfterFunc = clock.afterFunc
+		p.execTimeoutFunc = deadline.withTimeoutCause
 
-	input := make(chan StreamElement)
-	defer close(input)
+		input := make(chan StreamElement)
+		defer close(input)
+		output, err := p.Execute(context.Background(), input)
+		require.NoError(t, err)
+		assert.Equal(t, config.ExecutionTimeout, deadline.appliedTimeout(),
+			"the execution's deadline is ExecutionTimeout")
 
-	start := time.Now()
-	output, err := p.Execute(context.Background(), input)
-	if err != nil {
-		t.Fatalf("Execute: %v", err)
-	}
+		if idleFirst {
+			clock.advance(config.IdleTimeout)
+		} else {
+			require.True(t, deadline.expire(), "the pipeline never applied its ExecutionTimeout")
+		}
+		errs := outputErrors(t, output)
 
-	for range output {
-	}
-	elapsed := time.Since(start)
-
-	// Should terminate around 100ms (idle), not 500ms (execution)
-	if elapsed > 350*time.Millisecond {
-		t.Errorf("expected termination near 100ms (idle), got %v", elapsed)
+		require.Len(t, errs, 1, "idle first: %v", idleFirst)
+		if idleFirst {
+			assert.ErrorIs(t, errs[0], ErrIdleTimeout)
+			assert.NotErrorIs(t, errs[0], ErrExecutionTimeout)
+		} else {
+			assert.ErrorIs(t, errs[0], ErrExecutionTimeout)
+			assert.NotErrorIs(t, errs[0], ErrIdleTimeout)
+		}
 	}
 }
 
