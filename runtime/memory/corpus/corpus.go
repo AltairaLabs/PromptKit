@@ -26,6 +26,8 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -150,16 +152,18 @@ func latestUserText(messages []types.Message) string {
 	return ""
 }
 
-// tokenize lowercases and splits on any rune other than ASCII letters and digits, dropping one- and
-// two-character tokens so common short words ("do", "is") don't match
-// everything.
+// tokenize lowercases and splits on any rune that is not a Unicode letter or
+// digit, so text in any script tokenizes, and drops tokens of one or two
+// characters (runes, not bytes) so common short words ("do", "is", "да") don't
+// match everything. Scripts written without spaces between words, such as
+// Chinese or Japanese, produce one token per run of letters.
 func tokenize(s string) map[string]struct{} {
 	fields := strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
-		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
 	})
 	out := make(map[string]struct{}, len(fields))
 	for _, f := range fields {
-		if len(f) > minTermLength {
+		if utf8.RuneCountInString(f) > minTermLength {
 			out[stem(f)] = struct{}{}
 		}
 	}
@@ -169,7 +173,7 @@ func tokenize(s string) map[string]struct{} {
 // stem strips a trailing plural "s" so "refunds" matches "refund". Crude by
 // design — a real implementation uses the search backend's analyzer.
 func stem(word string) string {
-	if len(word) > 3 && strings.HasSuffix(word, "s") && !strings.HasSuffix(word, "ss") {
+	if utf8.RuneCountInString(word) > 3 && strings.HasSuffix(word, "s") && !strings.HasSuffix(word, "ss") {
 		return word[:len(word)-1]
 	}
 	return word

@@ -584,3 +584,37 @@ func TestTimeBasedPolicyHandler_IndexedEnforcement(t *testing.T) {
 		handler.Stop()
 	})
 }
+
+func TestTimeBasedPolicyHandler_TrackMedia(t *testing.T) {
+	ts := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	t.Run("tracks media with a policy at its computed expiry", func(t *testing.T) {
+		h := policy.NewTimeBasedPolicyHandler(0, policy.WithClock(func() time.Time { return ts.Add(11 * time.Minute) }))
+		dir := t.TempDir()
+		mediaPath := filepath.Join(dir, "a.jpg")
+		meta := &storage.MediaMetadata{PolicyName: "delete-after-10min", Timestamp: ts}
+		data, err := json.Marshal(meta)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(mediaPath, []byte("x"), 0o600))
+		require.NoError(t, os.WriteFile(mediaPath+".meta", data, 0o600))
+
+		require.NoError(t, h.TrackMedia(mediaPath+".meta", meta))
+		assert.Equal(t, 1, h.ExpiryIndexLen())
+		require.NoError(t, h.EnforcePolicy(context.Background(), t.TempDir()))
+		assert.NoFileExists(t, mediaPath, "the tracked file is enforced from the index")
+		assert.Equal(t, 0, h.ExpiryIndexLen())
+	})
+
+	t.Run("media without a policy is not tracked", func(t *testing.T) {
+		h := policy.NewTimeBasedPolicyHandler(0)
+		require.NoError(t, h.TrackMedia("x.meta", &storage.MediaMetadata{}))
+		require.NoError(t, h.TrackMedia("x.meta", nil))
+		assert.Equal(t, 0, h.ExpiryIndexLen())
+	})
+
+	t.Run("an unparseable policy is an error", func(t *testing.T) {
+		h := policy.NewTimeBasedPolicyHandler(0)
+		require.Error(t, h.TrackMedia("x.meta", &storage.MediaMetadata{PolicyName: "keep-forever"}))
+		assert.Equal(t, 0, h.ExpiryIndexLen())
+	})
+}

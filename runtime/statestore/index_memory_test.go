@@ -270,3 +270,18 @@ func TestCosineSimilarity32(t *testing.T) {
 		assert.Equal(t, 0.0, sim)
 	})
 }
+
+func TestInMemoryIndex_IndexesPartsOnlyMessage(t *testing.T) {
+	idx := NewInMemoryIndex(newMockEmbeddingProvider())
+	ctx := context.Background()
+
+	msg := types.Message{Role: "user"}
+	msg.AddTextPart("hello")
+	require.Empty(t, msg.Content)
+	require.NoError(t, idx.Index(ctx, "conv-1", 0, msg))
+
+	results, err := idx.Search(ctx, "conv-1", "hello", 1)
+	require.NoError(t, err)
+	require.Len(t, results, 1, "a message built from Parts must be indexed")
+	assert.Equal(t, 0, results[0].TurnIndex)
+}

@@ -96,6 +96,10 @@ type MediaStorageService interface {
 
 // PolicyHandler defines the interface for applying and enforcing storage policies.
 // Policies control media retention, cleanup, and other lifecycle management.
+//
+// Deprecated: no PromptKit type implements PolicyHandler and nothing consumes
+// it. Use MediaPolicyHandler, which policy.TimeBasedPolicyHandler implements
+// and local.FileStore applies.
 type PolicyHandler interface {
 	// ApplyPolicy applies a named policy to a media file.
 	// This typically stores policy metadata alongside the media.
@@ -124,4 +128,30 @@ type PolicyHandler interface {
 	//   - Log enforcement actions
 	//   - Handle errors gracefully (don't stop on permission denied, etc.)
 	EnforcePolicy(ctx context.Context) error
+}
+
+// MediaPolicyHandler applies and enforces retention policies on stored media.
+// policy.TimeBasedPolicyHandler implements it, and a local.FileStore given one
+// through local.WithPolicyHandler applies it to every media item it stores.
+type MediaPolicyHandler interface {
+	// ApplyPolicy applies the policy named by metadata.PolicyName to a media
+	// item before it is stored. An empty policy name means no policy. An error
+	// (for example, an unknown policy) makes the store reject the media.
+	ApplyPolicy(ctx context.Context, metadata *MediaMetadata) error
+
+	// EnforcePolicy scans stored media under baseDir and enforces policies,
+	// for example by deleting expired media. It should log and continue on
+	// errors for individual files. It is typically called periodically.
+	EnforcePolicy(ctx context.Context, baseDir string) error
+}
+
+// MediaPolicyTracker is implemented by a MediaPolicyHandler that keeps its own
+// record of stored media, such as an expiry index. After a store writes a media
+// item's metadata file, it calls TrackMedia so the handler can enforce the
+// item's policy without rescanning the store.
+type MediaPolicyTracker interface {
+	// TrackMedia records the media item whose metadata file is at metaPath.
+	// metadata is the metadata that was written, including the effective
+	// PolicyName.
+	TrackMedia(metaPath string, metadata *MediaMetadata) error
 }

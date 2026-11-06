@@ -21,6 +21,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/streaming"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -1591,4 +1592,15 @@ func TestEnvKeyAllowedFor(t *testing.T) {
 	assert.False(t, envKeyAllowedFor("openai", "https://api.openai.com.evil.example/v1"))
 	assert.True(t, envKeyAllowedFor("systemone", "https://ai-gateway.vercel.sh/typesafe/v1"),
 		"types with no vendor key are unaffected (they have no env default)")
+}
+
+func TestWithStreamingVideo_UnsetQualityUsesDefault(t *testing.T) {
+	cfg := &VideoStreamConfig{TargetFPS: 2}
+
+	c := &config{}
+	require.NoError(t, WithStreamingVideo(cfg)(c))
+	require.NotNil(t, c.videoStreamConfig)
+	assert.Equal(t, streaming.DefaultImageQuality, c.videoStreamConfig.Quality)
+	assert.Equal(t, 2.0, c.videoStreamConfig.TargetFPS)
+	assert.Equal(t, 0, cfg.Quality, "the caller's config must not be mutated")
 }

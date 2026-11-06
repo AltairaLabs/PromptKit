@@ -606,3 +606,29 @@ func TestGetMediaItemSummary(t *testing.T) {
 		}
 	})
 }
+
+// TestMessage_ContentSummary_Documents checks that document parts are described
+// in the summary, and that parts with nothing to describe never yield "[]".
+func TestMessage_ContentSummary_Documents(t *testing.T) {
+	doc := ContentPart{
+		Type:  ContentTypeDocument,
+		Media: &MediaContent{FilePath: strPtr("/path/to/report.pdf"), MIMEType: "application/pdf"},
+	}
+	thinking := "reasoning"
+	tests := []struct {
+		name  string
+		parts []ContentPart
+		want  string
+	}{
+		{name: "document only", parts: []ContentPart{doc, doc}, want: "[2 document(s)]"},
+		{name: "thinking only", parts: []ContentPart{{Type: ContentTypeThinking, Text: &thinking}}, want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := Message{Role: "user", Parts: tt.parts}
+			if got := msg.getContentSummary(); got != tt.want {
+				t.Errorf("getContentSummary() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

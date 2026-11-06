@@ -60,13 +60,14 @@ func NewInMemoryIndex(provider providers.EmbeddingProvider, opts ...InMemoryInde
 }
 
 // Index adds a message to the search index by computing its embedding. It
-// embeds the message's Content field and skips a message whose Content is empty,
-// such as one built from Parts only.
+// embeds the message's text as returned by GetContent (the Content field, or
+// the text parts of a message built from Parts) and skips a message with no
+// text.
 func (idx *InMemoryIndex) Index(
 	ctx context.Context, conversationID string, turnIndex int, message types.Message,
 ) error {
 	// Only index messages with text content
-	text := message.Content
+	text := message.GetContent()
 	if text == "" {
 		return nil
 	}

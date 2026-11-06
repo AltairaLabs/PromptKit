@@ -64,7 +64,8 @@ func (p *StateProvider) Name() string {
 
 // Provide extracts variables from conversation state metadata.
 // Returns nil variables and a nil error if the store is nil, the conversation
-// is not found, it has no metadata, or loading it fails for any reason.
+// is not found (statestore.ErrNotFound), or it has no metadata. Any other
+// store error is returned, wrapped.
 func (p *StateProvider) Provide(ctx context.Context) (map[string]string, error) {
 	// Handle both nil interface and nil pointer
 	if p.store == nil || reflect.ValueOf(p.store).IsNil() {
@@ -76,7 +77,10 @@ func (p *StateProvider) Provide(ctx context.Context) (map[string]string, error) 
 	metadata, err := p.loadMetadata(ctx)
 	if err != nil {
 		// Conversation not found is not an error - just return no variables
-		return nil, nil
+		if errors.Is(err, statestore.ErrNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("state provider: load conversation %q: %w", p.conversationID, err)
 	}
 
 	if metadata == nil {

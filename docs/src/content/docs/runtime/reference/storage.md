@@ -24,6 +24,8 @@ Package storage exposes the MediaStorageService interface for media persistence,
   - [func \(s \*InstrumentedStorage\) SetBus\(bus events.Bus\)](<#InstrumentedStorage.SetBus>)
   - [func \(s \*InstrumentedStorage\) StoreMedia\(ctx context.Context, content \*types.MediaContent, metadata \*MediaMetadata\) \(Reference, error\)](<#InstrumentedStorage.StoreMedia>)
 - [type MediaMetadata](<#MediaMetadata>)
+- [type MediaPolicyHandler](<#MediaPolicyHandler>)
+- [type MediaPolicyTracker](<#MediaPolicyTracker>)
 - [type MediaStorageService](<#MediaStorageService>)
 - [type OrganizationMode](<#OrganizationMode>)
 - [type PolicyHandler](<#PolicyHandler>)
@@ -146,6 +148,39 @@ type MediaMetadata struct {
 
     // PolicyName is the retention policy to apply to this media
     PolicyName string `json:"policy_name,omitempty"`
+}
+```
+
+<a name="MediaPolicyHandler"></a>
+## type [MediaPolicyHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L136-L146>)
+
+MediaPolicyHandler applies and enforces retention policies on stored media. policy.TimeBasedPolicyHandler implements it, and a local.FileStore given one through local.WithPolicyHandler applies it to every media item it stores.
+
+```go
+type MediaPolicyHandler interface {
+    // ApplyPolicy applies the policy named by metadata.PolicyName to a media
+    // item before it is stored. An empty policy name means no policy. An error
+    // (for example, an unknown policy) makes the store reject the media.
+    ApplyPolicy(ctx context.Context, metadata *MediaMetadata) error
+
+    // EnforcePolicy scans stored media under baseDir and enforces policies,
+    // for example by deleting expired media. It should log and continue on
+    // errors for individual files. It is typically called periodically.
+    EnforcePolicy(ctx context.Context, baseDir string) error
+}
+```
+
+<a name="MediaPolicyTracker"></a>
+## type [MediaPolicyTracker](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L152-L157>)
+
+MediaPolicyTracker is implemented by a MediaPolicyHandler that keeps its own record of stored media, such as an expiry index. After a store writes a media item's metadata file, it calls TrackMedia so the handler can enforce the item's policy without rescanning the store.
+
+```go
+type MediaPolicyTracker interface {
+    // TrackMedia records the media item whose metadata file is at metaPath.
+    // metadata is the metadata that was written, including the effective
+    // PolicyName.
+    TrackMedia(metaPath string, metadata *MediaMetadata) error
 }
 ```
 
@@ -327,9 +362,11 @@ const (
 ```
 
 <a name="PolicyHandler"></a>
-## type [PolicyHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L99-L127>)
+## type [PolicyHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L103-L131>)
 
 PolicyHandler defines the interface for applying and enforcing storage policies. Policies control media retention, cleanup, and other lifecycle management.
+
+Deprecated: no PromptKit type implements PolicyHandler and nothing consumes it. Use MediaPolicyHandler, which policy.TimeBasedPolicyHandler implements and local.FileStore applies.
 
 ```go
 type PolicyHandler interface {

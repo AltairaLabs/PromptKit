@@ -113,8 +113,11 @@ type SynthesisConfig struct {
 	// Only OpenAIService reads it.
 	Speed float64
 
-	// Pitch adjusts the voice pitch in semitones (default 0).
-	// No built-in provider reads it.
+	// Pitch adjusts the voice pitch in semitones (default 0), for a custom
+	// Service whose API supports pitch. The built-in services ignore it: the
+	// OpenAI speech API, the ElevenLabs text-to-speech API (including its
+	// voice_settings) and the Cartesia TTS API (including generation_config)
+	// have no pitch parameter.
 	Pitch float64
 
 	// Language is the language code for synthesis (e.g., "en-US").
