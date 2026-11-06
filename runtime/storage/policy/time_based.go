@@ -52,8 +52,12 @@ type expiryEntry struct {
 	expiresAt time.Time
 }
 
-// compile-time check that TimeBasedPolicyHandler implements storage.MediaPolicyHandler.
-var _ storage.MediaPolicyHandler = (*TimeBasedPolicyHandler)(nil)
+// compile-time checks that TimeBasedPolicyHandler implements
+// storage.MediaPolicyHandler and storage.MediaPolicyTracker.
+var (
+	_ storage.MediaPolicyHandler = (*TimeBasedPolicyHandler)(nil)
+	_ storage.MediaPolicyTracker = (*TimeBasedPolicyHandler)(nil)
+)
 
 // TimeBasedPolicyHandler implements storage.MediaPolicyHandler for time-based retention policies.
 // It applies expiration times to media based on policy names and enforces deletion
@@ -408,6 +412,23 @@ func (h *TimeBasedPolicyHandler) TrackFile(metaPath string, expiresAt time.Time)
 	// Mark index as built if this is the first tracked file,
 	// enabling index-based enforcement going forward.
 	h.indexBuilt = true
+}
+
+// TrackMedia implements storage.MediaPolicyTracker. It adds the media whose
+// metadata file is at metaPath to the expiry index, expiring at
+// metadata.Timestamp plus the policy's duration, so media stored after
+// StartEnforcement has built the index still expires. Media with no policy is
+// not tracked; a policy ParsePolicyName cannot parse is an error.
+func (h *TimeBasedPolicyHandler) TrackMedia(metaPath string, metadata *storage.MediaMetadata) error {
+	if metadata == nil || metadata.PolicyName == "" {
+		return nil
+	}
+	_, duration, err := ParsePolicyName(metadata.PolicyName)
+	if err != nil {
+		return fmt.Errorf("failed to parse policy name: %w", err)
+	}
+	h.TrackFile(metaPath, metadata.Timestamp.Add(duration))
+	return nil
 }
 
 // UntrackFile removes a file from the in-memory expiry index. This should be

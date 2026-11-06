@@ -144,3 +144,14 @@ type MediaPolicyHandler interface {
 	// errors for individual files. It is typically called periodically.
 	EnforcePolicy(ctx context.Context, baseDir string) error
 }
+
+// MediaPolicyTracker is implemented by a MediaPolicyHandler that keeps its own
+// record of stored media, such as an expiry index. After a store writes a media
+// item's metadata file, it calls TrackMedia so the handler can enforce the
+// item's policy without rescanning the store.
+type MediaPolicyTracker interface {
+	// TrackMedia records the media item whose metadata file is at metaPath.
+	// metadata is the metadata that was written, including the effective
+	// PolicyName.
+	TrackMedia(metaPath string, metadata *MediaMetadata) error
+}

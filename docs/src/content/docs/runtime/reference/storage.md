@@ -25,6 +25,7 @@ Package storage exposes the MediaStorageService interface for media persistence,
   - [func \(s \*InstrumentedStorage\) StoreMedia\(ctx context.Context, content \*types.MediaContent, metadata \*MediaMetadata\) \(Reference, error\)](<#InstrumentedStorage.StoreMedia>)
 - [type MediaMetadata](<#MediaMetadata>)
 - [type MediaPolicyHandler](<#MediaPolicyHandler>)
+- [type MediaPolicyTracker](<#MediaPolicyTracker>)
 - [type MediaStorageService](<#MediaStorageService>)
 - [type OrganizationMode](<#OrganizationMode>)
 - [type PolicyHandler](<#PolicyHandler>)
@@ -166,6 +167,20 @@ type MediaPolicyHandler interface {
     // for example by deleting expired media. It should log and continue on
     // errors for individual files. It is typically called periodically.
     EnforcePolicy(ctx context.Context, baseDir string) error
+}
+```
+
+<a name="MediaPolicyTracker"></a>
+## type [MediaPolicyTracker](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L152-L157>)
+
+MediaPolicyTracker is implemented by a MediaPolicyHandler that keeps its own record of stored media, such as an expiry index. After a store writes a media item's metadata file, it calls TrackMedia so the handler can enforce the item's policy without rescanning the store.
+
+```go
+type MediaPolicyTracker interface {
+    // TrackMedia records the media item whose metadata file is at metaPath.
+    // metadata is the metadata that was written, including the effective
+    // PolicyName.
+    TrackMedia(metaPath string, metadata *MediaMetadata) error
 }
 ```
 

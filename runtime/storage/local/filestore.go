@@ -73,7 +73,9 @@ type FileStoreConfig struct {
 	// PolicyHandler, when set, is asked to apply each media item's retention
 	// policy (its PolicyName, or DefaultPolicy when that is empty) before the
 	// item is written. If it returns an error, StoreMedia fails and nothing is
-	// written. When nil, policy names are stored without being checked.
+	// written. If it also implements storage.MediaPolicyTracker, each item is
+	// passed to TrackMedia once its metadata file is written. When nil, policy
+	// names are stored without being checked.
 	PolicyHandler storage.MediaPolicyHandler
 }
 
@@ -804,7 +806,23 @@ func (fs *FileStore) storeMetadata(filePath string, metadata *storage.MediaMetad
 		return err
 	}
 
-	return os.WriteFile(metadataPath, data, filePermissions)
+	if err := os.WriteFile(metadataPath, data, filePermissions); err != nil {
+		return err
+	}
+	return fs.trackMedia(metadataPath, metadata)
+}
+
+// trackMedia passes a stored item to the policy handler when it tracks media,
+// so the handler enforces the item's policy without rescanning the store.
+func (fs *FileStore) trackMedia(metadataPath string, metadata *storage.MediaMetadata) error {
+	tracker, ok := fs.config.PolicyHandler.(storage.MediaPolicyTracker)
+	if !ok {
+		return nil
+	}
+	if err := tracker.TrackMedia(metadataPath, metadata); err != nil {
+		return fmt.Errorf("failed to track media for its retention policy: %w", err)
+	}
+	return nil
 }
 
 func (fs *FileStore) loadMetadata(filePath string) (*storage.MediaMetadata, error) {

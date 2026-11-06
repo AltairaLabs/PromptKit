@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -103,4 +104,51 @@ func TestFileStore_TimeBasedPolicyHandlerRejectsUnknownPolicy(t *testing.T) {
 	require.NoError(t, err)
 	_, err = plain.StoreMedia(ctx, inlineContent(t), policyMetadata())
 	require.NoError(t, err)
+}
+
+// TestFileStore_MediaStoredAfterEnforcementStartsExpires checks that media
+// stored after StartEnforcement has built its expiry index is tracked, so
+// index-based enforcement deletes it once its policy expires.
+func TestFileStore_MediaStoredAfterEnforcementStartsExpires(t *testing.T) {
+	ctx := context.Background()
+	baseDir := t.TempDir()
+	start := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	var nowNanos atomic.Int64
+	nowNanos.Store(start.UnixNano())
+	clock := func() time.Time { return time.Unix(0, nowNanos.Load()).UTC() }
+
+	// A long interval keeps the background ticker from firing; the test
+	// calls EnforcePolicy itself.
+	handler := policy.NewTimeBasedPolicyHandler(time.Hour, policy.WithClock(clock))
+	handler.StartEnforcement(ctx, baseDir)
+	t.Cleanup(handler.Stop)
+
+	for name, content := range map[string]func(*testing.T) *types.MediaContent{
+		"inline":    inlineContent,
+		"streaming": fileContent,
+	} {
+		t.Run(name, func(t *testing.T) {
+			fs, err := local.NewFileStore(local.FileStoreConfig{
+				BaseDir:       baseDir,
+				DefaultPolicy: "delete-after-10min",
+			}, local.WithPolicyHandler(handler))
+			require.NoError(t, err)
+
+			meta := policyMetadata()
+			meta.SessionID = "session-" + name
+			meta.Timestamp = clock()
+			ref, err := fs.StoreMedia(ctx, content(t), meta)
+			require.NoError(t, err)
+			require.FileExists(t, string(ref))
+
+			nowNanos.Add(int64(5 * time.Minute))
+			require.NoError(t, handler.EnforcePolicy(ctx, baseDir))
+			assert.FileExists(t, string(ref), "media must survive before its policy expires")
+
+			nowNanos.Add(int64(6 * time.Minute))
+			require.NoError(t, handler.EnforcePolicy(ctx, baseDir))
+			assert.NoFileExists(t, string(ref), "media stored after enforcement started must expire")
+			assert.NoFileExists(t, string(ref)+".meta")
+		})
+	}
 }
