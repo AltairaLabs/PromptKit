@@ -2,19 +2,14 @@
 title: CI/CD diagrams
 description: Mermaid diagrams of PromptKit's GitHub Actions workflows, job dependencies, required checks and release flow.
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - .github/workflows/ci.yml
     - .github/workflows/cla.yml
     - .github/workflows/dependabot-gate.yml
-    - .github/workflows/docs-checks.yml
-    - .github/workflows/docs-freshness.yml
+    - .github/workflows/deprecation-gate.yml
     - .github/workflows/docs.yml
-    - .github/workflows/mcp-conformance.yml
-    - .github/workflows/promptpack-schema-sync.yml
-    - .github/workflows/reference-drift.yml
     - .github/workflows/release.yml
-    - .github/workflows/schemas.yml
 ---
 Diagrams of how the workflows in `.github/workflows/` relate. The [pipelines reference](/devops/ci-cd-pipelines/) has the details behind each node.
 
@@ -33,6 +28,7 @@ flowchart LR
     PR --> ci[ci.yml]
     PR --> gate[dependabot-gate.yml]
     PR --> cla[cla.yml]
+    PR --> dep[deprecation-gate.yml]
     PR --> dchecks[docs-checks.yml]
     PR --> docs[docs.yml: build only]
     PR --> drift[reference-drift.yml]

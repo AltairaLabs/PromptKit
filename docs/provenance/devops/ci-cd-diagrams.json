@@ -1,23 +1,17 @@
 {
  "page": "docs/src/content/docs/devops/ci-cd-diagrams.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
-   "claim": "event to workflow mapping diagram",
+   "claim": "event to workflow mapping diagram, including deprecation-gate.yml on pull requests",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:3-25",
+    ".github/workflows/ci.yml:3-23",
     ".github/workflows/cla.yml:3-7",
     ".github/workflows/dependabot-gate.yml:3-5",
-    ".github/workflows/docs-checks.yml:15-19",
-    ".github/workflows/docs-freshness.yml:7-9",
-    ".github/workflows/docs.yml:3-23",
-    ".github/workflows/mcp-conformance.yml:22-46",
-    ".github/workflows/promptpack-schema-sync.yml:28-32",
-    ".github/workflows/reference-drift.yml:9-38",
-    ".github/workflows/release.yml:3",
-    ".github/workflows/schemas.yml:15-35"
+    ".github/workflows/deprecation-gate.yml:9-27",
+    ".github/workflows/docs.yml:3-23"
    ]
   },
   {
@@ -25,7 +19,7 @@
    "claim": "ci.yml job dependencies: only sonarcloud needs test and lint",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:159-165"
+    ".github/workflows/ci.yml:157-163"
    ]
   },
   {
@@ -33,10 +27,10 @@
    "claim": "lint, sonarcloud, perf-regression skip dependabot; weak-assertions PR only",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:163",
-    ".github/workflows/ci.yml:230",
-    ".github/workflows/ci.yml:334",
-    ".github/workflows/ci.yml:366"
+    ".github/workflows/ci.yml:161",
+    ".github/workflows/ci.yml:228",
+    ".github/workflows/ci.yml:332",
+    ".github/workflows/ci.yml:364"
    ]
   },
   {
@@ -44,7 +38,7 @@
    "claim": "coverage and lint artifacts feed sonarcloud job",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:145-189"
+    ".github/workflows/ci.yml:143-187"
    ]
   },
   {
@@ -52,7 +46,7 @@
    "claim": "required checks reported by cla.yml, DCO, ci.yml sonarcloud or dependabot-gate",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:159-193",
+    ".github/workflows/ci.yml:157-191",
     ".github/workflows/cla.yml:15-33",
     ".github/workflows/dependabot-gate.yml:9-16"
    ]
@@ -84,8 +78,8 @@
    "claim": "docs.yml trigger/build/deploy flow",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/docs.yml:104-148",
-    ".github/workflows/docs.yml:3-23"
+    ".github/workflows/docs.yml:103-147",
+    ".github/workflows/docs.yml:3-24"
    ]
   }
  ]

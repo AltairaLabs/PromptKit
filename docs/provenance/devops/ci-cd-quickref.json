@@ -1,13 +1,13 @@
 {
  "page": "docs/src/content/docs/devops/ci-cd-quickref.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "make verify = lint-diff + test-fast, what pre-commit runs",
    "verdict": "true",
    "evidence": [
-    "Makefile:262"
+    "Makefile"
    ]
   },
   {
@@ -39,7 +39,7 @@
    "claim": "make build / make test skip nested example modules; CI vets them",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:101-134",
+    ".github/workflows/ci.yml:99-132",
     "Makefile:33-51"
    ]
   },
@@ -77,10 +77,10 @@
   },
   {
    "id": 10,
-   "claim": "make docs-voice, docs-scripts-test, docs-install, docs-serve, docs-build targets",
+   "claim": "make docs-install installs from the lockfile; make docs-voice, docs-scripts-test, docs-serve, docs-build exist",
    "verdict": "true",
    "evidence": [
-    "Makefile:363-475"
+    "Makefile:362-372"
    ]
   },
   {
@@ -96,13 +96,7 @@
    "claim": "workflow_dispatch workflows: docs, docs-checks, docs-freshness, schemas, promptpack-schema-sync, mcp-conformance, release",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/docs-checks.yml:15",
-    ".github/workflows/docs-freshness.yml:9",
-    ".github/workflows/docs.yml:18",
-    ".github/workflows/mcp-conformance.yml:38",
-    ".github/workflows/promptpack-schema-sync.yml:30",
-    ".github/workflows/release.yml:3",
-    ".github/workflows/schemas.yml:17"
+    ".github/workflows/docs.yml:15-20"
    ]
   },
   {
@@ -110,7 +104,7 @@
    "claim": "docs.yml workflow_dispatch input reason",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/docs.yml:19-23"
+    ".github/workflows/docs.yml:20-24"
    ]
   },
   {
@@ -126,7 +120,7 @@
    "claim": "coverage-report artifact name",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:145-148"
+    ".github/workflows/ci.yml:143-146"
    ]
   },
   {
@@ -142,8 +136,16 @@
    "claim": "Removed claims: make fmt, go work sync, release-checklist artifact, admin CI bypass, docs rebuild by editing docs/README.md",
    "verdict": "false",
    "evidence": [
-    ".github/workflows/docs.yml:3-23",
+    ".github/workflows/docs.yml:3-24",
     "Makefile:15-30"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "scripts/check-new-deprecations.sh reproduces the Deprecation Gate",
+   "verdict": "true",
+   "evidence": [
+    "scripts/check-new-deprecations.sh:11-27"
    ]
   }
  ]

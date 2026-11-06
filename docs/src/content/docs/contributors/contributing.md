@@ -3,13 +3,15 @@ title: Contribution Guide
 sidebar:
   order: 3
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - .github/workflows/ci.yml
     - .github/workflows/cla.yml
+    - .github/workflows/deprecation-gate.yml
     - .github/workflows/release.yml
     - Makefile
     - scripts/check-lint-version.sh
+    - scripts/check-new-deprecations.sh
     - scripts/check-weak-assertions.sh
     - scripts/commit-msg.sh
     - scripts/install-hooks.sh
@@ -189,6 +191,7 @@ make coverage
 - Use clear, descriptive names.
 - Add package-level documentation comments. Doc comments are published as the API reference, so keep issue numbers and inline URLs out of them.
 - Keep functions focused and testable.
+- Do not add a `// Deprecated:` marker to exported API on your own. Consumers outside this repository can use a symbol that nothing here calls, and a marker fails their `staticcheck` run. The Deprecation Gate check fails a pull request that adds a marker unless a maintainer applies the `deprecation-approved` label. `scripts/check-new-deprecations.sh` runs the same check locally.
 
 ### Testing
 

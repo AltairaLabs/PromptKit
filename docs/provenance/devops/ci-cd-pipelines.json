@@ -1,31 +1,23 @@
 {
  "page": "docs/src/content/docs/devops/ci-cd-pipelines.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
-   "claim": "Eleven workflows exist in .github/workflows",
+   "claim": "Twelve workflows exist in .github/workflows",
    "verdict": "true",
    "evidence": [
     ".github/workflows/ci.yml",
-    ".github/workflows/cla.yml",
-    ".github/workflows/dependabot-gate.yml",
-    ".github/workflows/docs-checks.yml",
-    ".github/workflows/docs-freshness.yml",
-    ".github/workflows/docs.yml",
-    ".github/workflows/mcp-conformance.yml",
-    ".github/workflows/promptpack-schema-sync.yml",
-    ".github/workflows/reference-drift.yml",
-    ".github/workflows/release.yml",
-    ".github/workflows/schemas.yml"
+    ".github/workflows/deprecation-gate.yml:9-27",
+    ".github/workflows/docs.yml"
    ]
   },
   {
    "id": 2,
-   "claim": "ci.yml triggers on push and pull_request to main with paths-ignore list",
+   "claim": "ci.yml triggers on push and pull_request to main with a paths-ignore list",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:3-25"
+    ".github/workflows/ci.yml:3-23"
    ]
   },
   {
@@ -33,7 +25,7 @@
    "claim": "ci.yml jobs: test, sonarcloud, integration-tests, lint, build, weak-assertions, perf-regression",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:37-363"
+    ".github/workflows/ci.yml:35-361"
    ]
   },
   {
@@ -41,7 +33,7 @@
    "claim": "test job runs gotestsum -race with coverage over runtime, sdk, pkg, server/a2a and sdk/integration",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:69-78"
+    ".github/workflows/ci.yml:67-76"
    ]
   },
   {
@@ -49,7 +41,7 @@
    "claim": "test job merges profiles into coverage.out and rewrites paths",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:80-92"
+    ".github/workflows/ci.yml:78-90"
    ]
   },
   {
@@ -57,7 +49,7 @@
    "claim": "test job vets and tests nested example modules",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:101-134"
+    ".github/workflows/ci.yml:99-132"
    ]
   },
   {
@@ -65,7 +57,7 @@
    "claim": "test job publishes Test Results and uploads coverage-report for 5 days",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:136-157"
+    ".github/workflows/ci.yml:134-155"
    ]
   },
   {
@@ -73,7 +65,7 @@
    "claim": "integration-tests runs ./sdk/integration/... with -race -count=1",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:195-225"
+    ".github/workflows/ci.yml:193-223"
    ]
   },
   {
@@ -81,7 +73,7 @@
    "claim": "lint uses golangci-lint v2.14.0 across four modules, skipped for dependabot",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:227-289"
+    ".github/workflows/ci.yml:225-287"
    ]
   },
   {
@@ -89,7 +81,7 @@
    "claim": "sonarcloud needs test and lint, skipped for dependabot, uses SONAR_TOKEN",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:159-193"
+    ".github/workflows/ci.yml:157-191"
    ]
   },
   {
@@ -97,7 +89,7 @@
    "claim": "build runs make build and four guard scripts",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:291-326"
+    ".github/workflows/ci.yml:289-324"
    ]
   },
   {
@@ -105,7 +97,7 @@
    "claim": "weak-assertions runs on pull requests only against the base sha",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:328-361",
+    ".github/workflows/ci.yml:326-359",
     "scripts/check-weak-assertions.sh"
    ]
   },
@@ -114,7 +106,7 @@
    "claim": "perf-regression builds base revision on the same runner and interleaves runs",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:363-411",
+    ".github/workflows/ci.yml:361-409",
     "scripts/perf-interleave.sh:1-80"
    ]
   },
@@ -123,7 +115,7 @@
    "claim": "fails when head median under 85% of base or under 600 rps; fallback floor 1300",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:420-423",
+    ".github/workflows/ci.yml:418-421",
     "scripts/perf-compare.sh:1-48",
     "scripts/perf-interleave.sh:5-27"
    ]
@@ -142,8 +134,8 @@
    "claim": "RSS ceiling 512 MB, CPU ceiling 150% (plain), 175% (event store), floor 1100 with event store",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:425-441",
-    ".github/workflows/ci.yml:451-498"
+    ".github/workflows/ci.yml:423-439",
+    ".github/workflows/ci.yml:449-496"
    ]
   },
   {
@@ -151,7 +143,7 @@
    "claim": "event-store run fails on lost events, <90% started, >=2000 goroutines",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:461-484"
+    ".github/workflows/ci.yml:459-482"
    ]
   },
   {
@@ -172,18 +164,19 @@
   },
   {
    "id": 20,
-   "claim": "docs.yml triggers: release published, pull_request on paths, workflow_dispatch",
+   "claim": "docs.yml triggers: release published, pull_request on docs paths and the Makefile, workflow_dispatch",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/docs.yml:3-23"
+    ".github/workflows/docs.yml:3-20"
    ]
   },
   {
    "id": 21,
-   "claim": "docs.yml build steps (node 22, go, gomarkdoc, D2, docs-install, mermaid, docs-build, link checks, upload)",
+   "claim": "docs.yml build steps install from the lockfile with make docs-install",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/docs.yml:31-131"
+    ".github/workflows/docs.yml:49-130",
+    "Makefile:362-372"
    ]
   },
   {
@@ -191,8 +184,8 @@
    "claim": "deploy runs unless pull request; pages concurrency group does not cancel",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/docs.yml:133-148",
-    ".github/workflows/docs.yml:24-28"
+    ".github/workflows/docs.yml:132-147",
+    ".github/workflows/docs.yml:25-29"
    ]
   },
   {
@@ -312,9 +305,9 @@
    "claim": "secrets: SONAR_TOKEN, NODE_AUTH_TOKEN, PERSONAL_ACCESS_TOKEN, HOMEBREW_TAP_TOKEN, DOWNSTREAM_DISPATCH_TOKEN",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:193",
+    ".github/workflows/ci.yml:191",
     ".github/workflows/cla.yml:24-27",
-    ".github/workflows/docs.yml:97-102",
+    ".github/workflows/docs.yml",
     ".github/workflows/release.yml:664",
     ".github/workflows/release.yml:759"
    ]
@@ -340,8 +333,17 @@
    "claim": "Previously claimed: Jekyll build, Ruby 3.1, deploy on push to main, only-new-issues, Go 1.25.1, dorny v1.9.1",
    "verdict": "false",
    "evidence": [
-    ".github/workflows/ci.yml:45",
-    ".github/workflows/docs.yml:3-23"
+    ".github/workflows/ci.yml:43",
+    ".github/workflows/docs.yml:3-24"
+   ]
+  },
+  {
+   "id": 41,
+   "claim": "deprecation-gate.yml fails a pull request that adds a Go Deprecated marker unless labeled deprecation-approved",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/deprecation-gate.yml:9-27",
+    "scripts/check-new-deprecations.sh:17-27"
    ]
   }
  ]

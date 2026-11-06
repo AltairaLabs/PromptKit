@@ -4,7 +4,7 @@ description: Complete reference for SKILL.md format, pack configuration, skill t
 sidebar:
   order: 4
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - pkg/config/runtime_config.go
     - runtime/evals/handlers/register.go
@@ -18,6 +18,7 @@ verified:
     - runtime/skills/installer.go
     - runtime/skills/parser.go
     - runtime/skills/registry.go
+    - runtime/skills/selector.go
     - runtime/skills/tool_executor.go
     - runtime/skills/types.go
     - sdk/capability.go

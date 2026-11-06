@@ -2,14 +2,13 @@
 title: Branch protection
 description: The repository ruleset that protects main in PromptKit, the status checks it requires and how to read it.
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - .github/workflows/ci.yml
     - .github/workflows/cla.yml
     - .github/workflows/dependabot-gate.yml
     - .github/workflows/release.yml
     - scripts/commit-msg.sh
-    - scripts/setup-branch-protection.sh
 ---
 A repository ruleset named `Protect Main` protects the default branch (`main`). The repository has no classic branch protection rule and no ruleset for tags. Read the live settings with the GitHub CLI:
 
@@ -78,10 +77,6 @@ No ruleset targets tags. The release workflow creates `vX.Y.Z`, `runtime/vX.Y.Z`
 ## Changing the ruleset
 
 Edit `Protect Main` under Settings, Rules, Rulesets. A change to the required checks must name the job as GitHub reports it: a job's `name:` in the workflow, not its key. Renaming a required job in a workflow without updating the ruleset blocks every pull request.
-
-:::caution
-`scripts/setup-branch-protection.sh` creates classic branch protection that requires the checks `test`, `lint`, `build` and `coverage`, one approving review, signed commits and linear history. No workflow reports those check names, so running the script against the repository would block every pull request.
-:::
 
 ## Related
 

@@ -2,51 +2,92 @@
 title: Upgrade Notes
 description: Changes that need action when moving between PromptKit versions.
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/a2a/client.go
     - runtime/a2a/types.go
-    - runtime/a2a/version.go
-    - runtime/evals/handlers/classify_handler_base.go
+    - runtime/credentials/credential.go
+    - runtime/evals/binding.go
+    - runtime/evals/handlers/a2a_eval.go
+    - runtime/evals/handlers/cosine_similarity.go
+    - runtime/evals/handlers/directional.go
+    - runtime/evals/handlers/llm_judge.go
+    - runtime/evals/handlers/tool_efficiency.go
+    - runtime/evals/handlers/topic_policy.go
     - runtime/evals/runner.go
+    - runtime/evals/types.go
+    - runtime/evals/wrappers.go
     - runtime/hooks/guardrails/adapter.go
     - runtime/hooks/hooks.go
+    - runtime/hooks/registry.go
     - runtime/inference/all/all.go
     - runtime/inference/openai/provider.go
     - runtime/inference/openai/register.go
     - runtime/inference/provider.go
+    - runtime/logger/logger.go
+    - runtime/media/image.go
     - runtime/metrics/collector.go
     - runtime/pipeline/stage/compactor.go
     - runtime/pipeline/stage/composition_executor.go
     - runtime/pipeline/stage/config.go
     - runtime/pipeline/stage/errors.go
+    - runtime/pipeline/stage/idle_timeout.go
     - runtime/pipeline/stage/pipeline.go
     - runtime/pipeline/stage/stages_provider.go
     - runtime/pipeline/stage/state_handoff.go
+    - runtime/pipeline/stage/tool_call_rate.go
+    - runtime/pipeline/types.go
+    - runtime/providers/base/rate_limit_transport.go
+    - runtime/providers/base/registry.go
     - runtime/providers/base_embedding.go
+    - runtime/providers/base_provider.go
     - runtime/providers/claude/claude.go
     - runtime/providers/claude/claude_tools.go
+    - runtime/providers/claude/context_window_table.go
     - runtime/providers/claude/schema.go
+    - runtime/providers/errors.go
+    - runtime/providers/gemini/context_window_table.go
+    - runtime/providers/gemini/gemini_tools.go
     - runtime/providers/gemini/setup.go
     - runtime/providers/gemini/streaming_support.go
+    - runtime/providers/multimodal.go
+    - runtime/providers/openai/context_window_table.go
     - runtime/providers/openai/openai.go
     - runtime/providers/openai/openai_multimodal.go
-    - runtime/providers/openai/responses_convert.go
+    - runtime/providers/openai/openai_responses_integration.go
     - runtime/providers/openai/streaming_support.go
     - runtime/providers/provider.go
     - runtime/providers/registry.go
     - runtime/providers/rejected_params.go
+    - runtime/providers/retry.go
     - runtime/providers/stream_metrics.go
+    - runtime/providers/streaming.go
+    - runtime/providers/vllm/vllm_tools.go
     - runtime/skills/active_set.go
     - runtime/skills/executor.go
-    - runtime/workflow/authorizer.go
-    - sdk/evaluate.go
+    - runtime/storage/interfaces.go
+    - runtime/storage/local/filestore.go
+    - runtime/storage/types.go
+    - runtime/tools/exec_executor.go
+    - runtime/tools/http_executor.go
+    - runtime/tools/http_mapping.go
+    - runtime/tools/registry.go
+    - runtime/tools/types.go
+    - runtime/tts/errors.go
+    - runtime/tts/http_helpers.go
+    - sdk/agui/adapter.go
+    - sdk/audio_monitor.go
+    - sdk/capability_a2a.go
+    - sdk/client_tools.go
+    - sdk/errors.go
+    - sdk/internal/pack/tool_policy_keys.go
     - sdk/internal/pack/validate.go
     - sdk/internal/pipeline/builder.go
     - sdk/internal/pipeline/builder_vad.go
     - sdk/options.go
     - sdk/provider_refs.go
     - sdk/sdk.go
+    - sdk/validate_pack.go
     - server/a2a/ownership.go
     - server/a2a/protocol.go
     - server/a2a/server.go
@@ -110,6 +151,173 @@ back to every admitted skill if a mid-turn transition leaves it nothing.
 | Leave `skills` off a state | every skill, as before | nothing |
 | Call `SkillsCapability.RefreshSkillIndex` on a tool registry yourself | nothing: it stays for hosts that drive a registry directly, and conversations no longer call it | nothing |
 
+### Tool policy limits reach the SDK, and `MaxCallsPerMinute` is enforced
+
+The SDK never set the caller's `pipeline.ToolPolicy`, and the provider stage never read `MaxCallsPerMinute`. A pack cannot declare these limits: the spec's `tool_policy` is closed. `WithToolPolicy` now sets the policy for every tool loop a conversation runs: text, voice in VAD mode, each workflow state, and the prompt and agent steps of a composition. A realtime duplex session runs its tools outside the loop and is not covered. Each turn merges the policy with the prompt's `tool_policy` under `pipeline.MergeToolPolicy`: `MaxRounds` and `MaxToolCallsPerTurn` take the lower set value, blocklists combine, and the host's `ToolChoice` wins when set. With `WithSkipSchemaValidation`, a `tool_policy` key the spec does not define is logged as a warning naming the prompt and the key.
+
+`MaxCallsPerMinute` counts each tool's calls in one sliding window per conversation. The window spans the conversation's turns, its composition steps and every state of a `WorkflowConversation`. A call counts when it is admitted to run, not when the model makes it:
+
+- a call the tool loop runs counts as it runs;
+- a call held for approval counts when `ResolveTool` or `ResolveToolWithArgs` approves it;
+- a deferred client call counts when `Resume`, `Continue` or `ContinueDuplex` uses the result.
+
+A rejected, abandoned or unanswered call never counts. A call over the limit does not run, and the model is told `Tool X not executed: its limit of N calls per minute is reached`. The call emits `tool.call.started` and then `tool.call.failed`. An approval over the limit returns a resolution whose `Error` wraps `*stage.CallRateLimitError`, and the handler is not called. A held call is checked when a person approves it, so an approver can approve a call that then hits the limit.
+
+| If you | You will see | Change |
+|---|---|---|
+| Need a per-minute cap on a tool | `WithToolPolicy(&pipeline.ToolPolicy{MaxCallsPerMinute: n})` limits it per conversation | nothing, or set the option |
+| Set `MaxCallsPerMinute` on a stage you build | the limit is read for the first time | share one window across stages with `ProviderConfig.CallRate` |
+| Use `tools.WithRateLimit` as well | the registry limit still counts every conversation's calls to a tool together | nothing |
+
+### A provider's `rate_limit` is enforced on every request
+
+`rate_limit` (`rps`, `burst`) on a provider config was loaded and then dropped. `ApplyProviderTuning` now copies it, `ProviderSpec.RateLimit` carries it, and `CreateProviderFromSpec` applies it, so `Predict` and `PredictStream` share one bucket per provider instance. The limit lives in `base.RateLimitTransport`, which waits for a token before each request. A zero `rps` is unlimited, and a `burst` below 1 counts as 1.
+
+- A canceled context returns `context.Canceled`. A turn that falls past the context deadline fails at once with `base.ErrRateLimitPastDeadline`, which wraps `context.DeadlineExceeded` and is not retried. A limited request is never sent.
+- The wait does not count against `request_timeout`.
+- The credential is applied once per attempt, after the wait, so a SigV4 signature or a Vertex or Azure token is never older than the wait. A same-host `307` or `308` redirect is re-authorized. A redirect to another host is not.
+- A credential that cannot be applied fails with `base.ErrRequestAuthorization`. Retry loops do not retry it and `providers.IsTransient` reports false.
+
+| If you | You will see | Change |
+|---|---|---|
+| Set `rate_limit` on a provider | requests wait for a token, where they ran unlimited | check `rps` and `burst` |
+| Write a provider on `BaseProvider` | `NewBaseProviderWithCredential` stores the credential and `SetCredential` replaces it; call `AuthorizeRequest` where you applied auth | pass a header-key credential with `HeaderKeyCredential` if you send something other than the standard header |
+| Implement `credentials.Credential` | the optional `credentials.HeaderNamer` lets the custom-header collision check run before the credential is applied | implement it if your credential sets headers |
+
+### Pipeline timeouts, shutdown and concurrency report what happened
+
+| If you | You will see | Change |
+|---|---|---|
+| Hit the pipeline's `ExecutionTimeout` or `IdleTimeout` | the turn fails with an error wrapping `stage.ErrExecutionTimeout` and `context.DeadlineExceeded`, or `stage.ErrIdleTimeout`, where `ExecuteSync` returned a truncated result with a nil error | handle the error |
+| Stream into a pipeline and an upstream stage fails | the streaming provider stage drops the turn in progress instead of sending a half-received turn to the model | nothing |
+| Call `Shutdown` while a reader is slow | a reader that reads within the grace period gets every element and the error. About half of the elements were dropped before | nothing |
+| Stop reading an execution's output during `Shutdown` | the execution drops the rest of its output and its stream ends with `stage.ErrOutputTruncated`, which also wraps the turn's own error. `ExecuteSync` returns it | treat it as "the turn ran but its output was cut"; do not retry as for `ErrPipelineShuttingDown`, which means the turn never ran |
+| Set `PipelineConfig.MaxConcurrentPipelines` | `Execute` waits for a slot, returning the context's error if the context ends first and `ErrPipelineShuttingDown` if `Shutdown` is called first | nothing |
+| Build `TemplateStage` or `PromptAssemblyStage` without a shared `TurnState` | `Build` fails with `ErrInvalidPipeline` wrapping `ErrTurnStateRequired`, naming the stage | pass the `TurnState` |
+| Read `Execute`'s output | the caller must read the output to its end or cancel the context | nothing |
+
+### Request media is checked against the provider's declared capabilities
+
+`providers.ValidateMultimodalRequest` had no production caller, so an unsupported part reached the adapter. The adapter either failed with its own error or dropped the part and sent the text alone. The provider stage now validates every round, streaming and non-streaming, including composition steps, before the provider-call event. An unsupported part fails the round with `*providers.UnsupportedContentError`.
+
+- Only providers that implement `providers.MultimodalCapabilityProvider` are checked. The mock, replay and imagen providers are not.
+- Validation uses what the adapter can send. A provider config's `capabilities` list never narrows it, through `providers.SendableContentProvider`.
+- Document parts are checked against `SupportsDocuments` and `DocumentFormats`. Assistant messages are skipped. A part with no MIME type is checked for its modality only, and a format entry ending in `/*` admits every subtype.
+- Gemini declares more audio, video and document formats (Office and OpenDocument types, `text/*`, JSON, XML, RTF). OpenAI declares `audio/x-wav` and declares audio only on the Chat Completions API.
+- Duplex sessions are not covered.
+
+| If you | You will see | Change |
+|---|---|---|
+| Send a part the provider cannot send | `Send` returns `*providers.UnsupportedContentError` where the text went alone or the adapter failed | send supported media, or switch provider |
+| Run a custom provider whose declarations are narrower than what it sends | the same error | widen the declarations, or pass `sdk.WithoutContentValidation()` (`stage.ProviderConfig.SkipContentValidation`) |
+
+### Media retention honors `ExpiresAt`, and deduplicated media stays reachable
+
+`storage.MediaMetadata` gains an optional `ExpiresAt` (`expires_at`). `TimeBasedPolicyHandler` honors it with or without a `PolicyName`. Media with neither never expires.
+
+With `EnableDeduplication`:
+
+- A store of content whose shared file a policy already deleted writes the content again. It returned a reference to the missing file before, and `RetrieveMedia` failed.
+- A hit that asks for longer retention extends the shared file's retention and changes only `PolicyName` and `ExpiresAt`. The first store's run, conversation, session and message fields stay. A shorter-lived hit never cuts the retention short, and a hit that never expires keeps the file.
+- Metadata and the dedup index are written atomically, and enforcement skips an item while a store is writing it.
+
+`local.FileStore` calls `TrackMedia` after each store, so media stored after `StartEnforcement` expires without a restart. Without `BuildExpiryIndex`, `EnforcePolicy` walks `baseDir`. `FileStoreConfig.PolicyHandler` and `WithPolicyHandler` apply a `storage.MediaPolicyHandler` to each item before it is written, and a rejected policy fails `StoreMedia`. `storage.PolicyHandler` keeps its signatures.
+
+### Eval checks stop ignoring params and report failures as failures
+
+| If you | You will see | Change |
+|---|---|---|
+| Use `tool_efficiency` with `max_calls` | the within-limits score is `(max_calls + 1 - calls) / (max_calls + 1)`: 1 with no calls, `1 / (max_calls + 1)` at the cap, 0 only once a limit is broken. It was `1 - calls / max_calls`, so a run at the cap scored 0 | none for most thresholds: `max_calls: 5` with `min_score: 0.4` still means at most 3 calls |
+| Set `threshold` on `directional` | an error result; the score for `similar_content` is the word-overlap ratio | put the pass line on a `type: assertion` wrapper as `min_score` |
+| Set `model` on a judge check (`llm_judge`, `llm_judge_session`, `llm_judge_tool_calls`, RAG, safety, `role_violation`) | an error result, where the param filled a field nothing read | bind another provider with `provider` or `sdk.WithNamedProvider` |
+| Set `min_similarity` on `cosine_similarity`, or `min_score` or `max_score` on `rest_eval` or `a2a_eval` | an error result; the endpoint is not called. `cosine_similarity` reports the raw similarity as its score and no longer requires `min_similarity` | wrap the check in `type: assertion` and set `min_score` there |
+| Set `extra` on a judge check | the value reaches `JudgeOpts.Extra`; the built-in judges send it as the prediction request's metadata | nothing |
+| Run a safety or RAG judge that cannot resolve its judge, whose call fails, or that lacks its input | the result carries an `Error` and the runner emits `eval.failed`, where it emitted `eval.completed` with a score of 0. The score stays 0, so guardrails and assertions still fail closed | handle `eval.failed` |
+| Declare `trigger: on_workflow_step` | the eval runs after each committed workflow state transition, against the turn that produced it. `sdk.Evaluate` dispatches the trigger to `EvalRunner.RunWorkflowStepEvals` | nothing |
+| Set `on_deny: respond` on `topic_policy` | a denied turn is answered with the policy's response, `I can only help with: <allowed subjects>.`, unless the validator sets a message | nothing |
+
+### Skills: preloaded instructions, merged sources and selectors take effect
+
+- `preload: true` skills now put their instructions in the system prompt on every `Send`, under `## Skill: <name>`. Before, preload applied only the tool grants. A skill that is deactivated or dropped by a workflow filter leaves the prompt.
+- `WithSkillsDir` and `WithSkillSource` merge with the skills the pack declares. They were dropped when the pack declared `skills`. A name collision keeps the first source listed.
+- A `skills.SkillSelector` (`WithSkillSelectorOption`, `WithSkillSelector`, `ExecutorConfig.Selector`, `TagSelector`) narrows the `skill__activate` index. It was stored and never read. It runs once per turn with the user's message, is skipped for an empty message, and an error or an empty choice lists every admitted skill. A selector bound in the runtime config takes precedence. `skills.AdaptSkillSelector` adapts one onto `selection.Selector`.
+- The SDK never modifies a `SkillsCapability` you pass with `WithCapability` to several `Open` calls. An open that adds sources, `WithSkillSelectorOption`, `WithMaxActiveSkillsOption` or a runtime-config skills selector runs on its own copy.
+
+| If you | You will see | Change |
+|---|---|---|
+| Pass a `SkillSelector` | the index shrinks to what it chooses | check the selector |
+| Mark a skill `preload: true` | its instructions add to every turn's context | keep preloaded skills short |
+
+### Client tools: bindings route, declined calls follow `decline_strategy`
+
+| If you | You will see | Change |
+|---|---|---|
+| Call `OnClientTool` for a pack tool | the tool is a client tool in that conversation: the call reaches your handler, or suspends when the handler is nil. It failed with `no handler registered` before, because the pack loader registers every pack tool as local | remove a `WithToolDescriptorOverride` that set `Mode` only to work around this |
+| Bind a tool with no handler | `Conversation.DeferClientTool(name)` does it; `OnClientTool(name, nil)` is the same and no longer panics at call time | nothing |
+| Reject a deferred client tool with `RejectClientTool`, and its descriptor declares a consent `decline_strategy` | the model sees `tools.ConsentDeclinedMessage` text for the strategy, followed by `Reason: <reason>` when you give one. `fallback` gives `Tool X unavailable: user declined consent. Use alternative approach.`, `retry` gives `Tool X denied: user declined consent. Try a different approach.`, and any other value gives `Tool X denied: user declined consent`. With no strategy the text stays `Tool rejected: <reason>` | declare the strategy on the descriptor (a host tool registry or `WithToolDescriptorOverride`); a pack cannot carry it |
+| Set `validate_output` in a tool's client config | `Resume` and `ResumeStream` check a `SendToolResult` value against the output schema; a mismatch becomes a failed call. Multimodal results are not checked | nothing |
+| Run an exec tool that answers `{"pending": ...}` | the call is held like a deferred client tool and appears in `resp.ClientTools()`. The synchronous `Execute` returns an error for a pending answer | resolve it with `SendToolResult` or `RejectClientTool` and `Resume` |
+
+`tools.ConsentConfig.Required` and `DeclineStrategy` are declared settings the SDK passes through on the descriptor. `Required` enforces nothing in the SDK.
+
+### SDK options, errors and conversation behavior
+
+| If you | You will see | Change |
+|---|---|---|
+| Match `Open` errors with `errors.Is` | `ErrPackNotFound`, `ErrPromptNotFound` and `ErrProviderNotDetected` now match; they did not before | nothing |
+| Type-switch on SDK errors | `*sdk.PackError` for a missing, unreadable or invalid pack, `*sdk.ProviderError` for a provider HTTP or transport failure, `*sdk.ValidationError` (`AsValidationError`) for a hook or validator denial, and `*sdk.ToolError` on a failed `ResolveTool` resolution. Each wraps the runtime error, so `errors.As` and `errors.Is` on that error keep working. `sdk.ErrToolNotRegistered` and `sdk.ErrToolNotInPack` mark the no-handler errors | nothing |
+| Call `Fork` | the fork keeps tools registered with `OnToolCtx`, `OnToolHTTP` and `OnToolExecutor` | nothing |
+| Call `WithA2ATools` twice | every bridge registers its tools. Two bridges that register the same tool name fail `Open`, naming both | rename a tool |
+| Pass `WithVADMode` a nil TTS or STT service | an earlier `WithTTS`, `WithTTSProvider` or `WithSTTProvider` stays | nothing |
+| Set `WithAudioMonitor` | when the mode resolves to on, `Conversation.AudioMonitor()` delivers `AudioMonitorFrame` values resampled to `Rate`. The option rejects an unknown `Mode` and a `Rate` other than 16000, 24000 or 48000 (0 means 24000) | read the channel; a full buffer drops frames |
+| Set `EnableResize` with `MaxWidth` or `MaxHeight` in a `VideoStreamConfig` | each kept image frame is scaled to fit and re-encoded at `Quality` | nothing |
+| Validate a pack that relies on the host's default judge | `sdk.ValidatePackWithOptions(path, skip, opts...)` applies the options you pass to `Open`, including `WithJudgeProvider` and `WithEvalRegistry` | use it in place of `ValidatePack` |
+| Declare an eval at pack level | `Open` checks the providers of the pack-level and prompt-level evals that run on the prompt's turns, with prompt-level evals overriding by ID | declare the provider |
+| Declare a retrieval provider in a runtime config or with `WithEmbeddingProvider` | retrieval runs, with a default top-k of 3 unless `WithContextRetrieval` sets one | nothing |
+| Set `RelevanceConfig.CacheEmbeddings` | the context builder embeds only texts it has no vector for, keyed on the text and the embedding provider and model. `sdk.RelevanceConfig` now carries the field | nothing |
+| Rely on an empty relevance `QuerySource` | it means `QuerySourceLastUser`; it fell back to oldest-first truncation | nothing |
+
+### HTTP tools apply their request configuration on every call
+
+| If you | You will see | Change |
+|---|---|---|
+| Use `WithPreRequest` | the hook runs on every built request, after the URL and headers are applied. An error fails the call with `pre-request hook failed: ...` and nothing is sent. It never ran before | check that the hook is safe to run |
+| Put `{{...}}` in a tool URL with no `request` block | the template renders from the arguments, and the arguments it consumes are not sent again as query parameters or body fields. A template in the scheme, host or port fails with `ErrTemplatedURLHost` | nothing |
+| Call a tool with a `request` block and no arguments | `static_query`, `static_headers` and `header_params` apply. For `POST`, `PUT` and `PATCH`, `static_body` is sent as the JSON body | nothing |
+| Pass a value containing `/`, `?` or `#` to a URL template | every action is escaped with `url.PathEscape` before the first literal `?` or `#` in the template and `url.QueryEscape` after it. A rendered path with a `.` or `..` segment fails with `ErrURLDotSegment` | nothing |
+| Use a bad `body_mapping` expression | the call fails before a request is sent | fix the expression |
+| Match `call_args` in a file tool response | numbers compare by value, so a YAML `42` matches a JSON `42` | nothing |
+
+### Provider adapters
+
+| If you | You will see | Change |
+|---|---|---|
+| Use Claude, OpenAI or Gemini with the compactor | `MaxContextTokens()` reports the model's context window from a per-model table, so compaction sizes itself instead of using the 128K default. `additional_config.context_window` overrides the table and is the only source for Ollama and vLLM. An unknown model reports 0 | set `context_window` for a model outside the table |
+| Send tools to Gemini | `safetySettings` are sent on the tools request as on the plain one | nothing |
+| Send tools to vLLM with `guided_grammar` | the grammar is sent | nothing |
+| Register a provider under an ID already registered | the last registration wins for `Get`, `GetByType` and `GetAll`; the replaced provider's typed entry is dropped | nothing |
+| Embed with OpenAI or Voyage AI | a response without exactly one embedding per input returns an error from `ExtractOrderedEmbeddings`, not nil vectors | handle the error |
+| Read a canceled OpenAI chat stream | the finish reason is `canceled`, as for Claude, Gemini and Ollama, where it was `cancelled` | match `canceled` |
+| Observe streams | `BaseProvider.SetStreamObserver` or `ProviderSpec.StreamObserver` receives every chunk; an observer that implements `providers.StreamEventObserver` also receives a `StreamEvent` per callback. The final chunk of a clean stream carries a `*PredictionResponse` in `FinalResult` unless the provider set one | nothing |
+| Resize a GIF or WebP | the image is labeled `image/jpeg`, the format it is encoded to | nothing |
+| Call a TTS service when the account's quota or credit is exhausted | the error wraps `tts.ErrQuotaExceeded` (HTTP 402 and the quota error codes), apart from `tts.ErrRateLimited`. A `429` stays rate-limited and retryable | nothing |
+
+### Runtime packages
+
+| If you | You will see | Change |
+|---|---|---|
+| Use `variables.StateProvider` | any state store error other than `statestore.ErrNotFound` is returned, wrapped | handle the error |
+| Summarize or index messages built from `Parts` | `LLMSummarizer` and `InMemoryIndex` read the content through `GetContent()` | nothing |
+| Use the logger | `Bearer` tokens redact whole, including JWT segments. `Configure` records its level, format, common fields and modules, so `SetLevel`, `SetVerbose`, `SetOutput` and `SetLogger(nil)` keep them. `ModuleLoggingSpec.Fields` apply | nothing |
+| Search non-Latin text with `memory/corpus` | tokenization splits on runes that are neither letters nor digits | nothing |
+| Register session hooks | every session hook runs for the event, each failure is logged at WARN with the hook's name, the event and the session ID, and the failures return joined | nothing |
+| Round-trip a prompt through `ToConfig` | the prompt's `Extensions` are deep-copied, not dropped | nothing |
+| Read A2A SSE streams with `ReadSSEWithIdleTimeout` or `SendMessageStream` | an idle stream ends with a last event whose `Error` is `a2a.ErrSSEIdleTimeout`, where it looked like a clean end | handle the error |
+| Set `server/a2a` `WithWriteTimeout` | `ListenAndServe` and `Serve` set `http.Server.WriteTimeout`; SSE streams lift the deadline for their own connection | nothing |
+| Retry A2A requests | the backoff delay is capped at `MaxDelay` first, then shortened by up to 50% jitter, so it never exceeds `MaxDelay`. It could reach 1.5 times `MaxDelay` | nothing |
+| Adapt runtime events to AG-UI | `agui.WithRuntimeEvents(types...)` forwards the bus's events as `RAW` events with source `promptkit`. It is off by default | nothing |
+| Marshal a provider config | the fields of `pricing`, `rate_limit` and `defaults` are `omitempty`: zeros are left out, and a generated schema marks them optional | nothing |
+
 ### New seams for hosts and custom pipelines
 
 These additions need no action.
@@ -119,6 +327,16 @@ These additions need no action.
 | `hooks.ToolResultRewriter` | A `hooks.ToolHook` that also implements it receives the text of each successful tool result the provider stage runs, and returns the text the model sees. Rewriters chain in registration order, run before the result size limit, and run once per text part of a multimodal result. An error fails the call: the model gets an error result and `tool.call.failed` is emitted. Client tools, calls resumed after approval and duplex sessions are not rewritten. `RewriteResult` must be safe for concurrent use |
 | `stage.ProviderConfig.DescribeTool` | Returns the descriptor to offer the model for each registered tool on every tools build: a copy when it changes the tool, or nil to withhold it. The registry's descriptor is never changed. The stage rebuilds the tools array when the result changes between rounds, including after a mid-turn workflow handoff |
 | `skills.Executor.SkillIndexIn`, `skills.Executor.SelectSkillsIn` | The `skill__activate` index for one `ActiveSet`, and the selector's choice over the skills that set admits |
+| `sdk.WithToolPolicy`, `stage.CallRateWindow`, `stage.CallRateLimitError`, `stage.ProviderConfig.CallRate`, `tools.Registry.ExecuteAsyncAdmitted` | Set the tool policy from the SDK, and share one tool-call window across stages. `CallRateWindow.Admit` checks and counts a call |
+| `stage.ErrOutputTruncated`, `stage.ErrExecutionTimeout`, `stage.ErrTurnStateRequired`, `PipelineConfig.PrioritizeElements` | Sentinels for truncated output, the execution timeout and a stage built without a `TurnState`. `PrioritizeElements` (`WithPrioritizeElements`) relays each stage's input in element priority order; it is off by default because an `EndOfTurn` can then overtake its turn's messages |
+| `base.RateLimitTransport`, `base.ErrRateLimitPastDeadline`, `base.ErrRequestAuthorization`, `providers.BaseProvider.AuthorizeRequest`, `credentials.HeaderNamer` | The provider rate limit and credential-after-wait path |
+| `providers.SendableContentProvider`, `stage.ProviderConfig.SkipContentValidation`, `sdk.WithoutContentValidation` | Request media validation and its opt-out |
+| `storage.MediaMetadata.ExpiresAt`, `storage.MediaPolicyHandler`, `storage.MediaPolicyTracker`, `storage.MediaExpiryReporter`, `storage.MediaWriteGuard`, `local.WithPolicyHandler` | Media retention and deduplication |
+| `evals.EvalRunner.RunWorkflowStepEvals`, `evals.ResultDetailReplacement`, `evals.ResultReplacement` | Run `on_workflow_step` evals, and let a check name the text that replaces a denied turn |
+| `skills.AdaptSkillSelector`, `skills.ActiveSet.Instructions` | Run a `SkillSelector` on the `selection.Selector` path, and read an active skill's instructions without activating it |
+| `Conversation.DeferClientTool`, `tools.ConsentDeclinedMessage`, `sdk.ValidatePackWithOptions`, `Conversation.AudioMonitor` | Client tool binding without a handler, the decline text, pack validation with `Open`'s options, and tapped audio |
+| `providers.StreamObserver`, `providers.StreamEventObserver`, `BaseProvider.SetStreamObserver`, `providers.NewBaseProviderWithCredential`, `providers.HeaderKeyCredential` | Observe streamed chunks, and construct a provider with its credential |
+| `agui.WithRuntimeEvents`, `logger.ModuleConfig.SetModuleFields` | Forward runtime events as AG-UI `RAW` events, and set per-module log fields |
 
 ## v2.13.0
 

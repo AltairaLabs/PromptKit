@@ -2,18 +2,14 @@
 title: CI/CD quick reference
 description: Commands for running PromptKit's CI checks locally, watching workflow runs and triggering workflows.
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - .github/workflows/ci.yml
-    - .github/workflows/docs-checks.yml
-    - .github/workflows/docs-freshness.yml
     - .github/workflows/docs.yml
-    - .github/workflows/mcp-conformance.yml
-    - .github/workflows/promptpack-schema-sync.yml
     - .github/workflows/release.yml
-    - .github/workflows/schemas.yml
     - .golangci.yml
     - Makefile
+    - scripts/check-new-deprecations.sh
 ---
 Commands for the CI/CD tasks you repeat most. The [pipelines reference](/devops/ci-cd-pipelines/) describes each workflow.
 
@@ -54,6 +50,7 @@ go -C sdk test -race ./...
 | `check-packspec` | `make packspec-check module-dep-skew-check modules-standalone-check spec-version-check` |
 | `check-promptpack-schema` | `make promptpack-schema-check` |
 | `Docs Checks` | `make docs-voice` and `make docs-scripts-test` |
+| `New deprecations need approval` | `bash scripts/check-new-deprecations.sh origin/main`, then remove the added `// Deprecated:` marker or ask a maintainer for the `deprecation-approved` label |
 | Release `validate` | `make api-compat-check VERSION=vX.Y.Z` |
 
 ## Watch runs
@@ -93,7 +90,7 @@ make sonar-quick   # make coverage, then make sonar-scan
 ## Documentation
 
 ```bash
-make docs-install   # first time: Astro dependencies and gomarkdoc
+make docs-install   # first time: Astro dependencies from the lockfile (npm ci) and gomarkdoc
 make docs-serve     # development server
 make docs-build     # full build into docs/dist, as CI does
 make docs-voice     # prose rules from docs/STYLE.md
@@ -119,7 +116,7 @@ Suppress a finding on the line that causes it, name the rule and give the reason
 
 | File | Purpose |
 |---|---|
-| `.github/workflows/` | The eleven workflows |
+| `.github/workflows/` | The twelve workflows |
 | `.github/CODEOWNERS` | Review ownership |
 | `.golangci.yml` | Linter configuration |
 | `sonar-project.properties` | SonarCloud sources, exclusions and coverage paths |

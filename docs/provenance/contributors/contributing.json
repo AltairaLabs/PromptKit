@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/contributors/contributing.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": "c1",
@@ -15,7 +15,7 @@
    "claim": "Hook requires 80% per-file coverage on changed non-test files",
    "verdict": "true",
    "evidence": [
-    "scripts/pre-commit.sh:435"
+    "scripts/pre-commit.sh:417"
    ]
   },
   {
@@ -73,9 +73,18 @@
    "claim": "The SDK entry points are Open, OpenDuplex and OpenWorkflow",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:132",
-    "sdk/sdk.go:84",
-    "sdk/workflow.go:103"
+    "sdk/sdk.go:137",
+    "sdk/sdk.go:89",
+    "sdk/workflow.go:104"
+   ]
+  },
+  {
+   "id": "c18",
+   "claim": "The Deprecation Gate fails a pull request that adds a Go Deprecated: marker unless it carries the deprecation-approved label; scripts/check-new-deprecations.sh runs the same check",
+   "verdict": "true",
+   "evidence": [
+    ".github/workflows/deprecation-gate.yml:12-27",
+    "scripts/check-new-deprecations.sh:17-27"
    ]
   },
   {
@@ -92,8 +101,12 @@
    "claim": "make verify runs lint-diff (golangci-lint then gosec on changed modules) and test-fast (go test on changed modules); it skips the hook build, coverage, weak-assertion and drift steps and is not what CI runs",
    "verdict": "true",
    "evidence": [
-    "Makefile:189-262",
-    "scripts/pre-commit.sh:171-420"
+    "Makefile:189",
+    "Makefile:238",
+    "Makefile:262",
+    "scripts/pre-commit.sh:155",
+    "scripts/pre-commit.sh:205",
+    "scripts/pre-commit.sh:354"
    ]
   },
   {
@@ -107,7 +120,7 @@
    "claim": "golangci-lint version is pinned in ci.yml and check-lint-version.sh refuses others",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:263",
+    ".github/workflows/ci.yml:261",
     "scripts/check-lint-version.sh:31"
    ]
   },
@@ -140,9 +153,9 @@
    "claim": "CI runs test, lint, build, weak-assertions jobs",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:227",
-    ".github/workflows/ci.yml:291",
-    ".github/workflows/ci.yml:328"
+    ".github/workflows/ci.yml:225",
+    ".github/workflows/ci.yml:289",
+    ".github/workflows/ci.yml:326"
    ]
   }
  ]
