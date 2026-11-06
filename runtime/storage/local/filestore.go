@@ -239,7 +239,7 @@ func (fs *FileStore) StoreMedia(
 
 		// Hold write lock from check through index update to prevent race where
 		// two goroutines both pass the existence check and write the same file.
-		if existingPath, exists := fs.lookupDedupLocked(contentHash); exists {
+		if existingPath, exists := fs.lookupDedupLocked(contentHash, metadata); exists {
 			return storage.Reference(existingPath), nil
 		}
 		// Keep dedupMu locked — will update index after write below
@@ -292,10 +292,33 @@ func (fs *FileStore) prepareInlineData(content *types.MediaContent) ([]byte, err
 // hit it releases dedupMu, increments the file's reference count and returns
 // the existing path. On a miss it returns with dedupMu STILL HELD; the caller
 // must release it (directly or via registerDedupLocked).
-func (fs *FileStore) lookupDedupLocked(contentHash string) (string, bool) {
+func (fs *FileStore) lookupDedupLocked(contentHash string, metadata *storage.MediaMetadata) (string, bool) {
 	fs.dedupMu.Lock()
-	existingPath, exists := fs.liveDedupPathLocked(contentHash)
+	return fs.dedupHitLocked(contentHash, metadata)
+}
+
+// dedupHitLocked checks the dedup index for contentHash; the caller holds
+// dedupMu. On a hit it releases dedupMu, counts the new reference, extends the
+// shared file's retention to cover this store, and returns the path. On a miss
+// dedupMu stays held.
+//
+// It opens the policy handler's write guard for the indexed file before
+// checking it, so enforcement cannot delete the file between the check and
+// the retention update. An entry whose file is gone, for example because a
+// retention policy deleted it, is dropped and the hash is treated as new. Its
+// reference count is kept: references handed out before the deletion name the
+// same path, and they see the content again once it is stored again.
+func (fs *FileStore) dedupHitLocked(contentHash string, metadata *storage.MediaMetadata) (string, bool) {
+	existingPath, exists := fs.dedupIndex[contentHash]
 	if !exists {
+		return "", false
+	}
+	endWrite := fs.beginMediaWrite(existingPath)
+	defer endWrite()
+
+	if _, err := os.Stat(existingPath); os.IsNotExist(err) {
+		delete(fs.dedupIndex, contentHash)
+		fs.dedupDirty = true
 		return "", false
 	}
 	fs.dedupMu.Unlock()
@@ -303,27 +326,52 @@ func (fs *FileStore) lookupDedupLocked(contentHash string) (string, bool) {
 	fs.refMu.Lock()
 	fs.refCounts[existingPath]++
 	fs.refMu.Unlock()
+
+	fs.extendRetention(existingPath, metadata)
 	return existingPath, true
 }
 
-// liveDedupPathLocked returns the path the dedup index holds for contentHash,
-// if that file still exists. The caller holds dedupMu. An entry whose file is
-// gone, for example because a retention policy deleted it, is dropped, so the
-// content is stored again instead of returning a reference to a missing file.
-func (fs *FileStore) liveDedupPathLocked(contentHash string) (string, bool) {
-	existingPath, exists := fs.dedupIndex[contentHash]
-	if !exists {
-		return "", false
+// extendRetention rewrites the metadata of the shared file at filePath with
+// this store's metadata when the policy handler reports that it retains the
+// media longer than the metadata on disk does, so a dedup hit never hands out
+// a reference that expires before the store asked. It does nothing when the
+// handler does not implement storage.MediaExpiryReporter. The caller holds the
+// file's write guard.
+func (fs *FileStore) extendRetention(filePath string, metadata *storage.MediaMetadata) {
+	reporter, ok := fs.config.PolicyHandler.(storage.MediaExpiryReporter)
+	if !ok || metadata == nil {
+		return
 	}
-	if _, err := os.Stat(existingPath); os.IsNotExist(err) {
-		delete(fs.dedupIndex, contentHash)
-		fs.dedupDirty = true
-		fs.refMu.Lock()
-		delete(fs.refCounts, existingPath)
-		fs.refMu.Unlock()
-		return "", false
+	effective := *metadata
+	if effective.PolicyName == "" {
+		effective.PolicyName = fs.config.DefaultPolicy
 	}
-	return existingPath, true
+	if current, err := fs.loadMetadata(filePath); err == nil && !outlasts(reporter, &effective, current) {
+		return
+	}
+	if err := fs.storeMetadata(filePath, metadata); err != nil {
+		logger.Warn("Failed to extend retention of deduplicated media", "path", filePath, "error", err)
+	}
+}
+
+// outlasts reports whether reporter retains media with metadata next longer
+// than media with metadata current.
+func outlasts(reporter storage.MediaExpiryReporter, next, current *storage.MediaMetadata) bool {
+	nextAt, nextExpires, err := reporter.MediaExpiresAt(next)
+	if err != nil {
+		return false
+	}
+	currentAt, currentExpires, err := reporter.MediaExpiresAt(current)
+	switch {
+	case err != nil:
+		return true
+	case !currentExpires:
+		return false
+	case !nextExpires:
+		return true
+	default:
+		return nextAt.After(currentAt)
+	}
 }
 
 // beginMediaWrite opens the policy handler's write guard for the media at
@@ -363,15 +411,16 @@ func (fs *FileStore) writeNewMediaFile(
 }
 
 // registerDedupLocked records filePath under contentHash, releases dedupMu
-// (which the caller holds from lookupDedupLocked), sets the reference count
-// to one and persists the index.
+// (which the caller holds from lookupDedupLocked), counts the new reference
+// and persists the index. The count starts from any references still held to
+// filePath from before its file was deleted.
 func (fs *FileStore) registerDedupLocked(contentHash, filePath string) {
 	fs.dedupIndex[contentHash] = filePath
 	fs.dedupDirty = true
 	fs.dedupMu.Unlock()
 
 	fs.refMu.Lock()
-	fs.refCounts[filePath] = 1
+	fs.refCounts[filePath]++
 	fs.refMu.Unlock()
 
 	// Persist index (skips write if not dirty)
@@ -478,11 +527,7 @@ func (fs *FileStore) storeMediaStreaming(
 	// Dedup check (mirrors the buffered path's locking discipline).
 	if fs.config.EnableDeduplication {
 		fs.dedupMu.Lock()
-		if existingPath, exists := fs.liveDedupPathLocked(hashStr); exists {
-			fs.dedupMu.Unlock()
-			fs.refMu.Lock()
-			fs.refCounts[existingPath]++
-			fs.refMu.Unlock()
+		if existingPath, exists := fs.dedupHitLocked(hashStr, metadata); exists {
 			// cleanupTemp will fire from the defer.
 			return storage.Reference(existingPath), nil
 		}
@@ -527,7 +572,7 @@ func (fs *FileStore) storeMediaStreaming(
 		fs.dedupMu.Unlock()
 
 		fs.refMu.Lock()
-		fs.refCounts[finalPath] = 1
+		fs.refCounts[finalPath]++
 		fs.refMu.Unlock()
 
 		if err := fs.saveDedupIndex(); err != nil {

@@ -56,12 +56,13 @@ type expiryEntry struct {
 }
 
 // compile-time checks that TimeBasedPolicyHandler implements
-// storage.MediaPolicyHandler, storage.MediaPolicyTracker and
-// storage.MediaWriteGuard.
+// storage.MediaPolicyHandler, storage.MediaPolicyTracker,
+// storage.MediaWriteGuard and storage.MediaExpiryReporter.
 var (
-	_ storage.MediaPolicyHandler = (*TimeBasedPolicyHandler)(nil)
-	_ storage.MediaPolicyTracker = (*TimeBasedPolicyHandler)(nil)
-	_ storage.MediaWriteGuard    = (*TimeBasedPolicyHandler)(nil)
+	_ storage.MediaPolicyHandler  = (*TimeBasedPolicyHandler)(nil)
+	_ storage.MediaPolicyTracker  = (*TimeBasedPolicyHandler)(nil)
+	_ storage.MediaWriteGuard     = (*TimeBasedPolicyHandler)(nil)
+	_ storage.MediaExpiryReporter = (*TimeBasedPolicyHandler)(nil)
 )
 
 // TimeBasedPolicyHandler implements storage.MediaPolicyHandler for time-based retention policies.
@@ -571,6 +572,20 @@ func (h *TimeBasedPolicyHandler) TrackMedia(metaPath string, metadata *storage.M
 	}
 	h.TrackFile(metaPath, metadata.Timestamp.Add(duration))
 	return nil
+}
+
+// MediaExpiresAt implements storage.MediaExpiryReporter: media expires at its
+// Timestamp plus its policy's duration. Media with no policy never expires; a
+// policy ParsePolicyName cannot parse is an error.
+func (h *TimeBasedPolicyHandler) MediaExpiresAt(metadata *storage.MediaMetadata) (time.Time, bool, error) {
+	if metadata == nil || metadata.PolicyName == "" {
+		return time.Time{}, false, nil
+	}
+	_, duration, err := ParsePolicyName(metadata.PolicyName)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("failed to parse policy name: %w", err)
+	}
+	return metadata.Timestamp.Add(duration), true, nil
 }
 
 // UntrackFile removes a file from the in-memory expiry index. This should be

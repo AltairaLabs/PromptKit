@@ -17,7 +17,8 @@ Set `FileStoreConfig.EnableDeduplication` to turn on deduplication. The store th
 1. It hashes the content with SHA-256 on store.
 2. It looks the hash up in an in-memory index, persisted as `.dedup_index.json` in the store's base directory and loaded when the store opens.
 3. If the hash exists and its file is still on disk, the store returns the existing file's reference and increments its reference count. It writes no new copy. If a retention policy or anything else has deleted the file, the store drops the index entry and treats the hash as new.
-4. If the hash is new, the store writes the content and adds an index entry with a count of one.
+   - When the policy handler reports expiry times, as `policy.TimeBasedPolicyHandler` does, a hit whose retention outlasts the shared file's rewrites the file's metadata. The file then lasts as long as the longest-lived store that references it.
+4. If the hash is new, the store writes the content, adds an index entry and counts one reference. Content stored again after its file was deleted goes back to the same path. The count then also includes the references handed out before the deletion.
 5. `DeleteMedia` decrements the count while it is above one. The file and its index entry are removed when the last reference is deleted.
 
 Repeated media such as profile pictures, template assets and regenerated images cost one copy on disk however many times you reference them.

@@ -74,3 +74,21 @@ func TestBeginMediaWrite_OverlappingWritesNest(t *testing.T) {
 	require.NoError(t, h.EnforcePolicy(ctx, filepath.Dir(media)))
 	assert.NoFileExists(t, media)
 }
+
+func TestMediaExpiresAt(t *testing.T) {
+	h := NewTimeBasedPolicyHandler(0)
+
+	at, expires, err := h.MediaExpiresAt(&storage.MediaMetadata{PolicyName: "retain-2hours", Timestamp: restoreNow})
+	require.NoError(t, err)
+	assert.True(t, expires)
+	assert.Equal(t, restoreNow.Add(2*time.Hour), at)
+
+	for _, meta := range []*storage.MediaMetadata{nil, {Timestamp: restoreNow}} {
+		_, expires, err = h.MediaExpiresAt(meta)
+		require.NoError(t, err)
+		assert.False(t, expires, "media with no policy never expires")
+	}
+
+	_, _, err = h.MediaExpiresAt(&storage.MediaMetadata{PolicyName: "keep-forever"})
+	assert.Error(t, err)
+}
