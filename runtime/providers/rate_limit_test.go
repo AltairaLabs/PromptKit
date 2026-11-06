@@ -136,7 +136,7 @@ func TestMakeRawRequest_RateLimitCancelled(t *testing.T) {
 
 	_, err = base.MakeRawRequest(ctx, server.URL, body, headers, "Test")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "rate limit wait")
+	assert.ErrorIs(t, err, context.Canceled)
 }
 
 func TestMakeJSONRequest_WithRateLimit(t *testing.T) {

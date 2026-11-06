@@ -129,7 +129,7 @@ func TestFactoryRegistry_TuningRejectedForNonTunable(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(),
-		`provider type "plain" does not support headers, request_timeout or http_transport for this role`)
+		`provider type "plain" does not support headers, request_timeout, http_transport or rate_limit for this role`)
 }
 
 func TestFactoryRegistry_ZeroTuningOnNonTunableSucceeds(t *testing.T) {

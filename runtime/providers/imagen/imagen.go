@@ -42,12 +42,14 @@ var defaultImagenPricing = &base.PricingDescriptor{
 // Provider implements the Provider interface for Google's Imagen image generation
 type Provider struct {
 	providers.BaseProvider
-	modelName  string
-	BaseURL    string
-	ApiKey     string
-	ProjectID  string
-	Location   string
-	Defaults   providers.ProviderDefaults
+	modelName string
+	BaseURL   string
+	ApiKey    string
+	ProjectID string
+	Location  string
+	Defaults  providers.ProviderDefaults
+	// HTTPClient is the client the provider was constructed with. Requests go
+	// through GetHTTPClient, which reflects the spec's tuning.
 	HTTPClient *http.Client
 }
 
@@ -214,7 +216,10 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	httpReq.Header.Set("x-goog-api-key", p.ApiKey)
 
 	// Make request
-	resp, err := p.HTTPClient.Do(httpReq)
+	// GetHTTPClient, not HTTPClient: CreateProviderFromSpec tunes the
+	// BaseProvider client (request_timeout replaces it outright), so only it
+	// carries the configured timeout, transport, headers and rate limit.
+	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		return providers.PredictionResponse{}, fmt.Errorf("failed to make request: %w", err)
 	}

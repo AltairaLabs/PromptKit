@@ -11,7 +11,7 @@ import (
 
 // ApplyProviderTuning copies a provider's request-tuning settings from its
 // config onto spec: request_timeout, stream_idle_timeout, stream_retry (with
-// its budget), stream_max_concurrent, http_transport, defaults.prompt_caching
+// its budget), stream_max_concurrent, http_transport, rate_limit, defaults.prompt_caching
 // and message_metadata_template. It is the single conversion used by every loader
 // that turns a config.Provider into a providers.ProviderSpec, so a field is
 // honored the same way wherever the config is loaded.
@@ -29,6 +29,7 @@ func ApplyProviderTuning(spec *providers.ProviderSpec, p *Provider) {
 	spec.StreamRetryBudget = streamRetryBudget(p.StreamRetry)
 	spec.StreamMaxConcurrent = p.StreamMaxConcurrent
 	spec.HTTPTransport = httpTransportOptions(p.ID, p.HTTPTransport)
+	spec.RateLimit = providers.RateLimitOptions{RequestsPerSecond: float64(p.RateLimit.RPS), Burst: p.RateLimit.Burst}
 	spec.Defaults.DisablePromptCaching = p.Defaults.PromptCaching != nil && !*p.Defaults.PromptCaching
 	spec.MessageMetadataTemplate = p.MessageMetadataTemplate
 }
@@ -97,7 +98,8 @@ func parseProviderDuration(providerID, field, value string) time.Duration {
 
 // CapabilityHTTPTuning returns the request-tuning settings a capability
 // provider (tts, stt, embedding, inference, rerank) honors: headers,
-// request_timeout and http_transport. Durations parse exactly as
+// request_timeout, http_transport and rate_limit. Each call builds a new rate
+// limiter, so every provider built from it is limited on its own. Durations parse exactly as
 // ApplyProviderTuning parses them for completion providers.
 //
 // The streaming fields (stream_retry, stream_max_concurrent,
@@ -122,6 +124,7 @@ func CapabilityHTTPTuning(p *Provider) (base.HTTPTuning, error) {
 	if p.HTTPTransport != nil {
 		tuning.Transport = providers.NewProviderTransport(spec.HTTPTransport)
 	}
+	tuning.RateLimiter = base.NewRequestLimiter(spec.RateLimit.RequestsPerSecond, spec.RateLimit.Burst)
 	return tuning, nil
 }
 

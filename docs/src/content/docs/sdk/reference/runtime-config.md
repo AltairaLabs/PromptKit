@@ -184,16 +184,17 @@ the same ID in both spellings is rejected.
 | `stream_retry` | object | no | Bounded retry for streaming requests. See [stream_retry](#stream_retry). |
 | `stream_max_concurrent` | int | no | Maximum concurrent streaming requests in flight. Requests beyond the limit wait on the caller's context. `0` means unlimited (the default). |
 | `http_transport` | object | no | HTTP connection pool tuning. See [http_transport](#http_transport). |
+| `rate_limit` | object | no | Caps how fast this provider sends requests. See [rate_limit](#rate_limit). |
 | `message_metadata_template` | string | no | Renders each message's metadata as text after the message, for the model to read. Each `{{key}}` is filled from the metadata: a string as is, any other value as compact JSON. Completion roles only. See [Show Metadata to the Model](/sdk/how-to/conversations/send-messages/#show-metadata-to-the-model). |
 
 Which tuning fields take effect depends on the role:
 
 | Roles | Honored | Rejected |
 |-------|---------|----------|
-| `llm`, `image`, `video` | `headers`, `request_timeout`, `stream_idle_timeout`, `stream_retry`, `stream_max_concurrent`, `http_transport`, `defaults.prompt_caching`, `message_metadata_template` | none |
-| `tts`, `stt`, `embedding`, `inference`, `rerank` | `headers`, `request_timeout`, `http_transport` | `stream_idle_timeout`, `stream_retry`, `stream_max_concurrent`, `defaults.prompt_caching`, `message_metadata_template` |
+| `llm`, `image`, `video` | `headers`, `request_timeout`, `stream_idle_timeout`, `stream_retry`, `stream_max_concurrent`, `http_transport`, `rate_limit`, `defaults.prompt_caching`, `message_metadata_template` | none |
+| `tts`, `stt`, `embedding`, `inference`, `rerank` | `headers`, `request_timeout`, `http_transport`, `rate_limit` | `stream_idle_timeout`, `stream_retry`, `stream_max_concurrent`, `defaults.prompt_caching`, `message_metadata_template` |
 
-The same rules apply whether the provider is declared under `spec.providers` or in its own provider file. A capability provider that sets a rejected field fails to load, with an error naming the field and the role. On a capability role, `http_transport` replaces the provider's transport with a pooled, instrumented one; without it, the provider keeps its own. A provider type that cannot take `headers`, `request_timeout` or `http_transport` for its role, such as the `mock` reranker, fails to load when any of them is set. The `openai` and `nvidia-topic-control` inference types also reject `request_timeout` alongside `additional_config.timeout_seconds`.
+The same rules apply whether the provider is declared under `spec.providers` or in its own provider file. A capability provider that sets a rejected field fails to load, with an error naming the field and the role. On a capability role, `http_transport` replaces the provider's transport with a pooled, instrumented one; without it, the provider keeps its own. A provider type that cannot take `headers`, `request_timeout`, `http_transport` or `rate_limit` for its role, such as the `mock` reranker, fails to load when any of them is set. The `openai` and `nvidia-topic-control` inference types also reject `request_timeout` alongside `additional_config.timeout_seconds`.
 
 A duration string that does not parse, or is not positive, is logged and ignored, and the provider uses the default for that field.
 
@@ -298,6 +299,25 @@ Per-provider HTTP connection pool. The concurrent-stream ceiling per upstream is
 | `max_conns_per_host` | int | Maximum TCP connections to one host (in use and idle). Default: `0` (unlimited). |
 | `max_idle_conns_per_host` | int | Maximum idle keep-alive connections kept per host. Default: `100`. |
 | `idle_conn_timeout` | string | How long an idle connection is kept. Go duration string. Default: `"90s"`. |
+
+#### rate_limit
+
+A token bucket on the HTTP requests one provider sends. Each request takes a token and waits for one before it goes out: a completion call (`Predict` or a stream), a capability call (an embedding, a transcription), and every retry attempt of either. Requests through the same provider share one bucket. Two providers built from the same entry each get their own.
+
+A waiting request gives up when its context is canceled. When the request has a deadline and its turn comes after it, the request fails at once with a deadline error rather than waiting, and is not retried. A limited request is never sent.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `rps` | int | Sustained requests per second. Default: `0` (unlimited). |
+| `burst` | int | Requests that may go out at once before the rate applies. Default: `1`, which spaces requests `1/rps` seconds apart. Ignored when `rps` is `0`. |
+
+```yaml
+rate_limit:
+  rps: 5
+  burst: 10
+```
+
+The limit counts HTTP requests only: a realtime or duplex session over a WebSocket is not limited.
 
 ---
 

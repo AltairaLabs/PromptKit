@@ -351,6 +351,10 @@ func (b *BaseProvider) SetHTTPTimeout(timeout time.Duration) {
 // NewPooledTransportWithOptions and wrap it with NewInstrumentedTransport
 // so the OpenTelemetry span wiring is preserved.
 func (b *BaseProvider) SetHTTPTransport(rt http.RoundTripper) {
+	// Keep a configured rate limit in front of the new transport.
+	if b.rateLimiter != nil {
+		rt = base.WithRateLimit(rt, b.rateLimiter)
+	}
 	if b.client != nil {
 		b.client.Transport = rt
 	}
@@ -826,14 +830,24 @@ func (b *BaseProvider) HTTPTimeout() time.Duration {
 
 // SetRateLimit configures per-provider rate limiting. requestsPerSecond controls
 // the sustained rate, and burst controls how many requests can be made
-// simultaneously before throttling kicks in. A zero or negative
-// requestsPerSecond disables rate limiting (the default).
+// at once before throttling kicks in; a burst below 1 counts as 1. A zero or
+// negative requestsPerSecond disables rate limiting (the default).
+//
+// The limit applies to every HTTP request the provider sends through its
+// request/response and streaming clients (Predict, PredictStream, and each
+// retry attempt) by wrapping their transport in a base.RateLimitTransport.
+// A request waits for its turn before it is sent; the wait ends when the
+// request's context is canceled, or at once when its turn falls past the
+// context deadline (base.ErrRateLimitPastDeadline). CreateProviderFromSpec
+// calls it with spec.RateLimit.
 func (b *BaseProvider) SetRateLimit(requestsPerSecond float64, burst int) {
-	if requestsPerSecond <= 0 {
-		b.rateLimiter = nil
-		return
+	b.rateLimiter = base.NewRequestLimiter(requestsPerSecond, burst)
+	if b.client != nil {
+		b.client.Transport = base.WithRateLimit(b.client.Transport, b.rateLimiter)
 	}
-	b.rateLimiter = rate.NewLimiter(rate.Limit(requestsPerSecond), burst)
+	if b.streamingClient != nil {
+		b.streamingClient.Transport = base.WithRateLimit(b.streamingClient.Transport, b.rateLimiter)
+	}
 }
 
 // SetMaxPayloadSize configures the maximum allowed request payload size in bytes.
@@ -853,10 +867,11 @@ func (b *BaseProvider) RateLimiter() *rate.Limiter {
 	return b.rateLimiter
 }
 
-// WaitForRateLimit blocks until the rate limiter allows the request to
+// WaitForRateLimit blocks until the rate limiter allows a request to
 // proceed, or until the context is canceled. If no rate limiter is
-// configured, it returns immediately. Providers should call this before
-// making HTTP requests to respect rate limits.
+// configured, it returns immediately. Requests sent through the provider's
+// HTTP clients already wait inside their transport, so call it only for
+// outbound work that does not use those clients; each call takes a token.
 func (b *BaseProvider) WaitForRateLimit(ctx context.Context) error {
 	if b.rateLimiter == nil {
 		return nil
@@ -1039,11 +1054,8 @@ func (b *BaseProvider) MakeRawRequest(
 		return nil, err
 	}
 
-	// Wait for rate limiter before making the HTTP call
-	if waitErr := b.WaitForRateLimit(ctx); waitErr != nil {
-		return nil, fmt.Errorf("rate limit wait: %w", waitErr)
-	}
-
+	// The rate limit, when set, is applied by b.client's transport to each
+	// attempt below (see SetRateLimit).
 	doFn := func() (*http.Response, error) {
 		req, err := http.NewRequestWithContext(
 			ctx, "POST", url, bytes.NewReader(body),
