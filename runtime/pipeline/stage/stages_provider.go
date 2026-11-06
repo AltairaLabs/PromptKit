@@ -625,7 +625,9 @@ func (s *ProviderStage) streamingTurnState() streamingConfig {
 // EndOfTurn boundary, and stays open for the next turn. History threads across
 // turns within the session. Non-Message, non-control elements (e.g. an Interrupt
 // arriving between turns) are forwarded downstream unchanged so later stages and
-// follow-up work (the barge-in path) can act on them.
+// follow-up work (the barge-in path) can act on them. An upstream turn-failure
+// signal (see isTurnFailureSignal) drops the turn in progress and is passed on:
+// the model is not called for a turn whose input an upstream failure cut short.
 func (s *ProviderStage) processStreaming(
 	ctx context.Context,
 	input <-chan StreamElement,
@@ -663,6 +665,13 @@ func (s *ProviderStage) processStreaming(
 			// downstream signals end-of-conversation to the next stages.
 			_, err := s.fireIfPending(ctx, canceller.context(), &history, pending, output)
 			return err
+		case isTurnFailureSignal(&elem):
+			// An upstream stage failed the turn in progress. Its input is
+			// incomplete, so it is not fired when the input then ends.
+			pending = nil
+			if err := sendStreamElement(ctx, elem, output); err != nil {
+				return err
+			}
 		case elem.Message != nil:
 			pending = append(pending, *elem.Message)
 		default:
