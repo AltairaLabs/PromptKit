@@ -186,6 +186,7 @@ func (b *PipelineBuilder) Build() (*StreamPipeline, error) {
 		config:            b.config,
 		eventEmitter:      b.eventEmitter,
 		shutdown:          make(chan struct{}),
+		abandoned:         make(chan struct{}),
 		slots:             executionSlots(b.config),
 	}, nil
 }

@@ -13,6 +13,11 @@ var (
 	// ErrShutdownTimeout is returned when pipeline shutdown times out.
 	ErrShutdownTimeout = errors.New("shutdown timeout exceeded")
 
+	// ErrExecutionTimeout is the cause of a stage failure the pipeline's
+	// ExecutionTimeout produced. The turn's error wraps both it and
+	// context.DeadlineExceeded.
+	ErrExecutionTimeout = errors.New("pipeline execution timeout")
+
 	// ErrInvalidPipeline is returned when building an invalid pipeline.
 	ErrInvalidPipeline = errors.New("invalid pipeline configuration")
 

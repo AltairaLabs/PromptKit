@@ -50,6 +50,10 @@ type StreamPipeline struct {
 	shutdown   chan struct{}
 	shutdownMu sync.RWMutex
 	isShutdown bool
+
+	// abandoned closes when Shutdown's grace period ends with executions still
+	// running; they stop waiting on a consumer that has stopped reading.
+	abandoned chan struct{}
 }
 
 // Execute starts the pipeline execution with the given input channel.
@@ -65,7 +69,9 @@ type StreamPipeline struct {
 // arrives as a *StageError, which unwraps to the stage's error. A context error
 // that comes from the caller's own cancellation is not treated as a stage failure.
 // One from the pipeline's own ExecutionTimeout or IdleTimeout is: it fails the
-// turn, and an idle timeout's error wraps ErrIdleTimeout.
+// turn, and its error wraps ErrExecutionTimeout or ErrIdleTimeout. The caller must
+// read the output to its end or cancel ctx: an execution whose output nobody reads
+// blocks until ctx ends, or until Shutdown's grace period runs out.
 // The output closes once the terminal stages have returned.
 //
 // Execute returns ErrPipelineShuttingDown if the pipeline is shutting down.
@@ -86,7 +92,7 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 	execCtx := ctx
 	var cancel context.CancelFunc
 	if p.config.ExecutionTimeout > 0 {
-		execCtx, cancel = context.WithTimeout(ctx, p.config.ExecutionTimeout)
+		execCtx, cancel = context.WithTimeoutCause(ctx, p.config.ExecutionTimeout, ErrExecutionTimeout)
 		logger.Debug("Pipeline ExecutionTimeout configured",
 			"timeout", p.config.ExecutionTimeout,
 			"stages", len(p.stages))
@@ -193,7 +199,7 @@ func (p *StreamPipeline) executeBackground(
 		// Bounded by the caller's context, not the execution's: after the
 		// pipeline's own timeout the execution's is already done, and the
 		// failure must still reach a caller that is reading.
-		deliverTurnFailure(callerCtx, output, err)
+		deliverTurnFailure(callerCtx, p.abandoned, output, err)
 	}
 	close(output)
 
@@ -207,9 +213,11 @@ func (p *StreamPipeline) executeBackground(
 }
 
 // deliverTurnFailure sends the turn's error to the caller. A consumer that
-// has stopped reading would block it forever, so once ctx is done it gives up
-// rather than wait.
-func deliverTurnFailure(ctx context.Context, output chan<- StreamElement, err error) {
+// has stopped reading would block it forever, so it gives up once ctx is done
+// or once abandoned closes (Shutdown's grace period ended), rather than wait.
+func deliverTurnFailure(
+	ctx context.Context, abandoned <-chan struct{}, output chan<- StreamElement, err error,
+) {
 	elem := NewErrorElement(err)
 	select {
 	case output <- elem:
@@ -219,6 +227,7 @@ func deliverTurnFailure(ctx context.Context, output chan<- StreamElement, err er
 	select {
 	case output <- elem:
 	case <-ctx.Done():
+	case <-abandoned:
 	}
 }
 
@@ -256,8 +265,18 @@ func (f *turnFailure) withTimeoutCause(err error) error {
 	if cause == nil || errors.Is(err, cause) {
 		return err
 	}
-	return fmt.Errorf("%w: %w", cause, err)
+	return &timeoutCauseError{cause: cause, err: err}
 }
+
+// timeoutCauseError is a stage's context error with the reason the pipeline's
+// own timeout ended the context. It matches both under errors.Is.
+type timeoutCauseError struct {
+	cause error
+	err   error
+}
+
+func (e *timeoutCauseError) Error() string   { return e.cause.Error() + ": " + e.err.Error() }
+func (e *timeoutCauseError) Unwrap() []error { return []error{e.cause, e.err} }
 
 // namedCause is elem as the caller gets it: an error element carrying a bare
 // context error from the pipeline's own timeout gets that timeout's cause, as
@@ -413,8 +432,11 @@ func (p *StreamPipeline) isCompetitiveFanOut(stageName string) bool {
 
 // gateInput forwards in to the returned channel and closes it once in is
 // closed and the upstream stage has returned. If the upstream failed, the gate
-// first sends its error as an error element, unless the upstream already put
-// that error on its output. consumerDone stops it when the stage reading the
+// first sends its error as a turn-failure signal, unless the upstream only passed
+// on a signal it got for that error. It does so even when the upstream put the
+// error on its output as an ordinary error element: a downstream stage cannot tell
+// that element from a non-fatal report. The caller still gets the error once (see
+// collectOutput). consumerDone stops it when the stage reading the
 // returned channel has returned.
 func gateInput(in <-chan StreamElement, upstream *stageRun, consumerDone <-chan struct{}) <-chan StreamElement {
 	out := make(chan StreamElement)
@@ -422,7 +444,7 @@ func gateInput(in <-chan StreamElement, upstream *stageRun, consumerDone <-chan 
 		defer close(out)
 		var carried []error
 		for elem := range in {
-			if elem.Error != nil {
+			if isTurnFailureSignal(&elem) {
 				carried = append(carried, elem.Error)
 			}
 			select {
@@ -500,7 +522,7 @@ func (d *distributor) run(in <-chan StreamElement, upstream *stageRun) {
 	}()
 	var carried []error
 	for elem := range in {
-		if elem.Error != nil {
+		if isTurnFailureSignal(&elem) {
 			carried = append(carried, elem.Error)
 		}
 		if !d.send(elem) {
@@ -610,18 +632,37 @@ func isTurnFailureSignal(elem *StreamElement) bool {
 
 // errorCarried reports whether err, a stage's returned error wrapped in a
 // StageError, is already among carried: the stage's own error, or a wrap of it.
+//
+// It matches on the stage's own error, not on whatever err wraps: an earlier
+// element carrying a bare sentinel that err also wraps (io.EOF, say, reported
+// by another stage) is not this failure. The timeout cause the pipeline adds
+// (see withTimeoutCause) is set aside, so a stage that emits ctx.Err() and
+// returns it still matches. That context error is a bare sentinel, so there
+// only the same error matches, not an earlier one that wraps it (a tool's
+// "lookup timed out: context deadline exceeded", say).
 func errorCarried(carried []error, err error) bool {
-	inner := err
-	var se *StageError
-	if errors.As(err, &se) {
-		inner = se.Err
-	}
+	timedOut, inner := stageOwnError(err)
 	for _, e := range carried {
-		if errors.Is(err, e) || errors.Is(e, inner) {
+		if errors.Is(e, inner) && (!timedOut || errors.Is(inner, e)) {
 			return true
 		}
 	}
 	return false
+}
+
+// stageOwnError is the error a failed stage itself returned: err's
+// StageError.Err, without the timeout cause the pipeline added to it.
+// timedOut reports whether there was such a cause to set aside.
+func stageOwnError(err error) (timedOut bool, inner error) {
+	inner = err
+	var se *StageError
+	if errors.As(err, &se) {
+		inner = se.Err
+	}
+	if tc, ok := inner.(*timeoutCauseError); ok {
+		return true, tc.err
+	}
+	return false, inner
 }
 
 // startOutputCollection starts collecting output from leaf stages. The returned
@@ -665,23 +706,35 @@ type completionTotals struct {
 	outputTokens int
 	totalCost    float64
 
-	// errs are the errors already delivered to the caller on output elements.
-	errs []error
+	// errs are the errors already delivered to the caller on output elements;
+	// signals are those of them that were turn-failure signals.
+	errs    []error
+	signals []error
 }
 
-// observe records a single output element's contribution to the totals. Nil-safe
-// on the receiver so callers (and tests) can pass a nil accumulator to opt out.
-func (t *completionTotals) observe(elem *StreamElement) {
+// observe records a single output element's contribution to the totals and
+// reports whether the element should reach the caller. It does not when it
+// repeats a failure already delivered: a stage that emitted its error and also
+// returned it puts both the error element and the turn-failure signal on the
+// way to the caller, in either order when several leaves fan in. Nil-safe on
+// the receiver so callers (and tests) can pass a nil accumulator to opt out.
+func (t *completionTotals) observe(elem *StreamElement) bool {
 	if t == nil || (elem.Message == nil && elem.Error == nil) {
-		return
+		return true
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if elem.Error != nil {
+		if t.repeatsFailure(elem) {
+			return false
+		}
 		t.errs = append(t.errs, elem.Error)
+		if isTurnFailureSignal(elem) {
+			t.signals = append(t.signals, elem.Error)
+		}
 	}
 	if elem.Message == nil {
-		return
+		return true
 	}
 	t.messageCount++
 	if elem.Message.Role == roleAssistant && elem.Message.CostInfo != nil {
@@ -689,6 +742,22 @@ func (t *completionTotals) observe(elem *StreamElement) {
 		t.outputTokens += elem.Message.CostInfo.OutputTokens
 		t.totalCost += elem.Message.CostInfo.TotalCost
 	}
+	return true
+}
+
+// repeatsFailure reports whether an error element repeats a failure the caller
+// already got: a turn-failure signal whose error was delivered, or an error
+// element whose error a delivered signal carries. Called with t.mu held.
+func (t *completionTotals) repeatsFailure(elem *StreamElement) bool {
+	if isTurnFailureSignal(elem) {
+		return errorCarried(t.errs, elem.Error)
+	}
+	for _, s := range t.signals {
+		if errorCarried([]error{elem.Error}, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // delivered reports whether err already reached the caller on an output
@@ -1021,6 +1090,22 @@ func instrumentStageInput(stageName string, input <-chan StreamElement) <-chan S
 	return instrumented
 }
 
+// forwardOutput hands one leaf element to the caller. A turn-failure signal
+// whose error already reached the caller (a stage that emitted its error and
+// also returned it) is not sent again. Once Shutdown has given up on the
+// execution (see abandoned), elements are dropped rather than waited on.
+func (p *StreamPipeline) forwardOutput(
+	elem StreamElement, output chan<- StreamElement, totals *completionTotals, failure *turnFailure,
+) {
+	if !totals.observe(&elem) {
+		return
+	}
+	select {
+	case output <- failure.namedCause(elem):
+	case <-p.abandoned:
+	}
+}
+
 // collectOutput collects output from all leaf stages into the pipeline output
 // channel. Leaf stages are read concurrently so that a slow leaf does not
 // block faster ones.
@@ -1042,8 +1127,7 @@ func (p *StreamPipeline) collectOutput(
 		// Fast path: single leaf — no extra goroutines needed.
 		for _, ch := range leafChans {
 			for elem := range ch {
-				totals.observe(&elem)
-				output <- failure.namedCause(elem)
+				p.forwardOutput(elem, output, totals, failure)
 			}
 		}
 		return
@@ -1056,8 +1140,7 @@ func (p *StreamPipeline) collectOutput(
 		go func(src <-chan StreamElement) {
 			defer wg.Done()
 			for elem := range src {
-				totals.observe(&elem)
-				output <- failure.namedCause(elem)
+				p.forwardOutput(elem, output, totals, failure)
 			}
 		}(ch)
 	}
@@ -1179,6 +1262,9 @@ func (p *StreamPipeline) accumulateResult(output <-chan StreamElement) (*Executi
 }
 
 // Shutdown gracefully shuts down the pipeline, waiting for in-flight executions to complete.
+// When GracefulShutdownTimeout (or ctx) ends first it returns ErrShutdownTimeout, and
+// executions still blocked on a consumer that stopped reading their output drop that
+// output and return.
 func (p *StreamPipeline) Shutdown(ctx context.Context) error {
 	p.shutdownMu.Lock()
 	if p.isShutdown {
@@ -1203,6 +1289,9 @@ func (p *StreamPipeline) Shutdown(ctx context.Context) error {
 	case <-done:
 		return nil
 	case <-shutdownCtx.Done():
+		// The grace period is over: an execution still running is held by a
+		// consumer that stopped reading. Let it drop its output and return.
+		close(p.abandoned)
 		return fmt.Errorf("%w: %v", ErrShutdownTimeout, p.config.GracefulShutdownTimeout)
 	}
 }
