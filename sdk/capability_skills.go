@@ -32,6 +32,11 @@ type SkillsCapability struct {
 	// initMu serializes Init: a capability shared across opens via
 	// WithCapability can be initialized by concurrent opens.
 	initMu sync.Mutex
+
+	// beforePreloadRead, when set, runs in preloadedInstructions just before
+	// each preloaded skill is read. A test seam: it lets a test land a
+	// deactivation at exactly that point. Nil outside tests.
+	beforePreloadRead func(name string)
 }
 
 // SkillsOption configures a SkillsCapability.
@@ -220,6 +225,9 @@ func (c *SkillsCapability) preloadedInstructions(set *skills.ActiveSet) string {
 	}
 	var sections []string
 	for _, name := range c.preload {
+		if c.beforePreloadRead != nil {
+			c.beforePreloadRead(name)
+		}
 		instructions, active := set.Instructions(name)
 		if !active || instructions == "" {
 			continue
