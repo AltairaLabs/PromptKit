@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/tutorials/01-first-conversation.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -27,10 +27,10 @@
    "claim": "sdk.Open(\"./hello.pack.json\", \"chat\")",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1209",
-    "sdk/conversation.go:268",
+    "sdk/conversation.go:1318",
+    "sdk/conversation.go:288",
     "sdk/response.go:99",
-    "sdk/sdk.go:84"
+    "sdk/sdk.go:89"
    ]
   },
   {
@@ -38,9 +38,9 @@
    "claim": "`sdk.Open` takes the pack path and the prompt name",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1209",
+    "sdk/conversation.go:1318",
     "sdk/response.go:99",
-    "sdk/sdk.go:84"
+    "sdk/sdk.go:89"
    ]
   },
   {
@@ -56,8 +56,8 @@
    "claim": "The SDK also writes `INFO` log lines",
    "verdict": "true",
    "evidence": [
-    "runtime/logger/config.go:133",
-    "sdk/sdk.go:94"
+    "runtime/logger/config.go:212",
+    "sdk/sdk.go:99"
    ]
   },
   {
@@ -65,8 +65,8 @@
    "claim": "The conversation keeps its history, so a second `Send` sees the first",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1286",
-    "sdk/conversation.go:268"
+    "sdk/conversation.go:1395",
+    "sdk/conversation.go:288"
    ]
   },
   {

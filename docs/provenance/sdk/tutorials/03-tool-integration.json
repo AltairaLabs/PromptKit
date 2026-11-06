@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/tutorials/03-tool-integration.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -8,7 +8,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/prompt/schema/promptpack.schema.json:1",
-    "sdk/conversation_tools.go:121"
+    "sdk/conversation_tools.go:119"
    ]
   },
   {
@@ -16,8 +16,8 @@
    "claim": "`OnTool()` registers a handler by tool name",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:235",
-    "sdk/conversation_tools.go:33"
+    "sdk/conversation.go:248",
+    "sdk/conversation_tools.go:34"
    ]
   },
   {
@@ -25,7 +25,7 @@
    "claim": "conv.OnTool(\"get_weather\"",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:33"
+    "sdk/conversation_tools.go:34"
    ]
   },
   {
@@ -33,7 +33,7 @@
    "claim": "The SDK serializes the value to JSON and sends it to the model as the tool result",
    "verdict": "true",
    "evidence": [
-    "sdk/tool_executors.go:109"
+    "sdk/tool_executors.go:142"
    ]
   },
   {
@@ -41,7 +41,7 @@
    "claim": "The model receives `Tool execution failed: no weather data for \"Atlantis\"` as the tool result",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3407"
+    "runtime/pipeline/stage/stages_provider.go:3520"
    ]
   },
   {

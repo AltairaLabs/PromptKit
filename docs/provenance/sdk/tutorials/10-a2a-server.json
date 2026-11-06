@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/tutorials/10-a2a-server.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -14,7 +14,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/credentials/resolver.go:46",
-    "sdk/sdk.go:55"
+    "sdk/sdk.go:57"
    ]
   },
   {
@@ -22,7 +22,7 @@
    "claim": "pack with no template variables opens with A2AOpener (no SetVar)",
    "verdict": "true",
    "evidence": [
-    "sdk/a2a.go:10"
+    "sdk/a2a.go:12"
    ]
   },
   {
@@ -33,8 +33,8 @@
     "sdk/a2a_exports.go:38",
     "sdk/a2a_exports.go:45",
     "sdk/a2a_exports.go:50",
-    "server/a2a/server.go:349",
-    "server/a2a/server.go:371"
+    "server/a2a/server.go:356",
+    "server/a2a/server.go:382"
    ]
   },
   {
@@ -42,7 +42,7 @@
    "claim": "opener called first time a contextID is seen, conversation reused",
    "verdict": "true",
    "evidence": [
-    "server/a2a/server.go:1229"
+    "server/a2a/server.go:1225"
    ]
   },
   {
@@ -50,8 +50,8 @@
    "claim": "agent card served at /.well-known/agent-card.json",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:266",
-    "server/a2a/server.go:318"
+    "runtime/a2a/client.go:277",
+    "server/a2a/server.go:328"
    ]
   },
   {
@@ -59,9 +59,9 @@
    "claim": "client main.go compiles: NewClient, Discover, SendMessage, Blocking, Part.Text",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:231",
-    "runtime/a2a/client.go:273",
-    "runtime/a2a/client.go:762"
+    "runtime/a2a/client.go:242",
+    "runtime/a2a/client.go:285",
+    "runtime/a2a/client.go:775"
    ]
   },
   {
@@ -69,7 +69,7 @@
    "claim": "Ctrl+C prints Shutting down and server exits",
    "verdict": "true",
    "evidence": [
-    "server/a2a/server.go:371"
+    "server/a2a/server.go:382"
    ]
   }
  ]
