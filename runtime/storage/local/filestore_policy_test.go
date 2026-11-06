@@ -106,6 +106,45 @@ func TestFileStore_TimeBasedPolicyHandlerRejectsUnknownPolicy(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestFileStore_StoringMediaKeepsEnforcingMediaFromEarlierRuns checks that
+// storing one item through the store does not narrow EnforcePolicy to the
+// items tracked since the handler was created: expired media an earlier run
+// left on disk is still found and deleted when the host calls EnforcePolicy
+// itself, without StartEnforcement.
+func TestFileStore_StoringMediaKeepsEnforcingMediaFromEarlierRuns(t *testing.T) {
+	ctx := context.Background()
+	baseDir := t.TempDir()
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+
+	// An earlier run stored this media; its policy expired an hour ago.
+	earlier, err := local.NewFileStore(local.FileStoreConfig{BaseDir: baseDir, DefaultPolicy: "delete-after-10min"})
+	require.NoError(t, err)
+	old := policyMetadata()
+	old.SessionID = "earlier-run"
+	old.Timestamp = now.Add(-70 * time.Minute)
+	oldRef, err := earlier.StoreMedia(ctx, inlineContent(t), old)
+	require.NoError(t, err)
+	require.FileExists(t, string(oldRef))
+
+	handler := policy.NewTimeBasedPolicyHandler(time.Hour, policy.WithClock(clock))
+	fs, err := local.NewFileStore(local.FileStoreConfig{
+		BaseDir:       baseDir,
+		DefaultPolicy: "delete-after-10min",
+	}, local.WithPolicyHandler(handler))
+	require.NoError(t, err)
+	fresh := policyMetadata()
+	fresh.SessionID = "this-run"
+	fresh.Timestamp = now
+	freshRef, err := fs.StoreMedia(ctx, inlineContent(t), fresh)
+	require.NoError(t, err)
+
+	require.NoError(t, handler.EnforcePolicy(ctx, baseDir))
+	assert.NoFileExists(t, string(oldRef), "expired media from an earlier run must still be enforced")
+	assert.NoFileExists(t, string(oldRef)+".meta")
+	assert.FileExists(t, string(freshRef), "unexpired media must survive")
+}
+
 // TestFileStore_MediaStoredAfterEnforcementStartsExpires checks that media
 // stored after StartEnforcement has built its expiry index is tracked, so
 // index-based enforcement deletes it once its policy expires.

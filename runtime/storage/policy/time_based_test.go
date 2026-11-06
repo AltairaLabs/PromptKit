@@ -618,3 +618,58 @@ func TestTimeBasedPolicyHandler_TrackMedia(t *testing.T) {
 		assert.Equal(t, 0, h.ExpiryIndexLen())
 	})
 }
+
+// writeExpiringMedia writes a media file and its .meta under dir with a
+// delete-after-5min policy stamped at ts, and returns the media path.
+func writeExpiringMedia(t *testing.T, dir, name string, ts time.Time) string {
+	t.Helper()
+	mediaPath := filepath.Join(dir, name)
+	data, err := json.Marshal(storage.MediaMetadata{PolicyName: "delete-after-5min", Timestamp: ts})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(mediaPath, []byte("x"), 0o600))
+	require.NoError(t, os.WriteFile(mediaPath+".meta", data, 0o600))
+	return mediaPath
+}
+
+func TestTimeBasedPolicyHandler_TrackingDoesNotSkipTheWalk(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	h := policy.NewTimeBasedPolicyHandler(0, policy.WithClock(testClock))
+
+	untracked := writeExpiringMedia(t, dir, "untracked.jpg", testNow.Add(-6*time.Minute))
+	tracked := writeExpiringMedia(t, dir, "tracked.jpg", testNow)
+	h.TrackFile(tracked+".meta", testNow.Add(5*time.Minute))
+
+	require.NoError(t, h.EnforcePolicy(ctx, dir))
+	assert.NoFileExists(t, untracked, "media nobody tracked is still found by the walk")
+	assert.FileExists(t, tracked)
+	assert.Equal(t, 1, h.ExpiryIndexLen())
+}
+
+func TestTimeBasedPolicyHandler_BuildExpiryIndexKeepsTrackedEntries(t *testing.T) {
+	ctx := context.Background()
+	h := policy.NewTimeBasedPolicyHandler(0, policy.WithClock(testClock))
+
+	// Tracked before (or while) the scan runs, in a place the scan does not see.
+	elsewhere := writeExpiringMedia(t, t.TempDir(), "tracked.jpg", testNow.Add(-6*time.Minute))
+	h.TrackFile(elsewhere+".meta", testNow.Add(-1*time.Minute))
+
+	require.NoError(t, h.BuildExpiryIndex(t.TempDir()))
+	require.NoError(t, h.EnforcePolicy(ctx, t.TempDir()))
+	assert.NoFileExists(t, elsewhere, "building the index must not discard tracked media")
+}
+
+func TestTimeBasedPolicyHandler_IndexDropsEntriesWhoseFilesAreGone(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	h := policy.NewTimeBasedPolicyHandler(0, policy.WithClock(testClock))
+
+	media := writeExpiringMedia(t, dir, "gone.jpg", testNow.Add(-6*time.Minute))
+	require.NoError(t, h.BuildExpiryIndex(dir))
+	require.Equal(t, 1, h.ExpiryIndexLen())
+	require.NoError(t, os.Remove(media))
+	require.NoError(t, os.Remove(media+".meta"))
+
+	require.NoError(t, h.EnforcePolicy(ctx, dir))
+	assert.Equal(t, 0, h.ExpiryIndexLen(), "an entry for a deleted file must not stay in the index")
+}
