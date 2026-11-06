@@ -220,7 +220,7 @@ func NewStreamMetrics(
 				"With HTTP/2 multiplexing, multiple requests may share one TCP connection, so " +
 				"this is an upper bound on physical connections in use rather than an exact " +
 				"count. Operationally this is the pool-pressure signal for tuning " +
-				"MaxConnsPerHost (see AltairaLabs/PromptKit#873): when this gauge approaches " +
+				"MaxConnsPerHost: when this gauge approaches " +
 				"the configured MaxConnsPerHost × upstream SETTINGS_MAX_CONCURRENT_STREAMS, " +
 				"the transport is pool-saturated and new streams will serialize behind in-use " +
 				"connections.",

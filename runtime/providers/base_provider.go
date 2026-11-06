@@ -171,6 +171,7 @@ type BaseProvider struct {
 	streamRetryPolicy     StreamRetryPolicy
 	streamRetryBudget     *RetryBudget
 	streamSemaphore       *StreamSemaphore
+	streamObserver        StreamObserver
 	rateLimiter           *rate.Limiter
 	retryPolicy           pipeline.RetryPolicy
 	maxRequestPayloadSize int64
@@ -503,6 +504,13 @@ func (b *BaseProvider) SetStreamSemaphore(sem *StreamSemaphore) {
 	b.streamSemaphore = sem
 }
 
+// SetStreamObserver installs an observer that receives the events of every
+// stream this provider opens through RunStreamingRequest. Nil (the default)
+// observes nothing. See StreamObserver.
+func (b *BaseProvider) SetStreamObserver(o StreamObserver) {
+	b.streamObserver = o
+}
+
 // AcquireStreamSlot blocks on the configured concurrent-stream semaphore
 // until a slot is available or the context is done. Returns nil on
 // successful acquire (caller MUST call b.ReleaseStreamSlot exactly once)
@@ -565,6 +573,10 @@ type StreamConsumer func(ctx context.Context, body io.ReadCloser, outChan chan<-
 // stream and forwards that stream's chunks instead, if the retry budget has a
 // token and the context is not canceled.
 //
+// The relay also gives the final chunk of a stream that ends without an error
+// a *PredictionResponse in FinalResult (unless the provider set one), and
+// reports every chunk to the provider's StreamObserver, if one is installed.
+//
 // On an error before the goroutines start, it releases the slot and gauges.
 //
 // Callers must set req.ProviderName to b.ID().
@@ -573,6 +585,7 @@ func (b *BaseProvider) RunStreamingRequest(
 	req *StreamRetryRequest,
 	consumer StreamConsumer,
 ) (<-chan StreamChunk, error) {
+	start := time.Now()
 	if acqErr := b.AcquireStreamSlot(ctx); acqErr != nil {
 		return nil, fmt.Errorf("failed to acquire stream slot: %w", acqErr)
 	}
@@ -613,6 +626,7 @@ func (b *BaseProvider) RunStreamingRequest(
 	// leak past the safe-retry window.
 	innerChan := make(chan StreamChunk, DefaultStreamBufferSize)
 	outChan := make(chan StreamChunk, DefaultStreamBufferSize)
+	tap := &streamTap{out: outChan, observer: b.streamObserver, start: start}
 
 	// From this point on, ownership of the acquired slot and gauge
 	// increments transfers to the goroutines' defers below. Flip the
@@ -655,7 +669,8 @@ func (b *BaseProvider) RunStreamingRequest(
 		// Recover any panic so the relay can't crash the process; the deferred
 		// close(outChan) still runs, so the caller sees EOF instead of a hang.
 		safe.Run("provider-stream-relay", func() {
-			b.relayStream(ctx, req, consumer, innerChan, outChan, metrics, providerID)
+			b.relayStream(ctx, req, consumer, innerChan, tap, metrics, providerID)
+			tap.finish()
 		}, nil)
 	}()
 
@@ -673,14 +688,14 @@ func (b *BaseProvider) relayStream(
 	req *StreamRetryRequest,
 	consumer StreamConsumer,
 	innerChan <-chan StreamChunk,
-	outChan chan<- StreamChunk,
+	tap *streamTap,
 	metrics *StreamMetrics,
 	providerID string,
 ) {
 	canMidStreamRetry := req.Policy.Enabled &&
 		req.Policy.Window == StreamRetryWindowAlways
 
-	contentChunks := forwardChunks(ctx, innerChan, outChan, metrics, providerID)
+	contentChunks := forwardChunks(ctx, innerChan, tap, metrics, providerID)
 	if contentChunks < 0 {
 		return // stream completed cleanly (no error)
 	}
@@ -691,7 +706,7 @@ func (b *BaseProvider) relayStream(
 	// Never for a canceled stream: the retry cannot succeed, and its Reset
 	// chunk would wipe the partial output the caller has already seen.
 	if canMidStreamRetry && contentChunks > 0 && ctx.Err() == nil && req.Budget.TryAcquire() {
-		midStreamRetry(ctx, req, consumer, outChan, metrics, providerID)
+		midStreamRetry(ctx, req, consumer, tap, metrics, providerID)
 	}
 }
 
@@ -705,7 +720,7 @@ func (b *BaseProvider) relayStream(
 // closed body, or on a clean EOF with no error at all. The first would report
 // a network fault; the second would make a truncated reply look complete.
 func forwardChunks(
-	ctx context.Context, src <-chan StreamChunk, dst chan<- StreamChunk,
+	ctx context.Context, src <-chan StreamChunk, dst *streamTap,
 	metrics *StreamMetrics, providerID string,
 ) int {
 	var contentChunks int
@@ -721,17 +736,17 @@ func forwardChunks(
 				chunk.Error = ctxErr
 			}
 			metrics.ObserveStreamErrorChunksForwarded(providerID, contentChunks)
-			dst <- chunk
+			dst.send(chunk)
 			return contentChunks
 		}
 		if chunk.FinishReason != nil {
 			finished = true
 		}
-		dst <- chunk
+		dst.send(chunk)
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil && !finished {
 		metrics.ObserveStreamErrorChunksForwarded(providerID, contentChunks)
-		dst <- StreamChunk{Error: ctxErr}
+		dst.send(StreamChunk{Error: ctxErr})
 		return contentChunks
 	}
 	return -1 // clean close
@@ -745,7 +760,7 @@ func midStreamRetry(
 	ctx context.Context,
 	req *StreamRetryRequest,
 	consumer StreamConsumer,
-	outChan chan<- StreamChunk,
+	tap *streamTap,
 	metrics *StreamMetrics,
 	providerID string,
 ) {
@@ -753,14 +768,14 @@ func midStreamRetry(
 	logger.Warn("mid-stream failure, emitting reset and retrying",
 		"provider", providerID,
 	)
-	outChan <- StreamChunk{Reset: true}
+	tap.send(StreamChunk{Reset: true})
 
 	retryResult, retryErr := OpenStreamWithRetryRequest(ctx, req)
 	if retryErr != nil {
-		outChan <- StreamChunk{
+		tap.send(StreamChunk{
 			Error:        fmt.Errorf("mid-stream retry failed: %w", retryErr),
 			FinishReason: StringPtr("error"),
-		}
+		})
 		return
 	}
 
@@ -773,7 +788,7 @@ func midStreamRetry(
 		}, nil)
 	}()
 
-	forwardChunks(ctx, retryChan, outChan, metrics, providerID)
+	forwardChunks(ctx, retryChan, tap, metrics, providerID)
 }
 
 // chunkForwardedContent reports whether a StreamChunk delivered any

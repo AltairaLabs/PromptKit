@@ -119,7 +119,10 @@ func processSSELine(br *bufio.Reader, buf *bytes.Buffer, line string, sawData *b
 // NDJSONFrameDetector detects newline-delimited JSON frames. Each frame
 // is one complete JSON object terminated by a literal `\n`, as in Ollama's
 // native streaming API (`{"response":"..."}\n`) and other non-SSE APIs that
-// stream raw JSON.
+// stream raw JSON. A provider streaming such an API sets it as
+// StreamRetryRequest.FrameDetector when it calls RunStreamingRequest. The
+// built-in providers all stream SSE or a JSON array (PromptKit's Ollama
+// provider uses the OpenAI-compatible SSE endpoint), so none of them uses it.
 //
 // This detector does NOT validate that the line is parseable JSON;
 // it only looks for the line terminator. Upstream producers that

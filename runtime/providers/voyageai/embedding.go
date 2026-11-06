@@ -232,12 +232,15 @@ func (p *EmbeddingProvider) embedTexts(
 	}
 
 	// Reorder embeddings by index for consistent output
-	orderedEmbeddings, _ := providers.ExtractOrderedEmbeddings(
+	orderedEmbeddings, err := providers.ExtractOrderedEmbeddings(
 		voyageResp.Data,
 		func(v voyageEmbedding) int { return v.Index },
 		func(v voyageEmbedding) []float32 { return v.Embedding },
 		len(texts),
 	)
+	if err != nil {
+		return providers.EmbeddingResponse{}, err
+	}
 
 	providers.LogEmbeddingRequestWithTokens("Voyage AI", model, len(texts), voyageResp.Usage.TotalTokens, requestStart)
 

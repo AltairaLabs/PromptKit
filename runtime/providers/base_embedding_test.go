@@ -262,23 +262,39 @@ func TestExtractOrderedEmbeddings(t *testing.T) {
 		assert.Empty(t, embeddings)
 	})
 
-	t.Run("ignores out of bounds indices", func(t *testing.T) {
-		data := []testData{
-			{Index: 0, Embedding: []float32{0.1}},
-			{Index: 5, Embedding: []float32{0.5}},  // out of bounds
-			{Index: -1, Embedding: []float32{0.0}}, // negative
+	t.Run("rejects an out-of-range index", func(t *testing.T) {
+		for _, idx := range []int{2, -1} {
+			_, err := ExtractOrderedEmbeddings(
+				[]testData{{Index: 0, Embedding: []float32{0.1}}, {Index: idx, Embedding: []float32{0.5}}},
+				func(d testData) int { return d.Index },
+				func(d testData) []float32 { return d.Embedding },
+				2,
+			)
+			require.Error(t, err, "index %d", idx)
+			assert.Contains(t, err.Error(), "out of range")
 		}
+	})
 
-		embeddings, err := ExtractOrderedEmbeddings(
-			data,
+	t.Run("rejects a count that differs from the inputs", func(t *testing.T) {
+		_, err := ExtractOrderedEmbeddings(
+			[]testData{{Index: 0, Embedding: []float32{0.1}}},
 			func(d testData) int { return d.Index },
 			func(d testData) []float32 { return d.Embedding },
 			2,
 		)
-		require.NoError(t, err)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "returned 1 embeddings for 2 inputs")
+	})
 
-		assert.Equal(t, []float32{0.1}, embeddings[0])
-		assert.Nil(t, embeddings[1]) // Not filled
+	t.Run("rejects a repeated index", func(t *testing.T) {
+		_, err := ExtractOrderedEmbeddings(
+			[]testData{{Index: 0, Embedding: []float32{0.1}}, {Index: 0, Embedding: []float32{0.2}}},
+			func(d testData) int { return d.Index },
+			func(d testData) []float32 { return d.Embedding },
+			2,
+		)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "index 0 more than once")
 	})
 }
 

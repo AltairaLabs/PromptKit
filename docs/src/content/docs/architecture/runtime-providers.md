@@ -164,7 +164,7 @@ sequenceDiagram
 
 After the factory returns, `CreateProviderFromSpec` applies the spec's optional settings through small interfaces such as `timeoutConfigurable` and `streamRetryConfigurable`. Factories therefore stay short, and any provider that embeds `BaseProvider` picks up timeouts, stream retry, the concurrent-stream cap, the HTTP transport, custom headers and the media store without per-adapter code.
 
-`Registry` is a map of providers keyed by `ID()`. `Register`, `Get`, `List` and `Close` work on that map, and `GetByType` and `GetAll` look up ancillary providers (TTS, STT, embedding, image, video, rerank) by capability. `CreateProviderFromSpec` does not register what it builds. You call `Register` yourself. The registry is not safe for concurrent use.
+`Registry` is a map of providers keyed by `ID()`. `Register`, `Get`, `List` and `Close` work on that map, and `GetByType` and `GetAll` look up ancillary providers (TTS, STT, embedding, image, video, rerank) by capability. Registering a second provider under an ID that is already taken replaces the first for every lookup, typed or not. `CreateProviderFromSpec` does not register what it builds. You call `Register` yourself. The registry is not safe for concurrent use.
 
 ## What an adapter translates
 

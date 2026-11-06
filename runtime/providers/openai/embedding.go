@@ -244,12 +244,15 @@ func (p *EmbeddingProvider) embedSingle(
 	}
 
 	// Extract embeddings in correct order
-	embeddings, _ := providers.ExtractOrderedEmbeddings(
+	embeddings, extractErr := providers.ExtractOrderedEmbeddings(
 		embedResp.Data,
 		func(d embeddingData) int { return d.Index },
 		func(d embeddingData) []float32 { return d.Embedding },
 		len(texts),
 	)
+	if extractErr != nil {
+		return providers.EmbeddingResponse{}, extractErr
+	}
 
 	providers.LogEmbeddingRequestWithTokens("OpenAI", model, len(texts), embedResp.Usage.TotalTokens, start)
 

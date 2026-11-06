@@ -109,3 +109,29 @@ func TestBaseRegistry_GetTyped_NotFound_Errors(t *testing.T) {
 	_, err := base.GetTyped[base.Provider](r, "missing", base.ProviderTypeInference)
 	assert.Error(t, err)
 }
+
+func TestBaseRegistry_ReplaceOverwritesDuplicate(t *testing.T) {
+	r := base.NewRegistry()
+	require.NoError(t, r.Register(newFakeBase("openai", base.ProviderTypeInference)))
+	replacement := newFakeBase("openai", base.ProviderTypeInference)
+	require.NoError(t, r.Replace(replacement))
+
+	got, err := r.Get("openai", base.ProviderTypeInference)
+	require.NoError(t, err)
+	assert.Same(t, replacement, got)
+	assert.Len(t, r.GetAll(base.ProviderTypeInference), 1)
+	assert.Error(t, r.Replace(nil))
+}
+
+func TestBaseRegistry_Unregister(t *testing.T) {
+	r := base.NewRegistry()
+	require.NoError(t, r.Register(newFakeBase("openai", base.ProviderTypeInference)))
+	require.NoError(t, r.Register(newFakeBase("openai", base.ProviderTypeTTS)))
+
+	assert.True(t, r.Unregister("openai", base.ProviderTypeInference))
+	assert.False(t, r.Unregister("openai", base.ProviderTypeInference), "already removed")
+	_, err := r.Get("openai", base.ProviderTypeInference)
+	assert.Error(t, err)
+	_, err = r.Get("openai", base.ProviderTypeTTS)
+	assert.NoError(t, err, "only the named capability is removed")
+}

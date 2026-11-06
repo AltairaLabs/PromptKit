@@ -244,7 +244,7 @@ func TestStreamContextCancellation(t *testing.T) {
 	// when the provider surfaces it directly.
 	gotCancellation := false
 	for chunk := range stream {
-		if chunk.FinishReason != nil && *chunk.FinishReason == "cancelled" {
+		if chunk.FinishReason != nil && *chunk.FinishReason == "canceled" {
 			gotCancellation = true
 			continue
 		}

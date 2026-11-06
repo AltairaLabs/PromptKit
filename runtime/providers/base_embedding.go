@@ -255,21 +255,32 @@ func DoAncillaryJSONRequest(
 }
 
 // ExtractOrderedEmbeddings places each item's embedding at the position
-// getIndex reports, in a slice of expectedCount entries. Items whose index is
-// outside [0, expectedCount) are dropped, and a position no item fills stays
-// nil. The error result is always nil.
+// getIndex reports, in a slice of expectedCount entries. It returns an error
+// when the response does not hold exactly one embedding per input: a count
+// other than expectedCount, an index outside [0, expectedCount), or an index
+// that appears twice. Each case would otherwise hand the caller a nil vector
+// in place of one it asked for.
 func ExtractOrderedEmbeddings[T any](
 	data []T,
 	getIndex func(T) int,
 	getEmbedding func(T) []float32,
 	expectedCount int,
 ) ([][]float32, error) {
+	if len(data) != expectedCount {
+		return nil, fmt.Errorf("embedding response returned %d embeddings for %d inputs", len(data), expectedCount)
+	}
 	embeddings := make([][]float32, expectedCount)
+	filled := make([]bool, expectedCount)
 	for _, item := range data {
 		idx := getIndex(item)
-		if idx >= 0 && idx < expectedCount {
-			embeddings[idx] = getEmbedding(item)
+		if idx < 0 || idx >= expectedCount {
+			return nil, fmt.Errorf("embedding response index %d out of range for %d inputs", idx, expectedCount)
 		}
+		if filled[idx] {
+			return nil, fmt.Errorf("embedding response returned index %d more than once", idx)
+		}
+		filled[idx] = true
+		embeddings[idx] = getEmbedding(item)
 	}
 	return embeddings, nil
 }

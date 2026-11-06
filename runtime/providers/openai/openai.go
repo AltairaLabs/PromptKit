@@ -1083,7 +1083,7 @@ func sendIfCanceled(
 			Content:      content,
 			ToolCalls:    toolCalls,
 			Error:        ctx.Err(),
-			FinishReason: providers.StringPtr("cancelled"), //nolint:misspell // the documented finish-reason value
+			FinishReason: providers.StringPtr(finishCanceled),
 		}
 		return true
 	default:
@@ -1213,7 +1213,7 @@ func (p *Provider) endIncompleteStream(
 	switch {
 	case ctx.Err() != nil:
 		err = ctx.Err()
-		reason = "cancelled" //nolint:misspell // the documented StreamChunk.FinishReason value, as above
+		reason = finishCanceled
 	case err == nil:
 		err = fmt.Errorf("openai stream ended before completion: %w", io.ErrUnexpectedEOF)
 	}

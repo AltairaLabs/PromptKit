@@ -55,6 +55,32 @@ func (r *Registry) Register(p Provider) error {
 	return nil
 }
 
+// Replace adds a provider, replacing any provider already registered under the
+// same (name, capability). Use it where a later registration is meant to win;
+// Register keeps the first.
+func (r *Registry) Replace(p Provider) error {
+	if p == nil {
+		return fmt.Errorf("nil provider")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.entries[registryKey{name: p.Name(), typ: p.Type()}] = p
+	return nil
+}
+
+// Unregister removes the provider registered under (name, capability). It
+// reports whether one was registered. The provider is not closed.
+func (r *Registry) Unregister(name string, typ ProviderType) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k := registryKey{name: name, typ: typ}
+	if _, ok := r.entries[k]; !ok {
+		return false
+	}
+	delete(r.entries, k)
+	return true
+}
+
 // Get returns the provider registered under (name, capability), or an error.
 func (r *Registry) Get(name string, typ ProviderType) (Provider, error) {
 	r.mu.RLock()
