@@ -239,18 +239,28 @@ func TestExecute_StageErrorLeavesDownstreamRunning(t *testing.T) {
 	assert.ErrorIs(t, errs[0], errStageBoom)
 }
 
-// TestExecute_ErrorElementNotDoubledByGate: an upstream that emits its error
-// and also returns it gets one error element downstream, not two.
-func TestExecute_ErrorElementNotDoubledByGate(t *testing.T) {
+// TestExecute_EmittedErrorStillSignaledButDeliveredOnce: an upstream that
+// emits its error and also returns it. The downstream stage gets the
+// turn-failure signal after the ordinary error element, since it cannot tell
+// that element from a non-fatal report (#2418). The caller gets the error once.
+func TestExecute_EmittedErrorStillSignaledButDeliveredOnce(t *testing.T) {
 	probe := &endOfInputProbe{}
 	p, err := NewPipelineBuilder().Chain(failingStage("emitter", errStageBoom, true), probe.stage()).Build()
 	require.NoError(t, err)
 
-	_, execErr := p.ExecuteSync(context.Background(), userElement("hi"))
-	require.ErrorIs(t, execErr, errStageBoom)
+	in := make(chan StreamElement, 1)
+	in <- userElement("hi")
+	close(in)
+	out, err := p.Execute(context.Background(), in)
+	require.NoError(t, err)
+	errs := errorElements(out)
+	require.Len(t, errs, 1, "the caller gets the error once")
+	assert.ErrorIs(t, errs[0], errStageBoom)
 
 	_, inputErrs, _ := probe.observed()
-	require.Len(t, inputErrs, 1)
+	require.Len(t, inputErrs, 2)
+	var sig *turnFailureSignal
+	assert.ErrorAs(t, inputErrs[1], &sig, "the last error downstream is the turn-failure signal")
 }
 
 // TestExecute_CallerCancelSignalsNothingDownstream: a stage returning ctx.Err()
