@@ -824,7 +824,7 @@ func (ac *AudioCapability) AcceptsSampleRate(rate int) bool
 AcceptsSampleRate returns true if this capability accepts the given sample rate. Returns true if SampleRates is empty \(accepts any\).
 
 <a name="AudioData"></a>
-## type [AudioData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L129-L136>)
+## type [AudioData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L137-L144>)
 
 AudioData carries audio samples with metadata.
 
@@ -840,7 +840,7 @@ type AudioData struct {
 ```
 
 <a name="AudioFormat"></a>
-## type [AudioFormat](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L139>)
+## type [AudioFormat](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L147>)
 
 AudioFormat represents the encoding format of audio data.
 
@@ -866,7 +866,7 @@ const (
 ```
 
 <a name="AudioFormat.BytesPerSample"></a>
-### func \(AudioFormat\) [BytesPerSample](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L183>)
+### func \(AudioFormat\) [BytesPerSample](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L191>)
 
 ```go
 func (af AudioFormat) BytesPerSample() int
@@ -875,7 +875,7 @@ func (af AudioFormat) BytesPerSample() int
 BytesPerSample returns the byte count of one mono sample at this format. Compressed/variable\-rate formats \(Opus/MP3/AAC\) have no fixed bytes\-per\-sample on the wire, so 0 is returned. Callers that need a stable bytes/sample \(e.g. duration math\) should refuse those formats rather than guess.
 
 <a name="AudioFormat.String"></a>
-### func \(AudioFormat\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L161>)
+### func \(AudioFormat\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L169>)
 
 ```go
 func (af AudioFormat) String() string
@@ -2184,7 +2184,7 @@ type EndInputter interface {
 ```
 
 <a name="ExecutionResult"></a>
-## type [ExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1178-L1185>)
+## type [ExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1267-L1274>)
 
 ExecutionResult represents the final result of a pipeline execution. This matches the existing pipeline.ExecutionResult for compatibility.
 
@@ -2200,7 +2200,7 @@ type ExecutionResult struct {
 ```
 
 <a name="ExecutionTrace"></a>
-## type [ExecutionTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1197-L1201>)
+## type [ExecutionTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1286-L1290>)
 
 ExecutionTrace captures execution history \(for compatibility\).
 
@@ -2575,7 +2575,7 @@ func (r *HashRouter) RegisterOutput(name string, output chan<- StreamElement)
 RegisterOutput registers an output channel with a name.
 
 <a name="ImageData"></a>
-## type [ImageData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L266-L280>)
+## type [ImageData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L274-L288>)
 
 ImageData carries image data with metadata. Supports externalization to avoid holding large data in memory.
 
@@ -2598,7 +2598,7 @@ type ImageData struct {
 ```
 
 <a name="ImageData.EnsureLoaded"></a>
-### func \(\*ImageData\) [EnsureLoaded](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L327>)
+### func \(\*ImageData\) [EnsureLoaded](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L335>)
 
 ```go
 func (d *ImageData) EnsureLoaded(ctx context.Context, store storage.MediaStorageService) ([]byte, error)
@@ -2607,7 +2607,7 @@ func (d *ImageData) EnsureLoaded(ctx context.Context, store storage.MediaStorage
 EnsureLoaded ensures the image data is loaded into memory. This is a convenience method that calls Load if externalized.
 
 <a name="ImageData.Externalize"></a>
-### func \(\*ImageData\) [Externalize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L306-L310>)
+### func \(\*ImageData\) [Externalize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L314-L318>)
 
 ```go
 func (d *ImageData) Externalize(ctx context.Context, store storage.MediaStorageService, metadata *storage.MediaMetadata) error
@@ -2616,7 +2616,7 @@ func (d *ImageData) Externalize(ctx context.Context, store storage.MediaStorageS
 Externalize stores the image data to external storage and clears in\-memory data. The StorageRef is updated to point to the stored data.
 
 <a name="ImageData.IsExternalized"></a>
-### func \(\*ImageData\) [IsExternalized](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L284>)
+### func \(\*ImageData\) [IsExternalized](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L292>)
 
 ```go
 func (d *ImageData) IsExternalized() bool
@@ -2625,7 +2625,7 @@ func (d *ImageData) IsExternalized() bool
 IsExternalized returns true if the image data has been externalized to storage. When externalized, Data is nil and StorageRef contains the storage reference.
 
 <a name="ImageData.Load"></a>
-### func \(\*ImageData\) [Load](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L290>)
+### func \(\*ImageData\) [Load](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L298>)
 
 ```go
 func (d *ImageData) Load(ctx context.Context, store storage.MediaStorageService) error
@@ -3950,7 +3950,7 @@ func (c *PipelineConfig) WithPrioritizeElements(prioritize bool) *PipelineConfig
 WithPrioritizeElements sets whether stages read their input in priority order.
 
 <a name="Priority"></a>
-## type [Priority](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L115>)
+## type [Priority](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L123>)
 
 Priority defines the scheduling priority for stream elements. PriorityChannel delivers higher priority elements first. The channels between pipeline stages deliver elements in the order they were sent, whatever their priority, unless PipelineConfig.PrioritizeElements is set.
 
@@ -4545,7 +4545,7 @@ type RelevanceConfig struct {
 ```
 
 <a name="Response"></a>
-## type [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1188-L1194>)
+## type [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1277-L1283>)
 
 Response represents a response message \(for compatibility with existing pipeline\).
 
@@ -5196,7 +5196,7 @@ func (s *StateStoreLoadStage) Process(ctx context.Context, input <-chan StreamEl
 Process loads conversation history and emits it before current input.
 
 <a name="StreamElement"></a>
-## type [StreamElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L76-L109>)
+## type [StreamElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L76-L117>)
 
 StreamElement is the unit of data flowing through the pipeline. It can carry different types of content and supports backpressure. Each element should contain at most one content type.
 
@@ -5234,6 +5234,7 @@ type StreamElement struct {
     EndOfTurn   bool  // End of one conversational turn's input; stream stays open
     Interrupt   bool  // Barge-in: cancel in-flight generation/playback
     Error       error // Error carried to downstream stages and the caller
+    // contains filtered or unexported fields
 }
 ```
 
@@ -5283,7 +5284,7 @@ Error element: test error
 </details>
 
 <a name="GetAudioElement"></a>
-### func [GetAudioElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L94>)
+### func [GetAudioElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L96>)
 
 ```go
 func GetAudioElement(audio *AudioData) *StreamElement
@@ -5301,7 +5302,7 @@ func GetElement() *StreamElement
 GetElement retrieves a StreamElement from the pool or creates a new one. The returned element has been through Reset. Callers should call PutElement once they are done with the element.
 
 <a name="GetEndOfStreamElement"></a>
-### func [GetEndOfStreamElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L134>)
+### func [GetEndOfStreamElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L136>)
 
 ```go
 func GetEndOfStreamElement() *StreamElement
@@ -5310,7 +5311,7 @@ func GetEndOfStreamElement() *StreamElement
 GetEndOfStreamElement retrieves a StreamElement from the pool and marks it as end\-of\-stream. This is a pooled alternative to NewEndOfStreamElement.
 
 <a name="GetErrorElement"></a>
-### func [GetErrorElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L124>)
+### func [GetErrorElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L126>)
 
 ```go
 func GetErrorElement(err error) *StreamElement
@@ -5319,7 +5320,7 @@ func GetErrorElement(err error) *StreamElement
 GetErrorElement retrieves a StreamElement from the pool and initializes it with an error. This is a pooled alternative to NewErrorElement.
 
 <a name="GetImageElement"></a>
-### func [GetImageElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L114>)
+### func [GetImageElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L116>)
 
 ```go
 func GetImageElement(image *ImageData) *StreamElement
@@ -5328,7 +5329,7 @@ func GetImageElement(image *ImageData) *StreamElement
 GetImageElement retrieves a StreamElement from the pool and initializes it with image data. This is a pooled alternative to NewImageElement.
 
 <a name="GetMessageElement"></a>
-### func [GetMessageElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L84>)
+### func [GetMessageElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L86>)
 
 ```go
 func GetMessageElement(msg *types.Message) *StreamElement
@@ -5337,7 +5338,7 @@ func GetMessageElement(msg *types.Message) *StreamElement
 GetMessageElement retrieves a StreamElement from the pool and initializes it with a message. This is a pooled alternative to NewMessageElement.
 
 <a name="GetTextElement"></a>
-### func [GetTextElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L74>)
+### func [GetTextElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L76>)
 
 ```go
 func GetTextElement(text string) *StreamElement
@@ -5346,7 +5347,7 @@ func GetTextElement(text string) *StreamElement
 GetTextElement retrieves a StreamElement from the pool and initializes it with text content. This is a pooled alternative to NewTextElement.
 
 <a name="GetVideoElement"></a>
-### func [GetVideoElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L104>)
+### func [GetVideoElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L106>)
 
 ```go
 func GetVideoElement(video *VideoData) *StreamElement
@@ -5355,7 +5356,7 @@ func GetVideoElement(video *VideoData) *StreamElement
 GetVideoElement retrieves a StreamElement from the pool and initializes it with video data. This is a pooled alternative to NewVideoElement.
 
 <a name="NewAudioElement"></a>
-### func [NewAudioElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L353>)
+### func [NewAudioElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L361>)
 
 ```go
 func NewAudioElement(audio *AudioData) StreamElement
@@ -5364,7 +5365,7 @@ func NewAudioElement(audio *AudioData) StreamElement
 NewAudioElement creates a new StreamElement with audio data.
 
 <a name="NewEndOfStreamElement"></a>
-### func [NewEndOfStreamElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L389>)
+### func [NewEndOfStreamElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L397>)
 
 ```go
 func NewEndOfStreamElement() StreamElement
@@ -5373,7 +5374,7 @@ func NewEndOfStreamElement() StreamElement
 NewEndOfStreamElement creates a new StreamElement marking end of stream.
 
 <a name="NewEndOfTurnElement"></a>
-### func [NewEndOfTurnElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L401>)
+### func [NewEndOfTurnElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L409>)
 
 ```go
 func NewEndOfTurnElement() StreamElement
@@ -5382,7 +5383,7 @@ func NewEndOfTurnElement() StreamElement
 NewEndOfTurnElement marks the end of one conversational turn's input within a still\-open stream. Distinct from NewEndOfStreamElement \(session over\): the streaming provider stage fires its tool loop on EndOfTurn and stays open for the next turn.
 
 <a name="NewErrorElement"></a>
-### func [NewErrorElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L380>)
+### func [NewErrorElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L388>)
 
 ```go
 func NewErrorElement(err error) StreamElement
@@ -5391,7 +5392,7 @@ func NewErrorElement(err error) StreamElement
 NewErrorElement creates a new StreamElement with an error.
 
 <a name="NewImageElement"></a>
-### func [NewImageElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L371>)
+### func [NewImageElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L379>)
 
 ```go
 func NewImageElement(image *ImageData) StreamElement
@@ -5400,7 +5401,7 @@ func NewImageElement(image *ImageData) StreamElement
 NewImageElement creates a new StreamElement with image data.
 
 <a name="NewInterruptElement"></a>
-### func [NewInterruptElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L411>)
+### func [NewInterruptElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L419>)
 
 ```go
 func NewInterruptElement() StreamElement
@@ -5409,7 +5410,7 @@ func NewInterruptElement() StreamElement
 NewInterruptElement signals barge\-in: downstream stages cancel in\-flight generation/playback and drop queued audio. Travels at PriorityCritical.
 
 <a name="NewMessageElement"></a>
-### func [NewMessageElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L344>)
+### func [NewMessageElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L352>)
 
 ```go
 func NewMessageElement(msg *types.Message) StreamElement
@@ -5418,7 +5419,7 @@ func NewMessageElement(msg *types.Message) StreamElement
 NewMessageElement creates a new StreamElement with a message.
 
 <a name="NewTextElement"></a>
-### func [NewTextElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L335>)
+### func [NewTextElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L343>)
 
 ```go
 func NewTextElement(text string) StreamElement
@@ -5427,7 +5428,7 @@ func NewTextElement(text string) StreamElement
 NewTextElement creates a new StreamElement with text content.
 
 <a name="NewVideoElement"></a>
-### func [NewVideoElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L362>)
+### func [NewVideoElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L370>)
 
 ```go
 func NewVideoElement(video *VideoData) StreamElement
@@ -5445,7 +5446,7 @@ func StreamMediaToElement(media *providers.StreamMediaData) StreamElement
 StreamMediaToElement converts a StreamMediaData to a StreamElement. Routes by MIME type: audio/\* → AudioData, video/\* → VideoData, image/\* → ImageData.
 
 <a name="StreamElement.HasContent"></a>
-### func \(\*StreamElement\) [HasContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L436>)
+### func \(\*StreamElement\) [HasContent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L444>)
 
 ```go
 func (e *StreamElement) HasContent() bool
@@ -5454,7 +5455,7 @@ func (e *StreamElement) HasContent() bool
 HasContent returns true if the element contains any content \(excluding control signals\).
 
 <a name="StreamElement.IsControl"></a>
-### func \(\*StreamElement\) [IsControl](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L449>)
+### func \(\*StreamElement\) [IsControl](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L457>)
 
 ```go
 func (e *StreamElement) IsControl() bool
@@ -5463,7 +5464,7 @@ func (e *StreamElement) IsControl() bool
 IsControl returns true if the element is a control signal \(error, end\-of\-stream, end\-of\-turn, or interrupt\) rather than content.
 
 <a name="StreamElement.IsEmpty"></a>
-### func \(\*StreamElement\) [IsEmpty](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L420>)
+### func \(\*StreamElement\) [IsEmpty](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L428>)
 
 ```go
 func (e *StreamElement) IsEmpty() bool
@@ -5481,7 +5482,7 @@ func (e *StreamElement) Reset()
 Reset clears every field and sets Priority to PriorityNormal, leaving the element equal to a new one. PutElement calls it before returning the element to the pool.
 
 <a name="StreamElement.WithPriority"></a>
-### func \(\*StreamElement\) [WithPriority](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L460>)
+### func \(\*StreamElement\) [WithPriority](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L468>)
 
 ```go
 func (e *StreamElement) WithPriority(priority Priority) *StreamElement
@@ -5490,7 +5491,7 @@ func (e *StreamElement) WithPriority(priority Priority) *StreamElement
 WithPriority sets the priority for this element.
 
 <a name="StreamElement.WithSequence"></a>
-### func \(\*StreamElement\) [WithSequence](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L466>)
+### func \(\*StreamElement\) [WithSequence](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L474>)
 
 ```go
 func (e *StreamElement) WithSequence(seq int64) *StreamElement
@@ -5499,7 +5500,7 @@ func (e *StreamElement) WithSequence(seq int64) *StreamElement
 WithSequence sets the sequence number for this element.
 
 <a name="StreamElement.WithSource"></a>
-### func \(\*StreamElement\) [WithSource](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L454>)
+### func \(\*StreamElement\) [WithSource](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L462>)
 
 ```go
 func (e *StreamElement) WithSource(source string) *StreamElement
@@ -5532,7 +5533,7 @@ The first stage error ends the turn. Nothing is canceled: the failed stage's dow
 Execute returns ErrPipelineShuttingDown if the pipeline is shutting down. When PipelineConfig.MaxConcurrentPipelines executions are already running, Execute waits for one to finish. It returns ctx's error if ctx ends first, and ErrPipelineShuttingDown if Shutdown is called first.
 
 <a name="StreamPipeline.ExecuteSync"></a>
-### func \(\*StreamPipeline\) [ExecuteSync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1157>)
+### func \(\*StreamPipeline\) [ExecuteSync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1246>)
 
 ```go
 func (p *StreamPipeline) ExecuteSync(ctx context.Context, input ...StreamElement) (*ExecutionResult, error)
@@ -5543,7 +5544,7 @@ ExecuteSync runs the pipeline synchronously and returns the accumulated result. 
 The returned error is the last error element on the output. When a stage failed the turn, that is the failure \(see Execute for its form\). The result is non\-nil alongside the error and holds whatever the pipeline produced.
 
 <a name="StreamPipeline.Shutdown"></a>
-### func \(\*StreamPipeline\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1268>)
+### func \(\*StreamPipeline\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1357>)
 
 ```go
 func (p *StreamPipeline) Shutdown(ctx context.Context) error
@@ -6168,7 +6169,7 @@ func (s *VariableProviderStage) Process(ctx context.Context, input <-chan Stream
 Process resolves variables from all providers, publishes them onto TurnState.Variables, and forwards elements unchanged.
 
 <a name="VideoData"></a>
-## type [VideoData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L199-L214>)
+## type [VideoData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L207-L222>)
 
 VideoData carries video frame data with metadata. Supports externalization to avoid holding large data in memory.
 
@@ -6192,7 +6193,7 @@ type VideoData struct {
 ```
 
 <a name="VideoData.EnsureLoaded"></a>
-### func \(\*VideoData\) [EnsureLoaded](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L257>)
+### func \(\*VideoData\) [EnsureLoaded](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L265>)
 
 ```go
 func (d *VideoData) EnsureLoaded(ctx context.Context, store storage.MediaStorageService) ([]byte, error)
@@ -6201,7 +6202,7 @@ func (d *VideoData) EnsureLoaded(ctx context.Context, store storage.MediaStorage
 EnsureLoaded ensures the video data is loaded into memory.
 
 <a name="VideoData.Externalize"></a>
-### func \(\*VideoData\) [Externalize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L237-L241>)
+### func \(\*VideoData\) [Externalize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L245-L249>)
 
 ```go
 func (d *VideoData) Externalize(ctx context.Context, store storage.MediaStorageService, metadata *storage.MediaMetadata) error
@@ -6210,7 +6211,7 @@ func (d *VideoData) Externalize(ctx context.Context, store storage.MediaStorageS
 Externalize stores the video data to external storage and clears in\-memory data.
 
 <a name="VideoData.IsExternalized"></a>
-### func \(\*VideoData\) [IsExternalized](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L217>)
+### func \(\*VideoData\) [IsExternalized](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L225>)
 
 ```go
 func (d *VideoData) IsExternalized() bool
@@ -6219,7 +6220,7 @@ func (d *VideoData) IsExternalized() bool
 IsExternalized returns true if the video data has been externalized to storage.
 
 <a name="VideoData.Load"></a>
-### func \(\*VideoData\) [Load](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L222>)
+### func \(\*VideoData\) [Load](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L230>)
 
 ```go
 func (d *VideoData) Load(ctx context.Context, store storage.MediaStorageService) error
