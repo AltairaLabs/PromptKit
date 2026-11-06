@@ -37,10 +37,12 @@ type MediaMetadata struct {
 	// PolicyName is the retention policy to apply to this media
 	PolicyName string `json:"policy_name,omitempty"`
 
-	// ExpiresAt, when set, is when media with a PolicyName expires, in place
-	// of Timestamp plus the policy's duration. A deduplicating store sets it
-	// when a later store of the same content extends the shared file's
-	// retention, so the file keeps the first store's Timestamp.
+	// ExpiresAt, when set, is when the media expires, with or without a
+	// PolicyName; it takes the place of Timestamp plus the policy's duration.
+	// Media with neither ExpiresAt nor PolicyName never expires. A
+	// deduplicating store sets it when a later store of the same content
+	// extends the shared file's retention, so the file keeps the first
+	// store's Timestamp.
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 

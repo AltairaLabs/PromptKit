@@ -175,7 +175,8 @@ type MediaWriteGuard interface {
 type MediaExpiryReporter interface {
 	// MediaExpiresAt returns when media with this metadata expires under its
 	// PolicyName, honoring ExpiresAt when it is set. expires is false when the
-	// media never expires, for example when PolicyName is empty. An unknown
+	// media never expires, for example when PolicyName and ExpiresAt are both
+	// empty. An unknown
 	// policy is an error.
 	MediaExpiresAt(metadata *MediaMetadata) (expiresAt time.Time, expires bool, err error)
 }
