@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 
 	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -419,7 +420,8 @@ func TestWithProviderFile_LLMHonorsRateLimit(t *testing.T) {
 	rlt, ok := hc.GetHTTPClient().Transport.(*base.RateLimitTransport)
 	require.True(t, ok, "rate_limit was dropped on the way to the provider: transport is %T",
 		hc.GetHTTPClient().Transport)
-	l := rlt.Limiter
+	l, ok := rlt.Limiter.(*rate.Limiter)
+	require.True(t, ok, "limiter is %T", rlt.Limiter)
 	require.NotNil(t, l)
 	assert.InDelta(t, 3, float64(l.Limit()), 1e-9)
 	assert.Equal(t, 2, l.Burst())

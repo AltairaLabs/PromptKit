@@ -139,13 +139,15 @@ func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults,
 		id, includeRawOutput, "ANTHROPIC_API_KEY", "CLAUDE_API_KEY",
 	)
 
-	return &Provider{
+	p := &Provider{
 		BaseProvider: baseProvider,
 		model:        model,
 		baseURL:      normalizeBaseURL(baseURL),
 		apiKey:       apiKey,
 		defaults:     defaults,
 	}
+	p.SetRequestAuth(p.applyAuth)
+	return p
 }
 
 // NewProviderWithCredential creates a new Claude provider with explicit credential.
@@ -173,7 +175,7 @@ func NewProviderWithCredential(
 		}
 	}
 
-	return &Provider{
+	p := &Provider{
 		BaseProvider:   baseProvider,
 		model:          model,
 		baseURL:        normalizeBaseURL(baseURL),
@@ -183,6 +185,10 @@ func NewProviderWithCredential(
 		platform:       platform,
 		platformConfig: platformConfig,
 	}
+	// Under a rate limit the credential is applied again after each wait, so
+	// a SigV4 signature or token is never older than the wait.
+	p.SetRequestAuth(p.applyAuth)
+	return p
 }
 
 // Model returns the model name/identifier used by this provider.

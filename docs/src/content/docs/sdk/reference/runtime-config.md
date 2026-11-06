@@ -304,7 +304,7 @@ Per-provider HTTP connection pool. The concurrent-stream ceiling per upstream is
 
 A token bucket on the HTTP requests one provider sends. Each request takes a token and waits for one before it goes out: a completion call (`Predict` or a stream), a capability call (an embedding, a transcription), and every retry attempt of either. Requests through the same provider share one bucket. Two providers built from the same entry each get their own.
 
-A waiting request gives up when its context is canceled. When the request has a deadline and its turn comes after it, the request fails at once with a deadline error rather than waiting, and is not retried. A limited request is never sent. Time spent waiting does not count against `request_timeout`, which starts when the request is sent.
+A waiting request gives up when its context is canceled. When the request has a deadline and its turn comes after it, the request fails at once with a deadline error rather than waiting, and is not retried. A limited request is never sent. Time spent waiting does not count against `request_timeout`, which starts when the request is sent. The request is signed or given its token after the wait ends, on every attempt, so a long wait never sends an expired Bedrock signature or a stale Vertex or Azure token.
 
 | Field | Type | Description |
 |-------|------|-------------|

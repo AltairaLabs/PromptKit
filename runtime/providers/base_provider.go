@@ -173,6 +173,7 @@ type BaseProvider struct {
 	streamSemaphore       *StreamSemaphore
 	streamObserver        StreamObserver
 	rateLimiter           *rate.Limiter
+	requestAuth           func(ctx context.Context, req *http.Request) error
 	retryPolicy           pipeline.RetryPolicy
 	maxRequestPayloadSize int64
 	customHeaders         map[string]string
@@ -833,20 +834,42 @@ func (b *BaseProvider) HTTPTimeout() time.Duration {
 // A request waits for its turn before it is sent; the wait ends when the
 // request's context is canceled, or at once when its turn falls past the
 // context deadline (base.ErrRateLimitPastDeadline). The wait does not count
-// against the request timeout, which starts when the request is sent. CreateProviderFromSpec
-// calls it with spec.RateLimit.
+// against the request timeout, which starts when the request is sent. The
+// credential registered with SetRequestAuth is applied again after the wait
+// ends. CreateProviderFromSpec calls it with spec.RateLimit.
 func (b *BaseProvider) SetRateLimit(requestsPerSecond float64, burst int) {
 	b.rateLimiter = base.NewRequestLimiter(requestsPerSecond, burst)
 	b.applyRateLimit()
 }
 
+// SetRequestAuth registers the function a provider uses to apply its
+// credential to a request (a SigV4 signature, a bearer token, an API key
+// header). Providers still apply it while building each request; under a rate
+// limit the limiter's transport applies it once more to every request,
+// including each retry attempt, after the request's wait ends. A long wait
+// therefore never sends a stale signature or an expired token. fn must replace
+// whatever credential the request already carries. A nil fn stops the
+// re-application.
+func (b *BaseProvider) SetRequestAuth(fn func(ctx context.Context, req *http.Request) error) {
+	b.requestAuth = fn
+	b.applyRateLimit()
+}
+
 // applyRateLimit installs b.rateLimiter (or removes the limit when nil) on
-// both clients. The request client's timeout moves behind the wait (see
-// base.ApplyRateLimit), so request_timeout bounds the upstream call, not the
-// time spent queued for a token.
+// both clients, with b.requestAuth applied after each wait. The request
+// client's timeout moves behind the wait (see base.ApplyRateLimit), so
+// request_timeout bounds the upstream call, not the time spent queued for a
+// token.
 func (b *BaseProvider) applyRateLimit() {
-	base.ApplyRateLimit(b.client, b.rateLimiter)
-	base.ApplyRateLimit(b.streamingClient, b.rateLimiter)
+	for _, c := range []*http.Client{b.client, b.streamingClient} {
+		base.ApplyRateLimit(c, b.rateLimiter)
+		if c == nil {
+			continue
+		}
+		if rlt, ok := c.Transport.(*base.RateLimitTransport); ok {
+			rlt.Authorize = b.requestAuth
+		}
+	}
 }
 
 // SetMaxPayloadSize configures the maximum allowed request payload size in bytes.
