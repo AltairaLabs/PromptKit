@@ -72,7 +72,9 @@ func TestDedup_MetadataWritesRunUnderTheDedupLock(t *testing.T) {
 			}
 			src := content(t)
 
-			_, err = fs.StoreMedia(context.Background(), src, meta(base))
+			ref, err := fs.StoreMedia(context.Background(), src, meta(base))
+			require.NoError(t, err)
+			metaBefore, err := os.Stat(string(ref) + ".meta")
 			require.NoError(t, err)
 			assert.Equal(t, []string{"track:held"}, handler.calls, "the miss tracks its metadata under dedupMu")
 
@@ -81,6 +83,9 @@ func TestDedup_MetadataWritesRunUnderTheDedupLock(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, []string{"expiry:held", "expiry:held", "track:held"}, handler.calls,
 				"the hit compares and rewrites the metadata under dedupMu")
+			metaAfter, err := os.Stat(string(ref) + ".meta")
+			require.NoError(t, err)
+			assert.False(t, os.SameFile(metaBefore, metaAfter), "the .meta is replaced by rename, not rewritten in place")
 		})
 	}
 }
@@ -100,6 +105,55 @@ func TestWriteFileAtomic_UsesItsOwnTemporaryFile(t *testing.T) {
 	entries, err := os.ReadDir(filepath.Dir(target))
 	require.NoError(t, err)
 	assert.Len(t, entries, 2, "no temporary file is left behind")
+}
+
+// The dedup index is saved by writing a new file and renaming it into place,
+// never by rewriting the existing file in place, so concurrent saves never
+// tear it.
+func TestSaveDedupIndex_WritesAtomically(t *testing.T) {
+	baseDir := t.TempDir()
+	fs, err := NewFileStore(FileStoreConfig{BaseDir: baseDir, EnableDeduplication: true})
+	require.NoError(t, err)
+	indexPath := filepath.Join(baseDir, ".dedup_index.json")
+	require.NoError(t, os.WriteFile(indexPath, []byte("{}"), 0o600))
+	before, err := os.Stat(indexPath)
+	require.NoError(t, err)
+
+	fs.dedupMu.Lock()
+	fs.dedupIndex["h"] = "p"
+	fs.dedupDirty = true
+	fs.dedupMu.Unlock()
+	require.NoError(t, fs.Flush())
+
+	after, err := os.Stat(indexPath)
+	require.NoError(t, err)
+	assert.False(t, os.SameFile(before, after), "the index is replaced by rename, not rewritten in place")
+	data, err := os.ReadFile(indexPath)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"h":"p"}`, string(data))
+}
+
+// A save that fails to write leaves the index marked dirty, so the next save
+// writes it.
+func TestSaveDedupIndex_FailedWriteStaysDirty(t *testing.T) {
+	baseDir := t.TempDir()
+	fs, err := NewFileStore(FileStoreConfig{BaseDir: baseDir, EnableDeduplication: true})
+	require.NoError(t, err)
+	fs.dedupMu.Lock()
+	fs.dedupIndex["h"] = "p"
+	fs.dedupDirty = true
+	fs.dedupMu.Unlock()
+
+	require.NoError(t, os.Chmod(baseDir, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(baseDir, 0o700) })
+	require.Error(t, fs.Flush())
+	fs.dedupMu.RLock()
+	assert.True(t, fs.dedupDirty, "a failed save keeps the changes pending")
+	fs.dedupMu.RUnlock()
+
+	require.NoError(t, os.Chmod(baseDir, 0o700))
+	require.NoError(t, fs.Flush())
+	assert.FileExists(t, filepath.Join(baseDir, ".dedup_index.json"))
 }
 
 // Dropping a dedup entry whose file is gone also drops its reference count,

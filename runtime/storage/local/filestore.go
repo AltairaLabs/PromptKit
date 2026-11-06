@@ -111,6 +111,10 @@ type FileStore struct {
 	dedupDirty bool // tracks whether the in-memory index has unsaved changes
 	dedupMu    sync.RWMutex
 
+	// saveMu serializes saveDedupIndex, so a later snapshot of the index is
+	// never overwritten on disk by an earlier one.
+	saveMu sync.Mutex
+
 	// refCounts tracks how many references exist for each deduplicated file.
 	// TODO: For very large stores, consider a disk-backed refcount index.
 	refCounts map[string]int
@@ -987,30 +991,38 @@ func (fs *FileStore) loadDedupIndex() error {
 	return json.Unmarshal(data, &fs.dedupIndex)
 }
 
+// saveDedupIndex writes the dedup index to disk when it has unsaved changes.
+// Saves run one at a time, and each writes its snapshot atomically. The dirty
+// flag is cleared when the snapshot is taken, so a change made while a save is
+// writing marks the index dirty again for the next save. A failed write marks
+// it dirty again too.
 func (fs *FileStore) saveDedupIndex() error {
 	indexPath := filepath.Join(fs.config.BaseDir, ".dedup_index.json")
 
-	fs.dedupMu.RLock()
-	dirty := fs.dedupDirty
-	if !dirty {
-		fs.dedupMu.RUnlock()
+	fs.saveMu.Lock()
+	defer fs.saveMu.Unlock()
+
+	fs.dedupMu.Lock()
+	if !fs.dedupDirty {
+		fs.dedupMu.Unlock()
 		return nil
 	}
 	data, err := json.MarshalIndent(fs.dedupIndex, "", "  ")
-	fs.dedupMu.RUnlock()
+	if err == nil {
+		fs.dedupDirty = false
+	}
+	fs.dedupMu.Unlock()
 
 	if err != nil {
 		return err
 	}
 
-	if err := os.WriteFile(indexPath, data, filePermissions); err != nil {
+	if err := fs.writeFileAtomic(indexPath, data); err != nil {
+		fs.dedupMu.Lock()
+		fs.dedupDirty = true
+		fs.dedupMu.Unlock()
 		return err
 	}
-
-	fs.dedupMu.Lock()
-	fs.dedupDirty = false
-	fs.dedupMu.Unlock()
-
 	return nil
 }
 
