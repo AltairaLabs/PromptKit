@@ -29,6 +29,7 @@ Tools load from YAML or JSON files with Registry.LoadToolFromBytes, or are regis
 - [Constants](<#constants>)
 - [Variables](<#variables>)
 - [func CallIDFromContext\(ctx context.Context\) string](<#CallIDFromContext>)
+- [func ConsentDeclinedMessage\(toolName, strategy string\) string](<#ConsentDeclinedMessage>)
 - [func ContentTypeToMediaType\(contentType string\) string](<#ContentTypeToMediaType>)
 - [func DecodeArgsExtras\(args json.RawMessage, typed any, knownKeys ...string\) \(map\[string\]any, error\)](<#DecodeArgsExtras>)
 - [func IsBinaryContentType\(contentType string, acceptTypes \[\]string\) bool](<#IsBinaryContentType>)
@@ -190,8 +191,6 @@ const (
 
 <a name="DeclineStrategyFallback"></a>Decline strategy constants for ConsentConfig.DeclineStrategy.
 
-Deprecated: ConsentConfig.DeclineStrategy is never read; see it for what to do instead.
-
 ```go
 const (
     DeclineStrategyFallback = "fallback"
@@ -291,6 +290,15 @@ func CallIDFromContext(ctx context.Context) string
 ```
 
 CallIDFromContext extracts the tool call ID from the context. Returns an empty string if no call ID is set.
+
+<a name="ConsentDeclinedMessage"></a>
+## func [ConsentDeclinedMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L348>)
+
+```go
+func ConsentDeclinedMessage(toolName, strategy string) string
+```
+
+ConsentDeclinedMessage is the tool result text that tells the model the user declined consent for toolName, worded for the decline strategy: fallback asks for an alternative approach, retry for a different approach, and error \(or any other value\) reports the denial. PromptArena's consent simulation uses the same text.
 
 <a name="ContentTypeToMediaType"></a>
 ## func [ContentTypeToMediaType](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_multimodal.go#L57>)
@@ -495,7 +503,7 @@ func (f *A2ASkillFilter) IncludesSkill(skillID string) bool
 IncludesSkill returns true if the given skill ID passes the filter.
 
 <a name="ApprovalChecker"></a>
-## type [ApprovalChecker](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L392>)
+## type [ApprovalChecker](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L405>)
 
 ApprovalChecker decides whether a tool call must be held for external approval \(human\-in\-the\-loop\) before execution. It returns a non\-nil PendingToolInfo to hold the call pending, or nil to let it execute normally. It is consulted per tool call before execution; a nil checker is a no\-op. The context is the tool\-execution context, so a checker that persists the held call \(e.g. to a durable store\) honors cancellation and deadlines.
 
@@ -504,7 +512,7 @@ type ApprovalChecker func(ctx context.Context, callID, name string, args map[str
 ```
 
 <a name="AsyncToolExecutor"></a>
-## type [AsyncToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L446-L451>)
+## type [AsyncToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L459-L464>)
 
 AsyncToolExecutor is a tool that can return pending status instead of blocking. Tools that require human approval or external async operations should implement this.
 
@@ -551,24 +559,24 @@ type Coercion struct {
 <a name="ConsentConfig"></a>
 ## type [ConsentConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L318-L334>)
 
-ConsentConfig defines consent requirements for client\-side tools. Message is surfaced to the host \(the SDK's ClientToolRequest.ConsentMsg and pending client tool\); asking for consent and acting on the answer is the host's job.
+ConsentConfig defines consent requirements for client\-side tools. These are declarative tool settings: asking for consent and acting on the answer is the host's job. Message is surfaced to the host \(the SDK's ClientToolRequest.ConsentMsg and pending client tool\).
 
 ```go
 type ConsentConfig struct {
-    // Required is carried but never read.
-    //
-    // Deprecated: nothing enforces it. Consent is
-    // a hosting concern: ask for it in the client tool handler, or before
-    // answering a deferred call, using Message and ClientConfig.Categories.
+    // Required declares that the tool needs the user's permission before it
+    // runs. It is a host-declared setting: the runtime and SDK do not ask for
+    // consent and do not block the call. The SDK passes it through on the
+    // tool descriptor (ClientToolRequest.Descriptor and the conversation's
+    // tool registry) for the host to act on.
     Required bool   `json:"required" yaml:"required"`
     Message  string `json:"message,omitempty" yaml:"message,omitempty"`
-    // DeclineStrategy is carried but never read.
-    //
-    // Deprecated: nothing acts on it. When the
-    // user declines, the host answers the call itself: in the SDK, return an
-    // error from the client tool handler (the model sees a failed call), or
-    // call Conversation.RejectClientTool for a deferred call (the model is
-    // told it was rejected and why).
+    // DeclineStrategy tells the model how to proceed when the user declines:
+    // "error", "fallback" or "retry" (the DeclineStrategy* constants). It is a
+    // declarative setting whose handling is up to the host. When it is set,
+    // the SDK's Conversation.RejectClientTool answers the call with
+    // ConsentDeclinedMessage for the strategy, followed by the caller's
+    // reason, so the model sees what PromptArena's consent simulation gives
+    // it. When it is empty, the rejection text is unchanged.
     DeclineStrategy string `json:"decline_strategy,omitempty" yaml:"decline_strategy,omitempty"`
 }
 ```
@@ -729,7 +737,7 @@ func (e *ExecExecutor) Name() string
 Name returns the executor name used for mode\-based routing.
 
 <a name="Executor"></a>
-## type [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L428-L431>)
+## type [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L441-L444>)
 
 Executor interface defines how tools are executed
 
@@ -1139,7 +1147,7 @@ type MultimodalConfig struct {
 ```
 
 <a name="MultimodalExecutor"></a>
-## type [MultimodalExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L435-L442>)
+## type [MultimodalExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L448-L455>)
 
 MultimodalExecutor extends Executor with support for returning multimodal content parts. Executors that can return images, audio, or other non\-text content should implement this.
 
@@ -1170,7 +1178,7 @@ type PendingToolExecution struct {
 ```
 
 <a name="PendingToolInfo"></a>
-## type [PendingToolInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L395-L412>)
+## type [PendingToolInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L408-L425>)
 
 PendingToolInfo describes a tool call awaiting external input or approval.
 
@@ -1733,7 +1741,7 @@ func (e *ServerExecutor) Name() string
 Name returns the executor name used for mode\-based routing.
 
 <a name="ToolCall"></a>
-## type [ToolCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L347-L351>)
+## type [ToolCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L360-L364>)
 
 ToolCall represents a tool invocation request
 
@@ -1850,7 +1858,7 @@ type ToolErrorData struct {
 ```
 
 <a name="ToolExecutionResult"></a>
-## type [ToolExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L376-L384>)
+## type [ToolExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L389-L397>)
 
 ToolExecutionResult includes status and optional pending information
 
@@ -1867,7 +1875,7 @@ type ToolExecutionResult struct {
 ```
 
 <a name="ToolExecutionStatus"></a>
-## type [ToolExecutionStatus](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L364>)
+## type [ToolExecutionStatus](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L377>)
 
 ToolExecutionStatus represents whether a tool completed or needs external input
 
@@ -1927,7 +1935,7 @@ type ToolResponseRepository interface {
 ```
 
 <a name="ToolResult"></a>
-## type [ToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L354-L361>)
+## type [ToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L367-L374>)
 
 ToolResult represents the result of a tool execution
 
@@ -1952,7 +1960,7 @@ func (r ToolResult) MarshalJSON() ([]byte, error)
 MarshalJSON normalizes the tool result payload \(empty \-\> \{\}\).
 
 <a name="ValidationError"></a>
-## type [ValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L415-L420>)
+## type [ValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L428-L433>)
 
 ValidationError represents a tool validation failure
 
@@ -1966,7 +1974,7 @@ type ValidationError struct {
 ```
 
 <a name="ValidationError.Error"></a>
-### func \(\*ValidationError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L423>)
+### func \(\*ValidationError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L436>)
 
 ```go
 func (e *ValidationError) Error() string
