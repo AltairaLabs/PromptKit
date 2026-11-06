@@ -68,6 +68,17 @@ Keep a long conversation inside the model's context window.
 
    If the embedding call fails, the SDK falls back to dropping the oldest messages.
 
+4. To stop re-embedding the whole history on every truncation, set `CacheEmbeddings: true`. The conversation then embeds only the messages (and query) it has no vector for yet:
+
+   ```go
+   sdk.WithRelevanceTruncation(&sdk.RelevanceConfig{
+       EmbeddingProvider: embProvider,
+       CacheEmbeddings:   true,
+   }),
+   ```
+
+   A vector is keyed on the exact text embedded plus the embedding provider's ID and model, not on the message's position. An edited message is embedded again; a reordered one is not, and switching provider or model embeds everything again. The cache lives as long as the conversation (a `Fork` starts empty) and after each truncation keeps only the vectors that truncation used, so it never outgrows one turn's history. It is off by default.
+
 ## Load a hot window of recent messages
 
 Use these options with a state store instead of loading the full history on every turn. `WithContextWindow` requires `WithStateStore`; set `WithConversationID` to resume the same history later.

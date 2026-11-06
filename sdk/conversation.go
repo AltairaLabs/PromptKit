@@ -1925,6 +1925,7 @@ func (c *Conversation) buildRelevanceConfig() *stage.RelevanceConfig {
 		SimilarityThreshold:  cfg.SimilarityThreshold,
 		LastNCount:           cfg.LastNCount,
 		CustomQuery:          cfg.CustomQuery,
+		CacheEmbeddings:      cfg.CacheEmbeddings,
 	}
 
 	// Convert query source string to type

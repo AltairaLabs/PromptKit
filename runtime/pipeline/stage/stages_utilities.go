@@ -691,12 +691,17 @@ type RelevanceConfig struct {
 	// CustomQuery is the query text when QuerySource is QuerySourceCustom.
 	CustomQuery string
 
-	// CacheEmbeddings is carried but never read: embeddings are computed on
-	// every truncation.
+	// CacheEmbeddings reuses message embeddings across truncation calls, so a
+	// message whose text has not changed is not embedded again. Each call
+	// embeds only the texts (messages and query) it has no vector for.
 	//
-	// Deprecated: setting it has no effect and it will be removed in v3. To
-	// reuse embeddings across truncations, set EmbeddingProvider to a provider
-	// that caches them.
+	// Vectors are keyed on a hash of the embedded text plus the embedding
+	// provider's ID and model, never on position: an edited message is
+	// re-embedded, and a reordered one is not. The cache belongs to the
+	// ContextBuilderStage, so it lasts as long as the stage (one conversation in
+	// the SDK), and after each call it keeps only that call's vectors, so it
+	// never holds more than one truncation's worth. It is safe for concurrent
+	// use. False (the zero value) embeds every message on every truncation.
 	CacheEmbeddings bool
 }
 
@@ -758,6 +763,9 @@ type ContextBuilderStage struct {
 	// turnState provides the system prompt used for token-budget
 	// accounting. Nil-safe (the stage assumes an empty system prompt).
 	turnState *TurnState
+	// embedCache holds relevance-truncation embeddings between calls when
+	// RelevanceConfig.CacheEmbeddings is set.
+	embedCache embeddingCache
 }
 
 // NewContextBuilderStage creates a context builder stage with no TurnState
@@ -1117,19 +1125,12 @@ func (s *ContextBuilderStage) truncateByRelevance(
 		texts = append(texts, s.extractMessageText(&scored[i].Message))
 	}
 
-	// Generate embeddings
-	resp, err := cfg.EmbeddingProvider.Embed(ctx, providers.EmbeddingRequest{Texts: texts})
+	// Generate embeddings (reusing cached ones when CacheEmbeddings is set)
+	embeddings, err := s.embedTexts(ctx, cfg, texts)
 	if err != nil {
-		logger.Error("Embedding generation failed, falling back to oldest", "error", err)
+		logger.Error("Embedding failed, falling back to oldest", "error", err)
 		return s.truncateOldest(messages, budget), nil
 	}
-
-	if len(resp.Embeddings) != len(texts) {
-		logger.Error("Embedding count mismatch, falling back to oldest",
-			"expected", len(texts), "got", len(resp.Embeddings))
-		return s.truncateOldest(messages, budget), nil
-	}
-	embeddings := resp.Embeddings
 
 	// Compute similarity scores (query embedding is at index 0)
 	queryEmbedding := embeddings[0]
