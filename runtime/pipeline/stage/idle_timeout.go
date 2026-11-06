@@ -21,6 +21,21 @@ type idleResetKey struct{}
 // If timeout <= 0, idle timeout is disabled: the returned context is a plain
 // cancellable context and the reset function is a no-op.
 func withIdleTimeout(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc, func()) {
+	return withIdleTimer(parent, timeout, func(d time.Duration, f func()) idleTimer { return time.AfterFunc(d, f) })
+}
+
+// idleTimer is the part of *time.Timer the idle timeout uses.
+type idleTimer interface {
+	Stop() bool
+	Reset(d time.Duration) bool
+}
+
+// withIdleTimer is withIdleTimeout with the timer it starts supplied by
+// afterFunc, which has time.AfterFunc's contract. Tests pass a fake clock so
+// they decide when the timer fires instead of racing a real one.
+func withIdleTimer(
+	parent context.Context, timeout time.Duration, afterFunc func(time.Duration, func()) idleTimer,
+) (context.Context, context.CancelFunc, func()) {
 	if timeout <= 0 {
 		ctx, cancel := context.WithCancel(parent)
 		return ctx, cancel, func() { /* no-op reset: idle timeout disabled */ }
@@ -28,7 +43,7 @@ func withIdleTimeout(parent context.Context, timeout time.Duration) (context.Con
 
 	ctx, cancelCause := context.WithCancelCause(parent)
 
-	timer := time.AfterFunc(timeout, func() {
+	timer := afterFunc(timeout, func() {
 		cancelCause(ErrIdleTimeout)
 	})
 

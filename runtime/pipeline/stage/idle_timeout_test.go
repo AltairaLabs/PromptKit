@@ -24,37 +24,61 @@ func TestWithIdleTimeout_CancelsAfterIdle(t *testing.T) {
 	assert.ErrorIs(t, context.Cause(ctx), ErrIdleTimeout)
 }
 
+// fakeIdleTimer is a virtual clock with one AfterFunc timer on it, for
+// withIdleTimer. The timer fires only when advance moves the clock to its
+// deadline, so a test decides exactly when the idle window ends relative to
+// the resets it makes.
+type fakeIdleTimer struct {
+	now, deadline time.Duration
+	armed         bool
+	fire          func()
+}
+
+func (f *fakeIdleTimer) afterFunc(d time.Duration, fn func()) idleTimer {
+	f.fire = fn
+	f.Reset(d)
+	return f
+}
+
+func (f *fakeIdleTimer) Stop() bool {
+	was := f.armed
+	f.armed = false
+	return was
+}
+
+func (f *fakeIdleTimer) Reset(d time.Duration) bool {
+	was := f.armed
+	f.deadline, f.armed = f.now+d, true
+	return was
+}
+
+// advance moves the clock on by d, firing the timer if its deadline falls in
+// that time.
+func (f *fakeIdleTimer) advance(d time.Duration) {
+	f.now += d
+	if f.armed && f.now >= f.deadline {
+		f.armed = false
+		f.fire()
+	}
+}
+
 func TestWithIdleTimeout_ResetPreventsCancel(t *testing.T) {
-	ctx, cancel, reset := withIdleTimeout(context.Background(), 100*time.Millisecond)
+	const idle = 100 * time.Millisecond
+	clock := &fakeIdleTimer{}
+	ctx, cancel, reset := withIdleTimer(context.Background(), idle, clock.afterFunc)
 	defer cancel()
 
-	// Reset every 50ms for 5 iterations (~250ms of activity).
-	// The 100ms idle timeout should never fire during this period.
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for i := 0; i < 5; i++ {
-			time.Sleep(50 * time.Millisecond)
-			reset()
-		}
-	}()
-
-	// Context should still be alive while resets are happening
-	<-done
-	select {
-	case <-ctx.Done():
-		t.Fatal("context should not be cancelled while resets are active")
-	default:
-		// Good — still alive
+	// Activity every half-window for 5 windows' worth: the timer never fires.
+	for i := 0; i < 10; i++ {
+		clock.advance(idle / 2)
+		reset()
 	}
+	require.NoError(t, ctx.Err(), "context should not be cancelled while resets are active")
 
-	// Now stop resetting. Context should cancel within ~150ms.
-	select {
-	case <-ctx.Done():
-		assert.ErrorIs(t, context.Cause(ctx), ErrIdleTimeout)
-	case <-time.After(300 * time.Millisecond):
-		t.Fatal("context should have been cancelled after resets stopped")
-	}
+	// No activity for one more window: it fires.
+	clock.advance(idle)
+	require.Error(t, ctx.Err(), "context should be cancelled once resets stop")
+	assert.ErrorIs(t, context.Cause(ctx), ErrIdleTimeout)
 }
 
 func TestWithIdleTimeout_ExplicitCancelStopsTimer(t *testing.T) {

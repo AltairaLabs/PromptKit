@@ -35,16 +35,32 @@ func (e *slowExecutor) Execute(
 	}
 }
 
-// stageWithSlowTool builds a provider stage whose only tool sleeps for delay.
-func stageWithSlowTool(t *testing.T, delay time.Duration) *ProviderStage {
+// windowExecutor is a tool that outlasts an idle window. It opens a window on
+// the probe when it starts and closes it before it returns, recording whether
+// the window held: whether something kept the idle timer alive while it ran.
+type windowExecutor struct {
+	probe *idleProbe
+	held  atomic.Bool
+}
+
+func (e *windowExecutor) Name() string { return "window-executor" }
+
+func (e *windowExecutor) Execute(context.Context, *tools.ToolDescriptor, json.RawMessage) (json.RawMessage, error) {
+	e.probe.openWindow()
+	e.held.Store(e.probe.closeWindow())
+	return json.RawMessage(`{"result":"done"}`), nil
+}
+
+// stageWithSlowTool builds a provider stage whose only tool, slow_tool, runs exec.
+func stageWithSlowTool(t *testing.T, exec tools.Executor) *ProviderStage {
 	t.Helper()
 
 	registry := tools.NewRegistry()
-	registry.RegisterExecutor(&slowExecutor{name: "slow-executor", delay: delay})
+	registry.RegisterExecutor(exec)
 	require.NoError(t, registry.Register(&tools.ToolDescriptor{
 		Name:        "slow_tool",
 		Description: "A tool that takes its time",
-		Mode:        "slow-executor",
+		Mode:        exec.Name(),
 		InputSchema: []byte(`{"type": "object"}`),
 		TimeoutMs:   60000,
 	}))
@@ -54,27 +70,22 @@ func stageWithSlowTool(t *testing.T, delay time.Duration) *ProviderStage {
 
 // TestExecuteToolCalls_SlowToolDoesNotTripIdleTimeout is the regression for
 // #2017: a tool that runs longer than IdleTimeout used to cancel its own turn,
-// because nothing reset the idle timer while it worked.
+// because nothing reset the idle timer while it worked. The tool holds an idle
+// window open (see idleProbe) instead of racing a real timer. Reverting the
+// `defer keepIdleAlive(ctx)()` line in executeToolCalls makes it fail.
 func TestExecuteToolCalls_SlowToolDoesNotTripIdleTimeout(t *testing.T) {
-	const (
-		idle      = 60 * time.Millisecond
-		toolDelay = 300 * time.Millisecond // 5x the idle window
-	)
+	probe := newIdleProbe()
+	exec := &windowExecutor{probe: probe}
+	stage := stageWithSlowTool(t, exec)
 
-	idleCtx, cancel, reset := withIdleTimeout(context.Background(), idle)
-	defer cancel()
-	ctx := contextWithIdleReset(idleCtx, reset, idle)
-
-	stage := stageWithSlowTool(t, toolDelay)
-
-	results, err := stage.executeToolCalls(ctx, []types.MessageToolCall{
+	results, err := stage.executeToolCalls(probe.context(context.Background()), []types.MessageToolCall{
 		{ID: "call-1", Name: "slow_tool", Args: json.RawMessage(`{}`)},
 	}, roundRef{round: 1})
 
 	require.NoError(t, err, "a tool in flight is not an idle pipeline")
 	require.Len(t, results, 1)
 	assert.Empty(t, results[0].ToolResult.Error)
-	assert.NoError(t, idleCtx.Err(), "idle timer fired while a tool was running")
+	assert.True(t, exec.held.Load(), "the idle window lapsed while a tool was running")
 }
 
 // TestExecuteToolCalls_HeartbeatStopsWhenToolsFinish pins the other half: the
@@ -87,7 +98,7 @@ func TestExecuteToolCalls_HeartbeatStopsWhenToolsFinish(t *testing.T) {
 	defer cancel()
 	ctx := contextWithIdleReset(idleCtx, reset, idle)
 
-	stage := stageWithSlowTool(t, 10*time.Millisecond)
+	stage := stageWithSlowTool(t, &slowExecutor{name: "slow-executor", delay: 10 * time.Millisecond})
 
 	_, err := stage.executeToolCalls(ctx, []types.MessageToolCall{
 		{ID: "call-1", Name: "slow_tool", Args: json.RawMessage(`{}`)},

@@ -752,7 +752,7 @@ func PutElement(elem *StreamElement)
 PutElement returns a StreamElement to the pool for reuse. The element is reset before being returned to the pool to prevent data leaks. After calling PutElement, the caller must not use the element again.
 
 <a name="ResetIdleFromContext"></a>
-## func [ResetIdleFromContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/idle_timeout.go#L67>)
+## func [ResetIdleFromContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/idle_timeout.go#L82>)
 
 ```go
 func ResetIdleFromContext(ctx context.Context)
