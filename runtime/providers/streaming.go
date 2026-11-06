@@ -43,12 +43,14 @@ const DefaultStreamBufferSize = 32
 // duration, the response body is closed to unblock the reader.
 const DefaultStreamIdleTimeout = 30 * time.Second
 
-// ExecutionResult is a forward declaration to avoid circular import.
+// ExecutionResult is the complete result a stream's final chunk carries in
+// StreamChunk.FinalResult. It is an empty interface so this package need not
+// import the layers above it. A provider stream run through
+// BaseProvider.RunStreamingRequest ends with a *PredictionResponse; the SDK's
+// session stream ends with a *pipeline.ExecutionResult.
 type ExecutionResult interface{}
 
 // StreamChunk represents a batch of tokens with metadata
-//
-//nolint:misspell // the FinishReason doc lists the literal "cancelled" value providers emit
 type StreamChunk struct {
 	// Content is the accumulated content so far
 	Content string `json:"content"`
@@ -83,7 +85,7 @@ type StreamChunk struct {
 	// FinishReason is nil until stream is complete
 	// A provider reports the normalized types.FinishReason* constants where it
 	// maps them (for example "stop"). Other values are "error" for a failed
-	// stream, "canceled" or "cancelled" for a canceled one, "validation_failed",
+	// stream, "canceled" for a canceled one, "validation_failed",
 	// and "pending_tools"; an unmapped provider reason passes through verbatim.
 	FinishReason *string `json:"finish_reason,omitempty"`
 
@@ -110,7 +112,10 @@ type StreamChunk struct {
 	// Metadata contains provider-specific metadata
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
 
-	// FinalResult contains the complete execution result (only set in the final chunk)
+	// FinalResult contains the complete execution result (only set in the final
+	// chunk). For a provider stream that ends without an error it is a
+	// *PredictionResponse holding the content, tool calls, cost, finish reason
+	// and latency; see ExecutionResult.
 	FinalResult ExecutionResult `json:"final_result,omitempty"`
 
 	// CostInfo contains cost breakdown (only present in final chunk when FinishReason != nil)
@@ -125,12 +130,22 @@ type StreamChunk struct {
 	Source string `json:"source,omitempty"`
 }
 
-// StreamEvent is sent to observers for monitoring
+// StreamEvent types.
+const (
+	StreamEventChunk    = "chunk"
+	StreamEventComplete = "complete"
+	StreamEventError    = "error"
+)
+
+// StreamEvent is one observation of a provider stream, built by the stream
+// relay in BaseProvider.RunStreamingRequest for each StreamObserver callback.
+// An observer that also implements StreamEventObserver receives it.
 type StreamEvent struct {
-	// Type is the event type: "chunk", "complete", "error"
+	// Type is StreamEventChunk, StreamEventComplete or StreamEventError.
 	Type string `json:"type"`
 
-	// Chunk contains the stream chunk data
+	// Chunk is the chunk being delivered. For a complete event it is the
+	// stream's last chunk.
 	Chunk *StreamChunk `json:"chunk,omitempty"`
 
 	// Error is set for error events
@@ -140,11 +155,33 @@ type StreamEvent struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// StreamObserver receives stream events for monitoring
+// StreamObserver receives the events of every stream a provider opens through
+// BaseProvider.RunStreamingRequest, for monitoring. Install one with
+// BaseProvider.SetStreamObserver or ProviderSpec.StreamObserver; with none
+// installed, nothing is observed.
+//
+// The callbacks run on the stream's relay goroutine before the chunk reaches
+// the caller, so they must return quickly. They run concurrently for
+// concurrent streams. A callback that panics is recovered and the stream goes
+// on.
+//
+//   - OnChunk is called for every chunk delivered without an error, including
+//     a Reset chunk and the final chunk.
+//   - OnError is called for the error chunk that ends a stream attempt.
+//   - OnComplete is called once when the stream ends without an error (after
+//     a Reset, the retried attempt decides), with the last TokenCount reported
+//     and the time since the stream was requested.
 type StreamObserver interface {
 	OnChunk(chunk StreamChunk)
 	OnComplete(totalTokens int, duration time.Duration)
 	OnError(err error)
+}
+
+// StreamEventObserver is implemented by a StreamObserver that also wants each
+// observation as a StreamEvent, carrying its timestamp. OnStreamEvent is called
+// before the matching StreamObserver callback.
+type StreamEventObserver interface {
+	OnStreamEvent(event StreamEvent)
 }
 
 // ValidationAbortError is returned when a streaming validator aborts a stream

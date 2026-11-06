@@ -81,16 +81,22 @@ func (r *Registry) Base() *base.Registry {
 	return r.base
 }
 
-// Register adds a provider to the registry, keyed by provider.ID(). A second
-// provider with the same ID replaces the first for Get and List. It also
-// registers into the typed base.Registry (keyed by provider.Name() and
-// provider.Type()), which keeps the first provider registered under a
-// (name, type) pair: GetByType and GetAll do not see a replacement.
+// Register adds a provider to the registry, keyed by provider.ID(), and to the
+// typed base.Registry, keyed by provider.Name() and provider.Type().
+//
+// The last registration wins in both. A provider registered under an ID that
+// is already taken replaces the earlier one for Get, List, GetByType and
+// GetAll alike, and the earlier provider's typed entry is removed, so the two
+// lookups never disagree. Callers rely on this: the SDK re-registers each
+// pooled provider as a conversation-scoped view (MediaScoped) and expects
+// every lookup to return the view. The replaced provider is not closed.
 func (r *Registry) Register(provider Provider) {
+	if old, ok := r.providers[provider.ID()]; ok {
+		r.base.Unregister(old.Name(), old.Type())
+	}
 	r.providers[provider.ID()] = provider
-	// The typed registry rejects a duplicate (name, type); the error is
-	// discarded so Register never fails.
-	_ = r.base.Register(provider)
+	// Replace only fails on a nil provider, which provider.ID() above rules out.
+	_ = r.base.Replace(provider)
 }
 
 // Get retrieves an inference provider by ID. Returns the provider and a
@@ -199,6 +205,11 @@ type ProviderSpec struct {
 	// applied through SetStreamSemaphore on providers that embed BaseProvider.
 	StreamMaxConcurrent int
 
+	// StreamObserver receives the events of every stream the provider opens
+	// (see StreamObserver). It is applied through SetStreamObserver on
+	// providers that embed BaseProvider. Nil observes nothing.
+	StreamObserver StreamObserver
+
 	// StorageService resolves MediaContent.StorageReference values at
 	// request-build time (to a model-fetchable URL via GetURL, or bytes via
 	// RetrieveMedia). It is applied through SetMediaStorageService on providers
@@ -262,6 +273,13 @@ type streamRetryConfigurable interface {
 // neither.
 type streamConcurrencyConfigurable interface {
 	SetStreamSemaphore(*StreamSemaphore)
+}
+
+// streamObserverConfigurable is implemented by any provider that embeds
+// *BaseProvider. CreateProviderFromSpec uses it to install
+// spec.StreamObserver.
+type streamObserverConfigurable interface {
+	SetStreamObserver(StreamObserver)
 }
 
 // httpTransportConfigurable is implemented by any provider that embeds
@@ -351,8 +369,8 @@ func openAIBuildsPlatformBaseURL(platform string) bool {
 // It fills in spec.BaseURL with the type's default (OpenAI, Gemini, Claude,
 // Ollama and vLLM have one) when it is empty, calls the factory registered for
 // spec.Type, then applies the spec's timeouts, stream retry and concurrency
-// settings, HTTP transport, custom headers, media storage and message
-// metadata template to the provider. It returns an UnsupportedProviderError
+// settings, stream observer, HTTP transport, custom headers, media storage and
+// message metadata template to the provider. It returns an UnsupportedProviderError
 // when no factory is registered for spec.Type.
 func CreateProviderFromSpec(spec ProviderSpec) (Provider, error) {
 	baseURL := defaultBaseURLForSpec(&spec)
@@ -431,8 +449,8 @@ func applySpecConfig(provider Provider, spec *ProviderSpec) {
 	applyTransportConfig(provider, spec)
 }
 
-// applyStreamingConfig applies the timeout, stream-retry and stream
-// concurrency settings from spec.
+// applyStreamingConfig applies the timeout, stream-retry, stream concurrency
+// and stream observer settings from spec.
 func applyStreamingConfig(provider Provider, spec *ProviderSpec) {
 	// Apply configured timeouts. Zero values leave the defaults in place
 	// (BaseProvider's constructor-time defaults / DefaultStreamIdleTimeout).
@@ -463,6 +481,10 @@ func applyStreamingConfig(provider Provider, spec *ProviderSpec) {
 	// versa. A non-positive limit is a no-op (unlimited default).
 	if scc, ok := provider.(streamConcurrencyConfigurable); ok && spec.StreamMaxConcurrent > 0 {
 		scc.SetStreamSemaphore(NewStreamSemaphore(spec.StreamMaxConcurrent))
+	}
+
+	if soc, ok := provider.(streamObserverConfigurable); ok && spec.StreamObserver != nil {
+		soc.SetStreamObserver(spec.StreamObserver)
 	}
 }
 

@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -247,5 +248,25 @@ func TestStreamMetrics_PipelineStageCounters(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(m.pipelineStageAudioBytes.WithLabelValues("resample")); got != 1280 {
 		t.Errorf("resample audio bytes = %v, want 1280", got)
+	}
+}
+
+// Help text is published to every scrape, so it must stand on its own: no
+// issue-tracker references.
+func TestStreamMetrics_HelpTextCitesNoIssueNumbers(t *testing.T) {
+	t.Parallel()
+	reg := prometheus.NewRegistry()
+	m := NewStreamMetrics(reg, "test", nil)
+	m.httpConnsInUse.WithLabelValues("api.example.com").Set(1)
+
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("gather: %v", err)
+	}
+	issueRef := regexp.MustCompile(`#[0-9]+`)
+	for _, f := range families {
+		if issueRef.MatchString(f.GetHelp()) {
+			t.Errorf("%s help text cites an issue: %q", f.GetName(), f.GetHelp())
+		}
 	}
 }

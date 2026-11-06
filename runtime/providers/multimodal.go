@@ -166,9 +166,9 @@ func IsFormatSupported(p Provider, contentType, mimeType string) bool {
 	return false
 }
 
-// ValidateMultimodalMessage checks that the provider supports the image, audio
-// and video parts of a message and their MIME types. Document parts are not
-// checked. It returns an *UnsupportedContentError for the first part that fails.
+// ValidateMultimodalMessage checks that the provider supports the image, audio,
+// video and document parts of a message and their MIME types. It returns an
+// *UnsupportedContentError for the first part that fails.
 func ValidateMultimodalMessage(p Provider, msg types.Message) error {
 	if !msg.IsMultimodal() {
 		return nil // Text-only message, no validation needed
@@ -180,6 +180,7 @@ func ValidateMultimodalMessage(p Provider, msg types.Message) error {
 			Provider:    p.ID(),
 			ContentType: "multimodal",
 			Message:     "provider does not support multimodal content",
+			PartIndex:   -1,
 		}
 	}
 
@@ -210,12 +211,15 @@ func validateContentPart(p Provider, part types.ContentPart, index int, caps Mul
 	case types.ContentTypeVideo:
 		return validateMediaPart(p, part, index, caps.SupportsVideo, "video")
 
+	case types.ContentTypeDocument:
+		return validateMediaPart(p, part, index, caps.SupportsDocuments, "document")
+
 	default:
 		return nil
 	}
 }
 
-// validateMediaPart validates a media content part (image, audio, or video)
+// validateMediaPart validates a media content part (image, audio, video or document)
 func validateMediaPart(p Provider, part types.ContentPart, index int, supported bool, contentType string) error {
 	if !supported {
 		return &UnsupportedContentError{
@@ -242,12 +246,13 @@ func validateMediaPart(p Provider, part types.ContentPart, index int, supported 
 // UnsupportedContentError is returned when a provider doesn't support certain content types
 type UnsupportedContentError struct {
 	Provider    string // Provider ID
-	ContentType string // "image", "audio", "video", or "multimodal"
+	ContentType string // "image", "audio", "video", "document", or "multimodal"
 	Message     string // Human-readable error message
-	PartIndex   int    // Index of the unsupported content part; 0 when the error is not about one part
+	PartIndex   int    // Index of the unsupported content part; -1 when the error is not about one part
 	MIMEType    string // Specific MIME type that's unsupported (if applicable)
 }
 
+// Error returns the message, naming the part when PartIndex is not negative.
 func (e *UnsupportedContentError) Error() string {
 	if e.PartIndex >= 0 {
 		return e.Provider + ": " + e.Message + " (part " + strconv.Itoa(e.PartIndex) + ")"

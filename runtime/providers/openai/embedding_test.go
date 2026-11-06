@@ -516,3 +516,28 @@ func fixtureVector(n int, lead ...float32) []float32 {
 	copy(v, lead)
 	return v
 }
+
+// A response that does not hold one embedding per input fails rather than
+// returning vectors the caller cannot match to its texts.
+func TestEmbeddingProvider_RejectsMismatchedEmbeddingCount(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(embeddingResponse{
+			Object: "list",
+			Data: []embeddingData{
+				{Object: "embedding", Index: 0, Embedding: fixtureVector(dimensions3Small, 0.1)},
+				{Object: "embedding", Index: 1, Embedding: fixtureVector(dimensions3Small, 0.2)},
+				{Object: "embedding", Index: 1, Embedding: fixtureVector(dimensions3Small, 0.3)},
+			},
+			Model: "text-embedding-3-small",
+		})
+	}))
+	defer server.Close()
+
+	p, err := NewEmbeddingProvider(WithEmbeddingAPIKey("test-key"), WithEmbeddingBaseURL(server.URL))
+	require.NoError(t, err)
+
+	_, err = p.Embed(context.Background(), providers.EmbeddingRequest{Texts: []string{"a", "b"}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "returned 3 embeddings for 2 inputs")
+}

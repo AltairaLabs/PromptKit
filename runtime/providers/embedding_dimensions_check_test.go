@@ -58,8 +58,8 @@ func TestCheckDimensions_DeclaredSizeMatchPasses(t *testing.T) {
 }
 
 func TestCheckDimensions_MissingVectorFails(t *testing.T) {
-	// ExtractOrderedEmbeddings leaves a nil slot when the server omits an
-	// index; that must surface, not flow on as an empty vector.
+	// An embed function that returns a nil vector (a provider not built on
+	// ExtractOrderedEmbeddings) must surface, not flow on as an empty vector.
 	b := &BaseEmbeddingProvider{ProviderID: "p", ProviderModel: "m"}
 
 	_, err := b.EmbedWithEmptyCheck(context.Background(),
