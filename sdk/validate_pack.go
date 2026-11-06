@@ -141,7 +141,7 @@ func validatePack(
 		SkipSchemaValidation: skipSchemaValidation,
 	})
 	if err != nil {
-		return nil, err
+		return nil, packLoadError(path, err)
 	}
 
 	// Resolved once: every validator and eval in a pack must be checked

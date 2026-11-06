@@ -193,6 +193,11 @@ type Conversation struct {
 	// Stream event handler for StreamWithCallback
 	streamEventHandler StreamEventHandler
 
+	// audioMonitor receives the pipeline's tapped audio when WithAudioMonitor
+	// turned monitoring on; created once, on first use.
+	audioMonitorOnce sync.Once
+	audioMonitor     *audioMonitor
+
 	// Closed flag
 	closed bool
 	mu     sync.RWMutex
@@ -705,6 +710,8 @@ func (c *Conversation) buildPipelineConfig(
 		RelevanceConfig:       c.buildRelevanceConfig(),
 		ImagePreprocessConfig: c.config.imagePreprocessConfig,
 		VideoStreamConfig:     c.buildVideoStreamConfig(),
+		VideoFrameResize:      c.buildVideoFrameResize(),
+		AudioTap:              c.audioTap(),
 		EventEmitter:          eventEmitter,
 		ResponseFormat:        c.config.responseFormat,
 		StructuredOutputMode:  c.config.structuredOutputMode,
@@ -959,7 +966,8 @@ func (c *Conversation) executePipeline(
 	userMsg *types.Message,
 ) (*rtpipeline.ExecutionResult, error) {
 	// Execute through the unary session (only called from Send which checks mode)
-	return c.unarySession.ExecuteWithMessage(c.withConversationState(ctx), *userMsg)
+	result, err := c.unarySession.ExecuteWithMessage(c.withConversationState(ctx), *userMsg)
+	return result, c.wrapTurnError(err)
 }
 
 // lastAssistantFinishReason returns the FinishReason of the most recent
@@ -1425,8 +1433,9 @@ func (c *Conversation) forkToolRegistry() *tools.Registry {
 //
 // The fork gets a copy of the message history and variables, its own session
 // ID (the original's with a "-fork" suffix), tool registry, pending tool calls,
-// active skills and memory scope. Handlers registered with OnTool, OnToolAsync
-// and the client tool handlers are copied. The fork shares the original's
+// active skills and memory scope. Handlers registered with OnTool, OnToolCtx,
+// OnToolHTTP, OnToolExecutor, OnToolAsync and the client tool handlers are
+// copied. The fork shares the original's
 // providers, MCP servers, hooks and event bus, and the event bus stays open
 // until the original and every fork have closed.
 func (c *Conversation) Fork() (*Conversation, error) {
@@ -1445,6 +1454,11 @@ func (c *Conversation) Fork() (*Conversation, error) {
 	handlers := make(map[string]ToolHandler, len(c.handlers))
 	for k, v := range c.handlers {
 		handlers[k] = v
+	}
+	// Copy context-aware handlers (OnToolCtx, OnToolHTTP, OnToolExecutor).
+	ctxHandlers := make(map[string]ToolHandlerCtx, len(c.ctxHandlers))
+	for k, v := range c.ctxHandlers {
+		ctxHandlers[k] = v
 	}
 	c.handlersMu.RUnlock()
 
@@ -1492,6 +1506,7 @@ func (c *Conversation) Fork() (*Conversation, error) {
 		provider:         c.provider, // the prompt's RFC 0017 provider, not the agent
 		mode:             c.mode,
 		handlers:         handlers,
+		ctxHandlers:      ctxHandlers,
 		clientHandlers:   clientHandlers,
 		asyncHandlers:    asyncHandlers,
 		pendingStore:     forkPendingStore,
@@ -1598,6 +1613,7 @@ func (c *Conversation) Close() error {
 	// Outside c.mu: both steps wait on work that may call back into the
 	// conversation (a pipeline stage, or a subscriber draining the bus).
 	c.awaitPipelines()
+	c.closeAudioMonitor()
 	if busRef != nil {
 		busRef.release()
 	}
@@ -1873,6 +1889,24 @@ func (c *Conversation) buildVideoStreamConfig() *stage.FrameRateLimitConfig {
 	cfg := stage.DefaultFrameRateLimitConfig()
 	if c.config.videoStreamConfig.TargetFPS > 0 {
 		cfg.TargetFPS = c.config.videoStreamConfig.TargetFPS
+	}
+	return &cfg
+}
+
+// buildVideoFrameResize converts the resize fields of the SDK VideoStreamConfig
+// to a stage.ImageResizeStageConfig. It returns nil — no resize stage — unless
+// EnableResize is set and MaxWidth or MaxHeight bounds the frame, so a config
+// without dimensions (DefaultVideoStreamConfig) passes frames through untouched.
+func (c *Conversation) buildVideoFrameResize() *stage.ImageResizeStageConfig {
+	vc := c.config.videoStreamConfig
+	if vc == nil || !vc.EnableResize || (vc.MaxWidth <= 0 && vc.MaxHeight <= 0) {
+		return nil
+	}
+	cfg := stage.DefaultImageResizeStageConfig()
+	cfg.MaxWidth = max(vc.MaxWidth, 0)
+	cfg.MaxHeight = max(vc.MaxHeight, 0)
+	if vc.Quality > 0 {
+		cfg.Quality = min(vc.Quality, maxVideoStreamQuality)
 	}
 	return &cfg
 }

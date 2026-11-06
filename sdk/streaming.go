@@ -290,7 +290,7 @@ func (c *Conversation) executeStreamingPipeline(
 	// Execute streaming through the unary session (only called from Stream which checks mode)
 	streamCh, err := c.unarySession.ExecuteStreamWithMessage(c.withConversationState(ctx), *userMsg)
 	if err != nil {
-		return fmt.Errorf("pipeline streaming failed: %w", err)
+		return fmt.Errorf("pipeline streaming failed: %w", c.wrapTurnError(err))
 	}
 
 	// Process stream and finalize
@@ -361,7 +361,7 @@ func (c *Conversation) processStreamChunks(
 			continue
 		}
 		if chunk.Error != nil {
-			streamErr = chunk.Error
+			streamErr = c.wrapTurnError(chunk.Error)
 			continue
 		}
 

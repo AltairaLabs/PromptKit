@@ -434,7 +434,7 @@ var packCache sync.Map // map[string]*pack.Pack
 func loadAndValidatePack(packPath, promptName string, cfg *config) (*pack.Pack, *pack.Prompt, error) {
 	absPath, err := resolvePackPath(packPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to resolve pack path: %w", err)
+		return nil, nil, packLoadError(packPath, fmt.Errorf("failed to resolve pack path: %w", err))
 	}
 
 	// Check cache first.
@@ -454,7 +454,7 @@ func loadAndValidatePack(packPath, promptName string, cfg *config) (*pack.Pack, 
 
 	p, err := pack.Load(absPath, loadOpts)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load pack: %w", err)
+		return nil, nil, packLoadError(absPath, err)
 	}
 
 	// Store in cache. If another goroutine raced us, that's fine —
@@ -1316,7 +1316,7 @@ func OpenComposition(packPath, name string, opts ...Option) (*Conversation, erro
 	// can return a clear "not found" error without triggering full init.
 	absPath, err := resolvePackPath(packPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve pack path: %w", err)
+		return nil, packLoadError(packPath, fmt.Errorf("failed to resolve pack path: %w", err))
 	}
 
 	// Derive skip-schema from options (best-effort; Open will apply all opts again).
@@ -1331,7 +1331,7 @@ func OpenComposition(packPath, name string, opts ...Option) (*Conversation, erro
 		SkipSchemaValidation: cfg.skipSchemaValidation,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to load pack: %w", err)
+		return nil, packLoadError(absPath, err)
 	}
 
 	comp, ok := p.Compositions[name]

@@ -82,6 +82,10 @@ func TestValidation_HookBeforeCall(t *testing.T) {
 	if denied != nil {
 		assert.Contains(t, denied.Reason, "forbidden")
 	}
+	vErr, ok := sdk.AsValidationError(err)
+	require.True(t, ok, "a denied turn must be a *sdk.ValidationError, got %T: %v", err, err)
+	assert.Equal(t, "provider_before", vErr.ValidatorType)
+	assert.Contains(t, vErr.Message, "forbidden")
 
 	// Sending a normal message should succeed.
 	resp, err := conv.Send(ctx, "Hello, how are you?")

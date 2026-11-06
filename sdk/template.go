@@ -75,7 +75,7 @@ func LoadTemplate(packPath string, opts ...Option) (*PackTemplate, error) {
 
 	absPath, err := resolvePackPath(packPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve pack path: %w", err)
+		return nil, packLoadError(packPath, fmt.Errorf("failed to resolve pack path: %w", err))
 	}
 
 	loadOpts := pack.LoadOptions{
@@ -84,7 +84,7 @@ func LoadTemplate(packPath string, opts ...Option) (*PackTemplate, error) {
 
 	p, err := pack.Load(absPath, loadOpts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load pack: %w", err)
+		return nil, packLoadError(absPath, err)
 	}
 
 	return &PackTemplate{

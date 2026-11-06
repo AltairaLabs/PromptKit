@@ -141,6 +141,7 @@ func TestResolveToolWithArgs(t *testing.T) {
 
 		_, err := conv.ResolveTool(context.Background(), "test-id")
 		require.ErrorContains(t, err, "no handler registered")
+		require.ErrorIs(t, err, ErrToolNotRegistered)
 
 		// The record must NOT have been claimed/destroyed — it is still there.
 		still, err := conv.PendingTools(context.Background())

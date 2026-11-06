@@ -260,6 +260,11 @@ type Config struct {
 	// When non-nil and TargetFPS > 0, a FrameRateLimitStage is added before the provider stage.
 	VideoStreamConfig *stage.FrameRateLimitConfig
 
+	// VideoFrameResize, when non-nil, resizes streamed image frames to fit its
+	// MaxWidth / MaxHeight (re-encoding at its Quality) after frame rate
+	// limiting, so only the frames that reach the provider are resized.
+	VideoFrameResize *stage.ImageResizeStageConfig
+
 	// EventEmitter for emitting provider call events (optional)
 	// When provided, ProviderStage will emit ProviderCallStarted/Completed/Failed events
 	EventEmitter *events.Emitter
@@ -301,6 +306,11 @@ type Config struct {
 	// When set, input and output RecordingStages are inserted to capture
 	// full binary content for session replay.
 	RecordingConfig *stage.RecordingStageConfig
+
+	// AudioTap, when non-nil, adds audio monitor taps at the recording
+	// positions: one before the provider sees the user's audio, one after it
+	// produces the agent's audio. Each hands audio elements to AudioTap.
+	AudioTap AudioTapFunc
 
 	// RecordingStore is the destination for recording stage writes.
 	// Required when RecordingConfig is set; without it, recording stages
@@ -493,8 +503,8 @@ func collectPipelineStages(
 	// rendering happens once per Send rather than once per element.
 	stages = appendTemplateStage(stages, cfg, turnState)
 
-	// 4.1-4.7 Input recording, context builder, image preprocessing and
-	// frame rate limiting.
+	// 4.1-4.8 Input recording, context builder, image preprocessing, frame
+	// rate limiting and video frame resizing.
 	stages = appendPreProviderStages(stages, cfg, turnState)
 
 	// 5. Provider stage - LLM calls with streaming and tool support
@@ -517,6 +527,10 @@ func collectPipelineStages(
 		outputCfg := *cfg.RecordingConfig
 		outputCfg.Position = stage.RecordingPositionOutput
 		stages = append(stages, stage.NewRecordingStage(cfg.RecordingStore, outputCfg))
+	}
+	// 5.6 Output audio monitor tap - observes the agent's audio
+	if cfg.AudioTap != nil {
+		stages = append(stages, newAudioTapStage(stage.RecordingPositionOutput, cfg.AudioTap))
 	}
 
 	// 5.7 Memory extraction stage - extract memories from conversation
@@ -561,6 +575,11 @@ func appendPreProviderStages(stages []stage.Stage, cfg *Config, turnState *stage
 		stages = append(stages, stage.NewRecordingStage(cfg.RecordingStore, inputCfg))
 	}
 
+	// 4.2 Input audio monitor tap - observes the user's audio
+	if cfg.AudioTap != nil {
+		stages = append(stages, newAudioTapStage(stage.RecordingPositionInput, cfg.AudioTap))
+	}
+
 	// 4.5 Context builder stage - manages token budget and truncation
 	if cfg.TokenBudget > 0 {
 		contextPolicy := buildContextBuilderPolicy(cfg)
@@ -575,6 +594,11 @@ func appendPreProviderStages(stages []stage.Stage, cfg *Config, turnState *stage
 	// 4.7 Frame rate limiting stage - drop excess video/image frames before provider
 	if cfg.VideoStreamConfig != nil && cfg.VideoStreamConfig.TargetFPS > 0 {
 		stages = append(stages, stage.NewFrameRateLimitStage(*cfg.VideoStreamConfig))
+	}
+
+	// 4.8 Video frame resizing - shrink the frames that survived rate limiting
+	if cfg.VideoFrameResize != nil {
+		stages = append(stages, stage.NewImageResizeStage(*cfg.VideoFrameResize))
 	}
 	return stages
 }

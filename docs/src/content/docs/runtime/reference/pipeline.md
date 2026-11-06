@@ -2670,7 +2670,7 @@ func NewImageResizeStage(config ImageResizeStageConfig) *ImageResizeStage
 NewImageResizeStage creates a new image resizing stage.
 
 <a name="ImageResizeStage.GetConfig"></a>
-### func \(\*ImageResizeStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_image_resize.go#L128>)
+### func \(\*ImageResizeStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_image_resize.go#L138>)
 
 ```go
 func (s *ImageResizeStage) GetConfig() ImageResizeStageConfig

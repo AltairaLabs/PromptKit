@@ -111,7 +111,7 @@ func OpenWorkflow(packPath string, opts ...Option) (*WorkflowConversation, error
 func openWorkflowAtState(packPath, startState string, opts ...Option) (*WorkflowConversation, error) {
 	absPath, err := resolvePackPath(packPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve pack path: %w", err)
+		return nil, packLoadError(packPath, fmt.Errorf("failed to resolve pack path: %w", err))
 	}
 
 	// Determine skip-schema from options
@@ -131,7 +131,7 @@ func openWorkflowAtState(packPath, startState string, opts ...Option) (*Workflow
 		SkipSchemaValidation: cfg.skipSchemaValidation,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to load pack: %w", err)
+		return nil, packLoadError(absPath, err)
 	}
 
 	if p.Workflow == nil {
@@ -239,14 +239,14 @@ func ResumeWorkflow(workflowID, packPath string, opts ...Option) (*WorkflowConve
 
 	absPath, err := resolvePackPath(packPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve pack path: %w", err)
+		return nil, packLoadError(packPath, fmt.Errorf("failed to resolve pack path: %w", err))
 	}
 
 	p, err := pack.Load(absPath, pack.LoadOptions{
 		SkipSchemaValidation: cfg.skipSchemaValidation,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to load pack: %w", err)
+		return nil, packLoadError(absPath, err)
 	}
 
 	if p.Workflow == nil {

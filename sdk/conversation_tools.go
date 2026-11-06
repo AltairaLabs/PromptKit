@@ -116,7 +116,7 @@ func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 		// Get tool descriptor from pack
 		packTool := c.pack.GetTool(name)
 		if packTool == nil {
-			return nil, fmt.Errorf("tool %q not found in pack", name)
+			return nil, markSentinel(fmt.Errorf("tool %q not found in pack", name), ErrToolNotInPack)
 		}
 
 		paramsJSON, err := json.Marshal(packTool.Parameters)
@@ -279,7 +279,7 @@ func (c *Conversation) ResolveToolWithArgs(
 	}
 	handler := c.lookupExecHandler(peek.Name)
 	if handler == nil {
-		return nil, fmt.Errorf("no handler registered for tool %q", peek.Name)
+		return nil, markSentinel(fmt.Errorf("no handler registered for tool %q", peek.Name), ErrToolNotRegistered)
 	}
 	// Claim atomically (single-winner across instances) now that we can execute.
 	call, ok, err := c.pendingStore.Claim(ctx, c.ID(), id)
@@ -290,6 +290,9 @@ func (c *Conversation) ResolveToolWithArgs(
 		return nil, sdktools.ErrPendingAlreadyResolved
 	}
 	resolution := sdktools.ResolveApproved(call, handler, overrides)
+	if resolution.Error != nil {
+		resolution.Error = &ToolError{ToolName: call.Name, Cause: resolution.Error}
+	}
 	// Store for Continue()/ContinueDuplex() to use
 	if c.resolvedStore != nil {
 		c.resolvedStore.Add(resolution)
@@ -361,8 +364,8 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 			content = fmt.Sprintf("Tool call rejected: %s", res.RejectionReason)
 			errStr = "rejected by user"
 		} else if res.Error != nil {
-			content = fmt.Sprintf("Tool error: %s", res.Error.Error())
-			errStr = res.Error.Error()
+			errStr = toolResultErrorText(res.Error)
+			content = "Tool error: " + errStr
 		} else if res.ResultJSON != nil {
 			content = string(res.ResultJSON)
 		} else {
@@ -433,7 +436,7 @@ func (c *Conversation) ContinueDuplex(ctx context.Context) error {
 			result = fmt.Sprintf("Tool call rejected: %s", res.RejectionReason)
 			isError = true
 		case res.Error != nil:
-			result = fmt.Sprintf("Tool error: %s", res.Error.Error())
+			result = "Tool error: " + toolResultErrorText(res.Error)
 			isError = true
 		case res.ResultJSON != nil:
 			result = string(res.ResultJSON)

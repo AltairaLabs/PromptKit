@@ -124,8 +124,8 @@ func TestClientExecutor_NoHandler(t *testing.T) {
 	}
 
 	_, err := exec.Execute(context.Background(), desc, json.RawMessage(`{}`))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no client handler registered")
+	require.ErrorIs(t, err, ErrToolNotRegistered)
+	assert.Equal(t, "no client handler registered for tool: unknown_tool", err.Error())
 }
 
 func TestClientExecutor_InvalidArgs(t *testing.T) {

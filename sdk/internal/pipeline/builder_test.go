@@ -1201,6 +1201,44 @@ func TestBuildWithVideoStreamConfig(t *testing.T) {
 	})
 }
 
+// VideoFrameResize puts an image-resize stage, carrying that config, right
+// after the frame rate limiter; without it there is no resize stage.
+func TestCollectPipelineStages_VideoFrameResize(t *testing.T) {
+	newCfg := func(resize *stage.ImageResizeStageConfig) *Config {
+		frlCfg := stage.DefaultFrameRateLimitConfig()
+		return &Config{
+			PromptRegistry:    createTestRegistry("chat"),
+			TaskType:          "chat",
+			Provider:          mock.NewProvider("test", "test-model", false),
+			VideoStreamConfig: &frlCfg,
+			VideoFrameResize:  resize,
+		}
+	}
+	indexOf := func(stages []stage.Stage, name string) int {
+		for i, s := range stages {
+			if s.Name() == name {
+				return i
+			}
+		}
+		return -1
+	}
+
+	resizeCfg := stage.DefaultImageResizeStageConfig()
+	resizeCfg.MaxWidth, resizeCfg.MaxHeight, resizeCfg.Quality = 640, 480, 70
+	stages, err := collectPipelineStages(newCfg(&resizeCfg), nil, false)
+	require.NoError(t, err)
+	limitAt, resizeAt := indexOf(stages, "frame-rate-limit"), indexOf(stages, "image-resize")
+	require.GreaterOrEqual(t, resizeAt, 0, "VideoFrameResize must add an image-resize stage")
+	assert.Equal(t, limitAt+1, resizeAt, "resize runs on the frames the limiter keeps")
+	resizeStage, ok := stages[resizeAt].(*stage.ImageResizeStage)
+	require.True(t, ok)
+	assert.Equal(t, resizeCfg, resizeStage.GetConfig())
+
+	stages, err = collectPipelineStages(newCfg(nil), nil, false)
+	require.NoError(t, err)
+	assert.Equal(t, -1, indexOf(stages, "image-resize"))
+}
+
 // TestBuildProviderStages_SelectsCompositionStage verifies that when
 // Config.ActiveComposition is non-nil, buildProviderStages returns a single
 // *stage.CompositionStage instead of a ProviderStage (RFC 0010).

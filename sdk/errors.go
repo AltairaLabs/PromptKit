@@ -25,10 +25,17 @@ var (
 	// ErrProviderNotDetected is returned when no provider could be auto-detected.
 	ErrProviderNotDetected = errors.New("could not detect provider: no API keys found in environment")
 
-	// ErrToolNotRegistered is returned when the LLM calls a tool that has no handler.
+	// ErrToolNotRegistered is returned by the conversation's tool executors
+	// when the LLM calls a tool that has no handler (the model receives the
+	// error's text as the tool result), and by ResolveTool and
+	// ResolveToolWithArgs for a pending call whose tool has none. The error
+	// text names the tool.
 	ErrToolNotRegistered = errors.New("tool handler not registered")
 
-	// ErrToolNotInPack is returned when trying to register a handler for a tool not in the pack.
+	// ErrToolNotInPack is returned when a handler registered with
+	// OnToolExecutor is called for a tool the pack does not define (the model
+	// receives the error's text as the tool result). The registration methods
+	// return no error, so the check happens when the tool is called.
 	ErrToolNotInPack = errors.New("tool not defined in pack")
 
 	// ErrNoWorkflow is returned when OpenWorkflow is called on a pack without a workflow section.
@@ -62,7 +69,11 @@ func (e *sentinelError) Error() string { return e.err.Error() }
 // Unwrap exposes both the sentinel and the original error.
 func (e *sentinelError) Unwrap() []error { return []error{e.sentinel, e.err} }
 
-// ValidationError represents a validation failure.
+// ValidationError represents a validation failure. Send, Stream and their
+// Resume and Continue counterparts return one when a hook or guardrail denies
+// the turn: it wraps the runtime's *hooks.HookDeniedError (a provider hook
+// denied the call) or *providers.ValidationAbortError (a chunk hook aborted
+// the stream), so errors.As still finds those.
 type ValidationError struct {
 	// ValidatorType is the type of validator that failed (e.g., "banned_words").
 	ValidatorType string
@@ -72,11 +83,19 @@ type ValidationError struct {
 
 	// Details contains validator-specific information about the failure.
 	Details map[string]any
+
+	// cause is the runtime error the SDK wrapped, if any.
+	cause error
 }
 
 // Error implements the error interface.
 func (e *ValidationError) Error() string {
 	return "validation failed: " + e.ValidatorType + ": " + e.Message
+}
+
+// Unwrap returns the runtime error the SDK wrapped, or nil.
+func (e *ValidationError) Unwrap() error {
+	return e.cause
 }
 
 // AsValidationError checks if an error is a ValidationError and returns it.
@@ -95,7 +114,10 @@ func AsValidationError(err error) (*ValidationError, bool) {
 	return nil, false
 }
 
-// PackError represents an error loading or parsing a pack file.
+// PackError represents an error loading or parsing a pack file. Open and its
+// variants, ValidatePack and Evaluate return one when the pack file is missing,
+// unreadable, malformed or fails validation; Cause is the underlying error, so
+// errors.Is(err, ErrPackNotFound) still matches a missing file.
 type PackError struct {
 	// Path is the pack file path.
 	Path string
@@ -114,7 +136,11 @@ func (e *PackError) Unwrap() error {
 	return e.Cause
 }
 
-// ProviderError represents an error from the LLM provider.
+// ProviderError represents an error from the LLM provider. Send, Stream and
+// their Resume and Continue counterparts return one when the provider's API
+// answered with an error status (*providers.ProviderHTTPError) or the
+// connection failed (*providers.ProviderTransportError). Cause is that
+// runtime error, so errors.As and providers.IsTransient still see it.
 type ProviderError struct {
 	// Provider name (e.g., "openai", "anthropic").
 	Provider string
@@ -143,7 +169,9 @@ func (e *ProviderError) Unwrap() error {
 	return e.Cause
 }
 
-// ToolError represents an error executing a tool.
+// ToolError represents an error executing a tool. ResolveTool and
+// ResolveToolWithArgs set one as the ToolResolution's Error when the approved
+// tool's handler fails.
 type ToolError struct {
 	// ToolName is the name of the tool that failed.
 	ToolName string
