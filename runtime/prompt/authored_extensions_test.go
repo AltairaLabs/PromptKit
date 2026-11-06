@@ -102,6 +102,37 @@ spec:
 	require.NotContains(t, validator, "extensions")
 }
 
+// TestToConfigRoundTripsPromptExtensions — pack prompt → Config → pack prompt
+// keeps nested extensions exactly, and the Config holds its own copy, so
+// editing it never reaches the loaded pack.
+func TestToConfigRoundTripsPromptExtensions(t *testing.T) {
+	ext := map[string]any{
+		"promptarena.qualification": map[string]any{
+			"suite":      "scenarios/billing-*.yaml",
+			"thresholds": []any{map[string]any{"metric": "pass_rate", "value": "0.92"}},
+		},
+	}
+	pr := &PackPrompt{ID: "billing", Version: "1.0.0", SystemTemplate: "You bill.", Extensions: ext}
+
+	cfg := ToConfig(pr, "billing")
+	require.Equal(t, ext, cfg.Spec.Extensions)
+
+	back := NewPackCompiler(nil).createPackPrompt(cfg)
+	require.Equal(t, ext, back.Extensions)
+
+	cfg.Spec.Extensions["promptarena.qualification"].(map[string]any)["suite"] = "changed"
+	require.Equal(t, "scenarios/billing-*.yaml",
+		ext["promptarena.qualification"].(map[string]any)["suite"],
+		"ToConfig must copy extensions, not share the pack's map")
+	cfg.Spec.Extensions["promptarena.qualification"].(map[string]any)["thresholds"].([]any)[0] = "changed"
+	require.Equal(t, map[string]any{"metric": "pass_rate", "value": "0.92"},
+		ext["promptarena.qualification"].(map[string]any)["thresholds"].([]any)[0],
+		"nested slices are copied too")
+
+	require.Nil(t, ToConfig(&PackPrompt{ID: "plain"}, "plain").Spec.Extensions,
+		"a prompt without extensions converts to none")
+}
+
 // TestCompileCarriesAuthoredRFC0016Fields — the single-prompt Compile path
 // (CompileToFile) carries the same fields as CompileFromRegistry, and
 // compiling never writes a folded message into the authoring config's params.

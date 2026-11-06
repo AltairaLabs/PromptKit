@@ -915,6 +915,8 @@ func (p *Pack) ListTools() []string {
 // ToConfig converts a pack prompt into a prompt.Config suitable for
 // registration in a prompt.Registry. It carries the fields the prompt-assembly
 // pipeline needs; tools and validators are wired separately by the caller.
+// Extensions are deep-copied, so a pack → config → pack round trip keeps them
+// and editing the Config never reaches the pack.
 func ToConfig(pr *PackPrompt, taskType string) *Config {
 	var vars []VariableMetadata
 	if len(pr.Variables) > 0 {
@@ -936,6 +938,7 @@ func ToConfig(pr *PackPrompt, taskType string) *Config {
 			Variables:      vars,
 			ModelOverrides: valueMap(pr.ModelOverrides),
 			Parameters:     packspec.Clone(pr.Parameters),
+			Extensions:     copyAnyMap(pr.Extensions),
 		},
 	}
 }
