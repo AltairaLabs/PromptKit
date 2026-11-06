@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
@@ -52,7 +53,8 @@ type StreamPipeline struct {
 	isShutdown bool
 
 	// abandoned closes when Shutdown's grace period ends with executions still
-	// running; they stop waiting on a consumer that has stopped reading.
+	// running; from then on they stop waiting on a consumer that has stopped
+	// reading (see callerOutput). A consumer still reading loses nothing.
 	abandoned chan struct{}
 }
 
@@ -179,8 +181,9 @@ func (p *StreamPipeline) executeBackground(
 	// counts as output elements flow through, so the completion event reports
 	// real numbers instead of zeros.
 	totals := &completionTotals{}
+	out := p.newCallerOutput(output)
 	stageErrors, runs := p.startStages(ctx, input, channels, edgeChannels, failure)
-	outputDone := p.startOutputCollection(channels, output, totals, failure)
+	outputDone := p.startOutputCollection(channels, out, totals, failure)
 	<-outputDone
 
 	// The output is complete once the leaf stages have returned. Their own
@@ -199,7 +202,7 @@ func (p *StreamPipeline) executeBackground(
 		// Bounded by the caller's context, not the execution's: after the
 		// pipeline's own timeout the execution's is already done, and the
 		// failure must still reach a caller that is reading.
-		deliverTurnFailure(callerCtx, p.abandoned, output, err)
+		deliverTurnFailure(callerCtx, out, err)
 	}
 	close(output)
 
@@ -213,21 +216,69 @@ func (p *StreamPipeline) executeBackground(
 }
 
 // deliverTurnFailure sends the turn's error to the caller. A consumer that
-// has stopped reading would block it forever, so it gives up once ctx is done
-// or once abandoned closes (Shutdown's grace period ended), rather than wait.
-func deliverTurnFailure(
-	ctx context.Context, abandoned <-chan struct{}, output chan<- StreamElement, err error,
-) {
-	elem := NewErrorElement(err)
+// has stopped reading would block it forever, so it gives up once ctx is done,
+// or once Shutdown has abandoned the execution and the reader is gone (see
+// callerOutput.send), rather than wait.
+func deliverTurnFailure(ctx context.Context, out *callerOutput, err error) {
+	out.send(NewErrorElement(err), ctx.Done())
+}
+
+// callerOutput is an execution's output channel as the caller reads it.
+//
+// Until Shutdown abandons the execution (its grace period ended with the
+// execution still running), a send waits for the reader as long as it takes.
+// Abandonment alone does not drop anything: a reader still reading, such as a
+// Send whose model call outlasted the grace period, gets every element. A
+// send that then waits a further grace period (at least minReaderStall) with
+// nothing taken means the reader is gone: that element is dropped, and every
+// later one is dropped without waiting, so the execution returns.
+type callerOutput struct {
+	ch        chan<- StreamElement
+	abandoned <-chan struct{}
+	// stall is how long a send waits, once the execution is abandoned, before
+	// the reader counts as gone.
+	stall time.Duration
+	gone  atomic.Bool
+}
+
+// minReaderStall is the least a send waits for the reader once the execution
+// is abandoned. With a zero (or tiny) grace period, a reader busy with the
+// previous element for an instant would otherwise count as gone.
+const minReaderStall = 100 * time.Millisecond
+
+func (p *StreamPipeline) newCallerOutput(ch chan<- StreamElement) *callerOutput {
+	return &callerOutput{
+		ch:        ch,
+		abandoned: p.abandoned,
+		stall:     max(p.config.GracefulShutdownTimeout, minReaderStall),
+	}
+}
+
+// send delivers elem to the reader, or gives up when stop closes or the
+// reader is gone. A reader ready for elem always takes it.
+func (o *callerOutput) send(elem StreamElement, stop <-chan struct{}) {
+	if o.gone.Load() {
+		return
+	}
 	select {
-	case output <- elem:
+	case o.ch <- elem:
 		return
 	default:
 	}
 	select {
-	case output <- elem:
-	case <-ctx.Done():
-	case <-abandoned:
+	case o.ch <- elem:
+		return
+	case <-stop:
+		return
+	case <-o.abandoned:
+	}
+	timer := time.NewTimer(o.stall)
+	defer timer.Stop()
+	select {
+	case o.ch <- elem:
+	case <-stop:
+	case <-timer.C:
+		o.gone.Store(true)
 	}
 }
 
@@ -731,7 +782,7 @@ func sameFailure(failure error, e sourcedError) bool {
 // is left to the caller, which may still have the turn's error to deliver.
 func (p *StreamPipeline) startOutputCollection(
 	channels map[string]chan StreamElement,
-	output chan<- StreamElement,
+	output *callerOutput,
 	totals *completionTotals,
 	failure *turnFailure,
 ) <-chan struct{} {
@@ -1181,18 +1232,16 @@ func instrumentStageInput(stageName string, input <-chan StreamElement) <-chan S
 // tagging an error the leaf itself emitted with its name. A failure that
 // already reached the caller (a stage that emitted its error and also
 // returned it) is not sent again. Once Shutdown has given up on the
-// execution (see abandoned), elements are dropped rather than waited on.
-func (p *StreamPipeline) forwardOutput(
-	leaf string, elem StreamElement, output chan<- StreamElement, totals *completionTotals, failure *turnFailure,
+// execution and the reader has stopped reading (see callerOutput), elements
+// are dropped rather than waited on.
+func forwardOutput(
+	leaf string, elem StreamElement, output *callerOutput, totals *completionTotals, failure *turnFailure,
 ) {
 	tagErrorSource(&elem, leaf)
 	if !totals.observe(&elem) {
 		return
 	}
-	select {
-	case output <- failure.namedCause(elem):
-	case <-p.abandoned:
-	}
+	output.send(failure.namedCause(elem), nil)
 }
 
 // collectOutput collects output from all leaf stages into the pipeline output
@@ -1200,7 +1249,7 @@ func (p *StreamPipeline) forwardOutput(
 // block faster ones.
 func (p *StreamPipeline) collectOutput(
 	channels map[string]chan StreamElement,
-	output chan<- StreamElement,
+	output *callerOutput,
 	totals *completionTotals,
 	failure *turnFailure,
 ) {
@@ -1216,7 +1265,7 @@ func (p *StreamPipeline) collectOutput(
 		// Fast path: single leaf — no extra goroutines needed.
 		for _, leaf := range leaves {
 			for elem := range channels[leaf] {
-				p.forwardOutput(leaf, elem, output, totals, failure)
+				forwardOutput(leaf, elem, output, totals, failure)
 			}
 		}
 		return
@@ -1229,7 +1278,7 @@ func (p *StreamPipeline) collectOutput(
 		go func(leaf string, src <-chan StreamElement) {
 			defer wg.Done()
 			for elem := range src {
-				p.forwardOutput(leaf, elem, output, totals, failure)
+				forwardOutput(leaf, elem, output, totals, failure)
 			}
 		}(leaf, channels[leaf])
 	}
@@ -1351,9 +1400,11 @@ func (p *StreamPipeline) accumulateResult(output <-chan StreamElement) (*Executi
 }
 
 // Shutdown gracefully shuts down the pipeline, waiting for in-flight executions to complete.
-// When GracefulShutdownTimeout (or ctx) ends first it returns ErrShutdownTimeout, and
-// executions still blocked on a consumer that stopped reading their output drop that
-// output and return.
+// When GracefulShutdownTimeout (or ctx) ends first it returns ErrShutdownTimeout. The
+// executions still running carry on, and a consumer still reading their output gets
+// all of it, the turn's error included. An execution whose consumer has stopped
+// reading, so that a send waits a further GracefulShutdownTimeout (at least 100ms)
+// with nothing taken, drops the rest of its output and returns.
 func (p *StreamPipeline) Shutdown(ctx context.Context) error {
 	p.shutdownMu.Lock()
 	if p.isShutdown {
