@@ -112,7 +112,7 @@ func TestProvider_OptionalBlocksRoundTrip(t *testing.T) {
 	}
 	zeroKeys := map[string][]string{
 		"meaningful zeros": {"output_cost_per_1k", "rps", "temperature"},
-		"temperature zero": {"temperature", "top_p", "input_cost_per_1k", "rps", "burst"},
+		"temperature zero": {"temperature", "top_p", "input_cost_per_1k", "output_cost_per_1k", "rps", "burst"},
 	}
 	for name, in := range cases {
 		t.Run(name+"/yaml", func(t *testing.T) {
