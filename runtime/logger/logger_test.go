@@ -678,6 +678,10 @@ func TestRedactSensitiveData_BearerTokenShapes(t *testing.T) {
 		{"followed by quote", `{"h":"Bearer aaa.bbb.ccc"}`, `{"h":"Bearer [REDACTED]"}`},
 		{"sentence period", "sent Bearer aaa.bbb.ccc.", "sent Bearer [REDACTED]."},
 		{"end of line", "Bearer aaa.bbb.ccc\nnext", "Bearer [REDACTED]\nnext"},
+		{"tab separator", "Bearer\tabc123", "Bearer [REDACTED]"},
+		{"newline separator", "Bearer\nabc123", "Bearer [REDACTED]"},
+		{"multiple spaces", "Bearer    abc123", "Bearer [REDACTED]"},
+		{"mixed whitespace", "x Bearer \t\n abc123 y", "x Bearer [REDACTED] y"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
