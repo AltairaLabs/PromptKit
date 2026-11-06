@@ -4,7 +4,7 @@ description: Register remote A2A agents as tools, with authentication, headers, 
 sidebar:
   order: 7
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/a2a/bridge.go
     - runtime/a2a/client.go
@@ -142,6 +142,8 @@ conv, err := sdk.Open("./app.pack.json", "assistant",
 )
 ```
 
+`Open` fails, naming both agents, if two of them register the same tool name.
+
 ## Fail when an agent is unreachable
 
 By default, a failed discovery is logged as a warning and the conversation runs without that agent's tools. Mark the agent required to fail `Open` instead:
@@ -158,6 +160,8 @@ Each skill becomes a tool named `a2a__{agentName}__{skillId}`. The agent name co
 |------------|----------|-----------|
 | `Research Agent` | `search_papers` | `a2a__research_agent__search_papers` |
 | `Weather Bot` | `forecast` | `a2a__weather_bot__forecast` |
+
+A tool's input requires a `query` string, plus `image_url` and `image_data` when the skill accepts image input, and `audio_data` when it accepts audio input. Its output has a `response` string, plus `media_url` and `media_type` when the skill produces image or audio output.
 
 ## Use a tool bridge directly
 
@@ -176,6 +180,8 @@ conv, err := sdk.Open("./app.pack.json", "assistant",
     sdk.WithA2ATools(bridge),
 )
 ```
+
+Pass `WithA2ATools` once per bridge. `Open` fails, naming both bridges, if two register the same tool name.
 
 ## Complete example
 

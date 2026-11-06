@@ -4,7 +4,7 @@ description: Decide whether the A2A server owns conversations or your platform d
 sidebar:
   order: 8
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/a2a/client.go
     - sdk/a2a.go
@@ -15,6 +15,7 @@ verified:
     - server/a2a/ownership.go
     - server/a2a/protocol.go
     - server/a2a/server.go
+    - server/a2a/server_stream.go
     - server/a2a/task_events.go
 ---
 
@@ -117,7 +118,7 @@ Otherwise `NewServer` is less to write.
    | `EventText` | a chunk of the reply |
    | `EventMedia` | a media part of the reply |
    | `EventClientTool` | you need the caller to run a tool; the task goes to `input_required` |
-   | `EventPending` | you are waiting on something the server cannot see, such as a human approval |
+   | `EventPending` | you are waiting on something the server cannot see, such as a human approval; the task goes to `input_required` |
    | `EventDone` | the turn is complete |
    | `Error` set | the turn failed |
 

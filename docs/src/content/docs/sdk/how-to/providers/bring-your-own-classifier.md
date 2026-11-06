@@ -4,7 +4,7 @@ description: Plug a custom classifier (ONNX, a model server, a cloud API) into t
 sidebar:
   order: 21
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/evals/handlers/audio_emotion.go
     - runtime/evals/handlers/judge_required.go
@@ -22,6 +22,7 @@ verified:
     - sdk/examples/onnx-audio-emotion/main.go
     - sdk/options.go
     - sdk/provider_keys.go
+    - sdk/provider_refs.go
     - sdk/requires.go
 ---
 
@@ -141,7 +142,7 @@ To swap the classifier, change the registration. The pack does not change.
 
 ## Verify
 
-`sdk.Open()` returns without error once the name resolves. A check in a prompt's `evals` or `validators` whose name is undeclared, unbound or bound to something that cannot do the job makes `Open()` fail with an error that names the check and the key. A required provider you did not bind also fails `Open()`.
+`sdk.Open()` returns without error once the name resolves. A check in a prompt's `evals` or `validators`, or in a pack-level eval that runs on its turns, whose name is undeclared, unbound or bound to something that cannot do the job makes `Open()` fail with an error that names the check and the key. A required provider you did not bind also fails `Open()`.
 
 Results arrive through the conversation's evals. Observe them with an [eval hook](/sdk/how-to/observability/run-evals/) (`sdk.WithEvalHook`) or a metrics recorder. Calls through a registered provider emit `inference.call.completed` and `inference.call.failed` events and report the `inference_*` metrics.
 

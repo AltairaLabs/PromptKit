@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/providers/bring-your-own-classifier.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -28,8 +28,8 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/handlers/audio_emotion.go:127",
-    "runtime/evals/handlers/topic_policy.go:138",
-    "runtime/evals/handlers/topic_policy.go:153"
+    "runtime/evals/handlers/topic_policy.go:142",
+    "runtime/evals/handlers/topic_policy.go:157"
    ]
   },
   {
@@ -48,8 +48,8 @@
    "verdict": "true",
    "evidence": [
     "runtime/inference/instrument.go:33",
-    "sdk/options.go:2656",
-    "sdk/options.go:2672"
+    "sdk/options.go:2836",
+    "sdk/options.go:2852"
    ]
   },
   {
@@ -60,8 +60,8 @@
     "runtime/inference/factory.go:14",
     "runtime/inference/factory.go:24",
     "runtime/providers/base/factory.go:18",
-    "sdk/options.go:2637",
-    "sdk/options.go:644"
+    "sdk/options.go:2817",
+    "sdk/options.go:670"
    ]
   },
   {
@@ -88,8 +88,9 @@
    "verdict": "false",
    "evidence": [
     "sdk/binding.go:60",
-    "sdk/provider_keys.go:114",
-    "sdk/provider_keys.go:48",
+    "sdk/provider_keys.go:33-71",
+    "sdk/provider_keys.go:82-135",
+    "sdk/provider_refs.go:64",
     "sdk/requires.go:48"
    ]
   },
@@ -98,7 +99,7 @@
    "claim": "Observe results with sdk.WithEvalHook or a metrics recorder",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:3654"
+    "sdk/options.go:3855"
    ]
   },
   {
@@ -115,8 +116,8 @@
    "claim": "Snippets compile and Open succeeds with WithClassifier and with a registered factory",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:2637",
-    "sdk/options.go:2662"
+    "sdk/options.go:2817",
+    "sdk/options.go:2842"
    ]
   },
   {
@@ -124,10 +125,10 @@
    "claim": "Registered providers emit inference.call.completed / inference.call.failed events and inference_* metrics",
    "verdict": "true",
    "evidence": [
-    "runtime/events/types.go:1047",
+    "runtime/events/types.go:1057",
     "runtime/inference/instrument.go:53",
-    "runtime/metrics/collector.go:460",
-    "runtime/metrics/collector.go:592"
+    "runtime/metrics/collector.go:468",
+    "runtime/metrics/collector.go:600"
    ]
   },
   {

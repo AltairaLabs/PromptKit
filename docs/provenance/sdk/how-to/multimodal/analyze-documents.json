@@ -1,13 +1,13 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/multimodal/analyze-documents.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "sdk.WithDocumentFile(path) SendOption attaches a document from a file path",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:3472",
+    "sdk/options.go:3673",
     "sdk/streaming.go:247"
    ]
   },
@@ -16,7 +16,7 @@
    "claim": "sdk.WithDocumentData(data []byte, mimeType string) attaches raw document bytes",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:3484",
+    "sdk/options.go:3685",
     "sdk/streaming.go:251"
    ]
   },
@@ -25,7 +25,7 @@
    "claim": "sdk.WithImageFile combines with documents in one Send",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:3360",
+    "sdk/options.go:3562",
     "sdk/streaming.go:221"
    ]
   },
@@ -34,8 +34,9 @@
    "claim": "The SDK supports PDF documents only; Word and text are not supported",
    "verdict": "false",
    "evidence": [
-    "runtime/providers/claude/claude_multimodal.go:199",
-    "runtime/providers/gemini/gemini_multimodal.go:56",
+    "runtime/providers/claude/claude_multimodal.go:200",
+    "runtime/providers/claude/claude_multimodal.go:38-40",
+    "runtime/providers/gemini/gemini_multimodal.go:54-72",
     "runtime/types/content.go:467"
    ]
   },
@@ -44,7 +45,7 @@
    "claim": "Claude document limit 32MB",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude_multimodal.go:36"
+    "runtime/providers/claude/claude_multimodal.go:44"
    ]
   },
   {
@@ -52,7 +53,7 @@
    "claim": "Gemini document limit 20MB",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/gemini/gemini_multimodal.go:62"
+    "runtime/providers/gemini/gemini_multimodal.go:110"
    ]
   },
   {
@@ -60,8 +61,8 @@
    "claim": "OpenAI GPT-4V accepts documents (size varies)",
    "verdict": "false",
    "evidence": [
-    "runtime/providers/openai/openai_multimodal.go:145",
-    "runtime/providers/openai/openai_multimodal.go:18"
+    "runtime/providers/multimodal.go:255-270",
+    "runtime/providers/openai/openai_multimodal.go:38-65"
    ]
   },
   {
@@ -86,7 +87,7 @@
    "claim": "A non-PDF MIME type is rejected",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude_multimodal.go:199"
+    "runtime/providers/claude/claude_multimodal.go:200"
    ]
   },
   {
@@ -119,7 +120,7 @@
    "claim": "Arena scenario spec.media with type document and source",
    "verdict": "unverified",
    "evidence": [
-    "sdk/options.go:3472"
+    "sdk/options.go:3673"
    ]
   },
   {
@@ -127,16 +128,19 @@
    "claim": "promptarena run config.arena.yaml --scenario pdf-summary",
    "verdict": "unverified",
    "evidence": [
-    "sdk/options.go:3472"
+    "sdk/options.go:3673"
    ]
   },
   {
    "id": 16,
    "claim": "A message accepts up to 20 media items",
-   "verdict": "true",
+   "verdict": "false",
    "evidence": [
+    "runtime/providers/base_provider.go:437-444",
+    "runtime/providers/claude/claude_multimodal.go:213",
+    "runtime/providers/gemini/gemini_multimodal.go:211",
     "runtime/providers/media_loader.go:108",
-    "runtime/providers/media_loader.go:30"
+    "runtime/providers/media_loader.go:27-29"
    ]
   },
   {
@@ -144,9 +148,9 @@
    "claim": "The media loader rejects a file over 50 MB",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/base_provider.go:432",
     "runtime/providers/media_loader.go:21",
-    "runtime/providers/media_loader.go:253"
+    "runtime/providers/media_loader.go:255",
+    "runtime/providers/media_loader.go:62-64"
    ]
   },
   {
@@ -154,10 +158,9 @@
    "claim": "Error texts: 'claude only supports PDF documents, got: <mime>', 'unknown content type: document', 'file size N bytes exceeds maximum M bytes for <path>', 'media item limit exceeded'",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude_multimodal.go:200",
-    "runtime/providers/media_loader.go:109",
-    "runtime/providers/media_loader.go:254",
-    "runtime/providers/openai/openai_multimodal.go:146"
+    "runtime/providers/media_loader.go:254-256",
+    "runtime/providers/multimodal.go:263-283",
+    "runtime/providers/multimodal.go:297-303"
    ]
   },
   {
@@ -165,18 +168,18 @@
    "claim": "WithDocumentFile infers the MIME type from the file extension and the file is read when the provider call is built",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude_multimodal.go:212",
+    "runtime/providers/claude/claude_multimodal.go:213",
     "runtime/providers/media_loader.go:229",
-    "runtime/types/content.go:258"
+    "runtime/types/content.go:259"
    ]
   },
   {
    "id": 20,
    "claim": "Claude and Gemini declare PDF as their only document format",
-   "verdict": "true",
+   "verdict": "false",
    "evidence": [
-    "runtime/providers/claude/claude_multimodal.go:30",
-    "runtime/providers/gemini/gemini_multimodal.go:56"
+    "runtime/providers/claude/claude_multimodal.go:38-40",
+    "runtime/providers/gemini/gemini_multimodal.go:57-73"
    ]
   },
   {
@@ -185,7 +188,7 @@
    "verdict": "true",
    "evidence": [
     "sdk/hooks/events.go:103",
-    "sdk/options.go:3472"
+    "sdk/options.go:3673"
    ]
   },
   {

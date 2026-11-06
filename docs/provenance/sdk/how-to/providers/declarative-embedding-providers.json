@@ -1,14 +1,14 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/providers/declarative-embedding-providers.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "A spec.providers entry with role: embedding declares an embedding provider",
    "verdict": "true",
    "evidence": [
-    "sdk/provider_file.go:68",
-    "sdk/runtime_config.go:128"
+    "sdk/provider_file.go:69",
+    "sdk/runtime_config.go:130"
    ]
   },
   {
@@ -24,20 +24,20 @@
    "claim": "The first declared entry becomes the default RAG provider unless WithContextRetrieval set one",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1733",
-    "sdk/options.go:2881",
-    "sdk/runtime_config.go:380"
+    "sdk/options.go:1893",
+    "sdk/options.go:3062",
+    "sdk/runtime_config.go:382"
    ]
   },
   {
    "id": 4,
    "claim": "Declaring the provider in YAML gives RAG retrieval without passing an instance to WithContextRetrieval",
-   "verdict": "false",
+   "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_context.go:208",
-    "sdk/options.go:1733",
-    "sdk/sdk.go:401",
-    "sdk/sdk.go:405"
+    "runtime/pipeline/stage/stages_context.go:210",
+    "sdk/options.go:1843-1866",
+    "sdk/runtime_config.go:382-383",
+    "sdk/sdk.go:409-412"
    ]
   },
   {
@@ -45,8 +45,8 @@
    "claim": "The same instance reaches selectors as SelectorContext.Embeddings on Init",
    "verdict": "true",
    "evidence": [
-    "sdk/runtime_config.go:280",
-    "sdk/runtime_config.go:281"
+    "sdk/runtime_config.go:282",
+    "sdk/runtime_config.go:283"
    ]
   },
   {
@@ -55,6 +55,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:174",
+    "pkg/config/runtime_config.go:40-43",
     "sdk/runtime_config.go:193",
     "sdk/runtime_config.go:198"
    ]
@@ -64,18 +65,18 @@
    "claim": "The same ID in both spellings is rejected",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:2853",
-    "sdk/runtime_config.go:352"
+    "sdk/options.go:3034",
+    "sdk/runtime_config.go:354"
    ]
   },
   {
    "id": 8,
    "claim": "Supported types are openai, gemini, voyageai, ollama",
-   "verdict": "false",
+   "verdict": "true",
    "evidence": [
     "runtime/providers/bedrock/embedding_register.go:9",
-    "runtime/providers/embedding_factory.go:62",
-    "runtime/providers/embedding_platform.go:28",
+    "runtime/providers/embedding_factory.go:21-22",
+    "runtime/providers/embedding_platform.go:25",
     "runtime/providers/huggingface/embedding_register.go:11",
     "runtime/providers/vertex/embedding_register.go:9"
    ]
@@ -114,8 +115,8 @@
    "claim": "WithContextRetrieval(provider, topK) wins over the YAML default",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1733",
-    "sdk/options.go:2881"
+    "sdk/options.go:1893",
+    "sdk/options.go:3062"
    ]
   },
   {
@@ -156,8 +157,8 @@
    "claim": "TTS and STT declare at the same level with role: tts / role: stt",
    "verdict": "true",
    "evidence": [
-    "sdk/provider_file.go:64",
-    "sdk/provider_file.go:66"
+    "sdk/provider_file.go:65",
+    "sdk/provider_file.go:67"
    ]
   }
  ]

@@ -4,7 +4,7 @@ description: How to observe tool calls, provider usage, guardrails and messages 
 sidebar:
   order: 5
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/events/bus.go
     - runtime/events/message_created_data.go
@@ -139,7 +139,7 @@ Register the handlers from steps 1 and 2, then send a message:
 resp, err := conv.Send(ctx, "Hello!")
 ```
 
-Each handler logs a line for the turn. Handlers run asynchronously, so a short program should call `conv.Close()` before it exits: `Close` waits for the turn's pipeline events to reach subscribers.
+Each handler logs a line for the turn. Handlers run asynchronously, so a short program should call `conv.Close()` before it exits: `Close` waits up to one second for the turn's pipeline events to reach subscribers.
 
 ## Troubleshoot
 

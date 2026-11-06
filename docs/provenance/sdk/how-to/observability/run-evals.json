@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/observability/run-evals.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -24,12 +24,10 @@
   {
    "id": 3,
    "claim": "Trigger default is every_turn; every_turn and sample_turns run under TriggerEveryTurn; on_session_complete and sample_sessions under TriggerOnSessionComplete; on_conversation_complete under TriggerOnConversationComplete",
-   "verdict": "false",
+   "verdict": "true",
    "evidence": [
-    "runtime/evals/runner.go:141",
-    "runtime/evals/runner.go:147",
-    "runtime/evals/runner.go:153",
-    "sdk/evaluate.go:292"
+    "runtime/evals/runner.go:110-177",
+    "sdk/evaluate.go:291-300"
    ]
   },
   {
@@ -37,8 +35,9 @@
    "claim": "on_workflow_step evals run through Evaluate when Trigger is TriggerOnWorkflowStep, after each workflow state transition",
    "verdict": "true",
    "evidence": [
+    "runtime/evals/runner.go:140-160",
     "runtime/evals/trigger.go:27",
-    "sdk/evaluate.go:296"
+    "sdk/evaluate.go:296-297"
    ]
   },
   {
@@ -46,7 +45,7 @@
    "claim": "Sampled triggers hash SessionID",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/runner.go:213",
+    "runtime/evals/runner.go:235",
     "sdk/evaluate.go:44"
    ]
   },
@@ -56,7 +55,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/handlers/exec_handler.go:52",
-    "runtime/evals/types.go:114",
+    "runtime/evals/types.go:132",
     "runtime/evals/types.go:51"
    ]
   },
@@ -65,7 +64,7 @@
    "claim": "Explicit groups on an eval replace the classification",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/types.go:211"
+    "runtime/evals/types.go:219"
    ]
   },
   {
@@ -74,7 +73,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/handlers/judge_required.go:57",
-    "sdk/options.go:3673"
+    "sdk/options.go:3874"
    ]
   },
   {
@@ -83,8 +82,8 @@
    "verdict": "true",
    "evidence": [
     "runtime/prompt/schema/promptpack.schema.json:254",
-    "sdk/provider_keys.go:114",
-    "sdk/provider_keys.go:120"
+    "sdk/provider_keys.go:137-140",
+    "sdk/provider_keys.go:33-71"
    ]
   },
   {
@@ -92,7 +91,7 @@
    "claim": "EvaluateOpts.JudgeTargets keyed by pack logical name with providers.ProviderSpec values resolves a check's provider",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/handlers/llm_judge.go:108",
+    "runtime/evals/handlers/llm_judge.go:110",
     "sdk/evaluate_binding.go:22",
     "sdk/evaluate_binding.go:35"
    ]
@@ -111,8 +110,8 @@
    "claim": "sdk.WithNamedProvider registers the grader without replacing the conversation's agent",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:2723",
-    "sdk/options.go:2741"
+    "sdk/options.go:2904",
+    "sdk/options.go:2922"
    ]
   },
   {
@@ -120,20 +119,20 @@
    "claim": "Nothing falls back to the conversation's own provider; WithJudgeProvider / EvaluateOpts.JudgeProvider set a default judge; a check that names a provider ignores the default",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/handlers/llm_judge.go:108",
-    "sdk/eval_middleware.go:405",
+    "runtime/evals/handlers/llm_judge.go:110",
+    "sdk/eval_middleware.go:463",
     "sdk/evaluate.go:65",
-    "sdk/options.go:3673"
+    "sdk/options.go:3874"
    ]
   },
   {
    "id": 14,
    "claim": "Open() reports: check names a provider the pack does not declare (names check, name, declared names); declared but host bound nothing (names the key); bound an inference provider to a judge name (needs completions); judge-backed guardrail names nothing and no default judge (add params.provider)",
-   "verdict": "false",
+   "verdict": "true",
    "evidence": [
     "runtime/hooks/guardrails/factory.go:154",
     "sdk/binding.go:43",
-    "sdk/provider_keys.go:114",
+    "sdk/provider_keys.go:33-71",
     "sdk/provider_refs.go:131"
    ]
   },
@@ -142,7 +141,7 @@
    "claim": "MetricsCollector + MetricsInstanceLabels in EvaluateOpts; Evaluate binds the collector; NewEvalOnlyCollector skips pipeline metrics; NewCollector for conversations",
    "verdict": "true",
    "evidence": [
-    "runtime/metrics/collector.go:262",
+    "runtime/metrics/collector.go:270",
     "sdk/evaluate.go:223"
    ]
   },
@@ -160,7 +159,7 @@
    "claim": "EvalDimensionLimit exports EvalResult.Metrics as <metric>_dimension{dimension=...} gauges; not exported by default",
    "verdict": "true",
    "evidence": [
-    "runtime/metrics/collector.go:103",
+    "runtime/metrics/collector.go:124",
     "runtime/metrics/eval_dimensions.go:53"
    ]
   },
@@ -209,9 +208,9 @@
    "claim": "EventBus receives eval.completed and eval.failed events with *events.EvalEventData",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/runner.go:435",
-    "runtime/events/types.go:863",
-    "runtime/events/types.go:941"
+    "runtime/evals/runner.go:457",
+    "runtime/events/types.go:873",
+    "runtime/events/types.go:951"
    ]
   },
   {
@@ -219,7 +218,7 @@
    "claim": "EvalHook may mutate the result, cannot gate; hooks run in registration order with per-hook panic recovery",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/hooks.go:5",
+    "runtime/evals/hooks.go:7",
     "runtime/evals/runner.go:359",
     "runtime/evals/runner.go:370"
    ]
@@ -230,7 +229,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/runner.go:455",
-    "runtime/evals/types.go:348"
+    "runtime/evals/types.go:345-352"
    ]
   },
   {
@@ -238,7 +237,7 @@
    "claim": "An assertion fails any result with Error set",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/wrappers.go:194"
+    "runtime/evals/wrappers.go:205"
    ]
   },
   {
@@ -246,8 +245,8 @@
    "claim": "Skipped and SkipReason explain an eval that did not run",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/runner.go:233",
-    "runtime/evals/types.go:411"
+    "runtime/evals/runner.go:255",
+    "runtime/evals/types.go:387"
    ]
   },
   {
@@ -255,9 +254,9 @@
    "claim": "ValidateEvalTypes returns the eval defs whose type has no registered handler; RuntimeConfigPath registers exec handlers",
    "verdict": "true",
    "evidence": [
-    "sdk/evaluate.go:387",
-    "sdk/evaluate.go:405",
-    "sdk/evaluate.go:413"
+    "sdk/evaluate.go:390",
+    "sdk/evaluate.go:408",
+    "sdk/evaluate.go:416"
    ]
   },
   {
@@ -272,19 +271,20 @@
   {
    "id": 29,
    "claim": "llm_judge sets Error naming an unresolved provider; toxicity, bias and other safety/RAG judges score 0 with Explanation naming it and Error empty",
-   "verdict": "true",
+   "verdict": "false",
    "evidence": [
-    "runtime/evals/handlers/llm_judge.go:56",
-    "runtime/evals/handlers/rag_helpers.go:157",
-    "runtime/evals/handlers/rag_helpers.go:190"
+    "runtime/evals/handlers/audio_emotion.go:280-287",
+    "runtime/evals/handlers/llm_judge.go:55-65",
+    "runtime/evals/handlers/rag_helpers.go:154-160",
+    "runtime/evals/handlers/rag_helpers.go:188-195"
    ]
   },
   {
    "id": 30,
    "claim": "All Go snippets compile; example printing results shows Score values",
-   "verdict": "false",
+   "verdict": "true",
    "evidence": [
-    "runtime/evals/types.go:362"
+    "runtime/evals/types.go:354"
    ]
   }
  ]
