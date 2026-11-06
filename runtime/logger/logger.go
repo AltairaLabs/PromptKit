@@ -70,6 +70,10 @@ var currentLevel = slog.LevelInfo
 // currentFormat stores the current log format for reuse when recreating handlers.
 var currentFormat = FormatText
 
+// currentCommonFields stores the common fields set by Configure for reuse when
+// recreating handlers.
+var currentCommonFields []slog.Attr
+
 //nolint:gochecknoinits // the global logger must read LOG_LEVEL/LOG_FORMAT before any package logs
 func init() {
 	// Check LOG_LEVEL environment variable
@@ -105,21 +109,11 @@ func storeLogger(l *slog.Logger) {
 	slog.SetDefault(l)
 }
 
-// initLogger creates the logger with the given level.
+// initLogger creates the logger with the given level, keeping the format,
+// common fields and module settings recorded by Configure.
 func initLogger(level slog.Level) {
-	opts := &slog.HandlerOptions{
-		Level: level,
-	}
-
-	var baseHandler slog.Handler
-	if currentFormat == FormatJSON {
-		baseHandler = slog.NewJSONHandler(logOutput, opts)
-	} else {
-		baseHandler = slog.NewTextHandler(logOutput, opts)
-	}
-
-	contextHandler := NewContextHandler(baseHandler)
-	storeLogger(slog.New(contextHandler))
+	globalModuleConfig.SetDefaultLevel(level)
+	initLoggerWithConfig(level, currentCommonFields, globalModuleConfig, currentFormat == FormatJSON)
 }
 
 // ParseLevel converts a string log level to slog.Level.
@@ -146,6 +140,8 @@ func ParseLevel(s string) slog.Level {
 
 // SetLevel changes the logging level for all subsequent log operations.
 // This is safe for concurrent use as it replaces the entire logger instance.
+// The format, common fields and per-module settings recorded by Configure are
+// kept; the level replaces the default level, and module levels still apply.
 // If a custom logger was set via SetLogger, it is preserved and only the
 // stored level changes.
 func SetLevel(level slog.Level) {

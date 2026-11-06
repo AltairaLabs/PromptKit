@@ -130,3 +130,42 @@ func TestRetriever_ReadsUserTextFromParts(t *testing.T) {
 		t.Fatalf("want the refund document from message parts, got %d", len(got))
 	}
 }
+
+func TestRetriever_MatchesNonLatinText(t *testing.T) {
+	nonLatin := []corpus.Document{
+		{ID: "ru", Title: "Политика", Text: "Возврат денег в течение 14 дней. Да."},
+		{ID: "fr", Title: "Dessert", Text: "La crème brûlée est servie froide."},
+	}
+	r := corpus.New(nonLatin)
+
+	tests := []struct {
+		name  string
+		query string
+		want  string
+	}{
+		{name: "cyrillic", query: "как оформить возврат?", want: nonLatin[0].Text},
+		{name: "accented latin", query: "une crème, s'il vous plaît", want: nonLatin[1].Text},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := r.RetrieveContext(context.Background(), nil, userTurn(tt.query))
+			if err != nil {
+				t.Fatalf("RetrieveContext: %v", err)
+			}
+			if len(got) != 1 || got[0].Content != tt.want {
+				t.Fatalf("want only %q, got %+v", tt.want, got)
+			}
+		})
+	}
+
+	t.Run("short words are dropped by rune count", func(t *testing.T) {
+		// "да" is two runes but four bytes; it must be dropped like "do".
+		got, err := r.RetrieveContext(context.Background(), nil, userTurn("да"))
+		if err != nil {
+			t.Fatalf("RetrieveContext: %v", err)
+		}
+		if len(got) != 0 {
+			t.Fatalf("want no match for a two-rune word, got %+v", got)
+		}
+	})
+}

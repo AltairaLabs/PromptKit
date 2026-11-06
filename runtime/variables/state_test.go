@@ -2,6 +2,8 @@ package variables
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
@@ -269,4 +271,38 @@ func TestStateProvider_MetadataAccessorNotFound(t *testing.T) {
 	if got != nil {
 		t.Errorf("expected nil, got %v", got)
 	}
+}
+
+func TestStateProvider_StoreErrorsPropagate(t *testing.T) {
+	storeErr := errors.New("connection refused")
+
+	t.Run("metadata accessor error is returned", func(t *testing.T) {
+		store := &mockMetadataStore{metadataErr: storeErr}
+		got, err := NewStateProvider(store, "test-conv").Provide(context.Background())
+		if !errors.Is(err, storeErr) {
+			t.Fatalf("err = %v, want %v", err, storeErr)
+		}
+		if got != nil {
+			t.Errorf("expected nil variables, got %v", got)
+		}
+	})
+
+	t.Run("load error is returned", func(t *testing.T) {
+		store := &mockStateStore{err: storeErr}
+		_, err := NewStateProvider(store, "test-conv").Provide(context.Background())
+		if !errors.Is(err, storeErr) {
+			t.Fatalf("err = %v, want %v", err, storeErr)
+		}
+	})
+
+	t.Run("load not-found returns nil, nil", func(t *testing.T) {
+		store := &mockStateStore{err: fmt.Errorf("wrapped: %w", statestore.ErrNotFound)}
+		got, err := NewStateProvider(store, "test-conv").Provide(context.Background())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != nil {
+			t.Errorf("expected nil, got %v", got)
+		}
+	})
 }

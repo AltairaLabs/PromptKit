@@ -25,7 +25,9 @@ func NewLLMSummarizer(provider providers.Provider) *LLMSummarizer {
 	return &LLMSummarizer{provider: provider}
 }
 
-// Summarize compresses the given messages into a concise summary.
+// Summarize compresses the given messages into a concise summary. Each
+// message contributes its text as returned by GetContent, so messages built
+// from Parts are included.
 func (s *LLMSummarizer) Summarize(ctx context.Context, messages []types.Message) (string, error) {
 	if len(messages) == 0 {
 		return "", nil
@@ -34,7 +36,7 @@ func (s *LLMSummarizer) Summarize(ctx context.Context, messages []types.Message)
 	// Format messages into a prompt
 	var sb strings.Builder
 	for i := range messages {
-		fmt.Fprintf(&sb, "[%s]: %s\n", messages[i].Role, messages[i].Content)
+		fmt.Fprintf(&sb, "[%s]: %s\n", messages[i].Role, messages[i].GetContent())
 	}
 
 	req := providers.PredictionRequest{

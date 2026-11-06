@@ -327,29 +327,31 @@ const (
 ```
 
 <a name="PolicyHandler"></a>
-## type [PolicyHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L99-L127>)
+## type [PolicyHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L101-L131>)
 
-PolicyHandler defines the interface for applying and enforcing storage policies. Policies control media retention, cleanup, and other lifecycle management.
+PolicyHandler defines the interface for applying and enforcing storage policies. Policies control media retention, cleanup, and other lifecycle management. policy.TimeBasedPolicyHandler implements it, and a local.FileStore given one through local.WithPolicyHandler applies it to every media item it stores.
 
 ```go
 type PolicyHandler interface {
-    // ApplyPolicy applies a named policy to a media file.
-    // This typically stores policy metadata alongside the media.
+    // ApplyPolicy applies the policy named by metadata.PolicyName to a media
+    // item before it is stored. An empty policy name means no policy.
     //
     // Parameters:
     //   - ctx: Context for cancellation and timeouts
-    //   - filePath: Path to the media file
-    //   - policyName: Name of the policy to apply (e.g., "delete-after-10min", "retain-30days")
+    //   - metadata: Metadata of the media being stored, including PolicyName
+    //     (e.g., "delete-after-10min", "retain-30days")
     //
     // Returns:
-    //   - Error if policy application fails or policy is unknown
-    ApplyPolicy(ctx context.Context, filePath string, policyName string) error
+    //   - Error if policy application fails or policy is unknown; the store
+    //     then rejects the media
+    ApplyPolicy(ctx context.Context, metadata *MediaMetadata) error
 
-    // EnforcePolicy scans stored media and enforces policies.
+    // EnforcePolicy scans stored media under baseDir and enforces policies.
     // This is typically called periodically in the background.
     //
     // Parameters:
     //   - ctx: Context for cancellation and timeouts
+    //   - baseDir: Root directory of the stored media
     //
     // Returns:
     //   - Error if enforcement fails (should log but not crash on individual file errors)
@@ -359,7 +361,7 @@ type PolicyHandler interface {
     //   - Apply policies (e.g., delete expired files)
     //   - Log enforcement actions
     //   - Handle errors gracefully (don't stop on permission denied, etc.)
-    EnforcePolicy(ctx context.Context) error
+    EnforcePolicy(ctx context.Context, baseDir string) error
 }
 ```
 

@@ -590,6 +590,18 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// contentSummaryKinds lists, in order, the non-text part types that
+// getContentSummary counts and the label it gives each.
+var contentSummaryKinds = []struct {
+	contentType string
+	label       string
+}{
+	{ContentTypeImage, "image(s)"},
+	{ContentTypeAudio, "audio file(s)"},
+	{ContentTypeVideo, "video(s)"},
+	{ContentTypeDocument, "document(s)"},
+}
+
 // getContentSummary returns a human-readable summary of the message content.
 // For multimodal messages, this includes text parts and a summary of media.
 func (m *Message) getContentSummary() string {
@@ -609,22 +621,16 @@ func (m *Message) getContentSummary() string {
 	// Add media summary
 	mediaCounts := make(map[string]int)
 	for _, part := range m.Parts {
-		if part.Type != ContentTypeText {
-			mediaCounts[part.Type]++
-		}
+		mediaCounts[part.Type]++
 	}
 
-	if len(mediaCounts) > 0 {
-		var mediaDesc []string
-		if count := mediaCounts[ContentTypeImage]; count > 0 {
-			mediaDesc = append(mediaDesc, fmt.Sprintf("%d image(s)", count))
+	var mediaDesc []string
+	for _, kind := range contentSummaryKinds {
+		if count := mediaCounts[kind.contentType]; count > 0 {
+			mediaDesc = append(mediaDesc, fmt.Sprintf("%d %s", count, kind.label))
 		}
-		if count := mediaCounts[ContentTypeAudio]; count > 0 {
-			mediaDesc = append(mediaDesc, fmt.Sprintf("%d audio file(s)", count))
-		}
-		if count := mediaCounts[ContentTypeVideo]; count > 0 {
-			mediaDesc = append(mediaDesc, fmt.Sprintf("%d video(s)", count))
-		}
+	}
+	if len(mediaDesc) > 0 {
 		parts = append(parts, "["+strings.Join(mediaDesc, ", ")+"]")
 	}
 

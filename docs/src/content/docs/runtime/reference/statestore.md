@@ -199,7 +199,7 @@ func NewInMemoryIndex(provider providers.EmbeddingProvider, opts ...InMemoryInde
 NewInMemoryIndex creates a new in\-memory message index.
 
 <a name="InMemoryIndex.Delete"></a>
-### func \(\*InMemoryIndex\) [Delete](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/index_memory.go#L162>)
+### func \(\*InMemoryIndex\) [Delete](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/index_memory.go#L163>)
 
 ```go
 func (idx *InMemoryIndex) Delete(_ context.Context, conversationID string) error
@@ -208,16 +208,16 @@ func (idx *InMemoryIndex) Delete(_ context.Context, conversationID string) error
 Delete removes all indexed messages for a conversation.
 
 <a name="InMemoryIndex.Index"></a>
-### func \(\*InMemoryIndex\) [Index](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/index_memory.go#L65-L67>)
+### func \(\*InMemoryIndex\) [Index](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/index_memory.go#L66-L68>)
 
 ```go
 func (idx *InMemoryIndex) Index(ctx context.Context, conversationID string, turnIndex int, message types.Message) error
 ```
 
-Index adds a message to the search index by computing its embedding. It embeds the message's Content field and skips a message whose Content is empty, such as one built from Parts only.
+Index adds a message to the search index by computing its embedding. It embeds the message's text as returned by GetContent \(the Content field, or the text parts of a message built from Parts\) and skips a message with no text.
 
 <a name="InMemoryIndex.Search"></a>
-### func \(\*InMemoryIndex\) [Search](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/index_memory.go#L100>)
+### func \(\*InMemoryIndex\) [Search](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/index_memory.go#L101>)
 
 ```go
 func (idx *InMemoryIndex) Search(ctx context.Context, conversationID, query string, k int) ([]IndexResult, error)
@@ -282,13 +282,13 @@ func NewLLMSummarizer(provider providers.Provider) *LLMSummarizer
 NewLLMSummarizer creates a new LLM\-based summarizer. A cheaper/faster model is recommended \(e.g., GPT\-3.5, Claude Haiku\).
 
 <a name="LLMSummarizer.Summarize"></a>
-### func \(\*LLMSummarizer\) [Summarize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/summarizer_llm.go#L29>)
+### func \(\*LLMSummarizer\) [Summarize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/summarizer_llm.go#L31>)
 
 ```go
 func (s *LLMSummarizer) Summarize(ctx context.Context, messages []types.Message) (string, error)
 ```
 
-Summarize compresses the given messages into a concise summary.
+Summarize compresses the given messages into a concise summary. Each message contributes its text as returned by GetContent, so messages built from Parts are included.
 
 <a name="ListAccessor"></a>
 ## type [ListAccessor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/interface.go#L128-L144>)

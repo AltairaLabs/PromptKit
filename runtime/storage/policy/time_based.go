@@ -52,7 +52,10 @@ type expiryEntry struct {
 	expiresAt time.Time
 }
 
-// TimeBasedPolicyHandler implements PolicyHandler for time-based retention policies.
+// compile-time check that TimeBasedPolicyHandler implements storage.PolicyHandler.
+var _ storage.PolicyHandler = (*TimeBasedPolicyHandler)(nil)
+
+// TimeBasedPolicyHandler implements storage.PolicyHandler for time-based retention policies.
 // It applies expiration times to media based on policy names and enforces deletion
 // of expired media through background scanning.
 //
@@ -142,7 +145,10 @@ func (h *TimeBasedPolicyHandler) RegisterPolicy(policy Config) error {
 	return nil
 }
 
-// ApplyPolicy implements storage.PolicyHandler.ApplyPolicy
+// ApplyPolicy implements storage.PolicyHandler.ApplyPolicy. It returns an
+// error when metadata names a policy that ParsePolicyName cannot parse, so a
+// store using the handler rejects media whose retention it could never
+// enforce. An empty policy name is accepted.
 func (h *TimeBasedPolicyHandler) ApplyPolicy(ctx context.Context, metadata *storage.MediaMetadata) error {
 	if metadata.PolicyName == "" {
 		return nil // No policy to apply

@@ -45,7 +45,6 @@ config := tts.SynthesisConfig{
 	Voice:    "nova",          // voice ID; empty uses the service's default voice
 	Format:   tts.FormatMP3,   // output format
 	Speed:    1.0,             // speech rate (0.25-4.0)
-	Pitch:    0,               // pitch adjustment (-20 to 20)
 	Language: "en-US",         // language code
 	Model:    tts.ModelTTS1HD, // model (provider-specific)
 }
@@ -53,6 +52,7 @@ config := tts.SynthesisConfig{
 
 - Voice IDs differ per service. `SupportedVoices()` lists them.
 - Each service supports a subset of the formats `FormatMP3`, `FormatOpus`, `FormatAAC`, `FormatFLAC`, `FormatPCM16` and `FormatWAV`. `SupportedFormats()` lists them with their sample rates. OpenAI supports all six, ElevenLabs MP3 and PCM, and Cartesia PCM, MP3 and WAV.
+- `SynthesisConfig.Pitch` has no effect on the built-in services. The OpenAI, ElevenLabs and Cartesia speech APIs take no pitch parameter.
 - The OpenAI models are `tts.ModelTTS1` (the default), `tts.ModelTTS1HD` and `tts.ModelGPT4oMiniTTS`.
 
 For a VAD voice session, set the voice and speed on `sdk.VADModeConfig` instead. See [Choose a voice mode](/sdk/how-to/voice/choose-voice-mode/).

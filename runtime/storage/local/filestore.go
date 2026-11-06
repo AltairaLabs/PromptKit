@@ -69,6 +69,12 @@ type FileStoreConfig struct {
 	// If zero, DefaultMaxFileSize (50 MB) is used.
 	// Set to a negative value to disable the size limit.
 	MaxFileSize int64
+
+	// PolicyHandler, when set, is asked to apply each media item's retention
+	// policy (its PolicyName, or DefaultPolicy when that is empty) before the
+	// item is written. If it returns an error, StoreMedia fails and nothing is
+	// written. When nil, policy names are stored without being checked.
+	PolicyHandler storage.PolicyHandler
 }
 
 // FileStoreOption is a functional option for configuring a FileStore.
@@ -79,6 +85,14 @@ type FileStoreOption func(*FileStoreConfig)
 func WithMaxFileSize(size int64) FileStoreOption {
 	return func(c *FileStoreConfig) {
 		c.MaxFileSize = size
+	}
+}
+
+// WithPolicyHandler returns an option that sets the PolicyHandler that applies
+// retention policies to stored media.
+func WithPolicyHandler(h storage.PolicyHandler) FileStoreOption {
+	return func(c *FileStoreConfig) {
+		c.PolicyHandler = h
 	}
 }
 
@@ -195,6 +209,9 @@ func (fs *FileStore) StoreMedia(
 ) (storage.Reference, error) {
 	if err := content.Validate(); err != nil {
 		return "", fmt.Errorf("invalid media content: %w", err)
+	}
+	if err := fs.applyPolicy(ctx, metadata); err != nil {
+		return "", err
 	}
 
 	// Streaming path for FilePath-only sources. Avoids buffering the
@@ -755,6 +772,23 @@ func (fs *FileStore) writeFileAtomic(path string, data []byte) error {
 
 	// Rename to final path (atomic on POSIX systems)
 	return os.Rename(tempPath, path)
+}
+
+// applyPolicy asks the configured PolicyHandler to apply the media's effective
+// retention policy. It does not modify metadata; storeMetadata records the
+// default policy when the media is written.
+func (fs *FileStore) applyPolicy(ctx context.Context, metadata *storage.MediaMetadata) error {
+	if fs.config.PolicyHandler == nil || metadata == nil {
+		return nil
+	}
+	effective := *metadata
+	if effective.PolicyName == "" {
+		effective.PolicyName = fs.config.DefaultPolicy
+	}
+	if err := fs.config.PolicyHandler.ApplyPolicy(ctx, &effective); err != nil {
+		return fmt.Errorf("failed to apply retention policy %q: %w", effective.PolicyName, err)
+	}
+	return nil
 }
 
 func (fs *FileStore) storeMetadata(filePath string, metadata *storage.MediaMetadata) error {

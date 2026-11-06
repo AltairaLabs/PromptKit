@@ -155,3 +155,22 @@ func TestLLMSummarizer_SummarizeFormatsMessages(t *testing.T) {
 	assert.Equal(t, 500, capturedReq.MaxTokens)
 	assert.InDelta(t, 0.3, float64(capturedReq.Temperature), 0.01)
 }
+
+func TestLLMSummarizer_SummarizeReadsParts(t *testing.T) {
+	var capturedReq providers.PredictionRequest
+	mock := &mockSummarizerProvider{
+		predictFn: func(_ context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
+			capturedReq = req
+			return providers.PredictionResponse{Content: "summary"}, nil
+		},
+	}
+
+	msg := types.Message{Role: "user"}
+	msg.AddTextPart("What is PromptKit?")
+	require.Empty(t, msg.Content)
+
+	_, err := NewLLMSummarizer(mock).Summarize(context.Background(), []types.Message{msg})
+	require.NoError(t, err)
+	require.Len(t, capturedReq.Messages, 1)
+	assert.Contains(t, capturedReq.Messages[0].Content, "[user]: What is PromptKit?")
+}

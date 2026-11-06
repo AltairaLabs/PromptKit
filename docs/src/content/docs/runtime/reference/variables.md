@@ -234,13 +234,13 @@ func (p *StateProvider) Name() string
 Name returns the provider identifier.
 
 <a name="StateProvider.Provide"></a>
-### func \(\*StateProvider\) [Provide](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/state.go#L68>)
+### func \(\*StateProvider\) [Provide](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/state.go#L69>)
 
 ```go
 func (p *StateProvider) Provide(ctx context.Context) (map[string]string, error)
 ```
 
-Provide extracts variables from conversation state metadata. Returns nil variables and a nil error if the store is nil, the conversation is not found, it has no metadata, or loading it fails for any reason.
+Provide extracts variables from conversation state metadata. Returns nil variables and a nil error if the store is nil, the conversation is not found \(statestore.ErrNotFound\), or it has no metadata. Any other store error is returned, wrapped.
 
 <a name="TimeProvider"></a>
 ## type [TimeProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/variables/time.go#L11-L22>)

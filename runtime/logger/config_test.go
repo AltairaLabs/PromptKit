@@ -6,6 +6,9 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestModuleConfig_LevelFor(t *testing.T) {
@@ -371,4 +374,73 @@ func TestModuleNameDropsTheMajorVersionSegment(t *testing.T) {
 			t.Errorf("extractModuleFromFunction(%q) = %q, want %q", tc.fn, got, tc.want)
 		}
 	}
+}
+
+// saveLoggerState restores the global logger configuration when the test ends.
+func saveLoggerState(t *testing.T) {
+	t.Helper()
+	origLogger := GetLogger()
+	origOutput := logOutput
+	origLevel := currentLevel
+	origFormat := currentFormat
+	origFields := currentCommonFields
+	origModules := globalModuleConfig
+	t.Cleanup(func() {
+		logOutput = origOutput
+		currentLevel = origLevel
+		currentFormat = origFormat
+		currentCommonFields = origFields
+		globalModuleConfig = origModules
+		storeLogger(origLogger)
+	})
+}
+
+func TestConfigure_ModuleFieldsApplied(t *testing.T) {
+	saveLoggerState(t)
+	var buf bytes.Buffer
+	logOutput = &buf
+
+	require.NoError(t, Configure(&LoggingConfigSpec{
+		DefaultLevel: "info",
+		Modules: []ModuleLoggingSpec{
+			{Name: "runtime", Level: "info", Fields: map[string]string{"layer": "runtime", "team": "core"}},
+			{Name: "runtime.logger", Level: "info", Fields: map[string]string{"component": "logger", "team": "obs"}},
+			{Name: "sdk", Level: "info", Fields: map[string]string{"other": "nope"}},
+		},
+	}))
+
+	Info("module fields")
+	out := buf.String()
+	assert.Contains(t, out, "component=logger")
+	assert.Contains(t, out, "layer=runtime", "a parent module's fields apply to its children")
+	assert.Contains(t, out, "team=obs", "the more specific module wins on a shared key")
+	assert.NotContains(t, out, "team=core")
+	assert.NotContains(t, out, "other=nope", "another module's fields must not apply")
+}
+
+func TestConfigure_SetLevelKeepsConfiguration(t *testing.T) {
+	saveLoggerState(t)
+	var buf bytes.Buffer
+	logOutput = &buf
+
+	require.NoError(t, Configure(&LoggingConfigSpec{
+		DefaultLevel: "error",
+		Format:       FormatJSON,
+		CommonFields: map[string]string{"service": "svc"},
+		Modules: []ModuleLoggingSpec{
+			{Name: "runtime.logger", Level: "debug", Fields: map[string]string{"component": "logger"}},
+		},
+	}))
+	assert.Equal(t, slog.LevelError, currentLevel, "Configure must record its level")
+	assert.Equal(t, FormatJSON, currentFormat, "Configure must record its format")
+
+	SetLevel(slog.LevelWarn)
+	assert.Equal(t, slog.LevelWarn, GetModuleConfig().LevelFor("other"), "SetLevel replaces the default level")
+
+	Debug("after set level")
+	out := buf.String()
+	require.Contains(t, out, "after set level", "the module's debug level must survive SetLevel")
+	assert.Contains(t, out, `"msg":"after set level"`, "the JSON format must survive SetLevel")
+	assert.Contains(t, out, `"service":"svc"`, "common fields must survive SetLevel")
+	assert.Contains(t, out, `"component":"logger"`, "module fields must survive SetLevel")
 }

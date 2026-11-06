@@ -89,7 +89,9 @@ const (
     // 1 FPS is suitable for most LLM vision scenarios.
     DefaultTargetFPS = 1.0
 
-    // DefaultImageQuality is the default JPEG quality (1-100).
+    // DefaultImageQuality is the default JPEG quality (1-100) for streamed
+    // frames. The SDK's WithStreamingVideo uses it when the configured quality
+    // is unset.
     DefaultImageQuality = 85
 )
 ```
@@ -159,7 +161,7 @@ func SendEndOfStream(ctx context.Context, inputChan chan<- stage.StreamElement) 
 SendEndOfStream signals that audio input is complete for the current turn. This triggers the provider to generate a response.
 
 <a name="SendImageEndOfStream"></a>
-## func [SendImageEndOfStream](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/image_streamer.go#L185-L188>)
+## func [SendImageEndOfStream](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/image_streamer.go#L187-L190>)
 
 ```go
 func SendImageEndOfStream(ctx context.Context, output chan<- stage.StreamElement) error
@@ -197,7 +199,7 @@ func WaitForResponse(ctx context.Context, responseDone <-chan error) error
 WaitForResponse waits for the response collection to complete. This is a convenience function for blocking until a response is received.
 
 <a name="ImageStreamer"></a>
-## type [ImageStreamer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/image_streamer.go#L23-L27>)
+## type [ImageStreamer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/image_streamer.go#L25-L29>)
 
 ImageStreamer provides utilities for streaming image frames through a pipeline. Use this for realtime video scenarios like webcam feeds or screen sharing.
 
@@ -210,7 +212,7 @@ type ImageStreamer struct {
 ```
 
 <a name="NewImageStreamer"></a>
-### func [NewImageStreamer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/image_streamer.go#L31>)
+### func [NewImageStreamer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/image_streamer.go#L33>)
 
 ```go
 func NewImageStreamer(targetFPS float64) *ImageStreamer
@@ -219,7 +221,7 @@ func NewImageStreamer(targetFPS float64) *ImageStreamer
 NewImageStreamer creates a new image streamer with the specified target FPS. Use targetFPS of 0 or less for default \(1.0 FPS\).
 
 <a name="ImageStreamer.SendFrame"></a>
-### func \(\*ImageStreamer\) [SendFrame](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/image_streamer.go#L49-L56>)
+### func \(\*ImageStreamer\) [SendFrame](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/image_streamer.go#L51-L58>)
 
 ```go
 func (s *ImageStreamer) SendFrame(ctx context.Context, data []byte, mimeType string, frameNum int64, timestamp time.Time, output chan<- stage.StreamElement) error
@@ -236,7 +238,7 @@ Parameters:
 - output: Pipeline input channel
 
 <a name="ImageStreamer.SendFrameWithDimensions"></a>
-### func \(\*ImageStreamer\) [SendFrameWithDimensions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/image_streamer.go#L78-L86>)
+### func \(\*ImageStreamer\) [SendFrameWithDimensions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/image_streamer.go#L80-L88>)
 
 ```go
 func (s *ImageStreamer) SendFrameWithDimensions(ctx context.Context, data []byte, mimeType string, width, height int, frameNum int64, timestamp time.Time, output chan<- stage.StreamElement) error
@@ -245,7 +247,7 @@ func (s *ImageStreamer) SendFrameWithDimensions(ctx context.Context, data []byte
 SendFrameWithDimensions sends a frame with explicit width and height. Use this when dimensions are known to avoid decoding overhead downstream.
 
 <a name="ImageStreamer.StreamFramesBurst"></a>
-### func \(\*ImageStreamer\) [StreamFramesBurst](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/image_streamer.go#L110-L115>)
+### func \(\*ImageStreamer\) [StreamFramesBurst](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/image_streamer.go#L112-L117>)
 
 ```go
 func (s *ImageStreamer) StreamFramesBurst(ctx context.Context, frames [][]byte, mimeType string, output chan<- stage.StreamElement) error
@@ -254,7 +256,7 @@ func (s *ImageStreamer) StreamFramesBurst(ctx context.Context, frames [][]byte, 
 StreamFramesBurst sends all frames as fast as possible without pacing. Use this for pre\-recorded frame sequences where real\-time pacing isn't needed.
 
 <a name="ImageStreamer.StreamFramesRealtime"></a>
-### func \(\*ImageStreamer\) [StreamFramesRealtime](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/image_streamer.go#L141-L146>)
+### func \(\*ImageStreamer\) [StreamFramesRealtime](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/streaming/image_streamer.go#L143-L148>)
 
 ```go
 func (s *ImageStreamer) StreamFramesRealtime(ctx context.Context, frames [][]byte, mimeType string, output chan<- stage.StreamElement) error

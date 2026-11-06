@@ -21,7 +21,8 @@ type ContextHandler struct {
 // path under the PromptKit repository with slashes replaced by dots and any major
 // version segment dropped (for example "runtime.pipeline"). A caller outside the
 // repository has an empty module name and gets the default level. Each record
-// carries the module name in a "logger" attribute.
+// carries the module name in a "logger" attribute, plus the fields the module
+// configuration sets for that module and its ancestors.
 type ModuleHandler struct {
 	ContextHandler
 	moduleConfig *ModuleConfig
@@ -132,6 +133,7 @@ func (h *ModuleHandler) Handle(ctx context.Context, r slog.Record) error {
 	for _, attr := range h.commonFields {
 		r.AddAttrs(attr)
 	}
+	r.AddAttrs(h.moduleConfig.FieldsFor(module)...)
 	if module != "" {
 		r.AddAttrs(slog.String("logger", module))
 	}

@@ -398,7 +398,7 @@ func WithCartesiaWSURL(url string) func(*CartesiaService)
 WithCartesiaWSURL sets a custom WebSocket URL.
 
 <a name="AudioFormat"></a>
-## type [AudioFormat](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L161-L176>)
+## type [AudioFormat](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L164-L179>)
 
 AudioFormat describes an audio output format.
 
@@ -422,7 +422,7 @@ type AudioFormat struct {
 ```
 
 <a name="AudioFormat.String"></a>
-### func \(AudioFormat\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L236>)
+### func \(AudioFormat\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L239>)
 
 ```go
 func (f AudioFormat) String() string
@@ -1010,7 +1010,7 @@ type StreamingService interface {
 ```
 
 <a name="SynthesisConfig"></a>
-## type [SynthesisConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L103-L127>)
+## type [SynthesisConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L103-L130>)
 
 SynthesisConfig configures text\-to\-speech synthesis.
 
@@ -1028,8 +1028,11 @@ type SynthesisConfig struct {
     // Only OpenAIService reads it.
     Speed float64
 
-    // Pitch adjusts the voice pitch in semitones (default 0).
-    // No built-in provider reads it.
+    // Pitch adjusts the voice pitch in semitones (default 0), for a custom
+    // Service whose API supports pitch. The built-in services ignore it: the
+    // OpenAI speech API, the ElevenLabs text-to-speech API (including its
+    // voice_settings) and the Cartesia TTS API (including generation_config)
+    // have no pitch parameter.
     Pitch float64
 
     // Language is the language code for synthesis (e.g., "en-US").
@@ -1043,7 +1046,7 @@ type SynthesisConfig struct {
 ```
 
 <a name="DefaultSynthesisConfig"></a>
-### func [DefaultSynthesisConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L130>)
+### func [DefaultSynthesisConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L133>)
 
 ```go
 func DefaultSynthesisConfig() SynthesisConfig
@@ -1124,7 +1127,7 @@ func (e *SynthesisError) Unwrap() error
 Unwrap returns the underlying error.
 
 <a name="Voice"></a>
-## type [Voice](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L140-L158>)
+## type [Voice](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L143-L161>)
 
 Voice describes a TTS voice available from a provider.
 

@@ -35,6 +35,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/skills"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/storage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/streaming"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/telemetry"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
@@ -57,8 +58,8 @@ const defaultMaxMessageSize = 10 * 1024 * 1024
 
 // Video streaming default configuration constants.
 const (
-	defaultVideoStreamFPS     = 1.0
-	defaultVideoStreamQuality = 85
+	defaultVideoStreamFPS     = streaming.DefaultTargetFPS
+	defaultVideoStreamQuality = streaming.DefaultImageQuality
 )
 
 // config holds the configuration for a conversation.
@@ -3320,7 +3321,8 @@ type VideoStreamConfig struct {
 	MaxHeight int
 
 	// Quality is a JPEG compression quality (1-100). The pipeline does not read
-	// it, so frames are never re-encoded. [DefaultVideoStreamConfig] sets 85.
+	// it, so frames are never re-encoded. When it is 0 or less,
+	// [WithStreamingVideo] sets it to streaming.DefaultImageQuality (85).
 	Quality int
 
 	// EnableResize is a resize switch that the pipeline does not read.
@@ -3372,6 +3374,10 @@ func WithStreamingVideo(cfg *VideoStreamConfig) Option {
 	return func(c *config) error {
 		if cfg == nil {
 			cfg = DefaultVideoStreamConfig()
+		} else if cfg.Quality <= 0 {
+			withDefault := *cfg
+			withDefault.Quality = defaultVideoStreamQuality
+			cfg = &withDefault
 		}
 		c.videoStreamConfig = cfg
 		return nil

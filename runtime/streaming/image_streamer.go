@@ -14,7 +14,9 @@ const (
 	// 1 FPS is suitable for most LLM vision scenarios.
 	DefaultTargetFPS = 1.0
 
-	// DefaultImageQuality is the default JPEG quality (1-100).
+	// DefaultImageQuality is the default JPEG quality (1-100) for streamed
+	// frames. The SDK's WithStreamingVideo uses it when the configured quality
+	// is unset.
 	DefaultImageQuality = 85
 )
 
