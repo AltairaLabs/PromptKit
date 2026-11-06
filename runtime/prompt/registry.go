@@ -122,7 +122,10 @@ type Spec struct {
 	Compilation  *CompilationInfo     `yaml:"compilation,omitempty" json:"compilation,omitempty"`
 
 	// Extensions are opaque policy annotations about this prompt (RFC 0016),
-	// carried into the compiled pack unchanged and never interpreted.
+	// carried into the compiled pack unchanged and never interpreted by
+	// PromptKit. Keys SHOULD be namespaced to the tool that reads them, for
+	// example `vendor.feature` (promptarena.qualification); the spec does not
+	// enforce a key format, so neither does PromptKit.
 	Extensions map[string]any `yaml:"extensions,omitempty" json:"extensions,omitempty"`
 }
 
