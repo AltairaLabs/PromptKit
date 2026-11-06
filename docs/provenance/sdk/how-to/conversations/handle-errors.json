@@ -1,0 +1,84 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/conversations/handle-errors.md",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "A hook denial or chunk-hook abort becomes *ValidationError; a provider HTTP or transport failure becomes *ProviderError; other errors unchanged",
+   "verdict": "true",
+   "evidence": [
+    "sdk/errors_wrap.go:31",
+    "sdk/errors_wrap.go:50",
+    "sdk/errors_wrap.go:72"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "ValidatorType is the validator_type metadata, else the hook type; a stream abort reports provider_chunk",
+   "verdict": "true",
+   "evidence": [
+    "sdk/errors_wrap.go:10",
+    "sdk/errors_wrap.go:14",
+    "sdk/errors_wrap.go:53"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "ProviderError Provider falls back to the conversation's provider ID; StatusCode set only for HTTP errors; Cause holds the runtime error",
+   "verdict": "true",
+   "evidence": [
+    "sdk/errors.go:144",
+    "sdk/errors_wrap.go:101",
+    "sdk/errors_wrap.go:75"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Send, Stream, Resume and Continue apply the wrapping",
+   "verdict": "true",
+   "evidence": [
+    "sdk/client_tools.go:350",
+    "sdk/conversation.go:1001",
+    "sdk/streaming.go:293"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "PackError returned by Open, OpenDuplex, OpenWorkflow, OpenMultiAgent, ValidatePack and Evaluate; errors.Is(ErrPackNotFound) still matches",
+   "verdict": "true",
+   "evidence": [
+    "sdk/errors.go:121",
+    "sdk/errors_wrap.go:18",
+    "sdk/evaluate.go:251",
+    "sdk/multi_agent_open.go:49",
+    "sdk/validate_pack.go:144"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "ToolError names the tool; the model receives a ToolError's Cause text alone",
+   "verdict": "true",
+   "evidence": [
+    "sdk/errors.go:175",
+    "sdk/errors_wrap.go:122"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "Sentinel errors and their meanings",
+   "verdict": "true",
+   "evidence": [
+    "sdk/errors.go:11",
+    "sdk/errors.go:51"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "AsValidationError returns the *ValidationError and true",
+   "verdict": "true",
+   "evidence": [
+    "sdk/errors.go:109"
+   ]
+  }
+ ]
+}

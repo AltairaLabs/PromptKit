@@ -1,0 +1,44 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/tools/resolve-mcp-endpoints.md",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "NewMCPServerByName declares a server with no command and no URL",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:2343"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "WithMCPEndpoints registers a resolver; the SDK calls Resolve once per name-only server at open and uses URL and headers",
+   "verdict": "true",
+   "evidence": [
+    "sdk/options.go:2381",
+    "sdk/sdk.go:1111",
+    "sdk/sdk.go:1139"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "StaticMCPEndpointResolver and MapMCPEndpointResolver; MCPEndpoint has URL and Headers",
+   "verdict": "true",
+   "evidence": [
+    "sdk/mcp_resolver.go:34",
+    "sdk/mcp_resolver.go:47",
+    "sdk/mcp_resolver.go:7"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "Open errors with no resolver, or when the resolver returns an empty URL; servers with URL or command bypass the resolver",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:1143",
+    "sdk/sdk.go:1144",
+    "sdk/sdk.go:1150"
+   ]
+  }
+ ]
+}

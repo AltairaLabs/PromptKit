@@ -1,0 +1,76 @@
+{
+ "page": "docs/src/content/docs/sdk/how-to/voice/ingest-multiple-tracks.md",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "claims": [
+  {
+   "id": 1,
+   "claim": "IngestionTrack fields Source, Speaker (prefix 'SPEAKER: '), STT (required), TurnConfig (nil uses default)",
+   "verdict": "true",
+   "evidence": [
+    "sdk/ingestion_multitrack.go:19",
+    "sdk/ingestion_multitrack.go:190"
+   ]
+  },
+  {
+   "id": 2,
+   "claim": "Each track needs its own VAD instance because the detector is stateful",
+   "verdict": "true",
+   "evidence": [
+    "sdk/ingestion_multitrack.go:38"
+   ]
+  },
+  {
+   "id": 3,
+   "claim": "MultiTrackIngestion returns an IngestionFunc for WithIngestion; OnTranscript receives speaker and text per completed turn",
+   "verdict": "true",
+   "evidence": [
+    "sdk/ingestion_multitrack.go:46",
+    "sdk/ingestion_multitrack.go:77",
+    "sdk/options.go:3269"
+   ]
+  },
+  {
+   "id": 4,
+   "claim": "WithIngestion and WithVADMode are mutually exclusive",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:983"
+   ]
+  },
+  {
+   "id": 5,
+   "claim": "Chunks are routed by Source; control signals are broadcast to every track; unmatched sources are dropped",
+   "verdict": "true",
+   "evidence": [
+    "sdk/ingestion_multitrack.go:152"
+   ]
+  },
+  {
+   "id": 6,
+   "claim": "EmitEndOfTurn is forced on every track",
+   "verdict": "true",
+   "evidence": [
+    "sdk/ingestion_multitrack.go:181"
+   ]
+  },
+  {
+   "id": 7,
+   "claim": "Errors for empty Tracks, missing STT, duplicate Source",
+   "verdict": "true",
+   "evidence": [
+    "sdk/ingestion_multitrack.go:114",
+    "sdk/ingestion_multitrack.go:117",
+    "sdk/ingestion_multitrack.go:79"
+   ]
+  },
+  {
+   "id": 8,
+   "claim": "Per-track stages: resample, VAD turn detection, STT, labeling, merged into one stream",
+   "verdict": "true",
+   "evidence": [
+    "sdk/ingestion_multitrack.go:164",
+    "sdk/ingestion_multitrack.go:96"
+   ]
+  }
+ ]
+}
