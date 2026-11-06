@@ -1189,9 +1189,11 @@ func (s ByOriginalIndex) Swap(i, j int)
 
 
 <a name="CallRateWindow"></a>
-## type [CallRateWindow](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L27-L32>)
+## type [CallRateWindow](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L35-L40>)
 
 CallRateWindow enforces ToolPolicy.MaxCallsPerMinute: for each conversation and tool, the times of the calls admitted to run in the last minute. A provider stage holds one \(ProviderConfig.CallRate, or its own\), so the window spans every turn of a conversation the stage runs. A call held for approval is not counted by the stage; Admit counts it once it is approved. Safe for concurrent use: a round's calls are checked in parallel.
+
+tools.WithRateLimit is the other sliding window, and a different limit: one per registry, shared by its children, counting every conversation's calls to a tool together under a fixed limit, and refusing with tools.ErrRateLimitExceeded. This one is keyed on the conversation, takes the limit of the policy in force for each call, drops idle conversations \(its keys are unbounded, the registry's are tool names\), and counts calls admitted outside the stage \(Admit\).
 
 ```go
 type CallRateWindow struct {
@@ -1200,7 +1202,7 @@ type CallRateWindow struct {
 ```
 
 <a name="NewCallRateWindow"></a>
-### func [NewCallRateWindow](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L35>)
+### func [NewCallRateWindow](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L43>)
 
 ```go
 func NewCallRateWindow() *CallRateWindow
@@ -1209,7 +1211,7 @@ func NewCallRateWindow() *CallRateWindow
 NewCallRateWindow returns an empty window.
 
 <a name="CallRateWindow.Admit"></a>
-### func \(\*CallRateWindow\) [Admit](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L43>)
+### func \(\*CallRateWindow\) [Admit](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L51>)
 
 ```go
 func (w *CallRateWindow) Admit(conversationID, tool string)

@@ -24,6 +24,14 @@ type callRateKey struct {
 // window spans every turn of a conversation the stage runs. A call held for
 // approval is not counted by the stage; Admit counts it once it is approved.
 // Safe for concurrent use: a round's calls are checked in parallel.
+//
+// tools.WithRateLimit is the other sliding window, and a different limit: one
+// per registry, shared by its children, counting every conversation's calls
+// to a tool together under a fixed limit, and refusing with
+// tools.ErrRateLimitExceeded. This one is keyed on the conversation, takes
+// the limit of the policy in force for each call, drops idle conversations
+// (its keys are unbounded, the registry's are tool names), and counts calls
+// admitted outside the stage (Admit).
 type CallRateWindow struct {
 	mu        sync.Mutex
 	calls     map[callRateKey][]time.Time

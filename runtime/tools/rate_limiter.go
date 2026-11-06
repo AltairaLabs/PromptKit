@@ -16,6 +16,15 @@ const msPerMinute = 60_000
 
 // rateLimiter tracks per-tool call timestamps and enforces a sliding-window
 // rate limit (calls per minute). Safe for concurrent use.
+//
+// It is the registry's limit (WithRateLimit), not a conversation's: one
+// limiter is shared by a registry, its clones and its children, so it counts
+// every caller of the tool together, under a limit fixed when the registry is
+// built. stage.CallRateWindow is the other sliding window: it enforces
+// pipeline.ToolPolicy.MaxCallsPerMinute per conversation and tool, under the
+// limit of the policy in force for each call, and refuses with a tool-policy
+// result rather than ErrRateLimitExceeded. The two count different things,
+// so they are kept apart rather than one keyed to serve both.
 type rateLimiter struct {
 	mu               sync.Mutex
 	maxPerMinute     int                // 0 means unlimited
