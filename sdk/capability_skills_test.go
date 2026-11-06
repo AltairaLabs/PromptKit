@@ -458,23 +458,28 @@ func TestEnsureSkillsCapability_CombinesDirsAndSources(t *testing.T) {
 	assert.Equal(t, "skills", sc.sources[2].MountAs)
 }
 
-func TestWireSkillsConfig(t *testing.T) {
+// The skill options set on the open apply to the conversation's own copy of
+// the capability; the capability passed in is left as it was (#2398).
+func TestEnsureSkillsCapability_AppliesSkillOptionsToItsOwnCopy(t *testing.T) {
 	selector := skills.NewModelDrivenSelector()
 	cfg := &config{
 		skillSelector:   selector,
 		maxActiveSkills: 8,
 	}
 
-	cap := NewSkillsCapability(nil)
-	caps := []Capability{cap}
+	shared := NewSkillsCapability(nil)
+	caps := ensureSkillsCapability([]Capability{shared}, cfg)
 
-	wireSkillsConfig(caps, cfg)
-
-	assert.Equal(t, selector, cap.selector)
-	assert.Equal(t, 8, cap.maxActive)
+	require.Len(t, caps, 1)
+	own := caps[0].(*SkillsCapability)
+	assert.NotSame(t, shared, own)
+	assert.Equal(t, selector, own.selector)
+	assert.Equal(t, 8, own.maxActive)
+	assert.Nil(t, shared.selector)
+	assert.Zero(t, shared.maxActive)
 }
 
-func TestWireSkillsConfig_DoesNotOverride(t *testing.T) {
+func TestEnsureSkillsCapability_KeepsTheCapabilitysOwnOptions(t *testing.T) {
 	originalSelector := skills.NewTagSelector([]string{"test"})
 	cfgSelector := skills.NewModelDrivenSelector()
 
@@ -484,11 +489,12 @@ func TestWireSkillsConfig_DoesNotOverride(t *testing.T) {
 	}
 
 	cap := NewSkillsCapability(nil, WithSkillSelector(originalSelector), WithMaxActiveSkills(3))
-	caps := []Capability{cap}
+	caps := ensureSkillsCapability([]Capability{cap}, cfg)
 
-	wireSkillsConfig(caps, cfg)
-
-	// Should keep original values since they were already set
+	// The capability's own options win, so the open adds nothing and the
+	// capability is used as it is.
+	require.Len(t, caps, 1)
+	assert.Same(t, cap, caps[0])
 	assert.Equal(t, originalSelector, cap.selector)
 	assert.Equal(t, 3, cap.maxActive)
 }

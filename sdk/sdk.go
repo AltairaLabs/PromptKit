@@ -274,7 +274,6 @@ func prepareConversation(
 	allCaps = ensureA2ACapability(allCaps, cfg)
 	allCaps = ensureSkillsCapability(allCaps, cfg)
 	wireA2AConfig(allCaps, cfg)
-	wireSkillsConfig(allCaps, cfg)
 	capCtx := newCapabilityContext(p, promptName, cfg)
 	for i, cap := range allCaps {
 		logger.Debug("initializing capability", "capability", cap.Name())
@@ -1360,51 +1359,43 @@ func ensureA2ACapability(caps []Capability, cfg *config) []Capability {
 }
 
 // ensureSkillsCapability makes the skill sources set in code (WithSkillsDir,
-// WithSkillSource) available. With no SkillsCapability yet it adds one. With one
-// already present — inferred from the pack's skills, or passed explicitly — it
-// merges the sources into it, so skills added in code do not disappear when the
-// pack declares its own (#2355). A source the capability already holds is not
-// added twice, so a capability reused across opens does not grow.
+// WithSkillSource) and the skill options (WithSkillSelectorOption,
+// WithMaxActiveSkillsOption) available. With no SkillsCapability yet it adds
+// one. With one already present — inferred from the pack's skills, or passed
+// explicitly — the conversation gets its own copy holding that capability's
+// sources plus the code-added ones, so skills added in code do not disappear
+// when the pack declares its own (#2355).
+//
+// The capability present is never modified. A host may pass one
+// SkillsCapability to many opens with WithCapability; writing one open's
+// sources into it would leak them into every later conversation, be ignored
+// once its executor is built, and race with concurrent opens (#2398). When the
+// open adds nothing, the shared capability is used as it is.
 func ensureSkillsCapability(caps []Capability, cfg *config) []Capability {
-	if len(cfg.skillsDirs) == 0 && len(cfg.skillSources) == 0 {
-		return caps
-	}
 	sources := make([]skills.SkillSource, 0, len(cfg.skillsDirs)+len(cfg.skillSources))
 	for _, dir := range cfg.skillsDirs {
 		sources = append(sources, skills.SkillSource{Dir: dir})
 	}
 	sources = append(sources, cfg.skillSources...)
 
-	for _, cap := range caps {
+	for i, cap := range caps {
 		if cap.Name() != capabilityNameSkills {
 			continue
 		}
 		if sc, ok := cap.(*SkillsCapability); ok {
-			for _, src := range sources {
-				if !slices.Contains(sc.sources, src) {
-					sc.sources = append(sc.sources, src)
-				}
+			if own := sc.forOpen(sources, cfg); own != sc {
+				caps = slices.Clone(caps)
+				caps[i] = own
 			}
 		}
 		return caps
 	}
-	return append(caps, NewSkillsCapability(sources))
-}
-
-// wireSkillsConfig threads config values into any SkillsCapability before Init.
-func wireSkillsConfig(caps []Capability, cfg *config) {
-	for _, cap := range caps {
-		sc, ok := cap.(*SkillsCapability)
-		if !ok {
-			continue
-		}
-		if cfg.skillSelector != nil && sc.selector == nil {
-			sc.selector = cfg.skillSelector
-		}
-		if cfg.maxActiveSkills > 0 && sc.maxActive == 0 {
-			sc.maxActive = cfg.maxActiveSkills
-		}
+	if len(sources) == 0 {
+		return caps
 	}
+	sc := NewSkillsCapability(sources)
+	sc.applyConfig(cfg)
+	return append(caps, sc)
 }
 
 // wireA2AConfig threads config values into any A2ACapability before Init.

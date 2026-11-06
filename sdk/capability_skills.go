@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
@@ -27,6 +28,10 @@ type SkillsCapability struct {
 	// ActiveSet. They used to be activated into the executor at Init, which
 	// made them one shared set.
 	preload []string
+
+	// initMu serializes Init: a capability shared across opens via
+	// WithCapability can be initialized by concurrent opens.
+	initMu sync.Mutex
 }
 
 // SkillsOption configures a SkillsCapability.
@@ -61,11 +66,51 @@ func NewSkillsCapability(
 	return c
 }
 
+// forOpen returns the capability one conversation should use: c itself when
+// the open adds nothing to it, otherwise a new, uninitialized capability with
+// c's sources and options plus the open's code-added sources and skill
+// options. c is never modified, so a host sharing it across opens keeps it as
+// it built it (#2398).
+func (c *SkillsCapability) forOpen(extra []skills.SkillSource, cfg *config) *SkillsCapability {
+	var added []skills.SkillSource
+	for _, src := range extra {
+		if !slices.Contains(c.sources, src) && !slices.Contains(added, src) {
+			added = append(added, src)
+		}
+	}
+	setsSelector := cfg.skillSelector != nil && c.selector == nil
+	setsMaxActive := cfg.maxActiveSkills > 0 && c.maxActive == 0
+	if len(added) == 0 && !setsSelector && !setsMaxActive {
+		return c
+	}
+	own := &SkillsCapability{
+		sources:   append(slices.Clone(c.sources), added...),
+		selector:  c.selector,
+		maxActive: c.maxActive,
+	}
+	own.applyConfig(cfg)
+	return own
+}
+
+// applyConfig fills the options the capability was not constructed with from
+// the open's config. Called only on a capability this open owns.
+func (c *SkillsCapability) applyConfig(cfg *config) {
+	if cfg.skillSelector != nil && c.selector == nil {
+		c.selector = cfg.skillSelector
+	}
+	if cfg.maxActiveSkills > 0 && c.maxActive == 0 {
+		c.maxActive = cfg.maxActiveSkills
+	}
+}
+
 // Name returns the capability identifier.
 func (c *SkillsCapability) Name() string { return capabilityNameSkills }
 
 // Init discovers skills from sources and creates an executor.
 func (c *SkillsCapability) Init(ctx CapabilityContext) error {
+	c.initMu.Lock()
+	defer c.initMu.Unlock()
+
 	reg := skills.NewRegistry()
 	if err := reg.Discover(c.sources); err != nil {
 		return fmt.Errorf("skills discovery: %w", err)
@@ -82,20 +127,6 @@ func (c *SkillsCapability) Init(ctx CapabilityContext) error {
 	}
 	sort.Strings(packTools)
 
-	// Resolve the external selector by name when RuntimeConfig binds
-	// one. Missing names are silently ignored — validation happens at
-	// RuntimeConfig load.
-	if ctx.SkillsSelectorName != "" {
-		if sel, ok := ctx.Selectors[ctx.SkillsSelectorName]; ok {
-			c.newSelector = sel
-		}
-	}
-	// A SkillSelector (WithSkillSelector, sdk.WithSkillSelectorOption) runs on
-	// the same path, when RuntimeConfig binds no selector of its own.
-	if c.newSelector == nil {
-		c.newSelector = skills.AdaptSkillSelector(c.selector)
-	}
-
 	// Init runs once per conversation open, and a host may reuse one
 	// SkillsCapability across opens via WithCapability. Replacing the executor
 	// on a later Init would orphan the ToolExecutor the earlier conversation
@@ -110,6 +141,20 @@ func (c *SkillsCapability) Init(ctx CapabilityContext) error {
 				"ceiling", c.packTools, "ignored", packTools)
 		}
 		return nil
+	}
+
+	// Resolve the external selector by name when RuntimeConfig binds
+	// one. Missing names are silently ignored — validation happens at
+	// RuntimeConfig load.
+	if ctx.SkillsSelectorName != "" {
+		if sel, ok := ctx.Selectors[ctx.SkillsSelectorName]; ok {
+			c.newSelector = sel
+		}
+	}
+	// A SkillSelector (WithSkillSelector, sdk.WithSkillSelectorOption) runs on
+	// the same path, when RuntimeConfig binds no selector of its own.
+	if c.newSelector == nil {
+		c.newSelector = skills.AdaptSkillSelector(c.selector)
 	}
 
 	cfg := skills.ExecutorConfig{
@@ -161,22 +206,20 @@ func (c *SkillsCapability) NewActiveSet() *skills.ActiveSet {
 // conversation has since deactivated — or that a workflow state's filter
 // dropped — is left out, so its instructions leave the prompt with its tools.
 // Empty when there are none.
+//
+// It only reads set, so a skill deactivated while this runs stays deactivated
+// (#2399).
 func (c *SkillsCapability) preloadedInstructions(set *skills.ActiveSet) string {
 	if c.executor == nil || set == nil || len(c.preload) == 0 {
 		return ""
 	}
-	active := set.Names()
 	var sections []string
 	for _, name := range c.preload {
-		if !slices.Contains(active, name) {
+		instructions, active := set.Instructions(name)
+		if !active || instructions == "" {
 			continue
 		}
-		// Already active, so this returns the instructions without changing the set.
-		act, err := c.executor.ActivateIn(set, name)
-		if err != nil || act.Instructions == "" {
-			continue
-		}
-		sections = append(sections, "## Skill: "+name+"\n\n"+act.Instructions)
+		sections = append(sections, "## Skill: "+name+"\n\n"+instructions)
 	}
 	return strings.Join(sections, "\n\n")
 }

@@ -84,6 +84,20 @@ func (s *ActiveSet) Names() []string {
 	return names
 }
 
+// Instructions returns the instructions of the named skill when it is active
+// in this set, and whether it is. It only reads the set: unlike
+// [Executor.ActivateIn], it never activates a skill that is not active.
+func (s *ActiveSet) Instructions(name string) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	entry, ok := s.active[name]
+	if !ok {
+		return "", false
+	}
+	return entry.skill.Instructions, true
+}
+
 // Len returns the number of active skills.
 func (s *ActiveSet) Len() int {
 	s.mu.RLock()

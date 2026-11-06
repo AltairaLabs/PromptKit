@@ -173,16 +173,21 @@ func TestPreload_InstructionsLeaveThePromptWhenTheSkillIsDropped(t *testing.T) {
 	assert.NotContains(t, provider.systems[1], "PRELOADED-BODY")
 }
 
-func TestEnsureSkillsCapability_MergesIntoExistingWithoutDuplicates(t *testing.T) {
+func TestEnsureSkillsCapability_MergesIntoACopyWithoutDuplicates(t *testing.T) {
 	existing := NewSkillsCapability([]skills.SkillSource{{Name: "from-pack", Instructions: "x"}})
-	cfg := &config{skillSources: []skills.SkillSource{{Name: "from-code", Instructions: "y"}}}
+	cfg := &config{skillSources: []skills.SkillSource{
+		{Name: "from-code", Instructions: "y"},
+		{Name: "from-code", Instructions: "y"},
+		{Name: "from-pack", Instructions: "x"},
+	}}
 
 	caps := ensureSkillsCapability([]Capability{existing}, cfg)
-	caps = ensureSkillsCapability(caps, cfg)
 
 	require.Len(t, caps, 1)
 	assert.Equal(t, []skills.SkillSource{
 		{Name: "from-pack", Instructions: "x"},
 		{Name: "from-code", Instructions: "y"},
-	}, existing.sources)
+	}, caps[0].(*SkillsCapability).sources)
+	assert.Equal(t, []skills.SkillSource{{Name: "from-pack", Instructions: "x"}}, existing.sources,
+		"the capability passed in must not be modified")
 }

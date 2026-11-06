@@ -225,7 +225,7 @@ conv, err := sdk.Open("support.pack.json", "assistant")
 | `WithSelector(name, selection.Selector)` | Registers an in-process selector that a runtime config binds to skills by name. | None |
 | `WithSkillSelectorOption(skills.SkillSelector)` | Narrows the `skill__activate` index with a `skills.SkillSelector`, such as `TagSelector`. | None |
 
-`WithSkillsDir` and `WithSkillSource` add the skills capability when the pack declares no `skills`. When it does, these sources merge with the pack's, and a source the capability already holds is not added twice.
+`WithSkillsDir` and `WithSkillSource` add the skills capability when the pack declares no `skills`. When it does, or when you pass a capability with `WithCapability`, these sources merge with the capability's, and a source the capability already holds is not added twice. The merged sources belong to that conversation alone.
 
 ```go
 conv, err := sdk.Open("base.pack.json", "assistant",
@@ -273,6 +273,8 @@ cap := sdk.NewSkillsCapability(
 )
 conv, err := sdk.Open("base.pack.json", "assistant", sdk.WithCapability(cap))
 ```
+
+You can pass one capability to many `Open` calls, including concurrent ones. The SDK never modifies it. An `Open` that adds skill sources, `WithSkillSelectorOption` or `WithMaxActiveSkillsOption` the capability lacks runs on its own copy, so those settings reach only that conversation.
 
 ## Eval types
 
