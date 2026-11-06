@@ -199,7 +199,7 @@ The executor turns MCP content into what the model reads:
 
 ## Tool policy
 
-A `ToolPolicy` can come from the caller's stage configuration and from the prompt's `tool_policy`. The merge only narrows: limits take the smaller non-zero value, and blocklists are the union. Each limit is enforced at a different point of the loop.
+A `ToolPolicy` can come from the caller's stage configuration (in the SDK, `sdk.WithToolPolicy`) and from the prompt's `tool_policy`. The merge only narrows: limits take the smaller non-zero value, and blocklists are the union. Each limit is enforced at a different point of the loop.
 
 ```mermaid
 graph TD

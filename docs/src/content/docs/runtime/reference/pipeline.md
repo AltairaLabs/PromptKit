@@ -711,7 +711,7 @@ func DescribeCapabilities(stage Stage) string
 DescribeCapabilities returns a human\-readable description of a stage's capabilities. Useful for debugging and logging.
 
 <a name="NewCompositionStepExecutor"></a>
-## func [NewCompositionStepExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L101>)
+## func [NewCompositionStepExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L112>)
 
 ```go
 func NewCompositionStepExecutor(deps CompositionExecutorDeps) engine.StepExecutor
@@ -1217,7 +1217,7 @@ NewCallRateWindow returns an empty window.
 func (w *CallRateWindow) Admit(conversationID, tool string)
 ```
 
-Admit records a call to tool in conversationID that was admitted to run outside the provider stage — a held call a human approved — so it counts against MaxCallsPerMinute like a call the stage ran. It records without checking the limit: the approval is the admission. Nil\-safe.
+Admit records a call to tool in conversationID that was admitted to run outside the provider stage, such as a held call a human approved, so it counts against MaxCallsPerMinute like a call the stage ran. It records without checking the limit: the approval is the admission. Nil\-safe.
 
 <a name="Capabilities"></a>
 ## type [Capabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/capabilities.go#L111-L116>)
@@ -1369,7 +1369,7 @@ type CompactionStrategy interface {
 ```
 
 <a name="CompositionExecutorDeps"></a>
-## type [CompositionExecutorDeps](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L62-L97>)
+## type [CompositionExecutorDeps](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L63-L108>)
 
 CompositionExecutorDeps carries the runtime collaborators a composition step needs to execute. Injected once; reused for every step of every Execute call.
 
@@ -1409,6 +1409,16 @@ type CompositionExecutorDeps struct {
     // SkipContentValidation is ProviderConfig.SkipContentValidation for every
     // prompt and agent step. False validates.
     SkipContentValidation bool
+
+    // ToolPolicy is the host's tool policy, the base of every prompt and agent
+    // step's (see stepToolPolicy). Nil: the step's bounds alone.
+    ToolPolicy *pipeline.ToolPolicy
+
+    // CallRate is the enclosing conversation's call-rate window
+    // (ProviderConfig.CallRate). Every step's provider stage counts in it, so
+    // ToolPolicy.MaxCallsPerMinute spans the composition's steps and turns.
+    // Nil: each step execution gets a window of its own.
+    CallRate *CallRateWindow
 }
 ```
 

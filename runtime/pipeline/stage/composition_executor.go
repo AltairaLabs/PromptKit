@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 
@@ -94,6 +95,16 @@ type CompositionExecutorDeps struct {
 	// SkipContentValidation is ProviderConfig.SkipContentValidation for every
 	// prompt and agent step. False validates.
 	SkipContentValidation bool
+
+	// ToolPolicy is the host's tool policy, the base of every prompt and agent
+	// step's (see stepToolPolicy). Nil: the step's bounds alone.
+	ToolPolicy *pipeline.ToolPolicy
+
+	// CallRate is the enclosing conversation's call-rate window
+	// (ProviderConfig.CallRate). Every step's provider stage counts in it, so
+	// ToolPolicy.MaxCallsPerMinute spans the composition's steps and turns.
+	// Nil: each step execution gets a window of its own.
+	CallRate *CallRateWindow
 }
 
 // NewCompositionStepExecutor returns an engine.StepExecutor that runs prompt/agent
@@ -145,17 +156,31 @@ func (deps CompositionExecutorDeps) executeTool(
 // Tool scoping is handled uniformly by toolScopeStage: it intersects the
 // prompt template's AllowedTools with step.Tools, so a prompt step (empty
 // Tools) yields no tools regardless of what the template declares.
-func stepToolPolicy(step *composition.Step) *pipeline.ToolPolicy {
+//
+// base is the host's policy (CompositionExecutorDeps.ToolPolicy), which the
+// step starts from. MaxRounds is the lower of the two that are set, as
+// pipeline.MergeToolPolicy combines limits. A step's tool_called replaces the
+// host's StopOnTool for that step: it names the tool that completes the
+// step's output, and the step is the more specific context, as
+// MergeToolPolicy prefers the caller's ToolChoice over the prompt's.
+func stepToolPolicy(step *composition.Step, base *pipeline.ToolPolicy) *pipeline.ToolPolicy {
 	policy := &pipeline.ToolPolicy{}
-	if step.Kind == composition.KindAgent {
-		if step.Termination != nil {
-			if maxSteps := packspec.Deref(step.Termination.MaxSteps, 0); maxSteps > 0 {
-				policy.MaxRounds = maxSteps
-			}
+	if base != nil {
+		*policy = *base
+		policy.Blocklist = slices.Clone(base.Blocklist)
+	}
+	if step.Kind != composition.KindAgent {
+		policy.MaxRounds = 1
+		return policy
+	}
+	if step.Termination != nil {
+		if maxSteps := packspec.Deref(step.Termination.MaxSteps, 0); maxSteps > 0 &&
+			(policy.MaxRounds <= 0 || maxSteps < policy.MaxRounds) {
+			policy.MaxRounds = maxSteps
+		}
+		if step.Termination.ToolCalled != "" {
 			policy.StopOnTool = step.Termination.ToolCalled
 		}
-	} else {
-		policy.MaxRounds = 1
 	}
 	return policy
 }
@@ -168,6 +193,7 @@ func (deps CompositionExecutorDeps) stepProviderConfig(
 		Source:                "agent",
 		PromptDeclarations:    deps.PromptDeclarations,
 		SkipContentValidation: deps.SkipContentValidation,
+		CallRate:              deps.CallRate,
 	}
 	// The step's prompt parameters, with its model_overrides entry for the
 	// provider that runs the step, as an opened prompt gets them.
@@ -221,7 +247,7 @@ func (deps CompositionExecutorDeps) execLLM(
 		return nil, fmt.Errorf("step %q: %w", step.ID, err)
 	}
 
-	policy := stepToolPolicy(step)
+	policy := stepToolPolicy(step, deps.ToolPolicy)
 
 	// toolScopeStage runs after PromptAssemblyStage and narrows AllowedTools to
 	// the intersection of the prompt template's tools and the step's tools.

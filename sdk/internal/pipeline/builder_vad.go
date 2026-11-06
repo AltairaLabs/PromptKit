@@ -153,6 +153,10 @@ func vadProviderConfig(cfg *Config) *stage.ProviderConfig {
 		MessageLog:       cfg.MessageLog,
 		MessageLogConvID: cfg.ConversationID,
 		ApprovalChecker:  cfg.ApprovalChecker,
+		// The conversation's call-rate window, so voice counts calls for
+		// ToolPolicy.MaxCallsPerMinute where text does and an approval
+		// admitted by ResolveTool counts here too.
+		CallRate: cfg.CallRate,
 		// A skill activated mid-conversation extends the tool array, and
 		// selection narrows it per turn. Both are live reads on every tools
 		// build, so voice gets the same tools as text (#1957, #1980).

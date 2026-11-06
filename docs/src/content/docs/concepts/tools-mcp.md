@@ -18,6 +18,8 @@ verified:
     - runtime/prompt/schema/promptpack.schema.json
     - runtime/tools/mcp_executor.go
     - runtime/tools/registry.go
+    - sdk/internal/pack/tool_policy_keys.go
+    - sdk/options.go
     - runtime/tools/types.go
     - runtime/types/message.go
     - runtime/workflow/machine.go
@@ -145,7 +147,39 @@ A prompt's `tool_policy` in the pack limits how it uses tools in one turn:
 - `tool_choice`: `auto`, `required` or `none`. With `none`, no tools are sent.
 - `blocklist`: tools this prompt may not run, even when listed in `tools`.
 
-`tool_policy` can only be set on a prompt. There is no pack-level `tool_policy`.
+`tool_policy` can only be set on a prompt. There is no pack-level `tool_policy`. These four keys are the whole of it. Schema validation rejects any other key. With `sdk.WithSkipSchemaValidation` the key is ignored, and the load logs a warning that names the prompt and the key.
+
+### Limits the host sets
+
+`sdk.WithToolPolicy` sets a `pipeline.ToolPolicy` from Go. It applies to every tool loop the conversation runs: text, voice in VAD mode, each workflow state, and each step of a composition. A realtime duplex session (`OpenDuplex` with a provider that streams audio itself) runs its tool calls outside the tool loop, so the policy does not apply there. It carries the limits a pack cannot declare:
+
+```go
+conv, err := sdk.Open("./app.pack.json", "builder",
+    sdk.WithToolPolicy(&pipeline.ToolPolicy{
+        MaxCallsPerMinute:     30,
+        MaxCostUSD:            1.50,
+        MaxIdenticalToolCalls: 2,
+        MaxParallelToolCalls:  4,
+    }),
+)
+```
+
+- `MaxCallsPerMinute`: how many times each tool may run in any one-minute window of a conversation. The window spans the conversation's turns and a composition's steps. A workflow opens a new conversation for each state, and each one starts with an empty window. A call over the limit is not run, and the model gets a result saying the tool's limit is reached. A call held for approval counts when `ResolveTool` approves it. A rejected call never counts.
+- `MaxCostUSD`: the spend a tool loop may reach, counting the cost recorded on the history it is given. In a conversation, that history is the earlier turns, so the budget spans them. A composition step is given only its own input, so each step has the full budget. The round that crosses it fails the turn with `provider stage: cost budget exceeded`.
+- `MaxIdenticalToolCalls`: how many times the same call with the same arguments may run before the model is told to change course. Defaults to 3.
+- `MaxParallelToolCalls`: how many of one round's calls run at once. Defaults to 10.
+- `StopOnTool`: the loop ends after the round that calls this tool.
+
+`MaxRounds`, `MaxToolCallsPerTurn`, `ToolChoice` and `Blocklist` can be set here too. For those, the turn runs under both this policy and the prompt's `tool_policy`:
+
+| Field | Result |
+|---|---|
+| `MaxRounds`, `MaxToolCallsPerTurn` | The lower of the two values that are set. Either side can tighten the limit; neither can loosen it. |
+| `Blocklist` | Both lists. |
+| `ToolChoice` | The host's when set, otherwise the prompt's. |
+| Every other field | The host's. |
+
+In a composition, an agent step's `termination.max_steps` narrows `MaxRounds` the same way, and its `termination.tool_called` replaces `StopOnTool` for that step. A prompt step always runs one round.
 
 ### How other limits combine with it
 
@@ -153,7 +187,7 @@ Three other limits can apply, and they work differently:
 
 - A composition agent step's `termination.max_steps` bounds the LLM-tool loop of that one step, counted in the same rounds as `max_rounds`. The step stops at the lower of `max_steps` and its prompt's `max_rounds`.
 - `workflow.engine.budget` (`max_tool_calls`, `max_total_visits`, `max_wall_time_sec`) and a state's `max_visits` bound the whole workflow run, across states and turns. They apply on top: each turn is still bounded by its prompt's `tool_policy`.
-- Limits a host or test harness sets in code combine with the prompt's. The lower `max_rounds` and `max_tool_calls_per_turn` apply, the blocklists are joined, and a `tool_choice` the host sets takes precedence over the prompt's.
+- Limits a host sets in code (`sdk.WithToolPolicy`, or the policy a test harness passes to the provider stage) combine with the prompt's as the table above shows.
 
 `max_steps` limits rounds inside one step, not how many steps run. A composition's steps form an acyclic graph, so no step runs twice. To loop, use workflow states with `max_visits`.
 
