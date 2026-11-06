@@ -50,6 +50,9 @@ func WithClock(now func() time.Time) Option {
 type expiryEntry struct {
 	metaPath  string
 	expiresAt time.Time
+	// gen changes every time the path is tracked or re-indexed, so the index
+	// pass can tell that an entry it snapshotted has since been replaced.
+	gen uint64
 }
 
 // compile-time checks that TimeBasedPolicyHandler implements
@@ -104,8 +107,17 @@ type TimeBasedPolicyHandler struct {
 	expiryIndex map[string]expiryEntry
 	expiryMu    sync.RWMutex
 
+	// nextGen is the last generation handed to an index entry; guarded by
+	// expiryMu.
+	nextGen uint64
+
 	// indexBuilt indicates whether the expiry index has been populated
 	indexBuilt bool
+
+	// beforeEnforceEntry, when set by a test, runs after enforceFromIndex has
+	// taken its snapshot of expired entries and before it enforces each one,
+	// so a test can interleave a concurrent TrackFile deterministically.
+	beforeEnforceEntry func(metaPath string)
 
 	// cancel stops the auto-started enforcement goroutine. Set only when
 	// autoStart is true; nil otherwise. Call Stop() to invoke it.
@@ -213,20 +225,14 @@ func (h *TimeBasedPolicyHandler) enforceFromIndex(_ context.Context) error {
 
 	// Process expired entries
 	for _, entry := range expired {
-		if _, err := os.Stat(entry.metaPath); os.IsNotExist(err) {
-			// Already deleted elsewhere; nothing left to enforce.
-			h.expiryMu.Lock()
-			delete(h.expiryIndex, entry.metaPath)
-			h.expiryMu.Unlock()
-			continue
+		if h.beforeEnforceEntry != nil {
+			h.beforeEnforceEntry(entry.metaPath)
 		}
-		if h.processMetaFile(entry.metaPath, now) {
-			// Remove from index after successful deletion
-			h.expiryMu.Lock()
-			delete(h.expiryIndex, entry.metaPath)
-			h.expiryMu.Unlock()
+		ok, failed := h.enforceEntry(entry, now)
+		if ok {
 			deleted++
-		} else {
+		}
+		if failed {
 			errors++
 		}
 	}
@@ -236,6 +242,39 @@ func (h *TimeBasedPolicyHandler) enforceFromIndex(_ context.Context) error {
 	}
 
 	return nil
+}
+
+// enforceEntry enforces one entry from enforceFromIndex's snapshot. It holds
+// expiryMu throughout, so a TrackFile for the same path cannot land between
+// the check that the entry is unchanged and the removal of its files and its
+// index entry. An entry re-tracked or untracked since the snapshot is skipped:
+// its files are left alone and a fresh entry is kept. It reports whether it
+// enforced the entry and whether enforcing it failed.
+func (h *TimeBasedPolicyHandler) enforceEntry(entry expiryEntry, now time.Time) (enforced, failed bool) {
+	h.expiryMu.Lock()
+	defer h.expiryMu.Unlock()
+
+	if cur, ok := h.expiryIndex[entry.metaPath]; !ok || cur.gen != entry.gen {
+		return false, false
+	}
+	if _, err := os.Stat(entry.metaPath); os.IsNotExist(err) {
+		// Already deleted elsewhere; nothing left to enforce.
+		delete(h.expiryIndex, entry.metaPath)
+		return false, false
+	}
+	if meta, err := h.loadPolicyMetadata(entry.metaPath); err == nil &&
+		meta.ExpiresAt != nil && !meta.ExpiresAt.Before(now) {
+		// The .meta was rewritten with a later expiry without a re-track; keep
+		// enforcing it at the expiry on disk rather than dropping it.
+		entry.expiresAt = *meta.ExpiresAt
+		h.expiryIndex[entry.metaPath] = entry
+		return false, false
+	}
+	if !h.processMetaFile(entry.metaPath, now) {
+		return false, true
+	}
+	delete(h.expiryIndex, entry.metaPath)
+	return true, false
 }
 
 // enforceFromWalk is the original full directory walk implementation, used
@@ -404,13 +443,18 @@ func (h *TimeBasedPolicyHandler) BuildExpiryIndex(baseDir string) error {
 	}
 
 	h.expiryMu.Lock()
-	// Keep entries tracked before or during the scan that it did not see;
-	// replacing the map outright would lose media stored while it ran.
-	// Entries whose files are gone are pruned by enforceFromIndex.
+	for path, entry := range index {
+		h.nextGen++
+		entry.gen = h.nextGen
+		index[path] = entry
+	}
+	// Keep entries tracked before or during the scan. Replacing the map
+	// outright would lose media stored while it ran, and a tracked entry is at
+	// least as fresh as what the scan read, since a store tracks its files
+	// after writing them. Entries whose files are gone are pruned by
+	// enforceFromIndex.
 	for path, entry := range h.expiryIndex {
-		if _, scanned := index[path]; !scanned {
-			index[path] = entry
-		}
+		index[path] = entry
 	}
 	h.expiryIndex = index
 	h.indexBuilt = true
@@ -427,9 +471,11 @@ func (h *TimeBasedPolicyHandler) TrackFile(metaPath string, expiresAt time.Time)
 	h.expiryMu.Lock()
 	defer h.expiryMu.Unlock()
 
+	h.nextGen++
 	h.expiryIndex[metaPath] = expiryEntry{
 		metaPath:  metaPath,
 		expiresAt: expiresAt,
+		gen:       h.nextGen,
 	}
 	// Tracking never marks the index as built: the index holds only what was
 	// tracked since the handler was created, so switching EnforcePolicy to
