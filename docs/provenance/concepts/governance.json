@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/concepts/governance.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -223,7 +223,7 @@
    "evidence": [
     "runtime/prompt/governance_validate.go:316",
     "sdk/internal/pack/validate.go:270",
-    "sdk/validate_pack.go:144"
+    "sdk/validate_pack.go:174"
    ]
   },
   {
@@ -262,8 +262,8 @@
    "claim": "sdk.Open(path, name) then conv.Governance() returns *Governance",
    "verdict": "true",
    "evidence": [
-    "sdk/governance.go:32",
-    "sdk/sdk.go:84"
+    "sdk/governance.go:31",
+    "sdk/sdk.go:89"
    ]
   },
   {

@@ -4,7 +4,7 @@ description: How PromptKit stores conversation history and workflow state, and h
 sidebar:
   order: 5
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/packspec/types.go
     - runtime/prompt/schema/promptpack.schema.json
@@ -117,7 +117,7 @@ A long history costs tokens and latency. Three options bound what the model sees
 |--------|--------|
 | `sdk.WithContextWindow(n)` | Loads only the most recent `n` messages from the store each turn. Requires a state store. |
 | `sdk.WithTokenBudget(tokens)` | Truncates history when prompt plus history exceeds the budget. |
-| `sdk.WithTruncation(strategy)` | Picks how truncation works: `"sliding"` (default), `"summarize"`, or `"relevance"`. |
+| `sdk.WithTruncation(strategy)` | Picks how truncation works when a token budget is set: `"sliding"` (default, alias `"oldest"`), `"summarize"`, `"relevance"`, or `"fail"`, which returns an error instead of truncating. |
 
 ```go
 conv, _ := sdk.Open("./assistant.pack.json", "chat",

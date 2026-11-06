@@ -1,13 +1,14 @@
 {
  "page": "docs/src/content/docs/concepts/tools-mcp.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "tools.ToolDescriptor has Name, Description, InputSchema (json.RawMessage)",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/types.go:112"
+    "runtime/tools/types.go:114",
+    "runtime/tools/types.go:118"
    ]
   },
   {
@@ -15,7 +16,7 @@
    "claim": "Executor interface: Name() and Execute(ctx, descriptor, args) (json.RawMessage, error)",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/types.go:393"
+    "runtime/tools/types.go:441"
    ]
   },
   {
@@ -23,18 +24,18 @@
    "claim": "tools.NewRegistry, RegisterExecutor, Register(descriptor) error",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/registry.go:166",
-    "runtime/tools/registry.go:398",
-    "runtime/tools/registry.go:97"
+    "runtime/tools/registry.go:170",
+    "runtime/tools/registry.go:404",
+    "runtime/tools/registry.go:98"
    ]
   },
   {
    "id": 4,
-   "claim": "Registering the descriptor and executor makes the tool callable (example omits Mode)",
-   "verdict": "false",
+   "claim": "The registry routes a call to the executor whose Name() equals the descriptor's Mode; an empty Mode runs as a mock tool",
+   "verdict": "true",
    "evidence": [
-    "runtime/tools/registry.go:640",
-    "runtime/tools/registry.go:765"
+    "runtime/tools/registry.go:646",
+    "runtime/tools/registry.go:660"
    ]
   },
   {
@@ -59,7 +60,7 @@
    "claim": "max_rounds defaults to 50",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1301",
+    "runtime/pipeline/stage/stages_provider.go:1372",
     "runtime/pipeline/stage/stages_provider.go:33"
    ]
   },
@@ -68,8 +69,8 @@
    "claim": "A turn still wanting tools at the limit fails with error text 'max rounds (N) exceeded'",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:128",
-    "runtime/pipeline/stage/stages_provider.go:1645"
+    "runtime/pipeline/stage/errors.go:151",
+    "runtime/pipeline/stage/stages_provider.go:1716"
    ]
   },
   {
@@ -77,8 +78,8 @@
    "claim": "errors.Is matches stage.ErrMaxRoundsExceeded; errors.As *stage.MaxRoundsError gives the limit",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:117",
-    "runtime/pipeline/stage/errors.go:121"
+    "runtime/pipeline/stage/errors.go:140",
+    "runtime/pipeline/stage/errors.go:144"
    ]
   },
   {
@@ -86,9 +87,9 @@
    "claim": "max_tool_calls_per_turn: calls over the limit are not run, get an error result, next round offers no tools",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1626",
-    "runtime/pipeline/stage/stages_provider.go:1718",
-    "runtime/pipeline/stage/stages_provider.go:1734"
+    "runtime/pipeline/stage/stages_provider.go:1697",
+    "runtime/pipeline/stage/stages_provider.go:1792",
+    "runtime/pipeline/stage/stages_provider.go:1808"
    ]
   },
   {
@@ -96,7 +97,7 @@
    "claim": "tool_choice is auto, required or none; none sends no tools",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3813",
+    "runtime/pipeline/stage/stages_provider.go:3924",
     "runtime/prompt/schema/promptpack.schema.json:884"
    ]
   },
@@ -105,7 +106,7 @@
    "claim": "blocklist: tools the prompt may not run even when listed in tools",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2764"
+    "runtime/pipeline/stage/stages_provider.go:2860"
    ]
   },
   {
@@ -121,8 +122,8 @@
    "claim": "A composition agent step's termination.max_steps: step stops at the lower of max_steps and the prompt's max_rounds",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/composition_executor.go:149",
-    "runtime/pipeline/types.go:76"
+    "runtime/pipeline/stage/composition_executor.go:167",
+    "runtime/pipeline/types.go:86"
    ]
   },
   {
@@ -140,7 +141,7 @@
    "claim": "Limits a host sets in code can only make the prompt's limits stricter, never looser",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/types.go:68"
+    "runtime/pipeline/types.go:86"
    ]
   },
   {
@@ -148,7 +149,7 @@
    "claim": "max_steps limits rounds inside one step; composition steps form an acyclic graph; loops use workflow states with max_visits",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/composition_executor.go:135"
+    "runtime/pipeline/stage/composition_executor.go:167"
    ]
   },
   {
@@ -157,7 +158,7 @@
    "verdict": "false",
    "evidence": [
     "runtime/mcp/client.go:329",
-    "runtime/mcp/types.go:342"
+    "runtime/mcp/types.go:339"
    ]
   },
   {
@@ -172,8 +173,8 @@
    "verdict": "true",
    "evidence": [
     "runtime/mcp/registry.go:159",
-    "runtime/mcp/registry.go:425",
-    "runtime/mcp/registry.go:513",
+    "runtime/mcp/registry.go:428",
+    "runtime/mcp/registry.go:516",
     "runtime/mcp/registry.go:82"
    ]
   },
@@ -182,7 +183,7 @@
    "claim": "tools.ToolDescriptor slice literal for file tools",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/types.go:112"
+    "runtime/tools/types.go:114"
    ]
   },
   {
@@ -190,7 +191,7 @@
    "claim": "InputSchema json.RawMessage JSON Schema for query tool",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/types.go:116"
+    "runtime/tools/types.go:118"
    ]
   },
   {
@@ -198,7 +199,7 @@
    "claim": "Schema with enum and default in InputSchema",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/types.go:116"
+    "runtime/tools/types.go:118"
    ]
   },
   {
@@ -206,32 +207,31 @@
    "claim": "Execute error-handling snippet",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/types.go:393"
+    "runtime/tools/types.go:441"
    ]
   },
   {
    "id": 25,
-   "claim": "Security snippet returns '' and an error from an executor",
-   "verdict": "false",
+   "claim": "Security snippet validates input and returns an error from an executor",
+   "verdict": "true",
    "evidence": [
-    "runtime/tools/types.go:393"
+    "runtime/tools/types.go:441"
    ]
   },
   {
    "id": 26,
-   "claim": "Good example returns fmt.Sprintf string from a tool",
-   "verdict": "false",
+   "claim": "Clear-description example is a descriptor Description string",
+   "verdict": "true",
    "evidence": [
-    "runtime/tools/types.go:393"
+    "runtime/tools/types.go:114"
    ]
   },
   {
    "id": 27,
-   "claim": "Unit test builds types.ToolCall{Name, Arguments} and calls executor.Execute(ctx, call)",
-   "verdict": "false",
+   "claim": "Unit test calls executor.Execute(ctx, descriptor, args) directly",
+   "verdict": "true",
    "evidence": [
-    "runtime/tools/types.go:393",
-    "runtime/types/message.go:133"
+    "runtime/tools/types.go:441"
    ]
   },
   {
@@ -251,9 +251,9 @@
    "claim": "Runtime emits tool events tool.call.started, tool.call.completed, tool.call.failed",
    "verdict": "true",
    "evidence": [
-    "runtime/events/types.go:47",
-    "runtime/events/types.go:49",
-    "runtime/events/types.go:51"
+    "runtime/events/types.go:57",
+    "runtime/events/types.go:59",
+    "runtime/events/types.go:61"
    ]
   },
   {
@@ -261,7 +261,7 @@
    "claim": "registry.Register(tool) for conditional tools",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/registry.go:166"
+    "runtime/tools/registry.go:170"
    ]
   },
   {
@@ -269,7 +269,7 @@
    "claim": "CachedExecutor wraps tools.Executor",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/types.go:393"
+    "runtime/tools/types.go:441"
    ]
   },
   {
@@ -284,7 +284,80 @@
    "verdict": "true",
    "evidence": [
     "runtime/tools/mcp_executor.go:41",
-    "runtime/tools/registry.go:637"
+    "runtime/tools/registry.go:672"
+   ]
+  },
+  {
+   "id": 41,
+   "claim": "sdk.WithToolPolicy sets the tool policy for every tool loop the conversation runs (text, VAD voice, workflow states, composition steps); a realtime duplex session runs tool calls outside the loop",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:744",
+    "sdk/internal/pipeline/builder.go:716",
+    "sdk/options.go:1376"
+   ]
+  },
+  {
+   "id": 42,
+   "claim": "Host-only ToolPolicy limits are MaxCallsPerMinute, MaxCostUSD, MaxIdenticalToolCalls, MaxParallelToolCalls and StopOnTool",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/types.go:16",
+    "sdk/options.go:1380"
+   ]
+  },
+  {
+   "id": 43,
+   "claim": "MaxCallsPerMinute is checked and counted only when a call is admitted to run; held calls on approval, client calls on use of the result; over-limit calls do not run",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/types.go:21",
+    "runtime/tools/registry.go:597",
+    "sdk/options.go:1392"
+   ]
+  },
+  {
+   "id": 44,
+   "claim": "MaxCostUSD sums cost recorded on the history given to the loop; the round that crosses it fails with 'provider stage: cost budget exceeded'",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:1595",
+    "runtime/pipeline/stage/stages_provider.go:1641"
+   ]
+  },
+  {
+   "id": 45,
+   "claim": "MaxIdenticalToolCalls defaults to 3 and MaxParallelToolCalls defaults to 10",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:34",
+    "runtime/pipeline/stage/stages_provider.go:35"
+   ]
+  },
+  {
+   "id": 46,
+   "claim": "Host and prompt policies merge: lower of MaxRounds and MaxToolCallsPerTurn, union of Blocklist, host ToolChoice else prompt's, other fields the host's",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/types.go:105",
+    "runtime/pipeline/types.go:86"
+   ]
+  },
+  {
+   "id": 47,
+   "claim": "A composition agent step's termination.tool_called replaces StopOnTool for that step and a prompt step always runs one round",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/composition_executor.go:167"
+   ]
+  },
+  {
+   "id": 48,
+   "claim": "tool_policy has four keys (blocklist, max_rounds, max_tool_calls_per_turn, tool_choice); with schema validation skipped an unknown key is ignored and logged with the prompt and key",
+   "verdict": "true",
+   "evidence": [
+    "runtime/packspec/types.go:2508",
+    "sdk/internal/pack/tool_policy_keys.go:46"
    ]
   }
  ]

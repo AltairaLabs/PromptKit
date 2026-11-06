@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/concepts/prompts.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -33,10 +33,10 @@
    "claim": "sdk.Open(packPath, promptName, opts...), WithModel, Conversation.Send, Response.Text, Close",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:268",
-    "sdk/options.go:453",
+    "sdk/conversation.go:288",
+    "sdk/options.go:478",
     "sdk/response.go:99",
-    "sdk/sdk.go:84"
+    "sdk/sdk.go:89"
    ]
   },
   {
@@ -52,11 +52,12 @@
    "claim": "pipeline stages PromptAssembly -> Template -> Provider",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_core.go:166",
-    "runtime/pipeline/stage/stages_core.go:34",
+    "runtime/pipeline/stage/stages_core.go:19",
+    "runtime/pipeline/stage/stages_core.go:51",
     "runtime/pipeline/stage/stages_provider.go:286",
     "runtime/pipeline/stage/stages_save.go:60",
-    "runtime/pipeline/stage/stages_utilities.go:142"
+    "runtime/pipeline/stage/stages_utilities.go:134",
+    "runtime/pipeline/stage/stages_utilities.go:186"
    ]
   },
   {

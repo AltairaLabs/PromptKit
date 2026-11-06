@@ -4,7 +4,7 @@ description: Declaring who is accountable for an agent, how autonomously it acts
 sidebar:
   order: 10
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/packspec/types.go
     - runtime/prompt/governance.go
@@ -186,7 +186,7 @@ An obligation cannot be discharged by naming something that does not exist, so `
 
 For an agent, the effective object is its declaration resolved against the pack's, so a control may rely on a field the agent inherits.
 
-A term in `obligation`, `applies_to` or a review's `type` that uses a CURIE prefix neither declared in `vocabularies` nor well-known is a warning. `sdk.Open` logs it, and `sdk.ValidatePack` reports it as an issue with severity `warning`.
+A term in `obligation`, `applies_to` or a review's `type` that uses a CURIE prefix neither declared in `vocabularies` nor well-known is a warning. `sdk.Open` logs it, and `sdk.ValidatePack`, `sdk.ValidatePackWithRegistry` and `sdk.ValidatePackWithOptions` report it as an issue with severity `warning`.
 
 ---
 

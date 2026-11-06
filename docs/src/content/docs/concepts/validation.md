@@ -4,12 +4,13 @@ description: One check system serves assertions, guardrails and evals; this page
 sidebar:
   order: 4
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - pkg/config/runtime_config.go
     - runtime/evals/handlers/a2a_eval.go
     - runtime/evals/handlers/exec_handler.go
     - runtime/evals/handlers/judge_provider.go
+    - runtime/evals/handlers/llm_judge.go
     - runtime/evals/handlers/register.go
     - runtime/evals/handlers/rest_eval.go
     - runtime/evals/metrics.go
@@ -83,7 +84,7 @@ downstream pipeline stage still runs.
   violation without changing the response, declare an eval and assert on it instead.
 - Input guardrails (`direction: input`): evaluated before the provider call. On a hit
   the call is never made (no tokens are spent), and the conversation returns a canned
-  assistant turn (`message`, falling back to the default blocked message). Evaluated once
+  assistant turn. Its text is the validator's `message`, else the replacement text the check supplies (`topic_policy` does), else the default blocked message. Evaluated once
   per user turn, not once per tool round.
 - Round termination: when a guardrail enforces, input or output, the round loop stops,
   so no further provider/tool rounds run for that turn. Any tool calls requested by an
@@ -97,7 +98,7 @@ PromptKit's check system is extensible at multiple levels:
 
 - Go handlers: Implement the `EvalTypeHandler` interface for custom check logic that runs in-process.
 - Subprocess handlers: Define exec eval bindings in RuntimeConfig YAML to run checks written in Python, Node.js, or any language.
-- External services: Use the `rest_eval` or `a2a_eval` check types to delegate evaluation to HTTP endpoints or A2A agents.
+- External services: Use the `rest_eval` or `a2a_eval` check types to delegate evaluation to HTTP endpoints or A2A agents. Both return the service's score and reject `min_score` and `max_score` params; set the threshold on an `assertion` or `guardrail` wrapper.
 - Custom guardrails: Implement the `ProviderHook` interface for runtime hooks that go beyond check types (e.g., ML-based content moderation with streaming abort).
 - Custom LLM judges: Implement the `JudgeProvider` interface for specialized LLM evaluation logic.
 

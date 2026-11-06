@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/concepts/compositions.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -17,7 +17,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/stages_composition.go:67",
-    "sdk/workflow.go:198"
+    "sdk/workflow.go:209"
    ]
   },
   {
@@ -32,7 +32,7 @@
    "verdict": "false",
    "evidence": [
     "runtime/composition/validate.go:267",
-    "runtime/pipeline/stage/composition_executor.go:245"
+    "runtime/pipeline/stage/composition_executor.go:297"
    ]
   },
   {
@@ -40,7 +40,7 @@
    "claim": "agent step: tool loop terminates at max_steps or when tool_called fires",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/composition_executor.go:144"
+    "runtime/pipeline/stage/composition_executor.go:167"
    ]
   },
   {
@@ -48,7 +48,7 @@
    "claim": "agent tool access is the intersection of the prompt's allowed tools and the step's tools list",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/composition_executor.go:30"
+    "runtime/pipeline/stage/composition_executor.go:31"
    ]
   },
   {
@@ -56,7 +56,7 @@
    "claim": "prompt step runs prompt assembly + one LLM call, no tool loop",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/composition_executor.go:144"
+    "runtime/pipeline/stage/composition_executor.go:167"
    ]
   },
   {
@@ -64,7 +64,7 @@
    "claim": "tool step invokes a registry tool directly with args",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/composition_executor.go:113"
+    "runtime/pipeline/stage/composition_executor.go:129"
    ]
   },
   {
@@ -157,7 +157,7 @@
    "evidence": [
     "runtime/prompt/pack.go:693",
     "runtime/workflow/types.go:255",
-    "sdk/workflow.go:198"
+    "sdk/workflow.go:209"
    ]
   },
   {
@@ -214,9 +214,9 @@
    "claim": "sdk.OpenWorkflow(path, sdk.WithProvider(p)) returns a conversation with Send(ctx, msg)",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:482",
-    "sdk/workflow.go:103",
-    "sdk/workflow.go:342"
+    "sdk/options.go:508",
+    "sdk/workflow.go:104",
+    "sdk/workflow.go:353"
    ]
   },
   {
@@ -224,7 +224,7 @@
    "claim": "OpenComposition(packPath, name, opts...) runs a named composition directly",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:1301"
+    "sdk/sdk.go:1314"
    ]
   },
   {
@@ -232,8 +232,8 @@
    "claim": "conv.OnTool(name, func(args map[string]any)(any,error))",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:228",
-    "sdk/conversation_tools.go:33"
+    "sdk/conversation.go:248",
+    "sdk/conversation_tools.go:34"
    ]
   },
   {
@@ -304,11 +304,11 @@
   },
   {
    "id": 36,
-   "claim": "per-composition provider selection: use sdk.WithCompositionProvider or the opaque engine block",
-   "verdict": "false",
+   "claim": "a prompt or agent step runs on the provider named by its provider key, bound with sdk.WithNamedProvider",
+   "verdict": "true",
    "evidence": [
     "runtime/packspec/types.go:2114",
-    "sdk/options.go:2712",
+    "sdk/options.go:2904",
     "sdk/provider_refs.go:48"
    ]
   },

@@ -4,7 +4,7 @@ description: How the runtime lets a model call functions, how the Model Context 
 sidebar:
   order: 6
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/events/types.go
     - runtime/mcp/client.go
@@ -18,11 +18,12 @@ verified:
     - runtime/prompt/schema/promptpack.schema.json
     - runtime/tools/mcp_executor.go
     - runtime/tools/registry.go
-    - sdk/internal/pack/tool_policy_keys.go
-    - sdk/options.go
     - runtime/tools/types.go
-    - runtime/types/message.go
     - runtime/workflow/machine.go
+    - sdk/conversation.go
+    - sdk/internal/pack/tool_policy_keys.go
+    - sdk/internal/pipeline/builder.go
+    - sdk/options.go
 ---
 Tools let a model call code you write. MCP lets it call code that runs in another process.
 

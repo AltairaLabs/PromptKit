@@ -1,14 +1,14 @@
 {
  "page": "docs/src/content/docs/concepts/validation.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
-   "claim": "About 55 built-in check types",
-   "verdict": "false",
+   "claim": "More than 80 built-in check types are registered",
+   "verdict": "true",
    "evidence": [
-    "runtime/evals/handlers/register.go:134",
-    "runtime/evals/registry.go:73"
+    "runtime/evals/handlers/register.go:7",
+    "runtime/evals/registry.go:77"
    ]
   },
   {
@@ -49,7 +49,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/registry.go:13",
-    "runtime/evals/registry.go:87"
+    "runtime/evals/registry.go:89"
    ]
   },
   {
@@ -57,7 +57,7 @@
    "claim": "Eval handlers produce scores only and never determine pass/fail",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/wrappers.go:163"
+    "runtime/evals/wrappers.go:174"
    ]
   },
   {
@@ -65,8 +65,8 @@
    "claim": "AssertionEvalHandler applies min_score/max_score; without thresholds a score of 1.0 passes",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/wrappers.go:176",
-    "runtime/evals/wrappers.go:180"
+    "runtime/evals/wrappers.go:187",
+    "runtime/evals/wrappers.go:191"
    ]
   },
   {
@@ -74,7 +74,7 @@
    "claim": "GuardrailEvalHandler checks whether the score indicates a violation and enforces policy (truncate, replace, block)",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/registry.go:88",
+    "runtime/evals/registry.go:89",
     "runtime/hooks/guardrails/adapter.go:336"
    ]
   },
@@ -83,7 +83,7 @@
    "claim": "Mermaid diagram edges (check types -> registry -> assertion/guardrail/eval -> reports/records/metrics)",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/registry.go:87"
+    "runtime/evals/registry.go:90"
    ]
   },
   {
@@ -98,7 +98,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/registry.go:26",
-    "runtime/hooks/guardrails/adapter.go:410"
+    "runtime/hooks/guardrails/adapter.go:408"
    ]
   },
   {
@@ -139,8 +139,8 @@
    "claim": "A triggered guardrail does not return an error; the round loop stops either way; only provider work in the turn's ProviderStage is affected, downstream stages still run",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3044",
-    "runtime/pipeline/stage/stages_provider.go:3190"
+    "runtime/pipeline/stage/stages_provider.go:3242",
+    "runtime/pipeline/stage/stages_provider.go:3388"
    ]
   },
   {
@@ -148,7 +148,7 @@
    "claim": "content_excludes and banned_words replace the whole response with a policy message",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/guardrails/adapter.go:465"
+    "runtime/hooks/guardrails/adapter.go:464"
    ]
   },
   {
@@ -156,8 +156,8 @@
    "claim": "max_length or any check with max_characters/max/max_chars truncates to that limit when the response exceeded it",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/guardrails/adapter.go:465",
-    "runtime/hooks/guardrails/adapter.go:542"
+    "runtime/hooks/guardrails/adapter.go:464",
+    "runtime/hooks/guardrails/adapter.go:554"
    ]
   },
   {
@@ -165,15 +165,16 @@
    "claim": "Every other case replaces the response with the policy message; no log-only mode",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/guardrails/adapter.go:465"
+    "runtime/hooks/guardrails/adapter.go:464"
    ]
   },
   {
    "id": 21,
-   "claim": "Input guardrails (direction: input) run before the provider call, no tokens spent; return a canned assistant turn (message, else default blocked message); evaluated once per user turn",
+   "claim": "Input guardrails run before the provider call, spend no tokens, return a canned assistant turn whose text is the validator message, else the check replacement, else the default blocked message; evaluated once per user turn",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/guardrails/adapter.go:219",
+    "runtime/hooks/guardrails/adapter.go:185",
+    "runtime/hooks/guardrails/adapter.go:485",
     "runtime/pipeline/stage/stages_provider.go:2975"
    ]
   },
@@ -182,8 +183,8 @@
    "claim": "On enforcement the round loop stops; tool calls requested by an enforced output response are dropped",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3044",
-    "runtime/pipeline/stage/stages_provider.go:3058"
+    "runtime/pipeline/stage/stages_provider.go:3242",
+    "runtime/pipeline/stage/stages_provider.go:3256"
    ]
   },
   {
@@ -191,9 +192,9 @@
    "claim": "All violations recorded in message.Validations and emitted as validation.failed events",
    "verdict": "true",
    "evidence": [
-    "runtime/events/emitter.go:411",
-    "runtime/events/types.go:58",
-    "runtime/pipeline/stage/stages_provider.go:3057"
+    "runtime/events/emitter.go:421",
+    "runtime/events/types.go:68",
+    "runtime/pipeline/stage/stages_provider.go:3255"
    ]
   },
   {
@@ -215,11 +216,12 @@
   },
   {
    "id": 26,
-   "claim": "rest_eval and a2a_eval check types delegate to HTTP endpoints or A2A agents",
+   "claim": "rest_eval and a2a_eval delegate to HTTP endpoints or A2A agents, return the service score, and reject min_score/max_score",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/handlers/a2a_eval.go:32",
-    "runtime/evals/handlers/rest_eval.go:46"
+    "runtime/evals/handlers/a2a_eval.go:73",
+    "runtime/evals/handlers/llm_judge.go:287",
+    "runtime/evals/handlers/rest_eval.go:87"
    ]
   },
   {

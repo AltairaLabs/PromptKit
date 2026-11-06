@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/concepts/skills.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -69,9 +69,9 @@
    "claim": "A skill's allowed-tools extend the prompt's tool set, capped at the pack's tools",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3756",
-    "runtime/skills/executor.go:206",
-    "sdk/conversation.go:395"
+    "runtime/pipeline/stage/stages_provider.go:3867",
+    "runtime/skills/executor.go:208",
+    "sdk/conversation.go:408"
    ]
   },
   {
@@ -87,7 +87,7 @@
    "claim": "skill__deactivate removes instructions and retracts tools",
    "verdict": "true",
    "evidence": [
-    "runtime/skills/executor.go:169"
+    "runtime/skills/executor.go:171"
    ]
   },
   {
@@ -97,7 +97,7 @@
    "evidence": [
     "runtime/pipeline/stage/stages_provider.go:3724",
     "runtime/skills/executor.go:305",
-    "sdk/capability_skills.go:210",
+    "sdk/capability_skills.go:201",
     "sdk/conversation.go:480"
    ]
   },
@@ -108,9 +108,9 @@
    "evidence": [
     "runtime/packspec/types.go:2794",
     "runtime/skills/active_set.go:57",
-    "sdk/conversation.go:442",
-    "sdk/workflow.go:601",
-    "sdk/workflow.go:664"
+    "sdk/conversation.go:455",
+    "sdk/workflow.go:617",
+    "sdk/workflow.go:696"
    ]
   },
   {
@@ -118,8 +118,8 @@
    "claim": "Skills organized into subdirectories: a state's directory filter admits skills at or under it; skills outside it are not available in that state",
    "verdict": "true",
    "evidence": [
-    "runtime/skills/active_set.go:103",
-    "runtime/skills/active_set.go:121"
+    "runtime/skills/active_set.go:117",
+    "runtime/skills/active_set.go:135"
    ]
   },
   {
@@ -135,8 +135,8 @@
    "claim": "sdk.WithSkillsDir and sdk.WithMaxActiveSkillsOption exist",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:3753",
-    "sdk/options.go:3815"
+    "sdk/options.go:3958",
+    "sdk/options.go:4022"
    ]
   },
   {
@@ -144,8 +144,8 @@
    "claim": "Go snippet compiles against current API",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:3753",
-    "sdk/sdk.go:1380"
+    "sdk/options.go:3958",
+    "sdk/sdk.go:1375"
    ]
   },
   {
@@ -167,8 +167,8 @@
    "claim": "Activation fails at the max-active limit, tracked per conversation",
    "verdict": "true",
    "evidence": [
-    "runtime/skills/executor.go:151",
-    "sdk/conversation.go:425"
+    "runtime/skills/executor.go:153",
+    "sdk/conversation.go:438"
    ]
   }
  ]
