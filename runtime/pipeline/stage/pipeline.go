@@ -64,6 +64,8 @@ type StreamPipeline struct {
 // provider stage does) delivers that error as emitted. Any other stage's error
 // arrives as a *StageError, which unwraps to the stage's error. A context error
 // that comes from the caller's own cancellation is not treated as a stage failure.
+// One from the pipeline's own ExecutionTimeout or IdleTimeout is: it fails the
+// turn, and an idle timeout's error wraps ErrIdleTimeout.
 // The output closes once the terminal stages have returned.
 //
 // Execute returns ErrPipelineShuttingDown if the pipeline is shutting down.
@@ -124,7 +126,7 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 	output := make(chan StreamElement, p.config.ChannelBufferSize)
 
 	// Execute pipeline in background
-	go p.executeBackground(execCtx, input, output, cancel)
+	go p.executeBackground(ctx, execCtx, input, output, cancel)
 
 	return output, nil
 }
@@ -132,8 +134,14 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 // executeBackground runs the pipeline execution in a background goroutine.
 // It starts all stages as goroutines and collects output CONCURRENTLY with stage execution
 // to support streaming/duplex stages that run indefinitely.
+//
+// callerCtx is the context the caller passed to Execute; ctx is the execution's
+// own, which adds the pipeline's ExecutionTimeout and IdleTimeout to it. Only
+// callerCtx ending is the caller's cancellation: a stage cut off by the
+// pipeline's own timeout fails the turn.
 func (p *StreamPipeline) executeBackground(
-	ctx context.Context, input <-chan StreamElement, output chan<- StreamElement, cancel context.CancelFunc,
+	callerCtx, ctx context.Context, input <-chan StreamElement, output chan<- StreamElement,
+	cancel context.CancelFunc,
 ) {
 	defer func() {
 		if cancel != nil {
@@ -159,14 +167,14 @@ func (p *StreamPipeline) executeBackground(
 	// signaled to the failed stage's downstream stages in-band, as an error
 	// element on their input (see gateInput). Nothing is canceled, so the
 	// other stages drain and persist exactly as before.
-	failure := &turnFailure{parent: ctx}
+	failure := &turnFailure{caller: callerCtx, exec: ctx}
 
 	// Start stages and collect output. totals accumulates the message/token/cost
 	// counts as output elements flow through, so the completion event reports
 	// real numbers instead of zeros.
 	totals := &completionTotals{}
 	stageErrors, runs := p.startStages(ctx, input, channels, edgeChannels, failure)
-	outputDone := p.startOutputCollection(channels, output, totals)
+	outputDone := p.startOutputCollection(channels, output, totals, failure)
 	<-outputDone
 
 	// The output is complete once the leaf stages have returned. Their own
@@ -182,7 +190,10 @@ func (p *StreamPipeline) executeBackground(
 		}
 	}
 	if err := failure.get(); err != nil && !totals.delivered(err) {
-		deliverTurnFailure(ctx, output, err)
+		// Bounded by the caller's context, not the execution's: after the
+		// pipeline's own timeout the execution's is already done, and the
+		// failure must still reach a caller that is reading.
+		deliverTurnFailure(callerCtx, output, err)
 	}
 	close(output)
 
@@ -214,7 +225,10 @@ func deliverTurnFailure(ctx context.Context, output chan<- StreamElement, err er
 // turnFailure records the error that ends a turn: the first stage error that
 // is not just the caller's own cancellation showing through.
 type turnFailure struct {
-	parent context.Context
+	// caller is the context the caller passed to Execute. exec is the
+	// execution's context: caller plus the pipeline's own timeouts.
+	caller context.Context
+	exec   context.Context
 
 	mu  sync.Mutex
 	err error
@@ -222,13 +236,43 @@ type turnFailure struct {
 
 // counts reports whether a stage error fails the turn. A context error while
 // the caller's context is done is that cancellation showing through, not a
-// stage failure.
+// stage failure. One from the pipeline's own ExecutionTimeout or IdleTimeout,
+// with the caller's context still live, is a failure.
 func (f *turnFailure) counts(err error) bool {
 	if err == nil {
 		return false
 	}
-	isCtxErr := errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
-	return f.parent.Err() == nil || !isCtxErr
+	return f.caller.Err() == nil || !isContextError(err)
+}
+
+// withTimeoutCause adds the reason the execution's context ended to a stage's
+// context error when the error does not already carry it, so a stage cut off
+// by the idle timer reports ErrIdleTimeout, not a bare context.Canceled.
+func (f *turnFailure) withTimeoutCause(err error) error {
+	if f == nil || f.exec == nil || f.caller.Err() != nil || !isContextError(err) {
+		return err
+	}
+	cause := context.Cause(f.exec)
+	if cause == nil || errors.Is(err, cause) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", cause, err)
+}
+
+// namedCause is elem as the caller gets it: an error element carrying a bare
+// context error from the pipeline's own timeout gets that timeout's cause, as
+// a returned stage error does (see withTimeoutCause). totals observes the
+// element before this, so the delivered-error check still matches the raw
+// error the stage also returns.
+func (f *turnFailure) namedCause(elem StreamElement) StreamElement {
+	if elem.Error != nil {
+		elem.Error = f.withTimeoutCause(elem.Error)
+	}
+	return elem
+}
+
+func isContextError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 // record notes a stage error that counts. The first failure wins.
@@ -542,10 +586,11 @@ func (p *StreamPipeline) startOutputCollection(
 	channels map[string]chan StreamElement,
 	output chan<- StreamElement,
 	totals *completionTotals,
+	failure *turnFailure,
 ) <-chan struct{} {
 	outputDone := make(chan struct{})
 	go func() {
-		p.collectOutput(channels, output, totals)
+		p.collectOutput(channels, output, totals, failure)
 		close(outputDone)
 	}()
 	return outputDone
@@ -808,6 +853,7 @@ func (p *StreamPipeline) runStage(
 		err = stage.Process(ctx, in, output)
 	}
 	duration := time.Since(start)
+	err = failure.withTimeoutCause(err)
 
 	// Emit stage completed/failed event
 	if p.eventEmitter != nil {
@@ -937,6 +983,7 @@ func (p *StreamPipeline) collectOutput(
 	channels map[string]chan StreamElement,
 	output chan<- StreamElement,
 	totals *completionTotals,
+	failure *turnFailure,
 ) {
 	// Identify leaf stages (stages with no outgoing edges).
 	var leafChans []<-chan StreamElement
@@ -951,7 +998,7 @@ func (p *StreamPipeline) collectOutput(
 		for _, ch := range leafChans {
 			for elem := range ch {
 				totals.observe(&elem)
-				output <- elem
+				output <- failure.namedCause(elem)
 			}
 		}
 		return
@@ -965,7 +1012,7 @@ func (p *StreamPipeline) collectOutput(
 			defer wg.Done()
 			for elem := range src {
 				totals.observe(&elem)
-				output <- elem
+				output <- failure.namedCause(elem)
 			}
 		}(ch)
 	}

@@ -752,23 +752,7 @@ func (s *ProviderStage) fireStreamingTurn(
 		full, err = s.executeMultiRound(genCtx, acc)
 	}
 	if err != nil {
-		if keepErr := s.keepInterruptedTurn(forwardCtx, full, priorLen+len(pending), history, output); keepErr != nil {
-			return keepErr
-		}
-		if errors.Is(err, context.Canceled) {
-			// Barge-in (or shutdown) canceled this turn's generation; the
-			// session continues with a fresh context. A turn canceled before the
-			// model said anything still keeps what the user said (it was emitted
-			// and saved above): a caller who paused and went on speaking cut off
-			// the reply, not their own first half.
-			if !endsInterrupted(full) {
-				*history = append(*history, pending...)
-			}
-			logger.Debug("ProviderStage streaming turn canceled (barge-in/shutdown)")
-			return nil
-		}
-		logger.Error("ProviderStage streaming turn failed", "error", err)
-		return sendStreamElement(forwardCtx, NewErrorElement(err), output)
+		return s.endFailedStreamingTurn(forwardCtx, err, full, history, pending, output)
 	}
 
 	// full = (history + pending) + new assistant/tool messages. The user
@@ -782,6 +766,38 @@ func (s *ProviderStage) fireStreamingTurn(
 	*history = full
 
 	return sendStreamElement(forwardCtx, endOfTurnFor(full[min(newStart, len(full)):]), output)
+}
+
+// endFailedStreamingTurn ends a streaming turn whose generation returned err.
+// full is what the tool loop produced (history + pending + any partial reply).
+func (s *ProviderStage) endFailedStreamingTurn(
+	forwardCtx context.Context, err error, full []types.Message,
+	history *[]types.Message, pending []types.Message, output chan<- StreamElement,
+) error {
+	if keepErr := s.keepInterruptedTurn(forwardCtx, full, len(*history)+len(pending), history, output); keepErr != nil {
+		return keepErr
+	}
+	if forwardCtx.Err() != nil {
+		// The stage's own context ended (the caller canceled, or the
+		// pipeline's timeout fired), not just this turn's: the session is
+		// over. Return the context's error; the pipeline keeps a caller's
+		// cancellation silent and fails the turn on its own timeout.
+		return forwardCtx.Err()
+	}
+	if errors.Is(err, context.Canceled) {
+		// Barge-in canceled this turn's generation; the session continues
+		// with a fresh context. A turn canceled before the model said anything
+		// still keeps what the user said (it was emitted and saved above): a
+		// caller who paused and went on speaking cut off the reply, not their
+		// own first half.
+		if !endsInterrupted(full) {
+			*history = append(*history, pending...)
+		}
+		logger.Debug("ProviderStage streaming turn canceled (barge-in)")
+		return nil
+	}
+	logger.Error("ProviderStage streaming turn failed", "error", err)
+	return sendStreamElement(forwardCtx, NewErrorElement(err), output)
 }
 
 // endOfTurnFor builds the EndOfTurn boundary for a turn whose new messages are

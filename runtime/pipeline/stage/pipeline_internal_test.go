@@ -258,7 +258,7 @@ func TestCollectOutput_ConcurrentLeafStages(t *testing.T) {
 
 	output := make(chan StreamElement, 10)
 	go func() {
-		pipeline.collectOutput(channels, output, &completionTotals{})
+		pipeline.collectOutput(channels, output, &completionTotals{}, nil)
 		close(output)
 	}()
 
