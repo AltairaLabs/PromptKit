@@ -52,10 +52,10 @@ type expiryEntry struct {
 	expiresAt time.Time
 }
 
-// compile-time check that TimeBasedPolicyHandler implements storage.PolicyHandler.
-var _ storage.PolicyHandler = (*TimeBasedPolicyHandler)(nil)
+// compile-time check that TimeBasedPolicyHandler implements storage.MediaPolicyHandler.
+var _ storage.MediaPolicyHandler = (*TimeBasedPolicyHandler)(nil)
 
-// TimeBasedPolicyHandler implements storage.PolicyHandler for time-based retention policies.
+// TimeBasedPolicyHandler implements storage.MediaPolicyHandler for time-based retention policies.
 // It applies expiration times to media based on policy names and enforces deletion
 // of expired media through background scanning.
 //
@@ -145,7 +145,7 @@ func (h *TimeBasedPolicyHandler) RegisterPolicy(policy Config) error {
 	return nil
 }
 
-// ApplyPolicy implements storage.PolicyHandler.ApplyPolicy. It returns an
+// ApplyPolicy implements storage.MediaPolicyHandler.ApplyPolicy. It returns an
 // error when metadata names a policy that ParsePolicyName cannot parse, so a
 // store using the handler rejects media whose retention it could never
 // enforce. An empty policy name is accepted.
@@ -170,7 +170,7 @@ func (h *TimeBasedPolicyHandler) ApplyPolicy(ctx context.Context, metadata *stor
 	return nil
 }
 
-// EnforcePolicy implements storage.PolicyHandler.EnforcePolicy.
+// EnforcePolicy implements storage.MediaPolicyHandler.EnforcePolicy.
 // When an expiry index has been built (via BuildExpiryIndex or TrackFile),
 // this method only checks files whose expiry time has passed, avoiding a
 // full directory walk. Otherwise it falls back to walking the directory tree.

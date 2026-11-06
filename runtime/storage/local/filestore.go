@@ -74,7 +74,7 @@ type FileStoreConfig struct {
 	// policy (its PolicyName, or DefaultPolicy when that is empty) before the
 	// item is written. If it returns an error, StoreMedia fails and nothing is
 	// written. When nil, policy names are stored without being checked.
-	PolicyHandler storage.PolicyHandler
+	PolicyHandler storage.MediaPolicyHandler
 }
 
 // FileStoreOption is a functional option for configuring a FileStore.
@@ -90,7 +90,7 @@ func WithMaxFileSize(size int64) FileStoreOption {
 
 // WithPolicyHandler returns an option that sets the PolicyHandler that applies
 // retention policies to stored media.
-func WithPolicyHandler(h storage.PolicyHandler) FileStoreOption {
+func WithPolicyHandler(h storage.MediaPolicyHandler) FileStoreOption {
 	return func(c *FileStoreConfig) {
 		c.PolicyHandler = h
 	}
