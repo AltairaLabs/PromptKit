@@ -337,7 +337,7 @@ func RedactSensitiveData(input string) string {
 
 	for _, pattern := range apiKeyPatterns {
 		result = pattern.ReplaceAllStringFunc(result, func(match string) string {
-			if strings.HasPrefix(match, "Bearer ") {
+			if strings.HasPrefix(match, "Bearer") {
 				return "Bearer [REDACTED]"
 			}
 			// Show first 4 characters for debugging context
