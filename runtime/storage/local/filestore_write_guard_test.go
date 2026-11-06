@@ -94,30 +94,69 @@ func TestFileStore_DedupHitNeverShortensRetention(t *testing.T) {
 }
 
 // TestFileStore_OldReferenceDeleteKeepsReStoredMedia checks that after media
-// was deleted by policy and stored again at the same path, deleting through a
-// reference handed out before the deletion does not remove the re-stored copy
-// another caller still holds.
+// was deleted by policy and stored again, deleting through a reference handed
+// out before the deletion does not remove the re-stored copy another caller
+// holds, and deleting through the new reference does remove it.
 func TestFileStore_OldReferenceDeleteKeepsReStoredMedia(t *testing.T) {
+	for name, content := range storeContents {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+			fs, handler, baseDir := dedupPolicyStore(t, &now)
+			src := content(t)
+
+			old := policyMetadata()
+			old.Timestamp = now.Add(-time.Hour)
+			oldRef, err := fs.StoreMedia(ctx, src, old)
+			require.NoError(t, err)
+			require.NoError(t, handler.EnforcePolicy(ctx, baseDir))
+
+			fresh := policyMetadata()
+			fresh.Timestamp = now
+			ref, err := fs.StoreMedia(ctx, src, fresh)
+			require.NoError(t, err)
+			require.NotEqual(t, oldRef, ref, "re-stored content gets a fresh path")
+
+			require.NoError(t, fs.DeleteMedia(ctx, oldRef))
+			_, err = fs.RetrieveMedia(ctx, ref)
+			require.NoError(t, err, "the re-stored copy is still referenced")
+
+			again, err := fs.StoreMedia(ctx, src, fresh)
+			require.NoError(t, err)
+			assert.Equal(t, ref, again, "the fresh path is the new dedup target")
+		})
+	}
+}
+
+// TestFileStore_DeleteOfReStoredMediaRemovesIt checks that once media deleted
+// by policy has been stored again, deleting through its only live reference
+// removes it. A count kept for references to the deleted copy would keep it on
+// disk, and with no policy nothing else would ever remove it.
+func TestFileStore_DeleteOfReStoredMediaRemovesIt(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
-	fs, handler, baseDir := dedupPolicyStore(t, &now)
+	handler := policy.NewTimeBasedPolicyHandler(time.Hour, policy.WithClock(func() time.Time { return now }))
+	baseDir := t.TempDir()
+	fs, err := local.NewFileStore(local.FileStoreConfig{BaseDir: baseDir, EnableDeduplication: true},
+		local.WithPolicyHandler(handler))
+	require.NoError(t, err)
 	src := inlineContent(t)
 
 	old := policyMetadata()
 	old.Timestamp = now.Add(-time.Hour)
-	oldRef, err := fs.StoreMedia(ctx, src, old)
+	old.PolicyName = "delete-after-5min"
+	_, err = fs.StoreMedia(ctx, src, old)
 	require.NoError(t, err)
 	require.NoError(t, handler.EnforcePolicy(ctx, baseDir))
 
-	fresh := policyMetadata()
-	fresh.Timestamp = now
-	ref, err := fs.StoreMedia(ctx, src, fresh)
+	kept := policyMetadata()
+	kept.Timestamp = now // no policy: never expires
+	ref, err := fs.StoreMedia(ctx, src, kept)
 	require.NoError(t, err)
-	require.Equal(t, oldRef, ref, "the content is written back to its hash path")
 
-	require.NoError(t, fs.DeleteMedia(ctx, oldRef))
-	_, err = fs.RetrieveMedia(ctx, ref)
-	require.NoError(t, err, "the re-stored copy is still referenced")
+	require.NoError(t, fs.DeleteMedia(ctx, ref))
+	assert.NoFileExists(t, string(ref), "the only live reference's delete removes the file")
+	assert.NoFileExists(t, string(ref)+".meta")
 }
 
 // TestFileStore_DedupAfterPolicyDeletionStoresAgain checks that once the
