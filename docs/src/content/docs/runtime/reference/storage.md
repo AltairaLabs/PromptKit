@@ -23,10 +23,12 @@ Package storage exposes the MediaStorageService interface for media persistence,
   - [func \(s \*InstrumentedStorage\) RetrieveMedia\(ctx context.Context, reference Reference\) \(\*types.MediaContent, error\)](<#InstrumentedStorage.RetrieveMedia>)
   - [func \(s \*InstrumentedStorage\) SetBus\(bus events.Bus\)](<#InstrumentedStorage.SetBus>)
   - [func \(s \*InstrumentedStorage\) StoreMedia\(ctx context.Context, content \*types.MediaContent, metadata \*MediaMetadata\) \(Reference, error\)](<#InstrumentedStorage.StoreMedia>)
+- [type MediaExpiryReporter](<#MediaExpiryReporter>)
 - [type MediaMetadata](<#MediaMetadata>)
 - [type MediaPolicyHandler](<#MediaPolicyHandler>)
 - [type MediaPolicyTracker](<#MediaPolicyTracker>)
 - [type MediaStorageService](<#MediaStorageService>)
+- [type MediaWriteGuard](<#MediaWriteGuard>)
 - [type OrganizationMode](<#OrganizationMode>)
 - [type PolicyHandler](<#PolicyHandler>)
 - [type Reference](<#Reference>)
@@ -111,6 +113,20 @@ func (s *InstrumentedStorage) StoreMedia(ctx context.Context, content *types.Med
 ```
 
 StoreMedia traces, times, and announces a store operation.
+
+<a name="MediaExpiryReporter"></a>
+## type [MediaExpiryReporter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L175-L180>)
+
+MediaExpiryReporter is implemented by a MediaPolicyHandler that can say when stored media expires. When a deduplicating store returns an existing file for new content, it uses MediaExpiresAt to keep that file for as long as the longest\-lived store that references it asked for.
+
+```go
+type MediaExpiryReporter interface {
+    // MediaExpiresAt returns when media with this metadata expires under its
+    // PolicyName. expires is false when the media never expires, for example
+    // when PolicyName is empty. An unknown policy is an error.
+    MediaExpiresAt(metadata *MediaMetadata) (expiresAt time.Time, expires bool, err error)
+}
+```
 
 <a name="MediaMetadata"></a>
 ## type [MediaMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/types.go#L9-L39>)
@@ -336,6 +352,20 @@ text/plain
 
 </p>
 </details>
+
+<a name="MediaWriteGuard"></a>
+## type [MediaWriteGuard](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L164-L169>)
+
+MediaWriteGuard is implemented by a MediaPolicyHandler that deletes media while stores are writing it. A store calls BeginMediaWrite before it writes a media item's files, and calls the returned function once it has written them and called TrackMedia. Until then the handler must not delete the files of the item whose metadata file is at metaPath, so a store that replaces an item's files cannot have them deleted on the strength of the old metadata.
+
+```go
+type MediaWriteGuard interface {
+    // BeginMediaWrite marks the item at metaPath as being written and returns
+    // the function that ends the write. The returned function is safe to call
+    // more than once.
+    BeginMediaWrite(metaPath string) (end func())
+}
+```
 
 <a name="OrganizationMode"></a>
 ## type [OrganizationMode](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/types.go#L42>)
