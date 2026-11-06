@@ -752,7 +752,7 @@ func PutElement(elem *StreamElement)
 PutElement returns a StreamElement to the pool for reuse. The element is reset before being returned to the pool to prevent data leaks. After calling PutElement, the caller must not use the element again.
 
 <a name="ResetIdleFromContext"></a>
-## func [ResetIdleFromContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/idle_timeout.go#L67>)
+## func [ResetIdleFromContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/idle_timeout.go#L82>)
 
 ```go
 func ResetIdleFromContext(ctx context.Context)
@@ -2184,7 +2184,7 @@ type EndInputter interface {
 ```
 
 <a name="ExecutionResult"></a>
-## type [ExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1316-L1323>)
+## type [ExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1324-L1331>)
 
 ExecutionResult represents the final result of a pipeline execution. This matches the existing pipeline.ExecutionResult for compatibility.
 
@@ -2200,7 +2200,7 @@ type ExecutionResult struct {
 ```
 
 <a name="ExecutionTrace"></a>
-## type [ExecutionTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1335-L1339>)
+## type [ExecutionTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1343-L1347>)
 
 ExecutionTrace captures execution history \(for compatibility\).
 
@@ -4545,7 +4545,7 @@ type RelevanceConfig struct {
 ```
 
 <a name="Response"></a>
-## type [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1326-L1332>)
+## type [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1334-L1340>)
 
 Response represents a response message \(for compatibility with existing pipeline\).
 
@@ -5509,7 +5509,7 @@ func (e *StreamElement) WithSource(source string) *StreamElement
 WithSource sets the source stage name for this element.
 
 <a name="StreamPipeline"></a>
-## type [StreamPipeline](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L25-L59>)
+## type [StreamPipeline](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L25-L63>)
 
 StreamPipeline represents an executable pipeline of stages. It manages the DAG of stages, creates channels between them, and orchestrates execution.
 
@@ -5520,7 +5520,7 @@ type StreamPipeline struct {
 ```
 
 <a name="StreamPipeline.Execute"></a>
-### func \(\*StreamPipeline\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L83>)
+### func \(\*StreamPipeline\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L87>)
 
 ```go
 func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement) (<-chan StreamElement, error)
@@ -5533,7 +5533,7 @@ The first stage error ends the turn. Nothing is canceled: the failed stage's dow
 Execute returns ErrPipelineShuttingDown if the pipeline is shutting down. When PipelineConfig.MaxConcurrentPipelines executions are already running, Execute waits for one to finish. It returns ctx's error if ctx ends first, and ErrPipelineShuttingDown if Shutdown is called first.
 
 <a name="StreamPipeline.ExecuteSync"></a>
-### func \(\*StreamPipeline\) [ExecuteSync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1295>)
+### func \(\*StreamPipeline\) [ExecuteSync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1303>)
 
 ```go
 func (p *StreamPipeline) ExecuteSync(ctx context.Context, input ...StreamElement) (*ExecutionResult, error)
@@ -5544,7 +5544,7 @@ ExecuteSync runs the pipeline synchronously and returns the accumulated result. 
 The returned error is the last error element on the output. When a stage failed the turn, that is the failure \(see Execute for its form\). The result is non\-nil alongside the error and holds whatever the pipeline produced.
 
 <a name="StreamPipeline.Shutdown"></a>
-### func \(\*StreamPipeline\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1408>)
+### func \(\*StreamPipeline\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1416>)
 
 ```go
 func (p *StreamPipeline) Shutdown(ctx context.Context) error

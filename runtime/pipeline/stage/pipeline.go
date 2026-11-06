@@ -44,6 +44,10 @@ type StreamPipeline struct {
 	config       *PipelineConfig
 	eventEmitter *events.Emitter
 
+	// idleAfterFunc starts the IdleTimeout timer (see withIdleTimer). Nil means
+	// time.AfterFunc; tests set a fake clock.
+	idleAfterFunc func(time.Duration, func()) idleTimer
+
 	// Concurrency control. slots holds one token per running execution when
 	// MaxConcurrentPipelines is positive; nil means no limit.
 	slots      chan struct{}
@@ -104,7 +108,11 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 	if p.config.IdleTimeout > 0 {
 		var idleCancel context.CancelFunc
 		var resetIdle func()
-		execCtx, idleCancel, resetIdle = withIdleTimeout(execCtx, p.config.IdleTimeout)
+		if p.idleAfterFunc != nil {
+			execCtx, idleCancel, resetIdle = withIdleTimer(execCtx, p.config.IdleTimeout, p.idleAfterFunc)
+		} else {
+			execCtx, idleCancel, resetIdle = withIdleTimeout(execCtx, p.config.IdleTimeout)
+		}
 		execCtx = contextWithIdleReset(execCtx, resetIdle, p.config.IdleTimeout)
 		prevCancel := cancel
 		cancel = func() {

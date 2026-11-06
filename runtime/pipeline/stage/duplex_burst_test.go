@@ -111,45 +111,46 @@ func TestForwardInputElements_ResetsIdleOnActivity(t *testing.T) {
 }
 
 // TestDuplexProviderStage_ActivityDefeatsIdleTimeout is the end-to-end proof of
-// the death fix, against the REAL idle-timeout mechanism (not a stub): with a
-// short idle timeout and a steady stream of response chunks arriving faster than
-// the timeout, the session must survive well past the timeout. Without the reset
-// the idle timer fires and cancels the context mid-stream (the ~30s death users
-// hit); with it, each chunk resets the timer and the session lives.
+// the death fix: a session streaming response chunks for longer than the idle
+// timeout must stay alive. Each gap between chunks is one idle window (see
+// idleProbe), and every one must hold: the chunk that ends it resets the
+// timer. Without the reset the idle timer fires and cancels the context
+// mid-stream (the ~30s death users hit).
 func TestDuplexProviderStage_ActivityDefeatsIdleTimeout(t *testing.T) {
-	const (
-		idle     = 100 * time.Millisecond
-		interval = 30 * time.Millisecond // < idle: activity keeps resetting the timer
-		chunks   = 12                    // ~360ms total, 3.6x the idle timeout
-	)
+	const chunks = 12
 
-	idleCtx, cancel, reset := withIdleTimeout(context.Background(), idle)
-	defer cancel()
-	ctx := contextWithIdleReset(idleCtx, reset, idle)
+	probe := newIdleProbe()
+	ctx := probe.context(context.Background())
 
 	sess := newRecordingSession()
 	s := stageWithSession(sess)
 	out := make(chan StreamElement, chunks*2)
 
+	var held atomic.Int64
+	stageDone := make(chan struct{})
 	go func() {
 		for range chunks {
+			probe.openWindow()
 			select {
 			case sess.respCh <- providers.StreamChunk{MediaData: &providers.StreamMediaData{
 				Data: []byte{1, 2}, SampleRate: 24000, Channels: 1,
 			}}:
-			case <-ctx.Done():
+			case <-stageDone: // the stage gave up early; nobody reads any more
 				return
 			}
-			time.Sleep(interval)
+			if !probe.closeWindow() {
+				break // the timer would have fired: the session is already dead
+			}
+			held.Add(1)
 		}
 		close(sess.respCh)
 	}()
 
 	err := s.forwardResponseElements(ctx, out)
-	require.NoError(t, err,
-		"a live session must survive past the idle timeout while streaming; it died mid-reply")
-	require.NotErrorIs(t, context.Cause(ctx), ErrIdleTimeout,
-		"the idle timeout fired despite continuous activity")
+	close(stageDone)
+	require.NoError(t, err)
+	assert.Equal(t, int64(chunks), held.Load(),
+		"every response chunk must reset the idle timer, or the timer fires mid-reply")
 }
 
 // TestForwardInputElements_DrainSignalEndsInputPromptly covers the drain fix: a
