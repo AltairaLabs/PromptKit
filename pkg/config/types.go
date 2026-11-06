@@ -358,23 +358,28 @@ type CredentialConfig = credentials.CredentialConfig
 // PlatformConfig is an alias for credentials.PlatformConfig.
 type PlatformConfig = credentials.PlatformConfig
 
-// Pricing defines cost per 1K tokens for input and output
+// Pricing defines cost per 1K tokens for input and output. Each field is
+// optional: zero means unset, and the provider prices from its built-in table
+// unless both rates are positive.
 type Pricing struct {
-	InputCostPer1K  float64 `json:"input_cost_per_1k" yaml:"input_cost_per_1k"`
-	OutputCostPer1K float64 `json:"output_cost_per_1k" yaml:"output_cost_per_1k"`
+	InputCostPer1K  float64 `json:"input_cost_per_1k,omitempty" yaml:"input_cost_per_1k,omitempty"`
+	OutputCostPer1K float64 `json:"output_cost_per_1k,omitempty" yaml:"output_cost_per_1k,omitempty"`
 }
 
-// RateLimit defines rate limiting parameters
+// RateLimit defines rate limiting parameters. Each field is optional; zero
+// means unset.
 type RateLimit struct {
-	RPS   int `json:"rps" yaml:"rps"`
-	Burst int `json:"burst" yaml:"burst"`
+	RPS   int `json:"rps,omitempty" yaml:"rps,omitempty"`
+	Burst int `json:"burst,omitempty" yaml:"burst,omitempty"`
 }
 
-// ProviderDefaults defines default parameters for a provider
+// ProviderDefaults defines default parameters for a provider. Each field is
+// optional: zero means unset, so the request's own value or the provider's
+// default applies, and a zero is left out when the config is written.
 type ProviderDefaults struct {
-	Temperature float32 `json:"temperature" yaml:"temperature"`
-	TopP        float32 `json:"top_p" yaml:"top_p"`
-	MaxTokens   int     `json:"max_tokens" yaml:"max_tokens"`
+	Temperature float32 `json:"temperature,omitempty" yaml:"temperature,omitempty"`
+	TopP        float32 `json:"top_p,omitempty" yaml:"top_p,omitempty"`
+	MaxTokens   int     `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
 	// PromptCaching controls Anthropic prompt caching. Omit or set true to enable
 	// (the default); set false to disable. Only affects Claude providers.
 	PromptCaching *bool `json:"prompt_caching,omitempty" yaml:"prompt_caching,omitempty"`
