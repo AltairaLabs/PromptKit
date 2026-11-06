@@ -93,7 +93,7 @@ func (p *Provider) predictStreamOnce(
 			httpReq.Header.Set(anthropicVersionKey, anthropicVersionValue)
 		}
 		httpReq.Header.Set("Accept", "text/event-stream")
-		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+		if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
 			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 		}
 		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
@@ -272,7 +272,7 @@ func (p *Provider) streamPartnerRequest(
 		}
 		httpReq.Header.Set(contentTypeHeader, applicationJSON)
 		httpReq.Header.Set("Accept", accept)
-		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+		if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
 			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 		}
 		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {

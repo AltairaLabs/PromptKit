@@ -168,6 +168,7 @@ func TestPredict_Integration(t *testing.T) {
 					MaxTokens:   200,
 				},
 			}
+			provider.SetCredential(provider.authCredential())
 
 			// Execute
 			resp, err := provider.Predict(context.Background(), tt.request)

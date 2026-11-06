@@ -54,6 +54,9 @@ func (c *AzureCredential) Apply(ctx context.Context, req *http.Request) error {
 	return nil
 }
 
+// HeaderNames returns the header Apply sets.
+func (c *AzureCredential) HeaderNames() []string { return []string{headerAuthorization} }
+
 // Type returns "azure".
 func (c *AzureCredential) Type() string {
 	return "azure"

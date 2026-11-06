@@ -69,7 +69,7 @@ func (p *Provider) predictStreamOnce(
 			return nil, fmt.Errorf("failed to create request: %w", reqErr)
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
-		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+		if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
 			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 		}
 		return httpReq, nil

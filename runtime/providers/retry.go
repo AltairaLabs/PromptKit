@@ -13,6 +13,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 )
 
 // Default retry constants.
@@ -61,9 +62,11 @@ func isRetryableError(err error) bool {
 		return false
 	}
 
-	// Check for context cancellation -- never retry these.
+	// Check for context cancellation -- never retry these. Nor a credential
+	// that could not be applied: the next attempt would fail the same way.
 	if errors.Is(err, context.Canceled) ||
-		errors.Is(err, context.DeadlineExceeded) {
+		errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, base.ErrRequestAuthorization) {
 		return false
 	}
 

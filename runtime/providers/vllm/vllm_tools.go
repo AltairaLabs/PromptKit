@@ -126,8 +126,8 @@ func (p *Provider) PredictWithTools( // NOSONAR
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	if p.apiKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
+		return providers.PredictionResponse{}, nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 	}
 	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
 		return providers.PredictionResponse{}, nil, hdrErr
@@ -241,8 +241,8 @@ func (p *Provider) PredictStreamWithTools(
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "text/event-stream")
-	if p.apiKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
+		return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 	}
 	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
 		return nil, hdrErr

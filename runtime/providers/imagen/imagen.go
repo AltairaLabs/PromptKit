@@ -137,6 +137,9 @@ func NewProvider(config Config) *Provider {
 		HTTPClient:   httpClient,
 	}
 	p.Defaults = config.Defaults
+	// The BaseProvider applies the key (AuthorizeRequest), after the wait
+	// under a rate limit.
+	p.SetCredential(providers.HeaderKeyCredential(config.ApiKey, "x-goog-api-key", ""))
 	return p
 }
 
@@ -212,8 +215,10 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	// Use x-goog-api-key header for API key authentication (similar to Gemini API)
-	httpReq.Header.Set("x-goog-api-key", p.ApiKey)
+	// x-goog-api-key header for API key authentication (similar to Gemini API)
+	if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
+		return providers.PredictionResponse{}, fmt.Errorf("failed to apply authentication: %w", authErr)
+	}
 
 	// Make request
 	// GetHTTPClient, not HTTPClient: CreateProviderFromSpec tunes the

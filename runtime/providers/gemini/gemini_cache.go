@@ -257,7 +257,7 @@ func (p *Provider) createCachedContent(
 		return "", fmt.Errorf("create cachedContent request: %w", err)
 	}
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+	if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
 		return "", fmt.Errorf("apply cachedContent auth: %w", authErr)
 	}
 	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
@@ -297,7 +297,7 @@ func (p *Provider) deleteCachedContent(ctx context.Context, name string) {
 	if err != nil {
 		return
 	}
-	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+	if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
 		return
 	}
 	resp, err := p.GetHTTPClient().Do(httpReq)
@@ -310,7 +310,7 @@ func (p *Provider) deleteCachedContent(ctx context.Context, name string) {
 // CachedContent endpoints differ by platform. AI Studio (direct) uses
 // generativelanguage.googleapis.com/v1beta/cachedContents with a
 // "models/<model>" model field; the API key goes in the x-goog-api-key header
-// (applyAuth), never in the query string. Vertex uses the regional
+// (authCredential), never in the query string. Vertex uses the regional
 // aiplatform host under the project/location, Bearer auth (applied separately),
 // and a full publishers/google/models path; created resources are referenced by
 // their full returned resource name.

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 )
 
 // ErrPayloadTooLarge is returned when a request payload exceeds the provider's
@@ -72,6 +74,11 @@ func IsTransient(err error) bool {
 	// it as transient causes Arena to skip the aborted turn and report a false
 	// green, so it must never be classified as transient.
 	if IsStreamIdleTimeout(err) {
+		return false
+	}
+	// A credential that could not be applied is a configuration or identity
+	// failure, not an infra blip.
+	if errors.Is(err, base.ErrRequestAuthorization) {
 		return false
 	}
 	var httpErr *ProviderHTTPError

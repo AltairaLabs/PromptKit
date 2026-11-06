@@ -67,6 +67,10 @@ func NewProvider(
 		}
 	}
 
+	// The BaseProvider applies the key (AuthorizeRequest), after the wait
+	// under a rate limit.
+	baseProvider.SetCredential(providers.HeaderKeyCredential(apiKey, "Authorization", "Bearer "))
+
 	return &Provider{
 		BaseProvider:     baseProvider,
 		model:            model,
@@ -499,8 +503,8 @@ func (p *Provider) predictWithMessages(
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
 
 	// Add optional authentication
-	if p.apiKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
+		return predictResp, fmt.Errorf("failed to apply authentication: %w", authErr)
 	}
 
 	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
@@ -600,8 +604,8 @@ func (p *Provider) predictStreamWithMessages(
 		}
 		httpReq.Header.Set(contentTypeHeader, applicationJSON)
 		httpReq.Header.Set("Accept", "text/event-stream")
-		if p.apiKey != "" {
-			httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+		if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
+			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 		}
 		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
 			return nil, hdrErr

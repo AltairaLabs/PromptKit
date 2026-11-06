@@ -350,10 +350,7 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 	if p.isAzure() || p.isBedrock() {
 		p.apiMode = APIModeCompletions
 	}
-	// Under a rate limit the credential is applied again after each wait, so
-	// an Azure or Vertex token or a SigV4 signature is never older than the
-	// wait.
-	p.SetRequestAuth(p.applyAuth)
+	p.SetCredential(p.authCredential())
 	return p
 }
 
@@ -550,16 +547,15 @@ func (p *Provider) enrichRequest(
 	}
 }
 
-// applyAuth applies authentication to an HTTP request.
-func (p *Provider) applyAuth(ctx context.Context, req *http.Request) error {
+// authCredential returns the credential OpenAI requests carry: the explicit
+// credential if there is one, otherwise the legacy API key as a Bearer token.
+// The BaseProvider applies it (AuthorizeRequest), after the wait under a rate
+// limit.
+func (p *Provider) authCredential() providers.Credential {
 	if p.credential != nil {
-		return p.credential.Apply(ctx, req)
+		return p.credential
 	}
-	// Legacy behavior: use apiKey directly
-	if p.apiKey != "" {
-		req.Header.Set(authorizationHeader, bearerPrefix+p.apiKey)
-	}
-	return nil
+	return providers.HeaderKeyCredential(p.apiKey, authorizationHeader, bearerPrefix)
 }
 
 const (
@@ -1354,7 +1350,7 @@ func (p *Provider) predictWithMessages(
 	}
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+	if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
 		return predictResp, fmt.Errorf("failed to apply authentication: %w", authErr)
 	}
 	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
@@ -1489,7 +1485,7 @@ func (p *Provider) predictStreamWithMessages(
 		}
 		httpReq.Header.Set(contentTypeHeader, applicationJSON)
 		httpReq.Header.Set("Accept", "text/event-stream")
-		if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+		if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
 			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 		}
 		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {

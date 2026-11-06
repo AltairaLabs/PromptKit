@@ -229,7 +229,7 @@ func TestBaseProvider_AuthorizesEachAttemptAfterItsWait(t *testing.T) {
 	bp := providers.NewBaseProvider("p", false, &http.Client{})
 	bp.SetRetryPolicy(pipeline.RetryPolicy{MaxRetries: 1, Backoff: "fixed", InitialDelayMs: 1})
 	bp.SetRateLimit(1, 1)
-	bp.SetRequestAuth(cred.Apply)
+	bp.SetCredential(cred)
 	waiter := newHeldWaiter(log)
 	holdWait(t, &bp, waiter)
 	for range 3 {

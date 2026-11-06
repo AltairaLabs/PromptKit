@@ -547,6 +547,7 @@ func TestPredict_Integration(t *testing.T) {
 				},
 			},
 		}
+		provider.SetCredential(provider.authCredential())
 
 		resp, err := provider.Predict(context.Background(), providers.PredictionRequest{
 			System: "You are a helpful assistant",

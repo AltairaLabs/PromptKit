@@ -96,7 +96,7 @@ func (p *ToolProvider) predictStreamWithInteractions(
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
-	if authErr := p.applyAuth(ctx, httpReq); authErr != nil {
+	if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
 		return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 	}
 	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {

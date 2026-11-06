@@ -233,6 +233,7 @@ func TestProvider_PredictStream_AzureSendsCorrectWireFormat(t *testing.T) {
 			AdditionalConfig: map[string]any{"api_version": "2024-12-01-preview"},
 		},
 	}
+	p.SetCredential(p.authCredential())
 
 	ch, err := p.PredictStream(context.Background(), providers.PredictionRequest{
 		Messages: []types.Message{{Role: "user", Content: "hi"}},

@@ -660,7 +660,7 @@ func (p *ToolProvider) parseToolResponse(
 func (p *ToolProvider) applyToolRequestHeaders(ctx context.Context, req *http.Request) error {
 	req.Header.Set(contentTypeHeader, applicationJSON)
 	if p.usesCredentialAuth() {
-		if err := p.applyAuth(ctx, req); err != nil {
+		if err := p.AuthorizeRequest(ctx, req); err != nil {
 			return fmt.Errorf("failed to apply authentication: %w", err)
 		}
 	} else {

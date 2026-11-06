@@ -156,6 +156,7 @@ func TestVertexPredictStream_AppliesCredential(t *testing.T) {
 		credential:   cred,
 		defaults:     providers.ProviderDefaults{MaxTokens: 64},
 	}
+	p.SetCredential(p.authCredential())
 
 	ch, err := p.PredictStream(context.Background(), providers.PredictionRequest{
 		Messages: []types.Message{{Role: "user", Content: "hi"}},

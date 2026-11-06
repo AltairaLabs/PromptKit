@@ -20,6 +20,19 @@ func BedrockEndpoint(region string) string {
 	return fmt.Sprintf("https://bedrock-runtime.%s.amazonaws.com", region)
 }
 
+// Headers a SigV4 signature sets, besides Authorization.
+const (
+	headerAmzDate          = "X-Amz-Date"
+	headerAmzContentSHA256 = "X-Amz-Content-Sha256"
+	headerAmzSecurityToken = "X-Amz-Security-Token" //nolint:gosec // G101: header name, not a secret
+)
+
+// HeaderNames returns the headers Apply may set. X-Amz-Security-Token is set
+// only for temporary credentials, but is always named.
+func (c *AWSCredential) HeaderNames() []string {
+	return []string{headerAuthorization, headerAmzDate, headerAmzContentSHA256, headerAmzSecurityToken}
+}
+
 // Apply signs the request using AWS SigV4.
 func (c *AWSCredential) Apply(ctx context.Context, req *http.Request) error {
 	creds, err := c.cfg.Credentials.Retrieve(ctx)
@@ -51,10 +64,10 @@ func signRequest(req *http.Request, creds *aws.Credentials, region, service stri
 	}
 
 	// Set required headers
-	req.Header.Set("X-Amz-Date", amzDate)
-	req.Header.Set("X-Amz-Content-Sha256", bodyHash)
+	req.Header.Set(headerAmzDate, amzDate)
+	req.Header.Set(headerAmzContentSHA256, bodyHash)
 	if creds.SessionToken != "" {
-		req.Header.Set("X-Amz-Security-Token", creds.SessionToken)
+		req.Header.Set(headerAmzSecurityToken, creds.SessionToken)
 	}
 
 	// Create canonical request.
