@@ -85,11 +85,12 @@ type CompositionExecutorDeps struct {
 	BaseMetadata map[string]interface{}
 
 	// ParentTurnState is the enclosing turn's state, read only for its
-	// TurnIndex. Each step gets a fresh TurnState (its prompt, tools and
-	// system prompt are the step's, not the turn's), but the turn number is
-	// the one thing that must survive the boundary: without it every step
-	// reports turn 1 and no guardrail event inside a composition can be
-	// placed against the transcript. Optional.
+	// TurnIndex and ConversationID. Each step gets a fresh TurnState (its
+	// prompt, tools and system prompt are the step's, not the turn's), but
+	// two things must survive the boundary. Without the turn number every
+	// step reports turn 1 and no guardrail event inside a composition can be
+	// placed against the transcript. Without the conversation ID the step's
+	// calls count under no conversation in CallRate. Optional.
 	ParentTurnState *TurnState
 
 	// SkipContentValidation is ProviderConfig.SkipContentValidation for every
@@ -234,9 +235,15 @@ func (deps CompositionExecutorDeps) execLLM(
 		// BaseMetadata (e.g. mock_scenario_id from Arena) is also merged here.
 		ProviderRequestMetadata: meta,
 	}
-	// Carry the turn number across the sub-pipeline boundary; everything else
-	// about this TurnState is deliberately the step's own.
+	// Carry the turn number and the conversation across the sub-pipeline
+	// boundary; everything else about this TurnState is deliberately the
+	// step's own. The conversation ID is what the step's calls count under in
+	// the shared call-rate window, so they share a limit with the
+	// conversation's own turns.
 	turnState.SetTurnIndex(deps.ParentTurnState.TurnIndex())
+	if deps.ParentTurnState != nil {
+		turnState.ConversationID = deps.ParentTurnState.ConversationID
+	}
 	promptStage := NewPromptAssemblyStageWithTurnState(
 		deps.PromptRegistry, step.PromptTask, deps.BaseVariables, turnState,
 	).WithModel(provider.Model())

@@ -151,10 +151,19 @@ type Conversation struct {
 	resolvedStore *sdktools.ResolvedStore
 
 	// callRate is the window ToolPolicy.MaxCallsPerMinute counts this
-	// conversation's tool calls in, shared by its pipelines' provider stages.
-	// ResolveToolWithArgs admits an approved held call into it, because that
-	// call runs here rather than in a stage (see callRateWindow).
+	// conversation's tool calls in, shared by its pipelines' provider stages
+	// and, in a workflow, by every state's conversation (withCallRateWindow).
+	// The stage reserves a slot for each call. A held or deferred call is
+	// resolved here: ResolveToolWithArgs and an answered client tool commit
+	// it, RejectTool and a rejected client tool release it (see
+	// callRateWindow and resolveClientCallRate).
 	callRate *stage.CallRateWindow
+
+	// heldResolutions marks the resolutions ResolveToolWithArgs and RejectTool
+	// made, whose call-rate slots they already resolved, so the path that
+	// consumes them (Continue, Resume) does not resolve those slots again.
+	heldResolutionsMu sync.Mutex
+	heldResolutions   map[*sdktools.ToolResolution]struct{}
 
 	// MCP registry for managing MCP servers
 	mcpRegistry            mcp.Registry

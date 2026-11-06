@@ -109,8 +109,8 @@ type ProviderStage struct {
 	// read and written on the turn's one goroutine.
 	describedKey string
 
-	// callRate holds the calls admitted under ToolPolicy.MaxCallsPerMinute, per
-	// conversation and tool, across turns. A pointer for the same reason as
+	// callRate holds the slots reserved and committed under
+	// ToolPolicy.MaxCallsPerMinute, per conversation and tool, across turns. A pointer for the same reason as
 	// offeredTools.
 	callRate *CallRateWindow
 }
@@ -231,9 +231,11 @@ type ProviderConfig struct {
 	ApprovalChecker tools.ApprovalChecker
 
 	// CallRate, when set, is the window ToolPolicy.MaxCallsPerMinute counts
-	// calls in. Share one across the stages of a conversation, and Admit a
-	// held call there when it is approved and run outside the stage, so the
-	// limit sees it. Nil gives the stage a window of its own.
+	// calls in. Share one across the stages of a conversation. The stage
+	// reserves a slot for every call it is asked to make; for a call it holds
+	// for approval or its executor defers, Commit the slot there when the call
+	// is approved or answered and Release it when the call is rejected. Nil
+	// gives the stage a window of its own.
 	CallRate *CallRateWindow
 
 	// PromptDeclarations maps each prompt task to the pack's definition of
@@ -2927,14 +2929,15 @@ func (s *ProviderStage) executeSingleToolCall(
 		return blocked
 	}
 
+	// Before the approval gate, so a call over ToolPolicy.MaxCallsPerMinute is
+	// refused at once rather than put to a human. A held or deferred call keeps
+	// its reservation until the host commits or releases it (CallRateWindow).
+	slot, refusal, limited := s.reserveCallRate(toolCall)
+	if limited {
+		return toolCallResult{message: refusal}
+	}
 	if held, ok := s.holdForApproval(ctx, toolCall); ok {
 		return held
-	}
-	// After the approval gate, so only a call admitted to run here counts: a
-	// held call counts when it is approved (CallRateWindow.Admit), and one a
-	// human rejects never does.
-	if msg, limited := s.callRateLimited(toolCall); limited {
-		return toolCallResult{message: msg}
 	}
 
 	labels := s.toolLabels(toolCall.Name)
@@ -2945,12 +2948,14 @@ func (s *ProviderStage) executeSingleToolCall(
 	asyncResult, err := s.toolRegistry.ExecuteAsync(ctx, toolCall.Name, toolCall.Args)
 	ResetIdleFromContext(ctx)
 	if err != nil {
+		slot.commit() // it was admitted to run, and counts whether or not the executor got that far
 		return s.toolCallFailed(ctx, toolCall, err, startTime, labels, rr)
 	}
 
 	if asyncResult.Status == tools.ToolStatusPending {
 		return s.buildPendingResult(ctx, toolCall, asyncResult)
 	}
+	slot.commit()
 
 	result, err := s.buildToolResult(toolCall, asyncResult, s.resultRewriter(ctx, toolReq))
 	if err != nil {
