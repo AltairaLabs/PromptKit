@@ -608,7 +608,8 @@ func (p *Provider) predictWithMessages(
 		predictResp.RawRequest = ollamaReq
 	}
 
-	// Make HTTP request - Ollama doesn't require Authorization header
+	// Make HTTP request. Ollama needs no credential; one configured for a
+	// proxy in front of it is applied here.
 	url := p.baseURL + ollamaChatCompletionsPath
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
 	if err != nil {
@@ -616,6 +617,9 @@ func (p *Provider) predictWithMessages(
 	}
 
 	httpReq.Header.Set(contentTypeHeader, applicationJSON)
+	if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
+		return predictResp, fmt.Errorf("failed to apply authentication: %w", authErr)
+	}
 
 	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
 		return predictResp, hdrErr
@@ -726,7 +730,10 @@ func (p *Provider) predictStreamWithMessages(
 		}
 		httpReq.Header.Set(contentTypeHeader, applicationJSON)
 		httpReq.Header.Set("Accept", "text/event-stream")
-		// Ollama doesn't require Authorization header.
+		// Ollama needs no credential; one configured for a proxy is applied.
+		if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
+			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+		}
 		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
 			return nil, hdrErr
 		}

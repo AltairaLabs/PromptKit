@@ -2,6 +2,7 @@ package credentials
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -57,4 +58,34 @@ func TestHeaderNames_CoverEveryHeaderApplySets(t *testing.T) {
 func TestHeaderNames_EmptyWhenNothingIsSet(t *testing.T) {
 	assert.Empty(t, NewAPIKeyCredential("").HeaderNames())
 	assert.Empty(t, (&NoOpCredential{}).HeaderNames())
+}
+
+func awsWith(retrieve func(context.Context) (aws.Credentials, error)) *AWSCredential {
+	return &AWSCredential{region: "us-east-1", cfg: aws.Config{Credentials: aws.CredentialsProviderFunc(retrieve)}}
+}
+
+// X-Amz-Security-Token is named only for temporary credentials, which carry
+// a session token; a failed lookup names it, since Apply may still set it.
+func TestAWSCredential_HeaderNamesNameTheTokenOnlyWhenThereIsOne(t *testing.T) {
+	longTerm := awsWith(func(context.Context) (aws.Credentials, error) {
+		return aws.Credentials{AccessKeyID: "AKID", SecretAccessKey: "s"}, nil
+	})
+	temporary := awsWith(func(context.Context) (aws.Credentials, error) {
+		return aws.Credentials{AccessKeyID: "ASIA", SecretAccessKey: "s", SessionToken: "t"}, nil
+	})
+	failing := awsWith(func(context.Context) (aws.Credentials, error) {
+		return aws.Credentials{}, errors.New("no credentials")
+	})
+	signing := []string{"Authorization", "X-Amz-Date", "X-Amz-Content-Sha256"}
+
+	assert.ElementsMatch(t, signing, longTerm.HeaderNames())
+	assert.ElementsMatch(t, append(signing, "X-Amz-Security-Token"), temporary.HeaderNames())
+	assert.ElementsMatch(t, append(signing, "X-Amz-Security-Token"), failing.HeaderNames())
+	assert.ElementsMatch(t, append(signing, "X-Amz-Security-Token"), (&AWSCredential{}).HeaderNames())
+
+	// The long-term case really sets no token, so naming none is exact.
+	req, err := http.NewRequest(http.MethodPost, "https://example.com/", strings.NewReader(`{}`))
+	require.NoError(t, err)
+	require.NoError(t, longTerm.Apply(context.Background(), req))
+	assert.Empty(t, req.Header.Get("X-Amz-Security-Token"))
 }

@@ -141,6 +141,11 @@ func (h *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			return nil, fmt.Errorf("custom header %q collides with built-in header set by provider", k)
 		}
 	}
+	// A redirect hop off the origin gets none of the headers: they may carry
+	// a gateway's key, and this layer runs below http.Client's CheckRedirect.
+	if !SameOriginAsFirstHop(req) {
+		return h.next.RoundTrip(req)
+	}
 	r := req.Clone(req.Context())
 	for k, v := range h.headers {
 		r.Header.Set(k, v)

@@ -44,6 +44,10 @@ type Provider struct {
 	providers.BaseProvider
 	modelName string
 	BaseURL   string
+	// ApiKey is the key NewProvider was given. It is fixed at construction,
+	// as every provider's credential is: the BaseProvider sends the key it
+	// was built with (see SetCredential), so changing ApiKey later has no
+	// effect.
 	ApiKey    string
 	ProjectID string
 	Location  string
@@ -177,9 +181,9 @@ func extractPrompt(req providers.PredictionRequest) (string, error) {
 func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	start := time.Now()
 
-	if p.ApiKey == "" {
+	if p.Credential() == nil {
 		return providers.PredictionResponse{}, fmt.Errorf(
-			"imagen: GOOGLE_API_KEY or GEMINI_API_KEY environment variable not set")
+			"imagen: no credential: set GOOGLE_API_KEY or GEMINI_API_KEY, or configure one")
 	}
 
 	prompt, err := extractPrompt(req)
@@ -218,6 +222,11 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	// x-goog-api-key header for API key authentication (similar to Gemini API)
 	if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
 		return providers.PredictionResponse{}, fmt.Errorf("failed to apply authentication: %w", authErr)
+	}
+	// Provider headers (spec.Headers) go on every request, as on the other
+	// providers; a collision with the credential's header is refused.
+	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
+		return providers.PredictionResponse{}, hdrErr
 	}
 
 	// Make request

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -87,7 +86,7 @@ func (t *RateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error
 			return nil, err
 		}
 	}
-	if t.Authorize != nil && sameOriginAsFirstHop(req) {
+	if t.Authorize != nil && SameOriginAsFirstHop(req) {
 		// Clone before applying: the RoundTripper contract forbids modifying
 		// the caller's request.
 		authed := req.Clone(req.Context())
@@ -115,33 +114,6 @@ func (t *RateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error
 		return nil, urlErr.Err
 	}
 	return resp, err
-}
-
-// sameOriginAsFirstHop reports whether req goes to the scheme and host of the
-// request that started its redirect chain. A request that is not a redirect
-// hop (req.Response nil) is its own first hop.
-func sameOriginAsFirstHop(req *http.Request) bool {
-	first := req
-	for first.Response != nil && first.Response.Request != nil {
-		first = first.Response.Request
-	}
-	return strings.EqualFold(first.URL.Scheme, req.URL.Scheme) &&
-		strings.EqualFold(canonicalHost(first.URL), canonicalHost(req.URL))
-}
-
-// canonicalHost returns u's host with its port, adding the scheme's default
-// port when u names none, so https://h and https://h:443 compare equal.
-func canonicalHost(u *url.URL) string {
-	if u.Port() != "" {
-		return u.Host
-	}
-	switch strings.ToLower(u.Scheme) {
-	case "https":
-		return u.Host + ":443"
-	case "http":
-		return u.Host + ":80"
-	}
-	return u.Host
 }
 
 func useLastResponse(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }

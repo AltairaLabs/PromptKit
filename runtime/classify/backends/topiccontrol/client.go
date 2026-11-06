@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	provbase "github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 )
 
@@ -93,7 +95,7 @@ func New(cfg Config) (*Client, error) {
 		if timeout <= 0 {
 			timeout = defaultHTTPTimeout
 		}
-		httpClient = &http.Client{Timeout: timeout}
+		httpClient = &http.Client{Timeout: timeout, CheckRedirect: provbase.CredentialRedirectPolicy(nil, nil)}
 	}
 	return &Client{
 		baseURL: strings.TrimSuffix(cfg.BaseURL, "/"),

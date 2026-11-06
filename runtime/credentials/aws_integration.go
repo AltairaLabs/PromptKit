@@ -82,7 +82,9 @@ func NewAWSCredentialWithRole(ctx context.Context, region, roleARN string) (*AWS
 
 	// Create STS client and assume role credentials provider
 	stsClient := sts.NewFromConfig(cfg)
-	cfg.Credentials = stscreds.NewAssumeRoleProvider(stsClient, roleARN)
+	// Cached, as LoadDefaultConfig's chain is: without it every signature
+	// (and every HeaderNames lookup) would make its own AssumeRole call.
+	cfg.Credentials = aws.NewCredentialsCache(stscreds.NewAssumeRoleProvider(stsClient, roleARN))
 
 	return &AWSCredential{
 		cfg:    cfg,

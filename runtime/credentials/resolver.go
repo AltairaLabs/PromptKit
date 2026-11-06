@@ -45,7 +45,9 @@ var DefaultEnvVars = map[string][]string{
 	providerClaude: {"ANTHROPIC_API_KEY", "CLAUDE_API_KEY"},
 	providerOpenAI: {"OPENAI_API_KEY", "OPENAI_TOKEN"},
 	providerGemini: {envGeminiAPIKey, envGoogleAPIKey},
-	providerImagen: {envGeminiAPIKey, envGoogleAPIKey},
+	// Imagen has always read GOOGLE_API_KEY first; its factory documents
+	// the same order.
+	providerImagen: {envGoogleAPIKey, envGeminiAPIKey},
 	// classify backends authenticate the same way as LLM providers, so
 	// they share this map. HF_TOKEN is canonical; HUGGING_FACE_HUB_TOKEN
 	// is the legacy alias that some CI runners use.
