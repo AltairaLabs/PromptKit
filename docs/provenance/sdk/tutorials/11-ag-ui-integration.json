@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/tutorials/11-ag-ui-integration.md",
- "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "commit": "ebf8d92f226c18ca12b790f73b09a762bd8d2512",
  "claims": [
   {
    "id": 1,
@@ -18,10 +18,12 @@
   },
   {
    "id": 3,
-   "claim": "ToolsFromAGUI returns descriptors marked as client tools",
+   "claim": "Conversation.DeferClientTool binds a tool on one conversation as a client tool; a call to it suspends the turn until the application answers",
    "verdict": "true",
    "evidence": [
-    "sdk/agui/convert.go:303"
+    "sdk/client_tools.go:117",
+    "sdk/client_tools.go:220",
+    "sdk/tool_executors.go:36"
    ]
   },
   {
@@ -46,13 +48,13 @@
   },
   {
    "id": 6,
-   "claim": "step snippets and full server compile (NewEventAdapter, WithThreadID, WithRunID, Events, sse.NewSSEWriter, ResolveTool, RejectTool, ToolRegistry)",
+   "claim": "step snippets and full server compile (NewEventAdapter, WithThreadID, WithRunID, Events, sse.NewSSEWriter, ResolveTool, RejectTool, DeferClientTool)",
    "verdict": "true",
    "evidence": [
     "sdk/agui/adapter.go:199",
+    "sdk/client_tools.go:117",
     "sdk/conversation_tools.go:236",
-    "sdk/conversation_tools.go:321",
-    "sdk/conversation_tools.go:492"
+    "sdk/conversation_tools.go:321"
    ]
   },
   {
