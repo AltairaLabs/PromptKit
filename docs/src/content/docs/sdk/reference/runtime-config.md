@@ -250,8 +250,8 @@ Credentials are resolved in order of precedence: `api_key` > `credential_file` >
 #### defaults
 
 Default generation parameters, applied to a request that does not set its own. A
-prompt's `parameters` override them. Every field is optional: an omitted field, or a
-zero, is unset, and the provider's own default applies.
+prompt's `parameters` override them. Every field is optional. An omitted field is unset, and for `temperature`, `top_p` and
+`max_tokens` a zero is unset too: the provider's own default applies.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -262,7 +262,7 @@ zero, is unset, and the provider's own default applies.
 
 #### pricing
 
-Used for cost tracking and reporting. Both fields are optional: an omitted field, or a zero, is unset. The provider prices usage from its built-in price table unless both rates are positive.
+Used for cost tracking and reporting. Both fields are optional: an omitted field, or a zero, is unset. `openai`, `claude` and `gemini` price usage from their built-in price tables unless both rates are positive. `vllm` prices usage at $0 unless both rates are positive. `ollama` ignores `pricing`.
 
 | Field | Type | Description |
 |-------|------|-------------|
