@@ -4,7 +4,7 @@ description: Intercept provider calls, tool executions, and session events with 
 sidebar:
   order: 17
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - pkg/config/runtime_config.go
     - runtime/evals/exec_hook.go
@@ -70,7 +70,7 @@ spec:
 |-------|-------------|
 | `command` | Required. Executable path, or an interpreter. A relative path resolves against the host process's working directory. |
 | `args` | Arguments passed to `command`. |
-| `env` | Environment entries for the subprocess: a bare name forwards the host value, `KEY=value` sets it literally. |
+| `env` | Environment entries added to the host environment, which the subprocess also inherits: a bare name forwards the host value, `KEY=value` sets it literally. |
 | `hook` | Required. `provider`, `tool`, `session` or `eval`. |
 | `phases` | Phases the hook fires on. A hook with no phases never fires. Ignored for `eval`. |
 | `mode` | `filter` (default) or `observe`. Ignored for `eval`. |

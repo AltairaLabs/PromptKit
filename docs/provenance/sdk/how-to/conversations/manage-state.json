@@ -1,13 +1,13 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/conversations/manage-state.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "conv.SetVar(name, value string)",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1265"
+    "sdk/conversation.go:1318"
    ]
   },
   {
@@ -15,7 +15,7 @@
    "claim": "conv.GetVar(name) returns (string, bool)",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1329"
+    "sdk/conversation.go:1382"
    ]
   },
   {
@@ -23,7 +23,7 @@
    "claim": "conv.SetVars(map[string]any) sets many",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1282"
+    "sdk/conversation.go:1335"
    ]
   },
   {
@@ -31,7 +31,7 @@
    "claim": "variables are strings; SetVars formats values with %v",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1291"
+    "sdk/conversation.go:1344"
    ]
   },
   {
@@ -47,7 +47,7 @@
    "claim": "system_template with {{user_name}} placeholders",
    "verdict": "true",
    "evidence": [
-    "sdk/internal/pipeline/builder.go:622"
+    "sdk/internal/pipeline/builder.go:669"
    ]
   },
   {
@@ -55,7 +55,7 @@
    "claim": "System prompt becomes 'You are helping Alice. They are a premium user.'",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1265"
+    "sdk/conversation.go:1318"
    ]
   },
   {
@@ -63,7 +63,7 @@
    "claim": "precedence: WithVariables < variables.Provider < SetVar/SetVars < WithJSONInput",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:685",
+    "sdk/conversation.go:711",
     "sdk/json_input.go:104",
     "sdk/session_vars.go:50"
    ]
@@ -73,7 +73,7 @@
    "claim": "sdk.WithVariables(map[string]string) at Open",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:2508"
+    "sdk/options.go:2680"
    ]
   },
   {
@@ -81,7 +81,7 @@
    "claim": "values are resolved on every turn (unary)",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1259"
+    "sdk/conversation.go:1312"
    ]
   },
   {
@@ -89,7 +89,7 @@
    "claim": "duplex renders the system prompt once; later SetVar stored but not reaching the provider; first logged as a warning",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1259"
+    "sdk/conversation.go:1312"
    ]
   },
   {
@@ -97,8 +97,8 @@
    "claim": "SetVarsFromEnv(prefix) strips prefix, lowercases name",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1303",
-    "sdk/conversation.go:1321"
+    "sdk/conversation.go:1356",
+    "sdk/conversation.go:1374"
    ]
   },
   {
@@ -106,8 +106,8 @@
    "claim": "variable methods are thread-safe",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1265",
-    "sdk/conversation.go:1329"
+    "sdk/conversation.go:1318",
+    "sdk/conversation.go:1382"
    ]
   },
   {
@@ -115,7 +115,8 @@
    "claim": "Fork returns a conversation with isolated variables",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1414"
+    "sdk/conversation.go:1465",
+    "sdk/conversation.go:1472"
    ]
   },
   {

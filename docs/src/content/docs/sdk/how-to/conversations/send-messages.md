@@ -4,7 +4,7 @@ description: Send messages, stream replies, read history, handle errors and atta
 sidebar:
   order: 2
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - pkg/config/types.go
     - runtime/events/redact.go
@@ -14,6 +14,7 @@ verified:
     - runtime/types/message.go
     - sdk/conversation.go
     - sdk/errors.go
+    - sdk/errors_wrap.go
     - sdk/json_input.go
     - sdk/message_metadata.go
     - sdk/options.go
@@ -114,15 +115,22 @@ If the model's stream fails after it has started replying, `Send` returns the er
 
 ```go
 resp, err := conv.Send(ctx, message)
+var provErr *sdk.ProviderError
 switch {
 case errors.Is(err, sdk.ErrConversationClosed):
     log.Fatal("conversation was closed")
 case errors.Is(err, context.DeadlineExceeded):
     log.Println("request timed out")
+case errors.As(err, &provErr):
+    log.Printf("provider %s failed (status %d)", provErr.Provider, provErr.StatusCode)
 case err != nil:
     log.Printf("send failed: %v", err)
 }
 ```
+
+- A hook or guardrail that denies the turn makes `Send` return a `*sdk.ValidationError`. `sdk.AsValidationError(err)` extracts it, and `errors.As` still finds the runtime's `*hooks.HookDeniedError` inside.
+- A provider API error status or a failed connection makes `Send` return a `*sdk.ProviderError`; `StatusCode` is 0 for a connection failure. `providers.IsTransient(err)` still works on it.
+- `Stream` delivers the same error types in `chunk.Error`.
 
 ## Attach metadata to a turn
 

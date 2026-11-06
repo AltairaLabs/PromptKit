@@ -1,13 +1,13 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/conversations/use-memory.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": "c1",
    "claim": "WithRetriever wires ambient grounding with no store/scope/capability",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1364-1384"
+    "sdk/options.go:1476-1496"
    ]
   },
   {
@@ -15,7 +15,7 @@
    "claim": "InMemoryStore matches by case-insensitive substring",
    "verdict": "true",
    "evidence": [
-    "runtime/memory/memory_store.go:59-65"
+    "runtime/memory/memory_store.go:62-68"
    ]
   },
   {
@@ -31,7 +31,7 @@
    "claim": "WithMemorySubjectKey names another key; empty string removes the check",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1466-1485"
+    "sdk/options.go:1578-1597"
    ]
   },
   {
@@ -39,7 +39,7 @@
    "claim": "WithMemoryExtractor sets an extractor",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1436"
+    "sdk/options.go:1548"
    ]
   },
   {
@@ -48,7 +48,7 @@
    "verdict": "true",
    "evidence": [
     "sdk/capability_memory.go:71-91",
-    "sdk/options.go:1440-1464"
+    "sdk/options.go:1552-1576"
    ]
   },
   {
@@ -56,7 +56,7 @@
    "claim": "WithRetriever wins over capability retriever",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:829-839"
+    "sdk/conversation.go:861-871"
    ]
   },
   {
@@ -64,7 +64,7 @@
    "claim": "WithMemoryContextFormatter is the capability's formatter",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1504"
+    "sdk/options.go:1616"
    ]
   },
   {
@@ -73,8 +73,12 @@
    "verdict": "true",
    "evidence": [
     "runtime/memory/store.go:25-41",
-    "runtime/memory/tools.go:117-248",
-    "runtime/memory/types.go:93-119"
+    "runtime/memory/tools.go:116",
+    "runtime/memory/tools.go:168",
+    "runtime/memory/tools.go:246",
+    "runtime/memory/types.go:106",
+    "runtime/memory/types.go:115",
+    "runtime/memory/types.go:91"
    ]
   },
   {
@@ -91,7 +95,9 @@
    "claim": "Unresolved placeholder fails the turn with the quoted error",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:110",
+    "runtime/pipeline/stage/errors.go:111",
+    "runtime/pipeline/stage/errors.go:133",
+    "runtime/pipeline/stage/stages_utilities.go:286",
     "runtime/template/renderer.go:63"
    ]
   },
@@ -122,7 +128,8 @@
    "claim": "corpus.Retriever scores by term overlap with the latest user turn and returns top three",
    "verdict": "true",
    "evidence": [
-    "runtime/memory/corpus/corpus.go:77-125"
+    "runtime/memory/corpus/corpus.go:73",
+    "runtime/memory/corpus/corpus.go:92"
    ]
   },
   {
@@ -138,7 +145,7 @@
    "claim": "Default formatter renders [type] content (confidence: N.N)",
    "verdict": "true",
    "evidence": [
-    "runtime/memory/formatter.go:20-26"
+    "runtime/memory/formatter.go:19"
    ]
   },
   {
@@ -146,7 +153,7 @@
    "claim": "WithRetrievalFormatter overrides the format",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1408"
+    "sdk/options.go:1520"
    ]
   },
   {
@@ -162,7 +169,7 @@
    "claim": "memory__recall description text",
    "verdict": "true",
    "evidence": [
-    "runtime/memory/tools.go:289-292"
+    "runtime/memory/tools.go:290-293"
    ]
   }
  ]

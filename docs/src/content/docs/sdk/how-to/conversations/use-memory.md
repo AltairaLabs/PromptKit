@@ -4,7 +4,7 @@ description: Give a conversation knowledge from outside the current chat, by inj
 sidebar:
   order: 6
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/memory/corpus/corpus.go
     - runtime/memory/formatter.go
@@ -15,6 +15,7 @@ verified:
     - runtime/memory/types.go
     - runtime/pipeline/stage/errors.go
     - runtime/pipeline/stage/stages_memory.go
+    - runtime/pipeline/stage/stages_utilities.go
     - runtime/template/renderer.go
     - sdk/capability_memory.go
     - sdk/conversation.go

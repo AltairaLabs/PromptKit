@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/conversations/use-runtime-config.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -13,7 +13,7 @@
    "claim": "sdk.Open function exists and accepts packPath string and promptName string",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:84"
+    "sdk/sdk.go:89"
    ]
   },
   {
@@ -21,8 +21,8 @@
    "claim": "sdk.WithRuntimeConfig option function exists",
    "verdict": "true",
    "evidence": [
-    "sdk/runtime_config.go:103",
-    "sdk/runtime_config.go:97"
+    "sdk/runtime_config.go:105",
+    "sdk/runtime_config.go:99"
    ]
   },
   {
@@ -30,7 +30,7 @@
    "claim": "Conversation type has Close() method",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1519"
+    "sdk/conversation.go:1639"
    ]
   },
   {
@@ -38,11 +38,11 @@
    "claim": "WithRuntimeConfig loads YAML file and applies every section as if individual With* options were called",
    "verdict": "true",
    "evidence": [
-    "sdk/runtime_config.go:117",
-    "sdk/runtime_config.go:158",
-    "sdk/runtime_config.go:161",
-    "sdk/runtime_config.go:169",
-    "sdk/runtime_config.go:97"
+    "sdk/runtime_config.go:119",
+    "sdk/runtime_config.go:160",
+    "sdk/runtime_config.go:163",
+    "sdk/runtime_config.go:171",
+    "sdk/runtime_config.go:99"
    ]
   },
   {
@@ -77,7 +77,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:25",
-    "sdk/runtime_config.go:103"
+    "sdk/runtime_config.go:105"
    ]
   },
   {
@@ -86,7 +86,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:32",
-    "sdk/runtime_config.go:128"
+    "sdk/runtime_config.go:130"
    ]
   },
   {
@@ -95,7 +95,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:141",
-    "sdk/provider_file.go:44"
+    "sdk/provider_file.go:45"
    ]
   },
   {
@@ -104,7 +104,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:142",
-    "sdk/provider_file.go:50"
+    "sdk/provider_file.go:51"
    ]
   },
   {
@@ -122,7 +122,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:190",
-    "sdk/runtime_config.go:564"
+    "sdk/runtime_config.go:566"
    ]
   },
   {
@@ -139,7 +139,7 @@
    "claim": "Model name: claude-sonnet-4-20250514",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/pricing_table.go:171"
+    "runtime/providers/claude/pricing_table.go:173"
    ]
   },
   {
@@ -147,10 +147,10 @@
    "claim": "WithRuntimeConfig is equivalent to calling sdk.WithProvider(...) with same settings",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:482",
-    "sdk/provider_file.go:50",
-    "sdk/provider_file.go:62",
-    "sdk/runtime_config.go:128"
+    "sdk/options.go:508",
+    "sdk/provider_file.go:51",
+    "sdk/provider_file.go:63",
+    "sdk/runtime_config.go:130"
    ]
   },
   {
@@ -159,7 +159,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:76",
-    "sdk/runtime_config.go:158"
+    "sdk/runtime_config.go:160"
    ]
   },
   {
@@ -168,7 +168,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:76",
-    "sdk/runtime_config.go:510"
+    "sdk/runtime_config.go:512"
    ]
   },
   {
@@ -176,9 +176,9 @@
    "claim": "tool has exec section",
    "verdict": "true",
    "evidence": [
-    "pkg/config/types.go:398",
+    "pkg/config/types.go:403",
     "sdk/exec_tools.go:40",
-    "sdk/runtime_config.go:511"
+    "sdk/runtime_config.go:513"
    ]
   },
   {
@@ -195,7 +195,7 @@
    "claim": "exec has timeout_ms field",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/execconfig/execconfig.go:53",
+    "runtime/hooks/execconfig/execconfig.go:57",
     "sdk/runtime_config.go:522"
    ]
   },
@@ -204,7 +204,7 @@
    "claim": "exec has env field for environment variables",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/execconfig/execconfig.go:47",
+    "runtime/hooks/execconfig/execconfig.go:51",
     "sdk/runtime_config.go:521"
    ]
   },
@@ -214,7 +214,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:93",
-    "sdk/runtime_config.go:161"
+    "sdk/runtime_config.go:163"
    ]
   },
   {
@@ -232,8 +232,8 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:80",
-    "sdk/runtime_config.go:139",
-    "sdk/runtime_config.go:226"
+    "sdk/runtime_config.go:141",
+    "sdk/runtime_config.go:228"
    ]
   },
   {
@@ -242,7 +242,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:40",
-    "sdk/runtime_config.go:237"
+    "sdk/runtime_config.go:239"
    ]
   },
   {
@@ -251,7 +251,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:41",
-    "sdk/runtime_config.go:238"
+    "sdk/runtime_config.go:240"
    ]
   },
   {
@@ -260,7 +260,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:42",
-    "sdk/runtime_config.go:239"
+    "sdk/runtime_config.go:241"
    ]
   },
   {
@@ -269,7 +269,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:97",
-    "sdk/runtime_config.go:169"
+    "sdk/runtime_config.go:171"
    ]
   },
   {
@@ -297,7 +297,7 @@
    "evidence": [
     "pkg/config/runtime_config.go:862",
     "runtime/hooks/exec_build.go:12-15",
-    "runtime/hooks/execconfig/execconfig.go:69"
+    "runtime/hooks/execconfig/execconfig.go:74"
    ]
   },
   {
@@ -307,7 +307,7 @@
    "evidence": [
     "runtime/hooks/exec_hooks.go:191",
     "runtime/hooks/exec_hooks.go:206",
-    "runtime/hooks/execconfig/execconfig.go:72"
+    "runtime/hooks/execconfig/execconfig.go:77"
    ]
   },
   {
@@ -316,7 +316,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/exec_hooks.go:102",
-    "runtime/hooks/execconfig/execconfig.go:75"
+    "runtime/hooks/execconfig/execconfig.go:81"
    ]
   },
   {
@@ -325,7 +325,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/exec_build.go:70",
-    "runtime/hooks/execconfig/execconfig.go:53"
+    "runtime/hooks/execconfig/execconfig.go:57"
    ]
   },
   {
@@ -334,7 +334,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:84",
-    "sdk/runtime_config.go:144"
+    "sdk/runtime_config.go:146"
    ]
   },
   {
@@ -343,7 +343,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:62",
-    "sdk/runtime_config.go:659"
+    "sdk/runtime_config.go:661"
    ]
   },
   {
@@ -353,7 +353,7 @@
    "evidence": [
     "pkg/config/runtime_config.go:304",
     "pkg/config/types.go:62",
-    "sdk/runtime_config.go:662"
+    "sdk/runtime_config.go:664"
    ]
   },
   {
@@ -362,7 +362,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:65",
-    "sdk/runtime_config.go:666"
+    "sdk/runtime_config.go:668"
    ]
   },
   {
@@ -371,7 +371,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:90",
-    "sdk/runtime_config.go:667"
+    "sdk/runtime_config.go:669"
    ]
   },
   {
@@ -380,7 +380,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:89",
-    "sdk/runtime_config.go:667"
+    "sdk/runtime_config.go:669"
    ]
   },
   {
@@ -389,7 +389,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:99",
-    "sdk/runtime_config.go:673"
+    "sdk/runtime_config.go:675"
    ]
   },
   {
@@ -398,7 +398,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:88",
-    "sdk/runtime_config.go:153"
+    "sdk/runtime_config.go:155"
    ]
   },
   {
@@ -407,7 +407,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/logging.go:20",
-    "sdk/runtime_config.go:552"
+    "sdk/runtime_config.go:554"
    ]
   },
   {
@@ -425,7 +425,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/logging.go:26",
-    "sdk/runtime_config.go:557"
+    "sdk/runtime_config.go:559"
    ]
   },
   {
@@ -434,7 +434,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/logging.go:26",
-    "sdk/runtime_config.go:557"
+    "sdk/runtime_config.go:559"
    ]
   },
   {
@@ -442,10 +442,10 @@
    "claim": "Programmatic options applied after WithRuntimeConfig take precedence over YAML config",
    "verdict": "true",
    "evidence": [
-    "sdk/runtime_config.go:144",
-    "sdk/runtime_config.go:153",
+    "sdk/runtime_config.go:146",
+    "sdk/runtime_config.go:155",
     "sdk/runtime_config.go:84",
-    "sdk/sdk.go:550"
+    "sdk/sdk.go:561"
    ]
   },
   {
@@ -453,9 +453,9 @@
    "claim": "sdk.WithProvider can override YAML provider setting",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:482",
-    "sdk/provider_file.go:57",
-    "sdk/sdk.go:550"
+    "sdk/options.go:508",
+    "sdk/provider_file.go:58",
+    "sdk/sdk.go:561"
    ]
   },
   {

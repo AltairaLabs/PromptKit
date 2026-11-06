@@ -4,7 +4,7 @@ description: Open a conversation from a pack with sdk.Open, set options, handle 
 sidebar:
   order: 1
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/evals/handlers/length.go
     - runtime/evals/normalize.go
@@ -25,7 +25,7 @@ Open a conversation from a pack file with `sdk.Open()`, send a message, and clos
 
 ## Open the conversation
 
-1. Pass the pack path (relative or absolute) and the name of a prompt under `prompts` in the pack:
+1. Pass the pack path (relative or absolute) and the name of a prompt under `prompts` in the pack. `Open` caches each loaded pack by absolute path for the life of the process, so later calls for the same path do not re-read the file:
 
    ```go
    conv, err := sdk.Open("./app.pack.json", "assistant")
@@ -58,10 +58,13 @@ Open a conversation from a pack file with `sdk.Open()`, send a message, and clos
 
    `guardrails` is `github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails`. An input guardrail that matches blocks the LLM call and returns a canned assistant reply. See [Hooks & Guardrails Reference](/runtime/reference/hooks/) for the hook API.
 
-4. Check the error from `Open`. Its errors are plain messages (see [Troubleshoot](#troubleshoot)), so log them and stop:
+4. Check the error from `Open`. Match a cause with `errors.Is` against `sdk.ErrPackNotFound`, `sdk.ErrPromptNotFound` or `sdk.ErrProviderNotDetected`; the message keeps its detail (see [Troubleshoot](#troubleshoot)):
 
    ```go
    conv, err := sdk.Open("./app.pack.json", "assistant")
+   if errors.Is(err, sdk.ErrPackNotFound) {
+       log.Fatalf("pack missing: %v", err)
+   }
    if err != nil {
        log.Fatalf("failed to open: %v", err)
    }
@@ -110,10 +113,10 @@ The program prints the model's reply.
 
 | Error text | Cause |
 |---|---|
-| `failed to detect provider: no provider detected: set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY` | None of the provider keys is set, and no key or provider option was passed. |
-| `prompt "x" not found in pack (available: [...])` | The second argument is not a key under `prompts` in the pack. |
-| `failed to resolve pack path: pack file not found: <path>` | The pack path does not exist. |
-| `failed to load pack: ...` | The file cannot be read, is not valid JSON, or fails schema validation. |
+| `failed to detect provider: no provider detected: set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY` | None of the provider keys is set, and no key or provider option was passed. `errors.Is(err, sdk.ErrProviderNotDetected)` matches. |
+| `prompt "x" not found in pack (available: [...])` | The second argument is not a key under `prompts` in the pack. `errors.Is(err, sdk.ErrPromptNotFound)` matches. |
+| `failed to load pack <path>: failed to resolve pack path: pack file not found: <path>` | The pack path does not exist. `errors.Is(err, sdk.ErrPackNotFound)` matches. |
+| `failed to load pack <path>: ...` | The file cannot be read, is not valid JSON, or fails schema validation. The error is a `*sdk.PackError`. |
 
 ## Related
 

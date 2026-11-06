@@ -1,13 +1,13 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/conversations/send-messages.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "conv.Send(ctx, message any, opts ...SendOption) (*Response, error)",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:275"
+    "sdk/conversation.go:288"
    ]
   },
   {
@@ -68,7 +68,7 @@
    "claim": "the SDK maintains conversation history",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:275"
+    "sdk/conversation.go:288"
    ]
   },
   {
@@ -76,7 +76,7 @@
    "claim": "conv.Messages(ctx) returns []types.Message",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1342"
+    "sdk/conversation.go:1395"
    ]
   },
   {
@@ -92,7 +92,7 @@
    "claim": "conv.Clear() returns error and starts fresh",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1359"
+    "sdk/conversation.go:1412"
    ]
   },
   {
@@ -100,7 +100,7 @@
    "claim": "context.WithTimeout; errors.Is(err, context.DeadlineExceeded)",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:275"
+    "sdk/conversation.go:288"
    ]
   },
   {
@@ -108,16 +108,18 @@
    "claim": "errors.Is(err, sdk.ErrConversationClosed) from Send",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:215",
+    "sdk/conversation.go:228",
     "sdk/errors.go:11"
    ]
   },
   {
    "id": 14,
-   "claim": "errors.Is(err, sdk.ErrProviderNotDetected) from Send",
-   "verdict": "dead",
+   "claim": "Send returns *sdk.ProviderError for a provider API error status or a failed connection; StatusCode is 0 for a connection failure",
+   "verdict": "true",
    "evidence": [
-    "sdk/errors.go:26"
+    "sdk/conversation.go:1001",
+    "sdk/errors.go:156",
+    "sdk/errors_wrap.go:72"
    ]
   },
   {
@@ -125,8 +127,8 @@
    "claim": "Send accepts a string or *types.Message",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:352",
-    "sdk/conversation.go:360"
+    "sdk/conversation.go:365",
+    "sdk/conversation.go:373"
    ]
   },
   {
@@ -134,7 +136,7 @@
    "claim": "WithMessageMetadata attaches key-value data to the user message of one Send or Stream",
    "verdict": "true",
    "evidence": [
-    "sdk/message_metadata.go:32"
+    "sdk/message_metadata.go:34"
    ]
   },
   {
@@ -151,7 +153,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/types/message.go:97",
-    "sdk/message_metadata.go:77"
+    "sdk/message_metadata.go:79"
    ]
   },
   {
@@ -161,7 +163,7 @@
    "evidence": [
     "runtime/events/redact.go:101",
     "runtime/events/redact.go:27",
-    "runtime/events/types.go:591"
+    "runtime/events/types.go:601"
    ]
   },
   {
@@ -169,9 +171,8 @@
    "claim": "values must be JSON-serializable or Send returns an error; kept in decoded JSON form (float64, []any, map[string]any); Metadata() returns a copy",
    "verdict": "true",
    "evidence": [
-    "runtime/types/message.go:97",
-    "sdk/message_metadata.go:40",
-    "sdk/message_metadata.go:44"
+    "sdk/message_metadata.go:42",
+    "sdk/message_metadata.go:47"
    ]
   },
   {
@@ -179,7 +180,7 @@
    "claim": "passing *types.Message: metadata goes on a copy",
    "verdict": "true",
    "evidence": [
-    "sdk/message_metadata.go:74"
+    "sdk/message_metadata.go:66"
    ]
   },
   {
@@ -189,7 +190,7 @@
    "evidence": [
     "runtime/pipeline/stage/message_metadata_template.go:13",
     "runtime/pipeline/stage/message_metadata_template.go:79",
-    "runtime/providers/registry.go:503"
+    "runtime/providers/registry.go:549"
    ]
   },
   {
@@ -197,9 +198,9 @@
    "claim": "sdk.WithLLMProvider(sdk.ProviderSpec{Type, Model, MessageMetadataTemplate})",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:2572",
-    "sdk/options.go:2621",
-    "sdk/options.go:2741"
+    "sdk/options.go:2744",
+    "sdk/options.go:2801",
+    "sdk/options.go:2922"
    ]
   },
   {
@@ -241,7 +242,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/providers/registry.go:233",
-    "runtime/providers/registry.go:503"
+    "runtime/providers/registry.go:549"
    ]
   },
   {
@@ -265,8 +266,8 @@
    "claim": "if the model's stream fails after it started replying, Send returns the error and a non-nil Response with FinishReasonInterrupted",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:270",
-    "sdk/conversation.go:324"
+    "sdk/conversation.go:283",
+    "sdk/conversation.go:337"
    ]
   },
   {
@@ -274,6 +275,16 @@
    "claim": "Tutorial 2 link",
    "verdict": "true",
    "evidence": []
+  },
+  {
+   "id": 33,
+   "claim": "Send returns *sdk.ValidationError when a hook or guardrail denies the turn; sdk.AsValidationError extracts it; Stream delivers the same types in chunk.Error",
+   "verdict": "true",
+   "evidence": [
+    "sdk/errors.go:71",
+    "sdk/errors_wrap.go:50",
+    "sdk/streaming.go:364"
+   ]
   }
  ]
 }
