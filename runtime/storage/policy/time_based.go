@@ -271,7 +271,7 @@ type diskOutcome int
 
 const (
 	diskGone       diskOutcome = iota // the .meta was already gone
-	diskNoPolicy                      // the .meta names no policy: never expires
+	diskNoPolicy                      // the .meta names no policy and no expiry: never expires
 	diskNotExpired                    // not expired yet
 	diskDeleted                       // expired, and its files were deleted
 	diskFailed                        // unreadable, or a delete failed
@@ -309,7 +309,7 @@ func (h *TimeBasedPolicyHandler) enforceEntry(entry expiryEntry, now time.Time) 
 		switch outcome {
 		case diskGone, diskNoPolicy, diskDeleted:
 			// Nothing left to enforce: deleted here or elsewhere, or the .meta
-			// was rewritten with no policy and the media never expires.
+			// was rewritten with no policy and no expiry, and the media never expires.
 			delete(h.expiryIndex, entry.metaPath)
 		case diskNotExpired:
 			// The .meta was rewritten with a later expiry without a re-track;
@@ -654,8 +654,8 @@ func (h *TimeBasedPolicyHandler) TrackFile(metaPath string, expiresAt time.Time)
 // TrackMedia implements storage.MediaPolicyTracker. It adds the media whose
 // metadata file is at metaPath to the expiry index, expiring when
 // MediaExpiresAt says, so media stored after StartEnforcement has built the
-// index still expires. Media with no policy is not tracked; a policy
-// ParsePolicyName cannot parse is an error.
+// index still expires. Media with no policy and no ExpiresAt is not tracked; a
+// policy ParsePolicyName cannot parse is an error.
 func (h *TimeBasedPolicyHandler) TrackMedia(metaPath string, metadata *storage.MediaMetadata) error {
 	expiresAt, expires, err := mediaExpiry(metadata)
 	if err != nil || !expires {
@@ -666,9 +666,9 @@ func (h *TimeBasedPolicyHandler) TrackMedia(metaPath string, metadata *storage.M
 }
 
 // MediaExpiresAt implements storage.MediaExpiryReporter: media expires at its
-// ExpiresAt when that is set, and otherwise at its Timestamp plus its policy's
-// duration. Media with no policy never expires; a policy ParsePolicyName
-// cannot parse is an error.
+// ExpiresAt when that is set, with or without a policy, and otherwise at its
+// Timestamp plus its policy's duration. Media with neither never expires; a
+// policy ParsePolicyName cannot parse is an error.
 func (h *TimeBasedPolicyHandler) MediaExpiresAt(metadata *storage.MediaMetadata) (time.Time, bool, error) {
 	return mediaExpiry(metadata)
 }
@@ -676,17 +676,24 @@ func (h *TimeBasedPolicyHandler) MediaExpiresAt(metadata *storage.MediaMetadata)
 // mediaExpiry returns when media with metadata expires, as MediaExpiresAt
 // documents.
 func mediaExpiry(metadata *storage.MediaMetadata) (time.Time, bool, error) {
-	if metadata == nil || metadata.PolicyName == "" {
+	if metadata == nil {
 		return time.Time{}, false, nil
 	}
-	_, duration, err := ParsePolicyName(metadata.PolicyName)
-	if err != nil {
-		return time.Time{}, false, fmt.Errorf("failed to parse policy name: %w", err)
+	var duration time.Duration
+	if metadata.PolicyName != "" {
+		var err error
+		if _, duration, err = ParsePolicyName(metadata.PolicyName); err != nil {
+			return time.Time{}, false, fmt.Errorf("failed to parse policy name: %w", err)
+		}
 	}
-	if metadata.ExpiresAt != nil {
+	switch {
+	case metadata.ExpiresAt != nil:
 		return *metadata.ExpiresAt, true, nil
+	case metadata.PolicyName == "":
+		return time.Time{}, false, nil
+	default:
+		return metadata.Timestamp.Add(duration), true, nil
 	}
-	return metadata.Timestamp.Add(duration), true, nil
 }
 
 // UntrackFile removes a file from the in-memory expiry index. This should be
@@ -707,8 +714,8 @@ func (h *TimeBasedPolicyHandler) ExpiryIndexLen() int {
 }
 
 // errNoPolicy is returned by loadPolicyMetadata for a .meta that names no
-// policy: media that never expires.
-var errNoPolicy = errors.New("no policy name in metadata")
+// policy and sets no expiry: media that never expires.
+var errNoPolicy = errors.New("no policy name or expiry in metadata")
 
 // loadPolicyMetadata loads policy metadata from a .meta file.
 func (h *TimeBasedPolicyHandler) loadPolicyMetadata(metaPath string) (*Metadata, error) {
@@ -725,13 +732,12 @@ func (h *TimeBasedPolicyHandler) loadPolicyMetadata(metaPath string) (*Metadata,
 		return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
 	}
 
-	if mediaMetadata.PolicyName == "" {
-		return nil, errNoPolicy
-	}
-
-	expiresAt, _, err := mediaExpiry(&mediaMetadata)
+	expiresAt, expires, err := mediaExpiry(&mediaMetadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse policy: %w", err)
+	}
+	if !expires {
+		return nil, errNoPolicy
 	}
 
 	return &Metadata{

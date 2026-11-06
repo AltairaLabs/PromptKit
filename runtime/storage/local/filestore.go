@@ -357,9 +357,10 @@ func (fs *FileStore) dedupHitLocked(
 // reference that expires before the store asked. Only the retention changes:
 // the metadata on disk takes this store's policy and expiry and keeps the rest,
 // such as the run, session and timestamp of the store that wrote the file. A
-// store with no policy, and no DefaultPolicy to fall back on, asks to keep the
-// media forever, so it clears the file's retention: the metadata is left with
-// no policy and no expiry, which the policy handler treats as never expiring.
+// store with no policy or ExpiresAt, and no DefaultPolicy to fall back on,
+// asks to keep the media forever, so it clears the file's retention: the
+// metadata is left with no policy and no expiry, which the policy handler
+// treats as never expiring.
 // It does nothing when the handler does not implement
 // storage.MediaExpiryReporter. The caller holds the file's write guard.
 func (fs *FileStore) extendRetention(filePath string, metadata *storage.MediaMetadata) {

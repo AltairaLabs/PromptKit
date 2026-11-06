@@ -115,7 +115,7 @@ func (s *InstrumentedStorage) StoreMedia(ctx context.Context, content *types.Med
 StoreMedia traces, times, and announces a store operation.
 
 <a name="MediaExpiryReporter"></a>
-## type [MediaExpiryReporter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L175-L181>)
+## type [MediaExpiryReporter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L175-L182>)
 
 MediaExpiryReporter is implemented by a MediaPolicyHandler that can say when stored media expires. When a deduplicating store returns an existing file for new content, it uses MediaExpiresAt to keep that file for as long as the longest\-lived store that references it asked for.
 
@@ -123,14 +123,15 @@ MediaExpiryReporter is implemented by a MediaPolicyHandler that can say when sto
 type MediaExpiryReporter interface {
     // MediaExpiresAt returns when media with this metadata expires under its
     // PolicyName, honoring ExpiresAt when it is set. expires is false when the
-    // media never expires, for example when PolicyName is empty. An unknown
+    // media never expires, for example when PolicyName and ExpiresAt are both
+    // empty. An unknown
     // policy is an error.
     MediaExpiresAt(metadata *MediaMetadata) (expiresAt time.Time, expires bool, err error)
 }
 ```
 
 <a name="MediaMetadata"></a>
-## type [MediaMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/types.go#L9-L45>)
+## type [MediaMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/types.go#L9-L47>)
 
 MediaMetadata contains metadata about stored media for organization and policy enforcement. Storage uses this metadata to organize media files and apply retention policies.
 
@@ -166,10 +167,12 @@ type MediaMetadata struct {
     // PolicyName is the retention policy to apply to this media
     PolicyName string `json:"policy_name,omitempty"`
 
-    // ExpiresAt, when set, is when media with a PolicyName expires, in place
-    // of Timestamp plus the policy's duration. A deduplicating store sets it
-    // when a later store of the same content extends the shared file's
-    // retention, so the file keeps the first store's Timestamp.
+    // ExpiresAt, when set, is when the media expires, with or without a
+    // PolicyName; it takes the place of Timestamp plus the policy's duration.
+    // Media with neither ExpiresAt nor PolicyName never expires. A
+    // deduplicating store sets it when a later store of the same content
+    // extends the shared file's retention, so the file keeps the first
+    // store's Timestamp.
     ExpiresAt *time.Time `json:"expires_at,omitempty"`
 }
 ```
@@ -375,7 +378,7 @@ type MediaWriteGuard interface {
 ```
 
 <a name="OrganizationMode"></a>
-## type [OrganizationMode](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/types.go#L48>)
+## type [OrganizationMode](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/types.go#L50>)
 
 OrganizationMode defines how media files are organized in storage.
 
@@ -438,7 +441,7 @@ type PolicyHandler interface {
 ```
 
 <a name="Reference"></a>
-## type [Reference](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/types.go#L63>)
+## type [Reference](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/types.go#L65>)
 
 Reference is a reference to media stored in a backend. The format and meaning is backend\-specific.
 

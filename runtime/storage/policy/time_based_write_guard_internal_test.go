@@ -102,9 +102,10 @@ func TestMediaExpiresAt(t *testing.T) {
 	assert.True(t, expires)
 	assert.Equal(t, extended, at, "ExpiresAt takes the place of Timestamp plus the duration")
 
-	_, expires, err = h.MediaExpiresAt(&storage.MediaMetadata{Timestamp: restoreNow, ExpiresAt: &extended})
+	at, expires, err = h.MediaExpiresAt(&storage.MediaMetadata{Timestamp: restoreNow, ExpiresAt: &extended})
 	require.NoError(t, err)
-	assert.False(t, expires, "ExpiresAt without a policy does not make media expire")
+	assert.True(t, expires, "ExpiresAt is honored without a policy")
+	assert.Equal(t, extended, at)
 }
 
 // Media whose metadata carries ExpiresAt is tracked, indexed and enforced at
@@ -138,4 +139,27 @@ func TestExpiresAt_DrivesTrackingIndexingAndEnforcement(t *testing.T) {
 	now = restoreNow.Add(61 * time.Minute)
 	require.NoError(t, scanned.EnforcePolicy(context.Background(), dir))
 	assert.NoFileExists(t, media, "deleted once ExpiresAt passes")
+}
+
+// The index build reads an expiry from a .meta that sets ExpiresAt and names
+// no policy, and the index pass deletes the media once it passes.
+func TestBuildExpiryIndex_ExpiresAtWithoutAPolicy(t *testing.T) {
+	now := restoreNow
+	h := NewTimeBasedPolicyHandler(0, WithClock(func() time.Time { return now }))
+	dir := t.TempDir()
+	media := filepath.Join(dir, "explicit.jpg")
+	expiresAt := restoreNow.Add(time.Hour)
+	data, err := json.Marshal(storage.MediaMetadata{Timestamp: restoreNow, ExpiresAt: &expiresAt})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(media, []byte("x"), 0o600))
+	require.NoError(t, os.WriteFile(media+".meta", data, 0o600))
+
+	require.NoError(t, h.BuildExpiryIndex(dir))
+	at, ok := h.indexedExpiry(media + ".meta")
+	require.True(t, ok, "the scan indexes ExpiresAt without a policy")
+	assert.Equal(t, expiresAt, at)
+
+	now = restoreNow.Add(61 * time.Minute)
+	require.NoError(t, h.EnforcePolicy(context.Background(), dir))
+	assert.NoFileExists(t, media)
 }
