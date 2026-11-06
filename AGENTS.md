@@ -90,7 +90,14 @@ func processItem(item Item) error {
 3. Run `make verify` to check locally
 4. Commit (pre-commit hook runs automatically)
 5. Fix any issues and recommit
-6. Push to GitHub
+6. Code-review the diff before opening the PR (an independent reviewer, e.g.
+   `/code-review`), and fix what it confirms
+7. Push and open the PR
+8. Merge on green: once every required check passes, squash-merge it
+   (`gh pr merge <n> --squash --delete-branch`). Auto-merge is disabled on this
+   repo, so wait on the checks (`gh pr checks <n> --watch --required`) and then
+   merge. Don't hold a reviewed, green PR for a further review round, and don't
+   run a serial merge queue: rebase only a PR that has conflicts.
 
 ### Code Architecture Constraints
 
