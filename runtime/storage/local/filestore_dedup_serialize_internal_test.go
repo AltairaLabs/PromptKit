@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,59 +14,92 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// lockProbeHandler reports expiry times and records, each time the store asks,
-// whether the store's dedup lock was free at that moment.
+// lockProbeHandler reports expiry times and tracks media, recording at each
+// call whether the store's dedup lock was held at that moment.
 type lockProbeHandler struct {
-	fs        *FileStore
-	lockFree  []bool
-	expiresAt time.Time
+	fs    *FileStore
+	calls []string
 }
 
 func (h *lockProbeHandler) ApplyPolicy(context.Context, *storage.MediaMetadata) error { return nil }
 func (h *lockProbeHandler) EnforcePolicy(context.Context, string) error               { return nil }
 
-func (h *lockProbeHandler) MediaExpiresAt(*storage.MediaMetadata) (time.Time, bool, error) {
+func (h *lockProbeHandler) probe(call string) {
+	state := "held"
 	if h.fs.dedupMu.TryLock() {
 		h.fs.dedupMu.Unlock()
-		h.lockFree = append(h.lockFree, true)
-	} else {
-		h.lockFree = append(h.lockFree, false)
+		state = "free"
 	}
-	return h.expiresAt, true, nil
+	h.calls = append(h.calls, call+":"+state)
 }
 
-// A dedup hit compares and rewrites the shared file's metadata while it holds
-// dedupMu, so two hits on one file cannot interleave their load, compare and
-// write and leave the shorter retention, or a torn file, behind.
-func TestDedupHit_ExtendsRetentionUnderTheDedupLock(t *testing.T) {
-	for name, content := range map[string]func() *types.MediaContent{
-		"inline": func() *types.MediaContent {
+func (h *lockProbeHandler) MediaExpiresAt(metadata *storage.MediaMetadata) (time.Time, bool, error) {
+	h.probe("expiry")
+	return metadata.Timestamp.Add(time.Hour), true, nil
+}
+
+func (h *lockProbeHandler) TrackMedia(string, *storage.MediaMetadata) error {
+	h.probe("track")
+	return nil
+}
+
+// Every write of a deduplicated file's metadata, by the store that writes the
+// file and by a later hit that extends its retention, happens under dedupMu.
+// So no two stores of the same content can interleave their metadata writes
+// and leave the shorter retention, or a torn file, behind.
+func TestDedup_MetadataWritesRunUnderTheDedupLock(t *testing.T) {
+	for name, content := range map[string]func(t *testing.T) *types.MediaContent{
+		"inline": func(*testing.T) *types.MediaContent {
 			data := base64.StdEncoding.EncodeToString([]byte("serialized"))
 			return &types.MediaContent{Data: &data, MIMEType: "image/jpeg"}
 		},
+		"streaming": func(t *testing.T) *types.MediaContent {
+			path := filepath.Join(t.TempDir(), "src.bin")
+			require.NoError(t, os.WriteFile(path, []byte("serialized"), 0o600))
+			return &types.MediaContent{FilePath: &path, MIMEType: "image/jpeg"}
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			handler := &lockProbeHandler{expiresAt: time.Now()}
+			handler := &lockProbeHandler{}
 			fs, err := NewFileStore(FileStoreConfig{
 				BaseDir: t.TempDir(), DefaultPolicy: "p", EnableDeduplication: true,
 			}, WithPolicyHandler(handler))
 			require.NoError(t, err)
 			handler.fs = fs
-			meta := func() *storage.MediaMetadata {
-				return &storage.MediaMetadata{SessionID: "s", MIMEType: "image/jpeg", Timestamp: time.Now()}
+			base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+			meta := func(ts time.Time) *storage.MediaMetadata {
+				return &storage.MediaMetadata{SessionID: "s", MIMEType: "image/jpeg", Timestamp: ts}
 			}
+			src := content(t)
 
-			_, err = fs.StoreMedia(context.Background(), content(), meta())
+			_, err = fs.StoreMedia(context.Background(), src, meta(base))
 			require.NoError(t, err)
-			_, err = fs.StoreMedia(context.Background(), content(), meta())
-			require.NoError(t, err)
+			assert.Equal(t, []string{"track:held"}, handler.calls, "the miss tracks its metadata under dedupMu")
 
-			require.NotEmpty(t, handler.lockFree, "the hit asks the handler for expiry times")
-			for _, free := range handler.lockFree {
-				assert.False(t, free, "the retention update runs under dedupMu")
-			}
+			handler.calls = nil // a later hit outlasts the metadata on disk
+			_, err = fs.StoreMedia(context.Background(), src, meta(base.Add(time.Minute)))
+			require.NoError(t, err)
+			assert.Equal(t, []string{"expiry:held", "expiry:held", "track:held"}, handler.calls,
+				"the hit compares and rewrites the metadata under dedupMu")
 		})
 	}
+}
+
+// writeFileAtomic writes through a temporary file of its own, so it does not
+// depend on, or collide over, a fixed temporary name next to the target.
+func TestWriteFileAtomic_UsesItsOwnTemporaryFile(t *testing.T) {
+	fs, err := NewFileStore(FileStoreConfig{BaseDir: t.TempDir()})
+	require.NoError(t, err)
+	target := filepath.Join(t.TempDir(), "x.meta")
+	require.NoError(t, os.Mkdir(target+".tmp", 0o700)) // blocks a fixed "<path>.tmp"
+
+	require.NoError(t, fs.writeFileAtomic(target, []byte("data")))
+	got, err := os.ReadFile(target)
+	require.NoError(t, err)
+	assert.Equal(t, "data", string(got))
+	entries, err := os.ReadDir(filepath.Dir(target))
+	require.NoError(t, err)
+	assert.Len(t, entries, 2, "no temporary file is left behind")
 }
 
 // Dropping a dedup entry whose file is gone also drops its reference count,

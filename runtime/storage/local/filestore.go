@@ -256,15 +256,16 @@ func (fs *FileStore) StoreMedia(
 		return "", err
 	}
 
-	// Update deduplication index (lock already held from check above)
-	if fs.config.EnableDeduplication && contentHash != "" {
-		fs.registerDedupLocked(contentHash, filePath)
-	}
-
-	// Store metadata alongside the file
+	// Store metadata alongside the file, before releasing dedupMu, so a
+	// concurrent hit on the new file cannot write its metadata in between.
 	if err := fs.storeMetadata(filePath, metadata); err != nil {
 		// Log but don't fail
 		logger.Warn("Failed to store metadata", "path", filePath, "error", err)
+	}
+
+	// Update deduplication index (lock already held from check above)
+	if fs.config.EnableDeduplication && contentHash != "" {
+		fs.registerDedupLocked(contentHash, filePath)
 	}
 
 	return storage.Reference(filePath), nil
@@ -584,22 +585,14 @@ func (fs *FileStore) storeMediaStreaming(
 		logger.Warn("failed to chmod stored file", "path", finalPath, "error", err)
 	}
 
-	if fs.config.EnableDeduplication {
-		fs.dedupIndex[hashStr] = finalPath
-		fs.dedupDirty = true
-		fs.dedupMu.Unlock()
-
-		fs.refMu.Lock()
-		fs.refCounts[finalPath] = 1
-		fs.refMu.Unlock()
-
-		if err := fs.saveDedupIndex(); err != nil {
-			logger.Warn("failed to persist dedup index", "error", err)
-		}
-	}
-
+	// Store metadata before releasing dedupMu, so a concurrent hit on the new
+	// file cannot write its metadata in between.
 	if err := fs.storeMetadata(finalPath, metadata); err != nil {
 		logger.Warn("Failed to store metadata", "path", finalPath, "error", err)
+	}
+
+	if fs.config.EnableDeduplication {
+		fs.registerDedupLocked(hashStr, finalPath)
 	}
 
 	// metadata.SizeBytes used elsewhere for SizeKB on MediaContent.
@@ -685,49 +678,59 @@ func (fs *FileStore) DeleteMedia(ctx context.Context, reference storage.Referenc
 		return fmt.Errorf(errInvalidMediaReference, err)
 	}
 
-	// Check reference count if deduplication is enabled
-	if fs.config.EnableDeduplication {
-		fs.refMu.Lock()
-		count := fs.refCounts[filePath]
-		if count > 1 {
-			fs.refCounts[filePath]--
-			fs.refMu.Unlock()
-			return nil // Don't delete, still referenced
+	if !fs.config.EnableDeduplication {
+		if err := removeMediaFiles(filePath); err != nil {
+			return err
 		}
-		delete(fs.refCounts, filePath)
+		fs.cleanupEmptyDirs(filepath.Dir(filePath))
+		return nil
+	}
+
+	// Hold dedupMu from the reference-count decision through removing the
+	// files and the index entry, so a concurrent store cannot get this path
+	// back as a dedup hit and then have the file deleted under it.
+	fs.dedupMu.Lock()
+	fs.refMu.Lock()
+	if fs.refCounts[filePath] > 1 {
+		fs.refCounts[filePath]--
 		fs.refMu.Unlock()
-	}
-
-	// Delete metadata file
-	metadataPath := filePath + ".meta"
-	_ = os.Remove(metadataPath)
-
-	// Delete the file
-	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to delete media: %w", err)
-	}
-
-	// Clean up deduplication index
-	if fs.config.EnableDeduplication {
-		fs.dedupMu.Lock()
-		for hash, path := range fs.dedupIndex {
-			if path == filePath {
-				delete(fs.dedupIndex, hash)
-				fs.dedupDirty = true
-				break
-			}
-		}
 		fs.dedupMu.Unlock()
+		return nil // Don't delete, still referenced
+	}
+	delete(fs.refCounts, filePath)
+	fs.refMu.Unlock()
 
-		// Persist index (skips write if not dirty)
-		if err := fs.saveDedupIndex(); err != nil {
-			logger.Warn("failed to persist dedup index", "error", err)
+	if err := removeMediaFiles(filePath); err != nil {
+		fs.dedupMu.Unlock()
+		return err
+	}
+	for hash, path := range fs.dedupIndex {
+		if path == filePath {
+			delete(fs.dedupIndex, hash)
+			fs.dedupDirty = true
+			break
 		}
+	}
+	fs.dedupMu.Unlock()
+
+	// Persist index (skips write if not dirty)
+	if err := fs.saveDedupIndex(); err != nil {
+		logger.Warn("failed to persist dedup index", "error", err)
 	}
 
 	// Try to remove empty parent directories
 	fs.cleanupEmptyDirs(filepath.Dir(filePath))
 
+	return nil
+}
+
+// removeMediaFiles removes a media file and its metadata file. A media file
+// that is already gone is not an error.
+func removeMediaFiles(filePath string) error {
+	_ = os.Remove(filePath + ".meta")
+	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to delete media: %w", err)
+	}
 	return nil
 }
 
@@ -870,15 +873,35 @@ func (fs *FileStore) generateFilePath(
 	return filepath.Join(fs.config.BaseDir, subdir, filename), nil
 }
 
+// writeFileAtomic writes data to path through a temporary file of its own in
+// the same directory, then renames it into place, so readers never see a
+// partial file and two concurrent writers never share a temporary file.
 func (fs *FileStore) writeFileAtomic(path string, data []byte) error {
-	// Write to temporary file
-	tempPath := path + ".tmp"
-	if err := os.WriteFile(tempPath, data, filePermissions); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tempPath := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tempPath)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+	if err := os.Chmod(tempPath, filePermissions); err != nil {
+		_ = os.Remove(tempPath)
 		return err
 	}
 
 	// Rename to final path (atomic on POSIX systems)
-	return os.Rename(tempPath, path)
+	if err := os.Rename(tempPath, path); err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+	return nil
 }
 
 // applyPolicy asks the configured PolicyHandler to apply the media's effective
