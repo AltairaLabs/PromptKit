@@ -274,7 +274,7 @@ cap := sdk.NewSkillsCapability(
 conv, err := sdk.Open("base.pack.json", "assistant", sdk.WithCapability(cap))
 ```
 
-You can pass one capability to many `Open` calls, including concurrent ones. The SDK never modifies it. An `Open` that adds skill sources, `WithSkillSelectorOption` or `WithMaxActiveSkillsOption` the capability lacks runs on its own copy, so those settings reach only that conversation.
+You can pass one capability to many `Open` calls, including concurrent ones. The SDK never modifies it. An `Open` runs on its own copy when it adds something the capability lacks: skill sources, `WithSkillSelectorOption`, `WithMaxActiveSkillsOption`, or a skills selector bound by the runtime config (`spec.skills.selector`). Those settings reach only that conversation.
 
 ## Eval types
 

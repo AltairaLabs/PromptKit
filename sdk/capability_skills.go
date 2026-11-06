@@ -71,6 +71,10 @@ func NewSkillsCapability(
 // c's sources and options plus the open's code-added sources and skill
 // options. c is never modified, so a host sharing it across opens keeps it as
 // it built it (#2398).
+//
+// An open whose RuntimeConfig binds a skills selector that resolves gets its own
+// capability too. The executor fixes its selector when it is built, so a shared
+// capability would apply the first open's selector to every later one.
 func (c *SkillsCapability) forOpen(extra []skills.SkillSource, cfg *config) *SkillsCapability {
 	var added []skills.SkillSource
 	for _, src := range extra {
@@ -80,7 +84,8 @@ func (c *SkillsCapability) forOpen(extra []skills.SkillSource, cfg *config) *Ski
 	}
 	setsSelector := cfg.skillSelector != nil && c.selector == nil
 	setsMaxActive := cfg.maxActiveSkills > 0 && c.maxActive == 0
-	if len(added) == 0 && !setsSelector && !setsMaxActive {
+	bindsRuntimeSelector := cfg.skillsSelectorName != "" && cfg.selectors[cfg.skillsSelectorName] != nil
+	if len(added) == 0 && !setsSelector && !setsMaxActive && !bindsRuntimeSelector {
 		return c
 	}
 	own := &SkillsCapability{
