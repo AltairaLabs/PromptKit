@@ -289,7 +289,7 @@ var ErrSSEIdleTimeout = fmt.Errorf("a2a: SSE idle timeout exceeded")
 ```
 
 <a name="ExtractResponseParts"></a>
-## func [ExtractResponseParts](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L765>)
+## func [ExtractResponseParts](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L767>)
 
 ```go
 func ExtractResponseParts(task *Task) []types.ContentPart
@@ -298,7 +298,7 @@ func ExtractResponseParts(task *Task) []types.ContentPart
 ExtractResponseParts converts all A2A Parts from a completed task into PromptKit ContentParts. It collects parts from the status message \(if present\) and then all artifacts. Parts that fail conversion, such as structured data, are skipped.
 
 <a name="ExtractResponseText"></a>
-## func [ExtractResponseText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L794>)
+## func [ExtractResponseText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L796>)
 
 ```go
 func ExtractResponseText(task *Task) string
@@ -750,7 +750,7 @@ func WithSSEIdleTimeout(d time.Duration) ClientOption
 WithSSEIdleTimeout sets the idle timeout for SSE streams; the default is [DefaultSSEIdleTimeout](<#DefaultSSEIdleTimeout>). If no line is received within this duration, the stream is considered stale: reading stops, the channel returned by SendMessageStream receives a last event whose Error is [ErrSSEIdleTimeout](<#ErrSSEIdleTimeout>), and the channel is closed, so callers can tell a stall from a finished stream and reconnect. A zero or negative value disables the idle timeout.
 
 <a name="Executor"></a>
-## type [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L154-L170>)
+## type [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L155-L171>)
 
 Executor implements tools.Executor and tools.MultimodalExecutor for A2A agent tools. It dispatches tool calls to remote A2A agents via the A2A client.
 
@@ -765,7 +765,7 @@ type Executor struct {
 ```
 
 <a name="NewExecutor"></a>
-### func [NewExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L175>)
+### func [NewExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L176>)
 
 ```go
 func NewExecutor(opts ...ExecutorOption) *Executor
@@ -774,7 +774,7 @@ func NewExecutor(opts ...ExecutorOption) *Executor
 NewExecutor creates a new A2A executor with optional configuration. The executor starts a background goroutine for cache cleanup. Call Close when you are done with the executor.
 
 <a name="Executor.Close"></a>
-### func \(\*Executor\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L609>)
+### func \(\*Executor\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L611>)
 
 ```go
 func (e *Executor) Close() error
@@ -783,7 +783,7 @@ func (e *Executor) Close() error
 Close stops the background cleanup goroutine and clears the client cache. Calling it more than once is safe.
 
 <a name="Executor.Execute"></a>
-### func \(\*Executor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L388-L390>)
+### func \(\*Executor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L389-L391>)
 
 ```go
 func (e *Executor) Execute(ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error)
@@ -792,7 +792,7 @@ func (e *Executor) Execute(ctx context.Context, descriptor *tools.ToolDescriptor
 Execute calls a remote A2A agent with the tool arguments and returns the response.
 
 <a name="Executor.ExecuteMultimodal"></a>
-### func \(\*Executor\) [ExecuteMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L410-L412>)
+### func \(\*Executor\) [ExecuteMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L411-L413>)
 
 ```go
 func (e *Executor) ExecuteMultimodal(ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, []types.ContentPart, error)
@@ -801,7 +801,7 @@ func (e *Executor) ExecuteMultimodal(ctx context.Context, descriptor *tools.Tool
 ExecuteMultimodal calls a remote A2A agent and returns both JSON result and multimodal content parts. It implements \[tools.MultimodalExecutor\].
 
 <a name="Executor.Name"></a>
-### func \(\*Executor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L192>)
+### func \(\*Executor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L193>)
 
 ```go
 func (e *Executor) Name() string
@@ -810,7 +810,7 @@ func (e *Executor) Name() string
 Name returns "a2a" to match the Mode on A2A tool descriptors.
 
 <a name="ExecutorOption"></a>
-## type [ExecutorOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L110>)
+## type [ExecutorOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L111>)
 
 ExecutorOption configures an [Executor](<#Executor>).
 
@@ -819,7 +819,7 @@ type ExecutorOption func(*Executor)
 ```
 
 <a name="WithClientTTL"></a>
-### func [WithClientTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L124>)
+### func [WithClientTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L125>)
 
 ```go
 func WithClientTTL(d time.Duration) ExecutorOption
@@ -828,7 +828,7 @@ func WithClientTTL(d time.Duration) ExecutorOption
 WithClientTTL sets the time\-to\-live for cached A2A clients. Clients not used within this duration are evicted from the cache.
 
 <a name="WithMaxClients"></a>
-### func [WithMaxClients](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L130>)
+### func [WithMaxClients](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L131>)
 
 ```go
 func WithMaxClients(n int) ExecutorOption
@@ -837,7 +837,7 @@ func WithMaxClients(n int) ExecutorOption
 WithMaxClients sets the maximum number of cached A2A clients. When exceeded, the least recently used client is evicted.
 
 <a name="WithNoRetry"></a>
-### func [WithNoRetry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L118>)
+### func [WithNoRetry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L119>)
 
 ```go
 func WithNoRetry() ExecutorOption
@@ -846,7 +846,7 @@ func WithNoRetry() ExecutorOption
 WithNoRetry disables retry for the A2A executor.
 
 <a name="WithRetryPolicy"></a>
-### func [WithRetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L113>)
+### func [WithRetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L114>)
 
 ```go
 func WithRetryPolicy(policy RetryPolicy) ExecutorOption
@@ -1244,9 +1244,9 @@ func (e *RPCError) Error() string
 
 
 <a name="RetryPolicy"></a>
-## type [RetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L89-L98>)
+## type [RetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L89-L99>)
 
-RetryPolicy configures retry behavior for the A2A executor. The executor retries only the SendMessage call, on HTTP 429, 502, 503 and 504 and on transient network errors, and waits an exponentially growing delay between attempts, with random jitter of up to 50% added on top and the total capped at MaxDelay.
+RetryPolicy configures retry behavior for the A2A executor. The executor retries only the SendMessage call, on HTTP 429, 502, 503 and 504 and on transient network errors, and waits an exponentially growing delay between attempts, capped at MaxDelay, with random jitter that shortens each delay by up to 50%. No delay exceeds MaxDelay, and delays at the cap still vary.
 
 ```go
 type RetryPolicy struct {
@@ -1255,14 +1255,15 @@ type RetryPolicy struct {
     // InitialDelay is the delay before the first retry. Zero or negative means
     // DefaultA2AInitialDelay.
     InitialDelay time.Duration
-    // MaxDelay caps each delay, jitter included. Zero or negative means
+    // MaxDelay caps the exponential delay; jitter then shortens it by up to
+    // 50%, so no delay exceeds MaxDelay. Zero or negative means
     // DefaultA2AMaxDelay.
     MaxDelay time.Duration
 }
 ```
 
 <a name="DefaultRetryPolicy"></a>
-### func [DefaultRetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L101>)
+### func [DefaultRetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L102>)
 
 ```go
 func DefaultRetryPolicy() RetryPolicy
