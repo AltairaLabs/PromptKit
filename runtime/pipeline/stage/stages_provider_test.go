@@ -2306,10 +2306,13 @@ func (p *delayedStreamProvider) Predict(
 }
 
 func TestIdleTimeout_SlowProviderExceedsTimeout(t *testing.T) {
-	// Provider delays 2s before first chunk; idle timeout is 200ms.
-	// The pipeline should be cancelled by the idle timeout — the provider
-	// never produces a response because ctx is cancelled before the delay.
-	provider := &delayedStreamProvider{delay: 2 * time.Second, response: "late"}
+	// The provider never answers. Once the fake idle clock passes the 200ms
+	// window the pipeline must end the turn with ErrIdleTimeout, with no reply:
+	// the provider was cancelled before producing one.
+	const idle = 200 * time.Millisecond
+	provider := &delayedStreamProvider{
+		response: "late", gate: make(chan struct{}), waiting: make(chan struct{}),
+	}
 
 	turnState := NewTurnState()
 	turnState.SystemPrompt = "You are a helper"
@@ -2319,29 +2322,41 @@ func TestIdleTimeout_SlowProviderExceedsTimeout(t *testing.T) {
 	}, nil, nil, turnState)
 
 	config := DefaultPipelineConfig()
-	config.IdleTimeout = 200 * time.Millisecond
+	config.IdleTimeout = idle
 	config.ExecutionTimeout = 0
 
 	pl, err := NewPipelineBuilderWithConfig(config).
 		Chain(providerStage).
 		Build()
 	require.NoError(t, err)
+	clock := &fakeIdleTimer{}
+	pl.idleAfterFunc = clock.afterFunc
 
 	userMsg := types.Message{Role: "user", Content: "hello"}
 	elem := NewMessageElement(&userMsg)
 
-	start := time.Now()
-	result, _ := pl.ExecuteSync(context.Background(), elem)
-	elapsed := time.Since(start)
+	type outcome struct {
+		result *ExecutionResult
+		err    error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		result, execErr := pl.ExecuteSync(context.Background(), elem)
+		done <- outcome{result, execErr}
+	}()
 
-	// Pipeline terminates at ~200ms (idle timeout), not 2s (provider delay).
-	// No assistant response is produced because the provider was cancelled.
-	assert.Less(t, elapsed, 1*time.Second,
-		"should terminate at ~200ms (idle timeout), not 2s (provider delay)")
-	// The provider was cancelled before producing content — response is either
-	// nil or an empty shell depending on pipeline timing.
-	if result.Response != nil {
-		assert.Empty(t, result.Response.Content,
+	<-provider.waiting
+	clock.advance(idle)
+	var got outcome
+	select {
+	case got = <-done:
+	case <-time.After(idleProbeBound):
+		t.Fatal("the idle timeout did not end the turn")
+	}
+
+	assert.ErrorIs(t, got.err, ErrIdleTimeout)
+	if got.result.Response != nil {
+		assert.Empty(t, got.result.Response.Content,
 			"response content should be empty when provider is cancelled by idle timeout")
 	}
 }

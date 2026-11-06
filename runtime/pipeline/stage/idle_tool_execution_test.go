@@ -113,26 +113,53 @@ func TestExecuteToolCalls_HeartbeatStopsWhenToolsFinish(t *testing.T) {
 	}
 }
 
+// fakeTicker is a heartbeat ticker for keepIdleAliveWith that ticks only when
+// the test sends on ticks. stopped closes when the heartbeat stops its ticker,
+// which it does as it exits.
+type fakeTicker struct {
+	interval time.Duration
+	ticks    chan time.Time
+	stopped  chan struct{}
+}
+
+func newFakeTicker() *fakeTicker {
+	return &fakeTicker{ticks: make(chan time.Time), stopped: make(chan struct{})}
+}
+
+func (f *fakeTicker) start(d time.Duration) (<-chan time.Time, func()) {
+	f.interval = d
+	return f.ticks, func() { close(f.stopped) }
+}
+
 func TestKeepIdleAlive_ResetsUntilStopped(t *testing.T) {
-	const interval = 20 * time.Millisecond
+	const timeout = 40 * time.Millisecond
 
 	var resets atomic.Int64
-	ctx := contextWithIdleReset(context.Background(), func() { resets.Add(1) }, interval)
+	ctx := contextWithIdleReset(context.Background(), func() { resets.Add(1) }, timeout)
+	ticker := newFakeTicker()
 
-	stop := keepIdleAlive(ctx)
-	time.Sleep(6 * interval)
+	stop := keepIdleAliveWith(ctx, ticker.start)
+	assert.Equal(t, timeout/2, ticker.interval, "the heartbeat ticks every half-window")
+	for range 3 {
+		select {
+		case ticker.ticks <- time.Time{}: // the heartbeat takes each tick
+		case <-time.After(idleProbeBound):
+			t.Fatal("the heartbeat stopped taking ticks while running")
+		}
+	}
 	stop()
 
-	assert.Positive(t, resets.Load(), "heartbeat should have reset the idle timer while running")
-
-	// A tick already in flight when stop() ran may still land, so take the
-	// baseline after things settle rather than the instant stop() returns —
-	// what matters is that resets cease, not their exact count.
-	time.Sleep(4 * interval)
-	settled := resets.Load()
-
-	time.Sleep(6 * interval)
-	assert.Equal(t, settled, resets.Load(), "heartbeat should stop resetting once stopped")
+	select {
+	case <-ticker.stopped:
+	case <-time.After(idleProbeBound):
+		t.Fatal("the heartbeat kept running after stop")
+	}
+	assert.Equal(t, int64(3), resets.Load(), "each tick while running resets the idle timer once")
+	select {
+	case ticker.ticks <- time.Time{}:
+		t.Fatal("the heartbeat took a tick after stop")
+	default:
+	}
 }
 
 func TestKeepIdleAlive_StopIsIdempotent(t *testing.T) {
@@ -146,14 +173,17 @@ func TestKeepIdleAlive_StopIsIdempotent(t *testing.T) {
 }
 
 func TestKeepIdleAlive_NoIdleTimeoutConfigured(t *testing.T) {
+	noTicker := func(time.Duration) (<-chan time.Time, func()) {
+		t.Error("no heartbeat should run when the idle timeout is disabled")
+		return nil, func() {}
+	}
+
 	// No idle control on the context at all.
-	assert.NotPanics(t, func() { keepIdleAlive(context.Background())() })
+	assert.NotPanics(t, func() { keepIdleAliveWith(context.Background(), noTicker)() })
 
 	// Idle control present but the timeout is disabled.
 	var resets atomic.Int64
 	ctx := contextWithIdleReset(context.Background(), func() { resets.Add(1) }, 0)
-	stop := keepIdleAlive(ctx)
-	time.Sleep(30 * time.Millisecond)
-	stop()
+	keepIdleAliveWith(ctx, noTicker)()
 	assert.Zero(t, resets.Load(), "no heartbeat should run when the idle timeout is disabled")
 }

@@ -12,16 +12,16 @@ import (
 )
 
 func TestWithIdleTimeout_CancelsAfterIdle(t *testing.T) {
-	ctx, cancel, _ := withIdleTimeout(context.Background(), 50*time.Millisecond)
+	const idle = 50 * time.Millisecond
+	clock := &fakeIdleTimer{}
+	ctx, cancel, _ := withIdleTimer(context.Background(), idle, clock.afterFunc)
 	defer cancel()
 
-	select {
-	case <-ctx.Done():
-		// Expected: idle timeout fired
-	case <-time.After(300 * time.Millisecond):
-		t.Fatal("context should have been cancelled by idle timeout")
-	}
+	clock.advance(idle - time.Nanosecond)
+	require.NoError(t, ctx.Err(), "the idle timer fired before its window ended")
 
+	clock.advance(time.Nanosecond)
+	require.Error(t, ctx.Err(), "context should have been cancelled by idle timeout")
 	assert.ErrorIs(t, context.Cause(ctx), ErrIdleTimeout)
 }
 
