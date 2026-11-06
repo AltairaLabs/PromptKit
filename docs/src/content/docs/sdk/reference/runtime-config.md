@@ -4,7 +4,7 @@ description: YAML schema reference for declarative SDK configuration
 sidebar:
   order: 8
 verified:
-  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
+  commit: f3409378ad6d15d47f6fc12093f3b0df9052b335
   sources:
     - pkg/config/logging.go
     - pkg/config/provider_tuning.go
@@ -372,7 +372,7 @@ Map of external hook bindings. Keys are hook names (arbitrary identifiers). Each
 | `args` | string[] | no | Additional command arguments. |
 | `hook` | string | yes | Hook interface type: `provider`, `tool`, `session`, or `eval`. |
 | `phases` | string[] | no | Lifecycle phases to intercept. See below. |
-| `mode` | string | no | Execution mode: `filter` (synchronous, can modify/deny; default) or `observe` (the runtime waits for the process, bounded by `timeout_ms`, then discards its output and any failure). |
+| `mode` | string | no | Execution mode: `filter` (synchronous, can modify/deny; default) or `observe` (the runtime waits for the process, bounded by `timeout_ms` (10 seconds when unset), then discards its output and any failure). |
 | `env` | string[] | no | Environment variable names to pass through from the host. |
 | `timeout_ms` | int | no | Per-invocation timeout in milliseconds. |
 | `sandbox` | string | no | Name of a sandbox declared under [`spec.sandboxes`](#specsandboxes). Without it, the hook process runs directly on the host. |
