@@ -79,6 +79,9 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
   - [func \(s ByOriginalIndex\) Len\(\) int](<#ByOriginalIndex.Len>)
   - [func \(s ByOriginalIndex\) Less\(i, j int\) bool](<#ByOriginalIndex.Less>)
   - [func \(s ByOriginalIndex\) Swap\(i, j int\)](<#ByOriginalIndex.Swap>)
+- [type CallRateWindow](<#CallRateWindow>)
+  - [func NewCallRateWindow\(\) \*CallRateWindow](<#NewCallRateWindow>)
+  - [func \(w \*CallRateWindow\) Admit\(conversationID, tool string\)](<#CallRateWindow.Admit>)
 - [type Capabilities](<#Capabilities>)
   - [func AnyCapabilities\(\) Capabilities](<#AnyCapabilities>)
   - [func AudioCapabilities\(formats \[\]AudioFormat, sampleRates, channels \[\]int\) Capabilities](<#AudioCapabilities>)
@@ -1185,6 +1188,37 @@ func (s ByOriginalIndex) Swap(i, j int)
 
 
 
+<a name="CallRateWindow"></a>
+## type [CallRateWindow](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L35-L40>)
+
+CallRateWindow enforces ToolPolicy.MaxCallsPerMinute: for each conversation and tool, the times of the calls admitted to run in the last minute. A provider stage holds one \(ProviderConfig.CallRate, or its own\), so the window spans every turn of a conversation the stage runs. A call held for approval is not counted by the stage; Admit counts it once it is approved. Safe for concurrent use: a round's calls are checked in parallel.
+
+tools.WithRateLimit is the other sliding window, and a different limit: one per registry, shared by its children, counting every conversation's calls to a tool together under a fixed limit, and refusing with tools.ErrRateLimitExceeded. This one is keyed on the conversation, takes the limit of the policy in force for each call, drops idle conversations \(its keys are unbounded, the registry's are tool names\), and counts calls admitted outside the stage \(Admit\).
+
+```go
+type CallRateWindow struct {
+    // contains filtered or unexported fields
+}
+```
+
+<a name="NewCallRateWindow"></a>
+### func [NewCallRateWindow](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L43>)
+
+```go
+func NewCallRateWindow() *CallRateWindow
+```
+
+NewCallRateWindow returns an empty window.
+
+<a name="CallRateWindow.Admit"></a>
+### func \(\*CallRateWindow\) [Admit](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L51>)
+
+```go
+func (w *CallRateWindow) Admit(conversationID, tool string)
+```
+
+Admit records a call to tool in conversationID that was admitted to run outside the provider stage — a held call a human approved — so it counts against MaxCallsPerMinute like a call the stage ran. It records without checking the limit: the approval is the admission. Nil\-safe.
+
 <a name="Capabilities"></a>
 ## type [Capabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/capabilities.go#L111-L116>)
 
@@ -2135,7 +2169,7 @@ type EndInputter interface {
 ```
 
 <a name="ExecutionResult"></a>
-## type [ExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1036-L1043>)
+## type [ExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1095-L1102>)
 
 ExecutionResult represents the final result of a pipeline execution. This matches the existing pipeline.ExecutionResult for compatibility.
 
@@ -2151,7 +2185,7 @@ type ExecutionResult struct {
 ```
 
 <a name="ExecutionTrace"></a>
-## type [ExecutionTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1055-L1059>)
+## type [ExecutionTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1114-L1118>)
 
 ExecutionTrace captures execution history \(for compatibility\).
 
@@ -4041,7 +4075,7 @@ type ProviderBudgetedCompaction interface {
 ```
 
 <a name="ProviderConfig"></a>
-## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L143-L250>)
+## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L143-L256>)
 
 ProviderConfig contains configuration for the provider stage.
 
@@ -4136,6 +4170,12 @@ type ProviderConfig struct {
     // normally.
     ApprovalChecker tools.ApprovalChecker
 
+    // CallRate, when set, is the window ToolPolicy.MaxCallsPerMinute counts
+    // calls in. Share one across the stages of a conversation, and Admit a
+    // held call there when it is approved and run outside the stage, so the
+    // limit sees it. Nil gives the stage a window of its own.
+    CallRate *CallRateWindow
+
     // PromptDeclarations maps each prompt task to the pack's definition of
     // that prompt, copies taken when the conversation was built.
     // Hook requests carry the one for the prompt the model is being invoked
@@ -4157,7 +4197,7 @@ type ProviderConfig struct {
 ```
 
 <a name="ProviderConfig.ApplyCallParams"></a>
-### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L263>)
+### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L269>)
 
 ```go
 func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
@@ -4166,7 +4206,7 @@ func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
 ApplyCallParams sets c's sampling fields from a prompt's resolved parameters \(prompt.Registry.CallParameters\).
 
 <a name="ProviderConfig.CallParams"></a>
-### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L253>)
+### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L259>)
 
 ```go
 func (c *ProviderConfig) CallParams() prompt.CallParams
@@ -4191,7 +4231,7 @@ type ProviderStage struct {
 ```
 
 <a name="NewProviderStage"></a>
-### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L306-L311>)
+### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L312-L317>)
 
 ```go
 func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig) *ProviderStage
@@ -4200,7 +4240,7 @@ func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry,
 NewProviderStage creates a new provider stage for request/response mode.
 
 <a name="NewProviderStageWithEmitter"></a>
-### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L318-L324>)
+### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L324-L330>)
 
 ```go
 func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter) *ProviderStage
@@ -4209,7 +4249,7 @@ func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tool
 NewProviderStageWithEmitter creates a new provider stage with event emission support. The stage emits provider.call.started, provider.call.completed, and provider.call.failed events through it for observability and session recording.
 
 <a name="NewProviderStageWithHooks"></a>
-### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L331-L338>)
+### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L337-L344>)
 
 ```go
 func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry) *ProviderStage
@@ -4218,7 +4258,7 @@ func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.
 NewProviderStageWithHooks creates a provider stage with event emission and hook support. The hookRegistry enables synchronous interception of provider calls, streaming chunks, and tool execution. Pass nil for no hooks \(zero overhead\).
 
 <a name="NewProviderStageWithTurnState"></a>
-### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L345-L353>)
+### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L351-L359>)
 
 ```go
 func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry, turnState *TurnState) *ProviderStage
@@ -4227,7 +4267,7 @@ func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *to
 NewProviderStageWithTurnState creates a provider stage that sources system\_prompt, allowed\_tools, and provider\-bound metadata from the shared \*TurnState. Pass nil for ad\-hoc / test usage where TurnState is not wired.
 
 <a name="ProviderStage.Process"></a>
-### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L508-L512>)
+### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L518-L522>)
 
 ```go
 func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4490,7 +4530,7 @@ type RelevanceConfig struct {
 ```
 
 <a name="Response"></a>
-## type [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1046-L1052>)
+## type [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1105-L1111>)
 
 Response represents a response message \(for compatibility with existing pipeline\).
 
@@ -5381,7 +5421,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2695>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2727>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement
@@ -5477,7 +5517,7 @@ The first stage error ends the turn. Nothing is canceled: the failed stage's dow
 Execute returns ErrPipelineShuttingDown if the pipeline is shutting down. When PipelineConfig.MaxConcurrentPipelines executions are already running, Execute waits for one to finish. It returns ctx's error if ctx ends first, and ErrPipelineShuttingDown if Shutdown is called first.
 
 <a name="StreamPipeline.ExecuteSync"></a>
-### func \(\*StreamPipeline\) [ExecuteSync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1015>)
+### func \(\*StreamPipeline\) [ExecuteSync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1074>)
 
 ```go
 func (p *StreamPipeline) ExecuteSync(ctx context.Context, input ...StreamElement) (*ExecutionResult, error)
@@ -5488,7 +5528,7 @@ ExecuteSync runs the pipeline synchronously and returns the accumulated result. 
 The returned error is the last error element on the output. When a stage failed the turn, that is the failure \(see Execute for its form\). The result is non\-nil alongside the error and holds whatever the pipeline produced.
 
 <a name="StreamPipeline.Shutdown"></a>
-### func \(\*StreamPipeline\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1123>)
+### func \(\*StreamPipeline\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1182>)
 
 ```go
 func (p *StreamPipeline) Shutdown(ctx context.Context) error

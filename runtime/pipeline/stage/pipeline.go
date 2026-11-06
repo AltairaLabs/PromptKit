@@ -472,11 +472,24 @@ func distributeInput(
 	return result
 }
 
+// casesPerReader is the number of select cases per reader: its send and its done.
+const casesPerReader = 2
+
 // distributor is the state of one distributeInput goroutine.
 type distributor struct {
 	outs       []chan StreamElement
 	readerDone []<-chan struct{}
 	live       []bool
+
+	// cases holds the reflect.Select cases for the live readers, a send case
+	// and a done case per reader, and index the reader of each pair. Built on
+	// first use and rebuilt only when a reader stops being live, not for every
+	// element.
+	cases []reflect.SelectCase
+	index []int
+	// next is the reader the fast path offers the next element to first, so
+	// readers that are all ready share the elements.
+	next int
 }
 
 func (d *distributor) run(in <-chan StreamElement, upstream *stageRun) {
@@ -490,7 +503,7 @@ func (d *distributor) run(in <-chan StreamElement, upstream *stageRun) {
 		if elem.Error != nil {
 			carried = append(carried, elem.Error)
 		}
-		if !sendToAnyReader(elem, d.outs, d.readerDone, d.live) {
+		if !d.send(elem) {
 			return
 		}
 	}
@@ -513,32 +526,64 @@ func (d *distributor) signalLiveReaders(signal StreamElement) {
 	}
 }
 
-// sendToAnyReader hands elem to the first live reader ready for it, marking
-// readers that have returned as no longer live. It reports false when none is
-// left.
-func sendToAnyReader(
-	elem StreamElement, outs []chan StreamElement, readerDone []<-chan struct{}, live []bool,
-) bool {
-	for {
-		var cases []reflect.SelectCase
-		var index []int
-		for i := range outs {
-			if !live[i] {
-				continue
-			}
-			cases = append(cases,
-				reflect.SelectCase{Dir: reflect.SelectSend, Chan: reflect.ValueOf(outs[i]), Send: reflect.ValueOf(elem)},
-				reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(readerDone[i])})
-			index = append(index, i)
+// send hands elem to a live reader ready for it, marking readers that have
+// returned as no longer live. It reports false when none is left. A reader
+// already waiting takes elem without reflection; only when every live reader
+// is busy does send block in reflect.Select until one takes it.
+func (d *distributor) send(elem StreamElement) bool {
+	n := len(d.outs)
+	for k := range n {
+		i := (d.next + k) % n
+		if !d.live[i] {
+			continue
 		}
-		if len(cases) == 0 {
+		select {
+		case d.outs[i] <- elem:
+			d.next = (i + 1) % n
+			return true
+		case <-d.readerDone[i]:
+			d.retire(i)
+		default:
+		}
+	}
+	for {
+		if d.cases == nil {
+			d.buildCases()
+		}
+		if len(d.cases) == 0 {
 			return false
 		}
-		chosen, _, _ := reflect.Select(cases)
-		if chosen%2 == 0 {
+		v := reflect.ValueOf(elem)
+		for j := 0; j < len(d.cases); j += casesPerReader {
+			d.cases[j].Send = v
+		}
+		chosen, _, _ := reflect.Select(d.cases)
+		if chosen%casesPerReader == 0 {
 			return true
 		}
-		live[index[chosen/2]] = false
+		d.retire(d.index[chosen/casesPerReader])
+	}
+}
+
+// retire marks reader i as returned, dropping the cached select cases.
+func (d *distributor) retire(i int) {
+	d.live[i] = false
+	d.cases = nil
+}
+
+// buildCases builds the select cases for the live readers. An empty, non-nil
+// slice means no reader is left.
+func (d *distributor) buildCases() {
+	d.cases = make([]reflect.SelectCase, 0, casesPerReader*len(d.outs))
+	d.index = d.index[:0]
+	for i := range d.outs {
+		if !d.live[i] {
+			continue
+		}
+		d.cases = append(d.cases,
+			reflect.SelectCase{Dir: reflect.SelectSend, Chan: reflect.ValueOf(d.outs[i])},
+			reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(d.readerDone[i])})
+		d.index = append(d.index, i)
 	}
 }
 
