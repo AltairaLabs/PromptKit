@@ -569,6 +569,19 @@ func (r *Registry) Execute(
 func (r *Registry) ExecuteAsync(
 	ctx context.Context, toolName string, args json.RawMessage,
 ) (*ToolExecutionResult, error) {
+	return r.ExecuteAsyncAdmitted(ctx, toolName, args, nil)
+}
+
+// ExecuteAsyncAdmitted is ExecuteAsync with an admission gate. admit, when
+// not nil, is called once the call has passed every check of its own (the
+// tool exists, its arguments are valid, it has an executor, and the
+// registry's rate limit allows it), immediately before the executor runs. If
+// admit returns an error, the executor does not run, the registry's rate
+// limit does not count the call, and that error is returned unchanged. A call
+// that fails one of the registry's checks never reaches admit.
+func (r *Registry) ExecuteAsyncAdmitted(
+	ctx context.Context, toolName string, args json.RawMessage, admit func() error,
+) (*ToolExecutionResult, error) {
 	tool, err := r.GetTool(toolName)
 	if err != nil {
 		return nil, err
@@ -584,17 +597,25 @@ func (r *Registry) ExecuteAsync(
 		return nil, valErr
 	}
 
-	// Check per-tool rate limit
-	if rateLimitErr := r.rateLimiter.Allow(toolName); rateLimitErr != nil {
+	executor, err := r.getExecutorForTool(tool)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check per-tool rate limit, then the caller's admission
+	var admitErr error
+	var gate func() error
+	if admit != nil {
+		gate = func() error { admitErr = admit(); return admitErr }
+	}
+	if rateLimitErr := r.rateLimiter.allowAdmitted(toolName, gate); rateLimitErr != nil {
+		if admitErr != nil {
+			return nil, admitErr
+		}
 		return &ToolExecutionResult{
 			Status: ToolStatusFailed,
 			Error:  rateLimitErr.Error(),
 		}, nil
-	}
-
-	executor, err := r.getExecutorForTool(tool)
-	if err != nil {
-		return nil, err
 	}
 
 	// Apply timeout from tool descriptor

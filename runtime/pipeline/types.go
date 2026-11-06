@@ -23,16 +23,16 @@ type ToolPolicy struct {
 	// shares stage.ProviderConfig.CallRate), so it spans the turns of a
 	// conversation that stage runs.
 	//
-	// The stage reserves a slot when the model makes a call, counting the
-	// calls that ran in the last minute and the calls still held or deferred.
-	// A call over the limit is refused at once: it is not executed, not put to
-	// an approval gate, and the model is told the tool's limit is reached. A
-	// call the stage runs commits its slot, which then counts for one minute.
-	// A call held for approval, or deferred by its executor (a client tool),
-	// keeps its reservation until the host commits it, when the call is
-	// approved or answered, or releases it, when the call is rejected (see
-	// stage.CallRateWindow). A reservation never resolved lapses after
-	// stage.CallRateReservationLifetime.
+	// A call is checked against the limit, and counted, only when it is
+	// admitted to run (see stage.CallRateWindow): a call the stage runs,
+	// immediately before it runs; a call held for approval, when the host approves it; a
+	// call its executor defers (a client tool), when the host uses its result.
+	// A call over the limit is not executed, and the model is told the tool's
+	// limit is reached. A counted call counts for one minute. A call that is
+	// rejected, abandoned or never answered, an unknown tool, and a call the
+	// registry's own rate limit refuses are never counted. Because a held call
+	// is checked when it is approved, a human may approve a call that is then
+	// refused for the limit.
 	MaxCallsPerMinute int      `json:"max_calls_per_minute,omitempty"`
 	MaxCostUSD        float64  `json:"max_cost_usd,omitempty"` // Cost budget in USD (0=unlimited)
 	Blocklist         []string `json:"blocklist,omitempty"`

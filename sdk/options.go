@@ -1391,17 +1391,24 @@ func WithoutContentValidation() Option {
 //
 // MaxCallsPerMinute counts each tool's calls in one window per conversation.
 // The window spans the conversation's turns, its composition steps, and, for
-// a WorkflowConversation, every workflow state. A call takes a slot when the
-// model makes it. If the calls that ran in the last minute, plus the calls
-// still held for approval or waiting on a client, already reach the limit,
-// the call is refused at once and never reaches the approval gate. A call
-// that runs keeps its slot for one minute. A held or deferred call keeps its
-// slot while it waits. ResolveTool, SendToolResult and FailClientTool start
-// its minute. RejectTool and RejectClientTool give the slot back. A client
-// answer takes effect when Resume or Continue consumes it, or when a new Send
-// abandons the waiting turn. A call that
-// is never answered gives its slot back after
-// stage.CallRateReservationLifetime.
+// a WorkflowConversation, every workflow state. A call is checked against the
+// limit, and counted for one minute, only when it is admitted to run:
+//
+//   - a call the tool loop runs, immediately before it runs;
+//   - a call held for approval, when ResolveTool or ResolveToolWithArgs
+//     approves it;
+//   - a deferred client call, when Resume, Continue or ContinueDuplex uses
+//     the result that SendToolResult, SendToolResultMultimodal or
+//     FailClientTool supplied.
+//
+// A call over the limit does not run, and the model is told the tool's limit
+// is reached. An approval over the limit returns a resolution whose Error
+// wraps a *stage.CallRateLimitError, and the handler is not called. A client
+// result over the limit is replaced by that error. A call that is rejected,
+// abandoned or never answered is never counted, and neither is a call to an
+// unknown tool or one the registry's own rate limit refuses. The trade-off: a
+// held call is checked when it is approved, not when the model makes it, so a
+// human may approve a call that then hits the limit.
 //
 // The policy is copied, so changing it afterwards does not affect the
 // conversation. Nil clears a policy set by an earlier option.

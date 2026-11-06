@@ -153,17 +153,10 @@ type Conversation struct {
 	// callRate is the window ToolPolicy.MaxCallsPerMinute counts this
 	// conversation's tool calls in, shared by its pipelines' provider stages
 	// and, in a workflow, by every state's conversation (withCallRateWindow).
-	// The stage reserves a slot for each call. A held or deferred call is
-	// resolved here: ResolveToolWithArgs and an answered client tool commit
-	// it, RejectTool and a rejected client tool release it (see
-	// callRateWindow and resolveClientCallRate).
+	// The stage counts each call it runs. A held call is admitted here when
+	// ResolveToolWithArgs approves it, and a deferred call when its result is
+	// used (admitDeferredResults).
 	callRate *stage.CallRateWindow
-
-	// heldResolutions marks the resolutions ResolveToolWithArgs and RejectTool
-	// made, whose call-rate slots they already resolved, so the path that
-	// consumes them (Continue, Resume) does not resolve those slots again.
-	heldResolutionsMu sync.Mutex
-	heldResolutions   map[*sdktools.ToolResolution]struct{}
 
 	// MCP registry for managing MCP servers
 	mcpRegistry            mcp.Registry
@@ -912,6 +905,16 @@ func (c *Conversation) callRateWindow() *stage.CallRateWindow {
 		c.callRate = stage.NewCallRateWindow()
 	}
 	return c.callRate
+}
+
+// callRateLimit is the ToolPolicy.MaxCallsPerMinute the conversation's calls
+// run under: the caller policy's (WithToolPolicy), which every turn's merged
+// policy takes, since a pack cannot declare one. 0 is no limit.
+func (c *Conversation) callRateLimit() int {
+	if c.config == nil || c.config.toolPolicy == nil {
+		return 0
+	}
+	return c.config.toolPolicy.MaxCallsPerMinute
 }
 
 // trackPipeline records a successfully built pipeline so Close can wait for
