@@ -17,9 +17,17 @@ func init() {
 		// or scenarios that don't target imagen would otherwise be blocked
 		// by a key check for a provider they'll never call. Predict()
 		// surfaces the missing-key error when imagen is actually invoked.
-		apiKey := os.Getenv("GOOGLE_API_KEY")
-		if apiKey == "" {
-			apiKey = os.Getenv("GEMINI_API_KEY")
+		//
+		// Key precedence: a resolved credential (spec.Credential) wins, then
+		// GOOGLE_API_KEY, then GEMINI_API_KEY. An api_key credential is sent
+		// in x-goog-api-key, as the env keys are; any other credential is
+		// applied as it is.
+		apiKey := providers.ExtractAPIKey(spec.Credential)
+		if apiKey == "" && !spec.HasCredential() {
+			apiKey = os.Getenv("GOOGLE_API_KEY")
+			if apiKey == "" {
+				apiKey = os.Getenv("GEMINI_API_KEY")
+			}
 		}
 
 		// Project ID and location are no longer required when using Gemini API endpoint
@@ -46,6 +54,9 @@ func init() {
 			IncludeRawOutput: spec.IncludeRawOutput,
 			Defaults:         spec.Defaults,
 		})
+		if apiKey == "" && spec.HasCredential() {
+			provider.SetCredential(spec.Credential)
+		}
 		return provider, nil
 	})
 }

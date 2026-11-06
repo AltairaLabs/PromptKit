@@ -190,19 +190,19 @@ func TestSameOriginAsFirstHop(t *testing.T) {
 		r.Response = &http.Response{Request: first}
 		return r
 	}
-	assert.True(t, sameOriginAsFirstHop(first), "a request that is not a hop")
-	assert.True(t, sameOriginAsFirstHop(hop("https://API.example.com/v2")), "same host, any path")
-	assert.False(t, sameOriginAsFirstHop(hop("http://api.example.com/v1")), "scheme downgrade")
-	assert.False(t, sameOriginAsFirstHop(hop("https://api.example.com:8443/v1")), "another port")
-	assert.True(t, sameOriginAsFirstHop(hop("https://api.example.com:443/v1")), "the default port spelled out")
-	assert.False(t, sameOriginAsFirstHop(hop("https://api.example.com:80/v1")), "another port, not https's default")
-	assert.False(t, sameOriginAsFirstHop(hop("https://evil.example.com/v1")), "another host")
+	assert.True(t, SameOriginAsFirstHop(first), "a request that is not a hop")
+	assert.True(t, SameOriginAsFirstHop(hop("https://API.example.com/v2")), "same host, any path")
+	assert.False(t, SameOriginAsFirstHop(hop("http://api.example.com/v1")), "scheme downgrade")
+	assert.False(t, SameOriginAsFirstHop(hop("https://api.example.com:8443/v1")), "another port")
+	assert.True(t, SameOriginAsFirstHop(hop("https://api.example.com:443/v1")), "the default port spelled out")
+	assert.False(t, SameOriginAsFirstHop(hop("https://api.example.com:80/v1")), "another port, not https's default")
+	assert.False(t, SameOriginAsFirstHop(hop("https://evil.example.com/v1")), "another host")
 	// Another host that redirects to itself is still another host.
 	second := hop("https://evil.example.com/a")
 	third, err := http.NewRequest(http.MethodGet, "https://evil.example.com/b", http.NoBody)
 	require.NoError(t, err)
 	third.Response = &http.Response{Request: second}
-	assert.False(t, sameOriginAsFirstHop(third), "compared with the first request, not the previous hop")
+	assert.False(t, SameOriginAsFirstHop(third), "compared with the first request, not the previous hop")
 }
 
 // http.Client strips Authorization on a redirect to another host. The

@@ -40,7 +40,7 @@ func NewHTTPService(
 		APIKey:  apiKey,
 		BaseURL: defaults.BaseURL,
 		Model:   defaults.Model,
-		Client:  &http.Client{Timeout: defaults.Timeout},
+		Client:  &http.Client{Timeout: defaults.Timeout, CheckRedirect: CredentialRedirectPolicy(nil, nil)},
 	}
 	for _, opt := range opts {
 		opt(fields)

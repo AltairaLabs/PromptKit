@@ -65,7 +65,7 @@ func NewBaseEmbeddingProvider(
 		BaseURL:       defaultBaseURL,
 		Dimensions:    defaultDimensions,
 		BatchSize:     defaultBatchSize,
-		HTTPClient:    &http.Client{Timeout: defaultTimeout},
+		HTTPClient:    &http.Client{Timeout: defaultTimeout, CheckRedirect: base.CredentialRedirectPolicy(nil, nil)},
 	}
 }
 

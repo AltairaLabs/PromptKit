@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 
+	provbase "github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
 )
 
@@ -86,7 +88,8 @@ func buildPlatformEmbeddingClient(
 			cred:       cred,
 			apiVersion: azureEmbeddingAPIVersion(pc),
 		}
-		return &http.Client{Transport: rt}, credentials.AzureOpenAIEndpoint(pc.Endpoint, model), nil
+		client := &http.Client{Transport: rt, CheckRedirect: provbase.CredentialRedirectPolicy(nil, nil)}
+		return client, credentials.AzureOpenAIEndpoint(pc.Endpoint, model), nil
 	case platformBedrock:
 		return buildBedrockEmbeddingClient(cred, providerType, pc)
 	case platformVertex:
@@ -123,7 +126,8 @@ func buildBedrockEmbeddingClient(
 	}
 
 	return &http.Client{
-		Transport: &platformEmbeddingRoundTripper{base: http.DefaultTransport, cred: cred},
+		Transport:     &platformEmbeddingRoundTripper{base: http.DefaultTransport, cred: cred},
+		CheckRedirect: provbase.CredentialRedirectPolicy(nil, nil),
 	}, baseURL, nil
 }
 
@@ -165,7 +169,8 @@ func buildVertexEmbeddingClient(
 // api-version query param, so the round tripper carries only the credential.
 func vertexClient(cred credentials.Credential) *http.Client {
 	return &http.Client{
-		Transport: &platformEmbeddingRoundTripper{base: http.DefaultTransport, cred: cred},
+		Transport:     &platformEmbeddingRoundTripper{base: http.DefaultTransport, cred: cred},
+		CheckRedirect: provbase.CredentialRedirectPolicy(nil, nil),
 	}
 }
 
@@ -211,7 +216,10 @@ func (rt *platformEmbeddingRoundTripper) RoundTrip(req *http.Request) (*http.Res
 		q.Set("api-version", rt.apiVersion)
 		r.URL.RawQuery = q.Encode()
 	}
-	if rt.cred != nil {
+	// A redirect to another host never gets the credential: the client's
+	// CredentialRedirectPolicy strips what http.Client copied, and the
+	// credential is not applied again here.
+	if rt.cred != nil && provbase.SameOriginAsFirstHop(req) {
 		if err := rt.cred.Apply(r.Context(), r); err != nil {
 			return nil, err
 		}

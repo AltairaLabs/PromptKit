@@ -24,6 +24,8 @@ import (
 	"strings"
 	"time"
 
+	provbase "github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -103,7 +105,7 @@ func New(cfg Config) (*Provider, error) {
 		if timeout <= 0 {
 			timeout = defaultHTTPTimeout
 		}
-		hc = &http.Client{Timeout: timeout}
+		hc = &http.Client{Timeout: timeout, CheckRedirect: provbase.CredentialRedirectPolicy(nil, nil)}
 	}
 	return &Provider{
 		baseURL:     base,

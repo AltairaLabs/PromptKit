@@ -42,7 +42,7 @@ func NewBaseRerankProvider(
 		ProviderModel:  defaultModel,
 		BaseURL:        defaultBaseURL,
 		MaxDocs:        defaultMaxDocs,
-		HTTPClient:     &http.Client{Timeout: defaultTimeout},
+		HTTPClient:     &http.Client{Timeout: defaultTimeout, CheckRedirect: base.CredentialRedirectPolicy(nil, nil)},
 	}
 }
 

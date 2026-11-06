@@ -19,6 +19,8 @@ import (
 	"strings"
 	"time"
 
+	provbase "github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/classify"
 )
 
@@ -135,7 +137,7 @@ func NewClient(cfg Config) (*Client, error) {
 	}
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: defaultHTTPTimeout}
+		httpClient = &http.Client{Timeout: defaultHTTPTimeout, CheckRedirect: provbase.CredentialRedirectPolicy(nil, nil)}
 	}
 	return &Client{
 		apiKey:     cfg.APIKey,

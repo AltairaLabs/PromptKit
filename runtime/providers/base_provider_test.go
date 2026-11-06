@@ -27,8 +27,14 @@ func TestNewBaseProvider(t *testing.T) {
 		t.Error("Expected includeRawOutput to be true")
 	}
 
-	if base.GetHTTPClient() != client {
-		t.Error("Expected GetHTTPClient to return the same client")
+	// The provider works on its own copy of the client, with the caller's
+	// settings: installing its redirect policy must not change a shared client.
+	got := base.GetHTTPClient()
+	if got == client || got.Timeout != client.Timeout || got.Transport != client.Transport {
+		t.Errorf("Expected a copy of the client with its settings, got %+v", got)
+	}
+	if client.CheckRedirect != nil {
+		t.Error("the caller's client must not be modified")
 	}
 }
 

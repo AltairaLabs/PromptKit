@@ -176,6 +176,7 @@ type BaseProvider struct {
 	streamObserver        StreamObserver
 	rateLimiter           *rate.Limiter
 	credential            Credential
+	checkRedirect         func(*http.Request, []*http.Request) error // the caller's, applied after ours
 	retryPolicy           pipeline.RetryPolicy
 	maxRequestPayloadSize int64
 	customHeaders         map[string]string
@@ -190,17 +191,31 @@ type BaseProvider struct {
 // streaming client is auto-derived from the given client's transport with
 // Timeout=0 so SSE call sites can use GetStreamingHTTPClient() without any
 // extra wiring.
+//
+// The provider works on a copy of client, so installing its redirect policy
+// (see applyClientPolicies) never changes a client the caller shares, such as
+// http.DefaultClient. The copy keeps client's CheckRedirect and applies it
+// after the provider's own.
 func NewBaseProvider(id string, includeRawOutput bool, client *http.Client) BaseProvider {
-	return BaseProvider{
+	var checkRedirect func(*http.Request, []*http.Request) error
+	if client != nil {
+		own := *client
+		client = &own
+		checkRedirect = client.CheckRedirect
+	}
+	b := BaseProvider{
 		Implementation:        base.NewImplementation(id, base.ProviderTypeInference, nil),
 		id:                    id,
 		includeRawOutput:      includeRawOutput,
 		client:                client,
 		streamingClient:       newStreamingClient(client),
+		checkRedirect:         checkRedirect,
 		retryPolicy:           DefaultRetryPolicy(),
 		maxRequestPayloadSize: DefaultMaxPayloadSize,
 		rejected:              &rejectedParams{set: map[string]bool{}},
 	}
+	b.applyClientPolicies()
+	return b
 }
 
 // newStreamingClient builds a companion http.Client for SSE streams that
@@ -273,7 +288,7 @@ func NewBaseProviderWithCredential(
 		Transport: NewInstrumentedTransport(NewPooledTransport()),
 	}
 	bp = NewBaseProvider(id, includeRawOutput, client)
-	bp.credential = cred
+	bp.SetCredential(cred)
 	apiKey = ExtractAPIKey(cred)
 	return bp, apiKey
 }
@@ -337,7 +352,7 @@ func (b *BaseProvider) SetHTTPTimeout(timeout time.Duration) {
 	} else if transport != nil {
 		b.streamingClient = &http.Client{Timeout: 0, Transport: transport}
 	}
-	b.applyRateLimit()
+	b.applyClientPolicies()
 }
 
 // SetHTTPTransport replaces the RoundTripper on both the regular and
@@ -370,7 +385,7 @@ func (b *BaseProvider) SetHTTPTransport(rt http.RoundTripper) {
 		b.streamingClient = &http.Client{Timeout: 0, Transport: rt}
 	}
 	// Keep a configured rate limit in front of the new transport.
-	b.applyRateLimit()
+	b.applyClientPolicies()
 }
 
 // SetCustomHeaders stores custom HTTP headers that will be applied to
@@ -379,7 +394,7 @@ func (b *BaseProvider) SetHTTPTransport(rt http.RoundTripper) {
 // X-Title). Called by CreateProviderFromSpec after factory construction.
 func (b *BaseProvider) SetCustomHeaders(headers map[string]string) {
 	b.customHeaders = headers
-	b.applyRateLimit()
+	b.applyClientPolicies()
 }
 
 // SetMediaStorageService injects the media storage service that resolves
@@ -485,7 +500,7 @@ func HeaderKeyCredential(key, header, prefix string) Credential {
 // credential. See AuthorizeRequest.
 func (b *BaseProvider) SetCredential(cred Credential) {
 	b.credential = cred
-	b.applyRateLimit()
+	b.applyClientPolicies()
 }
 
 // Credential returns the credential the provider authenticates its requests
@@ -960,24 +975,76 @@ func (b *BaseProvider) HTTPTimeout() time.Duration {
 // AuthorizeRequest). CreateProviderFromSpec calls it with spec.RateLimit.
 func (b *BaseProvider) SetRateLimit(requestsPerSecond float64, burst int) {
 	b.rateLimiter = base.NewRequestLimiter(requestsPerSecond, burst)
-	b.applyRateLimit()
+	b.applyClientPolicies()
 }
 
-// applyRateLimit installs b.rateLimiter (or removes the limit when nil) on
+// applyClientPolicies installs b.rateLimiter (or removes the limit when nil) on
 // both clients, with b.credential applied after each wait. The request
 // client's timeout moves behind the wait (see base.ApplyRateLimit), so
 // request_timeout bounds the upstream call, not the time spent queued for a
 // token.
-func (b *BaseProvider) applyRateLimit() {
+//
+// It also gives both clients the credential redirect policy
+// (base.CredentialRedirectPolicy): a redirect to another host loses every
+// header the credential names and every custom header, with or without a rate
+// limit, so a key or signature never leaves its origin.
+func (b *BaseProvider) applyClientPolicies() {
 	authorize := transportAuthorizer(b.credential, b.customHeaders)
+	checkRedirect := base.CredentialRedirectPolicy(
+		offOriginHeaders(b.credential, b.customHeaders, b.rateLimiter != nil), b.checkRedirect)
 	for _, c := range []*http.Client{b.client, b.streamingClient} {
 		base.ApplyRateLimit(c, b.rateLimiter)
 		if c == nil {
 			continue
 		}
+		c.CheckRedirect = checkRedirect
 		if rlt, ok := c.Transport.(*base.RateLimitTransport); ok {
 			rlt.Authorize = authorize
 		}
+	}
+}
+
+// appliedHeaderNames finds the headers a credential that cannot name them
+// sets, by applying it to a blank request that is never sent. It runs only for
+// a redirect off the origin, the one place a credential applied while the
+// request was built would otherwise travel on. An Apply error gives no names.
+func appliedHeaderNames(cred Credential) []string {
+	scratch, err := http.NewRequestWithContext(
+		context.Background(), http.MethodGet, "https://scratch.invalid/", http.NoBody)
+	if err != nil {
+		return nil
+	}
+	if cred.Apply(scratch.Context(), scratch) != nil {
+		return nil
+	}
+	names := make([]string, 0, len(scratch.Header))
+	for name := range scratch.Header {
+		names = append(names, name)
+	}
+	return names
+}
+
+// offOriginHeaders returns what a redirect to another host must not carry,
+// beyond base.WellKnownCredentialHeaders: the headers cred names, and the
+// custom headers, which may carry a gateway's own key. It captures cred and
+// custom as they are now; applyClientPolicies reinstalls it when either
+// changes.
+//
+// limited says the credential is applied by the rate limiter's transport,
+// which never applies it off the origin, so a credential that cannot name its
+// headers need not be probed for them.
+func offOriginHeaders(cred Credential, custom map[string]string, limited bool) func() []string {
+	return func() []string {
+		var names []string
+		if namer, ok := cred.(credentials.HeaderNamer); ok {
+			names = append(names, namer.HeaderNames()...)
+		} else if cred != nil && !limited {
+			names = append(names, appliedHeaderNames(cred)...)
+		}
+		for name := range custom {
+			names = append(names, name)
+		}
+		return names
 	}
 }
 

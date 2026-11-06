@@ -371,7 +371,10 @@ func (p *ToolProvider) PredictStreamWithTools(
 		}
 		httpReq.Header.Set(contentTypeHeader, applicationJSON)
 		httpReq.Header.Set("Accept", "text/event-stream")
-		// Ollama doesn't require Authorization header.
+		// Ollama needs no credential; one configured for a proxy is applied.
+		if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
+			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+		}
 		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
 			return nil, hdrErr
 		}
@@ -391,11 +394,17 @@ func (p *ToolProvider) PredictStreamWithTools(
 
 //nolint:gochecknoinits // Factory registration requires init
 func init() {
+	// Ollama needs no credential. A resolved one (spec.Credential), for a
+	// proxy in front of Ollama, is sent with every request.
 	providers.RegisterProviderFactory("ollama", func(spec providers.ProviderSpec) (providers.Provider, error) {
-		return NewToolProvider(
+		p := NewToolProvider(
 			spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
 			spec.IncludeRawOutput, spec.AdditionalConfig,
-		), nil
+		)
+		if spec.HasCredential() {
+			p.SetCredential(spec.Credential)
+		}
+		return p, nil
 	})
 }
 

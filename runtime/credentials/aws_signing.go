@@ -27,10 +27,26 @@ const (
 	headerAmzSecurityToken = "X-Amz-Security-Token" //nolint:gosec // G101: header name, not a secret
 )
 
-// HeaderNames returns the headers Apply may set. X-Amz-Security-Token is set
-// only for temporary credentials, but is always named.
+// headerNamesTimeout bounds the credential lookup HeaderNames does. The SDK
+// caches retrieved credentials, so after the first request it costs nothing.
+const headerNamesTimeout = 5 * time.Second
+
+// HeaderNames returns the headers Apply sets. X-Amz-Security-Token is named
+// only when the credentials are temporary (they carry a session token), which
+// HeaderNames looks up from the same (cached) credential chain Apply signs
+// with. If that lookup fails, it is named anyway, since it may be set.
 func (c *AWSCredential) HeaderNames() []string {
-	return []string{headerAuthorization, headerAmzDate, headerAmzContentSHA256, headerAmzSecurityToken}
+	names := []string{headerAuthorization, headerAmzDate, headerAmzContentSHA256}
+	if c.cfg.Credentials == nil {
+		return append(names, headerAmzSecurityToken)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), headerNamesTimeout)
+	defer cancel()
+	creds, err := c.cfg.Credentials.Retrieve(ctx)
+	if err != nil || creds.SessionToken != "" {
+		names = append(names, headerAmzSecurityToken)
+	}
+	return names
 }
 
 // Apply signs the request using AWS SigV4.

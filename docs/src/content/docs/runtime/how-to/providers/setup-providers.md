@@ -41,6 +41,16 @@ Set the API key for each hosted provider. Each provider reads the first variable
 
 Ollama needs no key. vLLM takes an optional `api_key` in `additional_config`.
 
+A credential in the provider's `credential` block (`ProviderSpec.Credential`) takes precedence for these providers too:
+
+- vLLM sends it instead of `additional_config.api_key`.
+- Ollama sends it, for a proxy in front of Ollama.
+- Imagen sends an API key credential in `x-goog-api-key`, ahead of `GOOGLE_API_KEY` and then `GEMINI_API_KEY`. It applies any other credential as it is.
+
+A provider's key is fixed when the provider is built.
+
+A credential never follows a redirect to another host. On a redirect off the provider's scheme and host, the request loses every credential header (`Authorization`, API-key headers, the SigV4 `X-Amz-*` headers) and every custom header, with or without a rate limit.
+
 ## Create a hosted provider
 
 Every constructor takes an ID, a model, a base URL (empty selects the provider's default), a `providers.ProviderDefaults`, and an `includeRawOutput` flag.
