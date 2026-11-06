@@ -500,7 +500,7 @@ func TestDeliverTurnFailure_GivesUpWhenConsumerGone(t *testing.T) {
 
 	returned := make(chan struct{})
 	go func() {
-		deliverTurnFailure(ctx, output, errStageBoom)
+		deliverTurnFailure(ctx, nil, output, errStageBoom)
 		close(returned)
 	}()
 	select {
@@ -517,7 +517,7 @@ func TestDeliverTurnFailure_DeliversToReader(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	deliverTurnFailure(ctx, output, errStageBoom)
+	deliverTurnFailure(ctx, nil, output, errStageBoom)
 
 	require.Len(t, output, 1)
 	assert.ErrorIs(t, (<-output).Error, errStageBoom)

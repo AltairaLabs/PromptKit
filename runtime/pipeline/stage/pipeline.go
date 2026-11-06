@@ -50,6 +50,10 @@ type StreamPipeline struct {
 	shutdown   chan struct{}
 	shutdownMu sync.RWMutex
 	isShutdown bool
+
+	// abandoned closes when Shutdown's grace period ends with executions still
+	// running; they stop waiting on a consumer that has stopped reading.
+	abandoned chan struct{}
 }
 
 // Execute starts the pipeline execution with the given input channel.
@@ -65,7 +69,9 @@ type StreamPipeline struct {
 // arrives as a *StageError, which unwraps to the stage's error. A context error
 // that comes from the caller's own cancellation is not treated as a stage failure.
 // One from the pipeline's own ExecutionTimeout or IdleTimeout is: it fails the
-// turn, and its error wraps ErrExecutionTimeout or ErrIdleTimeout.
+// turn, and its error wraps ErrExecutionTimeout or ErrIdleTimeout. The caller must
+// read the output to its end or cancel ctx: an execution whose output nobody reads
+// blocks until ctx ends, or until Shutdown's grace period runs out.
 // The output closes once the terminal stages have returned.
 //
 // Execute returns ErrPipelineShuttingDown if the pipeline is shutting down.
@@ -193,7 +199,7 @@ func (p *StreamPipeline) executeBackground(
 		// Bounded by the caller's context, not the execution's: after the
 		// pipeline's own timeout the execution's is already done, and the
 		// failure must still reach a caller that is reading.
-		deliverTurnFailure(callerCtx, output, err)
+		deliverTurnFailure(callerCtx, p.abandoned, output, err)
 	}
 	close(output)
 
@@ -207,9 +213,11 @@ func (p *StreamPipeline) executeBackground(
 }
 
 // deliverTurnFailure sends the turn's error to the caller. A consumer that
-// has stopped reading would block it forever, so once ctx is done it gives up
-// rather than wait.
-func deliverTurnFailure(ctx context.Context, output chan<- StreamElement, err error) {
+// has stopped reading would block it forever, so it gives up once ctx is done
+// or once abandoned closes (Shutdown's grace period ended), rather than wait.
+func deliverTurnFailure(
+	ctx context.Context, abandoned <-chan struct{}, output chan<- StreamElement, err error,
+) {
 	elem := NewErrorElement(err)
 	select {
 	case output <- elem:
@@ -219,6 +227,7 @@ func deliverTurnFailure(ctx context.Context, output chan<- StreamElement, err er
 	select {
 	case output <- elem:
 	case <-ctx.Done():
+	case <-abandoned:
 	}
 }
 
@@ -1083,14 +1092,18 @@ func instrumentStageInput(stageName string, input <-chan StreamElement) <-chan S
 
 // forwardOutput hands one leaf element to the caller. A turn-failure signal
 // whose error already reached the caller (a stage that emitted its error and
-// also returned it) is not sent again.
+// also returned it) is not sent again. Once Shutdown has given up on the
+// execution (see abandoned), elements are dropped rather than waited on.
 func (p *StreamPipeline) forwardOutput(
 	elem StreamElement, output chan<- StreamElement, totals *completionTotals, failure *turnFailure,
 ) {
 	if !totals.observe(&elem) {
 		return
 	}
-	output <- failure.namedCause(elem)
+	select {
+	case output <- failure.namedCause(elem):
+	case <-p.abandoned:
+	}
 }
 
 // collectOutput collects output from all leaf stages into the pipeline output
@@ -1249,6 +1262,9 @@ func (p *StreamPipeline) accumulateResult(output <-chan StreamElement) (*Executi
 }
 
 // Shutdown gracefully shuts down the pipeline, waiting for in-flight executions to complete.
+// When GracefulShutdownTimeout (or ctx) ends first it returns ErrShutdownTimeout, and
+// executions still blocked on a consumer that stopped reading their output drop that
+// output and return.
 func (p *StreamPipeline) Shutdown(ctx context.Context) error {
 	p.shutdownMu.Lock()
 	if p.isShutdown {
@@ -1273,6 +1289,9 @@ func (p *StreamPipeline) Shutdown(ctx context.Context) error {
 	case <-done:
 		return nil
 	case <-shutdownCtx.Done():
+		// The grace period is over: an execution still running is held by a
+		// consumer that stopped reading. Let it drop its output and return.
+		close(p.abandoned)
 		return fmt.Errorf("%w: %v", ErrShutdownTimeout, p.config.GracefulShutdownTimeout)
 	}
 }
