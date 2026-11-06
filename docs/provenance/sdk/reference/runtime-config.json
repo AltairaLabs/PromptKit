@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/reference/runtime-config.md",
- "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "commit": "f3409378ad6d15d47f6fc12093f3b0df9052b335",
  "claims": [
   {
    "id": 1,
@@ -311,10 +311,11 @@
   },
   {
    "id": 34,
-   "claim": "Hook mode values: filter (synchronous, can modify/deny; default) or observe (the runtime waits for the process, bounded by timeout_ms, then discards its output and any failure)",
+   "claim": "Hook mode values: filter (synchronous, can modify/deny; default) or observe (the runtime waits for the process, bounded by timeout_ms or 10 seconds when unset, then discards its output and any failure)",
    "verdict": "true",
    "evidence": [
     "runtime/hooks/exec_hooks.go:102",
+    "runtime/hooks/exec_hooks.go:14",
     "runtime/hooks/execconfig/execconfig.go:81"
    ]
   },
