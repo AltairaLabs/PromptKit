@@ -445,12 +445,13 @@ type ToolClientConfig struct {
 
 // ToolConsentConfig defines consent requirements for client-side tools (schema generation)
 type ToolConsentConfig struct {
-	// Deprecated: never read; it will be removed in v3. Consent is a hosting
-	// concern; see tools.ConsentConfig.Required.
+	// Required declares that the tool needs the user's permission; a
+	// host-declared setting the SDK passes through. See
+	// tools.ConsentConfig.Required.
 	Required bool   `json:"required" yaml:"required"`
 	Message  string `json:"message,omitempty" yaml:"message,omitempty"`
-	// Deprecated: never read; it will be removed in v3. The host answers a
-	// declined call itself; see tools.ConsentConfig.DeclineStrategy.
+	// DeclineStrategy is "error", "fallback" or "retry": how the model is told
+	// to proceed when the user declines. See tools.ConsentConfig.DeclineStrategy.
 	DeclineStrategy string `json:"decline_strategy,omitempty" yaml:"decline_strategy,omitempty"`
 }
 

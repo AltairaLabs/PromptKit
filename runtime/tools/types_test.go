@@ -323,6 +323,21 @@ func TestConsentConfig_DeclineStrategies(t *testing.T) {
 	assert.Equal(t, "retry", strategies[2])
 }
 
+// The text matches PromptArena's consent simulation (arena/consent/hook.go)
+// word for word, so a tool declined in the SDK reads the same to the model.
+func TestConsentDeclinedMessage(t *testing.T) {
+	cases := map[string]string{
+		DeclineStrategyFallback: "Tool locate unavailable: user declined consent. Use alternative approach.",
+		DeclineStrategyRetry:    "Tool locate denied: user declined consent. Try a different approach.",
+		DeclineStrategyError:    "Tool locate denied: user declined consent",
+		"":                      "Tool locate denied: user declined consent",
+		"unknown":               "Tool locate denied: user declined consent",
+	}
+	for strategy, want := range cases {
+		assert.Equal(t, want, ConsentDeclinedMessage("locate", strategy), "strategy %q", strategy)
+	}
+}
+
 func TestToolDescriptor_WithClientConfig(t *testing.T) {
 	descriptor := ToolDescriptor{
 		Name:         "get_location",

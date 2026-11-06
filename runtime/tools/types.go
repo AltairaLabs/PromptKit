@@ -311,37 +311,50 @@ type ClientConfig struct {
 	ValidateOutput bool `json:"validate_output,omitempty" yaml:"validate_output,omitempty"`
 }
 
-// ConsentConfig defines consent requirements for client-side tools.
-// Message is surfaced to the host (the SDK's ClientToolRequest.ConsentMsg and
-// pending client tool); asking for consent and acting on the answer is the
-// host's job.
+// ConsentConfig defines consent requirements for client-side tools. These are
+// declarative tool settings: asking for consent and acting on the answer is
+// the host's job. Message is surfaced to the host (the SDK's
+// ClientToolRequest.ConsentMsg and pending client tool).
 type ConsentConfig struct {
-	// Required is carried but never read.
-	//
-	// Deprecated: nothing enforces it. Consent is
-	// a hosting concern: ask for it in the client tool handler, or before
-	// answering a deferred call, using Message and ClientConfig.Categories.
+	// Required declares that the tool needs the user's permission before it
+	// runs. It is a host-declared setting: the runtime and SDK do not ask for
+	// consent and do not block the call. The SDK passes it through on the
+	// tool descriptor (ClientToolRequest.Descriptor and the conversation's
+	// tool registry) for the host to act on.
 	Required bool   `json:"required" yaml:"required"`
 	Message  string `json:"message,omitempty" yaml:"message,omitempty"`
-	// DeclineStrategy is carried but never read.
-	//
-	// Deprecated: nothing acts on it. When the
-	// user declines, the host answers the call itself: in the SDK, return an
-	// error from the client tool handler (the model sees a failed call), or
-	// call Conversation.RejectClientTool for a deferred call (the model is
-	// told it was rejected and why).
+	// DeclineStrategy tells the model how to proceed when the user declines:
+	// "error", "fallback" or "retry" (the DeclineStrategy* constants). It is a
+	// declarative setting whose handling is up to the host. When it is set,
+	// the SDK's Conversation.RejectClientTool answers the call with
+	// ConsentDeclinedMessage for the strategy, followed by the caller's
+	// reason, so the model sees what PromptArena's consent simulation gives
+	// it. When it is empty, the rejection text is unchanged.
 	DeclineStrategy string `json:"decline_strategy,omitempty" yaml:"decline_strategy,omitempty"`
 }
 
 // Decline strategy constants for ConsentConfig.DeclineStrategy.
-//
-// Deprecated: ConsentConfig.DeclineStrategy is never read; see it for what
-// to do instead.
 const (
 	DeclineStrategyFallback = "fallback"
 	DeclineStrategyError    = "error"
 	DeclineStrategyRetry    = "retry"
 )
+
+// ConsentDeclinedMessage is the tool result text that tells the model the user
+// declined consent for toolName, worded for the decline strategy: fallback
+// asks for an alternative approach, retry for a different approach, and error
+// (or any other value) reports the denial. PromptArena's consent simulation
+// uses the same text.
+func ConsentDeclinedMessage(toolName, strategy string) string {
+	switch strategy {
+	case DeclineStrategyFallback:
+		return fmt.Sprintf("Tool %s unavailable: user declined consent. Use alternative approach.", toolName)
+	case DeclineStrategyRetry:
+		return fmt.Sprintf("Tool %s denied: user declined consent. Try a different approach.", toolName)
+	default:
+		return fmt.Sprintf("Tool %s denied: user declined consent", toolName)
+	}
+}
 
 // ToolCall represents a tool invocation request
 type ToolCall struct {

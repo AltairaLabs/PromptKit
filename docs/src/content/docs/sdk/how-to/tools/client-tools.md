@@ -62,7 +62,18 @@ conv, err := sdk.Open("./app.pack.json", "assistant",
 )
 ```
 
-`tools` is `github.com/AltairaLabs/PromptKit/runtime/v2/tools`. The consent message reaches your code as `ConsentMsg`, and `Categories` as `Categories`, on the request and on pending calls. Consent is the host's job: the SDK does not ask for it. When the user declines, return an error from the handler, or call `RejectClientTool` for a deferred call. `client.consent.required` and `client.consent.decline_strategy` are deprecated, nothing reads them, and they will be removed in v3.
+`tools` is `github.com/AltairaLabs/PromptKit/runtime/v2/tools`. The consent message reaches your code as `ConsentMsg`, and `Categories` as `Categories`, on the request and on pending calls. Consent is the host's job: the SDK does not ask for it. When the user declines, return an error from the handler, or call `RejectClientTool` for a deferred call.
+
+The other two consent settings are declarations for the host. `Required` (`client.consent.required` in a tool file) says the tool needs permission. The SDK does not enforce it and passes it through on the descriptor (`req.Descriptor`). `DeclineStrategy` (`client.consent.decline_strategy`) tells the model how to carry on after a decline: `error`, `fallback` or `retry`. With a strategy set, `RejectClientTool` answers the call with the strategy's text, the same text PromptArena's consent simulation uses, followed by your reason:
+
+| Strategy | The model sees |
+|---|---|
+| `error` | `Tool get_location denied: user declined consent. Reason: <reason>` |
+| `fallback` | `Tool get_location unavailable: user declined consent. Use alternative approach. Reason: <reason>` |
+| `retry` | `Tool get_location denied: user declined consent. Try a different approach. Reason: <reason>` |
+| not set | `Tool rejected: <reason>` |
+
+With an empty reason, the `Reason:` part is left out. `tools.ConsentDeclinedMessage` returns the strategy text.
 
 ### 3. Answer the call
 

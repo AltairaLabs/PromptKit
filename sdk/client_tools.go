@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
@@ -424,7 +425,8 @@ func (c *Conversation) buildToolResultMessages(ctx context.Context) ([]types.Mes
 	if len(resolutions) == 0 {
 		return nil, fmt.Errorf("no resolved tool results to resume with")
 	}
-	c.validateDeferredResults(ctx, resolutions)
+	callNames := c.lazyCallNames(ctx)
+	c.validateDeferredResults(resolutions, callNames)
 
 	toolMsgs := make([]types.Message, 0, len(resolutions))
 	for _, res := range resolutions {
@@ -432,8 +434,7 @@ func (c *Conversation) buildToolResultMessages(ctx context.Context) ([]types.Mes
 
 		switch {
 		case res.Rejected:
-			toolResult = types.NewTextToolResult(res.ID, "",
-				fmt.Sprintf("Tool rejected: %s", res.RejectionReason))
+			toolResult = types.NewTextToolResult(res.ID, "", c.rejectionText(callNames()[res.ID], res.RejectionReason))
 		case res.Error != nil:
 			toolResult = types.NewTextToolResult(res.ID, "", toolErrorContent(res))
 			toolResult.Error = toolResultErrorText(res.Error)
@@ -454,6 +455,50 @@ func (c *Conversation) buildToolResultMessages(ctx context.Context) ([]types.Mes
 	return toolMsgs, nil
 }
 
+// lazyCallNames returns a function that maps each call the suspended assistant
+// message made to its tool name, reading the history on first use only.
+func (c *Conversation) lazyCallNames(ctx context.Context) func() map[string]string {
+	var names map[string]string
+	return func() map[string]string {
+		if names == nil {
+			names = map[string]string{}
+			if c.getBaseSession() != nil {
+				names = callNamesOfLastAssistant(c.Messages(ctx))
+			}
+		}
+		return names
+	}
+}
+
+// rejectionText is what the model is told about a rejected client tool call.
+// When the tool's consent config declares a decline strategy, it is the
+// strategy's text (tools.ConsentDeclinedMessage, as PromptArena words it)
+// followed by the caller's reason; otherwise it is "Tool rejected: <reason>".
+func (c *Conversation) rejectionText(toolName, reason string) string {
+	strategy := c.declineStrategy(toolName)
+	if strategy == "" {
+		return fmt.Sprintf("Tool rejected: %s", reason)
+	}
+	msg := tools.ConsentDeclinedMessage(toolName, strategy)
+	if reason == "" {
+		return msg
+	}
+	return strings.TrimSuffix(msg, ".") + ". Reason: " + reason
+}
+
+// declineStrategy is the decline strategy toolName's descriptor declares, or
+// "" when it declares none or the tool is unknown.
+func (c *Conversation) declineStrategy(toolName string) string {
+	if c.toolRegistry == nil || toolName == "" {
+		return ""
+	}
+	desc := c.toolRegistry.Get(toolName)
+	if desc == nil || desc.ClientConfig == nil || desc.ClientConfig.Consent == nil {
+		return ""
+	}
+	return desc.ClientConfig.Consent.DeclineStrategy
+}
+
 // clientResultValidator checks caller-supplied client tool results. It is
 // safe for concurrent use and caches compiled schemas.
 var clientResultValidator = tools.NewSchemaValidator()
@@ -463,19 +508,17 @@ var clientResultValidator = tools.NewSchemaValidator()
 // result that does not match becomes a failure, so the model is told the call
 // failed and why, as it is when a handler registered with OnClientTool
 // returns an invalid result.
-func (c *Conversation) validateDeferredResults(ctx context.Context, resolutions []*sdktools.ToolResolution) {
+func (c *Conversation) validateDeferredResults(
+	resolutions []*sdktools.ToolResolution, callNames func() map[string]string,
+) {
 	if c.toolRegistry == nil || c.getBaseSession() == nil {
 		return
 	}
-	var names map[string]string
 	for _, res := range resolutions {
 		if res.Rejected || res.Error != nil || len(res.Parts) > 0 {
 			continue
 		}
-		if names == nil {
-			names = callNamesOfLastAssistant(c.Messages(ctx))
-		}
-		desc, err := c.toolRegistry.GetTool(names[res.ID])
+		desc, err := c.toolRegistry.GetTool(callNames()[res.ID])
 		if err != nil || desc.ClientConfig == nil || !desc.ClientConfig.ValidateOutput {
 			continue
 		}
