@@ -152,7 +152,7 @@ type MediaMetadata struct {
 ```
 
 <a name="MediaPolicyHandler"></a>
-## type [MediaPolicyHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L136-L146>)
+## type [MediaPolicyHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L135-L145>)
 
 MediaPolicyHandler applies and enforces retention policies on stored media. policy.TimeBasedPolicyHandler implements it, and a local.FileStore given one through local.WithPolicyHandler applies it to every media item it stores.
 
@@ -171,7 +171,7 @@ type MediaPolicyHandler interface {
 ```
 
 <a name="MediaPolicyTracker"></a>
-## type [MediaPolicyTracker](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L152-L157>)
+## type [MediaPolicyTracker](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L151-L156>)
 
 MediaPolicyTracker is implemented by a MediaPolicyHandler that keeps its own record of stored media, such as an expiry index. After a store writes a media item's metadata file, it calls TrackMedia so the handler can enforce the item's policy without rescanning the store.
 
@@ -362,11 +362,11 @@ const (
 ```
 
 <a name="PolicyHandler"></a>
-## type [PolicyHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L103-L131>)
+## type [PolicyHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/storage/interfaces.go#L102-L130>)
 
 PolicyHandler defines the interface for applying and enforcing storage policies. Policies control media retention, cleanup, and other lifecycle management.
 
-Deprecated: no PromptKit type implements PolicyHandler and nothing consumes it. Use MediaPolicyHandler, which policy.TimeBasedPolicyHandler implements and local.FileStore applies.
+The built\-in policy.TimeBasedPolicyHandler implements MediaPolicyHandler, which is the interface local.FileStore applies, not this one.
 
 ```go
 type PolicyHandler interface {
