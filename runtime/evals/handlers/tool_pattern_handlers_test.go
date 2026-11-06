@@ -265,6 +265,44 @@ func TestToolEfficiencyHandler_MaxCalls_Fail(t *testing.T) {
 	}
 }
 
+// At exactly max_calls the run is within limits, so it must score above a run
+// that breaks the limit (0). Otherwise no min_score can mean "within limits".
+func TestToolEfficiencyHandler_MaxCalls_AtCapScoresAboveOverCap(t *testing.T) {
+	h := &ToolEfficiencyHandler{}
+	calls := func(n int) *evals.EvalContext {
+		recs := make([]evals.ToolCallRecord, n)
+		for i := range recs {
+			recs[i] = toolCall("a", nil, nil, "")
+		}
+		return &evals.EvalContext{ToolCalls: recs}
+	}
+	score := func(n int) float64 {
+		t.Helper()
+		result, err := h.Eval(context.Background(), calls(n), map[string]any{"max_calls": 2})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Score == nil {
+			t.Fatalf("%d calls: nil score", n)
+		}
+		return *result.Score
+	}
+
+	zero, one, atCap, over := score(0), score(1), score(2), score(3)
+	if over != 0 {
+		t.Fatalf("over the cap must score 0, got %v", over)
+	}
+	if atCap <= over {
+		t.Fatalf("at the cap (%v) must score above over the cap (%v)", atCap, over)
+	}
+	if zero != 1 {
+		t.Fatalf("no calls must score 1, got %v", zero)
+	}
+	if !(zero > one && one > atCap) {
+		t.Fatalf("score must fall with each call: 0→%v 1→%v 2→%v", zero, one, atCap)
+	}
+}
+
 func TestToolEfficiencyHandler_ErrorRate(t *testing.T) {
 	h := &ToolEfficiencyHandler{}
 	evalCtx := &evals.EvalContext{
