@@ -131,11 +131,12 @@ func TestBuildInteractionsRequest_SystemLeadsTranscript(t *testing.T) {
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{MaxTokens: 512}, false)
 
-	body := tp.buildInteractionsRequest(providers.PredictionRequest{
+	body, err := tp.buildInteractionsRequest(context.Background(), providers.PredictionRequest{
 		System:         "be terse",
 		Messages:       []types.Message{{Role: roleUser, Content: "hi"}},
 		ResponseFormat: schemaFormat(),
 	}, nil)
+	require.NoError(t, err)
 
 	assert.Equal(t, "gemini-3.7-flash", body.Model)
 	require.NotNil(t, body.ResponseFormat)
@@ -150,9 +151,10 @@ func TestBuildInteractionsRequest_NoSystemNoExtraTurn(t *testing.T) {
 	tp := NewToolProvider("g", "gemini-3.7-flash",
 		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{MaxTokens: 512}, false)
-	body := tp.buildInteractionsRequest(providers.PredictionRequest{
+	body, err := tp.buildInteractionsRequest(context.Background(), providers.PredictionRequest{
 		Messages: []types.Message{{Role: roleUser, Content: "hi"}},
 	}, nil)
+	require.NoError(t, err)
 	assert.Len(t, body.Input, 1)
 	assert.Nil(t, body.ResponseFormat, "no schema asked for, none sent")
 }

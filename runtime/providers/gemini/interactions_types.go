@@ -1,6 +1,11 @@
 package gemini
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"slices"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+)
 
 // Wire types for the v1beta/interactions API.
 //
@@ -77,6 +82,30 @@ type interactionsTextStep struct {
 	Text string `json:"text"`
 }
 
+// interactionsMediaContent is an image, audio, video or document content item,
+// sent inline: {"type":"image","data":"<base64>","mime_type":"image/png"}. It
+// sits in the input list beside text items, and an image one can also be an
+// entry in a function_result's result list.
+type interactionsMediaContent struct {
+	Type     string `json:"type"`
+	Data     string `json:"data"`
+	MIMEType string `json:"mime_type"`
+}
+
+// interactionsMIMETypes are the MIME types the Interactions API accepts for
+// each content type, from its API reference (ImageContent, AudioContent,
+// VideoContent and DocumentContent). They differ from what the adapter sends on
+// generateContent: BMP and TIFF images are accepted, documents are PDF, CSV,
+// Office and OpenDocument only (no other text/*, no JSON, XML or RTF), and FLV
+// only as "video/x-flv".
+var interactionsMIMETypes = map[string][]string{
+	types.ContentTypeImage: slices.Concat(geminiImageFormats, []string{"image/bmp", "image/tiff"}),
+	types.ContentTypeAudio: geminiAudioFormats,
+	types.ContentTypeVideo: geminiDocumentedVideoFormats,
+	types.ContentTypeDocument: slices.Concat(
+		[]string{types.MIMETypePDF, "text/csv"}, geminiOfficeDocumentFormats),
+}
+
 // interactionsFunctionCall is the model asking for a tool. On replay it is sent
 // back verbatim, which carries any signature through without special handling —
 // the requirement that makes hand-built Gemini 3 histories fail.
@@ -92,15 +121,19 @@ type interactionsFunctionCall struct {
 
 // interactionsFunctionResult answers one function_call.
 //
-// Result is a SINGLE content item, not a list. A list is treated as a
-// multimodal response and rejected by Gemini 2.5 with "Multimodal function
-// responses are not supported for this model"; the single form is accepted by
-// both generations, so it is used unconditionally rather than gating on model.
+// Result is a SINGLE text content item for a text-only result. A list is
+// treated as a multimodal response and rejected by Gemini 2.5 with "Multimodal
+// function responses are not supported for this model", so the list form, of
+// text and image items, is sent only for a result that carries an image: that
+// is the one form that can carry it, and failing loudly on 2.5 beats sending
+// the result without its image.
 type interactionsFunctionResult struct {
-	Type   string              `json:"type"`
-	Name   string              `json:"name"`
-	CallID string              `json:"call_id,omitempty"`
-	Result interactionsContent `json:"result"`
+	Type   string `json:"type"`
+	Name   string `json:"name"`
+	CallID string `json:"call_id,omitempty"`
+	// Result is an interactionsContent, or a []any of interactionsContent and
+	// interactionsMediaContent items.
+	Result any `json:"result"`
 }
 
 // interactionsContent is a content item inside a step.
