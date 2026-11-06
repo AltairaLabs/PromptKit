@@ -4,13 +4,14 @@ description: How the SDK turns a pack file into a conversation, and how a messag
 sidebar:
   order: 1
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/evals/handlers/contains.go
     - runtime/evals/handlers/json_valid.go
     - runtime/evals/handlers/llm_judge.go
     - runtime/evals/handlers/regex.go
     - runtime/evals/handlers/tools_called.go
+    - runtime/evals/hooks.go
     - runtime/evals/metrics.go
     - runtime/evals/runner.go
     - runtime/evals/trigger.go
@@ -26,6 +27,7 @@ verified:
     - sdk/sdk.go
     - sdk/session/duplex_session.go
     - sdk/streaming.go
+    - sdk/workflow.go
 ---
 
 How does the SDK relate to the runtime, and what happens between `conv.Send()` and the response? This page describes the pack-first design and the components behind a `Conversation`.
@@ -129,8 +131,9 @@ A trigger on each eval decides when it runs:
 | `sample_turns` | On a deterministic hash-based sample of turns |
 | `on_session_complete` | When the session closes |
 | `sample_sessions` | On a deterministic hash-based sample of sessions |
+| `on_workflow_step` | After each committed workflow state transition, against the turn that produced it |
 
-The SDK dispatches turn evals asynchronously after `Send()`, bounded by a concurrency limit. It runs session evals synchronously during `Close()`. Arena uses `PackEvalHook` to run evals against live or recorded conversations.
+The SDK dispatches turn evals asynchronously after `Send()`, bounded by a concurrency limit. A workflow conversation dispatches `on_workflow_step` evals the same way, once the turn that made the transition has finished. The SDK runs session evals synchronously during `Close()`. Arena uses `PackEvalHook` to run evals against live or recorded conversations.
 
 ## Request flow
 

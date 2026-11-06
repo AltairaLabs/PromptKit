@@ -1,13 +1,13 @@
 {
  "page": "docs/src/content/docs/sdk/explanation/observability.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": "c1",
    "claim": "sdk.Open creates an EventBus when none supplied; closes with conversation",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:703-728"
+    "sdk/sdk.go:714-739"
    ]
   },
   {
@@ -15,7 +15,7 @@
    "claim": "MessageBroadcastStage added whenever a bus/emitter is configured",
    "verdict": "true",
    "evidence": [
-    "sdk/internal/pipeline/builder.go:522-530"
+    "sdk/internal/pipeline/builder.go:559-567"
    ]
   },
   {
@@ -23,9 +23,9 @@
    "claim": "WithRecording adds input stage after template assembly and output stage before state save; needs EventStore",
    "verdict": "true",
    "evidence": [
-    "sdk/internal/pipeline/builder.go:509-514",
-    "sdk/internal/pipeline/builder.go:551-556",
-    "sdk/options.go:1165-1166"
+    "sdk/internal/pipeline/builder.go:543-547",
+    "sdk/internal/pipeline/builder.go:589-593",
+    "sdk/options.go:1196-1197"
    ]
   },
   {
@@ -33,8 +33,8 @@
    "claim": "WithRecording(nil) alone enables recording (original snippet)",
    "verdict": "false",
    "evidence": [
-    "sdk/conversation.go:730",
-    "sdk/options.go:1165-1166"
+    "sdk/conversation.go:762",
+    "sdk/options.go:1196-1197"
    ]
   },
   {
@@ -43,7 +43,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/events/message_created_data.go:30",
-    "runtime/pipeline/stage/stages_message_broadcast.go:9-30"
+    "runtime/pipeline/stage/stages_message_broadcast.go:78-95"
    ]
   },
   {
@@ -51,7 +51,7 @@
    "claim": "With store+recording, store skips bus message.created",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:735-750"
+    "sdk/sdk.go:746-761"
    ]
   },
   {
@@ -59,9 +59,9 @@
    "claim": "EventBusEvalListener subscribes message.created and triggers evals",
    "verdict": "dead",
    "evidence": [
-    "sdk/conversation.go:1711-1716",
-    "sdk/eval_middleware.go:196-221",
-    "sdk/eval_middleware.go:252-297"
+    "sdk/conversation.go:1794-1799",
+    "sdk/eval_middleware.go:161",
+    "sdk/eval_middleware.go:277"
    ]
   },
   {
@@ -69,8 +69,8 @@
    "claim": "WithEventRedactor covers every bus subscriber",
    "verdict": "false",
    "evidence": [
-    "sdk/options.go:3873-3886",
-    "sdk/sdk.go:729-764"
+    "sdk/options.go:4083-4112",
+    "sdk/sdk.go:740-775"
    ]
   },
   {
@@ -78,7 +78,7 @@
    "claim": "WithTelemetryContentCapture OTel spans only, off by default",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:3843-3871"
+    "sdk/options.go:4076-4081"
    ]
   },
   {
@@ -102,8 +102,8 @@
    "claim": "Bus is async, lossy: Publish drops when buffer full; per-listener goroutine in publish order; stuck listener disabled",
    "verdict": "true",
    "evidence": [
-    "runtime/events/bus.go:129-144",
-    "runtime/events/bus.go:575-605"
+    "runtime/events/bus.go:128-143",
+    "runtime/events/bus.go:574-604"
    ]
   },
   {
@@ -127,7 +127,7 @@
    "claim": "Handlers run in a separate goroutine",
    "verdict": "true",
    "evidence": [
-    "runtime/events/bus.go:563-573"
+    "runtime/events/bus.go:562-572"
    ]
   },
   {
@@ -135,7 +135,7 @@
    "claim": "ProviderCallCompletedData has Duration, InputTokens, OutputTokens, Model",
    "verdict": "true",
    "evidence": [
-    "runtime/events/types.go:297-310"
+    "runtime/events/types.go:307-320"
    ]
   },
   {
@@ -143,8 +143,8 @@
    "claim": "Bus uses a worker pool; arrival order is not publish order",
    "verdict": "false",
    "evidence": [
-    "runtime/events/bus.go:105-110",
-    "runtime/events/bus.go:563-573"
+    "runtime/events/bus.go:104-109",
+    "runtime/events/bus.go:562-572"
    ]
   },
   {
@@ -152,7 +152,7 @@
    "claim": "EventStore persisted synchronously before listener dispatch",
    "verdict": "false",
    "evidence": [
-    "sdk/sdk.go:735-751"
+    "sdk/sdk.go:746-762"
    ]
   },
   {
@@ -177,7 +177,7 @@
    "verdict": "false",
    "evidence": [
     "runtime/events/composition_events.go:9-19",
-    "runtime/events/types.go:19-166"
+    "runtime/events/types.go:19-176"
    ]
   },
   {
@@ -185,7 +185,7 @@
    "claim": "Event has RunID field",
    "verdict": "false",
    "evidence": [
-    "runtime/events/types.go:175-185"
+    "runtime/events/types.go:185-195"
    ]
   },
   {
@@ -193,7 +193,7 @@
    "claim": "Pipeline emits MiddlewareStarted in the Send flow",
    "verdict": "dead",
    "evidence": [
-    "runtime/events/emitter.go:163"
+    "runtime/events/emitter.go:167"
    ]
   }
  ]

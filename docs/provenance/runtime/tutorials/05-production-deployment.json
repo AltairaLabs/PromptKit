@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/runtime/tutorials/05-production-deployment.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -21,7 +21,7 @@
    "claim": "ANTHROPIC_API_KEY is read from the environment by claude.NewProvider",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude.go:136"
+    "runtime/providers/claude/claude.go:137"
    ]
   },
   {
@@ -30,9 +30,9 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/builder.go:20",
-    "runtime/pipeline/stage/stages_core.go:166",
-    "runtime/pipeline/stage/stages_provider.go:286",
-    "runtime/pipeline/stage/stages_save.go:60"
+    "runtime/pipeline/stage/stages_core.go:175",
+    "runtime/pipeline/stage/stages_provider.go:339",
+    "runtime/pipeline/stage/stages_save.go:64"
    ]
   },
   {
@@ -41,7 +41,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/handlers/register.go:145",
-    "runtime/hooks/guardrails/adapter.go:466",
+    "runtime/hooks/guardrails/adapter.go:465",
     "runtime/hooks/guardrails/factory.go:162"
    ]
   },
@@ -50,7 +50,7 @@
    "claim": "guardrails.NewGuardrailHook(\"length\", {max_characters}) truncates a reply at the limit",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/guardrails/adapter.go:468",
+    "runtime/hooks/guardrails/adapter.go:470",
     "runtime/hooks/guardrails/adapter.go:541"
    ]
   },
@@ -59,7 +59,7 @@
    "claim": "An empty base URL selects the provider's default endpoint",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude.go:134",
+    "runtime/providers/claude/claude.go:137",
     "runtime/providers/openai/openai.go:199"
    ]
   },
@@ -68,9 +68,9 @@
    "claim": "NewStateStoreLoadStage / NewProviderStageWithHooks / NewIncrementalSaveStage chain loads history, calls provider with hooks, saves new messages",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_core.go:253",
-    "runtime/pipeline/stage/stages_provider.go:286",
-    "runtime/pipeline/stage/stages_save.go:60"
+    "runtime/pipeline/stage/stages_core.go:262",
+    "runtime/pipeline/stage/stages_provider.go:339",
+    "runtime/pipeline/stage/stages_save.go:64"
    ]
   },
   {
@@ -78,8 +78,8 @@
    "claim": "StateStoreConfig names the conversation, so the pipeline is built per request",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_save.go:131",
-    "runtime/pipeline/types.go:175"
+    "runtime/pipeline/stage/stages_save.go:135",
+    "runtime/pipeline/types.go:193"
    ]
   },
   {
@@ -87,8 +87,8 @@
    "claim": "Providers retry transient failures such as 429 and 503 themselves",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/base_provider.go:1005",
-    "runtime/providers/retry.go:43"
+    "runtime/providers/base_provider.go:1172",
+    "runtime/providers/retry.go:44"
    ]
   },
   {
@@ -96,7 +96,7 @@
    "claim": "Execute moves to the next provider only when a provider returns an error",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:286"
+    "runtime/pipeline/stage/stages_provider.go:339"
    ]
   },
   {
@@ -104,7 +104,7 @@
    "claim": "Graceful shutdown: http.Server.Shutdown with 30s context on SIGINT/SIGTERM",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:645"
+    "runtime/pipeline/stage/pipeline.go:1504"
    ]
   },
   {
@@ -120,7 +120,7 @@
    "claim": "A second message with the same session_id sees the first exchange via the state store",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_core.go:253",
+    "runtime/pipeline/stage/stages_core.go:262",
     "runtime/statestore/memory.go:170"
    ]
   },
@@ -138,7 +138,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/providers/claude/pricing_table.go:141",
-    "runtime/providers/openai/pricing_table.go:123"
+    "runtime/providers/openai/pricing_table.go:125"
    ]
   },
   {
@@ -146,7 +146,7 @@
    "claim": "Pipeline output carries the assistant message with CostInfo; elem.Meta.FromHistory marks replayed history",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_context.go:291",
+    "runtime/pipeline/stage/stages_context.go:293",
     "runtime/types/message.go:242"
    ]
   }

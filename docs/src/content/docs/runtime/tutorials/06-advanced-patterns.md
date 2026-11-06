@@ -4,7 +4,7 @@ description: Add response caching, a custom pipeline stage with a spend budget, 
 sidebar:
   order: 6
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/pipeline/stage/pipeline.go
     - runtime/pipeline/stage/stage.go

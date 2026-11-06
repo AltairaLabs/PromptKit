@@ -4,7 +4,7 @@ description: Give a stage-pipeline chatbot file tools by connecting an MCP serve
 sidebar:
   order: 3
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/mcp/registry.go
     - runtime/mcp/types.go

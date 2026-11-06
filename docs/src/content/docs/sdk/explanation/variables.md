@@ -4,7 +4,7 @@ description: Where variables apply, when they are read, and which source wins.
 sidebar:
   order: 4
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/events/bus.go
     - runtime/events/types.go

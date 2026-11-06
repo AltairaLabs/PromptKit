@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/runtime/tutorials/01-first-pipeline.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -43,7 +43,7 @@
    "claim": "providers.ProviderDefaults has Temperature and MaxTokens",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/provider.go:214"
+    "runtime/providers/provider.go:225"
    ]
   },
   {
@@ -51,7 +51,7 @@
    "claim": "stage.NewPipelineBuilder().Chain(...).Build() returns (*StreamPipeline, error)",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/builder.go:125",
+    "runtime/pipeline/stage/builder.go:133",
     "runtime/pipeline/stage/builder.go:20",
     "runtime/pipeline/stage/builder.go:72"
    ]
@@ -61,7 +61,7 @@
    "claim": "stage.NewProviderStage(provider, toolRegistry, toolPolicy, *ProviderConfig) with nil registry and policy",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:261"
+    "runtime/pipeline/stage/stages_provider.go:314"
    ]
   },
   {
@@ -69,7 +69,7 @@
    "claim": "ProviderConfig has MaxTokens and Temperature",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:121"
+    "runtime/pipeline/stage/stages_provider.go:143"
    ]
   },
   {
@@ -77,7 +77,7 @@
    "claim": "pipe.Shutdown(ctx) shuts down the pipeline",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:645"
+    "runtime/pipeline/stage/pipeline.go:1504"
    ]
   },
   {
@@ -85,7 +85,7 @@
    "claim": "ExecuteSync(ctx, ...StreamElement) returns (*ExecutionResult, error)",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:537"
+    "runtime/pipeline/stage/pipeline.go:1377"
    ]
   },
   {
@@ -93,7 +93,7 @@
    "claim": "stage.NewMessageElement takes *types.Message",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/element.go:343"
+    "runtime/pipeline/stage/element.go:352"
    ]
   },
   {
@@ -101,7 +101,8 @@
    "claim": "types.Message has Role and Content fields; the provider reads Content for a user message",
    "verdict": "true",
    "evidence": [
-    "runtime/types/message.go:305"
+    "runtime/types/message.go:12",
+    "runtime/types/message.go:309"
    ]
   },
   {
@@ -109,7 +110,7 @@
    "claim": "result.Response.Content holds the reply text",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:558"
+    "runtime/pipeline/stage/pipeline.go:1409"
    ]
   },
   {
@@ -117,7 +118,7 @@
    "claim": "result.CostInfo has InputTokens, OutputTokens, TotalCost",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:585",
+    "runtime/pipeline/stage/pipeline.go:1436",
     "runtime/types/message.go:242"
    ]
   },
@@ -126,7 +127,7 @@
    "claim": "example output Response/Tokens/Cost lines",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:537"
+    "runtime/pipeline/stage/pipeline.go:1377"
    ]
   },
   {
@@ -134,7 +135,7 @@
    "claim": "the chain of one stage links into a StreamPipeline",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/builder.go:125"
+    "runtime/pipeline/stage/builder.go:133"
    ]
   },
   {
@@ -151,7 +152,7 @@
    "claim": "the pipeline handles repeated ExecuteSync calls; each is independent with no history",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:537"
+    "runtime/pipeline/stage/pipeline.go:1377"
    ]
   },
   {
@@ -160,7 +161,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/builder.go:72",
-    "runtime/pipeline/stage/stages_provider.go:261"
+    "runtime/pipeline/stage/stages_provider.go:314"
    ]
   }
  ]

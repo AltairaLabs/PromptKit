@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/explanation/hooks.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -14,9 +14,10 @@
   {
    "id": 2,
    "claim": "Session hook error logged and discarded",
-   "verdict": "false",
+   "verdict": "true",
    "evidence": [
-    "runtime/hooks/registry.go:244",
+    "runtime/hooks/registry.go:240",
+    "runtime/hooks/registry.go:266",
     "sdk/session_hooks.go:93"
    ]
   },
@@ -26,8 +27,8 @@
    "verdict": "false",
    "evidence": [
     "runtime/hooks/hooks.go:42",
-    "runtime/pipeline/stage/stages_provider.go:2776",
-    "runtime/pipeline/stage/stages_provider.go:3371"
+    "runtime/pipeline/stage/stages_provider.go:2872",
+    "runtime/pipeline/stage/stages_provider.go:3484"
    ]
   },
   {
@@ -35,9 +36,9 @@
    "claim": "Deny produces HookDeniedError and fails the turn: the provider stage returns the error, delivered to the caller as the last output element",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:162",
-    "runtime/pipeline/stage/stages_provider.go:3010",
-    "runtime/pipeline/stage/stages_provider.go:3073"
+    "runtime/pipeline/stage/pipeline.go:99",
+    "runtime/pipeline/stage/stages_provider.go:3123",
+    "runtime/pipeline/stage/stages_provider.go:3186"
    ]
   },
   {
@@ -45,7 +46,7 @@
    "claim": "AfterCall Enforced picks up rewritten resp.Message; tool calls dropped",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3135"
+    "runtime/pipeline/stage/stages_provider.go:3248"
    ]
   },
   {
@@ -53,8 +54,8 @@
    "claim": "BeforeCall Enforced skips call; Replacement, metadata.replacement, default; FinishReason safety; Meta; Validations",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/types.go:78",
-    "runtime/pipeline/stage/stages_provider.go:3282"
+    "runtime/hooks/types.go:75",
+    "runtime/pipeline/stage/stages_provider.go:3395"
    ]
   },
   {
@@ -62,7 +63,7 @@
    "claim": "Enforcement does not fail the turn; Deny does",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3027"
+    "runtime/pipeline/stage/stages_provider.go:3140"
    ]
   },
   {
@@ -70,8 +71,8 @@
    "claim": "Built-in guardrails always use Enforced",
    "verdict": "false",
    "evidence": [
-    "runtime/hooks/guardrails/adapter.go:387",
-    "runtime/hooks/guardrails/adapter.go:436"
+    "runtime/hooks/guardrails/adapter.go:385",
+    "runtime/hooks/guardrails/adapter.go:434"
    ]
   },
   {
@@ -79,8 +80,8 @@
    "claim": "Eval hooks mutate result directly, recover per hook, result still emitted",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/runner.go:184",
-    "runtime/evals/runner.go:370"
+    "runtime/evals/runner.go:206",
+    "runtime/evals/runner.go:392"
    ]
   },
   {
@@ -96,10 +97,10 @@
    "claim": "Execution ordering diagram; session start at Open, update after turn, end at Close",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3068",
-    "sdk/conversation.go:1709",
-    "sdk/conversation.go:335",
-    "sdk/sdk.go:381"
+    "runtime/pipeline/stage/stages_provider.go:3181",
+    "sdk/conversation.go:1792",
+    "sdk/conversation.go:348",
+    "sdk/sdk.go:386"
    ]
   },
   {
@@ -113,8 +114,8 @@
    "claim": "Composition step builds its own provider stage sharing the hook registry",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/composition_executor.go:212",
-    "runtime/pipeline/stage/composition_executor.go:72"
+    "runtime/pipeline/stage/composition_executor.go:264",
+    "runtime/pipeline/stage/composition_executor.go:73"
    ]
   },
   {
@@ -122,7 +123,7 @@
    "claim": "First non-Allow short-circuits; eval hooks all run",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/runner.go:362",
+    "runtime/evals/runner.go:384",
     "runtime/hooks/registry.go:127"
    ]
   },
@@ -159,8 +160,8 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/normalize.go:33",
-    "sdk/options.go:1782",
-    "sdk/options.go:1812"
+    "sdk/options.go:1942",
+    "sdk/options.go:1972"
    ]
   },
   {

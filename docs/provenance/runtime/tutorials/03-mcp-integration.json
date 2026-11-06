@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/runtime/tutorials/03-mcp-integration.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -8,8 +8,8 @@
    "verdict": "true",
    "evidence": [
     "runtime/mcp/registry.go:159",
-    "runtime/mcp/registry.go:425",
-    "runtime/mcp/registry.go:513",
+    "runtime/mcp/registry.go:428",
+    "runtime/mcp/registry.go:516",
     "runtime/mcp/registry.go:82"
    ]
   },
@@ -28,8 +28,8 @@
    "evidence": [
     "runtime/tools/mcp_executor.go:106",
     "runtime/tools/mcp_executor.go:42",
-    "runtime/tools/registry.go:166",
-    "runtime/tools/registry.go:398"
+    "runtime/tools/registry.go:170",
+    "runtime/tools/registry.go:404"
    ]
   },
   {
@@ -37,9 +37,8 @@
    "claim": "stage.NewProviderStage(provider, toolReg, &pipeline.ToolPolicy{ToolChoice,MaxRounds}, &ProviderConfig); MaxRounds caps tool rounds",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:261",
-    "runtime/pipeline/types.go:16",
-    "runtime/pipeline/types.go:18"
+    "runtime/pipeline/stage/stages_provider.go:314",
+    "runtime/pipeline/types.go:16"
    ]
   },
   {
@@ -47,9 +46,9 @@
    "claim": "mcp.ServerConfig has TimeoutMs and ToolFilter; ToolFilter has Allowlist/Blocklist and Includes; trailing * is a prefix match",
    "verdict": "true",
    "evidence": [
-    "runtime/mcp/types.go:298",
-    "runtime/mcp/types.go:315",
-    "runtime/mcp/types.go:359"
+    "runtime/mcp/types.go:295",
+    "runtime/mcp/types.go:312",
+    "runtime/mcp/types.go:339"
    ]
   },
   {
@@ -57,7 +56,7 @@
    "claim": "The runtime registry does not apply ToolFilter; the caller applies it at registration",
    "verdict": "true",
    "evidence": [
-    "runtime/mcp/registry.go:425",
+    "runtime/mcp/registry.go:428",
     "sdk/mcp_tool_sync.go:157"
    ]
   },
@@ -72,7 +71,7 @@
    "claim": "Tool registry holds one descriptor per name; later registration replaces",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/registry.go:166"
+    "runtime/tools/registry.go:170"
    ]
   },
   {
@@ -80,9 +79,10 @@
    "claim": "Tutorial 2 pipeline stages NewStateStoreLoadStage and NewIncrementalSaveStage, pipeline.StateStoreConfig, ExecuteSync, result.Response.Content",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_core.go",
-    "runtime/pipeline/stage/stages_save.go",
-    "runtime/pipeline/types.go"
+    "runtime/pipeline/stage/stages_core.go:175",
+    "runtime/pipeline/stage/stages_core.go:190",
+    "runtime/pipeline/stage/stages_save.go:64",
+    "runtime/pipeline/types.go:193"
    ]
   },
   {

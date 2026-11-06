@@ -4,7 +4,7 @@ description: Why RuntimeConfig exists and how it separates what an agent does fr
 sidebar:
   order: 3
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - pkg/config/logging.go
     - pkg/config/runtime_config.go
@@ -93,7 +93,7 @@ RuntimeConfig removes the Go-only restriction. Tools, evals and hooks can be imp
 
 Tools support two modes:
 
-- One-shot (`exec`) spawns a new process for each invocation. The runtime passes `{"args": ...}` as JSON on stdin and reads `{"result": ...}` or `{"error": ...}` from stdout. This is stateless and suits tools that do a single computation and return.
+- One-shot (`exec`) spawns a new process for each invocation. The runtime passes `{"args": ...}` as JSON on stdin and reads `{"result": ...}`, `{"error": ...}` or `{"pending": ...}` from stdout. A `pending` answer holds the call until the host supplies its result. This is stateless and suits tools that do a single computation and return.
 - Server mode (`server`) keeps a long-running process and talks to it over JSON-RPC 2.0, one JSON object per line, with the method `execute`. The runtime starts the process once and sends requests over its lifetime. This amortizes startup cost and lets the subprocess keep state between invocations. Calls to one process may overlap: the runtime matches each reply to its call by JSON-RPC id and drops the late reply of a call that was canceled, so it never reaches the next caller. If the process exits, the next call starts a new one.
 
 Hook and eval bindings are always one-shot; a binding that sets `runtime: server` on one fails to load.
