@@ -53,6 +53,9 @@ func TestRegisterExecutor_WarnsWhenItReplacesAnother(t *testing.T) {
 	assert.Contains(t, out, `"executor":"memory"`, "the warning must name the executor")
 	assert.Contains(t, out, "evictionExec", "and the one being displaced")
 	assert.Contains(t, out, "tagExec", "and the one displacing it")
+	assert.Contains(t, out, "Registry.Child()", "the hint must name the fix")
+	// #2377: the hint used to recommend a ReplaceExecutor that does not exist.
+	assert.NotContains(t, out, "ReplaceExecutor", "the hint must not name a function that does not exist")
 }
 
 // Registering distinct names is the normal case and stays quiet.

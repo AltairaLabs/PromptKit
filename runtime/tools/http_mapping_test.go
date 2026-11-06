@@ -3,6 +3,9 @@ package tools
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -33,12 +36,12 @@ func TestRenderURL_WithTemplate(t *testing.T) {
 func TestRenderURL_MissingVar(t *testing.T) {
 	m := &DefaultRequestMapper{}
 	args := map[string]any{"user_id": "abc123"}
-	// missingkey=zero renders missing vars as "<no value>"
+	// A missing var renders as "<no value>", path-escaped like any other value.
 	got, err := m.RenderURL("https://api.example.com/users/{{.user_id}}/repos/{{.repo}}", args)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "https://api.example.com/users/abc123/repos/<no value>"
+	want := "https://api.example.com/users/abc123/repos/%3Cno%20value%3E"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -464,5 +467,119 @@ func TestBuildMappedRequest_PathArgumentKeepsTheDeclaredHost(t *testing.T) {
 	}
 	if req.URL.Host != "api.example.com" {
 		t.Errorf("host = %q, want api.example.com", req.URL.Host)
+	}
+}
+
+// An argument must not be able to change the request path or add query
+// parameters: path values are path-escaped, query values query-escaped (#2377).
+func TestRenderURL_EscapesArgumentsSoTheyCannotChangeThePath(t *testing.T) {
+	m := &DefaultRequestMapper{}
+	args := map[string]any{"user_id": "../x?y=1", "repo": "a/b#c"}
+	got, err := m.RenderURL("https://api.example.com/users/{{.user_id}}/repos/{{.repo}}", args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "https://api.example.com/users/..%2Fx%3Fy=1/repos/a%2Fb%23c"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	u, err := url.Parse(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Path != "/users/../x?y=1/repos/a/b#c" || u.RawQuery != "" || u.Fragment != "" {
+		t.Errorf("argument escaped its segment: path=%q query=%q fragment=%q", u.Path, u.RawQuery, u.Fragment)
+	}
+	if u.EscapedPath() != "/users/..%2Fx%3Fy=1/repos/a%2Fb%23c" {
+		t.Errorf("escaped path = %q", u.EscapedPath())
+	}
+}
+
+func TestRenderURL_EscapesQueryValues(t *testing.T) {
+	m := &DefaultRequestMapper{}
+	args := map[string]any{"id": "a b", "q": "x&admin=true#frag"}
+	got, err := m.RenderURL("https://api.example.com/items/{{.id}}?q={{.q}}&fixed=1", args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := url.Parse(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Path != "/items/a b" {
+		t.Errorf("path = %q", u.Path)
+	}
+	q := u.Query()
+	if q.Get("q") != "x&admin=true#frag" || q.Get("fixed") != "1" || q.Has("admin") || u.Fragment != "" {
+		t.Errorf("query value escaped its parameter: %q", got)
+	}
+}
+
+// A value that is a whole dot segment survives PathEscape, so it is rejected.
+func TestRenderURL_RejectsDotSegments(t *testing.T) {
+	m := &DefaultRequestMapper{}
+	for _, v := range []string{"..", "."} {
+		_, err := m.RenderURL("https://api.example.com/users/{{.id}}/profile", map[string]any{"id": v})
+		if !errors.Is(err, ErrURLDotSegment) {
+			t.Errorf("value %q: err = %v, want ErrURLDotSegment", v, err)
+		}
+	}
+	// Dots inside a segment are ordinary characters.
+	got, err := m.RenderURL("https://api.example.com/files/{{.name}}", map[string]any{"name": "..hidden"})
+	if err != nil || got != "https://api.example.com/files/..hidden" {
+		t.Errorf("got %q, %v", got, err)
+	}
+}
+
+func TestRenderURL_NonStringValuesAndPipelines(t *testing.T) {
+	m := &DefaultRequestMapper{}
+	args := map[string]any{"w": float64(640), "h": float64(480), "name": "a/b"}
+	got, err := m.RenderURL(
+		`https://api.example.com/img/{{.w}}x{{.h}}/{{if .name}}{{.name | printf "%s-v"}}{{end}}`, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "https://api.example.com/img/640x480/a%2Fb-v"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// A body_mapping that fails must fail the call, not send the request with no
+// body (#2377).
+func TestBuildMappedRequest_BodyMappingErrorFailsTheCall(t *testing.T) {
+	exec := NewHTTPExecutor()
+	cfg := &HTTPConfig{
+		URL:     "https://api.example.com/users",
+		Method:  "POST",
+		Request: &RequestMapping{BodyMapping: "{name: "},
+	}
+	req, err := exec.buildMappedRequest(t.Context(), cfg, "POST", json.RawMessage(`{"first_name": "John"}`))
+	if err == nil {
+		t.Fatalf("expected an error, got a request with body %v", req.Body)
+	}
+	if !strings.Contains(err.Error(), "JMESPath") {
+		t.Errorf("error should name the failing body mapping: %v", err)
+	}
+}
+
+// Through Execute, a bad body_mapping never reaches the server.
+func TestHTTPExecutor_BodyMappingErrorDoesNotSendRequest(t *testing.T) {
+	called := false
+	server := newTestServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	})
+	desc := &ToolDescriptor{
+		Name: "create_user",
+		HTTPConfig: &HTTPConfig{
+			URL: server.URL + "/users", Method: "POST",
+			Request: &RequestMapping{BodyMapping: "{name: "},
+		},
+	}
+	if _, err := NewHTTPExecutor().Execute(t.Context(), desc, json.RawMessage(`{"first_name": "John"}`)); err == nil {
+		t.Fatal("expected Execute to fail on a bad body_mapping")
+	}
+	if called {
+		t.Error("request was sent despite the body mapping failing")
 	}
 }

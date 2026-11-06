@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -374,4 +375,91 @@ func TestInMemoryToolResponseRepository(t *testing.T) {
 	response, err = repo.GetToolResponse("wrong_tool", nil, "test-context")
 	require.NoError(t, err)
 	assert.Nil(t, response)
+}
+
+// YAML call_args decode numbers as int, JSON tool args decode them as float64,
+// and a json.Decoder with UseNumber yields json.Number. All three must compare
+// by value, at the top level and inside nested maps and slices (#2377).
+func TestFileToolResponseRepository_ArgumentsMatch_NumbersByValue(t *testing.T) {
+	repo := &FileToolResponseRepository{}
+
+	tests := []struct {
+		name     string
+		provided map[string]any
+		expected map[string]any
+		want     bool
+	}{
+		{"int vs float64", map[string]any{"n": float64(42)}, map[string]any{"n": 42}, true},
+		{"json.Number vs int", map[string]any{"n": json.Number("42")}, map[string]any{"n": 42}, true},
+		{"json.Number exponent vs float64", map[string]any{"n": json.Number("1e3")}, map[string]any{"n": 1000.0}, true},
+		{"int64 vs uint8", map[string]any{"n": int64(7)}, map[string]any{"n": uint8(7)}, true},
+		{"fraction vs int", map[string]any{"n": 1.5}, map[string]any{"n": 1}, false},
+		{"different values", map[string]any{"n": float64(43)}, map[string]any{"n": 42}, false},
+		{"number vs numeric string", map[string]any{"n": "42"}, map[string]any{"n": 42}, false},
+		{
+			"nested map",
+			map[string]any{"q": map[string]any{"limit": float64(10), "tag": "x"}},
+			map[string]any{"q": map[string]any{"limit": 10, "tag": "x"}},
+			true,
+		},
+		{
+			"nested map with a different value",
+			map[string]any{"q": map[string]any{"limit": float64(11)}},
+			map[string]any{"q": map[string]any{"limit": 10}},
+			false,
+		},
+		{
+			"nested map with an extra key",
+			map[string]any{"q": map[string]any{"limit": float64(10), "extra": true}},
+			map[string]any{"q": map[string]any{"limit": 10}},
+			false,
+		},
+		{
+			"nested slice",
+			map[string]any{"ids": []any{float64(1), float64(2), map[string]any{"k": json.Number("3")}}},
+			map[string]any{"ids": []any{1, 2, map[string]any{"k": 3}}},
+			true,
+		},
+		{
+			"nested slice of a different length",
+			map[string]any{"ids": []any{float64(1)}},
+			map[string]any{"ids": []any{1, 2}},
+			false,
+		},
+		{
+			"YAML-style map[any]any",
+			map[string]any{"q": map[string]any{"limit": float64(10)}},
+			map[string]any{"q": map[any]any{"limit": 10}},
+			true,
+		},
+		{"nil vs nil", map[string]any{"n": nil}, map[string]any{"n": nil}, true},
+		{"nil vs zero", map[string]any{"n": float64(0)}, map[string]any{"n": nil}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, repo.argumentsMatch(tt.provided, tt.expected))
+		})
+	}
+}
+
+// End to end: call_args written in YAML match the JSON args a model sends.
+func TestRepositoryToolExecutor_YAMLIntCallArgsMatchJSONArgs(t *testing.T) {
+	repo := NewFileToolResponseRepository("s", map[string][]MockToolResponseConfig{
+		"get_order": {{CallArgs: map[string]any{"order_id": 1234}, Result: "found"}},
+	})
+	exec := NewRepositoryToolExecutor(&errorExecutorForRepoTest{}, repo, "s")
+
+	out, err := exec.Execute(context.Background(), &ToolDescriptor{Name: "get_order"},
+		json.RawMessage(`{"order_id": 1234}`))
+	require.NoError(t, err)
+	assert.JSONEq(t, `"found"`, string(out))
+}
+
+type errorExecutorForRepoTest struct{}
+
+func (errorExecutorForRepoTest) Name() string { return "fallback" }
+
+func (errorExecutorForRepoTest) Execute(context.Context, *ToolDescriptor, json.RawMessage) (json.RawMessage, error) {
+	return nil, errors.New("fell through to the base executor: call_args did not match")
 }

@@ -418,7 +418,7 @@ func (r *Registry) RegisterExecutor(executor Executor) {
 			"previous_type", fmt.Sprintf("%T", previous),
 			"new_type", fmt.Sprintf("%T", executor),
 			"hint", "two owners sharing one registry? give each its own via Registry.Child(); "+
-				"if this replacement is intended, use ReplaceExecutor")
+				"if this replacement is intended, nothing needs to change")
 	}
 }
 

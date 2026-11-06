@@ -53,6 +53,8 @@ spec:
 
 Arguments used in the path are excluded from the body and the query string.
 
+Each value is escaped for where it lands, so an argument cannot change the request's path or query. Values before the template's first literal `?` or `#` are path-escaped: `{"user_id": "../x?y=1"}` renders `/users/..%2Fx%3Fy=1/repos/...`. Values after it, as in `/search?q={{.q}}`, are query-escaped. A value that is a whole `.` or `..` segment fails the call.
+
 The template renders whether or not the tool has a `request` block. Without one, the arguments the template does not use go where an unmapped tool sends them: the query string for GET, HEAD and DELETE, and the JSON body for POST, PUT and PATCH.
 
 The URL from the scheme through the host and port must be fixed text, so the model cannot choose where the request goes. A template such as `https://{{.region}}.api.example.com` fails when the tool is called. To reach several hosts, declare one tool per host.
@@ -83,7 +85,7 @@ spec:
         - internal_id
 ```
 
-`{"first_name": "John", "last_name": "Doe", "age": 30}` becomes `{"name": "John", "surname": "Doe"}`. `exclude` drops the listed arguments from the request.
+`{"first_name": "John", "last_name": "Doe", "age": 30}` becomes `{"name": "John", "surname": "Doe"}`. `exclude` drops the listed arguments from the request. An expression that fails fails the call, and no request is sent.
 
 ### 5. Inject fixed parameters
 
@@ -200,7 +202,8 @@ Call the tool with `{"latitude": 51.5, "longitude": -0.12}`. The runtime logs `H
 
 - An argument is missing from a GET request: list it under `query_params` or put it in the path.
 - The call fails with "URL templates may use arguments in the path and query": remove the template from the scheme, host or port.
-- `JMESPath expression ... failed`: test the expression against the raw response.
+- `JMESPath expression ... failed`: test the expression against the raw response, or, after `request body mapping failed`, against the body arguments.
+- The call fails with `URL path has a "." or ".." segment`: an argument in the path was `.` or `..`. Tell the model, in the tool's description or input schema, what values the argument takes.
 
 ## Related
 
