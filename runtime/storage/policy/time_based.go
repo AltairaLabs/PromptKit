@@ -63,9 +63,10 @@ var (
 // It applies expiration times to media based on policy names and enforces deletion
 // of expired media through background scanning.
 //
-// When an expiry index is built (via buildExpiryIndex or TrackFile), enforcement
-// uses the index to check only files whose expiry time has passed, avoiding a
-// full directory walk on every tick.
+// When an expiry index is built (via BuildExpiryIndex, which StartEnforcement
+// calls), enforcement uses the index to check only files whose expiry time has
+// passed, avoiding a full directory walk on every tick. TrackFile and
+// TrackMedia keep a built index current but never build it themselves.
 type TimeBasedPolicyHandler struct {
 	// policies maps policy names to their configurations
 	policies map[string]Config
@@ -175,9 +176,11 @@ func (h *TimeBasedPolicyHandler) ApplyPolicy(ctx context.Context, metadata *stor
 }
 
 // EnforcePolicy implements storage.MediaPolicyHandler.EnforcePolicy.
-// When an expiry index has been built (via BuildExpiryIndex or TrackFile),
-// this method only checks files whose expiry time has passed, avoiding a
-// full directory walk. Otherwise it falls back to walking the directory tree.
+// When an expiry index has been built by BuildExpiryIndex (which
+// StartEnforcement calls), this method only checks files whose expiry time
+// has passed, avoiding a full directory walk. Otherwise it walks baseDir, and
+// also enforces any files recorded with TrackFile or TrackMedia, so they do
+// not accumulate in the index.
 func (h *TimeBasedPolicyHandler) EnforcePolicy(ctx context.Context, baseDir string) error {
 	h.expiryMu.RLock()
 	indexed := h.indexBuilt
@@ -185,6 +188,9 @@ func (h *TimeBasedPolicyHandler) EnforcePolicy(ctx context.Context, baseDir stri
 
 	if indexed {
 		return h.enforceFromIndex(ctx)
+	}
+	if err := h.enforceFromIndex(ctx); err != nil {
+		return err
 	}
 	return h.enforceFromWalk(ctx, baseDir)
 }
@@ -207,6 +213,13 @@ func (h *TimeBasedPolicyHandler) enforceFromIndex(_ context.Context) error {
 
 	// Process expired entries
 	for _, entry := range expired {
+		if _, err := os.Stat(entry.metaPath); os.IsNotExist(err) {
+			// Already deleted elsewhere; nothing left to enforce.
+			h.expiryMu.Lock()
+			delete(h.expiryIndex, entry.metaPath)
+			h.expiryMu.Unlock()
+			continue
+		}
 		if h.processMetaFile(entry.metaPath, now) {
 			// Remove from index after successful deletion
 			h.expiryMu.Lock()
@@ -400,7 +413,8 @@ func (h *TimeBasedPolicyHandler) BuildExpiryIndex(baseDir string) error {
 
 // TrackFile adds a file to the in-memory expiry index. This should be called
 // when a new file with a retention policy is stored, to keep the index current
-// without requiring a full directory scan.
+// without requiring a full directory scan. Tracking a file does not switch
+// EnforcePolicy to index-only mode; only BuildExpiryIndex does.
 func (h *TimeBasedPolicyHandler) TrackFile(metaPath string, expiresAt time.Time) {
 	h.expiryMu.Lock()
 	defer h.expiryMu.Unlock()
@@ -409,9 +423,10 @@ func (h *TimeBasedPolicyHandler) TrackFile(metaPath string, expiresAt time.Time)
 		metaPath:  metaPath,
 		expiresAt: expiresAt,
 	}
-	// Mark index as built if this is the first tracked file,
-	// enabling index-based enforcement going forward.
-	h.indexBuilt = true
+	// Tracking never marks the index as built: the index holds only what was
+	// tracked since the handler was created, so switching EnforcePolicy to
+	// index-only mode here would strand expired media already on disk. Only
+	// BuildExpiryIndex, which scans the whole directory, does that.
 }
 
 // TrackMedia implements storage.MediaPolicyTracker. It adds the media whose
