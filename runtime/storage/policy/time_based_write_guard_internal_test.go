@@ -2,6 +2,8 @@ package policy
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -91,4 +93,49 @@ func TestMediaExpiresAt(t *testing.T) {
 
 	_, _, err = h.MediaExpiresAt(&storage.MediaMetadata{PolicyName: "keep-forever"})
 	assert.Error(t, err)
+
+	extended := restoreNow.Add(5 * time.Hour)
+	at, expires, err = h.MediaExpiresAt(&storage.MediaMetadata{
+		PolicyName: "retain-2hours", Timestamp: restoreNow, ExpiresAt: &extended,
+	})
+	require.NoError(t, err)
+	assert.True(t, expires)
+	assert.Equal(t, extended, at, "ExpiresAt takes the place of Timestamp plus the duration")
+
+	_, expires, err = h.MediaExpiresAt(&storage.MediaMetadata{Timestamp: restoreNow, ExpiresAt: &extended})
+	require.NoError(t, err)
+	assert.False(t, expires, "ExpiresAt without a policy does not make media expire")
+}
+
+// Media whose metadata carries ExpiresAt is tracked, indexed and enforced at
+// that time, not at its Timestamp plus the policy's duration.
+func TestExpiresAt_DrivesTrackingIndexingAndEnforcement(t *testing.T) {
+	now := restoreNow
+	h := NewTimeBasedPolicyHandler(0, WithClock(func() time.Time { return now }))
+	dir := t.TempDir()
+	media := filepath.Join(dir, "extended.jpg")
+	extended := restoreNow.Add(time.Hour)
+	meta := storage.MediaMetadata{PolicyName: "delete-after-5min", Timestamp: restoreNow, ExpiresAt: &extended}
+	data, err := json.Marshal(meta)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(media, []byte("x"), 0o600))
+	require.NoError(t, os.WriteFile(media+".meta", data, 0o600))
+
+	require.NoError(t, h.TrackMedia(media+".meta", &meta))
+	at, ok := h.indexedExpiry(media + ".meta")
+	require.True(t, ok)
+	assert.Equal(t, extended, at, "TrackMedia uses ExpiresAt")
+
+	scanned := NewTimeBasedPolicyHandler(0, WithClock(func() time.Time { return now }))
+	require.NoError(t, scanned.BuildExpiryIndex(dir))
+	at, ok = scanned.indexedExpiry(media + ".meta")
+	require.True(t, ok)
+	assert.Equal(t, extended, at, "the scan reads ExpiresAt from the .meta")
+
+	now = restoreNow.Add(30 * time.Minute)
+	require.NoError(t, scanned.EnforcePolicy(context.Background(), dir))
+	require.FileExists(t, media, "kept past Timestamp plus the policy's duration")
+	now = restoreNow.Add(61 * time.Minute)
+	require.NoError(t, scanned.EnforcePolicy(context.Background(), dir))
+	assert.NoFileExists(t, media, "deleted once ExpiresAt passes")
 }
