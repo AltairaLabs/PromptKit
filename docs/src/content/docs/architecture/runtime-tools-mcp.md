@@ -232,7 +232,15 @@ graph TD
 
 A model that repeats the same call with identical arguments three times (`MaxIdenticalToolCalls`) gets one synthetic result telling it to change course, and the turn aborts if it repeats again. `StopOnTool` ends the loop after the round that called the named tool. The blocklist matches exact tool names.
 
-`MaxCallsPerMinute` counts each tool's calls in a sliding one-minute window per conversation. The provider stage holds the window, or uses the one passed in `ProviderConfig.CallRate`, so it spans the turns of a conversation that stage runs. The SDK passes one window per conversation to all of that conversation's pipelines. The check runs after the blocklist, the before-tool hooks and the approval gate, so only a call admitted to run counts. A call held for approval counts when it is approved: the host records it with `CallRateWindow.Admit`, which the SDK's `ResolveTool` does. A rejected call never counts. A call over the limit is not executed, and the model gets a tool result saying the tool's limit is reached, the same shape as a blocked call.
+`MaxCallsPerMinute` counts each tool's calls in a sliding one-minute window per conversation. The provider stage holds the window, or uses the one passed in `ProviderConfig.CallRate`, so it spans the turns of a conversation that stage runs. The SDK passes one window per conversation to all of that conversation's pipelines. A workflow passes one window to every state's conversation, through `CallRateWindow.Scoped`, because each state's conversation has its own ID. A composition step counts under the enclosing conversation's ID.
+
+The window tracks slots in three steps:
+
+1. **Reserve.** After the blocklist and the before-tool hooks, and before the approval gate, the stage reserves a slot. It counts the committed slots of the last minute plus the open reservations. A call that would go over the limit is refused at once: it is not executed and never reaches the approval gate. The model gets a tool result saying the tool's limit is reached, the same shape as a blocked call.
+2. **Commit.** A call the stage runs commits its slot when the executor returns. A call held for approval, or one the executor defers with `ToolStatusPending`, keeps its reservation. The host commits it with `CallRateWindow.Commit` when the call is admitted. The SDK does this in `ResolveTool`. For a deferred call (a client tool, or any call its executor left pending) it commits when the answer is consumed: by `Resume`, `Continue` or `ContinueDuplex`, or by a new `Send` that abandons the suspended turn. A committed slot counts for one minute from the commit.
+3. **Release.** The host gives back a rejected call's slot with `CallRateWindow.Release`. The SDK does this in `RejectTool`, and for a rejected deferred call where it consumes the answer.
+
+A reservation that nothing resolves lapses after `CallRateReservationLifetime`, which is five minutes. That matches the SDK's default pending TTL, so a held call can't hold a slot forever. A call approved after its reservation lapsed still commits, because the approval is what admits it.
 
 The loop also excludes a tool from later rounds after its second error result in a turn. This prevents a model from calling a failing or rejected tool until the round limit.
 

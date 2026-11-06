@@ -427,6 +427,7 @@ func (c *Conversation) buildToolResultMessages(ctx context.Context) ([]types.Mes
 	}
 	callNames := c.lazyCallNames(ctx)
 	c.validateDeferredResults(resolutions, callNames)
+	c.resolveClientCallRate(resolutions, callNames)
 
 	toolMsgs := make([]types.Message, 0, len(resolutions))
 	for _, res := range resolutions {
@@ -530,6 +531,52 @@ func (c *Conversation) validateDeferredResults(
 		}
 		res.ResultJSON = validated
 	}
+}
+
+// resolveClientCallRate resolves the slot each answered deferred call (a
+// client tool, or any call its executor left pending) reserved under
+// ToolPolicy.MaxCallsPerMinute. A result or a failure means the call ran, so
+// its slot commits. A rejection means it never ran, so its slot is released.
+// A held call's resolution is skipped: ResolveToolWithArgs or RejectTool
+// resolved its slot when the human decided.
+func (c *Conversation) resolveClientCallRate(
+	resolutions []*sdktools.ToolResolution, callNames func() map[string]string,
+) {
+	for _, res := range resolutions {
+		if c.takeHeldResolution(res) || c.callRate == nil {
+			continue
+		}
+		name := callNames()[res.ID]
+		if name == "" {
+			continue
+		}
+		if res.Rejected {
+			c.callRate.Release(c.ID(), name, res.ID)
+		} else {
+			c.callRate.Commit(c.ID(), name, res.ID)
+		}
+	}
+}
+
+// markHeldResolution records that res resolves a held call whose call-rate
+// slot is already resolved.
+func (c *Conversation) markHeldResolution(res *sdktools.ToolResolution) {
+	c.heldResolutionsMu.Lock()
+	defer c.heldResolutionsMu.Unlock()
+	if c.heldResolutions == nil {
+		c.heldResolutions = map[*sdktools.ToolResolution]struct{}{}
+	}
+	c.heldResolutions[res] = struct{}{}
+}
+
+// takeHeldResolution reports whether markHeldResolution recorded res, and
+// forgets it.
+func (c *Conversation) takeHeldResolution(res *sdktools.ToolResolution) bool {
+	c.heldResolutionsMu.Lock()
+	defer c.heldResolutionsMu.Unlock()
+	_, held := c.heldResolutions[res]
+	delete(c.heldResolutions, res)
+	return held
 }
 
 // callNamesOfLastAssistant maps each call the last assistant message in
@@ -718,6 +765,9 @@ func (c *Conversation) discardAbandonedResolutions() {
 	}
 	if dropped := c.resolvedStore.PopAll(); len(dropped) > 0 {
 		logger.Debug("discarding tool answers for an abandoned suspended turn", "count", len(dropped))
+		// The answers still settle their calls' call-rate slots: an answered
+		// call ran, and a rejected one never will.
+		c.resolveClientCallRate(dropped, c.lazyCallNames(context.Background()))
 	}
 }
 

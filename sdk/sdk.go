@@ -256,6 +256,7 @@ func prepareConversation(
 		pendingStore:     pendingStore,
 		ownsPendingStore: ownsPending,
 		resolvedStore:    sdktools.NewResolvedStore(),
+		callRate:         cfg.callRate,
 	}
 
 	// Apply default variables from prompt BEFORE initializing session

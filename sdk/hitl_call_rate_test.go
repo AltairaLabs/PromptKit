@@ -16,10 +16,11 @@ import (
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 )
 
-// A held call counts against ToolPolicy.MaxCallsPerMinute when a human approves
-// it, in the conversation's window, and a rejected one never counts. The probe
-// stage shares the conversation's window, as its pipelines' stages do, with a
-// limit of 2: one approved call leaves exactly one slot.
+// A held call reserves a slot under ToolPolicy.MaxCallsPerMinute; approving
+// it commits that same slot rather than adding a second, and rejecting it
+// gives the slot back. The probe stage shares the conversation's window, as
+// its pipelines' stages do, with a limit of 2: one approved call leaves
+// exactly one slot.
 func TestResolveTool_AdmitsApprovedCallIntoCallRate(t *testing.T) {
 	repo := newGateTurnRepo()
 	call := mock.ToolCall{Name: "send_message", Arguments: map[string]any{"body": "hi"}}
@@ -27,7 +28,8 @@ func TestResolveTool_AdmitsApprovedCallIntoCallRate(t *testing.T) {
 	repo.add(2, mock.Turn{Type: "tool_calls", ToolCalls: []mock.ToolCall{call}})
 	provider := mock.NewToolProviderWithRepository("mock", "mock-model", false, repo)
 
-	conv, err := Open(writeGatePack(t), "assist", WithProvider(provider), WithSkipSchemaValidation())
+	conv, err := Open(writeGatePack(t), "assist", WithProvider(provider), WithSkipSchemaValidation(),
+		WithToolPolicy(&rtpipeline.ToolPolicy{MaxCallsPerMinute: 2}))
 	require.NoError(t, err)
 	defer func() { _ = conv.Close() }()
 	conv.OnToolAsync("send_message",

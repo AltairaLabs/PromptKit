@@ -419,6 +419,22 @@ type config struct {
 	// prompt-assembly → LLM path.
 	activeComposition *composition.Composition
 	compositionName   string
+
+	// callRate, when set by withCallRateWindow, is the window
+	// ToolPolicy.MaxCallsPerMinute counts the conversation's calls in, in
+	// place of one of its own.
+	callRate *stage.CallRateWindow
+}
+
+// withCallRateWindow is an internal option that makes the conversation count
+// ToolPolicy.MaxCallsPerMinute in window rather than in a window of its own.
+// A WorkflowConversation sets it on every state's Open, so the limit spans
+// the workflow's states.
+func withCallRateWindow(window *stage.CallRateWindow) Option {
+	return func(c *config) error {
+		c.callRate = window
+		return nil
+	}
 }
 
 // withResolvedComposition is an internal option that carries a pre-resolved
@@ -1372,6 +1388,20 @@ func WithoutContentValidation() Option {
 // prompt's; every other field comes from this policy. A composition agent
 // step's termination.max_steps narrows MaxRounds the same way, and its
 // termination.tool_called replaces StopOnTool for that step.
+//
+// MaxCallsPerMinute counts each tool's calls in one window per conversation.
+// The window spans the conversation's turns, its composition steps, and, for
+// a WorkflowConversation, every workflow state. A call takes a slot when the
+// model makes it. If the calls that ran in the last minute, plus the calls
+// still held for approval or waiting on a client, already reach the limit,
+// the call is refused at once and never reaches the approval gate. A call
+// that runs keeps its slot for one minute. A held or deferred call keeps its
+// slot while it waits. ResolveTool, SendToolResult and FailClientTool start
+// its minute. RejectTool and RejectClientTool give the slot back. A client
+// answer takes effect when Resume or Continue consumes it, or when a new Send
+// abandons the waiting turn. A call that
+// is never answered gives its slot back after
+// stage.CallRateReservationLifetime.
 //
 // The policy is copied, so changing it afterwards does not affect the
 // conversation. Nil clears a policy set by an earlier option.

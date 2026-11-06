@@ -10,6 +10,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/workflow"
@@ -121,6 +122,7 @@ func openWorkflowAtState(packPath, startState string, opts ...Option) (*Workflow
 			return nil, fmt.Errorf("failed to apply option: %w", optErr)
 		}
 	}
+	opts = withWorkflowCallRate(opts)
 
 	// Set custom logger before any logging occurs — only once
 	if cfg.logger != nil {
@@ -189,6 +191,15 @@ func openWorkflowAtState(packPath, startState string, opts ...Option) (*Workflow
 	wc.registerWorkflowTools()
 
 	return wc, nil
+}
+
+// withWorkflowCallRate returns opts with one call-rate window for the whole
+// workflow appended. Every state's conversation is opened with these options,
+// so ToolPolicy.MaxCallsPerMinute spans the workflow's states and transitions.
+// The window is scoped because each state's conversation has its own ID.
+func withWorkflowCallRate(opts []Option) []Option {
+	window := stage.NewCallRateWindow().Scoped("workflow")
+	return append(append([]Option{}, opts...), withCallRateWindow(window))
 }
 
 // resolveCompositionForState returns a withResolvedComposition Option when the
@@ -286,7 +297,7 @@ func ResumeWorkflow(workflowID, packPath string, opts ...Option) (*WorkflowConve
 	promptName := machine.CurrentPromptTask()
 	optsWithID := make([]Option, len(opts))
 	copy(optsWithID, opts)
-	optsWithID = append(optsWithID, WithConversationID(workflowID))
+	optsWithID = append(withWorkflowCallRate(optsWithID), WithConversationID(workflowID))
 	if compOpt, compErr := resolveCompositionOptForState(p, machine.CurrentState()); compErr != nil {
 		return nil, fmt.Errorf("failed to resolve composition for state %q: %w",
 			machine.CurrentState(), compErr)
