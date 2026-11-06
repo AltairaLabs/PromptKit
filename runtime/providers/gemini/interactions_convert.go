@@ -2,9 +2,11 @@ package gemini
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -26,7 +28,11 @@ const roleToolMessage = "tool"
 // content items, loaded through one MediaLoader per message so the
 // per-message caps apply as they do on generateContent. Media that cannot be
 // loaded, or that this API cannot carry, is an error: sending the text alone
-// would have the model answer without it (#2479).
+// would have the model answer without it (#2479). The exception is assistant
+// media in a MIME type this API does not accept, such as the model's own TTS
+// audio (audio/pcm): it is left out, with a debug line, because the message's
+// text already carries its transcript and failing would end a conversation
+// over the model's own output.
 func (p *Provider) buildInteractionsInput(ctx context.Context, messages []types.Message) ([]any, error) {
 	// Assistant turns expand into several steps (thought, then one per
 	// tool call), so reserve headroom rather than regrow per message.
@@ -34,7 +40,7 @@ func (p *Provider) buildInteractionsInput(ctx context.Context, messages []types.
 	input := make([]any, 0, len(messages)*stepsPerMessage)
 
 	for i := range messages {
-		steps, err := p.interactionsSteps(ctx, &messages[i])
+		steps, err := p.interactionsSteps(ctx, &messages[i], i)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert message %d: %w", i, err)
 		}
@@ -46,7 +52,7 @@ func (p *Provider) buildInteractionsInput(ctx context.Context, messages []types.
 
 // interactionsSteps converts one message to the steps and content items that
 // replay it.
-func (p *Provider) interactionsSteps(ctx context.Context, msg *types.Message) ([]any, error) {
+func (p *Provider) interactionsSteps(ctx context.Context, msg *types.Message, msgIndex int) ([]any, error) {
 	switch msg.Role {
 	case roleToolMessage:
 		step, err := p.toolResultStep(ctx, msg)
@@ -64,21 +70,23 @@ func (p *Provider) interactionsSteps(ctx context.Context, msg *types.Message) ([
 		for j := range msg.ToolCalls {
 			steps = append(steps, functionCallStep(&msg.ToolCalls[j]))
 		}
-		content, err := p.interactionsContentItems(ctx, msg)
+		content, err := p.interactionsContentItems(ctx, msg, msgIndex)
 		if err != nil {
 			return nil, err
 		}
 		return append(steps, content...), nil
 
 	default:
-		return p.interactionsContentItems(ctx, msg)
+		return p.interactionsContentItems(ctx, msg, msgIndex)
 	}
 }
 
 // interactionsContentItems converts a message's text and media to content
 // items. A message with media keeps its parts' order; one without sends its
 // text as a single item.
-func (p *Provider) interactionsContentItems(ctx context.Context, msg *types.Message) ([]any, error) {
+func (p *Provider) interactionsContentItems(
+	ctx context.Context, msg *types.Message, msgIndex int,
+) ([]any, error) {
 	if !msg.HasMediaContent() {
 		if text := msg.GetContent(); text != "" {
 			return []any{interactionsTextStep{Type: stepTypeText, Text: text}}, nil
@@ -89,22 +97,43 @@ func (p *Provider) interactionsContentItems(ctx context.Context, msg *types.Mess
 	loader := p.MediaLoader()
 	items := make([]any, 0, len(msg.Parts))
 	for i := range msg.Parts {
-		part := &msg.Parts[i]
-		if part.Type == types.ContentTypeText {
-			if part.Text != nil && *part.Text != "" {
-				items = append(items, interactionsTextStep{Type: stepTypeText, Text: *part.Text})
-			}
-			continue
-		}
-		item, err := p.interactionsMediaItem(ctx, loader, part, i)
+		item, err := p.interactionsPartItem(ctx, loader, msg, i, msgIndex)
 		if err != nil {
 			return nil, err
 		}
 		if item != nil {
-			items = append(items, *item)
+			items = append(items, item)
 		}
 	}
 	return items, nil
+}
+
+// interactionsPartItem converts part i of msg to a content item, or returns nil
+// for a part with nothing to send. Assistant media in a MIME type this API does
+// not accept is left out with a debug line rather than failing the request.
+func (p *Provider) interactionsPartItem(
+	ctx context.Context, loader *providers.MediaLoader, msg *types.Message, i, msgIndex int,
+) (any, error) {
+	part := &msg.Parts[i]
+	if part.Type == types.ContentTypeText {
+		if part.Text == nil || *part.Text == "" {
+			return nil, nil
+		}
+		return interactionsTextStep{Type: stepTypeText, Text: *part.Text}, nil
+	}
+
+	item, err := p.interactionsMediaItem(ctx, loader, part, i)
+	var unsupported *providers.UnsupportedContentError
+	if msg.Role == roleAssistant && errors.As(err, &unsupported) {
+		logger.Debug("gemini interactions: assistant media in a MIME type this API does not accept "+
+			"left out of the replayed history",
+			"role", msg.Role, "mime_type", unsupported.MIMEType, "message_index", msgIndex, "part_index", i)
+		return nil, nil
+	}
+	if err != nil || item == nil {
+		return nil, err
+	}
+	return *item, nil
 }
 
 // interactionsMediaItem converts one image, audio, video or document part to
