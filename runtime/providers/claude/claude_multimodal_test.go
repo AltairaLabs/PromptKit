@@ -624,7 +624,7 @@ func TestClaudeProvider_ConvertImagePartToClaude_FilePath(t *testing.T) {
 		},
 	}
 
-	_, err := provider.convertImagePartToClaude(context.Background(), part)
+	_, err := provider.convertImagePartToClaude(context.Background(), provider.MediaLoader(), part)
 	if err == nil {
 		t.Error("Expected error for nonexistent file path")
 	}
@@ -712,7 +712,7 @@ func testClaudeProvider() *Provider {
 func TestConvertDocumentPartToClaude_NilMedia(t *testing.T) {
 	provider := testClaudeProvider()
 	part := types.ContentPart{Type: types.ContentTypeDocument}
-	_, err := provider.convertDocumentPartToClaude(context.Background(), part)
+	_, err := provider.convertDocumentPartToClaude(context.Background(), provider.MediaLoader(), part)
 	if err == nil {
 		t.Error("expected error for nil media")
 	}
@@ -726,7 +726,7 @@ func TestConvertDocumentPartToClaude_UnsupportedType(t *testing.T) {
 			MIMEType: "application/msword",
 		},
 	}
-	_, err := provider.convertDocumentPartToClaude(context.Background(), part)
+	_, err := provider.convertDocumentPartToClaude(context.Background(), provider.MediaLoader(), part)
 	if err == nil {
 		t.Error("expected error for non-PDF document")
 	}
@@ -745,7 +745,7 @@ func TestConvertDocumentPartToClaude_PDF(t *testing.T) {
 			Data:     &data,
 		},
 	}
-	block, err := provider.convertDocumentPartToClaude(context.Background(), part)
+	block, err := provider.convertDocumentPartToClaude(context.Background(), provider.MediaLoader(), part)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

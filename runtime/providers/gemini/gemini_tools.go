@@ -179,7 +179,10 @@ func (p *ToolProvider) predictWithToolsOnce(
 	}
 
 	// Build Gemini request with tools
-	geminiReq := p.buildToolRequest(ctx, req, tools, toolChoice)
+	geminiReq, err := p.buildToolRequest(ctx, req, tools, toolChoice)
+	if err != nil {
+		return providers.PredictionResponse{}, nil, err
+	}
 
 	// Prepare response with raw request if configured (set early to preserve on error)
 	predictResp := providers.PredictionResponse{}
@@ -200,7 +203,8 @@ func (p *ToolProvider) predictWithToolsOnce(
 // processToolMessage converts a tool result message to Gemini's functionResponse format.
 // For multimodal tool results (containing images, audio, etc.), it builds a response
 // with text and inlineData entries per Gemini's multimodal function response format.
-func (p *Provider) processToolMessage(ctx context.Context, msg types.Message) map[string]any {
+// Media that cannot be loaded is an error, not an entry silently left out.
+func (p *Provider) processToolMessage(ctx context.Context, msg types.Message) (map[string]any, error) {
 	// Debug: log tool message details
 	logger.Debug("Processing tool message",
 		"name", msg.ToolResult.Name,
@@ -214,7 +218,11 @@ func (p *Provider) processToolMessage(ctx context.Context, msg types.Message) ma
 	var response any
 
 	if msg.ToolResult.HasMedia() {
-		response = p.buildMultimodalToolResponse(ctx, msg.ToolResult)
+		multimodal, err := p.buildMultimodalToolResponse(ctx, msg.ToolResult)
+		if err != nil {
+			return nil, fmt.Errorf("tool result %s: %w", msg.ToolResult.ID, err)
+		}
+		response = multimodal
 	} else {
 		response = buildTextToolResponse(msg.ToolResult.GetTextContent())
 	}
@@ -224,7 +232,7 @@ func (p *Provider) processToolMessage(ctx context.Context, msg types.Message) ma
 			wireKeyName: msg.ToolResult.Name,
 			"response":  response,
 		},
-	}
+	}, nil
 }
 
 // buildTextToolResponse creates a response object from text-only tool result content.
@@ -255,7 +263,7 @@ func buildTextToolResponse(content string) any {
 //	}
 func (p *Provider) buildMultimodalToolResponse(
 	ctx context.Context, result *types.MessageToolResult,
-) map[string]any {
+) (map[string]any, error) {
 	response := make(map[string]any)
 
 	// Collect text content from all text parts
@@ -266,11 +274,15 @@ func (p *Provider) buildMultimodalToolResponse(
 
 	// Find the first media part and add it as inlineData.
 	// Gemini's functionResponse.response is a flat object, so we use the first media part.
+	loader := p.MediaLoader()
 	for _, part := range result.Parts {
 		if part.Type == types.ContentTypeText || part.Media == nil {
 			continue
 		}
-		mediaMap := p.convertMediaPartToMap(ctx, part)
+		mediaMap, err := p.convertMediaPartToMap(ctx, loader, part)
+		if err != nil {
+			return nil, err
+		}
 		if mediaMap != nil {
 			// mediaMap is {"inlineData": {"mimeType": ..., "data": ...}}
 			if inlineData, ok := mediaMap["inlineData"]; ok {
@@ -280,13 +292,13 @@ func (p *Provider) buildMultimodalToolResponse(
 		}
 	}
 
-	return response
+	return response, nil
 }
 
 // buildMessageParts creates parts array for a message including text, images, and tool calls
 func (p *Provider) buildMessageParts(
 	ctx context.Context, msg types.Message, pendingToolResults []map[string]any,
-) []any {
+) ([]any, error) {
 	parts := make([]any, 0)
 
 	// Add pending tool results first if this is a user message
@@ -298,7 +310,11 @@ func (p *Provider) buildMessageParts(
 
 	// Check if message has multimodal content (images, etc.)
 	if msg.HasMediaContent() {
-		parts = append(parts, p.mediaContentParts(ctx, msg.Parts)...)
+		media, err := p.mediaContentParts(ctx, msg.Parts)
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, media...)
 	} else if textContent := msg.GetContent(); textContent != "" {
 		// Text content - use GetContent() to handle both Content field and Parts
 		parts = append(parts, map[string]any{wireKeyText: textContent})
@@ -309,28 +325,47 @@ func (p *Provider) buildMessageParts(
 		parts = append(parts, toolCallParts(msg.ToolCalls)...)
 	}
 
-	return parts
+	return parts, nil
 }
 
 // mediaContentParts converts a multimodal message's parts into Gemini part maps,
 // emitting text entries for text parts and inlineData for resolved media parts.
-func (p *Provider) mediaContentParts(ctx context.Context, msgParts []types.ContentPart) []any {
+// The parts share one MediaLoader, so the message's media is held to
+// providers.MaxMediaItems and providers.MaxAggregateMediaSize. Media that cannot
+// be loaded is an error: dropping it sent the model the text without its media.
+func (p *Provider) mediaContentParts(ctx context.Context, msgParts []types.ContentPart) ([]any, error) {
 	parts := make([]any, 0, len(msgParts))
+	loader := p.MediaLoader()
 	for _, part := range msgParts {
-		switch part.Type {
-		case types.ContentTypeText:
-			if part.Text != nil && *part.Text != "" {
-				parts = append(parts, map[string]any{wireKeyText: *part.Text})
-			}
-		case types.ContentTypeImage, types.ContentTypeAudio, types.ContentTypeVideo, types.ContentTypeDocument:
-			if part.Media != nil {
-				if mediaMap := p.convertMediaPartToMap(ctx, part); mediaMap != nil {
-					parts = append(parts, mediaMap)
-				}
-			}
+		converted, err := p.mediaContentPart(ctx, loader, part)
+		if err != nil {
+			return nil, err
+		}
+		if converted != nil {
+			parts = append(parts, converted)
 		}
 	}
-	return parts
+	return parts, nil
+}
+
+// mediaContentPart converts one part of a multimodal message, returning nil for
+// a part with nothing to send.
+func (p *Provider) mediaContentPart(
+	ctx context.Context, loader *providers.MediaLoader, part types.ContentPart,
+) (map[string]any, error) {
+	switch part.Type {
+	case types.ContentTypeText:
+		if part.Text != nil && *part.Text != "" {
+			return map[string]any{wireKeyText: *part.Text}, nil
+		}
+	case types.ContentTypeImage, types.ContentTypeAudio, types.ContentTypeVideo, types.ContentTypeDocument:
+		mediaMap, err := p.convertMediaPartToMap(ctx, loader, part)
+		if err != nil {
+			return nil, fmt.Errorf("%s part: %w", part.Type, err)
+		}
+		return mediaMap, nil
+	}
+	return nil, nil
 }
 
 // toolCallParts converts an assistant message's tool calls into Gemini
@@ -362,9 +397,12 @@ func toolCallParts(toolCalls []types.MessageToolCall) []any {
 // All media sources (Data, StorageReference, FilePath, URL) are resolved through
 // the provider's store-aware MediaLoader so externalized media (e.g. an S3
 // StorageReference) is fetched and inlined as base64 like any other source.
-func (p *Provider) convertMediaPartToMap(ctx context.Context, part types.ContentPart) map[string]any {
+// It returns nil, and no error, for a part with nothing to send.
+func (p *Provider) convertMediaPartToMap(
+	ctx context.Context, loader *providers.MediaLoader, part types.ContentPart,
+) (map[string]any, error) {
 	if part.Media == nil {
-		return nil
+		return nil, nil
 	}
 
 	// Get MIME type
@@ -381,15 +419,14 @@ func (p *Provider) convertMediaPartToMap(ctx context.Context, part types.Content
 		case types.ContentTypeDocument:
 			mimeType = "application/pdf"
 		default:
-			return nil
+			return nil, nil
 		}
 	}
 
 	// Resolve base64 data from any source via the store-aware MediaLoader.
-	base64Data, err := p.MediaLoader().GetBase64Data(ctx, part.Media)
+	base64Data, err := loader.GetBase64Data(ctx, part.Media)
 	if err != nil {
-		logger.Warn("Failed to load media for Gemini tool request", "mime_type", mimeType, "error", err)
-		return nil
+		return nil, fmt.Errorf("failed to load %s data: %w", part.Type, err)
 	}
 
 	return map[string]any{
@@ -397,7 +434,7 @@ func (p *Provider) convertMediaPartToMap(ctx context.Context, part types.Content
 			wireKeyMimeType: mimeType,
 			wireKeyData:     base64Data,
 		},
-	}
+	}, nil
 }
 
 // addToolConfig adds tool configuration to the request based on toolChoice
@@ -427,60 +464,94 @@ func addToolConfig(request map[string]any, tools any, toolChoice string) {
 
 // buildToolContents converts the request messages to Gemini contents, folding
 // tool results into user turns.
-func (p *ToolProvider) buildToolContents(ctx context.Context, messages []types.Message) []map[string]any {
+func (p *ToolProvider) buildToolContents(ctx context.Context, messages []types.Message) ([]map[string]any, error) {
 	contents := make([]map[string]any, 0, len(messages))
 	var pendingToolResults []map[string]any
 
 	for i := range messages {
-		if messages[i].Role == "tool" {
-			pendingToolResults = append(pendingToolResults, p.processToolMessage(ctx, messages[i]))
-			continue
+		var err error
+		contents, pendingToolResults, err = p.foldToolContent(ctx, messages[i], contents, pendingToolResults)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert message %d: %w", i, err)
 		}
-
-		// If we have pending tool results, add them as a user message before non-user messages
-		if len(pendingToolResults) > 0 && messages[i].Role != roleUser {
-			contents = append(contents, map[string]any{
-				wireKeyRole:  roleUser,
-				wireKeyParts: pendingToolResults,
-			})
-			pendingToolResults = nil
-		}
-
-		parts := p.buildMessageParts(ctx, messages[i], pendingToolResults)
-		if messages[i].Role == roleUser {
-			pendingToolResults = nil
-		}
-
-		if len(parts) == 0 {
-			continue
-		}
-
-		role := messages[i].Role
-		if role == "assistant" {
-			role = "model"
-		}
-
-		contents = append(contents, map[string]any{
-			wireKeyRole:  role,
-			wireKeyParts: parts,
-		})
 	}
 
 	// If there are still pending tool results at the end, add them as a final user message
 	if len(pendingToolResults) > 0 {
-		contents = append(contents, map[string]any{
-			wireKeyRole:  roleUser,
-			wireKeyParts: pendingToolResults,
-		})
+		contents = append(contents, toolResultsTurn(pendingToolResults))
 	}
-	return contents
+	return contents, nil
+}
+
+// foldToolContent adds one message to contents. A tool result joins
+// pendingToolResults, which lead the next user message, or become a user turn
+// of their own before any other message.
+func (p *ToolProvider) foldToolContent(
+	ctx context.Context, msg types.Message, contents, pendingToolResults []map[string]any,
+) (outContents, outPending []map[string]any, err error) {
+	if msg.Role == "tool" {
+		result, toolErr := p.processToolMessage(ctx, msg)
+		if toolErr != nil {
+			return nil, nil, toolErr
+		}
+		return contents, append(pendingToolResults, result), nil
+	}
+
+	// If we have pending tool results, add them as a user message before non-user messages
+	if len(pendingToolResults) > 0 && msg.Role != roleUser {
+		contents = append(contents, toolResultsTurn(pendingToolResults))
+		pendingToolResults = nil
+	}
+
+	content, err := p.toolContentForMessage(ctx, msg, pendingToolResults)
+	if err != nil {
+		return nil, nil, err
+	}
+	if msg.Role == roleUser {
+		pendingToolResults = nil
+	}
+	if content != nil {
+		contents = append(contents, content)
+	}
+	return contents, pendingToolResults, nil
+}
+
+// toolResultsTurn wraps tool results in a user turn.
+func toolResultsTurn(toolResults []map[string]any) map[string]any {
+	return map[string]any{
+		wireKeyRole:  roleUser,
+		wireKeyParts: toolResults,
+	}
+}
+
+// toolContentForMessage converts one non-tool message to a Gemini content,
+// with pendingToolResults leading a user message. It returns nil for a message
+// with no parts.
+func (p *ToolProvider) toolContentForMessage(
+	ctx context.Context, msg types.Message, pendingToolResults []map[string]any,
+) (map[string]any, error) {
+	parts, err := p.buildMessageParts(ctx, msg, pendingToolResults)
+	if err != nil || len(parts) == 0 {
+		return nil, err
+	}
+	role := msg.Role
+	if role == roleAssistant {
+		role = roleModel
+	}
+	return map[string]any{
+		wireKeyRole:  role,
+		wireKeyParts: parts,
+	}, nil
 }
 
 func (p *ToolProvider) buildToolRequest(
 	ctx context.Context, req providers.PredictionRequest, tools any, toolChoice string,
-) map[string]any {
+) (map[string]any, error) {
 	// Convert messages to Gemini format
-	contents := p.buildToolContents(ctx, req.Messages)
+	contents, err := p.buildToolContents(ctx, req.Messages)
+	if err != nil {
+		return nil, err
+	}
 
 	// Apply defaults to zero-valued request parameters
 	temperature, topP, maxTokens := p.applyRequestDefaults(req)
@@ -567,7 +638,7 @@ func (p *ToolProvider) buildToolRequest(
 		delete(request, "tool_config")
 	}
 
-	return request
+	return request, nil
 }
 
 // emptyCandidateError explains why a Gemini candidate came back with no parts,
@@ -787,7 +858,10 @@ func (p *ToolProvider) predictStreamWithToolsOnce(
 	}
 
 	// Build Gemini request with tools
-	geminiReq := p.buildToolRequest(ctx, req, tools, toolChoice)
+	geminiReq, err := p.buildToolRequest(ctx, req, tools, toolChoice)
+	if err != nil {
+		return nil, err
+	}
 
 	requestBytes, err := json.Marshal(geminiReq)
 	if err != nil {

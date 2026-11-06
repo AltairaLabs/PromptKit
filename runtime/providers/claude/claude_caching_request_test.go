@@ -2,7 +2,6 @@ package claude
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -41,8 +40,7 @@ func TestToolRequest_CachingBreakpointsAndDeterminism(t *testing.T) {
 	}
 
 	build := func() []byte {
-		req := tp.buildToolRequest(
-			context.Background(),
+		req := mustBuildToolRequest(t, tp,
 			providers.PredictionRequest{System: system, Messages: msgs, MaxTokens: 100}, tools, "")
 		b, mErr := json.Marshal(req)
 		if mErr != nil {
@@ -78,8 +76,7 @@ func TestToolRequest_RollingBreakpointOnLastMessage(t *testing.T) {
 		{Role: "assistant", ToolCalls: []types.MessageToolCall{{ID: "1", Name: "Bash", Args: json.RawMessage(`{"command":"ls"}`)}}},
 		{Role: "tool", ToolResult: &types.MessageToolResult{ID: "1", Name: "Bash", Parts: []types.ContentPart{types.NewTextPart("big output")}}},
 	}
-	req := tp.buildToolRequest(
-		context.Background(),
+	req := mustBuildToolRequest(t, tp,
 		providers.PredictionRequest{System: "sys", Messages: msgs, MaxTokens: 100}, tools, "")
 	cms, ok := req.Messages.([]claudeToolMessage)
 	if !ok || len(cms) == 0 {

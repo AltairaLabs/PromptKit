@@ -120,6 +120,15 @@ Before each provider call, the SDK checks every attachment against the modalitie
 | `<provider-id>: unsupported document format: <mime> (part N)` | The provider does not take this document type. Claude takes PDF only. Convert the file before sending. |
 | `<provider-id>: provider does not support document inputs (part N)` | The provider takes no documents: OpenAI, Ollama and vLLM do not. Use Claude or Gemini. |
 | `file size N bytes exceeds maximum M bytes for <path>` | The file is over the 50 MB per-file limit the media loader applies. |
+| `media item limit exceeded: already loaded 20 items (maximum 20 per message; ...)` | The message carries more than 20 attachments the provider loads. Send them across several messages. |
+| `aggregate media size limit exceeded: total N bytes exceeds maximum 104857600 bytes per message ...` | The message's files, URLs and stored media add up to more than 100 MB. Send them across several messages. |
+
+The provider applies two limits to each message in the request when it builds the call:
+
+- At most 20 media parts it loads (`providers.MaxMediaItems`). Inline data, files, URLs and storage references all count. Media the provider hands to the model as a URL is not loaded and does not count: an image with a URL on OpenAI, Claude and vLLM, and on those and Ollama an image whose storage reference the store resolves to an `http(s)` URL. In a Claude tool result, only an image's own URL is passed on; a storage reference is loaded. Gemini loads every attachment, and Claude loads every document.
+- At most 100 MB of file, URL and stored media (`providers.MaxAggregateMediaSize`). Inline data, such as `WithDocumentData`, does not count toward it.
+
+Each message is checked on its own, so the attachments of earlier turns, which the conversation resends with every call, never count against a new message. A message over either limit fails the `Send` before any request is sent. Match the error with `errors.Is` against `providers.ErrMediaItemLimitExceeded` or `providers.ErrAggregateMediaSizeExceeded`.
 
 The providers declare their own document size limits: 32 MB for Claude and 20 MB for Gemini. The check does not apply these limits, so a larger file within the 50 MB loader limit reaches the provider, which rejects it.
 

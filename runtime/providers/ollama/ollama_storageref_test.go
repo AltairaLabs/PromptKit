@@ -47,7 +47,7 @@ func TestOllama_ImageStorageRef_UsesURL(t *testing.T) {
 		},
 	}
 
-	result, err := p.convertImagePartToOllama(context.Background(), part)
+	result, err := p.convertImagePartToOllama(context.Background(), p.MediaLoader(), part)
 	if err != nil {
 		t.Fatalf("convertImagePartToOllama returned error: %v", err)
 	}

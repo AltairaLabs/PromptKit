@@ -258,7 +258,7 @@ func TestGeminiToolProvider_BuildToolRequest_AppliesDefaults(t *testing.T) {
 				Messages:    []types.Message{{Role: "user", Content: "Hello"}},
 			}
 
-			request := provider.buildToolRequest(context.Background(), req, nil, "")
+			request := mustBuildToolRequest(t, provider, req, nil, "")
 
 			genConfig, ok := request["generationConfig"].(map[string]interface{})
 			if !ok {
@@ -624,7 +624,7 @@ func TestGeminiToolProvider_ParseToolResponse_NoCandidates(t *testing.T) {
 func TestConvertMediaPartToMap(t *testing.T) {
 	t.Run("nil media", func(t *testing.T) {
 		part := types.ContentPart{Type: types.ContentTypeImage}
-		result := convProvider().convertMediaPartToMap(context.Background(), part)
+		result := mustConvertMediaPartToMap(t, part)
 		if result != nil {
 			t.Errorf("expected nil for nil media, got %v", result)
 		}
@@ -639,7 +639,7 @@ func TestConvertMediaPartToMap(t *testing.T) {
 				Data:     &data,
 			},
 		}
-		result := convProvider().convertMediaPartToMap(context.Background(), part)
+		result := mustConvertMediaPartToMap(t, part)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -658,7 +658,7 @@ func TestConvertMediaPartToMap(t *testing.T) {
 			Type:  types.ContentTypeImage,
 			Media: &types.MediaContent{Data: &data},
 		}
-		result := convProvider().convertMediaPartToMap(context.Background(), part)
+		result := mustConvertMediaPartToMap(t, part)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -674,7 +674,7 @@ func TestConvertMediaPartToMap(t *testing.T) {
 			Type:  types.ContentTypeAudio,
 			Media: &types.MediaContent{Data: &data},
 		}
-		result := convProvider().convertMediaPartToMap(context.Background(), part)
+		result := mustConvertMediaPartToMap(t, part)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -690,7 +690,7 @@ func TestConvertMediaPartToMap(t *testing.T) {
 			Type:  types.ContentTypeVideo,
 			Media: &types.MediaContent{Data: &data},
 		}
-		result := convProvider().convertMediaPartToMap(context.Background(), part)
+		result := mustConvertMediaPartToMap(t, part)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -706,7 +706,7 @@ func TestConvertMediaPartToMap(t *testing.T) {
 			Type:  types.ContentTypeDocument,
 			Media: &types.MediaContent{Data: &data},
 		}
-		result := convProvider().convertMediaPartToMap(context.Background(), part)
+		result := mustConvertMediaPartToMap(t, part)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -721,7 +721,7 @@ func TestConvertMediaPartToMap(t *testing.T) {
 			Type:  "unknown",
 			Media: &types.MediaContent{},
 		}
-		result := convProvider().convertMediaPartToMap(context.Background(), part)
+		result := mustConvertMediaPartToMap(t, part)
 		if result != nil {
 			t.Errorf("expected nil for unknown type, got %v", result)
 		}
@@ -732,7 +732,11 @@ func TestConvertMediaPartToMap(t *testing.T) {
 			Type:  types.ContentTypeImage,
 			Media: &types.MediaContent{MIMEType: "image/png"},
 		}
-		result := convProvider().convertMediaPartToMap(context.Background(), part)
+		p := convProvider()
+		result, err := p.convertMediaPartToMap(context.Background(), p.MediaLoader(), part)
+		if err == nil {
+			t.Fatal("expected an error for media with no source")
+		}
 		if result != nil {
 			t.Errorf("expected nil for no data, got %v", result)
 		}
@@ -755,7 +759,7 @@ func TestBuildMessageParts_MultimodalContent(t *testing.T) {
 			},
 		},
 	}
-	parts := convProvider().buildMessageParts(context.Background(), msg, nil)
+	parts := mustBuildMessageParts(t, msg, nil)
 	if len(parts) != 2 {
 		t.Fatalf("expected 2 parts, got %d", len(parts))
 	}
@@ -787,7 +791,7 @@ func TestBuildToolRequest_WithSystemInstruction(t *testing.T) {
 		System:   "You are a helpful assistant",
 		Messages: []types.Message{{Role: "user", Content: "Hi"}},
 	}
-	result := provider.buildToolRequest(context.Background(), req, nil, "")
+	result := mustBuildToolRequest(t, provider, req, nil, "")
 
 	if _, ok := result["systemInstruction"]; !ok {
 		t.Error("expected systemInstruction in request")
@@ -830,4 +834,59 @@ func TestGeminiToolProvider_PredictStreamWithTools_URLFormat(t *testing.T) {
 	if !strings.Contains(capturedURL, "streamGenerateContent") {
 		t.Errorf("Expected streamGenerateContent in URL, got: %s", capturedURL)
 	}
+}
+
+// mustConvertMediaPartToMap converts part with a fresh loader and fails the
+// test on error.
+func mustConvertMediaPartToMap(t *testing.T, part types.ContentPart) map[string]any {
+	t.Helper()
+	p := convProvider()
+	result, err := p.convertMediaPartToMap(context.Background(), p.MediaLoader(), part)
+	if err != nil {
+		t.Fatalf("convertMediaPartToMap: %v", err)
+	}
+	return result
+}
+
+// mustBuildToolRequest builds a tool request and fails the test on error.
+func mustBuildToolRequest(
+	t *testing.T, tp *ToolProvider, req providers.PredictionRequest, tools any, toolChoice string,
+) map[string]any {
+	t.Helper()
+	built, err := tp.buildToolRequest(context.Background(), req, tools, toolChoice)
+	if err != nil {
+		t.Fatalf("buildToolRequest: %v", err)
+	}
+	return built
+}
+
+// mustProcessToolMessage converts a tool message and fails the test on error.
+func mustProcessToolMessage(t *testing.T, msg types.Message) map[string]any {
+	t.Helper()
+	result, err := convProvider().processToolMessage(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("processToolMessage: %v", err)
+	}
+	return result
+}
+
+// mustBuildMessageParts converts a message's parts and fails the test on error.
+func mustBuildMessageParts(t *testing.T, msg types.Message, pending []map[string]any) []any {
+	t.Helper()
+	parts, err := convProvider().buildMessageParts(context.Background(), msg, pending)
+	if err != nil {
+		t.Fatalf("buildMessageParts: %v", err)
+	}
+	return parts
+}
+
+// mustBuildMultimodalToolResponse builds a multimodal tool response and fails
+// the test on error.
+func mustBuildMultimodalToolResponse(t *testing.T, result *types.MessageToolResult) map[string]any {
+	t.Helper()
+	response, err := convProvider().buildMultimodalToolResponse(context.Background(), result)
+	if err != nil {
+		t.Fatalf("buildMultimodalToolResponse: %v", err)
+	}
+	return response
 }

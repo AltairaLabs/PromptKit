@@ -179,7 +179,7 @@ func TestProvider_ConvertImagePartToOllama_URL(t *testing.T) {
 		},
 	}
 
-	result, err := provider.convertImagePartToOllama(context.Background(), part)
+	result, err := provider.convertImagePartToOllama(context.Background(), provider.MediaLoader(), part)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
@@ -214,7 +214,7 @@ func TestProvider_ConvertImagePartToOllama_MissingMedia(t *testing.T) {
 		Media: nil,
 	}
 
-	_, err := provider.convertImagePartToOllama(context.Background(), part)
+	_, err := provider.convertImagePartToOllama(context.Background(), provider.MediaLoader(), part)
 
 	if err == nil {
 		t.Error("Expected error for missing media")
@@ -346,7 +346,7 @@ func TestProvider_ConvertImagePartToOllama_Base64(t *testing.T) {
 		},
 	}
 
-	result, err := provider.convertImagePartToOllama(context.Background(), part)
+	result, err := provider.convertImagePartToOllama(context.Background(), provider.MediaLoader(), part)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
@@ -378,7 +378,7 @@ func TestProvider_ConvertImagePartToOllama_MissingURLAndData(t *testing.T) {
 		},
 	}
 
-	_, err := provider.convertImagePartToOllama(context.Background(), part)
+	_, err := provider.convertImagePartToOllama(context.Background(), provider.MediaLoader(), part)
 
 	if err == nil {
 		t.Error("Expected error for missing URL and data")
@@ -410,7 +410,7 @@ func TestProvider_ConvertImagePartToOllama_RefusesANonPublicURL(t *testing.T) {
 		Media: &types.MediaContent{URL: &imageURL, MIMEType: types.MIMETypeImageJPEG},
 	}
 
-	_, err := provider.convertImagePartToOllama(context.Background(), part)
+	_, err := provider.convertImagePartToOllama(context.Background(), provider.MediaLoader(), part)
 	if !errors.Is(err, httputil.ErrNonPublicDestination) {
 		t.Fatalf("err = %v, want ErrNonPublicDestination", err)
 	}

@@ -757,7 +757,7 @@ func TestOpenAIToolProvider_BuildToolRequest_AppliesDefaults(t *testing.T) {
 				Messages:    []types.Message{{Role: "user", Content: "Hello"}},
 			}
 
-			request := provider.buildToolRequest(context.Background(), req, nil, "")
+			request := mustBuildToolRequest(t, provider, req, nil, "")
 
 			if temp, ok := request["temperature"].(float32); !ok || temp != tt.expectedTemp {
 				t.Errorf("Expected temperature %.2f, got %v", tt.expectedTemp, request["temperature"])
@@ -1011,7 +1011,7 @@ func TestToolProvider_ConvertToolResultMessage_ContentIsSet(t *testing.T) {
 	}
 
 	// Convert to OpenAI format
-	openaiMsg := provider.convertSingleMessageForTools(context.Background(), toolResultMsg)
+	openaiMsg := mustConvertSingleMessageForTools(t, provider, toolResultMsg)
 
 	// Verify tool_call_id and name are set
 	if openaiMsg["tool_call_id"] != "call_123" {
@@ -1060,7 +1060,7 @@ func TestToolProvider_ConvertRequestMessages_ToolResultHasContent(t *testing.T) 
 		},
 	}
 
-	messages := provider.convertRequestMessagesToOpenAI(context.Background(), req)
+	messages := mustConvertRequestMessages(t, provider, req)
 
 	// Find the tool result message
 	var toolMsg map[string]interface{}
@@ -1106,7 +1106,10 @@ func TestBuildToolRequest_AudioModalities(t *testing.T) {
 		"audio_format": "wav",
 	}
 
-	audioData := types.MediaContent{MIMEType: "audio/flac"}
+	// A loadable wav part: an audio part the adapter cannot send now fails the
+	// request instead of being dropped from it.
+	wav := "UklGRg=="
+	audioData := types.MediaContent{MIMEType: types.MIMETypeAudioWAV, Data: &wav}
 	req := providers.PredictionRequest{
 		Messages: []types.Message{
 			{
@@ -1119,7 +1122,7 @@ func TestBuildToolRequest_AudioModalities(t *testing.T) {
 		},
 	}
 
-	result := provider.buildToolRequest(context.Background(), req, nil, "")
+	result := mustBuildToolRequest(t, provider, req, nil, "")
 
 	// Must have modalities set
 	modalities, ok := result["modalities"]
@@ -1173,7 +1176,7 @@ func TestBuildToolRequest_AudioModalities_TextInput(t *testing.T) {
 		}},
 	}
 
-	result := provider.buildToolRequest(context.Background(), req, nil, "")
+	result := mustBuildToolRequest(t, provider, req, nil, "")
 
 	mods, ok := result["modalities"].([]string)
 	if !ok {
@@ -1459,4 +1462,38 @@ func TestToolProvider_MakeRequest_CredentialPath_AuthError(t *testing.T) {
 	if !strings.Contains(err.Error(), "apply authentication") {
 		t.Errorf("error = %q, want auth failure message", err.Error())
 	}
+}
+
+// mustBuildToolRequest builds a tool request and fails the test on error.
+func mustBuildToolRequest(
+	t *testing.T, tp *ToolProvider, req providers.PredictionRequest, tools interface{}, toolChoice string,
+) map[string]interface{} {
+	t.Helper()
+	built, err := tp.buildToolRequest(context.Background(), req, tools, toolChoice)
+	if err != nil {
+		t.Fatalf("buildToolRequest: %v", err)
+	}
+	return built
+}
+
+// mustConvertRequestMessages converts a request's messages and fails the test on error.
+func mustConvertRequestMessages(
+	t *testing.T, tp *ToolProvider, req providers.PredictionRequest,
+) []map[string]interface{} {
+	t.Helper()
+	messages, err := tp.convertRequestMessagesToOpenAI(context.Background(), req)
+	if err != nil {
+		t.Fatalf("convertRequestMessagesToOpenAI: %v", err)
+	}
+	return messages
+}
+
+// mustConvertSingleMessageForTools converts one message and fails the test on error.
+func mustConvertSingleMessageForTools(t *testing.T, tp *ToolProvider, msg types.Message) map[string]interface{} {
+	t.Helper()
+	converted, err := tp.convertSingleMessageForTools(context.Background(), msg)
+	if err != nil {
+		t.Fatalf("convertSingleMessageForTools: %v", err)
+	}
+	return converted
 }

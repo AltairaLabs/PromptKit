@@ -54,7 +54,7 @@ func TestGeminiConvertMediaPart_ResolvesStorageReference(t *testing.T) {
 		},
 	}
 
-	got, err := p.convertMediaPartToGemini(context.Background(), part)
+	got, err := p.convertMediaPartToGemini(context.Background(), p.MediaLoader(), part)
 	if err != nil {
 		t.Fatalf("convertMediaPartToGemini returned error: %v", err)
 	}
@@ -87,7 +87,10 @@ func TestGeminiToolPath_ResolvesStorageReference(t *testing.T) {
 		},
 	}
 
-	got := p.convertMediaPartToMap(context.Background(), part)
+	got, err := p.convertMediaPartToMap(context.Background(), p.MediaLoader(), part)
+	if err != nil {
+		t.Fatalf("convertMediaPartToMap: %v", err)
+	}
 	if got == nil {
 		t.Fatalf("convertMediaPartToMap returned nil for storage-reference media")
 	}

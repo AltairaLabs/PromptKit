@@ -221,19 +221,17 @@ func (p *Provider) prepareMessages(
 		})
 	}
 
-	// One loader per request, so its media item and size limits span the
-	// whole conversation.
-	var loader *providers.MediaLoader
+	// One loader per message, so providers.MaxMediaItems and
+	// providers.MaxAggregateMediaSize hold each message's media. A loader per
+	// request would count every earlier message the conversation resends, and
+	// fail every turn after the history first reached a cap.
 	for i := range req.Messages {
 		msg := req.Messages[i]
 		if !hasImagePart(&msg) {
 			messages = append(messages, newVLLMMessage(msg, msg.GetContent()))
 			continue
 		}
-		if loader == nil {
-			loader = p.MediaLoader()
-		}
-		content, err := p.buildMultimodalContent(ctx, loader, msg)
+		content, err := p.buildMultimodalContent(ctx, p.MediaLoader(), msg)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build multimodal content for message %d: %w", i, err)
 		}

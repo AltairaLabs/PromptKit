@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,12 +21,19 @@ const (
 	defaultHTTPTimeout     = 30 * time.Second // Default timeout for HTTP requests
 	defaultMaxURLSizeBytes = 50 * 1024 * 1024 // 50MB default max size for URL content
 
-	// MaxAggregateMediaSize is the maximum total size of all file and URL media
-	// one MediaLoader loads (100MB).
+	// MaxAggregateMediaSize is the maximum total size, in bytes, of the file,
+	// URL and stored media one MediaLoader reads (100MB). Inline data does not
+	// count toward it. Every built-in provider uses one loader per message, so
+	// this is the most media one message can make a provider read; over it,
+	// GetBase64Data returns an error wrapping ErrAggregateMediaSizeExceeded.
 	MaxAggregateMediaSize int64 = 100 * 1024 * 1024
 
-	// MaxMediaItems is the maximum number of media items one MediaLoader loads.
-	// GetBase64Data returns an error once the limit is reached.
+	// MaxMediaItems is the maximum number of media items one MediaLoader loads
+	// through GetBase64Data, counting inline data, files, URLs and storage
+	// references. Every built-in provider uses one loader per message, so this
+	// is the most media parts one message can have loaded; media a provider
+	// passes to the model as a URL is not loaded and does not count. Past the
+	// limit, GetBase64Data returns an error wrapping ErrMediaItemLimitExceeded.
 	MaxMediaItems = 20
 
 	// largeFileWarningThreshold is the size above which a warning is logged about
@@ -37,8 +45,24 @@ const (
 	base64ExpansionRatio float64 = 1.34
 )
 
+var (
+	// ErrMediaItemLimitExceeded is returned by MediaLoader.GetBase64Data when
+	// the loader has already loaded MaxMediaItems items. Every built-in
+	// provider uses one loader per message, so it means a single message
+	// carries more than MaxMediaItems media parts the provider must load.
+	ErrMediaItemLimitExceeded = errors.New("media item limit exceeded")
+
+	// ErrAggregateMediaSizeExceeded is returned by MediaLoader.GetBase64Data
+	// when the file, URL and stored media the loader has read total more than
+	// MaxAggregateMediaSize bytes. Every built-in provider uses one loader per
+	// message, so it means a single message's media is over that size.
+	ErrAggregateMediaSizeExceeded = errors.New("aggregate media size limit exceeded")
+)
+
 // MediaLoader handles loading media content from various sources (inline data, files, URLs, storage).
 // It provides a unified interface for providers to access media regardless of the source.
+// A loader counts what it loads against MaxMediaItems and MaxAggregateMediaSize,
+// so share one loader across everything the limits should cover.
 // MediaLoader is not safe for concurrent use.
 type MediaLoader struct {
 	storageService storage.MediaStorageService
@@ -107,8 +131,9 @@ func (ml *MediaLoader) GetBase64Data(ctx context.Context, media *types.MediaCont
 	// Check item count limit
 	if ml.itemCount >= MaxMediaItems {
 		return "", fmt.Errorf(
-			"media item limit exceeded: already loaded %d items (maximum %d)",
-			ml.itemCount, MaxMediaItems,
+			"%w: already loaded %d items (maximum %d per message; inline data, files, URLs "+
+				"and storage references all count); split the media across messages",
+			ErrMediaItemLimitExceeded, ml.itemCount, MaxMediaItems,
 		)
 	}
 
@@ -183,8 +208,9 @@ func (ml *MediaLoader) trackSize(rawSize int64, source string) error {
 	ml.itemCount++
 	if ml.aggregateSize > MaxAggregateMediaSize {
 		return fmt.Errorf(
-			"aggregate media size limit exceeded: total %d bytes exceeds maximum %d bytes (while loading %s)",
-			ml.aggregateSize, MaxAggregateMediaSize, source,
+			"%w: total %d bytes exceeds maximum %d bytes per message of file, URL and stored media "+
+				"(while loading %s); split the media across messages",
+			ErrAggregateMediaSizeExceeded, ml.aggregateSize, MaxAggregateMediaSize, source,
 		)
 	}
 	return nil

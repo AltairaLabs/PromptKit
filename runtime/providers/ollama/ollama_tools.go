@@ -91,7 +91,10 @@ func (p *ToolProvider) PredictWithTools(
 	start := time.Now()
 
 	// Build Ollama request with tools
-	ollamaReq := p.buildToolRequest(ctx, req, tools, toolChoice)
+	ollamaReq, err := p.buildToolRequest(ctx, req, tools, toolChoice)
+	if err != nil {
+		return providers.PredictionResponse{}, nil, err
+	}
 
 	// Prepare response with raw request if configured (set early to preserve on error)
 	predictResp := providers.PredictionResponse{}
@@ -130,8 +133,11 @@ func (p *ToolProvider) buildToolRequest(
 	req providers.PredictionRequest,
 	tools any,
 	toolChoice string,
-) map[string]any {
-	messages := p.convertRequestMessagesToOllama(ctx, req)
+) (map[string]any, error) {
+	messages, err := p.convertRequestMessagesToOllama(ctx, req)
+	if err != nil {
+		return nil, err
+	}
 
 	// Apply defaults to zero-valued request parameters
 	temperature, topP, maxTokens := p.applyRequestDefaults(req)
@@ -162,13 +168,13 @@ func (p *ToolProvider) buildToolRequest(
 		p.addToolChoiceToRequest(ollamaReq, toolChoice)
 	}
 
-	return ollamaReq
+	return ollamaReq, nil
 }
 
 // convertRequestMessagesToOllama converts all messages in a request to Ollama format
 func (p *ToolProvider) convertRequestMessagesToOllama(
 	ctx context.Context, req providers.PredictionRequest,
-) []map[string]any {
+) ([]map[string]any, error) {
 	messages := make([]map[string]any, 0, len(req.Messages)+1)
 
 	// Add system message if present
@@ -181,25 +187,26 @@ func (p *ToolProvider) convertRequestMessagesToOllama(
 
 	// Add conversation messages
 	for i := range req.Messages {
-		ollamaMsg := p.convertSingleMessageForTools(ctx, &req.Messages[i])
+		ollamaMsg, err := p.convertSingleMessageForTools(ctx, &req.Messages[i])
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert message %d: %w", i, err)
+		}
 		messages = append(messages, ollamaMsg)
 	}
 
-	return messages
+	return messages, nil
 }
 
-// convertSingleMessageForTools converts a single message to Ollama format including tool metadata
+// convertSingleMessageForTools converts a single message to Ollama format including tool metadata.
+// A part that cannot be converted is an error, as on the non-tool path: falling
+// back to the message's text used to send the model the question without its media.
 func (p *ToolProvider) convertSingleMessageForTools(
 	ctx context.Context, msg *types.Message,
-) map[string]any {
+) (map[string]any, error) {
 	// Convert message to Ollama format (handles both legacy and multimodal)
 	convertedMsg, err := p.convertMessageToOllama(ctx, msg)
 	if err != nil {
-		// Log error but continue with best effort (use Content as fallback)
-		convertedMsg = ollamaMessage{
-			Role:    msg.Role,
-			Content: msg.GetContent(),
-		}
+		return nil, err
 	}
 
 	// Build the message map with content
@@ -219,7 +226,7 @@ func (p *ToolProvider) convertSingleMessageForTools(
 		ollamaMsg[keyName] = msg.ToolResult.Name
 	}
 
-	return ollamaMsg
+	return ollamaMsg, nil
 }
 
 // keyName is the "name" field of an Ollama tool call, tool result or tool choice.
@@ -349,7 +356,10 @@ func (p *ToolProvider) PredictStreamWithTools(
 	ctx = p.LoggingContext(ctx, p.model)
 
 	// Build Ollama request with tools (same as non-streaming)
-	ollamaReq := p.buildToolRequest(ctx, req, tools, toolChoice)
+	ollamaReq, err := p.buildToolRequest(ctx, req, tools, toolChoice)
+	if err != nil {
+		return nil, err
+	}
 
 	// Add streaming options
 	ollamaReq["stream"] = true

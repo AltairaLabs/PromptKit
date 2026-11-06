@@ -1,7 +1,6 @@
 package openai
 
 import (
-	"context"
 	"encoding/json"
 	"reflect"
 	"testing"
@@ -64,7 +63,7 @@ func TestBuildToolRequest_SendsResponseFormat(t *testing.T) {
 	p.apiMode = APIModeCompletions
 
 	req := providers.PredictionRequest{ResponseFormat: jsonSchemaFormat()}
-	got := p.buildToolRequest(context.Background(), req, sampleTools(), "")
+	got := mustBuildToolRequest(t, p, req, sampleTools(), "")
 
 	rf, ok := got["response_format"]
 	require.True(t, ok,
@@ -177,7 +176,7 @@ func TestEveryPredictionRequestFieldReachesEveryBuilder(t *testing.T) {
 				p.apiMode = APIModeCompletions
 				body := map[string]any{
 					"model":    p.model,
-					"messages": p.convertRequestMessagesToOpenAI(context.Background(), req),
+					"messages": mustConvertRequestMessages(t, p, req),
 				}
 				p.enrichRequest(body, &req, "wav")
 				return body
@@ -189,7 +188,7 @@ func TestEveryPredictionRequestFieldReachesEveryBuilder(t *testing.T) {
 			body: func() map[string]any {
 				p := newFieldCoverageProvider()
 				p.apiMode = APIModeCompletions
-				return p.buildToolRequest(context.Background(), req, sampleTools(), "")
+				return mustBuildToolRequest(t, p, req, sampleTools(), "")
 			}(),
 		},
 		{

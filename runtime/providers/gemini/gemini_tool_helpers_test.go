@@ -1,7 +1,6 @@
 package gemini
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 
@@ -75,7 +74,7 @@ func TestProcessToolMessage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := convProvider().processToolMessage(context.Background(), tt.msg)
+			result := mustProcessToolMessage(t, tt.msg)
 
 			// Check structure
 			if result == nil {
@@ -216,7 +215,7 @@ func TestBuildMessageParts(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			parts := convProvider().buildMessageParts(context.Background(), tt.msg, tt.pendingToolResults)
+			parts := mustBuildMessageParts(t, tt.msg, tt.pendingToolResults)
 
 			if len(parts) < tt.expectedMinParts {
 				t.Errorf("Expected at least %d parts, got %d", tt.expectedMinParts, len(parts))
@@ -362,7 +361,7 @@ func TestGeminiToolHelpers_Integration(t *testing.T) {
 			Role:    "user",
 			Content: "What's the weather?",
 		}
-		userParts := convProvider().buildMessageParts(context.Background(), userMsg, nil)
+		userParts := mustBuildMessageParts(t, userMsg, nil)
 		if len(userParts) != 1 {
 			t.Errorf("Expected 1 part for user message, got %d", len(userParts))
 		}
@@ -379,7 +378,7 @@ func TestGeminiToolHelpers_Integration(t *testing.T) {
 				},
 			},
 		}
-		assistantParts := convProvider().buildMessageParts(context.Background(), assistantMsg, nil)
+		assistantParts := mustBuildMessageParts(t, assistantMsg, nil)
 		if len(assistantParts) != 2 {
 			t.Errorf("Expected 2 parts (text + tool call), got %d", len(assistantParts))
 		}
@@ -393,7 +392,7 @@ func TestGeminiToolHelpers_Integration(t *testing.T) {
 				ID:   "call_123",
 			},
 		}
-		toolResponse := convProvider().processToolMessage(context.Background(), toolMsg)
+		toolResponse := mustProcessToolMessage(t, toolMsg)
 		if toolResponse == nil {
 			t.Fatal("Expected non-nil tool response")
 		}
@@ -404,7 +403,7 @@ func TestGeminiToolHelpers_Integration(t *testing.T) {
 			Content: "Thanks!",
 		}
 		pendingResults := []map[string]interface{}{toolResponse}
-		followUpParts := convProvider().buildMessageParts(context.Background(), followUpMsg, pendingResults)
+		followUpParts := mustBuildMessageParts(t, followUpMsg, pendingResults)
 		if len(followUpParts) != 2 {
 			t.Errorf("Expected 2 parts (tool result + text), got %d", len(followUpParts))
 		}
@@ -442,7 +441,7 @@ func TestBuildMessageParts_ThoughtSignatureRoundTrip(t *testing.T) {
 		},
 	}
 
-	parts := convProvider().buildMessageParts(context.Background(), msg, nil)
+	parts := mustBuildMessageParts(t, msg, nil)
 	if len(parts) == 0 {
 		t.Fatal("expected at least one part")
 	}
@@ -491,7 +490,7 @@ func TestBuildMessageParts_NoThoughtSignature(t *testing.T) {
 		},
 	}
 
-	parts := convProvider().buildMessageParts(context.Background(), msg, nil)
+	parts := mustBuildMessageParts(t, msg, nil)
 	for _, p := range parts {
 		if pm, ok := p.(map[string]any); ok {
 			if _, hasFC := pm["functionCall"]; hasFC {

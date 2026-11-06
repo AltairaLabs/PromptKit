@@ -22,7 +22,7 @@ func TestConvertToolResultContent_TextOnly(t *testing.T) {
 		},
 	}
 
-	content := convertToolResultContent(result)
+	content := mustConvertToolResultContent(t, result)
 
 	str, ok := content.(string)
 	if !ok {
@@ -43,7 +43,7 @@ func TestConvertToolResultContent_MultipleTextParts(t *testing.T) {
 		},
 	}
 
-	content := convertToolResultContent(result)
+	content := mustConvertToolResultContent(t, result)
 
 	// Multiple text-only parts still return concatenated string
 	str, ok := content.(string)
@@ -66,7 +66,7 @@ func TestConvertToolResultContent_Base64Image(t *testing.T) {
 		},
 	}
 
-	content := convertToolResultContent(result)
+	content := mustConvertToolResultContent(t, result)
 
 	parts, ok := content.([]map[string]interface{})
 	if !ok {
@@ -109,7 +109,7 @@ func TestConvertToolResultContent_URLImage(t *testing.T) {
 		},
 	}
 
-	content := convertToolResultContent(result)
+	content := mustConvertToolResultContent(t, result)
 
 	parts, ok := content.([]map[string]interface{})
 	if !ok {
@@ -139,7 +139,7 @@ func TestConvertToolResultContent_ImageOnly(t *testing.T) {
 		},
 	}
 
-	content := convertToolResultContent(result)
+	content := mustConvertToolResultContent(t, result)
 
 	parts, ok := content.([]map[string]interface{})
 	if !ok {
@@ -167,7 +167,7 @@ func TestConvertToolResultContent_MixedContent(t *testing.T) {
 		},
 	}
 
-	content := convertToolResultContent(result)
+	content := mustConvertToolResultContent(t, result)
 
 	parts, ok := content.([]map[string]interface{})
 	if !ok {
@@ -193,7 +193,7 @@ func TestConvertToolResultContent_EmptyParts(t *testing.T) {
 		Parts: nil,
 	}
 
-	content := convertToolResultContent(result)
+	content := mustConvertToolResultContent(t, result)
 
 	// No parts means text-only path returns empty string
 	str, ok := content.(string)
@@ -216,7 +216,7 @@ func TestConvertToolResultContent_UnsupportedMediaSkipped(t *testing.T) {
 		},
 	}
 
-	content := convertToolResultContent(result)
+	content := mustConvertToolResultContent(t, result)
 
 	// HasMedia() returns true, so we get array format, but audio is skipped
 	parts, ok := content.([]map[string]interface{})
@@ -250,7 +250,7 @@ func TestConvertSingleMessageForTools_MultimodalToolResult(t *testing.T) {
 		},
 	}
 
-	openaiMsg := provider.convertSingleMessageForTools(context.Background(), msg)
+	openaiMsg := mustConvertSingleMessageForTools(t, provider, msg)
 
 	if openaiMsg["tool_call_id"] != "call_100" {
 		t.Errorf("Expected tool_call_id 'call_100', got %v", openaiMsg["tool_call_id"])
@@ -282,39 +282,78 @@ func TestConvertSingleMessageForTools_MultimodalToolResult(t *testing.T) {
 	}
 }
 
-func TestResolveImageURL_Base64(t *testing.T) {
+func TestToolResultImageURL_Base64(t *testing.T) {
 	data := "AAAA"
 	media := &types.MediaContent{
 		Data:     &data,
 		MIMEType: types.MIMETypeImagePNG,
 	}
-	got := resolveImageURL(media)
+	got, err := toolResultImageURL(t, media)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	expected := "data:image/png;base64,AAAA"
 	if got != expected {
 		t.Errorf("Expected %q, got %q", expected, got)
 	}
 }
 
-func TestResolveImageURL_URL(t *testing.T) {
+func TestToolResultImageURL_URL(t *testing.T) {
 	url := "https://example.com/img.jpg"
 	media := &types.MediaContent{
 		URL:      &url,
 		MIMEType: types.MIMETypeImageJPEG,
 	}
-	got := resolveImageURL(media)
+	got, err := toolResultImageURL(t, media)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if got != url {
 		t.Errorf("Expected %q, got %q", url, got)
 	}
 }
 
-func TestResolveImageURL_Empty(t *testing.T) {
+// An image with no source fails the request: it used to be dropped from the
+// tool result, so the model got the result without the image.
+func TestToolResultImageURL_NoSourceIsAnError(t *testing.T) {
 	media := &types.MediaContent{
 		MIMEType: types.MIMETypeImagePNG,
 	}
-	got := resolveImageURL(media)
-	if got != "" {
-		t.Errorf("Expected empty string, got %q", got)
+	if got, err := toolResultImageURL(t, media); err == nil {
+		t.Errorf("Expected an error for an image with no source, got %q", got)
 	}
+}
+
+// mustConvertToolResultContent converts result and fails the test on error.
+func mustConvertToolResultContent(t *testing.T, result *types.MessageToolResult) interface{} {
+	t.Helper()
+	provider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
+	content, err := provider.convertToolResultContent(context.Background(), result)
+	if err != nil {
+		t.Fatalf("convertToolResultContent: %v", err)
+	}
+	return content
+}
+
+// toolResultImageURL sends media as a tool result's only part and returns the
+// image URL that goes on the wire.
+func toolResultImageURL(t *testing.T, media *types.MediaContent) (string, error) {
+	t.Helper()
+	provider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
+	content, err := provider.convertToolResultContent(context.Background(), &types.MessageToolResult{
+		ID: "call_1", Name: "render",
+		Parts: []types.ContentPart{{Type: types.ContentTypeImage, Media: media}},
+	})
+	if err != nil {
+		return "", err
+	}
+	parts, ok := content.([]map[string]interface{})
+	if !ok || len(parts) != 1 {
+		t.Fatalf("Expected one content part, got %#v", content)
+	}
+	image, _ := parts[0]["image_url"].(map[string]interface{})
+	url, _ := image["url"].(string)
+	return url, nil
 }
 
 // TestToolProvider_WithMultimodalMessages tests if tool calls work with multimodal messages
@@ -344,7 +383,7 @@ func TestToolProvider_WithMultimodalMessages(t *testing.T) {
 
 	// The current buildToolRequest uses msg.Content directly
 	// This will NOT work correctly with multimodal messages
-	toolReq := toolProvider.buildToolRequest(context.Background(), req, nil, "")
+	toolReq := mustBuildToolRequest(t, toolProvider, req, nil, "")
 
 	// Extract the message that was built
 	messages, ok := toolReq["messages"].([]map[string]interface{})
@@ -409,7 +448,7 @@ func TestToolProvider_BuildToolRequestWithLegacyMessage(t *testing.T) {
 		Messages: []types.Message{msg},
 	}
 
-	toolReq := toolProvider.buildToolRequest(context.Background(), req, nil, "")
+	toolReq := mustBuildToolRequest(t, toolProvider, req, nil, "")
 	messages := toolReq["messages"].([]map[string]interface{})
 
 	if len(messages) != 1 {
@@ -461,7 +500,7 @@ func TestToolProvider_BuildToolRequestWithTools(t *testing.T) {
 		},
 	}
 
-	toolReq := toolProvider.buildToolRequest(context.Background(), req, tools, "auto")
+	toolReq := mustBuildToolRequest(t, toolProvider, req, tools, "auto")
 
 	// Verify tools are present
 	if toolReq["tools"] == nil {
@@ -513,7 +552,7 @@ func TestToolProvider_BuildToolRequestWithToolCalls(t *testing.T) {
 		Messages: []types.Message{assistantMsg, toolResultMsg},
 	}
 
-	toolReq := toolProvider.buildToolRequest(context.Background(), req, nil, "")
+	toolReq := mustBuildToolRequest(t, toolProvider, req, nil, "")
 	messages := toolReq["messages"].([]map[string]interface{})
 
 	if len(messages) != 2 {
@@ -589,7 +628,7 @@ func TestToolProvider_BuildToolRequestWithMultimodalAndToolResult(t *testing.T) 
 		Messages: []types.Message{userMsg, assistantMsg, toolMsg, finalMsg},
 	}
 
-	toolReq := toolProvider.buildToolRequest(context.Background(), req, nil, "")
+	toolReq := mustBuildToolRequest(t, toolProvider, req, nil, "")
 	messages := toolReq["messages"].([]map[string]interface{})
 
 	if len(messages) != 4 {

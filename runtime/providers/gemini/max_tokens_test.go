@@ -1,7 +1,6 @@
 package gemini
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -27,7 +26,7 @@ func TestGeminiRequest_NoMaxTokens(t *testing.T) {
 			t.Errorf("defaults=%d: plain request sent maxOutputTokens: %s", defaults, body)
 		}
 
-		genConfig, _ := p.buildToolRequest(context.Background(), req, nil, "")["generationConfig"].(map[string]any)
+		genConfig, _ := mustBuildToolRequest(t, p, req, nil, "")["generationConfig"].(map[string]any)
 		if _, ok := genConfig["maxOutputTokens"]; ok {
 			t.Errorf("defaults=%d: tool request sent maxOutputTokens: %v", defaults, genConfig)
 		}
@@ -38,7 +37,7 @@ func TestGeminiRequest_MaxTokensFromDefaults(t *testing.T) {
 	p := NewToolProvider("test", "gemini-2.5-flash", "http://localhost",
 		providers.ProviderDefaults{MaxTokens: 400}, false)
 	req := providers.PredictionRequest{Messages: []types.Message{{Role: "user", Content: "hi"}}}
-	genConfig, _ := p.buildToolRequest(context.Background(), req, nil, "")["generationConfig"].(map[string]any)
+	genConfig, _ := mustBuildToolRequest(t, p, req, nil, "")["generationConfig"].(map[string]any)
 	if genConfig["maxOutputTokens"] != 400 {
 		t.Errorf("maxOutputTokens = %v, want 400", genConfig["maxOutputTokens"])
 	}

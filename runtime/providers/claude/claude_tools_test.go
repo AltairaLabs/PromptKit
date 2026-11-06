@@ -784,7 +784,7 @@ func TestClaudeToolProvider_BuildToolRequest_AppliesDefaults(t *testing.T) {
 				Messages:    []types.Message{{Role: "user", Content: "Hello"}},
 			}
 
-			request := provider.buildToolRequest(context.Background(), req, nil, "")
+			request := mustBuildToolRequest(t, provider, req, nil, "")
 
 			var gotTemp float32
 			if request.Temperature != nil {
@@ -1266,4 +1266,16 @@ func TestClaudeToolProvider_PredictStreamWithTools_Retries503(t *testing.T) {
 	if atomic.LoadInt32(&attempts) < 2 {
 		t.Errorf("Expected at least 2 attempts, got %d", attempts)
 	}
+}
+
+// mustBuildToolRequest builds a tool request and fails the test on error.
+func mustBuildToolRequest(
+	t *testing.T, tp *ToolProvider, req providers.PredictionRequest, tools any, toolChoice string,
+) claudeRequest {
+	t.Helper()
+	built, err := tp.buildToolRequest(context.Background(), req, tools, toolChoice)
+	if err != nil {
+		t.Fatalf("buildToolRequest: %v", err)
+	}
+	return built
 }

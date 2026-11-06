@@ -141,7 +141,7 @@ func TestGeminiProvider_ConvertMediaPartToGemini_URLError(t *testing.T) {
 		},
 	}
 
-	_, err := convProvider().convertMediaPartToGemini(context.Background(), part)
+	_, err := convProvider().convertMediaPartToGemini(context.Background(), convProvider().MediaLoader(), part)
 	if err == nil {
 		t.Error("Expected error for unreachable URL")
 	}
@@ -162,7 +162,7 @@ func TestGeminiProvider_ConvertMediaPartToGemini_MissingMIMEType(t *testing.T) {
 		},
 	}
 
-	_, err := convProvider().convertMediaPartToGemini(context.Background(), part)
+	_, err := convProvider().convertMediaPartToGemini(context.Background(), convProvider().MediaLoader(), part)
 	if err == nil {
 		t.Error("Expected error for missing MIME type")
 	}
@@ -177,7 +177,7 @@ func TestGeminiProvider_ConvertMediaPartToGemini_MissingDataSource(t *testing.T)
 		},
 	}
 
-	_, err := convProvider().convertMediaPartToGemini(context.Background(), part)
+	_, err := convProvider().convertMediaPartToGemini(context.Background(), convProvider().MediaLoader(), part)
 	if err == nil {
 		t.Error("Expected error for missing data source")
 	}
@@ -190,7 +190,7 @@ func TestGeminiProvider_ConvertPartToGemini_EmptyText(t *testing.T) {
 		Text: &emptyText,
 	}
 
-	_, err := convProvider().convertPartToGemini(context.Background(), part)
+	_, err := convProvider().convertPartToGemini(context.Background(), convProvider().MediaLoader(), part)
 	if err == nil {
 		t.Error("Expected error for empty text")
 	}
@@ -202,7 +202,7 @@ func TestGeminiProvider_ConvertPartToGemini_NilText(t *testing.T) {
 		Text: nil,
 	}
 
-	_, err := convProvider().convertPartToGemini(context.Background(), part)
+	_, err := convProvider().convertPartToGemini(context.Background(), convProvider().MediaLoader(), part)
 	if err == nil {
 		t.Error("Expected error for nil text")
 	}
@@ -213,7 +213,7 @@ func TestGeminiProvider_ConvertPartToGemini_UnsupportedType(t *testing.T) {
 		Type: "unsupported-type",
 	}
 
-	_, err := convProvider().convertPartToGemini(context.Background(), part)
+	_, err := convProvider().convertPartToGemini(context.Background(), convProvider().MediaLoader(), part)
 	if err == nil {
 		t.Error("Expected error for unsupported part type")
 	}
@@ -225,7 +225,7 @@ func TestGeminiProvider_ConvertMediaPartToGemini_MissingMedia(t *testing.T) {
 		Media: nil,
 	}
 
-	_, err := convProvider().convertMediaPartToGemini(context.Background(), part)
+	_, err := convProvider().convertMediaPartToGemini(context.Background(), convProvider().MediaLoader(), part)
 	if err == nil {
 		t.Error("Expected error for missing media")
 	}
@@ -241,7 +241,7 @@ func TestGeminiProvider_ConvertMediaPartToGemini_FilePathError(t *testing.T) {
 		},
 	}
 
-	_, err := convProvider().convertMediaPartToGemini(context.Background(), part)
+	_, err := convProvider().convertMediaPartToGemini(context.Background(), convProvider().MediaLoader(), part)
 	if err == nil {
 		t.Error("Expected error for nonexistent file path")
 	}

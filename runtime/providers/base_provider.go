@@ -446,9 +446,14 @@ func (b *BaseProvider) WithMedia(m MediaSettings) BaseProvider {
 	return c
 }
 
-// MediaLoader returns a per-call MediaLoader configured with this provider's
+// MediaLoader returns a new MediaLoader configured with this provider's
 // injected storage service (if any). Providers use it to resolve media parts
 // (ResolveURL for URL-first providers, GetBase64Data for byte-based ones).
+// Each loader counts its own media against MaxMediaItems and
+// MaxAggregateMediaSize, so the built-in providers call it once per message
+// and share the loader across that message's parts: a conversation resends
+// every earlier message, and a loader per request would fail every turn once
+// the history reached a limit.
 func (b *BaseProvider) MediaLoader() *MediaLoader {
 	mediaSettingsMu.RLock()
 	defer mediaSettingsMu.RUnlock()

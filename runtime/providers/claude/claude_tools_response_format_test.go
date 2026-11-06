@@ -1,7 +1,6 @@
 package claude
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 
@@ -34,7 +33,7 @@ func toolRequestJSON(t *testing.T, rf *providers.ResponseFormat, tools providers
 		MaxTokens:      1024,
 		ResponseFormat: rf,
 	}
-	raw, err := json.Marshal(tp.buildToolRequest(context.Background(), req, tools, ""))
+	raw, err := json.Marshal(mustBuildToolRequest(t, tp, req, tools, ""))
 	require.NoError(t, err)
 	return raw
 }

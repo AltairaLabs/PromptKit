@@ -410,7 +410,9 @@ func (p *Provider) convertMessagesToGeminiContents(
 // messages combine all text via GetContent(). We use HasMediaContent() rather
 // than IsMultimodal() because IsMultimodal() is true even for text-only Parts
 // (SDK-style). A part that cannot be converted is an error: falling back to the
-// message's text used to send the model the question without its media.
+// message's text used to send the model the question without its media. The
+// message's parts share one MediaLoader, so its media is held to
+// providers.MaxMediaItems and providers.MaxAggregateMediaSize.
 func (p *Provider) geminiContentForMessage(ctx context.Context, msg *types.Message) (geminiContent, error) {
 	role := msg.Role
 	// Gemini uses "user" and "model" roles
@@ -423,8 +425,9 @@ func (p *Provider) geminiContentForMessage(ctx context.Context, msg *types.Messa
 	}
 
 	parts := make([]geminiPart, 0, len(msg.Parts))
+	loader := p.MediaLoader()
 	for _, part := range msg.Parts {
-		gPart, err := p.convertPartToGemini(ctx, part)
+		gPart, err := p.convertPartToGemini(ctx, loader, part)
 		if err != nil {
 			return geminiContent{}, fmt.Errorf("%s part: %w", part.Type, err)
 		}

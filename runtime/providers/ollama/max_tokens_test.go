@@ -1,7 +1,6 @@
 package ollama
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -18,7 +17,7 @@ func TestOllamaRequest_NoMaxTokens(t *testing.T) {
 			providers.ProviderDefaults{MaxTokens: defaults}, false, nil)
 		req := providers.PredictionRequest{Messages: []types.Message{{Role: "user", Content: "hi"}}}
 
-		if _, ok := p.buildToolRequest(context.Background(), req, nil, "")["max_tokens"]; ok {
+		if _, ok := mustBuildToolRequest(t, p, req, nil, "")["max_tokens"]; ok {
 			t.Errorf("defaults=%d: tool request sent max_tokens", defaults)
 		}
 
@@ -37,7 +36,7 @@ func TestOllamaRequest_MaxTokensFromDefaults(t *testing.T) {
 	p := NewToolProvider("test", "llama3", "http://localhost",
 		providers.ProviderDefaults{MaxTokens: 400}, false, nil)
 	req := providers.PredictionRequest{Messages: []types.Message{{Role: "user", Content: "hi"}}}
-	if got := p.buildToolRequest(context.Background(), req, nil, "")["max_tokens"]; got != 400 {
+	if got := mustBuildToolRequest(t, p, req, nil, "")["max_tokens"]; got != 400 {
 		t.Errorf("max_tokens = %v, want 400", got)
 	}
 }
