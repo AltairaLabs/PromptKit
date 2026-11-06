@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -27,19 +28,18 @@ func (p *Provider) interactionsURL() string {
 func (p *ToolProvider) buildInteractionsRequest(
 	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools,
 ) (interactionsRequest, error) {
-	messages := req.Messages
+	// Converted from req.Messages as given, so the message index in an error
+	// or log line is the caller's index.
+	input, err := p.buildInteractionsInput(ctx, req.Messages)
+	if err != nil {
+		return interactionsRequest{}, err
+	}
 
 	// generateContent carries the system prompt in a dedicated field. This API
 	// has no such field, so it leads the transcript as ordinary text — the
 	// alternative is dropping it, which would silently change behavior.
 	if req.System != "" {
-		sys := types.Message{Role: roleUser, Content: req.System}
-		messages = append([]types.Message{sys}, messages...)
-	}
-
-	input, err := p.buildInteractionsInput(ctx, messages)
-	if err != nil {
-		return interactionsRequest{}, err
+		input = slices.Insert(input, 0, any(interactionsTextStep{Type: stepTypeText, Text: req.System}))
 	}
 
 	out := interactionsRequest{

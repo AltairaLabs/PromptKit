@@ -273,3 +273,71 @@ func TestInteractions_UnloadableMediaFailsBeforeTheCall(t *testing.T) {
 }
 
 func strRef(s string) *string { return &s }
+
+// The model's own TTS audio in history (audio/pcm, which the Interactions API
+// does not list) is left out rather than failing the turn: its transcript is
+// already the message's text. The same MIME type from the user still fails.
+func TestInteractions_AssistantMediaWithUnlistedMIMEIsSkipped(t *testing.T) {
+	pcm := func(role string) types.Message {
+		msg := types.Message{Role: role}
+		msg.AddTextPart("the transcript")
+		msg.AddPart(types.ContentPart{Type: types.ContentTypeAudio, Media: &types.MediaContent{
+			Data: strRef("cGNt"), MIMEType: "audio/pcm"}})
+		return msg
+	}
+
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("assistant/stream=%v", stream), func(t *testing.T) {
+			srv := newInteractionsMediaServer(t)
+			require.NoError(t, predictInteractions(t, srv.URL, stream, []types.Message{
+				{Role: roleUser, Content: "say hi"}, pcm(roleAssistant), {Role: roleUser, Content: "again"},
+			}))
+			assert.Equal(t, []map[string]any{
+				{"type": "text", "text": "say hi"},
+				{"type": "text", "text": "the transcript"},
+				{"type": "text", "text": "again"},
+			}, srv.sentInput(t))
+		})
+
+		t.Run(fmt.Sprintf("user/stream=%v", stream), func(t *testing.T) {
+			srv := newInteractionsMediaServer(t)
+			err := predictInteractions(t, srv.URL, stream, []types.Message{pcm(roleUser)})
+			var unsupported *providers.UnsupportedContentError
+			require.True(t, errors.As(err, &unsupported), "want UnsupportedContentError, got %v", err)
+			assert.Equal(t, "audio/pcm", unsupported.MIMEType)
+			assert.Zero(t, srv.hits.Load())
+		})
+	}
+}
+
+// The system prompt leads the input, but a failing message is still named by
+// its index in the caller's Messages, not one past it.
+func TestInteractions_ErrorNamesTheCallersMessageIndex(t *testing.T) {
+	tp := interactionsTestProvider(t, "http://unused.invalid")
+	msg := types.Message{Role: roleUser}
+	msg.AddPart(types.ContentPart{Type: types.ContentTypeAudio, Media: &types.MediaContent{
+		Data: strRef("cGNt"), MIMEType: "audio/pcm"}})
+
+	_, err := tp.buildInteractionsRequest(context.Background(), providers.PredictionRequest{
+		System: "be terse", Messages: []types.Message{msg},
+	}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to convert message 0:")
+}
+
+// Only an unlisted MIME type is skipped on an assistant message: assistant
+// media in a listed type that cannot be loaded still fails the request.
+func TestInteractions_UnloadableAssistantMediaFails(t *testing.T) {
+	assistant := types.Message{Role: roleAssistant}
+	assistant.AddTextPart("here it is")
+	assistant.AddPart(types.ContentPart{Type: types.ContentTypeImage, Media: &types.MediaContent{
+		MIMEType: types.MIMETypeImagePNG}})
+
+	srv := newInteractionsMediaServer(t)
+	err := predictInteractions(t, srv.URL, false, []types.Message{
+		{Role: roleUser, Content: "draw"}, assistant, {Role: roleUser, Content: "again"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to convert message 1: image part")
+	assert.Zero(t, srv.hits.Load())
+}
