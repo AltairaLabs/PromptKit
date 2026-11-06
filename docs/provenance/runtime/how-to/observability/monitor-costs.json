@@ -1,14 +1,14 @@
 {
  "page": "docs/src/content/docs/runtime/how-to/observability/monitor-costs.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "stage.StreamPipeline.ExecuteSync(ctx, elems...) returns *ExecutionResult with CostInfo types.CostInfo",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:886",
-    "runtime/pipeline/stage/pipeline.go:907-914"
+    "runtime/pipeline/stage/pipeline.go:1377-1394",
+    "runtime/pipeline/stage/pipeline.go:1409-1416"
    ]
   },
   {
@@ -16,7 +16,7 @@
    "claim": "CostInfo has InputTokens, OutputTokens, CachedTokens, InputCostUSD, OutputCostUSD, CachedCostUSD, TotalCost, Quantities, Breakdown",
    "verdict": "true",
    "evidence": [
-    "runtime/types/message.go:242-264"
+    "runtime/types/message.go:242-263"
    ]
   },
   {
@@ -42,7 +42,8 @@
    "claim": "Breakdown lines carry Provider, Capability, Unit, Quantity, USD",
    "verdict": "true",
    "evidence": [
-    "runtime/types/message.go:269-276"
+    "runtime/providers/base/aggregate.go:91",
+    "runtime/types/message.go:268-275"
    ]
   },
   {
@@ -66,7 +67,7 @@
    "claim": "Pipeline result aggregates assistant-message cost with AggregateCost",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:946-950"
+    "runtime/pipeline/stage/pipeline.go:1448-1452"
    ]
   },
   {
@@ -74,10 +75,10 @@
    "claim": "metrics.Collector attached via sdk.WithMetrics increments a provider_cost_total counter per provider call, plus tts/stt/embedding/image_gen/inference cost counters",
    "verdict": "true",
    "evidence": [
-    "runtime/metrics/collector.go:324-326",
-    "runtime/metrics/collector.go:378-477",
-    "runtime/metrics/collector.go:652-654",
-    "sdk/options.go:1287"
+    "runtime/metrics/collector.go:332-334",
+    "runtime/metrics/collector.go:386-485",
+    "runtime/metrics/collector.go:660-662",
+    "sdk/options.go:1332"
    ]
   },
   {
@@ -112,7 +113,7 @@
    "claim": "providers.ProviderDefaults has a MaxTokens field",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/provider.go:214"
+    "runtime/providers/provider.go:225"
    ]
   },
   {
@@ -129,7 +130,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/builder.go:20",
-    "runtime/pipeline/stage/stages_provider.go:276"
+    "runtime/pipeline/stage/stages_provider.go:314"
    ]
   },
   {
@@ -145,7 +146,7 @@
    "claim": "Original: complete example calls openai.NewProvider(id, model, baseURL, defaults, includeRawOutput) and stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{})",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:276-281",
+    "runtime/pipeline/stage/stages_provider.go:314-319",
     "runtime/providers/openai/openai.go:199"
    ]
   },

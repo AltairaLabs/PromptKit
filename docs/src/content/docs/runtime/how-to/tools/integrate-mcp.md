@@ -4,7 +4,7 @@ description: Connect a Model Context Protocol server and make its tools availabl
 sidebar:
   order: 3
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/mcp/auth.go
     - runtime/mcp/client.go
@@ -214,8 +214,13 @@ result, err := toolRegistry.Execute(ctx, "read_file", json.RawMessage(`{"path": 
 if err != nil {
     log.Fatal(err)
 }
+if result.Error != "" {
+    log.Fatalf("Tool failed: %s", result.Error)
+}
 log.Printf("Result: %s", result.Result)
 ```
+
+`Execute` returns an error for an unknown tool, invalid arguments or a missing executor. An executor failure or a timeout arrives in `result.Error` with a nil error.
 
 To skip the tool registry, call the client directly:
 
@@ -235,7 +240,9 @@ Run the command by hand (`npx -y @modelcontextprotocol/server-filesystem /data`)
 
 ### `ListAllTools` returns no tools for a server
 
-By default (`ClientOptions.EnableGracefulDegradation`), a failed `tools/list` returns no tools instead of an error, and `ListAllTools` leaves out a server it cannot list. The client logs each such failure as a warning. Set `EnableGracefulDegradation` to `false` to receive the error.
+By default (`ClientOptions.EnableGracefulDegradation`), a failed `tools/list` returns no tools instead of an error. The client logs each such failure as a warning. Set `EnableGracefulDegradation` to `false` to make the client's `ListTools` return the error.
+
+`ListAllTools` leaves out a server it cannot list and logs a warning. It returns an error only when no server could be listed.
 
 The SDK turns degradation off for its clients. It names a server whose tools cannot be listed when the conversation opens in a warning, and retries in the background, from one second apart up to one minute apart, until the server answers or the conversation closes.
 

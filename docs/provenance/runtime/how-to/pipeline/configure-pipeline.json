@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/runtime/how-to/pipeline/configure-pipeline.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -15,8 +15,8 @@
    "claim": "claude.NewProvider and gemini.NewProvider take the same arguments",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude.go:134",
-    "runtime/providers/gemini/gemini.go:104"
+    "runtime/providers/claude/claude.go:137",
+    "runtime/providers/gemini/gemini.go:107"
    ]
   },
   {
@@ -24,7 +24,7 @@
    "claim": "stage.NewPipelineBuilder().Chain(...).Build() and NewPipelineBuilderWithConfig",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/builder.go:125",
+    "runtime/pipeline/stage/builder.go:133",
     "runtime/pipeline/stage/builder.go:20",
     "runtime/pipeline/stage/builder.go:29",
     "runtime/pipeline/stage/builder.go:72"
@@ -35,7 +35,7 @@
    "claim": "NewProviderStage(provider, toolRegistry, toolPolicy, config); nil tools and policy allowed",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:276"
+    "runtime/pipeline/stage/stages_provider.go:314"
    ]
   },
   {
@@ -43,8 +43,7 @@
    "claim": "ProviderConfig has MaxTokens, Temperature, TopP, Seed and Streaming",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:126",
-    "runtime/pipeline/stage/stages_provider.go:171"
+    "runtime/pipeline/stage/stages_provider.go:143-191"
    ]
   },
   {
@@ -52,8 +51,8 @@
    "claim": "pipe.Execute(ctx, input) returns a channel of StreamElement with Text and Error; pipe.Shutdown(ctx) exists",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:56",
-    "runtime/pipeline/stage/pipeline.go:994"
+    "runtime/pipeline/stage/pipeline.go:1504",
+    "runtime/pipeline/stage/pipeline.go:99"
    ]
   },
   {
@@ -79,10 +78,7 @@
    "claim": "PipelineConfig With* methods: ChannelBufferSize, IdleTimeout, ExecutionTimeout, GracefulShutdownTimeout",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/config.go:114",
-    "runtime/pipeline/stage/config.go:126",
-    "runtime/pipeline/stage/config.go:132",
-    "runtime/pipeline/stage/config.go:138"
+    "runtime/pipeline/stage/config.go:132-165"
    ]
   },
   {
@@ -90,9 +86,10 @@
    "claim": "Prompt assembly, template and provider stages built without a TurnState deliver the system prompt (original snippets)",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/stage/stages_core.go:83",
-    "runtime/pipeline/stage/stages_provider.go:539",
-    "runtime/pipeline/stage/stages_utilities.go:206"
+    "runtime/pipeline/stage/builder.go:238-243",
+    "runtime/pipeline/stage/errors.go:83-88",
+    "runtime/pipeline/stage/stages_core.go:62-69",
+    "runtime/pipeline/stage/stages_utilities.go:195-201"
    ]
   },
   {
@@ -100,9 +97,9 @@
    "claim": "NewPromptAssemblyStageWithTurnState, NewTemplateStageWithTurnState, NewProviderStageWithTurnState share a TurnState and the system prompt reaches the provider",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_core.go:50",
-    "runtime/pipeline/stage/stages_provider.go:315",
-    "runtime/pipeline/stage/stages_utilities.go:162"
+    "runtime/pipeline/stage/stages_core.go:51",
+    "runtime/pipeline/stage/stages_provider.go:353",
+    "runtime/pipeline/stage/stages_utilities.go:186"
    ]
   },
   {
@@ -113,7 +110,7 @@
     "runtime/hooks/guardrails/factory.go:162",
     "runtime/hooks/registry.go:52",
     "runtime/hooks/registry.go:79",
-    "runtime/pipeline/stage/stages_provider.go:315"
+    "runtime/pipeline/stage/stages_provider.go:353"
    ]
   },
   {
@@ -121,7 +118,7 @@
    "claim": "statestore.NewMemoryStore and NewRedisStore(*redis.Client); pipeline.StateStoreConfig{Store, ConversationID}",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/types.go:175",
+    "runtime/pipeline/types.go:193",
     "runtime/statestore/memory.go:170",
     "runtime/statestore/redis.go:77"
    ]
@@ -131,7 +128,7 @@
    "claim": "Load stages copy ConversationID and UserID from StateStoreConfig into TurnState",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_core.go:188"
+    "runtime/pipeline/stage/stages_core.go:197"
    ]
   },
   {
@@ -139,7 +136,7 @@
    "claim": "Provider stage copies TurnState.ProviderRequestMetadata into PredictionRequest.Metadata; no built-in provider reads session_id/tenant_id/user_id",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:545",
+    "runtime/pipeline/stage/stages_provider.go:588",
     "runtime/providers/openai/realtime_session_integration.go:205"
    ]
   },
@@ -168,7 +165,7 @@
    "claim": "Idle timeout resets on provider call, round, chunk; held open while a tool runs",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/config.go:52"
+    "runtime/pipeline/stage/config.go:70-76"
    ]
   },
   {

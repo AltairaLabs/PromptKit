@@ -4,7 +4,7 @@ description: Detect, classify and recover from a failed pipeline turn.
 sidebar:
   order: 5
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/pipeline/stage/builder.go
     - runtime/pipeline/stage/config.go
@@ -67,7 +67,7 @@ case providers.IsTransient(err):
 }
 ```
 
-`providers.IsTransient` is false for context cancellation and deadlines, and for stream idle timeouts.
+`providers.IsTransient` is false for context cancellation and deadlines, for stream idle timeouts, and for a provider credential that could not be applied.
 
 ## 3. Retry transient failures
 

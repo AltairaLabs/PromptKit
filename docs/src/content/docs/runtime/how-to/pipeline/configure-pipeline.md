@@ -4,13 +4,14 @@ description: Build a stage-based runtime pipeline, tune its timeouts and buffers
 sidebar:
   order: 1
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/audio/interruption.go
     - runtime/hooks/guardrails/factory.go
     - runtime/hooks/registry.go
     - runtime/pipeline/stage/builder.go
     - runtime/pipeline/stage/config.go
+    - runtime/pipeline/stage/errors.go
     - runtime/pipeline/stage/pipeline.go
     - runtime/pipeline/stage/stages_core.go
     - runtime/pipeline/stage/stages_duplex_provider_session.go
@@ -114,7 +115,7 @@ Set sampling options per provider stage on `stage.ProviderConfig` (`MaxTokens`, 
 
 ## 5. Add prompt assembly
 
-Create one `TurnState` and give it to every stage that reads or writes it. Without it, the prompt assembly and template stages discard the system prompt, and the provider never sees it.
+Create one `TurnState` and give it to every stage that reads or writes it. `Build` rejects a prompt assembly or template stage that has none, and returns an error that wraps `stage.ErrTurnStateRequired`.
 
 ```go
 turnState := stage.NewTurnState()

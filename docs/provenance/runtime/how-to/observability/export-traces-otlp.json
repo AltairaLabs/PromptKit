@@ -1,14 +1,14 @@
 {
  "page": "docs/src/content/docs/runtime/how-to/observability/export-traces-otlp.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "WithTracerProvider wires an OTelEventListener into the conversation's event bus; without it no spans are created",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1260-1265",
-    "sdk/sdk.go:753-758"
+    "sdk/options.go:1305-1310",
+    "sdk/sdk.go:764-769"
    ]
   },
   {
@@ -16,7 +16,7 @@
    "claim": "telemetry.NewTracerProvider(ctx, endpoint, serviceName) builds a provider exporting over OTLP/HTTP; caller calls Shutdown",
    "verdict": "true",
    "evidence": [
-    "runtime/telemetry/provider.go:37-58"
+    "runtime/telemetry/provider.go:36-62"
    ]
   },
   {
@@ -24,7 +24,7 @@
    "claim": "Custom provider via otlptracehttp.New + sdktrace.NewTracerProvider with WithBatcher/WithResource compiles",
    "verdict": "true",
    "evidence": [
-    "runtime/telemetry/provider.go:37-58"
+    "runtime/telemetry/provider.go:41-62"
    ]
   },
   {
@@ -32,7 +32,7 @@
    "claim": "Honeycomb and Grafana Cloud endpoint URLs and header names",
    "verdict": "unverified",
    "evidence": [
-    "runtime/telemetry/provider.go:37"
+    "runtime/telemetry/provider.go:41-43"
    ]
   },
   {
@@ -41,7 +41,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/telemetry/listener.go:162-189",
-    "sdk/conversation.go:1546-1555"
+    "sdk/conversation.go:1610-1619"
    ]
   },
   {
@@ -49,7 +49,7 @@
    "claim": "SetupPropagation sets the global propagator to W3C Trace Context, W3C Baggage and AWS X-Ray",
    "verdict": "true",
    "evidence": [
-    "runtime/telemetry/provider.go:62-68"
+    "runtime/telemetry/provider.go:66-72"
    ]
   },
   {
@@ -58,8 +58,8 @@
    "verdict": "true",
    "evidence": [
     "server/a2a/handler_send.go:39",
-    "server/a2a/server.go:325",
-    "server/a2a/server.go:845"
+    "server/a2a/server.go:335",
+    "server/a2a/server.go:841"
    ]
   },
   {
@@ -67,8 +67,8 @@
    "claim": "The A2A client injects trace context into outbound requests with the global propagator",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:481",
-    "runtime/a2a/client.go:700"
+    "runtime/a2a/client.go:494",
+    "runtime/a2a/client.go:713"
    ]
   },
   {
@@ -76,7 +76,7 @@
    "claim": "Content attributes gen_ai.tool.call.arguments, gen_ai.tool_calls, gen_ai.tool_result, gen_ai.message.content are off by default",
    "verdict": "true",
    "evidence": [
-    "runtime/telemetry/content_capture.go:63-74",
+    "runtime/telemetry/content_capture.go:62-73",
     "runtime/telemetry/listener.go:95-97"
    ]
   },
@@ -86,7 +86,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/telemetry/content_capture.go:42-47",
-    "sdk/options.go:3866-3871"
+    "sdk/options.go:4076-4081"
    ]
   },
   {
@@ -95,7 +95,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/events/redact.go:49-64",
-    "sdk/sdk.go:729-764"
+    "sdk/sdk.go:740-775"
    ]
   },
   {
@@ -111,8 +111,8 @@
    "claim": "The content gate only affects spans: an event store still receives raw events unless a redactor is set",
    "verdict": "true",
    "evidence": [
-    "runtime/telemetry/content_capture.go:29-30",
-    "sdk/sdk.go:735-751"
+    "runtime/telemetry/content_capture.go:28-29",
+    "sdk/sdk.go:746-762"
    ]
   },
   {
@@ -120,7 +120,7 @@
    "claim": "Original page: 'The capture gate ... an EventStore you wire still receives raw events. Use WithEventRedactor for those' (implies redactor is the only remedy and gate alone leaves store raw)",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:750"
+    "sdk/sdk.go:761"
    ]
   },
   {
@@ -128,8 +128,8 @@
    "claim": "WithRecording is unaffected by gate and redactor: RecordingStage writes to its store without a bus hop",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:3883-3886",
-    "sdk/sdk.go:737-749"
+    "sdk/options.go:4093-4096",
+    "sdk/sdk.go:748-760"
    ]
   },
   {
@@ -137,7 +137,7 @@
    "claim": "Collector OTLP/HTTP receiver default port 4318",
    "verdict": "unverified",
    "evidence": [
-    "runtime/telemetry/provider.go:37"
+    "runtime/telemetry/provider.go:36-41"
    ]
   },
   {
@@ -148,7 +148,7 @@
     "runtime/events/bus.go:571",
     "runtime/telemetry/listener.go:162-202",
     "runtime/telemetry/listener.go:87-113",
-    "runtime/telemetry/provider.go:28-33"
+    "runtime/telemetry/provider.go:26-34"
    ]
   },
   {
@@ -156,7 +156,7 @@
    "claim": "telemetry.WithContentCapture(bool) option for the listener",
    "verdict": "true",
    "evidence": [
-    "runtime/telemetry/content_capture.go:63-65"
+    "runtime/telemetry/content_capture.go:62-64"
    ]
   },
   {
@@ -252,9 +252,9 @@
    "claim": "Original page: events are dispatched through a worker pool, not strictly in publish order, so *.completed can arrive before *.started under load",
    "verdict": "false",
    "evidence": [
-    "runtime/events/bus.go:108-110",
-    "runtime/events/bus.go:322-324",
-    "runtime/events/bus.go:39-42"
+    "runtime/events/bus.go:107-109",
+    "runtime/events/bus.go:321-323",
+    "runtime/events/bus.go:38-41"
    ]
   },
   {

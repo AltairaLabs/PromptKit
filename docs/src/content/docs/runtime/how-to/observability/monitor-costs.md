@@ -4,7 +4,7 @@ description: Read, aggregate, cap and export the token usage and cost of LLM cal
 sidebar:
   order: 7
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/metrics/collector.go
     - runtime/pipeline/stage/builder.go
@@ -62,7 +62,7 @@ log.Printf("total:  $%.6f", ci.TotalCost)
 
 ## 2. Break the cost down by unit
 
-`Breakdown` lists one line per provider, capability and unit:
+`Breakdown` lists one line per provider, capability, unit and set of `Dimensions`:
 
 ```go
 for _, li := range result.CostInfo.Breakdown {

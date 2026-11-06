@@ -4,11 +4,12 @@ description: Connect the runtime to OpenAI, Claude, Gemini, Azure OpenAI, Ollama
 sidebar:
   order: 2
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/credentials/azure.go
     - runtime/credentials/azure_integration.go
     - runtime/credentials/credential.go
+    - runtime/providers/base/llmpricing.go
     - runtime/providers/claude/claude.go
     - runtime/providers/claude/claude_tools.go
     - runtime/providers/claude/pricing_table.go
@@ -73,7 +74,7 @@ To choose another model, pass its ID. The pricing tables recognize these models:
 | Claude | `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5` |
 | Gemini | `gemini-3.5-flash-lite`, `gemini-3.7-flash`, `gemini-3.1-pro` |
 
-To set rates yourself, fill `ProviderDefaults.Pricing` with cost per 1,000 tokens:
+To set rates yourself, fill `ProviderDefaults.Pricing` with cost per 1,000 tokens. The rates take precedence over the built-in tables when both are positive:
 
 ```go
 priced := providers.ProviderDefaults{
