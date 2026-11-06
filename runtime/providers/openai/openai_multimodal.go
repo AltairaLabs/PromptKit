@@ -11,11 +11,29 @@ import (
 
 const audioPCM16Format = "pcm16"
 
+// mimeAudioXWAV is the non-standard WAV MIME type getAudioFormat also accepts.
+const mimeAudioXWAV = "audio/x-wav"
+
 // openAIMaxImageSizeMB is OpenAI's image size limit.
 const openAIMaxImageSizeMB = 20
 
 // GetMultimodalCapabilities returns OpenAI's multimodal capabilities
 func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
+	caps := p.SendableMultimodalCapabilities()
+	// When the provider declares its capabilities, they are authoritative for
+	// images/vision too; otherwise images stay on by default.
+	if p.capabilities != nil {
+		caps.SupportsImages = p.capabilities[providers.CapabilityVision]
+	}
+	return caps
+}
+
+// SendableMultimodalCapabilities returns what the adapter sends: images
+// always, whatever the config declares, and audio only where
+// convertContentPartToOpenAI accepts it (an audio model on the Chat
+// Completions API). Audio is gated by the adapter itself, so a config that
+// leaves audio out of its capabilities makes the adapter refuse it too.
+func (p *Provider) SendableMultimodalCapabilities() providers.MultimodalCapabilities {
 	caps := providers.MultimodalCapabilities{
 		SupportsImages: true,
 		SupportsAudio:  false,
@@ -33,18 +51,14 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 		MaxVideoSizeMB: 0,
 	}
 
-	// When the provider declares its capabilities, they are authoritative for
-	// images/vision too; otherwise images stay on by default (above).
-	if p.capabilities != nil {
-		caps.SupportsImages = p.capabilities[providers.CapabilityVision]
-	}
-
-	// Audio models support audio input via both APIs: Chat Completions
-	// (non-streaming + streaming) and Responses API (streaming events).
-	if p.supportsAudioInput() {
+	// Audio input is sent only on the Chat Completions API, as an input_audio
+	// part (wav or mp3, see getAudioFormat). The Responses API path refuses an
+	// audio part (convertContentPartToOpenAI), so audio is not declared there.
+	if p.apiMode == APIModeCompletions && p.supportsAudioInput() {
 		caps.SupportsAudio = true
 		caps.AudioFormats = []string{
 			types.MIMETypeAudioWAV,
+			mimeAudioXWAV,
 			types.MIMETypeAudioMP3,
 		}
 		caps.MaxAudioSizeMB = 25 // OpenAI audio limit
@@ -220,7 +234,7 @@ func (p *Provider) convertAudioPartToOpenAI(
 // getAudioFormat converts MIME type to OpenAI audio format string
 func getAudioFormat(mimeType string) string {
 	switch mimeType {
-	case types.MIMETypeAudioWAV, "audio/x-wav":
+	case types.MIMETypeAudioWAV, mimeAudioXWAV:
 		return audioFormatWAV
 	case types.MIMETypeAudioMP3: // "audio/mpeg"
 		return audioFormatMP3

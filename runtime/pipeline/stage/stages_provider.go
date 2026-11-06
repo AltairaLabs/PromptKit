@@ -236,6 +236,17 @@ type ProviderConfig struct {
 	// for (hooks.ProviderRequest.Prompt). Nil or a missing task means
 	// undeclared. The stage hands them to hooks and does not interpret them.
 	PromptDeclarations map[string]*packspec.Prompt
+
+	// SkipContentValidation turns off the check, made before every provider
+	// call, that each image, audio, video and document part of the request's
+	// input messages is a modality and MIME type the provider's adapter can
+	// send (providers.ValidateMultimodalRequest). A config's capabilities list
+	// never narrows the check. With the check on, an unsupported part fails
+	// the round with a *providers.UnsupportedContentError before any request
+	// is sent. Set it for a custom provider whose declaration is narrower than
+	// what it sends. Providers that do not implement
+	// providers.MultimodalCapabilityProvider are never checked.
+	SkipContentValidation bool
 }
 
 // CallParams returns c's sampling fields as one value.
@@ -1958,6 +1969,10 @@ func (s *ProviderStage) executeRound(
 	// field so all providers receive system context through the dedicated field.
 	req.NormalizeMessages()
 
+	if err := s.validateRequestContent(prov, &req); err != nil {
+		return types.Message{}, false, err
+	}
+
 	// Count tools for event emission
 	toolCount := providerToolCount(providerTools)
 
@@ -2084,6 +2099,10 @@ func (s *ProviderStage) executeStreamingRound(
 	// field so all providers receive system context through the dedicated field.
 	req.NormalizeMessages()
 
+	if err := s.validateRequestContent(prov, &req); err != nil {
+		return types.Message{}, false, err
+	}
+
 	// Count tools for event emission
 	toolCount := providerToolCount(params.providerTools)
 
@@ -2172,6 +2191,20 @@ func (s *ProviderStage) executeStreamingRound(
 		"tool_calls", len(toolCalls))
 
 	return responseMsg, len(toolCalls) > 0, nil
+}
+
+// validateRequestContent fails a round whose input messages carry a media part
+// the provider does not declare supporting, before anything is sent. It checks
+// only providers that declare multimodal capabilities, and nothing when
+// ProviderConfig.SkipContentValidation is set.
+func (s *ProviderStage) validateRequestContent(prov providers.Provider, req *providers.PredictionRequest) error {
+	if s.config.SkipContentValidation || providers.GetMultimodalProvider(prov) == nil {
+		return nil
+	}
+	if err := providers.ValidateMultimodalRequest(prov, req); err != nil {
+		return fmt.Errorf("request content not supported by provider: %w", err)
+	}
+	return nil
 }
 
 // messagesHaveToolLinkage reports whether the history contains assistant tool

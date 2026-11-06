@@ -96,6 +96,13 @@ func TestVADProviderConfig_CarriesModelSettings(t *testing.T) {
 	assert.Equal(t, &topK, got.TopK)
 }
 
+// The opt-out from media-part validation reaches VAD mode's provider stage,
+// and leaving it unset validates.
+func TestVADProviderConfig_CarriesSkipContentValidation(t *testing.T) {
+	assert.True(t, vadProviderConfig(&Config{SkipContentValidation: true}).SkipContentValidation)
+	assert.False(t, vadProviderConfig(&Config{}).SkipContentValidation)
+}
+
 // Skill tool grants must reach VAD mode's provider stage.
 //
 // #1957/#1980 made a skill's allowed-tools extend the prompt baseline through

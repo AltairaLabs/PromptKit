@@ -96,6 +96,21 @@ func TestOpenAIProvider_AudioModelCapabilities(t *testing.T) {
 	}
 }
 
+// Every MIME type the input_audio serializer maps to a format is declared, so
+// request validation never rejects audio the adapter would send.
+func TestOpenAIProvider_DeclaresEveryAudioTypeTheSerializerSends(t *testing.T) {
+	provider := NewProviderWithConfig(
+		"test-audio", "gpt-audio", "https://api.openai.com/v1",
+		providers.ProviderDefaults{}, false,
+		map[string]any{"api_mode": "completions"},
+	)
+	for _, mime := range []string{types.MIMETypeAudioWAV, "audio/x-wav", types.MIMETypeAudioMP3} {
+		require.NotEmpty(t, getAudioFormat(mime), "serializer no longer sends %s", mime)
+		assert.True(t, providers.IsFormatSupported(provider, types.ContentTypeAudio, mime),
+			"%s is sent by the serializer but not declared", mime)
+	}
+}
+
 func TestOpenAIProvider_NonAudioModelWithCompletionsAPI(t *testing.T) {
 	// Non-audio model with Chat Completions API should NOT support audio
 	provider := NewProviderWithConfig(
@@ -1188,7 +1203,8 @@ func TestOpenAIProvider_AudioModelConvertMessage(t *testing.T) {
 }
 
 func TestOpenAIProvider_AudioModelWithResponsesAPI(t *testing.T) {
-	// Audio model with Responses API should support audio (via streaming events)
+	// The Responses API path cannot send an audio part (convertContentPartToOpenAI
+	// refuses it there), so an audio model on that API does not declare audio.
 	provider := NewProviderWithConfig(
 		"test-audio", "gpt-4o-audio-preview", "https://api.openai.com/v1",
 		providers.ProviderDefaults{}, false,
@@ -1197,8 +1213,12 @@ func TestOpenAIProvider_AudioModelWithResponsesAPI(t *testing.T) {
 
 	caps := provider.GetMultimodalCapabilities()
 
-	if !caps.SupportsAudio {
-		t.Error("Expected audio model with Responses API to support audio")
+	if caps.SupportsAudio {
+		t.Error("audio model on the Responses API must not declare audio: the adapter cannot send it")
+	}
+	part := types.NewAudioPartFromData("AAAA", types.MIMETypeAudioWAV)
+	if _, err := provider.convertContentPartToOpenAI(context.Background(), part); err == nil {
+		t.Error("Responses-mode adapter accepted an audio part; the declaration above would then be too narrow")
 	}
 }
 

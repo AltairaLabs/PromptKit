@@ -162,6 +162,11 @@ type Config struct {
 	// surfaced as pending instead of executing. Optional; nil executes normally.
 	ApprovalChecker tools.ApprovalChecker
 
+	// SkipContentValidation turns off the provider stage's check that each
+	// media part of a request is one the provider declares supporting (see
+	// stage.ProviderConfig.SkipContentValidation). False validates.
+	SkipContentValidation bool
+
 	// CompactionStrategy replaces the default compactor entirely.
 	// Mutually exclusive with CompactionRules.
 	CompactionStrategy stage.CompactionStrategy
@@ -694,7 +699,8 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			// Steps build their own TurnState; this carries the turn number
 			// into them so guardrails inside a composition report the same
 			// turn as everything outside it.
-			ParentTurnState: turnState,
+			ParentTurnState:       turnState,
+			SkipContentValidation: cfg.SkipContentValidation,
 		}
 		name := cfg.CompositionName
 		if name == "" {
@@ -741,8 +747,9 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			ApprovalChecker:  cfg.ApprovalChecker,
 			Streaming:        cfg.Ingestion != nil,
 
-			StructuredOutputMode: cfg.StructuredOutputMode,
-			PromptDeclarations:   cfg.PromptDeclarations,
+			StructuredOutputMode:  cfg.StructuredOutputMode,
+			PromptDeclarations:    cfg.PromptDeclarations,
+			SkipContentValidation: cfg.SkipContentValidation,
 		}
 		// Configure compaction strategy
 		if cfg.CompactionEnabled == nil || *cfg.CompactionEnabled {

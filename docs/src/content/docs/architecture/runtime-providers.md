@@ -7,6 +7,7 @@ verified:
   commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
   sources:
     - runtime/pipeline/stage/compactor.go
+    - runtime/pipeline/stage/stages_provider.go
     - runtime/providers/base_provider.go
     - runtime/providers/claude/claude.go
     - runtime/providers/claude/claude_multimodal.go
@@ -20,6 +21,8 @@ verified:
     - runtime/providers/mock/mock.go
     - runtime/providers/mock/mock_repository.go
     - runtime/providers/mock/mock_streaming.go
+    - runtime/providers/multimodal.go
+    - runtime/providers/ollama/ollama_multimodal.go
     - runtime/providers/openai/openai.go
     - runtime/providers/openai/openai_multimodal.go
     - runtime/providers/openai/openai_responses_integration.go
@@ -32,6 +35,7 @@ verified:
     - runtime/providers/stream_retry.go
     - runtime/providers/streaming.go
     - runtime/providers/streaming_input.go
+    - runtime/providers/vllm/vllm_multimodal.go
     - runtime/types/content.go
 ---
 This page explains how the runtime reaches many LLM APIs through one Go interface: the interfaces, how a provider is created, what an adapter translates, and what the shared layer does for streaming, retries and cost. For what a provider is and how to configure one, see [Providers](/concepts/providers/).
@@ -70,6 +74,7 @@ Capabilities beyond a single prediction are separate interfaces. You detect them
 | `ContextWindowProvider` | `MaxContextTokens`, which sizes the compactor | any provider that reports its context window |
 | `MessageMetadataTemplater` | `MessageMetadataTemplate`, the text appended to each message's metadata | every chat provider |
 | `MediaScoped` | `WithMediaSettings`, a per-conversation view of a shared provider | providers that resolve media |
+| `MultimodalCapabilityProvider` | `GetMultimodalCapabilities`, the media modalities and MIME types the provider accepts as input | `claude`, `gemini`, `openai`, `ollama`, `vllm` |
 
 `BuildTooling` returns a provider-native value (`ProviderTools`) that you pass back to `PredictWithTools`. The runtime never inspects it.
 
@@ -126,6 +131,8 @@ The program prints `supports tools`, `supports streaming input` and `Mock respon
 - `NormalizeMessages` moves system-role messages into `System` before the adapter runs, because some APIs reject or drop a `system` role.
 - A parameter the API does not take is dropped, and `WarnUnsentParams` logs it once per provider and parameter.
 - When an API answers a 400 that names a sampling parameter its model rejects, the provider records the parameter as rejected, stops sending it and repeats the call. The `unsupported_params` provider setting declares the same thing up front.
+
+Before every predict or stream call, the provider stage checks the image, audio, video and document parts of the request's input messages against what the provider's adapter can send, with `ValidateMultimodalRequest`. A provider whose `GetMultimodalCapabilities` applies a config's `capabilities` list also implements `SendableContentProvider` (`claude`, `gemini`, `openai`), and the check uses its `SendableMultimodalCapabilities`, so a partial `capabilities` list never narrows it. A part the adapter cannot send fails the round with an `UnsupportedContentError`, and no request is sent. Assistant messages are not checked, because their parts are model output. A provider that does not implement `MultimodalCapabilityProvider`, such as `mock`, is not checked. `ProviderConfig.SkipContentValidation` turns the check off. Duplex sessions stream raw media chunks rather than requests, so the check does not apply to them; a session declares what it accepts through `GetStreamingCapabilities`.
 
 `PredictionResponse` returns `Content`, multimodal `Parts`, `ToolCalls`, `CostInfo`, `Latency`, `Reasoning`, a normalized `FinishReason` and, when raw output is enabled, `Raw` and `RawRequest`.
 

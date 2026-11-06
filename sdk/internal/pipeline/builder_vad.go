@@ -166,6 +166,8 @@ func vadProviderConfig(cfg *Config) *stage.ProviderConfig {
 		// utterance — rather than the unary default that drains the whole
 		// input channel and fires once at session close (#1644).
 		Streaming: true,
+		// The same opt-out from media-part validation as text.
+		SkipContentValidation: cfg.SkipContentValidation,
 	}
 	// A voice session is the longest-lived topology there is; without this it
 	// never compacts. Default-on, matching the streaming sibling.
