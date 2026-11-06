@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/runtime/explanation/retrieval-architecture.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -8,7 +8,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/stages_memory.go:114",
-    "sdk/options.go:1364"
+    "sdk/options.go:1478-1484"
    ]
   },
   {
@@ -24,8 +24,7 @@
    "claim": "Stage runs between prompt assembly and template stage; retriever sees messages before substitution",
    "verdict": "true",
    "evidence": [
-    "sdk/internal/pipeline/builder.go:462",
-    "sdk/internal/pipeline/builder.go:484"
+    "sdk/internal/pipeline/builder.go:500-525"
    ]
   },
   {
@@ -33,7 +32,7 @@
    "claim": "Duplex sessions with a retriever are refused",
    "verdict": "true",
    "evidence": [
-    "sdk/internal/pipeline/builder.go:481"
+    "sdk/internal/pipeline/builder.go:514-516"
    ]
   },
   {
@@ -41,7 +40,7 @@
    "claim": "corpus.Retriever scores by term overlap over a fixed document set; empty result when nothing matches",
    "verdict": "true",
    "evidence": [
-    "runtime/memory/corpus/corpus.go:91"
+    "runtime/memory/corpus/corpus.go:92-113"
    ]
   },
   {
@@ -57,7 +56,7 @@
    "claim": "memory.Retriever has no production implementation in PromptKit",
    "verdict": "true",
    "evidence": [
-    "runtime/memory/corpus/corpus.go:62",
+    "runtime/memory/corpus/corpus.go:63",
     "runtime/memory/retriever.go:13"
    ]
   }

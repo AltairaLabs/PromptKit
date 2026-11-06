@@ -1,14 +1,14 @@
 {
  "page": "docs/src/content/docs/runtime/explanation/provider-system.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "Provider interface embeds base.Provider and has ID, Model, Predict, PredictStream, SupportsStreaming, ShouldIncludeRawOutput, CalculateCost",
-   "verdict": "false",
+   "verdict": "true",
    "evidence": [
-    "runtime/providers/provider.go:242",
-    "runtime/providers/provider.go:262"
+    "runtime/providers/base/types.go:60",
+    "runtime/providers/provider.go:250-273"
    ]
   },
   {
@@ -16,7 +16,7 @@
    "claim": "ProviderConfig struct with MaxTokens, Temperature, TopP, Seed, StopSequences exists",
    "verdict": "dead",
    "evidence": [
-    "runtime/providers/provider.go:56"
+    "runtime/providers/provider.go:65"
    ]
   },
   {
@@ -24,13 +24,13 @@
    "claim": "Registered chat types are claude, openai, gemini, ollama, vllm, mock, replay; imagen registers an image provider",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude_tools.go:958",
+    "runtime/providers/claude/claude_tools.go:960",
     "runtime/providers/gemini/gemini_tools.go:854",
     "runtime/providers/imagen/factory.go:12",
     "runtime/providers/mock/mock.go:64",
     "runtime/providers/ollama/ollama_tools.go:394",
     "runtime/providers/openai/openai_tools.go:708",
-    "runtime/providers/registry.go:48",
+    "runtime/providers/registry.go:49",
     "runtime/providers/replay/factory.go:12",
     "runtime/providers/vllm/factory.go:9"
    ]
@@ -40,9 +40,8 @@
    "claim": "Unknown type fails with UnsupportedProviderError; platforms (bedrock/vertex/azure) are not types; bad pairs fail with UnsupportedProviderPlatformError",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/registry.go:362",
-    "runtime/providers/registry.go:508",
-    "runtime/providers/registry.go:544"
+    "runtime/providers/registry.go:397-420",
+    "runtime/providers/registry.go:557-600"
    ]
   },
   {
@@ -50,7 +49,7 @@
    "claim": "NormalizeMessages folds system-role messages into System",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/provider.go:145"
+    "runtime/providers/provider.go:154"
    ]
   },
   {
@@ -58,7 +57,7 @@
    "claim": "A provider that cannot send top_k/penalties drops them and logs one warning per provider and param",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/provider.go:100"
+    "runtime/providers/provider.go:109"
    ]
   },
   {
@@ -66,7 +65,7 @@
    "claim": "OpenAI Responses API drops seed with a warning; Chat Completions sends it",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/openai/openai.go:541",
+    "runtime/providers/openai/openai.go:542",
     "runtime/providers/openai/openai_responses_integration.go:233"
    ]
   },
@@ -75,10 +74,10 @@
    "claim": "Defaults resolve request, then ProviderDefaults, then no limit; Claude sends 4096 and rejects MaxTokensUnlimited at construction",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude.go:668",
-    "runtime/providers/claude/claude.go:687",
-    "runtime/providers/provider.go:204",
-    "runtime/providers/provider.go:229"
+    "runtime/providers/claude/claude.go:673",
+    "runtime/providers/claude/claude.go:692",
+    "runtime/providers/provider.go:215",
+    "runtime/providers/provider.go:240"
    ]
   },
   {
@@ -86,10 +85,10 @@
    "claim": "Translation table: assistant->model for Gemini with parts; Claude content blocks; Claude top-level system; Gemini systemInstruction; OpenAI system message",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude.go:347",
-    "runtime/providers/claude/claude.go:518",
-    "runtime/providers/gemini/gemini.go:207",
-    "runtime/providers/gemini/gemini.go:411",
+    "runtime/providers/claude/claude.go:352",
+    "runtime/providers/claude/claude.go:523",
+    "runtime/providers/gemini/gemini.go:211",
+    "runtime/providers/gemini/gemini.go:415",
     "runtime/providers/openai/openai.go:705"
    ]
   },
@@ -108,7 +107,8 @@
    "claim": "providers.Registry stores instances by ID and does not choose between them",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/registry.go:21"
+    "runtime/providers/registry.go:28",
+    "runtime/providers/registry.go:93-125"
    ]
   },
   {
@@ -116,8 +116,7 @@
    "claim": "Providers retry transient HTTP failures",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude.go:929",
-    "runtime/providers/retry.go:186"
+    "runtime/providers/retry.go:193"
    ]
   },
   {
@@ -133,15 +132,25 @@
    "claim": "Close closes the HTTP client's idle connections",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/base_provider.go:284"
+    "runtime/providers/base_provider.go:292"
    ]
   },
   {
    "id": 15,
-   "claim": "Multi-provider registry was considered but rejected",
-   "verdict": "false",
+   "claim": "providers.Registry stores instances by ID and does not choose between them; no multi-provider routing is built in",
+   "verdict": "true",
    "evidence": [
-    "runtime/providers/registry.go:27"
+    "runtime/providers/registry.go:28",
+    "runtime/providers/registry.go:93"
+   ]
+  },
+  {
+   "id": 16,
+   "claim": "ProviderSpec.RateLimit is a token bucket per provider instance; every HTTP request including retries takes a token",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base_provider.go:946-961",
+    "runtime/providers/registry.go:526-535"
    ]
   }
  ]

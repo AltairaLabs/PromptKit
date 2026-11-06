@@ -1,13 +1,13 @@
 {
  "page": "docs/src/content/docs/runtime/index.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "Runtime provides provider interfaces for implementing custom LLM providers",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/provider.go:242"
+    "runtime/providers/provider.go:253-273"
    ]
   },
   {
@@ -15,11 +15,11 @@
    "claim": "Quick start compiles: stage.NewPipelineBuilder().Chain(stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{MaxTokens, Temperature})).Build()",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/builder.go:125",
+    "runtime/pipeline/stage/builder.go:133",
     "runtime/pipeline/stage/builder.go:20",
     "runtime/pipeline/stage/builder.go:72",
-    "runtime/pipeline/stage/stages_provider.go:126",
-    "runtime/pipeline/stage/stages_provider.go:276"
+    "runtime/pipeline/stage/stages_provider.go:143",
+    "runtime/pipeline/stage/stages_provider.go:314"
    ]
   },
   {
@@ -28,7 +28,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/providers/openai/openai.go:199",
-    "runtime/providers/provider.go:214"
+    "runtime/providers/provider.go:200-215"
    ]
   },
   {
@@ -36,10 +36,11 @@
    "claim": "types.Message{Role: \"user\"}.AddTextPart; stage.NewMessageElement(&msg); pipeline.Execute(ctx, input) returns (output, err); elem.Text is *string",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/element.go:343",
-    "runtime/pipeline/stage/element.go:79",
-    "runtime/pipeline/stage/pipeline.go:56",
-    "runtime/types/message.go:413"
+    "runtime/pipeline/stage/element.go:352",
+    "runtime/pipeline/stage/element.go:78",
+    "runtime/pipeline/stage/pipeline.go:99",
+    "runtime/pipeline/stage/stages_provider.go:2652",
+    "runtime/types/message.go:412"
    ]
   },
   {
@@ -55,7 +56,7 @@
    "claim": "Stage types Transform, Accumulate, Generate, Sink with patterns 1:1/1:N, N:1, 0:N, N:0",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stage.go:97"
+    "runtime/pipeline/stage/stage.go:100"
    ]
   },
   {
@@ -63,7 +64,7 @@
    "claim": "tools Executor interface: Execute(ctx, descriptor, args) and Name()",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/types.go:393"
+    "runtime/tools/types.go:441"
    ]
   },
   {
@@ -71,8 +72,8 @@
    "claim": "Architecture diagram: SDK -> Pipeline -> Stages -> Providers/Tools/Hooks; Providers -> OpenAI, Anthropic; Tools -> MCP",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:276",
-    "sdk/internal/pipeline/builder.go:499"
+    "runtime/pipeline/stage/stages_provider.go:314",
+    "sdk/internal/pipeline/builder.go:532"
    ]
   },
   {
@@ -80,10 +81,10 @@
    "claim": "Text mode flow: StateStoreLoad -> PromptAssembly -> Provider -> StateStoreSave",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/stage/stages_save.go:53",
-    "sdk/internal/pipeline/builder.go:597",
-    "sdk/internal/pipeline/builder.go:614",
-    "sdk/internal/pipeline/builder.go:749"
+    "runtime/pipeline/stage/stages_save.go:57",
+    "sdk/internal/pipeline/builder.go:644",
+    "sdk/internal/pipeline/builder.go:661",
+    "sdk/internal/pipeline/builder.go:802"
    ]
   },
   {
@@ -103,7 +104,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/stages_duplex_provider_session.go:147",
-    "sdk/internal/pipeline/builder.go:678"
+    "sdk/internal/pipeline/builder.go:729"
    ]
   },
   {
@@ -111,8 +112,8 @@
    "claim": "StreamElement struct fields (Text, Audio, Video, Image, Message, ToolCall, Part, MediaData, Sequence, Timestamp, Source, Priority, Meta, EndOfStream, EndOfTurn, Interrupt, Error)",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/stage/element.go:103",
-    "runtime/pipeline/stage/element.go:97"
+    "runtime/pipeline/stage/element.go:102",
+    "runtime/pipeline/stage/element.go:96"
    ]
   },
   {
@@ -128,7 +129,7 @@
    "claim": "PredictionResponse has Content, Parts, CostInfo, Latency, ToolCalls",
    "verdict": "false",
    "evidence": [
-    "runtime/providers/provider.go:181"
+    "runtime/providers/provider.go:190"
    ]
   },
   {
@@ -136,7 +137,7 @@
    "claim": "Priority values Low, Normal, High, Critical",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/element.go:116"
+    "runtime/pipeline/stage/element.go:126-133"
    ]
   },
   {

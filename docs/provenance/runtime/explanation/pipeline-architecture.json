@@ -1,13 +1,13 @@
 {
  "page": "docs/src/content/docs/runtime/explanation/pipeline-architecture.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "StreamElement fields (incl. Reasoning)",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/element.go:77-110"
+    "runtime/pipeline/stage/element.go:76-125"
    ]
   },
   {
@@ -15,7 +15,7 @@
    "claim": "Stage interface Name/Type/Process",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stage.go:49-63"
+    "runtime/pipeline/stage/stage.go:49-65"
    ]
   },
   {
@@ -23,7 +23,7 @@
    "claim": "Stage types: 5 StageType values; no Observe type",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/stage/stage.go:99-124"
+    "runtime/pipeline/stage/stage.go:102-127"
    ]
   },
   {
@@ -31,17 +31,16 @@
    "claim": "TemplateStage, RecordingStage and MessageBroadcastStage are StageTypeTransform",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_message_broadcast.go:94",
-    "runtime/pipeline/stage/stages_recording.go:125",
-    "runtime/pipeline/stage/stages_utilities.go:144"
+    "runtime/pipeline/stage/stages_message_broadcast.go:80",
+    "runtime/pipeline/stage/stages_utilities.go:166"
    ]
   },
   {
    "id": 5,
-   "claim": "Text-mode order incl recording_input after template, recording_output after provider",
-   "verdict": "false",
+   "claim": "Text-mode order includes recording_input after template and recording_output after provider",
+   "verdict": "true",
    "evidence": [
-    "sdk/internal/pipeline/builder.go:458-533"
+    "sdk/internal/pipeline/builder.go:491-551"
    ]
   },
   {
@@ -58,16 +57,16 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/config.go:17",
-    "runtime/pipeline/stage/pipeline.go:630"
+    "runtime/pipeline/stage/pipeline.go:1029"
    ]
   },
   {
    "id": 8,
-   "claim": "Shutdown(ctx) waits for in-flight executions; ErrShutdownTimeout after GracefulShutdownTimeout (10s)",
-   "verdict": "false",
+   "claim": "Shutdown(ctx) waits for in-flight executions; ErrShutdownTimeout after GracefulShutdownTimeout (10s); abandoned executions drop output only once the reader is gone, ending in ErrOutputTruncated",
+   "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/config.go:31",
-    "runtime/pipeline/stage/pipeline.go:994-1019"
+    "runtime/pipeline/stage/config.go:78-80",
+    "runtime/pipeline/stage/pipeline.go:1496-1560"
    ]
   },
   {
@@ -75,33 +74,33 @@
    "claim": "Execute returns ErrPipelineShuttingDown after shutdown",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:58-60"
+    "runtime/pipeline/stage/pipeline.go:1569-1580"
    ]
   },
   {
    "id": 10,
-   "claim": "Branch fork output copies to all downstream",
-   "verdict": "false",
+   "claim": "Branch downstream stages share and compete for the upstream output channel; RouterStage sends to chosen outputs",
+   "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:339-346",
-    "runtime/pipeline/stage/pipeline_fanout_test.go:76-79"
+    "runtime/pipeline/stage/builder.go:96-115"
    ]
   },
   {
    "id": 11,
-   "claim": "Build validates cycles, duplicates, connectivity",
-   "verdict": "false",
+   "claim": "Build rejects no stages, invalid config, duplicate names, unknown edge targets, cycles, fan-in into a non-MultiInputStage, duplicate edges, and TemplateStage/PromptAssemblyStage without TurnState",
+   "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/builder.go:185-231"
+    "runtime/pipeline/stage/builder.go:133-135",
+    "runtime/pipeline/stage/builder.go:195-300"
    ]
   },
   {
    "id": 12,
-   "claim": "Returning an error from Process stops the pipeline",
-   "verdict": "false",
+   "claim": "A stage error ends the turn without canceling other stages; downstream stages get the error in-band; the caller gets a *StageError unless the stage emitted it as an error element",
+   "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:136-165",
-    "runtime/pipeline/stage/pipeline.go:348-382"
+    "runtime/pipeline/stage/pipeline.go:75-100",
+    "runtime/pipeline/stage/stage.go:58-62"
    ]
   },
   {
@@ -109,8 +108,8 @@
    "claim": "Pipeline events emitted per stage and pipeline",
    "verdict": "true",
    "evidence": [
-    "runtime/events/types.go:18-37",
-    "runtime/pipeline/stage/pipeline.go:765-796"
+    "runtime/events/types.go:18-60",
+    "runtime/pipeline/stage/pipeline.go:1003-1030"
    ]
   },
   {
@@ -118,7 +117,7 @@
    "claim": "RecordingStage re-captures history each turn (N copies)",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/stage/stages_recording.go:256-258"
+    "runtime/pipeline/stage/stages_recording.go:251-253"
    ]
   },
   {
@@ -126,7 +125,7 @@
    "claim": "RecordingStage event mapping message/audio/image/video/toolcall/error",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_recording.go:178-196"
+    "runtime/pipeline/stage/stages_recording.go:173-191"
    ]
   },
   {
@@ -135,7 +134,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/events/message_created_data.go:30-39",
-    "sdk/internal/pipeline/builder.go:528-530"
+    "sdk/internal/pipeline/builder.go:565-567"
    ]
   },
   {
@@ -143,8 +142,8 @@
    "claim": "ProviderStage copies ProviderRequestMetadata each call",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:545",
-    "runtime/pipeline/stage/stages_provider.go:574-576"
+    "runtime/pipeline/stage/stages_provider.go:588",
+    "runtime/pipeline/stage/stages_provider.go:617-619"
    ]
   },
   {
@@ -152,8 +151,8 @@
    "claim": "IncrementalSave merges metadata (only on full-save fallback)",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/stage/stages_save.go:271-275",
-    "runtime/pipeline/stage/stages_save.go:67-79"
+    "runtime/pipeline/stage/stages_save.go:275-279",
+    "runtime/pipeline/stage/stages_save.go:71-83"
    ]
   },
   {
@@ -161,7 +160,7 @@
    "claim": "Load stages copy ConversationID/UserID to TurnState",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_core.go:189-190"
+    "runtime/pipeline/stage/stages_core.go:198-199"
    ]
   },
   {
@@ -174,11 +173,11 @@
   },
   {
    "id": 21,
-   "claim": "Priority scheduling in pipeline channels",
-   "verdict": "false",
+   "claim": "Stages read input in send order unless PipelineConfig.PrioritizeElements is set, which makes each stage deliver higher-priority elements first",
+   "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:630",
-    "runtime/pipeline/stage/stages_advanced.go:396"
+    "runtime/pipeline/stage/config.go:42-62",
+    "runtime/pipeline/stage/pipeline.go:1220-1226"
    ]
   },
   {
@@ -186,7 +185,7 @@
    "claim": "Element pooling available",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/element_pool.go:27-44"
+    "runtime/pipeline/stage/element_pool.go:26-60"
    ]
   },
   {
@@ -194,7 +193,7 @@
    "claim": "Voice chain snippet constructors and signatures",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:276",
+    "runtime/pipeline/stage/stages_provider.go:314",
     "runtime/pipeline/stage/stages_speech.go:115",
     "runtime/pipeline/stage/stages_speech.go:742",
     "runtime/pipeline/stage/stages_speech.go:958"
@@ -205,7 +204,7 @@
    "claim": "Builder methods Chain/Connect/Branch/Merge/AddStage",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/builder.go:54-121"
+    "runtime/pipeline/stage/builder.go:54-125"
    ]
   },
   {
@@ -213,7 +212,16 @@
    "claim": "RouterStage routes by returned names; MergeStage fans in",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_advanced.go:20-73"
+    "runtime/pipeline/stage/stages_advanced.go:20-130"
+   ]
+  },
+  {
+   "id": 26,
+   "claim": "MaxConcurrentPipelines (default 100) bounds concurrent executions; Execute waits for a slot; IdleTimeout default 30s and ExecutionTimeout default 0 fail the turn with ErrIdleTimeout/ErrExecutionTimeout",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/config.go:36-80",
+    "runtime/pipeline/stage/pipeline.go:115-135"
    ]
   }
  ]

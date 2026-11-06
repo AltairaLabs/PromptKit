@@ -4,8 +4,9 @@ description: How Runtime abstracts LLM services behind one interface, what each 
 sidebar:
   order: 2
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
+    - runtime/providers/base/types.go
     - runtime/providers/base_provider.go
     - runtime/providers/claude/claude.go
     - runtime/providers/claude/claude_tools.go
@@ -189,7 +190,7 @@ if err != nil {
 defer provider.Close()
 ```
 
-`Close` closes the client's idle connections. Bound each call with a context deadline:
+`Close` closes the client's idle connections. `ProviderSpec.RateLimit` caps how fast one provider instance sends requests: a token bucket of `RequestsPerSecond` with room for `Burst` requests at once. Each HTTP request, including every retry attempt, takes one token. Bound each call with a context deadline:
 
 ```go
 ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
