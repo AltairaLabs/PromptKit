@@ -530,7 +530,10 @@ const (
     DefaultFramesCompletionTimeout = 30 * time.Second
 
     // DefaultMaxFramesPerMessage is the default max frames in composed message.
-    DefaultMaxFramesPerMessage = 30
+    // It is providers.MaxMediaItems, the most media parts a provider loads for
+    // one message, so a frames message at the default is never refused for
+    // carrying too many images.
+    DefaultMaxFramesPerMessage = providers.MaxMediaItems
 )
 ```
 
@@ -2307,7 +2310,7 @@ type FormatCapable interface {
 ```
 
 <a name="FrameExtractionMode"></a>
-## type [FrameExtractionMode](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L70>)
+## type [FrameExtractionMode](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L74>)
 
 FrameExtractionMode defines how frames are selected from video.
 
@@ -2331,7 +2334,7 @@ const (
 ```
 
 <a name="FrameExtractionMode.String"></a>
-### func \(FrameExtractionMode\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L84>)
+### func \(FrameExtractionMode\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L88>)
 
 ```go
 func (m FrameExtractionMode) String() string
@@ -2427,7 +2430,7 @@ func (s *FrameRateLimitStage) Process(ctx context.Context, input <-chan StreamEl
 Process implements the Stage interface. Drops video/image frames to maintain the target frame rate.
 
 <a name="FrameSelectionStrategy"></a>
-## type [FrameSelectionStrategy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L286>)
+## type [FrameSelectionStrategy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L290>)
 
 FrameSelectionStrategy defines how frames are selected when limiting.
 
@@ -2451,7 +2454,7 @@ const (
 ```
 
 <a name="FrameSelectionStrategy.String"></a>
-### func \(FrameSelectionStrategy\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L300>)
+### func \(FrameSelectionStrategy\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L304>)
 
 ```go
 func (s FrameSelectionStrategy) String() string
@@ -2460,7 +2463,7 @@ func (s FrameSelectionStrategy) String() string
 String returns the string representation of the selection strategy.
 
 <a name="FramesToMessageConfig"></a>
-## type [FramesToMessageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L314-L331>)
+## type [FramesToMessageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L318-L337>)
 
 FramesToMessageConfig configures the FramesToMessageStage behavior.
 
@@ -2472,8 +2475,10 @@ type FramesToMessageConfig struct {
     CompletionTimeout time.Duration
 
     // MaxFramesPerMessage limits frames included in the composed message.
-    // 0 means unlimited.
-    // Default: 30.
+    // 0 means unlimited. A value above providers.MaxMediaItems composes a
+    // message every built-in provider refuses with an error wrapping
+    // providers.ErrMediaItemLimitExceeded.
+    // Default: DefaultMaxFramesPerMessage (providers.MaxMediaItems, 20).
     MaxFramesPerMessage int
 
     // FrameSelectionStrategy determines which frames to include when limiting.
@@ -2486,7 +2491,7 @@ type FramesToMessageConfig struct {
 ```
 
 <a name="DefaultFramesToMessageConfig"></a>
-### func [DefaultFramesToMessageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L334>)
+### func [DefaultFramesToMessageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L340>)
 
 ```go
 func DefaultFramesToMessageConfig() FramesToMessageConfig
@@ -2495,7 +2500,7 @@ func DefaultFramesToMessageConfig() FramesToMessageConfig
 DefaultFramesToMessageConfig returns sensible defaults for frame composition.
 
 <a name="FramesToMessageStage"></a>
-## type [FramesToMessageStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L361-L366>)
+## type [FramesToMessageStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L367-L372>)
 
 FramesToMessageStage collects extracted frames and composes them into Messages. Elements are correlated by video ID from VideoToFramesStage metadata.
 
@@ -2513,7 +2518,7 @@ type FramesToMessageStage struct {
 ```
 
 <a name="NewFramesToMessageStage"></a>
-### func [NewFramesToMessageStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L369>)
+### func [NewFramesToMessageStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L375>)
 
 ```go
 func NewFramesToMessageStage(config FramesToMessageConfig) *FramesToMessageStage
@@ -2522,7 +2527,7 @@ func NewFramesToMessageStage(config FramesToMessageConfig) *FramesToMessageStage
 NewFramesToMessageStage creates a new frame composition stage.
 
 <a name="FramesToMessageStage.GetConfig"></a>
-### func \(\*FramesToMessageStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L710>)
+### func \(\*FramesToMessageStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L716>)
 
 ```go
 func (s *FramesToMessageStage) GetConfig() FramesToMessageConfig
@@ -2531,7 +2536,7 @@ func (s *FramesToMessageStage) GetConfig() FramesToMessageConfig
 GetConfig returns the stage configuration.
 
 <a name="FramesToMessageStage.Process"></a>
-### func \(\*FramesToMessageStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L381-L385>)
+### func \(\*FramesToMessageStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L387-L391>)
 
 ```go
 func (s *FramesToMessageStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -6301,7 +6306,7 @@ type VideoFramesInfo struct {
 ```
 
 <a name="VideoToFramesConfig"></a>
-## type [VideoToFramesConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L98-L139>)
+## type [VideoToFramesConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L102-L143>)
 
 VideoToFramesConfig configures the VideoToFramesStage behavior.
 
@@ -6351,7 +6356,7 @@ type VideoToFramesConfig struct {
 ```
 
 <a name="DefaultVideoToFramesConfig"></a>
-### func [DefaultVideoToFramesConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L142>)
+### func [DefaultVideoToFramesConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L146>)
 
 ```go
 func DefaultVideoToFramesConfig() VideoToFramesConfig
@@ -6360,7 +6365,7 @@ func DefaultVideoToFramesConfig() VideoToFramesConfig
 DefaultVideoToFramesConfig returns sensible defaults for frame extraction.
 
 <a name="VideoToFramesStage"></a>
-## type [VideoToFramesStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L163-L167>)
+## type [VideoToFramesStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L167-L171>)
 
 VideoToFramesStage extracts frames from video StreamElements into individual image StreamElements. This is a Transform stage with fan\-out behavior \(1 video → N images\).
 
@@ -6376,7 +6381,7 @@ type VideoToFramesStage struct {
 ```
 
 <a name="NewVideoToFramesStage"></a>
-### func [NewVideoToFramesStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L170>)
+### func [NewVideoToFramesStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L174>)
 
 ```go
 func NewVideoToFramesStage(config VideoToFramesConfig) *VideoToFramesStage
@@ -6385,7 +6390,7 @@ func NewVideoToFramesStage(config VideoToFramesConfig) *VideoToFramesStage
 NewVideoToFramesStage creates a new video\-to\-frames extraction stage.
 
 <a name="VideoToFramesStage.GetConfig"></a>
-### func \(\*VideoToFramesStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L281>)
+### func \(\*VideoToFramesStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L285>)
 
 ```go
 func (s *VideoToFramesStage) GetConfig() VideoToFramesConfig
@@ -6394,7 +6399,7 @@ func (s *VideoToFramesStage) GetConfig() VideoToFramesConfig
 GetConfig returns the stage configuration.
 
 <a name="VideoToFramesStage.Process"></a>
-### func \(\*VideoToFramesStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L179-L183>)
+### func \(\*VideoToFramesStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L183-L187>)
 
 ```go
 func (s *VideoToFramesStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error

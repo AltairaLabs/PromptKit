@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -51,7 +52,10 @@ const (
 	DefaultFramesCompletionTimeout = 30 * time.Second
 
 	// DefaultMaxFramesPerMessage is the default max frames in composed message.
-	DefaultMaxFramesPerMessage = 30
+	// It is providers.MaxMediaItems, the most media parts a provider loads for
+	// one message, so a frames message at the default is never refused for
+	// carrying too many images.
+	DefaultMaxFramesPerMessage = providers.MaxMediaItems
 
 	// filePermission is the permission mode for temp files.
 	filePermission = 0600
@@ -318,8 +322,10 @@ type FramesToMessageConfig struct {
 	CompletionTimeout time.Duration
 
 	// MaxFramesPerMessage limits frames included in the composed message.
-	// 0 means unlimited.
-	// Default: 30.
+	// 0 means unlimited. A value above providers.MaxMediaItems composes a
+	// message every built-in provider refuses with an error wrapping
+	// providers.ErrMediaItemLimitExceeded.
+	// Default: DefaultMaxFramesPerMessage (providers.MaxMediaItems, 20).
 	MaxFramesPerMessage int
 
 	// FrameSelectionStrategy determines which frames to include when limiting.
