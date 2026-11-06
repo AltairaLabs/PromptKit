@@ -80,6 +80,20 @@ type SendableContentProvider interface {
 	SendableMultimodalCapabilities() MultimodalCapabilities
 }
 
+// ApplyDeclaredModalities returns caps with each modality switch set from the
+// declared capability set. A nil set means the provider config declares
+// nothing, so caps is returned unchanged.
+func ApplyDeclaredModalities(caps MultimodalCapabilities, declared map[string]bool) MultimodalCapabilities {
+	if declared == nil {
+		return caps
+	}
+	caps.SupportsImages = declared[CapabilityVision]
+	caps.SupportsAudio = declared[CapabilityAudio]
+	caps.SupportsVideo = declared[CapabilityVideo]
+	caps.SupportsDocuments = declared[CapabilityDocuments]
+	return caps
+}
+
 // SupportsMultimodal checks if a provider implements multimodal support
 func SupportsMultimodal(p Provider) bool {
 	_, ok := p.(MultimodalCapabilityProvider)

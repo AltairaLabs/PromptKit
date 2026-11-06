@@ -78,13 +78,7 @@ var geminiDocumentFormats = []string{
 // defaults apply (images + audio + video + documents).
 func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities {
 	caps := p.SendableMultimodalCapabilities()
-	if p.capabilities != nil {
-		caps.SupportsImages = p.capabilities[providers.CapabilityVision]
-		caps.SupportsAudio = p.capabilities[providers.CapabilityAudio]
-		caps.SupportsVideo = p.capabilities[providers.CapabilityVideo]
-		caps.SupportsDocuments = p.capabilities[providers.CapabilityDocuments]
-	}
-	return caps
+	return providers.ApplyDeclaredModalities(caps, p.capabilities)
 }
 
 // SendableMultimodalCapabilities returns what the adapter sends whatever the
