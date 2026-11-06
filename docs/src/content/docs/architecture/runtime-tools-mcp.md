@@ -232,7 +232,7 @@ graph TD
 
 A model that repeats the same call with identical arguments three times (`MaxIdenticalToolCalls`) gets one synthetic result telling it to change course, and the turn aborts if it repeats again. `StopOnTool` ends the loop after the round that called the named tool. The blocklist matches exact tool names.
 
-`MaxCallsPerMinute` counts each tool's calls in a sliding one-minute window per conversation. The provider stage holds the window, so it spans the turns of a conversation that stage runs. The check runs after the blocklist and the before-tool hooks. A call over the limit is not executed, and the model gets a tool result saying the tool's limit is reached, the same shape as a blocked call.
+`MaxCallsPerMinute` counts each tool's calls in a sliding one-minute window per conversation. The provider stage holds the window, or uses the one passed in `ProviderConfig.CallRate`, so it spans the turns of a conversation that stage runs. The SDK passes one window per conversation to all of that conversation's pipelines. The check runs after the blocklist, the before-tool hooks and the approval gate, so only a call admitted to run counts. A call held for approval counts when it is approved: the host records it with `CallRateWindow.Admit`, which the SDK's `ResolveTool` does. A rejected call never counts. A call over the limit is not executed, and the model gets a tool result saying the tool's limit is reached, the same shape as a blocked call.
 
 The loop also excludes a tool from later rounds after its second error result in a turn. This prevents a model from calling a failing or rejected tool until the round limit.
 

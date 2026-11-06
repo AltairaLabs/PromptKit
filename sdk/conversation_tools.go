@@ -289,6 +289,9 @@ func (c *Conversation) ResolveToolWithArgs(
 	if !ok {
 		return nil, sdktools.ErrPendingAlreadyResolved
 	}
+	// The approval admits the call, so it counts against
+	// ToolPolicy.MaxCallsPerMinute now; the stage did not count it when it held it.
+	c.callRate.Admit(call.ConversationID, call.Name)
 	resolution := sdktools.ResolveApproved(call, handler, overrides)
 	if resolution.Error != nil {
 		resolution.Error = &ToolError{ToolName: call.Name, Cause: resolution.Error}

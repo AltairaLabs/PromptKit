@@ -112,7 +112,7 @@ type ProviderStage struct {
 	// callRate holds the calls admitted under ToolPolicy.MaxCallsPerMinute, per
 	// conversation and tool, across turns. A pointer for the same reason as
 	// offeredTools.
-	callRate *callRateWindow
+	callRate *CallRateWindow
 }
 
 // offeredToolSet is the set of tool names offered during a turn. It exists so
@@ -229,6 +229,12 @@ type ProviderConfig struct {
 	// the human-in-the-loop approval gate. Nil (default) executes every tool
 	// normally.
 	ApprovalChecker tools.ApprovalChecker
+
+	// CallRate, when set, is the window ToolPolicy.MaxCallsPerMinute counts
+	// calls in. Share one across the stages of a conversation, and Admit a
+	// held call there when it is approved and run outside the stage, so the
+	// limit sees it. Nil gives the stage a window of its own.
+	CallRate *CallRateWindow
 
 	// PromptDeclarations maps each prompt task to the pack's definition of
 	// that prompt, copies taken when the conversation was built.
@@ -359,6 +365,10 @@ func NewProviderStageWithTurnState(
 	// therefore its IDs, exist. This constructor is the one place holding both,
 	// so joining them here covers every consumer at once.
 	hookRegistry.SetEmitter(emitter)
+	callRate := config.CallRate
+	if callRate == nil {
+		callRate = NewCallRateWindow()
+	}
 	return &ProviderStage{
 		BaseStage:    NewBaseStage("provider", StageTypeGenerate),
 		provider:     provider,
@@ -368,7 +378,7 @@ func NewProviderStageWithTurnState(
 		emitter:      emitter,
 		hookRegistry: hookRegistry,
 		turnState:    turnState,
-		callRate:     newCallRateWindow(),
+		callRate:     callRate,
 	}
 }
 
@@ -1033,13 +1043,16 @@ func (s *ProviderStage) applyStateHandoff(
 	// conversation's DescribeTool makes of the tools — a workflow state's
 	// skills filter, which the commit that resolving runs has just applied.
 	// That change needs the same rebuild.
-	if handoff.SystemPrompt == acc.systemPrompt && !providerChanged &&
-		!s.describedToolsChanged(handoff.AllowedTools, loop.excluded) {
-		return false, nil
+	var offered *describedTools
+	if handoff.SystemPrompt == acc.systemPrompt && !providerChanged {
+		var describedChanged bool
+		if describedChanged, offered = s.describedToolsChanged(handoff.AllowedTools, loop.excluded); !describedChanged {
+			return false, nil
+		}
 	}
 	// Tools are rebuilt on a provider change too: their wire form is the
 	// provider's (BuildTooling).
-	rebuilt, _, err := s.buildProviderTools(handoff.AllowedTools, loop.excluded)
+	rebuilt, _, err := s.rebuildProviderTools(handoff.AllowedTools, loop.excluded, offered)
 	if err != nil {
 		return false, fmt.Errorf("provider stage: workflow handoff: rebuild tools: %w", err)
 	}
@@ -1719,11 +1732,14 @@ func (tl *toolLoop) rebuildToolsIfChanged(
 	allowedTools []string, toolResults []types.Message, grantsBefore []string,
 ) error {
 	excludedChanged := tl.stage.updateExcludedTools(toolResults, tl.rejectionCounts, tl.excluded)
-	if !excludedChanged && stringSlicesEqual(grantsBefore, tl.stage.grantedTools()) &&
-		!tl.stage.describedToolsChanged(allowedTools, tl.excluded) {
-		return nil
+	var offered *describedTools
+	if !excludedChanged && stringSlicesEqual(grantsBefore, tl.stage.grantedTools()) {
+		var describedChanged bool
+		if describedChanged, offered = tl.stage.describedToolsChanged(allowedTools, tl.excluded); !describedChanged {
+			return nil
+		}
 	}
-	rebuilt, _, rebuildErr := tl.stage.buildProviderTools(allowedTools, tl.excluded)
+	rebuilt, _, rebuildErr := tl.stage.rebuildProviderTools(allowedTools, tl.excluded, offered)
 	if rebuildErr != nil {
 		return fmt.Errorf("provider stage: rebuild tools: %w", rebuildErr)
 	}
@@ -2841,9 +2857,6 @@ func (s *ProviderStage) preExecCheck(
 			return hookDecision, toolCallResult{message: msg}, true
 		}
 	}
-	if msg, limited := s.callRateLimited(toolCall); limited {
-		return hookDecision, toolCallResult{message: msg}, true
-	}
 	return hookDecision, toolCallResult{}, false
 }
 
@@ -2891,6 +2904,12 @@ func (s *ProviderStage) executeSingleToolCall(
 
 	if held, ok := s.holdForApproval(ctx, toolCall); ok {
 		return held
+	}
+	// After the approval gate, so only a call admitted to run here counts: a
+	// held call counts when it is approved (CallRateWindow.Admit), and one a
+	// human rejects never does.
+	if msg, limited := s.callRateLimited(toolCall); limited {
+		return toolCallResult{message: msg}
 	}
 
 	labels := s.toolLabels(toolCall.Name)
@@ -3892,22 +3911,53 @@ func (s *ProviderStage) describedToolsKey(descriptors []*providers.ToolDescripto
 	return sb.String()
 }
 
+// describedTools is one computation of what a tools build would offer: the
+// descriptors and the provider to build them for (see offerableDescriptors).
+type describedTools struct {
+	descriptors []*providers.ToolDescriptor
+	provider    providers.ToolSupport
+}
+
 // describedToolsChanged reports whether DescribeTool would now give a
 // different tools array from the one last built — a workflow transition
 // mid-turn changing the skill__activate index, say, with no grant or exclusion
-// changing alongside it.
-func (s *ProviderStage) describedToolsChanged(allowedTools []string, excluded map[string]bool) bool {
+// changing alongside it. When it did compute the array it returns it too, so a
+// rebuild for the same allowedTools and excluded can reuse it
+// (buildProviderToolsFrom) instead of describing every tool again.
+func (s *ProviderStage) describedToolsChanged(
+	allowedTools []string, excluded map[string]bool,
+) (bool, *describedTools) {
 	if s.config == nil || s.config.DescribeTool == nil {
-		return false
+		return false, nil
 	}
-	descriptors, _ := s.offerableDescriptors(allowedTools, excluded)
-	return s.describedToolsKey(descriptors) != s.describedKey
+	descriptors, toolProvider := s.offerableDescriptors(allowedTools, excluded)
+	offered := &describedTools{descriptors: descriptors, provider: toolProvider}
+	return s.describedToolsKey(descriptors) != s.describedKey, offered
+}
+
+// rebuildProviderTools builds the tools array for allowedTools and excluded,
+// from offered when describedToolsChanged already computed it for them, or
+// from scratch when offered is nil.
+func (s *ProviderStage) rebuildProviderTools(
+	allowedTools []string, excluded map[string]bool, offered *describedTools,
+) (providerTools interface{}, toolChoice string, err error) {
+	if offered == nil {
+		return s.buildProviderTools(allowedTools, excluded)
+	}
+	return s.buildProviderToolsFrom(offered.descriptors, offered.provider)
 }
 
 func (s *ProviderStage) buildProviderTools(
 	allowedTools []string, excluded map[string]bool,
 ) (providerTools interface{}, toolChoice string, err error) {
-	descriptors, toolProvider := s.offerableDescriptors(allowedTools, excluded)
+	return s.buildProviderToolsFrom(s.offerableDescriptors(allowedTools, excluded))
+}
+
+// buildProviderToolsFrom builds the provider's tools array from descriptors
+// offerableDescriptors returned, and records them as the array last built.
+func (s *ProviderStage) buildProviderToolsFrom(
+	descriptors []*providers.ToolDescriptor, toolProvider providers.ToolSupport,
+) (providerTools interface{}, toolChoice string, err error) {
 	s.describedKey = s.describedToolsKey(descriptors)
 	if toolProvider == nil {
 		return nil, "", nil

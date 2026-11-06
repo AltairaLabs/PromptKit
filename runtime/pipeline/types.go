@@ -19,9 +19,12 @@ type ToolPolicy struct {
 	MaxToolCallsPerTurn  int    `json:"max_tool_calls_per_turn,omitempty"`
 	MaxParallelToolCalls int    `json:"max_parallel_tool_calls,omitempty"` // Max concurrent tool executions (default 10)
 	// MaxCallsPerMinute caps each tool's calls in any one-minute window of a
-	// conversation (0 = unlimited). The provider stage holds the window, so it
-	// spans the turns of a conversation that stage runs; a call over the limit
-	// is not executed and the model is told the tool's limit is reached.
+	// conversation (0 = unlimited). The provider stage holds the window (or
+	// shares stage.ProviderConfig.CallRate), so it spans the turns of a
+	// conversation that stage runs; a call over the limit is not executed and
+	// the model is told the tool's limit is reached. Only
+	// calls admitted to run count: a call held for approval counts when it is
+	// approved (stage.CallRateWindow.Admit), and a rejected one never does.
 	MaxCallsPerMinute int      `json:"max_calls_per_minute,omitempty"`
 	MaxCostUSD        float64  `json:"max_cost_usd,omitempty"` // Cost budget in USD (0=unlimited)
 	Blocklist         []string `json:"blocklist,omitempty"`

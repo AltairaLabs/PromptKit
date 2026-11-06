@@ -159,5 +159,56 @@ func TestDescribeTool_HandoffWithSamePromptRebuildsTools(t *testing.T) {
 func TestDescribedToolsChanged_FalseWithoutDescribeTool(t *testing.T) {
 	s := &ProviderStage{config: &ProviderConfig{}}
 	assert.Empty(t, s.describedToolsKey([]*providers.ToolDescriptor{{Name: "a", Description: "d"}}))
-	assert.False(t, s.describedToolsChanged([]string{"a"}, nil))
+	changed, offered := s.describedToolsChanged([]string{"a"}, nil)
+	assert.False(t, changed)
+	assert.Nil(t, offered, "nothing was computed to reuse")
+}
+
+// The check that DescribeTool's view changed computes the descriptors the
+// rebuild then offers; the rebuild reuses them rather than describing every
+// tool a second time. Over the turn: one build for round one (two tools), and
+// one description of each after the tool round — four calls, not six.
+func TestDescribeTool_RebuildReusesCheckedDescriptors(t *testing.T) {
+	view := "first view"
+	prov := &describedProvider{ToolProvider: mock.NewToolProvider("m", "m", false, nil)}
+	prov.onFirstRound = func() { view = "second view" }
+	stage, _ := newDescribeToolStage(t, &view, prov)
+	describe := stage.config.DescribeTool
+	calls := 0
+	stage.config.DescribeTool = func(d *tools.ToolDescriptor) *tools.ToolDescriptor {
+		calls++
+		return describe(d)
+	}
+
+	runDescribeToolTurn(t, stage)
+
+	require.Equal(t, []string{"first view", "second view"}, prov.seen, "the rebuild still offers the new view")
+	assert.Equal(t, 4, calls, "each tool is described once per build")
+}
+
+// The same holds for a handoff whose commit changed the view.
+func TestDescribeTool_HandoffRebuildReusesCheckedDescriptors(t *testing.T) {
+	view := "first view"
+	prov := &describedProvider{ToolProvider: mock.NewToolProvider("m", "m", false, nil)}
+	pending := false
+	prov.onFirstRound = func() { pending = true }
+	stage, _ := newDescribeToolStage(t, &view, prov)
+	stage.SetWorkflowStateResolver(&funcResolver{commit: func() {
+		if pending {
+			view = "second view"
+		}
+	}})
+	describe := stage.config.DescribeTool
+	calls := 0
+	stage.config.DescribeTool = func(d *tools.ToolDescriptor) *tools.ToolDescriptor {
+		calls++
+		return describe(d)
+	}
+
+	runDescribeToolTurn(t, stage)
+
+	require.Equal(t, []string{"first view", "second view"}, prov.seen)
+	// Round one's build (2), the pre-loop handoff check (2), the post-round
+	// check (2) and the handoff check that finds the change and reuses it (2).
+	assert.Equal(t, 8, calls, "each tool is described once per build")
 }
