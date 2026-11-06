@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/runtime/tutorials/06-advanced-patterns.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -13,8 +13,8 @@
    "claim": "ask/runPipeline: NewProviderStage, ProviderConfig{MaxTokens}, StreamElement Message output with Role assistant",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:121",
-    "runtime/pipeline/stage/stages_provider.go:261"
+    "runtime/pipeline/stage/stages_provider.go:143",
+    "runtime/pipeline/stage/stages_provider.go:314"
    ]
   },
   {
@@ -22,7 +22,7 @@
    "claim": "ResponseCache over *types.Message compiles and works",
    "verdict": "true",
    "evidence": [
-    "runtime/types/message.go:310"
+    "runtime/types/message.go:309"
    ]
   },
   {
@@ -30,8 +30,8 @@
    "claim": "NewMapStage wraps a function transforming one element at a time",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stage.go:261",
-    "runtime/pipeline/stage/stage.go:269"
+    "runtime/pipeline/stage/stage.go:264",
+    "runtime/pipeline/stage/stage.go:272"
    ]
   },
   {
@@ -47,7 +47,7 @@
    "claim": "elem.Meta.FromHistory is true for messages replayed from a state store",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_core.go:286"
+    "runtime/pipeline/stage/stages_core.go:295"
    ]
   },
   {
@@ -55,9 +55,9 @@
    "claim": "Provider.PredictStream returns chan StreamChunk with Delta and Error",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/provider.go:254",
-    "runtime/providers/streaming.go:105",
-    "runtime/providers/streaming.go:57"
+    "runtime/providers/provider.go:265",
+    "runtime/providers/streaming.go:110",
+    "runtime/providers/streaming.go:59"
    ]
   },
   {
@@ -65,7 +65,7 @@
    "claim": "processBatch compiles and is called from main; results come back in prompt order",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:54"
+    "runtime/pipeline/stage/pipeline.go:25"
    ]
   },
   {
@@ -73,8 +73,8 @@
    "claim": "provider.Close() releases a provider (deferred in main)",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:121",
-    "runtime/providers/base_provider.go:284"
+    "runtime/pipeline/stage/stages_provider.go:143",
+    "runtime/providers/base_provider.go:292"
    ]
   },
   {
@@ -82,7 +82,7 @@
    "claim": "Repeated prompt hits cache; log shows one reply cost line per provider request",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:261"
+    "runtime/pipeline/stage/stages_provider.go:314"
    ]
   },
   {

@@ -4,7 +4,7 @@ description: Build an HTTP chat server with provider fallback, guardrail hooks, 
 sidebar:
   order: 5
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/evals/handlers/register.go
     - runtime/hooks/guardrails/adapter.go

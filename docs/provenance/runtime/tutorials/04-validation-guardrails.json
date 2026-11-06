@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/runtime/tutorials/04-validation-guardrails.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -18,7 +18,7 @@
    "evidence": [
     "runtime/hooks/guardrails/factory.go:345",
     "runtime/hooks/guardrails/factory.go:383",
-    "runtime/hooks/types.go:46"
+    "runtime/hooks/types.go:48"
    ]
   },
   {
@@ -26,9 +26,9 @@
    "claim": "hooks.NewRegistry(hooks.WithProviderHook(h)) and stage.NewProviderStageWithHooks(provider,nil,nil,cfg,nil,registry)",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/registry.go:51",
-    "runtime/hooks/registry.go:75",
-    "runtime/pipeline/stage/stages_provider.go:286"
+    "runtime/hooks/registry.go:52",
+    "runtime/hooks/registry.go:79",
+    "runtime/pipeline/stage/stages_provider.go:339"
    ]
   },
   {
@@ -37,7 +37,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/types.go:37",
-    "runtime/pipeline/stage/stages_provider.go:3136",
+    "runtime/pipeline/stage/stages_provider.go:3334",
     "runtime/types/message.go:46"
    ]
   },
@@ -56,7 +56,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/handlers/length.go:73",
-    "runtime/hooks/guardrails/adapter.go:232"
+    "runtime/hooks/guardrails/adapter.go:230"
    ]
   },
   {
@@ -74,9 +74,9 @@
    "claim": "Custom hook implements hooks.ProviderHook (Name, BeforeCall, AfterCall); hooks.Deny makes ExecuteSync return an error; errors.As finds *hooks.HookDeniedError with Reason",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/errors.go:8",
+    "runtime/hooks/errors.go:11",
     "runtime/hooks/types.go:26",
-    "runtime/pipeline/stage/stages_provider.go:2925"
+    "runtime/pipeline/stage/stages_provider.go:3123"
    ]
   },
   {
@@ -86,7 +86,7 @@
    "evidence": [
     "runtime/hooks/guardrails/factory.go:213",
     "runtime/hooks/guardrails/factory.go:291",
-    "runtime/prompt/registry.go:189"
+    "runtime/prompt/registry.go:192"
    ]
   },
   {

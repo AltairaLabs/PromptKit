@@ -1,13 +1,13 @@
 {
  "page": "docs/src/content/docs/sdk/explanation/variables.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "Variables substitute only into system_template; messages untouched",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:195"
+    "runtime/pipeline/stage/stages_utilities.go:207"
    ]
   },
   {
@@ -15,7 +15,7 @@
    "claim": "Render once per turn",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:235"
+    "runtime/pipeline/stage/stages_utilities.go:240"
    ]
   },
   {
@@ -23,9 +23,9 @@
    "claim": "Precedence: pack defaults < WithVariables < variables.Provider < SetVar < WithJSONInput",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:203",
-    "sdk/conversation.go:685",
-    "sdk/sdk.go:848",
+    "runtime/pipeline/stage/stages_utilities.go:238",
+    "sdk/conversation.go:711",
+    "sdk/sdk.go:859",
     "sdk/session_vars.go:45"
    ]
   },
@@ -57,8 +57,8 @@
    "claim": "Unresolved placeholder fails send; error text format",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:84",
-    "runtime/pipeline/stage/stages_utilities.go:251"
+    "runtime/pipeline/stage/errors.go:112",
+    "runtime/pipeline/stage/stages_utilities.go:286"
    ]
   },
   {
@@ -66,8 +66,8 @@
    "claim": "Error lists names not values; ErrTemplateUnresolved in runtime/pipeline/stage",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:110",
-    "runtime/pipeline/stage/stages_utilities.go:288"
+    "runtime/pipeline/stage/errors.go:133",
+    "runtime/pipeline/stage/stages_utilities.go:287"
    ]
   },
   {
@@ -75,10 +75,10 @@
    "claim": "EventTemplateRendered, TemplateRenderedData SystemPrompt/VariablesUsed/UnusedVariables; NewEventBus, Subscribe, WithEventBus",
    "verdict": "true",
    "evidence": [
-    "runtime/events/bus.go:563",
-    "runtime/events/types.go:1159",
-    "runtime/events/types.go:153",
-    "sdk/options.go:1096"
+    "runtime/events/bus.go:562",
+    "runtime/events/types.go:1169",
+    "runtime/events/types.go:163",
+    "sdk/options.go:1125"
    ]
   },
   {

@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/runtime/tutorials/07-a2a-client.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -13,8 +13,8 @@
    "claim": "a2a.NewClient(baseURL); Discover returns *AgentCard with Name, Description, Skills[].ID/Description",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:231",
-    "runtime/a2a/client.go:273"
+    "runtime/a2a/client.go:242",
+    "runtime/a2a/client.go:285"
    ]
   },
   {
@@ -22,8 +22,7 @@
    "claim": "Client caches the card and uses it to choose where later calls go",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:273",
-    "runtime/a2a/client.go:509"
+    "runtime/a2a/client.go:285"
    ]
   },
   {
@@ -37,8 +36,8 @@
    "claim": "SendMessage with SendMessageRequest{Message{RoleUser, Parts}, Configuration{Blocking}} returns *Task with Status.State and Artifacts; state completed",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:762",
-    "runtime/a2a/types.go:357"
+    "runtime/a2a/client.go:775",
+    "runtime/a2a/types.go:363"
    ]
   },
   {
@@ -46,8 +45,8 @@
    "claim": "GetTask(ctx, task.ID) returns the stored *Task",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:967",
-    "runtime/a2a/types.go:358"
+    "runtime/a2a/client.go:984",
+    "runtime/a2a/types.go:364"
    ]
   },
   {
@@ -55,8 +54,8 @@
    "claim": "SendMessageStream returns a channel of StreamEvent with StatusUpdate and ArtifactUpdate",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:812",
-    "runtime/a2a/client.go:83"
+    "runtime/a2a/client.go:829",
+    "runtime/a2a/client.go:84"
    ]
   },
   {
@@ -64,8 +63,8 @@
    "claim": "A server whose conversation cannot stream sends the reply as artifact events then the completed status",
    "verdict": "true",
    "evidence": [
-    "server/a2a/server_stream.go:500",
-    "server/a2a/server_stream.go:557"
+    "server/a2a/server_stream.go:508",
+    "server/a2a/server_stream.go:565"
    ]
   },
   {
@@ -73,7 +72,7 @@
    "claim": "Steps 1-4 assemble into a program that compiles",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:762"
+    "runtime/a2a/client.go:775"
    ]
   },
   {
@@ -81,10 +80,10 @@
    "claim": "Client API includes CancelTask, ListTasks, WithAuth, WithHTTPClient",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:102",
-    "runtime/a2a/client.go:97",
-    "runtime/a2a/client.go:980",
-    "runtime/a2a/client.go:990"
+    "runtime/a2a/client.go:1007",
+    "runtime/a2a/client.go:105",
+    "runtime/a2a/client.go:99",
+    "runtime/a2a/client.go:997"
    ]
   },
   {

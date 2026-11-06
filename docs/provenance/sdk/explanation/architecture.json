@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/explanation/architecture.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -15,8 +15,8 @@
    "claim": "Packs cached by absolute path",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:414",
-    "sdk/sdk.go:434"
+    "sdk/sdk.go:421",
+    "sdk/sdk.go:441"
    ]
   },
   {
@@ -32,7 +32,7 @@
    "claim": "Event struct fields (RunID, ...)",
    "verdict": "false",
    "evidence": [
-    "runtime/events/types.go:175"
+    "runtime/events/types.go:185"
    ]
   },
   {
@@ -41,17 +41,20 @@
    "verdict": "true",
    "evidence": [
     "runtime/events/types.go:19",
-    "runtime/pipeline/stage/pipeline.go:126",
-    "runtime/pipeline/stage/stages_provider.go:2941"
+    "runtime/pipeline/stage/pipeline.go:198",
+    "runtime/pipeline/stage/stages_provider.go:3054"
    ]
   },
   {
    "id": 6,
-   "claim": "EvalDispatcher, InProcDispatcher, EventDispatcher, NoOpDispatcher, EventBusEvalListener, MetadataResultWriter, MetricCollector",
-   "verdict": "false",
+   "claim": "EvalRunner runs eval handlers; EvalHook and MetricResultWriter observe and record results; the runner publishes eval.completed or eval.failed",
+   "verdict": "true",
    "evidence": [
+    "runtime/evals/hooks.go:22",
     "runtime/evals/metrics.go:23",
-    "runtime/evals/runner.go:20"
+    "runtime/evals/runner.go:143",
+    "runtime/evals/runner.go:20",
+    "runtime/evals/runner.go:97"
    ]
   },
   {
@@ -59,8 +62,8 @@
    "claim": "EvalRunner runs handlers with timeout and panic recovery",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/runner.go:295",
-    "runtime/evals/runner.go:307"
+    "runtime/evals/runner.go:317",
+    "runtime/evals/runner.go:329"
    ]
   },
   {
@@ -70,7 +73,7 @@
    "evidence": [
     "runtime/evals/handlers/contains.go:16",
     "runtime/evals/handlers/json_valid.go:16",
-    "runtime/evals/handlers/llm_judge.go:26",
+    "runtime/evals/handlers/llm_judge.go:25",
     "runtime/evals/handlers/regex.go:16",
     "runtime/evals/handlers/tools_called.go:40"
    ]
@@ -81,7 +84,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/trigger.go:23",
-    "runtime/evals/types.go:29"
+    "runtime/evals/types.go:36"
    ]
   },
   {
@@ -89,9 +92,9 @@
    "claim": "Turn evals async on Send, session evals sync on Close",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:337",
-    "sdk/eval_middleware.go:256",
-    "sdk/eval_middleware.go:291"
+    "sdk/conversation.go:350",
+    "sdk/eval_middleware.go:277",
+    "sdk/eval_middleware.go:349"
    ]
   },
   {
@@ -105,7 +108,7 @@
    "claim": "eval.completed / eval.failed events",
    "verdict": "true",
    "evidence": [
-    "runtime/events/types.go:126"
+    "runtime/events/types.go:136"
    ]
   },
   {
@@ -122,8 +125,8 @@
    "claim": "Conversation methods Send Stream SetVar GetVar OnTool Messages Clear Close",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1359",
-    "sdk/conversation.go:275",
+    "sdk/conversation.go:1412",
+    "sdk/conversation.go:288",
     "sdk/streaming.go:121"
    ]
   },
@@ -132,9 +135,9 @@
    "claim": "OnTool/OnToolAsync/ResolveTool/RejectTool/Continue flow",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:171",
-    "sdk/conversation_tools.go:235",
-    "sdk/conversation_tools.go:334"
+    "sdk/conversation_tools.go:172",
+    "sdk/conversation_tools.go:236",
+    "sdk/conversation_tools.go:350"
    ]
   },
   {
@@ -142,8 +145,8 @@
    "claim": "Pipeline built once at Open; system prompt renders once per turn",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:235",
-    "sdk/sdk.go:850"
+    "runtime/pipeline/stage/stages_utilities.go:240",
+    "sdk/sdk.go:861"
    ]
   },
   {
@@ -151,6 +154,17 @@
    "claim": "5 lines to hello world",
    "verdict": "unverified",
    "evidence": []
+  },
+  {
+   "id": 18,
+   "claim": "The on_workflow_step trigger runs after each committed workflow state transition, dispatched asynchronously once the turn that made it has finished",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/runner.go:143",
+    "runtime/evals/types.go:48",
+    "sdk/eval_middleware.go:300",
+    "sdk/workflow.go:476"
+   ]
   }
  ]
 }

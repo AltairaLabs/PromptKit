@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/explanation/index.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -21,8 +21,8 @@
    "claim": "Lifecycle Open/SetVar/OnTool/Send/Stream/Close",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1575",
-    "sdk/sdk.go:132"
+    "sdk/conversation.go:1639",
+    "sdk/sdk.go:137"
    ]
   },
   {
@@ -30,7 +30,7 @@
    "claim": "Event system flows through the hooks package",
    "verdict": "false",
    "evidence": [
-    "runtime/events/types.go:175",
+    "runtime/events/types.go:185",
     "sdk/hooks/events.go:123"
    ]
   },
@@ -39,7 +39,7 @@
    "claim": "Links to observability, variables, runtime-config pages",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:132"
+    "sdk/sdk.go:137"
    ]
   }
  ]

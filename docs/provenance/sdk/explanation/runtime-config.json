@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/explanation/runtime-config.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -17,7 +17,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:76",
-    "pkg/config/types.go:384"
+    "pkg/config/types.go:389"
    ]
   },
   {
@@ -53,7 +53,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:18",
-    "sdk/runtime_config.go:97"
+    "sdk/runtime_config.go:99"
    ]
   },
   {
@@ -61,12 +61,12 @@
    "claim": "Options applied after WithRuntimeConfig() take precedence over YAML-declared settings",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:482",
-    "sdk/options.go:942",
-    "sdk/runtime_config.go:144",
-    "sdk/runtime_config.go:153",
+    "sdk/options.go:508",
+    "sdk/options.go:972",
+    "sdk/runtime_config.go:146",
+    "sdk/runtime_config.go:155",
     "sdk/runtime_config.go:84",
-    "sdk/sdk.go:550"
+    "sdk/sdk.go:561"
    ]
   },
   {
@@ -74,16 +74,14 @@
    "claim": "WithProvider, WithStateStore and WithLogger win on either side of WithRuntimeConfig; the file applies state store and logger only when none is set, a declared provider joins the pool; MCP servers append; exec eval bindings register into the eval registry and WithEvalRegistry after replaces it; exec tool bindings always apply",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/registry.go:124",
-    "sdk/options.go:1308",
-    "sdk/options.go:3625",
-    "sdk/options.go:942",
-    "sdk/provider_file.go:57",
-    "sdk/runtime_config.go:144",
-    "sdk/runtime_config.go:153",
-    "sdk/runtime_config.go:161",
-    "sdk/runtime_config.go:543",
-    "sdk/sdk.go:550"
+    "runtime/evals/registry.go:137",
+    "sdk/options.go:1348",
+    "sdk/provider_file.go:58",
+    "sdk/runtime_config.go:146",
+    "sdk/runtime_config.go:155",
+    "sdk/runtime_config.go:163",
+    "sdk/runtime_config.go:545",
+    "sdk/sdk.go:561"
    ]
   },
   {
@@ -94,9 +92,9 @@
     "pkg/config/runtime_config.go:76",
     "pkg/config/runtime_config.go:93",
     "pkg/config/runtime_config.go:97",
-    "runtime/tools/exec_executor.go:57",
-    "sdk/runtime_config.go:158",
-    "sdk/runtime_config.go:510"
+    "runtime/tools/exec_executor.go:62",
+    "sdk/runtime_config.go:160",
+    "sdk/runtime_config.go:512"
    ]
   },
   {
@@ -104,7 +102,7 @@
    "claim": "One-shot (exec) mode spawns a new process for each invocation",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/exec_executor.go:100",
+    "runtime/tools/exec_executor.go:152",
     "sdk/exec_tools.go:28"
    ]
   },
@@ -113,8 +111,8 @@
    "claim": "One-shot mode: runtime passes input as JSON on stdin and reads result from stdout",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/exec_executor.go:41",
-    "runtime/tools/exec_executor.go:57"
+    "runtime/tools/exec_executor.go:107",
+    "runtime/tools/exec_executor.go:62"
    ]
   },
   {
@@ -144,9 +142,9 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/execconfig/execconfig.go:41",
-    "runtime/tools/exec_executor.go:100",
+    "runtime/tools/exec_executor.go:152",
     "runtime/tools/server_executor.go:167",
-    "sdk/runtime_config.go:519"
+    "sdk/runtime_config.go:521"
    ]
   },
   {
@@ -165,7 +163,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/execconfig/execconfig.go:47",
-    "runtime/tools/exec_executor.go:115",
+    "runtime/tools/exec_executor.go:107",
     "runtime/tools/server_executor.go:190"
    ]
   },
@@ -174,10 +172,10 @@
    "claim": "An exec tool binding's timeout_ms, when set, overrides the tool descriptor's timeout, which the registry defaults to 30 seconds",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/registry.go:431",
-    "runtime/tools/registry.go:771",
+    "runtime/tools/registry.go:437",
+    "runtime/tools/registry.go:806",
     "sdk/exec_tools.go:56",
-    "sdk/runtime_config.go:523"
+    "sdk/runtime_config.go:525"
    ]
   },
   {
@@ -186,9 +184,9 @@
    "verdict": "true",
    "evidence": [
     "runtime/tools/errors.go:38",
-    "runtime/tools/exec_executor.go:100",
-    "runtime/tools/registry.go:495",
-    "runtime/tools/registry.go:508",
+    "runtime/tools/exec_executor.go:152",
+    "runtime/tools/registry.go:507",
+    "runtime/tools/registry.go:520",
     "runtime/tools/server_executor.go:216"
    ]
   },
@@ -197,6 +195,15 @@
    "claim": "Documentation page exists at /sdk/how-to/conversations/use-runtime-config/",
    "verdict": "true",
    "evidence": []
+  },
+  {
+   "id": 20,
+   "claim": "A one-shot exec tool can answer {\"pending\": ...}, which holds the call until the host supplies its result",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/exec_executor.go:62",
+    "runtime/tools/exec_executor.go:81"
+   ]
   }
  ]
 }

@@ -4,7 +4,7 @@ description: "Background on how the SDK is built and why: the pack-first design,
 sidebar:
   order: 0
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/events/types.go
     - sdk/conversation.go
