@@ -18,25 +18,44 @@ type callRateKey struct {
 	tool           string
 }
 
-// callRateWindow enforces ToolPolicy.MaxCallsPerMinute: for each conversation
-// and tool, the times of the calls admitted in the last minute. It lives on
-// the provider stage, so the window spans every turn of a conversation the
-// stage runs. Safe for concurrent use: a round's calls are checked in
-// parallel.
-type callRateWindow struct {
+// CallRateWindow enforces ToolPolicy.MaxCallsPerMinute: for each conversation
+// and tool, the times of the calls admitted to run in the last minute. A
+// provider stage holds one (ProviderConfig.CallRate, or its own), so the
+// window spans every turn of a conversation the stage runs. A call held for
+// approval is not counted by the stage; Admit counts it once it is approved.
+// Safe for concurrent use: a round's calls are checked in parallel.
+type CallRateWindow struct {
 	mu        sync.Mutex
 	calls     map[callRateKey][]time.Time
 	lastSweep time.Time
 	now       func() time.Time // injectable for tests
 }
 
-func newCallRateWindow() *callRateWindow {
-	return &callRateWindow{calls: map[callRateKey][]time.Time{}, now: time.Now}
+// NewCallRateWindow returns an empty window.
+func NewCallRateWindow() *CallRateWindow {
+	return &CallRateWindow{calls: map[callRateKey][]time.Time{}, now: time.Now}
+}
+
+// Admit records a call to tool in conversationID that was admitted to run
+// outside the provider stage — a held call a human approved — so it counts
+// against MaxCallsPerMinute like a call the stage ran. It records without
+// checking the limit: the approval is the admission. Nil-safe.
+func (w *CallRateWindow) Admit(conversationID, tool string) {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	now := w.now()
+	cutoff := now.Add(-callRateWindowLength)
+	w.sweep(now, cutoff)
+	key := callRateKey{conversationID: conversationID, tool: tool}
+	w.calls[key] = append(unexpired(w.calls[key], cutoff), now)
 }
 
 // allow reports whether conversationID may call tool once more under a limit
 // of limit calls per minute, and records the call when it may.
-func (w *callRateWindow) allow(conversationID, tool string, limit int) bool {
+func (w *CallRateWindow) allow(conversationID, tool string, limit int) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	now := w.now()
@@ -55,7 +74,7 @@ func (w *callRateWindow) allow(conversationID, tool string, limit int) bool {
 
 // sweep drops windows with no call left in them, at most once per window
 // length, so a long-lived stage does not keep every conversation it ran.
-func (w *callRateWindow) sweep(now, cutoff time.Time) {
+func (w *CallRateWindow) sweep(now, cutoff time.Time) {
 	if now.Sub(w.lastSweep) < callRateWindowLength {
 		return
 	}

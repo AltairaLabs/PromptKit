@@ -150,6 +150,12 @@ type Conversation struct {
 	// Resolved tool calls awaiting processing by Continue()
 	resolvedStore *sdktools.ResolvedStore
 
+	// callRate is the window ToolPolicy.MaxCallsPerMinute counts this
+	// conversation's tool calls in, shared by its pipelines' provider stages.
+	// ResolveToolWithArgs admits an approved held call into it, because that
+	// call runs here rather than in a stage (see callRateWindow).
+	callRate *stage.CallRateWindow
+
 	// MCP registry for managing MCP servers
 	mcpRegistry            mcp.Registry
 	mcpExecutorsRegistered bool // guards against re-registering MCP executors on every pipeline build
@@ -731,6 +737,7 @@ func (c *Conversation) buildPipelineConfig(
 		DescribeTool:          c.describeTool,
 		SystemPromptSuffix:    c.preloadedSkillInstructions,
 		ApprovalChecker:       c.newApprovalChecker(),
+		CallRate:              c.callRateWindow(),
 		SkipContentValidation: c.config.skipContentValidation,
 		InferenceRegistry:     c.config.inferenceRegistry,
 		ProviderBinding:       newHostBinding(c.config),
@@ -885,6 +892,16 @@ func (c *Conversation) buildPipelineWithParams(
 ) (*stage.StreamPipeline, error) {
 	pipelineCfg := c.buildPipelineConfig(store, conversationID, streamProvider, streamConfig)
 	return c.trackPipeline(intpipeline.Build(pipelineCfg))
+}
+
+// callRateWindow returns the conversation's tool-call rate window, creating it
+// on first use. Pipelines are built while the conversation is constructed, on
+// one goroutine, so the lazy creation needs no lock.
+func (c *Conversation) callRateWindow() *stage.CallRateWindow {
+	if c.callRate == nil {
+		c.callRate = stage.NewCallRateWindow()
+	}
+	return c.callRate
 }
 
 // trackPipeline records a successfully built pipeline so Close can wait for

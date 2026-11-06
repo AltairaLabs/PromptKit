@@ -112,7 +112,7 @@ type ProviderStage struct {
 	// callRate holds the calls admitted under ToolPolicy.MaxCallsPerMinute, per
 	// conversation and tool, across turns. A pointer for the same reason as
 	// offeredTools.
-	callRate *callRateWindow
+	callRate *CallRateWindow
 }
 
 // offeredToolSet is the set of tool names offered during a turn. It exists so
@@ -229,6 +229,12 @@ type ProviderConfig struct {
 	// the human-in-the-loop approval gate. Nil (default) executes every tool
 	// normally.
 	ApprovalChecker tools.ApprovalChecker
+
+	// CallRate, when set, is the window ToolPolicy.MaxCallsPerMinute counts
+	// calls in. Share one across the stages of a conversation, and Admit a
+	// held call there when it is approved and run outside the stage, so the
+	// limit sees it. Nil gives the stage a window of its own.
+	CallRate *CallRateWindow
 
 	// PromptDeclarations maps each prompt task to the pack's definition of
 	// that prompt, copies taken when the conversation was built.
@@ -359,6 +365,10 @@ func NewProviderStageWithTurnState(
 	// therefore its IDs, exist. This constructor is the one place holding both,
 	// so joining them here covers every consumer at once.
 	hookRegistry.SetEmitter(emitter)
+	callRate := config.CallRate
+	if callRate == nil {
+		callRate = NewCallRateWindow()
+	}
 	return &ProviderStage{
 		BaseStage:    NewBaseStage("provider", StageTypeGenerate),
 		provider:     provider,
@@ -368,7 +378,7 @@ func NewProviderStageWithTurnState(
 		emitter:      emitter,
 		hookRegistry: hookRegistry,
 		turnState:    turnState,
-		callRate:     newCallRateWindow(),
+		callRate:     callRate,
 	}
 }
 
@@ -2841,9 +2851,6 @@ func (s *ProviderStage) preExecCheck(
 			return hookDecision, toolCallResult{message: msg}, true
 		}
 	}
-	if msg, limited := s.callRateLimited(toolCall); limited {
-		return hookDecision, toolCallResult{message: msg}, true
-	}
 	return hookDecision, toolCallResult{}, false
 }
 
@@ -2891,6 +2898,12 @@ func (s *ProviderStage) executeSingleToolCall(
 
 	if held, ok := s.holdForApproval(ctx, toolCall); ok {
 		return held
+	}
+	// After the approval gate, so only a call admitted to run here counts: a
+	// held call counts when it is approved (CallRateWindow.Admit), and one a
+	// human rejects never does.
+	if msg, limited := s.callRateLimited(toolCall); limited {
+		return toolCallResult{message: msg}
 	}
 
 	labels := s.toolLabels(toolCall.Name)

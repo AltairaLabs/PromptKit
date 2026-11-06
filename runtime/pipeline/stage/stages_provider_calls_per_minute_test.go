@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -80,7 +81,7 @@ func TestProviderStage_MaxCallsPerMinuteUnsetIsUnlimited(t *testing.T) {
 
 func TestCallRateWindow_DropsIdleConversations(t *testing.T) {
 	clock := newFakeClock()
-	w := newCallRateWindow()
+	w := NewCallRateWindow()
 	w.now = clock.now
 	require.True(t, w.allow("conv-a", "read_kit", 1))
 	require.False(t, w.allow("conv-a", "read_kit", 1))
@@ -88,4 +89,70 @@ func TestCallRateWindow_DropsIdleConversations(t *testing.T) {
 	clock.t = clock.t.Add(2 * time.Minute)
 	require.True(t, w.allow("conv-b", "read_kit", 1))
 	assert.Len(t, w.calls, 1, "an expired window is dropped, not kept forever")
+}
+
+// A call held for approval has not run, so it does not count against
+// MaxCallsPerMinute when it is held: two held calls that a human then rejects
+// must not refuse a third call the same minute.
+func TestProviderStage_MaxCallsPerMinuteSkipsHeldCalls(t *testing.T) {
+	stage := stageWithPromptPolicy(t, &pipeline.ToolPolicy{MaxCallsPerMinute: 1}, nil, "read_kit")
+	stage.callRate.now = newFakeClock().now
+	stage.turnState.ConversationID = "conv-a"
+	hold := true
+	stage.config.ApprovalChecker = func(_ context.Context, _, name string, _ map[string]any) *tools.PendingToolInfo {
+		if !hold {
+			return nil
+		}
+		return &tools.PendingToolInfo{Reason: "requires_approval", ToolName: name}
+	}
+
+	for _, id := range []string{"h1", "h2"} {
+		_, err := stage.executeToolCalls(context.Background(),
+			[]types.MessageToolCall{kitCall(id, "read_kit")}, roundRef{round: 1})
+		var pending *tools.ErrToolsPending
+		require.ErrorAs(t, err, &pending, "call %s is held", id)
+	}
+
+	hold = false
+	results, err := stage.executeToolCalls(context.Background(),
+		[]types.MessageToolCall{kitCall("r1", "read_kit")}, roundRef{round: 1})
+	require.NoError(t, err)
+	res := toolResultsByID(results)
+	require.Contains(t, res, "r1")
+	assert.Empty(t, res["r1"].Error, "held calls that never ran must not use up the limit")
+
+	// The call that did run counts.
+	results, err = stage.executeToolCalls(context.Background(),
+		[]types.MessageToolCall{kitCall("r2", "read_kit")}, roundRef{round: 1})
+	require.NoError(t, err)
+	assert.Equal(t, "Tool read_kit not executed: its limit of 1 calls per minute is reached",
+		toolResultsByID(results)["r2"].Error)
+}
+
+// A window shared through ProviderConfig.CallRate is the one the stage
+// counts in, and a call admitted there from outside the stage — a held call a
+// human approved — uses up the limit like a call the stage ran.
+func TestProviderStage_MaxCallsPerMinuteCountsAdmittedCalls(t *testing.T) {
+	window := NewCallRateWindow()
+	window.now = newFakeClock().now
+	stage := stageWithPromptPolicy(t, &pipeline.ToolPolicy{MaxCallsPerMinute: 2}, nil, "read_kit", "list_kits")
+	stage.config.CallRate = window
+	stage.callRate = window // as NewProviderStageWithTurnState wires it from the config
+
+	window.Admit("conv-a", "read_kit")
+	res := runCallsTurn(t, stage, "conv-a", kitCall("a1", "read_kit"), kitCall("a2", "read_kit"))
+	errs := []string{res["a1"].Error, res["a2"].Error}
+	assert.ElementsMatch(t, []string{"", "Tool read_kit not executed: its limit of 2 calls per minute is reached"}, errs,
+		"the admitted call takes one of the two slots")
+
+	var nilWindow *CallRateWindow
+	assert.NotPanics(t, func() { nilWindow.Admit("conv-a", "read_kit") })
+}
+
+func TestNewProviderStage_UsesConfiguredCallRate(t *testing.T) {
+	window := NewCallRateWindow()
+	stage := NewProviderStageWithTurnState(nil, nil, nil, &ProviderConfig{CallRate: window}, nil, nil, nil)
+	assert.Same(t, window, stage.callRate)
+	assert.NotNil(t, NewProviderStageWithTurnState(nil, nil, nil, nil, nil, nil, nil).callRate,
+		"without one the stage has its own")
 }

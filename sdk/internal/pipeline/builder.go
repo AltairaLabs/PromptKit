@@ -162,6 +162,11 @@ type Config struct {
 	// surfaced as pending instead of executing. Optional; nil executes normally.
 	ApprovalChecker tools.ApprovalChecker
 
+	// CallRate is the window the provider stage counts calls in for
+	// ToolPolicy.MaxCallsPerMinute (stage.ProviderConfig.CallRate). Nil gives
+	// the stage its own.
+	CallRate *stage.CallRateWindow
+
 	// SkipContentValidation turns off the provider stage's check that each
 	// media part of a request is one the provider declares supporting (see
 	// stage.ProviderConfig.SkipContentValidation). False validates.
@@ -475,6 +480,13 @@ func collectPipelineStages(
 	if turnState == nil {
 		turnState = stage.NewTurnState()
 	}
+	// The load stages publish the conversation ID onto TurnState, but a
+	// pipeline without a state store (a default Fork) has none. Seed it so the
+	// provider stage still keys ToolPolicy.MaxCallsPerMinute on the
+	// conversation — the ID the SDK admits approved calls under.
+	if turnState.ConversationID == "" {
+		turnState.ConversationID = cfg.ConversationID
+	}
 
 	// 1. State store load stage - loads conversation history FIRST
 	stages = appendStateStoreLoadStages(stages, cfg, stateStoreConfig, useRAGContext, turnState)
@@ -745,6 +757,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			ToolGrants:       cfg.ToolGrants,
 			DescribeTool:     cfg.DescribeTool,
 			ApprovalChecker:  cfg.ApprovalChecker,
+			CallRate:         cfg.CallRate,
 			Streaming:        cfg.Ingestion != nil,
 
 			StructuredOutputMode:  cfg.StructuredOutputMode,
