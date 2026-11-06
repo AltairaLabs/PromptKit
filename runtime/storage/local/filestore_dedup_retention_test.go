@@ -76,40 +76,57 @@ func TestFileStore_DedupHitExtendsOnlyTheRetention(t *testing.T) {
 	}
 }
 
-// TestFileStore_DedupHitWithNoPolicyKeepsTheFilesPolicy checks that, with no
-// DefaultPolicy, a dedup hit that asks for no policy does not count as
-// outlasting a shared file that has one: the .meta keeps its policy, so the
-// file is enforced and leaves the expiry index when it expires.
-func TestFileStore_DedupHitWithNoPolicyKeepsTheFilesPolicy(t *testing.T) {
+// TestFileStore_DedupHitWithNoPolicyKeepsTheFileForever checks that, with no
+// DefaultPolicy, a dedup hit that asks for no policy, and so asks to keep the
+// media forever, clears the shared file's retention: an enforcement pass after
+// the earlier store's finite policy has run out does not delete the file, its
+// stale index entry leaves the index, and the earlier store's identity stays.
+func TestFileStore_DedupHitWithNoPolicyKeepsTheFileForever(t *testing.T) {
 	for name, content := range storeContents {
-		t.Run(name, func(t *testing.T) {
-			ctx := context.Background()
-			now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
-			handler := policy.NewTimeBasedPolicyHandler(time.Hour, policy.WithClock(func() time.Time { return now }))
-			baseDir := t.TempDir()
-			fs, err := local.NewFileStore(local.FileStoreConfig{BaseDir: baseDir, EnableDeduplication: true},
-				local.WithPolicyHandler(handler))
-			require.NoError(t, err)
-			require.NoError(t, handler.BuildExpiryIndex(baseDir))
-			src := content(t)
+		for _, indexed := range []bool{false, true} {
+			t.Run(name+map[bool]string{false: " walk", true: " index"}[indexed], func(t *testing.T) {
+				ctx := context.Background()
+				now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+				handler := policy.NewTimeBasedPolicyHandler(time.Hour, policy.WithClock(func() time.Time { return now }))
+				baseDir := t.TempDir()
+				fs, err := local.NewFileStore(local.FileStoreConfig{BaseDir: baseDir, EnableDeduplication: true},
+					local.WithPolicyHandler(handler))
+				require.NoError(t, err)
+				if indexed {
+					require.NoError(t, handler.BuildExpiryIndex(baseDir))
+				}
+				src := content(t)
 
-			owner := policyMetadata()
-			owner.Timestamp = now
-			owner.PolicyName = "delete-after-5min"
-			ref, err := fs.StoreMedia(ctx, src, owner)
-			require.NoError(t, err)
+				owner := policyMetadata()
+				owner.Timestamp = now
+				owner.SessionID = "session-owner"
+				owner.PolicyName = "delete-after-5min"
+				ref, err := fs.StoreMedia(ctx, src, owner)
+				require.NoError(t, err)
+				before := readMeta(t, ref)
 
-			noPolicy := policyMetadata()
-			noPolicy.Timestamp = now
-			_, err = fs.StoreMedia(ctx, src, noPolicy)
-			require.NoError(t, err)
-			assert.Equal(t, "delete-after-5min", readMeta(t, ref)["policy_name"],
-				"a hit with no policy must not write a .meta without one")
+				forever := policyMetadata()
+				forever.Timestamp = now.Add(time.Minute)
+				forever.SessionID = "session-hit"
+				again, err := fs.StoreMedia(ctx, src, forever)
+				require.NoError(t, err)
+				require.Equal(t, ref, again)
 
-			now = now.Add(6 * time.Minute)
-			require.NoError(t, handler.EnforcePolicy(ctx, baseDir))
-			assert.NoFileExists(t, string(ref), "the file expires under its own policy")
-			assert.Equal(t, 0, handler.ExpiryIndexLen(), "the expired entry leaves the index")
-		})
+				after := readMeta(t, ref)
+				assert.NotContains(t, after, "policy_name", "the file's retention is cleared to never expire")
+				assert.NotContains(t, after, "expires_at")
+				assert.Equal(t, before["session_id"], after["session_id"], "the owner's identity stays")
+				assert.Equal(t, before["timestamp"], after["timestamp"])
+
+				now = now.Add(6 * time.Minute)
+				require.NoError(t, handler.EnforcePolicy(ctx, baseDir))
+				assert.FileExists(t, string(ref), "the earlier store's policy no longer deletes the file")
+				assert.Equal(t, 0, handler.ExpiryIndexLen(), "the stale entry leaves the index")
+
+				now = now.Add(24 * time.Hour)
+				require.NoError(t, handler.EnforcePolicy(ctx, baseDir))
+				assert.FileExists(t, string(ref))
+			})
+		}
 	}
 }

@@ -177,13 +177,14 @@ func toolHistory() []types.Message {
 	return append(history, types.Message{Role: "user", Content: "next"})
 }
 
-
 // passThroughCompaction wraps a strategy without implementing any optional
 // interface, as a host's logging wrapper does.
 type passThroughCompaction struct{ inner CompactionStrategy }
 
-func (w passThroughCompaction) Compact(m []types.Message, n int) CompactResult { return w.inner.Compact(m, n) }
-func (w passThroughCompaction) TokenBudget() int                               { return w.inner.TokenBudget() }
+func (w passThroughCompaction) Compact(m []types.Message, n int) CompactResult {
+	return w.inner.Compact(m, n)
+}
+func (w passThroughCompaction) TokenBudget() int { return w.inner.TokenBudget() }
 
 // The provider stage compacts against the round's whole input, so a large
 // system prompt or many tool definitions force compaction of a transcript that

@@ -67,7 +67,9 @@ func TestOpen_YAMLDeclaredRetrievalProviderEnablesRetrieval(t *testing.T) {
 
 func TestOpen_YAMLDeclaredRetrievalProviderNamesMissingOptions(t *testing.T) {
 	providers.RegisterEmbeddingProviderFactory("retrievalmock",
-		func(_ providers.EmbeddingProviderSpec) (providers.EmbeddingProvider, error) { return &countingEmbedder{}, nil })
+		func(_ providers.EmbeddingProviderSpec) (providers.EmbeddingProvider, error) {
+			return &countingEmbedder{}, nil
+		})
 
 	packPath := createTestPackFile(t, testPackJSON)
 	rcPath := writeRuntimeConfig(t, retrievalRuntimeYAML)

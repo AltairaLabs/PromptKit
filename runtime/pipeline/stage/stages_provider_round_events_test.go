@@ -83,12 +83,12 @@ func (p *scriptedRoundProvider) PredictWithTools(
 	// provider-call ID can. Arguments differ per round because identical ones
 	// trip the stage's repeated-call breaker.
 	return providers.PredictionResponse{
-			Reasoning: &types.ReasoningTrace{Text: fmt.Sprintf("round %d: I still need data; calling probe.", n)},
-		}, []types.MessageToolCall{{
-			ID:   "call_" + string(rune('A'+n-1)),
-			Name: "probe",
-			Args: json.RawMessage(fmt.Sprintf(`{"q":"attempt-%d"}`, n)),
-		}}, nil
+		Reasoning: &types.ReasoningTrace{Text: fmt.Sprintf("round %d: I still need data; calling probe.", n)},
+	}, []types.MessageToolCall{{
+		ID:   "call_" + string(rune('A'+n-1)),
+		Name: "probe",
+		Args: json.RawMessage(fmt.Sprintf(`{"q":"attempt-%d"}`, n)),
+	}}, nil
 }
 
 // staticExecutor answers any tool call with a fixed result.

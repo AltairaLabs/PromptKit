@@ -534,9 +534,13 @@ func TestSessionHooks_ErrorRunsRemainingHooksAndLogsEach(t *testing.T) {
 		run   func(*Registry) error
 	}{
 		{"start", func(h *stubSessionHook, fn func(context.Context, SessionEvent) error) { h.startFn = fn },
-			func(r *Registry) error { return r.RunSessionStart(context.Background(), SessionEvent{SessionID: "s-1"}) }},
+			func(r *Registry) error {
+				return r.RunSessionStart(context.Background(), SessionEvent{SessionID: "s-1"})
+			}},
 		{"update", func(h *stubSessionHook, fn func(context.Context, SessionEvent) error) { h.updateFn = fn },
-			func(r *Registry) error { return r.RunSessionUpdate(context.Background(), SessionEvent{SessionID: "s-1"}) }},
+			func(r *Registry) error {
+				return r.RunSessionUpdate(context.Background(), SessionEvent{SessionID: "s-1"})
+			}},
 		{"end", func(h *stubSessionHook, fn func(context.Context, SessionEvent) error) { h.endFn = fn },
 			func(r *Registry) error { return r.RunSessionEnd(context.Background(), SessionEvent{SessionID: "s-1"}) }},
 	}
