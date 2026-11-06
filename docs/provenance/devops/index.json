@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/devops/index.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -37,10 +37,10 @@
   },
   {
    "id": 5,
-   "claim": "Removed claim: Documentation Pipeline is a GitHub Pages Jekyll deployment",
-   "verdict": "false",
+   "claim": "The documentation pipeline is docs.yml building and deploying to GitHub Pages",
+   "verdict": "true",
    "evidence": [
-    ".github/workflows/docs.yml:31-148"
+    ".github/workflows/docs.yml:31-143"
    ]
   }
  ]

@@ -1,18 +1,18 @@
 {
  "page": "docs/src/content/docs/contributors/pre-commit-hooks.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": "p1",
    "claim": "Hook runs lint, build and tests per changed module; reference drift, weak assertions and coverage once; no TypeScript lint step documented",
    "verdict": "true",
    "evidence": [
-    "scripts/pre-commit.sh:173",
-    "scripts/pre-commit.sh:223",
-    "scripts/pre-commit.sh:289",
-    "scripts/pre-commit.sh:349",
-    "scripts/pre-commit.sh:372",
-    "scripts/pre-commit.sh:572"
+    "scripts/pre-commit.sh:155",
+    "scripts/pre-commit.sh:205",
+    "scripts/pre-commit.sh:271",
+    "scripts/pre-commit.sh:332",
+    "scripts/pre-commit.sh:354",
+    "scripts/pre-commit.sh:417"
    ]
   },
   {
@@ -34,7 +34,7 @@
    "claim": "Hook exits early when no Go files staged",
    "verdict": "true",
    "evidence": [
-    "scripts/pre-commit.sh:72-75"
+    "scripts/pre-commit.sh:54-57"
    ]
   },
   {
@@ -42,7 +42,7 @@
    "claim": "Coverage threshold 80 per file; exemptions list; examples/tests/benchmarks/tools skipped",
    "verdict": "true",
    "evidence": [
-    "scripts/pre-commit.sh:435-489"
+    "scripts/pre-commit.sh:417-471"
    ]
   },
   {
@@ -73,12 +73,12 @@
   },
   {
    "id": "p8",
-   "claim": "Old claim: security check in pre-commit hook via gosec; four checks; diff-cover; verify CI job; make test-coverage-diff; [skip-pre-commit] works",
-   "verdict": "false",
+   "claim": "The hook has no security check, TypeScript lint, diff-cover or skip-pre-commit bypass; make verify is not what CI or the hook run",
+   "verdict": "true",
    "evidence": [
     "Makefile:262",
-    "scripts/pre-commit.sh:43-49",
-    "scripts/pre-commit.sh:59-635"
+    "scripts/pre-commit.sh:41-57",
+    "scripts/pre-commit.sh:554-570"
    ]
   },
   {

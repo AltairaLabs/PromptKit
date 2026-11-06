@@ -2,7 +2,7 @@
 title: Branch protection quick reference
 description: What the main branch ruleset means for a contributor, and how to fix the checks that block a pull request.
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - .github/workflows/ci.yml
     - .github/workflows/cla.yml
@@ -11,7 +11,6 @@ verified:
     - Makefile
     - scripts/commit-msg.sh
     - scripts/install-hooks.sh
-    - scripts/setup-branch-protection.sh
 ---
 A ruleset protects `main`. This page lists what it means for your pull request. [Branch protection](/devops/branch-protection/) has the full settings.
 

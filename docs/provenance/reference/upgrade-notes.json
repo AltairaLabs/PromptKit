@@ -1,15 +1,15 @@
 {
  "page": "docs/src/content/docs/reference/upgrade-notes.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": "c1",
-   "claim": "providers.MediaScoped exists; WithMediaStorage/WithUnsafePrivateNetworkMedia are options",
+   "claim": "providers.MediaScoped exists; WithMediaStorage and WithUnsafePrivateNetworkMedia are options",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/registry.go:338",
-    "sdk/options.go:499",
-    "sdk/options.go:516"
+    "runtime/providers/registry.go:368",
+    "sdk/options.go:525",
+    "sdk/options.go:542"
    ]
   },
   {
@@ -17,7 +17,7 @@
    "claim": "Claude omits top_k with extended thinking; honors unsupported_params",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude.go:463-482"
+    "runtime/providers/claude/claude.go:468-487"
    ]
   },
   {
@@ -25,7 +25,7 @@
    "claim": "PredictionRequest.TopK, TemperatureSet, penalties; WarnUnsentParams; ResolveTemperature",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/provider.go:56-133"
+    "runtime/providers/provider.go:65-142"
    ]
   },
   {
@@ -39,19 +39,18 @@
   },
   {
    "id": "c13",
-   "claim": "Handoff.Call, ProviderBudgetedCompaction.ForProvider, WorkflowStateResolver",
+   "claim": "Handoff.Call, ProviderBudgetedCompaction.ForProvider and WorkflowStateResolver exist",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/compactor.go:90-92",
-    "runtime/pipeline/stage/state_handoff.go:20-58"
+    "runtime/pipeline/stage/state_handoff.go:18-70"
    ]
   },
   {
    "id": "c14",
-   "claim": "CompositionExecutorDeps.ResolveProvider optional",
+   "claim": "CompositionExecutorDeps.ResolveProvider is optional",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/composition_executor.go:69"
+    "runtime/pipeline/stage/composition_executor.go:65-75"
    ]
   },
   {
@@ -64,12 +63,11 @@
   },
   {
    "id": "c16",
-   "claim": "Governance validation failed error; TransitionAuthorizer; WithTransitionAuthorizer",
+   "claim": "WithTransitionAuthorizer and the governance validation failed error exist",
    "verdict": "true",
    "evidence": [
-    "runtime/workflow/authorizer.go:22",
     "sdk/internal/pack/validate.go:261",
-    "sdk/options.go:1973"
+    "sdk/options.go:2133"
    ]
   },
   {
@@ -77,9 +75,9 @@
    "claim": "Default conversations send no max_tokens; Claude falls back to 4096; -1 rejected on Claude; MaxTokensUnlimited",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude.go:664-695",
-    "runtime/providers/provider.go:203-207",
-    "sdk/sdk.go:630-636"
+    "runtime/providers/claude/claude.go:669-700",
+    "runtime/providers/provider.go:214-218",
+    "sdk/sdk.go:641-647"
    ]
   },
   {
@@ -87,20 +85,17 @@
    "claim": "A2A: A2A-Version header else method version; defaults page size 50, cap 100; error codes; method constants and deprecation",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/types.go:15-85",
+    "runtime/a2a/types.go:21-91",
     "server/a2a/protocol.go:17-52",
-    "server/a2a/server.go:48-53"
+    "server/a2a/server.go:44-49"
    ]
   },
   {
    "id": "c19",
-   "claim": "A2A options WithTaskOwner, WithMaxBlockingWait, OwnedTaskStore, WithTaskCanceler, WithTaskEventBus, ListTasksPage, LookupMethod",
+   "claim": "server/a2a task-ownership options and OwnedTaskStore exist",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:1006",
-    "runtime/a2a/version.go:112",
-    "server/a2a/ownership.go:30-174",
-    "server/a2a/server.go:142"
+    "server/a2a/ownership.go:26-174"
    ]
   },
   {
@@ -119,17 +114,16 @@
     "runtime/inference/all/all.go:7-9",
     "runtime/inference/openai/register.go:19-28",
     "runtime/inference/provider.go:40-75",
-    "runtime/pipeline/stage/config.go:73-79"
+    "runtime/pipeline/stage/config.go:91-97"
    ]
   },
   {
    "id": "c21",
-   "claim": "WithGuardrailTimeout, DefaultEvalTimeout 30s, func guardrails honor it",
+   "claim": "WithGuardrailTimeout and DefaultEvalTimeout (30s) exist",
    "verdict": "true",
    "evidence": [
     "runtime/evals/runner.go:16",
-    "runtime/hooks/guardrails/adapter.go:119-128",
-    "sdk/options.go:1559"
+    "sdk/options.go:1672"
    ]
   },
   {
@@ -137,7 +131,7 @@
    "claim": "inference metrics: labels provider, model, source plus status on all four (page said)",
    "verdict": "false",
    "evidence": [
-    "runtime/metrics/collector.go:458-480"
+    "runtime/metrics/collector.go:466-488"
    ]
   },
   {
@@ -145,7 +139,7 @@
    "claim": "provider_retries_total{provider,outcome}: retry, success, exhausted; openai.Config.RetryPolicy",
    "verdict": "true",
    "evidence": [
-    "runtime/inference/openai/provider.go:64-66",
+    "runtime/inference/openai/provider.go:65-67",
     "runtime/providers/stream_metrics.go:146-152"
    ]
   },
@@ -159,20 +153,19 @@
   },
   {
    "id": "c25",
-   "claim": "Checks name provider via requires; classifier_id errors; WithNamedProvider; EvaluateOpts.ProviderBinding/JudgeTargets",
+   "claim": "Checks name their provider via requires; WithNamedProvider exists; EvaluateOpts carries ProviderBinding and JudgeTargets",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/handlers/classify_handler_base.go:86-92",
-    "sdk/evaluate.go:130-137",
-    "sdk/options.go:2723"
+    "runtime/evals/binding.go:18",
+    "sdk/options.go:2904"
    ]
   },
   {
    "id": "c26",
-   "claim": "sdk.JudgeProviderKey is gone (page: 'adopted from v2.4.0 release')",
-   "verdict": "false",
+   "claim": "sdk.JudgeProviderKey is gone",
+   "verdict": "true",
    "evidence": [
-    "sdk/options.go:3677"
+    "sdk/options.go:2904"
    ]
   },
   {
@@ -189,7 +182,7 @@
    "claim": "Native duplex has no hook registry; VAD passes one",
    "verdict": "true",
    "evidence": [
-    "sdk/internal/pipeline/builder.go:678",
+    "sdk/internal/pipeline/builder.go:729",
     "sdk/internal/pipeline/builder_vad.go:113"
    ]
   },
@@ -211,29 +204,29 @@
   },
   {
    "id": "c30",
-   "claim": "Unreleased: failing stage ends turn; Send returns error; ErrTemplateUnresolved",
+   "claim": "A failing stage ends the turn; Send returns its error; ErrTemplateUnresolved",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:110",
-    "runtime/pipeline/stage/pipeline.go"
+    "runtime/pipeline/stage/errors.go:129-135",
+    "runtime/pipeline/stage/pipeline.go:84-100"
    ]
   },
   {
    "id": "c31",
-   "claim": "Unreleased: workflow state skills filter none/glob/path; SetFilter deactivates",
+   "claim": "A workflow state's skills filter accepts none, a glob or a path; SetFilter deactivates excluded skills",
    "verdict": "true",
    "evidence": [
-    "runtime/skills/active_set.go:57-120"
+    "runtime/skills/active_set.go:50-120"
    ]
   },
   {
    "id": "c32",
-   "claim": "Unreleased: SkillIndexIn/SelectSkillsIn, DescribeTool, ToolResultRewriter",
+   "claim": "SkillIndexIn, SelectSkillsIn, DescribeTool and ToolResultRewriter exist",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/hooks.go:42-44",
-    "runtime/pipeline/stage/stages_provider.go:196-204",
-    "runtime/skills/executor.go:281-305"
+    "runtime/hooks/hooks.go:42",
+    "runtime/pipeline/stage/stages_provider.go:224",
+    "runtime/skills/executor.go:283-337"
    ]
   },
   {
@@ -255,11 +248,10 @@
   },
   {
    "id": "c6",
-   "claim": "OpenAI defaults to Responses API against api.openai.com or empty base_url; Chat Completions otherwise and for Azure/Bedrock",
+   "claim": "OpenAI defaults to the Responses API against api.openai.com or an empty base_url; Chat Completions otherwise and for Azure and Bedrock",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/openai/openai.go:350-352",
-    "runtime/providers/openai/responses_convert.go:104-134"
+    "runtime/providers/openai/openai.go:344-352"
    ]
   },
   {
@@ -267,7 +259,7 @@
    "claim": "Audio to a Responses-mode provider errors that audio needs Chat Completions",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/openai/openai_multimodal.go:133-136"
+    "runtime/providers/openai/openai_multimodal.go:147-150"
    ]
   },
   {
@@ -275,7 +267,7 @@
    "claim": "Providers learn a rejected sampling parameter, warn, stop sending, retry; unsupported_params skips",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/rejected_params.go:130-208"
+    "runtime/providers/rejected_params.go:132-210"
    ]
   },
   {
@@ -283,7 +275,218 @@
    "claim": "Retry is one retry (page said)",
    "verdict": "false",
    "evidence": [
-    "runtime/providers/rejected_params.go:124-138"
+    "runtime/providers/rejected_params.go:126-140"
+   ]
+  },
+  {
+   "id": "u1",
+   "claim": "WithToolPolicy sets the tool policy for every tool loop; each turn merges it with the prompt's tool_policy under MergeToolPolicy; realtime duplex is not covered",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/types.go:86",
+    "sdk/internal/pack/tool_policy_keys.go:38-60",
+    "sdk/options.go:1376-1412"
+   ]
+  },
+  {
+   "id": "u10",
+   "claim": "topic_policy on_deny: respond answers with the policy's response through ResultDetailReplacement; on_workflow_step evals run after each committed transition",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/topic_policy.go:273-292",
+    "runtime/evals/types.go:42-46",
+    "runtime/evals/wrappers.go:93-106",
+    "runtime/hooks/guardrails/adapter.go:484-503"
+   ]
+  },
+  {
+   "id": "u11",
+   "claim": "OnClientTool binds a pack tool as a client tool; DeferClientTool binds without a handler; RejectClientTool uses ConsentDeclinedMessage when a decline strategy is declared",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/types.go:348-357",
+    "sdk/client_tools.go:474-501",
+    "sdk/client_tools.go:50-125"
+   ]
+  },
+  {
+   "id": "u12",
+   "claim": "Exec tools that answer pending are held through ExecuteAsync; Execute returns an error for a pending answer",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/exec_executor.go:62-120"
+   ]
+  },
+  {
+   "id": "u13",
+   "claim": "SDK typed errors PackError, ProviderError, ValidationError, ToolError and sentinels ErrToolNotRegistered and ErrToolNotInPack",
+   "verdict": "true",
+   "evidence": [
+    "sdk/errors.go:33-190"
+   ]
+  },
+  {
+   "id": "u14",
+   "claim": "WithAudioMonitor delivers AudioMonitorFrame values on Conversation.AudioMonitor; Rate must be 16000, 24000 or 48000",
+   "verdict": "true",
+   "evidence": [
+    "sdk/audio_monitor.go:214",
+    "sdk/audio_monitor.go:39-80"
+   ]
+  },
+  {
+   "id": "u15",
+   "claim": "ValidatePackWithOptions applies Open's options; a configured retrieval provider defaults top-k to 3; A2A bridges accumulate and duplicate tool names fail Open",
+   "verdict": "true",
+   "evidence": [
+    "sdk/capability_a2a.go:140-160",
+    "sdk/options.go:1837-1865",
+    "sdk/validate_pack.go:127"
+   ]
+  },
+  {
+   "id": "u16",
+   "claim": "HTTP tools run PreRequest, render URL templates, apply statics, escape URL values and reject dot segments",
+   "verdict": "true",
+   "evidence": [
+    "runtime/tools/http_executor.go:329",
+    "runtime/tools/http_executor.go:75-79",
+    "runtime/tools/http_mapping.go:70-80"
+   ]
+  },
+  {
+   "id": "u17",
+   "claim": "Claude, OpenAI and Gemini report MaxContextTokens from per-model tables; Gemini sends safetySettings on tool requests; vLLM sends guided_grammar on tool requests",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/claude/context_window_table.go:62-65",
+    "runtime/providers/gemini/context_window_table.go:67-70",
+    "runtime/providers/gemini/gemini_tools.go:543",
+    "runtime/providers/openai/context_window_table.go:59-62",
+    "runtime/providers/vllm/vllm_tools.go:361"
+   ]
+  },
+  {
+   "id": "u18",
+   "claim": "Provider registry Register replaces in both maps; ExtractOrderedEmbeddings errors on a wrong count; OpenAI reports canceled; StreamObserver receives chunks",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base/registry.go:58-73",
+    "runtime/providers/base_embedding.go:257-263",
+    "runtime/providers/base_provider.go:632",
+    "runtime/providers/openai/openai_responses_integration.go:55",
+    "runtime/providers/registry.go:93-99",
+    "runtime/providers/streaming.go:143-180"
+   ]
+  },
+  {
+   "id": "u19",
+   "claim": "TTS services wrap quota errors in ErrQuotaExceeded; resized GIF and WebP are labeled JPEG; the logger redacts whole bearer tokens",
+   "verdict": "true",
+   "evidence": [
+    "runtime/logger/logger.go:320-332",
+    "runtime/media/image.go:233",
+    "runtime/tts/errors.go:19-23",
+    "runtime/tts/http_helpers.go:50"
+   ]
+  },
+  {
+   "id": "u2",
+   "claim": "MaxCallsPerMinute counts calls at admission in one window per conversation shared across workflow states; a refused call fails with CallRateLimitError; an approval over the limit wraps it",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:239",
+    "runtime/pipeline/stage/tool_call_rate.go:32-116",
+    "runtime/tools/registry.go:582"
+   ]
+  },
+  {
+   "id": "u20",
+   "claim": "Session hooks all run and log failures; A2A SSE idle timeouts end the stream with ErrSSEIdleTimeout; WithWriteTimeout is applied; AG-UI WithRuntimeEvents forwards runtime events",
+   "verdict": "true",
+   "evidence": [
+    "runtime/a2a/client.go:91-155",
+    "runtime/hooks/registry.go:264-278",
+    "sdk/agui/adapter.go:103-175",
+    "server/a2a/server.go:127-140"
+   ]
+  },
+  {
+   "id": "u3",
+   "claim": "A provider's rate_limit is enforced by RateLimitTransport on every request; zero rps is unlimited; burst below 1 counts as 1; the wait is outside request_timeout",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base/rate_limit_transport.go:13-60",
+    "runtime/providers/base_provider.go:961",
+    "runtime/providers/registry.go:228-231"
+   ]
+  },
+  {
+   "id": "u4",
+   "claim": "The credential is applied once per attempt after the wait; a credential failure wraps ErrRequestAuthorization and is not retried or transient; BaseProvider stores the credential",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/credential.go:26",
+    "runtime/providers/base_provider.go:268",
+    "runtime/providers/base_provider.go:476-504",
+    "runtime/providers/errors.go:81",
+    "runtime/providers/retry.go:69"
+   ]
+  },
+  {
+   "id": "u5",
+   "claim": "Pipeline timeouts fail the turn with ErrExecutionTimeout or ErrIdleTimeout; Shutdown ends a truncated stream with ErrOutputTruncated; MaxConcurrentPipelines makes Execute wait; stages built without a TurnState fail Build",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/config.go:135-147",
+    "runtime/pipeline/stage/errors.go:13-25",
+    "runtime/pipeline/stage/errors.go:88",
+    "runtime/pipeline/stage/idle_timeout.go:12",
+    "runtime/pipeline/stage/pipeline.go:1496-1507",
+    "runtime/pipeline/stage/pipeline.go:84-100"
+   ]
+  },
+  {
+   "id": "u6",
+   "claim": "The provider stage validates request media against the provider's sendable capabilities before each round and fails with UnsupportedContentError; WithoutContentValidation opts out",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:2242-2250",
+    "runtime/pipeline/stage/stages_provider.go:248-257",
+    "runtime/providers/multimodal.go:289-301",
+    "sdk/options.go:1362-1375"
+   ]
+  },
+  {
+   "id": "u7",
+   "claim": "MediaMetadata.ExpiresAt is honored with or without a policy; deduplicated media is stored again after deletion and retention extends without replacing owner metadata; FileStore takes a MediaPolicyHandler",
+   "verdict": "true",
+   "evidence": [
+    "runtime/storage/interfaces.go:97-180",
+    "runtime/storage/local/filestore.go:73-97",
+    "runtime/storage/types.go:38-46"
+   ]
+  },
+  {
+   "id": "u8",
+   "claim": "tool_efficiency scores (max_calls + 1 - calls) / (max_calls + 1) within limits",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/tool_efficiency.go:19-20",
+    "runtime/evals/handlers/tool_efficiency.go:76"
+   ]
+  },
+  {
+   "id": "u9",
+   "claim": "directional rejects threshold; judge checks reject model and pass extra; cosine_similarity, rest_eval and a2a_eval reject threshold params",
+   "verdict": "true",
+   "evidence": [
+    "runtime/evals/handlers/a2a_eval.go:73",
+    "runtime/evals/handlers/cosine_similarity.go:32",
+    "runtime/evals/handlers/cosine_similarity.go:83-92",
+    "runtime/evals/handlers/directional.go:33-37",
+    "runtime/evals/handlers/llm_judge.go:210-224",
+    "runtime/evals/handlers/llm_judge.go:259-268"
    ]
   }
  ]

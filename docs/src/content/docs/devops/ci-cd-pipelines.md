@@ -2,11 +2,12 @@
 title: CI/CD pipelines
 description: Every GitHub Actions workflow in the PromptKit repository, what triggers it and what it checks.
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - .github/workflows/ci.yml
     - .github/workflows/cla.yml
     - .github/workflows/dependabot-gate.yml
+    - .github/workflows/deprecation-gate.yml
     - .github/workflows/docs-checks.yml
     - .github/workflows/docs-freshness.yml
     - .github/workflows/docs.yml
@@ -16,13 +17,14 @@ verified:
     - .github/workflows/release.yml
     - .github/workflows/schemas.yml
     - Makefile
+    - scripts/check-new-deprecations.sh
     - scripts/check-no-audio-device-leak.sh
     - scripts/check-weak-assertions.sh
     - scripts/perf-compare.sh
     - scripts/perf-interleave.sh
     - scripts/perf-run.sh
 ---
-PromptKit ships four Go modules: `runtime`, `pkg`, `sdk` and `server/a2a`. Eleven workflows in `.github/workflows/` test them, check generated artifacts, deploy the documentation and release the modules. The CLIs and their binaries release from the `promptarena` repository.
+PromptKit ships four Go modules: `runtime`, `pkg`, `sdk` and `server/a2a`. Twelve workflows in `.github/workflows/` test them, check generated artifacts, deploy the documentation and release the modules. The CLIs and their binaries release from the `promptarena` repository.
 
 ## Workflows
 
@@ -31,7 +33,8 @@ PromptKit ships four Go modules: `runtime`, `pkg`, `sdk` and `server/a2a`. Eleve
 | `ci.yml` | Push to `main` and pull requests to `main`, except changes that touch only the ignored paths below | `test`, `sonarcloud`, `integration-tests`, `lint`, `build`, `weak-assertions`, `perf-regression` |
 | `dependabot-gate.yml` | Pull requests to `main` | `sonarcloud` |
 | `cla.yml` | Pull request opened, closed or synchronized; issue comments | `CLAAssistant` |
-| `docs.yml` | Release published, manual dispatch, pull requests touching docs sources | `build`, `deploy` |
+| `deprecation-gate.yml` | Pull requests to `main` | `deprecations` |
+| `docs.yml` | Release published, manual dispatch, pull requests touching `docs/`, example READMEs, the docs preparation scripts, the `Makefile` or `docs.yml` | `build`, `deploy` |
 | `docs-checks.yml` | Pull requests to `main`, manual dispatch | `docs-checks` |
 | `docs-freshness.yml` | Mondays 07:00 UTC, manual dispatch | `report` |
 | `reference-drift.yml` | Push to `main` and pull requests touching Go sources or generated reference pages | `reference-drift` |
@@ -40,7 +43,7 @@ PromptKit ships four Go modules: `runtime`, `pkg`, `sdk` and `server/a2a`. Eleve
 | `mcp-conformance.yml` | Push and pull requests touching the MCP client, manual dispatch | `spec-parity`, `mirror`, `official-suite` |
 | `release.yml` | Manual dispatch | `validate`, `tag-dependencies`, `update-tools`, `create-release`, `verify-docs`, `notify-downstream`, `summary` |
 
-`ci.yml` ignores `docs/**`, `*.md`, `LICENSE`, `.gitignore`, `.github/workflows/docs.yml`, `.github/workflows/release.yml`, `.github/CODEOWNERS` and `scripts/setup-branch-protection.sh`.
+`ci.yml` ignores `docs/**`, `*.md`, `LICENSE`, `.gitignore`, `.github/workflows/docs.yml`, `.github/workflows/release.yml` and `.github/CODEOWNERS`.
 
 ## CI (`ci.yml`)
 
@@ -111,6 +114,10 @@ The job is named `SonarCloud Analysis` to match the required status check. It ru
 
 `CLAAssistant` records contributor license agreement signatures in the `AltairaLabs/cla-signatures` repository. A contributor signs by commenting on the pull request; a `recheck` comment reruns the check. Bot accounts are allowlisted. The workflow uses `PERSONAL_ACCESS_TOKEN`.
 
+## Deprecation gate (`deprecation-gate.yml`)
+
+The `deprecations` job (reported as `New deprecations need approval`) runs `scripts/check-new-deprecations.sh` against the pull request's base branch. It fails when the diff adds a Go `// Deprecated:` marker. A maintainer applies the `deprecation-approved` label to record the decision for that pull request, which skips the job.
+
 ## Documentation
 
 ### Deploy (`docs.yml`)
@@ -118,7 +125,7 @@ The job is named `SonarCloud Analysis` to match the required status check. It ru
 The `build` job:
 
 1. Sets up Node 22, Go 1.26.0, `gomarkdoc` and D2.
-2. Installs the docs dependencies with `make docs-install`. A `NODE_AUTH_TOKEN` secret reads a private GitHub Packages dependency.
+2. Installs the docs dependencies with `make docs-install`, which runs `npm ci` and installs exactly what the committed lockfile pins. A `NODE_AUTH_TOKEN` secret reads a private GitHub Packages dependency.
 3. Checks the Mermaid diagrams (`npm run check:mermaid`).
 4. Builds the site with `make docs-build`.
 5. Checks links (`check-links`) and hardcoded documentation URLs (`check-doc-urls`).

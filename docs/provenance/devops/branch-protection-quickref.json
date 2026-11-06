@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/devops/branch-protection-quickref.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -40,7 +40,7 @@
    "claim": "sonarcloud job needs test and lint",
    "verdict": "true",
    "evidence": [
-    ".github/workflows/ci.yml:159-165"
+    ".github/workflows/ci.yml:157-163"
    ]
   },
   {
@@ -69,10 +69,10 @@
   },
   {
    "id": 9,
-   "claim": "Removed claims: needs 1 approval, signed commits, status checks test/lint/build/coverage, Code owner review, conversation resolution, up-to-date branch",
-   "verdict": "false",
+   "claim": "The ruleset requires no approval, signed commits, code owner review, conversation resolution or up-to-date branch",
+   "verdict": "true",
    "evidence": [
-    "scripts/setup-branch-protection.sh:44-70"
+    ".github/workflows/dependabot-gate.yml:9-16"
    ]
   }
  ]

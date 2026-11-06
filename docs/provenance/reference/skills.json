@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/reference/skills.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": "s1",
@@ -16,17 +16,20 @@
    "claim": "workflow state skills: omitted all, none case-insensitive, directory path, glob via filepath.Match",
    "verdict": "true",
    "evidence": [
-    "runtime/skills/active_set.go:94-138"
+    "runtime/skills/active_set.go:108-152"
    ]
   },
   {
    "id": "s11",
-   "claim": "filter applies on open, resume, transition (incl. mid-turn); excluded active skills deactivated; index lists admitted skills; no skill__activate when none admitted",
+   "claim": "A workflow state's skills filter applies on open, resume and transition (including mid-turn); excluded active skills are deactivated; the index lists admitted skills; skill__activate is withheld when none are admitted",
    "verdict": "true",
    "evidence": [
-    "runtime/skills/executor.go:294-329",
-    "sdk/conversation.go:435-493",
-    "sdk/workflow.go:594-667"
+    "runtime/skills/executor.go:260-337",
+    "sdk/conversation.go:455-476",
+    "sdk/conversation.go:504-520",
+    "sdk/workflow.go:617",
+    "sdk/workflow.go:664",
+    "sdk/workflow.go:693-698"
    ]
   },
   {
@@ -40,38 +43,37 @@
   },
   {
    "id": "s13",
-   "claim": "activation is idempotent; fails on unknown skill, filter, max active; deactivate of inactive fails",
+   "claim": "Activation is idempotent; it fails on an unknown skill, an excluded skill or the max active limit; deactivating an inactive skill fails",
    "verdict": "true",
    "evidence": [
-    "runtime/skills/executor.go:122-202"
+    "runtime/skills/executor.go:124-205"
    ]
   },
   {
    "id": "s14",
-   "claim": "index format and 'No skills available.'; rebuilt per provider round; selector narrows by user text; failure keeps full index",
+   "claim": "The skill index format and No skills available.; rebuilt per provider round from the conversation's filter; a selector narrows it by user text and a failing selector keeps the full index",
    "verdict": "true",
    "evidence": [
-    "runtime/skills/executor.go:273-329",
-    "runtime/skills/executor.go:436-453",
-    "sdk/conversation.go:452-493"
+    "runtime/skills/executor.go:283-337",
+    "runtime/skills/executor.go:460-500",
+    "sdk/conversation.go:504-520"
    ]
   },
   {
    "id": "s15",
-   "claim": "capability inferred from pack skills or WithSkillsDir/WithSkillSource; the options have no effect when the pack declares skills",
+   "claim": "The skills capability is inferred from pack skills, WithSkillsDir or WithSkillSource; code-added sources merge with the capability's, and a source it already holds is not added twice",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:1353-1368",
-    "sdk/sdk.go:268-272"
+    "sdk/capability_skills.go:83-112",
+    "sdk/sdk.go:1375-1400"
    ]
   },
   {
    "id": "s16",
-   "claim": "WithMaxActiveSkillsOption default unlimited, n must be positive",
-   "verdict": "false",
+   "claim": "WithMaxActiveSkillsOption default is unlimited and n must be positive; WithSkillSelectorOption narrows the index once per turn",
+   "verdict": "true",
    "evidence": [
-    "runtime/skills/executor.go:55",
-    "sdk/options.go:3809-3823"
+    "sdk/options.go:4009-4032"
    ]
   },
   {
@@ -85,11 +87,11 @@
   },
   {
    "id": "s18",
-   "claim": "spec.skills.selector must name a selector declared under spec.selectors; WithSelector overrides by name",
+   "claim": "spec.skills.selector must name a selector declared under spec.selectors; WithSelector overrides by name; a runtime-config selector takes precedence over WithSkillSelectorOption",
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:828-843",
-    "sdk/capability_skills.go:83-90",
+    "sdk/capability_skills.go:120-170",
     "sdk/runtime_config.go:292-320"
    ]
   },
@@ -112,12 +114,13 @@
   },
   {
    "id": "s20",
-   "claim": "WithSkillSelectorOption / TagSelector / ModelDrivenSelector narrow the index (old page)",
-   "verdict": "dead",
+   "claim": "A skills.SkillSelector (WithSkillSelectorOption, TagSelector) runs on the selection.Selector path once per turn with the user's text; an error or empty choice lists every admitted skill",
+   "verdict": "true",
    "evidence": [
-    "runtime/skills/executor.go:455-495",
-    "runtime/skills/executor.go:50",
-    "runtime/skills/executor.go:73-76"
+    "runtime/skills/executor.go:460-500",
+    "runtime/skills/executor.go:75-95",
+    "runtime/skills/selector.go:30-60",
+    "sdk/capability_skills.go:155-170"
    ]
   },
   {
@@ -133,7 +136,7 @@
    "claim": "default max active skills is 5 (old page)",
    "verdict": "false",
    "evidence": [
-    "sdk/options.go:3809-3815"
+    "sdk/options.go:4016-4022"
    ]
   },
   {
@@ -155,11 +158,11 @@
   },
   {
    "id": "s3",
-   "claim": "allowed-tools grants are capped by the pack's declared tools; deactivate removes a tool only if no other active skill grants it",
+   "claim": "allowed-tools grants are capped by the pack's declared tools; deactivating removes a tool only when no other active skill grants it",
    "verdict": "true",
    "evidence": [
-    "runtime/skills/executor.go:166-202",
-    "runtime/skills/executor.go:517-534"
+    "runtime/skills/executor.go:171-205",
+    "runtime/skills/executor.go:523-545"
    ]
   },
   {
@@ -182,10 +185,12 @@
   },
   {
    "id": "s6",
-   "claim": "preloaded skills are activated into each conversation's set at open; failures logged at WARN",
+   "claim": "Preloaded skills are activated into each conversation's set at open; their instructions are appended to the system prompt while active; failures are logged at WARN",
    "verdict": "true",
    "evidence": [
-    "sdk/capability_skills.go:118-150"
+    "runtime/skills/active_set.go:84-97",
+    "sdk/capability_skills.go:180-240",
+    "sdk/conversation.go:487-500"
    ]
   },
   {

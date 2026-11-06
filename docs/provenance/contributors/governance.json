@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/contributors/governance.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": "g1",
@@ -14,11 +14,9 @@
   },
   {
    "id": "g2",
-   "claim": "Merges require review approval via branch protection",
+   "claim": "The maintainers are the AltairaLabs team: CODEOWNERS assigns @AltairaLabs/maintainers",
    "verdict": "true",
-   "evidence": [
-    "scripts/setup-branch-protection.sh:61"
-   ]
+   "evidence": []
   },
   {
    "id": "g3",

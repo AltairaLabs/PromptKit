@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/reference/checks.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": "c1",
@@ -21,11 +21,12 @@
   },
   {
    "id": "c11",
-   "claim": "cosine_similarity reference is a float array; embedding from Metadata[embedding]; score is the similarity",
-   "verdict": "false",
+   "claim": "cosine_similarity takes a reference float array, reads the target embedding from Metadata[embedding], scores the raw similarity and rejects min_similarity, min_score and max_score",
+   "verdict": "true",
    "evidence": [
-    "runtime/evals/handlers/cosine_similarity.go:27-56",
-    "runtime/evals/handlers/cosine_similarity.go:80-85"
+    "runtime/evals/handlers/cosine_similarity.go:32",
+    "runtime/evals/handlers/cosine_similarity.go:44",
+    "runtime/evals/handlers/cosine_similarity.go:73-80"
    ]
   },
   {
@@ -182,10 +183,12 @@
   },
   {
    "id": "c28",
-   "claim": "topic_policy on_deny: recorded only; both values block identically",
+   "claim": "topic_policy on_deny: block answers with the message, respond answers with the policy response naming the allowed subjects, and a validator message still wins",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/handlers/topic_policy.go:229-242"
+    "runtime/evals/handlers/topic_policy.go:273-292",
+    "runtime/evals/wrappers.go:93-106",
+    "runtime/hooks/guardrails/adapter.go:484-503"
    ]
   },
   {
@@ -193,8 +196,8 @@
    "claim": "topic_policy: media-only turn resolves through on_unknown; recent_turns filters tool, safety and interrupted turns",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/handlers/topic_policy.go:107-117",
-    "runtime/evals/handlers/topic_policy.go:305-366"
+    "runtime/evals/handlers/topic_policy.go:111-121",
+    "runtime/evals/handlers/topic_policy.go:321-382"
    ]
   },
   {
@@ -202,8 +205,8 @@
    "claim": "an eval never states pass/fail; only assertion and guardrail wrappers set Passed",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/types.go:349-360",
-    "runtime/evals/wrappers.go:180-182"
+    "runtime/evals/types.go:352",
+    "runtime/evals/wrappers.go:200-222"
    ]
   },
   {
@@ -233,10 +236,11 @@
   },
   {
    "id": "c33",
-   "claim": "llm_judge accepts params criteria, rubric, model, system_prompt, provider; extra is not read",
-   "verdict": "false",
+   "claim": "llm_judge accepts params criteria, rubric, system_prompt, provider and extra; model is rejected with an error result",
+   "verdict": "true",
    "evidence": [
-    "runtime/evals/handlers/llm_judge.go:209-228"
+    "runtime/evals/handlers/llm_judge.go:210-224",
+    "runtime/evals/handlers/llm_judge.go:259-268"
    ]
   },
   {
@@ -245,7 +249,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/guardrails/factory.go:152-157",
-    "sdk/sdk.go:1520-1538"
+    "sdk/sdk.go:1536-1554"
    ]
   },
   {
@@ -279,7 +283,7 @@
    "verdict": "false",
    "evidence": [
     "runtime/hooks/guardrails/factory.go:279-307",
-    "sdk/sdk.go:1532-1538"
+    "sdk/sdk.go:1548-1554"
    ]
   },
   {
@@ -295,7 +299,7 @@
    "claim": "assertion wrapper: default min_score 1.0, error fails, nil score passes",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/wrappers.go:189-213"
+    "runtime/evals/wrappers.go:200-222"
    ]
   },
   {
@@ -304,16 +308,16 @@
    "verdict": "false",
    "evidence": [
     "runtime/evals/handlers/external_eval.go:63-81",
-    "runtime/evals/handlers/rest_eval.go:93-98"
+    "runtime/evals/handlers/rest_eval.go:99-104"
    ]
   },
   {
    "id": "c41",
-   "claim": "a2a_eval timeout default 60s; auth_token ${ENV}; min_score not read",
-   "verdict": "false",
+   "claim": "a2a_eval timeout default 60s; auth_token supports env expansion; min_score and max_score are rejected",
+   "verdict": "true",
    "evidence": [
-    "runtime/evals/handlers/a2a_eval.go:14-30",
-    "runtime/evals/handlers/a2a_eval.go:79-88"
+    "runtime/evals/handlers/a2a_eval.go:14-26",
+    "runtime/evals/handlers/a2a_eval.go:73-88"
    ]
   },
   {
@@ -336,12 +340,11 @@
   },
   {
    "id": "c44",
-   "claim": "outcome_equivalent / directional params: expected_*, baseline_*, threshold rejected, the assertion wrapper owns it",
-   "verdict": "false",
+   "claim": "directional rejects threshold with an error result; similar_content scores the word-overlap ratio and the assertion wrapper owns the pass line",
+   "verdict": "true",
    "evidence": [
-    "runtime/evals/handlers/directional.go:13-19",
-    "runtime/evals/handlers/directional.go:98",
-    "runtime/evals/handlers/outcome_equivalent.go:12-17"
+    "runtime/evals/handlers/directional.go:106-112",
+    "runtime/evals/handlers/directional.go:33-37"
    ]
   },
   {
@@ -391,19 +394,18 @@
   },
   {
    "id": "c5",
-   "claim": "guardrail triggers when score < min_score (default 1.0) or > max_score; nil result/score triggers",
+   "claim": "guardrail triggers when score < min_score (default 1.0) or > max_score; nil result or score triggers",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/wrappers.go:85-101"
+    "runtime/evals/wrappers.go:75-90"
    ]
   },
   {
    "id": "c50",
-   "claim": "threshold params rejected by eval handlers with an error result; tool_exec and topic_policy reject at load",
-   "verdict": "false",
+   "claim": "threshold params are rejected by eval handlers with an error result; tool_exec and topic_policy reject at load",
+   "verdict": "true",
    "evidence": [
-    "runtime/evals/handlers/llm_judge.go:270-278",
-    "runtime/evals/handlers/tool_exec.go:65-75"
+    "runtime/evals/handlers/llm_judge.go:287-295"
    ]
   },
   {

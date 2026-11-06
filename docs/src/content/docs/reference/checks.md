@@ -3,7 +3,7 @@ title: Checks Reference
 sidebar:
   order: 1
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/evals/handlers/a2a_eval.go
     - runtime/evals/handlers/agent_invoked.go
@@ -26,7 +26,6 @@ verified:
     - runtime/evals/handlers/length.go
     - runtime/evals/handlers/llm_judge.go
     - runtime/evals/handlers/no_tool_errors.go
-    - runtime/evals/handlers/outcome_equivalent.go
     - runtime/evals/handlers/pii_leakage.go
     - runtime/evals/handlers/provider_binding.go
     - runtime/evals/handlers/rag_helpers.go
@@ -60,6 +59,7 @@ verified:
     - runtime/evals/types.go
     - runtime/evals/validate.go
     - runtime/evals/wrappers.go
+    - runtime/hooks/guardrails/adapter.go
     - runtime/hooks/guardrails/factory.go
     - runtime/inference/openai/register.go
     - runtime/inference/systemone/register.go
@@ -88,7 +88,7 @@ Handlers return a `Score` (0.0 to 1.0 for the built-in checks, except `cosine_si
 | Guardrail | Triggers when `Score < min_score` (default `1.0`) or `Score > max_score`. A nil result or nil score triggers. |
 | Eval | No verdict. |
 
-Handlers in the classifier, judge, RAG, safety, composition, `tool_exec` and `topic_policy` families reject `min_score` and `max_score` in their own params with an error result (`tool_exec` and `topic_policy` reject them when the pack loads). Put thresholds on the [`assertion`](#assertion-wrapper) wrapper. The other handlers ignore the keys.
+Handlers in the classifier, judge, RAG, safety, composition, REST, A2A, `tool_exec` and `topic_policy` families, and `cosine_similarity`, reject `min_score` and `max_score` in their own params with an error result (`tool_exec` and `topic_policy` reject them when the pack loads). Put thresholds on the [`assertion`](#assertion-wrapper) wrapper. The other handlers ignore the keys.
 
 ### Guardrail scope
 
@@ -1032,7 +1032,7 @@ These checks compare a run against an expectation recorded in the params.
 | `tool_calls`, `same_tool_calls` | The set of distinct tool names called against the expected set. |
 | `final_state`, `same_outcome` | `Extras["workflow_state"]` against the expected state. |
 | `content_hash` | `CurrentOutput` against `expected_content`, for equality. |
-| `similar_content` | Jaccard overlap of the word sets of `CurrentOutput` and `baseline_content`, against `threshold`. |
+| `similar_content` | Jaccard overlap of the word sets of `CurrentOutput` and `baseline_content`. The overlap ratio is the score. |
 
 When the matching expectation param is absent, the check is skipped and passes.
 

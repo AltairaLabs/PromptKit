@@ -4,7 +4,7 @@ description: How PromptKit's CI/CD workflows, branch protection and releases wor
 sidebar:
   order: 0
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - .github/workflows/docs.yml
     - .github/workflows/release.yml
