@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -113,19 +114,87 @@ func TestRateLimitTransport_NilLimiterIsUnlimited(t *testing.T) {
 	assert.Equal(t, int32(20), hits.Load())
 }
 
-func TestWithRateLimit_ReplacesRatherThanStacks(t *testing.T) {
+func TestApplyRateLimit_ReplacesRatherThanStacksAndKeepsTimeout(t *testing.T) {
 	inner := http.DefaultTransport
 	first := NewRequestLimiter(1, 1)
 	second := NewRequestLimiter(2, 2)
+	c := &http.Client{Transport: inner, Timeout: 7 * time.Second}
 
-	rt := WithRateLimit(WithRateLimit(inner, first), second)
-	rlt, ok := rt.(*RateLimitTransport)
+	ApplyRateLimit(c, first)
+	ApplyRateLimit(c, second)
+	rlt, ok := c.Transport.(*RateLimitTransport)
 	require.True(t, ok)
 	assert.Same(t, second, rlt.Limiter)
 	assert.Equal(t, inner, rlt.Next, "the old limit must be unwrapped, not nested")
+	assert.Equal(t, 7*time.Second, rlt.Timeout, "the client timeout moves behind the wait")
+	assert.Zero(t, c.Timeout, "a client timeout would start before the wait")
+	assert.Equal(t, 7*time.Second, ClientTimeout(c))
+	assert.Equal(t, inner, ClientTransport(c))
 
-	assert.Equal(t, inner, WithRateLimit(rt, nil), "a nil limiter removes the limit")
-	assert.Equal(t, inner, WithRateLimit(inner, nil))
+	ApplyRateLimit(c, nil)
+	assert.Equal(t, inner, c.Transport, "a nil limiter removes the limit")
+	assert.Equal(t, 7*time.Second, c.Timeout, "and gives the timeout back")
+
+	ApplyRateLimit(nil, first) // no-op, no panic
+	assert.Zero(t, ClientTimeout(nil))
+	assert.Nil(t, ClientTransport(nil))
+}
+
+// http.Client.Timeout puts a deadline on the request before the transport
+// runs. The wait must not see it: a call queued longer than the timeout waits
+// for its turn rather than failing at once.
+func TestApplyRateLimit_WaitDoesNotUseUpRequestTimeout(t *testing.T) {
+	srv, hits := countingServer(t)
+	limiter := NewRequestLimiter(slowRate, 1)
+	client := &http.Client{Timeout: time.Second}
+	ApplyRateLimit(client, limiter)
+	require.NoError(t, get(t.Context(), client, srv.URL))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- get(ctx, client, srv.URL) }()
+
+	require.Eventually(t, func() bool {
+		select {
+		case err := <-done:
+			t.Fatalf("queued call failed instead of waiting: %v", err)
+		default:
+		}
+		return limiter.Tokens() < 0
+	}, 5*time.Second, time.Millisecond)
+	cancel()
+	assert.ErrorIs(t, <-done, context.Canceled)
+	assert.Equal(t, int32(1), hits.Load())
+}
+
+// The moved timeout still bounds the upstream call, with http.Client's own
+// timeout error (a net.Error), which retry loops treat as transient.
+func TestApplyRateLimit_TimeoutStillBoundsTheUpstreamCall(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(func() { close(release); srv.Close() })
+
+	client := &http.Client{Timeout: 50 * time.Millisecond}
+	ApplyRateLimit(client, NewRequestLimiter(1000, 10))
+
+	// A 5s guard, so a timeout that never applies fails here instead of hanging.
+	guard, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	start := time.Now()
+	err := get(guard, client, srv.URL)
+	require.Error(t, err)
+	assert.Less(t, time.Since(start), 2*time.Second, "the 50ms timeout must end the call, not the 5s guard")
+	var netErr interface{ Timeout() bool }
+	require.ErrorAs(t, err, &netErr)
+	assert.True(t, netErr.Timeout(), "err = %v", err)
+	assert.NotErrorIs(t, err, ErrRateLimitPastDeadline)
+	assert.Equal(t, 1, strings.Count(err.Error(), srv.URL), "one url.Error layer, not two: %v", err)
 }
 
 func TestHTTPTuning_RateLimiterWrapsOutermost(t *testing.T) {

@@ -317,10 +317,7 @@ func (b *BaseProvider) GetStreamingHTTPClient() *http.Client {
 // configuration. Does not affect the streaming client, which remains at
 // Timeout=0.
 func (b *BaseProvider) SetHTTPTimeout(timeout time.Duration) {
-	var transport http.RoundTripper
-	if b.client != nil {
-		transport = b.client.Transport
-	}
+	transport := base.ClientTransport(b.client)
 	b.client = &http.Client{
 		Timeout:   timeout,
 		Transport: transport,
@@ -332,6 +329,7 @@ func (b *BaseProvider) SetHTTPTimeout(timeout time.Duration) {
 	} else if transport != nil {
 		b.streamingClient = &http.Client{Timeout: 0, Transport: transport}
 	}
+	b.applyRateLimit()
 }
 
 // SetHTTPTransport replaces the RoundTripper on both the regular and
@@ -351,11 +349,8 @@ func (b *BaseProvider) SetHTTPTimeout(timeout time.Duration) {
 // NewPooledTransportWithOptions and wrap it with NewInstrumentedTransport
 // so the OpenTelemetry span wiring is preserved.
 func (b *BaseProvider) SetHTTPTransport(rt http.RoundTripper) {
-	// Keep a configured rate limit in front of the new transport.
-	if b.rateLimiter != nil {
-		rt = base.WithRateLimit(rt, b.rateLimiter)
-	}
 	if b.client != nil {
+		b.client.Timeout = base.ClientTimeout(b.client)
 		b.client.Transport = rt
 	}
 	if b.streamingClient != nil {
@@ -366,6 +361,8 @@ func (b *BaseProvider) SetHTTPTransport(rt http.RoundTripper) {
 		// also pick up the new transport.
 		b.streamingClient = &http.Client{Timeout: 0, Transport: rt}
 	}
+	// Keep a configured rate limit in front of the new transport.
+	b.applyRateLimit()
 }
 
 // SetCustomHeaders stores custom HTTP headers that will be applied to
@@ -822,10 +819,7 @@ func chunkForwardedContent(chunk *StreamChunk) bool {
 
 // HTTPTimeout returns the current HTTP client timeout, or 0 if no client is set.
 func (b *BaseProvider) HTTPTimeout() time.Duration {
-	if b.client == nil {
-		return 0
-	}
-	return b.client.Timeout
+	return base.ClientTimeout(b.client)
 }
 
 // SetRateLimit configures per-provider rate limiting. requestsPerSecond controls
@@ -838,16 +832,21 @@ func (b *BaseProvider) HTTPTimeout() time.Duration {
 // retry attempt) by wrapping their transport in a base.RateLimitTransport.
 // A request waits for its turn before it is sent; the wait ends when the
 // request's context is canceled, or at once when its turn falls past the
-// context deadline (base.ErrRateLimitPastDeadline). CreateProviderFromSpec
+// context deadline (base.ErrRateLimitPastDeadline). The wait does not count
+// against the request timeout, which starts when the request is sent. CreateProviderFromSpec
 // calls it with spec.RateLimit.
 func (b *BaseProvider) SetRateLimit(requestsPerSecond float64, burst int) {
 	b.rateLimiter = base.NewRequestLimiter(requestsPerSecond, burst)
-	if b.client != nil {
-		b.client.Transport = base.WithRateLimit(b.client.Transport, b.rateLimiter)
-	}
-	if b.streamingClient != nil {
-		b.streamingClient.Transport = base.WithRateLimit(b.streamingClient.Transport, b.rateLimiter)
-	}
+	b.applyRateLimit()
+}
+
+// applyRateLimit installs b.rateLimiter (or removes the limit when nil) on
+// both clients. The request client's timeout moves behind the wait (see
+// base.ApplyRateLimit), so request_timeout bounds the upstream call, not the
+// time spent queued for a token.
+func (b *BaseProvider) applyRateLimit() {
+	base.ApplyRateLimit(b.client, b.rateLimiter)
+	base.ApplyRateLimit(b.streamingClient, b.rateLimiter)
 }
 
 // SetMaxPayloadSize configures the maximum allowed request payload size in bytes.

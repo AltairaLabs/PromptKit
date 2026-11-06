@@ -158,3 +158,40 @@ func TestCreateProviderFromSpec_AppliesRateLimit(t *testing.T) {
 		})
 	}
 }
+
+// request_timeout (SetHTTPTimeout) and the limit compose in either order: the
+// timeout sits behind the wait on the request client, and the streaming
+// client never gets one.
+func TestSetRateLimit_ComposesWithRequestTimeout(t *testing.T) {
+	for name, order := range map[string][]func(*BaseProvider){
+		"limit then timeout": {
+			func(b *BaseProvider) { b.SetRateLimit(10, 1) },
+			func(b *BaseProvider) { b.SetHTTPTimeout(3 * time.Second) },
+		},
+		"timeout then limit": {
+			func(b *BaseProvider) { b.SetHTTPTimeout(3 * time.Second) },
+			func(b *BaseProvider) { b.SetRateLimit(10, 1) },
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			bp := NewBaseProvider("p", false, &http.Client{Transport: http.DefaultTransport})
+			for _, step := range order {
+				step(&bp)
+			}
+			assert.Equal(t, 3*time.Second, bp.HTTPTimeout())
+
+			req, ok := bp.GetHTTPClient().Transport.(*base.RateLimitTransport)
+			require.True(t, ok, "request transport is %T", bp.GetHTTPClient().Transport)
+			assert.Equal(t, 3*time.Second, req.Timeout)
+			assert.Zero(t, bp.GetHTTPClient().Timeout, "a client timeout would run during the wait")
+
+			stream, ok := bp.GetStreamingHTTPClient().Transport.(*base.RateLimitTransport)
+			require.True(t, ok, "streaming transport is %T", bp.GetStreamingHTTPClient().Transport)
+			assert.Zero(t, stream.Timeout, "streams are not wall-clock bounded")
+			assert.Same(t, req.Limiter, stream.Limiter)
+
+			bp.SetHTTPTransport(http.DefaultTransport)
+			assert.Equal(t, 3*time.Second, bp.HTTPTimeout(), "a transport swap keeps the timeout")
+		})
+	}
+}

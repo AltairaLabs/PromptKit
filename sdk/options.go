@@ -2747,10 +2747,13 @@ type ProviderSpec struct {
 	// settings. For a capability role, setting it also replaces the
 	// provider's own transport with the pooled, instrumented one. All roles.
 	HTTPTransport *pkgconfig.HTTPTransportConfig
-	// RateLimit mirrors rate_limit: a token-bucket cap on the requests this
-	// provider sends, RPS sustained with up to Burst at once. Each request waits
-	// for its turn, and the wait ends with the request's context. Zero RPS is
-	// unlimited. All roles.
+	// RateLimit mirrors rate_limit: a token-bucket cap on the HTTP requests
+	// this provider sends, RPS sustained with up to Burst at once. Each request
+	// waits for its turn, and the wait ends with the request's context; it does
+	// not count against RequestTimeout. Every provider an option builds gets its
+	// own bucket, so conversations opened separately are limited separately;
+	// pass one provider to them all (WithProvider) to share a cap. WebSocket
+	// sessions are not limited. Zero RPS is unlimited. All roles.
 	RateLimit pkgconfig.RateLimit
 	// PromptCaching mirrors defaults.prompt_caching: false disables
 	// Anthropic prompt caching. Completion roles only.

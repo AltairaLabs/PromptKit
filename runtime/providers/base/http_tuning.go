@@ -59,7 +59,7 @@ func (t HTTPTuning) Client(c *http.Client) *http.Client {
 		out.Transport = t.tuneTransport(out.Transport)
 	}
 	if t.RateLimiter != nil {
-		out.Transport = WithRateLimit(out.Transport, t.RateLimiter)
+		ApplyRateLimit(out, t.RateLimiter)
 	}
 	return out
 }
