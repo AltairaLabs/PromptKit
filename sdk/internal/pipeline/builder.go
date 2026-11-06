@@ -483,7 +483,7 @@ func collectPipelineStages(
 	// The load stages publish the conversation ID onto TurnState, but a
 	// pipeline without a state store (a default Fork) has none. Seed it so the
 	// provider stage still keys ToolPolicy.MaxCallsPerMinute on the
-	// conversation — the ID the SDK commits and releases held calls under.
+	// conversation — the ID the SDK admits approved held calls under.
 	if turnState.ConversationID == "" {
 		turnState.ConversationID = cfg.ConversationID
 	}

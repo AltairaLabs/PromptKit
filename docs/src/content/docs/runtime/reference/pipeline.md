@@ -79,10 +79,11 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
   - [func \(s ByOriginalIndex\) Len\(\) int](<#ByOriginalIndex.Len>)
   - [func \(s ByOriginalIndex\) Less\(i, j int\) bool](<#ByOriginalIndex.Less>)
   - [func \(s ByOriginalIndex\) Swap\(i, j int\)](<#ByOriginalIndex.Swap>)
+- [type CallRateLimitError](<#CallRateLimitError>)
+  - [func \(e \*CallRateLimitError\) Error\(\) string](<#CallRateLimitError.Error>)
 - [type CallRateWindow](<#CallRateWindow>)
   - [func NewCallRateWindow\(\) \*CallRateWindow](<#NewCallRateWindow>)
-  - [func \(w \*CallRateWindow\) Commit\(conversationID, tool, callID string\)](<#CallRateWindow.Commit>)
-  - [func \(w \*CallRateWindow\) Release\(conversationID, tool, callID string\)](<#CallRateWindow.Release>)
+  - [func \(w \*CallRateWindow\) Admit\(conversationID, tool string, limit int\) error](<#CallRateWindow.Admit>)
   - [func \(w \*CallRateWindow\) Scoped\(scope string\) \*CallRateWindow](<#CallRateWindow.Scoped>)
 - [type Capabilities](<#Capabilities>)
   - [func AnyCapabilities\(\) Capabilities](<#AnyCapabilities>)
@@ -531,12 +532,6 @@ const (
     // DefaultMaxFramesPerMessage is the default max frames in composed message.
     DefaultMaxFramesPerMessage = 30
 )
-```
-
-<a name="CallRateReservationLifetime"></a>CallRateReservationLifetime is how long a reserved slot lasts when nothing commits or releases it: a call held for approval, or a client tool's call, that is never answered. Once it lapses, the slot is free. It matches the SDK's default pending\-call TTL \(sdk/tools.DefaultPendingTTL\), after which an in\-memory held call expires and cannot be approved. A held call that is approved after its reservation has lapsed still commits a slot, because the approval is what admits it, so with a longer pending TTL the window can then briefly exceed the limit.
-
-```go
-const CallRateReservationLifetime = 5 * time.Minute
 ```
 
 <a name="DefaultBudgetTokens"></a>
@@ -1207,20 +1202,43 @@ func (s ByOriginalIndex) Swap(i, j int)
 
 
 
+<a name="CallRateLimitError"></a>
+## type [CallRateLimitError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L34-L37>)
+
+CallRateLimitError is the refusal of a call over ToolPolicy.MaxCallsPerMinute. Its message is what the model is told in place of the call's result.
+
+```go
+type CallRateLimitError struct {
+    Tool  string
+    Limit int
+}
+```
+
+<a name="CallRateLimitError.Error"></a>
+### func \(\*CallRateLimitError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L39>)
+
+```go
+func (e *CallRateLimitError) Error() string
+```
+
+
+
 <a name="CallRateWindow"></a>
-## type [CallRateWindow](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L83-L89>)
+## type [CallRateWindow](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L78-L84>)
 
-CallRateWindow enforces ToolPolicy.MaxCallsPerMinute. For each conversation and tool, it tracks the slots taken in the last minute, using three steps:
+CallRateWindow enforces ToolPolicy.MaxCallsPerMinute. For each conversation and tool, it counts the calls admitted to run in the last minute. A call is checked against the limit, and counted, only when it is admitted \(Admit\):
 
-- Reserve: when the model makes a call, the provider stage reserves a slot. If the committed and reserved slots already reach the limit, the call is refused at once. A call held for approval and a call the executor defers \(ToolStatusPending, such as a client tool\) keep their reservation.
-- Commit: when the call is admitted to run, its slot is committed and counts for one minute from then. The stage commits a call it runs. The host commits a held or deferred call when it is approved or answered \(Commit\).
-- Release: a call that is rejected gives its slot back \(Release\).
+- a call the provider stage runs is admitted immediately before the stage executes it;
+- a call held for approval is admitted when the host approves it;
+- a call its executor defers \(ToolStatusPending, such as a client tool\) is admitted when the host uses its result.
 
-A reservation that is never resolved lapses after CallRateReservationLifetime.
+A call that is refused, rejected, abandoned or never answered is never counted. Nothing is reserved, so nothing is left to give back. The cost is that a held or deferred call is checked late: a human may approve a call that then hits the limit, and a client may run a call whose result is then refused.
 
-A provider stage holds one window \(ProviderConfig.CallRate, or its own\), so the window spans every turn of a conversation the stage runs. Safe for concurrent use: a round's calls are checked in parallel.
+The stage admits a call through tools.Registry.ExecuteAsyncAdmitted, after the registry's own checks pass \(the tool exists, its arguments are valid, the registry's rate limit allows it\), so a call those refuse is never counted. Whether an executor defers a call is known only when it returns: the stage takes a deferred call's admission back then. While the executor runs, the call counts, so another call to the same tool in the same round can be refused for the limit in that moment.
 
-tools.WithRateLimit is the other sliding window, and a different limit. It is one per registry, shared by its children, counts every conversation's calls to a tool together under a fixed limit, and refuses with tools.ErrRateLimitExceeded. This one is keyed on the conversation, takes the limit of the policy in force for each call, drops idle conversations \(its keys are unbounded, the registry's are tool names\), and is resolved by the host for calls that run outside the stage.
+A provider stage holds one window \(ProviderConfig.CallRate, or its own\), so the window spans every turn of a conversation the stage runs. Safe for concurrent use: a round's calls are admitted in parallel.
+
+tools.WithRateLimit is the other sliding window, and a different limit. It is one per registry, shared by its children, counts every conversation's calls to a tool together under a fixed limit, and refuses with tools.ErrRateLimitExceeded. This one is keyed on the conversation, takes the limit of the policy in force for each call, drops idle conversations \(its keys are unbounded, the registry's are tool names\), and is also used by the host for calls that run outside the stage.
 
 ```go
 type CallRateWindow struct {
@@ -1229,7 +1247,7 @@ type CallRateWindow struct {
 ```
 
 <a name="NewCallRateWindow"></a>
-### func [NewCallRateWindow](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L92>)
+### func [NewCallRateWindow](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L87>)
 
 ```go
 func NewCallRateWindow() *CallRateWindow
@@ -1237,32 +1255,23 @@ func NewCallRateWindow() *CallRateWindow
 
 NewCallRateWindow returns an empty window.
 
-<a name="CallRateWindow.Commit"></a>
-### func \(\*CallRateWindow\) [Commit](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L115>)
+<a name="CallRateWindow.Admit"></a>
+### func \(\*CallRateWindow\) [Admit](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L110>)
 
 ```go
-func (w *CallRateWindow) Commit(conversationID, tool, callID string)
+func (w *CallRateWindow) Admit(conversationID, tool string, limit int) error
 ```
 
-Commit admits a call to tool in conversationID: its reserved slot, if it still has one, becomes a call that counts against MaxCallsPerMinute for one minute from now. The host calls it when a held call is approved or a deferred call is answered. It does not check the limit, because the reservation already did and the approval or answer is the admission. A call whose reservation lapsed, or that was reserved by another process, still commits. Nil\-safe.
-
-<a name="CallRateWindow.Release"></a>
-### func \(\*CallRateWindow\) [Release](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L130>)
-
-```go
-func (w *CallRateWindow) Release(conversationID, tool, callID string)
-```
-
-Release gives back the slot reserved for a call to tool in conversationID that was rejected, so it does not count. It does nothing when the call holds no reservation. Where call IDs repeat \(a provider that numbers calls call\_0, call\_1, ...\), it releases the oldest reservation under callID. Nil\-safe.
+Admit admits a call to tool in conversationID under a limit of limit calls per minute. If the calls admitted in the last minute already reach the limit, it returns a \*CallRateLimitError and counts nothing; otherwise the call counts for one minute from now. The host calls it for a call that runs outside the provider stage: a held call when it is approved, a deferred call when its result is used. A nil window or a limit of 0 or less admits every call.
 
 <a name="CallRateWindow.Scoped"></a>
-### func \(\*CallRateWindow\) [Scoped](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L101>)
+### func \(\*CallRateWindow\) [Scoped](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L96>)
 
 ```go
 func (w *CallRateWindow) Scoped(scope string) *CallRateWindow
 ```
 
-Scoped returns a view of w in which every call counts under scope, whatever conversation ID it is reserved, committed or released under. The view shares w's counts. Use it to give one limit to conversations that act as one, such as the conversations a workflow opens for its states, which each have their own ID. Nil\-safe: a nil window's view is nil.
+Scoped returns a view of w in which every call counts under scope, whatever conversation ID it is admitted under. The view shares w's counts. Use it to give one limit to conversations that act as one, such as the conversations a workflow opens for its states, which each have their own ID. Nil\-safe: a nil window's view is nil.
 
 <a name="Capabilities"></a>
 ## type [Capabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/capabilities.go#L111-L116>)
@@ -4228,10 +4237,10 @@ type ProviderConfig struct {
 
     // CallRate, when set, is the window ToolPolicy.MaxCallsPerMinute counts
     // calls in. Share one across the stages of a conversation. The stage
-    // reserves a slot for every call it is asked to make; for a call it holds
-    // for approval or its executor defers, Commit the slot there when the call
-    // is approved or answered and Release it when the call is rejected. Nil
-    // gives the stage a window of its own.
+    // counts each call it runs, immediately before running it. It does not count a
+    // call it holds for approval or its executor defers: call Admit on this
+    // window when the call is approved, or when its result is used, and refuse
+    // the call if Admit does. Nil gives the stage a window of its own.
     CallRate *CallRateWindow
 
     // PromptDeclarations maps each prompt task to the pack's definition of

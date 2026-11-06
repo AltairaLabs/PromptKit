@@ -48,7 +48,18 @@ func newRateLimiter(maxPerMinute int) *rateLimiter {
 // limit. If allowed, it records the call and returns nil. If the limit is
 // exceeded, it returns ErrRateLimitExceeded (wrapped with the tool name).
 func (rl *rateLimiter) Allow(toolName string) error {
+	return rl.allowAdmitted(toolName, nil)
+}
+
+// allowAdmitted is Allow, with admit (when not nil) called under the
+// limiter's lock once the registry's limit allows the call. If admit refuses,
+// its error is returned and the call is not recorded, so neither limit counts
+// a call the other refused.
+func (rl *rateLimiter) allowAdmitted(toolName string, admit func() error) error {
 	if rl == nil || rl.maxPerMinute <= 0 {
+		if admit != nil {
+			return admit()
+		}
 		return nil
 	}
 
@@ -69,6 +80,11 @@ func (rl *rateLimiter) Allow(toolName string) error {
 	if len(timestamps) >= rl.maxPerMinute {
 		return fmt.Errorf("%w: tool %q limited to %d calls/minute",
 			ErrRateLimitExceeded, toolName, rl.maxPerMinute)
+	}
+	if admit != nil {
+		if err := admit(); err != nil {
+			return err
+		}
 	}
 
 	rl.callsByTool[toolName] = append(timestamps, now)

@@ -116,6 +116,7 @@ Tools load from YAML or JSON files with Registry.LoadToolFromBytes, or are regis
   - [func \(r \*Registry\) Child\(opts ...RegistryOption\) \*Registry](<#Registry.Child>)
   - [func \(r \*Registry\) Execute\(ctx context.Context, toolName string, args json.RawMessage\) \(\*ToolResult, error\)](<#Registry.Execute>)
   - [func \(r \*Registry\) ExecuteAsync\(ctx context.Context, toolName string, args json.RawMessage\) \(\*ToolExecutionResult, error\)](<#Registry.ExecuteAsync>)
+  - [func \(r \*Registry\) ExecuteAsyncAdmitted\(ctx context.Context, toolName string, args json.RawMessage, admit func\(\) error\) \(\*ToolExecutionResult, error\)](<#Registry.ExecuteAsyncAdmitted>)
   - [func \(r \*Registry\) Fork\(\) \*Registry](<#Registry.Fork>)
   - [func \(r \*Registry\) Get\(name string\) \*ToolDescriptor](<#Registry.Get>)
   - [func \(r \*Registry\) GetByNamespace\(ns string\) \[\]\*ToolDescriptor](<#Registry.GetByNamespace>)
@@ -1318,6 +1319,15 @@ func (r *Registry) ExecuteAsync(ctx context.Context, toolName string, args json.
 ```
 
 ExecuteAsync is Execute for executors that may suspend a call. If the tool's executor implements AsyncToolExecutor, the result can have status ToolStatusPending; otherwise the call runs synchronously. Failures are reported as status ToolStatusFailed with a nil error, as for Execute.
+
+<a name="Registry.ExecuteAsyncAdmitted"></a>
+### func \(\*Registry\) [ExecuteAsyncAdmitted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L582-L584>)
+
+```go
+func (r *Registry) ExecuteAsyncAdmitted(ctx context.Context, toolName string, args json.RawMessage, admit func() error) (*ToolExecutionResult, error)
+```
+
+ExecuteAsyncAdmitted is ExecuteAsync with an admission gate. admit, when not nil, is called once the call has passed every check of its own \(the tool exists, its arguments are valid, it has an executor, and the registry's rate limit allows it\), immediately before the executor runs. If admit returns an error, the executor does not run, the registry's rate limit does not count the call, and that error is returned unchanged. A call that fails one of the registry's checks never reaches admit.
 
 <a name="Registry.Fork"></a>
 ### func \(\*Registry\) [Fork](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L153>)

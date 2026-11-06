@@ -251,6 +251,12 @@ func (c *Conversation) ResolveTool(ctx context.Context, id string) (*sdktools.To
 // map is identical to ResolveTool (approve as-proposed). The resulting
 // ToolResolution reports Edited=true and carries the effective Arguments.
 //
+// The approval admits the call under ToolPolicy.MaxCallsPerMinute (see
+// WithToolPolicy). If the tool's calls admitted in the last minute already
+// reach the limit, the handler is not called: the resolution's Error wraps a
+// *stage.CallRateLimitError, which Continue passes to the model as the call's
+// result.
+//
 // Works on both paths: after Send() follow with Continue(), and after a duplex
 // pending surfaces follow with ContinueDuplex() — both consume the resolution
 // this produces.
@@ -289,15 +295,17 @@ func (c *Conversation) ResolveToolWithArgs(
 	if !ok {
 		return nil, sdktools.ErrPendingAlreadyResolved
 	}
-	// The approval admits the call, so its slot under
-	// ToolPolicy.MaxCallsPerMinute, reserved when the stage held it, commits.
-	c.callRate.Commit(call.ConversationID, call.Name, call.ID)
+	// The approval admits the call under ToolPolicy.MaxCallsPerMinute. Over the
+	// limit, the call does not run: the limit error takes the place of its
+	// result.
+	if limitErr := c.callRate.Admit(call.ConversationID, call.Name, c.callRateLimit()); limitErr != nil {
+		handler = func(map[string]any) (any, error) { return nil, limitErr }
+	}
 	resolution := sdktools.ResolveApproved(call, handler, overrides)
 	if resolution.Error != nil {
 		resolution.Error = &ToolError{ToolName: call.Name, Cause: resolution.Error}
 	}
 	// Store for Continue()/ContinueDuplex() to use
-	c.markHeldResolution(resolution)
 	if c.resolvedStore != nil {
 		c.resolvedStore.Add(resolution)
 	}
@@ -314,18 +322,14 @@ func (c *Conversation) RejectTool(ctx context.Context, id, reason string) (*sdkt
 	if c.pendingStore == nil {
 		return nil, fmt.Errorf("no pending tools")
 	}
-	call, ok, err := c.pendingStore.Claim(ctx, c.ID(), id)
+	_, ok, err := c.pendingStore.Claim(ctx, c.ID(), id)
 	if err != nil {
 		return nil, err
 	}
 	if !ok {
 		return nil, sdktools.ErrPendingAlreadyResolved
 	}
-	// A rejected call never runs, so it gives back the slot the stage reserved
-	// for it under ToolPolicy.MaxCallsPerMinute.
-	c.callRate.Release(call.ConversationID, call.Name, call.ID)
 	resolution := sdktools.ResolveRejected(id, reason)
-	c.markHeldResolution(resolution)
 	// Store for Continue() to use
 	if c.resolvedStore != nil {
 		c.resolvedStore.Add(resolution)
@@ -362,9 +366,9 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	if len(resolutions) == 0 {
 		return nil, fmt.Errorf("no resolved tools to continue with")
 	}
-	// A client tool answered here rather than through Resume resolves its
-	// call-rate slot the same way.
-	c.resolveClientCallRate(resolutions, c.lazyCallNames(ctx))
+	// A client tool answered here rather than through Resume is admitted the
+	// same way.
+	c.admitDeferredResults(resolutions, c.lazyCallNames(ctx))
 
 	// Build tool result messages from resolutions
 	toolMsgs := make([]types.Message, 0, len(resolutions))
@@ -437,7 +441,7 @@ func (c *Conversation) ContinueDuplex(ctx context.Context) error {
 	if len(resolutions) == 0 {
 		return fmt.Errorf("no resolved tools to continue with")
 	}
-	c.resolveClientCallRate(resolutions, c.lazyCallNames(ctx))
+	c.admitDeferredResults(resolutions, c.lazyCallNames(ctx))
 
 	responses := make([]providers.ToolResponse, 0, len(resolutions))
 	for _, res := range resolutions {

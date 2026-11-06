@@ -234,13 +234,17 @@ A model that repeats the same call with identical arguments three times (`MaxIde
 
 `MaxCallsPerMinute` counts each tool's calls in a sliding one-minute window per conversation. The provider stage holds the window, or uses the one passed in `ProviderConfig.CallRate`, so it spans the turns of a conversation that stage runs. The SDK passes one window per conversation to all of that conversation's pipelines. A workflow passes one window to every state's conversation, through `CallRateWindow.Scoped`, because each state's conversation has its own ID. A composition step counts under the enclosing conversation's ID.
 
-The window tracks slots in three steps:
+A call is checked against the limit, and counted, only when it is admitted to run. Nothing is reserved, so nothing can be left behind by an abandoned turn, an unanswered call, or a call resolved on another replica:
 
-1. **Reserve.** After the blocklist and the before-tool hooks, and before the approval gate, the stage reserves a slot. It counts the committed slots of the last minute plus the open reservations. A call that would go over the limit is refused at once: it is not executed and never reaches the approval gate. The model gets a tool result saying the tool's limit is reached, the same shape as a blocked call.
-2. **Commit.** A call the stage runs commits its slot when the executor returns. A call held for approval, or one the executor defers with `ToolStatusPending`, keeps its reservation. The host commits it with `CallRateWindow.Commit` when the call is admitted. The SDK does this in `ResolveTool`. For a deferred call (a client tool, or any call its executor left pending) it commits when the answer is consumed: by `Resume`, `Continue` or `ContinueDuplex`, or by a new `Send` that abandons the suspended turn. A committed slot counts for one minute from the commit.
-3. **Release.** The host gives back a rejected call's slot with `CallRateWindow.Release`. The SDK does this in `RejectTool`, and for a rejected deferred call where it consumes the answer.
+- **A call the stage runs** is admitted after the blocklist, the before-tool hooks and the approval gate, immediately before the stage executes it. A call over the limit is not executed. The model gets a tool result saying the tool's limit is reached, the same shape as a blocked call.
+- **A held call** is not counted by the stage. The host admits it with `CallRateWindow.Admit` when it is approved. The SDK does this in `ResolveTool` and `ResolveToolWithArgs`. Over the limit, the handler does not run, and the resolution's `Error` wraps a `*stage.CallRateLimitError`, which `Continue` passes to the model.
+- **A deferred call**, one its executor answers with `ToolStatusPending` (a client tool, for example), is not counted by the stage either. The SDK admits it when `Resume`, `Continue` or `ContinueDuplex` uses its result or failure. A result over the limit is replaced by the limit error.
 
-A reservation that nothing resolves lapses after `CallRateReservationLifetime`, which is five minutes. That matches the SDK's default pending TTL, so a held call can't hold a slot forever. A call approved after its reservation lapsed still commits, because the approval is what admits it.
+An admitted call counts for one minute from its admission. A rejected call is never counted. The stage admits a call through `Registry.ExecuteAsyncAdmitted`, which calls the admission only after the registry's own checks pass: the tool exists, its arguments are valid, it has an executor, and the registry's `WithRateLimit` allows it. A call one of those checks refuses is never counted, and a call the window refuses is not counted by the registry's limit either.
+
+Whether an executor defers a call is known only when the executor returns, so the stage takes a deferred call's admission back at that point. While the executor runs, the call counts. Another call to the same tool in the same round can be refused for the limit in that moment.
+
+The trade-off of counting at admission: a held call is checked when it is approved, not when the model makes it. A human may approve a call that then hits the limit, and a client may run a call whose result is then refused.
 
 The loop also excludes a tool from later rounds after its second error result in a turn. This prevents a model from calling a failing or rejected tool until the round limit.
 

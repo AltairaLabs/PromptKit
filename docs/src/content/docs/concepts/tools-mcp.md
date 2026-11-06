@@ -164,11 +164,13 @@ conv, err := sdk.Open("./app.pack.json", "builder",
 )
 ```
 
-- `MaxCallsPerMinute`: how many times each tool may run in any one-minute window of a conversation. The window spans the conversation's turns, a composition's steps, and every state of a workflow. Each call takes a slot when the model makes it:
-  - If the calls that ran in the last minute plus the calls still waiting already reach the limit, the call is refused at once. It is not run and not put to a human, and the model gets a result saying the tool's limit is reached.
-  - A call that runs keeps its slot for one minute from when it ran.
-  - A call held for approval, or a client tool waiting for its result, keeps its slot while it waits. Approving it with `ResolveTool`, or answering it with `SendToolResult` or `FailClientTool`, starts its minute. Rejecting it with `RejectTool` or `RejectClientTool` gives the slot back. An answer takes effect when `Resume` or `Continue` sends it on, or when a new `Send` moves on from the waiting turn.
-  - A waiting call that is never answered gives its slot back after five minutes, the default time a held call stays pending. A call approved after that still counts.
+- `MaxCallsPerMinute`: how many times each tool may run in any one-minute window of a conversation. The window spans the conversation's turns, a composition's steps, and every state of a workflow. A call is checked against the limit, and counted, only when it is admitted to run:
+  - A call the tool loop runs is admitted immediately before it runs.
+  - A call held for approval is admitted when `ResolveTool` or `ResolveToolWithArgs` approves it.
+  - A client tool's call is admitted when `Resume`, `Continue` or `ContinueDuplex` uses the result that `SendToolResult` or `FailClientTool` supplied.
+  - A call over the limit does not run. The model gets a result saying the tool's limit is reached. An approval over the limit returns a resolution whose `Error` is that refusal, and the handler is not called. A client result over the limit is replaced by it.
+  - An admitted call counts for one minute from its admission. A call that is rejected, abandoned by a new `Send` or never answered is never counted, and neither is a call to an unknown tool or one the tool registry's own rate limit refuses.
+  - The trade-off: a held call is checked when it is approved, not when the model makes it, so a human may approve a call that then hits the limit.
 - `MaxCostUSD`: the spend a tool loop may reach, counting the cost recorded on the history it is given. In a conversation, that history is the earlier turns, so the budget spans them. A composition step is given only its own input, so each step has the full budget. The round that crosses it fails the turn with `provider stage: cost budget exceeded`.
 - `MaxIdenticalToolCalls`: how many times the same call with the same arguments may run before the model is told to change course. Defaults to 3.
 - `MaxParallelToolCalls`: how many of one round's calls run at once. Defaults to 10.

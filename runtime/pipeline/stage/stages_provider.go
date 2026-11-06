@@ -109,9 +109,9 @@ type ProviderStage struct {
 	// read and written on the turn's one goroutine.
 	describedKey string
 
-	// callRate holds the slots reserved and committed under
-	// ToolPolicy.MaxCallsPerMinute, per conversation and tool, across turns. A pointer for the same reason as
-	// offeredTools.
+	// callRate counts the calls admitted under ToolPolicy.MaxCallsPerMinute,
+	// per conversation and tool, across turns. A pointer for the same reason
+	// as offeredTools.
 	callRate *CallRateWindow
 }
 
@@ -232,10 +232,10 @@ type ProviderConfig struct {
 
 	// CallRate, when set, is the window ToolPolicy.MaxCallsPerMinute counts
 	// calls in. Share one across the stages of a conversation. The stage
-	// reserves a slot for every call it is asked to make; for a call it holds
-	// for approval or its executor defers, Commit the slot there when the call
-	// is approved or answered and Release it when the call is rejected. Nil
-	// gives the stage a window of its own.
+	// counts each call it runs, immediately before running it. It does not count a
+	// call it holds for approval or its executor defers: call Admit on this
+	// window when the call is approved, or when its result is used, and refuse
+	// the call if Admit does. Nil gives the stage a window of its own.
 	CallRate *CallRateWindow
 
 	// PromptDeclarations maps each prompt task to the pack's definition of
@@ -2929,15 +2929,8 @@ func (s *ProviderStage) executeSingleToolCall(
 		return blocked
 	}
 
-	// Before the approval gate, so a call over ToolPolicy.MaxCallsPerMinute is
-	// refused at once rather than put to a human. A held or deferred call keeps
-	// its reservation until the host commits or releases it (CallRateWindow).
-	slot, refusal, limited := s.reserveCallRate(toolCall)
-	if limited {
-		return toolCallResult{message: refusal}
-	}
 	if held, ok := s.holdForApproval(ctx, toolCall); ok {
-		return held
+		return held // admitted under ToolPolicy.MaxCallsPerMinute when the host approves it
 	}
 
 	labels := s.toolLabels(toolCall.Name)
@@ -2945,17 +2938,23 @@ func (s *ProviderStage) executeSingleToolCall(
 
 	startTime := time.Now()
 	ctx = tools.WithCallID(ctx, toolCall.ID)
-	asyncResult, err := s.toolRegistry.ExecuteAsync(ctx, toolCall.Name, toolCall.Args)
+	// The registry admits the call under ToolPolicy.MaxCallsPerMinute once its
+	// own checks pass, immediately before the executor runs it.
+	admission := s.callRateAdmission(toolCall)
+	asyncResult, err := s.toolRegistry.ExecuteAsyncAdmitted(ctx, toolCall.Name, toolCall.Args, admission.admit)
 	ResetIdleFromContext(ctx)
+	if refusal, limited := callRateRefusal(toolCall, err); limited {
+		s.emitToolFailed(ctx, toolCall, err, startTime, labels, rr)
+		return toolCallResult{message: refusal}
+	}
 	if err != nil {
-		slot.commit() // it was admitted to run, and counts whether or not the executor got that far
 		return s.toolCallFailed(ctx, toolCall, err, startTime, labels, rr)
 	}
 
 	if asyncResult.Status == tools.ToolStatusPending {
+		admission.withdraw() // a deferred call is admitted when its result is used
 		return s.buildPendingResult(ctx, toolCall, asyncResult)
 	}
-	slot.commit()
 
 	result, err := s.buildToolResult(toolCall, asyncResult, s.resultRewriter(ctx, toolReq))
 	if err != nil {
@@ -3000,23 +2999,32 @@ func (s *ProviderStage) toolCallFailed(
 	ctx context.Context, toolCall types.MessageToolCall, err error,
 	startTime time.Time, labels map[string]string, rr roundRef,
 ) toolCallResult {
-	if s.emitter != nil {
-		s.emitter.ToolCallEventCtx(ctx, events.EventToolCallFailed, &events.ToolCallEventData{
-			ToolName:       toolCall.Name,
-			CallID:         toolCall.ID,
-			Error:          err,
-			Duration:       time.Since(startTime),
-			Labels:         labels,
-			Round:          rr.round,
-			ProviderCallID: rr.providerCallID,
-		})
-	}
+	s.emitToolFailed(ctx, toolCall, err, startTime, labels, rr)
 	errResult := types.NewTextToolResult(toolCall.ID, toolCall.Name, fmt.Sprintf("Error: %v", err))
 	errResult.Error = err.Error()
 	errResult.ErrorType = classifyToolError(err)
 	return toolCallResult{
 		message: types.NewToolResultMessage(errResult),
 	}
+}
+
+// emitToolFailed emits tool.call.failed.
+func (s *ProviderStage) emitToolFailed(
+	ctx context.Context, toolCall types.MessageToolCall, err error,
+	startTime time.Time, labels map[string]string, rr roundRef,
+) {
+	if s.emitter == nil {
+		return
+	}
+	s.emitter.ToolCallEventCtx(ctx, events.EventToolCallFailed, &events.ToolCallEventData{
+		ToolName:       toolCall.Name,
+		CallID:         toolCall.ID,
+		Error:          err,
+		Duration:       time.Since(startTime),
+		Labels:         labels,
+		Round:          rr.round,
+		ProviderCallID: rr.providerCallID,
+	})
 }
 
 // resultRewriter returns the function that passes a result's text through
