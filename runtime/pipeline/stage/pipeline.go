@@ -64,6 +64,8 @@ type StreamPipeline struct {
 // provider stage does) delivers that error as emitted. Any other stage's error
 // arrives as a *StageError, which unwraps to the stage's error. A context error
 // that comes from the caller's own cancellation is not treated as a stage failure.
+// One from the pipeline's own ExecutionTimeout or IdleTimeout is: it fails the
+// turn, and an idle timeout's error wraps ErrIdleTimeout.
 // The output closes once the terminal stages have returned.
 //
 // Execute returns ErrPipelineShuttingDown if the pipeline is shutting down.
@@ -124,7 +126,7 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 	output := make(chan StreamElement, p.config.ChannelBufferSize)
 
 	// Execute pipeline in background
-	go p.executeBackground(execCtx, input, output, cancel)
+	go p.executeBackground(ctx, execCtx, input, output, cancel)
 
 	return output, nil
 }
@@ -132,8 +134,14 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 // executeBackground runs the pipeline execution in a background goroutine.
 // It starts all stages as goroutines and collects output CONCURRENTLY with stage execution
 // to support streaming/duplex stages that run indefinitely.
+//
+// callerCtx is the context the caller passed to Execute; ctx is the execution's
+// own, which adds the pipeline's ExecutionTimeout and IdleTimeout to it. Only
+// callerCtx ending is the caller's cancellation: a stage cut off by the
+// pipeline's own timeout fails the turn.
 func (p *StreamPipeline) executeBackground(
-	ctx context.Context, input <-chan StreamElement, output chan<- StreamElement, cancel context.CancelFunc,
+	callerCtx, ctx context.Context, input <-chan StreamElement, output chan<- StreamElement,
+	cancel context.CancelFunc,
 ) {
 	defer func() {
 		if cancel != nil {
@@ -159,14 +167,14 @@ func (p *StreamPipeline) executeBackground(
 	// signaled to the failed stage's downstream stages in-band, as an error
 	// element on their input (see gateInput). Nothing is canceled, so the
 	// other stages drain and persist exactly as before.
-	failure := &turnFailure{parent: ctx}
+	failure := &turnFailure{caller: callerCtx, exec: ctx}
 
 	// Start stages and collect output. totals accumulates the message/token/cost
 	// counts as output elements flow through, so the completion event reports
 	// real numbers instead of zeros.
 	totals := &completionTotals{}
 	stageErrors, runs := p.startStages(ctx, input, channels, edgeChannels, failure)
-	outputDone := p.startOutputCollection(channels, output, totals)
+	outputDone := p.startOutputCollection(channels, output, totals, failure)
 	<-outputDone
 
 	// The output is complete once the leaf stages have returned. Their own
@@ -182,7 +190,10 @@ func (p *StreamPipeline) executeBackground(
 		}
 	}
 	if err := failure.get(); err != nil && !totals.delivered(err) {
-		deliverTurnFailure(ctx, output, err)
+		// Bounded by the caller's context, not the execution's: after the
+		// pipeline's own timeout the execution's is already done, and the
+		// failure must still reach a caller that is reading.
+		deliverTurnFailure(callerCtx, output, err)
 	}
 	close(output)
 
@@ -214,7 +225,10 @@ func deliverTurnFailure(ctx context.Context, output chan<- StreamElement, err er
 // turnFailure records the error that ends a turn: the first stage error that
 // is not just the caller's own cancellation showing through.
 type turnFailure struct {
-	parent context.Context
+	// caller is the context the caller passed to Execute. exec is the
+	// execution's context: caller plus the pipeline's own timeouts.
+	caller context.Context
+	exec   context.Context
 
 	mu  sync.Mutex
 	err error
@@ -222,13 +236,43 @@ type turnFailure struct {
 
 // counts reports whether a stage error fails the turn. A context error while
 // the caller's context is done is that cancellation showing through, not a
-// stage failure.
+// stage failure. One from the pipeline's own ExecutionTimeout or IdleTimeout,
+// with the caller's context still live, is a failure.
 func (f *turnFailure) counts(err error) bool {
 	if err == nil {
 		return false
 	}
-	isCtxErr := errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
-	return f.parent.Err() == nil || !isCtxErr
+	return f.caller.Err() == nil || !isContextError(err)
+}
+
+// withTimeoutCause adds the reason the execution's context ended to a stage's
+// context error when the error does not already carry it, so a stage cut off
+// by the idle timer reports ErrIdleTimeout, not a bare context.Canceled.
+func (f *turnFailure) withTimeoutCause(err error) error {
+	if f == nil || f.exec == nil || f.caller.Err() != nil || !isContextError(err) {
+		return err
+	}
+	cause := context.Cause(f.exec)
+	if cause == nil || errors.Is(err, cause) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", cause, err)
+}
+
+// namedCause is elem as the caller gets it: an error element carrying a bare
+// context error from the pipeline's own timeout gets that timeout's cause, as
+// a returned stage error does (see withTimeoutCause). totals observes the
+// element before this, so the delivered-error check still matches the raw
+// error the stage also returns.
+func (f *turnFailure) namedCause(elem StreamElement) StreamElement {
+	if elem.Error != nil {
+		elem.Error = f.withTimeoutCause(elem.Error)
+	}
+	return elem
+}
+
+func isContextError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 // record notes a stage error that counts. The first failure wins.
@@ -428,11 +472,24 @@ func distributeInput(
 	return result
 }
 
+// casesPerReader is the number of select cases per reader: its send and its done.
+const casesPerReader = 2
+
 // distributor is the state of one distributeInput goroutine.
 type distributor struct {
 	outs       []chan StreamElement
 	readerDone []<-chan struct{}
 	live       []bool
+
+	// cases holds the reflect.Select cases for the live readers, a send case
+	// and a done case per reader, and index the reader of each pair. Built on
+	// first use and rebuilt only when a reader stops being live, not for every
+	// element.
+	cases []reflect.SelectCase
+	index []int
+	// next is the reader the fast path offers the next element to first, so
+	// readers that are all ready share the elements.
+	next int
 }
 
 func (d *distributor) run(in <-chan StreamElement, upstream *stageRun) {
@@ -446,7 +503,7 @@ func (d *distributor) run(in <-chan StreamElement, upstream *stageRun) {
 		if elem.Error != nil {
 			carried = append(carried, elem.Error)
 		}
-		if !sendToAnyReader(elem, d.outs, d.readerDone, d.live) {
+		if !d.send(elem) {
 			return
 		}
 	}
@@ -469,32 +526,64 @@ func (d *distributor) signalLiveReaders(signal StreamElement) {
 	}
 }
 
-// sendToAnyReader hands elem to the first live reader ready for it, marking
-// readers that have returned as no longer live. It reports false when none is
-// left.
-func sendToAnyReader(
-	elem StreamElement, outs []chan StreamElement, readerDone []<-chan struct{}, live []bool,
-) bool {
-	for {
-		var cases []reflect.SelectCase
-		var index []int
-		for i := range outs {
-			if !live[i] {
-				continue
-			}
-			cases = append(cases,
-				reflect.SelectCase{Dir: reflect.SelectSend, Chan: reflect.ValueOf(outs[i]), Send: reflect.ValueOf(elem)},
-				reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(readerDone[i])})
-			index = append(index, i)
+// send hands elem to a live reader ready for it, marking readers that have
+// returned as no longer live. It reports false when none is left. A reader
+// already waiting takes elem without reflection; only when every live reader
+// is busy does send block in reflect.Select until one takes it.
+func (d *distributor) send(elem StreamElement) bool {
+	n := len(d.outs)
+	for k := range n {
+		i := (d.next + k) % n
+		if !d.live[i] {
+			continue
 		}
-		if len(cases) == 0 {
+		select {
+		case d.outs[i] <- elem:
+			d.next = (i + 1) % n
+			return true
+		case <-d.readerDone[i]:
+			d.retire(i)
+		default:
+		}
+	}
+	for {
+		if d.cases == nil {
+			d.buildCases()
+		}
+		if len(d.cases) == 0 {
 			return false
 		}
-		chosen, _, _ := reflect.Select(cases)
-		if chosen%2 == 0 {
+		v := reflect.ValueOf(elem)
+		for j := 0; j < len(d.cases); j += casesPerReader {
+			d.cases[j].Send = v
+		}
+		chosen, _, _ := reflect.Select(d.cases)
+		if chosen%casesPerReader == 0 {
 			return true
 		}
-		live[index[chosen/2]] = false
+		d.retire(d.index[chosen/casesPerReader])
+	}
+}
+
+// retire marks reader i as returned, dropping the cached select cases.
+func (d *distributor) retire(i int) {
+	d.live[i] = false
+	d.cases = nil
+}
+
+// buildCases builds the select cases for the live readers. An empty, non-nil
+// slice means no reader is left.
+func (d *distributor) buildCases() {
+	d.cases = make([]reflect.SelectCase, 0, casesPerReader*len(d.outs))
+	d.index = d.index[:0]
+	for i := range d.outs {
+		if !d.live[i] {
+			continue
+		}
+		d.cases = append(d.cases,
+			reflect.SelectCase{Dir: reflect.SelectSend, Chan: reflect.ValueOf(d.outs[i])},
+			reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(d.readerDone[i])})
+		d.index = append(d.index, i)
 	}
 }
 
@@ -542,10 +631,11 @@ func (p *StreamPipeline) startOutputCollection(
 	channels map[string]chan StreamElement,
 	output chan<- StreamElement,
 	totals *completionTotals,
+	failure *turnFailure,
 ) <-chan struct{} {
 	outputDone := make(chan struct{})
 	go func() {
-		p.collectOutput(channels, output, totals)
+		p.collectOutput(channels, output, totals, failure)
 		close(outputDone)
 	}()
 	return outputDone
@@ -808,6 +898,7 @@ func (p *StreamPipeline) runStage(
 		err = stage.Process(ctx, in, output)
 	}
 	duration := time.Since(start)
+	err = failure.withTimeoutCause(err)
 
 	// Emit stage completed/failed event
 	if p.eventEmitter != nil {
@@ -937,6 +1028,7 @@ func (p *StreamPipeline) collectOutput(
 	channels map[string]chan StreamElement,
 	output chan<- StreamElement,
 	totals *completionTotals,
+	failure *turnFailure,
 ) {
 	// Identify leaf stages (stages with no outgoing edges).
 	var leafChans []<-chan StreamElement
@@ -951,7 +1043,7 @@ func (p *StreamPipeline) collectOutput(
 		for _, ch := range leafChans {
 			for elem := range ch {
 				totals.observe(&elem)
-				output <- elem
+				output <- failure.namedCause(elem)
 			}
 		}
 		return
@@ -965,7 +1057,7 @@ func (p *StreamPipeline) collectOutput(
 			defer wg.Done()
 			for elem := range src {
 				totals.observe(&elem)
-				output <- elem
+				output <- failure.namedCause(elem)
 			}
 		}(ch)
 	}

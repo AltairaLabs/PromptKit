@@ -138,7 +138,7 @@ for elem := range output {
 
 ## 6. Bound a turn (optional)
 
-Two pipeline settings bound a turn. When `ExecutionTimeout` passes, the running stage fails with `context.DeadlineExceeded`.
+Two pipeline settings bound a turn. When `ExecutionTimeout` passes, the running stage fails with `context.DeadlineExceeded`. When `IdleTimeout` fires, the error wraps `stage.ErrIdleTimeout`. Either way the turn fails and `ExecuteSync` returns the error. Only a cancellation of your own context ends a turn without one.
 
 ```go
 cfg := stage.DefaultPipelineConfig().
