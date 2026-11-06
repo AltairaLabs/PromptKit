@@ -1,13 +1,13 @@
 {
  "page": "docs/src/content/docs/runtime/explanation/state-management.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "StateStoreConfig{Store, ConversationID, UserID} selects the conversation",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/types.go:175"
+    "runtime/pipeline/types.go:193"
    ]
   },
   {
@@ -15,8 +15,8 @@
    "claim": "StateStoreLoadStage loads history, emits before input; ErrNotFound is empty history; other errors fail",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_core.go:180",
-    "runtime/pipeline/stage/stages_core.go:253"
+    "runtime/pipeline/stage/stages_core.go:189",
+    "runtime/pipeline/stage/stages_core.go:262"
    ]
   },
   {
@@ -24,7 +24,7 @@
    "claim": "IncrementalSaveStage persists only new messages",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_save.go:196"
+    "runtime/pipeline/stage/stages_save.go:200"
    ]
   },
   {
@@ -32,8 +32,8 @@
    "claim": "Without a state store each Open creates private memory store",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:983",
-    "sdk/sdk.go:838"
+    "sdk/options.go:1012",
+    "sdk/sdk.go:849"
    ]
   },
   {
@@ -41,8 +41,8 @@
    "claim": "WithStateStore, WithConversationID options",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:943",
-    "sdk/options.go:992"
+    "sdk/options.go:1021",
+    "sdk/options.go:972"
    ]
   },
   {
@@ -50,8 +50,7 @@
    "claim": "Store interface Load, Fork; BulkWriter Save",
    "verdict": "true",
    "evidence": [
-    "runtime/statestore/interface.go:18",
-    "runtime/statestore/interface.go:35"
+    "runtime/statestore/interface.go:18-40"
    ]
   },
   {
@@ -70,7 +69,7 @@
    "claim": "Stages never take BulkWriter as a config field",
    "verdict": "true",
    "evidence": [
-    "runtime/statestore/interface.go:31"
+    "runtime/statestore/interface.go:28-34"
    ]
   },
   {
@@ -151,8 +150,8 @@
    "claim": "WithContextWindow(n) uses ContextAssemblyStage with MessageReader, falls back to full load",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_context.go:61",
-    "sdk/options.go:1703"
+    "runtime/pipeline/stage/stages_context.go:63",
+    "sdk/options.go:1830"
    ]
   },
   {
@@ -161,7 +160,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/stages_context.go:18",
-    "runtime/pipeline/stage/stages_context.go:40"
+    "runtime/pipeline/stage/stages_context.go:44"
    ]
   },
   {
@@ -169,9 +168,9 @@
    "claim": "WithTokenBudget/WithTruncation truncate or summarize",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:689",
-    "sdk/options.go:1595",
-    "sdk/options.go:1616"
+    "runtime/pipeline/stage/stages_utilities.go:646",
+    "sdk/options.go:1708",
+    "sdk/options.go:1735"
    ]
   },
   {
@@ -188,8 +187,8 @@
    "claim": "Typed MessageAppender appends race-safely",
    "verdict": "true",
    "evidence": [
-    "runtime/statestore/interface.go:31",
-    "runtime/statestore/redis.go:1026"
+    "runtime/statestore/interface.go:28-34",
+    "runtime/statestore/interface.go:79"
    ]
   },
   {

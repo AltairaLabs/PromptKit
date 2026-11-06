@@ -4,7 +4,7 @@ description: Why the runtime builds pipelines from composable streaming stages, 
 sidebar:
   order: 3
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/evals/handlers/content_excludes.go
     - runtime/evals/handlers/register.go
@@ -16,7 +16,6 @@ verified:
     - runtime/pipeline/stage/stage.go
     - runtime/pipeline/stage/stages_advanced.go
     - runtime/pipeline/stage/stages_core.go
-    - runtime/pipeline/stage/stages_duplex_provider_session.go
     - runtime/pipeline/stage/stages_message_broadcast.go
     - runtime/pipeline/stage/stages_provider.go
     - runtime/pipeline/stage/stages_recording.go
@@ -132,7 +131,7 @@ providerStage := stage.NewProviderStageWithHooks(provider, tools, policy, config
 
 ### Explicit ordering
 
-You choose the order, and order matters: a stage sees only what upstream stages emitted. `Build` rejects an empty pipeline, duplicate stage names, edges to unknown stages, cycles, and a stage with several upstreams that does not implement `MultiInputStage`.
+You choose the order, and order matters: a stage sees only what upstream stages emitted. `Build` rejects an empty pipeline, duplicate stage names, edges to unknown stages, cycles, a stage with several upstreams that does not implement `MultiInputStage`, and a `TemplateStage` or `PromptAssemblyStage` built without a `TurnState`.
 
 ### Streaming first
 

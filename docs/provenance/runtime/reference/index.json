@@ -1,15 +1,15 @@
 {
  "page": "docs/src/content/docs/runtime/reference/index.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "Provider integration covers OpenAI, Anthropic, Google Gemini",
    "verdict": "false",
    "evidence": [
-    "runtime/providers/claude/claude.go:134",
-    "runtime/providers/gemini/gemini.go:104",
-    "runtime/providers/ollama/ollama.go:58",
+    "runtime/providers/claude/claude.go:137",
+    "runtime/providers/gemini/gemini.go:107",
+    "runtime/providers/ollama/ollama.go:60",
     "runtime/providers/openai/openai.go:199",
     "runtime/providers/vllm/vllm.go:49"
    ]
@@ -20,8 +20,8 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/guardrails/adapter.go",
-    "runtime/logger/logger.go:12",
-    "runtime/pipeline/types.go:4",
+    "runtime/logger/logger.go:1-20",
+    "runtime/pipeline/types.go:15-16",
     "runtime/telemetry/listener.go:1"
    ]
   },
@@ -31,8 +31,8 @@
    "verdict": "true",
    "evidence": [
     "runtime/providers/openai/openai.go:199",
-    "runtime/providers/provider.go:181",
-    "runtime/providers/provider.go:251"
+    "runtime/providers/provider.go:190",
+    "runtime/providers/provider.go:262"
    ]
   },
   {
@@ -41,10 +41,10 @@
    "verdict": "true",
    "evidence": [
     "runtime/mcp/registry.go:159",
-    "runtime/mcp/registry.go:425",
-    "runtime/mcp/registry.go:513",
+    "runtime/mcp/registry.go:428",
+    "runtime/mcp/registry.go:516",
     "runtime/mcp/registry.go:82",
-    "runtime/mcp/types.go:342"
+    "runtime/mcp/types.go"
    ]
   },
   {
@@ -52,9 +52,9 @@
    "claim": "PredictStream returns channel of chunks with Error, Delta, FinishReason *string",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/provider.go:254",
-    "runtime/providers/streaming.go:57",
-    "runtime/providers/streaming.go:85"
+    "runtime/providers/provider.go:265",
+    "runtime/providers/streaming.go:54",
+    "runtime/providers/streaming.go:90"
    ]
   },
   {
@@ -62,8 +62,8 @@
    "claim": "ProviderDefaults fields Temperature, TopP, MaxTokens, Pricing{InputCostPer1K, OutputCostPer1K}",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/provider.go:199",
-    "runtime/providers/provider.go:214"
+    "runtime/providers/provider.go:210",
+    "runtime/providers/provider.go:225"
    ]
   },
   {
@@ -71,10 +71,7 @@
    "claim": "pipeline.ToolPolicy: ToolChoice auto/required/none/specific tool",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3813",
-    "runtime/pipeline/stage/stages_provider.go:3876",
-    "runtime/pipeline/types.go:17",
-    "runtime/providers/claude/claude_tools.go:357"
+    "runtime/pipeline/types.go:17"
    ]
   },
   {
@@ -82,17 +79,17 @@
    "claim": "MaxRounds default 50",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1302",
+    "runtime/pipeline/stage/stages_provider.go:1376",
     "runtime/pipeline/stage/stages_provider.go:33"
    ]
   },
   {
    "id": 9,
    "claim": "MaxToolCallsPerTurn caps tool calls per LLM response",
-   "verdict": "false",
+   "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1308",
-    "runtime/pipeline/stage/stages_provider.go:1626"
+    "runtime/pipeline/stage/stages_provider.go:1381",
+    "runtime/pipeline/stage/stages_provider.go:1697"
    ]
   },
   {
@@ -100,7 +97,7 @@
    "claim": "MaxParallelToolCalls default 10",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2689",
+    "runtime/pipeline/stage/stages_provider.go:2789",
     "runtime/pipeline/stage/stages_provider.go:34"
    ]
   },
@@ -109,8 +106,8 @@
    "claim": "MaxCostUSD stops after budget; 0 = unlimited",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1570",
-    "runtime/pipeline/types.go:22"
+    "runtime/pipeline/stage/stages_provider.go:1641",
+    "runtime/pipeline/types.go:37"
    ]
   },
   {
@@ -118,8 +115,7 @@
    "claim": "Blocklist blocks tools",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2764",
-    "runtime/pipeline/types.go:23"
+    "runtime/pipeline/types.go:38"
    ]
   },
   {
@@ -141,7 +137,7 @@
    "claim": "Pipeline creates a fresh ExecutionContext per call",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:56"
+    "runtime/pipeline/stage/pipeline.go:99"
    ]
   },
   {
@@ -155,7 +151,7 @@
    "claim": "client.CallTool(ctx, \"read_file\", args) returns (response, err)",
    "verdict": "true",
    "evidence": [
-    "runtime/mcp/types.go:285"
+    "runtime/mcp/types.go:281"
    ]
   },
   {
@@ -163,8 +159,8 @@
    "claim": "Reference table links resolve and list all runtime reference pages",
    "verdict": "false",
    "evidence": [
-    "runtime/evals/types.go:1",
-    "runtime/memory/types.go:1"
+    "runtime/evals/types.go",
+    "runtime/memory/types.go"
    ]
   },
   {
@@ -172,7 +168,7 @@
    "claim": "Pipeline reference describes Stage and pipeline interfaces",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:56",
+    "runtime/pipeline/stage/pipeline.go:99",
     "runtime/pipeline/stage/stage.go:49"
    ]
   },
@@ -181,12 +177,9 @@
    "claim": "ToolPolicy MaxIdenticalToolCalls default 3 (a second identical-call loop after the self-correction nudge fails the turn), StopOnTool, and prompt tool_policy merge rules (smaller non-zero MaxRounds/MaxToolCallsPerTurn, union Blocklist, caller ToolChoice wins)",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1320",
-    "runtime/pipeline/stage/stages_provider.go:1661",
-    "runtime/pipeline/stage/stages_provider.go:1707",
-    "runtime/pipeline/types.go:27",
-    "runtime/pipeline/types.go:30",
-    "runtime/pipeline/types.go:68"
+    "runtime/pipeline/stage/stages_provider.go:35",
+    "runtime/pipeline/types.go:39-48",
+    "runtime/pipeline/types.go:86-101"
    ]
   },
   {
@@ -194,9 +187,19 @@
    "claim": "MaxTokens zero or MaxTokensUnlimited sends no limit, except Claude where zero falls back to 4096",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude.go:668",
-    "runtime/providers/provider.go:204",
-    "runtime/providers/provider.go:213"
+    "runtime/providers/claude/claude.go:673",
+    "runtime/providers/provider.go:215",
+    "runtime/providers/provider.go:224"
+   ]
+  },
+  {
+   "id": 22,
+   "claim": "ToolPolicy.MaxCallsPerMinute caps each tool's calls in a one-minute window of a conversation; 0 is unlimited; a call over the limit is not executed and the model is told the limit is reached",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_provider.go:2933-2946",
+    "runtime/pipeline/stage/tool_call_rate.go:45-60",
+    "runtime/pipeline/types.go:21-36"
    ]
   }
  ]

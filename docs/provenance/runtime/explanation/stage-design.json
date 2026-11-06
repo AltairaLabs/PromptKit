@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/runtime/explanation/stage-design.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
@@ -15,7 +15,7 @@
    "claim": "Each stage runs in its own goroutine",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:298"
+    "runtime/pipeline/stage/pipeline.go:480-520"
    ]
   },
   {
@@ -31,7 +31,7 @@
    "claim": "StreamElement carries one content type plus Sequence/EndOfStream/EndOfTurn/Interrupt",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/element.go:77"
+    "runtime/pipeline/stage/element.go:76"
    ]
   },
   {
@@ -39,9 +39,9 @@
    "claim": "Constructors NewAudioTurnStage(cfg) (stage,error), NewSTTStage, NewStateStoreLoadStage, NewProviderStage, NewIncrementalSaveStage, NewTTSStage compile",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_core.go:166",
-    "runtime/pipeline/stage/stages_provider.go:276",
-    "runtime/pipeline/stage/stages_save.go:60",
+    "runtime/pipeline/stage/stages_core.go:175",
+    "runtime/pipeline/stage/stages_provider.go:314",
+    "runtime/pipeline/stage/stages_save.go:64",
     "runtime/pipeline/stage/stages_speech.go:115",
     "runtime/pipeline/stage/stages_speech.go:742",
     "runtime/pipeline/stage/stages_tts.go:52"
@@ -53,8 +53,8 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/hooks.go:10",
-    "runtime/pipeline/stage/stages_provider.go:2498",
-    "runtime/pipeline/stage/stages_provider.go:3068"
+    "runtime/pipeline/stage/stages_provider.go:2594",
+    "runtime/pipeline/stage/stages_provider.go:3181"
    ]
   },
   {
@@ -62,9 +62,9 @@
    "claim": "Pack validators, WithGuardrail and WithProviderHook/WithToolHook converge on one hooks.Registry",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1812",
-    "sdk/options.go:434",
-    "sdk/sdk.go:1541"
+    "sdk/options.go:1972",
+    "sdk/options.go:459",
+    "sdk/sdk.go:1557"
    ]
   },
   {
@@ -74,7 +74,7 @@
    "evidence": [
     "runtime/pipeline/stage/structured_output_mode.go:186",
     "runtime/pipeline/stage/structured_output_mode.go:92",
-    "sdk/options.go:3227"
+    "sdk/options.go:3418"
    ]
   },
   {
@@ -82,7 +82,7 @@
    "claim": "NewProviderStageWithHooks(provider,tools,policy,config,emitter,hookRegistry)",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:301"
+    "runtime/pipeline/stage/stages_provider.go:339"
    ]
   },
   {
@@ -96,10 +96,11 @@
   },
   {
    "id": 11,
-   "claim": "Build rejects no stages, duplicate names, unknown edge stages, cycles, unsupported fan-in",
+   "claim": "Build rejects no stages, duplicate names, unknown edge stages, cycles, unsupported fan-in, and TemplateStage/PromptAssemblyStage without TurnState",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/builder.go:185"
+    "runtime/pipeline/stage/builder.go:133-135",
+    "runtime/pipeline/stage/builder.go:195-300"
    ]
   },
   {
@@ -107,7 +108,7 @@
    "claim": "StageType values Transform/Accumulate/Generate/Sink/Bidirectional",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stage.go:99"
+    "runtime/pipeline/stage/stage.go:102"
    ]
   },
   {
@@ -115,8 +116,8 @@
    "claim": "Type is used for events and errors only",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:768",
-    "runtime/pipeline/stage/pipeline.go:806"
+    "runtime/pipeline/stage/pipeline.go:1167",
+    "runtime/pipeline/stage/pipeline.go:1206"
    ]
   },
   {
@@ -124,11 +125,10 @@
    "claim": "Stage-type examples: AudioTurnStage accumulate, ProviderStage generate, IncrementalSaveStage sink, DuplexProviderStage bidirectional, STT/Template transform, ContextBuilder accumulate",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_duplex_provider_session.go:152",
-    "runtime/pipeline/stage/stages_provider.go:333",
-    "runtime/pipeline/stage/stages_save.go:62",
-    "runtime/pipeline/stage/stages_speech.go:160",
-    "runtime/pipeline/stage/stages_utilities.go:734"
+    "runtime/pipeline/stage/stages_provider.go:375",
+    "runtime/pipeline/stage/stages_save.go:66",
+    "runtime/pipeline/stage/stages_speech.go:744",
+    "runtime/pipeline/stage/stages_utilities.go:789"
    ]
   },
   {
@@ -142,9 +142,9 @@
   {
    "id": 16,
    "claim": "PriorityChannel is a stage",
-   "verdict": "false",
+   "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_advanced.go:349"
+    "runtime/pipeline/stage/stages_advanced.go:351"
    ]
   },
   {
@@ -152,8 +152,8 @@
    "claim": "MessageBroadcastStage publishes message.created; RecordingStage writes to EventStore",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_message_broadcast.go:85",
-    "runtime/pipeline/stage/stages_recording.go:114"
+    "runtime/pipeline/stage/stages_message_broadcast.go:71-85",
+    "runtime/pipeline/stage/stages_recording.go:110"
    ]
   },
   {
@@ -161,17 +161,16 @@
    "claim": "IncrementalSaveStage uses MessageAppender else BulkWriter full save",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_save.go:164",
-    "runtime/pipeline/stage/stages_save.go:236"
+    "runtime/pipeline/stage/stages_save.go:168",
+    "runtime/pipeline/stage/stages_save.go:240"
    ]
   },
   {
    "id": 19,
    "claim": "Branch(from,to...) copies output to every branch",
-   "verdict": "false",
+   "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/builder.go:98",
-    "runtime/pipeline/stage/pipeline.go:278"
+    "runtime/pipeline/stage/builder.go:96-115"
    ]
   },
   {
@@ -179,7 +178,7 @@
    "claim": "Original Branch example with only ProviderStage in Chain builds",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/stage/builder.go:205"
+    "runtime/pipeline/stage/builder.go"
    ]
   },
   {
@@ -187,7 +186,7 @@
    "claim": "RouterStage routes to names returned by RouterFunc; MultiOutputStage single-Execute caveat",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stage.go:74",
+    "runtime/pipeline/stage/stage.go:74-92",
     "runtime/pipeline/stage/stages_advanced.go:14"
    ]
   },
@@ -205,7 +204,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/builder.go:29",
-    "runtime/pipeline/stage/config.go:114",
+    "runtime/pipeline/stage/config.go:132",
     "runtime/pipeline/stage/config.go:17"
    ]
   },
@@ -214,7 +213,7 @@
    "claim": "Slow consumers throttle producers via channel blocking; stages run concurrently",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:298"
+    "runtime/pipeline/stage/pipeline.go:480-520"
    ]
   },
   {
@@ -222,8 +221,8 @@
    "claim": "Execute(ctx,input) returns (output channel, error); NewErrorElement exists",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/element.go:379",
-    "runtime/pipeline/stage/pipeline.go:56"
+    "runtime/pipeline/stage/element.go:388",
+    "runtime/pipeline/stage/pipeline.go:105-110"
    ]
   },
   {
@@ -237,8 +236,8 @@
    "claim": "A stage that returns an error fails the turn; the error reaches the caller as the last output element",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:136",
-    "runtime/pipeline/stage/pipeline.go:162"
+    "runtime/pipeline/stage/pipeline.go:205-260",
+    "runtime/pipeline/stage/pipeline.go:75-100"
    ]
   }
  ]

@@ -4,7 +4,7 @@ description: Why retrieval has two shapes in an agent, what each costs, and why 
 sidebar:
   order: 6
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/memory/corpus/corpus.go
     - runtime/memory/retriever.go

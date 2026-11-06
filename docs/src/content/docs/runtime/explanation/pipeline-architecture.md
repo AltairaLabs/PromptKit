@@ -4,7 +4,7 @@ description: How the runtime's stage-based streaming pipeline executes LLM reque
 sidebar:
   order: 1
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/events/message_created_data.go
     - runtime/events/types.go
@@ -13,7 +13,6 @@ verified:
     - runtime/pipeline/stage/element.go
     - runtime/pipeline/stage/element_pool.go
     - runtime/pipeline/stage/pipeline.go
-    - runtime/pipeline/stage/pipeline_fanout_test.go
     - runtime/pipeline/stage/stage.go
     - runtime/pipeline/stage/stages_advanced.go
     - runtime/pipeline/stage/stages_core.go
@@ -257,6 +256,10 @@ Use it for Gemini Live and other real-time voice conversations.
 
 `Execute` creates one buffered channel per stage, sized by `PipelineConfig.ChannelBufferSize` (default 32), and starts each stage in its own goroutine. A stage that returns an error ends its turn; the pipeline reports the first such error. The output channel closes when the leaf stages finish.
 
+`PipelineConfig.MaxConcurrentPipelines` (default 100) bounds how many executions of one pipeline run at once. A zero value removes the limit. When the limit is reached, `Execute` waits for a running execution to finish. It returns the context's error if the context ends first, and `ErrPipelineShuttingDown` if `Shutdown` is called first.
+
+`PipelineConfig.IdleTimeout` (default 30 seconds) cancels an execution after that long without activity; tool calls in flight count as activity. `PipelineConfig.ExecutionTimeout` (default 0, disabled) sets a hard ceiling on one execution. A turn that ends this way fails with an error that wraps `ErrIdleTimeout` or `ErrExecutionTimeout`. Cancellation by the caller's own context is not a stage failure.
+
 ### Backpressure
 
 Channel-based communication handles backpressure without extra machinery:
@@ -264,6 +267,8 @@ Channel-based communication handles backpressure without extra machinery:
 - Slow consumers block producers.
 - The buffer size trades latency against throughput.
 - Buffering is bounded.
+
+Stages read their input in the order it was sent, whatever each element's `Priority`. Set `PipelineConfig.PrioritizeElements` to make each stage deliver higher-priority elements first, with up to `ChannelBufferSize` elements waiting in each stage's priority queue. A control element such as `EndOfTurn` (`PriorityCritical`) can then overtake content sent before it, which the streaming provider stage does not tolerate, so enable the option only when every stage does.
 
 ### Shutdown
 
@@ -321,6 +326,7 @@ Use `Merge` with a `MergeStage` to fan several stages back into one.
 - has an edge to a stage that does not exist
 - contains a cycle
 - sends several upstream edges into a stage that is not a `MultiInputStage`, or repeats an edge between the same pair of stages
+- includes a `TemplateStage` or `PromptAssemblyStage` built without a `TurnState` (`ErrTurnStateRequired`)
 
 ## Error handling
 
@@ -345,7 +351,7 @@ if err := s.criticalOperation(elem); err != nil {
 }
 ```
 
-The pipeline does not cancel the other stages. It tells the failed stage's downstream stages by sending the error as the last element on their input, so a stage such as the provider stage does not act on a turn that failed. The other stages drain and persist, and the output channel ends with the error as an element.
+The pipeline does not cancel the other stages. It tells the failed stage's downstream stages by sending the error as the last element on their input, so a stage such as the provider stage does not act on a turn that failed. The other stages drain and persist, and the output channel ends with the error as an element. The error reaches the caller as a `*StageError` that unwraps to the stage's error, unless the stage emitted it as an error element before returning it, in which case the caller gets it as emitted.
 
 ### Context cancellation
 

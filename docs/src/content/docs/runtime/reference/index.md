@@ -3,7 +3,7 @@ title: Runtime Reference
 sidebar:
   order: 0
 verified:
-  commit: 004b9cbbd4d40f770a2e3c76053b600a55189355
+  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/evals/types.go
     - runtime/hooks/guardrails/adapter.go
@@ -14,9 +14,9 @@ verified:
     - runtime/pipeline/stage/pipeline.go
     - runtime/pipeline/stage/stage.go
     - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/tool_call_rate.go
     - runtime/pipeline/types.go
     - runtime/providers/claude/claude.go
-    - runtime/providers/claude/claude_tools.go
     - runtime/providers/gemini/gemini.go
     - runtime/providers/ollama/ollama.go
     - runtime/providers/openai/openai.go
@@ -172,6 +172,7 @@ for serverName, tools := range serverTools {
 | `MaxRounds` | `int` | 50 | Maximum LLM-to-tool rounds per turn |
 | `MaxToolCallsPerTurn` | `int` | 0 (no cap) | Maximum tool calls across all rounds of a turn |
 | `MaxParallelToolCalls` | `int` | 10 | Maximum concurrent tool executions |
+| `MaxCallsPerMinute` | `int` | 0 (unlimited) | Maximum calls to each tool in any one-minute window of a conversation; a call over the limit is not executed, and the model is told the tool's limit is reached |
 | `MaxCostUSD` | `float64` | 0 (unlimited) | Cumulative cost budget; the turn fails with an error once exceeded |
 | `Blocklist` | `[]string` | none | Tool names the stage refuses to execute; the model receives a "blocked by policy" result |
 | `MaxIdenticalToolCalls` | `int` | 3 | The call that repeats the same tool and arguments this many times is skipped; the model receives a stop-repeating result; a second loop after that fails the turn |

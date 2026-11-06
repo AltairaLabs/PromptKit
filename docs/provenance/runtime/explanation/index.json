@@ -1,13 +1,13 @@
 {
  "page": "docs/src/content/docs/runtime/explanation/index.md",
- "commit": "004b9cbbd4d40f770a2e3c76053b600a55189355",
+ "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
  "claims": [
   {
    "id": 1,
    "claim": "Text-mode stage order statestore_load, variable_provider, prompt_assembly, template, provider, incremental_save",
    "verdict": "true",
    "evidence": [
-    "sdk/internal/pipeline/builder.go:458-533"
+    "sdk/internal/pipeline/builder.go:491-532"
    ]
   },
   {
@@ -23,7 +23,7 @@
    "claim": "Three modes text, VAD, ASM",
    "verdict": "true",
    "evidence": [
-    "sdk/internal/pipeline/builder.go:675-686"
+    "sdk/internal/pipeline/builder.go:726-737"
    ]
   },
   {
@@ -31,7 +31,7 @@
    "claim": "Each stage runs in its own goroutine joined by channels",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:263-299"
+    "runtime/pipeline/stage/pipeline.go:480-520"
    ]
   },
   {
@@ -39,8 +39,8 @@
    "claim": "Tools registry, executor, MCP integration",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/registry.go:81",
-    "runtime/tools/types.go:393"
+    "runtime/tools/registry.go:82",
+    "runtime/tools/types.go:441"
    ]
   }
  ]
