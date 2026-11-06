@@ -4,6 +4,7 @@ package policy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -218,7 +219,7 @@ func (h *TimeBasedPolicyHandler) EnforcePolicy(ctx context.Context, baseDir stri
 func (h *TimeBasedPolicyHandler) enforceFromIndex(_ context.Context) error {
 	now := h.now()
 	deleted := 0
-	errors := 0
+	failures := 0
 
 	// Collect expired entries under read lock
 	h.expiryMu.RLock()
@@ -240,12 +241,12 @@ func (h *TimeBasedPolicyHandler) enforceFromIndex(_ context.Context) error {
 			deleted++
 		}
 		if failed {
-			errors++
+			failures++
 		}
 	}
 
-	if deleted > 0 || errors > 0 {
-		logger.Info("Policy enforcement completed (indexed)", "deleted", deleted, "errors", errors)
+	if deleted > 0 || failures > 0 {
+		logger.Info("Policy enforcement completed (indexed)", "deleted", deleted, "errors", failures)
 	}
 
 	return nil
@@ -273,8 +274,14 @@ func (h *TimeBasedPolicyHandler) enforceEntry(entry expiryEntry, now time.Time) 
 		delete(h.expiryIndex, entry.metaPath)
 		return false, false
 	}
-	if meta, err := h.loadPolicyMetadata(entry.metaPath); err == nil &&
-		meta.ExpiresAt != nil && !meta.ExpiresAt.Before(now) {
+	meta, err := h.loadPolicyMetadata(entry.metaPath)
+	if errors.Is(err, errNoPolicy) {
+		// The .meta was rewritten with no policy: the media never expires, so
+		// the entry leaves the index rather than failing on every pass.
+		delete(h.expiryIndex, entry.metaPath)
+		return false, false
+	}
+	if err == nil && meta.ExpiresAt != nil && !meta.ExpiresAt.Before(now) {
 		// The .meta was rewritten with a later expiry without a re-track; keep
 		// enforcing it at the expiry on disk rather than dropping it.
 		entry.expiresAt = *meta.ExpiresAt
@@ -354,13 +361,13 @@ func writeKey(metaPath string) string {
 func (h *TimeBasedPolicyHandler) enforceFromWalk(_ context.Context, baseDir string) error {
 	now := h.now()
 	deleted := 0
-	errors := 0
+	failures := 0
 
 	// Walk the base directory looking for .meta files
 	err := filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			// Log and continue on errors (e.g., permission denied)
-			errors++
+			failures++
 			return nil
 		}
 
@@ -375,7 +382,7 @@ func (h *TimeBasedPolicyHandler) enforceFromWalk(_ context.Context, baseDir stri
 			deleted++
 		}
 		if failed {
-			errors++
+			failures++
 		}
 
 		return nil
@@ -386,8 +393,8 @@ func (h *TimeBasedPolicyHandler) enforceFromWalk(_ context.Context, baseDir stri
 	}
 
 	// Log enforcement results
-	if deleted > 0 || errors > 0 {
-		logger.Info("Policy enforcement completed", "deleted", deleted, "errors", errors)
+	if deleted > 0 || failures > 0 {
+		logger.Info("Policy enforcement completed", "deleted", deleted, "errors", failures)
 	}
 
 	return nil
@@ -398,6 +405,9 @@ func (h *TimeBasedPolicyHandler) enforceFromWalk(_ context.Context, baseDir stri
 func (h *TimeBasedPolicyHandler) processMetaFile(metaPath string, now time.Time) bool {
 	// Load metadata from .meta file
 	metaData, err := h.loadPolicyMetadata(metaPath)
+	if errors.Is(err, errNoPolicy) {
+		return true // No policy: the media never expires
+	}
 	if err != nil {
 		// Skip files we can't read
 		return false
@@ -612,6 +622,10 @@ func (h *TimeBasedPolicyHandler) ExpiryIndexLen() int {
 	return len(h.expiryIndex)
 }
 
+// errNoPolicy is returned by loadPolicyMetadata for a .meta that names no
+// policy: media that never expires.
+var errNoPolicy = errors.New("no policy name in metadata")
+
 // loadPolicyMetadata loads policy metadata from a .meta file.
 func (h *TimeBasedPolicyHandler) loadPolicyMetadata(metaPath string) (*Metadata, error) {
 	data, err := os.ReadFile(filepath.Clean(metaPath))
@@ -627,7 +641,7 @@ func (h *TimeBasedPolicyHandler) loadPolicyMetadata(metaPath string) (*Metadata,
 	}
 
 	if mediaMetadata.PolicyName == "" {
-		return nil, fmt.Errorf("no policy name in metadata")
+		return nil, errNoPolicy
 	}
 
 	expiresAt, _, err := mediaExpiry(&mediaMetadata)

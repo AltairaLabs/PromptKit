@@ -356,8 +356,10 @@ func (fs *FileStore) dedupHitLocked(
 // longer than the metadata on disk does, so a dedup hit never hands out a
 // reference that expires before the store asked. Only the retention changes:
 // the metadata on disk takes this store's policy and expiry and keeps the rest,
-// such as the run, session and timestamp of the store that wrote the file. It
-// does nothing when the handler does not implement storage.MediaExpiryReporter.
+// such as the run, session and timestamp of the store that wrote the file. A
+// store with no policy, and no DefaultPolicy to fall back on, never extends it:
+// asking for no policy is not asking to outlast a file that has one. It does
+// nothing when the handler does not implement storage.MediaExpiryReporter.
 // The caller holds the file's write guard.
 func (fs *FileStore) extendRetention(filePath string, metadata *storage.MediaMetadata) {
 	reporter, ok := fs.config.PolicyHandler.(storage.MediaExpiryReporter)
@@ -367,6 +369,11 @@ func (fs *FileStore) extendRetention(filePath string, metadata *storage.MediaMet
 	effective := *metadata
 	if effective.PolicyName == "" {
 		effective.PolicyName = fs.config.DefaultPolicy
+	}
+	if effective.PolicyName == "" {
+		// A store that asks for no retention policy leaves the shared file's
+		// retention as it is, and never strips the policy from its metadata.
+		return
 	}
 	nextAt, nextExpires, err := reporter.MediaExpiresAt(&effective)
 	if err != nil {
