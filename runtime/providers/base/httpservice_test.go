@@ -14,10 +14,12 @@ func TestWithBaseURL(t *testing.T) {
 }
 
 func TestWithClient(t *testing.T) {
-	c := &http.Client{}
+	c := &http.Client{Transport: &http.Transport{}}
 	f := &HTTPServiceFields{}
 	WithClient(c)(f)
-	if f.Client != c {
+	// The option keeps a copy that shares the caller's transport and carries the
+	// credential redirect policy; the caller's own client is not modified.
+	if f.Client == c || f.Client.Transport != c.Transport || c.CheckRedirect != nil {
 		t.Error("Client was not set correctly")
 	}
 }

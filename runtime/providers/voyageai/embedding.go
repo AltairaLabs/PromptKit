@@ -9,6 +9,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
@@ -105,7 +107,7 @@ func WithAPIKey(key string) EmbeddingOption {
 // WithHTTPClient sets a custom HTTP client.
 func WithHTTPClient(client *http.Client) EmbeddingOption {
 	return func(p *EmbeddingProvider) {
-		p.HTTPClient = client
+		p.HTTPClient = base.WithCredentialRedirectPolicy(client)
 	}
 }
 

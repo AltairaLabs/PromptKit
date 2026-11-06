@@ -421,7 +421,9 @@ func TestContextCancellation(t *testing.T) {
 func TestWithHTTPClient(t *testing.T) {
 	custom := &http.Client{Timeout: 30 * time.Second}
 	c := NewClient("http://example.com", WithHTTPClient(custom))
-	if c.httpClient != custom {
+	// The client keeps a copy with the caller's settings and the credential
+	// redirect policy; the caller's own client is not modified.
+	if c.httpClient == custom || c.httpClient.Timeout != custom.Timeout || custom.CheckRedirect != nil {
 		t.Error("expected custom HTTP client")
 	}
 }
@@ -607,8 +609,9 @@ func TestSendMessageStream_LargeArtifact(t *testing.T) {
 func TestNewClient_WithHTTPClientOverridesDefault(t *testing.T) {
 	custom := &http.Client{Timeout: 5 * time.Second}
 	c := NewClient("http://example.com", WithHTTPClient(custom))
-
-	if c.httpClient != custom {
+	// The client keeps a copy with the caller's settings and the credential
+	// redirect policy; the caller's own client is not modified.
+	if c.httpClient == custom || c.httpClient.Timeout != custom.Timeout || custom.CheckRedirect != nil {
 		t.Error("expected custom HTTP client to override default")
 	}
 }

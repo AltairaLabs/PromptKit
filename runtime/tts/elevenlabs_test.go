@@ -33,7 +33,7 @@ func TestNewElevenLabs(t *testing.T) {
 }
 
 func TestNewElevenLabs_WithOptions(t *testing.T) {
-	customClient := &http.Client{}
+	customClient := &http.Client{Transport: &http.Transport{}}
 	service := NewElevenLabs("test-key",
 		base.WithBaseURL("https://custom.api.com"),
 		base.WithClient(customClient),
@@ -44,7 +44,9 @@ func TestNewElevenLabs_WithOptions(t *testing.T) {
 		t.Errorf("BaseURL = %v, want https://custom.api.com", service.BaseURL)
 	}
 
-	if service.Client != customClient {
+	// The option keeps a copy that shares the caller's transport and carries the
+	// credential redirect policy; the caller's own client is not modified.
+	if service.Client == customClient || service.Client.Transport != customClient.Transport || customClient.CheckRedirect != nil {
 		t.Error("Client was not set correctly")
 	}
 

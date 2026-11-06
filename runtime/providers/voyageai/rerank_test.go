@@ -130,7 +130,7 @@ func TestVoyageRerank_RegisteredWithTheFactory(t *testing.T) {
 // an option that silently does nothing is the kind of thing that only shows up
 // as "why is it still using the default model" against a live API.
 func TestVoyageRerankOptions_AllApply(t *testing.T) {
-	client := &http.Client{}
+	client := &http.Client{Transport: &http.Transport{}}
 	p, err := NewRerankProvider(
 		WithRerankAPIKey("k"),
 		WithRerankModel(ModelRerank25Lite),
@@ -147,7 +147,9 @@ func TestVoyageRerankOptions_AllApply(t *testing.T) {
 	if p.BaseURL != "https://example.test" {
 		t.Errorf("baseURL = %q", p.BaseURL)
 	}
-	if p.HTTPClient != client {
+	// The option keeps a copy that shares the caller's transport and carries the
+	// credential redirect policy; the caller's own client is not modified.
+	if p.HTTPClient == client || p.HTTPClient.Transport != client.Transport || client.CheckRedirect != nil {
 		t.Error("HTTP client not applied")
 	}
 	if p.truncation == nil || !*p.truncation {

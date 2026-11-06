@@ -50,7 +50,7 @@ A credential in the provider's `credential` block (`ProviderSpec.Credential`) ta
 
 A provider's key is fixed when the provider is built.
 
-A credential never follows a redirect to another host. On a redirect off the provider's scheme and host, the request loses every credential header (`Authorization`, API-key headers, the SigV4 `X-Amz-*` headers) and every custom header, with or without a rate limit.
+A credential never follows a redirect to another host. On a redirect off the provider's scheme and host, the request loses every credential header (`Authorization`, API-key headers, the SigV4 `X-Amz-*` headers) and every custom header, with or without a rate limit. This holds for an HTTP client you pass in, too. The provider uses a copy of your client that runs your own `CheckRedirect` after its own, and your client is never modified.
 
 ## Create a hosted provider
 

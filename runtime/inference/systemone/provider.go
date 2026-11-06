@@ -99,7 +99,9 @@ func New(cfg Config) (*Provider, error) {
 	if model == "" {
 		model = DefaultModel
 	}
-	hc := cfg.HTTPClient
+	// A caller-supplied client is used through a copy carrying the credential
+	// redirect policy, so the key never follows a redirect to another host.
+	hc := provbase.WithCredentialRedirectPolicy(cfg.HTTPClient)
 	if hc == nil {
 		timeout := cfg.Timeout
 		if timeout <= 0 {

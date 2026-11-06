@@ -374,14 +374,19 @@ func TestEmbeddingProvider_Model(t *testing.T) {
 }
 
 func TestEmbeddingProvider_WithHTTPClient(t *testing.T) {
-	customClient := &http.Client{}
+	customClient := &http.Client{Transport: &http.Transport{}}
 	p, err := NewEmbeddingProvider(
 		WithEmbeddingAPIKey("test-key"),
 		WithEmbeddingHTTPClient(customClient),
 	)
 	require.NoError(t, err)
 
-	assert.Equal(t, customClient, p.HTTPClient)
+	// A copy that shares the caller's transport and carries the credential
+	// redirect policy; the caller's own client is not modified.
+	assert.NotSame(t, customClient, p.HTTPClient)
+	assert.Same(t, customClient.Transport, p.HTTPClient.Transport)
+	assert.NotNil(t, p.HTTPClient.CheckRedirect)
+	assert.Nil(t, customClient.CheckRedirect)
 }
 
 func TestDimensionsForModel(t *testing.T) {

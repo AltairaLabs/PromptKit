@@ -12,6 +12,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
@@ -67,7 +69,7 @@ func WithAPIKey(key string) RerankOption {
 
 // WithHTTPClient sets a custom HTTP client.
 func WithHTTPClient(client *http.Client) RerankOption {
-	return func(p *RerankProvider) { p.HTTPClient = client }
+	return func(p *RerankProvider) { p.HTTPClient = base.WithCredentialRedirectPolicy(client) }
 }
 
 // WithMaxTokensPerDoc caps how much of each document Cohere reads.

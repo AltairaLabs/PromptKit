@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
@@ -124,7 +126,7 @@ func WithGeminiEmbeddingAPIKey(key string) EmbeddingOption {
 // WithGeminiEmbeddingHTTPClient sets a custom HTTP client.
 func WithGeminiEmbeddingHTTPClient(client *http.Client) EmbeddingOption {
 	return func(p *EmbeddingProvider) {
-		p.HTTPClient = client
+		p.HTTPClient = base.WithCredentialRedirectPolicy(client)
 	}
 }
 
