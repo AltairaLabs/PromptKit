@@ -2,7 +2,9 @@ package workflow
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"sort"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
@@ -65,9 +67,11 @@ func validateEntry(spec *Spec, promptSet map[string]bool, r *ValidationResult) {
 	}
 }
 
-// validateStates checks rules 5-9 for each state.
+// validateStates checks rules 5-9 for each state, in state-name order so the
+// findings read the same on every run.
 func validateStates(spec *Spec, promptSet map[string]bool, r *ValidationResult) {
-	for name, state := range spec.States {
+	for _, name := range slices.Sorted(maps.Keys(spec.States)) {
+		state := spec.States[name]
 		if name != spec.Entry && OrchestrationOf(state) != OrchestrationComposition && !promptSet[state.PromptTask] {
 			r.Errors = append(r.Errors, fmt.Sprintf(
 				"workflow.states[%q].prompt_task %q does not reference a valid prompt",
@@ -84,7 +88,8 @@ func validateStates(spec *Spec, promptSet map[string]bool, r *ValidationResult) 
 
 // validateEvents checks rules 6-7: event targets and PascalCase.
 func validateEvents(spec *Spec, name string, state *State, r *ValidationResult) {
-	for event, target := range state.OnEvent {
+	for _, event := range SortedEvents(state.OnEvent) {
+		target := state.OnEvent[event]
 		if _, ok := spec.States[target]; !ok {
 			r.Errors = append(r.Errors, fmt.Sprintf(
 				"workflow.states[%q].on_event[%q] target %q does not exist in states",
@@ -307,7 +312,9 @@ func validateCycles(spec *Spec, r *ValidationResult) {
 	}
 }
 
-// detectCycles uses DFS to find cycles in the state graph.
+// detectCycles uses DFS to find cycles in the state graph. It visits states in
+// name order and each state's events in name order, so the same spec reports
+// the same cycles, worded the same way, on every run.
 func detectCycles(spec *Spec) []string {
 	const (
 		white = iota // unvisited
@@ -326,7 +333,8 @@ func detectCycles(spec *Spec) []string {
 			color[state] = black
 			return
 		}
-		for _, target := range s.OnEvent {
+		for _, event := range SortedEvents(s.OnEvent) {
+			target := s.OnEvent[event]
 			switch color[target] {
 			case gray:
 				cycles = append(cycles, fmt.Sprintf("%s -> %s", state, target))
@@ -337,7 +345,7 @@ func detectCycles(spec *Spec) []string {
 		color[state] = black
 	}
 
-	for name := range spec.States {
+	for _, name := range slices.Sorted(maps.Keys(spec.States)) {
 		if color[name] == white {
 			dfs(name)
 		}

@@ -112,19 +112,29 @@ func TestValidationError_Error(t *testing.T) {
 		{
 			name: "with value",
 			err: ValidationError{
+				Field:   "providers[0].role",
+				Message: "unknown role",
+				Value:   "xml",
+			},
+			expected: "config validation error: providers[0].role: unknown role (got: xml)",
+		},
+		{
+			name: "without value",
+			err: ValidationError{
+				Field:   "mcp_servers[0].name",
+				Message: "name is required",
+			},
+			expected: "config validation error: mcp_servers[0].name: name is required",
+		},
+		{
+			name: "logging section",
+			err: ValidationError{
+				Section: "logging",
 				Field:   "format",
 				Message: "must be json or text",
 				Value:   "xml",
 			},
 			expected: "logging config validation error: format: must be json or text (got: xml)",
-		},
-		{
-			name: "without value",
-			err: ValidationError{
-				Field:   "modules[0].name",
-				Message: "module name is required",
-			},
-			expected: "logging config validation error: modules[0].name: module name is required",
 		},
 	}
 
@@ -134,6 +144,40 @@ func TestValidationError_Error(t *testing.T) {
 				t.Errorf("Error() = %q, want %q", got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestLoggingValidate_KeepsLoggingPrefix(t *testing.T) {
+	cases := map[string]LoggingConfigSpec{
+		"default level": {DefaultLevel: "loud"},
+		"format":        {Format: "xml"},
+		"module name":   {Modules: []ModuleLoggingConfig{{Level: LogLevelInfo}}},
+		"module level":  {Modules: []ModuleLoggingConfig{{Name: "m", Level: "loud"}}},
+	}
+	for name, spec := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := spec.Validate()
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+			if !strings.HasPrefix(err.Error(), "logging config validation error: ") {
+				t.Errorf("Error() = %q, want the logging prefix", err.Error())
+			}
+		})
+	}
+}
+
+func TestRuntimeConfigValidate_NonLoggingErrorHasNoLoggingPrefix(t *testing.T) {
+	spec := RuntimeConfigSpec{MCPServers: []MCPServerConfig{{Command: "x"}}}
+	err := spec.Validate()
+	if err == nil {
+		t.Fatal("expected an error for an mcp_servers entry with no name")
+	}
+	if strings.Contains(err.Error(), "logging") {
+		t.Errorf("Error() = %q names logging for an mcp_servers field", err.Error())
+	}
+	if !strings.HasPrefix(err.Error(), "config validation error: mcp_servers[0]") {
+		t.Errorf("Error() = %q, want the generic prefix and the field", err.Error())
 	}
 }
 

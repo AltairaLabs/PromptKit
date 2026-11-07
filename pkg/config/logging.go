@@ -86,6 +86,7 @@ func (c *LoggingConfigSpec) Validate() error {
 	// Validate default level
 	if c.DefaultLevel != "" && !isValidLogLevel(c.DefaultLevel) {
 		return &ValidationError{
+			Section: loggingSection,
 			Field:   "defaultLevel",
 			Message: msgInvalidLogLevel,
 			Value:   c.DefaultLevel,
@@ -95,6 +96,7 @@ func (c *LoggingConfigSpec) Validate() error {
 	// Validate format
 	if c.Format != "" && c.Format != LogFormatJSON && c.Format != LogFormatText {
 		return &ValidationError{
+			Section: loggingSection,
 			Field:   "format",
 			Message: "must be one of: json, text",
 			Value:   c.Format,
@@ -105,12 +107,14 @@ func (c *LoggingConfigSpec) Validate() error {
 	for i, mod := range c.Modules {
 		if mod.Name == "" {
 			return &ValidationError{
+				Section: loggingSection,
 				Field:   fmt.Sprintf("modules[%d].name", i),
 				Message: "module name is required",
 			}
 		}
 		if mod.Level != "" && !isValidLogLevel(mod.Level) {
 			return &ValidationError{
+				Section: loggingSection,
 				Field:   "modules[" + mod.Name + "].level",
 				Message: msgInvalidLogLevel,
 				Value:   mod.Level,
@@ -131,16 +135,31 @@ func isValidLogLevel(level string) bool {
 	}
 }
 
+// loggingSection is the ValidationError.Section of a logging config error.
+const loggingSection = "logging"
+
 // ValidationError represents a configuration validation error.
+//
+// Error() reads "config validation error: <field>: <message>", with
+// " (got: <value>)" appended when Value is set. When Section is set, the
+// message starts with it: LoggingConfigSpec.Validate sets Section to
+// "logging", so its errors read "logging config validation error: ...".
 type ValidationError struct {
+	// Section names the config section the error belongs to, such as
+	// "logging". Empty for the runtime config's other fields.
+	Section string
 	Field   string
 	Message string
 	Value   string
 }
 
 func (e *ValidationError) Error() string {
-	if e.Value != "" {
-		return "logging config validation error: " + e.Field + ": " + e.Message + " (got: " + e.Value + ")"
+	msg := "config validation error: " + e.Field + ": " + e.Message
+	if e.Section != "" {
+		msg = e.Section + " " + msg
 	}
-	return "logging config validation error: " + e.Field + ": " + e.Message
+	if e.Value != "" {
+		msg += " (got: " + e.Value + ")"
+	}
+	return msg
 }
