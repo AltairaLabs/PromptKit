@@ -331,7 +331,7 @@ func (r *EvalRunner) executeHandler(
 				evalErr = fmt.Errorf("panic in eval %q: %v", def.ID, rec)
 			}
 		}()
-		result, evalErr = handler.Eval(evalCtx2, evalCtx, def.Params)
+		result, evalErr = invokeHandler(evalCtx2, handler, def, evalCtx)
 	}()
 
 	durationMs := time.Since(start).Milliseconds()
@@ -373,6 +373,18 @@ func (r *EvalRunner) executeHandler(
 		"score", scoreVal, "duration_ms", durationMs,
 	)
 	return result
+}
+
+// invokeHandler calls the handler for def. A wrapper that applies thresholds
+// gets the def's declared Threshold; every other handler gets params only, so
+// a plain eval never sees a pass line.
+func invokeHandler(
+	ctx context.Context, handler EvalTypeHandler, def *EvalDef, evalCtx *EvalContext,
+) (*EvalResult, error) {
+	if tw, ok := handler.(thresholdWrapper); ok && def.Threshold != nil {
+		return tw.evalWithThreshold(ctx, evalCtx, def.Params, def.Threshold)
+	}
+	return handler.Eval(ctx, evalCtx, def.Params)
 }
 
 // runHooks invokes each registered EvalHook with panic recovery. A hook

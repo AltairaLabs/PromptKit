@@ -12,11 +12,11 @@ func TestAssertionApplyThresholds_InnerErrorFails(t *testing.T) {
 	h := &AssertionEvalHandler{}
 	zero, one := 0.0, 1.0
 	errored := &EvalResult{Score: &zero, Error: "tool crashed"}
-	assert.False(t, h.applyThresholds(errored, nil, &zero), "max_score")
-	assert.False(t, h.applyThresholds(errored, &zero, nil), "min_score")
-	assert.False(t, h.applyThresholds(errored, nil, nil), "default")
+	assert.False(t, h.passes(errored, ScoreThresholds{Max: &zero}), "max_score")
+	assert.False(t, h.passes(errored, ScoreThresholds{Min: &zero}), "min_score")
+	assert.False(t, h.passes(errored, ScoreThresholds{}), "default")
 
 	measured := &EvalResult{Score: &zero}
-	assert.True(t, h.applyThresholds(measured, nil, &zero))
-	assert.True(t, h.applyThresholds(&EvalResult{Score: &one}, nil, nil))
+	assert.True(t, h.passes(measured, ScoreThresholds{Max: &zero}))
+	assert.True(t, h.passes(&EvalResult{Score: &one}, ScoreThresholds{}))
 }

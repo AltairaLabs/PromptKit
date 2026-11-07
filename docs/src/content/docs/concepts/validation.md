@@ -42,7 +42,7 @@ PromptKit ships with more than 80 built-in check types (`contains`, `max_length`
 
 Under the hood, all three paths share the same `EvalTypeHandler` registry. Eval handlers produce scores only (0.0–1.0) and never determine pass/fail. Assertions and guardrails are wrappers that add pass/fail judgment on top:
 
-- Assertions wrap an eval handler in `AssertionEvalHandler`, which applies score thresholds (`min_score`, `max_score`) to determine pass/fail. Without explicit thresholds, a score of 1.0 passes.
+- Assertions wrap an eval handler in `AssertionEvalHandler`, which applies score thresholds (`min_score`, `max_score`) to determine pass/fail. Without explicit thresholds, a score of 1.0 passes. A pack eval of `type: assertion` or `type: guardrail` can instead declare the spec's `threshold: {operator, value}`, with `gte`, `gt`, `lte`, `lt` or `eq`; `gt` and `lt` are strict. Declaring both `threshold` and `min_score` or `max_score` is an error. On a plain eval, `threshold` is carried but not applied, because an eval states no verdict.
 - Guardrails wrap an eval handler in `GuardrailEvalHandler`, which checks whether the score indicates a violation and enforces policy (truncate, replace, block).
 
 ```mermaid

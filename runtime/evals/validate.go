@@ -107,7 +107,9 @@ func validateEvalFields(def *EvalDef, prefix string) []string {
 // Params are normalized (ApplyDefaults + NormalizeParams) before calling
 // ValidateParams, so handlers only need to check canonical key names.
 //
-// It also reports an unusable `when`. The SDK exposes it as a preflight check,
+// It also reports a Threshold an assertion or guardrail wrapper cannot apply
+// (an unknown operator, a missing value, or one declared alongside min_score or
+// max_score), and an unusable `when`. The SDK exposes it as a preflight check,
 // and its eval middleware skips defs that fail it, with a warning.
 func ValidateEvalTypes(defs []EvalDef, registry *EvalTypeRegistry) []string {
 	logger.Debug("evals: validating eval types", "def_count", len(defs), "registered_types", registry.Types())
@@ -130,6 +132,9 @@ func ValidateEvalTypes(defs []EvalDef, registry *EvalTypeRegistry) []string {
 				def.ID, def.Type, registry.Types(),
 			))
 			continue
+		}
+		if terr := checkWrapperThreshold(handler, def); terr != nil {
+			errs = append(errs, fmt.Sprintf("eval %q: %s", def.ID, terr))
 		}
 		pv, ok := handler.(ParamValidator)
 		if !ok {

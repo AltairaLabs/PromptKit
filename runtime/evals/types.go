@@ -253,8 +253,13 @@ var ValidMetricTypes = map[MetricType]bool{
 //
 // EvalDef is an alias for packspec.Eval, which is generated from the PromptPack
 // schema. A type alias cannot carry methods, so the accessors IsEnabled,
-// SamplePercentage and Groups are free functions. The runtime does not read the
-// Threshold field: an eval never states pass or fail.
+// SamplePercentage and Groups are free functions.
+//
+// Threshold is applied by the wrapper that states a verdict: on a def of type
+// "assertion" or "guardrail", EvalRunner hands it to the wrapper as its pass
+// line in place of min_score and max_score (see ScoreThresholdsFromSpec). On
+// any other def it is carried, not applied: an eval never states pass or fail,
+// and a consumer with its own assertion layer may read it.
 type EvalDef = packspec.Eval
 
 // IsEnabled returns whether an eval is enabled. Defaults to true when Enabled
@@ -317,9 +322,8 @@ func Values(in []*EvalDef) []EvalDef {
 }
 
 // Threshold is the {operator, value} threshold shape the PromptPack spec defines
-// for an eval. The runtime carries it but does not apply it; thresholds are
-// applied by the assertion and guardrail wrappers through min_score and
-// max_score.
+// for an eval. The assertion and guardrail wrappers apply it; on a plain eval it
+// is carried but not applied. ScoreThresholdsFromSpec lists the operators.
 type Threshold = packspec.EvalThreshold
 
 // Range defines the valid range for a metric value. It is an alias for
