@@ -225,6 +225,24 @@ per state, as session evals already did.
 | Declare an `on_conversation_complete` eval in a pack you open with the SDK | it runs on `Close()`, and its result reaches your event bus, hooks and metrics | nothing, or remove the eval if you only meant it for Arena |
 | Run inline evals on a group filter (`WithEvalGroups`) | only the conversation evals in those groups run | nothing |
 
+### Eval definitions are checked with `evals.ValidateEvals`
+
+`evals.ValidateEvals` checks what the eval handlers don't: a missing or
+duplicate id, a missing type or trigger, an unknown trigger, a
+`sample_percentage` outside 0–100, and a metric name or label Prometheus cannot
+register. Nothing in the runtime or the SDK called it. Now `Open()` runs it
+over the pack's evals and over the prompt's evals, each on its own, and skips
+each def it rejects with a warning, as it already skipped an unknown type.
+`sdk.ValidatePack` reports the same defs as `eval` issues, and
+`prompt.Pack.Validate` adds the messages to its findings. A prompt eval that
+shares a pack eval's id still overrides it and is not a duplicate.
+
+| If you | You will see | Change |
+|---|---|---|
+| Open a pack with two evals of the same id in one scope | the later one is skipped, with a `Skipping unusable pack eval` warning | rename one |
+| Open a pack whose eval has an unknown trigger, or a metric name such as `my-score` | that eval is skipped with a warning, where it ran (or, for the trigger, silently never ran) | fix the trigger or the metric name |
+| Run `sdk.ValidatePack` or `prompt.Pack.Validate` in CI | these findings, where there were none | fix the defs |
+
 ## v2.17.0
 
 ### A failing stage ends the turn, and `Send` returns its error

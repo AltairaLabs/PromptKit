@@ -771,6 +771,8 @@ func LoadPack(filePath string) (*Pack, error) {
 
 // Validate validates a pack format and returns its findings in one list,
 // whatever their severity: ValidateDetailed's errors followed by its warnings.
+// Among the errors are the eval definitions evals.ValidateEvals rejects, at
+// pack level and in each prompt.
 //
 // It leaves out the undeclared-prompt-tool warnings ValidateDetailed reports.
 // Callers have treated every Validate finding as blocking, and a prompt tool
@@ -812,6 +814,7 @@ func (p *Pack) validateDetailed(promptTools bool) *PackValidationResult {
 		r.Warnings = append(r.Warnings, p.validatePromptTools()...)
 	}
 	r.Warnings = append(r.Warnings, p.validateCompilation()...)
+	r.Errors = append(r.Errors, p.validateEvals()...)
 	if p.Workflow != nil {
 		wf := p.ValidateWorkflow()
 		r.Errors = append(r.Errors, wf.Errors...)
@@ -973,6 +976,20 @@ func validatePrompt(taskType string, prompt *PackPrompt) []string {
 		warnings = append(warnings, fmt.Sprintf("prompt '%s': missing version", taskType))
 	} else if err := validateSemanticVersion(prompt.Version); err != nil {
 		warnings = append(warnings, fmt.Sprintf("prompt '%s': invalid version '%s': %v", taskType, prompt.Version, err))
+	}
+	return warnings
+}
+
+// validateEvals runs evals.ValidateEvals over the pack-level evals (scope
+// "pack") and then over each prompt's evals (scope "prompt:<task type>"), in
+// task-type order. Each scope is checked on its own: a prompt eval that shares
+// a pack eval's id overrides it rather than duplicating it.
+func (p *Pack) validateEvals() []string {
+	warnings := evals.ValidateEvals(evals.Values(p.Evals), "pack")
+	for _, name := range slices.Sorted(maps.Keys(p.Prompts)) {
+		if pp := p.Prompts[name]; pp != nil {
+			warnings = append(warnings, evals.ValidateEvals(evals.Values(pp.Evals), "prompt:"+name)...)
+		}
 	}
 	return warnings
 }

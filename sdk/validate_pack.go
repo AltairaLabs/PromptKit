@@ -59,8 +59,10 @@ func (p PackIssue) String() string {
 }
 
 // ValidatePack loads the pack at path and reports any semantic issues
-// (unknown validator/eval types, missing required params) that would
-// cause Open() to warn-and-skip them or Arena to fail fast.
+// (unknown validator/eval types, missing required params, and the eval
+// definitions evals.ValidateEvals rejects, such as a duplicate id, an unknown
+// trigger or a metric name Prometheus cannot register) that would cause
+// Open() to warn-and-skip them or Arena to fail fast.
 //
 // When skipSchemaValidation is false (the default for callers who pass
 // the zero value), ValidatePack runs strict promptpack JSON schema
@@ -229,21 +231,44 @@ func validatePromptValidators(
 func validateEvalDefs(
 	promptID string, defs []evals.EvalDef, registry *evals.EvalTypeRegistry,
 ) []PackIssue {
+	issues := structuralEvalPackIssues(promptID, defs)
 	errs := evals.ValidateEvalTypes(defs, registry)
-	if len(errs) == 0 {
-		return nil
-	}
-	issues := make([]PackIssue, 0, len(errs))
 	for _, e := range errs {
 		id, reason := parseEvalValidationError(e)
 		issues = append(issues, PackIssue{
 			Severity: packIssueSeverityError,
-			Kind:     "eval",
+			Kind:     packIssueKindEval,
 			PromptID: promptID,
 			ID:       id,
 			Type:     findEvalTypeByID(defs, id),
 			Reason:   reason,
 		})
+	}
+	return issues
+}
+
+// structuralEvalPackIssues reports what evals.ValidateEvals rejects in one
+// scope's defs — the defs Open skips before resolving them — as PackIssues, in
+// def order. promptID is the owning prompt name, or "" for pack-level evals.
+func structuralEvalPackIssues(promptID string, defs []evals.EvalDef) []PackIssue {
+	scope := packEvalScope
+	if promptID != "" {
+		scope = promptEvalScopePrefix + promptID
+	}
+	found := structuralEvalIssues(defs, scope)
+	var issues []PackIssue
+	for i := range defs {
+		for _, is := range found[i] {
+			issues = append(issues, PackIssue{
+				Severity: packIssueSeverityError,
+				Kind:     packIssueKindEval,
+				PromptID: promptID,
+				Index:    i,
+				Type:     defs[i].Type,
+				ID:       defs[i].ID,
+				Reason:   is.reason,
+			})
+		}
 	}
 	return issues
 }
@@ -281,3 +306,6 @@ func findEvalTypeByID(defs []evals.EvalDef, id string) string {
 // packIssueSeverityError is the PackIssue severity for an issue that fails
 // the pack.
 const packIssueSeverityError = "error"
+
+// packIssueKindEval is the PackIssue kind for an eval definition.
+const packIssueKindEval = "eval"

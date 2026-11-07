@@ -5918,13 +5918,13 @@ type PackIssue struct {
 ```
 
 <a name="ValidatePack"></a>
-### func [ValidatePack](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L93>)
+### func [ValidatePack](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L95>)
 
 ```go
 func ValidatePack(path string, skipSchemaValidation bool) ([]PackIssue, error)
 ```
 
-ValidatePack loads the pack at path and reports any semantic issues \(unknown validator/eval types, missing required params\) that would cause Open\(\) to warn\-and\-skip them or Arena to fail fast.
+ValidatePack loads the pack at path and reports any semantic issues \(unknown validator/eval types, missing required params, and the eval definitions evals.ValidateEvals rejects, such as a duplicate id, an unknown trigger or a metric name Prometheus cannot register\) that would cause Open\(\) to warn\-and\-skip them or Arena to fail fast.
 
 When skipSchemaValidation is false \(the default for callers who pass the zero value\), ValidatePack runs strict promptpack JSON schema validation against the embedded schema. A pack that fails schema validation \(for example, a validator declaring a forbidden field like "monitor"\) is returned as a non\-nil error, not as PackIssues, because the file itself is non\-spec. Pass true to bypass this and check only handler\-level issues.
 
@@ -5935,7 +5935,7 @@ This is a pre\-flight check for CI gates and operator tools. It runs the same ha
 Validator and eval types are resolved against the built\-in eval registry. Callers who supply their own handlers to Open\(\) via WithEvalRegistry must use ValidatePackWithRegistry instead, or preflight will report those types as unknown. Likewise a judge\-backed validator that relies on the host's default judge \(WithJudgeProvider\) is reported as needing one; use ValidatePackWithOptions to supply it.
 
 <a name="ValidatePackWithOptions"></a>
-### func [ValidatePackWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L127>)
+### func [ValidatePackWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L129>)
 
 ```go
 func ValidatePackWithOptions(path string, skipSchemaValidation bool, opts ...Option) ([]PackIssue, error)
@@ -5946,7 +5946,7 @@ ValidatePackWithOptions is ValidatePack taking the same host configuration Open\
 Options other than those two are accepted and ignored. An option that returns an error fails the call. Everything else is as documented on ValidatePack.
 
 <a name="ValidatePackWithRegistry"></a>
-### func [ValidatePackWithRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L111-L113>)
+### func [ValidatePackWithRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L113-L115>)
 
 ```go
 func ValidatePackWithRegistry(path string, skipSchemaValidation bool, registry *evals.EvalTypeRegistry) ([]PackIssue, error)

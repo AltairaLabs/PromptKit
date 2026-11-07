@@ -96,7 +96,21 @@ Any registered type, alias or custom handler works as a guardrail. A guardrail e
 
 ### Triggers
 
-An eval `trigger` is one of `every_turn`, `on_session_complete`, `sample_turns`, `sample_sessions`, `on_conversation_complete` or `on_workflow_step`. `sample_percentage` defaults to `5`.
+An eval `trigger` is one of `every_turn`, `on_session_complete`, `sample_turns`, `sample_sessions`, `on_conversation_complete` or `on_workflow_step`. `sample_percentage` defaults to `5`. A conversation opened with the SDK runs `on_session_complete` and then `on_conversation_complete` evals when it closes.
+
+### Evals that cannot run
+
+`Open()` skips an eval it cannot run and logs a `Skipping unusable pack eval` warning naming it. An eval is a measurement, so the conversation opens without it. The pack's evals and each prompt's evals are checked separately, so a prompt eval that shares a pack eval's `id` overrides it and is not a duplicate.
+
+| Problem | Behavior |
+|---------|----------|
+| Missing `id` or `type`, or an `id` used twice in the same list | Skipped (for a duplicate, the later one) |
+| Missing or unknown `trigger` | Skipped |
+| `sample_percentage` outside 0–100 | Skipped |
+| A `metric` name or label Prometheus cannot register, or `range.min` above `range.max` | Skipped |
+| Unknown `type`, params the handler rejects, or an unusable `when` | Skipped |
+
+`sdk.ValidatePack` reports each of these as an `eval` issue, and `prompt.Pack.Validate` includes them in its findings.
 
 ## Registry
 

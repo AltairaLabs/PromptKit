@@ -57,6 +57,86 @@ func filterInvalidEvalDefs(defs []evals.EvalDef, registry *evals.EvalTypeRegistr
 	return filtered
 }
 
+// Eval scopes passed to evals.ValidateEvals, which prefixes each message with
+// them: pack-level evals are "pack", a prompt's are "prompt:<name>".
+const (
+	packEvalScope         = "pack"
+	promptEvalScopePrefix = "prompt:"
+)
+
+// structuralEvalIssues runs evals.ValidateEvals over one scope's defs and maps
+// each message back to the def it names, by index. Each entry holds the
+// def's reasons with the scope/index prefix removed, plus the full messages.
+//
+// A `when` problem is left out: evals.ValidateEvalTypes reports it as well,
+// and its callers here run both checks.
+func structuralEvalIssues(defs []evals.EvalDef, scope string) map[int][]evalIssue {
+	errs := evals.ValidateEvals(defs, scope)
+	if len(errs) == 0 {
+		return nil
+	}
+	out := make(map[int][]evalIssue)
+	for _, e := range errs {
+		i, reason, ok := matchStructuralEvalError(e, defs, scope)
+		if !ok {
+			logger.Warn("evals: unrecognized eval validation message", "message", e)
+			continue
+		}
+		if werr := evals.ValidateEvalWhen(defs[i].When); werr != nil && reason == werr.Error() {
+			continue
+		}
+		out[i] = append(out[i], evalIssue{reason: reason, message: e})
+	}
+	return out
+}
+
+// evalIssue is one ValidateEvals finding about a def.
+type evalIssue struct {
+	reason  string // without the scope/index prefix
+	message string // as ValidateEvals worded it
+}
+
+// matchStructuralEvalError resolves a ValidateEvals message to the index of the
+// def it names, by matching the exact prefix ValidateEvals builds for each one:
+// "<scope> evals[<i>] (id=<quoted id>): " for a def with an id, and
+// "<scope> evals[<i>]: " for one without.
+func matchStructuralEvalError(msg string, defs []evals.EvalDef, scope string) (idx int, reason string, ok bool) {
+	for i := range defs {
+		prefix := fmt.Sprintf("%s evals[%d]: ", scope, i)
+		if defs[i].ID != "" {
+			prefix = fmt.Sprintf("%s evals[%d] (id=%q): ", scope, i, defs[i].ID)
+		}
+		if strings.HasPrefix(msg, prefix) {
+			return i, msg[len(prefix):], true
+		}
+	}
+	return 0, "", false
+}
+
+// dropStructurallyInvalidEvals removes the defs evals.ValidateEvals rejects
+// (a missing or duplicate id, a missing type or trigger, an unknown trigger, a
+// sample_percentage out of range, a metric Prometheus cannot register), logging
+// a warning for each. Like filterInvalidEvalDefs it degrades reporting rather
+// than failing the open: an eval is a measurement, not a control.
+func dropStructurallyInvalidEvals(defs []evals.EvalDef, scope string) []evals.EvalDef {
+	issues := structuralEvalIssues(defs, scope)
+	if len(issues) == 0 {
+		return defs
+	}
+	kept := make([]evals.EvalDef, 0, len(defs))
+	for i := range defs {
+		found, bad := issues[i]
+		if !bad {
+			kept = append(kept, defs[i])
+			continue
+		}
+		for _, is := range found {
+			logger.Warn("Skipping unusable pack eval", "id", defs[i].ID, "reason", is.message)
+		}
+	}
+	return kept
+}
+
 // resolveRunnerAndFilter returns the EvalRunner to use (creating one if
 // necessary) and the eval defs filtered for type/param validity.
 //
@@ -181,6 +261,11 @@ func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 	logger.Debug("evals: resolving defs",
 		"pack_evals", len(packEvals), "prompt_evals", len(promptEvals),
 		"has_pack", conv.pack != nil, "has_prompt", conv.prompt != nil)
+
+	// Each scope is checked on its own: a prompt eval sharing a pack eval's id
+	// is an override, not a duplicate.
+	packEvals = dropStructurallyInvalidEvals(packEvals, packEvalScope)
+	promptEvals = dropStructurallyInvalidEvals(promptEvals, promptEvalScopePrefix+conv.promptName)
 
 	defs := evals.ResolveEvals(packEvals, promptEvals)
 	defs = evals.FilterByGroups(defs, conv.config.evalGroups)

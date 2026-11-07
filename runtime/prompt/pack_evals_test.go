@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
@@ -236,4 +237,30 @@ func TestPack_EvalsOmittedWhenEmpty(t *testing.T) {
 
 	_, hasPromptEvals := basicRaw["evals"]
 	assert.False(t, hasPromptEvals, "evals key should be omitted from prompt JSON when nil")
+}
+
+// Validate runs evals.ValidateEvals over the pack's evals and over each
+// prompt's, each as its own scope, so a prompt eval overriding a pack eval by
+// id is not reported as a duplicate.
+func TestPack_Validate_ReportsEvalDefIssues(t *testing.T) {
+	pack := Pack{}
+	pack.Evals = []*evals.EvalDef{
+		{ID: "shared", Type: "contains", Trigger: evals.TriggerEveryTurn},
+		{ID: "shared", Type: "contains", Trigger: evals.TriggerEveryTurn},
+	}
+	pack.Prompts = map[string]*PackPrompt{
+		"b": {Evals: []*evals.EvalDef{{ID: "shared", Type: "contains", Trigger: "every_turns"}}},
+		"a": {Evals: []*evals.EvalDef{{ID: "shared", Type: "contains", Trigger: evals.TriggerEveryTurn}}},
+	}
+
+	var got []string
+	for _, w := range pack.Validate() {
+		if strings.Contains(w, "evals[") {
+			got = append(got, w)
+		}
+	}
+	assert.Equal(t, []string{
+		`pack evals[1] (id="shared"): duplicate eval id "shared"`,
+		`prompt:b evals[0] (id="shared"): invalid trigger "every_turns"`,
+	}, got)
 }
