@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/runtime/explanation/stage-design.md",
- "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "commit": "dc6d6f37cfabc0079dd9af47c52502e83f2a85af",
  "claims": [
   {
    "id": 1,
@@ -62,7 +62,7 @@
    "claim": "Pack validators, WithGuardrail and WithProviderHook/WithToolHook converge on one hooks.Registry",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1972",
+    "sdk/options.go:1973",
     "sdk/options.go:459",
     "sdk/sdk.go:1557"
    ]
@@ -74,7 +74,7 @@
    "evidence": [
     "runtime/pipeline/stage/structured_output_mode.go:186",
     "runtime/pipeline/stage/structured_output_mode.go:92",
-    "sdk/options.go:3418"
+    "sdk/options.go:3419"
    ]
   },
   {
@@ -136,7 +136,7 @@
    "claim": "VADAccumulatorStage and TracingStage are built-in stages",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/stage/stages_advanced.go:285"
+    "runtime/pipeline/stage/stages_advanced.go:295"
    ]
   },
   {
@@ -144,7 +144,7 @@
    "claim": "PriorityChannel is a stage",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_advanced.go:351"
+    "runtime/pipeline/stage/stages_advanced.go:361"
    ]
   },
   {
@@ -170,7 +170,7 @@
    "claim": "Branch(from,to...) copies output to every branch",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/builder.go:96-115"
+    "runtime/pipeline/stage/builder.go:96-116"
    ]
   },
   {
@@ -195,7 +195,7 @@
    "claim": "NewMergeStage(name, inputCount)",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_advanced.go:115"
+    "runtime/pipeline/stage/stages_advanced.go:125"
    ]
   },
   {

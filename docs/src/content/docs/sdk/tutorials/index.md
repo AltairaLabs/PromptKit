@@ -3,7 +3,7 @@ title: SDK Tutorials
 sidebar:
   order: 0
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: dc6d6f37cfabc0079dd9af47c52502e83f2a85af
   sources:
     - runtime/credentials/resolver.go
     - sdk/conversation.go

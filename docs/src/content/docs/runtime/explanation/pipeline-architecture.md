@@ -4,7 +4,7 @@ description: How the runtime's stage-based streaming pipeline executes LLM reque
 sidebar:
   order: 1
 verified:
-  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
+  commit: dc6d6f37cfabc0079dd9af47c52502e83f2a85af
   sources:
     - runtime/events/message_created_data.go
     - runtime/events/types.go
@@ -14,6 +14,7 @@ verified:
     - runtime/pipeline/stage/element_pool.go
     - runtime/pipeline/stage/pipeline.go
     - runtime/pipeline/stage/router_strategies.go
+    - runtime/pipeline/stage/router_strategies_pipeline_test.go
     - runtime/pipeline/stage/stage.go
     - runtime/pipeline/stage/stages_advanced.go
     - runtime/pipeline/stage/stages_core.go
