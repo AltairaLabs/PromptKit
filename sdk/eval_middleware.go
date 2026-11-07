@@ -154,6 +154,9 @@ type evalMiddleware struct {
 	// hasWorkflowStepEvals is whether any def uses the on_workflow_step
 	// trigger; without one a transition dispatches nothing.
 	hasWorkflowStepEvals bool
+	// hasConversationEvals is whether any def uses the on_conversation_complete
+	// trigger; without one Close runs no conversation evals.
+	hasConversationEvals bool
 }
 
 // newEvalMiddleware creates eval middleware for a conversation.
@@ -240,6 +243,7 @@ func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 		sem:          make(chan struct{}, maxConcurrent),
 
 		hasWorkflowStepEvals: hasTrigger(defs, evals.TriggerOnWorkflowStep),
+		hasConversationEvals: hasTrigger(defs, evals.TriggerOnConversationComplete),
 	}
 }
 
@@ -353,6 +357,21 @@ func (em *evalMiddleware) dispatchSessionEvals(ctx context.Context) {
 
 	evalCtx := em.buildEvalContext(ctx)
 	results := em.runner.RunSessionEvals(em.evalContextWithBinding(em.evalContextWithRegistry(ctx)), em.defs, evalCtx)
+	em.recordMetrics(results)
+}
+
+// dispatchConversationEvals dispatches on_conversation_complete evals
+// synchronously, against the whole transcript. A Conversation ends when it is
+// closed, so Close() runs them, right after the session evals.
+// Nil-safe: no-op if middleware is nil.
+func (em *evalMiddleware) dispatchConversationEvals(ctx context.Context) {
+	if em == nil || !em.hasConversationEvals {
+		return
+	}
+
+	evalCtx := em.buildEvalContext(ctx)
+	results := em.runner.RunConversationEvals(
+		em.evalContextWithBinding(em.evalContextWithRegistry(ctx)), em.defs, evalCtx)
 	em.recordMetrics(results)
 }
 

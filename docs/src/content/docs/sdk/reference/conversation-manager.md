@@ -1748,7 +1748,7 @@ func (c *Conversation) Done() (<-chan struct{}, error)
 Done returns a channel that's closed when the duplex session ends. Only available when the conversation was opened with OpenDuplex\(\).
 
 <a name="Conversation.EventBus"></a>
-### func \(\*Conversation\) [EventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1898>)
+### func \(\*Conversation\) [EventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1902>)
 
 ```go
 func (c *Conversation) EventBus() events.Bus
@@ -1917,7 +1917,7 @@ Nothing in PromptKit acts on the result. A governance block describes and does n
 The result is a copy; adjusting it does not change the loaded pack.
 
 <a name="Conversation.ID"></a>
-### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1884>)
+### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1888>)
 
 ```go
 func (c *Conversation) ID() string
@@ -2288,7 +2288,7 @@ conv.OnTools(map[string]sdk.ToolHandler{
 ```
 
 <a name="Conversation.OwnSubscription"></a>
-### func \(\*Conversation\) [OwnSubscription](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1908>)
+### func \(\*Conversation\) [OwnSubscription](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1912>)
 
 ```go
 func (c *Conversation) OwnSubscription(unsubscribe func())

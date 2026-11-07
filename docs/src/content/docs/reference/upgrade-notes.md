@@ -211,6 +211,20 @@ when an output guardrail then enforces too.
 | Record a realtime session | `message.created` for each assistant turn, and the turn's last `audio.output` | nothing |
 | Put several content fields on one element ahead of a `RecordingStage` | one event per field, where only the first was recorded | nothing |
 
+### `on_conversation_complete` evals run when a conversation closes
+
+The SDK never ran an eval with the `on_conversation_complete` trigger: only
+`sdk.Evaluate` with `Trigger: evals.TriggerOnConversationComplete` did.
+`Conversation.Close()` now runs them, synchronously, right after the
+`on_session_complete` evals, against the whole transcript. A workflow closes a
+state's conversation when it moves to another state, so these evals run once
+per state, as session evals already did.
+
+| If you | You will see | Change |
+|---|---|---|
+| Declare an `on_conversation_complete` eval in a pack you open with the SDK | it runs on `Close()`, and its result reaches your event bus, hooks and metrics | nothing, or remove the eval if you only meant it for Arena |
+| Run inline evals on a group filter (`WithEvalGroups`) | only the conversation evals in those groups run | nothing |
+
 ## v2.17.0
 
 ### A failing stage ends the turn, and `Send` returns its error
