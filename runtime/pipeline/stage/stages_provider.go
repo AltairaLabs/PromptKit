@@ -3111,6 +3111,9 @@ func (s *ProviderStage) runAfterCallHooks(ctx context.Context, p *afterCallParam
 		Round:      p.round,
 		LatencyMs:  p.duration.Milliseconds(),
 	}
+	// The hook's copy starts with the message's validations; only what a hook
+	// adds after them is new.
+	knownValidations := len(p.responseMsg.Validations)
 
 	hookStart := time.Now()
 	d := s.hookRegistry.RunAfterProviderCall(ctx, hookReq, hookResp)
@@ -3127,7 +3130,7 @@ func (s *ProviderStage) runAfterCallHooks(ctx context.Context, p *afterCallParam
 			Metadata: d.Metadata,
 		}
 	}
-	applyEnforcedResponse(p.responseMsg, p.toolCalls, hookResp, d)
+	applyEnforcedResponse(p.responseMsg, p.toolCalls, hookResp, d, knownValidations)
 	return nil
 }
 
@@ -3245,20 +3248,35 @@ func (s *ProviderStage) emitBlockedTurnText(
 // round report hasToolCalls=false, which terminates the loop. The response is
 // marked like a blocked tool call (preExecCheck) so consumers can tell the
 // calls were dropped by policy.
+//
+// known is how many validations responseMsg held when hookResp was copied from
+// it. The copy shares those entries, so only the ones after them are new; a
+// chunk-interceptor firing already on the message was otherwise appended twice.
 func applyEnforcedResponse(
 	responseMsg *types.Message,
 	toolCalls *[]types.MessageToolCall,
 	hookResp *hooks.ProviderResponse,
 	d hooks.Decision,
+	known int,
 ) {
 	responseMsg.Content = hookResp.Message.Content
-	responseMsg.Validations = append(responseMsg.Validations, hookResp.Message.Validations...)
+	responseMsg.Validations = append(responseMsg.Validations, addedValidations(hookResp.Message.Validations, known)...)
 	responseMsg.ToolCalls = nil
 	*toolCalls = nil
 	responseMsg.FinishReason = types.FinishReasonSafety
 	if meta := decisionMessageMeta(d); meta != nil {
 		responseMsg.Meta = meta
 	}
+}
+
+// addedValidations returns the validations a hook appended to its copy of a
+// message that started with known entries. A hook that replaced the slice
+// with a shorter one added nothing the message does not already hold.
+func addedValidations(vs []types.ValidationResult, known int) []types.ValidationResult {
+	if known >= len(vs) {
+		return nil
+	}
+	return vs[known:]
 }
 
 // decisionMessageMeta copies a guardrail decision's metadata for the message

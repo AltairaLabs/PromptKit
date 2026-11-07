@@ -194,7 +194,7 @@ func TestValidatorDeclarationStaysOutOfMessageMeta(t *testing.T) {
 
 	msg := types.Message{}
 	var calls []types.MessageToolCall
-	applyEnforcedResponse(&msg, &calls, &hooks.ProviderResponse{}, d)
+	applyEnforcedResponse(&msg, &calls, &hooks.ProviderResponse{}, d, 0)
 	require.NotContains(t, msg.Meta, hooks.MetadataKeyValidatorDeclaration)
 	require.Equal(t, "banned_words", msg.Meta["validator_type"])
 
