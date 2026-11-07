@@ -1,13 +1,13 @@
 {
  "page": "docs/src/content/docs/architecture/runtime-providers.md",
- "commit": "ebf8d92f226c18ca12b790f73b09a762bd8d2512",
+ "commit": "dc6d6f37cfabc0079dd9af47c52502e83f2a85af",
  "claims": [
   {
    "id": "36",
    "claim": "Rate limit applies to every HTTP request incl. retries, wait not counted against request timeout, credential applied after wait; ProviderSpec.RateLimit",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/base_provider.go:961",
+    "runtime/providers/base_provider.go:981-1011",
     "runtime/providers/registry.go:231-256"
    ]
   },
@@ -16,7 +16,7 @@
    "claim": "StreamChunk.FinalResult is *PredictionResponse on provider streams; StreamObserver receives chunks via SetStreamObserver / ProviderSpec.StreamObserver",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/base_provider.go:630-636",
+    "runtime/providers/base_provider.go:650-656",
     "runtime/providers/streaming.go:112-118",
     "runtime/providers/streaming.go:155-180"
    ]
@@ -92,7 +92,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/providers/openai/openai.go:542",
-    "runtime/providers/openai/openai_responses_integration.go:233"
+    "runtime/providers/openai/openai_responses_integration.go:236"
    ]
   },
   {
@@ -142,9 +142,9 @@
    "claim": "MediaContent sources and per-provider encoding",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude_multimodal.go:176",
-    "runtime/providers/gemini/gemini_multimodal.go:218",
-    "runtime/providers/openai/openai_multimodal.go:184-190",
+    "runtime/providers/claude/claude_multimodal.go:178",
+    "runtime/providers/gemini/gemini_multimodal.go:234",
+    "runtime/providers/openai/openai_multimodal.go:187-193",
     "runtime/types/content.go:29-52"
    ]
   },

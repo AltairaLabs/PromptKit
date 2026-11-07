@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/reference/runtime-config.md",
- "commit": "f3409378ad6d15d47f6fc12093f3b0df9052b335",
+ "commit": "dc6d6f37cfabc0079dd9af47c52502e83f2a85af",
  "claims": [
   {
    "id": 1,
@@ -120,7 +120,7 @@
    "claim": "vllm provider is registered by `runtime/providers/vllm`",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/vllm/factory.go:9"
+    "runtime/providers/vllm/factory.go:12"
    ]
   },
   {
@@ -144,9 +144,9 @@
    "claim": "Credentials are resolved in order of precedence: api_key > credential_file > credential_env",
    "verdict": "true",
    "evidence": [
-    "runtime/credentials/resolver.go:117",
-    "runtime/credentials/resolver.go:124",
-    "runtime/credentials/resolver.go:135",
+    "runtime/credentials/resolver.go:119",
+    "runtime/credentials/resolver.go:126",
+    "runtime/credentials/resolver.go:137",
     "sdk/runtime_config.go:626"
    ]
   },
@@ -660,7 +660,7 @@
    "evidence": [
     "pkg/config/types.go:182",
     "pkg/config/types.go:371",
-    "runtime/providers/base/rate_limit_transport.go:32"
+    "runtime/providers/base/rate_limit_transport.go:31"
    ]
   },
   {
@@ -669,7 +669,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/provider_tuning.go:127",
-    "runtime/providers/base_provider.go:961",
+    "runtime/providers/base_provider.go:981",
     "runtime/providers/registry.go:532"
    ]
   },
@@ -678,8 +678,8 @@
    "claim": "A waiting request gives up when its context is canceled; a request whose turn falls past its deadline fails at once, is not sent and is not retried; waiting does not count against request_timeout",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/base/rate_limit_transport.go:83",
-    "runtime/providers/base_provider.go:961"
+    "runtime/providers/base/rate_limit_transport.go:82",
+    "runtime/providers/base_provider.go:981"
    ]
   },
   {
@@ -687,8 +687,8 @@
    "claim": "The credential is applied once per attempt after the wait; a redirect to the same scheme and host is authorized again, a redirect to another host is sent without the credential",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/base/rate_limit_transport.go:83",
-    "runtime/providers/base_provider.go:961"
+    "runtime/providers/base/rate_limit_transport.go:82",
+    "runtime/providers/base_provider.go:981"
    ]
   },
   {
@@ -696,7 +696,7 @@
    "claim": "The rate limit counts HTTP requests only; a WebSocket realtime or duplex session is not limited",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/base_provider.go:961"
+    "runtime/providers/base_provider.go:981"
    ]
   },
   {

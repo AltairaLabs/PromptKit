@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/runtime/how-to/providers/setup-providers.md",
- "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "commit": "dc6d6f37cfabc0079dd9af47c52502e83f2a85af",
  "claims": [
   {
    "id": 1,
@@ -85,7 +85,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/providers/claude/claude.go:692",
-    "runtime/providers/claude/claude_tools.go:961"
+    "runtime/providers/claude/claude_tools.go:993"
    ]
   },
   {
@@ -122,7 +122,7 @@
    "claim": "vLLM additional_config keys read: api_key,use_beam_search,best_of,ignore_eos,skip_special_tokens,guided_json,guided_regex,guided_grammar,guided_choice",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/vllm/vllm.go:377",
+    "runtime/providers/vllm/vllm.go:375",
     "runtime/providers/vllm/vllm.go:65"
    ]
   },
@@ -139,7 +139,7 @@
    "claim": "guided_* keys are mutually exclusive in vLLM",
    "verdict": "unverified",
    "evidence": [
-    "runtime/providers/vllm/vllm.go:389"
+    "runtime/providers/vllm/vllm.go:387"
    ]
   },
   {
@@ -148,8 +148,8 @@
    "verdict": "true",
    "evidence": [
     "runtime/providers/extra_body.go:23",
-    "runtime/providers/ollama/ollama_tools.go:334",
-    "runtime/providers/openai/openai_tools.go:224",
+    "runtime/providers/ollama/ollama_tools.go:341",
+    "runtime/providers/openai/openai_tools.go:227",
     "runtime/providers/vllm/vllm_tools.go:114"
    ]
   },

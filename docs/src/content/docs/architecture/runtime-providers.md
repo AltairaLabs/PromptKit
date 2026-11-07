@@ -4,7 +4,7 @@ description: How the runtime puts OpenAI, Claude, Gemini and other LLM APIs behi
 sidebar:
   order: 6
 verified:
-  commit: ebf8d92f226c18ca12b790f73b09a762bd8d2512
+  commit: dc6d6f37cfabc0079dd9af47c52502e83f2a85af
   sources:
     - runtime/pipeline/stage/compactor.go
     - runtime/providers/base_provider.go
