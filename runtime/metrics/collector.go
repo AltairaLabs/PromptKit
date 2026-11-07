@@ -74,10 +74,6 @@ var (
 	providerBuckets   = []float64{.1, .25, .5, 1, 2.5, 5, 10, 30, 60}
 	toolCallBuckets   = []float64{.01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
 	validationBuckets = []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1}
-
-	// defaultEvalHistogramBuckets spans the 0..1 range eval scores live in.
-	// The bucket at 0 counts exact zeros, which a binary score produces.
-	defaultEvalHistogramBuckets = []float64{0, .1, .2, .3, .4, .5, .6, .7, .8, .9, 1}
 )
 
 // evalRangeBucketCount is the number of equal-width buckets a histogram gets
@@ -134,12 +130,13 @@ type CollectorOpts struct {
 
 	// EvalHistogramBuckets sets the bucket upper bounds for eval metrics of
 	// type histogram whose MetricDef declares no range. Nil, the default, uses
-	// 0, 0.1, 0.2, ... 1.0: the range eval scores live in. The collector sorts
-	// the values and drops duplicates.
+	// prometheus.DefBuckets, so a histogram that records a latency or a count
+	// keeps the buckets it had. The collector sorts the values and drops
+	// duplicates.
 	//
 	// A metric that declares both range.min and range.max gets ten equal-width
-	// buckets across that range instead, so a pack can record a value on
-	// another scale (milliseconds, a count) without a process-wide setting.
+	// buckets across that range instead: a score histogram declares
+	// range {min: 0, max: 1} to get 0, 0.1, ... 1.0.
 	EvalHistogramBuckets []float64
 }
 
@@ -259,7 +256,7 @@ func NewCollector(opts CollectorOpts) *Collector {
 		disablePipeline: opts.DisablePipelineMetrics,
 		disableEval:     opts.DisableEvalMetrics,
 
-		evalHistogramBuckets: normalizeBuckets(opts.EvalHistogramBuckets, defaultEvalHistogramBuckets),
+		evalHistogramBuckets: normalizeBuckets(opts.EvalHistogramBuckets, prometheus.DefBuckets),
 	}
 
 	if opts.EvalDimensionLimit > 0 && !opts.DisableEvalMetrics {

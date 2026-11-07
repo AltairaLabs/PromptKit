@@ -1751,11 +1751,16 @@ func shutdownPipelines[P pipelineShutdowner](pipelines []P, timeout time.Duratio
 // the event bus, which Close handles after releasing c.mu; it hands over the
 // bus reference for that. Reports whether this call closed the conversation
 // (false when it was already closed).
+//
+// The session and conversation evals run between two critical sections, with
+// c.mu released: a slow judge must not block every other call on the
+// Conversation, and those calls see it closed and return at once. Resources
+// are released only after the evals finish, since a judge may use the
+// conversation's providers.
 func (c *Conversation) closeLocked() (*sharedEventBus, bool, error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	if c.closed {
+		c.mu.Unlock()
 		return nil, false, nil
 	}
 	c.closed = true
@@ -1763,8 +1768,14 @@ func (c *Conversation) closeLocked() (*sharedEventBus, bool, error) {
 	if (c.mode == UnaryMode && c.unarySession != nil) || (c.mode == DuplexMode && c.duplexSession != nil) {
 		convID = c.ID()
 	}
-
 	c.finishSession(convID)
+	evalMW := c.evalMW
+	c.mu.Unlock()
+
+	runCloseEvals(evalMW)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	// Collect all errors and always execute all cleanup steps.
 	errs := c.releaseResources()
 
@@ -1776,9 +1787,8 @@ func (c *Conversation) closeLocked() (*sharedEventBus, bool, error) {
 }
 
 // finishSession ends the conversation's session for its observers: it
-// deregisters from the shutdown manager, ends the OTel session span, runs
-// session-end hooks and dispatches session and conversation evals. Caller must
-// hold c.mu.
+// deregisters from the shutdown manager, ends the OTel session span and runs
+// session-end hooks. Caller must hold c.mu.
 func (c *Conversation) finishSession(convID string) {
 	// Deregister from shutdown manager if configured
 	c.deregisterFromShutdownManager()
@@ -1791,17 +1801,21 @@ func (c *Conversation) finishSession(convID string) {
 
 	// Run session end hooks before cleanup
 	c.sessionHooks.SessionEnd(context.Background())
+}
 
-	// Wait for any in-flight turn evals, then dispatch session-complete and
-	// conversation-complete evals: closing a Conversation ends both its session
-	// and the conversation itself. Finally close the middleware to cancel its
-	// context and release resources.
-	if c.evalMW != nil {
-		c.evalMW.wait()
-		c.evalMW.dispatchSessionEvals(context.Background())
-		c.evalMW.dispatchConversationEvals(context.Background())
-		c.evalMW.close()
+// runCloseEvals waits for any in-flight turn evals, then dispatches the
+// session-complete and conversation-complete evals: closing a Conversation
+// ends both its session and the conversation itself. Finally it closes the
+// middleware to cancel its context and release resources. Nil-safe. Caller
+// must not hold c.mu: the evals may call a model.
+func runCloseEvals(evalMW *evalMiddleware) {
+	if evalMW == nil {
+		return
 	}
+	evalMW.wait()
+	evalMW.dispatchSessionEvals(context.Background())
+	evalMW.dispatchConversationEvals(context.Background())
+	evalMW.close()
 }
 
 // releaseResources closes everything the conversation holds except the event

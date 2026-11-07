@@ -97,3 +97,59 @@ func TestConversationEvals_SkippedOnEmptyTranscript(t *testing.T) {
 	assert.Empty(t, conv.transcripts())
 	assert.Empty(t, col.byTrigger(evals.TriggerOnConversationComplete))
 }
+
+// slowJudgeHandler signals when its eval starts and blocks until released,
+// standing in for a slow judge.
+type slowJudgeHandler struct {
+	typeName string
+	started  chan struct{}
+	release  chan struct{}
+}
+
+func (h *slowJudgeHandler) Type() string { return h.typeName }
+
+func (h *slowJudgeHandler) Eval(context.Context, *evals.EvalContext, map[string]any) (*evals.EvalResult, error) {
+	close(h.started)
+	<-h.release
+	score := 1.0
+	return &evals.EvalResult{Score: &score}, nil
+}
+
+// A slow on_conversation_complete eval runs without the conversation's lock
+// held, so it does not block other calls on the Conversation while Close waits
+// for it. The closed conversation answers them at once.
+func TestConversationEvals_DoNotHoldConversationLock(t *testing.T) {
+	bus, _, registry, _ := newStepEvalHarness(t)
+	slow := &slowJudgeHandler{typeName: "conv_stub", started: make(chan struct{}), release: make(chan struct{})}
+	registry.Register(slow)
+	registry.Register(&stepRecordingHandler{typeName: "sess_stub"})
+	packPath := writeWorkflowTestPack(t, lifecyclePackJSON)
+
+	c, err := Open(packPath, "chat",
+		WithSkipSchemaValidation(),
+		WithProvider(mock.NewProvider("mock", "mock-model", false)),
+		WithEvalRegistry(registry),
+		WithEventBus(bus),
+	)
+	require.NoError(t, err)
+	_, err = c.Send(context.Background(), "hello")
+	require.NoError(t, err)
+
+	closed := make(chan error, 1)
+	go func() { closed <- c.Close() }()
+	<-slow.started
+
+	answered := make(chan struct{})
+	go func() {
+		c.GetVar("anything")
+		close(answered)
+	}()
+	select {
+	case <-answered:
+	case <-time.After(2 * time.Second):
+		close(slow.release)
+		t.Fatal("GetVar blocked while a conversation eval ran: Close held the conversation lock")
+	}
+	close(slow.release)
+	require.NoError(t, <-closed)
+}

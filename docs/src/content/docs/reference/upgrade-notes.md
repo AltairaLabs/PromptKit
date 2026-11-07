@@ -178,7 +178,8 @@ its findings, without the tool warnings, and now lists errors before warnings.
 | Declare `threshold` on a plain eval | no change: it is carried, not applied, and `Passed` stays nil | wrap the eval to gate on it |
 | Filter evals by group without explicit `groups` | every judge- and classifier-backed check beyond the `llm_judge` family (`faithfulness`, `bias`, `toxicity`, `pii_leakage`, `role_violation`, `text_sentiment`, `topic_policy` and the rest), and `tool_exec`, is `long-running` and `external`, where it was `fast-running`. An alias takes its target's groups, and an `assertion` or `guardrail` wrapper takes the groups of the eval it wraps | set `groups` on the eval if you want it in the fast-running set |
 | Write a custom eval handler | implement `evals.GroupDeclarer` to state its groups; without it the handler is `fast-running` | add `EvalGroups()` to a handler that calls a model or service |
-| Record an eval metric of type `histogram` | buckets at 0, 0.1 … 1.0, where they were the latency buckets in `prometheus.DefBuckets`. A metric with `range.min` and `range.max` gets ten buckets across its range | set `CollectorOpts.EvalHistogramBuckets` to choose your own; existing series change bucket bounds, so check dashboards that read `le` |
+| Record an eval metric of type `histogram` with `range.min` and `range.max` | ten equal-width buckets across its range, where it had `prometheus.DefBuckets`. A score histogram with `range: {min: 0, max: 1}` gets 0, 0.1 … 1.0 | check dashboards that read `le`, since the series' bucket bounds change |
+| Record an eval metric of type `histogram` with no range | `prometheus.DefBuckets`, as before | declare a range on a score histogram, or set `CollectorOpts.EvalHistogramBuckets` to choose buckets for every histogram with no range |
 
 ### Realtime duplex sessions run guardrails
 
@@ -228,7 +229,10 @@ The SDK never ran an eval with the `on_conversation_complete` trigger: only
 same conversation scores the reloaded history again on each close, and a
 workflow runs them each time it moves to another state, because that closes
 the state's conversation. A conversation closed with an empty transcript, such
-as one whose open failed, runs none.
+as one whose open failed, runs none. Session and conversation evals run without
+the conversation's lock held, so a slow judge delays `Close()` only: a call
+made on the conversation meanwhile sees it closed and returns at once, where
+it waited for the evals.
 
 | If you | You will see | Change |
 |---|---|---|
@@ -251,7 +255,11 @@ runtime does not know is the exception: the schema allows any trigger, so
 `ValidatePack` and `Pack.ValidateDetailed` report it as a warning and
 `Pack.Validate` leaves it out,
 although `Open()` still skips the eval. A prompt eval that shares a pack
-eval's id still overrides it and is not a duplicate.
+eval's id still overrides it and is not a duplicate. Only the unknown-trigger
+finding is a warning: any other finding on the same eval is an error.
+`evals.ValidateEvalsDetailed` returns the same findings with the def's index
+and id, a code and a severity, so a caller can classify them without matching
+their text.
 
 | If you | You will see | Change |
 |---|---|---|
@@ -259,6 +267,7 @@ eval's id still overrides it and is not a duplicate.
 | Open a pack whose eval has a metric name such as `my-score`, or an unusable `when` | that eval is skipped with a warning, where it ran | fix the metric name or the `when` |
 | Open a pack whose eval has a trigger this runtime does not know | that eval is skipped with a warning, where it silently never ran | nothing, or fix the trigger |
 | Run `sdk.ValidatePack` or `prompt.Pack.Validate` in CI | these findings, where there were none | fix the defs |
+| Classify `evals.ValidateEvals` messages | the same messages as before | use `evals.ValidateEvalsDetailed` and its `Code` or `Severity` |
 
 ### Check params are checked against what the handler reads
 

@@ -64,65 +64,24 @@ const (
 	promptEvalScopePrefix = "prompt:"
 )
 
-// structuralEvalIssues runs evals.ValidateEvals over one scope's defs and maps
-// each message back to the def it names, by index. Each entry holds the
-// def's reasons with the scope/index prefix removed, plus the full messages.
+// structuralEvalIssues runs evals.ValidateEvalsDetailed over one scope's defs
+// and groups the findings by the index of the def each one names.
 //
-// With skipWhen, a `when` problem is left out, for a caller that also runs
+// With skipWhen, a `when` finding is left out, for a caller that also runs
 // evals.ValidateEvalTypes, which reports it as well.
-func structuralEvalIssues(defs []evals.EvalDef, scope string, skipWhen bool) map[int][]evalIssue {
-	errs := evals.ValidateEvals(defs, scope)
-	if len(errs) == 0 {
+func structuralEvalIssues(defs []evals.EvalDef, scope string, skipWhen bool) map[int][]evals.EvalFinding {
+	findings := evals.ValidateEvalsDetailed(defs, scope)
+	if len(findings) == 0 {
 		return nil
 	}
-	out := make(map[int][]evalIssue)
-	for _, e := range errs {
-		i, reason, ok := matchStructuralEvalError(e, defs, scope)
-		if !ok {
-			logger.Warn("evals: unrecognized eval validation message", "message", e)
+	out := make(map[int][]evals.EvalFinding)
+	for _, f := range findings {
+		if skipWhen && f.Code == evals.EvalFindingWhenUnusable {
 			continue
 		}
-		if skipWhen {
-			if werr := evals.ValidateEvalWhen(defs[i].When); werr != nil && reason == werr.Error() {
-				continue
-			}
-		}
-		out[i] = append(out[i], evalIssue{reason: reason, message: e, trigger: isUnknownTrigger(&defs[i])})
+		out[f.Index] = append(out[f.Index], f)
 	}
 	return out
-}
-
-// evalIssue is one ValidateEvals finding about a def.
-type evalIssue struct {
-	reason  string // without the scope/index prefix
-	message string // as ValidateEvals worded it
-	// trigger is set when the def's trigger is one this runtime does not know.
-	// The PromptPack schema leaves trigger open, so that is not a spec
-	// violation: the def can never run here, but the pack is still valid.
-	trigger bool
-}
-
-// isUnknownTrigger reports whether def names a trigger this runtime does not
-// implement.
-func isUnknownTrigger(def *evals.EvalDef) bool {
-	return def.Trigger != "" && !evals.ValidTriggers[evals.EvalTrigger(def.Trigger)]
-}
-
-// matchStructuralEvalError resolves a ValidateEvals message to the index of the
-// def it names, by matching the exact prefix ValidateEvals builds for each one:
-// "<scope> evals[<i>] (id=<quoted id>): " for a def with an id, and
-// "<scope> evals[<i>]: " for one without.
-func matchStructuralEvalError(msg string, defs []evals.EvalDef, scope string) (idx int, reason string, ok bool) {
-	for i := range defs {
-		prefix := fmt.Sprintf("%s evals[%d]: ", scope, i)
-		if defs[i].ID != "" {
-			prefix = fmt.Sprintf("%s evals[%d] (id=%q): ", scope, i, defs[i].ID)
-		}
-		if strings.HasPrefix(msg, prefix) {
-			return i, msg[len(prefix):], true
-		}
-	}
-	return 0, "", false
 }
 
 // dropStructurallyInvalidEvals removes the defs evals.ValidateEvals rejects
@@ -143,8 +102,8 @@ func dropStructurallyInvalidEvals(defs []evals.EvalDef, scope string) []evals.Ev
 			kept = append(kept, defs[i])
 			continue
 		}
-		for _, is := range found {
-			logger.Warn("Skipping unusable pack eval", "id", defs[i].ID, "reason", is.message)
+		for _, f := range found {
+			logger.Warn("Skipping unusable pack eval", "id", defs[i].ID, "reason", f.Message)
 		}
 	}
 	return kept
