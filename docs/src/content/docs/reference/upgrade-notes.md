@@ -98,7 +98,7 @@ changes that need you to do something, with what to change and why. Sections
 are grouped by the release that first contained the change, newest first.
 Unreleased holds changes that are on `main` and in no release.
 
-## Unreleased
+## v2.17.0
 
 ### A failing stage ends the turn, and `Send` returns its error
 
@@ -184,6 +184,18 @@ A rejected, abandoned or unanswered call never counts. A call over the limit doe
 | Write a provider on `BaseProvider` | `NewBaseProviderWithCredential` stores the credential and `SetCredential` replaces it; call `AuthorizeRequest` where you applied auth | pass a header-key credential with `HeaderKeyCredential` if you send something other than the standard header |
 | Implement `credentials.Credential` | the optional `credentials.HeaderNamer` lets the custom-header collision check run before the credential is applied | implement it if your credential sets headers |
 
+### Credentials and custom headers stay on their origin
+
+`http.Client` copies every header except `Authorization` and cookies to a redirect hop, so a provider's `X-Api-Key`, `X-Goog-Api-Key`, Azure `Api-Key`, SigV4 headers and custom `headers` followed a redirect to any host. A redirect to another scheme or host now drops the well-known credential headers, the headers the credential names through `credentials.HeaderNamer`, and every custom header, before the hop is sent. A same-origin redirect keeps them all. The provider clients, the embedding, rerank, TTS, STT, classify and inference default clients, and a client you pass in all get the policy. `httputil.WithCredentialRedirectPolicy` adds it to a copy of your client and never modifies the original.
+
+vLLM, Ollama and Imagen now use a resolved `credential:`. vLLM falls back to `additional_config.api_key`, and Imagen falls back to `GOOGLE_API_KEY`, then `GEMINI_API_KEY`. Ollama sends the credential to a proxy in front of it.
+
+| If you | You will see | Change |
+|---|---|---|
+| Sit a provider behind a gateway that redirects to another host | the redirected request carries no key or custom header | point the provider at the final host |
+| Set `credential:` on a vLLM, Ollama or Imagen provider | it is sent, where it was ignored | check the credential is the one you want sent |
+| Set both `GOOGLE_API_KEY` and `GEMINI_API_KEY` for Imagen | `GOOGLE_API_KEY` is used | nothing, or unset the one you don't want |
+
 ### Pipeline timeouts, shutdown and concurrency report what happened
 
 | If you | You will see | Change |
@@ -210,6 +222,18 @@ A rejected, abandoned or unanswered call never counts. A call over the limit doe
 |---|---|---|
 | Send a part the provider cannot send | `Send` returns `*providers.UnsupportedContentError` where the text went alone or the adapter failed | send supported media, or switch provider |
 | Run a custom provider whose declarations are narrower than what it sends | the same error | widen the declarations, or pass `sdk.WithoutContentValidation()` (`stage.ProviderConfig.SkipContentValidation`) |
+
+### The media item and size caps apply to each message
+
+The caps of 20 media items and 100 MB in total were counted per loader, and Claude, Gemini, OpenAI and Ollama made a new loader for every part, so the caps never applied on them. vLLM counted them across the whole request. Every provider and path now counts them per message, including each tool-result message. An image sent as a URL that the provider passes on is not loaded and does not count. A message over a cap fails before any request is sent, with an error wrapping `providers.ErrMediaItemLimitExceeded` or `providers.ErrAggregateMediaSizeExceeded`.
+
+The tool-calling paths of Claude, Gemini, OpenAI and Ollama sent a message's text alone when its media failed to load. They now fail the request, as the other paths already did.
+
+| If you | You will see | Change |
+|---|---|---|
+| Send more than 20 media items, or more than 100 MB of media, in one message | `Send` returns one of the cap errors, where the request was sent | split the media across messages |
+| Set `MaxFramesPerMessage` above 20 on `FramesToMessageStage` | the composed message fails the item cap. The default is now 20 | set it to 20 or fewer |
+| Send a tool result or tool-turn message whose media cannot load | the request fails, where the text went alone | fix the media source |
 
 ### Media retention honors `ExpiresAt`, and deduplicated media stays reachable
 
