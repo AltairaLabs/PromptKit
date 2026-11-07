@@ -674,9 +674,10 @@ func hasFragmentPath(refs []FragmentRef) bool {
 	return false
 }
 
-// fragmentBaseDir returns the directory a prompt's fragment paths resolve
-// against: the prompt config's own directory when the repository knows it,
-// otherwise "" (the repository's own default).
+// fragmentBaseDir returns the directory a prompt's relative fragment paths
+// resolve against first: the prompt config's own directory when the repository
+// knows it, otherwise "" (the repository's own default). FragmentResolver falls
+// back to "" when a path is not found under it.
 func (r *Registry) fragmentBaseDir(taskType string) string {
 	resolver, ok := r.repository.(ConfigDirResolver)
 	if !ok {
@@ -690,8 +691,10 @@ func (r *Registry) fragmentBaseDir(taskType string) string {
 }
 
 // LoadPromptFragment loads one of a prompt's fragment references through the
-// registry's repository, resolving a FragmentRef.Path against the prompt
-// config's directory. It does not substitute variables, so a reference whose
+// registry's repository. A relative FragmentRef.Path resolves against the
+// prompt config's directory, falling back to the repository's default base
+// (for the file repositories, the working directory) when no file exists
+// there; an absolute path is used as it is. It does not substitute variables, so a reference whose
 // name or path contains a {{variable}} is loaded literally; the pack compiler
 // leaves those unresolved. *Registry implements FragmentLoader with it.
 func (r *Registry) LoadPromptFragment(taskType string, ref FragmentRef) (*Fragment, error) {
