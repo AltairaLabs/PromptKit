@@ -145,6 +145,13 @@ type DuplexProviderStage struct {
 	// assistantTurns counts the assistant turns completed this session, for the
 	// turn index the hooks report.
 	assistantTurns atomic.Int64
+	// turnMu serializes changes to assistantTurns with replyStreaming and
+	// queuedBlocked, the counts an input-side hook's turn index adds up.
+	// replyStreaming is set while an assistant turn has streamed content and
+	// not yet completed; queuedBlocked counts blocked turns not yet emitted.
+	turnMu         sync.Mutex
+	replyStreaming bool
+	queuedBlocked  int
 	// turnGuard is the current turn's guardrail state (response goroutine only).
 	turnGuard duplexTurnGuard
 	// blockedTurns carries input turns a guardrail blocked from the input
@@ -934,6 +941,12 @@ func (s *DuplexProviderStage) forwardResponseElements(
 	var wait responseWaitState
 
 	for {
+		// Blocked turns waiting between assistant turns go first, ahead of
+		// the next reply's first chunk, so the order does not depend on which
+		// channel select picks.
+		if err := s.emitWaitingBlockedTurns(ctx, output); err != nil {
+			return err
+		}
 		select {
 		case <-ctx.Done():
 			// Log the cancellation CAUSE, not just "canceled": context.Cause
@@ -1152,6 +1165,8 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	chunk *providers.StreamChunk,
 	output chan<- StreamElement,
 ) error {
+	// Whatever the chunk did to the turn, input-side hooks see it next.
+	defer s.syncReplyStreaming()
 	if chunk.Error != nil {
 		return s.emitChunkError(ctx, chunk, output)
 	}
@@ -1230,6 +1245,9 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	if err := s.accumulateResponseChunk(ctx, chunk, isOutputTranscription, output); err != nil {
 		return err
 	}
+	// The reply is streaming from before it reaches the consumer, so input
+	// sent once it can be seen counts as following it.
+	s.syncReplyStreaming()
 
 	// Convert chunk to element (uses accumulated content for final chunk)
 	elem := s.chunkToElement(chunk)

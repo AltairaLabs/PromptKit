@@ -127,6 +127,54 @@ func (s *DuplexProviderStage) hookTurnIndex() int {
 	return s.turnState.TurnIndex() + int(s.assistantTurns.Load())
 }
 
+// inputTurnIndex is the turn index of the turn input sent now belongs to: it
+// comes after the reply still streaming, if any, and after the blocked turns
+// still queued, so it counts both on top of hookTurnIndex.
+func (s *DuplexProviderStage) inputTurnIndex() int {
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	idx := s.hookTurnIndex() + s.queuedBlocked
+	if s.replyStreaming {
+		idx++
+	}
+	return idx
+}
+
+// syncReplyStreaming publishes whether an assistant turn is in progress, for
+// inputTurnIndex on the input goroutine. Response goroutine only.
+func (s *DuplexProviderStage) syncReplyStreaming() {
+	inProgress := s.assistantTurnInProgress()
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	s.replyStreaming = inProgress
+}
+
+// completeAssistantTurn counts a completed assistant turn. A streamed reply
+// stops streaming in the same step, so inputTurnIndex never counts it twice.
+func (s *DuplexProviderStage) completeAssistantTurn() {
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	s.assistantTurns.Add(1)
+	s.replyStreaming = false
+}
+
+// completeBlockedTurn counts a queued blocked turn as a completed assistant
+// turn, in one step.
+func (s *DuplexProviderStage) completeBlockedTurn() {
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	s.assistantTurns.Add(1)
+	s.queuedBlocked--
+}
+
+// queueBlockedTurn counts a blocked turn as queued (delta 1) or no longer
+// queued without being emitted (delta -1).
+func (s *DuplexProviderStage) queueBlockedTurn(delta int) {
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	s.queuedBlocked += delta
+}
+
 // hookRequest builds the ProviderRequest for one hook call.
 func (s *DuplexProviderStage) hookRequest(messages []types.Message) *hooks.ProviderRequest {
 	req := &hooks.ProviderRequest{
@@ -170,6 +218,7 @@ func (s *DuplexProviderStage) guardInputText(
 	}
 
 	req := s.hookRequest(messages)
+	req.TurnIndex = s.inputTurnIndex()
 	start := time.Now()
 	d := s.hookRegistry.RunBeforeProviderCall(ctx, req)
 	if !userInHistory {
@@ -198,11 +247,14 @@ func (s *DuplexProviderStage) guardInputText(
 	}
 	// The response loop emits it, between assistant turns, so it cannot land
 	// inside a reply that is still streaming, and records it as it emits it.
+	// It is counted as queued first, so the next input's turn index follows it.
+	s.queueBlockedTurn(1)
 	select {
 	case s.blockedTurns <- blocked:
 		return true, nil
 	case <-ctx.Done():
 		// Never emitted, but the guardrail fired: its event is still reported.
+		s.queueBlockedTurn(-1)
 		s.recordBlockedFiring(blocked)
 		return true, ctx.Err()
 	}
@@ -233,7 +285,7 @@ func (s *DuplexProviderStage) dropBlockedTurns() {
 		select {
 		case turn := <-s.blockedTurns:
 			s.recordBlockedFiring(turn)
-			s.assistantTurns.Add(1)
+			s.completeBlockedTurn()
 		default:
 			return
 		}
@@ -247,6 +299,35 @@ func (s *DuplexProviderStage) pendingBlockedTurns() <-chan *duplexBlockedTurn {
 		return nil
 	}
 	return s.blockedTurns
+}
+
+// nextBlockedTurn returns a queued blocked turn when one is waiting and no
+// assistant turn is in progress, without blocking. The response loop takes it
+// before reading the next chunk, so a turn blocked during a reply is emitted
+// right after that reply, ahead of the next one.
+func (s *DuplexProviderStage) nextBlockedTurn() *duplexBlockedTurn {
+	select {
+	case turn := <-s.pendingBlockedTurns():
+		return turn
+	default:
+		return nil
+	}
+}
+
+// emitWaitingBlockedTurns emits the queued blocked turns waiting between
+// assistant turns. A canceled context leaves the queue to the loop's
+// cancellation path, and after an input deny the error was the last output.
+func (s *DuplexProviderStage) emitWaitingBlockedTurns(ctx context.Context, output chan<- StreamElement) error {
+	for ctx.Err() == nil && !s.inputFailed.Load() {
+		turn := s.nextBlockedTurn()
+		if turn == nil {
+			return nil
+		}
+		if err := s.emitBlockedTurn(ctx, turn, output); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // assistantTurnInProgress reports whether the current assistant turn has
@@ -316,7 +397,7 @@ func (s *DuplexProviderStage) emitBlockedTurn(
 	blocked := &turn.msg
 	s.recordBlockedFiring(turn)
 	s.history.add(blocked)
-	s.assistantTurns.Add(1)
+	s.completeBlockedTurn()
 
 	fr := blocked.FinishReason
 	text := blocked.Content
@@ -447,7 +528,7 @@ func (s *DuplexProviderStage) guardCompletedTurn(ctx context.Context, elem *Stre
 		return err
 	}
 	s.history.add(msg)
-	s.assistantTurns.Add(1)
+	s.completeAssistantTurn()
 	return nil
 }
 

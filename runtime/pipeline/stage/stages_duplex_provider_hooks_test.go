@@ -771,3 +771,82 @@ func TestDuplexHooks_BlockAfterProcessReturnsStillReportsFiring(t *testing.T) {
 		require.Len(t, getEvents(), 1)
 	}
 }
+
+// beforeIndexHook records each BeforeCall's turn index and blocks one text.
+type beforeIndexHook struct {
+	blockTextHook
+	before []int
+}
+
+func (h *beforeIndexHook) BeforeCall(ctx context.Context, req *hooks.ProviderRequest) hooks.Decision {
+	h.mu.Lock()
+	h.before = append(h.before, req.TurnIndex)
+	h.mu.Unlock()
+	return h.blockTextHook.BeforeCall(ctx, req)
+}
+
+// An input check made while a reply streams reports the turn the input
+// belongs to: after that reply, and after any blocked turn still queued.
+func TestDuplexHooks_InputTurnIndexFollowsStreamingReply(t *testing.T) {
+	h := &beforeIndexHook{blockTextHook: blockTextHook{block: "B"}}
+	s, _, _ := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(h)))
+	send := func(text string) {
+		require.False(t, s.handleInputElement(context.Background(), &StreamElement{Text: &text},
+			make(chan StreamElement, 4), make(chan error, 1)))
+	}
+	send("A")
+	_, err := feedChunks(t, s, providers.StreamChunk{Content: "reply A"})
+	require.NoError(t, err)
+	send("B") // blocked, queued behind reply A
+	send("C")
+	assert.Equal(t, []int{0, 1, 2}, h.before)
+
+	_, err = feedChunks(t, s, stopChunk())
+	require.NoError(t, err)
+	require.Len(t, h.calls, 1)
+	assert.Equal(t, 0, h.calls[0].TurnIndex)
+	// Reply A is done and blocked B still queued. C's reply has not started,
+	// so it is not counted: the index counts only what the session has shown.
+	send("D")
+	assert.Equal(t, []int{0, 1, 2, 2}, h.before)
+	require.NotNil(t, s.nextBlockedTurn())
+}
+
+// Once a reply completes, a turn blocked during it is emitted before the next
+// reply's first chunk, however the loop's select would have picked.
+func TestDuplexHooks_BlockedTurnEmittedBeforeNextReply(t *testing.T) {
+	for i := 0; i < 200; i++ {
+		s, sess, _ := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(&blockTextHook{block: "B"})))
+		s.accumulatedText.WriteString("reply A")
+		text := "B"
+		require.False(t, s.handleInputElement(context.Background(), &StreamElement{Text: &text},
+			make(chan StreamElement, 4), make(chan error, 1)))
+		sess.respCh <- stopChunk()
+		sess.respCh <- providers.StreamChunk{Content: "reply C"}
+		sess.respCh <- stopChunk()
+		close(sess.respCh)
+		out := make(chan StreamElement, 16)
+		require.NoError(t, s.forwardResponseElements(context.Background(), out))
+		close(out)
+		var turns []string
+		for e := range out {
+			if e.EndOfStream && e.Message != nil {
+				turns = append(turns, e.Message.Content)
+			}
+		}
+		require.Equal(t, []string{"reply A", "Not here.", "reply C"}, turns, "iteration %d", i)
+	}
+}
+
+// After an input deny the error element is the last output, so blocked turns
+// still waiting are not emitted after it.
+func TestDuplexHooks_NoBlockedTurnAfterInputDeny(t *testing.T) {
+	s, _, _ := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(&blockTextHook{block: "B"})))
+	text := "B"
+	require.False(t, s.handleInputElement(context.Background(), &StreamElement{Text: &text},
+		make(chan StreamElement, 4), make(chan error, 1)))
+	s.inputFailed.Store(true)
+	out := make(chan StreamElement, 4)
+	require.NoError(t, s.emitWaitingBlockedTurns(context.Background(), out))
+	assert.Empty(t, out)
+}
