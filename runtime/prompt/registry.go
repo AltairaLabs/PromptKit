@@ -642,12 +642,67 @@ func (r *Registry) LoadWithVars(activity string, vars map[string]string, model s
 func (r *Registry) assembleFragmentVars(
 	config *Config, finalVars map[string]string, activity string,
 ) (map[string]string, error) {
-	fragmentVars, err := r.fragmentResolver.AssembleFragments(config.Spec.Fragments, finalVars, "")
+	baseDir := ""
+	if hasFragmentPath(config.Spec.Fragments) {
+		baseDir = r.fragmentBaseDir(activity)
+	}
+	fragmentVars, err := r.fragmentResolver.AssembleFragments(config.Spec.Fragments, finalVars, baseDir)
 	if err != nil {
 		logger.Error("Fragment assembly failed", "activity", activity, "error", err)
 		return nil, err
 	}
 	return fragmentVars, nil
+}
+
+// ConfigDirResolver is implemented by a Repository that loads prompt configs
+// from files. PromptDir returns the directory the config for taskType was loaded
+// from: the base a FragmentRef.Path is relative to. The YAML and JSON file
+// repositories implement it.
+type ConfigDirResolver interface {
+	PromptDir(taskType string) (string, error)
+}
+
+// hasFragmentPath reports whether any reference names a path. Only a path is
+// resolved against a base dir, and finding the prompt's directory can mean
+// searching the repository, so it is skipped when nothing needs it.
+func hasFragmentPath(refs []FragmentRef) bool {
+	for _, ref := range refs {
+		if ref.Path != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// fragmentBaseDir returns the directory a prompt's fragment paths resolve
+// against: the prompt config's own directory when the repository knows it,
+// otherwise "" (the repository's own default).
+func (r *Registry) fragmentBaseDir(taskType string) string {
+	resolver, ok := r.repository.(ConfigDirResolver)
+	if !ok {
+		return ""
+	}
+	dir, err := resolver.PromptDir(taskType)
+	if err != nil {
+		return ""
+	}
+	return dir
+}
+
+// LoadPromptFragment loads one of a prompt's fragment references through the
+// registry's repository, resolving a FragmentRef.Path against the prompt
+// config's directory. It does not substitute variables, so a reference whose
+// name or path contains a {{variable}} is loaded literally; the pack compiler
+// leaves those unresolved. *Registry implements FragmentLoader with it.
+func (r *Registry) LoadPromptFragment(taskType string, ref FragmentRef) (*Fragment, error) {
+	if r.fragmentResolver == nil {
+		return nil, fmt.Errorf("registry has no fragment resolver")
+	}
+	baseDir := ""
+	if ref.Path != "" {
+		baseDir = r.fragmentBaseDir(taskType)
+	}
+	return r.fragmentResolver.LoadFragment(ref.Name, ref.Path, baseDir)
 }
 
 // CallParams are the sampling parameters a call to a prompt requests. Zero
@@ -988,15 +1043,21 @@ func extractKeys[V any](m map[string]V) []string {
 	return keys
 }
 
+// defaultTemplateEngine is the engine the registry gives a prompt config that
+// declares none.
+func defaultTemplateEngine() *TemplateEngineInfo {
+	return &TemplateEngineInfo{
+		Version:  "v1",
+		Syntax:   "{{variable}}",
+		Features: []string{"basic_substitution"},
+	}
+}
+
 // populateDefaults fills in default values for optional fields in the config
 func (r *Registry) populateDefaults(config *Config) {
 	// Set default template engine info if not specified
 	if config.Spec.TemplateEngine == nil {
-		config.Spec.TemplateEngine = &TemplateEngineInfo{
-			Version:  "v1",
-			Syntax:   "{{variable}}",
-			Features: []string{"basic_substitution"},
-		}
+		config.Spec.TemplateEngine = defaultTemplateEngine()
 	}
 
 	// Variables are now required in the new format - no auto-migration

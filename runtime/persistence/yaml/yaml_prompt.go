@@ -17,7 +17,10 @@ import (
 )
 
 // Compile-time interface check
-var _ persistence.PromptRepository = (*PromptRepository)(nil)
+var (
+	_ persistence.PromptRepository = (*PromptRepository)(nil)
+	_ prompt.ConfigDirResolver     = (*PromptRepository)(nil)
+)
 
 // PromptRepository loads prompts from YAML files on disk
 type PromptRepository struct {

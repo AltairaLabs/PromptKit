@@ -36,7 +36,10 @@ verified:
     - runtime/pipeline/stage/stages_provider.go
     - runtime/pipeline/stage/state_handoff.go
     - runtime/pipeline/stage/tool_call_rate.go
+    - runtime/persistence/common/repository.go
     - runtime/pipeline/types.go
+    - runtime/prompt/pack.go
+    - runtime/prompt/registry.go
     - runtime/providers/base/rate_limit_transport.go
     - runtime/providers/base/registry.go
     - runtime/providers/base_embedding.go
@@ -107,6 +110,54 @@ Unreleased holds changes that are on `main` and in no release.
 | Match a `config.ValidationError` message from a field outside `logging` | it starts `config validation error:`, where it started `logging config validation error:`. Logging errors read as before, and carry `Section: "logging"` | match on `Field` and `Message`, or on the new prefix |
 | Compare `workflow.Validate` findings between runs | errors and warnings come in state-name, then event-name order, and a cycle is worded the same way on every run | nothing |
 | Select providers by their `capabilities` list | `providers.MissingCapabilities` and `providers.HasCapabilities` do the matching. `tools` is a matching label only: tools are still offered to a provider whose list omits it | use them in place of your own matcher |
+
+### The pack compiler resolves fragments and settles one template engine
+
+`PackCompiler` wrote each fragment a prompt referenced into the pack as the
+literal `{{name}}`, though the PromptPack spec defines a pack's `fragments` as
+content resolved at compile time. It now loads each reference through the
+registry's repository and writes the fragment's content. A required fragment
+that cannot be loaded fails the compile; an optional one is left out. A
+reference whose name or path contains a `{{variable}}` is chosen at runtime, so
+the compiler still writes it as `{{name}}`.
+
+A fragment's `path` now resolves against the directory of the prompt config
+that references it, when the repository loads prompts from files (the YAML and
+JSON repositories do). It resolved against the process's working directory, so
+the same pack rendered differently depending on where it ran.
+
+`CompileFromRegistry` took the pack's `template_engine` from whichever prompt
+it reached first, in map order. It now compiles prompts in sorted task-type
+order and uses the engine they declare. A prompt left on the registry's default
+engine does not count as declaring one. Prompts that declare different engines
+are an error, since a pack has one engine. The single-prompt `Compile` now sets
+`$schema` to `PromptPackSchemaURL`, as `CompileFromRegistry` already did.
+
+| If you | You will see | Change |
+|---|---|---|
+| Compile a prompt that requires a fragment the repository cannot load | the compile fails, naming the prompt and the fragment, where it wrote `{{name}}` | register the fragment with the repository, or mark it `required: false` |
+| Read `pack.Fragments` from a compiled pack | the fragment's content, not `{{name}}` | nothing |
+| Reference a fragment by a `path` relative to the working directory | the fragment is not found | make the path relative to the prompt config's directory |
+| Compile two prompts whose fragments of one name resolve to different content | the compile fails, naming the fragment, since a pack holds one fragment per name | give the fragments distinct names |
+| Compile prompts that declare different `template_engine`s | the compile fails, naming the prompts | give every prompt that sets one the same engine |
+
+### `Pack.ValidateDetailed` splits findings by severity
+
+`Pack.Validate` returns every finding in one list, so a caller could not tell a
+schema violation from a finding a valid pack may have. The new
+`ValidateDetailed` returns the findings as `Errors` and `Warnings`. A missing
+`compilation` block, which the PromptPack schema does not require, is a
+warning. `ValidateDetailed` also checks each prompt's `tools` against the pack's
+`tools` and warns about a tool the pack does not define: the schema asks for
+one, and a host may still supply tools a pack does not carry. `Validate` keeps
+its findings, without the tool warnings, and now lists errors before warnings.
+`ListPrompts`, `ListTools` and the prompt findings are sorted.
+
+| If you | You will see | Change |
+|---|---|---|
+| Block on every `Validate` finding | `missing compilation metadata` among them, as before | call `ValidateDetailed` and block on `Errors` only |
+| Want undeclared prompt tools reported | `prompt '<name>': tool '<tool>' is not defined in the pack's tools` in `ValidateDetailed().Warnings` | call `ValidateDetailed` |
+| Depend on the order of `Validate`, `ListPrompts` or `ListTools` | a sorted, stable order | nothing |
 
 ## v2.17.0
 

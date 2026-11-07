@@ -655,14 +655,14 @@ func TestPackCompiler_Compile(t *testing.T) {
 			},
 		}
 		repo.prompts["task-with-fragments"] = configWithFragments
+		repo.fragments["intro"] = &Fragment{Content: "intro text"}
+		repo.fragments["outro"] = &Fragment{Content: "outro text"}
 		_ = registry.RegisterConfig("task-with-fragments", configWithFragments)
 
 		pack, err := compiler.Compile("task-with-fragments", "packc v1.0.0")
 
 		require.NoError(t, err)
-		assert.Len(t, pack.Fragments, 2)
-		assert.Contains(t, pack.Fragments, "intro")
-		assert.Contains(t, pack.Fragments, "outro")
+		assert.Equal(t, map[string]string{"intro": "intro text", "outro": "outro text"}, pack.Fragments)
 	})
 }
 
