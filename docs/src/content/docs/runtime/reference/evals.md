@@ -594,7 +594,7 @@ func StripScoreThresholds(params map[string]any) map[string]any
 StripScoreThresholds returns params without min\_score and max\_score, so the keys never reach an inner eval handler. Handlers reject those keys with an error result that scores 0, which a guardrail reads as a block. The input map is never mutated.
 
 <a name="ValidateEvalTypes"></a>
-## func [ValidateEvalTypes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/validate.go#L114>)
+## func [ValidateEvalTypes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/validate.go#L116>)
 
 ```go
 func ValidateEvalTypes(defs []EvalDef, registry *EvalTypeRegistry) []string
@@ -618,13 +618,13 @@ ValidateEvalWhen reports an authoring fault in a \`when\` object: a condition pr
 The supported conditions are the fields of EvalWhen. The PromptPack spec leaves \`when\` open, so a pack can carry a condition this runtime does not implement; it is reported as an error here rather than ignored or treated as a failed gate. A nil or empty map is valid.
 
 <a name="ValidateEvals"></a>
-## func [ValidateEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/validate.go#L28>)
+## func [ValidateEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/validate.go#L30>)
 
 ```go
 func ValidateEvals(defs []EvalDef, scope string) []string
 ```
 
-ValidateEvals validates a slice of EvalDef for correctness. The scope parameter is used in error messages \(e.g. "pack", "prompt:foo"\). It checks:
+ValidateEvals validates a slice of EvalDef for correctness. The scope parameter is used in error messages \(e.g. "pack", "prompt:foo"\). prompt.Pack.Validate reports its findings, and the SDK's Open skips each def it rejects, with a warning. It checks:
 
 - IDs are non\-empty and unique within the slice
 - Type is non\-empty

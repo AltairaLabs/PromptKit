@@ -211,6 +211,48 @@ when an output guardrail then enforces too.
 | Record a realtime session | `message.created` for each assistant turn, and the turn's last `audio.output` | nothing |
 | Put several content fields on one element ahead of a `RecordingStage` | one event per field, where only the first was recorded | nothing |
 
+### `on_conversation_complete` evals run when a conversation closes
+
+The SDK never ran an eval with the `on_conversation_complete` trigger: only
+`sdk.Evaluate` with `Trigger: evals.TriggerOnConversationComplete` did.
+`Conversation.Close()` now runs them, synchronously, right after the
+`on_session_complete` evals, against the whole transcript. They run on every
+`Close()`, as session evals already did: a host that closes and resumes the
+same conversation scores the reloaded history again on each close, and a
+workflow runs them each time it moves to another state, because that closes
+the state's conversation. A conversation closed with an empty transcript, such
+as one whose open failed, runs none.
+
+| If you | You will see | Change |
+|---|---|---|
+| Declare an `on_conversation_complete` eval in a pack you open with the SDK | it runs on `Close()`, and its result reaches your event bus, hooks and metrics | nothing, or remove the eval if you only meant it for Arena |
+| Run inline evals on a group filter (`WithEvalGroups`) | only the conversation evals in those groups run | nothing |
+| Close and resume the same conversation | the conversation evals run on each close, over the full history | keep them out of the inline group filter and run them where the conversation really ends |
+
+### Eval definitions are checked with `evals.ValidateEvals`
+
+`evals.ValidateEvals` checks what the eval handlers don't: a missing or
+duplicate id, a missing type or trigger, an unknown trigger, a
+`sample_percentage` outside 0–100, and a metric name or label Prometheus cannot
+register. Nothing in the runtime or the SDK called it. Now `Open()` runs it
+over the pack's evals and over the prompt's evals, each on its own, and skips
+each def it rejects with a warning, as it already skipped an unknown type.
+`sdk.ValidatePack` reports the same defs as `eval` issues, and
+`prompt.Pack.ValidateDetailed` adds the messages to its errors (and so
+`Pack.Validate` to its findings). A trigger this
+runtime does not know is the exception: the schema allows any trigger, so
+`ValidatePack` and `Pack.ValidateDetailed` report it as a warning and
+`Pack.Validate` leaves it out,
+although `Open()` still skips the eval. A prompt eval that shares a pack
+eval's id still overrides it and is not a duplicate.
+
+| If you | You will see | Change |
+|---|---|---|
+| Open a pack with two evals of the same id in one scope | the later one is skipped, with a `Skipping unusable pack eval` warning | rename one |
+| Open a pack whose eval has a metric name such as `my-score`, or an unusable `when` | that eval is skipped with a warning, where it ran | fix the metric name or the `when` |
+| Open a pack whose eval has a trigger this runtime does not know | that eval is skipped with a warning, where it silently never ran | nothing, or fix the trigger |
+| Run `sdk.ValidatePack` or `prompt.Pack.Validate` in CI | these findings, where there were none | fix the defs |
+
 ## v2.17.0
 
 ### A failing stage ends the turn, and `Send` returns its error

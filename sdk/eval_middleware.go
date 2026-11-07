@@ -57,6 +57,99 @@ func filterInvalidEvalDefs(defs []evals.EvalDef, registry *evals.EvalTypeRegistr
 	return filtered
 }
 
+// Eval scopes passed to evals.ValidateEvals, which prefixes each message with
+// them: pack-level evals are "pack", a prompt's are "prompt:<name>".
+const (
+	packEvalScope         = "pack"
+	promptEvalScopePrefix = "prompt:"
+)
+
+// structuralEvalIssues runs evals.ValidateEvals over one scope's defs and maps
+// each message back to the def it names, by index. Each entry holds the
+// def's reasons with the scope/index prefix removed, plus the full messages.
+//
+// With skipWhen, a `when` problem is left out, for a caller that also runs
+// evals.ValidateEvalTypes, which reports it as well.
+func structuralEvalIssues(defs []evals.EvalDef, scope string, skipWhen bool) map[int][]evalIssue {
+	errs := evals.ValidateEvals(defs, scope)
+	if len(errs) == 0 {
+		return nil
+	}
+	out := make(map[int][]evalIssue)
+	for _, e := range errs {
+		i, reason, ok := matchStructuralEvalError(e, defs, scope)
+		if !ok {
+			logger.Warn("evals: unrecognized eval validation message", "message", e)
+			continue
+		}
+		if skipWhen {
+			if werr := evals.ValidateEvalWhen(defs[i].When); werr != nil && reason == werr.Error() {
+				continue
+			}
+		}
+		out[i] = append(out[i], evalIssue{reason: reason, message: e, trigger: isUnknownTrigger(&defs[i])})
+	}
+	return out
+}
+
+// evalIssue is one ValidateEvals finding about a def.
+type evalIssue struct {
+	reason  string // without the scope/index prefix
+	message string // as ValidateEvals worded it
+	// trigger is set when the def's trigger is one this runtime does not know.
+	// The PromptPack schema leaves trigger open, so that is not a spec
+	// violation: the def can never run here, but the pack is still valid.
+	trigger bool
+}
+
+// isUnknownTrigger reports whether def names a trigger this runtime does not
+// implement.
+func isUnknownTrigger(def *evals.EvalDef) bool {
+	return def.Trigger != "" && !evals.ValidTriggers[evals.EvalTrigger(def.Trigger)]
+}
+
+// matchStructuralEvalError resolves a ValidateEvals message to the index of the
+// def it names, by matching the exact prefix ValidateEvals builds for each one:
+// "<scope> evals[<i>] (id=<quoted id>): " for a def with an id, and
+// "<scope> evals[<i>]: " for one without.
+func matchStructuralEvalError(msg string, defs []evals.EvalDef, scope string) (idx int, reason string, ok bool) {
+	for i := range defs {
+		prefix := fmt.Sprintf("%s evals[%d]: ", scope, i)
+		if defs[i].ID != "" {
+			prefix = fmt.Sprintf("%s evals[%d] (id=%q): ", scope, i, defs[i].ID)
+		}
+		if strings.HasPrefix(msg, prefix) {
+			return i, msg[len(prefix):], true
+		}
+	}
+	return 0, "", false
+}
+
+// dropStructurallyInvalidEvals removes the defs evals.ValidateEvals rejects
+// (a missing or duplicate id, a missing type or trigger, an unknown trigger, a
+// sample_percentage out of range, a metric Prometheus cannot register, an
+// unusable when), logging
+// a warning for each. Like filterInvalidEvalDefs it degrades reporting rather
+// than failing the open: an eval is a measurement, not a control.
+func dropStructurallyInvalidEvals(defs []evals.EvalDef, scope string) []evals.EvalDef {
+	issues := structuralEvalIssues(defs, scope, false)
+	if len(issues) == 0 {
+		return defs
+	}
+	kept := make([]evals.EvalDef, 0, len(defs))
+	for i := range defs {
+		found, bad := issues[i]
+		if !bad {
+			kept = append(kept, defs[i])
+			continue
+		}
+		for _, is := range found {
+			logger.Warn("Skipping unusable pack eval", "id", defs[i].ID, "reason", is.message)
+		}
+	}
+	return kept
+}
+
 // resolveRunnerAndFilter returns the EvalRunner to use (creating one if
 // necessary) and the eval defs filtered for type/param validity.
 //
@@ -154,6 +247,9 @@ type evalMiddleware struct {
 	// hasWorkflowStepEvals is whether any def uses the on_workflow_step
 	// trigger; without one a transition dispatches nothing.
 	hasWorkflowStepEvals bool
+	// hasConversationEvals is whether any def uses the on_conversation_complete
+	// trigger; without one Close runs no conversation evals.
+	hasConversationEvals bool
 }
 
 // newEvalMiddleware creates eval middleware for a conversation.
@@ -178,6 +274,11 @@ func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 	logger.Debug("evals: resolving defs",
 		"pack_evals", len(packEvals), "prompt_evals", len(promptEvals),
 		"has_pack", conv.pack != nil, "has_prompt", conv.prompt != nil)
+
+	// Each scope is checked on its own: a prompt eval sharing a pack eval's id
+	// is an override, not a duplicate.
+	packEvals = dropStructurallyInvalidEvals(packEvals, packEvalScope)
+	promptEvals = dropStructurallyInvalidEvals(promptEvals, promptEvalScopePrefix+conv.promptName)
 
 	defs := evals.ResolveEvals(packEvals, promptEvals)
 	defs = evals.FilterByGroups(defs, conv.config.evalGroups)
@@ -240,6 +341,7 @@ func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 		sem:          make(chan struct{}, maxConcurrent),
 
 		hasWorkflowStepEvals: hasTrigger(defs, evals.TriggerOnWorkflowStep),
+		hasConversationEvals: hasTrigger(defs, evals.TriggerOnConversationComplete),
 	}
 }
 
@@ -353,6 +455,28 @@ func (em *evalMiddleware) dispatchSessionEvals(ctx context.Context) {
 
 	evalCtx := em.buildEvalContext(ctx)
 	results := em.runner.RunSessionEvals(em.evalContextWithBinding(em.evalContextWithRegistry(ctx)), em.defs, evalCtx)
+	em.recordMetrics(results)
+}
+
+// dispatchConversationEvals dispatches on_conversation_complete evals
+// synchronously, against the whole transcript. Close() is the end of a
+// Conversation, so every Close runs them, right after the session evals: a
+// host that closes and later resumes a conversation runs them again, over the
+// history the resumed conversation reloaded. An empty transcript runs none.
+// Nil-safe: no-op if middleware is nil.
+func (em *evalMiddleware) dispatchConversationEvals(ctx context.Context) {
+	if em == nil || !em.hasConversationEvals {
+		return
+	}
+
+	evalCtx := em.buildEvalContext(ctx)
+	if len(evalCtx.Messages) == 0 {
+		// Nothing was said: a conversation closed on a failed open, or never
+		// used, has no transcript to score.
+		return
+	}
+	results := em.runner.RunConversationEvals(
+		em.evalContextWithBinding(em.evalContextWithRegistry(ctx)), em.defs, evalCtx)
 	em.recordMetrics(results)
 }
 

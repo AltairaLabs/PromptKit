@@ -1777,7 +1777,8 @@ func (c *Conversation) closeLocked() (*sharedEventBus, bool, error) {
 
 // finishSession ends the conversation's session for its observers: it
 // deregisters from the shutdown manager, ends the OTel session span, runs
-// session-end hooks and dispatches session evals. Caller must hold c.mu.
+// session-end hooks and dispatches session and conversation evals. Caller must
+// hold c.mu.
 func (c *Conversation) finishSession(convID string) {
 	// Deregister from shutdown manager if configured
 	c.deregisterFromShutdownManager()
@@ -1791,11 +1792,14 @@ func (c *Conversation) finishSession(convID string) {
 	// Run session end hooks before cleanup
 	c.sessionHooks.SessionEnd(context.Background())
 
-	// Wait for any in-flight turn evals, then dispatch session-complete evals.
-	// Finally close the middleware to cancel its context and release resources.
+	// Wait for any in-flight turn evals, then dispatch session-complete and
+	// conversation-complete evals: closing a Conversation ends both its session
+	// and the conversation itself. Finally close the middleware to cancel its
+	// context and release resources.
 	if c.evalMW != nil {
 		c.evalMW.wait()
 		c.evalMW.dispatchSessionEvals(context.Background())
+		c.evalMW.dispatchConversationEvals(context.Background())
 		c.evalMW.close()
 	}
 }

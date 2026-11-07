@@ -131,9 +131,10 @@ A trigger on each eval decides when it runs:
 | `sample_turns` | On a deterministic hash-based sample of turns |
 | `on_session_complete` | When the session closes |
 | `sample_sessions` | On a deterministic hash-based sample of sessions |
+| `on_conversation_complete` | On every `Close()`, against the whole transcript |
 | `on_workflow_step` | After each committed workflow state transition, against the turn that produced it |
 
-The SDK dispatches turn evals asynchronously after `Send()`, bounded by a concurrency limit. A workflow conversation dispatches `on_workflow_step` evals the same way, once the turn that made the transition has finished. The SDK runs session evals synchronously during `Close()`. Arena uses `PackEvalHook` to run evals against live or recorded conversations.
+The SDK dispatches turn evals asynchronously after `Send()`, bounded by a concurrency limit. A workflow conversation dispatches `on_workflow_step` evals the same way, once the turn that made the transition has finished. The SDK runs session evals, then conversation evals, synchronously during every `Close()`, over the transcript the conversation holds. A resumed conversation holds the history it reloaded, so a host that closes and resumes the same conversation scores that history again on each close. A workflow closes each state's conversation when it moves to another state, so these evals also run at each state change. A conversation with an empty transcript runs no conversation evals. Arena uses `PackEvalHook` to run evals against live or recorded conversations.
 
 ## Request flow
 

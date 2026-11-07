@@ -1748,7 +1748,7 @@ func (c *Conversation) Done() (<-chan struct{}, error)
 Done returns a channel that's closed when the duplex session ends. Only available when the conversation was opened with OpenDuplex\(\).
 
 <a name="Conversation.EventBus"></a>
-### func \(\*Conversation\) [EventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1898>)
+### func \(\*Conversation\) [EventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1902>)
 
 ```go
 func (c *Conversation) EventBus() events.Bus
@@ -1917,7 +1917,7 @@ Nothing in PromptKit acts on the result. A governance block describes and does n
 The result is a copy; adjusting it does not change the loaded pack.
 
 <a name="Conversation.ID"></a>
-### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1884>)
+### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1888>)
 
 ```go
 func (c *Conversation) ID() string
@@ -2288,7 +2288,7 @@ conv.OnTools(map[string]sdk.ToolHandler{
 ```
 
 <a name="Conversation.OwnSubscription"></a>
-### func \(\*Conversation\) [OwnSubscription](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1908>)
+### func \(\*Conversation\) [OwnSubscription](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1912>)
 
 ```go
 func (c *Conversation) OwnSubscription(unsubscribe func())
@@ -5883,7 +5883,7 @@ func (e *PackError) Unwrap() error
 Unwrap returns the underlying error.
 
 <a name="PackIssue"></a>
-## type [PackIssue](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L17-L43>)
+## type [PackIssue](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L17-L46>)
 
 PackIssue describes a single semantic problem with a loaded pack. Structural issues \(malformed JSON, missing required fields, schema violations\) are returned as an error from ValidatePack, not as PackIssues.
 
@@ -5892,7 +5892,10 @@ type PackIssue struct {
     // Severity is "error" for a validator or eval issue — each one would
     // cause the corresponding validator or eval to be warn-and-skipped by
     // sdk.Open() or fail-fast by Arena — and "warning" for a governance
-    // issue, which Open() logs and does not act on.
+    // issue, which Open() logs and does not act on. An eval whose trigger
+    // this runtime does not know is also a "warning": the schema leaves
+    // trigger open, so the pack is valid, but Open() skips the eval because
+    // it can never run.
     Severity string
 
     // Kind identifies the subsystem: "validator", "eval" or "governance".
@@ -5918,13 +5921,13 @@ type PackIssue struct {
 ```
 
 <a name="ValidatePack"></a>
-### func [ValidatePack](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L93>)
+### func [ValidatePack](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L98>)
 
 ```go
 func ValidatePack(path string, skipSchemaValidation bool) ([]PackIssue, error)
 ```
 
-ValidatePack loads the pack at path and reports any semantic issues \(unknown validator/eval types, missing required params\) that would cause Open\(\) to warn\-and\-skip them or Arena to fail fast.
+ValidatePack loads the pack at path and reports any semantic issues \(unknown validator/eval types, missing required params, and the eval definitions evals.ValidateEvals rejects, such as a duplicate id, an unknown trigger or a metric name Prometheus cannot register\) that would cause Open\(\) to warn\-and\-skip them or Arena to fail fast.
 
 When skipSchemaValidation is false \(the default for callers who pass the zero value\), ValidatePack runs strict promptpack JSON schema validation against the embedded schema. A pack that fails schema validation \(for example, a validator declaring a forbidden field like "monitor"\) is returned as a non\-nil error, not as PackIssues, because the file itself is non\-spec. Pass true to bypass this and check only handler\-level issues.
 
@@ -5935,7 +5938,7 @@ This is a pre\-flight check for CI gates and operator tools. It runs the same ha
 Validator and eval types are resolved against the built\-in eval registry. Callers who supply their own handlers to Open\(\) via WithEvalRegistry must use ValidatePackWithRegistry instead, or preflight will report those types as unknown. Likewise a judge\-backed validator that relies on the host's default judge \(WithJudgeProvider\) is reported as needing one; use ValidatePackWithOptions to supply it.
 
 <a name="ValidatePackWithOptions"></a>
-### func [ValidatePackWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L127>)
+### func [ValidatePackWithOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L132>)
 
 ```go
 func ValidatePackWithOptions(path string, skipSchemaValidation bool, opts ...Option) ([]PackIssue, error)
@@ -5946,7 +5949,7 @@ ValidatePackWithOptions is ValidatePack taking the same host configuration Open\
 Options other than those two are accepted and ignored. An option that returns an error fails the call. Everything else is as documented on ValidatePack.
 
 <a name="ValidatePackWithRegistry"></a>
-### func [ValidatePackWithRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L111-L113>)
+### func [ValidatePackWithRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L116-L118>)
 
 ```go
 func ValidatePackWithRegistry(path string, skipSchemaValidation bool, registry *evals.EvalTypeRegistry) ([]PackIssue, error)
@@ -5959,7 +5962,7 @@ Without this a pack validator or eval naming a custom eval type is reported as a
 Everything else \(the error/issue split, strict schema validation, the \(nil, nil\) fully\-valid result\) is exactly as documented on ValidatePack.
 
 <a name="PackIssue.String"></a>
-### func \(PackIssue\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L46>)
+### func \(PackIssue\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/validate_pack.go#L49>)
 
 ```go
 func (p PackIssue) String() string

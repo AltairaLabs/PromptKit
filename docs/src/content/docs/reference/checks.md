@@ -96,7 +96,22 @@ Any registered type, alias or custom handler works as a guardrail. A guardrail e
 
 ### Triggers
 
-An eval `trigger` is one of `every_turn`, `on_session_complete`, `sample_turns`, `sample_sessions`, `on_conversation_complete` or `on_workflow_step`. `sample_percentage` defaults to `5`.
+An eval `trigger` is one of `every_turn`, `on_session_complete`, `sample_turns`, `sample_sessions`, `on_conversation_complete` or `on_workflow_step`. `sample_percentage` defaults to `5`. A conversation opened with the SDK runs `on_session_complete` and then `on_conversation_complete` evals on every `Close()`, over the transcript it holds. A conversation closed with an empty transcript runs no conversation evals.
+
+### Evals that cannot run
+
+`Open()` skips an eval it cannot run and logs a `Skipping unusable pack eval` warning naming it. An eval is a measurement, so the conversation opens without it. The pack's evals and each prompt's evals are checked separately, so a prompt eval that shares a pack eval's `id` overrides it and is not a duplicate.
+
+| Problem | Behavior |
+|---------|----------|
+| Missing `id` or `type`, or an `id` used twice in the same list | Skipped (for a duplicate, the later one) |
+| Missing `trigger` | Skipped |
+| A `trigger` this runtime does not know | Skipped, because it can never run. The schema allows any trigger, so the pack is still valid |
+| `sample_percentage` outside 0–100 | Skipped |
+| A `metric` with no `name` or `type`, a `type` other than `gauge`, `counter`, `histogram` or `boolean`, a name or label Prometheus cannot register, or `range.min` above `range.max` | Skipped |
+| Unknown `type`, params the handler rejects, or an unusable `when` | Skipped |
+
+`sdk.ValidatePack` reports each of these as an `eval` issue: an unknown trigger with severity `warning`, the others with `error`. `prompt.Pack.ValidateDetailed` reports them as errors and the unknown trigger as a warning. `prompt.Pack.Validate` includes them in its findings, except the unknown trigger.
 
 ## Registry
 

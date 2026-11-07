@@ -317,3 +317,78 @@ func TestValidatePack_SkipSchemaAllowsNonSpecFields(t *testing.T) {
 	require.NoError(t, err, "schema check must be bypassed with skipSchemaValidation=true")
 	assert.Empty(t, issues, "semantically valid validator produces no issues")
 }
+
+// ValidatePack reports what evals.ValidateEvals rejects, because Open skips
+// those defs: a duplicate id within one scope and a metric name Prometheus
+// cannot register. A prompt eval that shares a pack eval's id overrides it and
+// is not a duplicate.
+func TestValidatePack_ReportsStructuralEvalIssues(t *testing.T) {
+	pack := baseValidPack()
+	pack["evals"] = []any{
+		map[string]any{"id": "shared", "type": "contains", "trigger": "every_turn",
+			"params": map[string]any{"patterns": []any{"x"}}},
+		map[string]any{"id": "shared", "type": "contains", "trigger": "every_turn",
+			"params": map[string]any{"patterns": []any{"y"}}},
+	}
+	prompts := pack["prompts"].(map[string]any)
+	def := prompts["default"].(map[string]any)
+	def["evals"] = []any{
+		map[string]any{"id": "shared", "type": "contains", "trigger": "every_turn",
+			"params": map[string]any{"patterns": []any{"z"}}},
+		map[string]any{"id": "metric", "type": "contains", "trigger": "every_turn",
+			"params": map[string]any{"patterns": []any{"z"}},
+			"metric": map[string]any{"name": "bad-name", "type": "gauge"}},
+	}
+	path := writeValidatePackFixture(t, pack)
+
+	issues, err := sdk.ValidatePack(path, true)
+	require.NoError(t, err)
+	require.Len(t, issues, 2, "%v", issues)
+
+	assert.Equal(t, "eval", issues[0].Kind)
+	assert.Equal(t, "", issues[0].PromptID)
+	assert.Equal(t, 1, issues[0].Index)
+	assert.Equal(t, "shared", issues[0].ID)
+	assert.Equal(t, "contains", issues[0].Type)
+	assert.Equal(t, `duplicate eval id "shared"`, issues[0].Reason)
+
+	assert.Equal(t, "default", issues[1].PromptID)
+	assert.Equal(t, 1, issues[1].Index)
+	assert.Equal(t, "metric", issues[1].ID)
+	assert.Contains(t, issues[1].Reason, `metric.name "bad-name"`)
+}
+
+// An unusable `when` is reported once: both checks ValidatePack runs see it.
+func TestValidatePack_ReportsUnusableWhenOnce(t *testing.T) {
+	pack := baseValidPack()
+	pack["evals"] = []any{
+		map[string]any{"id": "gated", "type": "contains", "trigger": "every_turn",
+			"params": map[string]any{"patterns": []any{"x"}},
+			"when":   map[string]any{"bogus_condition": true}},
+	}
+	path := writeValidatePackFixture(t, pack)
+
+	issues, err := sdk.ValidatePack(path, true)
+	require.NoError(t, err)
+	require.Len(t, issues, 1, "%v", issues)
+	assert.Equal(t, "gated", issues[0].ID)
+	assert.Contains(t, issues[0].Reason, "bogus_condition")
+}
+
+// The schema leaves trigger open, so an eval with a trigger this runtime does
+// not know is spec-valid: ValidatePack reports it as a warning, not an error.
+func TestValidatePack_UnknownTriggerIsAWarning(t *testing.T) {
+	pack := baseValidPack()
+	pack["evals"] = []any{
+		map[string]any{"id": "later", "type": "contains", "trigger": "on_custom_event",
+			"params": map[string]any{"patterns": []any{"x"}}},
+	}
+	path := writeValidatePackFixture(t, pack)
+
+	issues, err := sdk.ValidatePack(path, false)
+	require.NoError(t, err)
+	require.Len(t, issues, 1, "%v", issues)
+	assert.Equal(t, "warning", issues[0].Severity)
+	assert.Equal(t, "later", issues[0].ID)
+	assert.Equal(t, `invalid trigger "on_custom_event"`, issues[0].Reason)
+}

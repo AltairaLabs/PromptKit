@@ -16,6 +16,8 @@ var prometheusLabelRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 // ValidateEvals validates a slice of EvalDef for correctness.
 // The scope parameter is used in error messages (e.g. "pack", "prompt:foo").
+// prompt.Pack.Validate reports its findings, and the SDK's Open skips each def
+// it rejects, with a warning.
 // It checks:
 //   - IDs are non-empty and unique within the slice
 //   - Type is non-empty
@@ -116,9 +118,9 @@ func ValidateEvalTypes(defs []EvalDef, registry *EvalTypeRegistry) []string {
 	var errs []string
 	for i := range defs {
 		def := &defs[i]
-		// `when` is checked here as well as in ValidateEvals because this is
-		// the wired path — ValidateEvals has no production caller in this repo,
-		// and a diagnostic only it raised would reach nobody (#1931).
+		// `when` is checked here as well as in ValidateEvals because a caller
+		// may run only this check, and a diagnostic only ValidateEvals raised
+		// would reach nobody there (#1931).
 		if werr := ValidateEvalWhen(def.When); werr != nil {
 			errs = append(errs, fmt.Sprintf("eval %q: %s", def.ID, werr))
 		}
