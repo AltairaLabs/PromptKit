@@ -4,7 +4,7 @@ description: Set, read and load template variables on a conversation, and see wh
 sidebar:
   order: 4
 verified:
-  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
+  commit: ffbed7c4b0fff266953352be5e73d4e308a97acf
   sources:
     - sdk/conversation.go
     - sdk/internal/pipeline/builder.go
