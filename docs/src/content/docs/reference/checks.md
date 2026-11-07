@@ -3,7 +3,7 @@ title: Checks Reference
 sidebar:
   order: 1
 verified:
-  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
+  commit: ffbed7c4b0fff266953352be5e73d4e308a97acf
   sources:
     - runtime/evals/handlers/a2a_eval.go
     - runtime/evals/handlers/agent_invoked.go
@@ -125,7 +125,7 @@ An eval `trigger` is one of `every_turn`, `on_session_complete`, `sample_turns`,
 | A `trigger` this runtime does not know | Skipped, because it can never run. The schema allows any trigger, so the pack is still valid |
 | `sample_percentage` outside 0–100 | Skipped |
 | A `metric` with no `name` or `type`, a `type` other than `gauge`, `counter`, `histogram` or `boolean`, a name or label Prometheus cannot register, or `range.min` above `range.max` | Skipped |
-| Unknown `type`, params the handler rejects, or an unusable `when` | Skipped |
+| Unknown `type`, params the handler rejects, a `threshold` an `assertion` or `guardrail` wrapper cannot apply, or an unusable `when` | Skipped |
 
 `sdk.ValidatePack` reports each of these as an `eval` issue: an unknown trigger with severity `warning`, the others with `error`. `prompt.Pack.ValidateDetailed` reports them as errors and the unknown trigger as a warning. `prompt.Pack.Validate` includes them in its findings, except the unknown trigger.
 
@@ -770,6 +770,8 @@ Turns any check into a thresholded pass/fail. It resolves `eval_type` in the reg
 
 If both are set, both must hold. If neither is set, `min_score` is `1.0`. Judge-backed and classifier-backed checks emit raw scores in `[0, 1]`; set an explicit threshold on the wrapper, or an unset one reports every score below 1.0 as failed.
 
+A pack eval of type `assertion` or `guardrail` can declare the spec's `threshold: {operator, value}` instead of `min_score` and `max_score`. The operators are `gte` (`>=`), `gt` (`>`), `lte` (`<=`), `lt` (`<`) and `eq` (`==`); `gt` and `lt` are strict. Declaring `threshold` together with `min_score` or `max_score` is an error. On any other eval type, `threshold` is carried and not applied.
+
 ### `guardrail` (wrapper)
 
 Same shape as `assertion`, evaluated as a guardrail.
@@ -1097,6 +1099,8 @@ registry.Register(handler)
 ```
 
 A handler may also implement `ParamValidator` (`ValidateParams(params map[string]any) error`), which runs when a guardrail is built and in `ValidateEvalTypes`, after defaults and aliases apply. A handler that implements `ParamNamer` (`ParamNames() []string`, the canonical params it reads) has any other key rejected at the same points; see [Unknown params](#unknown-params).
+
+A handler may implement `GroupDeclarer` (`EvalGroups() []string`) to declare the classification groups of its type, such as `GroupLongRunning` and `GroupExternal`. `DefaultGroupsForType` returns `DefaultEvalGroup` followed by those groups, and an alias is classified as its target. `RegisterTypeGroups` takes precedence over a declaration.
 
 ### `StreamableEvalHandler` (Go)
 
