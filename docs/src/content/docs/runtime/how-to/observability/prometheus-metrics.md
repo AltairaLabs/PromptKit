@@ -96,7 +96,7 @@ results, err := sdk.Evaluate(ctx, sdk.EvaluateOpts{
 
 Pack-defined eval metrics are named `{ns}_eval_<metric>`. A metric that already starts with `{ns}_eval_` keeps its name. Query them all with `{__name__=~"myapp_eval_.*"}`. See the [eval framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/#metrics--prometheus) for metric types.
 
-An eval metric of type `histogram` gets buckets at 0, 0.1, 0.2 and so on up to 1.0, the range eval scores live in. A metric that declares both `range.min` and `range.max` gets ten equal-width buckets across that range instead. To change the buckets for every histogram that declares no range, set `EvalHistogramBuckets`:
+An eval metric of type `histogram` that declares both `range.min` and `range.max` gets ten equal-width buckets across that range: a score histogram declares `range: {min: 0, max: 1}` and gets buckets at 0, 0.1, 0.2 and so on up to 1.0. A histogram with no range gets `prometheus.DefBuckets` (0.005 to 10), which suit a latency in seconds. To change the buckets for every histogram that declares no range, set `EvalHistogramBuckets`:
 
 ```go
 collector := metrics.NewEvalOnlyCollector(metrics.CollectorOpts{

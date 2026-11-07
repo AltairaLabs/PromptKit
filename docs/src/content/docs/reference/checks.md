@@ -127,7 +127,7 @@ An eval `trigger` is one of `every_turn`, `on_session_complete`, `sample_turns`,
 | A `metric` with no `name` or `type`, a `type` other than `gauge`, `counter`, `histogram` or `boolean`, a name or label Prometheus cannot register, or `range.min` above `range.max` | Skipped |
 | Unknown `type`, params the handler rejects, a `threshold` an `assertion` or `guardrail` wrapper cannot apply, or an unusable `when` | Skipped |
 
-`sdk.ValidatePack` reports each of these as an `eval` issue: an unknown trigger with severity `warning`, the others with `error`. `prompt.Pack.ValidateDetailed` reports them as errors and the unknown trigger as a warning. `prompt.Pack.Validate` includes them in its findings, except the unknown trigger.
+`evals.ValidateEvalsDetailed` returns these structural findings with the def's index and id, a code (`evals.EvalFindingUnknownTrigger`, `evals.EvalFindingDuplicateID` and so on) and a severity. `sdk.ValidatePack` reports each of these as an `eval` issue: an unknown trigger with severity `warning`, the others with `error`, including any other finding on the same eval. `prompt.Pack.ValidateDetailed` reports them as errors and the unknown trigger as a warning. `prompt.Pack.Validate` includes them in its findings, except the unknown trigger.
 
 ## Registry
 

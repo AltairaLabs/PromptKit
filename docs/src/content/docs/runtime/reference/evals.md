@@ -64,6 +64,10 @@ EvalRunner executes EvalDef values against an EvalContext, and EvalTypeRegistry 
   - [func FilterByGroups\(defs \[\]EvalDef, groups \[\]string\) \[\]EvalDef](<#FilterByGroups>)
   - [func ResolveEvals\(packEvals, promptEvals \[\]EvalDef\) \[\]EvalDef](<#ResolveEvals>)
   - [func Values\(in \[\]\*EvalDef\) \[\]EvalDef](<#Values>)
+- [type EvalFinding](<#EvalFinding>)
+  - [func ValidateEvalsDetailed\(defs \[\]EvalDef, scope string\) \[\]EvalFinding](<#ValidateEvalsDetailed>)
+- [type EvalFindingCode](<#EvalFindingCode>)
+- [type EvalFindingSeverity](<#EvalFindingSeverity>)
 - [type EvalHook](<#EvalHook>)
 - [type EvalResult](<#EvalResult>)
 - [type EvalRunner](<#EvalRunner>)
@@ -599,7 +603,7 @@ func StripScoreThresholds(params map[string]any) map[string]any
 StripScoreThresholds returns params without min\_score and max\_score, so the keys never reach an inner eval handler. Handlers reject those keys with an error result that scores 0, which a guardrail reads as a block. The input map is never mutated.
 
 <a name="ValidateEvalTypes"></a>
-## func [ValidateEvalTypes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/validate.go#L118>)
+## func [ValidateEvalTypes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/validate.go#L194>)
 
 ```go
 func ValidateEvalTypes(defs []EvalDef, registry *EvalTypeRegistry) []string
@@ -623,13 +627,13 @@ ValidateEvalWhen reports an authoring fault in a \`when\` object: a condition pr
 The supported conditions are the fields of EvalWhen. The PromptPack spec leaves \`when\` open, so a pack can carry a condition this runtime does not implement; it is reported as an error here rather than ignored or treated as a failed gate. A nil or empty map is valid.
 
 <a name="ValidateEvals"></a>
-## func [ValidateEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/validate.go#L30>)
+## func [ValidateEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/validate.go#L94>)
 
 ```go
 func ValidateEvals(defs []EvalDef, scope string) []string
 ```
 
-ValidateEvals validates a slice of EvalDef for correctness. The scope parameter is used in error messages \(e.g. "pack", "prompt:foo"\). prompt.Pack.Validate reports its findings, and the SDK's Open skips each def it rejects, with a warning. It checks:
+ValidateEvals validates a slice of EvalDef for correctness and returns each finding's Message. See ValidateEvalsDetailed, which returns the same findings with the def they name, a code and a severity. The scope parameter is used in error messages \(e.g. "pack", "prompt:foo"\). prompt.Pack.Validate reports its findings, and the SDK's Open skips each def it rejects, with a warning. It checks:
 
 - IDs are non\-empty and unique within the slice
 - Type is non\-empty
@@ -845,6 +849,92 @@ func Values(in []*EvalDef) []EvalDef
 Values dereferences a slice of eval pointers into values.
 
 The generated Prompt holds \[\]\*Eval because the schema implies pointers for optional object arrays, while the eval APIs take values. This converts at that boundary rather than pointerizing every signature behind it. A nil entry is skipped rather than dereferenced.
+
+<a name="EvalFinding"></a>
+## type [EvalFinding](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/validate.go#L53-L69>)
+
+EvalFinding is one problem ValidateEvalsDetailed found with a def.
+
+```go
+type EvalFinding struct {
+    // Index is the def's position in the slice that was validated.
+    Index int
+    // ID is the def's id, empty when it has none.
+    ID  string
+    // Code says what the finding is about.
+    Code EvalFindingCode
+    // Severity is EvalFindingWarning for EvalFindingUnknownTrigger and
+    // EvalFindingError for every other code.
+    Severity EvalFindingSeverity
+    // Reason is the finding without the scope and index prefix.
+    Reason string
+    // Message is the finding as ValidateEvals words it:
+    // "<scope> evals[<i>] (id=<quoted id>): <reason>", or
+    // "<scope> evals[<i>]: <reason>" for a def without an id.
+    Message string
+}
+```
+
+<a name="ValidateEvalsDetailed"></a>
+### func [ValidateEvalsDetailed](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/validate.go#L109>)
+
+```go
+func ValidateEvalsDetailed(defs []EvalDef, scope string) []EvalFinding
+```
+
+ValidateEvalsDetailed runs the checks ValidateEvals runs and returns each finding with the index and id of the def it names, a code and a severity, in def order. Classify a finding by its Code or Severity, never by its text.
+
+<a name="EvalFindingCode"></a>
+## type [EvalFindingCode](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/validate.go#L20>)
+
+EvalFindingCode identifies what a ValidateEvalsDetailed finding is about.
+
+```go
+type EvalFindingCode string
+```
+
+<a name="EvalFindingIDRequired"></a>The codes ValidateEvalsDetailed reports.
+
+```go
+const (
+    EvalFindingIDRequired          EvalFindingCode = "id_required"
+    EvalFindingDuplicateID         EvalFindingCode = "duplicate_id"
+    EvalFindingTypeRequired        EvalFindingCode = "type_required"
+    EvalFindingTriggerRequired     EvalFindingCode = "trigger_required"
+    EvalFindingUnknownTrigger      EvalFindingCode = "unknown_trigger"
+    EvalFindingSamplePercentage    EvalFindingCode = "sample_percentage_out_of_range"
+    EvalFindingMetricNameRequired  EvalFindingCode = "metric_name_required"
+    EvalFindingMetricNameInvalid   EvalFindingCode = "metric_name_invalid"
+    EvalFindingMetricTypeRequired  EvalFindingCode = "metric_type_required"
+    EvalFindingMetricTypeInvalid   EvalFindingCode = "metric_type_invalid"
+    EvalFindingMetricRangeInverted EvalFindingCode = "metric_range_inverted"
+    EvalFindingMetricLabelInvalid  EvalFindingCode = "metric_label_invalid"
+    EvalFindingMetricLabelReserved EvalFindingCode = "metric_label_reserved"
+    EvalFindingWhenUnusable        EvalFindingCode = "when_unusable"
+)
+```
+
+<a name="EvalFindingSeverity"></a>
+## type [EvalFindingSeverity](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/validate.go#L41>)
+
+EvalFindingSeverity is how serious a ValidateEvalsDetailed finding is.
+
+```go
+type EvalFindingSeverity string
+```
+
+<a name="EvalFindingError"></a>
+
+```go
+const (
+    // EvalFindingError marks a def that is wrong.
+    EvalFindingError EvalFindingSeverity = "error"
+    // EvalFindingWarning marks a def that is valid but cannot run in this
+    // runtime: a trigger it does not know. The PromptPack schema lists trigger
+    // values as examples, not an enum, so such a pack is spec-valid.
+    EvalFindingWarning EvalFindingSeverity = "warning"
+)
+```
 
 <a name="EvalHook"></a>
 ## type [EvalHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/hooks.go#L22-L28>)

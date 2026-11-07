@@ -291,7 +291,7 @@
   },
   {
    "id": 31,
-   "claim": "A histogram eval metric uses buckets 0..1 step 0.1 by default; CollectorOpts.EvalHistogramBuckets replaces them; a metric with range.min and range.max gets ten equal-width buckets across it",
+   "claim": "A histogram eval metric with range.min and range.max gets ten equal-width buckets across it; one with no range uses prometheus.DefBuckets, which CollectorOpts.EvalHistogramBuckets replaces",
    "verdict": "true",
    "evidence": [
     "runtime/metrics/collector.go:1158-1175",

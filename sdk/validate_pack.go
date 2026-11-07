@@ -261,9 +261,9 @@ func structuralEvalPackIssues(promptID string, defs []evals.EvalDef) []PackIssue
 	found := structuralEvalIssues(defs, scope, true)
 	var issues []PackIssue
 	for i := range defs {
-		for _, is := range found[i] {
+		for _, f := range found[i] {
 			severity := packIssueSeverityError
-			if is.trigger {
+			if f.Severity == evals.EvalFindingWarning {
 				// Spec-valid: the schema leaves trigger open. Open skips the
 				// def because it can never run here, but the pack is not wrong.
 				severity = packIssueSeverityWarning
@@ -275,7 +275,7 @@ func structuralEvalPackIssues(promptID string, defs []evals.EvalDef) []PackIssue
 				Index:    i,
 				Type:     defs[i].Type,
 				ID:       defs[i].ID,
-				Reason:   is.reason,
+				Reason:   f.Reason,
 			})
 		}
 	}

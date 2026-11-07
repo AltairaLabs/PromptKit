@@ -1017,26 +1017,14 @@ func (p *Pack) validateEvals() (errs, unknownTriggers []string) {
 	return errs, unknownTriggers
 }
 
-// splitEvalFindings is evals.ValidateEvals with the unknown-trigger findings
-// split out, matched by the exact message ValidateEvals words for each def.
+// splitEvalFindings is evals.ValidateEvals with the warnings (a trigger this
+// runtime does not know) split out from the errors, by each finding's severity.
 func splitEvalFindings(defs []evals.EvalDef, scope string) (errs, unknownTriggers []string) {
-	unknown := map[string]bool{}
-	for i := range defs {
-		d := &defs[i]
-		if d.Trigger == "" || evals.ValidTriggers[evals.EvalTrigger(d.Trigger)] {
-			continue
-		}
-		prefix := fmt.Sprintf("%s evals[%d]", scope, i)
-		if d.ID != "" {
-			prefix = fmt.Sprintf("%s evals[%d] (id=%q)", scope, i, d.ID)
-		}
-		unknown[fmt.Sprintf("%s: invalid trigger %q", prefix, d.Trigger)] = true
-	}
-	for _, m := range evals.ValidateEvals(defs, scope) {
-		if unknown[m] {
-			unknownTriggers = append(unknownTriggers, m)
+	for _, f := range evals.ValidateEvalsDetailed(defs, scope) {
+		if f.Severity == evals.EvalFindingWarning {
+			unknownTriggers = append(unknownTriggers, f.Message)
 		} else {
-			errs = append(errs, m)
+			errs = append(errs, f.Message)
 		}
 	}
 	return errs, unknownTriggers

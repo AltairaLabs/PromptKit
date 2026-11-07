@@ -206,7 +206,7 @@ results, err := sdk.Evaluate(ctx, sdk.EvaluateOpts{
 
 `NewEvalOnlyCollector` skips pipeline metrics. Use `metrics.NewCollector()` when the process also runs conversations. An eval without a `metric` definition is recorded as a gauge named after the eval ID.
 
-An eval metric of type `histogram` uses the buckets `0, 0.1, 0.2, ... 1.0` by default, which span the range eval scores live in. Set `EvalHistogramBuckets` on `metrics.CollectorOpts` to replace them; the collector sorts the values and drops duplicates. A metric that declares both `range.min` and `range.max` (with `max` above `min`) gets ten equal-width buckets across that range instead, so a metric on another scale needs no collector setting.
+An eval metric of type `histogram` that declares both `range.min` and `range.max` (with `max` above `min`) gets ten equal-width buckets across that range, so a score histogram declares `range: {min: 0, max: 1}` to get `0, 0.1, 0.2, ... 1.0`. A histogram with no range uses `prometheus.DefBuckets` (0.005 to 10). Set `EvalHistogramBuckets` on `metrics.CollectorOpts` to replace those for every histogram with no range; the collector sorts the values and drops duplicates.
 
 ### Eval dimensions
 

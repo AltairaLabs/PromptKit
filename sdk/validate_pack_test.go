@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -391,4 +392,35 @@ func TestValidatePack_UnknownTriggerIsAWarning(t *testing.T) {
 	assert.Equal(t, "warning", issues[0].Severity)
 	assert.Equal(t, "later", issues[0].ID)
 	assert.Equal(t, `invalid trigger "on_custom_event"`, issues[0].Reason)
+}
+
+// Only the unknown-trigger finding on a def is a warning. Any other finding on
+// the same def — a duplicate id, a metric name Prometheus cannot register — is
+// still an error, so the pack does not pass.
+func TestValidatePack_UnknownTriggerDoesNotDowngradeOtherFindings(t *testing.T) {
+	pack := baseValidPack()
+	pack["evals"] = []any{
+		map[string]any{"id": "dup", "type": "contains", "trigger": "every_turn",
+			"params": map[string]any{"patterns": []any{"x"}}},
+		map[string]any{"id": "dup", "type": "contains", "trigger": "on_custom_event",
+			"params": map[string]any{"patterns": []any{"y"}},
+			"metric": map[string]any{"name": "bad-name", "type": "gauge"}},
+	}
+	path := writeValidatePackFixture(t, pack)
+
+	issues, err := sdk.ValidatePack(path, true)
+	require.NoError(t, err)
+	got := map[string]string{}
+	for _, is := range issues {
+		got[is.Reason] = is.Severity
+	}
+	assert.Equal(t, "warning", got[`invalid trigger "on_custom_event"`], "%v", issues)
+	assert.Equal(t, "error", got[`duplicate eval id "dup"`], "%v", issues)
+	var metricSeverity string
+	for reason, sev := range got {
+		if strings.Contains(reason, `metric.name "bad-name"`) {
+			metricSeverity = sev
+		}
+	}
+	assert.Equal(t, "error", metricSeverity, "%v", issues)
 }
