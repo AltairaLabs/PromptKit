@@ -4,7 +4,7 @@ description: How the runtime puts OpenAI, Claude, Gemini and other LLM APIs behi
 sidebar:
   order: 6
 verified:
-  commit: dc6d6f37cfabc0079dd9af47c52502e83f2a85af
+  commit: ffbed7c4b0fff266953352be5e73d4e308a97acf
   sources:
     - runtime/pipeline/stage/compactor.go
     - runtime/providers/base_provider.go
@@ -18,6 +18,7 @@ verified:
     - runtime/providers/gemini/interactions_mode.go
     - runtime/providers/gemini/streaming_support.go
     - runtime/providers/mock/mock.go
+    - runtime/providers/mock/mock_config_check.go
     - runtime/providers/mock/mock_repository.go
     - runtime/providers/mock/mock_streaming.go
     - runtime/providers/openai/openai.go
@@ -261,7 +262,7 @@ Every provider reports cost as a `types.CostInfo` on the response, or on the fin
 
 ## Testing with the mock provider
 
-The `mock` provider makes no API calls. It answers from a `ResponseRepository`: an in-memory one with a default response and per-scenario, per-turn overrides, or a file-backed one that also scripts tool calls and multimodal parts. Its streaming sessions can simulate an interruption on a chosen turn and a provider that closes the connection. It reports token counts estimated from text length. The `replay` provider serves recorded sessions for deterministic runs.
+The `mock` provider makes no API calls. It answers from a `ResponseRepository`: an in-memory one with a default response and per-scenario, per-turn overrides, or a file-backed one that also scripts tool calls and multimodal parts. The file-backed repository decodes its YAML strictly: a key it does not read is an error that names the key and the valid ones. Its streaming sessions can simulate an interruption on a chosen turn and a provider that closes the connection. It reports token counts estimated from text length. The `replay` provider serves recorded sessions for deterministic runs.
 
 ## Related pages
 
