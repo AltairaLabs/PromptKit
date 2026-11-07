@@ -96,6 +96,16 @@ results, err := sdk.Evaluate(ctx, sdk.EvaluateOpts{
 
 Pack-defined eval metrics are named `{ns}_eval_<metric>`. A metric that already starts with `{ns}_eval_` keeps its name. Query them all with `{__name__=~"myapp_eval_.*"}`. See the [eval framework](https://promptarena.altairalabs.ai/arena/explanation/eval-framework/#metrics--prometheus) for metric types.
 
+An eval metric of type `histogram` gets buckets at 0, 0.1, 0.2 and so on up to 1.0, the range eval scores live in. A metric that declares both `range.min` and `range.max` gets ten equal-width buckets across that range instead. To change the buckets for every histogram that declares no range, set `EvalHistogramBuckets`:
+
+```go
+collector := metrics.NewEvalOnlyCollector(metrics.CollectorOpts{
+    Registerer:           reg,
+    Namespace:            "myapp",
+    EvalHistogramBuckets: []float64{0.25, 0.5, 0.75, 0.9, 1},
+})
+```
+
 ## 5. Configure the scrape
 
 Add the endpoint to `prometheus.yml`:
