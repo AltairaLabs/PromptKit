@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -130,6 +132,17 @@ type DuplexProviderStage struct {
 	// live session (e.g. its BargeIn() channel), which only exists once created.
 	// Set via SetSessionObserver.
 	onSession func(providers.StreamInputSession)
+
+	// hookRegistry holds the provider hooks (guardrails) the stage runs; nil
+	// runs none. Set via SetHookRegistry. See stages_duplex_provider_hooks.go.
+	hookRegistry *hooks.Registry
+	// history is the conversation the hooks see, kept only while hooks run.
+	history duplexHistory
+	// assistantTurns counts the assistant turns completed this session, for the
+	// turn index the hooks report.
+	assistantTurns atomic.Int64
+	// turnGuard is the current turn's guardrail state (response goroutine only).
+	turnGuard duplexTurnGuard
 }
 
 // SetSessionObserver registers a callback invoked once with the streaming
@@ -499,6 +512,16 @@ func (s *DuplexProviderStage) handleInputElement(
 		return true
 	}
 
+	// Input guardrails gate text before it reaches the session.
+	if handled, err := s.guardInputText(ctx, elem, output); handled {
+		if err != nil {
+			s.failInput(ctx, err, output)
+			done <- err
+			return true
+		}
+		return false
+	}
+
 	s.sendElementToSession(ctx, elem)
 	return false
 }
@@ -547,6 +570,9 @@ func (s *DuplexProviderStage) forwardInputMessages(
 		if err := forwardToolResultMessages(ctx, toolMsgs, output); err != nil {
 			return err
 		}
+		for i := range toolMsgs {
+			s.recordHistory(&toolMsgs[i])
+		}
 		// Continue to process the element (may also have tool responses for provider)
 	}
 
@@ -556,6 +582,7 @@ func (s *DuplexProviderStage) forwardInputMessages(
 	}
 	logger.Debug("DuplexProviderStage: forwarding user message to output", "role", elem.Message.Role)
 	s.trackInputTurn(elem)
+	s.recordHistory(elem.Message)
 	select {
 	case output <- *elem:
 		return nil
@@ -1152,6 +1179,12 @@ func (s *DuplexProviderStage) handleResponseChunk(
 		s.transcriptionCaptured = true
 	}
 
+	// Streaming guardrails check the chunk's assistant text before it is
+	// accumulated or forwarded.
+	if err := s.guardOutputChunk(ctx, chunk, isOutputTranscription); err != nil {
+		return s.abortTurn(ctx, err, output)
+	}
+
 	if err := s.accumulateResponseChunk(ctx, chunk, isOutputTranscription, output); err != nil {
 		return err
 	}
@@ -1162,39 +1195,21 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	// Reset accumulation after turn completes (after creating the element)
 	// BUT: if this was an interrupted turn completion (no EndOfStream), don't reset -
 	// we need to accumulate the real response content that comes next
-	if completesTurn(chunk, &elem) {
+	turnDone := completesTurn(chunk, &elem)
+	if turnDone {
 		s.resetTurnAccumulation()
 	}
 
-	// Continuous-streaming user-turn materialization (provider-agnostic).
-	//
-	// In the scenario path a user Message is pre-created with a turn_id, so
-	// chunkToElement releases the transcript by attaching elem.Meta.Transcription
-	// + elem.Meta.TurnID (consumed by ArenaStateStoreSaveStage to overwrite the
-	// pre-created user message). In the continuous-streaming path (interactive
-	// console / SDK realtime) NO user Message is pre-queued, so turnID is empty
-	// and chunkToElement leaves elem.Meta.Transcription nil — the transcript
-	// would otherwise be silently dropped.
-	//
-	// Here we detect that case (turn-completing EndOfStream, a buffered input
-	// transcript, and no scenario-path transcription attached) and emit a NEW
-	// user Message element from the buffered transcript, ordered BEFORE the
-	// assistant element for this turn. The buffer is then reset so each
-	// subsequent streaming turn materializes its own user message.
-	//
-	// This keys only off s.inputTranscription (populated from the normalized
-	// input_transcription chunk that both OpenAI Realtime and Gemini Live emit)
-	// and the shared EndOfStream machinery — no per-provider event names.
-	if elem.EndOfStream && s.inputTranscription.Len() > 0 && elem.Meta.Transcription == nil {
-		logger.Debug("DuplexProviderStage: materializing streaming user turn from transcript",
-			"transcriptLen", s.inputTranscription.Len())
-		if err := s.emitBufferedUserTurn(ctx, output); err != nil {
-			return err
+	if err := s.materializeStreamingUserTurn(ctx, &elem, output); err != nil {
+		return err
+	}
+
+	// Output guardrails check the completed turn, after its user turn (above)
+	// is in the history they see.
+	if turnDone {
+		if err := s.guardCompletedTurn(ctx, &elem); err != nil {
+			return failTurn(ctx, err, output)
 		}
-		// Reset the per-turn transcription buffer so the next streaming turn
-		// starts clean (mirrors the reset in sendAudioElement for the scenario
-		// path). transcriptionCaptured is already set above on turn completion.
-		s.inputTranscription.Reset()
 	}
 
 	logger.Debug("DuplexProviderStage: forwarding response element",
@@ -1209,6 +1224,44 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// materializeStreamingUserTurn is the continuous-streaming user-turn
+// materialization (provider-agnostic).
+//
+// In the scenario path a user Message is pre-created with a turn_id, so
+// chunkToElement releases the transcript by attaching elem.Meta.Transcription
+// + elem.Meta.TurnID (consumed by ArenaStateStoreSaveStage to overwrite the
+// pre-created user message). In the continuous-streaming path (interactive
+// console / SDK realtime) NO user Message is pre-queued, so turnID is empty
+// and chunkToElement leaves elem.Meta.Transcription nil — the transcript
+// would otherwise be silently dropped.
+//
+// Here we detect that case (turn-completing EndOfStream, a buffered input
+// transcript, and no scenario-path transcription attached) and emit a NEW
+// user Message element from the buffered transcript, ordered BEFORE the
+// assistant element for this turn. The buffer is then reset so each
+// subsequent streaming turn materializes its own user message.
+//
+// This keys only off s.inputTranscription (populated from the normalized
+// input_transcription chunk that both OpenAI Realtime and Gemini Live emit)
+// and the shared EndOfStream machinery — no per-provider event names.
+func (s *DuplexProviderStage) materializeStreamingUserTurn(
+	ctx context.Context, elem *StreamElement, output chan<- StreamElement,
+) error {
+	if !elem.EndOfStream || s.inputTranscription.Len() == 0 || elem.Meta.Transcription != nil {
+		return nil
+	}
+	logger.Debug("DuplexProviderStage: materializing streaming user turn from transcript",
+		"transcriptLen", s.inputTranscription.Len())
+	if err := s.emitBufferedUserTurn(ctx, output); err != nil {
+		return err
+	}
+	// Reset the per-turn transcription buffer so the next streaming turn
+	// starts clean (mirrors the reset in sendAudioElement for the scenario
+	// path). transcriptionCaptured is already set on turn completion.
+	s.inputTranscription.Reset()
+	return nil
 }
 
 // emitChunkError emits a chunk error downstream, keeping the turn's partial
@@ -1331,6 +1384,7 @@ func (s *DuplexProviderStage) emitBufferedUserTurn(ctx context.Context, output c
 			Text: &transcript,
 		}},
 	}
+	s.recordHistory(userMsg)
 	select {
 	case output <- StreamElement{Message: userMsg}:
 		return nil

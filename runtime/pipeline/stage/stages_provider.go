@@ -3308,6 +3308,16 @@ func decisionMessageMeta(d hooks.Decision) map[string]interface{} {
 func (s *ProviderStage) recordGuardrailFiring(
 	msg *types.Message, d hooks.Decision, direction string, duration time.Duration,
 ) {
+	recordGuardrailFiring(s.emitter, msg, d, direction, duration, s.currentTurn())
+}
+
+// recordGuardrailFiring is the body of ProviderStage.recordGuardrailFiring,
+// shared with DuplexProviderStage so a realtime firing is recorded exactly as
+// a text one is. emitter may be nil (no event).
+func recordGuardrailFiring(
+	emitter *events.Emitter, msg *types.Message, d hooks.Decision,
+	direction string, duration time.Duration, turn int,
+) {
 	vType, _ := d.Metadata["validator_type"].(string)
 
 	if msg != nil {
@@ -3316,7 +3326,7 @@ func (s *ProviderStage) recordGuardrailFiring(
 		}
 	}
 
-	if s.emitter == nil {
+	if emitter == nil {
 		return
 	}
 	data := &events.ValidationEventData{
@@ -3326,13 +3336,13 @@ func (s *ProviderStage) recordGuardrailFiring(
 		Duration:      duration,
 		Enforced:      d.Enforced,
 		Score:         metadataScore(d.Metadata),
-		TurnIndex:     s.currentTurn(),
+		TurnIndex:     turn,
 	}
 	data.Validator, _ = d.Metadata[hooks.MetadataKeyValidatorDeclaration].(*packspec.Validator)
 	if !d.Allow {
 		data.Violations = []string{d.Reason}
 	}
-	s.emitter.GuardrailResult(data)
+	emitter.GuardrailResult(data)
 }
 
 // guardrailValidation builds the ValidationResult recorded for a guardrail
@@ -3413,6 +3423,13 @@ func metadataScore(metadata map[string]any) float64 {
 func (s *ProviderStage) blockedMessage(
 	req *hooks.ProviderRequest, d hooks.Decision,
 ) types.Message {
+	return blockedTurnMessage(req, d)
+}
+
+// blockedTurnMessage is the body of ProviderStage.blockedMessage, shared with
+// DuplexProviderStage so a blocked realtime turn is shaped like a blocked text
+// turn.
+func blockedTurnMessage(req *hooks.ProviderRequest, d hooks.Decision) types.Message {
 	content := ""
 	if req != nil {
 		content = req.Replacement

@@ -19,6 +19,7 @@ verified:
     - runtime/hooks/types.go
     - runtime/pipeline/stage/composition_executor.go
     - runtime/pipeline/stage/pipeline.go
+    - runtime/pipeline/stage/stages_duplex_provider_hooks.go
     - runtime/pipeline/stage/stages_provider.go
     - sdk/conversation.go
     - sdk/options.go
@@ -103,6 +104,23 @@ Four consequences that a flat list hides:
 - On the streaming path, `OnChunk` fires before `provider.call.completed`. Chunks are consumed as they arrive, and the completion event carries the totals (tokens, cost, finish reason) that are known only once the stream closes. A chunk interceptor that aborts a stream runs before any completion event for that call.
 
 Within a single phase, multiple hooks run in registration order. For decision-based hooks the first non-`Allow` decision short-circuits. Every session hook for the event runs, and the registry logs each failure. For eval hooks every registered hook always runs, and a panic in one does not block the others.
+
+## Hooks in a realtime session
+
+A realtime duplex conversation (`OpenDuplex` with a streaming config, on a provider such as OpenAI Realtime or Gemini Live) has no rounds. One provider session streams every turn, so the provider hooks run at the points where a session has something to check:
+
+- `BeforeCall` runs on text bound for the session, before it is sent. An enforcing hook keeps the text from the session, and the caller receives the blocked turn instead, marked `FinishReason: "safety"`, as on the text path.
+- `OnChunk` runs on each chunk of assistant text before it is forwarded: the model's text, or the transcript of its spoken reply. The chunk the interceptor sees carries the turn's text so far in `Content`. Once an interceptor enforces, the turn's text is the enforced text and the rest of the turn's text and audio is dropped.
+- `AfterCall` runs on the completed assistant turn. An enforcing hook rewrites it, as on the text path.
+
+An enforced turn's tool calls are dropped and not executed. Its finish reason is `safety`, and an SDK `Response()` reader sees that as the `finish_reason` of the chunk marked `assistant_turn_complete`. A `Deny` from any of the three ends the session with the error.
+
+Two guarantees the text path gives do not hold in a realtime session:
+
+- Spoken input is not checked before the model hears it. The user's audio goes to the provider as audio, and its transcript comes back only afterwards, so no input hook sees it first.
+- What the provider streamed before a check fired has already reached the listener. The transcript delta that trips a streaming check is held back, but audio arrives ahead of its transcript, and an `AfterCall` check runs once the whole turn has played. Enforcement corrects the turn as stored and recorded, and stops what is still to come.
+
+A VAD voice session (speech-to-text, a text model, text-to-speech) runs the text path's provider stage, so its hooks run exactly as they do for `Send`.
 
 ## Error handling and safety
 

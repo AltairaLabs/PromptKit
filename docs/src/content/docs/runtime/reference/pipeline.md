@@ -147,6 +147,7 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
   - [func NewDuplexProviderStageWithEmitter\(provider providers.StreamInputSupport, baseConfig \*providers.StreamingInputConfig, emitter \*events.Emitter\) \*DuplexProviderStage](<#NewDuplexProviderStageWithEmitter>)
   - [func NewDuplexProviderStageWithTurnState\(provider providers.StreamInputSupport, baseConfig \*providers.StreamingInputConfig, emitter \*events.Emitter, turnState \*TurnState\) \*DuplexProviderStage](<#NewDuplexProviderStageWithTurnState>)
   - [func \(s \*DuplexProviderStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#DuplexProviderStage.Process>)
+  - [func \(s \*DuplexProviderStage\) SetHookRegistry\(r \*hooks.Registry\)](<#DuplexProviderStage.SetHookRegistry>)
   - [func \(s \*DuplexProviderStage\) SetSessionObserver\(fn func\(providers.StreamInputSession\)\)](<#DuplexProviderStage.SetSessionObserver>)
 - [type ElementMetadata](<#ElementMetadata>)
 - [type EndInputter](<#EndInputter>)
@@ -2036,7 +2037,7 @@ func (s DropStrategy) String() string
 String returns the string representation of the drop strategy.
 
 <a name="DuplexProviderStage"></a>
-## type [DuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L63-L133>)
+## type [DuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L65-L146>)
 
 DuplexProviderStage handles bidirectional streaming through a session. It forwards elements from input to the provider's session and forwards responses from the session to output.
 
@@ -2058,7 +2059,7 @@ type DuplexProviderStage struct {
 ```
 
 <a name="NewDuplexProviderStage"></a>
-### func [NewDuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L147-L150>)
+### func [NewDuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L160-L163>)
 
 ```go
 func NewDuplexProviderStage(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig) *DuplexProviderStage
@@ -2067,7 +2068,7 @@ func NewDuplexProviderStage(provider providers.StreamInputSupport, baseConfig *p
 NewDuplexProviderStage creates a new duplex provider stage. The session is created lazily when the first element arrives. Prefer NewDuplexProviderStageWithTurnState in production so the system prompt is sourced from the per\-Turn shared state.
 
 <a name="NewDuplexProviderStageWithEmitter"></a>
-### func [NewDuplexProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L163-L167>)
+### func [NewDuplexProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L176-L180>)
 
 ```go
 func NewDuplexProviderStageWithEmitter(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig, emitter *events.Emitter) *DuplexProviderStage
@@ -2076,7 +2077,7 @@ func NewDuplexProviderStageWithEmitter(provider providers.StreamInputSupport, ba
 NewDuplexProviderStageWithEmitter creates a new duplex provider stage with event emission support. The stage emits audio.input and audio.output events through it for session recording.
 
 <a name="NewDuplexProviderStageWithTurnState"></a>
-### func [NewDuplexProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L176-L181>)
+### func [NewDuplexProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L189-L194>)
 
 ```go
 func NewDuplexProviderStageWithTurnState(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig, emitter *events.Emitter, turnState *TurnState) *DuplexProviderStage
@@ -2085,7 +2086,7 @@ func NewDuplexProviderStageWithTurnState(provider providers.StreamInputSupport, 
 NewDuplexProviderStageWithTurnState creates a new duplex provider stage that sources system\_prompt from the shared \*TurnState. The emitter remains optional.
 
 <a name="DuplexProviderStage.Process"></a>
-### func \(\*DuplexProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L199-L203>)
+### func \(\*DuplexProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L212-L216>)
 
 ```go
 func (s *DuplexProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -2097,8 +2098,17 @@ For duplex streaming \(Gemini Live API\), this runs until: \- Context is cancele
 
 If no session is pre\-configured, the session is created lazily when the first element arrives. The system\_prompt from TurnState \(when wired\) is used as the SystemInstruction for session creation.
 
+<a name="DuplexProviderStage.SetHookRegistry"></a>
+### func \(\*DuplexProviderStage\) [SetHookRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L42>)
+
+```go
+func (s *DuplexProviderStage) SetHookRegistry(r *hooks.Registry)
+```
+
+SetHookRegistry installs the provider hooks \(guardrails\) the stage runs. A nil registry, the default, runs none. The registry is handed the stage's emitter, as ProviderStage does, so its guardrails report through it. Must be called before the stage runs.
+
 <a name="DuplexProviderStage.SetSessionObserver"></a>
-### func \(\*DuplexProviderStage\) [SetSessionObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L139>)
+### func \(\*DuplexProviderStage\) [SetSessionObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L152>)
 
 ```go
 func (s *DuplexProviderStage) SetSessionObserver(fn func(providers.StreamInputSession))
@@ -2226,7 +2236,7 @@ type ElementMetadata struct {
 ```
 
 <a name="EndInputter"></a>
-## type [EndInputter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L39-L41>)
+## type [EndInputter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L41-L43>)
 
 EndInputter is an optional interface for sessions that support explicit end\-of\-input signaling. This is primarily used by mock sessions to trigger responses after all audio has been sent.
 

@@ -28,6 +28,10 @@ const finishReasonInterrupted = types.FinishReasonInterrupted
 // kept out of model context like any other interrupted reply) and in Meta, the
 // element-level marker duplex consumers already read. cause records why.
 func (s *DuplexProviderStage) takeInterruptedTurn(cause string) *types.Message {
+	// The turn ends here, so its guardrail state does too; any chunk firing
+	// is kept on the partial reply.
+	guard := s.turnGuard
+	s.turnGuard = duplexTurnGuard{}
 	text := s.accumulatedText.String()
 	if text == "" && len(s.accumulatedMedia) == 0 &&
 		s.accumulatedReasoning.Len() == 0 && len(s.accumulatedOpaqueReasoning) == 0 {
@@ -49,6 +53,7 @@ func (s *DuplexProviderStage) takeInterruptedTurn(cause string) *types.Message {
 	}
 	msg.Parts = s.buildAssistantParts(text)
 	msg.Reasoning = s.takeReasoning()
+	msg.Validations = guard.validations
 
 	s.accumulatedText.Reset()
 	s.accumulatedReasoning.Reset()
