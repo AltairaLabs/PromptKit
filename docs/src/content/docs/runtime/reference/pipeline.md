@@ -2037,7 +2037,7 @@ func (s DropStrategy) String() string
 String returns the string representation of the drop strategy.
 
 <a name="DuplexProviderStage"></a>
-## type [DuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L65-L146>)
+## type [DuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L69-L156>)
 
 DuplexProviderStage handles bidirectional streaming through a session. It forwards elements from input to the provider's session and forwards responses from the session to output.
 
@@ -2059,7 +2059,7 @@ type DuplexProviderStage struct {
 ```
 
 <a name="NewDuplexProviderStage"></a>
-### func [NewDuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L160-L163>)
+### func [NewDuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L170-L173>)
 
 ```go
 func NewDuplexProviderStage(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig) *DuplexProviderStage
@@ -2068,7 +2068,7 @@ func NewDuplexProviderStage(provider providers.StreamInputSupport, baseConfig *p
 NewDuplexProviderStage creates a new duplex provider stage. The session is created lazily when the first element arrives. Prefer NewDuplexProviderStageWithTurnState in production so the system prompt is sourced from the per\-Turn shared state.
 
 <a name="NewDuplexProviderStageWithEmitter"></a>
-### func [NewDuplexProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L176-L180>)
+### func [NewDuplexProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L187-L191>)
 
 ```go
 func NewDuplexProviderStageWithEmitter(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig, emitter *events.Emitter) *DuplexProviderStage
@@ -2077,7 +2077,7 @@ func NewDuplexProviderStageWithEmitter(provider providers.StreamInputSupport, ba
 NewDuplexProviderStageWithEmitter creates a new duplex provider stage with event emission support. The stage emits audio.input and audio.output events through it for session recording.
 
 <a name="NewDuplexProviderStageWithTurnState"></a>
-### func [NewDuplexProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L189-L194>)
+### func [NewDuplexProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L200-L205>)
 
 ```go
 func NewDuplexProviderStageWithTurnState(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig, emitter *events.Emitter, turnState *TurnState) *DuplexProviderStage
@@ -2086,7 +2086,7 @@ func NewDuplexProviderStageWithTurnState(provider providers.StreamInputSupport, 
 NewDuplexProviderStageWithTurnState creates a new duplex provider stage that sources system\_prompt from the shared \*TurnState. The emitter remains optional.
 
 <a name="DuplexProviderStage.Process"></a>
-### func \(\*DuplexProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L212-L216>)
+### func \(\*DuplexProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L223-L227>)
 
 ```go
 func (s *DuplexProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -2099,7 +2099,7 @@ For duplex streaming \(Gemini Live API\), this runs until: \- Context is cancele
 If no session is pre\-configured, the session is created lazily when the first element arrives. The system\_prompt from TurnState \(when wired\) is used as the SystemInstruction for session creation.
 
 <a name="DuplexProviderStage.SetHookRegistry"></a>
-### func \(\*DuplexProviderStage\) [SetHookRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L42>)
+### func \(\*DuplexProviderStage\) [SetHookRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L43>)
 
 ```go
 func (s *DuplexProviderStage) SetHookRegistry(r *hooks.Registry)
@@ -2108,7 +2108,7 @@ func (s *DuplexProviderStage) SetHookRegistry(r *hooks.Registry)
 SetHookRegistry installs the provider hooks \(guardrails\) the stage runs. A nil registry, the default, runs none. The registry is handed the stage's emitter, as ProviderStage does, so its guardrails report through it. Must be called before the stage runs.
 
 <a name="DuplexProviderStage.SetSessionObserver"></a>
-### func \(\*DuplexProviderStage\) [SetSessionObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L152>)
+### func \(\*DuplexProviderStage\) [SetSessionObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L162>)
 
 ```go
 func (s *DuplexProviderStage) SetSessionObserver(fn func(providers.StreamInputSession))
@@ -2236,7 +2236,7 @@ type ElementMetadata struct {
 ```
 
 <a name="EndInputter"></a>
-## type [EndInputter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L41-L43>)
+## type [EndInputter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L45-L47>)
 
 EndInputter is an optional interface for sessions that support explicit end\-of\-input signaling. This is primarily used by mock sessions to trigger responses after all audio has been sent.
 
@@ -4155,7 +4155,7 @@ type ProviderBudgetedCompaction interface {
 ```
 
 <a name="ProviderConfig"></a>
-## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L143-L258>)
+## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L144-L259>)
 
 ProviderConfig contains configuration for the provider stage.
 
@@ -4279,7 +4279,7 @@ type ProviderConfig struct {
 ```
 
 <a name="ProviderConfig.ApplyCallParams"></a>
-### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L271>)
+### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L272>)
 
 ```go
 func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
@@ -4288,7 +4288,7 @@ func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
 ApplyCallParams sets c's sampling fields from a prompt's resolved parameters \(prompt.Registry.CallParameters\).
 
 <a name="ProviderConfig.CallParams"></a>
-### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L261>)
+### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L262>)
 
 ```go
 func (c *ProviderConfig) CallParams() prompt.CallParams
@@ -4297,7 +4297,7 @@ func (c *ProviderConfig) CallParams() prompt.CallParams
 CallParams returns c's sampling fields as one value.
 
 <a name="ProviderStage"></a>
-## type [ProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L69-L116>)
+## type [ProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L70-L117>)
 
 ProviderStage executes LLM calls and handles tool execution.
 
@@ -4313,7 +4313,7 @@ type ProviderStage struct {
 ```
 
 <a name="NewProviderStage"></a>
-### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L314-L319>)
+### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L315-L320>)
 
 ```go
 func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig) *ProviderStage
@@ -4322,7 +4322,7 @@ func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry,
 NewProviderStage creates a new provider stage for request/response mode.
 
 <a name="NewProviderStageWithEmitter"></a>
-### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L326-L332>)
+### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L327-L333>)
 
 ```go
 func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter) *ProviderStage
@@ -4331,7 +4331,7 @@ func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tool
 NewProviderStageWithEmitter creates a new provider stage with event emission support. The stage emits provider.call.started, provider.call.completed, and provider.call.failed events through it for observability and session recording.
 
 <a name="NewProviderStageWithHooks"></a>
-### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L339-L346>)
+### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L340-L347>)
 
 ```go
 func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry) *ProviderStage
@@ -4340,7 +4340,7 @@ func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.
 NewProviderStageWithHooks creates a provider stage with event emission and hook support. The hookRegistry enables synchronous interception of provider calls, streaming chunks, and tool execution. Pass nil for no hooks \(zero overhead\).
 
 <a name="NewProviderStageWithTurnState"></a>
-### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L353-L361>)
+### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L354-L362>)
 
 ```go
 func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry, turnState *TurnState) *ProviderStage
@@ -4349,7 +4349,7 @@ func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *to
 NewProviderStageWithTurnState creates a provider stage that sources system\_prompt, allowed\_tools, and provider\-bound metadata from the shared \*TurnState. Pass nil for ad\-hoc / test usage where TurnState is not wired.
 
 <a name="ProviderStage.Process"></a>
-### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L520-L524>)
+### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L521-L525>)
 
 ```go
 func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4358,7 +4358,7 @@ func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement,
 Process executes the LLM provider call and handles tool execution.
 
 <a name="ProviderStage.SetWorkflowStateResolver"></a>
-### func \(\*ProviderStage\) [SetWorkflowStateResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L138>)
+### func \(\*ProviderStage\) [SetWorkflowStateResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L139>)
 
 ```go
 func (s *ProviderStage) SetWorkflowStateResolver(r WorkflowStateResolver)
@@ -5504,7 +5504,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2729>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2730>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement

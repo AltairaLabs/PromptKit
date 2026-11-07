@@ -56,6 +56,7 @@ Package hooks provides synchronous interception points for provider calls, tool 
 - [type Registry](<#Registry>)
   - [func NewRegistry\(opts ...Option\) \*Registry](<#NewRegistry>)
   - [func \(r \*Registry\) HasChunkInterceptors\(\) bool](<#Registry.HasChunkInterceptors>)
+  - [func \(r \*Registry\) HasProviderHooks\(\) bool](<#Registry.HasProviderHooks>)
   - [func \(r \*Registry\) HasToolResultRewriters\(\) bool](<#Registry.HasToolResultRewriters>)
   - [func \(r \*Registry\) IsEmpty\(\) bool](<#Registry.IsEmpty>)
   - [func \(r \*Registry\) RunAfterProviderCall\(ctx context.Context, req \*ProviderRequest, resp \*ProviderResponse\) Decision](<#Registry.RunAfterProviderCall>)
@@ -554,7 +555,7 @@ func NewRegistry(opts ...Option) *Registry
 NewRegistry creates a Registry with the given options.
 
 <a name="Registry.HasChunkInterceptors"></a>
-### func \(\*Registry\) [HasChunkInterceptors](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L151>)
+### func \(\*Registry\) [HasChunkInterceptors](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L156>)
 
 ```go
 func (r *Registry) HasChunkInterceptors() bool
@@ -562,8 +563,17 @@ func (r *Registry) HasChunkInterceptors() bool
 
 HasChunkInterceptors returns true if any registered provider hook implements ChunkInterceptor.
 
+<a name="Registry.HasProviderHooks"></a>
+### func \(\*Registry\) [HasProviderHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L96>)
+
+```go
+func (r *Registry) HasProviderHooks() bool
+```
+
+HasProviderHooks reports whether any provider hook is registered.
+
 <a name="Registry.HasToolResultRewriters"></a>
-### func \(\*Registry\) [HasToolResultRewriters](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L215>)
+### func \(\*Registry\) [HasToolResultRewriters](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L220>)
 
 ```go
 func (r *Registry) HasToolResultRewriters() bool
@@ -581,7 +591,7 @@ func (r *Registry) IsEmpty() bool
 IsEmpty returns true if no hooks are registered.
 
 <a name="Registry.RunAfterProviderCall"></a>
-### func \(\*Registry\) [RunAfterProviderCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L137>)
+### func \(\*Registry\) [RunAfterProviderCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L142>)
 
 ```go
 func (r *Registry) RunAfterProviderCall(ctx context.Context, req *ProviderRequest, resp *ProviderResponse) Decision
@@ -590,7 +600,7 @@ func (r *Registry) RunAfterProviderCall(ctx context.Context, req *ProviderReques
 RunAfterProviderCall executes all provider hooks' AfterCall in order. The first non\-Allow decision wins and short\-circuits.
 
 <a name="Registry.RunAfterToolExecution"></a>
-### func \(\*Registry\) [RunAfterToolExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L200>)
+### func \(\*Registry\) [RunAfterToolExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L205>)
 
 ```go
 func (r *Registry) RunAfterToolExecution(ctx context.Context, req ToolRequest, resp ToolResponse) Decision
@@ -599,7 +609,7 @@ func (r *Registry) RunAfterToolExecution(ctx context.Context, req ToolRequest, r
 RunAfterToolExecution executes all tool hooks' AfterExecution in order. First deny wins and short\-circuits.
 
 <a name="Registry.RunBeforeProviderCall"></a>
-### func \(\*Registry\) [RunBeforeProviderCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L122>)
+### func \(\*Registry\) [RunBeforeProviderCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L127>)
 
 ```go
 func (r *Registry) RunBeforeProviderCall(ctx context.Context, req *ProviderRequest) Decision
@@ -664,7 +674,7 @@ false model is not allowed
 </details>
 
 <a name="Registry.RunBeforeToolExecution"></a>
-### func \(\*Registry\) [RunBeforeToolExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L178>)
+### func \(\*Registry\) [RunBeforeToolExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L183>)
 
 ```go
 func (r *Registry) RunBeforeToolExecution(ctx context.Context, req ToolRequest) Decision
@@ -673,7 +683,7 @@ func (r *Registry) RunBeforeToolExecution(ctx context.Context, req ToolRequest) 
 RunBeforeToolExecution executes all tool hooks' BeforeExecution in order. First deny wins and short\-circuits.
 
 <a name="Registry.RunOnChunk"></a>
-### func \(\*Registry\) [RunOnChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L160>)
+### func \(\*Registry\) [RunOnChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L165>)
 
 ```go
 func (r *Registry) RunOnChunk(ctx context.Context, chunk *providers.StreamChunk) Decision
@@ -682,7 +692,7 @@ func (r *Registry) RunOnChunk(ctx context.Context, chunk *providers.StreamChunk)
 RunOnChunk executes all chunk interceptors in order. First deny wins and short\-circuits.
 
 <a name="Registry.RunSessionEnd"></a>
-### func \(\*Registry\) [RunSessionEnd](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L256>)
+### func \(\*Registry\) [RunSessionEnd](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L261>)
 
 ```go
 func (r *Registry) RunSessionEnd(ctx context.Context, event SessionEvent) error
@@ -691,7 +701,7 @@ func (r *Registry) RunSessionEnd(ctx context.Context, event SessionEvent) error
 RunSessionEnd executes every session hook's OnSessionEnd in order. See runSessionHooks for how failures are handled.
 
 <a name="Registry.RunSessionStart"></a>
-### func \(\*Registry\) [RunSessionStart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L240>)
+### func \(\*Registry\) [RunSessionStart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L245>)
 
 ```go
 func (r *Registry) RunSessionStart(ctx context.Context, event SessionEvent) error
@@ -700,7 +710,7 @@ func (r *Registry) RunSessionStart(ctx context.Context, event SessionEvent) erro
 RunSessionStart executes every session hook's OnSessionStart in order. See runSessionHooks for how failures are handled.
 
 <a name="Registry.RunSessionUpdate"></a>
-### func \(\*Registry\) [RunSessionUpdate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L248>)
+### func \(\*Registry\) [RunSessionUpdate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L253>)
 
 ```go
 func (r *Registry) RunSessionUpdate(ctx context.Context, event SessionEvent) error
@@ -709,7 +719,7 @@ func (r *Registry) RunSessionUpdate(ctx context.Context, event SessionEvent) err
 RunSessionUpdate executes every session hook's OnSessionUpdate in order. See runSessionHooks for how failures are handled.
 
 <a name="Registry.RunToolResultRewriters"></a>
-### func \(\*Registry\) [RunToolResultRewriters](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L222>)
+### func \(\*Registry\) [RunToolResultRewriters](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L227>)
 
 ```go
 func (r *Registry) RunToolResultRewriters(ctx context.Context, req ToolRequest, content string) (string, error)

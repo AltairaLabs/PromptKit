@@ -92,6 +92,11 @@ func (r *Registry) IsEmpty() bool {
 	return len(r.providerHooks) == 0 && len(r.toolHooks) == 0 && len(r.sessionHooks) == 0
 }
 
+// HasProviderHooks reports whether any provider hook is registered.
+func (r *Registry) HasProviderHooks() bool {
+	return r != nil && len(r.providerHooks) > 0
+}
+
 // --- Provider hooks ---
 
 // Log messages for a non-Allow provider hook decision. Enforced and Deny are

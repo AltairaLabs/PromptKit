@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -3112,7 +3113,9 @@ func (s *ProviderStage) runAfterCallHooks(ctx context.Context, p *afterCallParam
 		LatencyMs:  p.duration.Milliseconds(),
 	}
 	// The hook's copy starts with the message's validations; only what a hook
-	// adds after them is new.
+	// adds after them is new. It gets its own slice: sharing the backing array,
+	// a hook's append and recordGuardrailFiring's could write the same slot.
+	hookResp.Message.Validations = slices.Clone(p.responseMsg.Validations)
 	knownValidations := len(p.responseMsg.Validations)
 
 	hookStart := time.Now()
