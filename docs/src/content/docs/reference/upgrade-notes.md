@@ -98,6 +98,16 @@ changes that need you to do something, with what to change and why. Sections
 are grouped by the release that first contained the change, newest first.
 Unreleased holds changes that are on `main` and in no release.
 
+## v2.18.0
+
+### Config errors, workflow findings and capability matching
+
+| If you | You will see | Change |
+|---|---|---|
+| Match a `config.ValidationError` message from a field outside `logging` | it starts `config validation error:`, where it started `logging config validation error:`. Logging errors read as before, and carry `Section: "logging"` | match on `Field` and `Message`, or on the new prefix |
+| Compare `workflow.Validate` findings between runs | errors and warnings come in state-name, then event-name order, and a cycle is worded the same way on every run | nothing |
+| Select providers by their `capabilities` list | `providers.MissingCapabilities` and `providers.HasCapabilities` do the matching. `tools` is a matching label only: tools are still offered to a provider whose list omits it | use them in place of your own matcher |
+
 ## v2.17.0
 
 ### A failing stage ends the turn, and `Send` returns its error

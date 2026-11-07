@@ -10,19 +10,56 @@ import (
 // roleAssistant is the role of a model reply, which request validation skips.
 const roleAssistant = "assistant"
 
-// Declared capability names used in a provider's Capabilities list. These are
-// the source of truth for multimodal support when a provider config declares
-// them, replacing per-model hardcoding inside providers.
+// Declared capability names used in a provider's Capabilities list.
+//
+// The list does two jobs. It is the label set that capability matching
+// (MissingCapabilities, HasCapabilities) compares a requirement against, for
+// example to pick the providers a scenario can run on. And vision, audio,
+// video and documents set the multimodal capabilities a provider reports
+// (ApplyDeclaredModalities), replacing per-model hardcoding inside providers.
+//
+// The list never narrows what a request carries. Request media is validated
+// against what the adapter can send (SendableContentProvider), and tools are
+// offered to every provider that implements ToolSupport.
 const (
 	CapabilityText      = "text"
 	CapabilityStreaming = "streaming"
 	CapabilityVision    = "vision"
 	CapabilityAudio     = "audio"
 	CapabilityVideo     = "video"
+	// CapabilityTools declares tool calling for capability matching only. A
+	// provider whose list omits it is still offered tools when it implements
+	// ToolSupport; a requirement that names it is unmet by that list.
 	CapabilityTools     = "tools"
 	CapabilityJSON      = "json"
 	CapabilityDocuments = "documents"
 )
+
+// MissingCapabilities returns the entries of required that declared does not
+// list, in the order required names them and each at most once. Names are
+// compared exactly, so "tools" matches CapabilityTools and nothing else. A
+// nil result means declared covers every requirement.
+func MissingCapabilities(declared, required []string) []string {
+	have := make(map[string]bool, len(declared))
+	for _, c := range declared {
+		have[c] = true
+	}
+	var missing []string
+	for _, c := range required {
+		if have[c] {
+			continue
+		}
+		have[c] = true // report a repeated requirement once
+		missing = append(missing, c)
+	}
+	return missing
+}
+
+// HasCapabilities reports whether declared lists every capability in
+// required. See MissingCapabilities.
+func HasCapabilities(declared, required []string) bool {
+	return len(MissingCapabilities(declared, required)) == 0
+}
 
 // CapabilitySet converts a declared capability list into a membership set for
 // O(1) lookup. It returns nil for an empty list so callers can distinguish
