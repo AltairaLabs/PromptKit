@@ -93,7 +93,11 @@ func (fr *FragmentResolver) LoadFragment(name, relativePath, baseDir string) (*F
 	}
 	fragment, fallbackErr := fr.loadCached(filepath.Clean(relativePath), name, relativePath, "")
 	if fallbackErr != nil {
-		return nil, err
+		if errors.Is(fallbackErr, fs.ErrNotExist) {
+			return nil, err
+		}
+		// Found under the default base but unusable: that is the real error.
+		return nil, fallbackErr
 	}
 	fr.fragmentCache[cacheKey] = fragment
 	return fragment, nil

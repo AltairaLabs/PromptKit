@@ -152,7 +152,7 @@ are an error, since a pack has one engine. The single-prompt `Compile` now sets
 |---|---|---|
 | Compile a prompt that requires a fragment the repository cannot load | the compile fails, naming the prompt and the fragment, where it wrote `{{name}}` | register the fragment with the repository, or mark it `required: false` |
 | Read `pack.Fragments` from a compiled pack | the fragment's content, not `{{name}}` | nothing |
-| Reference a fragment by a `path` relative to the working directory, and a file of that path also exists under the prompt config's directory | the file under the prompt config's directory | make the path relative to the prompt config's directory |
+| Reference a fragment by a `path` relative to the working directory, and a file of that path also exists under the prompt config's directory | the file under the prompt config's directory | give the path as an absolute path, or rename one of the files |
 | Compile two prompts whose fragments of one name resolve to different content | the compile fails, naming the fragment, since a pack holds one fragment per name | give the fragments distinct names |
 | Compile prompts that declare different `template_engine`s | the compile fails, naming the prompts | give every prompt that sets one the same engine |
 

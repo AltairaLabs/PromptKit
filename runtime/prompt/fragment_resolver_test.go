@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/template"
@@ -416,10 +417,11 @@ func (r *baseDirRecordingRepository) LoadFragment(_, relativePath, baseDir strin
 // An absolute path names one file whatever the base dir, so it is one cache
 // entry, not one per base dir.
 func TestFragmentResolver_AbsolutePathIsOneCacheEntry(t *testing.T) {
-	abs := filepath.Join(string(filepath.Separator), "shared", "intro.yaml")
+	root := t.TempDir()
+	abs := filepath.Join(root, "shared", "intro.yaml")
 	repo := &baseDirRecordingRepository{files: map[string]string{abs: "shared"}}
 	fr := NewFragmentResolverWithRepository(repo)
-	for _, base := range []string{"/prompts/a", "/prompts/b"} {
+	for _, base := range []string{filepath.Join(root, "a"), filepath.Join(root, "b")} {
 		frag, err := fr.LoadFragment("intro", abs, base)
 		if err != nil {
 			t.Fatal(err)
@@ -472,6 +474,26 @@ func TestFragmentResolver_NonMissingErrorDoesNotFallBack(t *testing.T) {
 	if repo.calls != 1 {
 		t.Errorf("repository called %d times, want 1", repo.calls)
 	}
+}
+
+// A file missing under the base dir but found and unusable under the default
+// base reports the default base's error, not "not found".
+func TestFragmentResolver_FallbackFailureIsReported(t *testing.T) {
+	repo := &perBaseFragmentRepository{errs: map[string]error{
+		"/prompts": fmt.Errorf("failed to read fragment: %w", os.ErrNotExist),
+		"":         fmt.Errorf("failed to parse fragment YAML: bad indent"),
+	}}
+	fr := NewFragmentResolverWithRepository(repo)
+	_, err := fr.LoadFragment("intro", "frags/intro.yaml", "/prompts")
+	if err == nil || !strings.Contains(err.Error(), "bad indent") {
+		t.Fatalf("err = %v, want the fallback's parse error", err)
+	}
+}
+
+type perBaseFragmentRepository struct{ errs map[string]error }
+
+func (r *perBaseFragmentRepository) LoadFragment(_, _, baseDir string) (*Fragment, error) {
+	return nil, r.errs[baseDir]
 }
 
 type failingFragmentRepository struct {
