@@ -18,6 +18,8 @@ var judgeAndClassifierTypes = []string{
 	"bias", "toxicity", "pii_leakage", "role_violation",
 	"audio_emotion", "image_moderation", "text_toxicity", "text_sentiment",
 	"topic_policy",
+	// Not a model call, but a tool run that may be remote and may take minutes.
+	"tool_exec",
 }
 
 func TestJudgeAndClassifierHandlersDeclareGroups(t *testing.T) {

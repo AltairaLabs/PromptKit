@@ -30,8 +30,9 @@ type ScoreThresholds struct {
 	Min *float64
 	Max *float64
 
-	// MinExclusive makes Min strict: a score equal to Min also triggers.
-	// MaxExclusive does the same for Max. Both are false for min_score and
+	// MinExclusive makes Min strict: a score equal to Min falls outside it
+	// (a guardrail triggers, an assertion fails). MaxExclusive does the same
+	// for Max. Both are false for min_score and
 	// max_score, which are inclusive; ScoreThresholdsFromSpec sets them for the
 	// spec's gt and lt operators.
 	MinExclusive bool
@@ -97,11 +98,23 @@ func wrapperThresholds(params map[string]any, spec *Threshold) (ScoreThresholds,
 	if spec == nil {
 		return fromParams, nil
 	}
-	if fromParams.Min != nil || fromParams.Max != nil {
+	// Key presence, not the parsed value: a min_score that is not a number
+	// is still a second declaration of the line.
+	if hasScoreThresholdParam(params) {
 		return ScoreThresholds{}, fmt.Errorf(
 			"threshold and min_score/max_score are both set; declare the pass line once")
 	}
 	return ScoreThresholdsFromSpec(spec)
+}
+
+// hasScoreThresholdParam reports whether params set min_score or max_score.
+func hasScoreThresholdParam(params map[string]any) bool {
+	for _, key := range scoreThresholdParamKeys {
+		if _, ok := params[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // thresholdWrapper is implemented by the wrappers that apply EvalDef.Threshold.

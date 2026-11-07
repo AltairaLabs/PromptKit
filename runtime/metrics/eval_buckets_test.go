@@ -75,6 +75,17 @@ func TestEvalHistogram_MetricRangeSetsBuckets(t *testing.T) {
 	}
 }
 
+func TestEvalHistogram_UnitRangeBucketsDoNotDrift(t *testing.T) {
+	c, reg := newTestCollector()
+	lo, hi := 0.0, 1.0
+	metric := &evals.MetricDef{Name: "unit_hist", Type: evals.MetricHistogram, Range: &evals.Range{Min: &lo, Max: &hi}}
+	got := histogramBounds(t, reg, c, metric)
+	want := []float64{0, .1, .2, .3, .4, .5, .6, .7, .8, .9, 1}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("0..1 range buckets = %v, want %v", got, want)
+	}
+}
+
 func TestEvalHistogram_HalfOpenRangeFallsBack(t *testing.T) {
 	c, reg := newTestCollector()
 	hi := 100.0

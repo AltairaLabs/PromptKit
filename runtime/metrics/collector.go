@@ -31,6 +31,7 @@ package metrics
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -1160,9 +1161,27 @@ func (c *Collector) registerEvalMetric(
 func (c *Collector) evalBuckets(metric *evals.MetricDef) []float64 {
 	if r := metric.Range; r != nil && r.Min != nil && r.Max != nil && *r.Max > *r.Min {
 		width := (*r.Max - *r.Min) / evalRangeBucketCount
-		return prometheus.LinearBuckets(*r.Min, width, evalRangeBucketCount+1)
+		// Each bound is computed from its index and rounded, rather than
+		// accumulated as prometheus.LinearBuckets does: repeated addition
+		// drifts (0.30000000000000004, 0.9999999999999999), which leaves a
+		// score of exactly 1.0 above the top bucket.
+		buckets := make([]float64, evalRangeBucketCount+1)
+		for i := range buckets {
+			buckets[i] = roundBucket(*r.Min + float64(i)*width)
+		}
+		buckets[evalRangeBucketCount] = *r.Max
+		return buckets
 	}
 	return c.evalHistogramBuckets
+}
+
+// bucketPrecision is the scale bucket bounds are rounded to, well below any
+// meaningful score resolution and well above float64 drift.
+const bucketPrecision = 1e9
+
+// roundBucket rounds a bucket bound to bucketPrecision.
+func roundBucket(v float64) float64 {
+	return math.Round(v*bucketPrecision) / bucketPrecision
 }
 
 // normalizeBuckets returns a sorted, de-duplicated copy of buckets, or

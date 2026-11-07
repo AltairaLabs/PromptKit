@@ -46,6 +46,13 @@ func TestDefaultGroupsForType_DeclaredGroupsAreCopied(t *testing.T) {
 	assert.Equal(t, []string{DefaultEvalGroup, GroupLongRunning}, DefaultGroupsForType("declared_copy_type"))
 }
 
+func TestDefaultGroupsForType_ReplacedByNonDeclarer(t *testing.T) {
+	r := NewEmptyEvalTypeRegistry()
+	r.Register(&groupDeclaringHandler{typeName: "declared_replaced_type", groups: []string{GroupLongRunning}})
+	r.Register(&stubHandler{typeName: "declared_replaced_type"})
+	assert.Equal(t, []string{DefaultEvalGroup, GroupFastRunning}, DefaultGroupsForType("declared_replaced_type"))
+}
+
 func TestDefaultGroupsForType_AliasOfDeclaredType(t *testing.T) {
 	RegisterDefault(&groupDeclaringHandler{typeName: "declared_alias_target", groups: []string{GroupExternal}})
 	RegisterDefaultAlias("declared_alias_name", "declared_alias_target")

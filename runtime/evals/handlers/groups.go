@@ -96,6 +96,10 @@ func (h *A2AEvalHandler) EvalGroups() []string { return modelBackedGroups() }
 // EvalGroups implements evals.GroupDeclarer.
 func (h *A2AEvalSessionHandler) EvalGroups() []string { return modelBackedGroups() }
 
+// EvalGroups implements evals.GroupDeclarer. tool_exec runs a registered tool,
+// which can be a sandbox run or a remote call, under a long default timeout.
+func (h *ToolExecHandler) EvalGroups() []string { return modelBackedGroups() }
+
 // In-process long-running handlers.
 
 // EvalGroups implements evals.GroupDeclarer.

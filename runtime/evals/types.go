@@ -114,8 +114,10 @@ var externalTypes = map[string]bool{
 //
 // The declaration is recorded when the handler is passed to RegisterDefault or
 // EvalTypeRegistry.Register, under the handler's Type and under any alias
-// registered for it. A handler that does not implement GroupDeclarer is
-// classified by the built-in table, which defaults to GroupFastRunning.
+// registered for it. Like RegisterTypeGroups, the record is process-wide, not
+// per registry: the latest handler registered for a type sets its groups.
+// A handler that does not implement GroupDeclarer is classified by the
+// built-in table, which defaults to GroupFastRunning.
 type GroupDeclarer interface {
 	// EvalGroups returns the handler's classification groups, without
 	// DefaultEvalGroup.
@@ -145,17 +147,18 @@ func RegisterTypeGroups(evalType string, groups []string) {
 	customTypeGroups[evalType] = append([]string(nil), groups...)
 }
 
-// recordDeclaredGroups records the groups h declares, if it implements
-// GroupDeclarer.
+// recordDeclaredGroups records the groups h declares. A handler that does
+// not implement GroupDeclarer clears any declaration a handler it replaced
+// made, so the type falls back to the table.
 func recordDeclaredGroups(h EvalTypeHandler) {
 	d, ok := h.(GroupDeclarer)
-	if !ok {
-		return
-	}
-	groups := append([]string(nil), d.EvalGroups()...)
 	typeGroupsMu.Lock()
 	defer typeGroupsMu.Unlock()
-	declaredTypeGroups[h.Type()] = groups
+	if !ok {
+		delete(declaredTypeGroups, h.Type())
+		return
+	}
+	declaredTypeGroups[h.Type()] = append([]string(nil), d.EvalGroups()...)
 }
 
 // recordGroupAlias records that aliasType is classified as targetType.

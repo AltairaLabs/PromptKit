@@ -109,6 +109,11 @@ func TestThreshold_ConflictsWithMinMaxScore(t *testing.T) {
 	assert.Nil(t, res.Passed)
 }
 
+func TestThreshold_ConflictsWithNonNumericMinScore(t *testing.T) {
+	res := runThresholdEval(t, 0.9, assertionDef(specThreshold("gte", 0.5), map[string]any{"min_score": "0.8"}))
+	assert.Contains(t, res.Error, "min_score")
+}
+
 func TestThreshold_InvalidIsAnError(t *testing.T) {
 	res := runThresholdEval(t, 0.9, assertionDef(specThreshold("between", 0.5), nil))
 	assert.Contains(t, res.Error, `"between"`)
