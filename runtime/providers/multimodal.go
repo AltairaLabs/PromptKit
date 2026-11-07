@@ -14,9 +14,10 @@ const roleAssistant = "assistant"
 //
 // The list does two jobs. It is the label set that capability matching
 // (MissingCapabilities, HasCapabilities) compares a requirement against, for
-// example to pick the providers a scenario can run on. And vision, audio,
-// video and documents set the multimodal capabilities a provider reports
-// (ApplyDeclaredModalities), replacing per-model hardcoding inside providers.
+// example to pick the providers a scenario can run on. And on the Claude,
+// Gemini and OpenAI providers, vision, audio, video and documents set the
+// multimodal capabilities the provider reports (ApplyDeclaredModalities),
+// replacing per-model hardcoding. Other providers report fixed capabilities.
 //
 // The list never narrows what a request carries. Request media is validated
 // against what the adapter can send (SendableContentProvider), and tools are
