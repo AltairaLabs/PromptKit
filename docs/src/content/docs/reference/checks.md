@@ -22,10 +22,12 @@ verified:
     - runtime/evals/handlers/image_dimensions.go
     - runtime/evals/handlers/image_moderation.go
     - runtime/evals/handlers/json_path.go
+    - runtime/evals/handlers/judge_defaults.go
     - runtime/evals/handlers/latency_budget.go
     - runtime/evals/handlers/length.go
     - runtime/evals/handlers/llm_judge.go
     - runtime/evals/handlers/no_tool_errors.go
+    - runtime/evals/handlers/param_names.go
     - runtime/evals/handlers/pii_leakage.go
     - runtime/evals/handlers/provider_binding.go
     - runtime/evals/handlers/rag_helpers.go
@@ -56,6 +58,8 @@ verified:
     - runtime/evals/handlers/workflow_state_is.go
     - runtime/evals/handlers/workflow_transitioned_to.go
     - runtime/evals/normalize.go
+    - runtime/evals/params.go
+    - runtime/evals/registry.go
     - runtime/evals/types.go
     - runtime/evals/validate.go
     - runtime/evals/wrappers.go
