@@ -205,6 +205,7 @@ the stage the conversation's event emitter.
 | Rely on a realtime turn's tool calls being executed | an enforced turn's tool calls are dropped, as on the text path | nothing, unless a tool must run whatever the guardrail decides |
 | Subscribe to the event bus of a realtime conversation | `reasoning.delta` events for a reasoning model, as on the text path | nothing |
 | Build a `DuplexProviderStage` yourself | no hooks run unless you call `SetHookRegistry` | call it with your registry |
+| Have an input guardrail block text while the model is still answering, even if the answer so far is only reasoning | the blocked turn after that reply and ahead of the next one: in the output, in the history later hooks see, and in its `validation.*` event's turn index. The `BeforeCall` itself reports that turn index too | nothing |
 | Check whether a `hooks.Registry` has provider hooks | `Registry.HasProviderHooks` | use it in place of `IsEmpty`, which also counts tool and session hooks |
 
 ### Recordings keep the content of control elements
