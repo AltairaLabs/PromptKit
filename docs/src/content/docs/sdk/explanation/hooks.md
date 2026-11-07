@@ -109,7 +109,7 @@ Within a single phase, multiple hooks run in registration order. For decision-ba
 
 A realtime duplex conversation (`OpenDuplex` with a streaming config, on a provider such as OpenAI Realtime or Gemini Live) has no rounds. One provider session streams every turn, so the provider hooks run at the points where a session has something to check:
 
-- `BeforeCall` runs on text bound for the session, before it is sent. An enforcing hook keeps the text from the session, and the caller receives the blocked turn instead, marked `FinishReason: "safety"`, as on the text path. If the model is still answering an earlier input, the blocked turn follows that reply rather than interrupting it.
+- `BeforeCall` runs on text bound for the session, before it is sent. An enforcing hook keeps the text from the session, and the caller receives the blocked turn instead, marked `FinishReason: "safety"`, as on the text path. If the model is still answering an earlier input, even if it has so far streamed only reasoning, the blocked turn follows that reply rather than interrupting it. The history and turn index later hooks see put it in the same place.
 - `OnChunk` runs on each chunk of assistant text before it is forwarded: the model's text, or the transcript of its spoken reply. The chunk the interceptor sees carries the turn's text so far in `Content`. Once an interceptor enforces, the turn's text is the enforced text and the rest of the turn's text and audio is dropped.
 - `AfterCall` runs on the completed assistant turn. An enforcing hook rewrites it, as on the text path.
 

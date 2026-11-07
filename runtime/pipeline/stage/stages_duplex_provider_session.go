@@ -148,8 +148,9 @@ type DuplexProviderStage struct {
 	// turnGuard is the current turn's guardrail state (response goroutine only).
 	turnGuard duplexTurnGuard
 	// blockedTurns carries input turns a guardrail blocked from the input
-	// goroutine to the response loop, which emits them between assistant turns.
-	blockedTurns chan *types.Message
+	// goroutine to the response loop, which emits them between assistant turns and
+	// only then records them (history, turn count, firing), in emission order.
+	blockedTurns chan *duplexBlockedTurn
 	// inputFailed is set once an input hook denied: the error element is then
 	// the session's last output.
 	inputFailed atomic.Bool
@@ -177,7 +178,7 @@ func NewDuplexProviderStage(
 		allResponsesReceivedCh: make(chan struct{}),
 		provider:               provider,
 		baseConfig:             baseConfig,
-		blockedTurns:           make(chan *types.Message, blockedTurnQueueSize),
+		blockedTurns:           make(chan *duplexBlockedTurn, blockedTurnQueueSize),
 		systemPromptSent:       false,
 	}
 }
@@ -271,6 +272,7 @@ func (s *DuplexProviderStage) Process(
 	const gracePeriod = 100 * time.Millisecond
 	select {
 	case inputErr := <-inputDone:
+		s.dropBlockedTurns()
 		// Don't override response error with context.Canceled from our cancellation
 		if inputErr != nil && !errors.Is(inputErr, context.Canceled) && responseErr == nil {
 			responseErr = inputErr
@@ -282,6 +284,9 @@ func (s *DuplexProviderStage) Process(
 		closeOutput = false
 		go func() {
 			<-inputDone
+			// The response loop is gone: a turn the hook blocked after it
+			// exited is never emitted, but its firing is still reported.
+			s.dropBlockedTurns()
 			close(output)
 		}()
 	}
@@ -939,6 +944,7 @@ func (s *DuplexProviderStage) forwardResponseElements(
 				"cause", context.Cause(ctx), "err", ctx.Err())
 			// Emit any accumulated content as partial response before returning
 			s.emitPartialOnCancel(ctx, output)
+			s.dropBlockedTurns()
 			return ctx.Err()
 
 		case <-s.inputDoneCh:
@@ -1087,6 +1093,7 @@ func (s *DuplexProviderStage) finishOnResponseClosed(
 	if s.inputFailed.Load() {
 		// An input hook denied: its error element was the session's last
 		// output, and the consumer has stopped reading.
+		s.dropBlockedTurns()
 		return nil
 	}
 	if msg == nil {

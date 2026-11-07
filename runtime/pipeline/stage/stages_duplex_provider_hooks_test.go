@@ -585,3 +585,189 @@ func TestDuplexHooks_SlowInputHookAfterProcessReturns(t *testing.T) {
 		}, 2*time.Second, time.Millisecond, "output closes once the input goroutine exits")
 	}
 }
+
+// blockTextHook enforces BeforeCall on one user text and records what each
+// AfterCall saw.
+type blockTextHook struct {
+	block string
+	capturingHook
+}
+
+func (h *blockTextHook) Name() string { return "block_text" }
+
+func (h *blockTextHook) BeforeCall(_ context.Context, req *hooks.ProviderRequest) hooks.Decision {
+	if last := req.Messages[len(req.Messages)-1]; last.Content == h.block {
+		req.Replacement = "Not here."
+		return hooks.Enforced("blocked", map[string]any{"validator_type": "test_input"})
+	}
+	return hooks.Allow
+}
+
+func historyContents(msgs []types.Message) []string {
+	var out []string
+	for _, m := range msgs {
+		out = append(out, m.Role+":"+m.Content)
+	}
+	return out
+}
+
+// A text blocked while an earlier reply is still streaming takes its place
+// after that reply: the reply keeps its turn index, its history holds the
+// blocked user text (sent mid-reply, as unblocked text is) but not the blocked
+// reply, and the blocked turn's firing reports the turn index it is emitted at.
+func TestDuplexHooks_BlockedInputOrderedAfterStreamingReply(t *testing.T) {
+	h := &blockTextHook{block: "B"}
+	s, sess, getEvents := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(h)))
+	s.turnState = NewTurnState()
+
+	send := func(text string) {
+		require.False(t, s.handleInputElement(context.Background(), &StreamElement{Text: &text},
+			make(chan StreamElement, 4), make(chan error, 1)))
+	}
+	send("A")
+	_, err := feedChunks(t, s, providers.StreamChunk{Content: "reply A"})
+	require.NoError(t, err)
+	send("B") // blocked while reply A streams
+	_, err = feedChunks(t, s, stopChunk())
+	require.NoError(t, err)
+
+	require.Len(t, h.calls, 1)
+	assert.Equal(t, 0, h.calls[0].TurnIndex, "reply A keeps its own turn index")
+	assert.Equal(t, []string{"user:A", "user:B"}, historyContents(h.calls[0].Messages),
+		"the blocked assistant turn is not ahead of reply A")
+
+	// The response loop emits the blocked turn now that reply A is done.
+	out := make(chan StreamElement, 8)
+	close(sess.respCh)
+	require.NoError(t, s.forwardResponseElements(context.Background(), out))
+	got := getEvents()
+	require.Len(t, got, 1)
+	assert.Equal(t, 1, got[0].TurnIndex, "the blocked turn follows reply A")
+
+	sess.respCh = make(chan providers.StreamChunk, 8)
+	send("C")
+	_, err = feedChunks(t, s, providers.StreamChunk{Content: "reply C"}, stopChunk())
+	require.NoError(t, err)
+	require.Len(t, h.calls, 2)
+	assert.Equal(t, 2, h.calls[1].TurnIndex)
+	assert.Equal(t,
+		[]string{"user:A", "user:B", "assistant:reply A", "assistant:Not here.", "user:C"},
+		historyContents(h.calls[1].Messages))
+}
+
+// A turn that has so far streamed only reasoning is in progress: a blocked
+// input turn waits for it to complete.
+func TestDuplexHooks_BlockedInputWaitsForReasoningOnlyTurn(t *testing.T) {
+	for name, start := range map[string]func(*DuplexProviderStage){
+		"reasoning": func(s *DuplexProviderStage) { s.accumulatedReasoning.WriteString("thinking") },
+		"opaque": func(s *DuplexProviderStage) {
+			s.accumulatedOpaqueReasoning = []types.OpaqueReasoning{{}}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, _, _ := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(&blockTextHook{block: "B"})))
+			start(s)
+			text := "B"
+			require.False(t, s.handleInputElement(context.Background(), &StreamElement{Text: &text},
+				make(chan StreamElement, 4), make(chan error, 1)))
+			assert.Nil(t, s.pendingBlockedTurns(), "a reasoning-only turn is in progress")
+			s.resetTurnAccumulation()
+			assert.NotNil(t, s.pendingBlockedTurns())
+		})
+	}
+}
+
+// User turns keep the order they were sent in, blocked or not: a text sent
+// after a blocked one, while the blocked turn still waits for a reply in
+// progress, enters the history after it.
+func TestDuplexHooks_UserTurnsKeepSendOrderAroundBlockedTurn(t *testing.T) {
+	h := &blockTextHook{block: "B"}
+	s, sess, _ := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(h)))
+	_, err := feedChunks(t, s, providers.StreamChunk{Content: "reply A"})
+	require.NoError(t, err)
+	for _, text := range []string{"B", "C"} {
+		elem := StreamElement{Text: &text, Message: &types.Message{Role: roleUser, Content: text}}
+		require.False(t, s.handleInputElement(context.Background(), &elem,
+			make(chan StreamElement, 4), make(chan error, 1)))
+	}
+	_, err = feedChunks(t, s, stopChunk())
+	require.NoError(t, err)
+	close(sess.respCh)
+	require.NoError(t, s.forwardResponseElements(context.Background(), make(chan StreamElement, 8)))
+	assert.Equal(t, []string{"user:B", "user:C", "assistant:reply A", "assistant:Not here."},
+		historyContents(s.history.snapshot()))
+}
+
+// A blocked turn the session never emits still reports its guardrail firing:
+// the block happened even though no consumer reads the turn.
+func TestDuplexHooks_UnemittedBlockedTurnStillReportsFiring(t *testing.T) {
+	block := func(t *testing.T) (*DuplexProviderStage, func() []*events.ValidationEventData) {
+		t.Helper()
+		s, _, getEvents := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(&blockTextHook{block: "B"})))
+		s.accumulatedText.WriteString("reply A") // a reply is streaming
+		text := "B"
+		require.False(t, s.handleInputElement(context.Background(), &StreamElement{Text: &text},
+			make(chan StreamElement, 4), make(chan error, 1)))
+		return s, getEvents
+	}
+
+	t.Run("canceled", func(t *testing.T) {
+		s, getEvents := block(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		require.ErrorIs(t, s.forwardResponseElements(ctx, make(chan StreamElement, 8)), context.Canceled)
+		require.Len(t, getEvents(), 1)
+	})
+	t.Run("after input deny", func(t *testing.T) {
+		s, getEvents := block(t)
+		s.inputFailed.Store(true)
+		require.NoError(t, s.finishOnResponseClosed(context.Background(), make(chan StreamElement, 8), true))
+		require.Len(t, getEvents(), 1)
+	})
+}
+
+// blockingEnforceHook enforces BeforeCall once release is closed.
+type blockingEnforceHook struct{ entered, release chan struct{} }
+
+func (h *blockingEnforceHook) Name() string { return "blocking_enforce" }
+
+func (h *blockingEnforceHook) BeforeCall(_ context.Context, _ *hooks.ProviderRequest) hooks.Decision {
+	close(h.entered)
+	<-h.release
+	return hooks.Enforced("blocked", map[string]any{"validator_type": "test_input"})
+}
+
+func (h *blockingEnforceHook) AfterCall(
+	_ context.Context, _ *hooks.ProviderRequest, _ *hooks.ProviderResponse,
+) hooks.Decision {
+	return hooks.Allow
+}
+
+// An input hook that blocks text after the response loop has ended still
+// reports its firing, whether its turn was queued or not. The queue send races
+// the canceled context, so the scenario is repeated.
+func TestDuplexHooks_BlockAfterProcessReturnsStillReportsFiring(t *testing.T) {
+	for i := 0; i < 8; i++ {
+		h := &blockingEnforceHook{entered: make(chan struct{}), release: make(chan struct{})}
+		s, sess, getEvents := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(h)))
+		input := make(chan StreamElement, 1)
+		output := make(chan StreamElement, 4)
+		text := "hello"
+		input <- StreamElement{Text: &text}
+		processed := make(chan error, 1)
+		go func() { processed <- s.Process(context.Background(), input, output) }()
+		<-h.entered
+		close(sess.respCh) // the provider ends the session while the hook runs
+		require.NoError(t, <-processed)
+		close(h.release)
+		require.Eventually(t, func() bool {
+			select {
+			case _, ok := <-output:
+				return !ok
+			default:
+				return false
+			}
+		}, 2*time.Second, time.Millisecond)
+		require.Len(t, getEvents(), 1)
+	}
+}
