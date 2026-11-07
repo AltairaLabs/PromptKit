@@ -4,7 +4,7 @@ description: One check system serves assertions, guardrails and evals; this page
 sidebar:
   order: 4
 verified:
-  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
+  commit: ffbed7c4b0fff266953352be5e73d4e308a97acf
   sources:
     - pkg/config/runtime_config.go
     - runtime/evals/handlers/a2a_eval.go
@@ -18,8 +18,6 @@ verified:
     - runtime/evals/trigger.go
     - runtime/evals/types.go
     - runtime/evals/wrappers.go
-    - runtime/events/emitter.go
-    - runtime/events/types.go
     - runtime/hooks/guardrails/adapter.go
     - runtime/hooks/guardrails/factory.go
     - runtime/hooks/hooks.go
@@ -76,9 +74,9 @@ way. Only the provider work inside that turn's `ProviderStage` is affected; ever
 downstream pipeline stage still runs.
 
 - Content blockers (`content_excludes`, `banned_words`): replace the entire response with a configurable policy message.
-- Length checks (`max_length`, or any check carrying a `max_characters` / `max` /
-  `max_chars` param): truncate the response to that character limit, when it is what the
-  response exceeded.
+- Length check (`max_length`, alias `length`): truncates the response to the limit in its
+  `max_characters`, `max` or `max_chars` param, when the response exceeded it. No other
+  check truncates, even one that carries a `max` param.
 - Every other case: replace the response with the policy message, the same as a content
   blocker. Guardrails always act; there is no log-only mode. If you want to record a
   violation without changing the response, declare an eval and assert on it instead.

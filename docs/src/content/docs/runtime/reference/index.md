@@ -3,11 +3,10 @@ title: Runtime Reference
 sidebar:
   order: 0
 verified:
-  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
+  commit: ffbed7c4b0fff266953352be5e73d4e308a97acf
   sources:
     - runtime/evals/types.go
     - runtime/hooks/guardrails/adapter.go
-    - runtime/logger/logger.go
     - runtime/mcp/registry.go
     - runtime/mcp/types.go
     - runtime/memory/types.go
@@ -23,7 +22,6 @@ verified:
     - runtime/providers/provider.go
     - runtime/providers/streaming.go
     - runtime/providers/vllm/vllm.go
-    - runtime/telemetry/listener.go
 ---
 Index of the PromptKit runtime API reference. The runtime is the Go module `github.com/AltairaLabs/PromptKit/runtime/v2`: a stage-based streaming pipeline, provider integrations (OpenAI, Claude, Gemini, Vertex, Bedrock, Ollama, vLLM and others), tool execution with MCP, state persistence, hooks and guardrails, and observability.
 
