@@ -4,7 +4,7 @@ description: How the runtime's stage-based streaming pipeline executes LLM reque
 sidebar:
   order: 1
 verified:
-  commit: dc6d6f37cfabc0079dd9af47c52502e83f2a85af
+  commit: ffbed7c4b0fff266953352be5e73d4e308a97acf
   sources:
     - runtime/events/message_created_data.go
     - runtime/events/types.go
@@ -401,6 +401,8 @@ It records elements as events:
 - Text deltas become `message.text.delta` when `IncludeStreamingText` is set.
 - A tool call becomes `tool.call.started`.
 - An error becomes `stream.interrupted`.
+
+An element that carries several content fields records each one, streaming content first and the complete message last. An end-of-stream or end-of-turn flag does not stop an element from being recorded: a duplex provider puts each realtime assistant turn's message and last audio chunk on the element that carries `EndOfStream`. A bare control signal has no content and records nothing.
 
 Replayed history counts toward the message index but is not recorded again, so each message is recorded once, on the turn it is new.
 

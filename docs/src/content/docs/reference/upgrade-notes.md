@@ -2,7 +2,7 @@
 title: Upgrade Notes
 description: Changes that need action when moving between PromptKit versions.
 verified:
-  commit: dc6d6f37cfabc0079dd9af47c52502e83f2a85af
+  commit: ffbed7c4b0fff266953352be5e73d4e308a97acf
   sources:
     - runtime/a2a/client.go
     - runtime/a2a/types.go
@@ -950,13 +950,13 @@ provider hooks, and the VAD pipeline built its provider stage with a nil hook
 registry, so every hook path returned early: no `validation.started` /
 `passed` / `failed` events, and no enforcement. Guardrails now run in VAD mode
 (`OpenVoice` and the VAD topology) exactly as they do in text. Native realtime
-and duplex sessions are a separate stage with no hook support, and guardrails
-still do not run there.
+and duplex sessions are a separate stage that had no hook support in this
+release, so guardrails did not run there until v2.18.0.
 
 | If you | You will see | Change |
 |---|---|---|
 | Run a voice conversation under a pack with `validators:` | the conversation is blocked where the validators say so, and `validation.*` events appear | review what the validators do to the voice path before upgrading; they were never exercised there |
-| Run native realtime or duplex sessions | no change; guardrails do not run | none |
+| Run native realtime or duplex sessions | no change in this release; guardrails run there from v2.18.0 | none |
 
 ### Provider adapters now rewrite your JSON Schema for the vendor
 
