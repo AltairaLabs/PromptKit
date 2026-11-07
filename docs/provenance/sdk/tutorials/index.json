@@ -1,14 +1,14 @@
 {
  "page": "docs/src/content/docs/sdk/tutorials/index.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "dc6d6f37cfabc0079dd9af47c52502e83f2a85af",
  "claims": [
   {
    "id": 1,
    "claim": "Tutorial 4 covers SetVar()/GetVar()",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1209",
-    "sdk/conversation.go:1273"
+    "sdk/conversation.go:1318",
+    "sdk/conversation.go:1382"
    ]
   },
   {
@@ -16,7 +16,7 @@
    "claim": "Tutorial 5 implements approvals with OnToolAsync()",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:171"
+    "sdk/conversation_tools.go:172"
    ]
   },
   {
@@ -30,7 +30,7 @@
    "claim": "API keys for OpenAI, Anthropic or Google",
    "verdict": "true",
    "evidence": [
-    "runtime/credentials/resolver.go:32-45"
+    "runtime/credentials/resolver.go:32-50"
    ]
   },
   {

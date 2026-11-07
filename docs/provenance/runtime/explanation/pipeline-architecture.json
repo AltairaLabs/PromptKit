@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/runtime/explanation/pipeline-architecture.md",
- "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "commit": "dc6d6f37cfabc0079dd9af47c52502e83f2a85af",
  "claims": [
   {
    "id": 1,
@@ -82,7 +82,7 @@
    "claim": "Branch downstream stages share and compete for the upstream output channel; RouterStage sends to chosen outputs",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/builder.go:96-115"
+    "runtime/pipeline/stage/builder.go:96-116"
    ]
   },
   {
@@ -90,8 +90,8 @@
    "claim": "Build rejects no stages, invalid config, duplicate names, unknown edge targets, cycles, fan-in into a non-MultiInputStage, duplicate edges, and TemplateStage/PromptAssemblyStage without TurnState",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/builder.go:133-135",
-    "runtime/pipeline/stage/builder.go:195-300"
+    "runtime/pipeline/stage/builder.go:135-137",
+    "runtime/pipeline/stage/builder.go:197-302"
    ]
   },
   {
@@ -229,12 +229,12 @@
    "claim": "BroadcastRouter copies every element to every downstream stage; Content/RoundRobin/Weighted/Hash/Random pick one destination by name and drop elements bound for unregistered names; the pipeline registers a per-edge channel per downstream stage and every router closes all of them when Process returns",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/router_strategies.go:103-139",
-    "runtime/pipeline/stage/router_strategies.go:180-204",
-    "runtime/pipeline/stage/router_strategies.go:455-477",
-    "runtime/pipeline/stage/stages_advanced.go:94-113",
     "runtime/pipeline/stage/pipeline.go:1056-1069",
-    "runtime/pipeline/stage/router_strategies_pipeline_test.go"
+    "runtime/pipeline/stage/router_strategies.go:103-142",
+    "runtime/pipeline/stage/router_strategies.go:180-204",
+    "runtime/pipeline/stage/router_strategies.go:455-480",
+    "runtime/pipeline/stage/router_strategies_pipeline_test.go",
+    "runtime/pipeline/stage/stages_advanced.go:94-120"
    ]
   }
  ]
