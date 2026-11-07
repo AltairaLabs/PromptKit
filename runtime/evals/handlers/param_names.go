@@ -12,7 +12,9 @@ import "github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 //   - min_score and max_score: wrapper thresholds, always accepted at load;
 //     the handlers that must not see them reject them on Eval.
 //   - keys a handler only rejects (model on a judge, classifier_id,
-//     min_similarity, threshold): those are not params it reads.
+//     min_similarity, threshold): those are not params it reads, so load
+//     reports them as unknown; the handler's own message applies only on a
+//     path that skips load validation.
 //
 // ExecEvalHandler forwards its params to a subprocess whose keys it cannot
 // know, so it declares none and is not checked.
