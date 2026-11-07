@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/runtime/explanation/provider-system.md",
- "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "commit": "dc6d6f37cfabc0079dd9af47c52502e83f2a85af",
  "claims": [
   {
    "id": 1,
@@ -24,15 +24,15 @@
    "claim": "Registered chat types are claude, openai, gemini, ollama, vllm, mock, replay; imagen registers an image provider",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude_tools.go:960",
-    "runtime/providers/gemini/gemini_tools.go:854",
+    "runtime/providers/claude/claude_tools.go:992",
+    "runtime/providers/gemini/gemini_tools.go:934",
     "runtime/providers/imagen/factory.go:12",
     "runtime/providers/mock/mock.go:64",
-    "runtime/providers/ollama/ollama_tools.go:394",
-    "runtime/providers/openai/openai_tools.go:708",
+    "runtime/providers/ollama/ollama_tools.go:409",
+    "runtime/providers/openai/openai_tools.go:709",
     "runtime/providers/registry.go:49",
     "runtime/providers/replay/factory.go:12",
-    "runtime/providers/vllm/factory.go:9"
+    "runtime/providers/vllm/factory.go:12"
    ]
   },
   {
@@ -66,7 +66,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/providers/openai/openai.go:542",
-    "runtime/providers/openai/openai_responses_integration.go:233"
+    "runtime/providers/openai/openai_responses_integration.go:236"
    ]
   },
   {
@@ -88,7 +88,7 @@
     "runtime/providers/claude/claude.go:352",
     "runtime/providers/claude/claude.go:523",
     "runtime/providers/gemini/gemini.go:211",
-    "runtime/providers/gemini/gemini.go:415",
+    "runtime/providers/gemini/gemini.go:417",
     "runtime/providers/openai/openai.go:705"
    ]
   },
@@ -132,7 +132,7 @@
    "claim": "Close closes the HTTP client's idle connections",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/base_provider.go:292"
+    "runtime/providers/base_provider.go:307"
    ]
   },
   {
@@ -149,7 +149,7 @@
    "claim": "ProviderSpec.RateLimit is a token bucket per provider instance; every HTTP request including retries takes a token",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/base_provider.go:946-961",
+    "runtime/providers/base_provider.go:966-981",
     "runtime/providers/registry.go:526-535"
    ]
   }

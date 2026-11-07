@@ -4,7 +4,7 @@ description: YAML schema reference for declarative SDK configuration
 sidebar:
   order: 8
 verified:
-  commit: f3409378ad6d15d47f6fc12093f3b0df9052b335
+  commit: dc6d6f37cfabc0079dd9af47c52502e83f2a85af
   sources:
     - pkg/config/logging.go
     - pkg/config/provider_tuning.go
@@ -181,7 +181,7 @@ the same ID in both spellings is rejected.
 | `capabilities` | string[] | no | Declared provider capabilities: `text`, `streaming`, `vision`, `tools`, `json`, `audio`, `video`, `documents`. |
 | `include_raw_output` | bool | no | Include raw API request/response in output for debugging. |
 | `additional_config` | map[string]any | no | Provider-specific configuration not covered by other fields. On `openai`, `vllm` and `ollama`, `extra_body` is a map of fields merged into every chat request; fields the provider sets itself take precedence. |
-| `headers` | map[string]string | no | Extra HTTP headers sent on every request, e.g. for a gateway. A header the provider sets itself, such as its credential header, is not replaced: the request fails with an error naming the header. |
+| `headers` | map[string]string | no | Extra HTTP headers sent on every request, e.g. for a gateway, except a redirect to another host, which gets none of them. A header the provider sets itself, such as its credential header, is not replaced: the request fails with an error naming the header. |
 | `request_timeout` | string | no | Wall-clock timeout for request/response calls (Predict, embeddings). Go duration string, e.g. `"2m"`. Does not apply to streaming. Default: `"60s"` for completion roles; capability roles keep the provider's own default. |
 | `stream_idle_timeout` | string | no | Longest silence allowed on a streaming body before the stream is aborted. The timer resets on every byte. Default: `"30s"`. |
 | `stream_retry` | object | no | Bounded retry for streaming requests. See [stream_retry](#stream_retry). |
