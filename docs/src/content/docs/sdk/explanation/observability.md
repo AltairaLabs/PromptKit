@@ -3,7 +3,7 @@ title: Observability
 sidebar:
   order: 2
 verified:
-  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
+  commit: ffbed7c4b0fff266953352be5e73d4e308a97acf
   sources:
     - runtime/events/blob_store.go
     - runtime/events/bus.go
@@ -106,7 +106,7 @@ Before adding an event, read [Adding an event](/architecture/runtime-events/#add
 
 ## Evals
 
-The SDK runs pack evals through an eval middleware attached to the conversation, not through a bus listener. Turn evals dispatch asynchronously after each assistant turn. Session evals run synchronously when the conversation closes. Each result is published as `eval.completed` or `eval.failed` on the conversation's bus, and written to the metrics collector when you configure one.
+The SDK runs pack evals through an eval middleware attached to the conversation, not through a bus listener. Turn evals dispatch asynchronously after each assistant turn. Session evals, then conversation evals, run synchronously when the conversation closes. Each result is published as `eval.completed` or `eval.failed` on the conversation's bus, and written to the metrics collector when you configure one.
 
 An eval result is an event like any other, so the redactor covers it.
 

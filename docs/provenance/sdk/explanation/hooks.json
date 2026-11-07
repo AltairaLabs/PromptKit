@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/explanation/hooks.md",
- "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "commit": "ffbed7c4b0fff266953352be5e73d4e308a97acf",
  "claims": [
   {
    "id": 1,
@@ -16,8 +16,8 @@
    "claim": "Session hook error logged and discarded",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/registry.go:240",
-    "runtime/hooks/registry.go:266",
+    "runtime/hooks/registry.go:245",
+    "runtime/hooks/registry.go:271",
     "sdk/session_hooks.go:93"
    ]
   },
@@ -27,8 +27,8 @@
    "verdict": "false",
    "evidence": [
     "runtime/hooks/hooks.go:42",
-    "runtime/pipeline/stage/stages_provider.go:2872",
-    "runtime/pipeline/stage/stages_provider.go:3484"
+    "runtime/pipeline/stage/stages_provider.go:2873",
+    "runtime/pipeline/stage/stages_provider.go:3522"
    ]
   },
   {
@@ -37,8 +37,8 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/pipeline.go:99",
-    "runtime/pipeline/stage/stages_provider.go:3123",
-    "runtime/pipeline/stage/stages_provider.go:3186"
+    "runtime/pipeline/stage/stages_provider.go:3129",
+    "runtime/pipeline/stage/stages_provider.go:3192"
    ]
   },
   {
@@ -46,7 +46,7 @@
    "claim": "AfterCall Enforced picks up rewritten resp.Message; tool calls dropped",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3248"
+    "runtime/pipeline/stage/stages_provider.go:3258"
    ]
   },
   {
@@ -55,7 +55,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/types.go:75",
-    "runtime/pipeline/stage/stages_provider.go:3395"
+    "runtime/pipeline/stage/stages_provider.go:3435"
    ]
   },
   {
@@ -63,7 +63,7 @@
    "claim": "Enforcement does not fail the turn; Deny does",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3140"
+    "runtime/pipeline/stage/stages_provider.go:3146"
    ]
   },
   {
@@ -81,7 +81,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/runner.go:206",
-    "runtime/evals/runner.go:392"
+    "runtime/evals/runner.go:404"
    ]
   },
   {
@@ -89,7 +89,7 @@
    "claim": "Provider/tool/session hooks do not recover panics",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/registry.go:122"
+    "runtime/hooks/registry.go:127"
    ]
   },
   {
@@ -98,7 +98,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/stages_provider.go:3181",
-    "sdk/conversation.go:1792",
+    "sdk/conversation.go:1782",
     "sdk/conversation.go:348",
     "sdk/sdk.go:386"
    ]
@@ -123,8 +123,8 @@
    "claim": "First non-Allow short-circuits; eval hooks all run",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/runner.go:384",
-    "runtime/hooks/registry.go:127"
+    "runtime/evals/runner.go:396",
+    "runtime/hooks/registry.go:132"
    ]
   },
   {
@@ -132,7 +132,7 @@
    "claim": "Nil registry is no-op",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/registry.go:123"
+    "runtime/hooks/registry.go:128"
    ]
   },
   {
@@ -149,7 +149,7 @@
    "claim": "BannedWordsHook, LengthHook, MaxSentencesHook, RequiredFieldsHook",
    "verdict": "false",
    "evidence": [
-    "runtime/evals/handlers/content_excludes.go:85",
+    "runtime/evals/handlers/content_excludes.go:92",
     "runtime/evals/handlers/length.go:130",
     "runtime/evals/handlers/register.go:145"
    ]
@@ -160,8 +160,8 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/normalize.go:33",
-    "sdk/options.go:1942",
-    "sdk/options.go:1972"
+    "sdk/options.go:1943",
+    "sdk/options.go:1973"
    ]
   },
   {
@@ -170,6 +170,33 @@
    "verdict": "true",
    "evidence": [
     "sdk/runtime_config.go:72"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "Realtime duplex: BeforeCall runs on text bound for the session; enforcing hook blocks it and the blocked turn follows any in-progress reply; Deny ends the session",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_duplex_provider_hooks.go:152",
+    "runtime/pipeline/stage/stages_duplex_provider_hooks.go:208"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "Realtime duplex: OnChunk runs on assistant text/transcript with the turn's text so far in Content; once enforced the rest of the turn's text and audio is dropped; AfterCall rewrites the completed turn; enforced turn drops tool calls and finishes with safety",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_duplex_provider_hooks.go:297",
+    "runtime/pipeline/stage/stages_duplex_provider_hooks.go:404",
+    "runtime/pipeline/stage/stages_duplex_provider_hooks.go:445"
+   ]
+  },
+  {
+   "id": 22,
+   "claim": "VAD voice sessions run the text path's provider stage",
+   "verdict": "true",
+   "evidence": [
+    "sdk/sdk.go:312-322"
    ]
   }
  ]
