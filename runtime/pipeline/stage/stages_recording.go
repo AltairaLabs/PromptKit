@@ -158,37 +158,62 @@ func (rs *RecordingStage) recordElement(ctx context.Context, elem *StreamElement
 		return
 	}
 
-	// Skip control signals (end-of-stream, end-of-turn, interrupt) — they carry
-	// no content to record. Errors fall through to be recorded below.
-	if elem.IsControl() && elem.Error == nil {
+	// A control flag (end-of-stream, end-of-turn, interrupt) does not make an
+	// element empty: DuplexProviderStage puts each realtime assistant turn's
+	// Message, and the turn's last audio chunk, on the element that carries
+	// EndOfStream. Skipping control elements outright left duplex recordings
+	// with no assistant turns (promptarena#420). A bare signal records nothing
+	// because it has no content field set.
+	if rs.recordContent(ctx, elem, rs.determineRole(), msgIndex) {
 		return
 	}
 
-	// Determine the actor based on position
-	role := rs.determineRole()
-
-	// Record based on content type.
-	// Streaming content (text deltas, audio/video chunks) is opt-in per modality.
-	// Complete messages are always recorded.
-	switch {
-	case elem.Text != nil && rs.config.IncludeStreamingText:
-		rs.recordTextElement(ctx, elem, role)
-	case elem.Message != nil:
-		rs.recordMessageElement(ctx, elem, msgIndex)
-	case elem.Audio != nil && rs.config.IncludeAudio:
-		rs.recordAudioElement(ctx, elem, role)
-	case elem.Image != nil && rs.config.IncludeImages:
-		rs.recordImageElement(ctx, elem, role)
-	case elem.Video != nil && rs.config.IncludeVideo:
-		rs.recordVideoElement(ctx, elem, role)
-	case elem.ToolCall != nil:
-		rs.recordToolCallElement(ctx, elem)
-	case elem.Error != nil && !isTurnFailureSignal(elem):
+	if elem.Error != nil && !isTurnFailureSignal(elem) {
 		// A turn-failure signal is not recorded: it repeats an upstream
 		// stage's failure at every recorder it passes, and the pipeline's
 		// completion event already carries that failure.
 		rs.recordErrorElement(ctx, elem)
 	}
+}
+
+// recordContent records every content field elem carries and reports whether
+// it carried any the recorder handles. One element can carry several (the
+// duplex turn-complete element holds the last audio chunk and the turn's
+// Message), so each is recorded rather than only the first. Streaming content
+// comes first and the complete Message last, the order the content was
+// produced in.
+//
+// Streaming content (text deltas, audio/video chunks) is opt-in per modality.
+// Complete messages are always recorded.
+func (rs *RecordingStage) recordContent(
+	ctx context.Context, elem *StreamElement, role string, msgIndex *int,
+) bool {
+	matched := false
+	if elem.Text != nil && rs.config.IncludeStreamingText {
+		rs.recordTextElement(ctx, elem, role)
+		matched = true
+	}
+	if elem.Audio != nil && rs.config.IncludeAudio {
+		rs.recordAudioElement(ctx, elem, role)
+		matched = true
+	}
+	if elem.Image != nil && rs.config.IncludeImages {
+		rs.recordImageElement(ctx, elem, role)
+		matched = true
+	}
+	if elem.Video != nil && rs.config.IncludeVideo {
+		rs.recordVideoElement(ctx, elem, role)
+		matched = true
+	}
+	if elem.ToolCall != nil {
+		rs.recordToolCallElement(ctx, elem)
+		matched = true
+	}
+	if elem.Message != nil {
+		rs.recordMessageElement(ctx, elem, msgIndex)
+		matched = true
+	}
+	return matched
 }
 
 // determineRole returns the message role based on recording position.
