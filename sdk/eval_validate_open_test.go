@@ -9,7 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
 )
 
 // invalidEvalPackJSON holds one usable eval and three that ValidateEvals
@@ -72,4 +74,27 @@ func TestOpen_ValidatesEvalDefs(t *testing.T) {
 	assert.Contains(t, out, "bad-metric-name")
 	assert.Contains(t, out, `duplicate eval id \"good\"`)
 	assert.Contains(t, out, "prompt:chat evals[0]: id is required")
+}
+
+// A host that passes its own runner and no registry (WithEvalRunner alone)
+// gets no type filtering, so the structural check is what drops an unusable
+// `when` before it reaches the runner.
+func TestNewEvalMiddleware_DropsUnusableWhenWithRunnerOnly(t *testing.T) {
+	conv := &Conversation{
+		config: &config{evalRunner: evals.NewEvalRunner(evals.NewEvalTypeRegistry())},
+		pack: &pack.Pack{Pack: packspec.Pack{
+			Evals: []*evals.EvalDef{
+				{ID: "good", Type: "contains", Trigger: evals.TriggerEveryTurn},
+				{ID: "gated", Type: "contains", Trigger: evals.TriggerEveryTurn,
+					When: map[string]any{"bogus_condition": true}},
+			},
+		}},
+		prompt: &pack.Prompt{},
+	}
+
+	mw := newEvalMiddleware(conv)
+	require.NotNil(t, mw)
+	defer mw.close()
+	require.Len(t, mw.defs, 1)
+	assert.Equal(t, "good", mw.defs[0].ID)
 }

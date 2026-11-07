@@ -68,9 +68,9 @@ const (
 // each message back to the def it names, by index. Each entry holds the
 // def's reasons with the scope/index prefix removed, plus the full messages.
 //
-// A `when` problem is left out: evals.ValidateEvalTypes reports it as well,
-// and its callers here run both checks.
-func structuralEvalIssues(defs []evals.EvalDef, scope string) map[int][]evalIssue {
+// With skipWhen, a `when` problem is left out, for a caller that also runs
+// evals.ValidateEvalTypes, which reports it as well.
+func structuralEvalIssues(defs []evals.EvalDef, scope string, skipWhen bool) map[int][]evalIssue {
 	errs := evals.ValidateEvals(defs, scope)
 	if len(errs) == 0 {
 		return nil
@@ -82,10 +82,12 @@ func structuralEvalIssues(defs []evals.EvalDef, scope string) map[int][]evalIssu
 			logger.Warn("evals: unrecognized eval validation message", "message", e)
 			continue
 		}
-		if werr := evals.ValidateEvalWhen(defs[i].When); werr != nil && reason == werr.Error() {
-			continue
+		if skipWhen {
+			if werr := evals.ValidateEvalWhen(defs[i].When); werr != nil && reason == werr.Error() {
+				continue
+			}
 		}
-		out[i] = append(out[i], evalIssue{reason: reason, message: e})
+		out[i] = append(out[i], evalIssue{reason: reason, message: e, trigger: isUnknownTrigger(&defs[i])})
 	}
 	return out
 }
@@ -94,6 +96,16 @@ func structuralEvalIssues(defs []evals.EvalDef, scope string) map[int][]evalIssu
 type evalIssue struct {
 	reason  string // without the scope/index prefix
 	message string // as ValidateEvals worded it
+	// trigger is set when the def's trigger is one this runtime does not know.
+	// The PromptPack schema leaves trigger open, so that is not a spec
+	// violation: the def can never run here, but the pack is still valid.
+	trigger bool
+}
+
+// isUnknownTrigger reports whether def names a trigger this runtime does not
+// implement.
+func isUnknownTrigger(def *evals.EvalDef) bool {
+	return def.Trigger != "" && !evals.ValidTriggers[evals.EvalTrigger(def.Trigger)]
 }
 
 // matchStructuralEvalError resolves a ValidateEvals message to the index of the
@@ -115,11 +127,12 @@ func matchStructuralEvalError(msg string, defs []evals.EvalDef, scope string) (i
 
 // dropStructurallyInvalidEvals removes the defs evals.ValidateEvals rejects
 // (a missing or duplicate id, a missing type or trigger, an unknown trigger, a
-// sample_percentage out of range, a metric Prometheus cannot register), logging
+// sample_percentage out of range, a metric Prometheus cannot register, an
+// unusable when), logging
 // a warning for each. Like filterInvalidEvalDefs it degrades reporting rather
 // than failing the open: an eval is a measurement, not a control.
 func dropStructurallyInvalidEvals(defs []evals.EvalDef, scope string) []evals.EvalDef {
-	issues := structuralEvalIssues(defs, scope)
+	issues := structuralEvalIssues(defs, scope, false)
 	if len(issues) == 0 {
 		return defs
 	}
@@ -446,8 +459,10 @@ func (em *evalMiddleware) dispatchSessionEvals(ctx context.Context) {
 }
 
 // dispatchConversationEvals dispatches on_conversation_complete evals
-// synchronously, against the whole transcript. A Conversation ends when it is
-// closed, so Close() runs them, right after the session evals.
+// synchronously, against the whole transcript. Close() is the end of a
+// Conversation, so every Close runs them, right after the session evals: a
+// host that closes and later resumes a conversation runs them again, over the
+// history the resumed conversation reloaded. An empty transcript runs none.
 // Nil-safe: no-op if middleware is nil.
 func (em *evalMiddleware) dispatchConversationEvals(ctx context.Context) {
 	if em == nil || !em.hasConversationEvals {
@@ -455,6 +470,11 @@ func (em *evalMiddleware) dispatchConversationEvals(ctx context.Context) {
 	}
 
 	evalCtx := em.buildEvalContext(ctx)
+	if len(evalCtx.Messages) == 0 {
+		// Nothing was said: a conversation closed on a failed open, or never
+		// used, has no transcript to score.
+		return
+	}
 	results := em.runner.RunConversationEvals(
 		em.evalContextWithBinding(em.evalContextWithRegistry(ctx)), em.defs, evalCtx)
 	em.recordMetrics(results)

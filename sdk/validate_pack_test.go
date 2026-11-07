@@ -374,3 +374,21 @@ func TestValidatePack_ReportsUnusableWhenOnce(t *testing.T) {
 	assert.Equal(t, "gated", issues[0].ID)
 	assert.Contains(t, issues[0].Reason, "bogus_condition")
 }
+
+// The schema leaves trigger open, so an eval with a trigger this runtime does
+// not know is spec-valid: ValidatePack reports it as a warning, not an error.
+func TestValidatePack_UnknownTriggerIsAWarning(t *testing.T) {
+	pack := baseValidPack()
+	pack["evals"] = []any{
+		map[string]any{"id": "later", "type": "contains", "trigger": "on_custom_event",
+			"params": map[string]any{"patterns": []any{"x"}}},
+	}
+	path := writeValidatePackFixture(t, pack)
+
+	issues, err := sdk.ValidatePack(path, false)
+	require.NoError(t, err)
+	require.Len(t, issues, 1, "%v", issues)
+	assert.Equal(t, "warning", issues[0].Severity)
+	assert.Equal(t, "later", issues[0].ID)
+	assert.Equal(t, `invalid trigger "on_custom_event"`, issues[0].Reason)
+}

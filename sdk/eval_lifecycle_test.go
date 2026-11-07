@@ -72,3 +72,28 @@ func TestConversationEvals_RunOnClose(t *testing.T) {
 	require.Len(t, seen, 1)
 	assert.Contains(t, seen[0], "hello", "the conversation eval sees the whole transcript")
 }
+
+// A conversation closed with nothing said — after a failed open, or never
+// used — has no transcript, so Close runs no conversation evals on it.
+func TestConversationEvals_SkippedOnEmptyTranscript(t *testing.T) {
+	bus, col, registry, _ := newStepEvalHarness(t)
+	conv := &stepRecordingHandler{typeName: "conv_stub"}
+	registry.Register(conv)
+	registry.Register(&stepRecordingHandler{typeName: "sess_stub"})
+	packPath := writeWorkflowTestPack(t, lifecyclePackJSON)
+
+	c, err := Open(packPath, "chat",
+		WithSkipSchemaValidation(),
+		WithProvider(mock.NewProvider("mock", "mock-model", false)),
+		WithEvalRegistry(registry),
+		WithEventBus(bus),
+	)
+	require.NoError(t, err)
+	require.NoError(t, c.Close())
+
+	require.Eventually(t, func() bool { return len(col.byTrigger(evals.TriggerOnSessionComplete)) >= 1 },
+		5*time.Second, 5*time.Millisecond, "the session evals still ran, so the close was observed")
+	time.Sleep(20 * time.Millisecond)
+	assert.Empty(t, conv.transcripts())
+	assert.Empty(t, col.byTrigger(evals.TriggerOnConversationComplete))
+}

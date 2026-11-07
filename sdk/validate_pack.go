@@ -18,7 +18,10 @@ type PackIssue struct {
 	// Severity is "error" for a validator or eval issue — each one would
 	// cause the corresponding validator or eval to be warn-and-skipped by
 	// sdk.Open() or fail-fast by Arena — and "warning" for a governance
-	// issue, which Open() logs and does not act on.
+	// issue, which Open() logs and does not act on. An eval whose trigger
+	// this runtime does not know is also a "warning": the schema leaves
+	// trigger open, so the pack is valid, but Open() skips the eval because
+	// it can never run.
 	Severity string
 
 	// Kind identifies the subsystem: "validator", "eval" or "governance".
@@ -174,7 +177,7 @@ func validatePack(
 	// Governance warnings (RFC 0016 rule 10). Governance errors fail the
 	// load above, so only warnings reach here.
 	for _, w := range loaded.ValidateGovernance().Warnings {
-		issues = append(issues, PackIssue{Severity: "warning", Kind: "governance", Reason: w})
+		issues = append(issues, PackIssue{Severity: packIssueSeverityWarning, Kind: "governance", Reason: w})
 	}
 
 	return issues, nil
@@ -255,12 +258,18 @@ func structuralEvalPackIssues(promptID string, defs []evals.EvalDef) []PackIssue
 	if promptID != "" {
 		scope = promptEvalScopePrefix + promptID
 	}
-	found := structuralEvalIssues(defs, scope)
+	found := structuralEvalIssues(defs, scope, true)
 	var issues []PackIssue
 	for i := range defs {
 		for _, is := range found[i] {
+			severity := packIssueSeverityError
+			if is.trigger {
+				// Spec-valid: the schema leaves trigger open. Open skips the
+				// def because it can never run here, but the pack is not wrong.
+				severity = packIssueSeverityWarning
+			}
 			issues = append(issues, PackIssue{
-				Severity: packIssueSeverityError,
+				Severity: severity,
 				Kind:     packIssueKindEval,
 				PromptID: promptID,
 				Index:    i,
@@ -306,6 +315,10 @@ func findEvalTypeByID(defs []evals.EvalDef, id string) string {
 // packIssueSeverityError is the PackIssue severity for an issue that fails
 // the pack.
 const packIssueSeverityError = "error"
+
+// packIssueSeverityWarning is the PackIssue severity for an issue that does
+// not fail the pack.
+const packIssueSeverityWarning = "warning"
 
 // packIssueKindEval is the PackIssue kind for an eval definition.
 const packIssueKindEval = "eval"

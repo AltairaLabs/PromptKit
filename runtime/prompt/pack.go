@@ -774,10 +774,11 @@ func LoadPack(filePath string) (*Pack, error) {
 // Among the errors are the eval definitions evals.ValidateEvals rejects, at
 // pack level and in each prompt.
 //
-// It leaves out the undeclared-prompt-tool warnings ValidateDetailed reports.
-// Callers have treated every Validate finding as blocking, and a prompt tool
-// the pack does not carry is legitimate when the host supplies it. Use
-// ValidateDetailed to see them and to tell errors from warnings.
+// It leaves out two kinds of warning ValidateDetailed reports: undeclared
+// prompt tools, and eval triggers this runtime does not know. Callers have
+// treated every Validate finding as blocking, and both are legitimate in a
+// valid pack: a host may supply the tool, and the schema leaves trigger open.
+// Use ValidateDetailed to see them and to tell errors from warnings.
 func (p *Pack) Validate() []string {
 	r := p.validateDetailed(false)
 	return append(r.Errors, r.Warnings...)
@@ -792,12 +793,14 @@ type PackValidationResult struct {
 }
 
 // ValidateDetailed runs Validate's checks, plus a check of each prompt's tools
-// against the pack's tools, and splits the findings by severity. Two are
+// against the pack's tools, and splits the findings by severity. Three are
 // warnings rather than errors:
 //   - a missing compilation block, which the PromptPack schema does not require;
 //   - a prompt tool the pack's tools do not define. The schema asks for every
 //     prompt tool to be defined there, but a host may supply tools a pack does
-//     not carry (MCP servers, workflow and memory tools, skills).
+//     not carry (MCP servers, workflow and memory tools, skills);
+//   - an eval trigger this runtime does not know. The schema lists trigger
+//     values as examples, not an enum, but the SDK skips such an eval.
 //
 // Workflow, agents and governance findings keep the severity their own
 // validators give them.
@@ -805,16 +808,20 @@ func (p *Pack) ValidateDetailed() *PackValidationResult {
 	return p.validateDetailed(true)
 }
 
-func (p *Pack) validateDetailed(promptTools bool) *PackValidationResult {
+func (p *Pack) validateDetailed(detailed bool) *PackValidationResult {
 	r := &PackValidationResult{Errors: []string{}, Warnings: []string{}}
 	r.Errors = append(r.Errors, p.validatePackFields()...)
 	r.Errors = append(r.Errors, p.validateTemplateEngine()...)
 	r.Errors = append(r.Errors, p.validatePrompts()...)
-	if promptTools {
+	if detailed {
 		r.Warnings = append(r.Warnings, p.validatePromptTools()...)
 	}
 	r.Warnings = append(r.Warnings, p.validateCompilation()...)
-	r.Errors = append(r.Errors, p.validateEvals()...)
+	evalErrs, unknownTriggers := p.validateEvals()
+	r.Errors = append(r.Errors, evalErrs...)
+	if detailed {
+		r.Warnings = append(r.Warnings, unknownTriggers...)
+	}
 	if p.Workflow != nil {
 		wf := p.ValidateWorkflow()
 		r.Errors = append(r.Errors, wf.Errors...)
@@ -984,14 +991,45 @@ func validatePrompt(taskType string, prompt *PackPrompt) []string {
 // "pack") and then over each prompt's evals (scope "prompt:<task type>"), in
 // task-type order. Each scope is checked on its own: a prompt eval that shares
 // a pack eval's id overrides it rather than duplicating it.
-func (p *Pack) validateEvals() []string {
-	warnings := evals.ValidateEvals(evals.Values(p.Evals), "pack")
+//
+// A trigger this runtime does not know comes back on its own, in
+// unknownTriggers: the PromptPack schema lists trigger values as examples, not
+// an enum, so such a pack is spec-valid.
+func (p *Pack) validateEvals() (errs, unknownTriggers []string) {
+	errs, unknownTriggers = splitEvalFindings(evals.Values(p.Evals), "pack")
 	for _, name := range slices.Sorted(maps.Keys(p.Prompts)) {
 		if pp := p.Prompts[name]; pp != nil {
-			warnings = append(warnings, evals.ValidateEvals(evals.Values(pp.Evals), "prompt:"+name)...)
+			e, u := splitEvalFindings(evals.Values(pp.Evals), "prompt:"+name)
+			errs = append(errs, e...)
+			unknownTriggers = append(unknownTriggers, u...)
 		}
 	}
-	return warnings
+	return errs, unknownTriggers
+}
+
+// splitEvalFindings is evals.ValidateEvals with the unknown-trigger findings
+// split out, matched by the exact message ValidateEvals words for each def.
+func splitEvalFindings(defs []evals.EvalDef, scope string) (errs, unknownTriggers []string) {
+	unknown := map[string]bool{}
+	for i := range defs {
+		d := &defs[i]
+		if d.Trigger == "" || evals.ValidTriggers[evals.EvalTrigger(d.Trigger)] {
+			continue
+		}
+		prefix := fmt.Sprintf("%s evals[%d]", scope, i)
+		if d.ID != "" {
+			prefix = fmt.Sprintf("%s evals[%d] (id=%q)", scope, i, d.ID)
+		}
+		unknown[fmt.Sprintf("%s: invalid trigger %q", prefix, d.Trigger)] = true
+	}
+	for _, m := range evals.ValidateEvals(defs, scope) {
+		if unknown[m] {
+			unknownTriggers = append(unknownTriggers, m)
+		} else {
+			errs = append(errs, m)
+		}
+	}
+	return errs, unknownTriggers
 }
 
 // validateCompilation validates compilation metadata
