@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/runtime/index.md",
- "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "commit": "dc6d6f37cfabc0079dd9af47c52502e83f2a85af",
  "claims": [
   {
    "id": 1,
@@ -15,7 +15,7 @@
    "claim": "Quick start compiles: stage.NewPipelineBuilder().Chain(stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{MaxTokens, Temperature})).Build()",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/builder.go:133",
+    "runtime/pipeline/stage/builder.go:135",
     "runtime/pipeline/stage/builder.go:20",
     "runtime/pipeline/stage/builder.go:72",
     "runtime/pipeline/stage/stages_provider.go:143",

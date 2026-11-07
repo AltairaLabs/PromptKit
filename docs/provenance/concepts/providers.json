@@ -1,15 +1,15 @@
 {
  "page": "docs/src/content/docs/concepts/providers.md",
- "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "commit": "dc6d6f37cfabc0079dd9af47c52502e83f2a85af",
  "claims": [
   {
    "id": 1,
    "claim": "A provider is an LLM service; the page names OpenAI, Anthropic and Google as examples",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude_tools.go:960",
-    "runtime/providers/gemini/gemini_tools.go:853",
-    "runtime/providers/openai/openai_tools.go:708"
+    "runtime/providers/claude/claude_tools.go:992",
+    "runtime/providers/gemini/gemini_tools.go:933",
+    "runtime/providers/openai/openai_tools.go:709"
    ]
   },
   {
@@ -257,7 +257,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/credentials/resolver.go:182-193",
-    "runtime/credentials/resolver.go:41-45"
+    "runtime/credentials/resolver.go:44-46"
    ]
   },
   {
@@ -265,8 +265,8 @@
    "claim": "Credential resolution order is api_key, then credential_file, then credential_env, then default env vars",
    "verdict": "true",
    "evidence": [
-    "runtime/credentials/resolver.go:116-157",
-    "runtime/credentials/resolver.go:84-100",
+    "runtime/credentials/resolver.go:118-159",
+    "runtime/credentials/resolver.go:86-102",
     "runtime/providers/base/factory.go:105"
    ]
   },
@@ -275,7 +275,7 @@
    "claim": "type value claude is a valid provider type",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude_tools.go:960"
+    "runtime/providers/claude/claude_tools.go:992"
    ]
   },
   {
@@ -406,7 +406,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/providers/claude/claude.go:688-697",
-    "runtime/providers/claude/claude_tools.go:960-965"
+    "runtime/providers/claude/claude_tools.go:992-997"
    ]
   },
   {
@@ -432,7 +432,7 @@
     "runtime/providers/claude/claude.go:960",
     "runtime/providers/gemini/gemini.go:368",
     "runtime/providers/openai/openai.go:837",
-    "runtime/providers/vllm/vllm.go:435"
+    "runtime/providers/vllm/vllm.go:433"
    ]
   },
   {
