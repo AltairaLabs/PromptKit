@@ -42,7 +42,7 @@ scenarios:
       4:
         response: "I've set a reminder for you to check the weather again tomorrow at 9 AM."
 
-default_response: "I don't have information for this scenario."
+defaultResponse: "I don't have information for this scenario."
 `
 
 	tmpDir := t.TempDir()
