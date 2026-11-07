@@ -18,10 +18,10 @@ var sentenceSplitter = regexp.MustCompile(`[.!?]+`)
 //     legacy max_sentences param is normalized to it)
 //
 // Without max the score is 1 and the count is a measurement in
-// Details["count"]. With max, the score is shaped the way tool_efficiency's
-// max_calls shapes its score: (max + 1 - count) / (max + 1) within the cap, so a
-// reply at exactly max still scores above one that exceeds it, and 0 above it.
-// The handler states no pass or fail; a wrapper's min_score does.
+// Details["count"]. With max, a reply within the cap scores 1 and one over it
+// scores max / count, so a default guardrail (floor 1.0) fires only over the
+// cap and the score still says how far over. The handler states no pass or
+// fail; a wrapper's threshold does.
 type SentenceCountHandler struct{}
 
 // Type returns the eval type identifier.
@@ -46,17 +46,15 @@ func (h *SentenceCountHandler) Eval(
 	if count > *maxSentences {
 		return &evals.EvalResult{
 			Type:        h.Type(),
-			Score:       scorePtr(0),
+			Score:       scorePtr(float64(*maxSentences) / float64(count)),
 			Explanation: fmt.Sprintf("%d sentences exceeds max %d", count, *maxSentences),
 			Details:     details,
 		}, nil
 	}
 
-	budget := float64(*maxSentences + 1)
-	score := (budget - float64(count)) / budget
 	return &evals.EvalResult{
 		Type:        h.Type(),
-		Score:       &score,
+		Score:       scorePtr(1),
 		Explanation: fmt.Sprintf("%d sentences, max %d", count, *maxSentences),
 		Details:     details,
 	}, nil

@@ -95,8 +95,7 @@ func TestSentenceCountHandler_ScoreAlwaysOne(t *testing.T) {
 	}
 }
 
-// max shapes the score the way tool_efficiency's max_calls does: the remaining
-// headroom, (max + 1 - count) / (max + 1), within the cap and 0 above it.
+// max caps the count: within it the score is 1, over it max / count.
 func TestSentenceCountHandler_MaxShapesScore(t *testing.T) {
 	h := &SentenceCountHandler{}
 	tests := []struct {
@@ -106,11 +105,12 @@ func TestSentenceCountHandler_MaxShapesScore(t *testing.T) {
 		want   float64
 	}{
 		{"no max scores 1", "A. B. C.", nil, 1.0},
-		{"under max", "A.", map[string]any{"max": 3}, 0.75},
-		{"at max", "A. B. C.", map[string]any{"max": 3}, 0.25},
-		{"over max", "A. B. C. D.", map[string]any{"max": 3}, 0},
+		{"under max", "A.", map[string]any{"max": 3}, 1.0},
+		{"at max", "A. B. C.", map[string]any{"max": 3}, 1.0},
+		{"over max", "A. B. C. D.", map[string]any{"max": 3}, 0.75},
+		{"far over max", "A. B. C. D. E. F.", map[string]any{"max": 3}, 0.5},
 		{"empty output", "", map[string]any{"max": 3}, 1.0},
-		{"float max from YAML/JSON", "A. B.", map[string]any{"max": 3.0}, 0.5},
+		{"float max from YAML/JSON", "A. B. C. D.", map[string]any{"max": 2.0}, 0.5},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -136,8 +136,8 @@ func TestMaxSentences_AliasEnforcesMax(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Score == nil || *result.Score != 0 {
-		t.Fatalf("score = %v, want 0 for 2 sentences over max_sentences 1", result.Score)
+	if result.Score == nil || *result.Score != 0.5 {
+		t.Fatalf("score = %v, want 0.5 for 2 sentences over max_sentences 1", result.Score)
 	}
 }
 

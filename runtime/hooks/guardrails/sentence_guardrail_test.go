@@ -14,7 +14,7 @@ import (
 // the cap was cut to `max` bytes and shipped as a fragment.
 func TestMaxSentencesGuardrail_BlocksRatherThanTruncates(t *testing.T) {
 	hook, err := NewGuardrailHook("max_sentences",
-		map[string]any{"max_sentences": 2, "min_score": 0.01}, WithMessage("too long"))
+		map[string]any{"max_sentences": 2}, WithMessage("too long"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,6 +29,6 @@ func TestMaxSentencesGuardrail_BlocksRatherThanTruncates(t *testing.T) {
 
 	ok := &hooks.ProviderResponse{Message: types.Message{Role: "assistant", Content: "One. Two."}}
 	if d := hook.AfterCall(context.Background(), &hooks.ProviderRequest{}, ok); !d.Allow {
-		t.Fatalf("guardrail fired at the cap with min_score 0.01: %+v", d)
+		t.Fatalf("default guardrail fired at the cap: %+v", d)
 	}
 }

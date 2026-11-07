@@ -192,7 +192,7 @@ Applied when the param is absent.
 | `contains_any` | `content_includes_any` | `patterns` (string[], required) | 1 or 0 |
 | `min_length` | none | `min` (int, required, > 0) | `min(length / min, 1)` |
 | `max_length` | `length` | `max` (int, required, > 0), `max_tokens` (int) | `min(max / length, 1)`, lowered by the token ratio |
-| `sentence_count` | `max_sentences` | `max` (int, > 0) | 1 with no `max`; `(max + 1 - count) / (max + 1)` up to `max`; 0 above it |
+| `sentence_count` | `max_sentences` | `max` (int, > 0) | 1 with no `max` or within it; `max / count` above it |
 | `field_presence` | `required_fields` | `fields` (string[]) | Fraction of fields found |
 | `cosine_similarity` | none | `reference` (float[], required) | The similarity |
 
@@ -204,7 +204,7 @@ Applied when the param is absent.
 | `content_excludes` | `match_mode` is `substring` or `word_boundary` (a `\b` match around the escaped pattern). Any other value behaves as `substring`. `case_sensitive: true` applies in both modes and while streaming. No patterns passes. |
 | `contains_any` | Passes when any pattern appears in any assistant message. |
 | `min_length`, `max_length` | Length is in bytes. `max_tokens` estimates tokens as bytes divided by 4. |
-| `sentence_count` | The count is in `Details.count`. With `max` (or `max_sentences` under either name), the score is the remaining headroom, as for `tool_efficiency`: a reply at exactly `max` scores `1 / (max + 1)`, above one that exceeds it. A guardrail triggers below `1.0` by default, so to block only replies over `max`, set `min_score` above 0, for example `0.01`. |
+| `sentence_count` | The count is in `Details.count`. With `max` (or `max_sentences` under either name), a reply of up to `max` sentences scores 1 and a longer one `max / count`, so a guardrail with the default floor of `1.0` blocks only replies over `max`. A firing guardrail blocks the reply with its message; it does not truncate. |
 | `field_presence` | Looks for each name as a substring of the output. No fields passes. |
 | `cosine_similarity` | The target embedding comes from `EvalContext.Metadata["embedding"]`. A missing embedding, or a dimension mismatch, scores 0. `min_similarity`, `min_score` and `max_score` are rejected with an error: set the threshold as `min_score` on the [`assertion`](#assertion-wrapper) wrapper. |
 

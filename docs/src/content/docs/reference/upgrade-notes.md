@@ -280,7 +280,7 @@ never reported, and a guardrail also accepts `direction` and `message`. See
 
 | If you | You will see | Change |
 |---|---|---|
-| Set `max` (or `max_sentences`) on `sentence_count` / `max_sentences` | the score is `(max + 1 - count) / (max + 1)` up to `max` and 0 above it, as for `tool_efficiency`, where it was always 1. Without `max` it is still 1. A `max` that is not a positive integer is rejected at load | a guardrail triggers below 1.0 by default, so it now fires on any reply with a sentence; set `min_score` above 0 (for example `0.01`) to fire only above `max` |
+| Set `max` (or `max_sentences`) on `sentence_count` / `max_sentences` | the score is 1 up to `max` and `max / count` above it, where it was always 1. A `max_sentences` guardrail now blocks a reply over `max` with its message. Without `max` the score is still 1. A `max` that is not a positive integer is rejected at load | nothing, unless you relied on the guardrail never firing |
 | Set `case_sensitive: true` on `content_excludes` / `banned_words` | a pattern matches only in its own case, in both match modes and while streaming, where the key was ignored | nothing, unless you relied on the key being ignored |
 | Supply `Metadata["judge_defaults"]["prompt"]` and a `*prompt.Registry` in `Metadata["prompt_registry"]` (Arena does, from `judge_defaults`) | `llm_judge`, `llm_judge_session` and `llm_judge_tool_calls` without a `system_prompt` grade with that prompt's rendered system template, where they used the built-in prompt. A named prompt that cannot be loaded makes the check an error | check the named prompt renders what you want the judge to see |
 
