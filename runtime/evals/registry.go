@@ -109,6 +109,7 @@ func RegisterDefault(h EvalTypeHandler) {
 	defaultsMu.Lock()
 	defer defaultsMu.Unlock()
 	defaultHandlers = append(defaultHandlers, h)
+	recordDeclaredGroups(h)
 }
 
 // RegisterDefaultAlias registers an alias mapping applied by NewEvalTypeRegistry.
@@ -119,6 +120,7 @@ func RegisterDefaultAlias(aliasType, targetType string) {
 	defaultsMu.Lock()
 	defer defaultsMu.Unlock()
 	defaultAliases = append(defaultAliases, [2]string{aliasType, targetType})
+	recordGroupAlias(aliasType, targetType)
 }
 
 // DefaultAliases returns a copy of the pairs registered with RegisterDefaultAlias,
@@ -133,11 +135,13 @@ func DefaultAliases() [][2]string {
 }
 
 // Register adds a handler to the registry. If a handler with the same
-// type is already registered, it is replaced.
+// type is already registered, it is replaced. A handler that implements
+// GroupDeclarer has its groups recorded for DefaultGroupsForType.
 func (r *EvalTypeRegistry) Register(handler EvalTypeHandler) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.handlers[handler.Type()] = handler
+	recordDeclaredGroups(handler)
 }
 
 // RegisterAlias maps an alias name to an existing handler type.
@@ -151,6 +155,7 @@ func (r *EvalTypeRegistry) RegisterAlias(aliasType, targetType string) error {
 		return fmt.Errorf("cannot alias %q to %q: target type not registered", aliasType, targetType)
 	}
 	r.handlers[aliasType] = h
+	recordGroupAlias(aliasType, targetType)
 	return nil
 }
 

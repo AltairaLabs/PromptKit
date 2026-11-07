@@ -99,13 +99,15 @@ Score a conversation snapshot against the evals in a pack with `sdk.Evaluate()`.
 
    Sampled triggers hash `SessionID`.
 
-3. Filter by group with `EvalGroups`. An eval with no explicit `groups` belongs to `default` plus one classification group:
+3. Filter by group with `EvalGroups`. An eval with no explicit `groups` belongs to `default` plus the classification groups of its type:
 
    | Group | Constant | Eval types |
    |---|---|---|
    | `fast-running` | `evals.GroupFastRunning` | Deterministic checks: string matching, regex, JSON validation |
-   | `long-running` | `evals.GroupLongRunning` | LLM calls, embeddings, network requests |
-   | `external` | `evals.GroupExternal` | REST APIs, A2A agents, exec subprocesses, LLM judges |
+   | `long-running` | `evals.GroupLongRunning` | LLM judges, classifiers, embeddings, network requests |
+   | `external` | `evals.GroupExternal` | LLM judges, classifiers, REST APIs, A2A agents, exec subprocesses |
+
+   Every judge-backed and classifier-backed built-in check is both `long-running` and `external`. A handler declares its groups by implementing `evals.GroupDeclarer`; a type whose handler declares none is `fast-running`. An `assertion` or `guardrail` wrapper takes the groups of the eval it wraps, and an alias takes the groups of its target.
 
    ```go
    results, err := sdk.Evaluate(ctx, sdk.EvaluateOpts{
