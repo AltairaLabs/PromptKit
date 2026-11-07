@@ -4,7 +4,7 @@ description: The A2A wire format, agent cards, task lifecycle and streaming as P
 sidebar:
   order: 7
 verified:
-  commit: ebf8d92f226c18ca12b790f73b09a762bd8d2512
+  commit: dc6d6f37cfabc0079dd9af47c52502e83f2a85af
   sources:
     - runtime/a2a/bridge.go
     - runtime/a2a/client.go

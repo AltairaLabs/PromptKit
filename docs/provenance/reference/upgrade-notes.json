@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/reference/upgrade-notes.md",
- "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "commit": "dc6d6f37cfabc0079dd9af47c52502e83f2a85af",
  "claims": [
   {
    "id": "c1",
@@ -67,7 +67,7 @@
    "verdict": "true",
    "evidence": [
     "sdk/internal/pack/validate.go:261",
-    "sdk/options.go:2133"
+    "sdk/options.go:2134"
    ]
   },
   {
@@ -123,7 +123,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/runner.go:16",
-    "sdk/options.go:1672"
+    "sdk/options.go:1673"
    ]
   },
   {
@@ -157,7 +157,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/binding.go:18",
-    "sdk/options.go:2904"
+    "sdk/options.go:2905"
    ]
   },
   {
@@ -165,7 +165,7 @@
    "claim": "sdk.JudgeProviderKey is gone",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:2904"
+    "sdk/options.go:2905"
    ]
   },
   {
@@ -174,7 +174,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/providers/claude/claude_tools.go:144-155",
-    "runtime/providers/claude/claude_tools.go:921-925"
+    "runtime/providers/claude/claude_tools.go:953-957"
    ]
   },
   {
@@ -259,7 +259,7 @@
    "claim": "Audio to a Responses-mode provider errors that audio needs Chat Completions",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/openai/openai_multimodal.go:147-150"
+    "runtime/providers/openai/openai_multimodal.go:151-153"
    ]
   },
   {
@@ -285,7 +285,7 @@
    "evidence": [
     "runtime/pipeline/types.go:86",
     "sdk/internal/pack/tool_policy_keys.go:38-60",
-    "sdk/options.go:1376-1412"
+    "sdk/options.go:1377-1413"
    ]
   },
   {
@@ -340,7 +340,7 @@
    "verdict": "true",
    "evidence": [
     "sdk/capability_a2a.go:140-160",
-    "sdk/options.go:1837-1865",
+    "sdk/options.go:1838-1866",
     "sdk/validate_pack.go:127"
    ]
   },
@@ -361,7 +361,7 @@
    "evidence": [
     "runtime/providers/claude/context_window_table.go:62-65",
     "runtime/providers/gemini/context_window_table.go:67-70",
-    "runtime/providers/gemini/gemini_tools.go:543",
+    "runtime/providers/gemini/gemini_tools.go:620",
     "runtime/providers/openai/context_window_table.go:59-62",
     "runtime/providers/vllm/vllm_tools.go:361"
    ]
@@ -373,7 +373,7 @@
    "evidence": [
     "runtime/providers/base/registry.go:58-73",
     "runtime/providers/base_embedding.go:257-263",
-    "runtime/providers/base_provider.go:632",
+    "runtime/providers/base_provider.go:652",
     "runtime/providers/openai/openai_responses_integration.go:55",
     "runtime/providers/registry.go:93-99",
     "runtime/providers/streaming.go:143-180"
@@ -405,7 +405,7 @@
    "claim": "Session hooks all run and log failures; A2A SSE idle timeouts end the stream with ErrSSEIdleTimeout; WithWriteTimeout is applied; AG-UI WithRuntimeEvents forwards runtime events",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:91-155",
+    "runtime/a2a/client.go:93-157",
     "runtime/hooks/registry.go:264-278",
     "sdk/agui/adapter.go:103-175",
     "server/a2a/server.go:127-140"
@@ -417,7 +417,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/providers/base/rate_limit_transport.go:13-60",
-    "runtime/providers/base_provider.go:961",
+    "runtime/providers/base_provider.go:981-1010",
     "runtime/providers/registry.go:228-231"
    ]
   },
@@ -427,8 +427,8 @@
    "verdict": "true",
    "evidence": [
     "runtime/credentials/credential.go:26",
-    "runtime/providers/base_provider.go:268",
-    "runtime/providers/base_provider.go:476-504",
+    "runtime/providers/base_provider.go:283-290",
+    "runtime/providers/base_provider.go:503-540",
     "runtime/providers/errors.go:81",
     "runtime/providers/retry.go:69"
    ]
@@ -454,7 +454,7 @@
     "runtime/pipeline/stage/stages_provider.go:2242-2250",
     "runtime/pipeline/stage/stages_provider.go:248-257",
     "runtime/providers/multimodal.go:289-301",
-    "sdk/options.go:1362-1375"
+    "sdk/options.go:1363-1376"
    ]
   },
   {

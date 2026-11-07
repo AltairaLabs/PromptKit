@@ -1,13 +1,13 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/multimodal/analyze-documents.md",
- "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "commit": "dc6d6f37cfabc0079dd9af47c52502e83f2a85af",
  "claims": [
   {
    "id": 1,
    "claim": "sdk.WithDocumentFile(path) SendOption attaches a document from a file path",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:3673",
+    "sdk/options.go:3674",
     "sdk/streaming.go:247"
    ]
   },
@@ -16,7 +16,7 @@
    "claim": "sdk.WithDocumentData(data []byte, mimeType string) attaches raw document bytes",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:3685",
+    "sdk/options.go:3686",
     "sdk/streaming.go:251"
    ]
   },
@@ -25,19 +25,18 @@
    "claim": "sdk.WithImageFile combines with documents in one Send",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:3562",
+    "sdk/options.go:3563",
     "sdk/streaming.go:221"
    ]
   },
   {
    "id": 4,
-   "claim": "The SDK supports PDF documents only; Word and text are not supported",
-   "verdict": "false",
+   "claim": "Claude takes PDF only; Gemini takes PDF, Office, OpenDocument and text formats",
+   "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude_multimodal.go:200",
+    "runtime/providers/claude/claude_multimodal.go:203",
     "runtime/providers/claude/claude_multimodal.go:38-40",
-    "runtime/providers/gemini/gemini_multimodal.go:54-72",
-    "runtime/types/content.go:467"
+    "runtime/providers/gemini/gemini_multimodal.go:54-90"
    ]
   },
   {
@@ -53,7 +52,7 @@
    "claim": "Gemini document limit 20MB",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/gemini/gemini_multimodal.go:110"
+    "runtime/providers/gemini/gemini_multimodal.go:120"
    ]
   },
   {
@@ -67,11 +66,10 @@
   },
   {
    "id": 8,
-   "claim": "A too-large file produces an error containing 'size exceeds'",
-   "verdict": "false",
+   "claim": "A too-large file produces an error 'file size N bytes exceeds maximum M bytes for <path>'",
+   "verdict": "true",
    "evidence": [
-    "runtime/providers/media_loader.go:21",
-    "runtime/providers/media_loader.go:253"
+    "runtime/providers/media_loader.go:279-284"
    ]
   },
   {
@@ -79,7 +77,7 @@
    "claim": "A missing file produces an error for which os.IsNotExist is true",
    "verdict": "false",
    "evidence": [
-    "runtime/providers/media_loader.go:241"
+    "runtime/providers/media_loader.go:267"
    ]
   },
   {
@@ -87,7 +85,7 @@
    "claim": "A non-PDF MIME type is rejected",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude_multimodal.go:200"
+    "runtime/providers/claude/claude_multimodal.go:202"
    ]
   },
   {
@@ -120,7 +118,7 @@
    "claim": "Arena scenario spec.media with type document and source",
    "verdict": "unverified",
    "evidence": [
-    "sdk/options.go:3673"
+    "sdk/options.go:3674"
    ]
   },
   {
@@ -128,19 +126,21 @@
    "claim": "promptarena run config.arena.yaml --scenario pdf-summary",
    "verdict": "unverified",
    "evidence": [
-    "sdk/options.go:3673"
+    "sdk/options.go:3674"
    ]
   },
   {
    "id": 16,
-   "claim": "A message accepts up to 20 media items",
-   "verdict": "false",
+   "claim": "A message accepts up to 20 media parts the provider loads; each message has its own loader; limit errors wrap ErrMediaItemLimitExceeded and ErrAggregateMediaSizeExceeded",
+   "verdict": "true",
    "evidence": [
-    "runtime/providers/base_provider.go:437-444",
-    "runtime/providers/claude/claude_multimodal.go:213",
-    "runtime/providers/gemini/gemini_multimodal.go:211",
-    "runtime/providers/media_loader.go:108",
-    "runtime/providers/media_loader.go:27-29"
+    "runtime/providers/base_provider.go:446-455",
+    "runtime/providers/claude/claude_multimodal.go:215",
+    "runtime/providers/claude/claude_multimodal.go:95",
+    "runtime/providers/gemini/gemini.go:428",
+    "runtime/providers/gemini/gemini_multimodal.go:227",
+    "runtime/providers/media_loader.go:132-138",
+    "runtime/providers/media_loader.go:29-37"
    ]
   },
   {
@@ -148,19 +148,18 @@
    "claim": "The media loader rejects a file over 50 MB",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/media_loader.go:21",
-    "runtime/providers/media_loader.go:255",
-    "runtime/providers/media_loader.go:62-64"
+    "runtime/providers/media_loader.go:22",
+    "runtime/providers/media_loader.go:279-284"
    ]
   },
   {
    "id": 18,
-   "claim": "Error texts: 'claude only supports PDF documents, got: <mime>', 'unknown content type: document', 'file size N bytes exceeds maximum M bytes for <path>', 'media item limit exceeded'",
+   "claim": "Error texts: unsupported document format, provider does not support document inputs, file size exceeds maximum, media item limit exceeded, aggregate media size limit exceeded",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/media_loader.go:254-256",
-    "runtime/providers/multimodal.go:263-283",
-    "runtime/providers/multimodal.go:297-303"
+    "runtime/providers/media_loader.go:133-137",
+    "runtime/providers/media_loader.go:210-214",
+    "runtime/providers/multimodal.go:263-303"
    ]
   },
   {
@@ -168,18 +167,18 @@
    "claim": "WithDocumentFile infers the MIME type from the file extension and the file is read when the provider call is built",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude_multimodal.go:213",
-    "runtime/providers/media_loader.go:229",
+    "runtime/providers/claude/claude_multimodal.go:215",
+    "runtime/providers/media_loader.go:265",
     "runtime/types/content.go:259"
    ]
   },
   {
    "id": 20,
-   "claim": "Claude and Gemini declare PDF as their only document format",
-   "verdict": "false",
+   "claim": "Claude declares PDF only; Gemini declares PDF, Office, OpenDocument and text formats",
+   "verdict": "true",
    "evidence": [
     "runtime/providers/claude/claude_multimodal.go:38-40",
-    "runtime/providers/gemini/gemini_multimodal.go:57-73"
+    "runtime/providers/gemini/gemini_multimodal.go:54-90"
    ]
   },
   {
@@ -188,7 +187,7 @@
    "verdict": "true",
    "evidence": [
     "sdk/hooks/events.go:103",
-    "sdk/options.go:3673"
+    "sdk/options.go:3674"
    ]
   },
   {
@@ -196,6 +195,25 @@
    "claim": "/sdk/examples/multimodal/ example exists",
    "verdict": "true",
    "evidence": []
+  },
+  {
+   "id": 23,
+   "claim": "Gemini routes to the Interactions API with api_mode interactions, or with tools and a JSON-schema response format on models other than gemini-1. and gemini-2.; Interactions takes PDF, CSV, Office and OpenDocument documents",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/gemini/interactions_mode.go:75-106",
+    "runtime/providers/gemini/interactions_types.go:96-107"
+   ]
+  },
+  {
+   "id": 24,
+   "claim": "An Interactions document of an unaccepted type fails with 'failed to convert message M: <provider-id>: the Gemini Interactions API does not accept document format <mime> (part N)'",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/gemini/interactions_convert.go:144-161",
+    "runtime/providers/gemini/interactions_convert.go:36-47",
+    "runtime/providers/multimodal.go:298-303"
+   ]
   }
  ]
 }

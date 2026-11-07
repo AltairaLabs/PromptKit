@@ -1,13 +1,13 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/conversations/manage-context.md",
- "commit": "5e40da857965d9c77240bbf22bdded089b88cd9b",
+ "commit": "dc6d6f37cfabc0079dd9af47c52502e83f2a85af",
  "claims": [
   {
    "id": 1,
    "claim": "sdk.WithTokenBudget(n) sets the max tokens for context",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1708"
+    "sdk/options.go:1709"
    ]
   },
   {
@@ -25,7 +25,7 @@
    "verdict": "true",
    "evidence": [
     "sdk/internal/pipeline/builder.go:835",
-    "sdk/options.go:1720"
+    "sdk/options.go:1721"
    ]
   },
   {
@@ -33,7 +33,7 @@
    "claim": "sdk.WithTruncation(\"sliding\")",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1735"
+    "sdk/options.go:1736"
    ]
   },
   {
@@ -41,7 +41,7 @@
    "claim": "sdk.WithRelevanceTruncation(&sdk.RelevanceConfig{...}) sets strategy to relevance",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1807"
+    "sdk/options.go:1808"
    ]
   },
   {
@@ -49,7 +49,7 @@
    "claim": "openai.NewEmbeddingProvider() returns (provider, error)",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/openai/embedding.go:120"
+    "runtime/providers/openai/embedding.go:122"
    ]
   },
   {
@@ -140,7 +140,7 @@
    "claim": "sdk.WithContextWindow(n) requires WithStateStore",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1822",
+    "sdk/options.go:1823",
     "sdk/sdk.go:406"
    ]
   },
@@ -169,8 +169,8 @@
    "claim": "sdk.WithContextRetrieval(embProvider, topK) requires WithContextWindow and WithStateStore; a declared embedding provider enables retrieval with top-k 3",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1848",
-    "sdk/options.go:1885",
+    "sdk/options.go:1849",
+    "sdk/options.go:1886",
     "sdk/sdk.go:409"
    ]
   },
@@ -179,7 +179,7 @@
    "claim": "retrieved messages inserted chronologically between summaries and the hot window",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1872"
+    "sdk/options.go:1873"
    ]
   },
   {
@@ -187,7 +187,7 @@
    "claim": "sdk.WithAutoSummarize(provider, threshold, batchSize) requires WithContextWindow",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1912",
+    "sdk/options.go:1913",
     "sdk/sdk.go:414"
    ]
   },
@@ -196,7 +196,7 @@
    "claim": "summaries are prepended to context as system messages",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1903"
+    "sdk/options.go:1904"
    ]
   },
   {
@@ -213,7 +213,7 @@
    "verdict": "true",
    "evidence": [
     "sdk/internal/pipeline/builder.go:770",
-    "sdk/options.go:1432"
+    "sdk/options.go:1433"
    ]
   },
   {
@@ -269,7 +269,7 @@
    "verdict": "true",
    "evidence": [
     "sdk/internal/pipeline/builder.go:770",
-    "sdk/options.go:1432"
+    "sdk/options.go:1433"
    ]
   },
   {
@@ -277,8 +277,8 @@
    "claim": "OpenAI default embedding model text-embedding-3-small; WithEmbeddingModel option",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/openai/embedding.go:16",
-    "runtime/providers/openai/embedding.go:62"
+    "runtime/providers/openai/embedding.go:18",
+    "runtime/providers/openai/embedding.go:64"
    ]
   },
   {
@@ -286,8 +286,8 @@
    "claim": "Gemini default embedding model text-embedding-004",
    "verdict": "false",
    "evidence": [
-    "runtime/providers/gemini/embedding.go:19",
-    "runtime/providers/gemini/embedding.go:24"
+    "runtime/providers/gemini/embedding.go:21",
+    "runtime/providers/gemini/embedding.go:26"
    ]
   },
   {
@@ -295,8 +295,8 @@
    "claim": "gemini.WithGeminiEmbeddingModel(\"embedding-001\")",
    "verdict": "false",
    "evidence": [
-    "runtime/providers/gemini/embedding.go:35",
-    "runtime/providers/gemini/embedding.go:41"
+    "runtime/providers/gemini/embedding.go:37",
+    "runtime/providers/gemini/embedding.go:43"
    ]
   },
   {
@@ -310,11 +310,11 @@
    "claim": "voyageai default model voyage-3.5; WithModel; voyage-code-3; WithInputType(InputTypeQuery)",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/voyageai/embedding.go:122",
-    "runtime/providers/voyageai/embedding.go:18",
-    "runtime/providers/voyageai/embedding.go:30",
-    "runtime/providers/voyageai/embedding.go:50",
-    "runtime/providers/voyageai/embedding.go:77"
+    "runtime/providers/voyageai/embedding.go:124",
+    "runtime/providers/voyageai/embedding.go:20",
+    "runtime/providers/voyageai/embedding.go:32",
+    "runtime/providers/voyageai/embedding.go:52",
+    "runtime/providers/voyageai/embedding.go:79"
    ]
   },
   {
@@ -322,7 +322,7 @@
    "claim": "OPENAI_API_KEY for OpenAI embeddings",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/openai/embedding.go:144"
+    "runtime/providers/openai/embedding.go:146"
    ]
   },
   {
@@ -330,7 +330,7 @@
    "claim": "GEMINI_API_KEY for Gemini embeddings",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/gemini/embedding.go:164"
+    "runtime/providers/gemini/embedding.go:166"
    ]
   },
   {
@@ -338,7 +338,7 @@
    "claim": "VOYAGE_API_KEY for Voyage embeddings",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/voyageai/embedding.go:153"
+    "runtime/providers/voyageai/embedding.go:155"
    ]
   },
   {
@@ -360,7 +360,7 @@
    "evidence": [
     "runtime/pipeline/stage/stages_utilities.go:1032",
     "sdk/internal/pipeline/builder.go:835",
-    "sdk/options.go:1735"
+    "sdk/options.go:1736"
    ]
   },
   {
@@ -368,7 +368,8 @@
    "claim": "SimilarityThreshold default 0 disables it; unprotected messages scoring below it are dropped",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:1317"
+    "runtime/pipeline/stage/stages_utilities.go:1317",
+    "sdk/options.go:1760"
    ]
   }
  ]

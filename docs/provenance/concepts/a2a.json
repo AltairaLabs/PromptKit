@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/concepts/a2a.md",
- "commit": "ebf8d92f226c18ca12b790f73b09a762bd8d2512",
+ "commit": "dc6d6f37cfabc0079dd9af47c52502e83f2a85af",
  "claims": [
   {
    "id": 1,
@@ -34,7 +34,7 @@
    "claim": "Card at GET /.well-known/agent-card.json; legacy /.well-known/agent.json serves same card",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:277-278",
+    "runtime/a2a/client.go:303-304",
     "server/a2a/server.go:502-516"
    ]
   },
@@ -54,10 +54,12 @@
    "claim": "URL media: OpenAI and Claude pass image URL to vendor; host fetches Gemini all media, Claude documents, OpenAI audio, Ollama images",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude_multimodal.go:172-179",
-    "runtime/providers/gemini/gemini_multimodal.go:211",
-    "runtime/providers/ollama/ollama_multimodal.go:98-135",
-    "runtime/providers/openai/openai_multimodal.go:180-214"
+    "runtime/providers/claude/claude_multimodal.go:175-181",
+    "runtime/providers/claude/claude_multimodal.go:215",
+    "runtime/providers/gemini/gemini_multimodal.go:227",
+    "runtime/providers/ollama/ollama_multimodal.go:106-137",
+    "runtime/providers/openai/openai_multimodal.go:184-189",
+    "runtime/providers/openai/openai_multimodal.go:217"
    ]
   },
   {
@@ -66,7 +68,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/httputil/egress.go:47-80",
-    "runtime/providers/media_loader.go:86-90"
+    "runtime/providers/media_loader.go:110-114"
    ]
   },
   {
@@ -91,7 +93,7 @@
    "claim": "Tool executor sends with returnImmediately, polls via Client.WaitForTask, cancels task on tool timeout",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:943",
+    "runtime/a2a/client.go:969",
     "runtime/a2a/executor.go:265",
     "runtime/a2a/executor.go:363-370"
    ]
@@ -109,9 +111,9 @@
    "claim": "Client sends A2A-Version 1.0; on unknown method retries once in 0.3 and remembers; WithProtocolVersion pins",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:121-130",
-    "runtime/a2a/client.go:429-445",
-    "runtime/a2a/client.go:492"
+    "runtime/a2a/client.go:123-132",
+    "runtime/a2a/client.go:455-471",
+    "runtime/a2a/client.go:518"
    ]
   },
   {
@@ -295,7 +297,7 @@
    "claim": "Client delivers StreamEvent with exactly one of Task, Message, StatusUpdate, ArtifactUpdate",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:84-92"
+    "runtime/a2a/client.go:86-94"
    ]
   },
   {
@@ -336,9 +338,9 @@
    "claim": "After Discover, the client considers only the card's interfaces on the NewClient scheme, host and port (default ports filled in); of those it calls the first JSON-RPC interface serving the client version, otherwise the first JSON-RPC one",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:522",
-    "runtime/a2a/client.go:539",
-    "runtime/a2a/client.go:543"
+    "runtime/a2a/client.go:548",
+    "runtime/a2a/client.go:565",
+    "runtime/a2a/client.go:569"
    ]
   },
   {
@@ -346,9 +348,9 @@
    "claim": "The chosen interface contributes its path, version and tenant; an interface at the default /a2a keeps the base URL",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:558",
-    "runtime/a2a/client.go:610",
-    "runtime/a2a/client.go:635"
+    "runtime/a2a/client.go:584",
+    "runtime/a2a/client.go:636",
+    "runtime/a2a/client.go:661"
    ]
   },
   {
@@ -356,9 +358,9 @@
    "claim": "A different host or port is not followed; calls go to {base}/a2a with a warning logged once; http interface on the https base host is not warned about",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:620",
-    "runtime/a2a/client.go:628",
-    "runtime/a2a/client.go:645"
+    "runtime/a2a/client.go:646",
+    "runtime/a2a/client.go:654",
+    "runtime/a2a/client.go:671"
    ]
   },
   {
@@ -366,7 +368,7 @@
    "claim": "Without a card or with no interfaces, calls go to {base}/a2a",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:526"
+    "runtime/a2a/client.go:552"
    ]
   },
   {
@@ -382,8 +384,8 @@
    "claim": "StreamEvent last event carries Error: agent JSON-RPC error or ErrSSEIdleTimeout (default idle 5m)",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:44-50",
-    "runtime/a2a/client.go:84-98"
+    "runtime/a2a/client.go:46-52",
+    "runtime/a2a/client.go:86-100"
    ]
   },
   {

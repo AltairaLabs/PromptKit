@@ -4,12 +4,14 @@ description: How to send PDF documents to an LLM for analysis
 sidebar:
   order: 50
 verified:
-  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
+  commit: dc6d6f37cfabc0079dd9af47c52502e83f2a85af
   sources:
     - runtime/providers/base_provider.go
     - runtime/providers/claude/claude_multimodal.go
+    - runtime/providers/gemini/gemini.go
     - runtime/providers/gemini/gemini_multimodal.go
     - runtime/providers/gemini/interactions_convert.go
+    - runtime/providers/gemini/interactions_mode.go
     - runtime/providers/gemini/interactions_types.go
     - runtime/providers/media_loader.go
     - runtime/providers/multimodal.go
@@ -25,7 +27,7 @@ Attach PDF documents to a message so the model can summarize, compare or extract
 ## Prerequisites
 
 - A pack with a prompt to open, such as `document-analyzer`.
-- A provider that accepts documents: Claude or Gemini. Claude takes PDF only. Gemini takes PDF, Microsoft Office and OpenDocument files, and text formats such as plain text, Markdown, CSV, JSON and XML, which it reads as plain text. A Gemini request with tools and a JSON-schema response format goes to the Interactions API, which takes PDF, CSV, Microsoft Office and OpenDocument files but no other text format.
+- A provider that accepts documents: Claude or Gemini. Claude takes PDF only. Gemini takes PDF, Microsoft Office and OpenDocument files, and text formats such as plain text, Markdown, CSV, JSON and XML, which it reads as plain text. A Gemini request goes to the Interactions API when `additional_config.api_mode` is `interactions`, or when it has tools and a JSON-schema response format and the model is not a `gemini-1.` or `gemini-2.` model. The Interactions API takes PDF, CSV, Microsoft Office and OpenDocument files but no other text format.
 
 ## Steps
 
@@ -120,7 +122,7 @@ Before each provider call, the SDK checks every attachment against the modalitie
 | Error text | Cause |
 |---|---|
 | `<provider-id>: unsupported document format: <mime> (part N)` | The provider does not take this document type. Claude takes PDF only. Convert the file before sending. |
-| `<provider-id>: the Gemini Interactions API does not accept document format <mime> (part N)` | The request has tools and a JSON-schema response format, so Gemini sends it to the Interactions API, which does not take this document type. Send a text file's contents as message text instead. |
+| `failed to convert message M: <provider-id>: the Gemini Interactions API does not accept document format <mime> (part N)` | Gemini sends the request to the Interactions API, which does not take this document type. Send a text file's contents as message text instead. |
 | `<provider-id>: provider does not support document inputs (part N)` | The provider takes no documents: OpenAI, Ollama and vLLM do not. Use Claude or Gemini. |
 | `file size N bytes exceeds maximum M bytes for <path>` | The file is over the 50 MB per-file limit the media loader applies. |
 | `media item limit exceeded: already loaded 20 items (maximum 20 per message; ...)` | The message carries more than 20 attachments the provider loads. Send them across several messages. |
