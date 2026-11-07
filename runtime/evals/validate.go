@@ -103,8 +103,10 @@ func validateEvalFields(def *EvalDef, prefix string) []string {
 
 // ValidateEvalTypes checks that every EvalDef's Type has a registered handler
 // in the given registry, AND (when the handler implements ParamValidator)
-// that its params are usable by the handler. Returns a list of human-readable
-// error strings for any type-lookup or param-validation failures.
+// that its params are usable by the handler, AND (when it implements
+// ParamNamer) that every param is one the handler reads. Returns a list of
+// human-readable error strings for any type-lookup or param-validation
+// failures. See ValidateHandlerParams.
 //
 // Params are normalized (ApplyDefaults + NormalizeParams) before calling
 // ValidateParams, so handlers only need to check canonical key names.
@@ -138,13 +140,9 @@ func ValidateEvalTypes(defs []EvalDef, registry *EvalTypeRegistry) []string {
 		if terr := checkWrapperThreshold(handler, def); terr != nil {
 			errs = append(errs, fmt.Sprintf("eval %q: %s", def.ID, terr))
 		}
-		pv, ok := handler.(ParamValidator)
-		if !ok {
-			continue
-		}
 		normalized := ApplyDefaults(def.Type, def.Params)
 		normalized = NormalizeParams(def.Type, normalized)
-		if perr := pv.ValidateParams(normalized); perr != nil {
+		if perr := ValidateHandlerParams(def.Type, handler, normalized); perr != nil {
 			errs = append(errs, fmt.Sprintf(
 				"eval %q: %s", def.ID, perr.Error(),
 			))

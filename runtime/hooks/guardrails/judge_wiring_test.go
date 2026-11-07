@@ -79,7 +79,7 @@ func TestGuardrail_JudgeBackedBuildsWithHostDefaultJudge(t *testing.T) {
 // TestGuardrail_NonJudgeTypeStillBuildsWithoutJudge: the refusal is scoped to
 // handlers that actually need a judge. A regex or length check never did.
 func TestGuardrail_NonJudgeTypeStillBuildsWithoutJudge(t *testing.T) {
-	hook, err := NewGuardrailHook("contains", map[string]any{"text": "forbidden"})
+	hook, err := NewGuardrailHook("contains", map[string]any{"patterns": []any{"forbidden"}})
 
 	require.NoError(t, err)
 	adapter, ok := hook.(*GuardrailHookAdapter)
@@ -91,9 +91,9 @@ func TestGuardrail_NonJudgeTypeStillBuildsWithoutJudge(t *testing.T) {
 	// check that needs nothing keeps enforcing.
 	adapter.direction = DirectionInput
 	d := adapter.BeforeCall(context.Background(), &hooks.ProviderRequest{
-		Messages: userTurn("this contains forbidden material"),
+		Messages: userTurn("this message lacks the required word"),
 	})
-	assert.False(t, d.Allow, "the contains guardrail did not fire on matching input")
+	assert.False(t, d.Allow, "the contains guardrail did not fire on input missing its pattern")
 }
 
 // TestGuardrail_JudgeReachesTheHandler is the producer half: the judge must
@@ -135,7 +135,7 @@ func TestCompileValidatorsWithOptions_JudgeAppliesToEveryValidator(t *testing.T)
 	specs := []prompt.ValidatorConfig{
 		{Type: "toxicity"},
 		{Type: "bias"},
-		{Type: "contains", Params: map[string]any{"text": "forbidden"}},
+		{Type: "contains", Params: map[string]any{"patterns": []any{"forbidden"}}},
 	}
 
 	hooksOut, err := CompileValidatorsWithOptions(specs, nil, WithJudge(&recordingJudge{}))

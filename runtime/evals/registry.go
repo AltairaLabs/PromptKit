@@ -53,6 +53,21 @@ type ParamValidator interface {
 	ValidateParams(params map[string]any) error
 }
 
+// ParamNamer is an optional interface for EvalTypeHandler implementations
+// that list the params they read. A handler that implements it has its params
+// checked for unknown keys wherever ParamValidator runs (ValidateEvalTypes, the
+// guardrail factory, and the assertion and guardrail wrappers' ValidateParams),
+// so a misspelled key fails at load instead of being silently ignored. Every
+// built-in handler implements it; a custom handler that does not is not checked.
+//
+// ParamNames returns the canonical names, after ApplyDefaults and
+// NormalizeParams: a legacy name NormalizeParams rewrites need not be listed.
+// The threshold keys min_score and max_score belong to the wrappers and are
+// never reported as unknown, so they are not listed either.
+type ParamNamer interface {
+	ParamNames() []string
+}
+
 // EvalTypeRegistry provides thread-safe registration and lookup of
 // EvalTypeHandler implementations by type name.
 type EvalTypeRegistry struct {
@@ -176,6 +191,24 @@ func (r *EvalTypeRegistry) Has(evalType string) bool {
 	defer r.mu.RUnlock()
 	_, ok := r.handlers[evalType]
 	return ok
+}
+
+// ParamNames returns the params the handler registered for evalType (or an
+// alias of it) reads, sorted, and true. It returns nil and false when the type
+// is not registered or its handler does not implement ParamNamer, which means
+// its params are not known, not that it takes none.
+func (r *EvalTypeRegistry) ParamNames(evalType string) ([]string, bool) {
+	h, err := r.Get(evalType)
+	if err != nil {
+		return nil, false
+	}
+	pn, ok := h.(ParamNamer)
+	if !ok {
+		return nil, false
+	}
+	names := append([]string{}, pn.ParamNames()...)
+	sort.Strings(names)
+	return names, true
 }
 
 // Types returns a sorted list of all registered eval type names.

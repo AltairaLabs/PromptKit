@@ -90,6 +90,18 @@ Handlers return a `Score` (0.0 to 1.0 for the built-in checks, except `cosine_si
 
 Handlers in the classifier, judge, RAG, safety, composition, REST, A2A, `tool_exec` and `topic_policy` families, and `cosine_similarity`, reject `min_score` and `max_score` in their own params with an error result (`tool_exec` and `topic_policy` reject them when the pack loads). Put thresholds on the [`assertion`](#assertion-wrapper) wrapper. The other handlers ignore the keys.
 
+### Unknown params
+
+Every built-in check type lists the params it reads, and a param it does not read is rejected when the pack loads: by `ValidateEvalTypes` (the SDK's eval preflight and its eval middleware, which skips the eval with a warning), by guardrail construction (`Open()` fails), and inside an `assertion` or `guardrail` wrapper's `eval_params`. The error names the bad key and the valid ones:
+
+```text
+eval "tone": unknown param "critera" for llm_judge; valid params: criteria, extra, provider, rubric, system_prompt
+```
+
+The check is made after param defaults and aliases apply, so a legacy name such as `words` or `max_sentences` is accepted. `min_score` and `max_score` are never reported as unknown; the handlers that reject them do so with their own message. A guardrail also accepts `direction` and `message`. A custom handler is checked only when it implements `ParamNamer` (see [Extending the check system](#extending-the-check-system)), and an exec eval handler is never checked.
+
+`EvalTypeRegistry.ParamNames(type)` returns the params a registered type reads, sorted.
+
 ### Guardrail scope
 
 Any registered type, alias or custom handler works as a guardrail. A guardrail evaluates one message: `CurrentOutput` is the user's message (`direction: input`) or the assistant response (`direction: output`). `contains_any` and `content_excludes` scan only that message in a guardrail, and the whole assistant transcript when used as an eval or assertion. Handlers that read `ToolCalls`, `Extras`, `Metadata` or `PriorResults` receive them derived from the message history; `SessionID`, `PromptID` and `Variables` are not set.
@@ -784,7 +796,7 @@ Judge params, shared by `llm_judge`, `llm_judge_session`, `llm_judge_tool_calls`
 | `provider` | string | No | A logical provider name this pack declares in `requires`. Empty uses the host's default judge. |
 | `extra` | object | No | Provider-specific parameters. They reach the judge as `JudgeOpts.Extra`; the built-in judges send them as the prediction request's `Metadata`, which each provider reads or ignores. |
 
-A judge grades with the model of the provider it is bound to. There is no `model` param, and supplying one produces an error result rather than being ignored. To grade with another model, bind another provider: name it with `provider` or register it with `sdk.WithNamedProvider`.
+A judge grades with the model of the provider it is bound to. There is no `model` param: supplying one fails when the pack loads, like any [unknown param](#unknown-params), and produces an error result on a path that skips load validation. To grade with another model, bind another provider: name it with `provider` or register it with `sdk.WithNamedProvider`.
 
 ### `llm_judge`
 
@@ -1078,7 +1090,7 @@ Or on one registry instance, then pass it with `sdk.WithEvalRegistry`:
 registry.Register(handler)
 ```
 
-A handler may also implement `ParamValidator` (`ValidateParams(params map[string]any) error`), which runs when a guardrail is built and in `ValidateEvalTypes`, after defaults and aliases apply.
+A handler may also implement `ParamValidator` (`ValidateParams(params map[string]any) error`), which runs when a guardrail is built and in `ValidateEvalTypes`, after defaults and aliases apply. A handler that implements `ParamNamer` (`ParamNames() []string`, the canonical params it reads) has any other key rejected at the same points; see [Unknown params](#unknown-params).
 
 ### `StreamableEvalHandler` (Go)
 

@@ -78,7 +78,7 @@ func (h *CompositionBranchTakenHandler) Eval(
 	if msg := rejectThresholdParams(params); msg != "" {
 		return errorResult(h.Type(), msg), nil
 	}
-	branch, ok := params["branch"].(string)
+	branch, ok := params[pnBranch].(string)
 	if !ok || branch == "" {
 		return errorResult(h.Type(), "missing required param: branch"), nil
 	}
@@ -90,7 +90,7 @@ func (h *CompositionBranchTakenHandler) Eval(
 	got := taken[branch]
 	return scored(h.Type(), got == expected,
 		fmt.Sprintf("branch %q took %q, expected %q", branch, got, expected),
-		map[string]any{"branch": branch, "taken": got, keyExpected: expected}), nil
+		map[string]any{pnBranch: branch, "taken": got, keyExpected: expected}), nil
 }
 
 // CompositionParallelCompleteHandler asserts a parallel step completed.
@@ -107,7 +107,7 @@ func (h *CompositionParallelCompleteHandler) Eval(
 	if msg := rejectThresholdParams(params); msg != "" {
 		return errorResult(h.Type(), msg), nil
 	}
-	parallel, ok := params["parallel"].(string)
+	parallel, ok := params[pnParallel].(string)
 	if !ok || parallel == "" {
 		return errorResult(h.Type(), "missing required param: parallel"), nil
 	}
@@ -115,7 +115,7 @@ func (h *CompositionParallelCompleteHandler) Eval(
 	got := status[parallel]
 	return scored(h.Type(), got == parallelComplete,
 		fmt.Sprintf("parallel %q status %q", parallel, got),
-		map[string]any{"parallel": parallel, "status": got}), nil
+		map[string]any{pnParallel: parallel, "status": got}), nil
 }
 
 // CompositionOutputHandler asserts the composition's final output contains/equals a value.

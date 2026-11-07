@@ -54,7 +54,7 @@ func (h *OutcomeEquivalentHandler) evalToolCalls(
 	evalCtx *evals.EvalContext,
 	params map[string]any,
 ) (*evals.EvalResult, error) {
-	tools := extractStringSlice(params, "expected_tools")
+	tools := extractStringSlice(params, pnExpectedTools)
 	if len(tools) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),
