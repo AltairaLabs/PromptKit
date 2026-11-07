@@ -5,6 +5,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/template"
 )
 
 // Eval-context metadata a host sets to give the LLM-judge checks a default
@@ -46,14 +47,19 @@ func judgeDefaultSystemPrompt(evalCtx *evals.EvalContext, opts *JudgeOpts) (stri
 		"response":     opts.Content,
 		"conversation": renderSessionTranscript(evalCtx),
 	}
-	if _, err := reg.LoadTemplate(name, vars, ""); err != nil {
+	// Load once and render the loaded template here, the way
+	// Registry.LoadWithVars does, so a render failure carries its reason. The
+	// registry caches the prompt config and its fragments; the rendered text
+	// depends on this call's vars, so it is not cached.
+	tmpl, err := reg.LoadTemplate(name, vars, "")
+	if err != nil {
 		return "", fmt.Errorf("judge_defaults.prompt %q: %w", name, err)
 	}
-	assembled := reg.LoadWithVars(name, vars, "")
-	if assembled == nil {
-		return "", fmt.Errorf("judge_defaults.prompt %q: the prompt's template could not be rendered", name)
+	rendered, err := template.NewRenderer().Render(tmpl.RawTemplate, tmpl.DefaultVars)
+	if err != nil {
+		return "", fmt.Errorf("judge_defaults.prompt %q: rendering the template: %w", name, err)
 	}
-	return assembled.SystemPrompt, nil
+	return rendered, nil
 }
 
 // judgeDefaultsPromptName reads judge_defaults.prompt from eval metadata.
