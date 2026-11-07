@@ -4,7 +4,7 @@ description: Why RuntimeConfig exists and how it separates what an agent does fr
 sidebar:
   order: 3
 verified:
-  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
+  commit: ffbed7c4b0fff266953352be5e73d4e308a97acf
   sources:
     - pkg/config/logging.go
     - pkg/config/runtime_config.go

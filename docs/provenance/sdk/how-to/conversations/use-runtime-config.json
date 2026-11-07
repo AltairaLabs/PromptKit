@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/conversations/use-runtime-config.md",
- "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "commit": "ffbed7c4b0fff266953352be5e73d4e308a97acf",
  "claims": [
   {
    "id": 1,
@@ -130,7 +130,7 @@
    "claim": "credential_env field exists to specify environment variable for API key",
    "verdict": "true",
    "evidence": [
-    "runtime/credentials/resolver.go:135",
+    "runtime/credentials/resolver.go:137",
     "runtime/credentials/types.go:12"
    ]
   },
@@ -406,7 +406,7 @@
    "claim": "logging has defaultLevel field",
    "verdict": "true",
    "evidence": [
-    "pkg/config/logging.go:20",
+    "pkg/config/logging.go:21",
     "sdk/runtime_config.go:554"
    ]
   },
@@ -415,8 +415,8 @@
    "claim": "defaultLevel can be: info",
    "verdict": "true",
    "evidence": [
-    "pkg/config/logging.go:20",
-    "pkg/config/logging.go:60-66"
+    "pkg/config/logging.go:21",
+    "pkg/config/logging.go:59-65"
    ]
   },
   {
@@ -424,7 +424,7 @@
    "claim": "logging has format field",
    "verdict": "true",
    "evidence": [
-    "pkg/config/logging.go:26",
+    "pkg/config/logging.go:27",
     "sdk/runtime_config.go:559"
    ]
   },
@@ -433,7 +433,7 @@
    "claim": "format can be: json",
    "verdict": "true",
    "evidence": [
-    "pkg/config/logging.go:26",
+    "pkg/config/logging.go:27",
     "sdk/runtime_config.go:559"
    ]
   },
