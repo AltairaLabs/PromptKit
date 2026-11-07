@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/tutorials/10-a2a-server.md",
- "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "commit": "dc6d6f37cfabc0079dd9af47c52502e83f2a85af",
  "claims": [
   {
    "id": 1,
@@ -50,7 +50,7 @@
    "claim": "agent card served at /.well-known/agent-card.json",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:277",
+    "runtime/a2a/client.go:303",
     "server/a2a/server.go:328"
    ]
   },
@@ -59,9 +59,9 @@
    "claim": "client main.go compiles: NewClient, Discover, SendMessage, Blocking, Part.Text",
    "verdict": "true",
    "evidence": [
-    "runtime/a2a/client.go:242",
-    "runtime/a2a/client.go:285",
-    "runtime/a2a/client.go:775"
+    "runtime/a2a/client.go:244",
+    "runtime/a2a/client.go:311",
+    "runtime/a2a/client.go:801"
    ]
   },
   {
