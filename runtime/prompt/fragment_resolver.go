@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/template"
@@ -69,10 +70,11 @@ func (fr *FragmentResolver) LoadFragment(name, relativePath, configFilePath stri
 		return nil, fmt.Errorf("fragment resolver requires repository")
 	}
 
-	// Determine cache key (prefer path if provided)
+	// Determine cache key (prefer path if provided). A path is relative to its
+	// base dir, so the same path under two base dirs is two fragments.
 	cacheKey := name
 	if relativePath != "" {
-		cacheKey = relativePath
+		cacheKey = filepath.Join(configFilePath, relativePath)
 	}
 
 	// Check cache first

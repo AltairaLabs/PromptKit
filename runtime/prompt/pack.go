@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -271,6 +273,7 @@ func (pc *PackCompiler) Compile(taskType, compilerVersion string) (*Pack, error)
 
 	// Create a pack with a single prompt
 	pack := &Pack{Pack: packspec.Pack{
+		Schema:         packspec.Ptr(PromptPackSchemaURL),
 		ID:             packIDFromTaskType(config.Spec.TaskType),
 		Name:           config.Metadata.Name,
 		Version:        config.Spec.Version,
@@ -284,7 +287,9 @@ func (pc *PackCompiler) Compile(taskType, compilerVersion string) (*Pack, error)
 	// CompileFromRegistry does, so a field the compiler learns to carry
 	// (Parameters, Evals, RFC 0016 extensions) reaches both outputs.
 	pack.Prompts[config.Spec.TaskType] = pc.createPackPrompt(config)
-	pc.collectFragments(pack, config)
+	if err := pc.collectFragments(pack, taskType, config); err != nil {
+		return nil, err
+	}
 
 	// Generate compilation info
 	builder := NewMetadataBuilder(&config.Spec)
@@ -294,20 +299,35 @@ func (pc *PackCompiler) Compile(taskType, compilerVersion string) (*Pack, error)
 	return pack, nil
 }
 
-// CompileFromRegistry compiles ALL prompts from the registry into a single Pack
+// CompileFromRegistry compiles ALL prompts from the registry into a single Pack.
+//
+// Prompts are compiled in sorted task-type order, so the output never depends
+// on map order. A pack has one template_engine: it is the engine the prompts
+// declare, and prompts that declare different engines are an error. A prompt
+// whose engine equals the registry default counts as declaring none, because
+// the registry fills that default in on every prompt that omits the field.
 func (pc *PackCompiler) CompileFromRegistry(packID, compilerVersion string) (*Pack, error) {
-	taskTypes := pc.loader.ListTaskTypes()
+	taskTypes := slices.Clone(pc.loader.ListTaskTypes())
 	if len(taskTypes) == 0 {
 		return nil, fmt.Errorf("no prompts found in registry (registry may need to be pre-loaded)")
 	}
+	sort.Strings(taskTypes)
 
 	pack := pc.createEmptyPack(packID, len(taskTypes))
 
+	var engines engineChoice
 	for _, taskType := range taskTypes {
-		if err := pc.addPromptToPack(pack, taskType); err != nil {
+		config, err := pc.addPromptToPack(pack, taskType)
+		if err != nil {
 			return nil, err
 		}
+		engines.add(taskType, config.Spec.TemplateEngine)
 	}
+	engine, err := engines.resolve()
+	if err != nil {
+		return nil, err
+	}
+	pack.TemplateEngine = engine
 
 	pack.Compilation = &CompilationInfo{
 		CompiledWith: compilerVersion,
@@ -521,21 +541,68 @@ func (pc *PackCompiler) createEmptyPack(packID string, promptCount int) *Pack {
 	}}
 }
 
-// addPromptToPack loads a prompt config and adds it to the pack
-func (pc *PackCompiler) addPromptToPack(pack *Pack, taskType string) error {
+// addPromptToPack loads a prompt config, adds it to the pack and returns it.
+func (pc *PackCompiler) addPromptToPack(pack *Pack, taskType string) (*Config, error) {
 	config, err := pc.loader.LoadConfig(taskType)
 	if err != nil {
-		return fmt.Errorf("failed to load config for %s: %w", taskType, err)
-	}
-
-	if pack.TemplateEngine == nil && config.Spec.TemplateEngine != nil {
-		pack.TemplateEngine = config.Spec.TemplateEngine
+		return nil, fmt.Errorf("failed to load config for %s: %w", taskType, err)
 	}
 
 	pack.Prompts[taskType] = pc.createPackPrompt(config)
-	pc.collectFragments(pack, config)
+	if err := pc.collectFragments(pack, taskType, config); err != nil {
+		return nil, err
+	}
 
-	return nil
+	return config, nil
+}
+
+// engineChoice settles a pack's single template_engine from its prompts'.
+type engineChoice struct {
+	first     *TemplateEngineInfo
+	firstTask string
+	differing []string
+	defaulted *TemplateEngineInfo
+}
+
+// add records one prompt's engine. Callers add prompts in sorted order.
+func (e *engineChoice) add(taskType string, engine *TemplateEngineInfo) {
+	if engine == nil {
+		return
+	}
+	if sameEngine(engine, defaultTemplateEngine()) {
+		if e.defaulted == nil {
+			e.defaulted = engine
+		}
+		return
+	}
+	if e.first == nil {
+		e.first, e.firstTask = engine, taskType
+		return
+	}
+	if !sameEngine(engine, e.first) {
+		e.differing = append(e.differing,
+			fmt.Sprintf("%q (%s %s)", taskType, engine.Version, engine.Syntax))
+	}
+}
+
+// sameEngine compares two engines by value; an empty and an absent feature
+// list are the same.
+func sameEngine(a, b *TemplateEngineInfo) bool {
+	return a.Version == b.Version && a.Syntax == b.Syntax && slices.Equal(a.Features, b.Features)
+}
+
+// resolve returns the declared engine, the default when none was declared, or
+// an error when declared engines disagree.
+func (e *engineChoice) resolve() (*TemplateEngineInfo, error) {
+	if len(e.differing) > 0 {
+		return nil, fmt.Errorf("prompts declare different template engines: %q uses %s %s, but %s; "+
+			"a pack has one template_engine, so every prompt that sets one must set the same",
+			e.firstTask, e.first.Version, e.first.Syntax, strings.Join(e.differing, ", "))
+	}
+	if e.first != nil {
+		return e.first, nil
+	}
+	return e.defaulted, nil
 }
 
 // createPackPrompt creates a PackPrompt from a Config
@@ -612,13 +679,74 @@ func foldValidatorMessages(validators []ValidatorConfig) []Validator {
 	return out
 }
 
-// collectFragments collects fragment references from config into pack
-func (pc *PackCompiler) collectFragments(pack *Pack, config *Config) {
-	for _, fragRef := range config.Spec.Fragments {
-		if _, exists := pack.Fragments[fragRef.Name]; !exists {
-			pack.Fragments[fragRef.Name] = fmt.Sprintf("{{%s}}", fragRef.Name)
+// FragmentLoader is implemented by a Loader that can load a prompt's fragment
+// references at compile time. *Registry implements it, through its repository.
+// The pack compiler resolves fragments through it; with a Loader that does not
+// implement it, no fragment can be loaded.
+type FragmentLoader interface {
+	LoadPromptFragment(taskType string, ref FragmentRef) (*Fragment, error)
+}
+
+// collectFragments resolves a prompt's fragment references into the pack's
+// fragments, which the PromptPack spec defines as content resolved at compile
+// time. A pack holds one fragment per name, so two prompts whose fragments of
+// one name resolve to different content are an error.
+//
+// A required fragment that cannot be loaded is an error; an optional one is
+// left out. A reference whose name or path contains a {{variable}} is chosen at
+// runtime, so it cannot be resolved here: it is written as the "{{name}}"
+// reference it has always been.
+func (pc *PackCompiler) collectFragments(pack *Pack, taskType string, config *Config) error {
+	loader, _ := pc.loader.(FragmentLoader)
+	for _, ref := range config.Spec.Fragments {
+		if isDynamicFragmentRef(ref) {
+			if _, exists := pack.Fragments[ref.Name]; !exists {
+				pack.Fragments[ref.Name] = fmt.Sprintf("{{%s}}", ref.Name)
+			}
+			continue
+		}
+		if err := addResolvedFragment(pack, loader, taskType, ref); err != nil {
+			return err
 		}
 	}
+	return nil
+}
+
+// addResolvedFragment loads one static fragment reference into the pack.
+func addResolvedFragment(pack *Pack, loader FragmentLoader, taskType string, ref FragmentRef) error {
+	content, err := loadFragmentContent(loader, taskType, ref)
+	if err != nil {
+		if ref.Required {
+			return fmt.Errorf("prompt %q: required fragment %q: %w", taskType, ref.Name, err)
+		}
+		return nil
+	}
+	if existing, exists := pack.Fragments[ref.Name]; exists && existing != content {
+		return fmt.Errorf("prompt %q: fragment %q resolves to different content than another "+
+			"prompt's fragment of the same name; a pack holds one fragment per name", taskType, ref.Name)
+	}
+	pack.Fragments[ref.Name] = content
+	return nil
+}
+
+// isDynamicFragmentRef reports whether a fragment reference is chosen by a
+// template variable, and so cannot be resolved at compile time.
+func isDynamicFragmentRef(ref FragmentRef) bool {
+	return strings.Contains(ref.Name, "{{") || strings.Contains(ref.Path, "{{")
+}
+
+func loadFragmentContent(loader FragmentLoader, taskType string, ref FragmentRef) (string, error) {
+	if loader == nil {
+		return "", fmt.Errorf("the compiler's loader cannot load fragments")
+	}
+	frag, err := loader.LoadPromptFragment(taskType, ref)
+	if err != nil {
+		return "", err
+	}
+	if frag == nil {
+		return "", fmt.Errorf("fragment not found")
+	}
+	return frag.Content, nil
 }
 
 // getCurrentTimestamp returns the current timestamp in RFC3339 format
@@ -641,26 +769,81 @@ func LoadPack(filePath string) (*Pack, error) {
 	return &pack, nil
 }
 
-// Validate validates a pack format
+// Validate validates a pack format and returns its findings in one list,
+// whatever their severity: ValidateDetailed's errors followed by its warnings.
+//
+// It leaves out the undeclared-prompt-tool warnings ValidateDetailed reports.
+// Callers have treated every Validate finding as blocking, and a prompt tool
+// the pack does not carry is legitimate when the host supplies it. Use
+// ValidateDetailed to see them and to tell errors from warnings.
 func (p *Pack) Validate() []string {
-	warnings := []string{}
-	warnings = append(warnings, p.validatePackFields()...)
-	warnings = append(warnings, p.validateTemplateEngine()...)
-	warnings = append(warnings, p.validatePrompts()...)
-	warnings = append(warnings, p.validateCompilation()...)
+	r := p.validateDetailed(false)
+	return append(r.Errors, r.Warnings...)
+}
+
+// PackValidationResult is ValidateDetailed's result. Errors are findings that
+// make the pack unusable or schema-invalid; Warnings are findings a valid pack
+// may still have.
+type PackValidationResult struct {
+	Errors   []string
+	Warnings []string
+}
+
+// ValidateDetailed runs Validate's checks, plus a check of each prompt's tools
+// against the pack's tools, and splits the findings by severity. Two are
+// warnings rather than errors:
+//   - a missing compilation block, which the PromptPack schema does not require;
+//   - a prompt tool the pack's tools do not define. The schema asks for every
+//     prompt tool to be defined there, but a host may supply tools a pack does
+//     not carry (MCP servers, workflow and memory tools, skills).
+//
+// Workflow, agents and governance findings keep the severity their own
+// validators give them.
+func (p *Pack) ValidateDetailed() *PackValidationResult {
+	return p.validateDetailed(true)
+}
+
+func (p *Pack) validateDetailed(promptTools bool) *PackValidationResult {
+	r := &PackValidationResult{Errors: []string{}, Warnings: []string{}}
+	r.Errors = append(r.Errors, p.validatePackFields()...)
+	r.Errors = append(r.Errors, p.validateTemplateEngine()...)
+	r.Errors = append(r.Errors, p.validatePrompts()...)
+	if promptTools {
+		r.Warnings = append(r.Warnings, p.validatePromptTools()...)
+	}
+	r.Warnings = append(r.Warnings, p.validateCompilation()...)
 	if p.Workflow != nil {
-		result := p.ValidateWorkflow()
-		warnings = append(warnings, result.Errors...)
-		warnings = append(warnings, result.Warnings...)
+		wf := p.ValidateWorkflow()
+		r.Errors = append(r.Errors, wf.Errors...)
+		r.Warnings = append(r.Warnings, wf.Warnings...)
 	}
 	if p.Agents != nil {
-		errs, agentWarnings := p.ValidateAgents()
-		warnings = append(warnings, errs...)
-		warnings = append(warnings, agentWarnings...)
+		errs, warns := p.ValidateAgents()
+		r.Errors = append(r.Errors, errs...)
+		r.Warnings = append(r.Warnings, warns...)
 	}
 	gov := p.ValidateGovernance()
-	warnings = append(warnings, gov.Errors...)
-	warnings = append(warnings, gov.Warnings...)
+	r.Errors = append(r.Errors, gov.Errors...)
+	r.Warnings = append(r.Warnings, gov.Warnings...)
+	return r
+}
+
+// validatePromptTools reports each tool a prompt names that the pack's tools
+// do not define, in sorted prompt order.
+func (p *Pack) validatePromptTools() []string {
+	var warnings []string
+	for _, taskType := range p.ListPrompts() {
+		prompt := p.Prompts[taskType]
+		if prompt == nil {
+			continue
+		}
+		for _, tool := range prompt.Tools {
+			if _, ok := p.Tools[tool]; !ok {
+				warnings = append(warnings, fmt.Sprintf(
+					"prompt '%s': tool '%s' is not defined in the pack's tools", taskType, tool))
+			}
+		}
+	}
 	return warnings
 }
 
@@ -770,8 +953,8 @@ func (p *Pack) validateTemplateEngine() []string {
 // validatePrompts validates each prompt in the pack
 func (p *Pack) validatePrompts() []string {
 	warnings := []string{}
-	for taskType, prompt := range p.Prompts {
-		warnings = append(warnings, validatePrompt(taskType, prompt)...)
+	for _, taskType := range p.ListPrompts() {
+		warnings = append(warnings, validatePrompt(taskType, p.Prompts[taskType])...)
 	}
 	return warnings
 }
@@ -883,12 +1066,13 @@ func (p *Pack) GetPrompt(taskType string) *PackPrompt {
 	return p.Prompts[taskType]
 }
 
-// ListPrompts returns all prompt task types in the pack
+// ListPrompts returns all prompt task types in the pack, sorted.
 func (p *Pack) ListPrompts() []string {
 	prompts := make([]string, 0, len(p.Prompts))
 	for taskType := range p.Prompts {
 		prompts = append(prompts, taskType)
 	}
+	sort.Strings(prompts)
 	return prompts
 }
 
@@ -900,7 +1084,7 @@ func (p *Pack) GetTool(name string) *PackTool {
 	return p.Tools[name]
 }
 
-// ListTools returns all tool names defined in the pack.
+// ListTools returns all tool names defined in the pack, sorted.
 func (p *Pack) ListTools() []string {
 	if p.Tools == nil {
 		return nil
@@ -909,6 +1093,7 @@ func (p *Pack) ListTools() []string {
 	for name := range p.Tools {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }
 

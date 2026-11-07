@@ -25,6 +25,7 @@ const toolManifestKind = "Tool"
 var (
 	_ persistence.PromptRepository = (*PromptRepository)(nil)
 	_ persistence.ToolRepository   = (*ToolRepository)(nil)
+	_ prompt.ConfigDirResolver     = (*PromptRepository)(nil)
 )
 
 // PromptRepository loads prompts from JSON files on disk

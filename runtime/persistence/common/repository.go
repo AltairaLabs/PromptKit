@@ -93,6 +93,17 @@ func (r *BasePromptRepository) ResolveFilePath(taskType string) (string, error) 
 	return r.SearchForPrompt(taskType)
 }
 
+// PromptDir returns the directory holding the config file for taskType, which
+// is the base a fragment reference's path resolves against. It implements
+// prompt.ConfigDirResolver.
+func (r *BasePromptRepository) PromptDir(taskType string) (string, error) {
+	filePath, err := r.ResolveFilePath(taskType)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(filePath), nil
+}
+
 // SearchForPrompt searches for a file matching the task type
 func (r *BasePromptRepository) SearchForPrompt(taskType string) (string, error) {
 	// First try filename-based search
