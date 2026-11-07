@@ -64,6 +64,7 @@ const (
 	pnExpectedTools  = "expected_tools"
 	pnExpression     = "expression"
 	pnFailurePattern = "failure_pattern"
+	pnRubric         = "rubric"
 	pnSuccessPattern = "success_pattern"
 	pnParallel       = "parallel"
 	pnReference      = "reference"
@@ -84,7 +85,7 @@ var (
 	// judgeParamNames are read by every LLM-judge handler (buildJudgeOpts and
 	// resolveJudgeProvider): the llm_judge family, the RAG checks and the
 	// safety checks.
-	judgeParamNames = []string{pnCriteria, "rubric", "system_prompt", pnExtra, ProviderParam}
+	judgeParamNames = []string{pnCriteria, pnRubric, "system_prompt", pnExtra, ProviderParam}
 
 	// ragContextParamNames are the three forms a RAG check takes its chunks in.
 	ragContextParamNames = []string{pnContexts, pnContext, pnContextField}

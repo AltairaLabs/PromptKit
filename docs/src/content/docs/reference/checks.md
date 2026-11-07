@@ -798,6 +798,8 @@ Judge params, shared by `llm_judge`, `llm_judge_session`, `llm_judge_tool_calls`
 
 A judge grades with the model of the provider it is bound to. There is no `model` param: supplying one fails when the pack loads, like any [unknown param](#unknown-params), and produces an error result on a path that skips load validation. To grade with another model, bind another provider: name it with `provider` or register it with `sdk.WithNamedProvider`.
 
+**Default prompt.** When a check sets no `system_prompt`, `llm_judge`, `llm_judge_session` and `llm_judge_tool_calls` read a default from the eval context: `Metadata["judge_defaults"]["prompt"]` names a prompt, which is loaded from the `*prompt.Registry` in `Metadata["prompt_registry"]`. Its system template is rendered with `criteria`, `rubric`, `response` (the content being judged) and `conversation` (the session transcript), and the result is the judge's system prompt. Arena sets both from its `judge_defaults` block. A named prompt that is missing, has no registry to load from, or cannot be rendered makes the check an error rather than falling back to the built-in prompt. The RAG and safety checks keep their own prompts.
+
 ### `llm_judge`
 
 Turn-level evaluation: the judge sees `CurrentOutput` and the `criteria`.
