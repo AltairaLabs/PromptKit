@@ -121,6 +121,9 @@ func TestPackCompiler_Fragments_PathResolvesAgainstPromptDir(t *testing.T) {
 	assert.Equal(t, "from file", pack.Fragments["intro"])
 }
 
+// A Loader that does not implement FragmentLoader cannot load fragments, so
+// the compiler keeps the v2.17.0 behavior for it: every reference, required or
+// not, is written as its "{{name}}" placeholder rather than failing the compile.
 func TestPackCompiler_Fragments_LoaderWithoutFragmentSupport(t *testing.T) {
 	l := &orderedLoader{
 		order: []string{"chat"},
@@ -129,12 +132,11 @@ func TestPackCompiler_Fragments_LoaderWithoutFragmentSupport(t *testing.T) {
 			"opt":  fragmentConfig("opt", FragmentRef{Name: "intro", Required: false}),
 		},
 	}
-	_, err := newOrderedCompiler(l).Compile("chat", "test")
-	require.Error(t, err, "a required fragment the loader cannot resolve must fail")
-
-	pack, err := newOrderedCompiler(l).Compile("opt", "test")
-	require.NoError(t, err)
-	assert.Empty(t, pack.Fragments)
+	for _, taskType := range []string{"chat", "opt"} {
+		pack, err := newOrderedCompiler(l).Compile(taskType, "test")
+		require.NoError(t, err, "%s: a loader without fragment support must not fail the compile", taskType)
+		assert.Equal(t, map[string]string{"intro": "{{intro}}"}, pack.Fragments, taskType)
+	}
 }
 
 func TestRegistry_LoadTemplate_FragmentPathUsesPromptDir(t *testing.T) {

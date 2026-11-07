@@ -130,12 +130,16 @@ content resolved at compile time. It now loads each reference through the
 registry's repository and writes the fragment's content. A required fragment
 that cannot be loaded fails the compile; an optional one is left out. A
 reference whose name or path contains a `{{variable}}` is chosen at runtime, so
-the compiler still writes it as `{{name}}`.
+the compiler still writes it as `{{name}}`. A compiler built with
+`NewPackCompilerWithDeps` on a `Loader` that does not implement
+`FragmentLoader` cannot load fragments, so it writes every reference as
+`{{name}}`, as before, and logs a warning.
 
-A fragment's `path` now resolves against the directory of the prompt config
-that references it, when the repository loads prompts from files (the YAML and
-JSON repositories do). It resolved against the process's working directory, so
-the same pack rendered differently depending on where it ran.
+A relative fragment `path` now resolves against the directory of the prompt
+config that references it first, when the repository loads prompts from files
+(the YAML and JSON repositories do). When no file exists there, it resolves
+against the process's working directory, as it did before. An absolute `path`
+is used as it is.
 
 `CompileFromRegistry` took the pack's `template_engine` from whichever prompt
 it reached first, in map order. It now compiles prompts in sorted task-type
@@ -148,7 +152,7 @@ are an error, since a pack has one engine. The single-prompt `Compile` now sets
 |---|---|---|
 | Compile a prompt that requires a fragment the repository cannot load | the compile fails, naming the prompt and the fragment, where it wrote `{{name}}` | register the fragment with the repository, or mark it `required: false` |
 | Read `pack.Fragments` from a compiled pack | the fragment's content, not `{{name}}` | nothing |
-| Reference a fragment by a `path` relative to the working directory | the fragment is not found | make the path relative to the prompt config's directory |
+| Reference a fragment by a `path` relative to the working directory, and a file of that path also exists under the prompt config's directory | the file under the prompt config's directory | give the path as an absolute path, or rename one of the files |
 | Compile two prompts whose fragments of one name resolve to different content | the compile fails, naming the fragment, since a pack holds one fragment per name | give the fragments distinct names |
 | Compile prompts that declare different `template_engine`s | the compile fails, naming the prompts | give every prompt that sets one the same engine |
 

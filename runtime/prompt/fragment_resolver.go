@@ -1,7 +1,9 @@
 package prompt
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"strings"
 
@@ -64,31 +66,53 @@ func (fr *FragmentResolver) AssembleFragments(
 }
 
 // LoadFragment loads a fragment from the repository with caching.
-// Uses name as cache key, or path if provided.
-func (fr *FragmentResolver) LoadFragment(name, relativePath, configFilePath string) (*Fragment, error) {
+//
+// A reference without a path is loaded and cached by name. A path is resolved
+// as follows:
+//   - an absolute path names one file and is loaded as it is, with no base dir;
+//   - a relative path is loaded against baseDir first and, when no file exists
+//     there, against the repository's own default base (an empty base dir: for
+//     the file repositories, the process's working directory). Any other
+//     failure under baseDir is returned as it is.
+func (fr *FragmentResolver) LoadFragment(name, relativePath, baseDir string) (*Fragment, error) {
 	if fr.repository == nil {
 		return nil, fmt.Errorf("fragment resolver requires repository")
 	}
-
-	// Determine cache key (prefer path if provided). A path is relative to its
-	// base dir, so the same path under two base dirs is two fragments.
-	cacheKey := name
-	if relativePath != "" {
-		cacheKey = filepath.Join(configFilePath, relativePath)
+	if relativePath == "" {
+		return fr.loadCached(name, name, "", "")
 	}
+	if filepath.IsAbs(relativePath) {
+		return fr.loadCached(filepath.Clean(relativePath), name, relativePath, "")
+	}
+	// A path is relative to its base dir, so the same path under two base dirs
+	// is two fragments.
+	cacheKey := filepath.Join(baseDir, relativePath)
+	fragment, err := fr.loadCached(cacheKey, name, relativePath, baseDir)
+	if err == nil || baseDir == "" || !errors.Is(err, fs.ErrNotExist) {
+		return fragment, err
+	}
+	fragment, fallbackErr := fr.loadCached(filepath.Clean(relativePath), name, relativePath, "")
+	if fallbackErr != nil {
+		if errors.Is(fallbackErr, fs.ErrNotExist) {
+			return nil, err
+		}
+		// Found under the default base but unusable: that is the real error.
+		return nil, fallbackErr
+	}
+	fr.fragmentCache[cacheKey] = fragment
+	return fragment, nil
+}
 
-	// Check cache first
+// loadCached returns the fragment cached under cacheKey, loading and caching
+// it from the repository on a miss.
+func (fr *FragmentResolver) loadCached(cacheKey, name, relativePath, baseDir string) (*Fragment, error) {
 	if cached, ok := fr.fragmentCache[cacheKey]; ok {
 		return cached, nil
 	}
-
-	// Load from repository
-	fragment, err := fr.repository.LoadFragment(name, relativePath, configFilePath)
+	fragment, err := fr.repository.LoadFragment(name, relativePath, baseDir)
 	if err != nil {
 		return nil, err
 	}
-
-	// Cache the fragment
 	fr.fragmentCache[cacheKey] = fragment
 	return fragment, nil
 }

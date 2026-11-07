@@ -166,3 +166,82 @@ func TestJudgeDefaultsPrompt_UnusableIsAnError(t *testing.T) {
 		})
 	}
 }
+
+// fragmentCountingRepo counts fragment loads. A missing optional fragment is
+// never cached, so every prompt load reaches the repository once.
+type fragmentCountingRepo struct {
+	*memory.PromptRepository
+	fragmentLoads int
+}
+
+func (r *fragmentCountingRepo) LoadFragment(name, relativePath, baseDir string) (*prompt.Fragment, error) {
+	r.fragmentLoads++
+	return r.PromptRepository.LoadFragment(name, relativePath, baseDir)
+}
+
+// One judge call loads the judge_defaults prompt once.
+func TestJudgeDefaultsPrompt_LoadsThePromptOnce(t *testing.T) {
+	repo := &fragmentCountingRepo{PromptRepository: memory.NewPromptRepository()}
+	reg := prompt.NewRegistryWithRepository(repo)
+	err := reg.RegisterConfig("judge-frag", &prompt.Config{
+		APIVersion: "promptkit.altairalabs.ai/v1alpha1",
+		Kind:       "PromptConfig",
+		Spec: prompt.Spec{
+			TaskType:       "judge-frag",
+			SystemTemplate: "JUDGE {{criteria}}",
+			Variables:      []prompt.VariableMetadata{{Name: "criteria", Required: true}},
+			Fragments:      []prompt.FragmentRef{{Name: "absent", Required: false}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	judge := &systemPromptJudge{}
+	evalCtx := judgeDefaultsCtx(judge, map[string]any{
+		"judge_defaults":  map[string]any{"prompt": "judge-frag"},
+		"prompt_registry": reg,
+	})
+	if _, err := (&LLMJudgeHandler{}).Eval(context.Background(), evalCtx, map[string]any{"criteria": "c"}); err != nil {
+		t.Fatal(err)
+	}
+	if judge.systemPrompt != "JUDGE c" {
+		t.Fatalf("system prompt = %q", judge.systemPrompt)
+	}
+	if repo.fragmentLoads != 1 {
+		t.Fatalf("prompt loaded %d times for one judge call, want 1", repo.fragmentLoads)
+	}
+}
+
+// A default prompt that loads but cannot render says why.
+func TestJudgeDefaultsPrompt_RenderErrorSaysWhy(t *testing.T) {
+	reg := prompt.NewRegistryWithRepository(memory.NewPromptRepository())
+	err := reg.RegisterConfig("judge-broken", &prompt.Config{
+		APIVersion: "promptkit.altairalabs.ai/v1alpha1",
+		Kind:       "PromptConfig",
+		Spec: prompt.Spec{
+			TaskType:       "judge-broken",
+			SystemTemplate: "JUDGE {{criteria}} {{undeclared_var}}",
+			Variables:      []prompt.VariableMetadata{{Name: "criteria", Required: true}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	judge := &systemPromptJudge{}
+	evalCtx := judgeDefaultsCtx(judge, map[string]any{
+		"judge_defaults":  map[string]any{"prompt": "judge-broken"},
+		"prompt_registry": reg,
+	})
+	result, err := (&LLMJudgeHandler{}).Eval(context.Background(), evalCtx, map[string]any{"criteria": "c"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if judge.called {
+		t.Error("judge was called with a prompt that could not render")
+	}
+	for _, want := range []string{`judge_defaults.prompt "judge-broken"`, "undeclared_var"} {
+		if !strings.Contains(result.Error, want) {
+			t.Errorf("Error = %q, want it to contain %q", result.Error, want)
+		}
+	}
+}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/workflow"
 )
@@ -681,8 +682,9 @@ func foldValidatorMessages(validators []ValidatorConfig) []Validator {
 
 // FragmentLoader is implemented by a Loader that can load a prompt's fragment
 // references at compile time. *Registry implements it, through its repository.
-// The pack compiler resolves fragments through it; with a Loader that does not
-// implement it, no fragment can be loaded.
+// The pack compiler resolves fragments through it. A Loader that does not
+// implement it cannot load fragments, so the compiler writes each reference as
+// its "{{name}}" placeholder, as it did before it resolved fragments.
 type FragmentLoader interface {
 	LoadPromptFragment(taskType string, ref FragmentRef) (*Fragment, error)
 }
@@ -695,14 +697,17 @@ type FragmentLoader interface {
 // A required fragment that cannot be loaded is an error; an optional one is
 // left out. A reference whose name or path contains a {{variable}} is chosen at
 // runtime, so it cannot be resolved here: it is written as the "{{name}}"
-// reference it has always been.
+// reference it has always been. So is every reference when the compiler's
+// Loader does not implement FragmentLoader.
 func (pc *PackCompiler) collectFragments(pack *Pack, taskType string, config *Config) error {
-	loader, _ := pc.loader.(FragmentLoader)
+	loader, canLoad := pc.loader.(FragmentLoader)
+	if !canLoad && len(config.Spec.Fragments) > 0 {
+		logger.Warn("Pack compiler's loader cannot load fragments; writing them as {{name}} references",
+			"prompt", taskType, "fragments", len(config.Spec.Fragments))
+	}
 	for _, ref := range config.Spec.Fragments {
-		if isDynamicFragmentRef(ref) {
-			if _, exists := pack.Fragments[ref.Name]; !exists {
-				pack.Fragments[ref.Name] = fmt.Sprintf("{{%s}}", ref.Name)
-			}
+		if !canLoad || isDynamicFragmentRef(ref) {
+			addFragmentReference(pack, ref.Name)
 			continue
 		}
 		if err := addResolvedFragment(pack, loader, taskType, ref); err != nil {
@@ -710,6 +715,14 @@ func (pc *PackCompiler) collectFragments(pack *Pack, taskType string, config *Co
 		}
 	}
 	return nil
+}
+
+// addFragmentReference writes a fragment the compiler cannot resolve as its
+// "{{name}}" reference, unless the pack already holds that name.
+func addFragmentReference(pack *Pack, name string) {
+	if _, exists := pack.Fragments[name]; !exists {
+		pack.Fragments[name] = fmt.Sprintf("{{%s}}", name)
+	}
 }
 
 // addResolvedFragment loads one static fragment reference into the pack.
@@ -736,9 +749,6 @@ func isDynamicFragmentRef(ref FragmentRef) bool {
 }
 
 func loadFragmentContent(loader FragmentLoader, taskType string, ref FragmentRef) (string, error) {
-	if loader == nil {
-		return "", fmt.Errorf("the compiler's loader cannot load fragments")
-	}
 	frag, err := loader.LoadPromptFragment(taskType, ref)
 	if err != nil {
 		return "", err
