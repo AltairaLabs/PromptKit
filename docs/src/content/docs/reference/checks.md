@@ -172,7 +172,7 @@ Applied when the param is absent.
 |------|---------|--------|-------|
 | `contains` | `content_includes` | `patterns` (string[], required) | Fraction of patterns found |
 | `regex` | `content_matches` | `pattern` (string, required), `expect_match` (bool, default `true`) | 1 or 0 |
-| `content_excludes` | `banned_words`, `content_not_includes` | `patterns` (string[]), `match_mode` | 1 or 0 |
+| `content_excludes` | `banned_words`, `content_not_includes` | `patterns` (string[]), `match_mode`, `case_sensitive` (bool, default `false`) | 1 or 0 |
 | `contains_any` | `content_includes_any` | `patterns` (string[], required) | 1 or 0 |
 | `min_length` | none | `min` (int, required, > 0) | `min(length / min, 1)` |
 | `max_length` | `length` | `max` (int, required, > 0), `max_tokens` (int) | `min(max / length, 1)`, lowered by the token ratio |
@@ -182,10 +182,10 @@ Applied when the param is absent.
 
 | Check | Behavior |
 |-------|----------|
-| `contains`, `contains_any`, `content_excludes`, `field_presence` | Matching is case-insensitive and by substring. |
+| `contains`, `contains_any`, `content_excludes`, `field_presence` | Matching is case-insensitive and by substring. `content_excludes` matches case-sensitively when `case_sensitive` is `true`. |
 | `contains`, `field_presence`, `regex`, lengths | Read `CurrentOutput`, the last assistant message. |
 | `regex` | Go RE2 syntax. `expect_match: false` passes when the pattern does not match. |
-| `content_excludes` | `match_mode` is `substring` or `word_boundary` (case-insensitive `\b` match around the escaped pattern). Any other value behaves as `substring`. No patterns passes. |
+| `content_excludes` | `match_mode` is `substring` or `word_boundary` (a `\b` match around the escaped pattern). Any other value behaves as `substring`. `case_sensitive: true` applies in both modes and while streaming. No patterns passes. |
 | `contains_any` | Passes when any pattern appears in any assistant message. |
 | `min_length`, `max_length` | Length is in bytes. `max_tokens` estimates tokens as bytes divided by 4. |
 | `sentence_count` | A measurement: the count is in `Details.count`. The handler reads no params; `max` and `max_sentences` have no effect. |

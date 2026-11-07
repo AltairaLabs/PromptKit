@@ -150,3 +150,65 @@ func TestContentExcludesHandler_MatchModeWordBoundaryCaseInsensitive(t *testing.
 		t.Error("word_boundary should be case-insensitive")
 	}
 }
+
+// case_sensitive: true matches a pattern only in its own case, in every match
+// mode and while streaming. Unset or false keeps case-insensitive matching.
+func TestContentExcludesHandler_CaseSensitive(t *testing.T) {
+	h := &ContentExcludesHandler{}
+	ctx := context.Background()
+	tests := []struct {
+		name      string
+		content   string
+		mode      string
+		sensitive any
+		wantClean bool
+	}{
+		{"substring other case", "this is FORBIDDEN content", "", true, true},
+		{"substring same case", "this is forbidden content", "", true, false},
+		{"word boundary other case", "this is FORBIDDEN content", matchModeWordBoundary, true, true},
+		{"word boundary same case", "this is forbidden content", matchModeWordBoundary, true, false},
+		{"explicit false stays insensitive", "this is FORBIDDEN content", "", false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := map[string]any{"patterns": []string{"forbidden"}, "case_sensitive": tt.sensitive}
+			if tt.mode != "" {
+				params["match_mode"] = tt.mode
+			}
+			evalCtx := &evals.EvalContext{Messages: []types.Message{{Role: "assistant", Content: tt.content}}}
+			result, err := h.Eval(ctx, evalCtx, params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if clean := *result.Score == 1.0; clean != tt.wantClean {
+				t.Errorf("Eval score %v, want clean=%v", *result.Score, tt.wantClean)
+			}
+			partial, err := h.EvalPartial(ctx, tt.content, params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if clean := *partial.Score == 1.0; clean != tt.wantClean {
+				t.Errorf("EvalPartial score %v, want clean=%v", *partial.Score, tt.wantClean)
+			}
+		})
+	}
+}
+
+// banned_words is an alias of content_excludes and honors case_sensitive too.
+func TestBannedWords_CaseSensitive(t *testing.T) {
+	reg := evals.NewEvalTypeRegistry()
+	h, err := reg.Get("banned_words")
+	if err != nil {
+		t.Fatal(err)
+	}
+	params := evals.NormalizeParams("banned_words",
+		evals.ApplyDefaults("banned_words", map[string]any{"words": []string{"Acme"}, "case_sensitive": true}))
+	evalCtx := &evals.EvalContext{Messages: []types.Message{{Role: "assistant", Content: "we love acme here"}}}
+	result, err := h.Eval(context.Background(), evalCtx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *result.Score != 1.0 {
+		t.Errorf("case_sensitive banned word matched another case: score %v", *result.Score)
+	}
+}

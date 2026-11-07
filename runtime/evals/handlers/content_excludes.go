@@ -15,11 +15,18 @@ var _ evals.StreamableEvalHandler = (*ContentExcludesHandler)(nil)
 const (
 	matchModeSubstring    = "substring"
 	matchModeWordBoundary = "word_boundary"
+
+	// paramCaseSensitive makes a pattern match only in its own case.
+	paramCaseSensitive = "case_sensitive"
 )
 
 // ContentExcludesHandler checks that NONE of the assistant messages
 // across the full conversation contain any of the forbidden patterns.
-// Params: patterns []string (case-insensitive matching).
+// Params:
+//   - patterns []string: the forbidden strings
+//   - match_mode string: "substring" (default) or "word_boundary"
+//   - case_sensitive bool: match each pattern only in its own case (default
+//     false: case-insensitive)
 type ContentExcludesHandler struct{}
 
 // Type returns the eval type identifier.
@@ -47,7 +54,7 @@ func (h *ContentExcludesHandler) Eval(
 		mode = m
 	}
 
-	matcher := buildMatcher(mode, patterns)
+	matcher := buildMatcher(mode, patterns, extractBool(params, paramCaseSensitive))
 
 	var found []string
 	for _, target := range contentUnderTest(evalCtx) {
@@ -94,8 +101,9 @@ func (h *ContentExcludesHandler) EvalPartial(
 	}
 
 	// Use substring mode for streaming to avoid false negatives on partial words.
+	matches := substringMatcher(extractBool(params, paramCaseSensitive))
 	for _, p := range patterns {
-		if containsInsensitive(content, p) {
+		if matches(content, p) {
 			return &evals.EvalResult{
 				Type:  h.Type(),
 				Score: boolScore(false),
@@ -113,20 +121,32 @@ func (h *ContentExcludesHandler) EvalPartial(
 	}, nil
 }
 
-// buildMatcher returns a match function for the given mode.
+// substringMatcher returns the substring match function for the case mode.
+func substringMatcher(caseSensitive bool) func(text, pattern string) bool {
+	if caseSensitive {
+		return strings.Contains
+	}
+	return containsInsensitive
+}
+
+// buildMatcher returns a match function for the given mode and case mode.
 // For word_boundary mode, it pre-compiles regexes for all patterns.
 func buildMatcher(
-	mode string, patterns []string,
+	mode string, patterns []string, caseSensitive bool,
 ) func(text, pattern string) bool {
 	if mode != matchModeWordBoundary {
-		return containsInsensitive
+		return substringMatcher(caseSensitive)
 	}
 
+	flags := "(?i)"
+	if caseSensitive {
+		flags = ""
+	}
 	// Pre-compile word-boundary regexes for each pattern.
 	regexMap := make(map[string]*regexp.Regexp, len(patterns))
 	for _, p := range patterns {
 		re := regexp.MustCompile(
-			`(?i)\b` + regexp.QuoteMeta(p) + `\b`,
+			flags + `\b` + regexp.QuoteMeta(p) + `\b`,
 		)
 		regexMap[p] = re
 	}
