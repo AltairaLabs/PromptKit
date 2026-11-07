@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -514,4 +515,73 @@ func TestDuplexHooks_ScenarioUserTurnGetsItsTranscript(t *testing.T) {
 	require.Len(t, h.calls, 1)
 	require.Len(t, h.calls[0].Messages, 1)
 	assert.Equal(t, "book a table", h.calls[0].Messages[0].Content)
+}
+
+// A session that ends on an error still answers the inputs a guardrail
+// blocked, ahead of the error: their user messages were already forwarded.
+func TestDuplexHooks_BlockedTurnFlushedBeforeError(t *testing.T) {
+	reg := hooks.NewRegistry(hooks.WithProviderHook(&enforceBeforeCallHook{replacement: "Not here."}))
+	s, _, _ := duplexStageWithHooks(t, reg)
+	s.accumulatedText.WriteString("half a reply")
+	text := "blocked"
+	require.False(t, s.handleInputElement(context.Background(), &StreamElement{Text: &text},
+		make(chan StreamElement, 4), make(chan error, 1)))
+
+	out := make(chan StreamElement, 8)
+	boom := errors.New("provider reset")
+	require.ErrorIs(t, s.handleResponseChunk(context.Background(), &providers.StreamChunk{Error: boom}, out), boom)
+	close(out)
+
+	var got []string
+	for e := range out {
+		switch {
+		case e.Error != nil:
+			got = append(got, "error")
+		case e.EndOfStream && e.Message != nil:
+			got = append(got, e.Message.Content)
+		}
+	}
+	assert.Equal(t, []string{"half a reply", "Not here.", "error"}, got)
+}
+
+// blockingDenyHook denies BeforeCall once release is closed.
+type blockingDenyHook struct{ release chan struct{} }
+
+func (h *blockingDenyHook) Name() string { return "blocking_deny" }
+
+func (h *blockingDenyHook) BeforeCall(_ context.Context, _ *hooks.ProviderRequest) hooks.Decision {
+	<-h.release
+	return hooks.Deny("no")
+}
+
+func (h *blockingDenyHook) AfterCall(
+	_ context.Context, _ *hooks.ProviderRequest, _ *hooks.ProviderResponse,
+) hooks.Decision {
+	return hooks.Allow
+}
+
+// An input hook that outlives the session must not send on a closed output:
+// Process leaves output open until the input goroutine exits. The send races
+// the canceled context, so the scenario is repeated.
+func TestDuplexHooks_SlowInputHookAfterProcessReturns(t *testing.T) {
+	for i := 0; i < 8; i++ {
+		h := &blockingDenyHook{release: make(chan struct{})}
+		s, sess, _ := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(h)))
+		input := make(chan StreamElement, 1)
+		output := make(chan StreamElement, 4)
+		text := "hello"
+		input <- StreamElement{Text: &text}
+		close(sess.respCh) // the provider ends the session while the hook runs
+
+		require.NoError(t, s.Process(context.Background(), input, output))
+		close(h.release)
+		require.Eventually(t, func() bool {
+			select {
+			case _, ok := <-output:
+				return !ok
+			default:
+				return false
+			}
+		}, 2*time.Second, time.Millisecond, "output closes once the input goroutine exits")
+	}
 }

@@ -354,12 +354,17 @@ func dropAssistantOutput(chunk *providers.StreamChunk, isOutputTranscription boo
 func (s *DuplexProviderStage) abortTurn(ctx context.Context, err error, output chan<- StreamElement) error {
 	s.resetTurnAccumulation()
 	s.turnGuard = duplexTurnGuard{}
-	return failTurn(ctx, err, output)
+	return s.failTurn(ctx, err, output)
 }
 
 // failTurn sends err downstream as an error element and returns it, or the
-// context's error when canceled first.
-func failTurn(ctx context.Context, err error, output chan<- StreamElement) error {
+// context's error when canceled first. The input turns a guardrail blocked
+// are emitted first: their user messages were already forwarded, and the
+// error is a consumer's last read.
+func (s *DuplexProviderStage) failTurn(ctx context.Context, err error, output chan<- StreamElement) error {
+	if flushErr := s.flushBlockedTurns(ctx, output); flushErr != nil {
+		return flushErr
+	}
 	if sendErr := sendStreamElement(ctx, NewErrorElement(err), output); sendErr != nil {
 		return sendErr
 	}

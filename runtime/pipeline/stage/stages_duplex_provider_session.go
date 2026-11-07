@@ -225,7 +225,15 @@ func (s *DuplexProviderStage) Process(
 	input <-chan StreamElement,
 	output chan<- StreamElement,
 ) error {
-	defer close(output)
+	// output is closed on return, except when the input goroutine outlives the
+	// grace period below: it can still send on output (a forwarded message, an
+	// input hook's error), so output is then closed once it exits.
+	closeOutput := true
+	defer func() {
+		if closeOutput {
+			close(output)
+		}
+	}()
 
 	// Create session lazily if not pre-configured
 	if s.session == nil {
@@ -268,8 +276,14 @@ func (s *DuplexProviderStage) Process(
 			responseErr = inputErr
 		}
 	case <-time.After(gracePeriod):
-		// Very short timeout - goroutine should have exited by now
-		logger.Debug("DuplexProviderStage: input forwarding cleanup completed")
+		// The goroutine is still running (in a slow input hook, say). It
+		// exits on the canceled context; output closes when it does.
+		logger.Debug("DuplexProviderStage: input forwarding still running; closing output when it exits")
+		closeOutput = false
+		go func() {
+			<-inputDone
+			close(output)
+		}()
 	}
 
 	return responseErr
@@ -1229,7 +1243,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	// is in the history they see.
 	if turnDone {
 		if err := s.guardCompletedTurn(ctx, &elem); err != nil {
-			return failTurn(ctx, err, output)
+			return s.failTurn(ctx, err, output)
 		}
 	}
 
@@ -1299,6 +1313,11 @@ func (s *DuplexProviderStage) emitChunkError(
 		case <-ctx.Done():
 			return ctx.Err()
 		}
+	}
+	// Inputs a guardrail blocked are answered before the error, a
+	// consumer's last read.
+	if err := s.flushBlockedTurns(ctx, output); err != nil {
+		return err
 	}
 	elem := NewErrorElement(chunk.Error)
 	select {
