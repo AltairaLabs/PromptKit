@@ -34,6 +34,10 @@ const (
 
 	// MIME type for PCM audio
 	mimeTypeAudioPCM = "audio/pcm"
+
+	// blockedTurnQueueSize bounds the input turns a guardrail blocked that wait
+	// for the response loop; a full queue holds back input forwarding.
+	blockedTurnQueueSize = 4
 )
 
 // EndInputter is an optional interface for sessions that support explicit end-of-input signaling.
@@ -143,6 +147,12 @@ type DuplexProviderStage struct {
 	assistantTurns atomic.Int64
 	// turnGuard is the current turn's guardrail state (response goroutine only).
 	turnGuard duplexTurnGuard
+	// blockedTurns carries input turns a guardrail blocked from the input
+	// goroutine to the response loop, which emits them between assistant turns.
+	blockedTurns chan *types.Message
+	// inputFailed is set once an input hook denied: the error element is then
+	// the session's last output.
+	inputFailed atomic.Bool
 }
 
 // SetSessionObserver registers a callback invoked once with the streaming
@@ -167,6 +177,7 @@ func NewDuplexProviderStage(
 		allResponsesReceivedCh: make(chan struct{}),
 		provider:               provider,
 		baseConfig:             baseConfig,
+		blockedTurns:           make(chan *types.Message, blockedTurnQueueSize),
 		systemPromptSent:       false,
 	}
 }
@@ -513,7 +524,7 @@ func (s *DuplexProviderStage) handleInputElement(
 	}
 
 	// Input guardrails gate text before it reaches the session.
-	if handled, err := s.guardInputText(ctx, elem, output); handled {
+	if handled, err := s.guardInputText(ctx, elem); handled {
 		if err != nil {
 			s.failInput(ctx, err, output)
 			done <- err
@@ -928,6 +939,11 @@ func (s *DuplexProviderStage) forwardResponseElements(
 			s.closeSessionIfOpen()
 			// Continue to process any remaining chunks until channel closes
 
+		case blocked := <-s.pendingBlockedTurns():
+			if err := s.emitBlockedTurn(ctx, blocked, output); err != nil {
+				return err
+			}
+
 		case chunk, ok := <-responseChannel:
 			if !ok {
 				return s.finishOnResponseClosed(ctx, output, wait.weClosedSession)
@@ -1054,8 +1070,13 @@ func (s *DuplexProviderStage) finishOnResponseClosed(
 	}
 
 	msg := s.takeInterruptedTurn(cause)
-	if msg == nil {
+	if s.inputFailed.Load() {
+		// An input hook denied: its error element was the session's last
+		// output, and the consumer has stopped reading.
 		return nil
+	}
+	if msg == nil {
+		return s.flushBlockedTurns(ctx, output)
 	}
 	elem := StreamElement{
 		Message:     msg,
@@ -1067,7 +1088,7 @@ func (s *DuplexProviderStage) finishOnResponseClosed(
 
 	select {
 	case output <- elem:
-		return nil
+		return s.flushBlockedTurns(ctx, output)
 	case <-ctx.Done():
 		return ctx.Err()
 	}

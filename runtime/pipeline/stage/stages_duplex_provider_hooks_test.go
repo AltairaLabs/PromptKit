@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
@@ -244,6 +245,9 @@ func TestDuplexHooks_InputEnforcedBlocksText(t *testing.T) {
 	out := make(chan StreamElement, 8)
 	done := make(chan error, 1)
 	require.False(t, s.handleInputElement(context.Background(), &elem, out, done))
+	assert.Empty(t, out, "the response loop, not the input goroutine, emits the blocked turn")
+	close(sess.respCh)
+	require.NoError(t, s.forwardResponseElements(context.Background(), out))
 	close(out)
 
 	sess.mu.Lock()
@@ -406,4 +410,108 @@ func TestDuplexHooks_HistoryHoldsSpokenUserTurns(t *testing.T) {
 		got = append(got, m.Role+":"+m.Content)
 	}
 	assert.Equal(t, []string{"user:from scenario", "user:spoken words"}, got)
+}
+
+// A blocked input turn waits for the reply in progress to complete, so its
+// turn boundary cannot land inside that reply.
+func TestDuplexHooks_BlockedInputWaitsForReplyInProgress(t *testing.T) {
+	reg := hooks.NewRegistry(hooks.WithProviderHook(&enforceBeforeCallHook{replacement: "Not here."}))
+	s, sess, _ := duplexStageWithHooks(t, reg)
+	s.turnIDQueue = []string{"t1"}
+	s.accumulatedText.WriteString("half a reply") // a reply is streaming
+
+	out := make(chan StreamElement, 16)
+	loopDone := make(chan error, 1)
+	go func() { loopDone <- s.forwardResponseElements(context.Background(), out) }()
+
+	text := "blocked input"
+	require.False(t, s.handleInputElement(context.Background(), &StreamElement{Text: &text}, out, make(chan error, 1)))
+	require.Never(t, func() bool { return len(out) > 0 }, 50*time.Millisecond, 5*time.Millisecond,
+		"nothing is emitted while the reply is in progress")
+
+	sess.respCh <- stopChunk()
+	close(sess.respCh)
+	require.NoError(t, <-loopDone)
+	close(out)
+
+	var turns []string
+	for e := range out {
+		if e.EndOfStream && e.Message != nil {
+			turns = append(turns, e.Message.Content)
+		}
+	}
+	assert.Equal(t, []string{"half a reply", "Not here."}, turns)
+}
+
+// A blocked element's tool responses still reach the session.
+func TestDuplexHooks_BlockedInputStillSendsToolResponses(t *testing.T) {
+	reg := hooks.NewRegistry(hooks.WithProviderHook(&enforceBeforeCallHook{replacement: "Not here."}))
+	s, sess, _ := duplexStageWithHooks(t, reg)
+	text := "blocked"
+	elem := StreamElement{Text: &text}
+	elem.Meta.ToolResponses = []providers.ToolResponse{{ToolCallID: "c1", Result: "{}"}}
+	require.False(t, s.handleInputElement(context.Background(), &elem, make(chan StreamElement, 4), make(chan error, 1)))
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	require.Len(t, sess.toolResponses, 1)
+}
+
+// After an input hook denies, its error element is the session's last output:
+// the response loop does not then emit (and possibly block on) a partial reply.
+func TestDuplexHooks_InputDenyIsLastOutput(t *testing.T) {
+	reg := hooks.NewRegistry(hooks.WithProviderHook(&denyAllProviderHook{reason: "no"}))
+	s, _, _ := duplexStageWithHooks(t, reg)
+	s.accumulatedText.WriteString("partial")
+	text := "hello"
+	out := make(chan StreamElement, 4)
+	require.True(t, s.handleInputElement(context.Background(), &StreamElement{Text: &text}, out, make(chan error, 1)))
+	require.Len(t, out, 1)
+	<-out
+
+	require.NoError(t, s.finishOnResponseClosed(context.Background(), out, true))
+	assert.Empty(t, out)
+}
+
+// The history keeps text only: a realtime turn's audio part would otherwise
+// hold every turn's audio for the life of the session. A registry with no
+// provider hooks keeps no history at all.
+func TestDuplexHooks_HistoryIsTextOnly(t *testing.T) {
+	s, _, _ := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(&capturingHook{})))
+	final := stopChunk()
+	final.MediaData = &providers.StreamMediaData{Data: pcm(64)}
+	_, err := feedChunks(t, s, providers.StreamChunk{Content: "spoken"}, final)
+	require.NoError(t, err)
+	hist := s.history.snapshot()
+	require.Len(t, hist, 1)
+	require.Len(t, hist[0].Parts, 1)
+	assert.Equal(t, types.ContentTypeText, hist[0].Parts[0].Type)
+
+	toolOnly, _, _ := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithToolHook(&denyToolHook{})))
+	_, err = feedChunks(t, toolOnly, providers.StreamChunk{Content: "spoken"}, stopChunk())
+	require.NoError(t, err)
+	assert.Empty(t, toolOnly.history.snapshot())
+}
+
+// On the scenario path the user Message is forwarded before its audio is
+// transcribed; the transcript that arrives with the turn fills it in, so the
+// output hooks see what the user said.
+func TestDuplexHooks_ScenarioUserTurnGetsItsTranscript(t *testing.T) {
+	h := &capturingHook{}
+	s, _, _ := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(h)))
+	turnID := "t1"
+	user := StreamElement{Message: &types.Message{Role: roleUser}}
+	user.Meta.TurnID = &turnID
+	require.False(t, s.handleInputElement(context.Background(), &user, make(chan StreamElement, 4), make(chan error, 1)))
+
+	_, err := feedChunks(t, s,
+		providers.StreamChunk{Metadata: map[string]interface{}{
+			"type": "input_transcription", "transcription": "book a table",
+		}},
+		providers.StreamChunk{Content: "done"},
+		stopChunk(),
+	)
+	require.NoError(t, err)
+	require.Len(t, h.calls, 1)
+	require.Len(t, h.calls[0].Messages, 1)
+	assert.Equal(t, "book a table", h.calls[0].Messages[0].Content)
 }

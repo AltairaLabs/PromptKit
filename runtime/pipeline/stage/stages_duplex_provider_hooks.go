@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
 
@@ -63,10 +64,43 @@ type duplexHistory struct {
 	msgs []types.Message
 }
 
+// add keeps a text-only copy of m: the guardrails judge text, and a realtime
+// turn's audio part would otherwise hold every turn's audio for the life of
+// the session.
 func (h *duplexHistory) add(m *types.Message) {
+	c := *m
+	c.Parts = textOnlyParts(m.Parts)
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.msgs = append(h.msgs, *m)
+	h.msgs = append(h.msgs, c)
+}
+
+// fillUserTranscript gives the latest user turn that has no text yet its
+// transcript. On the scenario path the user Message is forwarded before its
+// audio is transcribed, and the transcript arrives on the turn's completion.
+func (h *duplexHistory) fillUserTranscript(text string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for i := len(h.msgs) - 1; i >= 0; i-- {
+		if h.msgs[i].Role != roleUser {
+			continue
+		}
+		if h.msgs[i].GetContent() == "" {
+			h.msgs[i].Content = text
+		}
+		return
+	}
+}
+
+// textOnlyParts returns the text parts of parts.
+func textOnlyParts(parts []types.ContentPart) []types.ContentPart {
+	var out []types.ContentPart
+	for _, p := range parts {
+		if p.Type == types.ContentTypeText {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func (h *duplexHistory) snapshot() []types.Message {
@@ -77,7 +111,7 @@ func (h *duplexHistory) snapshot() []types.Message {
 
 // hooksActive reports whether the stage runs provider hooks.
 func (s *DuplexProviderStage) hooksActive() bool {
-	return !s.hookRegistry.IsEmpty()
+	return s.hookRegistry.HasProviderHooks()
 }
 
 // recordHistory adds m to the history the hooks see, when hooks run.
@@ -111,10 +145,12 @@ func (s *DuplexProviderStage) hookRequest(messages []types.Message) *hooks.Provi
 
 // guardInputText runs the BeforeCall chain on text bound for the session.
 // handled reports that the element must not be sent: an enforcing hook
-// blocked it and the blocked turn has been emitted, or a hook denied it and
-// err is the HookDeniedError.
+// blocked it and the blocked turn has been queued for the response loop, or a
+// hook denied it and err is the HookDeniedError. Tool responses the element
+// carries still reach the session; its end-of-input signal does not, since
+// nothing was sent for the provider to answer.
 func (s *DuplexProviderStage) guardInputText(
-	ctx context.Context, elem *StreamElement, output chan<- StreamElement,
+	ctx context.Context, elem *StreamElement,
 ) (handled bool, err error) {
 	text := sessionBoundText(elem)
 	if !s.hooksActive() || text == "" {
@@ -154,7 +190,42 @@ func (s *DuplexProviderStage) guardInputText(
 	s.dropTurnID(elem)
 	s.history.add(&blocked)
 	s.assistantTurns.Add(1)
-	return true, s.emitBlockedTurn(ctx, &blocked, output)
+	if toolResponses := elem.Meta.ToolResponses; len(toolResponses) > 0 {
+		s.sendToolResponses(ctx, toolResponses)
+	}
+	// The response loop emits it, between assistant turns, so it cannot land
+	// inside a reply that is still streaming.
+	select {
+	case s.blockedTurns <- &blocked:
+		return true, nil
+	case <-ctx.Done():
+		return true, ctx.Err()
+	}
+}
+
+// pendingBlockedTurns returns the queue of blocked input turns while no
+// assistant turn is in progress, and nil (never ready) while one is.
+func (s *DuplexProviderStage) pendingBlockedTurns() <-chan *types.Message {
+	if s.accumulatedText.Len() > 0 || len(s.accumulatedMedia) > 0 ||
+		len(s.accumulatedToolCalls) > 0 || s.turnGuard.blocked {
+		return nil
+	}
+	return s.blockedTurns
+}
+
+// flushBlockedTurns emits the blocked turns still queued when the session
+// ends.
+func (s *DuplexProviderStage) flushBlockedTurns(ctx context.Context, output chan<- StreamElement) error {
+	for {
+		select {
+		case blocked := <-s.blockedTurns:
+			if err := s.emitBlockedTurn(ctx, blocked, output); err != nil {
+				return err
+			}
+		default:
+			return nil
+		}
+	}
 }
 
 // sessionBoundText returns the text sendElementContent would send for elem,
@@ -210,7 +281,11 @@ func (s *DuplexProviderStage) emitBlockedTurn(
 // failInput reports a hook denial on the input side: the error goes
 // downstream as an element and the session is closed, so the response loop
 // ends and Process returns err.
+//
+// The error is the session's last output: a consumer stops reading at it, so
+// the response loop must not then block emitting a partial reply.
 func (s *DuplexProviderStage) failInput(ctx context.Context, err error, output chan<- StreamElement) {
+	s.inputFailed.Store(true)
 	_ = sendStreamElement(ctx, NewErrorElement(err), output)
 	s.closeSessionIfOpen()
 }
@@ -304,6 +379,9 @@ func (s *DuplexProviderStage) guardCompletedTurn(ctx context.Context, elem *Stre
 	if msg == nil || msg.Role != roleAssistant || !s.hooksActive() {
 		return nil
 	}
+	if tr := elem.Meta.Transcription; tr != nil && tr.Text != "" {
+		s.history.fillUserTranscript(tr.Text)
+	}
 	msg.Validations = append(msg.Validations, guard.validations...)
 	if guard.blocked {
 		markEnforcedTurn(msg, elem)
@@ -330,6 +408,7 @@ func (s *DuplexProviderStage) runTurnAfterCallHooks(
 		Message:    *msg,
 		LatencyMs:  msg.LatencyMs,
 	}
+	resp.Message.Validations = slices.Clone(msg.Validations)
 	known := len(msg.Validations)
 
 	start := time.Now()
