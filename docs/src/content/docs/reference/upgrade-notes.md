@@ -36,7 +36,9 @@ verified:
     - runtime/pipeline/stage/errors.go
     - runtime/pipeline/stage/idle_timeout.go
     - runtime/pipeline/stage/pipeline.go
+    - runtime/pipeline/stage/stages_duplex_provider_hooks.go
     - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/stages_recording.go
     - runtime/pipeline/stage/state_handoff.go
     - runtime/pipeline/stage/tool_call_rate.go
     - runtime/persistence/common/repository.go
@@ -171,6 +173,43 @@ its findings, without the tool warnings, and now lists errors before warnings.
 | Filter evals by group without explicit `groups` | every judge- and classifier-backed check beyond the `llm_judge` family (`faithfulness`, `bias`, `toxicity`, `pii_leakage`, `role_violation`, `text_sentiment`, `topic_policy` and the rest), and `tool_exec`, is `long-running` and `external`, where it was `fast-running`. An alias takes its target's groups, and an `assertion` or `guardrail` wrapper takes the groups of the eval it wraps | set `groups` on the eval if you want it in the fast-running set |
 | Write a custom eval handler | implement `evals.GroupDeclarer` to state its groups; without it the handler is `fast-running` | add `EvalGroups()` to a handler that calls a model or service |
 | Record an eval metric of type `histogram` | buckets at 0, 0.1 … 1.0, where they were the latency buckets in `prometheus.DefBuckets`. A metric with `range.min` and `range.max` gets ten buckets across its range | set `CollectorOpts.EvalHistogramBuckets` to choose your own; existing series change bucket bounds, so check dashboards that read `le` |
+
+### Realtime duplex sessions run guardrails
+
+The realtime provider stage (`DuplexProviderStage`, used by `OpenDuplex` with a
+streaming config) ran no provider hooks, so a pack's `validators:`,
+`WithGuardrail` and `WithProviderHook` did nothing in a realtime session. It
+now takes the conversation's hook registry (`SetHookRegistry`) and runs input
+hooks on text before it is sent, streaming checks on each chunk of assistant
+text, and output hooks on each completed turn. An enforced turn is marked
+`safety`, its tool calls are dropped, and the rest of a turn a streaming check
+blocked is not forwarded. Spoken input is not checked before the model hears
+it, and what was streamed before a check fired has already played; see
+[The Hook System](/sdk/explanation/hooks/). The SDK's realtime path also hands
+the stage the conversation's event emitter.
+
+| If you | You will see | Change |
+|---|---|---|
+| Run a realtime conversation under a pack with `validators:`, or with `WithGuardrail` | turns blocked where the guardrails say so, with `finish_reason: safety` on the turn-complete chunk, and `validation.*` events | review what the guardrails do to voice turns; they were never exercised there |
+| Rely on a realtime turn's tool calls being executed | an enforced turn's tool calls are dropped, as on the text path | nothing, unless a tool must run whatever the guardrail decides |
+| Subscribe to the event bus of a realtime conversation | `reasoning.delta` events for a reasoning model, as on the text path | nothing |
+| Build a `DuplexProviderStage` yourself | no hooks run unless you call `SetHookRegistry` | call it with your registry |
+
+### Recordings keep the content of control elements
+
+`RecordingStage` skipped every element with a control flag (`EndOfStream`,
+`EndOfTurn`, `Interrupt`). The realtime provider stage puts each assistant
+turn's `Message`, and its last audio chunk, on the element that ends the turn,
+so a recording of a realtime session held no assistant turns. It also recorded
+only the first content field of an element. It now records every content field
+an element carries, streaming content first and the `Message` last. A guardrail
+firing on a streamed text turn is also no longer recorded twice on the message
+when an output guardrail then enforces too.
+
+| If you | You will see | Change |
+|---|---|---|
+| Record a realtime session | `message.created` for each assistant turn, and the turn's last `audio.output` | nothing |
+| Put several content fields on one element ahead of a `RecordingStage` | one event per field, where only the first was recorded | nothing |
 
 ## v2.17.0
 

@@ -3111,6 +3111,9 @@ func (s *ProviderStage) runAfterCallHooks(ctx context.Context, p *afterCallParam
 		Round:      p.round,
 		LatencyMs:  p.duration.Milliseconds(),
 	}
+	// The hook's copy starts with the message's validations; only what a hook
+	// adds after them is new.
+	knownValidations := len(p.responseMsg.Validations)
 
 	hookStart := time.Now()
 	d := s.hookRegistry.RunAfterProviderCall(ctx, hookReq, hookResp)
@@ -3127,7 +3130,7 @@ func (s *ProviderStage) runAfterCallHooks(ctx context.Context, p *afterCallParam
 			Metadata: d.Metadata,
 		}
 	}
-	applyEnforcedResponse(p.responseMsg, p.toolCalls, hookResp, d)
+	applyEnforcedResponse(p.responseMsg, p.toolCalls, hookResp, d, knownValidations)
 	return nil
 }
 
@@ -3245,20 +3248,35 @@ func (s *ProviderStage) emitBlockedTurnText(
 // round report hasToolCalls=false, which terminates the loop. The response is
 // marked like a blocked tool call (preExecCheck) so consumers can tell the
 // calls were dropped by policy.
+//
+// known is how many validations responseMsg held when hookResp was copied from
+// it. The copy shares those entries, so only the ones after them are new; a
+// chunk-interceptor firing already on the message was otherwise appended twice.
 func applyEnforcedResponse(
 	responseMsg *types.Message,
 	toolCalls *[]types.MessageToolCall,
 	hookResp *hooks.ProviderResponse,
 	d hooks.Decision,
+	known int,
 ) {
 	responseMsg.Content = hookResp.Message.Content
-	responseMsg.Validations = append(responseMsg.Validations, hookResp.Message.Validations...)
+	responseMsg.Validations = append(responseMsg.Validations, addedValidations(hookResp.Message.Validations, known)...)
 	responseMsg.ToolCalls = nil
 	*toolCalls = nil
 	responseMsg.FinishReason = types.FinishReasonSafety
 	if meta := decisionMessageMeta(d); meta != nil {
 		responseMsg.Meta = meta
 	}
+}
+
+// addedValidations returns the validations a hook appended to its copy of a
+// message that started with known entries. A hook that replaced the slice
+// with a shorter one added nothing the message does not already hold.
+func addedValidations(vs []types.ValidationResult, known int) []types.ValidationResult {
+	if known >= len(vs) {
+		return nil
+	}
+	return vs[known:]
 }
 
 // decisionMessageMeta copies a guardrail decision's metadata for the message
@@ -3290,6 +3308,16 @@ func decisionMessageMeta(d hooks.Decision) map[string]interface{} {
 func (s *ProviderStage) recordGuardrailFiring(
 	msg *types.Message, d hooks.Decision, direction string, duration time.Duration,
 ) {
+	recordGuardrailFiring(s.emitter, msg, d, direction, duration, s.currentTurn())
+}
+
+// recordGuardrailFiring is the body of ProviderStage.recordGuardrailFiring,
+// shared with DuplexProviderStage so a realtime firing is recorded exactly as
+// a text one is. emitter may be nil (no event).
+func recordGuardrailFiring(
+	emitter *events.Emitter, msg *types.Message, d hooks.Decision,
+	direction string, duration time.Duration, turn int,
+) {
 	vType, _ := d.Metadata["validator_type"].(string)
 
 	if msg != nil {
@@ -3298,7 +3326,7 @@ func (s *ProviderStage) recordGuardrailFiring(
 		}
 	}
 
-	if s.emitter == nil {
+	if emitter == nil {
 		return
 	}
 	data := &events.ValidationEventData{
@@ -3308,13 +3336,13 @@ func (s *ProviderStage) recordGuardrailFiring(
 		Duration:      duration,
 		Enforced:      d.Enforced,
 		Score:         metadataScore(d.Metadata),
-		TurnIndex:     s.currentTurn(),
+		TurnIndex:     turn,
 	}
 	data.Validator, _ = d.Metadata[hooks.MetadataKeyValidatorDeclaration].(*packspec.Validator)
 	if !d.Allow {
 		data.Violations = []string{d.Reason}
 	}
-	s.emitter.GuardrailResult(data)
+	emitter.GuardrailResult(data)
 }
 
 // guardrailValidation builds the ValidationResult recorded for a guardrail
@@ -3395,6 +3423,13 @@ func metadataScore(metadata map[string]any) float64 {
 func (s *ProviderStage) blockedMessage(
 	req *hooks.ProviderRequest, d hooks.Decision,
 ) types.Message {
+	return blockedTurnMessage(req, d)
+}
+
+// blockedTurnMessage is the body of ProviderStage.blockedMessage, shared with
+// DuplexProviderStage so a blocked realtime turn is shaped like a blocked text
+// turn.
+func blockedTurnMessage(req *hooks.ProviderRequest, d hooks.Decision) types.Message {
 	content := ""
 	if req != nil {
 		content = req.Replacement

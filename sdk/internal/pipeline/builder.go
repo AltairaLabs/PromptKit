@@ -726,9 +726,14 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 	if cfg.StreamInputProvider != nil {
 		// ASM mode: Direct audio streaming to LLM
 		logger.Debug("Using DuplexProviderStage for ASM mode")
-		return []stage.Stage{stage.NewDuplexProviderStageWithTurnState(
-			cfg.StreamInputProvider, cfg.streamSessionConfig(), nil, turnState,
-		)}, nil
+		// The conversation's hooks (pack validators, WithGuardrail, provider
+		// hooks) run here as they do on the text path; the emitter carries
+		// their validation events and the session's reasoning deltas.
+		duplexStage := stage.NewDuplexProviderStageWithTurnState(
+			cfg.StreamInputProvider, cfg.streamSessionConfig(), cfg.EventEmitter, turnState,
+		)
+		duplexStage.SetHookRegistry(cfg.HookRegistry)
+		return []stage.Stage{duplexStage}, nil
 	}
 	if cfg.VADConfig != nil && cfg.STTService != nil && cfg.TTSService != nil {
 		// VAD mode: build audio pipeline
