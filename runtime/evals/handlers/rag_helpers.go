@@ -98,7 +98,7 @@ func extractRAGQuestion(
 // extractRAGReference returns the ground-truth answer from
 // params["reference"] or params["expected_output"], or empty string.
 func extractRAGReference(params map[string]any) string {
-	if v, ok := params["reference"].(string); ok && v != "" {
+	if v, ok := params[pnReference].(string); ok && v != "" {
 		return v
 	}
 	if v, ok := params["expected_output"].(string); ok {

@@ -30,7 +30,7 @@ func parseToolExecConfig(params map[string]any) (*toolExecConfig, string) {
 	for _, gate := range []struct {
 		key string
 		dst **regexp.Regexp
-	}{{"success_pattern", &cfg.success}, {"failure_pattern", &cfg.failure}} {
+	}{{pnSuccessPattern, &cfg.success}, {pnFailurePattern, &cfg.failure}} {
 		pattern, _ := params[gate.key].(string)
 		if pattern == "" {
 			continue

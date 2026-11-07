@@ -19,7 +19,7 @@ func compareToolSets(
 	expected := toSortedSet(expectedTools)
 
 	matched := setsEqual(actual, expected)
-	value := map[string]any{keyActualTools: actual, "expected_tools": expected}
+	value := map[string]any{keyActualTools: actual, pnExpectedTools: expected}
 
 	if matched {
 		return &evals.EvalResult{

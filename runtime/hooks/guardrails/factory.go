@@ -23,6 +23,12 @@ import (
 // CompileValidators.
 var ErrUnknownGuardrailType = errors.New("unknown guardrail type")
 
+// Params a guardrail reads itself, beside the handler's own.
+const (
+	guardrailParamDirection = "direction"
+	guardrailParamMessage   = "message"
+)
+
 // ErrInvalidGuardrailParams is returned when the eval type IS registered and
 // its own evals.ParamValidator rejects the params. Like ErrUnknownGuardrailType
 // it is fatal on the strict path: the handler is the authority on its own
@@ -124,10 +130,13 @@ func NewGuardrailHookFromRegistry(
 	normalized = evals.NormalizeParams(typeName, normalized)
 	normalized = evals.StripScoreThresholds(normalized)
 
-	if pv, ok := handler.(evals.ParamValidator); ok {
-		if verr := pv.ValidateParams(normalized); verr != nil {
-			return nil, fmt.Errorf("guardrail %q: %w", typeName, &invalidParams{verr})
-		}
+	// direction and message belong to the guardrail, not the handler: the
+	// adapter consumes direction, and a validator's blocked text may sit in
+	// params. Any other key the handler does not read is rejected.
+	if verr := evals.ValidateHandlerParams(
+		typeName, handler, normalized, guardrailParamDirection, guardrailParamMessage,
+	); verr != nil {
+		return nil, fmt.Errorf("guardrail %q: %w", typeName, &invalidParams{verr})
 	}
 
 	direction := resolveDirection(typeName, normalized, params)

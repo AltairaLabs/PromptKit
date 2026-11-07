@@ -21,6 +21,12 @@ const WrapperTypeGuardrail = "guardrail"
 // wrapper must consume them and strip them before invoking its inner handler.
 var scoreThresholdParamKeys = []string{"min_score", "max_score"}
 
+// The wrappers' own param names.
+const (
+	paramEvalType   = "eval_type"
+	paramEvalParams = "eval_params"
+)
+
 // ScoreThresholds turns an eval score into a verdict. It is the shared
 // implementation used by the "guardrail" eval type here and by the pipeline's
 // guardrail hook adapter; evals themselves never apply it.
@@ -254,7 +260,7 @@ func extractParamString(params map[string]any, key, defaultVal string) string {
 // extractEvalParams extracts the nested eval_params map from wrapper params.
 // Returns nil if eval_params is not set or not a map.
 func extractEvalParams(params map[string]any) map[string]any {
-	if ep, ok := params["eval_params"].(map[string]any); ok {
+	if ep, ok := params[paramEvalParams].(map[string]any); ok {
 		return ep
 	}
 	return nil
@@ -431,7 +437,7 @@ func (h *GuardrailEvalHandler) evalWithThreshold(
 // innerEvalType reports the eval type a wrapper delegates to, and whether the
 // param was usable.
 func innerEvalType(params map[string]any) (string, bool) {
-	t, ok := params["eval_type"].(string)
+	t, ok := params[paramEvalType].(string)
 	return t, ok && t != ""
 }
 
@@ -504,13 +510,39 @@ func (h *GuardrailEvalHandler) EvalTimeout(params map[string]any) time.Duration 
 // sdk.ValidatePack both look for this interface, so implementing it here is
 // what makes `type: guardrail` wrapping a check with a typo'd param fail to
 // load rather than load unprotected.
+//
+// The inner params are also checked for keys the inner check does not read
+// (see ValidateHandlerParams). That check runs here, at load, and not on Eval.
 func (h *AssertionEvalHandler) ValidateParams(params map[string]any) error {
-	_, _, err := prepareInner(h.registry, WrapperTypeAssertion, params)
-	return err
+	return validateInner(h.registry, WrapperTypeAssertion, params)
 }
 
 // ValidateParams mirrors AssertionEvalHandler.ValidateParams.
 func (h *GuardrailEvalHandler) ValidateParams(params map[string]any) error {
-	_, _, err := prepareInner(h.registry, WrapperTypeGuardrail, params)
-	return err
+	return validateInner(h.registry, WrapperTypeGuardrail, params)
+}
+
+// validateInner is the load-time check of a wrapper's inner check: the same
+// preparation Eval does, plus the inner check's unknown-param check.
+func validateInner(registry *EvalTypeRegistry, wrapper string, params map[string]any) error {
+	handler, inner, err := prepareInner(registry, wrapper, params)
+	if err != nil {
+		return err
+	}
+	evalType, _ := innerEvalType(params)
+	if uerr := checkUnknownParams(evalType, handler, inner, nil); uerr != nil {
+		return fmt.Errorf("%s inner eval %q: %w", wrapper, evalType, uerr)
+	}
+	return nil
+}
+
+// ParamNames lists the assertion wrapper's own params. min_score and
+// max_score are always accepted (see ValidateHandlerParams).
+func (h *AssertionEvalHandler) ParamNames() []string {
+	return []string{paramEvalType, paramEvalParams}
+}
+
+// ParamNames lists the guardrail wrapper's own params.
+func (h *GuardrailEvalHandler) ParamNames() []string {
+	return []string{paramEvalType, paramEvalParams, "action"}
 }

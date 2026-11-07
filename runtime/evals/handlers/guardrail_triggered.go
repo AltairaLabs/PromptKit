@@ -104,7 +104,7 @@ func (h *GuardrailTriggeredHandler) buildResult(
 		}
 	}
 
-	details := map[string]any{"validator": validatorType, keyTriggered: triggered}
+	details := map[string]any{pnValidator: validatorType, keyTriggered: triggered}
 	if direction != "" {
 		details[keyDirection] = direction
 	}
@@ -121,7 +121,7 @@ func (h *GuardrailTriggeredHandler) buildResult(
 // the assertion asked for one so an unqualified assertion reports exactly what
 // it always did.
 func triggeredValue(validatorType, direction string, triggered bool) map[string]any {
-	value := map[string]any{keyTriggered: triggered, "validator_type": validatorType}
+	value := map[string]any{keyTriggered: triggered, pnValidatorType: validatorType}
 	if direction != "" {
 		value[keyDirection] = direction
 	}
@@ -182,10 +182,10 @@ func directionFilter(params map[string]any) string {
 }
 
 func extractValidatorType(params map[string]any) string {
-	if v, _ := params["validator_type"].(string); v != "" {
+	if v, _ := params[pnValidatorType].(string); v != "" {
 		return v
 	}
-	v, _ := params["validator"].(string)
+	v, _ := params[pnValidator].(string)
 	return v
 }
 

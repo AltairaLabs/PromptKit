@@ -468,7 +468,10 @@ func (a *GuardrailHookAdapter) enforce(msg *types.Message, params map[string]any
 // the stream stopped, and the final check then judged the same content clean
 // under word_boundary mode and left it in place (#1697).
 func (a *GuardrailHookAdapter) enforcedContent(content string, params map[string]any, replacement string) string {
-	if maxLen := extractMaxLen(params); maxLen > 0 && len(content) > maxLen {
+	// Only a length check truncates. Other checks take a `max` too
+	// (sentence_count, after max_sentences is normalized), and cutting their
+	// reply to that many bytes would ship a fragment instead of blocking it.
+	if maxLen := extractMaxLen(params); a.truncates() && maxLen > 0 && len(content) > maxLen {
 		logger.Info("Guardrail enforced: truncating content",
 			"type", a.evalType, "original_length", len(content), "max_length", maxLen)
 		return content[:maxLen]
@@ -478,6 +481,16 @@ func (a *GuardrailHookAdapter) enforcedContent(content string, params map[string
 	logger.Info("Guardrail enforced: content blocked", "type", a.evalType)
 	return a.blockText(replacement)
 }
+
+// truncates reports whether this guardrail's check is the length check, the
+// one whose enforcement is truncation (registered as max_length, aliased as
+// length).
+func (a *GuardrailHookAdapter) truncates() bool {
+	return a.handler != nil && a.handler.Type() == lengthCheckType
+}
+
+// lengthCheckType is the canonical type of the length check.
+const lengthCheckType = "max_length"
 
 // blockText is the user-facing text that replaces a blocked turn: the
 // validator's message, else the check's own replacement (see

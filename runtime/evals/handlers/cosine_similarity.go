@@ -32,7 +32,7 @@ func (h *CosineSimilarityHandler) Eval(
 	if msg := rejectCosineThresholdParams(params); msg != "" {
 		return errorResult(h.Type(), msg), nil
 	}
-	reference, ok := extractFloat64Slice(params, "reference")
+	reference, ok := extractFloat64Slice(params, pnReference)
 	if !ok || len(reference) == 0 {
 		return &evals.EvalResult{
 			Type:        h.Type(),

@@ -22,10 +22,12 @@ verified:
     - runtime/evals/handlers/image_dimensions.go
     - runtime/evals/handlers/image_moderation.go
     - runtime/evals/handlers/json_path.go
+    - runtime/evals/handlers/judge_defaults.go
     - runtime/evals/handlers/latency_budget.go
     - runtime/evals/handlers/length.go
     - runtime/evals/handlers/llm_judge.go
     - runtime/evals/handlers/no_tool_errors.go
+    - runtime/evals/handlers/param_names.go
     - runtime/evals/handlers/pii_leakage.go
     - runtime/evals/handlers/provider_binding.go
     - runtime/evals/handlers/rag_helpers.go
@@ -56,6 +58,8 @@ verified:
     - runtime/evals/handlers/workflow_state_is.go
     - runtime/evals/handlers/workflow_transitioned_to.go
     - runtime/evals/normalize.go
+    - runtime/evals/params.go
+    - runtime/evals/registry.go
     - runtime/evals/types.go
     - runtime/evals/validate.go
     - runtime/evals/wrappers.go
@@ -89,6 +93,18 @@ Handlers return a `Score` (0.0 to 1.0 for the built-in checks, except `cosine_si
 | Eval | No verdict. |
 
 Handlers in the classifier, judge, RAG, safety, composition, REST, A2A, `tool_exec` and `topic_policy` families, and `cosine_similarity`, reject `min_score` and `max_score` in their own params with an error result (`tool_exec` and `topic_policy` reject them when the pack loads). Put thresholds on the [`assertion`](#assertion-wrapper) wrapper. The other handlers ignore the keys.
+
+### Unknown params
+
+Every built-in check type lists the params it reads, and a param it does not read is rejected when the pack loads: by `ValidateEvalTypes` (the SDK's eval preflight and its eval middleware, which skips the eval with a warning), by guardrail construction (`Open()` fails), and inside an `assertion` or `guardrail` wrapper's `eval_params`. The error names the bad key and the valid ones:
+
+```text
+eval "tone": unknown param "critera" for llm_judge; valid params: criteria, extra, provider, rubric, system_prompt
+```
+
+The check is made after param defaults and aliases apply, so a legacy name such as `words` or `max_sentences` is accepted. `min_score` and `max_score` are never reported as unknown; the handlers that reject them do so with their own message. A guardrail also accepts `direction` and `message`. A custom handler is checked only when it implements `ParamNamer` (see [Extending the check system](#extending-the-check-system)), and an exec eval handler is never checked.
+
+`EvalTypeRegistry.ParamNames(type)` returns the params a registered type reads, sorted.
 
 ### Guardrail scope
 
@@ -172,23 +188,23 @@ Applied when the param is absent.
 |------|---------|--------|-------|
 | `contains` | `content_includes` | `patterns` (string[], required) | Fraction of patterns found |
 | `regex` | `content_matches` | `pattern` (string, required), `expect_match` (bool, default `true`) | 1 or 0 |
-| `content_excludes` | `banned_words`, `content_not_includes` | `patterns` (string[]), `match_mode` | 1 or 0 |
+| `content_excludes` | `banned_words`, `content_not_includes` | `patterns` (string[]), `match_mode`, `case_sensitive` (bool, default `false`) | 1 or 0 |
 | `contains_any` | `content_includes_any` | `patterns` (string[], required) | 1 or 0 |
 | `min_length` | none | `min` (int, required, > 0) | `min(length / min, 1)` |
 | `max_length` | `length` | `max` (int, required, > 0), `max_tokens` (int) | `min(max / length, 1)`, lowered by the token ratio |
-| `sentence_count` | `max_sentences` | none | Always 1 |
+| `sentence_count` | `max_sentences` | `max` (int, > 0) | 1 with no `max` or within it; `max / count` above it |
 | `field_presence` | `required_fields` | `fields` (string[]) | Fraction of fields found |
 | `cosine_similarity` | none | `reference` (float[], required) | The similarity |
 
 | Check | Behavior |
 |-------|----------|
-| `contains`, `contains_any`, `content_excludes`, `field_presence` | Matching is case-insensitive and by substring. |
+| `contains`, `contains_any`, `content_excludes`, `field_presence` | Matching is case-insensitive and by substring. `content_excludes` matches case-sensitively when `case_sensitive` is `true`. |
 | `contains`, `field_presence`, `regex`, lengths | Read `CurrentOutput`, the last assistant message. |
 | `regex` | Go RE2 syntax. `expect_match: false` passes when the pattern does not match. |
-| `content_excludes` | `match_mode` is `substring` or `word_boundary` (case-insensitive `\b` match around the escaped pattern). Any other value behaves as `substring`. No patterns passes. |
+| `content_excludes` | `match_mode` is `substring` or `word_boundary` (a `\b` match around the escaped pattern). Any other value behaves as `substring`. `case_sensitive: true` applies in both modes and while streaming. No patterns passes. |
 | `contains_any` | Passes when any pattern appears in any assistant message. |
 | `min_length`, `max_length` | Length is in bytes. `max_tokens` estimates tokens as bytes divided by 4. |
-| `sentence_count` | A measurement: the count is in `Details.count`. The handler reads no params; `max` and `max_sentences` have no effect. |
+| `sentence_count` | The count is in `Details.count`. With `max` (or `max_sentences` under either name), a reply of up to `max` sentences scores 1 and a longer one `max / count`, so a guardrail with the default floor of `1.0` blocks only replies over `max`. A firing guardrail blocks the reply with its message; it does not truncate. |
 | `field_presence` | Looks for each name as a substring of the output. No fields passes. |
 | `cosine_similarity` | The target embedding comes from `EvalContext.Metadata["embedding"]`. A missing embedding, or a dimension mismatch, scores 0. `min_similarity`, `min_score` and `max_score` are rejected with an error: set the threshold as `min_score` on the [`assertion`](#assertion-wrapper) wrapper. |
 
@@ -784,7 +800,9 @@ Judge params, shared by `llm_judge`, `llm_judge_session`, `llm_judge_tool_calls`
 | `provider` | string | No | A logical provider name this pack declares in `requires`. Empty uses the host's default judge. |
 | `extra` | object | No | Provider-specific parameters. They reach the judge as `JudgeOpts.Extra`; the built-in judges send them as the prediction request's `Metadata`, which each provider reads or ignores. |
 
-A judge grades with the model of the provider it is bound to. There is no `model` param, and supplying one produces an error result rather than being ignored. To grade with another model, bind another provider: name it with `provider` or register it with `sdk.WithNamedProvider`.
+A judge grades with the model of the provider it is bound to. There is no `model` param: supplying one fails when the pack loads, like any [unknown param](#unknown-params), and produces an error result on a path that skips load validation. To grade with another model, bind another provider: name it with `provider` or register it with `sdk.WithNamedProvider`.
+
+**Default prompt.** When a check sets no `system_prompt`, `llm_judge`, `llm_judge_session` and `llm_judge_tool_calls` read a default from the eval context: `Metadata["judge_defaults"]["prompt"]` names a prompt, which is loaded from the `*prompt.Registry` in `Metadata["prompt_registry"]`. Its system template is rendered with `criteria`, `rubric`, `response` (the content being judged) and `conversation` (the session transcript), and the result is the judge's system prompt. Arena sets both from its `judge_defaults` block. A named prompt that is missing, has no registry to load from, or cannot be rendered makes the check an error rather than falling back to the built-in prompt. The RAG and safety checks keep their own prompts.
 
 ### `llm_judge`
 
@@ -1078,7 +1096,7 @@ Or on one registry instance, then pass it with `sdk.WithEvalRegistry`:
 registry.Register(handler)
 ```
 
-A handler may also implement `ParamValidator` (`ValidateParams(params map[string]any) error`), which runs when a guardrail is built and in `ValidateEvalTypes`, after defaults and aliases apply.
+A handler may also implement `ParamValidator` (`ValidateParams(params map[string]any) error`), which runs when a guardrail is built and in `ValidateEvalTypes`, after defaults and aliases apply. A handler that implements `ParamNamer` (`ParamNames() []string`, the canonical params it reads) has any other key rejected at the same points; see [Unknown params](#unknown-params).
 
 ### `StreamableEvalHandler` (Go)
 

@@ -6,8 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -143,19 +141,23 @@ type FileMockRepository struct {
 
 // NewFileMockRepository creates a repository that loads mock responses from a YAML file.
 // The file should follow the Config structure with scenarios and turn-specific responses.
+//
+// The file is decoded strictly: a key the repository does not read (at the top
+// level, in a scenario, or in a structured turn, step, tool call or content
+// part) is an error naming the key and the valid ones.
 func NewFileMockRepository(configPath string) (*FileMockRepository, error) {
 	data, err := os.ReadFile(configPath) //nolint:gosec // G304: path is the operator's own mock config file
 	if err != nil {
 		return nil, fmt.Errorf("failed to read mock config file: %w", err)
 	}
 
-	var config Config
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse mock config YAML: %w", err)
+	config, err := decodeConfigStrict(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse mock config YAML %s: %w", configPath, err)
 	}
 
 	return &FileMockRepository{
-		config:  &config,
+		config:  config,
 		baseDir: filepath.Dir(configPath),
 	}, nil
 }

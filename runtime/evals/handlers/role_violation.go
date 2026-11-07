@@ -61,7 +61,7 @@ func (h *RoleViolationHandler) Eval(
 // evalCtx.Metadata["system_prompt"] (auto), returning empty if neither
 // is present.
 func extractAgentRole(evalCtx *evals.EvalContext, params map[string]any) string {
-	if v, ok := params["agent_role"].(string); ok && v != "" {
+	if v, ok := params[pnAgentRole].(string); ok && v != "" {
 		return v
 	}
 	if evalCtx == nil || evalCtx.Metadata == nil {
@@ -81,7 +81,7 @@ func stripAgentRoleHint(params map[string]any) map[string]any {
 	}
 	out := make(map[string]any, len(params))
 	for k, v := range params {
-		if k == "agent_role" {
+		if k == pnAgentRole {
 			continue
 		}
 		out[k] = v

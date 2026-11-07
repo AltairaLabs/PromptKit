@@ -32,7 +32,7 @@ func (h *JSONPathHandler) Eval(
 	evalCtx *evals.EvalContext,
 	params map[string]any,
 ) (*evals.EvalResult, error) {
-	expression, _ := params["expression"].(string)
+	expression, _ := params[pnExpression].(string)
 	if expression == "" {
 		expression, _ = params["jmespath_expression"].(string)
 	}
@@ -69,7 +69,7 @@ func (h *JSONPathHandler) Eval(
 			Type:        h.Type(),
 			Score:       boolScore(false),
 			Explanation: fmt.Sprintf("JMESPath error: %v", err),
-			Details:     map[string]any{"expression": expression},
+			Details:     map[string]any{pnExpression: expression},
 		}, nil
 	}
 
@@ -77,7 +77,7 @@ func (h *JSONPathHandler) Eval(
 }
 
 func (h *JSONPathHandler) validateResult(result any, params map[string]any) (*evals.EvalResult, error) {
-	expr, _ := params["expression"].(string)
+	expr, _ := params[pnExpression].(string)
 	if expr == "" {
 		expr, _ = params["jmespath_expression"].(string)
 	}

@@ -946,7 +946,7 @@ func TestEvalMiddleware_EmitResults_WithBus(t *testing.T) {
 		pack: &pack.Pack{Pack: packspec.Pack{
 			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn,
-					Params: map[string]any{"substring": "hello"}},
+					Params: map[string]any{"patterns": []any{"hello"}}},
 			},
 		}},
 		prompt: &pack.Prompt{},
@@ -1220,7 +1220,7 @@ func TestEvalMiddleware_EmitResults_IncludesSessionID(t *testing.T) {
 	conv.config.eventBus = bus
 	conv.pack.Evals = []*evals.EvalDef{
 		{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn,
-			Params: map[string]any{"substring": "hello"}},
+			Params: map[string]any{"patterns": []any{"hello"}}},
 	}
 
 	mw := newEvalMiddleware(conv)

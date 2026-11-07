@@ -66,6 +66,13 @@ func runJudgeEval(
 
 	opts := buildJudgeOpts(content, params)
 	opts.Emitter = emitterFromEvalCtx(evalCtx)
+	if opts.SystemPrompt == "" {
+		systemPrompt, promptErr := judgeDefaultSystemPrompt(evalCtx, &opts)
+		if promptErr != nil {
+			return errorResult(handlerType, promptErr.Error())
+		}
+		opts.SystemPrompt = systemPrompt
+	}
 
 	judgeResult, judgeErr := provider.Judge(ctx, opts)
 	if judgeErr != nil {

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -12,8 +13,15 @@ import (
 var sentenceSplitter = regexp.MustCompile(`[.!?]+`)
 
 // SentenceCountHandler counts sentences in the current output.
-// This is a pure measurement handler — it always passes.
-// Params: (none required — returns count as measurement)
+// Params:
+//   - max: int — the sentence cap (optional; the max_sentences alias's
+//     legacy max_sentences param is normalized to it)
+//
+// Without max the score is 1 and the count is a measurement in
+// Details["count"]. With max, a reply within the cap scores 1 and one over it
+// scores max / count, so a default guardrail (floor 1.0) fires only over the
+// cap and the score still says how far over. The handler states no pass or
+// fail; a wrapper's threshold does.
 type SentenceCountHandler struct{}
 
 // Type returns the eval type identifier.
@@ -23,18 +31,47 @@ func (h *SentenceCountHandler) Type() string { return "sentence_count" }
 func (h *SentenceCountHandler) Eval(
 	_ context.Context,
 	evalCtx *evals.EvalContext,
-	_ map[string]any,
+	params map[string]any,
 ) (*evals.EvalResult, error) {
 	count := countSentences(evalCtx.CurrentOutput)
-	score := 1.0
+	details := map[string]any{keyCount: count}
+
+	maxSentences := extractIntPtr(params, keyMax)
+	if maxSentences == nil || *maxSentences <= 0 {
+		score := 1.0
+		return &evals.EvalResult{Type: h.Type(), Score: &score, Details: details}, nil
+	}
+	details[keyMax] = *maxSentences
+
+	if count > *maxSentences {
+		return &evals.EvalResult{
+			Type:        h.Type(),
+			Score:       scorePtr(float64(*maxSentences) / float64(count)),
+			Explanation: fmt.Sprintf("%d sentences exceeds max %d", count, *maxSentences),
+			Details:     details,
+		}, nil
+	}
 
 	return &evals.EvalResult{
-		Type:  h.Type(),
-		Score: &score,
-		Details: map[string]any{
-			keyCount: count,
-		},
+		Type:        h.Type(),
+		Score:       scorePtr(1),
+		Explanation: fmt.Sprintf("%d sentences, max %d", count, *maxSentences),
+		Details:     details,
 	}, nil
+}
+
+// ValidateParams rejects a max that is not a positive integer, so a cap that
+// can never be met (0) or that is the wrong type fails when the pack loads
+// rather than measuring nothing.
+func (h *SentenceCountHandler) ValidateParams(params map[string]any) error {
+	raw, present := params[keyMax]
+	if !present {
+		return nil
+	}
+	if v := extractIntPtr(params, keyMax); v == nil || *v <= 0 {
+		return fmt.Errorf("%s: max must be a positive integer, got %v", h.Type(), raw)
+	}
+	return nil
 }
 
 // countSentences counts sentences by splitting on [.!?]+ punctuation.

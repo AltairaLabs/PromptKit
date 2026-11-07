@@ -9,12 +9,17 @@ verified:
     - runtime/credentials/credential.go
     - runtime/evals/binding.go
     - runtime/evals/handlers/a2a_eval.go
+    - runtime/evals/handlers/content_excludes.go
     - runtime/evals/handlers/cosine_similarity.go
     - runtime/evals/handlers/directional.go
     - runtime/evals/handlers/groups.go
+    - runtime/evals/handlers/judge_defaults.go
     - runtime/evals/handlers/llm_judge.go
+    - runtime/evals/handlers/param_names.go
+    - runtime/evals/handlers/sentence_count.go
     - runtime/evals/handlers/tool_efficiency.go
     - runtime/evals/handlers/topic_policy.go
+    - runtime/evals/params.go
     - runtime/evals/registry.go
     - runtime/evals/runner.go
     - runtime/evals/types.go
@@ -30,6 +35,7 @@ verified:
     - runtime/logger/logger.go
     - runtime/media/image.go
     - runtime/metrics/collector.go
+    - runtime/persistence/common/repository.go
     - runtime/pipeline/stage/compactor.go
     - runtime/pipeline/stage/composition_executor.go
     - runtime/pipeline/stage/config.go
@@ -41,7 +47,6 @@ verified:
     - runtime/pipeline/stage/stages_recording.go
     - runtime/pipeline/stage/state_handoff.go
     - runtime/pipeline/stage/tool_call_rate.go
-    - runtime/persistence/common/repository.go
     - runtime/pipeline/types.go
     - runtime/prompt/pack.go
     - runtime/prompt/registry.go
@@ -58,6 +63,7 @@ verified:
     - runtime/providers/gemini/gemini_tools.go
     - runtime/providers/gemini/setup.go
     - runtime/providers/gemini/streaming_support.go
+    - runtime/providers/mock/mock_config_check.go
     - runtime/providers/multimodal.go
     - runtime/providers/openai/context_window_table.go
     - runtime/providers/openai/openai.go
@@ -253,6 +259,31 @@ eval's id still overrides it and is not a duplicate.
 | Open a pack whose eval has a metric name such as `my-score`, or an unusable `when` | that eval is skipped with a warning, where it ran | fix the metric name or the `when` |
 | Open a pack whose eval has a trigger this runtime does not know | that eval is skipped with a warning, where it silently never ran | nothing, or fix the trigger |
 | Run `sdk.ValidatePack` or `prompt.Pack.Validate` in CI | these findings, where there were none | fix the defs |
+
+### Check params are checked against what the handler reads
+
+Every built-in check type now lists the params it reads (`evals.ParamNamer`,
+`EvalTypeRegistry.ParamNames`), and a key it does not read is rejected when the
+pack loads, naming the key and the valid ones. Such a key used to be ignored,
+so the check that ran was not the one written. `min_score` and `max_score` are
+never reported, and a guardrail also accepts `direction` and `message`. See
+[Unknown params](/reference/checks/#unknown-params).
+
+| If you | You will see | Change |
+|---|---|---|
+| Declare a pack eval or validator with a key its handler does not read (`critera:` on `llm_judge`, `wrods:` on `banned_words`, `model:` on a judge) | `ValidateEvalTypes` reports `unknown param "critera" for llm_judge; valid params: …`, so the SDK's eval middleware skips the eval with a warning; a validator makes `Open()` fail with `ErrInvalidGuardrailParams` | fix or remove the key |
+| Put such a key inside a wrapper's `eval_params` | the same error, from the wrapper's `ValidateParams` at load. `Eval` does not check, so a host that adds its own keys at run time keeps working | fix or remove the key |
+| Write a custom eval handler | it is not checked unless it implements `ParamNames() []string` | implement it to have typos caught |
+| Keep a table of each check's params | `EvalTypeRegistry.ParamNames(type)` returns them | read them from the registry |
+| Load a mock provider config (`mock.NewFileMockRepository`) with a key it does not read, such as `default_response:` | the load fails, naming the key and the valid ones, at the top level, in a scenario, or in a structured turn, step, tool call or content part | fix the key; `default_response` is `defaultResponse` |
+
+### `sentence_count` scores against `max`; `content_excludes` takes `case_sensitive`; judges read `judge_defaults`
+
+| If you | You will see | Change |
+|---|---|---|
+| Set `max` (or `max_sentences`) on `sentence_count` / `max_sentences` | the score is 1 up to `max` and `max / count` above it, where it was always 1. A `max_sentences` guardrail now blocks a reply over `max` with its message. Without `max` the score is still 1. A `max` that is not a positive integer is rejected at load | nothing, unless you relied on the guardrail never firing |
+| Set `case_sensitive: true` on `content_excludes` / `banned_words` | a pattern matches only in its own case, in both match modes and while streaming, where the key was ignored | nothing, unless you relied on the key being ignored |
+| Supply `Metadata["judge_defaults"]["prompt"]` and a `*prompt.Registry` in `Metadata["prompt_registry"]` (Arena does, from `judge_defaults`) | `llm_judge`, `llm_judge_session` and `llm_judge_tool_calls` without a `system_prompt` grade with that prompt's rendered system template, where they used the built-in prompt. A named prompt that cannot be loaded makes the check an error | check the named prompt renders what you want the judge to see |
 
 ## v2.17.0
 
