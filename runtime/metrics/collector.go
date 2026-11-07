@@ -31,6 +31,7 @@ package metrics
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -73,7 +74,15 @@ var (
 	providerBuckets   = []float64{.1, .25, .5, 1, 2.5, 5, 10, 30, 60}
 	toolCallBuckets   = []float64{.01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
 	validationBuckets = []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1}
+
+	// defaultEvalHistogramBuckets spans the 0..1 range eval scores live in.
+	// The bucket at 0 counts exact zeros, which a binary score produces.
+	defaultEvalHistogramBuckets = []float64{0, .1, .2, .3, .4, .5, .6, .7, .8, .9, 1}
 )
+
+// evalRangeBucketCount is the number of equal-width buckets a histogram gets
+// across the range its MetricDef declares.
+const evalRangeBucketCount = 10
 
 // CollectorOpts configures a Collector.
 type CollectorOpts struct {
@@ -122,6 +131,16 @@ type CollectorOpts struct {
 	// that are not snake_case, and dimensions past the cap, are not exported
 	// and are counted in <namespace>_eval_dimensions_dropped_total.
 	EvalDimensionLimit int
+
+	// EvalHistogramBuckets sets the bucket upper bounds for eval metrics of
+	// type histogram whose MetricDef declares no range. Nil, the default, uses
+	// 0, 0.1, 0.2, ... 1.0: the range eval scores live in. The collector sorts
+	// the values and drops duplicates.
+	//
+	// A metric that declares both range.min and range.max gets ten equal-width
+	// buckets across that range instead, so a pack can record a value on
+	// another scale (milliseconds, a count) without a process-wide setting.
+	EvalHistogramBuckets []float64
 }
 
 // Collector records both pipeline and eval metrics into a Prometheus registry.
@@ -192,6 +211,10 @@ type Collector struct {
 	disablePipeline bool
 	disableEval     bool
 
+	// evalHistogramBuckets are the buckets for eval histograms with no
+	// declared range; see CollectorOpts.EvalHistogramBuckets.
+	evalHistogramBuckets []float64
+
 	// Eval dimension export; see CollectorOpts.EvalDimensionLimit.
 	dimensionLimit    int
 	dimensionFamilies map[string]*dimensionFamily // nil value: failed to register; guarded by mu
@@ -235,6 +258,8 @@ func NewCollector(opts CollectorOpts) *Collector {
 		evalMetrics:     make(map[string]evalMetricEntry),
 		disablePipeline: opts.DisablePipelineMetrics,
 		disableEval:     opts.DisableEvalMetrics,
+
+		evalHistogramBuckets: normalizeBuckets(opts.EvalHistogramBuckets, defaultEvalHistogramBuckets),
 	}
 
 	if opts.EvalDimensionLimit > 0 && !opts.DisableEvalMetrics {
@@ -1108,7 +1133,7 @@ func (c *Collector) registerEvalMetric(
 		entry.counter = vec
 
 	case evals.MetricHistogram:
-		buckets := prometheus.DefBuckets
+		buckets := c.evalBuckets(metric)
 		vec := prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:        name,
 			Help:        fmt.Sprintf(evalMetricHelpFormat, metric.Name),
@@ -1128,6 +1153,53 @@ func (c *Collector) registerEvalMetric(
 
 	c.evalMetrics[key] = entry
 	return entry, nil
+}
+
+// evalBuckets returns the histogram buckets for an eval metric: ten
+// equal-width buckets across a fully declared range, otherwise the collector's
+// eval histogram buckets.
+func (c *Collector) evalBuckets(metric *evals.MetricDef) []float64 {
+	if r := metric.Range; r != nil && r.Min != nil && r.Max != nil && *r.Max > *r.Min {
+		width := (*r.Max - *r.Min) / evalRangeBucketCount
+		// Each bound is computed from its index and rounded, rather than
+		// accumulated as prometheus.LinearBuckets does: repeated addition
+		// drifts (0.30000000000000004, 0.9999999999999999), which leaves a
+		// score of exactly 1.0 above the top bucket.
+		buckets := make([]float64, evalRangeBucketCount+1)
+		for i := range buckets {
+			buckets[i] = roundBucket(*r.Min + float64(i)*width)
+		}
+		buckets[evalRangeBucketCount] = *r.Max
+		return buckets
+	}
+	return c.evalHistogramBuckets
+}
+
+// bucketPrecision is the scale bucket bounds are rounded to, well below any
+// meaningful score resolution and well above float64 drift.
+const bucketPrecision = 1e9
+
+// roundBucket rounds a bucket bound to bucketPrecision.
+func roundBucket(v float64) float64 {
+	return math.Round(v*bucketPrecision) / bucketPrecision
+}
+
+// normalizeBuckets returns a sorted, de-duplicated copy of buckets, or
+// fallback when buckets is empty. Prometheus panics on buckets that are not
+// strictly increasing, so a caller's unsorted list must not reach it.
+func normalizeBuckets(buckets, fallback []float64) []float64 {
+	if len(buckets) == 0 {
+		return fallback
+	}
+	sorted := append([]float64(nil), buckets...)
+	sort.Float64s(sorted)
+	out := sorted[:1]
+	for _, b := range sorted[1:] {
+		if b != out[len(out)-1] {
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 // prefixedName prepends the namespace if not already prefixed.

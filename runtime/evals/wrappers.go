@@ -3,6 +3,7 @@ package evals
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
@@ -28,6 +29,115 @@ type ScoreThresholds struct {
 	// are optional; with neither set, Triggered requires a score of 1.0.
 	Min *float64
 	Max *float64
+
+	// MinExclusive makes Min strict: a score equal to Min falls outside it
+	// (a guardrail triggers, an assertion fails). MaxExclusive does the same
+	// for Max. Both are false for min_score and
+	// max_score, which are inclusive; ScoreThresholdsFromSpec sets them for the
+	// spec's gt and lt operators.
+	MinExclusive bool
+	MaxExclusive bool
+}
+
+// Threshold operators ScoreThresholdsFromSpec accepts, in the word and symbol
+// forms. Matching ignores case and surrounding space.
+const (
+	thresholdOpGTE = "gte"
+	thresholdOpGT  = "gt"
+	thresholdOpLTE = "lte"
+	thresholdOpLT  = "lt"
+	thresholdOpEQ  = "eq"
+)
+
+// thresholdOperators maps each accepted operator spelling to its word form.
+var thresholdOperators = map[string]string{
+	thresholdOpGTE: thresholdOpGTE, ">=": thresholdOpGTE,
+	thresholdOpGT: thresholdOpGT, ">": thresholdOpGT,
+	thresholdOpLTE: thresholdOpLTE, "<=": thresholdOpLTE,
+	thresholdOpLT: thresholdOpLT, "<": thresholdOpLT,
+	thresholdOpEQ: thresholdOpEQ, "==": thresholdOpEQ,
+}
+
+// ScoreThresholdsFromSpec converts an eval's spec-shaped threshold
+// ({operator, value}) into ScoreThresholds. The operators are gte (>=), gt (>),
+// lte (<=), lt (<) and eq (==); gt and lt are strict. A nil threshold yields
+// the zero ScoreThresholds. An unknown operator or a missing value is an error.
+func ScoreThresholdsFromSpec(t *Threshold) (ScoreThresholds, error) {
+	if t == nil {
+		return ScoreThresholds{}, nil
+	}
+	op, ok := thresholdOperators[strings.ToLower(strings.TrimSpace(t.Operator))]
+	if !ok {
+		return ScoreThresholds{}, fmt.Errorf(
+			"threshold.operator %q is not supported; use one of gte (>=), gt (>), lte (<=), lt (<), eq (==)",
+			t.Operator)
+	}
+	if t.Value == nil {
+		return ScoreThresholds{}, fmt.Errorf("threshold.value is required with operator %q", t.Operator)
+	}
+	v := *t.Value
+	switch op {
+	case thresholdOpGTE:
+		return ScoreThresholds{Min: &v}, nil
+	case thresholdOpGT:
+		return ScoreThresholds{Min: &v, MinExclusive: true}, nil
+	case thresholdOpLTE:
+		return ScoreThresholds{Max: &v}, nil
+	case thresholdOpLT:
+		return ScoreThresholds{Max: &v, MaxExclusive: true}, nil
+	default: // thresholdOpEQ
+		return ScoreThresholds{Min: &v, Max: &v}, nil
+	}
+}
+
+// wrapperThresholds returns the thresholds a wrapper applies: its min_score and
+// max_score params, or the eval's declared threshold. Declaring both is an
+// error rather than a silent precedence rule, because the two can disagree.
+func wrapperThresholds(params map[string]any, spec *Threshold) (ScoreThresholds, error) {
+	fromParams := ExtractScoreThresholds(params)
+	if spec == nil {
+		return fromParams, nil
+	}
+	// Key presence, not the parsed value: a min_score that is not a number
+	// is still a second declaration of the line.
+	if hasScoreThresholdParam(params) {
+		return ScoreThresholds{}, fmt.Errorf(
+			"threshold and min_score/max_score are both set; declare the pass line once")
+	}
+	return ScoreThresholdsFromSpec(spec)
+}
+
+// hasScoreThresholdParam reports whether params set min_score or max_score.
+func hasScoreThresholdParam(params map[string]any) bool {
+	for _, key := range scoreThresholdParamKeys {
+		if _, ok := params[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// thresholdWrapper is implemented by the wrappers that apply EvalDef.Threshold.
+// EvalRunner calls evalWithThreshold in place of Eval when the def declares a
+// threshold, since Eval receives only params.
+type thresholdWrapper interface {
+	evalWithThreshold(
+		ctx context.Context, evalCtx *EvalContext, params map[string]any, threshold *Threshold,
+	) (*EvalResult, error)
+}
+
+// checkWrapperThreshold reports a def's threshold that its wrapper could not
+// apply. Defs whose handler is not a wrapper are not checked: a plain eval
+// carries its threshold for a consumer and never applies it.
+func checkWrapperThreshold(handler EvalTypeHandler, def *EvalDef) error {
+	if def.Threshold == nil {
+		return nil
+	}
+	if _, ok := handler.(thresholdWrapper); !ok {
+		return nil
+	}
+	_, err := wrapperThresholds(def.Params, def.Threshold)
+	return err
 }
 
 // ExtractScoreThresholds reads min_score and max_score from wrapper params.
@@ -81,13 +191,20 @@ func (t ScoreThresholds) Triggered(result *EvalResult) bool {
 		perfect := 1.0
 		minScore = &perfect
 	}
-	if minScore != nil && *result.Score < *minScore {
-		return true
+	return !(ScoreThresholds{
+		Min: minScore, Max: t.Max, MinExclusive: t.MinExclusive, MaxExclusive: t.MaxExclusive,
+	}).within(*result.Score)
+}
+
+// within reports whether score satisfies every bound that is set.
+func (t ScoreThresholds) within(score float64) bool {
+	if t.Min != nil && (score < *t.Min || (t.MinExclusive && score == *t.Min)) {
+		return false
 	}
-	if t.Max != nil && *result.Score > *t.Max {
-		return true
+	if t.Max != nil && (score > *t.Max || (t.MaxExclusive && score == *t.Max)) {
+		return false
 	}
-	return false
+	return true
 }
 
 // ResultDetailReplacement is the EvalResult.Details key under which a check
@@ -151,6 +268,10 @@ func extractEvalParams(params map[string]any) map[string]any {
 // it carries no score, and otherwise true when the score satisfies min_score and
 // max_score. With neither set, min_score defaults to 1.0.
 //
+// When EvalRunner runs a def with a Threshold, the threshold sets the pass line
+// instead (see ScoreThresholdsFromSpec). A def that sets both a Threshold and
+// min_score or max_score is an error result.
+//
 // Params structure:
 //
 //	{
@@ -171,13 +292,23 @@ func (h *AssertionEvalHandler) Type() string { return WrapperTypeAssertion }
 func (h *AssertionEvalHandler) Eval(
 	ctx context.Context, evalCtx *EvalContext, params map[string]any,
 ) (*EvalResult, error) {
+	return h.evalWithThreshold(ctx, evalCtx, params, nil)
+}
+
+// evalWithThreshold is Eval with the def's declared threshold, which replaces
+// min_score and max_score as the pass line.
+func (h *AssertionEvalHandler) evalWithThreshold(
+	ctx context.Context, evalCtx *EvalContext, params map[string]any, threshold *Threshold,
+) (*EvalResult, error) {
 	handler, innerParams, err := prepareInner(h.registry, WrapperTypeAssertion, params)
 	if err != nil {
 		return nil, err
 	}
 
-	minScore := extractOptionalFloat64(params, "min_score")
-	maxScore := extractOptionalFloat64(params, "max_score")
+	thresholds, err := wrapperThresholds(params, threshold)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", WrapperTypeAssertion, err)
+	}
 
 	result, err := handler.Eval(ctx, evalCtx, innerParams)
 	if err != nil {
@@ -188,39 +319,29 @@ func (h *AssertionEvalHandler) Eval(
 	// judgement is its own field, and the inner eval's output — the rubric
 	// breakdown, the judge's structured reasoning — is the thing a consumer
 	// most wants and the thing this used to overwrite (#1875).
-	passed := h.applyThresholds(result, minScore, maxScore)
+	passed := h.passes(result, thresholds)
 	result.Kind = events.EvalKindAssertion
 	result.Passed = &passed
 	return result, nil
 }
 
-// applyThresholds determines pass/fail from score thresholds.
-// When no explicit thresholds are configured, defaults to min_score=1.0
-// (inner eval must fully pass).
-func (h *AssertionEvalHandler) applyThresholds(
-	result *EvalResult, minScore, maxScore *float64,
-) bool {
+// passes determines pass/fail from thresholds. With no bound set, the inner
+// eval must score 1.0.
+func (h *AssertionEvalHandler) passes(result *EvalResult, t ScoreThresholds) bool {
 	// An inner Error means no measurement was taken. Its score is a
 	// placeholder 0, which a max_score gate would read as a clean pass.
 	if result.Error != "" {
 		return false
 	}
-	if minScore == nil && maxScore == nil {
+	if t.Min == nil && t.Max == nil {
 		// Default: inner eval must score 1.0 to pass the assertion.
 		defaultMin := 1.0
-		minScore = &defaultMin
+		t.Min = &defaultMin
 	}
 	if result.Score == nil {
 		return true
 	}
-	passed := true
-	if minScore != nil {
-		passed = passed && *result.Score >= *minScore
-	}
-	if maxScore != nil {
-		passed = passed && *result.Score <= *maxScore
-	}
-	return passed
+	return t.within(*result.Score)
 }
 
 // GuardrailEvalHandler is a registered eval type ("guardrail") that wraps an
@@ -231,6 +352,9 @@ func (h *AssertionEvalHandler) applyThresholds(
 // Details["action"] set. A guardrail is triggered under ScoreThresholds.Triggered:
 // the score is below min_score or above max_score (min_score defaults to 1.0
 // when neither is set), or the inner result has no score.
+//
+// When EvalRunner runs a def with a Threshold, the threshold sets the line
+// instead, as for AssertionEvalHandler.
 //
 // Params structure:
 //
@@ -253,13 +377,24 @@ func (h *GuardrailEvalHandler) Type() string { return WrapperTypeGuardrail }
 func (h *GuardrailEvalHandler) Eval(
 	ctx context.Context, evalCtx *EvalContext, params map[string]any,
 ) (*EvalResult, error) {
+	return h.evalWithThreshold(ctx, evalCtx, params, nil)
+}
+
+// evalWithThreshold is Eval with the def's declared threshold, which replaces
+// min_score and max_score as the trigger line.
+func (h *GuardrailEvalHandler) evalWithThreshold(
+	ctx context.Context, evalCtx *EvalContext, params map[string]any, threshold *Threshold,
+) (*EvalResult, error) {
 	handler, innerParams, err := prepareInner(h.registry, WrapperTypeGuardrail, params)
 	if err != nil {
 		return nil, err
 	}
 
 	action := extractParamString(params, "action", "block")
-	thresholds := ExtractScoreThresholds(params)
+	thresholds, err := wrapperThresholds(params, threshold)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", WrapperTypeGuardrail, err)
+	}
 
 	result, err := handler.Eval(ctx, evalCtx, innerParams)
 	if err != nil {

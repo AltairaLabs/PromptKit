@@ -107,17 +107,39 @@ var externalTypes = map[string]bool{
 	typeRESTEvalSession:   true,
 }
 
-// customTypeGroups holds dynamically registered type→groups mappings
-// for eval types not in the built-in maps (e.g. exec handlers). typeGroupsMu
-// guards it.
+// GroupDeclarer is an optional interface an EvalTypeHandler implements to
+// declare the classification groups its eval type belongs to, such as
+// GroupLongRunning and GroupExternal for a handler that calls a judge model.
+// DefaultGroupsForType returns DefaultEvalGroup followed by these groups.
+//
+// The declaration is recorded when the handler is passed to RegisterDefault or
+// EvalTypeRegistry.Register, under the handler's Type and under any alias
+// registered for it. Like RegisterTypeGroups, the record is process-wide, not
+// per registry: the latest handler registered for a type sets its groups.
+// A handler that does not implement GroupDeclarer is classified by the
+// built-in table, which defaults to GroupFastRunning.
+type GroupDeclarer interface {
+	// EvalGroups returns the handler's classification groups, without
+	// DefaultEvalGroup.
+	EvalGroups() []string
+}
+
+// Type-to-groups state, guarded by typeGroupsMu:
+//   - customTypeGroups holds RegisterTypeGroups calls (exec handlers, etc.);
+//   - declaredTypeGroups holds what GroupDeclarer handlers declared;
+//   - groupAliases maps an alias type to the type it resolves to, so an alias
+//     is classified the same as its target.
 var (
-	customTypeGroups = make(map[string][]string)
-	typeGroupsMu     sync.RWMutex
+	customTypeGroups   = make(map[string][]string)
+	declaredTypeGroups = make(map[string][]string)
+	groupAliases       = make(map[string]string)
+	typeGroupsMu       sync.RWMutex
 )
 
 // RegisterTypeGroups registers the classification groups DefaultGroupsForType
 // returns for a dynamic eval type, such as an exec handler that classifies itself
-// as long-running or external. It keeps a copy of groups, and is safe to call
+// as long-running or external. It takes precedence over groups a handler
+// declares through GroupDeclarer. It keeps a copy of groups, and is safe to call
 // concurrently with DefaultGroupsForType.
 func RegisterTypeGroups(evalType string, groups []string) {
 	typeGroupsMu.Lock()
@@ -125,19 +147,59 @@ func RegisterTypeGroups(evalType string, groups []string) {
 	customTypeGroups[evalType] = append([]string(nil), groups...)
 }
 
+// recordDeclaredGroups records the groups h declares. A handler that does
+// not implement GroupDeclarer clears any declaration a handler it replaced
+// made, so the type falls back to the table.
+func recordDeclaredGroups(h EvalTypeHandler) {
+	d, ok := h.(GroupDeclarer)
+	typeGroupsMu.Lock()
+	defer typeGroupsMu.Unlock()
+	if !ok {
+		delete(declaredTypeGroups, h.Type())
+		return
+	}
+	declaredTypeGroups[h.Type()] = append([]string(nil), d.EvalGroups()...)
+}
+
+// recordGroupAlias records that aliasType is classified as targetType.
+func recordGroupAlias(aliasType, targetType string) {
+	typeGroupsMu.Lock()
+	defer typeGroupsMu.Unlock()
+	groupAliases[aliasType] = targetType
+}
+
+// lookupTypeGroups returns the registered or declared groups for evalType,
+// following one alias hop. RegisterTypeGroups wins over a declaration.
+func lookupTypeGroups(evalType string) ([]string, bool) {
+	typeGroupsMu.RLock()
+	defer typeGroupsMu.RUnlock()
+	candidates := []string{evalType}
+	if target, ok := groupAliases[evalType]; ok {
+		candidates = append(candidates, target)
+	}
+	for _, t := range candidates {
+		if g, ok := customTypeGroups[t]; ok {
+			return g, true
+		}
+		if g, ok := declaredTypeGroups[t]; ok {
+			return g, true
+		}
+	}
+	return nil, false
+}
+
 // DefaultGroupsForType returns the groups for a given eval type. The result
-// always starts with DefaultEvalGroup, followed by the groups registered with
-// RegisterTypeGroups for that type or, when none are registered, the built-in
-// classification: GroupFastRunning, GroupLongRunning or GroupExternal.
+// always starts with DefaultEvalGroup, followed by, in order of precedence: the
+// groups registered with RegisterTypeGroups for that type; the groups its
+// handler declares through GroupDeclarer; or the built-in classification
+// (GroupFastRunning, GroupLongRunning or GroupExternal). An alias registered with
+// RegisterDefaultAlias or EvalTypeRegistry.RegisterAlias is classified as its
+// target.
 func DefaultGroupsForType(evalType string) []string {
 	groups := []string{DefaultEvalGroup}
 
-	// Check custom registrations first (exec handlers, etc.)
-	typeGroupsMu.RLock()
-	custom, ok := customTypeGroups[evalType]
-	typeGroupsMu.RUnlock()
-	if ok {
-		return append(groups, custom...)
+	if found, ok := lookupTypeGroups(evalType); ok {
+		return append(groups, found...)
 	}
 
 	isLongRunning := longRunningTypes[evalType]
@@ -194,8 +256,13 @@ var ValidMetricTypes = map[MetricType]bool{
 //
 // EvalDef is an alias for packspec.Eval, which is generated from the PromptPack
 // schema. A type alias cannot carry methods, so the accessors IsEnabled,
-// SamplePercentage and Groups are free functions. The runtime does not read the
-// Threshold field: an eval never states pass or fail.
+// SamplePercentage and Groups are free functions.
+//
+// Threshold is applied by the wrapper that states a verdict: on a def of type
+// "assertion" or "guardrail", EvalRunner hands it to the wrapper as its pass
+// line in place of min_score and max_score (see ScoreThresholdsFromSpec). On
+// any other def it is carried, not applied: an eval never states pass or fail,
+// and a consumer with its own assertion layer may read it.
 type EvalDef = packspec.Eval
 
 // IsEnabled returns whether an eval is enabled. Defaults to true when Enabled
@@ -219,16 +286,23 @@ func SamplePercentage(e *EvalDef) float64 {
 // Groups returns the groups an eval belongs to.
 // When no explicit groups are configured, returns DefaultGroupsForType(e.Type),
 // which includes DefaultEvalGroup plus well-known classification groups
-// (fast-running, long-running, external) based on the eval type.
+// (fast-running, long-running, external) based on the eval type. An
+// "assertion" or "guardrail" wrapper is classified by the eval it wraps (its
+// eval_type param), since that is the work it does.
 // When explicit groups are set, returns them as-is (overriding defaults).
 func Groups(e *EvalDef) []string {
 	if e == nil {
 		return nil
 	}
-	if len(e.Groups) == 0 {
-		return DefaultGroupsForType(e.Type)
+	if len(e.Groups) != 0 {
+		return e.Groups
 	}
-	return e.Groups
+	if e.Type == WrapperTypeAssertion || e.Type == WrapperTypeGuardrail {
+		if inner, ok := innerEvalType(e.Params); ok {
+			return DefaultGroupsForType(inner)
+		}
+	}
+	return DefaultGroupsForType(e.Type)
 }
 
 // Values dereferences a slice of eval pointers into values.
@@ -251,9 +325,8 @@ func Values(in []*EvalDef) []EvalDef {
 }
 
 // Threshold is the {operator, value} threshold shape the PromptPack spec defines
-// for an eval. The runtime carries it but does not apply it; thresholds are
-// applied by the assertion and guardrail wrappers through min_score and
-// max_score.
+// for an eval. The assertion and guardrail wrappers apply it; on a plain eval it
+// is carried but not applied. ScoreThresholdsFromSpec lists the operators.
 type Threshold = packspec.EvalThreshold
 
 // Range defines the valid range for a metric value. It is an alias for

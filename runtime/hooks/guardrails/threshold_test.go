@@ -93,7 +93,7 @@ func TestGuardrailThreshold_MinScoreEnforcesBelowThreshold(t *testing.T) {
 }
 
 // TestGuardrailThreshold_MaxScoreEnforcesAboveThreshold covers max_score, for
-// parity with AssertionEvalHandler.applyThresholds. Some handlers score
+// parity with AssertionEvalHandler.passes. Some handlers score
 // "how much of the bad thing is present", where a high score is the failure.
 // A perfect 1.0 is used deliberately: under the old hardcoded rule that
 // allowed, so this case only distinguishes a real max_score implementation

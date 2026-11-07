@@ -95,6 +95,7 @@ EvalRunner executes EvalDef values against an EvalContext, and EvalTypeRegistry 
   - [func \(h \*ExecEvalHook\) Name\(\) string](<#ExecEvalHook.Name>)
   - [func \(h \*ExecEvalHook\) OnEvalResult\(ctx context.Context, \_ \*EvalDef, \_ \*EvalContext, result \*EvalResult\)](<#ExecEvalHook.OnEvalResult>)
 - [type ExecEvalHookConfig](<#ExecEvalHookConfig>)
+- [type GroupDeclarer](<#GroupDeclarer>)
 - [type GuardrailEvalHandler](<#GuardrailEvalHandler>)
   - [func \(h \*GuardrailEvalHandler\) Eval\(ctx context.Context, evalCtx \*EvalContext, params map\[string\]any\) \(\*EvalResult, error\)](<#GuardrailEvalHandler.Eval>)
   - [func \(h \*GuardrailEvalHandler\) EvalTimeout\(params map\[string\]any\) time.Duration](<#GuardrailEvalHandler.EvalTimeout>)
@@ -119,6 +120,7 @@ EvalRunner executes EvalDef values against an EvalContext, and EvalTypeRegistry 
   - [func WithTimeout\(d time.Duration\) RunnerOption](<#WithTimeout>)
 - [type ScoreThresholds](<#ScoreThresholds>)
   - [func ExtractScoreThresholds\(params map\[string\]any\) ScoreThresholds](<#ExtractScoreThresholds>)
+  - [func ScoreThresholdsFromSpec\(t \*Threshold\) \(ScoreThresholds, error\)](<#ScoreThresholdsFromSpec>)
   - [func \(t ScoreThresholds\) Triggered\(result \*EvalResult\) bool](<#ScoreThresholds.Triggered>)
 - [type StreamableEvalHandler](<#StreamableEvalHandler>)
 - [type Threshold](<#Threshold>)
@@ -340,7 +342,7 @@ func ApplyDefaults(evalType string, params map[string]any) map[string]any
 ApplyDefaults merges default params for the given eval type. User\-provided params take precedence over defaults.
 
 <a name="DefaultAliases"></a>
-## func [DefaultAliases](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L126>)
+## func [DefaultAliases](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L128>)
 
 ```go
 func DefaultAliases() [][2]string
@@ -349,13 +351,13 @@ func DefaultAliases() [][2]string
 DefaultAliases returns a copy of the pairs registered with RegisterDefaultAlias, as alias and target, sorted by alias.
 
 <a name="DefaultGroupsForType"></a>
-## func [DefaultGroupsForType](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L132>)
+## func [DefaultGroupsForType](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L198>)
 
 ```go
 func DefaultGroupsForType(evalType string) []string
 ```
 
-DefaultGroupsForType returns the groups for a given eval type. The result always starts with DefaultEvalGroup, followed by the groups registered with RegisterTypeGroups for that type or, when none are registered, the built\-in classification: GroupFastRunning, GroupLongRunning or GroupExternal.
+DefaultGroupsForType returns the groups for a given eval type. The result always starts with DefaultEvalGroup, followed by, in order of precedence: the groups registered with RegisterTypeGroups for that type; the groups its handler declares through GroupDeclarer; or the built\-in classification \(GroupFastRunning, GroupLongRunning or GroupExternal\). An alias registered with RegisterDefaultAlias or EvalTypeRegistry.RegisterAlias is classified as its target.
 
 <a name="DescribeUnresolved"></a>
 ## func [DescribeUnresolved](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/binding.go#L80>)
@@ -430,16 +432,16 @@ FlakinessScore returns a value from 0.0 \(deterministic\) to 1.0 \(maximally fla
 Returns 0 for an empty slice.
 
 <a name="Groups"></a>
-## func [Groups](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L224>)
+## func [Groups](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L293>)
 
 ```go
 func Groups(e *EvalDef) []string
 ```
 
-Groups returns the groups an eval belongs to. When no explicit groups are configured, returns DefaultGroupsForType\(e.Type\), which includes DefaultEvalGroup plus well\-known classification groups \(fast\-running, long\-running, external\) based on the eval type. When explicit groups are set, returns them as\-is \(overriding defaults\).
+Groups returns the groups an eval belongs to. When no explicit groups are configured, returns DefaultGroupsForType\(e.Type\), which includes DefaultEvalGroup plus well\-known classification groups \(fast\-running, long\-running, external\) based on the eval type. An "assertion" or "guardrail" wrapper is classified by the eval it wraps \(its eval\_type param\), since that is the work it does. When explicit groups are set, returns them as\-is \(overriding defaults\).
 
 <a name="IsEnabled"></a>
-## func [IsEnabled](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L203>)
+## func [IsEnabled](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L270>)
 
 ```go
 func IsEnabled(e *EvalDef) bool
@@ -448,7 +450,7 @@ func IsEnabled(e *EvalDef) bool
 IsEnabled returns whether an eval is enabled. Defaults to true when Enabled is nil, because absent means enabled.
 
 <a name="MetricLabels"></a>
-## func [MetricLabels](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L314>)
+## func [MetricLabels](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L387>)
 
 ```go
 func MetricLabels(m *MetricDef) map[string]string
@@ -501,7 +503,7 @@ func RegisterDefault(h EvalTypeHandler)
 RegisterDefault adds a handler to the default set used by NewEvalTypeRegistry. It affects only registries created afterward. It is safe to call concurrently, though it is usually called from an init function.
 
 <a name="RegisterDefaultAlias"></a>
-## func [RegisterDefaultAlias](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L118>)
+## func [RegisterDefaultAlias](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L119>)
 
 ```go
 func RegisterDefaultAlias(aliasType, targetType string)
@@ -510,16 +512,16 @@ func RegisterDefaultAlias(aliasType, targetType string)
 RegisterDefaultAlias registers an alias mapping applied by NewEvalTypeRegistry. The target must be registered with RegisterDefault before the registry is created; an alias whose target is missing is skipped. It is safe to call concurrently.
 
 <a name="RegisterTypeGroups"></a>
-## func [RegisterTypeGroups](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L122>)
+## func [RegisterTypeGroups](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L144>)
 
 ```go
 func RegisterTypeGroups(evalType string, groups []string)
 ```
 
-RegisterTypeGroups registers the classification groups DefaultGroupsForType returns for a dynamic eval type, such as an exec handler that classifies itself as long\-running or external. It keeps a copy of groups, and is safe to call concurrently with DefaultGroupsForType.
+RegisterTypeGroups registers the classification groups DefaultGroupsForType returns for a dynamic eval type, such as an exec handler that classifies itself as long\-running or external. It takes precedence over groups a handler declares through GroupDeclarer. It keeps a copy of groups, and is safe to call concurrently with DefaultGroupsForType.
 
 <a name="ResultReplacement"></a>
-## func [ResultReplacement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L101>)
+## func [ResultReplacement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L218>)
 
 ```go
 func ResultReplacement(result *EvalResult) string
@@ -528,7 +530,7 @@ func ResultReplacement(result *EvalResult) string
 ResultReplacement returns the replacement text a result supplies under ResultDetailReplacement, or "" when it supplies none.
 
 <a name="SamplePercentage"></a>
-## func [SamplePercentage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L212>)
+## func [SamplePercentage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L279>)
 
 ```go
 func SamplePercentage(e *EvalDef) float64
@@ -550,7 +552,7 @@ It returns a copy of metadata with total\_cost, input\_tokens, output\_tokens an
 Values already present in metadata win over the derived ones. The input map is never mutated.
 
 <a name="SetMetricLabels"></a>
-## func [SetMetricLabels](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L291>)
+## func [SetMetricLabels](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L364>)
 
 ```go
 func SetMetricLabels(m *MetricDef, labels map[string]string)
@@ -583,7 +585,7 @@ A \`when\` that ValidateEvalWhen rejects does not run, and the validation error 
 It takes the raw map because EvalDef.When is a map\[string\]any; EvalWhen is the runtime's reading of it.
 
 <a name="StripScoreThresholds"></a>
-## func [StripScoreThresholds](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L46>)
+## func [StripScoreThresholds](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L156>)
 
 ```go
 func StripScoreThresholds(params map[string]any) map[string]any
@@ -592,7 +594,7 @@ func StripScoreThresholds(params map[string]any) map[string]any
 StripScoreThresholds returns params without min\_score and max\_score, so the keys never reach an inner eval handler. Handlers reject those keys with an error result that scores 0, which a guardrail reads as a block. The input map is never mutated.
 
 <a name="ValidateEvalTypes"></a>
-## func [ValidateEvalTypes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/validate.go#L112>)
+## func [ValidateEvalTypes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/validate.go#L114>)
 
 ```go
 func ValidateEvalTypes(defs []EvalDef, registry *EvalTypeRegistry) []string
@@ -602,7 +604,7 @@ ValidateEvalTypes checks that every EvalDef's Type has a registered handler in t
 
 Params are normalized \(ApplyDefaults \+ NormalizeParams\) before calling ValidateParams, so handlers only need to check canonical key names.
 
-It also reports an unusable \`when\`. The SDK exposes it as a preflight check, and its eval middleware skips defs that fail it, with a warning.
+It also reports a Threshold an assertion or guardrail wrapper cannot apply \(an unknown operator, a missing value, or one declared alongside min\_score or max\_score\), and an unusable \`when\`. The SDK exposes it as a preflight check, and its eval middleware skips defs that fail it, with a warning.
 
 <a name="ValidateEvalWhen"></a>
 ## func [ValidateEvalWhen](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/when.go#L41>)
@@ -643,11 +645,13 @@ func WithProviderBinding(ctx context.Context, b ProviderBinding) context.Context
 WithProviderBinding attaches a host's binding to ctx. Mirrors inference.WithRegistry: the pipeline attaches it once and every stage and handler below reads it from the context it was given.
 
 <a name="AssertionEvalHandler"></a>
-## type [AssertionEvalHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L162-L164>)
+## type [AssertionEvalHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L283-L285>)
 
 AssertionEvalHandler is a registered eval type \("assertion"\) that wraps an inner eval and applies pass/fail judgment based on score thresholds.
 
 The result is the inner eval's result with Kind set to EvalKindAssertion and Passed set. Passed is false when the inner result carries an Error, true when it carries no score, and otherwise true when the score satisfies min\_score and max\_score. With neither set, min\_score defaults to 1.0.
+
+When EvalRunner runs a def with a Threshold, the threshold sets the pass line instead \(see ScoreThresholdsFromSpec\). A def that sets both a Threshold and min\_score or max\_score is an error result.
 
 Params structure:
 
@@ -667,7 +671,7 @@ type AssertionEvalHandler struct {
 ```
 
 <a name="AssertionEvalHandler.Eval"></a>
-### func \(\*AssertionEvalHandler\) [Eval](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L171-L173>)
+### func \(\*AssertionEvalHandler\) [Eval](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L292-L294>)
 
 ```go
 func (h *AssertionEvalHandler) Eval(ctx context.Context, evalCtx *EvalContext, params map[string]any) (*EvalResult, error)
@@ -676,7 +680,7 @@ func (h *AssertionEvalHandler) Eval(ctx context.Context, evalCtx *EvalContext, p
 Eval resolves the inner handler from the registry, executes it, and applies threshold\-based pass/fail judgment.
 
 <a name="AssertionEvalHandler.EvalTimeout"></a>
-### func \(\*AssertionEvalHandler\) [EvalTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L358>)
+### func \(\*AssertionEvalHandler\) [EvalTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L493>)
 
 ```go
 func (h *AssertionEvalHandler) EvalTimeout(params map[string]any) time.Duration
@@ -685,7 +689,7 @@ func (h *AssertionEvalHandler) EvalTimeout(params map[string]any) time.Duration
 EvalTimeout delegates to the wrapped eval.
 
 <a name="AssertionEvalHandler.Type"></a>
-### func \(\*AssertionEvalHandler\) [Type](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L167>)
+### func \(\*AssertionEvalHandler\) [Type](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L288>)
 
 ```go
 func (h *AssertionEvalHandler) Type() string
@@ -694,7 +698,7 @@ func (h *AssertionEvalHandler) Type() string
 Type returns the registered eval type name.
 
 <a name="AssertionEvalHandler.ValidateParams"></a>
-### func \(\*AssertionEvalHandler\) [ValidateParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L372>)
+### func \(\*AssertionEvalHandler\) [ValidateParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L507>)
 
 ```go
 func (h *AssertionEvalHandler) ValidateParams(params map[string]any) error
@@ -703,7 +707,7 @@ func (h *AssertionEvalHandler) ValidateParams(params map[string]any) error
 ValidateParams lets a wrapped eval's own param validation run at load time, the same as a directly declared one. The guardrail factory and sdk.ValidatePack both look for this interface, so implementing it here is what makes \`type: guardrail\` wrapping a check with a typo'd param fail to load rather than load unprotected.
 
 <a name="EvalContext"></a>
-## type [EvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L396-L434>)
+## type [EvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L469-L507>)
 
 EvalContext provides data to eval handlers. For turn\-level evals: Messages contains history up to the current turn. For session\-level evals: Messages contains the full conversation.
 
@@ -774,11 +778,13 @@ It differs from BuildEvalContext in two ways. CurrentOutput is the caller\-suppl
 TurnIndex, SessionID, PromptID and Variables are left unset because they cannot be derived from the message history. Handlers that depend on them are unsuitable as guardrails.
 
 <a name="EvalDef"></a>
-## type [EvalDef](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L199>)
+## type [EvalDef](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L266>)
 
 EvalDef defines a single evaluation within a PromptPack. Evals are defined at pack level and/or prompt level. Prompt\-level evals override pack\-level evals by ID \(see ResolveEvals\).
 
-EvalDef is an alias for packspec.Eval, which is generated from the PromptPack schema. A type alias cannot carry methods, so the accessors IsEnabled, SamplePercentage and Groups are free functions. The runtime does not read the Threshold field: an eval never states pass or fail.
+EvalDef is an alias for packspec.Eval, which is generated from the PromptPack schema. A type alias cannot carry methods, so the accessors IsEnabled, SamplePercentage and Groups are free functions.
+
+Threshold is applied by the wrapper that states a verdict: on a def of type "assertion" or "guardrail", EvalRunner hands it to the wrapper as its pass line in place of min\_score and max\_score \(see ScoreThresholdsFromSpec\). On any other def it is carried, not applied: an eval never states pass or fail, and a consumer with its own assertion layer may read it.
 
 ```go
 type EvalDef = packspec.Eval
@@ -803,7 +809,7 @@ func ResolveEvals(packEvals, promptEvals []EvalDef) []EvalDef
 ResolveEvals merges pack\-level and prompt\-level eval definitions. Prompt\-level evals override pack\-level evals when they share the same ID. The returned slice preserves pack ordering first, followed by any prompt\-only evals \(those with no pack counterpart\) in their original order.
 
 <a name="Values"></a>
-### func [Values](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L240>)
+### func [Values](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L314>)
 
 ```go
 func Values(in []*EvalDef) []EvalDef
@@ -839,7 +845,7 @@ type EvalHook interface {
 ```
 
 <a name="EvalResult"></a>
-## type [EvalResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L336-L391>)
+## type [EvalResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L409-L464>)
 
 EvalResult captures the outcome of a single eval execution. Handlers produce scores only \(0.0 to 1.0\); there is no pass/fail on a plain eval. The assertion and guardrail wrappers state a verdict in Passed.
 
@@ -1049,7 +1055,7 @@ import _ "github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
 ```
 
 <a name="EvalTypeRegistry.Get"></a>
-### func \(\*EvalTypeRegistry\) [Get](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L158>)
+### func \(\*EvalTypeRegistry\) [Get](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L163>)
 
 ```go
 func (r *EvalTypeRegistry) Get(evalType string) (EvalTypeHandler, error)
@@ -1058,7 +1064,7 @@ func (r *EvalTypeRegistry) Get(evalType string) (EvalTypeHandler, error)
 Get returns the handler for the given type, or an error if not found.
 
 <a name="EvalTypeRegistry.Has"></a>
-### func \(\*EvalTypeRegistry\) [Has](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L169>)
+### func \(\*EvalTypeRegistry\) [Has](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L174>)
 
 ```go
 func (r *EvalTypeRegistry) Has(evalType string) bool
@@ -1067,16 +1073,16 @@ func (r *EvalTypeRegistry) Has(evalType string) bool
 Has returns true if a handler is registered for the given type.
 
 <a name="EvalTypeRegistry.Register"></a>
-### func \(\*EvalTypeRegistry\) [Register](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L137>)
+### func \(\*EvalTypeRegistry\) [Register](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L140>)
 
 ```go
 func (r *EvalTypeRegistry) Register(handler EvalTypeHandler)
 ```
 
-Register adds a handler to the registry. If a handler with the same type is already registered, it is replaced.
+Register adds a handler to the registry. If a handler with the same type is already registered, it is replaced. A handler that implements GroupDeclarer has its groups recorded for DefaultGroupsForType.
 
 <a name="EvalTypeRegistry.RegisterAlias"></a>
-### func \(\*EvalTypeRegistry\) [RegisterAlias](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L146>)
+### func \(\*EvalTypeRegistry\) [RegisterAlias](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L150>)
 
 ```go
 func (r *EvalTypeRegistry) RegisterAlias(aliasType, targetType string) error
@@ -1085,7 +1091,7 @@ func (r *EvalTypeRegistry) RegisterAlias(aliasType, targetType string) error
 RegisterAlias maps an alias name to an existing handler type. Lookups for aliasType will resolve to the handler registered for targetType. Returns an error if targetType has no registered handler.
 
 <a name="EvalTypeRegistry.Types"></a>
-### func \(\*EvalTypeRegistry\) [Types](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L177>)
+### func \(\*EvalTypeRegistry\) [Types](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L182>)
 
 ```go
 func (r *EvalTypeRegistry) Types() []string
@@ -1094,7 +1100,7 @@ func (r *EvalTypeRegistry) Types() []string
 Types returns a sorted list of all registered eval type names.
 
 <a name="EvalViolation"></a>
-## type [EvalViolation](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L272-L276>)
+## type [EvalViolation](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L345-L349>)
 
 EvalViolation represents a single eval violation within a conversation or session.
 
@@ -1107,7 +1113,7 @@ type EvalViolation struct {
 ```
 
 <a name="EvalWhen"></a>
-## type [EvalWhen](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L264-L269>)
+## type [EvalWhen](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L337-L342>)
 
 EvalWhen specifies preconditions that must be met for an eval to run.
 
@@ -1240,12 +1246,29 @@ type ExecEvalHookConfig struct {
 }
 ```
 
+<a name="GroupDeclarer"></a>
+## type [GroupDeclarer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L121-L125>)
+
+GroupDeclarer is an optional interface an EvalTypeHandler implements to declare the classification groups its eval type belongs to, such as GroupLongRunning and GroupExternal for a handler that calls a judge model. DefaultGroupsForType returns DefaultEvalGroup followed by these groups.
+
+The declaration is recorded when the handler is passed to RegisterDefault or EvalTypeRegistry.Register, under the handler's Type and under any alias registered for it. Like RegisterTypeGroups, the record is process\-wide, not per registry: the latest handler registered for a type sets its groups. A handler that does not implement GroupDeclarer is classified by the built\-in table, which defaults to GroupFastRunning.
+
+```go
+type GroupDeclarer interface {
+    // EvalGroups returns the handler's classification groups, without
+    // DefaultEvalGroup.
+    EvalGroups() []string
+}
+```
+
 <a name="GuardrailEvalHandler"></a>
-## type [GuardrailEvalHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L244-L246>)
+## type [GuardrailEvalHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L368-L370>)
 
 GuardrailEvalHandler is a registered eval type \("guardrail"\) that wraps an inner eval and determines whether the guardrail was triggered.
 
 The result is the inner eval's result with Kind set to EvalKindGuardrail, Passed set to the inverse of triggered, and Details\["triggered"\] and Details\["action"\] set. A guardrail is triggered under ScoreThresholds.Triggered: the score is below min\_score or above max\_score \(min\_score defaults to 1.0 when neither is set\), or the inner result has no score.
+
+When EvalRunner runs a def with a Threshold, the threshold sets the line instead, as for AssertionEvalHandler.
 
 Params structure:
 
@@ -1266,7 +1289,7 @@ type GuardrailEvalHandler struct {
 ```
 
 <a name="GuardrailEvalHandler.Eval"></a>
-### func \(\*GuardrailEvalHandler\) [Eval](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L253-L255>)
+### func \(\*GuardrailEvalHandler\) [Eval](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L377-L379>)
 
 ```go
 func (h *GuardrailEvalHandler) Eval(ctx context.Context, evalCtx *EvalContext, params map[string]any) (*EvalResult, error)
@@ -1275,7 +1298,7 @@ func (h *GuardrailEvalHandler) Eval(ctx context.Context, evalCtx *EvalContext, p
 Eval resolves the inner handler from the registry, executes it, and determines whether the guardrail was triggered.
 
 <a name="GuardrailEvalHandler.EvalTimeout"></a>
-### func \(\*GuardrailEvalHandler\) [EvalTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L363>)
+### func \(\*GuardrailEvalHandler\) [EvalTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L498>)
 
 ```go
 func (h *GuardrailEvalHandler) EvalTimeout(params map[string]any) time.Duration
@@ -1284,7 +1307,7 @@ func (h *GuardrailEvalHandler) EvalTimeout(params map[string]any) time.Duration
 EvalTimeout delegates to the wrapped eval.
 
 <a name="GuardrailEvalHandler.Type"></a>
-### func \(\*GuardrailEvalHandler\) [Type](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L249>)
+### func \(\*GuardrailEvalHandler\) [Type](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L373>)
 
 ```go
 func (h *GuardrailEvalHandler) Type() string
@@ -1293,7 +1316,7 @@ func (h *GuardrailEvalHandler) Type() string
 Type returns the registered eval type name.
 
 <a name="GuardrailEvalHandler.ValidateParams"></a>
-### func \(\*GuardrailEvalHandler\) [ValidateParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L378>)
+### func \(\*GuardrailEvalHandler\) [ValidateParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L513>)
 
 ```go
 func (h *GuardrailEvalHandler) ValidateParams(params map[string]any) error
@@ -1326,7 +1349,7 @@ type Logger interface {
 ```
 
 <a name="MetricDef"></a>
-## type [MetricDef](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L284>)
+## type [MetricDef](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L357>)
 
 MetricDef defines a Prometheus\-style metric associated with an eval. It is an alias for packspec.MetricDef.
 
@@ -1377,7 +1400,7 @@ func (w *MetricResultWriter) WriteResults(_ context.Context, results []EvalResul
 WriteResults records each eval result as a Prometheus metric. If the EvalDef has an explicit Metric definition, that is used. Otherwise a default gauge metric named after the eval ID is generated so that every eval produces a metric without requiring pack authors to define one explicitly.
 
 <a name="MetricType"></a>
-## type [MetricType](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L170>)
+## type [MetricType](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L232>)
 
 MetricType defines the Prometheus metric type for eval results.
 
@@ -1454,7 +1477,7 @@ func BindingFromContext(ctx context.Context) ProviderBinding
 BindingFromContext returns the binding attached to ctx, or nil when none is.
 
 <a name="Range"></a>
-## type [Range](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L261>)
+## type [Range](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L334>)
 
 Range defines the valid range for a metric value. It is an alias for packspec.MetricDefRange.
 
@@ -1510,7 +1533,7 @@ func WithTimeout(d time.Duration) RunnerOption
 WithTimeout sets the per\-eval execution timeout.
 
 <a name="ScoreThresholds"></a>
-## type [ScoreThresholds](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L26-L31>)
+## type [ScoreThresholds](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L27-L40>)
 
 ScoreThresholds turns an eval score into a verdict. It is the shared implementation used by the "guardrail" eval type here and by the pipeline's guardrail hook adapter; evals themselves never apply it.
 
@@ -1520,11 +1543,19 @@ type ScoreThresholds struct {
     // are optional; with neither set, Triggered requires a score of 1.0.
     Min *float64
     Max *float64
+
+    // MinExclusive makes Min strict: a score equal to Min falls outside it
+    // (a guardrail triggers, an assertion fails). MaxExclusive does the same
+    // for Max. Both are false for min_score and
+    // max_score, which are inclusive; ScoreThresholdsFromSpec sets them for the
+    // spec's gt and lt operators.
+    MinExclusive bool
+    MaxExclusive bool
 }
 ```
 
 <a name="ExtractScoreThresholds"></a>
-### func [ExtractScoreThresholds](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L35>)
+### func [ExtractScoreThresholds](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L145>)
 
 ```go
 func ExtractScoreThresholds(params map[string]any) ScoreThresholds
@@ -1532,8 +1563,17 @@ func ExtractScoreThresholds(params map[string]any) ScoreThresholds
 
 ExtractScoreThresholds reads min\_score and max\_score from wrapper params. A value that is missing or not a number is left unset.
 
+<a name="ScoreThresholdsFromSpec"></a>
+### func [ScoreThresholdsFromSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L65>)
+
+```go
+func ScoreThresholdsFromSpec(t *Threshold) (ScoreThresholds, error)
+```
+
+ScoreThresholdsFromSpec converts an eval's spec\-shaped threshold \(\{operator, value\}\) into ScoreThresholds. The operators are gte \(\>=\), gt \(\>\), lte \(\<=\), lt \(\<\) and eq \(==\); gt and lt are strict. A nil threshold yields the zero ScoreThresholds. An unknown operator or a missing value is an error.
+
 <a name="ScoreThresholds.Triggered"></a>
-### func \(ScoreThresholds\) [Triggered](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L75>)
+### func \(ScoreThresholds\) [Triggered](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L185>)
 
 ```go
 func (t ScoreThresholds) Triggered(result *EvalResult) bool
@@ -1560,16 +1600,16 @@ type StreamableEvalHandler interface {
 ```
 
 <a name="Threshold"></a>
-## type [Threshold](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L257>)
+## type [Threshold](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L330>)
 
-Threshold is the \{operator, value\} threshold shape the PromptPack spec defines for an eval. The runtime carries it but does not apply it; thresholds are applied by the assertion and guardrail wrappers through min\_score and max\_score.
+Threshold is the \{operator, value\} threshold shape the PromptPack spec defines for an eval. The assertion and guardrail wrappers apply it; on a plain eval it is carried but not applied. ScoreThresholdsFromSpec lists the operators.
 
 ```go
 type Threshold = packspec.EvalThreshold
 ```
 
 <a name="ToolCallRecord"></a>
-## type [ToolCallRecord](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L450>)
+## type [ToolCallRecord](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L523>)
 
 ToolCallRecord is an alias for types.ToolCallRecord.
 

@@ -11,11 +11,14 @@ verified:
     - runtime/evals/handlers/a2a_eval.go
     - runtime/evals/handlers/cosine_similarity.go
     - runtime/evals/handlers/directional.go
+    - runtime/evals/handlers/groups.go
     - runtime/evals/handlers/llm_judge.go
     - runtime/evals/handlers/tool_efficiency.go
     - runtime/evals/handlers/topic_policy.go
+    - runtime/evals/registry.go
     - runtime/evals/runner.go
     - runtime/evals/types.go
+    - runtime/evals/validate.go
     - runtime/evals/wrappers.go
     - runtime/hooks/guardrails/adapter.go
     - runtime/hooks/hooks.go
@@ -158,6 +161,16 @@ its findings, without the tool warnings, and now lists errors before warnings.
 | Block on every `Validate` finding | `missing compilation metadata` among them, as before | call `ValidateDetailed` and block on `Errors` only |
 | Want undeclared prompt tools reported | `prompt '<name>': tool '<tool>' is not defined in the pack's tools` in `ValidateDetailed().Warnings` | call `ValidateDetailed` |
 | Depend on the order of `Validate`, `ListPrompts` or `ListTools` | a sorted, stable order | nothing |
+
+### Eval thresholds, groups and histogram buckets
+
+| If you | You will see | Change |
+|---|---|---|
+| Declare `threshold: {operator, value}` on an eval of `type: assertion` or `type: guardrail` | it sets the pass line in place of `min_score`/`max_score`. `gt` and `lt` are strict. An unknown operator, a missing value, or `threshold` alongside `min_score` or `max_score` makes the eval an error result. `ValidateEvalTypes` reports it at load, so the SDK's eval middleware skips that eval with a warning | check the threshold says what you meant, and declare the line once |
+| Declare `threshold` on a plain eval | no change: it is carried, not applied, and `Passed` stays nil | wrap the eval to gate on it |
+| Filter evals by group without explicit `groups` | every judge- and classifier-backed check beyond the `llm_judge` family (`faithfulness`, `bias`, `toxicity`, `pii_leakage`, `role_violation`, `text_sentiment`, `topic_policy` and the rest), and `tool_exec`, is `long-running` and `external`, where it was `fast-running`. An alias takes its target's groups, and an `assertion` or `guardrail` wrapper takes the groups of the eval it wraps | set `groups` on the eval if you want it in the fast-running set |
+| Write a custom eval handler | implement `evals.GroupDeclarer` to state its groups; without it the handler is `fast-running` | add `EvalGroups()` to a handler that calls a model or service |
+| Record an eval metric of type `histogram` | buckets at 0, 0.1 … 1.0, where they were the latency buckets in `prometheus.DefBuckets`. A metric with `range.min` and `range.max` gets ten buckets across its range | set `CollectorOpts.EvalHistogramBuckets` to choose your own; existing series change bucket bounds, so check dashboards that read `le` |
 
 ## v2.17.0
 
