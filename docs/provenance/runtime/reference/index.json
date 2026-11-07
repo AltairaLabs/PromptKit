@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/runtime/reference/index.md",
- "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "commit": "ffbed7c4b0fff266953352be5e73d4e308a97acf",
  "claims": [
   {
    "id": 1,
@@ -19,10 +19,7 @@
    "claim": "Import paths pipeline, providers, tools, mcp, statestore, hooks, hooks/guardrails, types, logger, telemetry exist",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/guardrails/adapter.go",
-    "runtime/logger/logger.go:1-20",
-    "runtime/pipeline/types.go:15-16",
-    "runtime/telemetry/listener.go:1"
+    "runtime/hooks/guardrails/adapter.go:1"
    ]
   },
   {
@@ -79,8 +76,8 @@
    "claim": "MaxRounds default 50",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1376",
-    "runtime/pipeline/stage/stages_provider.go:33"
+    "runtime/pipeline/stage/stages_provider.go:1377",
+    "runtime/pipeline/stage/stages_provider.go:34"
    ]
   },
   {
@@ -88,8 +85,8 @@
    "claim": "MaxToolCallsPerTurn caps tool calls per LLM response",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1381",
-    "runtime/pipeline/stage/stages_provider.go:1697"
+    "runtime/pipeline/stage/stages_provider.go:1382",
+    "runtime/pipeline/stage/stages_provider.go:1698"
    ]
   },
   {
@@ -97,8 +94,8 @@
    "claim": "MaxParallelToolCalls default 10",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2789",
-    "runtime/pipeline/stage/stages_provider.go:34"
+    "runtime/pipeline/stage/stages_provider.go:2790",
+    "runtime/pipeline/stage/stages_provider.go:35"
    ]
   },
   {
@@ -106,7 +103,7 @@
    "claim": "MaxCostUSD stops after budget; 0 = unlimited",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1641",
+    "runtime/pipeline/stage/stages_provider.go:1642",
     "runtime/pipeline/types.go:37"
    ]
   },
@@ -157,7 +154,7 @@
   {
    "id": 18,
    "claim": "Reference table links resolve and list all runtime reference pages",
-   "verdict": "false",
+   "verdict": "true",
    "evidence": [
     "runtime/evals/types.go",
     "runtime/memory/types.go"
@@ -177,7 +174,7 @@
    "claim": "ToolPolicy MaxIdenticalToolCalls default 3 (a second identical-call loop after the self-correction nudge fails the turn), StopOnTool, and prompt tool_policy merge rules (smaller non-zero MaxRounds/MaxToolCallsPerTurn, union Blocklist, caller ToolChoice wins)",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:35",
+    "runtime/pipeline/stage/stages_provider.go:36",
     "runtime/pipeline/types.go:39-48",
     "runtime/pipeline/types.go:86-101"
    ]
@@ -197,7 +194,7 @@
    "claim": "ToolPolicy.MaxCallsPerMinute caps each tool's calls in a one-minute window of a conversation; 0 is unlimited; a call over the limit is not executed and the model is told the limit is reached",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2933-2946",
+    "runtime/pipeline/stage/stages_provider.go:2934-2947",
     "runtime/pipeline/stage/tool_call_rate.go:45-60",
     "runtime/pipeline/types.go:21-36"
    ]
