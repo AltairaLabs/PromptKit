@@ -127,8 +127,10 @@ func (s *DebugStage) logElement(elem *StreamElement, timing string) {
 // renders once per turn. Elements pass through unchanged, and message content is
 // never substituted.
 //
-// If the template references a variable nothing supplied, the stage returns an
-// error that matches ErrTemplateUnresolved, which ends the turn.
+// If the template references a variable nothing supplied, or a required
+// variable (Template.RequiredVars) has no non-empty value once every source is
+// merged, the stage returns an error that matches ErrTemplateUnresolved, which
+// ends the turn.
 //
 // This is a Transform stage: each input element produces one output element.
 type TemplateStage struct {
@@ -254,10 +256,34 @@ func (s *TemplateStage) renderTurnPrompt() error {
 		mergedVars[k] = v
 	}
 
+	// Required variables are checked here, where every source has been merged:
+	// static variables, SetVar and VariableProvider values, per-request input.
+	if missing := missingRequiredVars(tmpl.RequiredVars, mergedVars); len(missing) > 0 {
+		err := fmt.Errorf("%w: %s: missing required variables: %s",
+			ErrTemplateUnresolved, tmpl.TaskType, strings.Join(missing, ", "))
+		logger.Error("Template rendering failed in pipeline", "task_type", tmpl.TaskType, "error", err)
+		if s.emitter != nil && s.turnState.SystemPrompt == "" {
+			s.emitter.TemplateFailed(tmpl.TaskType, err.Error(), nil)
+		}
+		return err
+	}
+
 	if tmpl.RawTemplate != "" {
 		return s.renderSystemTemplate(tmpl, mergedVars)
 	}
 	return nil
+}
+
+// missingRequiredVars returns the required names with no non-empty value in
+// vars, in declaration order.
+func missingRequiredVars(required []string, vars map[string]string) []string {
+	var missing []string
+	for _, name := range required {
+		if vars[name] == "" {
+			missing = append(missing, name)
+		}
+	}
+	return missing
 }
 
 // renderSystemTemplate renders the raw template using the full Renderer

@@ -184,6 +184,34 @@ func TestTemplateStage_UnresolvedPlaceholderFailsTheTurn(t *testing.T) {
 	assert.Empty(t, turnState.SystemPrompt, "no half-rendered prompt may reach the provider")
 }
 
+// TestTemplateStage_RequiredVariableCheckedAfterMerge: a required variable is
+// satisfied by the turn's variables (SetVar, VariableProvider) and fails the
+// turn when no source sets it, even if the template never references it.
+func TestTemplateStage_RequiredVariableCheckedAfterMerge(t *testing.T) {
+	run := func(vars map[string]string) (*TurnState, error) {
+		turnState := NewTurnState()
+		turnState.Template = &prompt.Template{
+			TaskType: "support", RawTemplate: "Plain prompt.", RequiredVars: []string{"tenant"},
+		}
+		turnState.Variables = vars
+		input := make(chan StreamElement, 1)
+		input <- StreamElement{Message: &types.Message{Role: "user", Content: "hi"}}
+		close(input)
+		output := make(chan StreamElement, 4)
+		return turnState, NewTemplateStageWithTurnState(nil, turnState).Process(context.Background(), input, output)
+	}
+
+	ts, err := run(map[string]string{"tenant": "acme"})
+	require.NoError(t, err)
+	assert.Equal(t, "Plain prompt.", ts.SystemPrompt)
+
+	ts, err = run(map[string]string{"tenant": ""})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrTemplateUnresolved)
+	assert.Contains(t, err.Error(), "missing required variables: tenant")
+	assert.Empty(t, ts.SystemPrompt)
+}
+
 func TestTemplateStage_NilMessage(t *testing.T) {
 	turnState := NewTurnState()
 	turnState.Template = &prompt.Template{RawTemplate: "Hello {{name}}!"}

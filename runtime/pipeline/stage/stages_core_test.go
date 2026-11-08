@@ -180,19 +180,54 @@ func TestPromptAssemblyStage_WithRegistry(t *testing.T) {
 	assert.Equal(t, "banned_words", turnState.Validators[0].Type)
 }
 
-func TestPromptAssemblyStage_RegistryMissing(t *testing.T) {
-	repo := newMockRepo()
-	registry := prompt.NewRegistryWithRepository(repo)
-
+// TestPromptAssemblyStage_PromptMissingFailsTheTurn: a task type the registry
+// cannot load fails the stage. It used to run the turn on a default prompt.
+func TestPromptAssemblyStage_PromptMissingFailsTheTurn(t *testing.T) {
+	registry := prompt.NewRegistryWithRepository(newMockRepo())
 	turnState := NewTurnState()
 	s := NewPromptAssemblyStageWithTurnState(registry, "nonexistent", nil, turnState)
 
-	inputs := []StreamElement{newTestMsgElement("user", "Hello")}
-	results := runTestStage(t, s, inputs)
+	input := make(chan StreamElement, 1)
+	input <- newTestMsgElement("user", "Hello")
+	close(input)
+	output := make(chan StreamElement, 1)
+	err := s.Process(context.Background(), input, output)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `"nonexistent"`)
+	assert.Nil(t, turnState.Template, "no substitute template may be published")
+}
 
+// TestPromptAssemblyStage_EmptyTaskTypeUsesDefault: a stage with no task type
+// has no prompt to load and runs on the default prompt.
+func TestPromptAssemblyStage_EmptyTaskTypeUsesDefault(t *testing.T) {
+	registry := prompt.NewRegistryWithRepository(newMockRepo())
+	turnState := NewTurnState()
+	s := NewPromptAssemblyStageWithTurnState(registry, "", nil, turnState)
+
+	results := runTestStage(t, s, []StreamElement{newTestMsgElement("user", "Hello")})
 	require.Len(t, results, 1)
 	require.NotNil(t, turnState.Template)
-	assert.Equal(t, "You are a helpful AI assistant.", turnState.Template.RawTemplate)
+	assert.Equal(t, defaultSystemPrompt, turnState.Template.RawTemplate)
+}
+
+// TestPromptAssemblyStage_DefersRequiredVariables: a required variable the
+// stage's own variables lack does not fail the load; it is carried on the
+// template for TemplateStage to check against the turn's merged variables.
+func TestPromptAssemblyStage_DefersRequiredVariables(t *testing.T) {
+	registry := prompt.NewRegistryWithRepository(newMockRepo())
+	require.NoError(t, registry.RegisterConfig("chat", &prompt.Config{Spec: prompt.Spec{
+		TaskType:       "chat",
+		SystemTemplate: "Topic: {{topic}}",
+		Variables:      []prompt.VariableMetadata{{Name: "topic", Required: true}},
+	}}))
+	turnState := NewTurnState()
+	s := NewPromptAssemblyStageWithTurnState(registry, "chat", nil, turnState)
+
+	results := runTestStage(t, s, []StreamElement{newTestMsgElement("user", "Hello")})
+	require.Len(t, results, 1)
+	require.NotNil(t, turnState.Template)
+	assert.Equal(t, "Topic: {{topic}}", turnState.Template.RawTemplate)
+	assert.Equal(t, []string{"topic"}, turnState.Template.RequiredVars)
 }
 
 func TestPromptAssemblyStage_PopulatesTurnState(t *testing.T) {
