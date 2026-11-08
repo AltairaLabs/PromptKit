@@ -61,14 +61,14 @@ func FragmentFilePath(basePath, name, relativePath, baseDir, ext string) (string
 // link to nothing) is returned as it is, so reading it reports
 // fs.ErrNotExist. The lexical check has already passed.
 func containResolved(path, ref string, roots ...string) (string, error) {
-	target, err := filepath.EvalSymlinks(path)
+	target, err := resolvedAbs(path)
 	if err != nil {
 		// Missing, or not resolvable: nothing outside is read through it, and
 		// the read reports why.
 		return path, nil //nolint:nilerr // the read reports the error
 	}
 	for _, root := range roots {
-		resolvedRoot, rootErr := filepath.EvalSymlinks(root)
+		resolvedRoot, rootErr := resolvedAbs(root)
 		if rootErr != nil {
 			continue
 		}
@@ -77,6 +77,17 @@ func containResolved(path, ref string, roots ...string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("%w: %q resolves through a symlink to %q", persistence.ErrFragmentPathOutsideBase, ref, target)
+}
+
+// resolvedAbs returns p made absolute, then with its symlinks resolved, so a
+// relative root ("." or a relative base) and an absolute link target compare
+// in the same, physical, form.
+func resolvedAbs(p string) (string, error) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(abs)
 }
 
 // within reports whether path is root or under it, comparing absolute forms.
