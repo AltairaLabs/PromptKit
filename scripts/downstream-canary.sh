@@ -6,7 +6,7 @@
 # promptarena#460 and PromptKit#2525 both shipped in v2.18.0 because nothing
 # built a consumer against PromptKit before the tag. This points a consumer's
 # checkout at the local modules and runs the part of its own CI that needs no
-# API keys, cloud accounts, clusters or databases.
+# API keys, cloud accounts or clusters.
 #
 #   promptarena   go build ./... ; go test ./... ; go test -race on the engine
 #                 packages (its "Race detector" job) ; make test-examples
@@ -20,7 +20,9 @@
 #                 SonarCloud.
 #   omnia         go build ./... (every package compiles against this
 #                 PromptKit) ; go test -race on every package whose code or
-#                 tests import PromptKit. Left out: the rest of its suite
+#                 tests import PromptKit directly. Some of those start
+#                 Postgres with testcontainers, so Docker must be running.
+#                 Left out: the rest of its suite
 #                 (envtest-backed controllers, helm, the tagged integration
 #                 suite, the dashboard), which needs infrastructure and does
 #                 not reach PromptKit directly.
@@ -90,7 +92,8 @@ promptkit_importers() {
 
 test_promptkit_importers() {
   local pkgs
-  pkgs=$(promptkit_importers)
+  # A go list failure must not shrink the list unseen.
+  pkgs=$(promptkit_importers) || return 1
   if [ -z "$pkgs" ]; then
     echo "no package imports PromptKit; the canary would test nothing" >&2
     return 1

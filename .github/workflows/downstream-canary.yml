@@ -96,22 +96,29 @@ jobs:
         path: promptkit
 
     # The public consumers need only the default token, so those legs work
-    # from forks too. A fork PR gets no secrets, so its omnia leg fails here.
+    # from forks too. A fork or Dependabot PR gets no secrets, so its omnia
+    # leg fails here. Advisory mode covers this step too, so a PAT that cannot
+    # read omnia does not block a release run with ignore_downstream_canary.
+    # The token is not left in .git/config: the consumer's tests run next.
     - name: Checkout ${{ matrix.repository }}
+      id: checkout
+      continue-on-error: ${{ inputs.advisory == true }}
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
+        persist-credentials: false
         repository: ${{ matrix.repository }}
         ref: ${{ matrix.consumer == 'promptarena' && inputs.promptarena-ref || '' }}
         token: ${{ matrix.private && secrets.DOWNSTREAM_DISPATCH_TOKEN || github.token }}
         path: consumer
 
     - name: Install ALSA dev headers
-      if: matrix.alsa
+      if: matrix.alsa && steps.checkout.outcome == 'success'
       timeout-minutes: 15
       run: promptkit/scripts/ci-install-alsa.sh
 
     # The consumer's own Go version: omnia is ahead of PromptKit's.
     - name: Set up Go
+      if: steps.checkout.outcome == 'success'
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: consumer/go.mod
@@ -120,17 +127,20 @@ jobs:
           promptkit/runtime/go.sum
           promptkit/pkg/go.sum
           promptkit/sdk/go.sum
+          promptkit/server/a2a/go.sum
 
     # Replaces the consumer's PromptKit requires with ./promptkit, then runs
-    # its keyless build and tests. None of it needs an API key, a cluster, a
-    # database or a private npm package.
+    # its keyless build and tests. None of it needs an API key, a cluster or a
+    # private npm package. Some omnia packages start Postgres with
+    # testcontainers, which the runner's Docker provides.
     - name: Build and test ${{ matrix.consumer }} against this PromptKit
       id: canary
+      if: steps.checkout.outcome == 'success'
       continue-on-error: ${{ inputs.advisory == true }}
       run: promptkit/scripts/downstream-canary.sh "${{ matrix.consumer }}" consumer promptkit
 
     - name: Report an advisory failure
-      if: steps.canary.outcome == 'failure'
+      if: steps.checkout.outcome == 'failure' || steps.canary.outcome == 'failure'
       env:
         CONSUMER: ${{ matrix.consumer }}
       run: |

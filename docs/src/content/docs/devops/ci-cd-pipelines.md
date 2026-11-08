@@ -134,7 +134,7 @@ The `canary` job builds and tests PromptKit's consumers against the PromptKit co
 |---|---|---|---|
 | `promptarena` | `promptarena`, which holds the PromptArena and PackC CLIs | `go build ./...`; `go test ./...`; `go test -race` over the engine packages; `make test-examples`, which validates every example config and runs every example that needs no API key against mock providers | The schema check, because a new PromptKit config field leaves the committed schemas stale until `promptarena` regenerates them; the frontend |
 | `deploy-vertex`, `deploy-omnia`, `deploy-agentcore`, `deploy-foundry` | The four deploy adapters | `go build ./...`; `go test -race ./...`; `go vet -tags=integration ./...` | Docker image builds |
-| `omnia` | Omnia | `go build ./...`; `go test -race` over every package whose code or tests import a PromptKit module | The rest of its suite: the envtest-backed controllers, the Helm and integration suites and the dashboard, which need a cluster or other infrastructure |
+| `omnia` | Omnia | `go build ./...`; `go test -race` over every package whose code or tests import a PromptKit module directly. Some of these start Postgres with testcontainers, on the runner's Docker | The rest of its suite: the envtest-backed controllers, the Helm and integration suites and the dashboard, which need a cluster or other infrastructure |
 
 The test steps run even when an earlier one fails, and the leg fails if any of them failed. A failure while pointing the consumer at PromptKit stops the leg. A released `promptarena` that a consumer requires is built against the local PromptKit too, because `replace` applies to the whole build.
 
@@ -211,7 +211,7 @@ The workflow is dispatched by hand with these inputs:
 | `phase` | `full` (default), `libs-only` or `tools-only` |
 | `skip_tests` | Skip `make test` and `make test-race` in `validate` |
 | `ignore_previous_release_check` | Release even if the previous release's published `go.mod` files are bad |
-| `ignore_downstream_canary` | Release even if a consumer fails the downstream canary. The canary still runs, and a failure is reported as a warning. A failure to check out a consumer or set up Go still blocks the release |
+| `ignore_downstream_canary` | Release even if a consumer fails the downstream canary. The canary still runs, and a failure is reported as a warning. A consumer that cannot be checked out, such as Omnia when the token cannot read it, is reported the same way |
 
 ```bash
 gh workflow run release.yml -f version=v2.16.2 -f phase=full

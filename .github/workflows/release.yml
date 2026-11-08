@@ -27,7 +27,7 @@ on:
         type: boolean
         default: false
       ignore_downstream_canary:
-        description: "Release even if promptarena main does not build or pass against this PromptKit (the canary still runs and reports)"
+        description: "Release even if a downstream consumer (promptarena, deploy adapters, omnia) does not build or pass against this PromptKit (the canary still runs and reports)"
         required: false
         type: boolean
         default: false
@@ -237,7 +237,8 @@ jobs:
       run: ./scripts/check-api-compatibility.sh "${{ inputs.version }}"
 
   # Part of validation, as its own job so it runs alongside validate. Builds
-  # and tests promptarena main against the PromptKit about to be tagged: every
+  # and tests each consumer (promptarena, the deploy adapters, omnia) against
+  # the PromptKit about to be tagged: every
   # gate above checks PromptKit against itself, and promptarena#460 and #2525
   # shipped in v2.18.0 past all of them. Nothing is tagged on red. With
   # ignore_downstream_canary it still runs, and a failure becomes a warning.
