@@ -59,8 +59,11 @@ spec:
 		static    map[string]string
 		providers []variables.Provider
 	}{
-		"static variables":  {static: map[string]string{"region": "us"}},
 		"variable provider": {providers: []variables.Provider{fixedVars{"region": "us"}}},
+		"provider over static": {
+			static:    map[string]string{"region": "uk"},
+			providers: []variables.Provider{fixedVars{"region": "us"}},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -48,3 +48,28 @@ func TestPackCompiler_DynamicFragmentMissingCandidateIsAnError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `"tone_uk"`)
 }
+
+// Enum values format as a variable renders them, and too many candidates fall
+// back to the {{name}} reference rather than blowing up the pack.
+func TestEnumCombinations_FormattingAndCap(t *testing.T) {
+	cfg := &Config{Spec: Spec{Variables: []VariableMetadata{
+		{Name: "n", Validation: map[string]interface{}{"enum": []interface{}{float64(1000000), "x"}}},
+	}}}
+	combos, ok := enumCombinations(cfg, FragmentRef{Name: "f_{{n}}"})
+	require.True(t, ok)
+	assert.Equal(t, []map[string]string{{"n": "1000000"}, {"n": "x"}}, combos)
+
+	big := make([]interface{}, 20)
+	for i := range big {
+		big[i] = i
+	}
+	cfg = &Config{Spec: Spec{Variables: []VariableMetadata{
+		{Name: "a", Validation: map[string]interface{}{"enum": big}},
+		{Name: "b", Validation: map[string]interface{}{"enum": big}},
+	}}}
+	_, ok = enumCombinations(cfg, FragmentRef{Name: "f_{{a}}_{{b}}"})
+	assert.False(t, ok, "400 candidates exceed the cap")
+
+	_, ok = enumCombinations(cfg, FragmentRef{Name: "f_{{ a }}"})
+	assert.True(t, ok, "a spaced placeholder is not a variable the runtime substitutes")
+}

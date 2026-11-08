@@ -124,8 +124,7 @@ func TestWorkflowHandoff_NextTurnKeepsSetVar(t *testing.T) {
 
 // TestWorkflowTransition_NextStateKeepsSetVar moves the workflow with
 // Transition, as a host does. The next state's conversation keeps the
-// variables the application set, and its own WithVariables-style bindings
-// (the carried context) are not overwritten by the earlier state's.
+// variables the application set, and a SetVar on it afterwards still wins.
 func TestWorkflowTransition_NextStateKeepsSetVar(t *testing.T) {
 	rec := newRecordingProvider()
 	wc, err := sdk.OpenWorkflow(writePackFile(t, handoffFragmentPackJSON),

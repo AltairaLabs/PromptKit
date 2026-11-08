@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -768,7 +769,13 @@ func addResolvedFragment(pack *Pack, loader FragmentLoader, taskType string, ref
 
 // fragmentNameVarPattern matches a {{variable}} in a fragment reference's name
 // or path.
-var fragmentNameVarPattern = regexp.MustCompile(`\{\{\s*([A-Za-z0-9_.]+)\s*\}\}`)
+// It matches exactly what the runtime substitutes in a fragment name or path
+// (FragmentResolver.resolveVariables): "{{name}}", with no spaces.
+var fragmentNameVarPattern = regexp.MustCompile(`\{\{([A-Za-z0-9_.]+)\}\}`)
+
+// maxDynamicFragmentCandidates bounds how many candidates one variable-chosen
+// fragment compiles to, so a few large enums cannot blow up the pack.
+const maxDynamicFragmentCandidates = 256
 
 // addDynamicFragment writes a fragment reference a variable chooses. When every
 // variable in its name and path declares the values it takes
@@ -782,7 +789,8 @@ var fragmentNameVarPattern = regexp.MustCompile(`\{\{\s*([A-Za-z0-9_.]+)\s*\}\}`
 func addDynamicFragment(pack *Pack, loader FragmentLoader, taskType string, config *Config, ref FragmentRef) error {
 	combos, ok := enumCombinations(config, ref)
 	if !ok {
-		logger.Warn("Fragment chosen by a variable without declared values; the pack holds only its reference. "+
+		logger.Warn("Fragment chosen by a variable without declared values (or with more than "+
+			strconv.Itoa(maxDynamicFragmentCandidates)+" combinations); the pack holds only its reference. "+
 			"Declare validation.enum on the variable to compile every candidate.",
 			"prompt", taskType, "fragment", ref.Name)
 		addFragmentReference(pack, ref.Name)
@@ -818,6 +826,9 @@ func enumCombinations(config *Config, ref FragmentRef) ([]map[string]string, boo
 		if len(values) == 0 {
 			return nil, false
 		}
+		if len(combos)*len(values) > maxDynamicFragmentCandidates {
+			return nil, false
+		}
 		var next []map[string]string
 		for _, c := range combos {
 			for _, v := range values {
@@ -843,11 +854,20 @@ func variableEnum(config *Config, name string) []string {
 		}
 		out := make([]string, 0, len(raw))
 		for _, e := range raw {
-			out = append(out, fmt.Sprintf("%v", e))
+			out = append(out, enumValueString(e))
 		}
 		return out
 	}
 	return nil
+}
+
+// enumValueString formats an enum value as a variable carrying it renders: a
+// JSON number decodes as float64, and %v would write 1000000 as 1e+06.
+func enumValueString(v interface{}) string {
+	if f, ok := v.(float64); ok {
+		return strconv.FormatFloat(f, 'f', -1, 64)
+	}
+	return fmt.Sprintf("%v", v)
 }
 
 // substituteFragmentVars replaces each {{variable}} in s with its value.

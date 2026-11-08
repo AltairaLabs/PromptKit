@@ -302,8 +302,17 @@ func (r *workflowStateResolver) renderState(
 		vars[workflowContextVar] = contextSummary
 	}
 
+	// Load with the turn's variables under the handoff's own, so a fragment a
+	// variable chooses resolves from them, as PromptAssemblyStage loads.
 	// Required variables are checked below, against every source merged.
-	tmpl, err := r.registry.LoadTemplateDeferRequired(dest.PromptTask, vars, model)
+	loadVars := make(map[string]string, len(vars))
+	if r.turnState != nil {
+		if ts := r.turnState(); ts != nil {
+			maps.Copy(loadVars, ts.Variables)
+		}
+	}
+	maps.Copy(loadVars, vars)
+	tmpl, err := r.registry.LoadTemplateDeferRequired(dest.PromptTask, loadVars, model)
 	if err != nil {
 		return "", nil, fmt.Errorf("load prompt %q for state: %w", dest.PromptTask, err)
 	}
