@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"fmt"
+	"io/fs"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -32,7 +33,8 @@ func (m *mockRepository) LoadFragment(name string, relativePath string, baseDir 
 	if fragment, ok := m.fragments[name]; ok {
 		return fragment, nil
 	}
-	return nil, fmt.Errorf("fragment not found: %s", name)
+	// A miss satisfies fs.ErrNotExist, as the repository contract requires.
+	return nil, fmt.Errorf("fragment not found: %s: %w", name, fs.ErrNotExist)
 }
 
 func (m *mockRepository) ListPrompts() ([]string, error) {
@@ -108,6 +110,15 @@ func TestRegistry_GetAvailableRegions(t *testing.T) {
 		assert.Contains(t, regions, "us")
 		assert.Contains(t, regions, "uk")
 		assert.Contains(t, regions, "au")
+	})
+
+	t.Run("matches a region suffix on the fragment name, not a substring", func(t *testing.T) {
+		reg := createTestRegistry()
+		reg.fragmentResolver.fragmentCache["tone_for_users"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["/packs/my_users/fragments/persona_uk.yaml"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["by_author"] = &Fragment{Content: "test"}
+
+		assert.Equal(t, []string{"uk"}, reg.GetAvailableRegions())
 	})
 
 	t.Run("returns empty for no region-specific fragments", func(t *testing.T) {

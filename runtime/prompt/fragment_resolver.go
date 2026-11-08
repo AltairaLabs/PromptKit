@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/template"
 )
 
@@ -61,9 +62,16 @@ func (fr *FragmentResolver) AssembleFragments(
 				return nil, fmt.Errorf("required fragment '%s' (resolved from '%s') not found: %w",
 					resolvedName, fragRef.Name, err)
 			}
-			// An optional fragment that is missing renders empty, so its
+			// An optional fragment that does not exist renders empty, so its
 			// placeholder does not fail the render. A variable of the same
-			// name, when the caller set one, still fills it.
+			// name, when the caller set one, still fills it. Any other
+			// failure (a file that won't parse, a path the repository can't
+			// load) is not "missing": its placeholder is left, so the render
+			// fails naming it rather than dropping it silently.
+			if !errors.Is(err, fs.ErrNotExist) {
+				logger.Warn("Optional fragment could not be loaded", "fragment", resolvedName, "error", err)
+				continue
+			}
 			if _, set := vars[resolvedName]; !set {
 				fragmentVars[resolvedName] = ""
 			}

@@ -39,7 +39,7 @@ func (m *mockFragmentRepository) LoadFragment(name string, relativePath string, 
 
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("fragment not found: %s", name)
+		return nil, fmt.Errorf("fragment not found: %s: %w", name, err)
 	}
 
 	// Parse simple format for testing

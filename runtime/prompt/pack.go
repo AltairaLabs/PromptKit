@@ -2,7 +2,9 @@ package prompt
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"slices"
@@ -694,8 +696,9 @@ type FragmentLoader interface {
 // time. A pack holds one fragment per name, so two prompts whose fragments of
 // one name resolve to different content are an error.
 //
-// A required fragment that cannot be loaded is an error; an optional one is
-// left out. A reference whose name or path contains a {{variable}} is chosen at
+// A required fragment that cannot be loaded is an error. An optional one that
+// does not exist is written as "", as the registry renders it; one that exists
+// but cannot be loaded is an error. A reference whose name or path contains a {{variable}} is chosen at
 // runtime, so it cannot be resolved here: it is written as the "{{name}}"
 // reference it has always been. So is every reference when the compiler's
 // Loader does not implement FragmentLoader.
@@ -726,15 +729,29 @@ func addFragmentReference(pack *Pack, name string) {
 }
 
 // addResolvedFragment loads one static fragment reference into the pack.
+//
+// An optional fragment that does not exist is written as "", which is what the
+// registry renders for it, so a pack consumer renders the prompt the same way
+// the source does. Another prompt's fragment of that name, with content, takes
+// its place: the pack holds one fragment per name.
+// An optional fragment that exists but cannot be loaded fails the compile, as
+// it fails the render.
 func addResolvedFragment(pack *Pack, loader FragmentLoader, taskType string, ref FragmentRef) error {
 	content, err := loadFragmentContent(loader, taskType, ref)
 	if err != nil {
 		if ref.Required {
 			return fmt.Errorf("prompt %q: required fragment %q: %w", taskType, ref.Name, err)
 		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("prompt %q: optional fragment %q exists but cannot be loaded: %w",
+				taskType, ref.Name, err)
+		}
+		if _, exists := pack.Fragments[ref.Name]; !exists {
+			pack.Fragments[ref.Name] = ""
+		}
 		return nil
 	}
-	if existing, exists := pack.Fragments[ref.Name]; exists && existing != content {
+	if existing, exists := pack.Fragments[ref.Name]; exists && existing != "" && existing != content {
 		return fmt.Errorf("prompt %q: fragment %q resolves to different content than another "+
 			"prompt's fragment of the same name; a pack holds one fragment per name", taskType, ref.Name)
 	}
@@ -754,7 +771,7 @@ func loadFragmentContent(loader FragmentLoader, taskType string, ref FragmentRef
 		return "", err
 	}
 	if frag == nil {
-		return "", fmt.Errorf("fragment not found")
+		return "", fmt.Errorf("fragment not found: %w", fs.ErrNotExist)
 	}
 	return frag.Content, nil
 }
@@ -987,7 +1004,7 @@ func validatePrompt(taskType string, prompt *PackPrompt, fragments map[string]st
 	if prompt.SystemTemplate == "" {
 		warnings = append(warnings, fmt.Sprintf("prompt '%s': missing system_template", taskType))
 	}
-	unfilled := withoutFragmentPlaceholders(prompt.SystemTemplate, fragments)
+	unfilled := expandFragmentPlaceholders(prompt.SystemTemplate, fragments)
 	if len(prompt.Variables) == 0 && strings.Contains(unfilled, "{{") {
 		msg := "prompt '%s': system_template references variables, but none are declared"
 		warnings = append(warnings, fmt.Sprintf(msg, taskType))
@@ -1000,13 +1017,23 @@ func validatePrompt(taskType string, prompt *PackPrompt, fragments map[string]st
 	return warnings
 }
 
-// withoutFragmentPlaceholders returns text with the "{{name}}" placeholder of
-// each fragment in fragments removed. A fragment whose name holds a variable
-// ("persona_{{region}}") is left in: choosing it needs that variable.
-func withoutFragmentPlaceholders(text string, fragments map[string]string) string {
-	for _, name := range slices.Sorted(maps.Keys(fragments)) {
-		if !strings.Contains(name, "{{") {
-			text = strings.ReplaceAll(text, "{{"+name+"}}", "")
+// expandFragmentPlaceholders returns text with the "{{name}}" placeholder of
+// each of the pack's fragments replaced by the fragment's content, so a
+// variable inside a fragment still counts as one the template references. A
+// fragment whose name holds a variable ("persona_{{region}}") is left in:
+// choosing it needs that variable. Expansion stops after one pass per
+// fragment, so fragments that reference each other cannot loop.
+func expandFragmentPlaceholders(text string, fragments map[string]string) string {
+	names := slices.Sorted(maps.Keys(fragments))
+	for range len(names) + 1 {
+		before := text
+		for _, name := range names {
+			if !strings.Contains(name, "{{") && fragments[name] != "{{"+name+"}}" {
+				text = strings.ReplaceAll(text, "{{"+name+"}}", fragments[name])
+			}
+		}
+		if text == before {
+			break
 		}
 	}
 	return text
@@ -1055,33 +1082,33 @@ func (p *Pack) validateCompilation() []string {
 
 // ValidateAgents validates the agents section of the pack.
 // Returns errors (which block compilation) and warnings (informational).
-func (p *Pack) ValidateAgents() (errors, warnings []string) {
+func (p *Pack) ValidateAgents() (errs, warnings []string) {
 	if p.Agents == nil {
 		return nil, nil
 	}
 
 	// Members must be non-empty
 	if len(p.Agents.Members) == 0 {
-		errors = append(errors, "agents: members must not be empty")
-		return errors, warnings
+		errs = append(errs, "agents: members must not be empty")
+		return errs, warnings
 	}
 
 	// Entry must reference a key in Members
 	if _, ok := p.Agents.Members[p.Agents.Entry]; !ok {
-		errors = append(errors, fmt.Sprintf("agents: entry %q does not reference a valid member", p.Agents.Entry))
+		errs = append(errs, fmt.Sprintf("agents: entry %q does not reference a valid member", p.Agents.Entry))
 	}
 
 	// All member keys must reference valid keys in Pack.Prompts
 	for key := range p.Agents.Members {
 		if _, ok := p.Prompts[key]; !ok {
-			errors = append(errors, fmt.Sprintf("agents: member %q does not reference a valid prompt", key))
+			errs = append(errs, fmt.Sprintf("agents: member %q does not reference a valid prompt", key))
 		}
 	}
 
 	// RFC 0011: state-backed agents must reference a valid workflow state and
 	// require a top-level workflow.
 	for key, agent := range p.Agents.Members {
-		errors = append(errors, validateAgentState(p, key, agent)...)
+		errs = append(errs, validateAgentState(p, key, agent)...)
 	}
 
 	// Validate individual agent definitions
@@ -1089,7 +1116,7 @@ func (p *Pack) ValidateAgents() (errors, warnings []string) {
 		warnings = append(warnings, validateAgentDef(key, agent)...)
 	}
 
-	return errors, warnings
+	return errs, warnings
 }
 
 // validateAgentState checks RFC 0011 rules for a state-backed agent member:
@@ -1204,28 +1231,37 @@ func ToConfig(pr *PackPrompt, taskType string) *Config {
 // the fragments with the registry's repository by name. It returns nil when
 // the pack has no prompt for taskType.
 //
-// A fragment the compiler could not resolve, because a variable chooses it at
-// runtime (persona_{{region}}), is in the pack only as its own "{{name}}"
-// reference. It gets no reference here: the pack does not hold its content,
-// so its placeholder is left for the caller's variables to fill, and fails the
-// render when nothing does.
+// A fragment whose name holds a variable (persona_{{region}}) gets no
+// reference: a render resolves the name to one the pack does not hold, so its
+// placeholder is left for the caller's variables to fill, and fails the render
+// when nothing does. Neither does a fragment named like a variable the prompt
+// declares: the variable wins.
 func (p *Pack) PromptConfig(taskType string) *Config {
 	pr := p.GetPrompt(taskType)
 	if pr == nil {
 		return nil
 	}
 	config := ToConfig(pr, taskType)
-	config.Spec.Fragments = p.fragmentRefs()
+	config.Spec.Fragments = p.fragmentRefs(pr)
 	return config
 }
 
 // fragmentRefs returns a required, name-only reference to each of the pack's
-// fragments that holds content, in name order.
-func (p *Pack) fragmentRefs() []FragmentRef {
+// fragments, in name order, except:
+//   - a fragment whose name holds a variable: the name a render resolves it
+//     to is not one the pack holds;
+//   - a fragment the compiler wrote as its own "{{name}}" reference;
+//   - a fragment named like one of the prompt's declared variables, so the
+//     variable the prompt declares keeps its default and its caller's value.
+func (p *Pack) fragmentRefs(pr *PackPrompt) []FragmentRef {
+	declared := make(map[string]bool, len(pr.Variables))
+	for _, v := range pr.Variables {
+		declared[v.Name] = true
+	}
 	var refs []FragmentRef
 	for _, name := range slices.Sorted(maps.Keys(p.Fragments)) {
-		if p.Fragments[name] == "{{"+name+"}}" {
-			continue // a runtime-chosen fragment the compiler wrote as its reference
+		if strings.Contains(name, "{{") || p.Fragments[name] == "{{"+name+"}}" || declared[name] {
+			continue
 		}
 		refs = append(refs, FragmentRef{Name: name, Required: true})
 	}

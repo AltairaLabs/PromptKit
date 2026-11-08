@@ -64,6 +64,7 @@ type sourcePrompt struct {
 type sourceTree struct {
 	prompts   []sourcePrompt
 	fragments map[string]string
+	raw       map[string]string // path under base -> exact file content
 }
 
 // fragPath is the path a prompt under prompts/ uses to reference a fragment in
@@ -127,6 +128,11 @@ func (f sourceFormat) load(t *testing.T, tree sourceTree) *prompt.Registry {
 	for name, content := range tree.fragments {
 		f.write(t, filepath.Join(base, "fragments", name+f.ext),
 			map[string]any{"fragment_type": "text", "version": "v1", "content": content})
+	}
+	for rel, content := range tree.raw {
+		path := filepath.Join(base, rel)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 	}
 	return prompt.NewRegistryWithRepository(f.newRepo(base, mapping))
 }
@@ -315,8 +321,9 @@ func TestFragmentsE2E_StaticRequiredMissing(t *testing.T) {
 	}
 }
 
-// Case 3: an optional fragment whose file does not exist (#2523). It compiles
-// with no entry, and its placeholder renders empty.
+// Case 3: an optional fragment whose file does not exist (#2523). Its
+// placeholder renders empty, and the compiler writes it as "", so the pack
+// renders it the same way.
 func TestFragmentsE2E_StaticOptionalMissing(t *testing.T) {
 	for _, f := range sourceFormats {
 		t.Run(f.name, func(t *testing.T) {
@@ -328,11 +335,36 @@ func TestFragmentsE2E_StaticOptionalMissing(t *testing.T) {
 
 			pack, err := prompt.NewPackCompiler(reg).Compile("support", "test")
 			require.NoError(t, err)
-			assert.NotContains(t, pack.Fragments, "tone")
+			assert.Equal(t, map[string]string{"tone": ""}, pack.Fragments)
 
 			text, err := render(t, reg, "support", nil)
 			require.NoError(t, err, "a missing optional fragment must not fail the render")
 			assert.Equal(t, "You are support. Goodbye.", text)
+			assert.Equal(t, text, requireCompiledPackRenders(t, pack, nil)["support"])
+		})
+	}
+}
+
+// An optional fragment whose file exists but does not parse is not missing:
+// the compile and the render both fail on it, naming it, rather than drop it.
+func TestFragmentsE2E_StaticOptionalUnparseable(t *testing.T) {
+	for _, f := range sourceFormats {
+		t.Run(f.name, func(t *testing.T) {
+			reg := f.load(t, sourceTree{
+				prompts: []sourcePrompt{
+					supportPrompt("You are support.{{tone}}",
+						prompt.FragmentRef{Name: "tone", Path: f.fragPath("broken"), Required: false}),
+				},
+				raw: map[string]string{filepath.Join("fragments", "broken"+f.ext): `{"content": "unterminated`},
+			})
+
+			_, err := prompt.NewPackCompiler(reg).Compile("support", "test")
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), `optional fragment "tone"`)
+
+			_, err = render(t, reg, "support", nil)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "{{tone}}")
 		})
 	}
 }
@@ -566,4 +598,50 @@ func TestFragmentsE2E_ConflictingFragmentsFailCompile(t *testing.T) {
 			assert.Contains(t, err.Error(), fmt.Sprintf("%q", "tone"))
 		})
 	}
+}
+
+// Pack.PromptConfig, the meaning a pack consumer gives a pack's fragments.
+func TestPackPromptConfig_FragmentReferences(t *testing.T) {
+	pack := &prompt.Pack{}
+	pack.ID, pack.Version = "p", "1.0.0"
+	pack.Fragments = map[string]string{
+		"tone":               toneContent,
+		"name":               "from the fragment",
+		"persona_{{region}}": "hand-written content under a runtime-chosen name",
+		"policy":             "{{policy}}", // the compiler's reference to a runtime-chosen fragment
+	}
+	pack.Prompts = map[string]*prompt.PackPrompt{
+		"support": {ID: "support", Version: "1.0.0", SystemTemplate: "{{tone}} Hi {{name}}.",
+			Variables: []*prompt.Variable{{Name: "name"}}},
+		"plain": {ID: "plain", Version: "1.0.0", SystemTemplate: "Plain."},
+	}
+
+	cfg := pack.PromptConfig("support")
+	require.NotNil(t, cfg)
+	assert.Equal(t, []prompt.FragmentRef{{Name: "tone", Required: true}}, cfg.Spec.Fragments,
+		"only static fragments with content, and not one named like a declared variable")
+	assert.Nil(t, pack.PromptConfig("missing"))
+
+	reg := packRegistry(pack)
+	text, err := render(t, reg, "support", map[string]string{"name": "Ada"})
+	require.NoError(t, err)
+	assert.Equal(t, toneContent+" Hi Ada.", text, "the declared variable wins over the fragment of its name")
+	text, err = render(t, reg, "plain", nil)
+	require.NoError(t, err, "a fragment under a runtime-chosen name must not break other prompts")
+	assert.Equal(t, "Plain.", text)
+}
+
+// A variable inside a fragment's content is a variable the template uses, so
+// validation still asks for it to be declared.
+func TestPackValidate_VariableInsideFragmentNeedsDeclaring(t *testing.T) {
+	pack := &prompt.Pack{}
+	pack.ID, pack.Version = "p", "1.0.0"
+	pack.TemplateEngine = &prompt.TemplateEngineInfo{Version: "v1", Syntax: "{{variable}}"}
+	pack.Fragments = map[string]string{"customer_context": "Customer: {{customer_name}}", "tone": toneContent}
+	pack.Prompts = map[string]*prompt.PackPrompt{
+		"uses_var":  {ID: "uses_var", Version: "1.0.0", SystemTemplate: "{{tone}} {{customer_context}}"},
+		"only_text": {ID: "only_text", Version: "1.0.0", SystemTemplate: "{{tone}}"},
+	}
+	assert.Equal(t, []string{"prompt 'uses_var': system_template references variables, but none are declared"},
+		pack.ValidateDetailed().Errors)
 }

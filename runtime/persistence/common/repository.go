@@ -229,16 +229,18 @@ func (r *BasePromptRepository) HasMatchingTaskType(path, taskType string) bool {
 // ListPrompts returns all available prompt task types
 func (r *BasePromptRepository) ListPrompts() ([]string, error) {
 	// If we have explicit mappings, use those
-	if len(r.TaskTypeToFile) > 0 {
-		taskTypes := make([]string, 0, len(r.TaskTypeToFile))
-		for taskType := range r.TaskTypeToFile {
-			taskTypes = append(taskTypes, taskType)
-		}
+	r.mu.RLock()
+	taskTypes := make([]string, 0, len(r.TaskTypeToFile))
+	for taskType := range r.TaskTypeToFile {
+		taskTypes = append(taskTypes, taskType)
+	}
+	r.mu.RUnlock()
+	if len(taskTypes) > 0 {
 		return taskTypes, nil
 	}
 
 	// Otherwise, scan directory
-	taskTypes := []string{}
+	taskTypes = []string{}
 	err := filepath.WalkDir(r.BasePath, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil

@@ -129,10 +129,13 @@ not in the pack, so its placeholder still needs a value from the caller.
 |---|---|---|
 | Open a pack whose prompt uses one of the pack's fragments | the fragment's content in the system prompt, where the turn failed with an unresolved placeholder | nothing |
 | Build a registry from a pack with `prompt.ToConfig` | the prompt's fragment placeholders stay unresolved, as before | use `pack.PromptConfig(taskType)`, and register `pack.Fragments` with the repository by name |
-| Mark a fragment `required: false` and leave its file missing | its placeholder renders empty, where every render failed | nothing |
-| Validate a pack whose prompt uses fragment placeholders and declares no variables | no "references variables, but none are declared" error | nothing |
+| Mark a fragment `required: false` and leave its file missing | its placeholder renders empty, where every render failed, and the compiled pack holds the fragment as `""` | nothing |
+| Mark a fragment `required: false` whose file exists but does not parse | the compile fails naming the fragment, and the render fails on its placeholder, where the compile left it out | fix the file, or remove the reference |
+| Declare a prompt variable with the same name as a pack fragment | the variable fills the placeholder; the fragment is not offered to that prompt | nothing |
+| Write a pack fragment whose name holds a `{{variable}}` | it is not offered to any prompt, since a render resolves the name to one the pack does not hold | supply the resolved name as a variable |
+| Validate a pack whose prompt uses fragment placeholders and declares no variables | no "references variables, but none are declared" error, unless a fragment it uses holds a variable | nothing |
 | Read `FragmentsUsed` on `prompt.template.rendered` | only the fragments the render substituted, not every fragment the prompt could use | nothing |
-| Call `Registry.GetCachedFragments`, `GetLoadedFragments` or `GetAvailableRegions` | the fragments loaded so far, sorted, where the list was always empty | nothing |
+| Call `Registry.GetCachedFragments`, `GetLoadedFragments` or `GetAvailableRegions` | the fragments loaded so far, sorted, where the list was always empty. `GetAvailableRegions` matches a `_us`, `_uk` or `_au` suffix on the fragment's name | nothing |
 
 ### Fragment repositories follow one contract
 

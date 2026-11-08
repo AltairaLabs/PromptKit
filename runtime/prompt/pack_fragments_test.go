@@ -69,7 +69,8 @@ func TestPackCompiler_Fragments_ResolvedToContent(t *testing.T) {
 
 	pack, err := compileWithRepo(t, repo, "chat")
 	require.NoError(t, err)
-	assert.Equal(t, map[string]string{"intro": "Welcome to support."}, pack.Fragments)
+	// The missing optional fragment is written empty, as the registry renders it.
+	assert.Equal(t, map[string]string{"intro": "Welcome to support.", "outro": ""}, pack.Fragments)
 }
 
 func TestPackCompiler_Fragments_RequiredMissingIsAnError(t *testing.T) {

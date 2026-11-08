@@ -33,6 +33,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -938,14 +939,14 @@ func (r *Registry) GetAvailableRegions() []string {
 	regionsMap := make(map[string]bool)
 
 	// Check fragment cache for region-specific fragments
-	for _, fragmentName := range r.GetCachedFragments() {
-		// Look for patterns like "persona_support_us", "persona_assistant_uk", etc.
-		if strings.Contains(fragmentName, "_us") {
-			regionsMap["us"] = true
-		} else if strings.Contains(fragmentName, "_uk") {
-			regionsMap["uk"] = true
-		} else if strings.Contains(fragmentName, "_au") {
-			regionsMap["au"] = true
+	for _, key := range r.GetCachedFragments() {
+		// A key is a fragment name or a file path. Look at the name for a
+		// region suffix: "persona_support_us", "fragments/persona_uk.yaml".
+		name := strings.TrimSuffix(filepath.Base(key), filepath.Ext(key))
+		for _, region := range []string{"us", "uk", "au"} {
+			if strings.HasSuffix(name, "_"+region) {
+				regionsMap[region] = true
+			}
 		}
 	}
 
