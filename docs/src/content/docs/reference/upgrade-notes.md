@@ -206,6 +206,7 @@ round as `TemplateStage` does.
 | Send to a prompt whose required variable no source sets | `Send` returns an error wrapping `stage.ErrTemplateUnresolved` that names the variable, where the turn ran on the default prompt | supply the variable |
 | Open a task type the registry cannot load, or a prompt whose required fragment cannot load | `Send` returns the load error | fix the prompt or the fragment |
 | Use variables in the prompts of a workflow's states | every round, including the one after a mid-turn handoff, renders them | nothing |
+| Hand off mid-turn to a workflow state whose prompt uses `{{artifacts.name}}` before any state has set that artifact | the handoff round fails with an error wrapping `stage.ErrTemplateUnresolved` that names the placeholder. Before, the model got the literal `{{artifacts.name}}` for that round, and the next `Send` failed on it | set the artifact (`workflow__set_artifact`) before the transition, or reference it only from states that are reached after it is set |
 | Bind a variable for one `Send` (`WithJSONInput`) | it applies to that turn only, where it stayed on every later turn. `TurnState.BeginTurn` now clears `Variables` | pass it on each `Send` that needs it |
 
 ### Variables set with `SetVar` follow a workflow, and choose fragments
