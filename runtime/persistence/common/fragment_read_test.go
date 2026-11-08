@@ -98,3 +98,20 @@ func TestReadFragmentFile_DanglingLinkIsNotFound(t *testing.T) {
 		}
 	}
 }
+
+// An absolute link to a directory inside the base fails as the read fails,
+// not as an escape.
+func TestReadFragmentFile_InsideLinkKeepsItsReadError(t *testing.T) {
+	base, _, _ := fragmentReadFixture(t)
+	dir := filepath.Join(base, "fragments", "adir")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(dir, filepath.Join(base, "fragments", "todir.yaml")); err != nil {
+		t.Skipf("os.Symlink: %v", err)
+	}
+	_, _, err := ReadFragmentFile(base, "x", "../fragments/todir.yaml", filepath.Join(base, "prompts"), ".yaml")
+	if err == nil || errors.Is(err, persistence.ErrFragmentPathOutsideBase) {
+		t.Fatalf("err = %v, want the read's own error", err)
+	}
+}

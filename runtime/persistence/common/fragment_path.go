@@ -194,8 +194,9 @@ func readInRoot(anchor, path string) ([]byte, error) {
 	if _, rerr := resolvedAbs(absPath); errors.Is(rerr, fs.ErrNotExist) {
 		return nil, rerr
 	}
-	if data, ok := readThroughResolvedLink(absAnchor, absPath); ok {
-		return data, nil
+	data, inside, readErr := readThroughResolvedLink(absAnchor, absPath)
+	if inside && (readErr == nil || !isRootEscape(readErr)) {
+		return data, readErr
 	}
 	return nil, fmt.Errorf("%w: %w", errPathEscapesRoot, err)
 }
@@ -204,23 +205,24 @@ func readInRoot(anchor, path string) ([]byte, error) {
 // target, including one inside the root: it resolves the path, and when the
 // file lands inside the anchor reads it through the root again by its
 // relative path, so the read stays confined (a link swapped meanwhile is
-// refused by that read). It reports false when the file is outside or the
-// read fails.
-func readThroughResolvedLink(absAnchor, absPath string) ([]byte, bool) {
+// refused by that read). inside reports whether the file resolved inside
+// the anchor; the read's own error (permission denied, a directory) is then
+// returned as it is.
+func readThroughResolvedLink(absAnchor, absPath string) (data []byte, inside bool, err error) {
 	target, err := resolvedAbs(absPath)
 	if err != nil {
-		return nil, false
+		return nil, false, err
 	}
 	resolvedAnchor, err := resolvedAbs(absAnchor)
 	if err != nil || !within(resolvedAnchor, target) {
-		return nil, false
+		return nil, false, err
 	}
 	inner, err := filepath.Rel(resolvedAnchor, target)
 	if err != nil {
-		return nil, false
+		return nil, false, err
 	}
-	data, err := readRooted(resolvedAnchor, inner)
-	return data, err == nil
+	data, err = readRooted(resolvedAnchor, inner)
+	return data, true, err
 }
 
 // readRooted reads rel through an os.Root opened at dir.
