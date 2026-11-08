@@ -4,7 +4,7 @@ description: The hook contracts, what each can deny or change, the order hooks r
 sidebar:
   order: 20
 verified:
-  commit: ffbed7c4b0fff266953352be5e73d4e308a97acf
+  commit: 040ffc2791cf0cc1f5f6a5ad26cef1ce77092b9f
   sources:
     - runtime/evals/handlers/content_excludes.go
     - runtime/evals/handlers/length.go
