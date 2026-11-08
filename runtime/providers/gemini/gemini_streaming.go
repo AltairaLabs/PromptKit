@@ -72,6 +72,9 @@ func (p *Provider) predictStreamOnce(
 		if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
 			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 		}
+		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
+			return nil, hdrErr
+		}
 		return httpReq, nil
 	}
 
