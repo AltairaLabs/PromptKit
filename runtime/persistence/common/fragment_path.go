@@ -21,6 +21,9 @@ import (
 //     read is there);
 //   - no path is the default file, basePath/fragments/<name><ext>, which
 //     must stay in basePath/fragments.
+//
+// Containment holds on the resolved file too: a symlink inside a root that
+// points outside it is refused.
 func FragmentFilePath(basePath, name, relativePath, baseDir, ext string) (string, error) {
 	switch {
 	case filepath.IsAbs(relativePath):
@@ -30,7 +33,7 @@ func FragmentFilePath(basePath, name, relativePath, baseDir, ext string) (string
 		if !within(filepath.Join(basePath, "fragments"), path) {
 			return "", fmt.Errorf("%w: fragment name %q", persistence.ErrFragmentPathOutsideBase, name)
 		}
-		return path, nil
+		return containResolved(path, name, basePath)
 	}
 	path := filepath.Join(baseDir, relativePath)
 	if baseDir == "" {
@@ -42,14 +45,49 @@ func FragmentFilePath(basePath, name, relativePath, baseDir, ext string) (string
 			return "", fmt.Errorf("%w: %q (working directory): %w",
 				persistence.ErrFragmentPathOutsideBase, relativePath, fs.ErrNotExist)
 		}
-		return path, nil
+		return containResolved(path, relativePath, ".")
 	}
 	// Inside the repository's base, or inside the prompt's own directory,
 	// which a mapping may place outside the base.
 	if !within(basePath, path) && !within(baseDir, path) {
 		return "", fmt.Errorf("%w: %q (base %q)", persistence.ErrFragmentPathOutsideBase, relativePath, basePath)
 	}
-	return path, nil
+	return containResolved(path, relativePath, basePath, baseDir)
+}
+
+// containResolved checks path once its symlinks are resolved: a link inside a
+// root that points outside every root is refused, with
+// persistence.ErrFragmentPathOutsideBase. A path that does not exist (or a
+// link to nothing) is returned as it is, so reading it reports
+// fs.ErrNotExist. The lexical check has already passed.
+func containResolved(path, ref string, roots ...string) (string, error) {
+	target, err := resolvedAbs(path)
+	if err != nil {
+		// Missing, or not resolvable: nothing outside is read through it, and
+		// the read reports why.
+		return path, nil //nolint:nilerr // the read reports the error
+	}
+	for _, root := range roots {
+		resolvedRoot, rootErr := resolvedAbs(root)
+		if rootErr != nil {
+			continue
+		}
+		if within(resolvedRoot, target) {
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("%w: %q resolves through a symlink to %q", persistence.ErrFragmentPathOutsideBase, ref, target)
+}
+
+// resolvedAbs returns p made absolute, then with its symlinks resolved, so a
+// relative root ("." or a relative base) and an absolute link target compare
+// in the same, physical, form.
+func resolvedAbs(p string) (string, error) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(abs)
 }
 
 // within reports whether path is root or under it, comparing absolute forms.

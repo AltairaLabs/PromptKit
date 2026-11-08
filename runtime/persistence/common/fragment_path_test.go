@@ -3,6 +3,7 @@ package common
 import (
 	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -50,5 +51,51 @@ func TestFragmentFilePath_DefaultNameStaysInFragments(t *testing.T) {
 	_, err := FragmentFilePath(t.TempDir(), "../../secret", "", "", ".yaml")
 	if !errors.Is(err, persistence.ErrFragmentPathOutsideBase) {
 		t.Fatalf("err = %v, want ErrFragmentPathOutsideBase", err)
+	}
+}
+
+// Containment holds on the file a path resolves to: a link inside the base
+// that leaves it is refused, one that stays in is followed, and a link to
+// nothing is left for the read to report as missing.
+func TestFragmentFilePath_Symlinks(t *testing.T) {
+	base := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.yaml")
+	if err := os.WriteFile(outside, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	frags := filepath.Join(base, "fragments")
+	if err := os.MkdirAll(frags, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(frags, "real.yaml"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	links := map[string]string{
+		"out.yaml":    outside,
+		"in.yaml":     filepath.Join(frags, "real.yaml"),
+		"dangle.yaml": filepath.Join(t.TempDir(), "missing.yaml"),
+	}
+	for name, target := range links {
+		if err := os.Symlink(target, filepath.Join(frags, name)); err != nil {
+			t.Skipf("os.Symlink: %v", err)
+		}
+	}
+	prompts := filepath.Join(base, "prompts")
+
+	if _, err := FragmentFilePath(base, "x", "../fragments/out.yaml", prompts, ".yaml"); !errors.Is(err, persistence.ErrFragmentPathOutsideBase) {
+		t.Fatalf("link out: err = %v", err)
+	}
+	if _, err := FragmentFilePath(base, "out", "", "", ".yaml"); !errors.Is(err, persistence.ErrFragmentPathOutsideBase) {
+		t.Fatalf("default name through a link out: err = %v", err)
+	}
+	if got, err := FragmentFilePath(base, "x", "../fragments/in.yaml", prompts, ".yaml"); err != nil || got == "" {
+		t.Fatalf("link in: %q, %v", got, err)
+	}
+	got, err := FragmentFilePath(base, "x", "../fragments/dangle.yaml", prompts, ".yaml")
+	if err != nil {
+		t.Fatalf("dangling link: %v", err)
+	}
+	if _, readErr := os.ReadFile(got); !errors.Is(readErr, fs.ErrNotExist) {
+		t.Fatalf("reading a dangling link: %v, want fs.ErrNotExist", readErr)
 	}
 }
