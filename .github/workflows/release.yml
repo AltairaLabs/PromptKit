@@ -247,6 +247,8 @@ jobs:
     with:
       promptarena-ref: main
       advisory: ${{ inputs.ignore_downstream_canary }}
+    secrets:
+      DOWNSTREAM_DISPATCH_TOKEN: ${{ secrets.DOWNSTREAM_DISPATCH_TOKEN }}
 
   tag-dependencies:
     name: Tag Libraries
@@ -814,7 +816,6 @@ jobs:
         VERSION: ${{ needs.validate.outputs.version }}
         VALIDATION_RESULT: ${{ needs.validate.result }}
         CANARY_RESULT: ${{ needs.downstream-canary.result }}
-        CANARY_OUTCOME: ${{ needs.downstream-canary.outputs.outcome }}
         DEPENDENCIES_RESULT: ${{ needs.tag-dependencies.result }}
         TOOLS_RESULT: ${{ needs.update-tools.result }}
         RELEASE_RESULT: ${{ needs.create-release.result }}
@@ -828,7 +829,7 @@ jobs:
         ## Status
 
         - Validation: $VALIDATION_RESULT
-        - Downstream canary (promptarena): $CANARY_RESULT (canary step: ${CANARY_OUTCOME:-not run})
+        - Downstream canary: $CANARY_RESULT (with ignore_downstream_canary, a failed consumer shows as a warning annotation on this run)
         - Dependencies: $DEPENDENCIES_RESULT
         - SDK Modules: $TOOLS_RESULT
         - GitHub Release: $RELEASE_RESULT

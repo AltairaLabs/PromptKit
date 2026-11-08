@@ -46,7 +46,7 @@ go -C sdk test -race ./...
 | `Test & Coverage` | `go -C runtime test -race ./...`, and the same for `sdk`, `pkg` and `server/a2a` |
 | `SDK Integration Tests` | `go -C sdk test -race -count=1 ./integration/...` |
 | `SDK E2E Tests (mock)` | `make test-e2e-mock` |
-| `Downstream canary (promptarena)` | `git clone --depth 1 https://github.com/AltairaLabs/promptarena /tmp/promptarena`, then `scripts/downstream-canary.sh /tmp/promptarena` |
+| `Downstream canary (<consumer>)` | Clone the consumer, for example `git clone --depth 1 https://github.com/AltairaLabs/promptarena /tmp/promptarena`, then `scripts/downstream-canary.sh promptarena /tmp/promptarena` |
 | `Lint` | `golangci-lint run ./...` inside the failing module directory, with the pinned version |
 | `Build` | `make build`, then the guard scripts under `scripts/` that the job names |
 | `Weak Assertion Guard` | `make check-weak-assertions` |

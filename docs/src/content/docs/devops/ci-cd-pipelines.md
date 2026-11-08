@@ -37,7 +37,7 @@ PromptKit ships four Go modules: `runtime`, `pkg`, `sdk` and `server/a2a`. Thirt
 | `dependabot-gate.yml` | Pull requests to `main` | `sonarcloud` |
 | `cla.yml` | Pull request opened, closed or synchronized; issue comments | `CLAAssistant` |
 | `deprecation-gate.yml` | Pull requests to `main` | `deprecations` |
-| `downstream-canary.yml` | Pull requests to `main` that change a `.go`, `go.mod` or `go.sum` file, the workflow or its script; manual dispatch; called by `release.yml` | `promptarena` |
+| `downstream-canary.yml` | Pull requests to `main` that change a `.go`, `go.mod` or `go.sum` file, the workflow or its script; manual dispatch; called by `release.yml` | `canary` (one leg per consumer) |
 | `docs.yml` | Release published, manual dispatch, pull requests touching `docs/`, example READMEs, the docs preparation scripts, the `Makefile` or `docs.yml` | `build`, `deploy` |
 | `docs-checks.yml` | Pull requests to `main`, manual dispatch | `docs-checks` |
 | `docs-freshness.yml` | Mondays 07:00 UTC, manual dispatch | `report` |
@@ -128,25 +128,28 @@ The `deprecations` job (reported as `New deprecations need approval`) runs `scri
 
 ## Downstream canary (`downstream-canary.yml`)
 
-The `promptarena` job (reported as `Downstream canary (promptarena)`) builds and tests the `promptarena` repository, which holds the PromptArena and PackC CLIs, against the PromptKit commit under test instead of the last release. It checks out `promptarena` (its `main` branch unless a caller names another ref) next to PromptKit and runs `scripts/downstream-canary.sh`, which:
+The `canary` job builds and tests PromptKit's consumers against the PromptKit commit under test instead of the last release. It is a matrix with one leg per consumer, each reported as `Downstream canary (<consumer>)`, and the legs fail independently. Each leg checks out the consumer's default branch next to PromptKit (for `promptarena`, another ref if a caller names one) and runs `scripts/downstream-canary.sh <consumer>`. The script points the consumer's `go.mod` at the local `runtime`, `pkg`, `sdk` and `server/a2a` modules with `go mod edit -replace`, runs `go mod tidy` with `GOWORK` off, then runs the consumer's keyless checks:
 
-1. Points `promptarena`'s `go.mod` at the local `runtime`, `pkg`, `sdk` and `server/a2a` modules with `go mod edit -replace`, then runs `go mod tidy`. `GOWORK` is off.
-2. Runs `go build ./...` and `go test ./... -count=1`.
-3. Runs `go test -race` over `promptarena`'s engine packages.
-4. Runs `make test-examples`, which validates every example config and runs every example that needs no API key against mock providers.
+| Leg | Repository | Checks | Left out |
+|---|---|---|---|
+| `promptarena` | `promptarena`, which holds the PromptArena and PackC CLIs | `go build ./...`; `go test ./...`; `go test -race` over the engine packages; `make test-examples`, which validates every example config and runs every example that needs no API key against mock providers | The schema check, because a new PromptKit config field leaves the committed schemas stale until `promptarena` regenerates them; the frontend |
+| `deploy-vertex`, `deploy-omnia`, `deploy-agentcore`, `deploy-foundry` | The four deploy adapters | `go build ./...`; `go test -race ./...`; `go vet -tags=integration ./...` | Docker image builds |
+| `omnia` | Omnia | `go build ./...`; `go test -race` over every package whose code or tests import a PromptKit module | The rest of its suite: the envtest-backed controllers, the Helm and integration suites and the dashboard, which need a cluster or other infrastructure |
 
-Steps 2 to 4 run even when an earlier one fails, and the job fails if any step failed. A failure in step 1 stops the script. It needs no secrets. `promptarena`'s schema check is left out: a new PromptKit config field makes `promptarena`'s committed schemas stale until `promptarena` regenerates them, which is expected.
+The test steps run even when an earlier one fails, and the leg fails if any of them failed. A failure while pointing the consumer at PromptKit stops the leg. A released `promptarena` that a consumer requires is built against the local PromptKit too, because `replace` applies to the whole build.
 
-On pull requests the check is not required, so a red `promptarena` `main` does not block PromptKit changes. `release.yml` runs it as a gate.
+Omnia is private, so its leg reads it with the `DOWNSTREAM_DISPATCH_TOKEN` secret, and `release.yml` passes that secret through. The other repositories are public and need no secret. A pull request from a fork gets no secrets, so its `omnia` leg fails at checkout.
 
-To reproduce a run locally:
+On pull requests the check is not required, so a consumer whose own `main` is red does not block PromptKit changes. `release.yml` runs it as a gate.
+
+To reproduce a leg locally:
 
 ```bash
 git clone --depth 1 https://github.com/AltairaLabs/promptarena /tmp/promptarena
-scripts/downstream-canary.sh /tmp/promptarena
+scripts/downstream-canary.sh promptarena /tmp/promptarena
 ```
 
-The script modifies the `promptarena` checkout it is given, so use a throwaway clone.
+The script modifies the checkout it is given, so use a throwaway clone.
 
 ## Documentation
 
@@ -208,7 +211,7 @@ The workflow is dispatched by hand with these inputs:
 | `phase` | `full` (default), `libs-only` or `tools-only` |
 | `skip_tests` | Skip `make test` and `make test-race` in `validate` |
 | `ignore_previous_release_check` | Release even if the previous release's published `go.mod` files are bad |
-| `ignore_downstream_canary` | Release even if `promptarena` `main` fails the downstream canary. The canary still runs, and a failure is reported as a warning. A failure to check out `promptarena` or set up Go still blocks the release |
+| `ignore_downstream_canary` | Release even if a consumer fails the downstream canary. The canary still runs, and a failure is reported as a warning. A failure to check out a consumer or set up Go still blocks the release |
 
 ```bash
 gh workflow run release.yml -f version=v2.16.2 -f phase=full
@@ -217,7 +220,7 @@ gh workflow run release.yml -f version=v2.16.2 -f phase=full
 | Job | Phases | What it does |
 |---|---|---|
 | `validate` | all | Checks the version format, that it is newer than the latest `runtime/v*` tag (not for `tools-only`), and that the previous release's published `go.mod` files are clean. Runs the tests unless skipped. Runs `module-dep-skew-check`, `modules-standalone-check` and `scripts/check-api-compatibility.sh`, which fails when the API changes do not fit the version |
-| `downstream-canary` | all | Runs the [downstream canary](#downstream-canary-downstream-canaryyml) against `promptarena` `main`. Nothing is tagged unless it passes, or `ignore_downstream_canary` is set |
+| `downstream-canary` | all | Runs the [downstream canary](#downstream-canary-downstream-canaryyml) against each consumer's default branch. Nothing is tagged unless every leg passes, or `ignore_downstream_canary` is set |
 | `tag-dependencies` (Tag Libraries) | `full`, `libs-only` | Checks `runtime` is a leaf module. Tags the root `vX.Y.Z` and `runtime/vX.Y.Z` from `main`. On a `release/libs/vX.Y.Z` branch, sets `pkg`'s `runtime` requirement to the new version, drops its `replace` and tags `pkg/vX.Y.Z`. Verifies the published `go.mod` files through the Go proxy |
 | `update-tools` (Update and Tag SDK Modules) | `full`, `tools-only` | On a `release/tools/vX.Y.Z` branch, sets the `server/a2a` and `sdk` requirements to the new version, drops their `replace` directives and tags `server/a2a/vX.Y.Z` and `sdk/vX.Y.Z`. Verifies the published `go.mod` files |
 | `create-release` | `full` | Creates a draft GitHub release with generated notes, attaches an SPDX SBOM (`promptkit-vX.Y.Z.spdx.json`) and attests its provenance |
@@ -244,7 +247,7 @@ A published tag cannot be repaired. If a tag carries a bad `go.mod`, release aga
 2. Reproduce with the step's own command. The `test` job runs with `-race`; the integration job also passes `-count=1`.
 3. For lint failures, install `golangci-lint` v2.14.0; `make lint` checks the version.
 4. For `Reference Drift Check`, run `make docs-reference docs-sdk-reference` and commit the result.
-5. For `Downstream canary (promptarena)`, run `scripts/downstream-canary.sh` on a fresh `promptarena` clone. A failure is either a PromptKit change that breaks `promptarena`, or a `promptarena` `main` that is red on its own; the second shows up in `promptarena`'s own CI too.
+5. For a `Downstream canary (<consumer>)` leg, run `scripts/downstream-canary.sh <consumer>` on a fresh clone of that consumer. A failure is either a PromptKit change that breaks the consumer, or a consumer `main` that is red on its own; the second shows up in the consumer's own CI too.
 
 ## Related
 

@@ -1,16 +1,18 @@
 name: Downstream Canary
 
-# Builds and tests PromptArena (github.com/AltairaLabs/promptarena), PromptKit's
-# main consumer, against this PromptKit checkout instead of the last release.
-# Without it promptarena meets a PromptKit change only after the tag is cut:
-# promptarena#460 and #2525 both shipped in v2.18.0 that way.
+# Builds and tests PromptKit's consumers against this PromptKit checkout
+# instead of the last release: promptarena, the four promptarena deploy
+# adapters, and Omnia. Without it a consumer meets a PromptKit change only
+# after the tag is cut: promptarena#460 and #2525 both shipped in v2.18.0 that
+# way.
 #
-# What runs is scripts/downstream-canary.sh, so `scripts/downstream-canary.sh
-# <promptarena-clone>` reproduces a red run locally.
+# What each leg runs is scripts/downstream-canary.sh, so
+# `scripts/downstream-canary.sh <consumer> <clone>` reproduces a red leg
+# locally. The legs fail independently.
 #
 # Three callers:
 #   - pull requests to main that change Go code or go.mod/go.sum (below). Not a
-#     required check: promptarena main can be red for reasons of its own, and
+#     required check: a consumer's main can be red for reasons of its own, and
 #     a PromptKit PR should not be blocked by that.
 #   - release.yml, which calls it with workflow_call and refuses to tag on red
 #     (bypass: the release's ignore_downstream_canary input).
@@ -41,10 +43,10 @@ on:
         required: false
         type: boolean
         default: false
-    outputs:
-      outcome:
-        description: "The canary step's outcome: success or failure, also in advisory mode"
-        value: ${{ jobs.promptarena.outputs.outcome }}
+    secrets:
+      DOWNSTREAM_DISPATCH_TOKEN:
+        description: 'Reads the private consumers (omnia)'
+        required: false
   workflow_dispatch:
     inputs:
       promptarena-ref:
@@ -57,17 +59,35 @@ permissions:
   contents: read
 
 jobs:
-  promptarena:
-    name: Downstream canary (promptarena)
+  canary:
+    name: Downstream canary (${{ matrix.consumer }})
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - consumer: promptarena
+            repository: AltairaLabs/promptarena
+          - consumer: deploy-vertex
+            repository: AltairaLabs/promptarena-deploy-vertex
+          - consumer: deploy-omnia
+            repository: AltairaLabs/PromptArena-deploy-omnia
+          - consumer: deploy-agentcore
+            repository: AltairaLabs/promptarena-deploy-agentcore
+          - consumer: deploy-foundry
+            repository: AltairaLabs/promptarena-deploy-foundry
+          # Private: read with DOWNSTREAM_DISPATCH_TOKEN. Its build needs the
+          # ALSA headers (ebitengine/oto), as its own CI installs them.
+          - consumer: omnia
+            repository: AltairaLabs/omnia
+            private: true
+            alsa: true
     # A newer push to the same PR supersedes the run; release runs never share
     # a group.
     concurrency:
-      group: downstream-canary-${{ github.event.pull_request.number || github.run_id }}
+      group: downstream-canary-${{ matrix.consumer }}-${{ github.event.pull_request.number || github.run_id }}
       cancel-in-progress: true
-    outputs:
-      outcome: ${{ steps.canary.outcome }}
 
     steps:
     - name: Checkout PromptKit
@@ -75,39 +95,49 @@ jobs:
       with:
         path: promptkit
 
-    # promptarena is public, so the default token is enough to read it; no
-    # secret is needed and the step works from forks too.
-    - name: Checkout promptarena
+    # The public consumers need only the default token, so those legs work
+    # from forks too. A fork PR gets no secrets, so its omnia leg fails here.
+    - name: Checkout ${{ matrix.repository }}
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
-        repository: AltairaLabs/promptarena
-        ref: ${{ inputs.promptarena-ref || 'main' }}
-        path: promptarena
+        repository: ${{ matrix.repository }}
+        ref: ${{ matrix.consumer == 'promptarena' && inputs.promptarena-ref || '' }}
+        token: ${{ matrix.private && secrets.DOWNSTREAM_DISPATCH_TOKEN || github.token }}
+        path: consumer
 
+    - name: Install ALSA dev headers
+      if: matrix.alsa
+      timeout-minutes: 15
+      run: promptkit/scripts/ci-install-alsa.sh
+
+    # The consumer's own Go version: omnia is ahead of PromptKit's.
     - name: Set up Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
-        go-version: '1.26.0'
+        go-version-file: consumer/go.mod
         cache-dependency-path: |
-          promptarena/go.sum
+          consumer/go.sum
           promptkit/runtime/go.sum
           promptkit/pkg/go.sum
+          promptkit/sdk/go.sum
 
-    # Replaces promptarena's PromptKit requires with ./promptkit, then runs
-    # promptarena's build, unit tests, engine race tests and keyless example
-    # packs. None of it needs the private npm packages or an API key.
-    - name: Build and test promptarena against this PromptKit
+    # Replaces the consumer's PromptKit requires with ./promptkit, then runs
+    # its keyless build and tests. None of it needs an API key, a cluster, a
+    # database or a private npm package.
+    - name: Build and test ${{ matrix.consumer }} against this PromptKit
       id: canary
       continue-on-error: ${{ inputs.advisory == true }}
-      run: promptkit/scripts/downstream-canary.sh promptarena promptkit
+      run: promptkit/scripts/downstream-canary.sh "${{ matrix.consumer }}" consumer promptkit
 
     - name: Report an advisory failure
       if: steps.canary.outcome == 'failure'
+      env:
+        CONSUMER: ${{ matrix.consumer }}
       run: |
-        echo "::warning::promptarena does not pass against this PromptKit; continuing because the canary was run as advisory"
+        echo "::warning::${CONSUMER} does not pass against this PromptKit; continuing because the canary was run as advisory"
         {
-          echo "## Downstream canary failed (advisory)"
+          echo "## Downstream canary failed for ${CONSUMER} (advisory)"
           echo ""
-          echo "promptarena does not build or pass its keyless suite against this"
+          echo "${CONSUMER} does not build or pass its keyless suite against this"
           echo "PromptKit. The run continued because the canary was bypassed."
         } >> "$GITHUB_STEP_SUMMARY"

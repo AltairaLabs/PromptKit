@@ -127,7 +127,7 @@ This diagram shows the job order in `release.yml` for `phase=full`.
 ```mermaid
 flowchart TD
     validate["validate: version, previous go.mod, tests, dep skew, API compatibility"]
-    canary["downstream-canary: promptarena main against this PromptKit"]
+    canary["downstream-canary: consumers against this PromptKit"]
     libs["tag-dependencies: tag root, runtime, pkg"]
     tools["update-tools: tag server/a2a, sdk"]
     create["create-release: draft release, SBOM, attestation"]
