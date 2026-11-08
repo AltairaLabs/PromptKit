@@ -37,7 +37,7 @@ const (
 
 	// blockedTurnQueueSize bounds the input turns a guardrail blocked that wait
 	// for the response loop; a full queue holds back input forwarding.
-	blockedTurnQueueSize = 4
+	blockedTurnQueueSize = 16
 )
 
 // EndInputter is an optional interface for sessions that support explicit end-of-input signaling.
@@ -158,6 +158,10 @@ type DuplexProviderStage struct {
 	// goroutine to the response loop, which emits them between assistant turns and
 	// only then records them (history, turn count, firing), in emission order.
 	blockedTurns chan *duplexBlockedTurn
+	// pendingTypedUser is the typed user turn of the input element being
+	// handled, until it is queued with a blocked turn or on its own. Input
+	// goroutine only.
+	pendingTypedUser *types.Message
 	// inputFailed is set once an input hook denied: the error element is then
 	// the session's last output.
 	inputFailed atomic.Bool
@@ -548,19 +552,22 @@ func (s *DuplexProviderStage) handleInputElement(
 		done <- err
 		return true
 	}
-	if err := s.forwardTextInputAsUserMessage(ctx, elem, output); err != nil {
-		done <- err
-		return true
-	}
+	s.takeTextInputAsUserTurn(elem)
 
-	// Input guardrails gate text before it reaches the session.
+	// Input guardrails gate text before it reaches the session. A blocked
+	// turn carries the user's turn with it.
 	if handled, err := s.guardInputText(ctx, elem); handled {
+		s.pendingTypedUser = nil
 		if err != nil {
 			s.failInput(ctx, err, output)
 			done <- err
 			return true
 		}
 		return false
+	}
+	if err := s.queueTypedUserTurn(ctx); err != nil {
+		done <- err
+		return true
 	}
 
 	s.sendElementToSession(ctx, elem)
@@ -633,39 +640,62 @@ func (s *DuplexProviderStage) forwardInputMessages(
 }
 
 // TextInputTurnSource is the StreamElement.Source of the element that carries
-// a realtime session's typed user turn (see forwardTextInputAsUserMessage).
+// a realtime session's typed user turn (see takeTextInputAsUserTurn).
 // The element is for the stages that persist and record the conversation; the
 // SDK does not pass it on to the caller, who sent the text.
 const TextInputTurnSource = "duplex_text_input"
 
-// forwardTextInputAsUserMessage makes bare text bound for the session (SendText
-// in a realtime session) a user turn of the conversation. Audio input becomes
-// one when the provider reports its transcription; text has no transcription,
-// so without this the user's typed turns never reached the history, the state
-// store or a recording, and a transcript held only the assistant's replies.
+// takeTextInputAsUserTurn makes bare text bound for the session (SendText in a
+// realtime session) a user turn of the conversation. Audio input becomes one
+// when the provider reports its transcription; text has none, so without this
+// the user's typed turns never reached the history, the state store or a
+// recording, and a transcript held only the assistant's replies.
 //
-// The user Message is forwarded on its own element, ahead of the reply, so the
-// text is not presented downstream as model output. The input element then
-// carries the Message, which tells the input guardrails it is already in the
-// history.
-func (s *DuplexProviderStage) forwardTextInputAsUserMessage(
-	ctx context.Context, elem *StreamElement, output chan<- StreamElement,
-) error {
+// The turn enters the hooks' history now, in the order the user sent it, and
+// the input element then carries it, which tells the input guardrails it is
+// already there. Its element is emitted by the response loop, between
+// assistant turns (see queueTypedUserTurn), so text typed while a reply is
+// streaming is saved and recorded after that reply, not inside it. Input
+// goroutine only.
+func (s *DuplexProviderStage) takeTextInputAsUserTurn(elem *StreamElement) {
+	s.pendingTypedUser = nil
 	if elem.Message != nil {
-		return nil
+		return
 	}
 	text := sessionBoundText(elem)
 	if text == "" {
+		return
+	}
+	user := &types.Message{Role: roleUser, Content: text, Timestamp: time.Now()}
+	s.turnStartTime = time.Now()
+	s.recordHistory(user)
+	elem.Message = user
+	s.pendingTypedUser = user
+}
+
+// queueTypedUserTurn queues the typed user turn takeTextInputAsUserTurn took,
+// if any, for the response loop to emit. It shares the blocked-turn queue, so
+// a user turn and a blocked turn keep the order they were sent in.
+func (s *DuplexProviderStage) queueTypedUserTurn(ctx context.Context) error {
+	user := s.pendingTypedUser
+	s.pendingTypedUser = nil
+	if user == nil {
 		return nil
 	}
-	now := time.Now()
-	user := &types.Message{Role: roleUser, Content: text, Timestamp: now}
-	userElem := StreamElement{Message: user, Timestamp: now, Source: TextInputTurnSource}
-	if err := s.forwardInputMessages(ctx, &userElem, output); err != nil {
-		return err
+	select {
+	case s.blockedTurns <- &duplexBlockedTurn{user: user, userOnly: true}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-	elem.Message = user
-	return nil
+}
+
+// emitTypedUserTurn emits a typed user turn's Message on its own element,
+// tagged TextInputTurnSource, so it is not presented downstream as model
+// output.
+func emitTypedUserTurn(ctx context.Context, user *types.Message, output chan<- StreamElement) error {
+	return sendStreamElement(ctx,
+		StreamElement{Message: user, Timestamp: timeNow(), Source: TextInputTurnSource}, output)
 }
 
 // forwardToolResultMessages sends each tool result message to output.
