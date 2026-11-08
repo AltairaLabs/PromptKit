@@ -4131,13 +4131,15 @@ func NewPromptAssemblyStageWithTurnState(promptRegistry *prompt.Registry, taskTy
 NewPromptAssemblyStageWithTurnState creates a stage that publishes the loaded template, allowed tools, and validator configs onto the supplied TurnState before forwarding the first element.
 
 <a name="PromptAssemblyStage.Process"></a>
-### func \(\*PromptAssemblyStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L81-L83>)
+### func \(\*PromptAssemblyStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L86-L88>)
 
 ```go
 func (s *PromptAssemblyStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
 ```
 
 Process loads the prompt template and populates TurnState. It does not render the template \(TemplateStage does\) and does not set variables \(VariableProviderStage does\). All input elements are forwarded unchanged.
+
+The template is loaded when the first element arrives, so the turn's variables \(TurnState.Variables, which VariableProviderStage publishes before it forwards anything\) are known: a fragment whose name a variable chooses resolves from them, whichever source set the variable.
 
 <a name="PromptAssemblyStage.WithModel"></a>
 ### func \(\*PromptAssemblyStage\) [WithModel](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L73>)
@@ -5230,7 +5232,7 @@ func (st StageType) String() string
 String returns the string representation of the stage type.
 
 <a name="StateStoreLoadStage"></a>
-## type [StateStoreLoadStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L176-L180>)
+## type [StateStoreLoadStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L195-L199>)
 
 StateStoreLoadStage loads conversation history from state store.
 
@@ -5242,7 +5244,7 @@ type StateStoreLoadStage struct {
 ```
 
 <a name="NewStateStoreLoadStage"></a>
-### func [NewStateStoreLoadStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L183>)
+### func [NewStateStoreLoadStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L202>)
 
 ```go
 func NewStateStoreLoadStage(config *pipeline.StateStoreConfig) *StateStoreLoadStage
@@ -5251,7 +5253,7 @@ func NewStateStoreLoadStage(config *pipeline.StateStoreConfig) *StateStoreLoadSt
 NewStateStoreLoadStage creates a new state store load stage.
 
 <a name="NewStateStoreLoadStageWithTurnState"></a>
-### func [NewStateStoreLoadStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L189>)
+### func [NewStateStoreLoadStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L208>)
 
 ```go
 func NewStateStoreLoadStageWithTurnState(config *pipeline.StateStoreConfig, turnState *TurnState) *StateStoreLoadStage
@@ -5260,7 +5262,7 @@ func NewStateStoreLoadStageWithTurnState(config *pipeline.StateStoreConfig, turn
 NewStateStoreLoadStageWithTurnState creates a state store load stage that publishes ConversationID/UserID onto the supplied TurnState.
 
 <a name="StateStoreLoadStage.Process"></a>
-### func \(\*StateStoreLoadStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L198-L202>)
+### func \(\*StateStoreLoadStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L217-L221>)
 
 ```go
 func (s *StateStoreLoadStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error

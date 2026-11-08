@@ -78,22 +78,47 @@ func (s *PromptAssemblyStage) WithModel(model string) *PromptAssemblyStage {
 // Process loads the prompt template and populates TurnState. It does not
 // render the template (TemplateStage does) and does not set variables
 // (VariableProviderStage does). All input elements are forwarded unchanged.
+//
+// The template is loaded when the first element arrives, so the turn's
+// variables (TurnState.Variables, which VariableProviderStage publishes before
+// it forwards anything) are known: a fragment whose name a variable chooses
+// resolves from them, whichever source set the variable.
 func (s *PromptAssemblyStage) Process(
 	ctx context.Context, input <-chan StreamElement, output chan<- StreamElement,
 ) error {
 	defer close(output)
 
-	// Load raw template (no rendering). A prompt that cannot be loaded fails
-	// the turn: running it on a prompt the author never wrote would hide the
-	// failure behind a plausible reply.
+	loaded := false
+	for elem := range input {
+		if !loaded {
+			if err := s.assemble(ctx); err != nil {
+				return err
+			}
+			loaded = true
+		}
+		select {
+		case output <- elem:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	if !loaded {
+		return s.assemble(ctx)
+	}
+	return nil
+}
+
+// assemble loads the raw template (no rendering) and populates TurnState
+// before the first element is forwarded. Channel hand-off to downstream stages
+// establishes happens-before, so readers (TemplateStage, ProviderStage, etc.)
+// observe these writes. A prompt that cannot be loaded fails the turn: running
+// it on a prompt the author never wrote would hide the failure behind a
+// plausible reply.
+func (s *PromptAssemblyStage) assemble(ctx context.Context) error {
 	tmpl, err := s.loadTemplate(ctx)
 	if err != nil {
 		return err
 	}
-
-	// Populate TurnState once, before forwarding the first element. Channel
-	// hand-off to downstream stages establishes happens-before so readers
-	// (TemplateStage, ProviderStage, etc.) observe these writes.
 	if s.turnState != nil && tmpl != nil {
 		s.turnState.Template = tmpl
 		s.turnState.AllowedTools = tmpl.AllowedTools
@@ -101,16 +126,6 @@ func (s *PromptAssemblyStage) Process(
 			s.turnState.Validators = s.extractValidatorConfigs(tmpl.Validators)
 		}
 	}
-
-	// Forward all elements; per-Turn data lives on TurnState above.
-	for elem := range input {
-		select {
-		case output <- elem:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-
 	return nil
 }
 
@@ -121,9 +136,9 @@ const defaultSystemPrompt = "You are a helpful AI assistant."
 // loadTemplate loads the stage's prompt. With no registry or no task type there
 // is no prompt to load, and the default prompt applies. Otherwise any load
 // failure is returned: a missing prompt, a broken prompt config, a required
-// fragment that cannot load. Required variables are not checked here, since
-// SetVar and VariableProvider values join the turn after this stage;
-// TemplateStage checks them against every variable the turn has.
+// fragment that cannot load. Required variables are not checked here; the
+// render may add more (memory context), so TemplateStage checks them against
+// every variable the turn has.
 func (s *PromptAssemblyStage) loadTemplate(ctx context.Context) (*prompt.Template, error) {
 	if s.promptRegistry == nil || s.taskType == "" {
 		logger.Warn("Using default system prompt, no prompt registry or task type configured",
@@ -131,18 +146,22 @@ func (s *PromptAssemblyStage) loadTemplate(ctx context.Context) (*prompt.Templat
 		return &prompt.Template{RawTemplate: defaultSystemPrompt}, nil
 	}
 
-	// Merge per-request variables (carried on the context, e.g. from an SDK
-	// structured input) over the static base variables, so fragments chosen by
-	// a variable resolve from them.
-	loadVars := s.baseVariables
-	if reqVars := variables.RequestVars(ctx); len(reqVars) > 0 {
-		loadVars = make(map[string]string, len(s.baseVariables)+len(reqVars))
-		for k, v := range s.baseVariables {
+	// Load with every variable the turn has so far, so fragments chosen by a
+	// variable resolve from it: the stage's base variables, then the turn's
+	// (static, provider and SetVar values, published by VariableProviderStage),
+	// then per-request variables carried on the context (an SDK structured
+	// input), the same precedence the render uses.
+	loadVars := make(map[string]string, len(s.baseVariables))
+	for k, v := range s.baseVariables {
+		loadVars[k] = v
+	}
+	if s.turnState != nil {
+		for k, v := range s.turnState.Variables {
 			loadVars[k] = v
 		}
-		for k, v := range reqVars {
-			loadVars[k] = v
-		}
+	}
+	for k, v := range variables.RequestVars(ctx) {
+		loadVars[k] = v
 	}
 
 	tmpl, err := s.promptRegistry.LoadTemplateDeferRequired(s.taskType, loadVars, s.model)

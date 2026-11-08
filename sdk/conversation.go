@@ -102,6 +102,10 @@ type Conversation struct {
 	// registerWorkflowTools. Empty for plain conversations.
 	workflowResolver *workflowResolverHolder
 
+	// setVars records the variables the application set (SetVar, SetVars,
+	// SetVarsFromEnv), which a workflow carries into each state's conversation.
+	setVars setVarNames
+
 	// Configuration from options (includes provider)
 	config *config
 
@@ -1327,6 +1331,7 @@ func (c *Conversation) SetVar(name, value string) {
 		return
 	}
 	c.getBaseSession().SetVar(name, value)
+	c.noteSetVar(name)
 }
 
 // SetVars sets multiple template variables at once.
@@ -1346,6 +1351,7 @@ func (c *Conversation) SetVars(vars map[string]any) {
 	sess := c.getBaseSession()
 	for k, v := range vars {
 		sess.SetVar(k, fmt.Sprintf("%v", v))
+		c.noteSetVar(k)
 	}
 }
 
@@ -1377,6 +1383,7 @@ func (c *Conversation) SetVarsFromEnv(prefix string) {
 		if strings.HasPrefix(key, prefix) {
 			varName := strings.ToLower(strings.TrimPrefix(key, prefix))
 			c.getBaseSession().SetVar(varName, value)
+			c.noteSetVar(varName)
 		}
 	}
 }

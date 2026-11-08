@@ -49,8 +49,8 @@ const fragmentPackJSON = `{
 			"id": "named", "name": "Named", "version": "1.0.0",
 			"system_template": "{{tone}} {{greeting}} Topic: {{topic}}.",
 			"variables": [
-				{"name": "customer", "type": "string", "required": false},
-				{"name": "topic", "type": "string", "required": false}
+				{"name": "customer", "type": "string", "required": true},
+				{"name": "topic", "type": "string", "required": true}
 			]
 		},
 		"plain": {
@@ -81,8 +81,8 @@ func TestFragments_PackFragmentReachesSystemPrompt(t *testing.T) {
 }
 
 // S2: a fragment, a variable inside another fragment, and a variable set with
-// SetVar, all in one prompt. The variables are optional: a required one set
-// only with SetVar fails the required-variable check before it is merged.
+// SetVar, all in one prompt. Both variables are required and set only with
+// SetVar: the required-variable check runs once every source is merged.
 func TestFragments_FragmentAndSetVar(t *testing.T) {
 	rec := newRecordingProvider()
 	conv := openTestConvWithPack(t, fragmentPackJSON, "named", sdk.WithProvider(rec))
@@ -115,9 +115,10 @@ func TestFragments_PromptWithoutFragmentIsUnchanged(t *testing.T) {
 	assert.Empty(t, data.FragmentsUsed)
 }
 
-// A fragment chosen by a variable can't be resolved at compile time, so the
-// pack holds only its reference. The SDK must fail the turn on it, naming the
-// placeholder, rather than render the prompt with the fragment missing.
+// A fragment chosen by a variable that declares no values (validation.enum)
+// can't be resolved at compile time, so the pack holds only its reference.
+// The SDK must fail the turn on it, naming the placeholder, rather than render
+// the prompt with the fragment missing.
 func TestFragments_DynamicReferenceFailsLoudly(t *testing.T) {
 	packJSON := `{
 		"id": "dynamic-fragment", "version": "1.0.0", "description": "dynamic",
@@ -359,15 +360,26 @@ func TestFragments_CompiledPackRendersAsSource(t *testing.T) {
 			source := reg.LoadWithVars("support", tc.variables, "")
 			require.NotNil(t, source, "the source prompt must render")
 
-			// The sources declare their variables required, so they are passed at
-			// Open, where the required-variable check sees them.
-			rec := newRecordingProvider()
-			conv, err := sdk.Open(packPath, "support", sdk.WithProvider(rec), sdk.WithVariables(tc.variables))
-			require.NoError(t, err)
-			t.Cleanup(func() { _ = conv.Close() })
-			_, err = conv.Send(context.Background(), "hi")
-			require.NoError(t, err)
-			assert.Equal(t, source.SystemPrompt, rec.system())
+			// The sources declare their variables required. Supplied at Open or
+			// only with SetVar, the render matches the source's.
+			for _, viaSetVar := range []bool{false, true} {
+				rec := newRecordingProvider()
+				opts := []sdk.Option{sdk.WithProvider(rec)}
+				if !viaSetVar {
+					opts = append(opts, sdk.WithVariables(tc.variables))
+				}
+				conv, err := sdk.Open(packPath, "support", opts...)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = conv.Close() })
+				if viaSetVar {
+					for k, v := range tc.variables {
+						conv.SetVar(k, v)
+					}
+				}
+				_, err = conv.Send(context.Background(), "hi")
+				require.NoError(t, err, "SetVar only: %v", viaSetVar)
+				assert.Equal(t, source.SystemPrompt, rec.system(), "SetVar only: %v", viaSetVar)
+			}
 		})
 	}
 }

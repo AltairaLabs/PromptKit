@@ -208,6 +208,35 @@ round as `TemplateStage` does.
 | Use variables in the prompts of a workflow's states | every round, including the one after a mid-turn handoff, renders them | nothing |
 | Bind a variable for one `Send` (`WithJSONInput`) | it applies to that turn only, where it stayed on every later turn. `TurnState.BeginTurn` now clears `Variables` | pass it on each `Send` that needs it |
 
+### Variables set with `SetVar` follow a workflow, and choose fragments
+
+A `WorkflowConversation` opens a new conversation for each state it enters.
+The variables the application set with `SetVar`, `SetVars` or `SetVarsFromEnv`
+were left behind on the previous state's conversation, so the next state's
+prompt failed when it required one. They now carry into every state's
+conversation, by `Transition` or a mid-turn handoff. The variables a state is
+opened with (`WithVariables`, prompt defaults, the carried context and
+artifacts) are not copied.
+
+A fragment whose name or path a variable chooses (`persona_{{region}}`)
+resolved only from the variables passed at load time, so one chosen by a
+`SetVar` or variable-provider value failed to load. `PromptAssemblyStage` now
+loads the prompt when the turn's first element arrives, with the turn's
+variables. `PackCompiler` writes every candidate of such a fragment into the
+pack when each variable in its name declares `validation.enum`, so a pack
+renders it from the variable at run time, as the sources do. Without `enum`
+the variable's values are unknown when the pack is compiled, and a pack's
+`fragments` hold static content only: the compiler writes the `{{name}}`
+reference as before, logs a warning, and a render fails on it unless the
+caller supplies the chosen fragment's content.
+
+| If you | You will see | Change |
+|---|---|---|
+| `SetVar` on a workflow's active conversation, then move to another state | the value in the next state's prompt | nothing |
+| Choose a fragment with a variable set by `SetVar` or a variable provider, from a source registry | the fragment loads and renders | nothing |
+| Compile a prompt whose fragment a variable with `validation.enum` chooses | the pack holds each candidate fragment by its resolved name, and no `{{name}}` reference | nothing |
+| Build a `PromptAssemblyStage` pipeline yourself | the template is loaded when the first element arrives | nothing |
+
 ### Custom headers reach every request
 
 The OpenAI Responses API path (`api_mode: responses`, unary and streaming),

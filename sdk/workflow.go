@@ -514,7 +514,11 @@ func (wc *WorkflowConversation) reconcileActiveConv(contextSummary string) error
 // Caller must hold wc.mu.
 func (wc *WorkflowConversation) openConvForCurrentState(contextSummary string) error {
 	targetPrompt := wc.machine.CurrentPromptTask()
+	// The variables the application set on the outgoing state's conversation
+	// carry into the incoming one: they belong to the workflow, not the state.
+	var carried map[string]string
 	if wc.activeConv != nil {
+		carried = wc.activeConv.appSetVars()
 		_ = wc.activeConv.Close()
 	}
 
@@ -549,6 +553,9 @@ func (wc *WorkflowConversation) openConvForCurrentState(contextSummary string) e
 	if err != nil {
 		return fmt.Errorf("failed to open conversation for state %q (prompt %q): %w",
 			wc.machine.CurrentState(), targetPrompt, err)
+	}
+	for name, value := range carried {
+		conv.SetVar(name, value)
 	}
 	wc.activeConv = conv
 	wc.activeStateName = wc.machine.CurrentState()
