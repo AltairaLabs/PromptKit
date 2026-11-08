@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/variables"
 )
@@ -51,5 +52,50 @@ func (c *Conversation) withSessionVars(existing []variables.Provider) []variable
 	out := make([]variables.Provider, 0, len(existing)+1)
 	out = append(out, existing...)
 	out = append(out, sessionVarProvider{conv: c})
+	return out
+}
+
+// setVarNames records which variables the application set on a conversation
+// with SetVar, SetVars or SetVarsFromEnv. The session's map also holds the
+// variables the conversation was opened with (WithVariables, prompt defaults,
+// a workflow's carried context and artifacts), and only the set ones belong
+// to the application to carry into another conversation.
+type setVarNames struct {
+	mu    sync.Mutex
+	names map[string]struct{}
+}
+
+// noteSetVar records that the application set name.
+func (c *Conversation) noteSetVar(name string) {
+	c.setVars.mu.Lock()
+	defer c.setVars.mu.Unlock()
+	if c.setVars.names == nil {
+		c.setVars.names = make(map[string]struct{})
+	}
+	c.setVars.names[name] = struct{}{}
+}
+
+// appSetVars returns the current value of every variable the application set
+// on this conversation with SetVar, SetVars or SetVarsFromEnv.
+func (c *Conversation) appSetVars() map[string]string {
+	c.setVars.mu.Lock()
+	names := make([]string, 0, len(c.setVars.names))
+	for name := range c.setVars.names {
+		names = append(names, name)
+	}
+	c.setVars.mu.Unlock()
+	if len(names) == 0 {
+		return nil
+	}
+	sess := c.getBaseSession()
+	if sess == nil {
+		return nil
+	}
+	out := make(map[string]string, len(names))
+	for _, name := range names {
+		if v, ok := sess.GetVar(name); ok {
+			out[name] = v
+		}
+	}
 	return out
 }
