@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -709,8 +710,14 @@ func (pc *PackCompiler) collectFragments(pack *Pack, taskType string, config *Co
 			"prompt", taskType, "fragments", len(config.Spec.Fragments))
 	}
 	for _, ref := range config.Spec.Fragments {
-		if !canLoad || isDynamicFragmentRef(ref) {
+		if !canLoad {
 			addFragmentReference(pack, ref.Name)
+			continue
+		}
+		if isDynamicFragmentRef(ref) {
+			if err := addDynamicFragment(pack, loader, taskType, config, ref); err != nil {
+				return err
+			}
 			continue
 		}
 		if err := addResolvedFragment(pack, loader, taskType, ref); err != nil {
@@ -757,6 +764,101 @@ func addResolvedFragment(pack *Pack, loader FragmentLoader, taskType string, ref
 	}
 	pack.Fragments[ref.Name] = content
 	return nil
+}
+
+// fragmentNameVarPattern matches a {{variable}} in a fragment reference's name
+// or path.
+var fragmentNameVarPattern = regexp.MustCompile(`\{\{\s*([A-Za-z0-9_.]+)\s*\}\}`)
+
+// addDynamicFragment writes a fragment reference a variable chooses. When every
+// variable in its name and path declares the values it takes
+// (validation.enum), each candidate is loaded and written under its resolved
+// name, so the pack carries every fragment the reference can choose and a
+// render resolves it from the variable, whichever source sets it. Otherwise
+// the values are unknown at compile time and the pack, whose fragments are
+// static content, cannot hold the candidates: the reference is written as its
+// "{{name}}" placeholder, as before, and a render fails on it unless the
+// caller supplies the chosen fragment's content.
+func addDynamicFragment(pack *Pack, loader FragmentLoader, taskType string, config *Config, ref FragmentRef) error {
+	combos, ok := enumCombinations(config, ref)
+	if !ok {
+		logger.Warn("Fragment chosen by a variable without declared values; the pack holds only its reference. "+
+			"Declare validation.enum on the variable to compile every candidate.",
+			"prompt", taskType, "fragment", ref.Name)
+		addFragmentReference(pack, ref.Name)
+		return nil
+	}
+	for _, vars := range combos {
+		resolved := FragmentRef{
+			Name:     substituteFragmentVars(ref.Name, vars),
+			Path:     substituteFragmentVars(ref.Path, vars),
+			Required: ref.Required,
+		}
+		if err := addResolvedFragment(pack, loader, taskType, resolved); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// enumCombinations returns every assignment of the variables in ref's name
+// and path to their declared enum values, or false when one declares none.
+func enumCombinations(config *Config, ref FragmentRef) ([]map[string]string, bool) {
+	var names []string
+	seen := map[string]bool{}
+	for _, m := range fragmentNameVarPattern.FindAllStringSubmatch(ref.Name+" "+ref.Path, -1) {
+		if !seen[m[1]] {
+			seen[m[1]] = true
+			names = append(names, m[1])
+		}
+	}
+	combos := []map[string]string{{}}
+	for _, name := range names {
+		values := variableEnum(config, name)
+		if len(values) == 0 {
+			return nil, false
+		}
+		var next []map[string]string
+		for _, c := range combos {
+			for _, v := range values {
+				m := maps.Clone(c)
+				m[name] = v
+				next = append(next, m)
+			}
+		}
+		combos = next
+	}
+	return combos, true
+}
+
+// variableEnum returns the declared enum values of the prompt variable name.
+func variableEnum(config *Config, name string) []string {
+	for _, v := range config.Spec.Variables {
+		if v.Name != name || v.Validation == nil {
+			continue
+		}
+		raw, ok := v.Validation["enum"].([]interface{})
+		if !ok {
+			return nil
+		}
+		out := make([]string, 0, len(raw))
+		for _, e := range raw {
+			out = append(out, fmt.Sprintf("%v", e))
+		}
+		return out
+	}
+	return nil
+}
+
+// substituteFragmentVars replaces each {{variable}} in s with its value.
+func substituteFragmentVars(s string, vars map[string]string) string {
+	return fragmentNameVarPattern.ReplaceAllStringFunc(s, func(m string) string {
+		name := fragmentNameVarPattern.FindStringSubmatch(m)[1]
+		if v, ok := vars[name]; ok {
+			return v
+		}
+		return m
+	})
 }
 
 // isDynamicFragmentRef reports whether a fragment reference is chosen by a
