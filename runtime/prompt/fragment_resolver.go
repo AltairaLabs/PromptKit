@@ -70,19 +70,19 @@ func (fr *FragmentResolver) LoadFragment(name, relativePath, baseDir string) (*F
 		return nil, fmt.Errorf("fragment resolver requires repository")
 	}
 	if relativePath == "" {
-		return fr.loadCached(name, name, "", "")
+		return fr.loadCached(nameCacheKey(name), name, "", "")
 	}
 	if filepath.IsAbs(relativePath) {
-		return fr.loadCached(filepath.Clean(relativePath), name, relativePath, "")
+		return fr.loadCached(pathCacheKey(relativePath), name, relativePath, "")
 	}
 	// A path is relative to its base dir, so the same path under two base dirs
 	// is two fragments.
-	cacheKey := filepath.Join(baseDir, relativePath)
+	cacheKey := pathCacheKey(filepath.Join(baseDir, relativePath))
 	fragment, err := fr.loadCached(cacheKey, name, relativePath, baseDir)
 	if err == nil || baseDir == "" || !errors.Is(err, fs.ErrNotExist) {
 		return fragment, err
 	}
-	fragment, fallbackErr := fr.loadCached(filepath.Clean(relativePath), name, relativePath, "")
+	fragment, fallbackErr := fr.loadCached(pathCacheKey(relativePath), name, relativePath, "")
 	if fallbackErr != nil {
 		if errors.Is(fallbackErr, fs.ErrNotExist) {
 			return nil, err
@@ -93,6 +93,13 @@ func (fr *FragmentResolver) LoadFragment(name, relativePath, baseDir string) (*F
 	fr.store(cacheKey, fragment)
 	return fragment, nil
 }
+
+// Fragment cache keys. A lookup with no path is cached as "name:<name>", one
+// with a path as "path:<cleaned path>", so a name holding "/" and an equal
+// path are two entries.
+func nameCacheKey(name string) string { return "name:" + name }
+
+func pathCacheKey(path string) string { return "path:" + filepath.Clean(path) }
 
 // loadCached returns the fragment cached under cacheKey, loading and caching
 // it from the repository on a miss.

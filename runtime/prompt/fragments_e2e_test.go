@@ -535,7 +535,7 @@ func TestFragmentsE2E_NameOnlyReference(t *testing.T) {
 
 			// The registry reports the fragment it loaded, by name, until its
 			// cache is cleared.
-			assert.Equal(t, []string{"tone"}, reg.GetCachedFragments())
+			assert.Equal(t, []string{"name:tone"}, reg.GetCachedFragments())
 			reg.ClearCache()
 			assert.Empty(t, reg.GetCachedFragments())
 		})
