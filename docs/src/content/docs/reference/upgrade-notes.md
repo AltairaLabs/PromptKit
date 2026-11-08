@@ -243,6 +243,9 @@ with `prompt.ErrVariableNotInEnum`. The YAML and JSON repositories refuse a
 relative fragment path that resolves outside their base directory with
 `persistence.ErrFragmentPathOutsideBase`, unless it stays inside the prompt's
 own directory; an absolute path written in the config is still used as it is.
+The check holds on the file the path resolves to, so a symlink inside the base
+that points outside it is refused the same way, while one that stays inside is
+followed.
 
 | If you | You will see | Change |
 |---|---|---|
@@ -251,7 +254,7 @@ own directory; an absolute path written in the config is still used as it is.
 | Compile a prompt whose fragment name carries a variable with `validation.enum` | the pack holds each candidate fragment by its resolved name, and no `{{name}}` reference. A required candidate that cannot load fails the compile | nothing, or add the missing candidate |
 | Choose a fragment's path with a variable whose value holds `/`, `..` or an absolute path | the turn fails with `prompt.ErrUnsafeFragmentValue` | pass a plain name |
 | Set a variable outside its declared `validation.enum` | loading the prompt fails with `prompt.ErrVariableNotInEnum`, naming the allowed values | pass an allowed value, or widen the enum |
-| Reference a fragment by a relative path that climbs out of the repository's base directory | `persistence.ErrFragmentPathOutsideBase` | move the file under the base, or give an absolute path |
+| Reference a fragment by a relative path that climbs out of the repository's base directory, or through a symlink that points out of it | `persistence.ErrFragmentPathOutsideBase` | move the file under the base, or give an absolute path |
 | Build a `PromptAssemblyStage` pipeline yourself | the template is loaded when the first element arrives | nothing |
 
 ### Custom headers reach every request

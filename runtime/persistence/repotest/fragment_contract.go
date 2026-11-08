@@ -51,6 +51,10 @@ func fixtureContent(content string) string {
 	return fmt.Sprintf(`{"fragment_type": "text", "version": "v1", "content": %q}`, content)
 }
 
+// ErrCheckSkipped is returned by a check that cannot run on this platform,
+// such as a symlink check where os.Symlink fails. The suite skips it.
+var ErrCheckSkipped = errors.New("check skipped on this platform")
+
 // Check is one clause of the contract. It returns an error describing how the
 // repository broke it, or nil.
 type Check struct {
@@ -75,6 +79,8 @@ type Check struct {
 //     directory newRepo builds it over) is an error that does not satisfy
 //     fs.ErrNotExist, whether or not a file is there, so a path cannot read
 //     files outside the prompts. An absolute path is the config's to choose;
+//   - so is a path inside the root that a symlink points outside it, while a
+//     symlink that stays inside the root is followed;
 //   - a repository that cannot honor a path (the in-memory one) says so with
 //     persistence.ErrFragmentPathUnsupported on every path lookup, and never
 //     answers one by name.
@@ -91,7 +97,11 @@ func RunFragmentRepositoryContract(
 			if err := WriteFixtures(root); err != nil {
 				t.Fatalf("writing fixtures: %v", err)
 			}
-			if err := check.Run(newRepo(t, root), root); err != nil {
+			err := check.Run(newRepo(t, root), root)
+			if errors.Is(err, ErrCheckSkipped) {
+				t.Skip(err)
+			}
+			if err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -132,6 +142,8 @@ func Checks() []Check {
 		{Name: "invalid file is not fs.ErrNotExist", Run: checkInvalidFile},
 		{Name: "unreadable path is not fs.ErrNotExist", Run: checkUnreadablePath},
 		{Name: "relative path outside the root is an error", Run: checkPathOutsideRoot},
+		{Name: "symlink out of the root is an error", Run: checkSymlinkOutOfRoot},
+		{Name: "symlink within the root resolves", Run: checkSymlinkWithinRoot},
 	}
 }
 
@@ -194,6 +206,43 @@ func checkPathOutsideRoot(repo prompt.FragmentRepository, root string) error {
 			lookup(NamedFragment, rel, baseDir), err)
 	}
 	return nil
+}
+
+// checkSymlinkOutOfRoot asks for a file in the root's fragments that is a
+// symlink to a file next to the root. A repository that follows it out reads
+// the outside content and fails the check.
+func checkSymlinkOutOfRoot(repo prompt.FragmentRepository, root string) error {
+	outside := filepath.Join(filepath.Dir(root), filepath.Base(root)+"-linked.yaml")
+	if err := os.WriteFile(outside, []byte(fixtureContent("outside the root")), fileMode); err != nil {
+		return fmt.Errorf("writing the outside fixture: %w", err)
+	}
+	defer func() { _ = os.Remove(outside) }()
+	link := filepath.Join(root, "fragments", "escape.yaml")
+	if err := os.Symlink(outside, link); err != nil {
+		return fmt.Errorf("%w: os.Symlink: %v", ErrCheckSkipped, err)
+	}
+	baseDir := filepath.Join(root, "a")
+	rel := filepath.Join("..", "fragments", "escape.yaml")
+	if err := wantPathFailure(repo, rel, baseDir, false); err != nil {
+		return err
+	}
+	_, err := repo.LoadFragment(NamedFragment, rel, baseDir)
+	if !errors.Is(err, persistence.ErrFragmentPathOutsideBase) &&
+		!errors.Is(err, persistence.ErrFragmentPathUnsupported) {
+		return fmt.Errorf("%s error = %v, want persistence.ErrFragmentPathOutsideBase",
+			lookup(NamedFragment, rel, baseDir), err)
+	}
+	return nil
+}
+
+// checkSymlinkWithinRoot asks for a symlink in one directory of the root that
+// points to a fixture in another: it stays inside, so it loads.
+func checkSymlinkWithinRoot(repo prompt.FragmentRepository, root string) error {
+	link := filepath.Join(root, "fragments", "inside.yaml")
+	if err := os.Symlink(filepath.Join(root, "b", fragmentFile), link); err != nil {
+		return fmt.Errorf("%w: os.Symlink: %v", ErrCheckSkipped, err)
+	}
+	return wantPathContent(repo, filepath.Join("..", "fragments", "inside.yaml"), filepath.Join(root, "a"), underB)
 }
 
 // lookup describes one LoadFragment call, for error messages.
