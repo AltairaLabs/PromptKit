@@ -4,7 +4,7 @@ description: Core framework powering all PromptKit tools
 sidebar:
   order: 0
 verified:
-  commit: ffbed7c4b0fff266953352be5e73d4e308a97acf
+  commit: 040ffc2791cf0cc1f5f6a5ad26cef1ce77092b9f
   sources:
     - runtime/credentials/resolver.go
     - runtime/pipeline/stage/builder.go

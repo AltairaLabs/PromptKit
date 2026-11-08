@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/reference/checks.md",
- "commit": "ffbed7c4b0fff266953352be5e73d4e308a97acf",
+ "commit": "040ffc2791cf0cc1f5f6a5ad26cef1ce77092b9f",
  "claims": [
   {
    "id": "c1",
@@ -427,7 +427,7 @@
    "claim": "llm_judge, llm_judge_session and llm_judge_tool_calls with no system_prompt render the prompt named by Metadata judge_defaults.prompt from Metadata prompt_registry with criteria, rubric, response and conversation; a missing or unrenderable prompt is an error result",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/handlers/judge_defaults.go:33-57",
+    "runtime/evals/handlers/judge_defaults.go:27-63",
     "runtime/evals/handlers/llm_judge.go:69-75"
    ]
   },
@@ -437,7 +437,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/types.go:330",
-    "runtime/evals/validate.go:140-142",
+    "runtime/evals/validate.go:216-218",
     "runtime/evals/wrappers.go:135-147",
     "runtime/evals/wrappers.go:71-114"
    ]
@@ -491,7 +491,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/normalize.go:19-56",
-    "runtime/evals/validate.go:143-145",
+    "runtime/evals/validate.go:219-221",
     "runtime/hooks/guardrails/factory.go:129-140"
    ]
   }
