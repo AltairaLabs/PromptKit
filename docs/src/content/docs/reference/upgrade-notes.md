@@ -233,19 +233,26 @@ cases the compiler writes the `{{name}}` reference as before and logs a
 warning, and a render fails on it unless the caller supplies the chosen
 fragment's content.
 
-A variable's value that fills a fragment's name or path must be a plain name:
-one with a path separator, `..`, a drive colon, a `{{placeholder}}`, or an
-absolute path fails the turn with `prompt.ErrUnsafeFragmentValue`, from any
-source, and so does an empty value in a path. Names and paths are filled in
-one pass, so a value is never expanded again. A declared
-`validation.enum` is enforced when a prompt loads: a value outside it fails
-with `prompt.ErrVariableNotInEnum`. The YAML and JSON repositories refuse a
-relative fragment path that resolves outside their base directory with
-`persistence.ErrFragmentPathOutsideBase`, unless it stays inside the prompt's
-own directory; an absolute path written in the config is still used as it is.
-The check holds on the file the path resolves to, so a symlink inside the base
-that points outside it is refused the same way, while one that stays inside is
-followed.
+A variable's value that fills a fragment's path must be a plain name: one
+with a path separator, `..`, a drive colon or a `{{placeholder}}`, or values
+that together make a `..` segment (`{{a}}{{b}}` with two `.`), fail the turn
+with `prompt.ErrUnsafeFragmentValue`, from any source. Paths are filled in one
+pass, so a value is never expanded again. A segment that empty values leave
+empty names no file: an optional fragment renders empty, as a missing one
+does. A fragment's name is a key and is not checked: a pack's fragments may
+hold any key. A declared `validation.enum` is enforced when a prompt loads: a
+value outside it fails with `prompt.ErrVariableNotInEnum`.
+
+The YAML and JSON repositories let a relative fragment path climb only as far
+as its own leading `../` segments, which the config wrote:
+`../fragments/x.yaml` from a prompts directory reaches its sibling
+`fragments/`. A `..` after a name, which climbs back past where the path
+started (`x/../../secret.yaml`), is refused with
+`persistence.ErrFragmentPathOutsideBase`; since a variable cannot add `..`, a
+variable cannot move that point. The check holds on the file the path resolves
+to, so a symlink pointing past that point is refused the same way, while one
+that stays inside is followed. An absolute path written in the config is used
+as it is. A name-only lookup stays in the repository's `fragments/`.
 
 | If you | You will see | Change |
 |---|---|---|
@@ -253,8 +260,9 @@ followed.
 | Choose a fragment with a variable set by `SetVar` or a variable provider, from a source registry | the fragment loads and renders | nothing |
 | Compile a prompt whose fragment name carries a variable with `validation.enum` | the pack holds each candidate fragment by its resolved name, and no `{{name}}` reference. A required candidate that cannot load fails the compile | nothing, or add the missing candidate |
 | Choose a fragment's path with a variable whose value holds `/`, `..` or an absolute path | the turn fails with `prompt.ErrUnsafeFragmentValue` | pass a plain name |
+| Leave a path variable of an optional fragment empty | the fragment renders empty, as a missing one does | nothing |
 | Set a variable outside its declared `validation.enum` | loading the prompt fails with `prompt.ErrVariableNotInEnum`, naming the allowed values | pass an allowed value, or widen the enum |
-| Reference a fragment by a relative path that climbs out of the repository's base directory, or through a symlink that points out of it | `persistence.ErrFragmentPathOutsideBase` | move the file under the base, or give an absolute path |
+| Reference a fragment by a relative path whose `..` comes after a name (`x/../../y.yaml`), or through a symlink that points past where the path may reach | `persistence.ErrFragmentPathOutsideBase` | write the climb as leading `../`, or give an absolute path |
 | Build a `PromptAssemblyStage` pipeline yourself | the template is loaded when the first element arrives | nothing |
 
 ### Custom headers reach every request

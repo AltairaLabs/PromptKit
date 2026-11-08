@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"errors"
+	"io/fs"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -44,13 +45,15 @@ func TestEnumValues_AreEnforced(t *testing.T) {
 	assert.Contains(t, err.Error(), "gold, silver")
 }
 
-// A value holding a placeholder is not expanded by another variable, and an
-// empty value cannot make a relative path absolute.
+// A value holding a placeholder is not expanded by another variable, and is
+// refused in a path. An empty value that leaves a path segment empty names no
+// file: an optional fragment renders empty, a required one is not found.
 func TestFragmentValues_NestedAndEmpty(t *testing.T) {
 	repo := newMockRepository()
-	repo.prompts["nested"] = fragmentConfig("nested", FragmentRef{Name: "{{region}}"})
+	repo.prompts["nested"] = fragmentConfig("nested", FragmentRef{Name: "persona", Path: "p/{{region}}.md"})
 	repo.prompts["empty"] = fragmentConfig("empty", FragmentRef{Name: "persona", Path: "{{region}}/persona.md"})
-	repo.prompts["named"] = fragmentConfig("named", FragmentRef{Name: "persona_{{variant}}"})
+	repo.prompts["required"] = fragmentConfig("required",
+		FragmentRef{Name: "persona", Path: "{{region}}/persona.md", Required: true})
 	reg := NewRegistryWithRepository(repo)
 
 	for i := 0; i < 20; i++ { // map order once let the inner variable fill in
@@ -58,10 +61,11 @@ func TestFragmentValues_NestedAndEmpty(t *testing.T) {
 			map[string]string{"region": "{{x}}", "x": "../../etc/passwd"}, "")
 		require.True(t, errors.Is(err, ErrUnsafeFragmentValue), "run %d: %v", i, err)
 	}
-	_, err := reg.LoadTemplateDeferRequired("empty", map[string]string{"region": ""}, "")
-	require.True(t, errors.Is(err, ErrUnsafeFragmentValue), "%v", err)
-	_, err = reg.LoadTemplateDeferRequired("named", map[string]string{"variant": ""}, "")
-	require.NoError(t, err, "an empty value is a name's to take")
+	tmpl, err := reg.LoadTemplateDeferRequired("empty", map[string]string{"region": ""}, "")
+	require.NoError(t, err, "an optional fragment whose path names no file renders empty")
+	assert.Equal(t, "", tmpl.FragmentVars["persona"])
+	_, err = reg.LoadTemplateDeferRequired("required", map[string]string{"region": ""}, "")
+	require.True(t, errors.Is(err, fs.ErrNotExist), "%v", err)
 
 	fr := NewFragmentResolverWithRepository(repo)
 	assert.Equal(t, "{{x}}", fr.resolveVariables("{{region}}", map[string]string{"region": "{{x}}", "x": "y"}))

@@ -75,11 +75,11 @@ type Check struct {
 //   - a file that exists but cannot be read or parsed is an error that does
 //     not satisfy fs.ErrNotExist, so the resolver reports it rather than
 //     looking elsewhere;
-//   - a relative path that resolves outside the repository's root (the
-//     directory newRepo builds it over) is an error that does not satisfy
-//     fs.ErrNotExist, whether or not a file is there, so a path cannot read
-//     files outside the prompts. An absolute path is the config's to choose;
-//   - so is a path inside the root that a symlink points outside it, while a
+//   - a relative path may climb only as far as its own leading "../"
+//     segments: one that climbs back past that point ("x/../../y") is an
+//     error that does not satisfy fs.ErrNotExist, whether or not a file is
+//     there. An absolute path is the config's to choose;
+//   - so is a path whose file is a symlink pointing outside the root, while a
 //     symlink that stays inside the root is followed;
 //   - a repository that cannot honor a path (the in-memory one) says so with
 //     persistence.ErrFragmentPathUnsupported on every path lookup, and never
@@ -141,7 +141,7 @@ func Checks() []Check {
 		{Name: "path miss is fs.ErrNotExist", Run: checkPathMissing},
 		{Name: "invalid file is not fs.ErrNotExist", Run: checkInvalidFile},
 		{Name: "unreadable path is not fs.ErrNotExist", Run: checkUnreadablePath},
-		{Name: "relative path outside the root is an error", Run: checkPathOutsideRoot},
+		{Name: "relative path climbing past its start is an error", Run: checkPathOutsideRoot},
 		{Name: "symlink out of the root is an error", Run: checkSymlinkOutOfRoot},
 		{Name: "symlink within the root resolves", Run: checkSymlinkWithinRoot},
 	}
@@ -186,15 +186,16 @@ func checkUnreadablePath(repo prompt.FragmentRepository, root string) error {
 }
 
 // checkPathOutsideRoot asks for a file next to the root, through a relative
-// path that climbs out of it. The file exists, so a repository that reads it
-// answers with its content and fails the check.
+// path that descends and then climbs past where it started. The file exists,
+// so a repository that reads it answers with its content and fails the check.
 func checkPathOutsideRoot(repo prompt.FragmentRepository, root string) error {
 	outside := filepath.Join(filepath.Dir(root), filepath.Base(root)+"-outside.yaml")
 	if err := os.WriteFile(outside, []byte(fixtureContent("outside the root")), fileMode); err != nil {
 		return fmt.Errorf("writing the outside fixture: %w", err)
 	}
 	defer func() { _ = os.Remove(outside) }()
-	rel := filepath.Join("..", "..", filepath.Base(outside))
+	// Not filepath.Join, which would clean the climb away.
+	rel := "x/../../../" + filepath.Base(outside)
 	baseDir := filepath.Join(root, "a")
 	if err := wantPathFailure(repo, rel, baseDir, false); err != nil {
 		return err
