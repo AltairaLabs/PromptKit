@@ -149,6 +149,12 @@ func (fr *FragmentResolver) clearCache() {
 // holds a placeholder is not expanded by a later variable. A placeholder with
 // no variable is left as it is.
 func (fr *FragmentResolver) resolveVariables(text string, vars map[string]string) string {
+	return substitutePlaceholders(text, vars)
+}
+
+// substitutePlaceholders replaces each {{name}} in text with its value from
+// vars, in one pass; see resolveVariables.
+func substitutePlaceholders(text string, vars map[string]string) string {
 	return fragmentRefPlaceholder.ReplaceAllStringFunc(text, func(m string) string {
 		if value, ok := vars[m[2:len(m)-2]]; ok {
 			return value
@@ -244,13 +250,20 @@ var ErrUnsafeFragmentValue = errors.New("variable value cannot be used in a frag
 // does, and a required one fails as not found.
 var errUnresolvableFragmentPath = fmt.Errorf("fragment path segment is empty after its variables: %w", fs.ErrNotExist)
 
-// resolveFragmentPath fills ref's path from vars, one "/"-separated segment
-// at a time. What the config writes literally is the author's and is left as
-// it is. In a segment a variable fills, every non-empty value must be a plain
-// name (IsPlainFragmentValue), and the filled segment must not be ".." (two
-// "." values side by side) or empty.
+// resolveFragmentPath fills ref's path from vars; see fillFragmentPath.
 func (fr *FragmentResolver) resolveFragmentPath(ref FragmentRef, vars map[string]string) (string, error) {
-	segments := strings.Split(ref.Path, "/")
+	return fillFragmentPath(ref, vars)
+}
+
+// fillFragmentPath fills ref's path from vars, one segment at a time, split
+// on "/" and "\\" alike (both separate on Windows). What the config writes
+// literally is the author's and is left as it is. In a segment a variable
+// fills, every non-empty value must be a plain name (IsPlainFragmentValue),
+// and the filled segment must not be made of dots and spaces only (".." from
+// two "." values side by side; Windows also drops trailing dots and spaces)
+// nor be empty.
+func fillFragmentPath(ref FragmentRef, vars map[string]string) (string, error) {
+	segments := strings.Split(strings.ReplaceAll(ref.Path, "\\", "/"), "/")
 	for i, seg := range segments {
 		if !fragmentRefPlaceholder.MatchString(seg) {
 			continue
@@ -261,12 +274,12 @@ func (fr *FragmentResolver) resolveFragmentPath(ref FragmentRef, vars map[string
 				return "", fmt.Errorf("%w: fragment %q, variable %q", ErrUnsafeFragmentValue, ref.Name, key)
 			}
 		}
-		filled := fr.resolveVariables(seg, vars)
-		switch filled {
-		case "..":
-			return "", fmt.Errorf("%w: fragment %q, path %q", ErrUnsafeFragmentValue, ref.Name, ref.Path)
-		case "":
+		filled := substitutePlaceholders(seg, vars)
+		if filled == "" {
 			return "", fmt.Errorf("fragment %q, path %q: %w", ref.Name, ref.Path, errUnresolvableFragmentPath)
+		}
+		if strings.Trim(filled, ". ") == "" {
+			return "", fmt.Errorf("%w: fragment %q, path %q", ErrUnsafeFragmentValue, ref.Name, ref.Path)
 		}
 		segments[i] = filled
 	}
