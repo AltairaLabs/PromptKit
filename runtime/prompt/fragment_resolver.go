@@ -48,35 +48,9 @@ func (fr *FragmentResolver) AssembleFragments(
 	fragmentVars := make(map[string]string, len(fragments))
 
 	for _, fragRef := range fragments {
-		resolvedName, resolvedPath, err := fr.resolveRef(fragRef, vars)
-		if err != nil {
+		if err := fr.assembleOne(fragRef, vars, configFilePath, fragmentVars); err != nil {
 			return nil, err
 		}
-
-		fragment, err := fr.LoadFragment(resolvedName, resolvedPath, configFilePath)
-		if err != nil {
-			if fragRef.Required {
-				return nil, fmt.Errorf("required fragment '%s' (resolved from '%s') not found: %w",
-					resolvedName, fragRef.Name, err)
-			}
-			// An optional fragment that does not exist renders empty, so its
-			// placeholder does not fail the render. A variable of the same
-			// name, when the caller set one, still fills it. Any other
-			// failure (a file that won't parse, a path the repository can't
-			// load) is not "missing": its placeholder is left, so the render
-			// fails naming it rather than dropping it silently.
-			if !errors.Is(err, fs.ErrNotExist) {
-				logger.Warn("Optional fragment could not be loaded", "fragment", resolvedName, "error", err)
-				continue
-			}
-			if _, set := vars[resolvedName]; !set {
-				fragmentVars[resolvedName] = ""
-			}
-			continue
-		}
-
-		// Use resolved fragment name as variable key for template substitution
-		fragmentVars[resolvedName] = fragment.Content
 	}
 
 	return fragmentVars, nil
@@ -175,6 +149,12 @@ func (fr *FragmentResolver) clearCache() {
 // holds a placeholder is not expanded by a later variable. A placeholder with
 // no variable is left as it is.
 func (fr *FragmentResolver) resolveVariables(text string, vars map[string]string) string {
+	return substitutePlaceholders(text, vars)
+}
+
+// substitutePlaceholders replaces each {{name}} in text with its value from
+// vars, in one pass; see resolveVariables.
+func substitutePlaceholders(text string, vars map[string]string) string {
 	return fragmentRefPlaceholder.ReplaceAllStringFunc(text, func(m string) string {
 		if value, ok := vars[m[2:len(m)-2]]; ok {
 			return value
@@ -187,46 +167,123 @@ func (fr *FragmentResolver) resolveVariables(text string, vars map[string]string
 // reference's name or path, exactly as written ({{name}}, no spaces).
 var fragmentRefPlaceholder = regexp.MustCompile(`\{\{[^{}]+\}\}`)
 
-// resolveRef fills a reference's name and path from vars (e.g.
-// "persona_support_{{region}}" → "persona_support_us"). A variable's value
-// chooses a fragment, never a file elsewhere, so an unsafe one is an error.
-func (fr *FragmentResolver) resolveRef(ref FragmentRef, vars map[string]string) (name, path string, err error) {
-	if err := checkFragmentRefValues(ref, vars); err != nil {
-		return "", "", err
-	}
-	name = fr.resolveVariables(ref.Name, vars)
-	if ref.Path != "" {
-		path = fr.resolveVariables(ref.Path, vars)
-	}
-	return name, path, nil
-}
-
-// ErrUnsafeFragmentValue reports that a variable's value, filled into a
-// fragment's name or path, would leave the fragment's directory: it holds a
-// path separator or "..", or is an absolute path. The fragment is not loaded.
-var ErrUnsafeFragmentValue = errors.New("variable value cannot be used in a fragment name or path")
-
-// checkFragmentRefValues rejects a value that ref's name or path would take
-// from vars and that is not a plain name: an empty one in a path (which can
-// turn a relative path absolute), or one holding a path separator, "..", a drive
-// colon, a placeholder, or an absolute path. A path written literally in the
-// config is not checked here; only what a variable puts into it.
-func checkFragmentRefValues(ref FragmentRef, vars map[string]string) error {
-	for key, value := range vars {
-		placeholder := "{{" + key + "}}"
-		if !strings.Contains(ref.Name, placeholder) && !strings.Contains(ref.Path, placeholder) {
-			continue
-		}
-		// An empty value is a name's to take (persona_ for persona_{{x}}), not
-		// a path's: "{{x}}/a.md" would become the absolute "/a.md".
-		if value == "" && !strings.Contains(ref.Path, placeholder) {
-			continue
-		}
-		if !IsPlainFragmentValue(value) {
-			return fmt.Errorf("%w: fragment %q, variable %q", ErrUnsafeFragmentValue, ref.Name, key)
+// assembleOne loads one reference into fragmentVars under its resolved name.
+//
+// A path refused as unsafe fails the prompt, required or not. An optional
+// fragment that does not exist (including a path its variables leave empty)
+// renders empty, so its placeholder does not fail the render; a variable of
+// the same name, when the caller set one, still fills it. Any other failure
+// of an optional fragment (a file that won't parse, a path the repository
+// can't load) is not "missing": its placeholder is left, so the render fails
+// naming it rather than dropping it silently.
+func (fr *FragmentResolver) assembleOne(
+	ref FragmentRef, vars map[string]string, baseDir string, fragmentVars map[string]string,
+) error {
+	name, fragment, err := fr.loadRef(ref, vars, baseDir)
+	var unsafe *unsafeRefError
+	switch {
+	case err == nil:
+		fragmentVars[name] = fragment.Content
+	case errors.As(err, &unsafe):
+		return unsafe.err
+	case ref.Required:
+		return fmt.Errorf("required fragment '%s' (resolved from '%s') not found: %w", name, ref.Name, err)
+	case !errors.Is(err, fs.ErrNotExist):
+		logger.Warn("Optional fragment could not be loaded", "fragment", name, "error", err)
+	default:
+		if _, set := vars[name]; !set {
+			fragmentVars[name] = ""
 		}
 	}
 	return nil
+}
+
+// loadRef resolves ref and loads the fragment it names. An unsafe path is
+// returned as an error that does not satisfy fs.ErrNotExist, so it fails
+// even an optional fragment.
+func (fr *FragmentResolver) loadRef(
+	ref FragmentRef, vars map[string]string, baseDir string,
+) (string, *Fragment, error) {
+	name, path, err := fr.resolveRef(ref, vars)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return name, nil, &unsafeRefError{err}
+		}
+		return name, nil, err
+	}
+	fragment, err := fr.LoadFragment(name, path, baseDir)
+	return name, fragment, err
+}
+
+// unsafeRefError marks a reference refused before any load, so the caller
+// fails on it whether the fragment is required or not.
+type unsafeRefError struct{ err error }
+
+func (e *unsafeRefError) Error() string { return e.err.Error() }
+func (e *unsafeRefError) Unwrap() error { return e.err }
+
+// resolveRef fills a reference's name and path from vars (e.g.
+// "persona_support_{{region}}" → "persona_support_us").
+//
+// The name is not checked: it is a key, which a repository that reads files
+// keeps inside its fragments directory and one that reads none (a pack's
+// fragments) uses as it is. The path is checked segment by segment, see
+// resolveFragmentPath.
+func (fr *FragmentResolver) resolveRef(ref FragmentRef, vars map[string]string) (name, path string, err error) {
+	name = fr.resolveVariables(ref.Name, vars)
+	if ref.Path == "" {
+		return name, "", nil
+	}
+	path, err = fr.resolveFragmentPath(ref, vars)
+	return name, path, err
+}
+
+// ErrUnsafeFragmentValue reports that variables, filled into a fragment's
+// path, would make it climb or leave its directory: a value holding a path
+// separator, "..", a drive colon or a placeholder, or values that together
+// make a ".." segment. The fragment is not loaded.
+var ErrUnsafeFragmentValue = errors.New("variable value cannot be used in a fragment path")
+
+// errUnresolvableFragmentPath reports a path segment that empty variables
+// leave empty ("{{tone}}/x.md" with tone ""): it names no file. It satisfies
+// fs.ErrNotExist, so an optional fragment renders empty, as a missing one
+// does, and a required one fails as not found.
+var errUnresolvableFragmentPath = fmt.Errorf("fragment path segment is empty after its variables: %w", fs.ErrNotExist)
+
+// resolveFragmentPath fills ref's path from vars; see fillFragmentPath.
+func (fr *FragmentResolver) resolveFragmentPath(ref FragmentRef, vars map[string]string) (string, error) {
+	return fillFragmentPath(ref, vars)
+}
+
+// fillFragmentPath fills ref's path from vars, one segment at a time, split
+// on "/" and "\\" alike (both separate on Windows). What the config writes
+// literally is the author's and is left as it is. In a segment a variable
+// fills, every non-empty value must be a plain name (IsPlainFragmentValue),
+// and the filled segment must not be made of dots and spaces only (".." from
+// two "." values side by side; Windows also drops trailing dots and spaces)
+// nor be empty.
+func fillFragmentPath(ref FragmentRef, vars map[string]string) (string, error) {
+	segments := strings.Split(strings.ReplaceAll(ref.Path, "\\", "/"), "/")
+	for i, seg := range segments {
+		if !fragmentRefPlaceholder.MatchString(seg) {
+			continue
+		}
+		for _, m := range fragmentRefPlaceholder.FindAllString(seg, -1) {
+			key := m[2 : len(m)-2]
+			if value, ok := vars[key]; ok && value != "" && !IsPlainFragmentValue(value) {
+				return "", fmt.Errorf("%w: fragment %q, variable %q", ErrUnsafeFragmentValue, ref.Name, key)
+			}
+		}
+		filled := substitutePlaceholders(seg, vars)
+		if filled == "" {
+			return "", fmt.Errorf("fragment %q, path %q: %w", ref.Name, ref.Path, errUnresolvableFragmentPath)
+		}
+		if strings.Trim(filled, ". ") == "" {
+			return "", fmt.Errorf("%w: fragment %q, path %q", ErrUnsafeFragmentValue, ref.Name, ref.Path)
+		}
+		segments[i] = filled
+	}
+	return strings.Join(segments, "/"), nil
 }
 
 // IsPlainFragmentValue reports whether value may fill a fragment's name or

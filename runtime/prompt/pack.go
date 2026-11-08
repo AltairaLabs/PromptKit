@@ -809,10 +809,24 @@ func addDynamicFragment(pack *Pack, loader FragmentLoader, taskType string, conf
 		return nil
 	}
 	for _, vars := range combos {
-		resolved := FragmentRef{
-			Name:     substituteFragmentVars(ref.Name, vars),
-			Path:     substituteFragmentVars(ref.Path, vars),
-			Required: ref.Required,
+		// Fill the path as the runtime does, so the pack never holds a file
+		// the runtime would refuse to read for that value.
+		path, err := fillFragmentPath(ref, vars)
+		if errors.Is(err, ErrUnsafeFragmentValue) {
+			logger.Warn("Fragment candidate the runtime would refuse; the pack holds only its reference.",
+				"prompt", taskType, "fragment", ref.Name, "error", err)
+			addFragmentReference(pack, ref.Name)
+			return nil
+		}
+		resolved := FragmentRef{Name: substituteFragmentVars(ref.Name, vars), Path: path, Required: ref.Required}
+		if err != nil { // a segment the values leave empty: no such file
+			if ref.Required {
+				return fmt.Errorf("prompt %q: required fragment %q: %w", taskType, resolved.Name, err)
+			}
+			if _, exists := pack.Fragments[resolved.Name]; !exists {
+				pack.Fragments[resolved.Name] = ""
+			}
+			continue
 		}
 		if err := addResolvedFragment(pack, loader, taskType, resolved); err != nil {
 			return err
@@ -853,8 +867,7 @@ func enumCombinations(config *Config, ref FragmentRef) ([]map[string]string, boo
 	combos := []map[string]string{{}}
 	for _, name := range names {
 		values := variableEnum(config, name)
-		if len(values) == 0 || slices.ContainsFunc(values, func(v string) bool { return !IsPlainFragmentValue(v) }) {
-			// No values, or one the runtime would refuse to put in a path.
+		if len(values) == 0 {
 			return nil, false
 		}
 		if len(combos)*len(values) > maxDynamicFragmentCandidates {

@@ -68,7 +68,7 @@ func TestContract_CatchesBrokenRepositories(t *testing.T) {
 			fails: []string{
 				"relative path resolves against baseDir", "absolute path ignores baseDir",
 				"path miss is fs.ErrNotExist", "invalid file is not fs.ErrNotExist",
-				"unreadable path is not fs.ErrNotExist", "relative path outside the root is an error", "symlink out of the root is an error", "symlink within the root resolves",
+				"unreadable path is not fs.ErrNotExist", "relative path climbing past its start is an error", "symlink out of the root is an error", "symlink within the root resolves",
 			},
 		},
 		{
@@ -96,7 +96,7 @@ func TestContract_CatchesBrokenRepositories(t *testing.T) {
 				})
 			},
 			fails: []string{
-				"invalid file is not fs.ErrNotExist", "unreadable path is not fs.ErrNotExist", "relative path outside the root is an error", "symlink out of the root is an error",
+				"invalid file is not fs.ErrNotExist", "unreadable path is not fs.ErrNotExist", "relative path climbing past its start is an error", "symlink out of the root is an error",
 			},
 		},
 		{
@@ -124,7 +124,7 @@ func TestContract_CatchesBrokenRepositories(t *testing.T) {
 			fails: []string{
 				"relative path resolves against baseDir", "absolute path ignores baseDir",
 				"path miss is fs.ErrNotExist", "invalid file is not fs.ErrNotExist",
-				"unreadable path is not fs.ErrNotExist", "relative path outside the root is an error", "symlink out of the root is an error", "symlink within the root resolves",
+				"unreadable path is not fs.ErrNotExist", "relative path climbing past its start is an error", "symlink out of the root is an error", "symlink within the root resolves",
 			},
 		},
 		{
@@ -136,7 +136,7 @@ func TestContract_CatchesBrokenRepositories(t *testing.T) {
 				"name-only lookup finds the fragment", "name-only miss is fs.ErrNotExist",
 				"relative path resolves against baseDir", "absolute path ignores baseDir",
 				"path miss is fs.ErrNotExist", "invalid file is not fs.ErrNotExist",
-				"unreadable path is not fs.ErrNotExist", "relative path outside the root is an error", "symlink out of the root is an error", "symlink within the root resolves",
+				"unreadable path is not fs.ErrNotExist", "relative path climbing past its start is an error", "symlink out of the root is an error", "symlink within the root resolves",
 			},
 		},
 		{
@@ -150,7 +150,7 @@ func TestContract_CatchesBrokenRepositories(t *testing.T) {
 					return yamlRepo(root).LoadFragment(name, path, baseDir)
 				})
 			},
-			fails: []string{"relative path outside the root is an error", "symlink out of the root is an error"},
+			fails: []string{"relative path climbing past its start is an error", "symlink out of the root is an error"},
 		},
 		{
 			name: "checks containment on the path, not the file it resolves to",

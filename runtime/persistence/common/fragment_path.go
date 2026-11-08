@@ -13,17 +13,20 @@ import (
 // over basePath:
 //
 //   - an absolute path is used as it is, since a config wrote it;
-//   - a relative path resolves against baseDir and must stay inside basePath
-//     or baseDir, or the lookup fails with
-//     persistence.ErrFragmentPathOutsideBase. With no
-//     baseDir it resolves against the working directory and must stay inside
-//     it; outside, the error also satisfies fs.ErrNotExist (nothing it may
-//     read is there);
+//   - a relative path resolves against baseDir (the working directory when
+//     baseDir is empty) and may climb only as far as its own leading "../"
+//     segments go. Those are the config's: "../fragments/x.yaml" from a
+//     prompts directory reaches its sibling fragments directory. A ".." after
+//     a name, which climbs back past where the path started, is refused with
+//     persistence.ErrFragmentPathOutsideBase. For the working-directory
+//     fallback the error also satisfies fs.ErrNotExist (nothing it may read
+//     is there). FragmentResolver keeps a variable from adding "..", so a
+//     variable cannot move this point;
 //   - no path is the default file, basePath/fragments/<name><ext>, which
 //     must stay in basePath/fragments.
 //
-// Containment holds on the resolved file too: a symlink inside a root that
-// points outside it is refused.
+// Containment holds on the resolved file too: a symlink that points outside
+// the point the path may reach is refused.
 func FragmentFilePath(basePath, name, relativePath, baseDir, ext string) (string, error) {
 	switch {
 	case filepath.IsAbs(relativePath):
@@ -36,24 +39,39 @@ func FragmentFilePath(basePath, name, relativePath, baseDir, ext string) (string
 		return containResolved(path, name, basePath)
 	}
 	path := filepath.Join(baseDir, relativePath)
-	if baseDir == "" {
-		// The working-directory fallback FragmentResolver tries after a miss
-		// under the prompt's directory. A path that leaves the working
-		// directory is not read, and finds nothing: the error also satisfies
-		// fs.ErrNotExist, so the resolver reports the miss it fell back from.
-		if !within(".", path) {
-			return "", fmt.Errorf("%w: %q (working directory): %w",
-				persistence.ErrFragmentPathOutsideBase, relativePath, fs.ErrNotExist)
+	anchor := climbAnchor(baseDir, relativePath)
+	if !within(anchor, path) {
+		err := fmt.Errorf("%w: %q climbs past %q", persistence.ErrFragmentPathOutsideBase, relativePath, anchor)
+		if baseDir == "" {
+			// The working-directory fallback FragmentResolver tries after a
+			// miss: report it as not found, so the resolver reports that miss.
+			err = fmt.Errorf("%w: %w", err, fs.ErrNotExist)
 		}
-		return containResolved(path, relativePath, ".")
+		return "", err
 	}
-	// Inside the repository's base, or inside the prompt's own directory,
-	// which a mapping may place outside the base.
-	if !within(basePath, path) && !within(baseDir, path) {
-		return "", fmt.Errorf("%w: %q (base %q)", persistence.ErrFragmentPathOutsideBase, relativePath, basePath)
-	}
-	return containResolved(path, relativePath, basePath, baseDir)
+	return containResolved(path, relativePath, anchor)
 }
+
+// climbAnchor returns the directory a relative path may reach: baseDir (the
+// working directory when empty) raised by the path's leading ".." segments.
+func climbAnchor(baseDir, relativePath string) string {
+	anchor := baseDir
+	if anchor == "" {
+		anchor = "."
+	}
+	for _, seg := range strings.FieldsFunc(relativePath, isPathSeparator) {
+		switch seg {
+		case "..":
+			anchor = filepath.Join(anchor, "..")
+		case ".":
+		default:
+			return anchor
+		}
+	}
+	return anchor
+}
+
+func isPathSeparator(r rune) bool { return r == '/' || r == filepath.Separator }
 
 // containResolved checks path once its symlinks are resolved: a link inside a
 // root that points outside every root is refused, with
