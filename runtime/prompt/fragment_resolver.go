@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -169,14 +170,22 @@ func (fr *FragmentResolver) clearCache() {
 }
 
 // resolveVariables resolves {{variable}} placeholders in strings
+//
+// It is one pass over text: a value is never scanned again, so a value that
+// holds a placeholder is not expanded by a later variable. A placeholder with
+// no variable is left as it is.
 func (fr *FragmentResolver) resolveVariables(text string, vars map[string]string) string {
-	result := text
-	for key, value := range vars {
-		placeholder := fmt.Sprintf("{{%s}}", key)
-		result = strings.ReplaceAll(result, placeholder, value)
-	}
-	return result
+	return fragmentRefPlaceholder.ReplaceAllStringFunc(text, func(m string) string {
+		if value, ok := vars[m[2:len(m)-2]]; ok {
+			return value
+		}
+		return m
+	})
 }
+
+// fragmentRefPlaceholder matches a {{name}} placeholder in a fragment
+// reference's name or path, exactly as written ({{name}}, no spaces).
+var fragmentRefPlaceholder = regexp.MustCompile(`\{\{[^{}]+\}\}`)
 
 // resolveRef fills a reference's name and path from vars (e.g.
 // "persona_support_{{region}}" → "persona_support_us"). A variable's value
@@ -198,20 +207,34 @@ func (fr *FragmentResolver) resolveRef(ref FragmentRef, vars map[string]string) 
 var ErrUnsafeFragmentValue = errors.New("variable value cannot be used in a fragment name or path")
 
 // checkFragmentRefValues rejects a value that ref's name or path would take
-// from vars and that is not a plain name: one with a path separator, "..",
-// or an absolute path. A path written literally in the config is not checked
-// here; only what a variable puts into it.
+// from vars and that is not a plain name: an empty one in a path (which can
+// turn a relative path absolute), or one holding a path separator, "..", a drive
+// colon, a placeholder, or an absolute path. A path written literally in the
+// config is not checked here; only what a variable puts into it.
 func checkFragmentRefValues(ref FragmentRef, vars map[string]string) error {
 	for key, value := range vars {
 		placeholder := "{{" + key + "}}"
 		if !strings.Contains(ref.Name, placeholder) && !strings.Contains(ref.Path, placeholder) {
 			continue
 		}
-		if strings.ContainsAny(value, `/\`) || strings.Contains(value, "..") || filepath.IsAbs(value) {
+		// An empty value is a name's to take (persona_ for persona_{{x}}), not
+		// a path's: "{{x}}/a.md" would become the absolute "/a.md".
+		if value == "" && !strings.Contains(ref.Path, placeholder) {
+			continue
+		}
+		if !IsPlainFragmentValue(value) {
 			return fmt.Errorf("%w: fragment %q, variable %q", ErrUnsafeFragmentValue, ref.Name, key)
 		}
 	}
 	return nil
+}
+
+// IsPlainFragmentValue reports whether value may fill a fragment's name or
+// path: non-empty, with no path separator, "..", drive colon or placeholder,
+// and not an absolute path.
+func IsPlainFragmentValue(value string) bool {
+	return value != "" && !strings.ContainsAny(value, `/\:{}`) && !strings.Contains(value, "..") &&
+		!filepath.IsAbs(value)
 }
 
 // GetUsedVars returns a list of variable names that had non-empty values

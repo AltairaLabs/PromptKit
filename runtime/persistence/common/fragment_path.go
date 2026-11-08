@@ -13,18 +13,24 @@ import (
 // over basePath:
 //
 //   - an absolute path is used as it is, since a config wrote it;
-//   - a relative path resolves against baseDir and must stay inside basePath,
-//     or the lookup fails with persistence.ErrFragmentPathOutsideBase. With no
+//   - a relative path resolves against baseDir and must stay inside basePath
+//     or baseDir, or the lookup fails with
+//     persistence.ErrFragmentPathOutsideBase. With no
 //     baseDir it resolves against the working directory and must stay inside
 //     it; outside, the error also satisfies fs.ErrNotExist (nothing it may
 //     read is there);
-//   - no path is the default file, basePath/fragments/<name><ext>.
+//   - no path is the default file, basePath/fragments/<name><ext>, which
+//     must stay in basePath/fragments.
 func FragmentFilePath(basePath, name, relativePath, baseDir, ext string) (string, error) {
 	switch {
 	case filepath.IsAbs(relativePath):
 		return relativePath, nil
 	case relativePath == "":
-		return filepath.Join(basePath, "fragments", name+ext), nil
+		path := filepath.Join(basePath, "fragments", name+ext)
+		if !within(filepath.Join(basePath, "fragments"), path) {
+			return "", fmt.Errorf("%w: fragment name %q", persistence.ErrFragmentPathOutsideBase, name)
+		}
+		return path, nil
 	}
 	path := filepath.Join(baseDir, relativePath)
 	if baseDir == "" {
@@ -38,7 +44,9 @@ func FragmentFilePath(basePath, name, relativePath, baseDir, ext string) (string
 		}
 		return path, nil
 	}
-	if !within(basePath, path) {
+	// Inside the repository's base, or inside the prompt's own directory,
+	// which a mapping may place outside the base.
+	if !within(basePath, path) && !within(baseDir, path) {
 		return "", fmt.Errorf("%w: %q (base %q)", persistence.ErrFragmentPathOutsideBase, relativePath, basePath)
 	}
 	return path, nil

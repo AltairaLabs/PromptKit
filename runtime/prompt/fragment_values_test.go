@@ -43,3 +43,26 @@ func TestEnumValues_AreEnforced(t *testing.T) {
 	require.True(t, errors.Is(err, ErrVariableNotInEnum), "%v", err)
 	assert.Contains(t, err.Error(), "gold, silver")
 }
+
+// A value holding a placeholder is not expanded by another variable, and an
+// empty value cannot make a relative path absolute.
+func TestFragmentValues_NestedAndEmpty(t *testing.T) {
+	repo := newMockRepository()
+	repo.prompts["nested"] = fragmentConfig("nested", FragmentRef{Name: "{{region}}"})
+	repo.prompts["empty"] = fragmentConfig("empty", FragmentRef{Name: "persona", Path: "{{region}}/persona.md"})
+	repo.prompts["named"] = fragmentConfig("named", FragmentRef{Name: "persona_{{variant}}"})
+	reg := NewRegistryWithRepository(repo)
+
+	for i := 0; i < 20; i++ { // map order once let the inner variable fill in
+		_, err := reg.LoadTemplateDeferRequired("nested",
+			map[string]string{"region": "{{x}}", "x": "../../etc/passwd"}, "")
+		require.True(t, errors.Is(err, ErrUnsafeFragmentValue), "run %d: %v", i, err)
+	}
+	_, err := reg.LoadTemplateDeferRequired("empty", map[string]string{"region": ""}, "")
+	require.True(t, errors.Is(err, ErrUnsafeFragmentValue), "%v", err)
+	_, err = reg.LoadTemplateDeferRequired("named", map[string]string{"variant": ""}, "")
+	require.NoError(t, err, "an empty value is a name's to take")
+
+	fr := NewFragmentResolverWithRepository(repo)
+	assert.Equal(t, "{{x}}", fr.resolveVariables("{{region}}", map[string]string{"region": "{{x}}", "x": "y"}))
+}

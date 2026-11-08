@@ -853,7 +853,8 @@ func enumCombinations(config *Config, ref FragmentRef) ([]map[string]string, boo
 	combos := []map[string]string{{}}
 	for _, name := range names {
 		values := variableEnum(config, name)
-		if len(values) == 0 {
+		if len(values) == 0 || slices.ContainsFunc(values, func(v string) bool { return !IsPlainFragmentValue(v) }) {
+			// No values, or one the runtime would refuse to put in a path.
 			return nil, false
 		}
 		if len(combos)*len(values) > maxDynamicFragmentCandidates {

@@ -23,6 +23,8 @@ func TestFragmentFilePath(t *testing.T) {
 		{name: "climbs out of the base", rel: "../../secret.yaml", baseDir: prompts, outside: true},
 		{name: "working directory fallback stays in it", rel: "../x.yaml", outside: true},
 		{name: "working directory fallback", rel: "x.yaml", want: "x.yaml"},
+		{name: "prompt dir mapped outside the base", rel: "fragments/tone.yaml",
+			baseDir: abs + ".d", want: filepath.Join(abs+".d", "fragments", "tone.yaml")},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -40,5 +42,13 @@ func TestFragmentFilePath(t *testing.T) {
 				t.Fatalf("got %q, %v; want %q", got, err, c.want)
 			}
 		})
+	}
+}
+
+// A default lookup's name cannot climb out of the fragments directory.
+func TestFragmentFilePath_DefaultNameStaysInFragments(t *testing.T) {
+	_, err := FragmentFilePath(t.TempDir(), "../../secret", "", "", ".yaml")
+	if !errors.Is(err, persistence.ErrFragmentPathOutsideBase) {
+		t.Fatalf("err = %v, want ErrFragmentPathOutsideBase", err)
 	}
 }

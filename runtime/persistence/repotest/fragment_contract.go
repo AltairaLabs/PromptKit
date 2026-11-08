@@ -183,7 +183,17 @@ func checkPathOutsideRoot(repo prompt.FragmentRepository, root string) error {
 	}
 	defer func() { _ = os.Remove(outside) }()
 	rel := filepath.Join("..", "..", filepath.Base(outside))
-	return wantPathFailure(repo, rel, filepath.Join(root, "a"), false)
+	baseDir := filepath.Join(root, "a")
+	if err := wantPathFailure(repo, rel, baseDir, false); err != nil {
+		return err
+	}
+	_, err := repo.LoadFragment(NamedFragment, rel, baseDir)
+	if !errors.Is(err, persistence.ErrFragmentPathOutsideBase) &&
+		!errors.Is(err, persistence.ErrFragmentPathUnsupported) {
+		return fmt.Errorf("%s error = %v, want persistence.ErrFragmentPathOutsideBase",
+			lookup(NamedFragment, rel, baseDir), err)
+	}
+	return nil
 }
 
 // lookup describes one LoadFragment call, for error messages.

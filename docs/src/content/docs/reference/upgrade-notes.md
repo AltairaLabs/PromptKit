@@ -234,13 +234,15 @@ warning, and a render fails on it unless the caller supplies the chosen
 fragment's content.
 
 A variable's value that fills a fragment's name or path must be a plain name:
-one with a path separator, `..`, or an absolute path fails the turn with
-`prompt.ErrUnsafeFragmentValue`, from any source. A declared
+one with a path separator, `..`, a drive colon, a `{{placeholder}}`, or an
+absolute path fails the turn with `prompt.ErrUnsafeFragmentValue`, from any
+source, and so does an empty value in a path. Names and paths are filled in
+one pass, so a value is never expanded again. A declared
 `validation.enum` is enforced when a prompt loads: a value outside it fails
 with `prompt.ErrVariableNotInEnum`. The YAML and JSON repositories refuse a
 relative fragment path that resolves outside their base directory with
-`persistence.ErrFragmentPathOutsideBase`; an absolute path written in the
-config is still used as it is.
+`persistence.ErrFragmentPathOutsideBase`, unless it stays inside the prompt's
+own directory; an absolute path written in the config is still used as it is.
 
 | If you | You will see | Change |
 |---|---|---|
