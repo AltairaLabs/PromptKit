@@ -83,3 +83,12 @@ func TestTurnState_BeginTurnOnNilIsSafe(t *testing.T) {
 	var state *TurnState
 	assert.NotPanics(t, func() { state.BeginTurn() })
 }
+
+func TestTurnState_BeginTurnClearsTheVariables(t *testing.T) {
+	state := NewTurnState()
+	state.Variables = map[string]string{"topic": "from the previous send"}
+
+	state.BeginTurn()
+
+	assert.Empty(t, state.Variables, "a previous turn's per-send variable must not reach this turn")
+}

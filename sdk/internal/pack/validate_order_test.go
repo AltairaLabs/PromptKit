@@ -41,3 +41,31 @@ func TestValidateAgents_FindingsInMemberOrder(t *testing.T) {
 		`agents.members["c"] sets state "s" but requires a top-level workflow`,
 	}, first)
 }
+
+// Workflow findings come in state, then event, name order on every run.
+func TestValidateWorkflow_FindingsInStateAndEventOrder(t *testing.T) {
+	p := &Pack{Pack: packspec.Pack{
+		Prompts: map[string]*Prompt{"ok": {ID: "ok"}},
+		Workflow: &WorkflowSpec{Version: 1, Entry: "b", States: map[string]*WorkflowState{
+			"c": {PromptTask: "ok", OnEvent: map[string]string{"Z": "gone", "A": "gone"}},
+			"b": {PromptTask: "missing"},
+			"a": {PromptTask: "ok", OnEvent: map[string]string{"Next": "gone"}},
+		}},
+	}}
+	var first []string
+	for i := 0; i < 30; i++ {
+		wfErr, ok := validateWorkflowSection(p).(*WorkflowValidationError)
+		require.True(t, ok)
+		if i == 0 {
+			first = wfErr.Errors
+			continue
+		}
+		require.Equal(t, first, wfErr.Errors, "run %d", i)
+	}
+	assert.Equal(t, []string{
+		`workflow.states["a"].on_event["Next"] target "gone" does not exist in states`,
+		`workflow.states["b"].prompt_task "missing" does not reference a valid prompt`,
+		`workflow.states["c"].on_event["A"] target "gone" does not exist in states`,
+		`workflow.states["c"].on_event["Z"] target "gone" does not exist in states`,
+	}, first)
+}

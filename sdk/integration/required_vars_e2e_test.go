@@ -68,3 +68,20 @@ func TestRequiredVariable_MissingFailsTheTurn(t *testing.T) {
 	assert.Contains(t, err.Error(), "topic")
 	assert.Empty(t, rec.system(), "the provider was called without the pack's prompt")
 }
+
+// TestRequiredVariable_PerSendValueDoesNotCarryOver binds the required
+// variable on one Send only. The next Send without it fails: a per-send value
+// belongs to its own turn and must not satisfy, or render into, a later one.
+func TestRequiredVariable_PerSendValueDoesNotCarryOver(t *testing.T) {
+	rec := newRecordingProvider()
+	conv := openTestConvWithPack(t, requiredVarPackJSON, "chat", sdk.WithProvider(rec))
+	ctx := context.Background()
+
+	_, err := conv.Send(ctx, "hi", sdk.WithJSONInput(map[string]any{"topic": "billing"}))
+	require.NoError(t, err)
+	require.Equal(t, "Topic: billing", rec.system())
+
+	_, err = conv.Send(ctx, "again")
+	require.Error(t, err, "the first Send's per-send value satisfied the second Send's required variable")
+	assert.True(t, errors.Is(err, stage.ErrTemplateUnresolved), "error: %v", err)
+}

@@ -206,6 +206,7 @@ round as `TemplateStage` does.
 | Send to a prompt whose required variable no source sets | `Send` returns an error wrapping `stage.ErrTemplateUnresolved` that names the variable, where the turn ran on the default prompt | supply the variable |
 | Open a task type the registry cannot load, or a prompt whose required fragment cannot load | `Send` returns the load error | fix the prompt or the fragment |
 | Use variables in the prompts of a workflow's states | every round, including the one after a mid-turn handoff, renders them | nothing |
+| Bind a variable for one `Send` (`WithJSONInput`) | it applies to that turn only, where it stayed on every later turn. `TurnState.BeginTurn` now clears `Variables` | pass it on each `Send` that needs it |
 
 ### Custom headers reach every request
 
@@ -221,10 +222,11 @@ provider's `headers`. They now do, as every other path did.
 
 A user turn sent with `SendText` in a realtime session never became a user
 message, so the state store, a recording and the hooks' history held the
-assistant's replies alone. The provider stage now emits it as a user message
-ahead of the reply. The SDK does not echo it on `Response()`; a pipeline you
-build yourself sees it as an element whose `Source` is
-`stage.TextInputTurnSource`. A recording also records an element without a
+assistant's replies alone. The provider stage now emits it as a user message,
+between assistant turns: text typed while a reply is streaming follows that
+reply, and an input a guardrail blocks comes right before its blocked turn.
+The SDK does not echo it on `Response()`; a pipeline you build yourself sees
+it as an element whose `Source` is `stage.TextInputTurnSource`. A recording also records an element without a
 timestamp at the time it sees it, and `recording.Export` keeps events with
 equal timestamps in the order they were stored. Before, a realtime
 recording's turns could come back in any order.
