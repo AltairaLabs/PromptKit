@@ -83,15 +83,8 @@ func parseClassifyConfig(params map[string]any, defaultRole string) (classifyCon
 		cfg.providerKey = v
 	}
 
-	// classifier_id named a HOST-side provider id inside a pack, which pinned
-	// the pack to one deployment's wiring. It is gone, and saying so is the
-	// point: silently ignoring it would fall back to the host's default
-	// classifier and score against a different model than the author chose.
-	if _, ok := params["classifier_id"]; ok {
-		return cfg, fmt.Errorf(
-			"classifier_id is no longer supported: name a provider this pack declares in its "+
-				"requires block with %q instead, which lets the host bind and rebind it freely",
-			ProviderParam)
+	if err := rejectClassifierID(params); err != nil {
+		return cfg, err
 	}
 
 	if msg := rejectThresholdParams(params); msg != "" {
@@ -124,4 +117,42 @@ func labelsFromScores(scores []inference.LabelScore) []string {
 		out[i] = s.Label
 	}
 	return out
+}
+
+// rejectClassifierID refuses the retired classifier_id param.
+//
+// classifier_id named a HOST-side provider id inside a pack, which pinned the
+// pack to one deployment's wiring. It is gone, and saying so is the point:
+// silently ignoring it would fall back to the host's default classifier and
+// score against a different model than the author chose. The classify
+// handlers' ValidateParams return it, so load-time validation and the eval
+// runner report this message rather than a bare unknown-param one.
+func rejectClassifierID(params map[string]any) error {
+	if _, ok := params["classifier_id"]; ok {
+		return fmt.Errorf(
+			"classifier_id is no longer supported: name a provider this pack declares in its "+
+				"requires block with %q instead, which lets the host bind and rebind it freely",
+			ProviderParam)
+	}
+	return nil
+}
+
+// ValidateParams implements evals.ParamValidator.
+func (h *TextSentimentHandler) ValidateParams(params map[string]any) error {
+	return rejectClassifierID(params)
+}
+
+// ValidateParams implements evals.ParamValidator.
+func (h *TextToxicityHandler) ValidateParams(params map[string]any) error {
+	return rejectClassifierID(params)
+}
+
+// ValidateParams implements evals.ParamValidator.
+func (h *AudioEmotionHandler) ValidateParams(params map[string]any) error {
+	return rejectClassifierID(params)
+}
+
+// ValidateParams implements evals.ParamValidator.
+func (h *ImageModerationHandler) ValidateParams(params map[string]any) error {
+	return rejectClassifierID(params)
 }

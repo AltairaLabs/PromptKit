@@ -149,7 +149,10 @@ func TestSentenceCountHandler_ValidateParams(t *testing.T) {
 	if err := h.ValidateParams(map[string]any{"max": 2}); err != nil {
 		t.Errorf("max 2: %v", err)
 	}
-	for _, bad := range []any{0, -1, "three"} {
+	if err := h.ValidateParams(map[string]any{"max": 2.0}); err != nil {
+		t.Errorf("max 2.0 (a JSON integer): %v", err)
+	}
+	for _, bad := range []any{0, -1, "three", 1.5} {
 		if err := h.ValidateParams(map[string]any{"max": bad}); err == nil {
 			t.Errorf("max %v: expected an error", bad)
 		}

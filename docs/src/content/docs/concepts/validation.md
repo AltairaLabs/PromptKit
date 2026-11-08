@@ -75,8 +75,10 @@ downstream pipeline stage still runs.
 
 - Content blockers (`content_excludes`, `banned_words`): replace the entire response with a configurable policy message.
 - Length check (`max_length`, alias `length`): truncates the response to the limit in its
-  `max_characters`, `max` or `max_chars` param, when the response exceeded it. No other
-  check truncates, even one that carries a `max` param.
+  `max_characters`, `max` or `max_chars` param, when the response exceeded it. The limit
+  counts bytes, and the cut backs off to the start of a character it would split, so the
+  result is valid UTF-8 and may be a few bytes shorter than the limit. No other check
+  truncates, even one that carries a `max` param.
 - Every other case: replace the response with the policy message, the same as a content
   blocker. Guardrails always act; there is no log-only mode. If you want to record a
   violation without changing the response, declare an eval and assert on it instead.

@@ -120,6 +120,22 @@ Score a conversation snapshot against the evals in a pack with `sdk.Evaluate()`.
 
    Explicit `groups` on an eval definition (`"groups": ["safety", "compliance"]`) replace the classification.
 
+`Evaluate` checks the definitions the way `Open()` does. A definition `evals.ValidateEvals` rejects (a missing or duplicate id, a missing or unknown trigger, a `sample_percentage` outside 0–100, a metric Prometheus cannot register) is skipped with a warning; a pack's pack-level and prompt-level evals are checked on their own, so a prompt eval that shares a pack eval's id overrides it. A definition its handler cannot run as written (an unknown type, a param the check does not read or rejects, a `threshold` the wrapper cannot apply) is not run: it comes back as a result whose `Error` names the problem, in def order, emitted as `eval.failed`, after the same trigger, sampling and `when` filtering as any other eval. A definition with an unusable `when` comes back as an error result too.
+
+## Run evals inline in a conversation
+
+A conversation opened with `sdk.Open` or `sdk.Resume` runs its pack's evals itself: turn evals after each `Send()`, and session then conversation evals on every `Close()`. A host whose `Close()` is not the end of the conversation, such as a server that resumes a conversation for each incoming message, names the triggers to run inline with `WithEvalTriggers` and runs the rest itself with `Evaluate` when the conversation ends:
+
+```go
+conv, err := sdk.Resume(conversationID, "./app.pack.json", "chat",
+    sdk.WithStateStore(store),
+    sdk.WithEvalGroups(evals.GroupFastRunning),
+    sdk.WithEvalTriggers(evals.TriggerEveryTurn), // Close runs no session or conversation evals
+)
+```
+
+Without `WithEvalTriggers` every trigger runs. Triggers match exactly: list `evals.TriggerSampleTurns` too if the pack samples turns, and `evals.TriggerOnWorkflowStep` in a workflow that has step evals. The option composes with `WithEvalGroups`, and an unknown trigger, or none, fails `Open`.
+
 ## Supply a judge
 
 Judge-backed evals (`llm_judge`, `llm_judge_session`, `bias`, `toxicity`, `pii_leakage`, `role_violation` and the RAG primitives) need an LLM to grade with. The pack declares a logical name, the eval points at it, and you decide which model answers.

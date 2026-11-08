@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
@@ -154,7 +155,7 @@ func Evaluate(ctx context.Context, opts EvaluateOpts) ([]evals.EvalResult, error
 	defer initEvalTracing(&opts)()
 
 	// 1. Resolve eval defs and apply group filter
-	defs, err := resolveEvalDefs(&opts)
+	defs, err := resolveEvalDefs(&opts, true)
 	if err != nil {
 		return nil, fmt.Errorf("resolve eval defs: %w", err)
 	}
@@ -196,6 +197,11 @@ func Evaluate(ctx context.Context, opts EvaluateOpts) ([]evals.EvalResult, error
 		emitter := events.NewEmitter(opts.EventBus, "", opts.SessionID, "")
 		runnerOpts = append(runnerOpts, evals.WithEmitter(emitter))
 	}
+	// A def its handler cannot run as written is not run, as Open does not run
+	// it; here it comes back as an error result naming the problem.
+	if reasons := unrunnableDefReasons(defs, registry); len(reasons) > 0 {
+		runnerOpts = append(runnerOpts, evals.WithRejectedDefs(reasons))
+	}
 	runner := evals.NewEvalRunner(registry, runnerOpts...)
 
 	// 4. Dispatch by trigger
@@ -217,6 +223,28 @@ func Evaluate(ctx context.Context, opts EvaluateOpts) ([]evals.EvalResult, error
 	return results, nil
 }
 
+// unrunnableDefReasons maps the id of each def evals.ValidateEvalTypes rejects
+// (an unknown type, a param the handler does not read or rejects, a threshold
+// the wrapper cannot apply) to the reasons. The runner reports those defs as
+// error results without calling their handlers (evals.WithRejectedDefs), so a
+// check never runs with a key it would ignore.
+func unrunnableDefReasons(defs []evals.EvalDef, registry *evals.EvalTypeRegistry) map[string]string {
+	errs := evals.ValidateEvalTypes(defs, registry)
+	if len(errs) == 0 {
+		return nil
+	}
+	reasons := make(map[string][]string, len(errs))
+	for _, e := range errs {
+		id, reason := matchEvalValidationError(e, defs)
+		reasons[id] = append(reasons[id], reason)
+	}
+	out := make(map[string]string, len(reasons))
+	for id, why := range reasons {
+		out[id] = strings.Join(why, "; ")
+	}
+	return out
+}
+
 // resolveMetricRecorder returns the MetricRecorder to use for eval metrics.
 // MetricsCollector takes precedence: Bind() is called internally to create
 // a MetricContext, matching the WithMetrics() pattern from the conversation API.
@@ -228,10 +256,21 @@ func resolveMetricRecorder(opts *EvaluateOpts) evals.MetricRecorder {
 }
 
 // resolveEvalDefs resolves eval definitions from the opts.
-func resolveEvalDefs(opts *EvaluateOpts) ([]evals.EvalDef, error) {
+//
+// With dropInvalid, the defs evals.ValidateEvals rejects are skipped with a
+// warning, as Open skips them: a pack's pack-level and prompt-level evals are
+// each checked on their own, since a prompt eval sharing a pack eval's id
+// overrides it.
+func resolveEvalDefs(opts *EvaluateOpts, dropInvalid bool) ([]evals.EvalDef, error) {
+	drop := func(defs []evals.EvalDef, scope string) []evals.EvalDef {
+		if !dropInvalid {
+			return defs
+		}
+		return dropStructurallyInvalidEvalsKeepingWhen(defs, scope)
+	}
 	// Direct defs take precedence (including empty slice — caller explicitly provided defs)
 	if opts.EvalDefs != nil {
-		return opts.EvalDefs, nil
+		return drop(opts.EvalDefs, evaluateDefsScope), nil
 	}
 
 	// Load pack from bytes or path
@@ -258,12 +297,15 @@ func resolveEvalDefs(opts *EvaluateOpts) ([]evals.EvalDef, error) {
 	var promptEvals []evals.EvalDef
 	if opts.PromptName != "" {
 		if prompt := p.GetPrompt(opts.PromptName); prompt != nil {
-			promptEvals = evals.Values(prompt.Evals)
+			promptEvals = drop(evals.Values(prompt.Evals), promptEvalScopePrefix+opts.PromptName)
 		}
 	}
 
-	return evals.ResolveEvals(evals.Values(p.Evals), promptEvals), nil
+	return evals.ResolveEvals(drop(evals.Values(p.Evals), packEvalScope), promptEvals), nil
 }
+
+// evaluateDefsScope is the evals.ValidateEvals scope of EvaluateOpts.EvalDefs.
+const evaluateDefsScope = "evals"
 
 // buildEvalMetadata assembles the metadata map for the EvalContext.
 func buildEvalMetadata(opts *EvaluateOpts) map[string]any {
@@ -396,7 +438,7 @@ func ValidateEvalTypes(opts ValidateEvalTypesOpts) ([]evals.EvalDef, error) {
 		PromptName:           opts.PromptName,
 		SkipSchemaValidation: opts.SkipSchemaValidation,
 	}
-	defs, err := resolveEvalDefs(resolveOpts)
+	defs, err := resolveEvalDefs(resolveOpts, false)
 	if err != nil {
 		return nil, fmt.Errorf("resolve eval defs: %w", err)
 	}

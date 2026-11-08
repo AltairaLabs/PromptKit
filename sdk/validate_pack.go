@@ -2,6 +2,8 @@ package sdk
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
@@ -154,8 +156,13 @@ func validatePack(
 	reg := evalRegistryOrDefault(registry)
 	var issues []PackIssue
 
+	// Prompts in name order, so the same pack reports its issues in the same
+	// order on every run.
+	promptIDs := slices.Sorted(maps.Keys(loaded.Prompts))
+
 	// Per-prompt validators.
-	for promptID, promptDef := range loaded.Prompts {
+	for _, promptID := range promptIDs {
+		promptDef := loaded.Prompts[promptID]
 		if promptDef == nil {
 			continue
 		}
@@ -167,7 +174,8 @@ func validatePack(
 	issues = append(issues, validateEvalDefs("", evals.Values(loaded.Evals), reg)...)
 
 	// Per-prompt evals.
-	for promptID, promptDef := range loaded.Prompts {
+	for _, promptID := range promptIDs {
+		promptDef := loaded.Prompts[promptID]
 		if promptDef == nil {
 			continue
 		}
@@ -237,11 +245,12 @@ func validateEvalDefs(
 	issues := structuralEvalPackIssues(promptID, defs)
 	errs := evals.ValidateEvalTypes(defs, registry)
 	for _, e := range errs {
-		id, reason := parseEvalValidationError(e)
+		id, reason := matchEvalValidationError(e, defs)
 		issues = append(issues, PackIssue{
 			Severity: packIssueSeverityError,
 			Kind:     packIssueKindEval,
 			PromptID: promptID,
+			Index:    findEvalIndexByID(defs, id),
 			ID:       id,
 			Type:     findEvalTypeByID(defs, id),
 			Reason:   reason,
@@ -310,6 +319,17 @@ func findEvalTypeByID(defs []evals.EvalDef, id string) string {
 		}
 	}
 	return ""
+}
+
+// findEvalIndexByID returns the index of the first EvalDef with the given
+// ID, or 0 if not found.
+func findEvalIndexByID(defs []evals.EvalDef, id string) int {
+	for i := range defs {
+		if defs[i].ID == id {
+			return i
+		}
+	}
+	return 0
 }
 
 // packIssueSeverityError is the PackIssue severity for an issue that fails

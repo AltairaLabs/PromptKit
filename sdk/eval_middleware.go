@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -91,7 +92,18 @@ func structuralEvalIssues(defs []evals.EvalDef, scope string, skipWhen bool) map
 // a warning for each. Like filterInvalidEvalDefs it degrades reporting rather
 // than failing the open: an eval is a measurement, not a control.
 func dropStructurallyInvalidEvals(defs []evals.EvalDef, scope string) []evals.EvalDef {
-	issues := structuralEvalIssues(defs, scope, false)
+	return dropStructural(defs, scope, false)
+}
+
+// dropStructurallyInvalidEvalsKeepingWhen is dropStructurallyInvalidEvals that
+// keeps a def whose only problem is an unusable `when`, for Evaluate, whose
+// runner reports such a def as an error result (#1931).
+func dropStructurallyInvalidEvalsKeepingWhen(defs []evals.EvalDef, scope string) []evals.EvalDef {
+	return dropStructural(defs, scope, true)
+}
+
+func dropStructural(defs []evals.EvalDef, scope string, keepWhen bool) []evals.EvalDef {
+	issues := structuralEvalIssues(defs, scope, keepWhen)
 	if len(issues) == 0 {
 		return defs
 	}
@@ -117,16 +129,20 @@ func dropStructurallyInvalidEvals(defs []evals.EvalDef, scope string) []evals.Ev
 //     registry and filter defs against it.
 //   - Explicit runner + explicit registry: trust the caller's runner, but
 //     filter against the explicit registry.
-//   - Explicit runner only: trust the caller and skip filtering (we
-//     cannot inspect the runner's internal registry).
+//   - Explicit runner only: filter against the runner's own registry, the
+//     handlers that will run the defs.
 func resolveRunnerAndFilter(
 	cfg *config, defs []evals.EvalDef,
 ) (*evals.EvalRunner, []evals.EvalDef) {
 	if runner := cfg.evalRunner; runner != nil {
-		if reg := cfg.evalRegistry; reg != nil {
-			return runner, filterInvalidEvalDefs(defs, reg)
+		reg := cfg.evalRegistry
+		if reg == nil {
+			reg = runner.Registry()
 		}
-		return runner, defs
+		if reg == nil {
+			return runner, defs
+		}
+		return runner, filterInvalidEvalDefs(defs, reg)
 	}
 	registry := cfg.evalRegistry
 	if registry == nil {
@@ -241,6 +257,7 @@ func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 
 	defs := evals.ResolveEvals(packEvals, promptEvals)
 	defs = evals.FilterByGroups(defs, conv.config.evalGroups)
+	defs = filterByTriggers(defs, conv.config.evalTriggers)
 	if len(defs) == 0 {
 		logger.Debug("evals: middleware skipped, no eval defs resolved", "reason", "no defs resolved")
 		return nil
@@ -302,6 +319,21 @@ func newEvalMiddleware(conv *Conversation) *evalMiddleware {
 		hasWorkflowStepEvals: hasTrigger(defs, evals.TriggerOnWorkflowStep),
 		hasConversationEvals: hasTrigger(defs, evals.TriggerOnConversationComplete),
 	}
+}
+
+// filterByTriggers keeps the defs whose trigger is one of triggers
+// (WithEvalTriggers). With no triggers every def is kept.
+func filterByTriggers(defs []evals.EvalDef, triggers []evals.EvalTrigger) []evals.EvalDef {
+	if len(triggers) == 0 {
+		return defs
+	}
+	kept := make([]evals.EvalDef, 0, len(defs))
+	for i := range defs {
+		if slices.Contains(triggers, evals.EvalTrigger(defs[i].Trigger)) {
+			kept = append(kept, defs[i])
+		}
+	}
+	return kept
 }
 
 // hasTrigger reports whether any def uses trigger.

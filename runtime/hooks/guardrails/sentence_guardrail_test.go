@@ -32,3 +32,21 @@ func TestMaxSentencesGuardrail_BlocksRatherThanTruncates(t *testing.T) {
 		t.Fatalf("default guardrail fired at the cap: %+v", d)
 	}
 }
+
+// The length check counts bytes, and its truncation never splits a rune.
+func TestTruncateAtRune(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		max  int
+		want string
+	}{
+		{"Hello world", 5, "Hello"},
+		{"aéééé", 2, "a"},  // byte 2 is inside the first é
+		{"aéééé", 3, "aé"}, // byte 3 ends it
+		{"ééé", 1, ""},
+	} {
+		if got := truncateAtRune(tc.in, tc.max); got != tc.want {
+			t.Errorf("truncateAtRune(%q, %d) = %q, want %q", tc.in, tc.max, got, tc.want)
+		}
+	}
+}

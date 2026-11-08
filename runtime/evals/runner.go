@@ -20,8 +20,9 @@ const DefaultEvalTimeout = 30 * time.Second
 type EvalRunner struct {
 	registry *EvalTypeRegistry
 	timeout  time.Duration
-	emitter  *events.Emitter // optional: emits eval.completed/failed events
-	hooks    []EvalHook      // optional: observers invoked per result
+	emitter  *events.Emitter   // optional: emits eval.completed/failed events
+	hooks    []EvalHook        // optional: observers invoked per result
+	rejected map[string]string // optional: def id -> why it must not run
 }
 
 // RunnerOption configures an EvalRunner.
@@ -35,6 +36,16 @@ func WithTimeout(d time.Duration) RunnerOption {
 // WithEmitter configures the runner to emit eval.completed/eval.failed events.
 func WithEmitter(e *events.Emitter) RunnerOption {
 	return func(r *EvalRunner) { r.emitter = e }
+}
+
+// WithRejectedDefs names defs, by id, that the runner must not run, each with
+// the reason (for example a ValidateEvalTypes finding). Such a def still goes
+// through the runner's trigger, sampling and when filtering, hooks and event
+// emission, but its result is an error carrying the reason and its handler is
+// never called. A caller that checked defs at load and cannot drop them uses
+// it to report them where results are read.
+func WithRejectedDefs(reasons map[string]string) RunnerOption {
+	return func(r *EvalRunner) { r.rejected = maps.Clone(reasons) }
 }
 
 // WithEvalHook registers an EvalHook that observes every eval result the
@@ -54,12 +65,23 @@ func (r *EvalRunner) Clone() *EvalRunner {
 	clone := &EvalRunner{
 		registry: r.registry,
 		timeout:  r.timeout,
+		rejected: r.rejected,
 	}
 	if len(r.hooks) > 0 {
 		clone.hooks = make([]EvalHook, len(r.hooks))
 		copy(clone.hooks, r.hooks)
 	}
 	return clone
+}
+
+// Registry returns the eval type registry the runner resolves handlers from,
+// so a caller holding only the runner can check defs against the handlers that
+// will run them (ValidateEvalTypes).
+func (r *EvalRunner) Registry() *EvalTypeRegistry {
+	if r == nil {
+		return nil
+	}
+	return r.registry
 }
 
 // SetEmitter sets (or clears) the event emitter. Must be called before running evals.
@@ -259,6 +281,11 @@ func (r *EvalRunner) runOne(
 				SkipReason: reason,
 			}
 		}
+	}
+
+	if reason, bad := r.rejected[def.ID]; bad {
+		logger.Warn("evals: not running rejected eval", "eval_id", def.ID, "type", def.Type, "reason", reason)
+		return &EvalResult{EvalID: def.ID, Type: def.Type, Kind: kindForDefType(def.Type), Error: reason}
 	}
 
 	// Look up handler
@@ -486,6 +513,19 @@ func (r *EvalRunner) emitResult(def *EvalDef, result *EvalResult) {
 // inference defaulted that way: a new role is a measurement until something
 // teaches this function otherwise, and a measurement is the claim that asserts
 // least.
+// kindForDefType is the role a def of evalType states: the wrappers' own
+// kinds, else a plain eval.
+func kindForDefType(evalType string) events.EvalKind {
+	switch evalType {
+	case WrapperTypeAssertion:
+		return events.EvalKindAssertion
+	case WrapperTypeGuardrail:
+		return events.EvalKindGuardrail
+	default:
+		return events.EvalKindEval
+	}
+}
+
 func enforceRoleInvariant(result *EvalResult) {
 	switch result.Kind {
 	case events.EvalKindAssertion, events.EvalKindGuardrail:
