@@ -1,0 +1,102 @@
+name: Downstream Canary
+
+# Builds and tests PromptArena (github.com/AltairaLabs/promptarena), PromptKit's
+# main consumer, against this PromptKit checkout instead of the last release.
+# Without it promptarena meets a PromptKit change only after the tag is cut:
+# promptarena#460 and #2525 both shipped in v2.18.0 that way.
+#
+# What runs is scripts/downstream-canary.sh, so `scripts/downstream-canary.sh
+# <promptarena-clone>` reproduces a red run locally.
+#
+# Three callers:
+#   - pull requests to main that change Go code or go.mod/go.sum (below). Not a
+#     required check: promptarena main can be red for reasons of its own, and
+#     a PromptKit PR should not be blocked by that.
+#   - release.yml, which calls it with workflow_call and refuses to tag on red
+#     (bypass: the release's ignore_downstream_canary input).
+#   - workflow_dispatch, to run it by hand against any promptarena ref.
+
+on:
+  pull_request:
+    branches: [ main ]
+    # Workflow-level paths, not a changes job: this check is not required, so
+    # a PR it filters out has nothing waiting on it. If it is ever made
+    # required, switch to a changes job (as promptarena's ci.yml does), or a
+    # filtered-out PR will wait forever on a check that never starts.
+    paths:
+      - '**/*.go'
+      - '**/go.mod'
+      - '**/go.sum'
+      - '.github/workflows/downstream-canary.yml'
+      - 'scripts/downstream-canary.sh'
+  workflow_call:
+    inputs:
+      promptarena-ref:
+        description: 'promptarena branch, tag or SHA to test'
+        required: false
+        type: string
+        default: main
+      advisory:
+        description: 'Report a red canary as a warning instead of failing'
+        required: false
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      promptarena-ref:
+        description: 'promptarena branch, tag or SHA to test'
+        required: false
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  promptarena:
+    name: Downstream canary (promptarena)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+    - name: Checkout PromptKit
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        path: promptkit
+
+    # promptarena is public, so the default token is enough to read it; no
+    # secret is needed and the step works from forks too.
+    - name: Checkout promptarena
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: AltairaLabs/promptarena
+        ref: ${{ inputs.promptarena-ref || 'main' }}
+        path: promptarena
+
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: '1.26.0'
+        cache-dependency-path: |
+          promptarena/go.sum
+          promptkit/runtime/go.sum
+          promptkit/pkg/go.sum
+
+    # Replaces promptarena's PromptKit requires with ./promptkit, then runs
+    # promptarena's build, unit tests, engine race tests and keyless example
+    # packs. None of it needs the private npm packages or an API key.
+    - name: Build and test promptarena against this PromptKit
+      id: canary
+      continue-on-error: ${{ inputs.advisory == true }}
+      run: promptkit/scripts/downstream-canary.sh promptarena promptkit
+
+    - name: Report an advisory failure
+      if: steps.canary.outcome == 'failure'
+      run: |
+        echo "::warning::promptarena does not pass against this PromptKit; continuing because the canary was run as advisory"
+        {
+          echo "## Downstream canary failed (advisory)"
+          echo ""
+          echo "promptarena does not build or pass its keyless suite against this"
+          echo "PromptKit. The run continued because the canary was bypassed."
+        } >> "$GITHUB_STEP_SUMMARY"

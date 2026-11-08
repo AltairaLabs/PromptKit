@@ -6,10 +6,12 @@ verified:
   sources:
     - .github/workflows/ci.yml
     - .github/workflows/docs.yml
+    - .github/workflows/downstream-canary.yml
     - .github/workflows/release.yml
     - .golangci.yml
     - Makefile
     - scripts/check-new-deprecations.sh
+    - scripts/downstream-canary.sh
 ---
 Commands for the CI/CD tasks you repeat most. The [pipelines reference](/devops/ci-cd-pipelines/) describes each workflow.
 
@@ -43,6 +45,8 @@ go -C sdk test -race ./...
 |---|---|
 | `Test & Coverage` | `go -C runtime test -race ./...`, and the same for `sdk`, `pkg` and `server/a2a` |
 | `SDK Integration Tests` | `go -C sdk test -race -count=1 ./integration/...` |
+| `SDK E2E Tests (mock)` | `make test-e2e-mock` |
+| `Downstream canary (promptarena)` | `git clone --depth 1 https://github.com/AltairaLabs/promptarena /tmp/promptarena`, then `scripts/downstream-canary.sh /tmp/promptarena` |
 | `Lint` | `golangci-lint run ./...` inside the failing module directory, with the pinned version |
 | `Build` | `make build`, then the guard scripts under `scripts/` that the job names |
 | `Weak Assertion Guard` | `make check-weak-assertions` |
@@ -66,7 +70,7 @@ gh pr checks                               # checks on the current pull request
 
 ## Trigger workflows
 
-Workflows with `workflow_dispatch`: `docs.yml`, `docs-checks.yml`, `docs-freshness.yml`, `schemas.yml`, `promptpack-schema-sync.yml`, `mcp-conformance.yml` and `release.yml`.
+Workflows with `workflow_dispatch`: `docs.yml`, `docs-checks.yml`, `docs-freshness.yml`, `downstream-canary.yml`, `schemas.yml`, `promptpack-schema-sync.yml`, `mcp-conformance.yml` and `release.yml`.
 
 ```bash
 # Publish the documentation without a release
@@ -76,7 +80,7 @@ gh workflow run docs.yml -f reason="refresh after docs fix"
 gh workflow run release.yml -f version=v2.16.2 -f phase=full
 ```
 
-`release.yml` also accepts `phase=libs-only`, `phase=tools-only`, `skip_tests=true` and `ignore_previous_release_check=true`. See [Releases](/devops/ci-cd-pipelines/#releases-releaseyml).
+`release.yml` also accepts `phase=libs-only`, `phase=tools-only`, `skip_tests=true`, `ignore_previous_release_check=true` and `ignore_downstream_canary=true`. See [Releases](/devops/ci-cd-pipelines/#releases-releaseyml).
 
 ## SonarCloud
 
@@ -116,7 +120,7 @@ Suppress a finding on the line that causes it, name the rule and give the reason
 
 | File | Purpose |
 |---|---|
-| `.github/workflows/` | The twelve workflows |
+| `.github/workflows/` | The thirteen workflows |
 | `.github/CODEOWNERS` | Review ownership |
 | `.golangci.yml` | Linter configuration |
 | `sonar-project.properties` | SonarCloud sources, exclusions and coverage paths |
