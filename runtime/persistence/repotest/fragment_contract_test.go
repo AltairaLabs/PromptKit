@@ -8,18 +8,24 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/persistence"
+	jsonrepo "github.com/AltairaLabs/PromptKit/runtime/v2/persistence/json"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/persistence/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/persistence/repotest"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/persistence/yaml"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 )
 
-// The suite passes the real repositories: one that honors paths and one that
+// The suite passes the real repositories: two that honor paths and one that
 // refuses them with the sentinel.
 func TestContract_PassesRealRepositories(t *testing.T) {
 	t.Run("yaml", func(t *testing.T) {
 		checkFragmentContract(t, func(_ *testing.T, root string) prompt.FragmentRepository {
 			return yaml.NewYAMLPromptRepository(root, nil)
+		})
+	})
+	t.Run("json", func(t *testing.T) {
+		checkFragmentContract(t, func(_ *testing.T, root string) prompt.FragmentRepository {
+			return jsonrepo.NewJSONPromptRepository(root, nil)
 		})
 	})
 	t.Run("memory", func(t *testing.T) {
@@ -61,7 +67,7 @@ func TestContract_CatchesBrokenRepositories(t *testing.T) {
 			fails: []string{
 				"relative path resolves against baseDir", "absolute path ignores baseDir",
 				"path miss is fs.ErrNotExist", "invalid file is not fs.ErrNotExist",
-				"unreadable path is not fs.ErrNotExist",
+				"unreadable path is not fs.ErrNotExist", "relative path outside the root is an error",
 			},
 		},
 		{
@@ -88,7 +94,9 @@ func TestContract_CatchesBrokenRepositories(t *testing.T) {
 					return f, nil
 				})
 			},
-			fails: []string{"invalid file is not fs.ErrNotExist", "unreadable path is not fs.ErrNotExist"},
+			fails: []string{
+				"invalid file is not fs.ErrNotExist", "unreadable path is not fs.ErrNotExist", "relative path outside the root is an error",
+			},
 		},
 		{
 			name: "joins an absolute path onto baseDir",
@@ -115,7 +123,7 @@ func TestContract_CatchesBrokenRepositories(t *testing.T) {
 			fails: []string{
 				"relative path resolves against baseDir", "absolute path ignores baseDir",
 				"path miss is fs.ErrNotExist", "invalid file is not fs.ErrNotExist",
-				"unreadable path is not fs.ErrNotExist",
+				"unreadable path is not fs.ErrNotExist", "relative path outside the root is an error",
 			},
 		},
 		{
@@ -127,8 +135,21 @@ func TestContract_CatchesBrokenRepositories(t *testing.T) {
 				"name-only lookup finds the fragment", "name-only miss is fs.ErrNotExist",
 				"relative path resolves against baseDir", "absolute path ignores baseDir",
 				"path miss is fs.ErrNotExist", "invalid file is not fs.ErrNotExist",
-				"unreadable path is not fs.ErrNotExist",
+				"unreadable path is not fs.ErrNotExist", "relative path outside the root is an error",
 			},
+		},
+		{
+			name: "reads a relative path outside its root",
+			repo: func(root string) prompt.FragmentRepository {
+				return fakeRepo(func(name, path, baseDir string) (*prompt.Fragment, error) {
+					// The pre-v2.19.0 file repositories: join, with no guard.
+					if path != "" && !filepath.IsAbs(path) {
+						path = filepath.Join(baseDir, path)
+					}
+					return yamlRepo(root).LoadFragment(name, path, baseDir)
+				})
+			},
+			fails: []string{"relative path outside the root is an error"},
 		},
 	}
 	for _, tc := range cases {

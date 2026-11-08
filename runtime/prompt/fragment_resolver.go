@@ -47,13 +47,9 @@ func (fr *FragmentResolver) AssembleFragments(
 	fragmentVars := make(map[string]string, len(fragments))
 
 	for _, fragRef := range fragments {
-		// Resolve dynamic fragment names (e.g., "persona_support_{{region}}" → "persona_support_us")
-		resolvedName := fr.resolveVariables(fragRef.Name, vars)
-
-		// Resolve dynamic paths if specified
-		resolvedPath := ""
-		if fragRef.Path != "" {
-			resolvedPath = fr.resolveVariables(fragRef.Path, vars)
+		resolvedName, resolvedPath, err := fr.resolveRef(fragRef, vars)
+		if err != nil {
+			return nil, err
 		}
 
 		fragment, err := fr.LoadFragment(resolvedName, resolvedPath, configFilePath)
@@ -180,6 +176,42 @@ func (fr *FragmentResolver) resolveVariables(text string, vars map[string]string
 		result = strings.ReplaceAll(result, placeholder, value)
 	}
 	return result
+}
+
+// resolveRef fills a reference's name and path from vars (e.g.
+// "persona_support_{{region}}" → "persona_support_us"). A variable's value
+// chooses a fragment, never a file elsewhere, so an unsafe one is an error.
+func (fr *FragmentResolver) resolveRef(ref FragmentRef, vars map[string]string) (name, path string, err error) {
+	if err := checkFragmentRefValues(ref, vars); err != nil {
+		return "", "", err
+	}
+	name = fr.resolveVariables(ref.Name, vars)
+	if ref.Path != "" {
+		path = fr.resolveVariables(ref.Path, vars)
+	}
+	return name, path, nil
+}
+
+// ErrUnsafeFragmentValue reports that a variable's value, filled into a
+// fragment's name or path, would leave the fragment's directory: it holds a
+// path separator or "..", or is an absolute path. The fragment is not loaded.
+var ErrUnsafeFragmentValue = errors.New("variable value cannot be used in a fragment name or path")
+
+// checkFragmentRefValues rejects a value that ref's name or path would take
+// from vars and that is not a plain name: one with a path separator, "..",
+// or an absolute path. A path written literally in the config is not checked
+// here; only what a variable puts into it.
+func checkFragmentRefValues(ref FragmentRef, vars map[string]string) error {
+	for key, value := range vars {
+		placeholder := "{{" + key + "}}"
+		if !strings.Contains(ref.Name, placeholder) && !strings.Contains(ref.Path, placeholder) {
+			continue
+		}
+		if strings.ContainsAny(value, `/\`) || strings.Contains(value, "..") || filepath.IsAbs(value) {
+			return fmt.Errorf("%w: fragment %q, variable %q", ErrUnsafeFragmentValue, ref.Name, key)
+		}
+	}
+	return nil
 }
 
 // GetUsedVars returns a list of variable names that had non-empty values

@@ -29,4 +29,13 @@ var (
 	// fragment may exist, and the repository cannot tell, so FragmentResolver
 	// reports it rather than looking for the path elsewhere.
 	ErrFragmentPathUnsupported = errors.New("this repository cannot load a fragment by path")
+
+	// ErrFragmentPathOutsideBase is returned by LoadFragment for a relative
+	// fragment path that resolves outside the repository's base directory. It
+	// does not satisfy fs.ErrNotExist, so FragmentResolver does not look for
+	// the path elsewhere. A lookup with no base dir (the resolver's
+	// working-directory fallback) that leaves the working directory also
+	// satisfies fs.ErrNotExist. An absolute path written in the config is not
+	// affected.
+	ErrFragmentPathOutsideBase = errors.New("fragment path resolves outside the repository's base directory")
 )
