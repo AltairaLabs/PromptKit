@@ -400,9 +400,11 @@ func TestTemplateStage_WithEmitter(t *testing.T) {
 		emitter := events.NewEmitter(bus, "exec-1", "sess-1", "conv-1")
 		turnState := NewTurnState()
 		turnState.Template = &prompt.Template{
-			RawTemplate:  "Hello {{name}}!",
-			TaskType:     "greeting",
-			FragmentVars: map[string]string{"frag_key": "frag_val"},
+			RawTemplate: "Hello {{name}}! {{frag_key}}",
+			TaskType:    "greeting",
+			// unused_frag is available but not in the template, so it is not
+			// reported as used.
+			FragmentVars: map[string]string{"frag_key": "frag_val", "unused_frag": "unused"},
 		}
 		turnState.Variables = map[string]string{"name": "World"}
 		stage := NewTemplateStageWithTurnState(emitter, turnState)
@@ -425,7 +427,7 @@ func TestTemplateStage_WithEmitter(t *testing.T) {
 		require.NoError(t, err)
 
 		<-output
-		assert.Equal(t, "Hello World!", turnState.SystemPrompt)
+		assert.Equal(t, "Hello World! frag_val", turnState.SystemPrompt)
 
 		// Wait briefly for async event delivery
 		require.Eventually(t, func() bool {
@@ -453,15 +455,15 @@ func TestTemplateStage_WithEmitter(t *testing.T) {
 				data, ok := e.Data.(*events.TemplateStartedData)
 				require.True(t, ok)
 				assert.Equal(t, "greeting", data.TaskType)
-				assert.Equal(t, "Hello {{name}}!", data.RawTemplate)
+				assert.Equal(t, "Hello {{name}}! {{frag_key}}", data.RawTemplate)
 			}
 			if e.Type == events.EventTemplateRendered {
 				data, ok := e.Data.(*events.TemplateRenderedData)
 				require.True(t, ok)
 				assert.Equal(t, "greeting", data.TaskType)
-				assert.Equal(t, "Hello World!", data.SystemPrompt)
+				assert.Equal(t, "Hello World! frag_val", data.SystemPrompt)
 				assert.NotEmpty(t, data.PromptHash)
-				assert.Equal(t, map[string]string{"name": "World"}, data.VariablesUsed)
+				assert.Equal(t, map[string]string{"name": "World", "frag_key": "frag_val"}, data.VariablesUsed)
 				assert.Equal(t, []string{"frag_key"}, data.FragmentsUsed)
 			}
 		}

@@ -313,7 +313,7 @@ func (s *TemplateStage) renderSystemTemplate(
 			PromptHash:      hash,
 			VariablesUsed:   result.UsedVars,
 			UnusedVariables: result.UnusedVars,
-			FragmentsUsed:   sortedFragmentNames(tmpl.FragmentVars),
+			FragmentsUsed:   sortedFragmentNames(tmpl.FragmentVars, result.UsedVars),
 			RenderPasses:    result.Passes,
 		})
 	}
@@ -331,14 +331,18 @@ func sortedVarNames(vars map[string]string) []string {
 	return names
 }
 
-// sortedFragmentNames returns sorted keys of the template's fragment vars.
-func sortedFragmentNames(fragmentVars map[string]string) []string {
-	if len(fragmentVars) == 0 {
-		return nil
-	}
-	names := make([]string, 0, len(fragmentVars))
+// sortedFragmentNames returns, sorted, the template's fragments the render
+// substituted. A prompt built from a pack can reference any of the pack's
+// fragments, so a fragment it does not use is not reported as used.
+func sortedFragmentNames(fragmentVars, usedVars map[string]string) []string {
+	var names []string
 	for k := range fragmentVars {
-		names = append(names, k)
+		if _, used := usedVars[k]; used {
+			names = append(names, k)
+		}
+	}
+	if len(names) == 0 {
+		return nil
 	}
 	sort.Strings(names)
 	return names

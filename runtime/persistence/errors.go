@@ -22,4 +22,11 @@ var (
 
 	// ErrToolNotFound is returned when a requested tool is not found.
 	ErrToolNotFound = errors.New("tool not found")
+
+	// ErrFragmentPathUnsupported is returned by LoadFragment from a repository
+	// that cannot load a fragment by path, such as the in-memory one, which
+	// holds fragments by name only. It does not satisfy fs.ErrNotExist: the
+	// fragment may exist, and the repository cannot tell, so FragmentResolver
+	// reports it rather than looking for the path elsewhere.
+	ErrFragmentPathUnsupported = errors.New("this repository cannot load a fragment by path")
 )

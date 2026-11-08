@@ -54,9 +54,12 @@ func NewYAMLPromptRepository(basePath string, taskTypeToFile map[string]string) 
 func (r *PromptRepository) LoadFragment(name, relativePath, baseDir string) (*prompt.Fragment, error) {
 	// Determine fragment path
 	var fragmentPath string
-	if relativePath != "" {
+	switch {
+	case filepath.IsAbs(relativePath):
+		fragmentPath = relativePath // an absolute path names its file; baseDir does not apply
+	case relativePath != "":
 		fragmentPath = filepath.Join(baseDir, relativePath)
-	} else {
+	default:
 		// Default to fragments/ subdirectory with .yaml extension
 		fragmentPath = filepath.Join(r.BasePath, "fragments", name+".yaml")
 	}

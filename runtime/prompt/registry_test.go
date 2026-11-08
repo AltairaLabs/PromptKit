@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"fmt"
+	"io/fs"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -32,7 +33,8 @@ func (m *mockRepository) LoadFragment(name string, relativePath string, baseDir 
 	if fragment, ok := m.fragments[name]; ok {
 		return fragment, nil
 	}
-	return nil, fmt.Errorf("fragment not found: %s", name)
+	// A miss satisfies fs.ErrNotExist, as the repository contract requires.
+	return nil, fmt.Errorf("fragment not found: %s: %w", name, fs.ErrNotExist)
 }
 
 func (m *mockRepository) ListPrompts() ([]string, error) {
@@ -53,7 +55,6 @@ func (m *mockRepository) SavePrompt(config *Config) error {
 func createTestRegistry() *Registry {
 	return &Registry{
 		promptCache:      make(map[string]*Config),
-		fragmentCache:    make(map[string]*Fragment),
 		fragmentResolver: &FragmentResolver{fragmentCache: make(map[string]*Fragment)},
 	}
 }
@@ -91,7 +92,7 @@ func TestRegistry_GetAvailableTaskTypes(t *testing.T) {
 func TestRegistry_GetAvailableRegions(t *testing.T) {
 	t.Run("detects US region", func(t *testing.T) {
 		reg := createTestRegistry()
-		reg.fragmentCache["persona_support_us"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["persona_support_us"] = &Fragment{Content: "test"}
 
 		regions := reg.GetAvailableRegions()
 		assert.Len(t, regions, 1)
@@ -100,9 +101,9 @@ func TestRegistry_GetAvailableRegions(t *testing.T) {
 
 	t.Run("detects multiple regions", func(t *testing.T) {
 		reg := createTestRegistry()
-		reg.fragmentCache["persona_support_us"] = &Fragment{Content: "test"}
-		reg.fragmentCache["persona_assistant_uk"] = &Fragment{Content: "test"}
-		reg.fragmentCache["persona_agent_au"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["persona_support_us"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["persona_assistant_uk"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["persona_agent_au"] = &Fragment{Content: "test"}
 
 		regions := reg.GetAvailableRegions()
 		assert.Len(t, regions, 3)
@@ -111,9 +112,18 @@ func TestRegistry_GetAvailableRegions(t *testing.T) {
 		assert.Contains(t, regions, "au")
 	})
 
+	t.Run("matches a region suffix on the fragment name, not a substring", func(t *testing.T) {
+		reg := createTestRegistry()
+		reg.fragmentResolver.fragmentCache["tone_for_users"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["/packs/my_users/fragments/persona_uk.yaml"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["by_author"] = &Fragment{Content: "test"}
+
+		assert.Equal(t, []string{"uk"}, reg.GetAvailableRegions())
+	})
+
 	t.Run("returns empty for no region-specific fragments", func(t *testing.T) {
 		reg := createTestRegistry()
-		reg.fragmentCache["persona_generic"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["persona_generic"] = &Fragment{Content: "test"}
 
 		regions := reg.GetAvailableRegions()
 		assert.Empty(t, regions)
@@ -142,8 +152,8 @@ func TestRegistry_GetLoadedPrompts(t *testing.T) {
 func TestRegistry_GetLoadedFragments(t *testing.T) {
 	t.Run("returns loaded fragment paths", func(t *testing.T) {
 		reg := createTestRegistry()
-		reg.fragmentCache["path/to/fragment1"] = &Fragment{Content: "test"}
-		reg.fragmentCache["path/to/fragment2"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["path/to/fragment1"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["path/to/fragment2"] = &Fragment{Content: "test"}
 
 		fragments := reg.GetLoadedFragments()
 		assert.Len(t, fragments, 2)
@@ -161,12 +171,12 @@ func TestRegistry_GetLoadedFragments(t *testing.T) {
 func TestRegistry_ClearCache(t *testing.T) {
 	reg := createTestRegistry()
 	reg.promptCache["task1"] = &Config{Spec: Spec{TaskType: "task1"}}
-	reg.fragmentCache["fragment1"] = &Fragment{Content: "test"}
+	reg.fragmentResolver.fragmentCache["fragment1"] = &Fragment{Content: "test"}
 
 	reg.ClearCache()
 
 	assert.Empty(t, reg.promptCache)
-	assert.Empty(t, reg.fragmentCache)
+	assert.Empty(t, reg.fragmentResolver.fragmentCache)
 }
 
 func TestNewRegistryWithRepository(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -38,7 +39,7 @@ func (m *mockFragmentRepository) LoadFragment(name string, relativePath string, 
 
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("fragment not found: %s", name)
+		return nil, fmt.Errorf("fragment not found: %s: %w", name, err)
 	}
 
 	// Parse simple format for testing
@@ -146,8 +147,20 @@ func TestFragmentResolver_AssembleFragments_OptionalMissing(t *testing.T) {
 		t.Errorf("Expected no error for optional fragment, got: %v", err)
 	}
 
-	if len(result) != 0 {
-		t.Error("Expected empty result for missing optional fragment")
+	// The missing optional fragment renders empty, so its placeholder does not
+	// fail the render (#2523).
+	if want := map[string]string{"nonexistent": ""}; !reflect.DeepEqual(result, want) {
+		t.Errorf("result = %v, want %v", result, want)
+	}
+	rendered, err := template.NewRenderer().Render("a{{nonexistent}}b", result)
+	if err != nil || rendered != "ab" {
+		t.Errorf("Render = %q, %v; want \"ab\"", rendered, err)
+	}
+
+	// A variable the caller set under that name still fills the placeholder.
+	result, err = resolver.AssembleFragments(fragments, map[string]string{"nonexistent": "set"}, configPath)
+	if err != nil || len(result) != 0 {
+		t.Errorf("with a caller variable: result = %v, err = %v; want no fragment var", result, err)
 	}
 }
 

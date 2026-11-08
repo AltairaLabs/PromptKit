@@ -149,8 +149,36 @@ func TestValidatePrompt_VariablesWarning(t *testing.T) {
 	tests := []struct {
 		name       string
 		prompt     *PackPrompt
+		fragments  map[string]string
 		expectWarn bool
 	}{
+		{
+			name: "no variables, template uses only a pack fragment — should not warn",
+			prompt: &PackPrompt{
+				SystemTemplate: "{{tone}}",
+				Version:        "1.0.0",
+			},
+			fragments:  map[string]string{"tone": "Be brief."},
+			expectWarn: false,
+		},
+		{
+			name: "no variables, template uses a fragment chosen by a variable — should warn",
+			prompt: &PackPrompt{
+				SystemTemplate: "{{tone}} {{persona_{{region}}}}",
+				Version:        "1.0.0",
+			},
+			fragments:  map[string]string{"tone": "Be brief.", "persona_{{region}}": "{{persona_{{region}}}}"},
+			expectWarn: true,
+		},
+		{
+			name: "no variables, template uses a fragment and an undeclared variable — should warn",
+			prompt: &PackPrompt{
+				SystemTemplate: "{{tone}} Hello {{name}}",
+				Version:        "1.0.0",
+			},
+			fragments:  map[string]string{"tone": "Be brief."},
+			expectWarn: true,
+		},
 		{
 			name: "no variables, no placeholders — should not warn",
 			prompt: &PackPrompt{
@@ -180,7 +208,7 @@ func TestValidatePrompt_VariablesWarning(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			warnings := validatePrompt("test", tt.prompt)
+			warnings := validatePrompt("test", tt.prompt, tt.fragments)
 			joined := strings.Join(warnings, "\n")
 			if tt.expectWarn {
 				assert.Contains(t, joined, "system_template references variables, but none are declared")
