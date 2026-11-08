@@ -14,7 +14,9 @@ import "github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 //   - keys a handler only rejects (model on a judge, classifier_id,
 //     min_similarity, threshold): those are not params it reads, so load
 //     reports them as unknown; the handler's own message applies only on a
-//     path that skips load validation.
+//     path that skips load validation. The classify handlers reject
+//     classifier_id in ValidateParams, which runs first, so load reports
+//     their own message for it.
 //
 // ExecEvalHandler forwards its params to a subprocess whose keys it cannot
 // know, so it declares none and is not checked.

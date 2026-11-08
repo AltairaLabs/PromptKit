@@ -69,3 +69,15 @@ func resultIDs(results []EvalResult) []string {
 	}
 	return ids
 }
+
+// Registry hands back the registry the runner resolves handlers from.
+func TestEvalRunner_Registry(t *testing.T) {
+	reg := newTestRegistry(&stubHandler{typeName: "test"})
+	if got := NewEvalRunner(reg).Registry(); got != reg {
+		t.Errorf("Registry() = %p, want %p", got, reg)
+	}
+	var nilRunner *EvalRunner
+	if nilRunner.Registry() != nil {
+		t.Error("a nil runner has no registry")
+	}
+}

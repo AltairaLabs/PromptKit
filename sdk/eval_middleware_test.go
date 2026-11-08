@@ -161,14 +161,15 @@ func TestNewEvalMiddleware_WithDefs(t *testing.T) {
 }
 
 func TestNewEvalMiddleware_WithExplicitRunner(t *testing.T) {
-	registry := evals.NewEmptyEvalTypeRegistry()
+	registry := evals.NewEvalTypeRegistry()
 	runner := evals.NewEvalRunner(registry)
 
 	conv := &Conversation{
 		config: &config{evalRunner: runner},
 		pack: &pack.Pack{Pack: packspec.Pack{
 			Evals: []*evals.EvalDef{
-				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn},
+				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn,
+					Params: map[string]any{"patterns": []any{"hi"}}},
 			},
 		}},
 		prompt: &pack.Prompt{},
@@ -247,7 +248,7 @@ func TestEvalMiddleware_DoesNotMutateSharedRunner(t *testing.T) {
 			pack: &pack.Pack{Pack: packspec.Pack{
 				Evals: []*evals.EvalDef{
 					{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn,
-						Params: map[string]any{"substring": "hi"}},
+						Params: map[string]any{"patterns": []any{"hi"}}},
 				},
 			}},
 			prompt: &pack.Prompt{},
@@ -291,7 +292,7 @@ func TestEvalMiddleware_AttachesEvalHooksToRunner(t *testing.T) {
 		pack: &pack.Pack{Pack: packspec.Pack{
 			Evals: []*evals.EvalDef{
 				{ID: "e1", Type: "contains", Trigger: evals.TriggerEveryTurn,
-					Params: map[string]any{"substring": "hi"}},
+					Params: map[string]any{"patterns": []any{"hi"}}},
 			},
 		}},
 		prompt: &pack.Prompt{},

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"time"
+	"unicode/utf8"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 
@@ -474,12 +475,23 @@ func (a *GuardrailHookAdapter) enforcedContent(content string, params map[string
 	if maxLen := extractMaxLen(params); a.truncates() && maxLen > 0 && len(content) > maxLen {
 		logger.Info("Guardrail enforced: truncating content",
 			"type", a.evalType, "original_length", len(content), "max_length", maxLen)
-		return content[:maxLen]
+		return truncateAtRune(content, maxLen)
 	}
 
 	// Content blocker — replace with the user-facing message.
 	logger.Info("Guardrail enforced: content blocked", "type", a.evalType)
 	return a.blockText(replacement)
+}
+
+// truncateAtRune cuts content to at most maxLen bytes, the unit the length
+// check counts, backing off to the start of the rune the cut would split so
+// the result is never invalid UTF-8.
+func truncateAtRune(content string, maxLen int) string {
+	cut := maxLen
+	for cut > 0 && !utf8.RuneStart(content[cut]) {
+		cut--
+	}
+	return content[:cut]
 }
 
 // truncates reports whether this guardrail's check is the length check, the

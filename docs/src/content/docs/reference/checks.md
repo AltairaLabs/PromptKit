@@ -96,7 +96,7 @@ Handlers in the classifier, judge, RAG, safety, composition, REST, A2A, `tool_ex
 
 ### Unknown params
 
-Every built-in check type lists the params it reads, and a param it does not read is rejected when the pack loads: by `ValidateEvalTypes` (the SDK's eval preflight and its eval middleware, which skips the eval with a warning), by guardrail construction (`Open()` fails), and inside an `assertion` or `guardrail` wrapper's `eval_params`. The error names the bad key and the valid ones:
+Every built-in check type lists the params it reads, and a param it does not read is rejected when the pack loads: by `ValidateEvalTypes` (the SDK's eval preflight and its eval middleware, which skips the eval with a warning, against the registry of a runner passed with `WithEvalRunner` too), by guardrail construction (`Open()` fails), and inside an `assertion` or `guardrail` wrapper's `eval_params`. `sdk.Evaluate` does not run such an eval: it returns a result whose `Error` carries the same message. The error names the bad key and the valid ones:
 
 ```text
 eval "tone": unknown param "critera" for llm_judge; valid params: criteria, extra, provider, rubric, system_prompt
@@ -192,7 +192,7 @@ Applied when the param is absent.
 | `contains_any` | `content_includes_any` | `patterns` (string[], required) | 1 or 0 |
 | `min_length` | none | `min` (int, required, > 0) | `min(length / min, 1)` |
 | `max_length` | `length` | `max` (int, required, > 0), `max_tokens` (int) | `min(max / length, 1)`, lowered by the token ratio |
-| `sentence_count` | `max_sentences` | `max` (int, > 0) | 1 with no `max` or within it; `max / count` above it |
+| `sentence_count` | `max_sentences` | `max` (integer, > 0; `1.5` is rejected) | 1 with no `max` or within it; `max / count` above it |
 | `field_presence` | `required_fields` | `fields` (string[]) | Fraction of fields found |
 | `cosine_similarity` | none | `reference` (float[], required) | The similarity |
 

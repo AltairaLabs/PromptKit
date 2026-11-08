@@ -152,6 +152,32 @@ prompts for the first time.
 | Pass an absolute `path` straight to the YAML or JSON repository's `LoadFragment` with a base directory | that file, where the base directory was prepended to it | nothing |
 | Implement `prompt.FragmentRepository` yourself | the resolver falls back to the working directory only on an error satisfying `fs.ErrNotExist` | run `repotest.RunFragmentRepositoryContract` against it |
 
+### `WithEvalTriggers` keeps close-time evals out of `Close()`
+
+`Close()` runs the `on_session_complete` and `on_conversation_complete` evals, so
+a host that closes and resumes one conversation for each message scored the
+whole, growing history on every message, and no group filter could separate
+those evals from cheap per-turn ones. `sdk.WithEvalTriggers(triggers...)` names
+the triggers a conversation's inline evals run. Unset, every trigger runs, as
+before. It composes with `WithEvalGroups`; an unknown trigger, or none, fails
+`Open`.
+
+| If you | You will see | Change |
+|---|---|---|
+| Close and resume one conversation per message or request | nothing, unless you opt in | pass `sdk.WithEvalTriggers(evals.TriggerEveryTurn)` to `Open` and `Resume` (add `evals.TriggerSampleTurns` if the pack samples turns: triggers match exactly), and run the session and conversation evals with `sdk.Evaluate` when the conversation ends |
+| Run a `WorkflowConversation` | each state's conversation takes the filter, so a state change runs no close-time evals the filter leaves out | nothing |
+
+### Evals and validation
+
+| If you | You will see | Change |
+|---|---|---|
+| Pass `WithEvalRunner` without `WithEvalRegistry` | the eval middleware checks the pack's evals against the runner's own registry (`EvalRunner.Registry`) and skips a def it rejects, as it already did with the SDK's own runner. An eval with a misspelled param such as `critera:` ran, ignoring the key | fix the def |
+| Call `sdk.Evaluate` on a pack or defs | a def `evals.ValidateEvals` rejects (a duplicate id, an unknown or missing trigger, a `sample_percentage` outside 0–100, a metric Prometheus cannot register) is skipped with a warning, as `Open` skips it; a duplicate ran twice. A def its handler cannot run as written (an unknown type or param, an unusable `threshold`) is returned as a result whose `Error` names the problem and emitted as `eval.failed` (`evals.WithRejectedDefs`), and its handler is not called; a misspelled param ran, ignoring the key | fix the def |
+| Set `max: 1.5` on `sentence_count` or `max_sentences` | the eval or validator is rejected at load: `max` must be an integer. It was read as `1` | write an integer |
+| Set the retired `classifier_id` on `text_sentiment`, `text_toxicity`, `audio_emotion` or `image_moderation` | load reports `classifier_id is no longer supported: name a provider …`, where it reported an unknown param | name a `provider` |
+| Have a `max_length` guardrail truncate a reply | a cut that would split a multi-byte character backs off to the character's start, so the reply stays valid UTF-8 and can be a few bytes under the limit. It could end in half a character | nothing |
+| Read `sdk.ValidatePack` issues | prompts in name order, the same on every run, and an eval issue from a handler check at the index of the first def with the id it names, where it was always 0 | nothing |
+
 ## v2.18.0
 
 ### Config errors, workflow findings and capability matching
@@ -283,7 +309,7 @@ it waited for the evals.
 |---|---|---|
 | Declare an `on_conversation_complete` eval in a pack you open with the SDK | it runs on `Close()`, and its result reaches your event bus, hooks and metrics | nothing, or remove the eval if you only meant it for Arena |
 | Run inline evals on a group filter (`WithEvalGroups`) | only the conversation evals in those groups run | nothing |
-| Close and resume the same conversation | the conversation evals run on each close, over the full history | keep them out of the inline group filter and run them where the conversation really ends |
+| Close and resume the same conversation | the conversation evals run on each close, over the full history | from v2.19.0, pass `sdk.WithEvalTriggers(evals.TriggerEveryTurn)` so `Close()` runs no session or conversation evals, and run those with `sdk.Evaluate` where the conversation really ends |
 
 ### Eval definitions are checked with `evals.ValidateEvals`
 

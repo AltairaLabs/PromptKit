@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 
@@ -67,6 +68,9 @@ func (h *SentenceCountHandler) ValidateParams(params map[string]any) error {
 	raw, present := params[keyMax]
 	if !present {
 		return nil
+	}
+	if f, isFloat := raw.(float64); isFloat && f != math.Trunc(f) {
+		return fmt.Errorf("%s: max must be a positive integer, got %v", h.Type(), raw)
 	}
 	if v := extractIntPtr(params, keyMax); v == nil || *v <= 0 {
 		return fmt.Errorf("%s: max must be a positive integer, got %v", h.Type(), raw)

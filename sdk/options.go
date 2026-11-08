@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/url"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -304,6 +305,7 @@ type config struct {
 	judgeProvider      handlers.JudgeProvider
 	metricRecorder     evals.MetricRecorder
 	evalGroups         []string
+	evalTriggers       []evals.EvalTrigger
 	evalsDisabled      bool
 	maxConcurrentEvals int
 
@@ -3809,6 +3811,11 @@ type documentDataPart struct {
 // If no runner is provided and eval definitions exist in the pack, a default
 // runner is created automatically using the configured eval registry.
 //
+// The pack's evals are checked against WithEvalRegistry's registry when one is
+// set, else against the runner's own (EvalRunner.Registry), and an eval those
+// handlers reject (an unknown type or param, an unusable threshold) is skipped
+// with a warning.
+//
 // Example:
 //
 //	registry := evals.NewEvalTypeRegistry()
@@ -3924,6 +3931,55 @@ func WithEvalGroups(groups ...string) Option {
 		c.evalGroups = groups
 		return nil
 	}
+}
+
+// WithEvalTriggers selects which eval triggers the conversation's inline eval
+// middleware runs. When set, only the pack and prompt evals whose trigger is
+// listed run; the rest are left to the host, which can run them out of band
+// with Evaluate. If not set, evals of every trigger run, as before.
+//
+// It is for a host whose Close() is not the end of the conversation. A server
+// that opens a conversation per message, closes it when the message's stream
+// ends and resumes it for the next message would otherwise run the
+// on_session_complete and on_conversation_complete evals on every Close, over
+// the whole, growing history. With WithEvalTriggers(evals.TriggerEveryTurn)
+// Close runs no session or conversation evals, and every_turn evals still run
+// inline:
+//
+//	conv, _ := sdk.Resume(id, packPath, "assistant",
+//	    sdk.WithEvalGroups(evals.GroupFastRunning),
+//	    sdk.WithEvalTriggers(evals.TriggerEveryTurn),
+//	)
+//
+// Triggers match exactly: a pack whose per-turn evals use sample_turns, or a
+// workflow with on_workflow_step evals, lists those triggers too. The filter
+// composes with WithEvalGroups: an eval runs only when both admit it. A
+// trigger this runtime does not know (see evals.ValidTriggers), or no trigger
+// at all, is an error. Use WithEvalsDisabled to run no evals.
+func WithEvalTriggers(triggers ...evals.EvalTrigger) Option {
+	return func(c *config) error {
+		if len(triggers) == 0 {
+			return errors.New("WithEvalTriggers: name at least one trigger; use WithEvalsDisabled to run no evals")
+		}
+		for _, tr := range triggers {
+			if !evals.ValidTriggers[tr] {
+				return fmt.Errorf("WithEvalTriggers: unknown trigger %q; valid triggers: %s",
+					tr, strings.Join(validTriggerNames(), ", "))
+			}
+		}
+		c.evalTriggers = append([]evals.EvalTrigger(nil), triggers...)
+		return nil
+	}
+}
+
+// validTriggerNames lists evals.ValidTriggers, sorted.
+func validTriggerNames() []string {
+	names := make([]string, 0, len(evals.ValidTriggers))
+	for tr := range evals.ValidTriggers {
+		names = append(names, string(tr))
+	}
+	sort.Strings(names)
+	return names
 }
 
 // WithMetricRecorder configures a MetricRecorder for the eval middleware.

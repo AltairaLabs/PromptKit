@@ -74,6 +74,7 @@ EvalRunner executes EvalDef values against an EvalContext, and EvalTypeRegistry 
   - [func NewEvalRunner\(registry \*EvalTypeRegistry, opts ...RunnerOption\) \*EvalRunner](<#NewEvalRunner>)
   - [func \(r \*EvalRunner\) AddHook\(h EvalHook\)](<#EvalRunner.AddHook>)
   - [func \(r \*EvalRunner\) Clone\(\) \*EvalRunner](<#EvalRunner.Clone>)
+  - [func \(r \*EvalRunner\) Registry\(\) \*EvalTypeRegistry](<#EvalRunner.Registry>)
   - [func \(r \*EvalRunner\) RunConversationEvals\(ctx context.Context, defs \[\]EvalDef, evalCtx \*EvalContext\) \[\]EvalResult](<#EvalRunner.RunConversationEvals>)
   - [func \(r \*EvalRunner\) RunSessionEvals\(ctx context.Context, defs \[\]EvalDef, evalCtx \*EvalContext\) \[\]EvalResult](<#EvalRunner.RunSessionEvals>)
   - [func \(r \*EvalRunner\) RunTurnEvals\(ctx context.Context, defs \[\]EvalDef, evalCtx \*EvalContext\) \[\]EvalResult](<#EvalRunner.RunTurnEvals>)
@@ -126,6 +127,7 @@ EvalRunner executes EvalDef values against an EvalContext, and EvalTypeRegistry 
 - [type RunnerOption](<#RunnerOption>)
   - [func WithEmitter\(e \*events.Emitter\) RunnerOption](<#WithEmitter>)
   - [func WithEvalHook\(h EvalHook\) RunnerOption](<#WithEvalHook>)
+  - [func WithRejectedDefs\(reasons map\[string\]string\) RunnerOption](<#WithRejectedDefs>)
   - [func WithTimeout\(d time.Duration\) RunnerOption](<#WithTimeout>)
 - [type ScoreThresholds](<#ScoreThresholds>)
   - [func ExtractScoreThresholds\(params map\[string\]any\) ScoreThresholds](<#ExtractScoreThresholds>)
@@ -1026,7 +1028,7 @@ type EvalResult struct {
 ```
 
 <a name="EvalRunner"></a>
-## type [EvalRunner](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L20-L25>)
+## type [EvalRunner](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L20-L26>)
 
 EvalRunner executes evals in\-process. It is the leaf execution unit used by all dispatch modes \(in\-proc, event\-driven, worker\).
 
@@ -1037,7 +1039,7 @@ type EvalRunner struct {
 ```
 
 <a name="NewEvalRunner"></a>
-### func [NewEvalRunner](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L80-L82>)
+### func [NewEvalRunner](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L102-L104>)
 
 ```go
 func NewEvalRunner(registry *EvalTypeRegistry, opts ...RunnerOption) *EvalRunner
@@ -1046,7 +1048,7 @@ func NewEvalRunner(registry *EvalTypeRegistry, opts ...RunnerOption) *EvalRunner
 NewEvalRunner creates an EvalRunner with the given registry and options.
 
 <a name="EvalRunner.AddHook"></a>
-### func \(\*EvalRunner\) [AddHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L72>)
+### func \(\*EvalRunner\) [AddHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L94>)
 
 ```go
 func (r *EvalRunner) AddHook(h EvalHook)
@@ -1055,7 +1057,7 @@ func (r *EvalRunner) AddHook(h EvalHook)
 AddHook appends an EvalHook to the runner. Call it during setup, before evals start running; there is no locking. Nil hooks are ignored.
 
 <a name="EvalRunner.Clone"></a>
-### func \(\*EvalRunner\) [Clone](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L53>)
+### func \(\*EvalRunner\) [Clone](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L64>)
 
 ```go
 func (r *EvalRunner) Clone() *EvalRunner
@@ -1065,8 +1067,17 @@ Clone creates a copy of the runner with the same registry, timeout, and hooks bu
 
 Hooks are copied into a new slice so appending to the clone does not mutate the source. The emitter is dropped; wire a fresh one with SetEmitter.
 
+<a name="EvalRunner.Registry"></a>
+### func \(\*EvalRunner\) [Registry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L80>)
+
+```go
+func (r *EvalRunner) Registry() *EvalTypeRegistry
+```
+
+Registry returns the eval type registry the runner resolves handlers from, so a caller holding only the runner can check defs against the handlers that will run them \(ValidateEvalTypes\).
+
 <a name="EvalRunner.RunConversationEvals"></a>
-### func \(\*EvalRunner\) [RunConversationEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L127-L131>)
+### func \(\*EvalRunner\) [RunConversationEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L149-L153>)
 
 ```go
 func (r *EvalRunner) RunConversationEvals(ctx context.Context, defs []EvalDef, evalCtx *EvalContext) []EvalResult
@@ -1075,7 +1086,7 @@ func (r *EvalRunner) RunConversationEvals(ctx context.Context, defs []EvalDef, e
 RunConversationEvals runs conversation\-level evals \(on\_conversation\_complete trigger\). Call this when a multi\-turn conversation ends \(e.g., Arena self\-play completion\).
 
 <a name="EvalRunner.RunSessionEvals"></a>
-### func \(\*EvalRunner\) [RunSessionEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L112-L116>)
+### func \(\*EvalRunner\) [RunSessionEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L134-L138>)
 
 ```go
 func (r *EvalRunner) RunSessionEvals(ctx context.Context, defs []EvalDef, evalCtx *EvalContext) []EvalResult
@@ -1084,7 +1095,7 @@ func (r *EvalRunner) RunSessionEvals(ctx context.Context, defs []EvalDef, evalCt
 RunSessionEvals runs session\-level evals \(on\_session\_complete and sample\_sessions triggers\). Call this when a session ends.
 
 <a name="EvalRunner.RunTurnEvals"></a>
-### func \(\*EvalRunner\) [RunTurnEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L97-L101>)
+### func \(\*EvalRunner\) [RunTurnEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L119-L123>)
 
 ```go
 func (r *EvalRunner) RunTurnEvals(ctx context.Context, defs []EvalDef, evalCtx *EvalContext) []EvalResult
@@ -1093,7 +1104,7 @@ func (r *EvalRunner) RunTurnEvals(ctx context.Context, defs []EvalDef, evalCtx *
 RunTurnEvals runs turn\-level evals \(every\_turn and sample\_turns triggers\). It skips defs that are disabled, have another trigger, are excluded by sampling, or fail their when\-conditions, and executes the rest in order. Each eval sees the earlier results of the batch in EvalContext.PriorResults.
 
 <a name="EvalRunner.RunWorkflowStepEvals"></a>
-### func \(\*EvalRunner\) [RunWorkflowStepEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L143-L147>)
+### func \(\*EvalRunner\) [RunWorkflowStepEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L165-L169>)
 
 ```go
 func (r *EvalRunner) RunWorkflowStepEvals(ctx context.Context, defs []EvalDef, evalCtx *EvalContext) []EvalResult
@@ -1102,7 +1113,7 @@ func (r *EvalRunner) RunWorkflowStepEvals(ctx context.Context, defs []EvalDef, e
 RunWorkflowStepEvals runs workflow\-step evals \(on\_workflow\_step trigger\). Call this once for each committed workflow state transition, with an EvalContext built from the turn that produced the transition.
 
 <a name="EvalRunner.SetEmitter"></a>
-### func \(\*EvalRunner\) [SetEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L66>)
+### func \(\*EvalRunner\) [SetEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L88>)
 
 ```go
 func (r *EvalRunner) SetEmitter(e *events.Emitter)
@@ -1460,7 +1471,7 @@ func (h *GuardrailEvalHandler) ValidateParams(params map[string]any) error
 ValidateParams mirrors AssertionEvalHandler.ValidateParams.
 
 <a name="HandlerTimeout"></a>
-## type [HandlerTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L285-L289>)
+## type [HandlerTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L312-L316>)
 
 HandlerTimeout is implemented by handlers that bound their own work \(a subprocess, a tool call\) and can legitimately need longer than the runner's per\-eval timeout. Without it the runner's timeout \(30s by default\) silently caps a configured \`timeout\_ms: 300000\` at 30 seconds.
 
@@ -1645,7 +1656,7 @@ type ResultWriter interface {
 ```
 
 <a name="RunnerOption"></a>
-## type [RunnerOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L28>)
+## type [RunnerOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L29>)
 
 RunnerOption configures an EvalRunner.
 
@@ -1654,7 +1665,7 @@ type RunnerOption func(*EvalRunner)
 ```
 
 <a name="WithEmitter"></a>
-### func [WithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L36>)
+### func [WithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L37>)
 
 ```go
 func WithEmitter(e *events.Emitter) RunnerOption
@@ -1663,7 +1674,7 @@ func WithEmitter(e *events.Emitter) RunnerOption
 WithEmitter configures the runner to emit eval.completed/eval.failed events.
 
 <a name="WithEvalHook"></a>
-### func [WithEvalHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L43>)
+### func [WithEvalHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L54>)
 
 ```go
 func WithEvalHook(h EvalHook) RunnerOption
@@ -1671,8 +1682,17 @@ func WithEvalHook(h EvalHook) RunnerOption
 
 WithEvalHook registers an EvalHook that observes every eval result the runner produces. Multiple hooks may be registered; they are invoked in registration order, before the result is emitted on the event bus.
 
+<a name="WithRejectedDefs"></a>
+### func [WithRejectedDefs](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L47>)
+
+```go
+func WithRejectedDefs(reasons map[string]string) RunnerOption
+```
+
+WithRejectedDefs names defs, by id, that the runner must not run, each with the reason \(for example a ValidateEvalTypes finding\). Such a def still goes through the runner's trigger, sampling and when filtering, hooks and event emission, but its result is an error carrying the reason and its handler is never called. A caller that checked defs at load and cannot drop them uses it to report them where results are read.
+
 <a name="WithTimeout"></a>
-### func [WithTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L31>)
+### func [WithTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L32>)
 
 ```go
 func WithTimeout(d time.Duration) RunnerOption
