@@ -2,7 +2,7 @@
 title: Upgrade Notes
 description: Changes that need action when moving between PromptKit versions.
 verified:
-  commit: ffbed7c4b0fff266953352be5e73d4e308a97acf
+  commit: 040ffc2791cf0cc1f5f6a5ad26cef1ce77092b9f
   sources:
     - runtime/a2a/client.go
     - runtime/a2a/types.go
