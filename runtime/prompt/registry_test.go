@@ -53,7 +53,6 @@ func (m *mockRepository) SavePrompt(config *Config) error {
 func createTestRegistry() *Registry {
 	return &Registry{
 		promptCache:      make(map[string]*Config),
-		fragmentCache:    make(map[string]*Fragment),
 		fragmentResolver: &FragmentResolver{fragmentCache: make(map[string]*Fragment)},
 	}
 }
@@ -91,7 +90,7 @@ func TestRegistry_GetAvailableTaskTypes(t *testing.T) {
 func TestRegistry_GetAvailableRegions(t *testing.T) {
 	t.Run("detects US region", func(t *testing.T) {
 		reg := createTestRegistry()
-		reg.fragmentCache["persona_support_us"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["persona_support_us"] = &Fragment{Content: "test"}
 
 		regions := reg.GetAvailableRegions()
 		assert.Len(t, regions, 1)
@@ -100,9 +99,9 @@ func TestRegistry_GetAvailableRegions(t *testing.T) {
 
 	t.Run("detects multiple regions", func(t *testing.T) {
 		reg := createTestRegistry()
-		reg.fragmentCache["persona_support_us"] = &Fragment{Content: "test"}
-		reg.fragmentCache["persona_assistant_uk"] = &Fragment{Content: "test"}
-		reg.fragmentCache["persona_agent_au"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["persona_support_us"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["persona_assistant_uk"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["persona_agent_au"] = &Fragment{Content: "test"}
 
 		regions := reg.GetAvailableRegions()
 		assert.Len(t, regions, 3)
@@ -113,7 +112,7 @@ func TestRegistry_GetAvailableRegions(t *testing.T) {
 
 	t.Run("returns empty for no region-specific fragments", func(t *testing.T) {
 		reg := createTestRegistry()
-		reg.fragmentCache["persona_generic"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["persona_generic"] = &Fragment{Content: "test"}
 
 		regions := reg.GetAvailableRegions()
 		assert.Empty(t, regions)
@@ -142,8 +141,8 @@ func TestRegistry_GetLoadedPrompts(t *testing.T) {
 func TestRegistry_GetLoadedFragments(t *testing.T) {
 	t.Run("returns loaded fragment paths", func(t *testing.T) {
 		reg := createTestRegistry()
-		reg.fragmentCache["path/to/fragment1"] = &Fragment{Content: "test"}
-		reg.fragmentCache["path/to/fragment2"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["path/to/fragment1"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["path/to/fragment2"] = &Fragment{Content: "test"}
 
 		fragments := reg.GetLoadedFragments()
 		assert.Len(t, fragments, 2)
@@ -161,12 +160,12 @@ func TestRegistry_GetLoadedFragments(t *testing.T) {
 func TestRegistry_ClearCache(t *testing.T) {
 	reg := createTestRegistry()
 	reg.promptCache["task1"] = &Config{Spec: Spec{TaskType: "task1"}}
-	reg.fragmentCache["fragment1"] = &Fragment{Content: "test"}
+	reg.fragmentResolver.fragmentCache["fragment1"] = &Fragment{Content: "test"}
 
 	reg.ClearCache()
 
 	assert.Empty(t, reg.promptCache)
-	assert.Empty(t, reg.fragmentCache)
+	assert.Empty(t, reg.fragmentResolver.fragmentCache)
 }
 
 func TestNewRegistryWithRepository(t *testing.T) {

@@ -974,18 +974,21 @@ func (p *Pack) validateTemplateEngine() []string {
 func (p *Pack) validatePrompts() []string {
 	warnings := []string{}
 	for _, taskType := range p.ListPrompts() {
-		warnings = append(warnings, validatePrompt(taskType, p.Prompts[taskType])...)
+		warnings = append(warnings, validatePrompt(taskType, p.Prompts[taskType], p.Fragments)...)
 	}
 	return warnings
 }
 
-// validatePrompt validates a single prompt
-func validatePrompt(taskType string, prompt *PackPrompt) []string {
+// validatePrompt validates a single prompt. fragments are the pack's
+// fragments: a placeholder that names one is filled from it, not from a
+// variable, so it does not need a declared variable.
+func validatePrompt(taskType string, prompt *PackPrompt, fragments map[string]string) []string {
 	warnings := []string{}
 	if prompt.SystemTemplate == "" {
 		warnings = append(warnings, fmt.Sprintf("prompt '%s': missing system_template", taskType))
 	}
-	if len(prompt.Variables) == 0 && strings.Contains(prompt.SystemTemplate, "{{") {
+	unfilled := withoutFragmentPlaceholders(prompt.SystemTemplate, fragments)
+	if len(prompt.Variables) == 0 && strings.Contains(unfilled, "{{") {
 		msg := "prompt '%s': system_template references variables, but none are declared"
 		warnings = append(warnings, fmt.Sprintf(msg, taskType))
 	}
@@ -995,6 +998,18 @@ func validatePrompt(taskType string, prompt *PackPrompt) []string {
 		warnings = append(warnings, fmt.Sprintf("prompt '%s': invalid version '%s': %v", taskType, prompt.Version, err))
 	}
 	return warnings
+}
+
+// withoutFragmentPlaceholders returns text with the "{{name}}" placeholder of
+// each fragment in fragments removed. A fragment whose name holds a variable
+// ("persona_{{region}}") is left in: choosing it needs that variable.
+func withoutFragmentPlaceholders(text string, fragments map[string]string) string {
+	for _, name := range slices.Sorted(maps.Keys(fragments)) {
+		if !strings.Contains(name, "{{") {
+			text = strings.ReplaceAll(text, "{{"+name+"}}", "")
+		}
+	}
+	return text
 }
 
 // validateEvals runs evals.ValidateEvals over the pack-level evals (scope
@@ -1179,6 +1194,42 @@ func ToConfig(pr *PackPrompt, taskType string) *Config {
 			Extensions:     copyAnyMap(pr.Extensions),
 		},
 	}
+}
+
+// PromptConfig converts the pack's prompt for taskType into a Config for a
+// prompt.Registry, as ToConfig does, and gives it a reference to each of the
+// pack's fragments. The PromptPack spec defines a pack's fragments as
+// content any of its prompts can reference, so the registry renders a
+// prompt's "{{name}}" placeholder from the fragment of that name; register
+// the fragments with the registry's repository by name. It returns nil when
+// the pack has no prompt for taskType.
+//
+// A fragment the compiler could not resolve, because a variable chooses it at
+// runtime (persona_{{region}}), is in the pack only as its own "{{name}}"
+// reference. It gets no reference here: the pack does not hold its content,
+// so its placeholder is left for the caller's variables to fill, and fails the
+// render when nothing does.
+func (p *Pack) PromptConfig(taskType string) *Config {
+	pr := p.GetPrompt(taskType)
+	if pr == nil {
+		return nil
+	}
+	config := ToConfig(pr, taskType)
+	config.Spec.Fragments = p.fragmentRefs()
+	return config
+}
+
+// fragmentRefs returns a required, name-only reference to each of the pack's
+// fragments that holds content, in name order.
+func (p *Pack) fragmentRefs() []FragmentRef {
+	var refs []FragmentRef
+	for _, name := range slices.Sorted(maps.Keys(p.Fragments)) {
+		if p.Fragments[name] == "{{"+name+"}}" {
+			continue // a runtime-chosen fragment the compiler wrote as its reference
+		}
+		refs = append(refs, FragmentRef{Name: name, Required: true})
+	}
+	return refs
 }
 
 // compileVariables converts authoring variables into their spec-exact compiled

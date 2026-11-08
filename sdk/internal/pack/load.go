@@ -98,12 +98,13 @@ func Parse(data []byte) (*Pack, error) {
 }
 
 // ToPromptRegistry builds a prompt.Registry from the pack so the SDK uses the
-// same PromptAssemblyMiddleware as Arena.
+// same PromptAssemblyMiddleware as Arena. Every prompt can reference every
+// pack fragment by name (Pack.PromptConfig), as the PromptPack spec defines.
 func ToPromptRegistry(p *Pack) *prompt.Registry {
 	repo := memory.NewPromptRepository()
 
-	for taskType, packPrompt := range p.Prompts {
-		repo.RegisterPrompt(taskType, prompt.ToConfig(packPrompt, taskType))
+	for taskType := range p.Prompts {
+		repo.RegisterPrompt(taskType, p.PromptConfig(taskType))
 	}
 
 	for name, content := range p.Fragments {

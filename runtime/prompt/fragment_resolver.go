@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/template"
 )
@@ -15,9 +17,14 @@ type FragmentRepository interface {
 	LoadFragment(name, relativePath, baseDir string) (*Fragment, error)
 }
 
-// FragmentResolver handles fragment loading, resolution, and variable substitution using the repository pattern
+// FragmentResolver handles fragment loading, resolution, and variable substitution using the repository pattern.
+//
+// It is safe for concurrent use: one Registry, and so one resolver, serves
+// every conversation built on it, and a fragment chosen by a variable is first
+// loaded, and cached, by whichever turn asks for it first.
 type FragmentResolver struct {
 	repository    FragmentRepository   // Required repository for loading fragments
+	mu            sync.RWMutex         // guards fragmentCache
 	fragmentCache map[string]*Fragment // Cache for loaded fragments
 }
 
@@ -54,7 +61,12 @@ func (fr *FragmentResolver) AssembleFragments(
 				return nil, fmt.Errorf("required fragment '%s' (resolved from '%s') not found: %w",
 					resolvedName, fragRef.Name, err)
 			}
-			// Optional fragment missing - skip silently
+			// An optional fragment that is missing renders empty, so its
+			// placeholder does not fail the render. A variable of the same
+			// name, when the caller set one, still fills it.
+			if _, set := vars[resolvedName]; !set {
+				fragmentVars[resolvedName] = ""
+			}
 			continue
 		}
 
@@ -99,22 +111,57 @@ func (fr *FragmentResolver) LoadFragment(name, relativePath, baseDir string) (*F
 		// Found under the default base but unusable: that is the real error.
 		return nil, fallbackErr
 	}
-	fr.fragmentCache[cacheKey] = fragment
+	fr.store(cacheKey, fragment)
 	return fragment, nil
 }
 
 // loadCached returns the fragment cached under cacheKey, loading and caching
 // it from the repository on a miss.
+// The repository is called outside the lock, since it may do I/O; two turns
+// that miss at once both load, and the first to store wins.
 func (fr *FragmentResolver) loadCached(cacheKey, name, relativePath, baseDir string) (*Fragment, error) {
-	if cached, ok := fr.fragmentCache[cacheKey]; ok {
+	fr.mu.RLock()
+	cached, ok := fr.fragmentCache[cacheKey]
+	fr.mu.RUnlock()
+	if ok {
 		return cached, nil
 	}
 	fragment, err := fr.repository.LoadFragment(name, relativePath, baseDir)
 	if err != nil {
 		return nil, err
 	}
+	return fr.store(cacheKey, fragment), nil
+}
+
+// store caches fragment under cacheKey, unless another load cached one there
+// first, and returns the cached fragment.
+func (fr *FragmentResolver) store(cacheKey string, fragment *Fragment) *Fragment {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	if cached, ok := fr.fragmentCache[cacheKey]; ok {
+		return cached
+	}
 	fr.fragmentCache[cacheKey] = fragment
-	return fragment, nil
+	return fragment
+}
+
+// cachedKeys returns the cache keys of the loaded fragments, sorted.
+func (fr *FragmentResolver) cachedKeys() []string {
+	fr.mu.RLock()
+	defer fr.mu.RUnlock()
+	keys := make([]string, 0, len(fr.fragmentCache))
+	for k := range fr.fragmentCache {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// clearCache drops every loaded fragment.
+func (fr *FragmentResolver) clearCache() {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	fr.fragmentCache = make(map[string]*Fragment)
 }
 
 // resolveVariables resolves {{variable}} placeholders in strings

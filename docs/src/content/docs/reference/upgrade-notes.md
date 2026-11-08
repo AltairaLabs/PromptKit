@@ -112,6 +112,43 @@ changes that need you to do something, with what to change and why. Sections
 are grouped by the release that first contained the change, newest first.
 Unreleased holds changes that are on `main` and in no release.
 
+## v2.19.0
+
+### A pack's fragments render, from the SDK and from the registry
+
+The PromptPack spec defines a pack's `fragments` as content any of its prompts
+can reference. The SDK registered them but never gave a prompt a reference to
+them, so a `{{name}}` placeholder for a pack fragment failed every turn. Every
+prompt in a pack can now use every one of the pack's fragments by name. The new
+`Pack.PromptConfig(taskType)` returns a prompt's `Config` with those references,
+for code that builds its own registry from a pack. A fragment the compiler wrote
+as its own `{{name}}` reference, because a variable chooses it at runtime, is
+not in the pack, so its placeholder still needs a value from the caller.
+
+| If you | You will see | Change |
+|---|---|---|
+| Open a pack whose prompt uses one of the pack's fragments | the fragment's content in the system prompt, where the turn failed with an unresolved placeholder | nothing |
+| Build a registry from a pack with `prompt.ToConfig` | the prompt's fragment placeholders stay unresolved, as before | use `pack.PromptConfig(taskType)`, and register `pack.Fragments` with the repository by name |
+| Mark a fragment `required: false` and leave its file missing | its placeholder renders empty, where every render failed | nothing |
+| Validate a pack whose prompt uses fragment placeholders and declares no variables | no "references variables, but none are declared" error | nothing |
+| Read `FragmentsUsed` on `prompt.template.rendered` | only the fragments the render substituted, not every fragment the prompt could use | nothing |
+| Call `Registry.GetCachedFragments`, `GetLoadedFragments` or `GetAvailableRegions` | the fragments loaded so far, sorted, where the list was always empty | nothing |
+
+### Fragment repositories follow one contract
+
+`runtime/persistence/repotest` holds `RunFragmentRepositoryContract`, the checks
+the fragment resolver depends on. A repository written outside PromptKit can run
+it in its own tests. The YAML, JSON and in-memory repositories now pass it, and
+one `Registry` is safe to share between concurrent turns that load fragments or
+prompts for the first time.
+
+| If you | You will see | Change |
+|---|---|---|
+| Ask the in-memory repository for a fragment by `path` | an error wrapping `persistence.ErrFragmentPathUnsupported`, where it answered by name and ignored the path | reference the fragment by name only, or load it from a file repository |
+| Match the in-memory repository's not-found error | it satisfies `errors.Is(err, fs.ErrNotExist)` and reads `fragment "<name>" not found: file does not exist` | match with `errors.Is` |
+| Pass an absolute `path` straight to the YAML or JSON repository's `LoadFragment` with a base directory | that file, where the base directory was prepended to it | nothing |
+| Implement `prompt.FragmentRepository` yourself | the resolver falls back to the working directory only on an error satisfying `fs.ErrNotExist` | run `repotest.RunFragmentRepositoryContract` against it |
+
 ## v2.18.0
 
 ### Config errors, workflow findings and capability matching

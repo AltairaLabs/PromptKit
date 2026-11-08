@@ -34,6 +34,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 
@@ -526,8 +527,7 @@ type Repository interface {
 type Registry struct {
 	repository       Repository // Required repository for loading prompts
 	promptCache      map[string]*Config
-	fragmentCache    map[string]*Fragment
-	fragmentResolver *FragmentResolver
+	fragmentResolver *FragmentResolver // holds the fragment cache
 	templateRenderer *template.Renderer
 	mu               sync.RWMutex
 }
@@ -538,7 +538,6 @@ func NewRegistryWithRepository(repository Repository) *Registry {
 	return &Registry{
 		repository:       repository,
 		promptCache:      make(map[string]*Config),
-		fragmentCache:    make(map[string]*Fragment),
 		fragmentResolver: NewFragmentResolverWithRepository(repository),
 		templateRenderer: template.NewRenderer(),
 	}
@@ -933,15 +932,13 @@ func (r *Registry) mergeVars(config *Config, vars map[string]string) map[string]
 	return result
 }
 
-// GetAvailableRegions returns a list of all available regions from prompt fragments
+// GetAvailableRegions returns the regions named by the fragments loaded so
+// far (see GetCachedFragments), sorted.
 func (r *Registry) GetAvailableRegions() []string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	regionsMap := make(map[string]bool)
 
 	// Check fragment cache for region-specific fragments
-	for fragmentName := range r.fragmentCache {
+	for _, fragmentName := range r.GetCachedFragments() {
 		// Look for patterns like "persona_support_us", "persona_assistant_uk", etc.
 		if strings.Contains(fragmentName, "_us") {
 			regionsMap["us"] = true
@@ -952,17 +949,11 @@ func (r *Registry) GetAvailableRegions() []string {
 		}
 	}
 
-	// Convert map to slice
 	regions := make([]string, 0, len(regionsMap))
 	for region := range regionsMap {
 		regions = append(regions, region)
 	}
-
-	// If no regions found, return default set
-	if len(regions) == 0 {
-		return []string{}
-	}
-
+	sort.Strings(regions)
 	return regions
 }
 
@@ -975,21 +966,25 @@ func (r *Registry) GetCachedPrompts() []string {
 	return extractKeys(r.promptCache)
 }
 
-// GetCachedFragments returns a list of currently cached fragment keys.
+// GetCachedFragments returns the cache keys of the fragments loaded so far,
+// sorted: a reference with no path is cached by name, one with a path by the
+// file path it resolved to.
 func (r *Registry) GetCachedFragments() []string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	return extractKeys(r.fragmentCache)
+	if r.fragmentResolver == nil {
+		return []string{}
+	}
+	return r.fragmentResolver.cachedKeys()
 }
 
 // ClearCache clears all cached prompts and fragments
 func (r *Registry) ClearCache() {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	r.promptCache = make(map[string]*Config)
-	r.fragmentCache = make(map[string]*Fragment)
+	r.mu.Unlock()
+
+	if r.fragmentResolver != nil {
+		r.fragmentResolver.clearCache()
+	}
 }
 
 // GetInfo returns detailed information about a prompt configuration
