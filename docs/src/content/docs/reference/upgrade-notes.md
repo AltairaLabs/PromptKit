@@ -135,7 +135,7 @@ not in the pack, so its placeholder still needs a value from the caller.
 | Write a pack fragment whose name holds a `{{variable}}` | it is not offered to any prompt, since a render resolves the name to one the pack does not hold | supply the resolved name as a variable |
 | Validate a pack whose prompt uses fragment placeholders and declares no variables | no "references variables, but none are declared" error, unless a fragment it uses holds a variable | nothing |
 | Read `FragmentsUsed` on `prompt.template.rendered` | only the fragments the render substituted, not every fragment the prompt could use | nothing |
-| Call `Registry.GetCachedFragments`, `GetLoadedFragments` or `GetAvailableRegions` | the fragments loaded so far, sorted, where the list was always empty. `GetAvailableRegions` matches a `_us`, `_uk` or `_au` suffix on the fragment's name | nothing |
+| Call `Registry.GetCachedFragments`, `GetLoadedFragments` or `GetAvailableRegions` | the fragments loaded so far, sorted, where the list was always empty. A key is `name:<name>` for a reference with no path and `path:<file path>` for one with a path. `GetAvailableRegions` matches a `_us`, `_uk` or `_au` suffix on the fragment's name | nothing |
 
 ### Fragment repositories follow one contract
 
@@ -251,8 +251,9 @@ as its own leading `../` segments, which the config wrote:
 started (`x/../../secret.yaml`), is refused with
 `persistence.ErrFragmentPathOutsideBase`; since a variable cannot add `..`, a
 variable cannot move that point. The check holds on the file the path resolves
-to, so a symlink pointing past that point is refused the same way, while one
-that stays inside is followed. An absolute path written in the config is used
+to, and the read goes through an `os.Root` opened at that point, so a symlink
+pointing past it is refused the same way, even one swapped in after the check,
+while one that stays inside is followed. An absolute path written in the config is used
 as it is. A name-only lookup stays in the repository's `fragments/`.
 
 | If you | You will see | Change |

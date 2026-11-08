@@ -1,8 +1,10 @@
 package common
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -123,4 +125,119 @@ func within(root, path string) bool {
 		return false
 	}
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// afterContainmentCheck, when set (by tests), runs between the containment
+// check and the read, so a test can change the files in that window.
+var afterContainmentCheck func()
+
+// ReadFragmentFile reads the fragment file a lookup names (see
+// FragmentFilePath for the rules) and returns its content and path.
+//
+// A relative or default path is read through an os.Root opened at the point
+// the path may reach (the climb anchor, or basePath), so the read itself
+// refuses a path or symlink that leaves it: a link swapped to point outside
+// after FragmentFilePath checked it is not followed. Such a refusal is
+// persistence.ErrFragmentPathOutsideBase, which also satisfies fs.ErrNotExist
+// for the working-directory fallback. A missing file is fs.ErrNotExist. An
+// absolute path, which the config wrote, is read as it is.
+func ReadFragmentFile(basePath, name, relativePath, baseDir, ext string) ([]byte, string, error) {
+	path, err := FragmentFilePath(basePath, name, relativePath, baseDir, ext)
+	if err != nil {
+		return nil, "", err
+	}
+	if afterContainmentCheck != nil {
+		afterContainmentCheck()
+	}
+	if filepath.IsAbs(relativePath) {
+		data, readErr := os.ReadFile(path) //nolint:gosec // G304: an absolute path the config wrote
+		return data, path, readErr
+	}
+	anchor := basePath
+	if relativePath != "" {
+		anchor = climbAnchor(baseDir, relativePath)
+	}
+	data, err := readInRoot(anchor, path)
+	if errors.Is(err, errPathEscapesRoot) {
+		err = fmt.Errorf("%w: %q leaves %q", persistence.ErrFragmentPathOutsideBase, relativePath, anchor)
+		if relativePath != "" && baseDir == "" {
+			err = fmt.Errorf("%w: %w", err, fs.ErrNotExist)
+		}
+	}
+	return data, path, err
+}
+
+// errPathEscapesRoot marks a read os.Root refused because the path, or a
+// link on it, leaves the root.
+var errPathEscapesRoot = errors.New("path escapes the root")
+
+// readInRoot reads path, which is lexically inside anchor, through an os.Root
+// opened at anchor.
+func readInRoot(anchor, path string) ([]byte, error) {
+	absAnchor, err := filepath.Abs(anchor)
+	if err != nil {
+		return nil, err
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	rel, err := filepath.Rel(absAnchor, absPath)
+	if err != nil {
+		return nil, err
+	}
+	data, err := readRooted(absAnchor, rel)
+	if err == nil || !isRootEscape(err) {
+		return data, err
+	}
+	// A link to nothing names no file, wherever it points: not found.
+	if _, rerr := resolvedAbs(absPath); errors.Is(rerr, fs.ErrNotExist) {
+		return nil, rerr
+	}
+	if data, ok := readThroughResolvedLink(absAnchor, absPath); ok {
+		return data, nil
+	}
+	return nil, fmt.Errorf("%w: %w", errPathEscapesRoot, err)
+}
+
+// readThroughResolvedLink handles os.Root refusing every absolute link
+// target, including one inside the root: it resolves the path, and when the
+// file lands inside the anchor reads it through the root again by its
+// relative path, so the read stays confined (a link swapped meanwhile is
+// refused by that read). It reports false when the file is outside or the
+// read fails.
+func readThroughResolvedLink(absAnchor, absPath string) ([]byte, bool) {
+	target, err := resolvedAbs(absPath)
+	if err != nil {
+		return nil, false
+	}
+	resolvedAnchor, err := resolvedAbs(absAnchor)
+	if err != nil || !within(resolvedAnchor, target) {
+		return nil, false
+	}
+	inner, err := filepath.Rel(resolvedAnchor, target)
+	if err != nil {
+		return nil, false
+	}
+	data, err := readRooted(resolvedAnchor, inner)
+	return data, err == nil
+}
+
+// readRooted reads rel through an os.Root opened at dir.
+func readRooted(dir, rel string) ([]byte, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	return root.ReadFile(rel)
+}
+
+// isRootEscape reports whether err is os.Root refusing a path that leaves
+// it. The os package does not export that error, so it is matched by its
+// text, on a *fs.PathError that is not a missing file.
+func isRootEscape(err error) bool {
+	var pe *fs.PathError
+	return errors.As(err, &pe) && !errors.Is(err, fs.ErrNotExist) &&
+		strings.Contains(pe.Err.Error(), "escapes from parent")
 }

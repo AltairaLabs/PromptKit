@@ -56,12 +56,7 @@ func NewJSONPromptRepository(basePath string, taskTypeToFile map[string]string) 
 
 // LoadFragment loads a fragment by name
 func (r *PromptRepository) LoadFragment(name, relativePath, baseDir string) (*prompt.Fragment, error) {
-	fragmentPath, err := common.FragmentFilePath(r.BasePath, name, relativePath, baseDir, ".json")
-	if err != nil {
-		return nil, err
-	}
-
-	data, err := os.ReadFile(fragmentPath) //nolint:gosec // G304: path from the pack's fragment reference or the base path
+	data, fragmentPath, err := common.ReadFragmentFile(r.BasePath, name, relativePath, baseDir, ".json")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read fragment: %w", err)
 	}
