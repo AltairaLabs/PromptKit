@@ -3,6 +3,8 @@ package pack
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 
@@ -106,15 +108,19 @@ func validateWorkflowStateRefs(p *Pack) []string {
 		promptSet[k] = true
 	}
 
+	// States and events in name order, so the findings, and the first one the
+	// error names, are the same on every run.
 	var errs []string
-	for name, state := range p.Workflow.States {
+	for _, name := range slices.Sorted(maps.Keys(p.Workflow.States)) {
+		state := p.Workflow.States[name]
 		// Composition-orchestrated states run a sub-pipeline; prompt_task is not required.
 		if packspec.Deref(state.Orchestration, "") != "composition" && !promptSet[state.PromptTask] {
 			errs = append(errs, fmt.Sprintf(
 				"workflow.states[%q].prompt_task %q does not reference a valid prompt",
 				name, state.PromptTask))
 		}
-		for event, target := range state.OnEvent {
+		for _, event := range slices.Sorted(maps.Keys(state.OnEvent)) {
+			target := state.OnEvent[event]
 			if _, ok := p.Workflow.States[target]; !ok {
 				errs = append(errs, fmt.Sprintf(
 					"workflow.states[%q].on_event[%q] target %q does not exist in states",
@@ -161,7 +167,8 @@ func validateAgentsSection(p *Pack) error {
 // state must reference a key in the pack's workflow.states, which must exist.
 func validateAgentsState(p *Pack) []string {
 	var errs []string
-	for key, def := range p.Agents.Members {
+	for _, key := range slices.Sorted(maps.Keys(p.Agents.Members)) {
+		def := p.Agents.Members[key]
 		if def.State == "" {
 			continue
 		}
@@ -197,7 +204,7 @@ func validateAgentsStructure(agents *AgentsConfig, prompts map[string]*Prompt) [
 		}
 	}
 
-	for key := range agents.Members {
+	for _, key := range slices.Sorted(maps.Keys(agents.Members)) {
 		if _, ok := prompts[key]; !ok {
 			errs = append(errs, fmt.Sprintf(
 				"agents.members key %q does not reference a valid prompt", key))
@@ -210,7 +217,8 @@ func validateAgentsStructure(agents *AgentsConfig, prompts map[string]*Prompt) [
 // validateAgentsModes checks input/output MIME type formats for all members.
 func validateAgentsModes(members map[string]*AgentDef) []string {
 	var errs []string
-	for key, def := range members {
+	for _, key := range slices.Sorted(maps.Keys(members)) {
+		def := members[key]
 		for _, mode := range def.InputModes {
 			if !isValidMIMEFormat(mode) {
 				errs = append(errs, fmt.Sprintf(
