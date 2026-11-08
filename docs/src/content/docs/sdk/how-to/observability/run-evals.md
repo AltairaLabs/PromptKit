@@ -4,7 +4,7 @@ description: Score a conversation snapshot with sdk.Evaluate(), supply judges, a
 sidebar:
   order: 7
 verified:
-  commit: ffbed7c4b0fff266953352be5e73d4e308a97acf
+  commit: 040ffc2791cf0cc1f5f6a5ad26cef1ce77092b9f
   sources:
     - runtime/evals/handlers/audio_emotion.go
     - runtime/evals/handlers/exec_handler.go

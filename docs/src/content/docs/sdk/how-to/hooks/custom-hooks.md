@@ -4,7 +4,7 @@ description: Implement each PromptKit hook type in Go and register it with an SD
 sidebar:
   order: 8
 verified:
-  commit: ffbed7c4b0fff266953352be5e73d4e308a97acf
+  commit: 040ffc2791cf0cc1f5f6a5ad26cef1ce77092b9f
   sources:
     - runtime/evals/hooks.go
     - runtime/evals/runner.go
