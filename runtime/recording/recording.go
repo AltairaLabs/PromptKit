@@ -182,9 +182,15 @@ func Export(ctx context.Context, store events.EventStore, sessionID string) (*Se
 		return nil, fmt.Errorf("no events found for session %s", sessionID)
 	}
 
-	// Sort by timestamp to ensure chronological order
-	sort.Slice(storedEvents, func(i, j int) bool {
-		return storedEvents[i].Event.Timestamp.Before(storedEvents[j].Event.Timestamp)
+	// Sort by timestamp to ensure chronological order. Events with the same
+	// timestamp keep the order the store appended them in (their sequence):
+	// an unstable sort reordered them, so a session's turns came back shuffled.
+	sort.SliceStable(storedEvents, func(i, j int) bool {
+		a, b := storedEvents[i], storedEvents[j]
+		if !a.Event.Timestamp.Equal(b.Event.Timestamp) {
+			return a.Event.Timestamp.Before(b.Event.Timestamp)
+		}
+		return a.Sequence < b.Sequence
 	})
 
 	sessionStart := storedEvents[0].Event.Timestamp

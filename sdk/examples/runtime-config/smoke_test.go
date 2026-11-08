@@ -18,6 +18,8 @@ func TestSmoke(t *testing.T) {
 	)
 	require.NoError(t, err)
 	defer conv.Close()
+	// company_name is a required variable; main.go sets it the same way.
+	conv.SetVar("company_name", "Acme Corp")
 
 	_, err = conv.Send(context.Background(), "Hello")
 	require.NoError(t, err)

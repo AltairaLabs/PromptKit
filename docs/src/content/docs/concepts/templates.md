@@ -133,7 +133,7 @@ Load the pack in Go with `sdk.Open`. The PromptArena documentation covers the ar
 
 ## Failure modes
 
-A placeholder with no value fails the turn before the model runs: `Send` returns an error for which `errors.Is(err, stage.ErrTemplateUnresolved)` holds. The error lists the variable names available and never their values:
+A prompt that cannot be loaded fails the turn, and so does a placeholder with no value. Neither is replaced by a default prompt. Both fail before the model runs: `Send` returns an error for which `errors.Is(err, stage.ErrTemplateUnresolved)` holds. The error lists the variable names available and never their values:
 
 ```text
 stage 'template' (transform) failed: system prompt has unresolved variables:
@@ -143,7 +143,7 @@ support: unresolved template placeholders: [{{company}}] (variables available: r
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | Unresolved placeholder error | No source supplied the variable | Supply it, or declare an optional variable with a `default`. |
-| `missing required variables` error | A `required` variable has no value or an empty value | Pass a non-empty value. |
+| `missing required variables` error | No source gives a `required` variable a non-empty value. The check runs once every source is merged, so a value from `SetVar` or a variable provider counts | Pass a non-empty value. |
 | Literal `{{name}}` in a user message | Variables do not apply to message text | Interpolate message text in Go before `Send`. |
 
 ## Related

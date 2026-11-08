@@ -142,6 +142,12 @@ func NewTurnState() *TurnState {
 // turns then silently stops reaching the model: SetVar, per-send bindings,
 // dynamic variable providers, and retrieved memory context.
 //
+// It also clears Variables, which VariableProviderStage fills from the
+// turn's own sources. Without that, a per-send value (a send-scoped binding,
+// WithJSONInput in the SDK) stayed on every later turn, where it rendered and
+// satisfied required variables. Set any variables of your own after calling
+// it.
+//
 // It leaves the turn's other fields alone. Template, AllowedTools
 // and Validators are repopulated by PromptAssemblyStage on each run, and the
 // turn index belongs to the load stage.
@@ -150,6 +156,7 @@ func (t *TurnState) BeginTurn() {
 		return
 	}
 	t.SystemPrompt = ""
+	t.Variables = nil
 }
 
 // ElementMetadata is the typed schema for per-element coordination data.

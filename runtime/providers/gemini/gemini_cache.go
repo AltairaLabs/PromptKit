@@ -300,6 +300,9 @@ func (p *Provider) deleteCachedContent(ctx context.Context, name string) {
 	if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
 		return
 	}
+	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
+		return
+	}
 	resp, err := p.GetHTTPClient().Do(httpReq)
 	if err != nil {
 		return

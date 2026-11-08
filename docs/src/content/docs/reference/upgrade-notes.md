@@ -178,6 +178,71 @@ before. It composes with `WithEvalGroups`; an unknown trigger, or none, fails
 | Have a `max_length` guardrail truncate a reply | a cut that would split a multi-byte character backs off to the character's start, so the reply stays valid UTF-8 and can be a few bytes under the limit. It could end in half a character | nothing |
 | Read `sdk.ValidatePack` issues | prompts in name order, the same on every run, and an eval issue from a handler check at the index of the first def with the id it names, where it was always 0 | nothing |
 
+### A prompt that cannot be loaded fails the turn
+
+`PromptAssemblyStage` replaced a prompt it could not load with `You are a
+helpful AI assistant.` and the turn ran on it. That hid a missing prompt, a
+broken prompt config and a required fragment that could not load. It also
+hid a working prompt: the required-variable check ran before `SetVar` and
+variable-provider values joined the turn, so a prompt whose `required`
+variable came from either was always replaced. The stage now returns the load
+error and the turn fails. Required variables are checked by `TemplateStage`,
+against every variable the turn has, and a missing one fails the turn with an
+error wrapping `stage.ErrTemplateUnresolved`. A stage with no registry or no
+task type still runs on the default prompt. `prompt.Registry.LoadTemplateDeferRequired`
+loads a template without the required-variable check, for a caller that adds
+variables before it renders.
+
+A mid-turn workflow handoff rendered the destination prompt with the artifact
+and context variables only, and sent the raw template when that render
+failed, so a prompt using a `WithVariables`, `SetVar` or variable-provider
+value reached the model with literal `{{name}}` in it, on every round of a
+workflow conversation. It now renders with the turn's variables and fails the
+round as `TemplateStage` does.
+
+| If you | You will see | Change |
+|---|---|---|
+| Declare a `required` variable and set it with `SetVar` or a variable provider | the pack's prompt, rendered, where the turn ran on the default prompt | nothing |
+| Send to a prompt whose required variable no source sets | `Send` returns an error wrapping `stage.ErrTemplateUnresolved` that names the variable, where the turn ran on the default prompt | supply the variable |
+| Open a task type the registry cannot load, or a prompt whose required fragment cannot load | `Send` returns the load error | fix the prompt or the fragment |
+| Use variables in the prompts of a workflow's states | every round, including the one after a mid-turn handoff, renders them | nothing |
+| Bind a variable for one `Send` (`WithJSONInput`) | it applies to that turn only, where it stayed on every later turn. `TurnState.BeginTurn` now clears `Variables` | pass it on each `Send` that needs it |
+
+### Custom headers reach every request
+
+The OpenAI Responses API path (`api_mode: responses`, unary and streaming),
+Gemini's streaming path and Gemini's cached-content cleanup did not send a
+provider's `headers`. They now do, as every other path did.
+
+| If you | You will see | Change |
+|---|---|---|
+| Set `headers` on an OpenAI provider on the Responses API, or on a Gemini provider | the headers on every request | nothing, unless a gateway rejected requests without them |
+
+### Realtime text turns are saved and recorded
+
+A user turn sent with `SendText` in a realtime session never became a user
+message, so the state store, a recording and the hooks' history held the
+assistant's replies alone. The provider stage now emits it as a user message,
+between assistant turns: text typed while a reply is streaming follows that
+reply, and an input a guardrail blocks comes right before its blocked turn.
+The SDK does not echo it on `Response()`; a pipeline you build yourself sees
+it as an element whose `Source` is `stage.TextInputTurnSource`. A recording also records an element without a
+timestamp at the time it sees it, and `recording.Export` keeps events with
+equal timestamps in the order they were stored. Before, a realtime
+recording's turns could come back in any order.
+
+| If you | You will see | Change |
+|---|---|---|
+| Record or save a realtime session that takes text input | each user turn once, in order, before its reply | nothing |
+| Read the output of a `DuplexProviderStage` you build yourself | one extra element per text input, carrying the user message | skip elements whose `Source` is `stage.TextInputTurnSource` if you only want model output |
+
+### `OpenWorkflow` names the same finding on every run
+
+A workflow or `agents` section with several findings was checked in map
+order, so the error `OpenWorkflow` and `Open` return named a different first
+finding from run to run. The findings now come in state, event and member
+name order.
+
 ## v2.18.0
 
 ### Config errors, workflow findings and capability matching

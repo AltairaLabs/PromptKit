@@ -83,8 +83,13 @@ func (s *PromptAssemblyStage) Process(
 ) error {
 	defer close(output)
 
-	// Load raw template (no rendering)
-	tmpl := s.loadTemplate(ctx)
+	// Load raw template (no rendering). A prompt that cannot be loaded fails
+	// the turn: running it on a prompt the author never wrote would hide the
+	// failure behind a plausible reply.
+	tmpl, err := s.loadTemplate(ctx)
+	if err != nil {
+		return err
+	}
 
 	// Populate TurnState once, before forwarding the first element. Channel
 	// hand-off to downstream stages establishes happens-before so readers
@@ -109,22 +114,26 @@ func (s *PromptAssemblyStage) Process(
 	return nil
 }
 
-func (s *PromptAssemblyStage) loadTemplate(ctx context.Context) *prompt.Template {
-	defaultTemplate := &prompt.Template{
-		RawTemplate:  "You are a helpful AI assistant.",
-		AllowedTools: nil,
-		Validators:   nil,
-	}
+// defaultSystemPrompt is the system prompt of a stage that has no prompt to
+// load: no registry, or no task type (a composition or orchestration state).
+const defaultSystemPrompt = "You are a helpful AI assistant."
 
-	if s.promptRegistry == nil {
-		logger.Warn("Using default system prompt, no prompt registry configured", "task_type", s.taskType)
-		return defaultTemplate
+// loadTemplate loads the stage's prompt. With no registry or no task type there
+// is no prompt to load, and the default prompt applies. Otherwise any load
+// failure is returned: a missing prompt, a broken prompt config, a required
+// fragment that cannot load. Required variables are not checked here, since
+// SetVar and VariableProvider values join the turn after this stage;
+// TemplateStage checks them against every variable the turn has.
+func (s *PromptAssemblyStage) loadTemplate(ctx context.Context) (*prompt.Template, error) {
+	if s.promptRegistry == nil || s.taskType == "" {
+		logger.Warn("Using default system prompt, no prompt registry or task type configured",
+			"task_type", s.taskType)
+		return &prompt.Template{RawTemplate: defaultSystemPrompt}, nil
 	}
 
 	// Merge per-request variables (carried on the context, e.g. from an SDK
-	// structured input) over the static base variables. Without this, a required
-	// variable supplied only per-request would fail LoadTemplate's required-var
-	// check and the pack prompt would be discarded for the default.
+	// structured input) over the static base variables, so fragments chosen by
+	// a variable resolve from them.
 	loadVars := s.baseVariables
 	if reqVars := variables.RequestVars(ctx); len(reqVars) > 0 {
 		loadVars = make(map[string]string, len(s.baseVariables)+len(reqVars))
@@ -136,10 +145,9 @@ func (s *PromptAssemblyStage) loadTemplate(ctx context.Context) *prompt.Template
 		}
 	}
 
-	tmpl, err := s.promptRegistry.LoadTemplate(s.taskType, loadVars, s.model)
+	tmpl, err := s.promptRegistry.LoadTemplateDeferRequired(s.taskType, loadVars, s.model)
 	if err != nil {
-		logger.Warn("Using default system prompt, no prompt found for task type", "task_type", s.taskType)
-		return defaultTemplate
+		return nil, fmt.Errorf("prompt assembly: load prompt %q: %w", s.taskType, err)
 	}
 
 	logger.Debug("Loaded prompt template",
@@ -147,7 +155,7 @@ func (s *PromptAssemblyStage) loadTemplate(ctx context.Context) *prompt.Template
 		"tools", len(tmpl.AllowedTools),
 		"base_vars", len(s.baseVariables))
 
-	return tmpl
+	return tmpl, nil
 }
 
 func (s *PromptAssemblyStage) extractValidatorConfigs(

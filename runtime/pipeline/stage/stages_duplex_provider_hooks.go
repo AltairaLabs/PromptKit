@@ -240,6 +240,7 @@ func (s *DuplexProviderStage) guardInputText(
 		msg:      blockedTurnMessage(req, d),
 		decision: d,
 		duration: time.Since(start),
+		user:     s.pendingTypedUser,
 	}
 	s.dropTurnID(elem)
 	if toolResponses := elem.Meta.ToolResponses; len(toolResponses) > 0 {
@@ -268,6 +269,12 @@ type duplexBlockedTurn struct {
 	msg      types.Message
 	decision hooks.Decision
 	duration time.Duration
+	// user is the typed user turn the blocked turn answers, emitted ahead of
+	// it. A userOnly entry carries just that turn: the input was not blocked,
+	// and the entry only keeps the user's turn in order between assistant
+	// turns.
+	user     *types.Message
+	userOnly bool
 }
 
 // recordBlockedFiring records a blocked turn's guardrail firing (its
@@ -284,6 +291,9 @@ func (s *DuplexProviderStage) dropBlockedTurns() {
 	for {
 		select {
 		case turn := <-s.blockedTurns:
+			if turn.userOnly {
+				continue
+			}
 			s.recordBlockedFiring(turn)
 			s.completeBlockedTurn()
 		default:
@@ -394,6 +404,14 @@ func (s *DuplexProviderStage) dropTurnID(elem *StreamElement) {
 func (s *DuplexProviderStage) emitBlockedTurn(
 	ctx context.Context, turn *duplexBlockedTurn, output chan<- StreamElement,
 ) error {
+	if turn.user != nil {
+		if err := emitTypedUserTurn(ctx, turn.user, output); err != nil {
+			return err
+		}
+	}
+	if turn.userOnly {
+		return nil
+	}
 	blocked := &turn.msg
 	s.recordBlockedFiring(turn)
 	s.history.add(blocked)

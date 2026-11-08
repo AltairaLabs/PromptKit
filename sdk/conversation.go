@@ -1173,6 +1173,10 @@ func (c *Conversation) SendChunk(ctx context.Context, chunk *providers.StreamChu
 
 // SendText sends text in duplex mode.
 // Only available when the conversation was opened with OpenDuplex().
+//
+// The text is the user's turn: it is saved to the state store and recorded
+// (WithRecording) as a user message, ahead of the reply. It is not echoed on
+// Response().
 func (c *Conversation) SendText(ctx context.Context, text string) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

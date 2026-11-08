@@ -246,7 +246,7 @@ func TestDuplexHooks_InputEnforcedBlocksText(t *testing.T) {
 	out := make(chan StreamElement, 8)
 	done := make(chan error, 1)
 	require.False(t, s.handleInputElement(context.Background(), &elem, out, done))
-	assert.Empty(t, out, "the response loop, not the input goroutine, emits the blocked turn")
+	assert.Empty(t, out, "the response loop, not the input goroutine, emits the user's and the blocked turn")
 	close(sess.respCh)
 	require.NoError(t, s.forwardResponseElements(context.Background(), out))
 	close(out)
@@ -261,7 +261,9 @@ func TestDuplexHooks_InputEnforcedBlocksText(t *testing.T) {
 	for e := range out {
 		elems = append(elems, e)
 	}
-	require.Len(t, elems, 2)
+	require.Len(t, elems, 3)
+	assertTypedUserTurn(t, elems[0], text)
+	elems = elems[1:]
 	require.NotNil(t, elems[0].Text)
 	assert.Equal(t, "Not here.", *elems[0].Text)
 	msg, _ := turnMessage(t, elems)
@@ -287,7 +289,7 @@ func TestDuplexHooks_InputDenyEndsSession(t *testing.T) {
 
 	var denied *hooks.HookDeniedError
 	require.ErrorAs(t, <-done, &denied)
-	require.Len(t, out, 1)
+	require.Len(t, out, 1, "the error is the only output")
 	require.ErrorAs(t, (<-out).Error, &denied)
 	sess.mu.Lock()
 	assert.Empty(t, sess.texts)
@@ -428,7 +430,7 @@ func TestDuplexHooks_BlockedInputWaitsForReplyInProgress(t *testing.T) {
 	text := "blocked input"
 	require.False(t, s.handleInputElement(context.Background(), &StreamElement{Text: &text}, out, make(chan error, 1)))
 	require.Never(t, func() bool { return len(out) > 0 }, 50*time.Millisecond, 5*time.Millisecond,
-		"nothing is emitted while the reply is in progress")
+		"nothing is emitted while the reply is in progress, not even the user's turn")
 
 	sess.respCh <- stopChunk()
 	close(sess.respCh)
@@ -437,11 +439,12 @@ func TestDuplexHooks_BlockedInputWaitsForReplyInProgress(t *testing.T) {
 
 	var turns []string
 	for e := range out {
-		if e.EndOfStream && e.Message != nil {
-			turns = append(turns, e.Message.Content)
+		if e.Message != nil && (e.EndOfStream || e.Source == TextInputTurnSource) {
+			turns = append(turns, e.Message.Role+":"+e.Message.Content)
 		}
 	}
-	assert.Equal(t, []string{"half a reply", "Not here."}, turns)
+	assert.Equal(t, []string{"assistant:half a reply", "user:blocked input", "assistant:Not here."}, turns,
+		"the user's turn and its blocked reply follow the reply that was streaming")
 }
 
 // A blocked element's tool responses still reach the session.
@@ -849,4 +852,47 @@ func TestDuplexHooks_NoBlockedTurnAfterInputDeny(t *testing.T) {
 	out := make(chan StreamElement, 4)
 	require.NoError(t, s.emitWaitingBlockedTurns(context.Background(), out))
 	assert.Empty(t, out)
+}
+
+// assertTypedUserTurn checks elem is the user Message a typed realtime turn
+// becomes, tagged so the SDK does not echo it to the caller.
+func assertTypedUserTurn(t *testing.T, elem StreamElement, text string) {
+	t.Helper()
+	require.NotNil(t, elem.Message, "expected the user's turn")
+	assert.Equal(t, roleUser, elem.Message.Role)
+	assert.Equal(t, text, elem.Message.Content)
+	assert.Equal(t, TextInputTurnSource, elem.Source)
+	assert.Nil(t, elem.Text, "the user's text is not presented as output text")
+}
+
+// A turn typed while a reply is streaming is emitted after that reply, so the
+// saved and recorded transcript keeps user, assistant, user, assistant.
+func TestDuplexTypedTurn_WaitsForReplyInProgress(t *testing.T) {
+	s, sess, _ := duplexStageWithHooks(t, nil)
+	s.accumulatedText.WriteString("first reply") // a reply is streaming
+
+	out := make(chan StreamElement, 16)
+	loopDone := make(chan error, 1)
+	go func() { loopDone <- s.forwardResponseElements(context.Background(), out) }()
+
+	text := "typed meanwhile"
+	require.False(t, s.handleInputElement(context.Background(), &StreamElement{Text: &text}, out, make(chan error, 1)))
+	require.Never(t, func() bool { return len(out) > 0 }, 50*time.Millisecond, 5*time.Millisecond,
+		"the user's turn waits for the reply in progress")
+
+	sess.respCh <- stopChunk()
+	close(sess.respCh)
+	require.NoError(t, <-loopDone)
+	close(out)
+
+	var turns []string
+	for e := range out {
+		if e.Message != nil && (e.EndOfStream || e.Source == TextInputTurnSource) {
+			turns = append(turns, e.Message.Role+":"+e.Message.Content)
+		}
+	}
+	assert.Equal(t, []string{"assistant:first reply", "user:typed meanwhile"}, turns)
+	sess.mu.Lock()
+	assert.Equal(t, []string{text}, sess.texts, "the text still reaches the session at once")
+	sess.mu.Unlock()
 }

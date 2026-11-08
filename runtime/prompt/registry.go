@@ -565,7 +565,28 @@ func logPromptLoadFailure(activity string, err error) {
 // all metadata needed to render it later. This is the preferred path for pipeline
 // stages that separate assembly from rendering (e.g. PromptAssemblyStage +
 // TemplateStage). The returned Template is safe to cache across requests.
+//
+// It fails when a required variable has no non-empty value in vars. A caller
+// that learns some variables only after loading uses
+// LoadTemplateDeferRequired instead.
 func (r *Registry) LoadTemplate(activity string, vars map[string]string, model string) (*Template, error) {
+	return r.loadTemplate(activity, vars, model, true)
+}
+
+// LoadTemplateDeferRequired is LoadTemplate without the required-variable
+// check, for a caller that supplies more variables when it renders: the
+// pipeline merges SetVar and VariableProvider values into the turn after the
+// template is loaded. The caller checks Template.RequiredVars against the
+// variables it renders with (TemplateStage does, and fails the turn with
+// ErrTemplateUnresolved). Every other load failure is returned as from
+// LoadTemplate.
+func (r *Registry) LoadTemplateDeferRequired(activity string, vars map[string]string, model string) (*Template, error) {
+	return r.loadTemplate(activity, vars, model, false)
+}
+
+func (r *Registry) loadTemplate(
+	activity string, vars map[string]string, model string, checkRequired bool,
+) (*Template, error) {
 	config, err := r.loadConfig(activity)
 	if err != nil {
 		logPromptLoadFailure(activity, err)
@@ -573,9 +594,11 @@ func (r *Registry) LoadTemplate(activity string, vars map[string]string, model s
 	}
 
 	// Validate required vars before merging
-	if err = r.validateRequiredVars(config, vars); err != nil {
-		logger.Error("Prompt missing required vars", "activity", activity, "error", err)
-		return nil, err
+	if checkRequired {
+		if err = r.validateRequiredVars(config, vars); err != nil {
+			logger.Error("Prompt missing required vars", "activity", activity, "error", err)
+			return nil, err
+		}
 	}
 
 	// Merge provided vars with defaults

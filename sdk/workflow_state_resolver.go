@@ -117,6 +117,11 @@ type workflowStateResolver struct {
 	// loaded, and a render without the suffix never matches, so the suffix was
 	// stripped before every round of a workflow conversation.
 	systemPromptSuffix func() string
+
+	// turnState returns the conversation's TurnState, whose Variables hold
+	// every variable the turn renders with (WithVariables, SetVar, variable
+	// providers). The handoff renders with them, as TemplateStage does.
+	turnState func() *stage.TurnState
 }
 
 func newWorkflowStateResolver(
@@ -141,6 +146,7 @@ func (r *workflowStateResolver) withConversation(conv *Conversation) *workflowSt
 	r.cfg = conv.config
 	r.model = conv.callModel()
 	r.systemPromptSuffix = conv.preloadedSkillInstructions
+	r.turnState = func() *stage.TurnState { return conv.turnState }
 	return r
 }
 
@@ -296,23 +302,36 @@ func (r *workflowStateResolver) renderState(
 		vars[workflowContextVar] = contextSummary
 	}
 
-	tmpl, err := r.registry.LoadTemplate(dest.PromptTask, vars, model)
+	// Required variables are checked below, against every source merged.
+	tmpl, err := r.registry.LoadTemplateDeferRequired(dest.PromptTask, vars, model)
 	if err != nil {
 		return "", nil, fmt.Errorf("load prompt %q for state: %w", dest.PromptTask, err)
 	}
 
 	// Same precedence as TemplateStage: template defaults, then fragments,
-	// then the values we bind for this handoff.
+	// then the turn's variables, then the values we bind for this handoff.
 	merged := make(map[string]string, len(tmpl.DefaultVars)+len(tmpl.FragmentVars)+len(vars))
 	maps.Copy(merged, tmpl.DefaultVars)
 	maps.Copy(merged, tmpl.FragmentVars)
+	if r.turnState != nil {
+		if ts := r.turnState(); ts != nil {
+			maps.Copy(merged, ts.Variables)
+		}
+	}
 	maps.Copy(merged, vars)
+
+	for _, name := range tmpl.RequiredVars {
+		if merged[name] == "" {
+			return "", nil, fmt.Errorf("%w: %s: missing required variable %s",
+				stage.ErrTemplateUnresolved, dest.PromptTask, name)
+		}
+	}
 
 	rendered, err := r.renderer.RenderDetailed(tmpl.RawTemplate, merged)
 	if err != nil {
-		// Match TemplateStage's degrade-to-raw behavior rather than failing the
-		// turn: a template that renders badly should still hand off.
-		return tmpl.RawTemplate, tmpl.AllowedTools, nil //nolint:nilerr // deliberate degrade
+		// Fail the round as TemplateStage fails a turn: a raw template would
+		// put literal {{...}} in front of the model.
+		return "", nil, fmt.Errorf("%w: %s: %w", stage.ErrTemplateUnresolved, dest.PromptTask, err)
 	}
 	return rendered.Text, tmpl.AllowedTools, nil
 }

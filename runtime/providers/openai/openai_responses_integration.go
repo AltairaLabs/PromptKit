@@ -345,6 +345,9 @@ func (p *Provider) predictWithResponses(
 	if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
 		return predictResp, nil, fmt.Errorf("failed to apply authentication: %w", authErr)
 	}
+	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
+		return predictResp, nil, hdrErr
+	}
 
 	logger.APIRequest("OpenAI Responses", "POST", url, map[string]string{
 		contentTypeHeader:   applicationJSON,
@@ -489,6 +492,9 @@ func (p *Provider) predictStreamWithResponses(
 		httpReq.Header.Set("Accept", "text/event-stream")
 		if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
 			return nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+		}
+		if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
+			return nil, hdrErr
 		}
 		return httpReq, nil
 	}
