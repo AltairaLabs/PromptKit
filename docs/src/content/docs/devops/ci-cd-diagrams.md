@@ -9,6 +9,7 @@ verified:
     - .github/workflows/dependabot-gate.yml
     - .github/workflows/deprecation-gate.yml
     - .github/workflows/docs.yml
+    - .github/workflows/downstream-canary.yml
     - .github/workflows/release.yml
 ---
 Diagrams of how the workflows in `.github/workflows/` relate. The [pipelines reference](/devops/ci-cd-pipelines/) has the details behind each node.
@@ -34,6 +35,7 @@ flowchart LR
     PR --> drift[reference-drift.yml]
     PR --> schemas[schemas.yml]
     PR --> mcp[mcp-conformance.yml]
+    PR --> canary[downstream-canary.yml]
 
     PUSH --> ci
     PUSH --> drift
@@ -53,9 +55,10 @@ flowchart LR
     DISP --> schemas
     DISP --> sync
     DISP --> mcp
+    DISP --> canary
 ```
 
-`ci.yml`, `docs.yml`, `reference-drift.yml`, `schemas.yml` and `mcp-conformance.yml` filter by changed paths. `cla.yml` also reacts to issue comments, and `promptpack-schema-sync.yml` also reacts to a `promptpack-release` repository dispatch.
+`ci.yml`, `docs.yml`, `reference-drift.yml`, `schemas.yml`, `mcp-conformance.yml` and `downstream-canary.yml` filter by changed paths. `release.yml` also calls `downstream-canary.yml`. `cla.yml` also reacts to issue comments, and `promptpack-schema-sync.yml` also reacts to a `promptpack-release` repository dispatch.
 
 ## CI job dependencies
 
@@ -67,6 +70,7 @@ flowchart TD
     lint["lint: Lint (4 modules)"]
     sonar["sonarcloud: SonarCloud Analysis"]
     integ["integration-tests: SDK Integration Tests"]
+    e2e["e2e-mock: SDK E2E Tests (mock)"]
     build["build: Build"]
     weak["weak-assertions: Weak Assertion Guard"]
     perf["perf-regression: Performance Regression Check"]
@@ -75,7 +79,7 @@ flowchart TD
     lint --> sonar
 ```
 
-`integration-tests`, `build`, `weak-assertions` and `perf-regression` have no dependencies. `weak-assertions` runs on pull requests only. `lint`, `sonarcloud` and `perf-regression` skip Dependabot pull requests.
+`integration-tests`, `e2e-mock`, `build`, `weak-assertions` and `perf-regression` have no dependencies. `weak-assertions` runs on pull requests only. `lint`, `sonarcloud` and `perf-regression` skip Dependabot pull requests.
 
 ## Coverage and lint data flow
 
@@ -123,6 +127,7 @@ This diagram shows the job order in `release.yml` for `phase=full`.
 ```mermaid
 flowchart TD
     validate["validate: version, previous go.mod, tests, dep skew, API compatibility"]
+    canary["downstream-canary: promptarena main against this PromptKit"]
     libs["tag-dependencies: tag root, runtime, pkg"]
     tools["update-tools: tag server/a2a, sdk"]
     create["create-release: draft release, SBOM, attestation"]
@@ -132,6 +137,8 @@ flowchart TD
     summary["summary"]
 
     validate --> libs
+    canary --> libs
+    canary --> summary
     libs --> tools
     libs --> create
     create --> verify
@@ -143,7 +150,7 @@ flowchart TD
     tools --> summary
 ```
 
-`phase=libs-only` runs `validate` and `tag-dependencies`. `phase=tools-only` runs `validate` and `update-tools`. `summary` runs in every phase.
+`phase=libs-only` runs `validate`, `downstream-canary` and `tag-dependencies`. `phase=tools-only` runs `validate`, `downstream-canary` and `update-tools`; there `update-tools` waits for the canary directly. `summary` runs in every phase.
 
 ## Documentation deploy
 

@@ -11,6 +11,7 @@ verified:
     - .github/workflows/docs-checks.yml
     - .github/workflows/docs-freshness.yml
     - .github/workflows/docs.yml
+    - .github/workflows/downstream-canary.yml
     - .github/workflows/mcp-conformance.yml
     - .github/workflows/promptpack-schema-sync.yml
     - .github/workflows/reference-drift.yml
@@ -20,20 +21,23 @@ verified:
     - scripts/check-new-deprecations.sh
     - scripts/check-no-audio-device-leak.sh
     - scripts/check-weak-assertions.sh
+    - scripts/downstream-canary.sh
     - scripts/perf-compare.sh
     - scripts/perf-interleave.sh
     - scripts/perf-run.sh
+    - scripts/run-e2e-tests.sh
 ---
-PromptKit ships four Go modules: `runtime`, `pkg`, `sdk` and `server/a2a`. Twelve workflows in `.github/workflows/` test them, check generated artifacts, deploy the documentation and release the modules. The CLIs and their binaries release from the `promptarena` repository.
+PromptKit ships four Go modules: `runtime`, `pkg`, `sdk` and `server/a2a`. Thirteen workflows in `.github/workflows/` test them, check generated artifacts, deploy the documentation and release the modules. The CLIs and their binaries release from the `promptarena` repository.
 
 ## Workflows
 
 | File | Triggers | Jobs |
 |---|---|---|
-| `ci.yml` | Push to `main` and pull requests to `main`, except changes that touch only the ignored paths below | `test`, `sonarcloud`, `integration-tests`, `lint`, `build`, `weak-assertions`, `perf-regression` |
+| `ci.yml` | Push to `main` and pull requests to `main`, except changes that touch only the ignored paths below | `test`, `sonarcloud`, `integration-tests`, `e2e-mock`, `lint`, `build`, `weak-assertions`, `perf-regression` |
 | `dependabot-gate.yml` | Pull requests to `main` | `sonarcloud` |
 | `cla.yml` | Pull request opened, closed or synchronized; issue comments | `CLAAssistant` |
 | `deprecation-gate.yml` | Pull requests to `main` | `deprecations` |
+| `downstream-canary.yml` | Pull requests to `main` that change a `.go`, `go.mod` or `go.sum` file, the workflow or its script; manual dispatch; called by `release.yml` | `promptarena` |
 | `docs.yml` | Release published, manual dispatch, pull requests touching `docs/`, example READMEs, the docs preparation scripts, the `Makefile` or `docs.yml` | `build`, `deploy` |
 | `docs-checks.yml` | Pull requests to `main`, manual dispatch | `docs-checks` |
 | `docs-freshness.yml` | Mondays 07:00 UTC, manual dispatch | `report` |
@@ -41,7 +45,7 @@ PromptKit ships four Go modules: `runtime`, `pkg`, `sdk` and `server/a2a`. Twelv
 | `schemas.yml` | Daily 06:00 UTC, manual dispatch, push and pull requests touching the PromptPack schema or any `go.mod` | `check-promptpack-schema`, `check-packspec` |
 | `promptpack-schema-sync.yml` | Daily 06:00 UTC, manual dispatch, `promptpack-release` repository dispatch | `sync` |
 | `mcp-conformance.yml` | Push and pull requests touching the MCP client, manual dispatch | `spec-parity`, `mirror`, `official-suite` |
-| `release.yml` | Manual dispatch | `validate`, `tag-dependencies`, `update-tools`, `create-release`, `verify-docs`, `notify-downstream`, `summary` |
+| `release.yml` | Manual dispatch | `validate`, `downstream-canary`, `tag-dependencies`, `update-tools`, `create-release`, `verify-docs`, `notify-downstream`, `summary` |
 
 `ci.yml` ignores `docs/**`, `*.md`, `LICENSE`, `.gitignore`, `.github/workflows/docs.yml`, `.github/workflows/release.yml` and `.github/CODEOWNERS`.
 
@@ -62,6 +66,10 @@ The `test` job (reported as `Test & Coverage (1.26.0)`) runs these steps:
 ### Integration tests
 
 `integration-tests` (reported as `SDK Integration Tests`) runs `./sdk/integration/...` with `-race -count=1` and publishes the results.
+
+### SDK end-to-end tests
+
+`e2e-mock` (reported as `SDK E2E Tests (mock)`) runs `make test-e2e-mock`: the `TestE2E*` tests in `./sdk/...`, built with the `e2e` tag, against the mock provider only. The other jobs never compile these tests, because they sit behind the build tag. Cases that need a capability the mock provider lacks, such as vision or audio, skip themselves.
 
 ### Lint
 
@@ -117,6 +125,28 @@ The job is named `SonarCloud Analysis` to match the required status check. It ru
 ## Deprecation gate (`deprecation-gate.yml`)
 
 The `deprecations` job (reported as `New deprecations need approval`) runs `scripts/check-new-deprecations.sh` against the pull request's base branch. It fails when the diff adds a Go `// Deprecated:` marker. A maintainer applies the `deprecation-approved` label to record the decision for that pull request, which skips the job.
+
+## Downstream canary (`downstream-canary.yml`)
+
+The `promptarena` job (reported as `Downstream canary (promptarena)`) builds and tests the `promptarena` repository, which holds the PromptArena and PackC CLIs, against the PromptKit commit under test instead of the last release. It checks out `promptarena` (its `main` branch unless a caller names another ref) next to PromptKit and runs `scripts/downstream-canary.sh`, which:
+
+1. Points `promptarena`'s `go.mod` at the local `runtime`, `pkg`, `sdk` and `server/a2a` modules with `go mod edit -replace`, then runs `go mod tidy`. `GOWORK` is off.
+2. Runs `go build ./...` and `go test ./... -count=1`.
+3. Runs `go test -race` over `promptarena`'s engine packages.
+4. Runs `make test-examples`, which validates every example config and runs every example that needs no API key against mock providers.
+
+Steps 2 to 4 run even when an earlier one fails, and the job fails if any step failed. A failure in step 1 stops the script. It needs no secrets. `promptarena`'s schema check is left out: a new PromptKit config field makes `promptarena`'s committed schemas stale until `promptarena` regenerates them, which is expected.
+
+On pull requests the check is not required, so a red `promptarena` `main` does not block PromptKit changes. `release.yml` runs it as a gate.
+
+To reproduce a run locally:
+
+```bash
+git clone --depth 1 https://github.com/AltairaLabs/promptarena /tmp/promptarena
+scripts/downstream-canary.sh /tmp/promptarena
+```
+
+The script modifies the `promptarena` checkout it is given, so use a throwaway clone.
 
 ## Documentation
 
@@ -178,6 +208,7 @@ The workflow is dispatched by hand with these inputs:
 | `phase` | `full` (default), `libs-only` or `tools-only` |
 | `skip_tests` | Skip `make test` and `make test-race` in `validate` |
 | `ignore_previous_release_check` | Release even if the previous release's published `go.mod` files are bad |
+| `ignore_downstream_canary` | Release even if `promptarena` `main` fails the downstream canary. The canary still runs, and a failure is reported as a warning. A failure to check out `promptarena` or set up Go still blocks the release |
 
 ```bash
 gh workflow run release.yml -f version=v2.16.2 -f phase=full
@@ -186,6 +217,7 @@ gh workflow run release.yml -f version=v2.16.2 -f phase=full
 | Job | Phases | What it does |
 |---|---|---|
 | `validate` | all | Checks the version format, that it is newer than the latest `runtime/v*` tag (not for `tools-only`), and that the previous release's published `go.mod` files are clean. Runs the tests unless skipped. Runs `module-dep-skew-check`, `modules-standalone-check` and `scripts/check-api-compatibility.sh`, which fails when the API changes do not fit the version |
+| `downstream-canary` | all | Runs the [downstream canary](#downstream-canary-downstream-canaryyml) against `promptarena` `main`. Nothing is tagged unless it passes, or `ignore_downstream_canary` is set |
 | `tag-dependencies` (Tag Libraries) | `full`, `libs-only` | Checks `runtime` is a leaf module. Tags the root `vX.Y.Z` and `runtime/vX.Y.Z` from `main`. On a `release/libs/vX.Y.Z` branch, sets `pkg`'s `runtime` requirement to the new version, drops its `replace` and tags `pkg/vX.Y.Z`. Verifies the published `go.mod` files through the Go proxy |
 | `update-tools` (Update and Tag SDK Modules) | `full`, `tools-only` | On a `release/tools/vX.Y.Z` branch, sets the `server/a2a` and `sdk` requirements to the new version, drops their `replace` directives and tags `server/a2a/vX.Y.Z` and `sdk/vX.Y.Z`. Verifies the published `go.mod` files |
 | `create-release` | `full` | Creates a draft GitHub release with generated notes, attaches an SPDX SBOM (`promptkit-vX.Y.Z.spdx.json`) and attests its provenance |
@@ -212,6 +244,7 @@ A published tag cannot be repaired. If a tag carries a bad `go.mod`, release aga
 2. Reproduce with the step's own command. The `test` job runs with `-race`; the integration job also passes `-count=1`.
 3. For lint failures, install `golangci-lint` v2.14.0; `make lint` checks the version.
 4. For `Reference Drift Check`, run `make docs-reference docs-sdk-reference` and commit the result.
+5. For `Downstream canary (promptarena)`, run `scripts/downstream-canary.sh` on a fresh `promptarena` clone. A failure is either a PromptKit change that breaks `promptarena`, or a `promptarena` `main` that is red on its own; the second shows up in `promptarena`'s own CI too.
 
 ## Related
 
