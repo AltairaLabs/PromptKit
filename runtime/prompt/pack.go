@@ -760,8 +760,9 @@ func addResolvedFragment(pack *Pack, loader FragmentLoader, taskType string, ref
 		return nil
 	}
 	if existing, exists := pack.Fragments[ref.Name]; exists && existing != "" && existing != content {
-		return fmt.Errorf("prompt %q: fragment %q resolves to different content than another "+
-			"prompt's fragment of the same name; a pack holds one fragment per name", taskType, ref.Name)
+		return fmt.Errorf("prompt %q: fragment %q resolves to different content than the fragment of that "+
+			"name the pack already holds (from this prompt or another); a pack holds one fragment per name",
+			taskType, ref.Name)
 	}
 	pack.Fragments[ref.Name] = content
 	return nil
@@ -787,6 +788,17 @@ const maxDynamicFragmentCandidates = 256
 // "{{name}}" placeholder, as before, and a render fails on it unless the
 // caller supplies the chosen fragment's content.
 func addDynamicFragment(pack *Pack, loader FragmentLoader, taskType string, config *Config, ref FragmentRef) error {
+	// A pack holds one fragment per name, so only a name that varies with the
+	// variable can carry a candidate per value. A fixed name over a variable
+	// path stays its reference: writing every candidate under the one name
+	// would conflict, or, with one candidate present, serve it for every value.
+	if !nameCarriesPathVars(ref) {
+		logger.Warn("Fragment whose path a variable chooses that its name does not; the pack holds only its "+
+			"reference. Put every path variable in the fragment's name to compile every candidate.",
+			"prompt", taskType, "fragment", ref.Name, "path", ref.Path)
+		addFragmentReference(pack, ref.Name)
+		return nil
+	}
 	combos, ok := enumCombinations(config, ref)
 	if !ok {
 		logger.Warn("Fragment chosen by a variable without declared values (or with more than "+
@@ -807,6 +819,24 @@ func addDynamicFragment(pack *Pack, loader FragmentLoader, taskType string, conf
 		}
 	}
 	return nil
+}
+
+// nameCarriesPathVars reports whether ref's name holds a variable and every
+// variable of its path, so each candidate has a name of its own.
+func nameCarriesPathVars(ref FragmentRef) bool {
+	nameVars := map[string]bool{}
+	for _, m := range fragmentNameVarPattern.FindAllStringSubmatch(ref.Name, -1) {
+		nameVars[m[1]] = true
+	}
+	if len(nameVars) == 0 {
+		return false
+	}
+	for _, m := range fragmentNameVarPattern.FindAllStringSubmatch(ref.Path, -1) {
+		if !nameVars[m[1]] {
+			return false
+		}
+	}
+	return true
 }
 
 // enumCombinations returns every assignment of the variables in ref's name
