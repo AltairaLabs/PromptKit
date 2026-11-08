@@ -4,7 +4,7 @@ description: How the SDK turns a pack file into a conversation, and how a messag
 sidebar:
   order: 1
 verified:
-  commit: ffbed7c4b0fff266953352be5e73d4e308a97acf
+  commit: 040ffc2791cf0cc1f5f6a5ad26cef1ce77092b9f
   sources:
     - runtime/evals/handlers/contains.go
     - runtime/evals/handlers/json_valid.go
