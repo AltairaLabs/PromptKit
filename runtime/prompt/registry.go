@@ -999,8 +999,9 @@ func (r *Registry) GetAvailableRegions() []string {
 
 	// Check fragment cache for region-specific fragments
 	for _, key := range r.GetCachedFragments() {
-		// A key is a fragment name or a file path. Look at the name for a
-		// region suffix: "persona_support_us", "fragments/persona_uk.yaml".
+		// A key is "name:<name>" or "path:<file path>". Look at the name for
+		// a region suffix: "name:persona_support_us",
+		// "path:fragments/persona_uk.yaml".
 		name := strings.TrimSuffix(filepath.Base(key), filepath.Ext(key))
 		for _, region := range []string{"us", "uk", "au"} {
 			if strings.HasSuffix(name, "_"+region) {
@@ -1027,8 +1028,11 @@ func (r *Registry) GetCachedPrompts() []string {
 }
 
 // GetCachedFragments returns the cache keys of the fragments loaded so far,
-// sorted: a reference with no path is cached by name, one with a path by the
-// file path it resolved to.
+// sorted. A reference with no path is keyed "name:<name>"; one with a path
+// "path:<file path>", the path it resolved to (against the prompt's
+// directory, or as written for the working-directory fallback and an
+// absolute path). The prefixes keep a name holding "/" apart from an equal
+// path.
 func (r *Registry) GetCachedFragments() []string {
 	if r.fragmentResolver == nil {
 		return []string{}

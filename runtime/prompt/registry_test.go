@@ -92,7 +92,7 @@ func TestRegistry_GetAvailableTaskTypes(t *testing.T) {
 func TestRegistry_GetAvailableRegions(t *testing.T) {
 	t.Run("detects US region", func(t *testing.T) {
 		reg := createTestRegistry()
-		reg.fragmentResolver.fragmentCache["persona_support_us"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["name:persona_support_us"] = &Fragment{Content: "test"}
 
 		regions := reg.GetAvailableRegions()
 		assert.Len(t, regions, 1)
@@ -101,9 +101,9 @@ func TestRegistry_GetAvailableRegions(t *testing.T) {
 
 	t.Run("detects multiple regions", func(t *testing.T) {
 		reg := createTestRegistry()
-		reg.fragmentResolver.fragmentCache["persona_support_us"] = &Fragment{Content: "test"}
-		reg.fragmentResolver.fragmentCache["persona_assistant_uk"] = &Fragment{Content: "test"}
-		reg.fragmentResolver.fragmentCache["persona_agent_au"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["name:persona_support_us"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["name:persona_assistant_uk"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["name:persona_agent_au"] = &Fragment{Content: "test"}
 
 		regions := reg.GetAvailableRegions()
 		assert.Len(t, regions, 3)
@@ -114,16 +114,16 @@ func TestRegistry_GetAvailableRegions(t *testing.T) {
 
 	t.Run("matches a region suffix on the fragment name, not a substring", func(t *testing.T) {
 		reg := createTestRegistry()
-		reg.fragmentResolver.fragmentCache["tone_for_users"] = &Fragment{Content: "test"}
-		reg.fragmentResolver.fragmentCache["/packs/my_users/fragments/persona_uk.yaml"] = &Fragment{Content: "test"}
-		reg.fragmentResolver.fragmentCache["by_author"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["name:tone_for_users"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["path:/packs/my_users/fragments/persona_uk.yaml"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["name:by_author"] = &Fragment{Content: "test"}
 
 		assert.Equal(t, []string{"uk"}, reg.GetAvailableRegions())
 	})
 
 	t.Run("returns empty for no region-specific fragments", func(t *testing.T) {
 		reg := createTestRegistry()
-		reg.fragmentResolver.fragmentCache["persona_generic"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["name:persona_generic"] = &Fragment{Content: "test"}
 
 		regions := reg.GetAvailableRegions()
 		assert.Empty(t, regions)
@@ -152,13 +152,13 @@ func TestRegistry_GetLoadedPrompts(t *testing.T) {
 func TestRegistry_GetLoadedFragments(t *testing.T) {
 	t.Run("returns loaded fragment paths", func(t *testing.T) {
 		reg := createTestRegistry()
-		reg.fragmentResolver.fragmentCache["path/to/fragment1"] = &Fragment{Content: "test"}
-		reg.fragmentResolver.fragmentCache["path/to/fragment2"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["path:path/to/fragment1"] = &Fragment{Content: "test"}
+		reg.fragmentResolver.fragmentCache["path:path/to/fragment2"] = &Fragment{Content: "test"}
 
 		fragments := reg.GetLoadedFragments()
 		assert.Len(t, fragments, 2)
-		assert.Contains(t, fragments, "path/to/fragment1")
-		assert.Contains(t, fragments, "path/to/fragment2")
+		assert.Contains(t, fragments, "path:path/to/fragment1")
+		assert.Contains(t, fragments, "path:path/to/fragment2")
 	})
 
 	t.Run("returns empty for no fragments", func(t *testing.T) {
@@ -171,7 +171,7 @@ func TestRegistry_GetLoadedFragments(t *testing.T) {
 func TestRegistry_ClearCache(t *testing.T) {
 	reg := createTestRegistry()
 	reg.promptCache["task1"] = &Config{Spec: Spec{TaskType: "task1"}}
-	reg.fragmentResolver.fragmentCache["fragment1"] = &Fragment{Content: "test"}
+	reg.fragmentResolver.fragmentCache["name:fragment1"] = &Fragment{Content: "test"}
 
 	reg.ClearCache()
 
