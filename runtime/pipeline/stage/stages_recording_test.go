@@ -882,3 +882,13 @@ func TestRecordingStage_MessageElement_NoReasoning_StaysNil(t *testing.T) {
 	require.Len(t, captured, 1)
 	assert.Nil(t, captured[0].Data.(*events.MessageCreatedData).Reasoning)
 }
+
+// An element without a timestamp is recorded at the time it is seen, not at
+// the zero time, which would sort it ahead of every other event.
+func TestRecordingStage_ZeroTimestampRecordsNow(t *testing.T) {
+	before := time.Now()
+	got := eventTime(&StreamElement{})
+	assert.False(t, got.Before(before))
+	ts := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	assert.Equal(t, ts, eventTime(&StreamElement{Timestamp: ts}))
+}

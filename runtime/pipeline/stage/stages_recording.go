@@ -216,6 +216,17 @@ func (rs *RecordingStage) recordContent(
 	return matched
 }
 
+// eventTime is the time an event for elem is recorded at: the element's own
+// timestamp, or now when it has none. Elements a provider stage builds from
+// response chunks carry none, and a recording sorts its events by time, so
+// zero timestamps put a session's turns in an arbitrary order.
+func eventTime(elem *StreamElement) time.Time {
+	if elem.Timestamp.IsZero() {
+		return time.Now()
+	}
+	return elem.Timestamp
+}
+
 // determineRole returns the message role based on recording position.
 func (rs *RecordingStage) determineRole() string {
 	if rs.config.Position == RecordingPositionInput {
@@ -247,7 +258,7 @@ func (rs *RecordingStage) appendOrWarn(ctx context.Context, evt *events.Event) {
 func (rs *RecordingStage) recordTextElement(ctx context.Context, elem *StreamElement, role string) {
 	rs.appendOrWarn(ctx, &events.Event{
 		Type:           events.EventMessageTextDelta,
-		Timestamp:      elem.Timestamp,
+		Timestamp:      eventTime(elem),
 		SessionID:      rs.config.SessionID,
 		ConversationID: rs.config.ConversationID,
 		Data: &events.MessageTextDeltaData{
@@ -279,7 +290,7 @@ func (rs *RecordingStage) recordMessageElement(ctx context.Context, elem *Stream
 
 	rs.appendOrWarn(ctx, &events.Event{
 		Type:           events.EventMessageCreated,
-		Timestamp:      elem.Timestamp,
+		Timestamp:      eventTime(elem),
 		SessionID:      rs.config.SessionID,
 		ConversationID: rs.config.ConversationID,
 		// Binary is retained on this route: recording exists for lossless
@@ -347,7 +358,7 @@ func (rs *RecordingStage) recordAudioElement(ctx context.Context, elem *StreamEl
 
 	rs.appendOrWarn(ctx, &events.Event{
 		Type:           eventType,
-		Timestamp:      elem.Timestamp,
+		Timestamp:      eventTime(elem),
 		SessionID:      rs.config.SessionID,
 		ConversationID: rs.config.ConversationID,
 		Data:           data,
@@ -377,7 +388,7 @@ func (rs *RecordingStage) recordImageElement(ctx context.Context, elem *StreamEl
 
 	rs.appendOrWarn(ctx, &events.Event{
 		Type:           eventType,
-		Timestamp:      elem.Timestamp,
+		Timestamp:      eventTime(elem),
 		SessionID:      rs.config.SessionID,
 		ConversationID: rs.config.ConversationID,
 		Data: &events.ImageEventData{
@@ -407,7 +418,7 @@ func (rs *RecordingStage) recordVideoElement(ctx context.Context, elem *StreamEl
 
 	rs.appendOrWarn(ctx, &events.Event{
 		Type:           events.EventVideoFrame,
-		Timestamp:      elem.Timestamp,
+		Timestamp:      eventTime(elem),
 		SessionID:      rs.config.SessionID,
 		ConversationID: rs.config.ConversationID,
 		Data: &events.VideoFrameData{
@@ -433,7 +444,7 @@ func (rs *RecordingStage) recordToolCallElement(ctx context.Context, elem *Strea
 
 	rs.appendOrWarn(ctx, &events.Event{
 		Type:           events.EventToolCallStarted,
-		Timestamp:      elem.Timestamp,
+		Timestamp:      eventTime(elem),
 		SessionID:      rs.config.SessionID,
 		ConversationID: rs.config.ConversationID,
 		Data: &events.ToolCallStartedData{
@@ -447,7 +458,7 @@ func (rs *RecordingStage) recordToolCallElement(ctx context.Context, elem *Strea
 func (rs *RecordingStage) recordErrorElement(ctx context.Context, elem *StreamElement) {
 	rs.appendOrWarn(ctx, &events.Event{
 		Type:           events.EventStreamInterrupted,
-		Timestamp:      elem.Timestamp,
+		Timestamp:      eventTime(elem),
 		SessionID:      rs.config.SessionID,
 		ConversationID: rs.config.ConversationID,
 		Data: &events.StreamInterruptedData{

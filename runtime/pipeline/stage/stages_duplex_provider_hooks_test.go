@@ -246,7 +246,9 @@ func TestDuplexHooks_InputEnforcedBlocksText(t *testing.T) {
 	out := make(chan StreamElement, 8)
 	done := make(chan error, 1)
 	require.False(t, s.handleInputElement(context.Background(), &elem, out, done))
-	assert.Empty(t, out, "the response loop, not the input goroutine, emits the blocked turn")
+	require.Len(t, out, 1, "the input goroutine emits only the user's own turn")
+	userTurn := <-out
+	assertTypedUserTurn(t, userTurn, text)
 	close(sess.respCh)
 	require.NoError(t, s.forwardResponseElements(context.Background(), out))
 	close(out)
@@ -287,7 +289,8 @@ func TestDuplexHooks_InputDenyEndsSession(t *testing.T) {
 
 	var denied *hooks.HookDeniedError
 	require.ErrorAs(t, <-done, &denied)
-	require.Len(t, out, 1)
+	require.Len(t, out, 2, "the user's turn, then the error")
+	assertTypedUserTurn(t, <-out, text)
 	require.ErrorAs(t, (<-out).Error, &denied)
 	sess.mu.Lock()
 	assert.Empty(t, sess.texts)
@@ -427,8 +430,10 @@ func TestDuplexHooks_BlockedInputWaitsForReplyInProgress(t *testing.T) {
 
 	text := "blocked input"
 	require.False(t, s.handleInputElement(context.Background(), &StreamElement{Text: &text}, out, make(chan error, 1)))
+	require.Len(t, out, 1, "only the user's own turn is emitted while the reply is in progress")
+	assertTypedUserTurn(t, <-out, text)
 	require.Never(t, func() bool { return len(out) > 0 }, 50*time.Millisecond, 5*time.Millisecond,
-		"nothing is emitted while the reply is in progress")
+		"the blocked turn is not emitted while the reply is in progress")
 
 	sess.respCh <- stopChunk()
 	close(sess.respCh)
@@ -466,7 +471,8 @@ func TestDuplexHooks_InputDenyIsLastOutput(t *testing.T) {
 	text := "hello"
 	out := make(chan StreamElement, 4)
 	require.True(t, s.handleInputElement(context.Background(), &StreamElement{Text: &text}, out, make(chan error, 1)))
-	require.Len(t, out, 1)
+	require.Len(t, out, 2, "the user's turn, then the error")
+	<-out
 	<-out
 
 	require.NoError(t, s.finishOnResponseClosed(context.Background(), out, true))
@@ -849,4 +855,15 @@ func TestDuplexHooks_NoBlockedTurnAfterInputDeny(t *testing.T) {
 	out := make(chan StreamElement, 4)
 	require.NoError(t, s.emitWaitingBlockedTurns(context.Background(), out))
 	assert.Empty(t, out)
+}
+
+// assertTypedUserTurn checks elem is the user Message a typed realtime turn
+// becomes, tagged so the SDK does not echo it to the caller.
+func assertTypedUserTurn(t *testing.T, elem StreamElement, text string) {
+	t.Helper()
+	require.NotNil(t, elem.Message, "expected the user's turn")
+	assert.Equal(t, roleUser, elem.Message.Role)
+	assert.Equal(t, text, elem.Message.Content)
+	assert.Equal(t, TextInputTurnSource, elem.Source)
+	assert.Nil(t, elem.Text, "the user's text is not presented as output text")
 }

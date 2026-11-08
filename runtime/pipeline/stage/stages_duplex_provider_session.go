@@ -548,6 +548,10 @@ func (s *DuplexProviderStage) handleInputElement(
 		done <- err
 		return true
 	}
+	if err := s.forwardTextInputAsUserMessage(ctx, elem, output); err != nil {
+		done <- err
+		return true
+	}
 
 	// Input guardrails gate text before it reaches the session.
 	if handled, err := s.guardInputText(ctx, elem); handled {
@@ -626,6 +630,42 @@ func (s *DuplexProviderStage) forwardInputMessages(
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// TextInputTurnSource is the StreamElement.Source of the element that carries
+// a realtime session's typed user turn (see forwardTextInputAsUserMessage).
+// The element is for the stages that persist and record the conversation; the
+// SDK does not pass it on to the caller, who sent the text.
+const TextInputTurnSource = "duplex_text_input"
+
+// forwardTextInputAsUserMessage makes bare text bound for the session (SendText
+// in a realtime session) a user turn of the conversation. Audio input becomes
+// one when the provider reports its transcription; text has no transcription,
+// so without this the user's typed turns never reached the history, the state
+// store or a recording, and a transcript held only the assistant's replies.
+//
+// The user Message is forwarded on its own element, ahead of the reply, so the
+// text is not presented downstream as model output. The input element then
+// carries the Message, which tells the input guardrails it is already in the
+// history.
+func (s *DuplexProviderStage) forwardTextInputAsUserMessage(
+	ctx context.Context, elem *StreamElement, output chan<- StreamElement,
+) error {
+	if elem.Message != nil {
+		return nil
+	}
+	text := sessionBoundText(elem)
+	if text == "" {
+		return nil
+	}
+	now := time.Now()
+	user := &types.Message{Role: roleUser, Content: text, Timestamp: now}
+	userElem := StreamElement{Message: user, Timestamp: now, Source: TextInputTurnSource}
+	if err := s.forwardInputMessages(ctx, &userElem, output); err != nil {
+		return err
+	}
+	elem.Message = user
+	return nil
 }
 
 // forwardToolResultMessages sends each tool result message to output.

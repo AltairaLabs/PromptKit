@@ -375,6 +375,11 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 				return
 
 			case streaming.ResponseActionContinue, streaming.ResponseActionComplete:
+				// The caller's own typed turn: recorded and saved upstream, and
+				// not output to hand back to the caller who sent it.
+				if elem.Source == stage.TextInputTurnSource {
+					continue
+				}
 				chunk := streamElementToStreamChunk(&elem)
 				if !s.forwardChunk(ctx, chunk) {
 					return
