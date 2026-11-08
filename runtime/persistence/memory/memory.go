@@ -6,6 +6,7 @@ package memory
 
 import (
 	"fmt"
+	"io/fs"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/persistence"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
@@ -41,11 +42,18 @@ func (r *PromptRepository) LoadPrompt(taskType string) (*prompt.Config, error) {
 	return config, nil
 }
 
-// LoadFragment loads a fragment by name
-func (r *PromptRepository) LoadFragment(name, relativePath, baseDir string) (*prompt.Fragment, error) {
+// LoadFragment loads a fragment registered under name. The repository holds
+// fragments by name only, so a reference with a path is refused with
+// persistence.ErrFragmentPathUnsupported rather than answered by name: the
+// name alone does not say which file the path meant. A name that is not
+// registered is an error satisfying errors.Is(err, fs.ErrNotExist).
+func (r *PromptRepository) LoadFragment(name, relativePath, _ string) (*prompt.Fragment, error) {
+	if relativePath != "" {
+		return nil, fmt.Errorf("fragment %q at path %q: %w", name, relativePath, persistence.ErrFragmentPathUnsupported)
+	}
 	fragment, ok := r.fragments[name]
 	if !ok {
-		return nil, fmt.Errorf("fragment not found: %s", name)
+		return nil, fmt.Errorf("fragment %q not found: %w", name, fs.ErrNotExist)
 	}
 	return fragment, nil
 }

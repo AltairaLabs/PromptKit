@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/persistence"
@@ -18,7 +19,12 @@ type UnmarshalFunc func([]byte, interface{}) error
 // MarshalFunc is a function that marshals a prompt config to bytes
 type MarshalFunc func(interface{}) ([]byte, error)
 
-// BasePromptRepository provides common prompt repository functionality
+// BasePromptRepository provides common prompt repository functionality.
+//
+// LoadPrompt and SavePrompt are safe to call concurrently: a prompt.Registry
+// loads prompts outside its own lock, so conversations sharing one registry
+// reach the repository at the same time. Code that reads or writes Cache or
+// TaskTypeToFile directly must not run alongside them.
 type BasePromptRepository struct {
 	BasePath       string
 	TaskTypeToFile map[string]string
@@ -26,6 +32,8 @@ type BasePromptRepository struct {
 	Extensions     []string
 	Unmarshal      UnmarshalFunc
 	Marshal        MarshalFunc
+
+	mu sync.RWMutex // guards Cache and TaskTypeToFile in LoadPrompt and SavePrompt
 }
 
 // NewBasePromptRepository creates a new base repository
@@ -47,7 +55,10 @@ func NewBasePromptRepository(
 // LoadPrompt loads a prompt configuration by task type
 func (r *BasePromptRepository) LoadPrompt(taskType string) (*prompt.Config, error) {
 	// Check cache
-	if cached, ok := r.Cache[taskType]; ok {
+	r.mu.RLock()
+	cached, ok := r.Cache[taskType]
+	r.mu.RUnlock()
+	if ok {
 		return cached, nil
 	}
 
@@ -74,15 +85,25 @@ func (r *BasePromptRepository) LoadPrompt(taskType string) (*prompt.Config, erro
 		return nil, err
 	}
 
-	// Cache and return
+	// Cache and return. A concurrent load of the same task type may have
+	// cached first; every caller gets that one config.
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if cached, ok := r.Cache[taskType]; ok {
+		return cached, nil
+	}
 	r.Cache[taskType] = &config
 	return &config, nil
 }
 
 // ResolveFilePath finds the file path for a given task type
 func (r *BasePromptRepository) ResolveFilePath(taskType string) (string, error) {
-	// Check explicit mapping first
-	if filePath, ok := r.TaskTypeToFile[taskType]; ok {
+	// Check explicit mapping first. SavePrompt writes the mapping, so it is
+	// read under the lock.
+	r.mu.RLock()
+	filePath, ok := r.TaskTypeToFile[taskType]
+	r.mu.RUnlock()
+	if ok {
 		if !filepath.IsAbs(filePath) {
 			return filepath.Join(r.BasePath, filePath), nil
 		}
@@ -264,6 +285,9 @@ func (r *BasePromptRepository) SavePrompt(config *prompt.Config) error {
 	if config.Spec.TaskType == "" {
 		return persistence.ErrEmptyTaskType
 	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	// Determine output file path
 	filePath := r.resolveOutputPath(config.Spec.TaskType)
