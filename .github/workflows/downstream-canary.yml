@@ -41,6 +41,10 @@ on:
         required: false
         type: boolean
         default: false
+    outputs:
+      outcome:
+        description: "The canary step's outcome: success or failure, also in advisory mode"
+        value: ${{ jobs.promptarena.outputs.outcome }}
   workflow_dispatch:
     inputs:
       promptarena-ref:
@@ -57,6 +61,13 @@ jobs:
     name: Downstream canary (promptarena)
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    # A newer push to the same PR supersedes the run; release runs never share
+    # a group.
+    concurrency:
+      group: downstream-canary-${{ github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: true
+    outputs:
+      outcome: ${{ steps.canary.outcome }}
 
     steps:
     - name: Checkout PromptKit

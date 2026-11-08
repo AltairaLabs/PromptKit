@@ -37,7 +37,7 @@ PromptKit ships four Go modules: `runtime`, `pkg`, `sdk` and `server/a2a`. Thirt
 | `dependabot-gate.yml` | Pull requests to `main` | `sonarcloud` |
 | `cla.yml` | Pull request opened, closed or synchronized; issue comments | `CLAAssistant` |
 | `deprecation-gate.yml` | Pull requests to `main` | `deprecations` |
-| `downstream-canary.yml` | Pull requests to `main` that change a `.go`, `go.mod` or `go.sum` file, manual dispatch, called by `release.yml` | `promptarena` |
+| `downstream-canary.yml` | Pull requests to `main` that change a `.go`, `go.mod` or `go.sum` file, the workflow or its script; manual dispatch; called by `release.yml` | `promptarena` |
 | `docs.yml` | Release published, manual dispatch, pull requests touching `docs/`, example READMEs, the docs preparation scripts, the `Makefile` or `docs.yml` | `build`, `deploy` |
 | `docs-checks.yml` | Pull requests to `main`, manual dispatch | `docs-checks` |
 | `docs-freshness.yml` | Mondays 07:00 UTC, manual dispatch | `report` |
@@ -135,7 +135,7 @@ The `promptarena` job (reported as `Downstream canary (promptarena)`) builds and
 3. Runs `go test -race` over `promptarena`'s engine packages.
 4. Runs `make test-examples`, which validates every example config and runs every example that needs no API key against mock providers.
 
-Every step runs even when an earlier one fails, and the job fails if any step failed. It needs no secrets. `promptarena`'s schema check is left out: a new PromptKit config field makes `promptarena`'s committed schemas stale until `promptarena` regenerates them, which is expected.
+Steps 2 to 4 run even when an earlier one fails, and the job fails if any step failed. A failure in step 1 stops the script. It needs no secrets. `promptarena`'s schema check is left out: a new PromptKit config field makes `promptarena`'s committed schemas stale until `promptarena` regenerates them, which is expected.
 
 On pull requests the check is not required, so a red `promptarena` `main` does not block PromptKit changes. `release.yml` runs it as a gate.
 
@@ -208,7 +208,7 @@ The workflow is dispatched by hand with these inputs:
 | `phase` | `full` (default), `libs-only` or `tools-only` |
 | `skip_tests` | Skip `make test` and `make test-race` in `validate` |
 | `ignore_previous_release_check` | Release even if the previous release's published `go.mod` files are bad |
-| `ignore_downstream_canary` | Release even if `promptarena` `main` fails the downstream canary. The canary still runs, and a failure is reported as a warning |
+| `ignore_downstream_canary` | Release even if `promptarena` `main` fails the downstream canary. The canary still runs, and a failure is reported as a warning. A failure to check out `promptarena` or set up Go still blocks the release |
 
 ```bash
 gh workflow run release.yml -f version=v2.16.2 -f phase=full

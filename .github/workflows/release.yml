@@ -814,6 +814,7 @@ jobs:
         VERSION: ${{ needs.validate.outputs.version }}
         VALIDATION_RESULT: ${{ needs.validate.result }}
         CANARY_RESULT: ${{ needs.downstream-canary.result }}
+        CANARY_OUTCOME: ${{ needs.downstream-canary.outputs.outcome }}
         DEPENDENCIES_RESULT: ${{ needs.tag-dependencies.result }}
         TOOLS_RESULT: ${{ needs.update-tools.result }}
         RELEASE_RESULT: ${{ needs.create-release.result }}
@@ -827,7 +828,7 @@ jobs:
         ## Status
 
         - Validation: $VALIDATION_RESULT
-        - Downstream canary (promptarena): $CANARY_RESULT
+        - Downstream canary (promptarena): $CANARY_RESULT (canary step: ${CANARY_OUTCOME:-not run})
         - Dependencies: $DEPENDENCIES_RESULT
         - SDK Modules: $TOOLS_RESULT
         - GitHub Release: $RELEASE_RESULT
