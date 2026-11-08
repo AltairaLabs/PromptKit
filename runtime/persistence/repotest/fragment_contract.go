@@ -71,6 +71,10 @@ type Check struct {
 //   - a file that exists but cannot be read or parsed is an error that does
 //     not satisfy fs.ErrNotExist, so the resolver reports it rather than
 //     looking elsewhere;
+//   - a relative path that resolves outside the repository's root (the
+//     directory newRepo builds it over) is an error that does not satisfy
+//     fs.ErrNotExist, whether or not a file is there, so a path cannot read
+//     files outside the prompts. An absolute path is the config's to choose;
 //   - a repository that cannot honor a path (the in-memory one) says so with
 //     persistence.ErrFragmentPathUnsupported on every path lookup, and never
 //     answers one by name.
@@ -127,6 +131,7 @@ func Checks() []Check {
 		{Name: "path miss is fs.ErrNotExist", Run: checkPathMissing},
 		{Name: "invalid file is not fs.ErrNotExist", Run: checkInvalidFile},
 		{Name: "unreadable path is not fs.ErrNotExist", Run: checkUnreadablePath},
+		{Name: "relative path outside the root is an error", Run: checkPathOutsideRoot},
 	}
 }
 
@@ -166,6 +171,29 @@ func checkInvalidFile(repo prompt.FragmentRepository, root string) error {
 
 func checkUnreadablePath(repo prompt.FragmentRepository, root string) error {
 	return wantPathFailure(repo, fragmentFile, filepath.Join(root, "dir"), false)
+}
+
+// checkPathOutsideRoot asks for a file next to the root, through a relative
+// path that climbs out of it. The file exists, so a repository that reads it
+// answers with its content and fails the check.
+func checkPathOutsideRoot(repo prompt.FragmentRepository, root string) error {
+	outside := filepath.Join(filepath.Dir(root), filepath.Base(root)+"-outside.yaml")
+	if err := os.WriteFile(outside, []byte(fixtureContent("outside the root")), fileMode); err != nil {
+		return fmt.Errorf("writing the outside fixture: %w", err)
+	}
+	defer func() { _ = os.Remove(outside) }()
+	rel := filepath.Join("..", "..", filepath.Base(outside))
+	baseDir := filepath.Join(root, "a")
+	if err := wantPathFailure(repo, rel, baseDir, false); err != nil {
+		return err
+	}
+	_, err := repo.LoadFragment(NamedFragment, rel, baseDir)
+	if !errors.Is(err, persistence.ErrFragmentPathOutsideBase) &&
+		!errors.Is(err, persistence.ErrFragmentPathUnsupported) {
+		return fmt.Errorf("%s error = %v, want persistence.ErrFragmentPathOutsideBase",
+			lookup(NamedFragment, rel, baseDir), err)
+	}
+	return nil
 }
 
 // lookup describes one LoadFragment call, for error messages.

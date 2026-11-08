@@ -7,7 +7,6 @@ package yaml
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 
@@ -52,16 +51,9 @@ func NewYAMLPromptRepository(basePath string, taskTypeToFile map[string]string) 
 
 // LoadFragment loads a fragment by name and optional path
 func (r *PromptRepository) LoadFragment(name, relativePath, baseDir string) (*prompt.Fragment, error) {
-	// Determine fragment path
-	var fragmentPath string
-	switch {
-	case filepath.IsAbs(relativePath):
-		fragmentPath = relativePath // an absolute path names its file; baseDir does not apply
-	case relativePath != "":
-		fragmentPath = filepath.Join(baseDir, relativePath)
-	default:
-		// Default to fragments/ subdirectory with .yaml extension
-		fragmentPath = filepath.Join(r.BasePath, "fragments", name+".yaml")
+	fragmentPath, err := common.FragmentFilePath(r.BasePath, name, relativePath, baseDir, ".yaml")
+	if err != nil {
+		return nil, err
 	}
 
 	// Read and parse

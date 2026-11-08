@@ -32,9 +32,11 @@ package prompt
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -593,12 +595,8 @@ func (r *Registry) loadTemplate(
 		return nil, fmt.Errorf("failed to load prompt config for %q: %w", activity, err)
 	}
 
-	// Validate required vars before merging
-	if checkRequired {
-		if err = r.validateRequiredVars(config, vars); err != nil {
-			logger.Error("Prompt missing required vars", "activity", activity, "error", err)
-			return nil, err
-		}
+	if varErr := r.checkVarValues(config, vars, activity, checkRequired); varErr != nil {
+		return nil, varErr
 	}
 
 	// Merge provided vars with defaults
@@ -916,6 +914,44 @@ func (r *Registry) loadConfig(activity string) (*Config, error) {
 	r.populateDefaults(config)
 	r.promptCache[activity] = config
 	return config, nil
+}
+
+// checkVarValues checks the supplied values against their declarations: each
+// declared enum, and, when checkRequired, every required variable.
+func (r *Registry) checkVarValues(config *Config, vars map[string]string, activity string, checkRequired bool) error {
+	if err := checkEnumValues(config, vars); err != nil {
+		return err
+	}
+	if !checkRequired {
+		return nil
+	}
+	if err := r.validateRequiredVars(config, vars); err != nil {
+		logger.Error("Prompt missing required vars", "activity", activity, "error", err)
+		return err
+	}
+	return nil
+}
+
+// ErrVariableNotInEnum reports a variable value outside the values its
+// declaration's validation.enum allows.
+var ErrVariableNotInEnum = errors.New("variable value is not one of its declared enum values")
+
+// checkEnumValues rejects a supplied value outside its variable's declared
+// validation.enum. A variable with no value, or no enum, is not checked.
+func checkEnumValues(config *Config, vars map[string]string) error {
+	for _, v := range config.Spec.Variables {
+		value, ok := vars[v.Name]
+		if !ok || value == "" {
+			continue
+		}
+		allowed := variableEnum(config, v.Name)
+		if len(allowed) == 0 || slices.Contains(allowed, value) {
+			continue
+		}
+		return fmt.Errorf("%w: prompt %q, variable %q, allowed: %s",
+			ErrVariableNotInEnum, config.Spec.TaskType, v.Name, strings.Join(allowed, ", "))
+	}
+	return nil
 }
 
 // validateRequiredVars ensures all required variables are provided

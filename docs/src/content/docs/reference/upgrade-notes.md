@@ -223,18 +223,35 @@ resolved only from the variables passed at load time, so one chosen by a
 `SetVar` or variable-provider value failed to load. `PromptAssemblyStage` now
 loads the prompt when the turn's first element arrives, with the turn's
 variables. `PackCompiler` writes every candidate of such a fragment into the
-pack when each variable in its name declares `validation.enum`, so a pack
-renders it from the variable at run time, as the sources do. Without `enum`
-the variable's values are unknown when the pack is compiled, and a pack's
-`fragments` hold static content only: the compiler writes the `{{name}}`
-reference as before, logs a warning, and a render fails on it unless the
-caller supplies the chosen fragment's content.
+pack when its name carries every variable of its path and each of them
+declares `validation.enum`, so a pack renders it from the variable at run
+time, as the sources do. A pack's `fragments` hold static content keyed by
+name, so a fixed name over a variable path (`name: persona`,
+`path: personas/{{region}}.md`) cannot carry a candidate per value, and
+without `enum` the values are unknown when the pack is compiled. In those
+cases the compiler writes the `{{name}}` reference as before and logs a
+warning, and a render fails on it unless the caller supplies the chosen
+fragment's content.
+
+A variable's value that fills a fragment's name or path must be a plain name:
+one with a path separator, `..`, a drive colon, a `{{placeholder}}`, or an
+absolute path fails the turn with `prompt.ErrUnsafeFragmentValue`, from any
+source, and so does an empty value in a path. Names and paths are filled in
+one pass, so a value is never expanded again. A declared
+`validation.enum` is enforced when a prompt loads: a value outside it fails
+with `prompt.ErrVariableNotInEnum`. The YAML and JSON repositories refuse a
+relative fragment path that resolves outside their base directory with
+`persistence.ErrFragmentPathOutsideBase`, unless it stays inside the prompt's
+own directory; an absolute path written in the config is still used as it is.
 
 | If you | You will see | Change |
 |---|---|---|
 | `SetVar` on a workflow's active conversation, then move to another state | the value in the next state's prompt | nothing |
 | Choose a fragment with a variable set by `SetVar` or a variable provider, from a source registry | the fragment loads and renders | nothing |
-| Compile a prompt whose fragment a variable with `validation.enum` chooses | the pack holds each candidate fragment by its resolved name, and no `{{name}}` reference | nothing |
+| Compile a prompt whose fragment name carries a variable with `validation.enum` | the pack holds each candidate fragment by its resolved name, and no `{{name}}` reference. A required candidate that cannot load fails the compile | nothing, or add the missing candidate |
+| Choose a fragment's path with a variable whose value holds `/`, `..` or an absolute path | the turn fails with `prompt.ErrUnsafeFragmentValue` | pass a plain name |
+| Set a variable outside its declared `validation.enum` | loading the prompt fails with `prompt.ErrVariableNotInEnum`, naming the allowed values | pass an allowed value, or widen the enum |
+| Reference a fragment by a relative path that climbs out of the repository's base directory | `persistence.ErrFragmentPathOutsideBase` | move the file under the base, or give an absolute path |
 | Build a `PromptAssemblyStage` pipeline yourself | the template is loaded when the first element arrives | nothing |
 
 ### Custom headers reach every request

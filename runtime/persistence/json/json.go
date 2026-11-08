@@ -56,14 +56,9 @@ func NewJSONPromptRepository(basePath string, taskTypeToFile map[string]string) 
 
 // LoadFragment loads a fragment by name
 func (r *PromptRepository) LoadFragment(name, relativePath, baseDir string) (*prompt.Fragment, error) {
-	var fragmentPath string
-	switch {
-	case filepath.IsAbs(relativePath):
-		fragmentPath = relativePath // an absolute path names its file; baseDir does not apply
-	case relativePath != "":
-		fragmentPath = filepath.Join(baseDir, relativePath)
-	default:
-		fragmentPath = filepath.Join(r.BasePath, "fragments", name+".json")
+	fragmentPath, err := common.FragmentFilePath(r.BasePath, name, relativePath, baseDir, ".json")
+	if err != nil {
+		return nil, err
 	}
 
 	data, err := os.ReadFile(fragmentPath) //nolint:gosec // G304: path from the pack's fragment reference or the base path
