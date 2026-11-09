@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -19,20 +20,40 @@ import (
 // "role:calls=ids").
 func runTokenBudget(t *testing.T, maxTokens int, msgs ...types.Message) ([]string, error) {
 	t.Helper()
-	s := NewTokenBudgetStage(&TokenBudgetConfig{
+	return runTokenBudgetStage(t, wordBudgetStage(maxTokens, nil), nil, msgs...)
+}
+
+// wordBudgetStage is a TokenBudgetStage counting one token per word (plus
+// the per-message overhead), reading the system prompt from turnState.
+func wordBudgetStage(maxTokens int, turnState *TurnState) *TokenBudgetStage {
+	return NewTokenBudgetStageWithTurnState(&TokenBudgetConfig{
 		MaxTokens:    maxTokens,
 		TokenCounter: tokenizer.NewHeuristicTokenCounterWithRatio(1.0),
-	})
-	input := make(chan StreamElement, len(msgs))
+	}, turnState)
+}
+
+// runTokenBudgetStage sends msgs, then extra, through s. Non-message
+// elements it emits come back as "error:<message>".
+func runTokenBudgetStage(
+	t *testing.T, s *TokenBudgetStage, extra []StreamElement, msgs ...types.Message,
+) ([]string, error) {
+	t.Helper()
+	input := make(chan StreamElement, len(msgs)+len(extra))
 	for i := range msgs {
 		input <- NewMessageElement(&msgs[i])
 	}
+	for _, e := range extra {
+		input <- e
+	}
 	close(input)
-	output := make(chan StreamElement, len(msgs)+1)
+	output := make(chan StreamElement, len(msgs)+len(extra)+1)
 	err := s.Process(context.Background(), input, output)
 	var got []string
 	for e := range output {
 		if e.Message == nil {
+			if e.Error != nil {
+				got = append(got, "error:"+e.Error.Error())
+			}
 			continue
 		}
 		if len(e.Message.ToolCalls) > 0 {
@@ -77,7 +98,8 @@ func TestTokenBudgetStage_KeepsWholeTurns(t *testing.T) {
 
 // When no user message fits, the stage fails with a reason rather than send
 // a request with no question in it: the shape a Resume with tool results
-// sends, and a system prompt that fills the budget on its own.
+// sends. (A system message that fills the budget is
+// TestTokenBudgetStage_SystemMessagesExceedBudget.)
 func TestTokenBudgetStage_CurrentTurnThatDoesNotFitFails(t *testing.T) {
 	got, err := runTokenBudget(t, 20,
 		turnMsg(roleUser, "q0 "+strings.Repeat("w ", 20)),
@@ -87,12 +109,70 @@ func TestTokenBudgetStage_CurrentTurnThatDoesNotFitFails(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "too small for the current turn")
 	assert.Empty(t, got, "nothing is sent")
+}
 
-	got, err = runTokenBudget(t, 10,
-		turnMsg(roleSystem, "You are a very helpful assistant with many long instructions"),
-		turnMsg(roleUser, "Hello"),
+// A current turn whose tool call and results fit comes back whole: only the
+// older turn is dropped.
+func TestTokenBudgetStage_KeepsAToolExchangeThatFits(t *testing.T) {
+	got, err := runTokenBudget(t, 25,
+		turnMsg(roleUser, "q0 "+strings.Repeat("w ", 20)),
+		turnMsg(roleUser, "q1"),
+		turnCall(1, "c1"),
+		turnResult("c1", "found it"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"user:q1", "assistant:calls=c1", "tool:found it"}, got)
+}
+
+// A history with no user message has no turn to open on: the stage keeps
+// what fits, pairs its tool exchanges, and fails only when nothing but system
+// messages would be sent.
+func TestTokenBudgetStage_HistoryWithNoUserMessage(t *testing.T) {
+	got, err := runTokenBudget(t, 8,
+		turnMsg(roleAssistant, "a0 "+strings.Repeat("w ", 19)),
+		turnMsg(roleAssistant, "a1 w"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"assistant:a1 w"}, got)
+
+	got, err = runTokenBudget(t, 12,
+		turnMsg(roleSystem, "sys"),
+		turnMsg(roleAssistant, "a0 "+strings.Repeat("w ", 19)),
+		turnMsg(roleAssistant, "a1 w"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"system:sys", "assistant:a1 w"}, got)
+
+	got, err = runTokenBudget(t, 8,
+		turnMsg(roleAssistant, "a0 "+strings.Repeat("w ", 19)),
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "too small for the current turn")
-	assert.Empty(t, got, "the system prompt alone is not sent")
+	assert.Empty(t, got)
+}
+
+// A system prompt that fills the budget on its own leaves no room for the
+// user's message, so the stage fails.
+func TestTokenBudgetStage_SystemPromptFillsTheBudget(t *testing.T) {
+	ts := NewTurnState()
+	ts.SystemPrompt = strings.TrimSpace(strings.Repeat("rule ", 15))
+	got, err := runTokenBudgetStage(t, wordBudgetStage(12, ts), nil, turnMsg(roleUser, "hi"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "too small for the current turn")
+	assert.Empty(t, got)
+}
+
+// When an upstream stage failed, the turn and its failure signal pass on
+// untouched: the stage does not truncate, or fail with an error of its own.
+func TestTokenBudgetStage_PassesAnUpstreamFailureThrough(t *testing.T) {
+	long := "q0 " + strings.Repeat("w ", 20)
+	got, err := runTokenBudgetStage(t, wordBudgetStage(8, nil),
+		[]StreamElement{newTurnFailureSignal(errors.New("upstream broke"))},
+		turnMsg(roleUser, long),
+		turnMsg(roleUser, "q1"),
+	)
+	require.NoError(t, err)
+	require.Len(t, got, 3)
+	assert.Equal(t, []string{"user:" + long, "user:q1"}, got[:2])
+	assert.Contains(t, got[2], "upstream broke")
 }
