@@ -70,8 +70,10 @@ The ruleset requires no approving review, no code owner review, no signed (GPG o
 | `CLAAssistant` | You signed the contributor license agreement | Comment `I have read the CLA Document and I hereby sign the CLA` on the pull request, or comment `recheck` after signing |
 | `DCO` | Every commit has a `Signed-off-by:` trailer matching its author | See below |
 | `SonarCloud Analysis` | The SonarCloud quality gate passes, or the pull request touches only ignored paths or comes from Dependabot | Open the SonarCloud link on the check and fix the new issues or the coverage on new lines |
+| `Weak Assertion Guard` | No new test asserts only `NoError`, `Nil` or `NotNil`, or another assertion that cannot fail | Run `make check-weak-assertions` and assert the exact value a caller sees |
+| `Mutation Gate` | The tests catch at least 75% of the mutants on the changed lines, or the pull request changes no Go code | Run `make check-mutation` and add tests that fail on the surviving mutants |
 
-`Lint`, `Test & Coverage`, `Build`, `SDK Integration Tests`, `Weak Assertion Guard` and `Performance Regression Check` do not block a merge, but `SonarCloud Analysis` needs the `Test & Coverage` and `Lint` jobs to succeed. See [CI/CD pipelines](/devops/ci-cd-pipelines/).
+`Lint`, `Test & Coverage`, `Build`, `SDK Integration Tests` and `Performance Regression Check` do not block a merge, but `SonarCloud Analysis` needs the `Test & Coverage` and `Lint` jobs to succeed. See [CI/CD pipelines](/devops/ci-cd-pipelines/).
 
 ## Fix a missing sign-off
 

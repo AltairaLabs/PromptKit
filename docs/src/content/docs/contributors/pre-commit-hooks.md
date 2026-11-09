@@ -64,7 +64,7 @@ make test-fast     # tests for modules with changes
 
 ## CI
 
-CI runs the equivalent checks on every pull request that touches files outside its ignored paths (`.github/workflows/ci.yml`): `test`, `lint`, `build`, `weak-assertions`, `integration-tests`, `perf-regression` and a SonarCloud analysis. The reference drift check runs in `reference-drift.yml`. SonarCloud enforces 80% coverage on new and changed lines.
+CI runs the equivalent checks on every pull request that touches files outside its ignored paths (`.github/workflows/ci.yml`): `test`, `lint`, `build`, `integration-tests`, `perf-regression` and a SonarCloud analysis. The Weak Assertion Guard and the Mutation Gate run on every pull request in `test-gates.yml`, and both are required. The reference drift check runs in `reference-drift.yml`. SonarCloud enforces 80% coverage on new and changed lines.
 
 Passing the hook does not skip CI, and a failure in the hook will also fail in CI. Fix the findings, including ones in pre-existing code in files you changed.
 

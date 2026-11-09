@@ -215,7 +215,7 @@ blocks the cleanup and the fix is to backfill exactly the junk you removed.
     a constant condition, a value compared with itself, or a tally of calls to
     a collaborator) are caught by `scripts/check-weak-assertions.sh`, run by
     pre-commit, by `make check-weak-assertions` and on pull requests by the
-    `Weak Assertion Guard` job in `.github/workflows/ci.yml`. It fires only on
+    `Weak Assertion Guard` job in `.github/workflows/test-gates.yml`, a required check. It fires only on
     findings absent from the merge base, so the pre-existing ones never block
     unrelated work. Its blind spots are limitations 4-6 above, and they are why
     it is scoped this narrowly: a guard that fires on legitimate tests gets

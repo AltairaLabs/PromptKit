@@ -48,10 +48,12 @@ The repository setting "Automatically delete head branches" is on, and all three
 | `CLAAssistant` | `cla.yml` |
 | `DCO` | The DCO status check, which fails a pull request that has a commit without a matching `Signed-off-by:` trailer |
 | `SonarCloud Analysis` | The `sonarcloud` job in `ci.yml`, or the job of the same name in `dependabot-gate.yml` |
+| `Weak Assertion Guard` | `test-gates.yml`; fails a pull request that adds a test whose assertions cannot fail |
+| `Mutation Gate` | `test-gates.yml`; fails a pull request when its tests catch fewer than 75% of the mutants on its changed lines |
 
-The other CI jobs (`Test & Coverage`, `Lint`, `Build`, `SDK Integration Tests`, `Weak Assertion Guard`, `Performance Regression Check`) are not required by the ruleset. They run on every code pull request, but only the three checks above block a merge.
+The other CI jobs (`Test & Coverage`, `Lint`, `Build`, `SDK Integration Tests`, `Performance Regression Check`) are not required by the ruleset. They run on every code pull request, but only the checks above block a merge.
 
-`ci.yml` does not run for changes that touch only docs, markdown or the other ignored paths. A required check that never reports would block such a pull request. `dependabot-gate.yml` runs on every pull request to `main`; its `SonarCloud Analysis` job is skipped unless the branch starts with `dependabot/`, and GitHub counts a skipped job as passing. This satisfies the requirement for docs-only pull requests.
+`ci.yml` does not run for changes that touch only docs, markdown or the other ignored paths. A required check that never reports would block such a pull request. `dependabot-gate.yml` runs on every pull request to `main`; its `SonarCloud Analysis` job is skipped unless the branch starts with `dependabot/`, and GitHub counts a skipped job as passing. This satisfies the requirement for docs-only pull requests. `test-gates.yml` also runs on every pull request to `main`; when a pull request changes no Go code, both of its jobs pass after one `git diff`.
 
 ## Commit sign-off
 

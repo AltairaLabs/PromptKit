@@ -27,13 +27,14 @@ verified:
     - scripts/perf-run.sh
     - scripts/run-e2e-tests.sh
 ---
-PromptKit ships four Go modules: `runtime`, `pkg`, `sdk` and `server/a2a`. Thirteen workflows in `.github/workflows/` test them, check generated artifacts, deploy the documentation and release the modules. The CLIs and their binaries release from the `promptarena` repository.
+PromptKit ships four Go modules: `runtime`, `pkg`, `sdk` and `server/a2a`. Fourteen workflows in `.github/workflows/` test them, check generated artifacts, deploy the documentation and release the modules. The CLIs and their binaries release from the `promptarena` repository.
 
 ## Workflows
 
 | File | Triggers | Jobs |
 |---|---|---|
-| `ci.yml` | Push to `main` and pull requests to `main`, except changes that touch only the ignored paths below | `test`, `sonarcloud`, `integration-tests`, `e2e-mock`, `lint`, `build`, `weak-assertions`, `perf-regression` |
+| `ci.yml` | Push to `main` and pull requests to `main`, except changes that touch only the ignored paths below | `test`, `sonarcloud`, `integration-tests`, `e2e-mock`, `lint`, `build`, `perf-regression` |
+| `test-gates.yml` | Pull requests to `main` | `weak-assertions`, `mutation` |
 | `dependabot-gate.yml` | Pull requests to `main` | `sonarcloud` |
 | `cla.yml` | Pull request opened, closed or synchronized; issue comments | `CLAAssistant` |
 | `deprecation-gate.yml` | Pull requests to `main` | `deprecations` |
@@ -48,6 +49,13 @@ PromptKit ships four Go modules: `runtime`, `pkg`, `sdk` and `server/a2a`. Thirt
 | `release.yml` | Manual dispatch | `validate`, `downstream-canary`, `tag-dependencies`, `update-tools`, `create-release`, `verify-docs`, `notify-downstream`, `summary` |
 
 `ci.yml` ignores `docs/**`, `*.md`, `LICENSE`, `.gitignore`, `.github/workflows/docs.yml`, `.github/workflows/release.yml` and `.github/CODEOWNERS`.
+
+## Test gates (`test-gates.yml`)
+
+Both jobs are required checks on `main` and run on every pull request to `main`, docs-only ones included. Each first diffs the pull request against its base commit; when no `.go`, `go.mod` or `go.sum` file changed, the job passes without building anything.
+
+- `weak-assertions` (reported as `Weak Assertion Guard`) runs `scripts/check-weak-assertions.sh` against the base commit and fails on new tests whose assertions cannot fail. Tests that already existed at the base do not count.
+- `mutation` (reported as `Mutation Gate`) runs `scripts/check-mutation-diff.sh` against the base commit. It mutates the changed lines in `runtime`, `sdk`, `pkg` and `server/a2a` with gremlins v0.6.0 and fails when the tests catch fewer than 75% of the mutants.
 
 ## CI (`ci.yml`)
 
@@ -89,10 +97,6 @@ The `test` job (reported as `Test & Coverage (1.26.0)`) runs these steps:
 | `scripts/test-verify-published-gomod.sh` | Fixture tests for the published `go.mod` release guard |
 | `scripts/test-api-compat-allowlist.sh` | Fixture tests for the API-compatibility allowlist |
 | `scripts/check-runtime-is-leaf.sh` | `runtime` requires no sibling module |
-
-### Weak assertion guard
-
-`weak-assertions` runs on pull requests only. It runs `scripts/check-weak-assertions.sh` against the pull request's base commit and fails on new tests whose assertions cannot fail. Tests that already existed at the base do not count.
 
 ### Performance regression check
 
