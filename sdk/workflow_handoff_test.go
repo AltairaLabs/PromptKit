@@ -2,14 +2,18 @@ package sdk
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -148,11 +152,10 @@ func orchTransitionCall() types.MessageToolCall {
 }
 
 // A mid-turn handoff to a state whose prompt reads an artifact nobody has set
-// fails the handoff round with ErrTemplateUnresolved naming the placeholder;
-// the destination round never reaches the model. This pins the v2.19.0
-// behavior (#2549). Whether it should instead render the artifact empty is an
-// open decision; change this test only with that decision.
-func TestWorkflowHandoff_UnsetArtifactFailsTheHandoffRound(t *testing.T) {
+// renders the artifact empty, as a missing optional fragment renders empty: the
+// destination speaks on the handoff round, and the next Send, on the state's own
+// conversation, renders it empty too.
+func TestWorkflowHandoff_UnsetArtifactRendersEmpty(t *testing.T) {
 	provider := &orchArtifactHandoffProvider{
 		ToolProvider: mock.NewToolProvider("mock", "mock-model", false, nil),
 		calls:        []types.MessageToolCall{orchTransitionCall()},
@@ -162,11 +165,58 @@ func TestWorkflowHandoff_UnsetArtifactFailsTheHandoffRound(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = wc.Close() }()
 
-	_, err = wc.Send(context.Background(), "help")
-	require.ErrorIs(t, err, stage.ErrTemplateUnresolved)
-	assert.Contains(t, err.Error(), "artifacts.summary")
-	assert.Equal(t, []string{"You gather."}, provider.seenPrompts,
-		"the destination round, with its literal placeholder, never reaches the model")
+	resp, err := wc.Send(context.Background(), "help")
+	require.NoError(t, err)
+	assert.Equal(t, "processing", wc.CurrentState())
+	assert.Equal(t, "destination speaking", resp.Text())
+
+	_, err = wc.Send(context.Background(), "again")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"You gather.", "You process. Summary: ", "You process. Summary: "},
+		provider.seenPrompts, "the handoff round, then the next turn, render the unset artifact empty")
+}
+
+// Only a declared artifact renders empty when unset. A handoff to a state whose
+// prompt needs a required variable no source sets, or reads an artifact no state
+// declares (which workflow__set_artifact can never set), still fails the handoff
+// round with ErrTemplateUnresolved naming it, and the round never reaches the model.
+func TestWorkflowHandoff_UnsetNonArtifactStillFails(t *testing.T) {
+	cases := []struct {
+		name, processPrompt, wantNamed string
+	}{
+		{
+			name: "required variable",
+			processPrompt: `"system_template": "You process for {{customer}}.",
+				"variables": [{"name": "customer", "type": "string", "required": true}]`,
+			wantNamed: "customer",
+		},
+		{
+			name:          "undeclared artifact",
+			processPrompt: `"system_template": "You process. Notes: {{artifacts.notes}}"`,
+			wantNamed:     "artifacts.notes",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			packJSON := strings.Replace(orchArtifactHandoffPackJSON,
+				`"system_template": "You process. Summary: {{artifacts.summary}}"`, tc.processPrompt, 1)
+			require.NotEqual(t, orchArtifactHandoffPackJSON, packJSON)
+			provider := &orchArtifactHandoffProvider{
+				ToolProvider: mock.NewToolProvider("mock", "mock-model", false, nil),
+				calls:        []types.MessageToolCall{orchTransitionCall()},
+			}
+			wc, err := OpenWorkflow(writeWorkflowTestPack(t, packJSON),
+				WithProvider(provider), WithSkipSchemaValidation())
+			require.NoError(t, err)
+			defer func() { _ = wc.Close() }()
+
+			_, err = wc.Send(context.Background(), "help")
+			require.ErrorIs(t, err, stage.ErrTemplateUnresolved)
+			assert.Contains(t, err.Error(), tc.wantNamed)
+			assert.Equal(t, []string{"You gather."}, provider.seenPrompts,
+				"the destination round never reaches the model")
+		})
+	}
 }
 
 // The same handoff after the origin state set the artifact renders it into the
@@ -189,4 +239,92 @@ func TestWorkflowHandoff_SetArtifactRendersOnTheHandoffRound(t *testing.T) {
 	assert.Equal(t, "processing", wc.CurrentState())
 	assert.Equal(t, []string{"You gather.", "You gather.", "You process. Summary: two refunds"}, provider.seenPrompts)
 	assert.Equal(t, "destination speaking", resp.Text())
+}
+
+// A workflow resumed in a state whose prompt reads an artifact renders the
+// artifact's persisted value on its first Send, or renders it empty when no
+// state set it before the workflow stopped.
+func TestResumeWorkflow_RendersArtifactsIntoTheResumedState(t *testing.T) {
+	cases := []struct {
+		name       string
+		calls      []types.MessageToolCall
+		wantPrompt string
+	}{
+		{
+			name: "artifact set before the stop",
+			calls: []types.MessageToolCall{
+				{ID: "call-a", Name: "workflow__set_artifact", Args: []byte(`{"name":"summary","value":"two refunds"}`)},
+				orchTransitionCall(),
+			},
+			wantPrompt: "You process. Summary: two refunds",
+		},
+		{
+			name:       "artifact never set",
+			calls:      []types.MessageToolCall{orchTransitionCall()},
+			wantPrompt: "You process. Summary: ",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			packPath := writeWorkflowTestPack(t, orchArtifactHandoffPackJSON)
+			store := statestore.NewMemoryStore()
+			const id = "wf-artifact-resume"
+			opts := func(p providers.Provider) []Option {
+				return []Option{WithStateStore(store), WithConversationID(id),
+					WithSkipSchemaValidation(), WithProvider(p)}
+			}
+
+			first := &orchArtifactHandoffProvider{
+				ToolProvider: mock.NewToolProvider("mock", "mock-model", false, nil), calls: tc.calls,
+			}
+			wc, err := OpenWorkflow(packPath, opts(first)...)
+			require.NoError(t, err)
+			_, err = wc.Send(context.Background(), "help")
+			require.NoError(t, err)
+			require.Equal(t, "processing", wc.CurrentState())
+			require.NoError(t, wc.Close())
+
+			// The resumed conversation's own render, not only the provider
+			// request, must carry the artifact: the template.rendered event.
+			bus := events.NewEventBus()
+			t.Cleanup(bus.Close)
+			rendered := make(chan string, 8)
+			bus.Subscribe(events.EventTemplateRendered, func(e *events.Event) {
+				if d, ok := e.Data.(*events.TemplateRenderedData); ok {
+					rendered <- d.SystemPrompt
+				}
+			})
+			second := &orchArtifactHandoffProvider{
+				ToolProvider: mock.NewToolProvider("mock", "mock-model", false, nil),
+			}
+			resumed, err := ResumeWorkflow(id, packPath, append(opts(second), WithEventBus(bus))...)
+			require.NoError(t, err)
+			defer func() { _ = resumed.Close() }()
+			_, err = resumed.Send(context.Background(), "again")
+			require.NoError(t, err)
+			assert.Equal(t, []string{tc.wantPrompt}, second.seenPrompts)
+			select {
+			case got := <-rendered:
+				assert.Equal(t, tc.wantPrompt, got)
+			case <-time.After(2 * time.Second):
+				t.Fatal("no template.rendered event for the resumed state")
+			}
+		})
+	}
+}
+
+// The entry state's own prompt may read an artifact it declares: the first Send
+// of a new workflow renders it empty, since no state has set it yet.
+func TestOpenWorkflow_EntryStateRendersUnsetArtifactEmpty(t *testing.T) {
+	packJSON := strings.Replace(orchArtifactHandoffPackJSON,
+		`"system_template": "You gather."`, `"system_template": "You gather. So far: {{artifacts.summary}}"`, 1)
+	require.NotEqual(t, orchArtifactHandoffPackJSON, packJSON)
+	provider := &orchArtifactHandoffProvider{ToolProvider: mock.NewToolProvider("mock", "mock-model", false, nil)}
+	wc, err := OpenWorkflow(writeWorkflowTestPack(t, packJSON), WithProvider(provider), WithSkipSchemaValidation())
+	require.NoError(t, err)
+	defer func() { _ = wc.Close() }()
+
+	_, err = wc.Send(context.Background(), "help")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"You gather. So far: "}, provider.seenPrompts)
 }
