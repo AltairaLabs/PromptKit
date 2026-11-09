@@ -468,10 +468,11 @@ func (e *Executor) applyNewSelector(ctx context.Context, query string, skills []
 	candidates := make([]selection.Candidate, 0, len(skills))
 	for _, s := range skills {
 		candidates = append(candidates, selection.Candidate{
-			ID:          s.Name,
-			Name:        s.Name,
-			Description: s.Description,
-			Metadata:    s.Metadata,
+			ID:           s.Name,
+			Name:         s.Name,
+			Description:  s.Description,
+			Metadata:     s.Metadata,
+			AllowedTools: s.AllowedTools,
 		})
 	}
 

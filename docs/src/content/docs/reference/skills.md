@@ -263,7 +263,7 @@ spec:
 
 An in-process `selection.Selector` (`Name`, `Init`, `Select`) registered with `WithSelector` under the same name takes precedence over the declared process. See [Runtime config reference](/sdk/reference/runtime-config/).
 
-A `skills.SkillSelector` passed to `WithSkillSelectorOption` runs on the same path. It narrows the index once per turn, with the user's message as its query, and is not consulted for a turn with no text. `TagSelector` reads the comma-separated `tags` entry in a skill's `metadata`. An error or an empty choice lists every skill the state admits. A selector bound in the runtime config takes precedence over one passed to `WithSkillSelectorOption`.
+A `skills.SkillSelector` passed to `WithSkillSelectorOption` runs on the same path. It narrows the index once per turn, with the user's message as its query, and is not consulted for a turn with no text. Each skill reaches it as a `skills.SkillMetadata` with its name, description, `metadata` and `allowed-tools`, so a selector can choose skills by the tools they grant. `TagSelector` reads the comma-separated `tags` entry in a skill's `metadata`. An error or an empty choice lists every skill the state admits. A selector bound in the runtime config takes precedence over one passed to `WithSkillSelectorOption`.
 
 ### Programmatic capability
 
