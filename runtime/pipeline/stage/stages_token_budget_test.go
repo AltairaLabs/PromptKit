@@ -271,9 +271,21 @@ func TestTokenBudgetStage_DefaultLargeConversationThreshold(t *testing.T) {
 		s.config.LargeConversationThreshold)
 }
 
+// With no TokenCounter configured the stage still enforces its budget, using
+// the default counter: an over-budget history is cut down to the newest
+// messages that fit.
 func TestTokenBudgetStage_DefaultTokenCounter(t *testing.T) {
-	s := NewTokenBudgetStage(&TokenBudgetConfig{})
-	assert.NotNil(t, s.config.TokenCounter)
+	s := NewTokenBudgetStage(&TokenBudgetConfig{MaxTokens: 30})
+
+	inputs := make([]StreamElement, 10)
+	for i := range inputs {
+		inputs[i] = newTestMsgElement("user", fmt.Sprintf("Message %d with several words of content", i))
+	}
+	results := runTestStage(t, s, inputs)
+
+	require.NotEmpty(t, results)
+	require.Less(t, len(results), 10, "the default counter must count, or nothing is truncated")
+	assert.Equal(t, "Message 9 with several words of content", results[len(results)-1].Message.Content)
 }
 
 func TestTokenBudgetStage_OnlyConversationMessages(t *testing.T) {

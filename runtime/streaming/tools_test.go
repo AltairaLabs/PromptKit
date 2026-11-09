@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBuildToolResponseElement_FieldMapping(t *testing.T) {
@@ -134,4 +138,50 @@ func TestExecuteAndSend_Success(t *testing.T) {
 	if len(elem.Meta.ToolResponses) != 1 {
 		t.Errorf("expected tool responses in sent element, got %+v", elem.Meta.ToolResponses)
 	}
+}
+
+// The element SendToolResults builds is what DuplexProviderStage consumes: the
+// provider-bound responses reach the live session, and the result messages
+// come out of the stage for the state store. Runs both sides for real.
+func TestSendToolResults_ReachDuplexSessionAndOutput(t *testing.T) {
+	provider := mock.NewStreamingProvider("p", "m", false)
+	duplex := stage.NewDuplexProviderStage(provider, &providers.StreamingInputConfig{
+		Config: types.StreamingMediaConfig{Type: types.ContentTypeAudio, ChunkSize: 4096, SampleRate: 16000,
+			Encoding: "pcm_linear16", Channels: 1},
+	})
+
+	input := make(chan stage.StreamElement, 4)
+	output := make(chan stage.StreamElement, 16)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- duplex.Process(ctx, input, output) }()
+
+	toolMsg := types.Message{Role: "tool", Content: "72F", ToolResult: &types.MessageToolResult{
+		ID: "call-1", Name: "get_weather", Parts: []types.ContentPart{types.NewTextPart("72F")},
+	}}
+	require.NoError(t, SendToolResults(ctx, &ToolExecutionResult{
+		ProviderResponses: []providers.ToolResponse{{ToolCallID: "call-1", Result: "72F"}},
+		ResultMessages:    []types.Message{toolMsg},
+	}, input))
+
+	select {
+	case e := <-output:
+		require.NotNil(t, e.Message)
+		assert.Equal(t, "tool", e.Message.Role)
+		assert.Equal(t, "call-1", e.Message.ToolResult.ID)
+	case <-time.After(2 * time.Second):
+		t.Fatal("tool result message never left the duplex stage")
+	}
+	require.Eventually(t, func() bool {
+		s := provider.GetSession()
+		return s != nil && len(s.ReceivedToolResponses()) == 1
+	}, 2*time.Second, time.Millisecond)
+	got := provider.GetSession().ReceivedToolResponses()[0]
+	assert.Equal(t, "call-1", got.ToolCallID)
+	assert.Equal(t, "72F", got.Result)
+
+	cancel()
+	close(input)
+	<-done
 }

@@ -572,7 +572,6 @@ func TestMediaComposeStage_Timeout(t *testing.T) {
 		CompletionTimeout: 20 * time.Millisecond,
 	}
 	stg := NewMediaComposeStage(config)
-	stg.timeoutCheckInterval = 5 * time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -606,8 +605,9 @@ func TestMediaComposeStage_Timeout(t *testing.T) {
 		if e.Message == nil || len(e.Message.Parts) != 1 {
 			t.Fatalf("expected the incomplete message with its 1 received part, got %+v", e)
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed-out message was never emitted while input was open")
+	case <-time.After(500 * time.Millisecond):
+		// A 20ms timeout must fire on time, not on a one-second tick.
+		t.Fatal("timed-out message was not emitted within 500ms while input was open")
 	}
 
 	close(input)

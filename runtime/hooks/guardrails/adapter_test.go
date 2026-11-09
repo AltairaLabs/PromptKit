@@ -530,10 +530,6 @@ func (c *capturingHandler) Eval(
 	return c.result, nil
 }
 
-func TestGuardrailHookAdapter_ImplementsProviderHook(t *testing.T) {
-	var _ hooks.ProviderHook = (*GuardrailHookAdapter)(nil)
-}
-
 // newCountingFailHandler returns a handler that always scores 0 (fail) and
 // increments *n each time it is invoked.
 func newCountingFailHandler(n *int) evals.EvalTypeHandler {

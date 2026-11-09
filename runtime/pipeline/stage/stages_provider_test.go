@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/stretchr/testify/assert"
@@ -156,29 +158,16 @@ func TestProviderStage_NoProvider(t *testing.T) {
 	assert.Contains(t, err.Error(), "no provider configured")
 }
 
-// TestProviderStage_EmptyInput tests handling of empty input channel
+// An input that closes with no message makes no provider call and emits
+// nothing.
 func TestProviderStage_EmptyInput(t *testing.T) {
-	provider := mock.NewProvider("test-provider", "test-model", false)
+	provider := &multiTurnRecordingProvider{}
 	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{})
 
-	// Empty input
-	input := make(chan StreamElement)
-	close(input)
+	results := runTestStage(t, stage, nil)
 
-	output := make(chan StreamElement, 10)
-	ctx := context.Background()
-	err := stage.Process(ctx, input, output)
-
-	// Should complete without error (no messages to process)
-	require.NoError(t, err)
-
-	// Stage may pass through non-message elements, just ensure no errors
-	var count int
-	for range output {
-		count++
-	}
-	// No strict assertion - stage may forward elements
-	t.Logf("Received %d elements for empty input", count)
+	assert.Empty(t, results)
+	assert.Empty(t, provider.requests, "no message, no provider call")
 }
 
 // TestProviderStage_MultipleMessages tests processing multiple messages
@@ -489,14 +478,18 @@ func TestFormatToolResult(t *testing.T) {
 	}
 }
 
+// A stage built with no config still runs a turn: the user message reaches
+// the provider and the reply comes back as the assistant message.
 func TestNewProviderStage_NilConfig(t *testing.T) {
-	provider := mock.NewProvider("test", "model", false)
-
-	// Should not panic with nil config
+	provider := &multiTurnRecordingProvider{}
 	stage := NewProviderStage(provider, nil, nil, nil)
 
-	assert.NotNil(t, stage)
-	assert.NotNil(t, stage.config) // Should create default config
+	results := runTestStage(t, stage, []StreamElement{newTestMsgElement("user", "hello")})
+
+	require.Len(t, provider.requests, 1)
+	last := provider.requests[0][len(provider.requests[0])-1]
+	assert.Equal(t, "hello", last.Content)
+	assert.Equal(t, []string{"reply-1"}, assistantReplies(results))
 }
 
 func TestNewProviderStage_WithConfig(t *testing.T) {
@@ -647,20 +640,24 @@ func TestProviderStage_AccumulateInput(t *testing.T) {
 		assert.NotNil(t, acc.metadata)
 	})
 
-	t.Run("handles elements without messages", func(t *testing.T) {
+	t.Run("bare text is the user's message; other content is not", func(t *testing.T) {
 		turnState := NewTurnState()
 		turnState.ProviderRequestMetadata = map[string]interface{}{"key": "value"}
 		stage := NewProviderStageWithTurnState(provider, nil, nil, nil, nil, nil, turnState)
 
-		input := make(chan StreamElement, 1)
+		input := make(chan StreamElement, 4)
 		text := "some text"
-		elem := StreamElement{Text: &text}
-		input <- elem
+		input <- StreamElement{Text: &text}
+		spoken := StreamElement{Text: testutil.Ptr("already spoken")}
+		spoken.Meta.SynthesizedSpeech = true
+		input <- spoken
+		input <- StreamElement{Audio: &AudioData{Samples: []byte{1, 2}}}
+		input <- StreamElement{Text: testutil.Ptr("")}
 		close(input)
 
 		acc := stage.accumulateInput(input)
 
-		assert.Len(t, acc.messages, 0)
+		assert.Equal(t, []types.Message{{Role: "user", Content: "some text"}}, acc.messages)
 		assert.Equal(t, "value", acc.metadata["key"])
 	})
 }
@@ -698,7 +695,8 @@ func TestProviderStage_EmitResponseMessages(t *testing.T) {
 
 		err := stage.emitResponseMessages(ctx, []types.Message{}, output)
 
-		assert.NoError(t, err)
+		require.NoError(t, err)
+		assert.Empty(t, output, "no messages, no elements")
 	})
 
 	t.Run("respects context cancellation", func(t *testing.T) {
@@ -968,75 +966,75 @@ func TestProviderStage_NoEventsWithNilEmitter(t *testing.T) {
 	assert.False(t, eventReceived, "no events should be emitted when emitter is nil")
 }
 
+// toolOfferRecorder is a non-streaming ToolSupport provider that records,
+// per call, the names of the tool declarations it was handed (nil when the
+// stage took the no-tools Predict path).
+type toolOfferRecorder struct {
+	multiTurnRecordingProvider
+	offered [][]string
+}
+
+func (p *toolOfferRecorder) BuildTooling(descriptors []*providers.ToolDescriptor) (providers.ProviderTools, error) {
+	return descriptors, nil
+}
+
+func (p *toolOfferRecorder) Predict(
+	ctx context.Context, req providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
+	p.offered = append(p.offered, nil)
+	return p.multiTurnRecordingProvider.Predict(ctx, req)
+}
+
+func (p *toolOfferRecorder) PredictWithTools(
+	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools, _ string,
+) (providers.PredictionResponse, []types.MessageToolCall, error) {
+	names := []string{} // non-nil: tells a tools call with no tools from a plain call
+	for _, d := range tools.([]*providers.ToolDescriptor) {
+		names = append(names, d.Name)
+	}
+	p.offered = append(p.offered, names)
+	resp, err := p.multiTurnRecordingProvider.Predict(ctx, req)
+	return resp, nil, err
+}
+
+func (p *toolOfferRecorder) PredictStreamWithTools(
+	_ context.Context, _ providers.PredictionRequest, _ providers.ProviderTools, _ string,
+) (<-chan providers.StreamChunk, error) {
+	return nil, errors.New("not streaming")
+}
+
+var _ providers.ToolSupport = (*toolOfferRecorder)(nil)
+
+// The provider is offered exactly the registry tools the turn's prompt
+// allows: allowed tools reach the provider request, and a turn that allows
+// none takes the plain no-tools call even when the registry has tools.
 func TestProviderStage_WithToolRegistry(t *testing.T) {
-	// Test that ProviderStage correctly builds tools when allowed_tools are specified
-	// This exercises the buildProviderTools function
+	run := func(t *testing.T, allowed []string) *toolOfferRecorder {
+		t.Helper()
+		reg := tools.NewRegistry()
+		for _, n := range []string{"test_tool", "other_tool"} {
+			require.NoError(t, reg.Register(&tools.ToolDescriptor{
+				Name: n, Description: n, InputSchema: []byte(`{"type": "object"}`),
+			}))
+		}
+		prov := &toolOfferRecorder{}
+		ts := NewTurnState()
+		ts.SystemPrompt = "You are a helpful assistant"
+		ts.AllowedTools = allowed
+		stage := NewProviderStageWithTurnState(prov, reg, nil, &ProviderConfig{MaxTokens: 100}, nil, nil, ts)
+		results := runTestStage(t, stage, []StreamElement{newTestMsgElement("user", "Test message")})
+		require.Equal(t, []string{"reply-1"}, assistantReplies(results))
+		return prov
+	}
 
 	t.Run("builds tools when allowed_tools in metadata", func(t *testing.T) {
-		// Create tool registry with a test tool
-		toolRegistry := tools.NewRegistry()
-		toolRegistry.Register(&tools.ToolDescriptor{
-			Name:        "test_tool",
-			Description: "A test tool",
-			InputSchema: []byte(`{"type": "object"}`),
-		})
-
-		// Use tool provider mock
-		provider := mock.NewToolProvider("test-provider", "test-model", false, nil)
-
-		turnState := NewTurnState()
-		turnState.SystemPrompt = "You are a helpful assistant"
-		turnState.AllowedTools = []string{"test_tool"}
-		stage := NewProviderStageWithTurnState(provider, toolRegistry, nil, &ProviderConfig{
-			MaxTokens:   100,
-			Temperature: 0.7,
-		}, nil, nil, turnState)
-
-		// Create input
-		input := make(chan StreamElement, 1)
-		userMsg := types.Message{Role: "user", Content: "Test message"}
-		elem := NewMessageElement(&userMsg)
-		input <- elem
-		close(input)
-
-		// Execute stage
-		output := make(chan StreamElement, 10)
-		ctx := context.Background()
-		err := stage.Process(ctx, input, output)
-
-		require.NoError(t, err)
-
-		// Drain output
-		for range output {
-		}
+		prov := run(t, []string{"test_tool"})
+		assert.Equal(t, [][]string{{"test_tool"}}, prov.offered)
 	})
 
 	t.Run("handles empty allowed_tools", func(t *testing.T) {
-		toolRegistry := tools.NewRegistry()
-		provider := mock.NewToolProvider("test-provider", "test-model", false, nil)
-
-		turnState := NewTurnState()
-		turnState.SystemPrompt = "You are a helpful assistant"
-		stage := NewProviderStageWithTurnState(provider, toolRegistry, nil, &ProviderConfig{
-			MaxTokens:   100,
-			Temperature: 0.7,
-		}, nil, nil, turnState)
-
-		// Create input without allowed_tools
-		input := make(chan StreamElement, 1)
-		userMsg := types.Message{Role: "user", Content: "Test message"}
-		elem := NewMessageElement(&userMsg)
-		input <- elem
-		close(input)
-
-		output := make(chan StreamElement, 10)
-		ctx := context.Background()
-		err := stage.Process(ctx, input, output)
-
-		require.NoError(t, err)
-
-		for range output {
-		}
+		prov := run(t, nil)
+		assert.Equal(t, [][]string{nil}, prov.offered, "no allowed tools: the no-tools Predict path")
 	})
 }
 
@@ -2608,25 +2606,19 @@ func TestToolLoop_WriteThroughPersistsPerRound(t *testing.T) {
 	assert.GreaterOrEqual(t, length, 0)
 }
 
+// With no MessageLog configured the turn runs as usual: the reply reaches
+// the output and the provider sees the system prompt and user message.
 func TestToolLoop_WriteThroughDisabledByDefault(t *testing.T) {
-	// No MessageLog configured — should work normally without panics
-	provider := mock.NewProvider("test", "model", false)
+	provider := &multiTurnRecordingProvider{}
 	turnState := NewTurnState()
 	turnState.SystemPrompt = "helper"
-	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
-		MaxTokens: 100,
-	}, nil, nil, turnState)
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{MaxTokens: 100}, nil, nil, turnState)
 
-	input := make(chan StreamElement, 1)
-	elem := NewMessageElement(&types.Message{Role: "user", Content: "hello"})
-	input <- elem
-	close(input)
+	results := runTestStage(t, stage, []StreamElement{newTestMsgElement("user", "hello")})
 
-	output := make(chan StreamElement, 20)
-	err := stage.Process(context.Background(), input, output)
-	require.NoError(t, err)
-	for range output {
-	}
+	require.Len(t, provider.requests, 1)
+	assert.Equal(t, "hello", provider.requests[0][len(provider.requests[0])-1].Content)
+	assert.Equal(t, []string{"reply-1"}, assistantReplies(results))
 }
 
 func TestAfterRound_WriteThroughAppendsMessages(t *testing.T) {
@@ -2715,21 +2707,18 @@ func TestAfterRound_WriteThroughFailureNonFatal(t *testing.T) {
 	assert.NoError(t, err, "write-through failure should not abort the loop")
 }
 
+// A tool-capable provider with allowed tools but no tool registry gets the
+// plain no-tools call: there is nothing to declare, and that is not an error.
 func TestNewToolLoop_BuildError(t *testing.T) {
-	// Provider that doesn't support tools — buildProviderTools returns nil, nil, nil
-	// which is not an error. Use a nil registry with allowed tools to force an error path.
-	provider := mock.NewToolProvider("test", "model", false, nil)
-	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{})
+	provider := &toolOfferRecorder{}
+	ts := NewTurnState()
+	ts.AllowedTools = []string{"some_tool"}
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{}, nil, nil, ts)
 
-	acc := &providerInput{
-		allowedTools: []string{"some_tool"},
-		messages:     []types.Message{{Role: "user", Content: "hi"}},
-	}
-	loop, err := stage.newToolLoop(acc)
-	// No registry → buildProviderTools returns nil tools (no error, just no tools)
-	require.NoError(t, err)
-	assert.NotNil(t, loop)
-	assert.Nil(t, loop.providerTools)
+	results := runTestStage(t, stage, []StreamElement{newTestMsgElement("user", "hi")})
+
+	assert.Equal(t, [][]string{nil}, provider.offered)
+	assert.Equal(t, []string{"reply-1"}, assistantReplies(results))
 }
 
 func TestAfterRound_NoToolCalls(t *testing.T) {
@@ -3361,4 +3350,42 @@ func TestProviderStage_ReasoningEndToEnd(t *testing.T) {
 		assert.NotContains(t, m.GetContent(), "internal reasoning", "reasoning must not re-enter context")
 		assert.Nil(t, m.Reasoning, "history messages into the provider carry no reasoning")
 	}
+}
+
+// assistantReplies returns the content of every assistant message in results.
+func assistantReplies(results []StreamElement) []string {
+	var replies []string
+	for _, r := range results {
+		if r.Message != nil && r.Message.Role == roleAssistant {
+			replies = append(replies, r.Message.Content)
+		}
+	}
+	return replies
+}
+
+// Text a duplex or VAD session sends (SendText) arrives as a bare Text
+// element. It is the user's turn: the provider must receive it as the user
+// message, on the unary and on the streaming path, and answer it.
+func TestProviderStage_BareTextIsTheUserTurn(t *testing.T) {
+	t.Run("unary", func(t *testing.T) {
+		provider := &multiTurnRecordingProvider{}
+		stage := NewProviderStage(provider, nil, nil, nil)
+
+		results := runTestStage(t, stage, []StreamElement{NewTextElement("what is the weather")})
+
+		require.Len(t, provider.requests, 1)
+		assert.Equal(t, []types.Message{{Role: "user", Content: "what is the weather"}}, provider.requests[0])
+		assert.Equal(t, []string{"reply-1"}, assistantReplies(results))
+	})
+
+	t.Run("streaming", func(t *testing.T) {
+		provider := &multiTurnRecordingProvider{}
+		stage := NewProviderStage(provider, nil, nil, &ProviderConfig{Streaming: true})
+
+		results := runTestStage(t, stage, []StreamElement{NewTextElement("hi there"), NewEndOfTurnElement()})
+
+		require.Len(t, provider.requests, 1)
+		assert.Equal(t, []types.Message{{Role: "user", Content: "hi there"}}, provider.requests[0])
+		assert.Equal(t, []string{"reply-1"}, assistantReplies(results))
+	})
 }

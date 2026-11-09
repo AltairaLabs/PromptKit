@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	providersmock "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -282,11 +283,39 @@ func TestSendElementToSession_EndOfStreamTriggersEndInput(t *testing.T) {
 	assert.Equal(t, 1, sess.endInputCount)
 }
 
+// textOnlySession is a session with neither EndInputter nor
+// ToolResponseSupport that records the text it is sent.
+type textOnlySession struct {
+	*bareSession
+	texts []string
+}
+
+func (s *textOnlySession) SendText(_ context.Context, text string) error {
+	s.texts = append(s.texts, text)
+	return nil
+}
+
+// A session without EndInputter still gets the content of the element that
+// ends the turn: end-of-stream is handled after the content, not instead of it.
 func TestSendElementToSession_EndOfStreamWithoutEndInputter(t *testing.T) {
-	// bareSession does not implement EndInputter — must hit the warn branch, no panic.
-	s := stageWithSession(newBareSession())
-	elem := StreamElement{EndOfStream: true}
+	sess := &textOnlySession{bareSession: newBareSession()}
+	s := stageWithSession(sess)
+	s.sendElementToSession(context.Background(), &StreamElement{Text: testutil.Ptr("last words"), EndOfStream: true})
+	assert.Equal(t, []string{"last words"}, sess.texts)
+}
+
+// Tool responses a session cannot accept are dropped with a warning, but the
+// rest of the element (its text) is still delivered.
+func TestSendElementToSession_ToolResponsesUnsupported(t *testing.T) {
+	logs := captureLogSync(t)
+	sess := &textOnlySession{bareSession: newBareSession()}
+	s := stageWithSession(sess)
+	elem := StreamElement{Text: testutil.Ptr("also this")}
+	elem.Meta.ToolResponses = []providers.ToolResponse{{ToolCallID: "c1", Result: "42"}}
 	s.sendElementToSession(context.Background(), &elem)
+
+	assert.Equal(t, []string{"also this"}, sess.texts)
+	assert.Contains(t, logs.String(), "session does not support tool responses")
 }
 
 func TestSendElementToSession_ToolResponses(t *testing.T) {
@@ -299,14 +328,6 @@ func TestSendElementToSession_ToolResponses(t *testing.T) {
 
 	require.Len(t, sess.toolResponses, 1)
 	assert.Equal(t, "c1", sess.toolResponses[0][0].ToolCallID)
-}
-
-func TestSendElementToSession_ToolResponsesUnsupported(t *testing.T) {
-	// bareSession lacks ToolResponseSupport — warn branch, no panic.
-	s := stageWithSession(newBareSession())
-	elem := StreamElement{}
-	elem.Meta.ToolResponses = []providers.ToolResponse{{ToolCallID: "c1", Result: "42"}}
-	s.sendElementToSession(context.Background(), &elem)
 }
 
 func TestSendElementToSession_SystemPromptSentAsContext(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -232,27 +233,42 @@ func TestGetEndOfStreamElement(t *testing.T) {
 	PutElement(elem)
 }
 
+// Concurrent users of the pool never see each other's data: every element
+// GetElement hands out is blank, however many goroutines are recycling
+// elements at once. Run under -race.
 func TestPoolConcurrency(t *testing.T) {
-	const numGoroutines = 100
-	const numOperations = 1000
+	const numGoroutines = 50
+	const numOperations = 200
 
+	var dirty atomic.Int64
 	var wg sync.WaitGroup
+	start := make(chan struct{})
 	wg.Add(numGoroutines)
-
 	for i := 0; i < numGoroutines; i++ {
 		go func(id int) {
 			defer wg.Done()
+			<-start
 			for j := 0; j < numOperations; j++ {
 				elem := GetElement()
+				if elem.Text != nil || elem.Sequence != 0 || elem.Meta.TokenCount != 0 ||
+					elem.Error != nil || elem.EndOfStream || elem.Priority != PriorityNormal {
+					dirty.Add(1)
+				}
 				elem.Text = testutil.Ptr("test")
-				elem.Sequence = int64(id*numOperations + j)
-				elem.Meta.TokenCount = id + j
+				elem.Sequence = int64(id*numOperations + j + 1)
+				elem.Meta.TokenCount = id + j + 1
+				elem.Error = errors.New("leak")
+				elem.EndOfStream = true
+				elem.Priority = PriorityHigh
 				PutElement(elem)
 			}
 		}(i)
 	}
-
+	close(start)
 	wg.Wait()
+	if n := dirty.Load(); n != 0 {
+		t.Fatalf("%d elements came out of the pool carrying a previous user's data", n)
+	}
 }
 
 func TestPoolReuse(t *testing.T) {

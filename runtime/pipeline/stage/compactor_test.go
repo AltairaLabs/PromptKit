@@ -401,11 +401,6 @@ func TestCompactionStrategy_CustomStrategy(t *testing.T) {
 	assert.Equal(t, 99999, s.TokenBudget())
 }
 
-func TestContextCompactor_ImplementsCompactionStrategy(t *testing.T) {
-	// Compile-time check
-	var _ CompactionStrategy = (*ContextCompactor)(nil)
-}
-
 // --- Custom rule tests ---
 
 type alwaysFoldRule struct {

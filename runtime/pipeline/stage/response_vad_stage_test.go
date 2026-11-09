@@ -21,14 +21,6 @@ func TestNewResponseVADStage(t *testing.T) {
 	assert.Equal(t, "response_vad", s.Name())
 }
 
-func TestNewResponseVADStage_CustomVAD(t *testing.T) {
-	config := stage.DefaultResponseVADConfig()
-	config.VAD = &mockVADAnalyzer{states: []audio.VADState{audio.VADStateQuiet}}
-	s, err := stage.NewResponseVADStage(config)
-	require.NoError(t, err)
-	require.NotNil(t, s)
-}
-
 func TestResponseVADStage_PassesThroughAudio(t *testing.T) {
 	config := stage.DefaultResponseVADConfig()
 	s, err := stage.NewResponseVADStage(config)

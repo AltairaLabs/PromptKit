@@ -1,13 +1,16 @@
 package stage
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -55,63 +58,95 @@ func (s *testPassthroughStage) Process(_ context.Context, in <-chan StreamElemen
 	return nil
 }
 
-// TestMonitorExecutionTimeout tests the monitorExecutionTimeout helper function.
-func TestMonitorExecutionTimeout(t *testing.T) {
-	t.Run("no timeout configured", func(t *testing.T) {
+// syncLogBuffer is a goroutine-safe log sink: the timeout monitor logs from
+// its own goroutine while the test reads.
+type syncLogBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncLogBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncLogBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func captureLogSync(t *testing.T) *syncLogBuffer {
+	t.Helper()
+	b := &syncLogBuffer{}
+	logger.SetOutput(b)
+	t.Cleanup(func() { logger.SetOutput(nil) })
+	return b
+}
+
+const executionTimeoutLog = "Pipeline execution timeout triggered"
+
+// When the pipeline's own ExecutionTimeout cuts a turn off, the operator gets
+// an error log naming the configured timeout. A caller's own cancellation, or
+// a pipeline with no timeout configured, logs nothing.
+func TestExecuteSync_ExecutionTimeoutIsLogged(t *testing.T) {
+	t.Run("timeout fires", func(t *testing.T) {
+		logs := captureLogSync(t)
+		config := DefaultPipelineConfig()
+		config.ExecutionTimeout = 5 * time.Millisecond
+		config.IdleTimeout = 0
+		p, err := NewPipelineBuilderWithConfig(config).Chain(waitForCtxStage("slow")).Build()
+		require.NoError(t, err)
+
+		_, execErr := p.ExecuteSync(context.Background(), userElement("hi"))
+		require.ErrorIs(t, execErr, context.DeadlineExceeded)
+
+		require.Eventually(t, func() bool {
+			return strings.Contains(logs.String(), executionTimeoutLog)
+		}, 2*time.Second, time.Millisecond, "timeout log never written; got: %s", logs.String())
+		assert.Contains(t, logs.String(), "configured_timeout=5ms")
+		assert.Contains(t, logs.String(), "stages=1")
+	})
+
+	t.Run("caller cancel is not a timeout", func(t *testing.T) {
+		logs := captureLogSync(t)
+		config := DefaultPipelineConfig()
+		config.ExecutionTimeout = time.Minute
+		config.IdleTimeout = 0
+		ctx, cancel := context.WithCancel(context.Background())
+		canceler := NewStageFunc("canceler", StageTypeTransform,
+			func(ctx context.Context, in <-chan StreamElement, out chan<- StreamElement) error {
+				defer close(out)
+				for range in { //nolint:revive // drain
+				}
+				cancel()
+				<-ctx.Done()
+				return ctx.Err()
+			})
+		p, err := NewPipelineBuilderWithConfig(config).Chain(canceler).Build()
+		require.NoError(t, err)
+
+		_, _ = p.ExecuteSync(ctx, userElement("hi"))
+		// The monitor goroutine wakes on the same Done; give it the chance to
+		// (wrongly) log before checking it did not.
+		time.Sleep(20 * time.Millisecond)
+		assert.NotContains(t, logs.String(), executionTimeoutLog)
+	})
+
+	t.Run("caller deadline with no timeout configured", func(t *testing.T) {
+		logs := captureLogSync(t)
 		config := DefaultPipelineConfig()
 		config.ExecutionTimeout = 0
+		config.IdleTimeout = 0
+		p, err := NewPipelineBuilderWithConfig(config).Chain(waitForCtxStage("slow")).Build()
+		require.NoError(t, err)
 
-		pipeline := &StreamPipeline{
-			config: config,
-			stages: []Stage{},
-		}
-
-		// Should return immediately without starting goroutine
-		pipeline.monitorExecutionTimeout(context.Background(), time.Now())
-		// No assertions needed - just verify no panic
-	})
-
-	t.Run("timeout configured with deadline exceeded", func(t *testing.T) {
-		config := DefaultPipelineConfig()
-		config.ExecutionTimeout = 100 * time.Millisecond
-
-		pipeline := &StreamPipeline{
-			config: config,
-			stages: []Stage{},
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
 		defer cancel()
-
-		pipeline.monitorExecutionTimeout(ctx, time.Now())
-
-		// Wait for context to timeout
-		<-ctx.Done()
-
-		// Give goroutine time to log
-		time.Sleep(10 * time.Millisecond)
-		// Logging is verified by code coverage - function should run through timeout branch
-	})
-
-	t.Run("timeout configured with context cancelled", func(t *testing.T) {
-		config := DefaultPipelineConfig()
-		config.ExecutionTimeout = 100 * time.Millisecond
-
-		pipeline := &StreamPipeline{
-			config: config,
-			stages: []Stage{},
-		}
-
-		ctx, cancel := context.WithCancel(context.Background())
-
-		pipeline.monitorExecutionTimeout(ctx, time.Now())
-
-		// Cancel (not timeout)
-		cancel()
-
-		// Give goroutine time to process
-		time.Sleep(10 * time.Millisecond)
-		// Should not log timeout message since it's cancelled, not deadline exceeded
+		_, _ = p.ExecuteSync(ctx, userElement("hi"))
+		time.Sleep(20 * time.Millisecond)
+		assert.NotContains(t, logs.String(), executionTimeoutLog)
 	})
 }
 
@@ -277,40 +312,76 @@ func TestCollectOutput_ConcurrentLeafStages(t *testing.T) {
 	}
 }
 
-// TestEmitCompletionEvent tests the emitCompletionEvent helper function.
-func TestEmitCompletionEvent(t *testing.T) {
-	t.Run("nil event emitter", func(t *testing.T) {
-		pipeline := &StreamPipeline{
-			eventEmitter: nil,
-		}
+// A turn that fails emits pipeline.failed carrying the stage's error, and no
+// pipeline.completed; a turn that succeeds emits pipeline.completed and no
+// pipeline.failed. Observers (Arena, Omnia) count runs from these events.
+func TestExecuteSync_EmitsExactlyOneTerminalEvent(t *testing.T) {
+	stageErr := errors.New("boom")
+	tests := []struct {
+		name       string
+		stage      Stage
+		wantFailed bool
+	}{
+		{name: "success", stage: &testPassthroughStage{name: "ok"}},
+		{
+			name: "failure",
+			stage: NewStageFunc("bad", StageTypeTransform,
+				func(_ context.Context, in <-chan StreamElement, out chan<- StreamElement) error {
+					defer close(out)
+					for range in { //nolint:revive // drain
+					}
+					return stageErr
+				}),
+			wantFailed: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bus := events.NewEventBus()
+			t.Cleanup(bus.Close)
+			var mu sync.Mutex
+			var completed []*events.PipelineCompletedData
+			var failed []*events.PipelineFailedData
+			done := make(chan struct{}, 2)
+			bus.Subscribe(events.EventPipelineCompleted, func(e *events.Event) {
+				mu.Lock()
+				completed = append(completed, e.Data.(*events.PipelineCompletedData))
+				mu.Unlock()
+				done <- struct{}{}
+			})
+			bus.Subscribe(events.EventPipelineFailed, func(e *events.Event) {
+				mu.Lock()
+				failed = append(failed, e.Data.(*events.PipelineFailedData))
+				mu.Unlock()
+				done <- struct{}{}
+			})
 
-		// Should not panic
-		pipeline.emitCompletionEvent(nil, time.Second, nil)
-		pipeline.emitCompletionEvent(errors.New("error"), time.Second, nil)
-	})
+			p, err := NewPipelineBuilder().
+				WithEventEmitter(events.NewEmitter(bus, "run", "sess", "conv")).
+				Chain(tt.stage).Build()
+			require.NoError(t, err)
+			_, execErr := p.ExecuteSync(context.Background(), userElement("hi"))
 
-	t.Run("success event with emitter", func(t *testing.T) {
-		// Create a real emitter with nil bus (will no-op on emit)
-		emitter := events.NewEmitter(nil, "test-run", "test-session", "test-conv")
-		pipeline := &StreamPipeline{
-			eventEmitter: emitter,
-		}
-
-		// Should not panic - emitter handles nil bus gracefully
-		pipeline.emitCompletionEvent(nil, time.Second, &completionTotals{})
-	})
-
-	t.Run("failure event with emitter", func(t *testing.T) {
-		// Create a real emitter with nil bus (will no-op on emit)
-		emitter := events.NewEmitter(nil, "test-run", "test-session", "test-conv")
-		pipeline := &StreamPipeline{
-			eventEmitter: emitter,
-		}
-
-		testErr := errors.New("test error")
-		// Should not panic - emitter handles nil bus gracefully
-		pipeline.emitCompletionEvent(testErr, time.Second, &completionTotals{})
-	})
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Fatal("no terminal pipeline event")
+			}
+			time.Sleep(10 * time.Millisecond) // let a wrongly-emitted second event land
+			mu.Lock()
+			defer mu.Unlock()
+			if tt.wantFailed {
+				require.ErrorIs(t, execErr, stageErr)
+				require.Len(t, failed, 1)
+				assert.ErrorIs(t, failed[0].Error, stageErr)
+				assert.Empty(t, completed)
+				return
+			}
+			require.NoError(t, execErr)
+			require.Len(t, completed, 1)
+			assert.Empty(t, failed)
+		})
+	}
 }
 
 // blockingStage blocks until context is cancelled.

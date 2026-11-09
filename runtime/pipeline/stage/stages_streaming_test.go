@@ -3,6 +3,7 @@ package stage
 import (
 	"bytes"
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	providersmock "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -74,35 +76,64 @@ func TestDuplexProviderStage_Basic(t *testing.T) {
 	})
 }
 
+// instructionRecordingProvider records the SystemInstruction of every session
+// it is asked to create, then creates the mock session as usual.
+type instructionRecordingProvider struct {
+	*providersmock.StreamingProvider
+	mu           sync.Mutex
+	instructions []string
+}
+
+func (p *instructionRecordingProvider) CreateStreamSession(
+	ctx context.Context, req *providers.StreamingInputConfig,
+) (providers.StreamInputSession, error) {
+	p.mu.Lock()
+	p.instructions = append(p.instructions, req.SystemInstruction)
+	p.mu.Unlock()
+	return p.StreamingProvider.CreateStreamSession(ctx, req)
+}
+
+func (p *instructionRecordingProvider) recorded() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.instructions...)
+}
+
+// The session is created lazily with the TurnState's system prompt as its
+// system instruction, and the turn's text reaches that session.
 func TestDuplexProviderStage_SessionCreation(t *testing.T) {
-	t.Run("Creates session with system_prompt from metadata", func(t *testing.T) {
-		provider := providersmock.NewStreamingProvider("test", "test-model", false).
-			WithAutoRespond("Test response")
-		stage := NewDuplexProviderStage(provider, baseConfig())
+	t.Run("Creates session with system_prompt from turn state", func(t *testing.T) {
+		provider := &instructionRecordingProvider{
+			StreamingProvider: providersmock.NewStreamingProvider("test", "test-model", false).
+				WithAutoRespond("Test response"),
+		}
+		ts := NewTurnState()
+		ts.SystemPrompt = "You are a helpful assistant"
+		stage := NewDuplexProviderStageWithTurnState(provider, baseConfig(), nil, ts)
 
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-
 		input := make(chan StreamElement, 10)
 		output := make(chan StreamElement, 10)
+		input <- StreamElement{Text: testutil.Ptr("hi"), EndOfStream: true}
 
-		// Send element with system prompt
-		input <- elementWithSystemPrompt("You are a helpful assistant")
-		close(input)
-
-		// Process
 		done := make(chan error, 1)
-		go func() {
-			done <- stage.Process(ctx, input, output)
-		}()
+		go func() { done <- stage.Process(ctx, input, output) }()
 
-		// Wait for processing
-		time.Sleep(200 * time.Millisecond)
+		require.Eventually(t, func() bool {
+			s := provider.GetSession()
+			return s != nil && len(s.GetTexts()) > 0
+		}, 2*time.Second, time.Millisecond)
+		assert.Equal(t, []string{"You are a helpful assistant"}, provider.recorded())
+		assert.Contains(t, provider.GetSession().GetTexts(), "hi")
+
 		cancel()
-
-		// Verify session was created
-		session := provider.GetSession()
-		require.NotNil(t, session, "Session should be created")
+		close(input)
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("Process did not return after cancel")
+		}
 	})
 }
 
@@ -287,7 +318,10 @@ func TestDuplexProviderStage_ReasoningDoesNotBleedAcrossTurns(t *testing.T) {
 	require.NoError(t, s.handleResponseChunk(ctx, &providers.StreamChunk{Reasoning: "turn one thoughts"}, output))
 	require.NoError(t, s.handleResponseChunk(ctx, &providers.StreamChunk{Delta: "One.", Metadata: map[string]interface{}{"type": "output_transcription"}}, output))
 	require.NoError(t, s.handleResponseChunk(ctx, &providers.StreamChunk{FinishReason: &fr}, output))
-	_ = drainAssistantMessage(output)
+	msg1 := drainAssistantMessage(output)
+	require.NotNil(t, msg1, "expected turn-1 assistant message")
+	require.NotNil(t, msg1.Reasoning, "turn 1 must carry its own reasoning, or turn 2's nil proves nothing")
+	assert.Equal(t, "turn one thoughts", msg1.Reasoning.Text)
 
 	// Turn 2: spoken only, no reasoning.
 	require.NoError(t, s.handleResponseChunk(ctx, &providers.StreamChunk{Delta: "Two.", Metadata: map[string]interface{}{"type": "output_transcription"}}, output))
@@ -1341,4 +1375,23 @@ func drainUntilClosed(t *testing.T, output <-chan StreamElement) []StreamElement
 			return nil
 		}
 	}
+}
+
+// A completed duplex turn reports its finish reason in Message.FinishReason,
+// the field the unary path, interrupted duplex turns and enforced duplex turns
+// all set, and the one persisted as finish_reason. It used to be only in Meta.
+func TestDuplexProviderStage_CompletedTurnSetsFinishReason(t *testing.T) {
+	s := NewDuplexProviderStage(providersmock.NewStreamingProvider("t", "m", false), baseConfig())
+	output := make(chan StreamElement, 16)
+	ctx := context.Background()
+	fr := "stop"
+
+	require.NoError(t, s.handleResponseChunk(ctx, &providers.StreamChunk{Delta: "Done.",
+		Metadata: map[string]interface{}{"type": "output_transcription"}}, output))
+	require.NoError(t, s.handleResponseChunk(ctx, &providers.StreamChunk{FinishReason: &fr}, output))
+	msg := drainAssistantMessage(output)
+
+	require.NotNil(t, msg)
+	assert.Equal(t, "stop", msg.FinishReason)
+	assert.Equal(t, "stop", msg.Meta[finishReasonMetaKey])
 }

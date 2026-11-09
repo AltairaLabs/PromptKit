@@ -303,27 +303,33 @@ func TestTTSStageWithInterruption_SkipsEmptyText(t *testing.T) {
 	assert.False(t, synthesizeCalled, "Synthesize should not be called for short text")
 }
 
+// An element with nothing to speak (no Text, no Message) is forwarded as it
+// is, without a synthesis call.
 func TestTTSStageWithInterruption_MessageElement_NilText(t *testing.T) {
-	s := stage.NewTTSStageWithInterruption(&mockTTSService{}, stage.DefaultTTSStageWithInterruptionConfig())
-
-	// Element with nil Text and nil Message — should not panic
-	elem := stage.StreamElement{}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
+	var synth atomic.Int32
+	svc := &mockTTSService{synthesizeFunc: func(context.Context, string, tts.SynthesisConfig) (io.ReadCloser, error) {
+		synth.Add(1)
+		return io.NopCloser(strings.NewReader("")), nil
+	}}
+	s := stage.NewTTSStageWithInterruption(svc, stage.DefaultTTSStageWithInterruptionConfig())
 
 	input := make(chan stage.StreamElement, 1)
 	output := make(chan stage.StreamElement, 10)
-
-	go func() {
-		_ = s.Process(ctx, input, output)
-	}()
-
-	input <- elem
+	input <- stage.StreamElement{Sequence: 42}
 	close(input)
 
-	time.Sleep(100 * time.Millisecond)
-	// No panic is the test passing
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	require.NoError(t, s.Process(ctx, input, output))
+
+	var got []stage.StreamElement
+	for e := range output {
+		got = append(got, e)
+	}
+	require.Len(t, got, 1)
+	assert.Equal(t, int64(42), got[0].Sequence)
+	assert.Nil(t, got[0].Audio)
+	assert.Zero(t, synth.Load(), "nothing to speak, no synthesis")
 }
 
 func TestTTSStageWithInterruption_SynthesisError(t *testing.T) {

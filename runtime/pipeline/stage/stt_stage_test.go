@@ -61,10 +61,17 @@ func TestSTTStage_TranscriptionError(t *testing.T) {
 	assert.NotNil(t, results[0].Error, "Expected error element for transcription failure")
 }
 
+// A whitespace-only transcription produces no element; the next utterance's
+// transcription still comes through. Both were transcribed: the skip is the
+// empty text, not the audio-size check.
 func TestSTTStage_EmptyTranscription(t *testing.T) {
+	replies := []string{"   ", "hello"}
+	var calls int
 	mock := &mockSTTService{
 		transcribeFunc: func(_ context.Context, _ base.STTRequest) (base.STTResponse, error) {
-			return base.STTResponse{Text: "   "}, nil // Whitespace only
+			text := replies[calls]
+			calls++
+			return base.STTResponse{Text: text}, nil
 		},
 	}
 	config := stage.DefaultSTTStageConfig()
@@ -73,13 +80,14 @@ func TestSTTStage_EmptyTranscription(t *testing.T) {
 
 	inputs := []stage.StreamElement{
 		makeAudioElement(generateTestPCMAudio(32000), 16000),
+		makeAudioElement(generateTestPCMAudio(32000), 16000),
 	}
 	results := runStage(t, s, inputs, 2*time.Second)
 
-	// Empty/whitespace transcription should not produce output
-	for _, r := range results {
-		assert.Nil(t, r.Text, "Whitespace transcription should be skipped")
-	}
+	assert.Equal(t, 2, calls, "both utterances must reach the STT service")
+	require.Len(t, results, 1, "the whitespace transcription must produce no element")
+	require.NotNil(t, results[0].Text)
+	assert.Equal(t, "hello", *results[0].Text)
 }
 
 func TestSTTStage_SkipsSmallAudio(t *testing.T) {
