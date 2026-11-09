@@ -12,6 +12,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	mockprov "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	a2aserver "github.com/AltairaLabs/PromptKit/server/a2a/v2"
 )
@@ -233,70 +234,6 @@ func TestA2ASentinelErrors(t *testing.T) {
 
 // --- convAdapter tests ---
 
-func TestConvAdapter_Send(t *testing.T) {
-	conv := newTestConversation()
-	adapter := &convAdapter{c: conv}
-
-	result, err := adapter.Send(context.Background(), "hello")
-	if err != nil {
-		t.Fatalf("unexpected error from Send: %v", err)
-	}
-	if result == nil {
-		t.Fatal("expected non-nil result")
-	}
-	// The result should implement SendResult.
-	if result.Text() == "" && len(result.Parts()) == 0 {
-		// OK — the test conversation may return empty, that's fine.
-	}
-}
-
-func TestConvAdapter_Close(t *testing.T) {
-	conv := newTestConversation()
-	adapter := &convAdapter{c: conv}
-
-	if err := adapter.Close(); err != nil {
-		t.Fatalf("unexpected error from Close: %v", err)
-	}
-}
-
-func TestStreamConvAdapter_Send(t *testing.T) {
-	conv := newTestConversation()
-	adapter := &streamConvAdapter{convAdapter: convAdapter{c: conv}}
-
-	result, err := adapter.Send(context.Background(), "hello")
-	if err != nil {
-		t.Fatalf("unexpected error from Send: %v", err)
-	}
-	if result == nil {
-		t.Fatal("expected non-nil result")
-	}
-}
-
-func TestStreamConvAdapter_Close(t *testing.T) {
-	conv := newTestConversation()
-	adapter := &streamConvAdapter{convAdapter: convAdapter{c: conv}}
-
-	if err := adapter.Close(); err != nil {
-		t.Fatalf("unexpected error from Close: %v", err)
-	}
-}
-
-func TestStreamConvAdapter_Stream(t *testing.T) {
-	conv := newTestConversation()
-	adapter := &streamConvAdapter{convAdapter: convAdapter{c: conv}}
-
-	events := adapter.Stream(context.Background(), "hello")
-	if events == nil {
-		t.Fatal("expected non-nil channel")
-	}
-
-	// Drain the channel — it should close eventually (may contain error events
-	// since no provider is wired, but the goroutine conversion path is exercised).
-	for range events {
-		// consume all events
-	}
-}
-
 func TestConvAdapter_SendReturnsError(t *testing.T) {
 	conv := newTestConversation()
 	// Close the conversation first so Send will fail.
@@ -306,6 +243,88 @@ func TestConvAdapter_SendReturnsError(t *testing.T) {
 	_, err := adapter.Send(context.Background(), "hello")
 	if err == nil {
 		t.Fatal("expected error from Send on closed conversation")
+	}
+}
+
+// orchA2APackJSON is a one-prompt pack served over A2A.
+const orchA2APackJSON = `{
+	"id": "a2a-seam", "version": "1.0.0",
+	"template_engine": {"version": "v1", "syntax": "{{variable}}"},
+	"prompts": {"chat": {"id": "chat", "name": "c", "version": "1.0.0", "system_template": "You help."}}
+}`
+
+func orchA2AClient(t *testing.T, reply string) *a2a.Client {
+	t.Helper()
+	opener := A2AOpener(writeWorkflowTestPack(t, orchA2APackJSON), "chat",
+		WithSkipSchemaValidation(),
+		WithProvider(mockprov.NewProviderWithRepository("mock", "mock-model", false,
+			mockprov.NewInMemoryMockRepository(reply))))
+	ts := httptest.NewServer(NewA2AServer(opener).Handler())
+	t.Cleanup(ts.Close)
+	return a2a.NewClient(ts.URL)
+}
+
+func orchArtifactText(arts []a2a.Artifact) string {
+	var b strings.Builder
+	for _, art := range arts {
+		for _, p := range art.Parts {
+			if p.Text != nil {
+				b.WriteString(*p.Text)
+			}
+		}
+	}
+	return b.String()
+}
+
+// The SDK's conversation adapter and the A2A server, end to end: a pack opened
+// by A2AOpener answers a blocking message/send with the model's reply as the
+// task's artifact.
+func TestA2AServer_RealConversation_SendMessage(t *testing.T) {
+	client := orchA2AClient(t, "the answer is 42")
+	task, err := client.SendMessage(context.Background(), &a2a.SendMessageRequest{
+		Message:       a2a.Message{Role: a2a.RoleUser, Parts: []a2a.Part{{Text: a2aTextPtr("question")}}},
+		Configuration: &a2a.SendMessageConfiguration{Blocking: true},
+	})
+	if err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	if got := orchArtifactText(task.Artifacts); got != "the answer is 42" {
+		t.Fatalf("artifact text = %q, want the model's reply", got)
+	}
+	if task.Status.State != a2a.TaskStateCompleted {
+		t.Fatalf("task state = %q, want completed", task.Status.State)
+	}
+}
+
+// The streaming half: message/stream carries the model's reply in artifact
+// updates (the stream adapter's chunkToEvent), and ends with the task
+// completed.
+func TestA2AServer_RealConversation_SendMessageStream(t *testing.T) {
+	client := orchA2AClient(t, "streamed reply")
+	events, err := client.SendMessageStream(context.Background(), &a2a.SendMessageRequest{
+		Message: a2a.Message{Role: a2a.RoleUser, Parts: []a2a.Part{{Text: a2aTextPtr("question")}}},
+	})
+	if err != nil {
+		t.Fatalf("SendMessageStream: %v", err)
+	}
+	var arts []a2a.Artifact
+	var last a2a.TaskState
+	for ev := range events {
+		if ev.Error != nil {
+			t.Fatalf("stream error: %v", ev.Error)
+		}
+		if ev.ArtifactUpdate != nil {
+			arts = append(arts, ev.ArtifactUpdate.Artifact)
+		}
+		if ev.StatusUpdate != nil {
+			last = ev.StatusUpdate.Status.State
+		}
+	}
+	if got := orchArtifactText(arts); got != "streamed reply" {
+		t.Fatalf("streamed text = %q, want the model's reply", got)
+	}
+	if last != a2a.TaskStateCompleted {
+		t.Fatalf("final status = %q, want completed", last)
 	}
 }
 

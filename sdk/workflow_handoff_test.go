@@ -4,8 +4,10 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -100,4 +102,91 @@ func TestWorkflowConversation_NoTransitionIsUnchanged(t *testing.T) {
 	require.Equal(t, "intake", wc.CurrentState(), "state must not move")
 	require.Len(t, provider.seenPrompts, 2, "primed entry plus one real round")
 	require.Equal(t, "You gather information.", provider.seenPrompts[1])
+}
+
+// orchArtifactHandoffPackJSON hands off from intake to a state whose prompt
+// reads an artifact that intake declares.
+const orchArtifactHandoffPackJSON = `{
+	"id": "wf-artifact", "version": "1.0.0",
+	"template_engine": {"version": "v1", "syntax": "handlebars", "features": []},
+	"prompts": {
+		"gather_info": {"id": "gather_info", "name": "g", "version": "1.0.0", "system_template": "You gather."},
+		"process": {"id": "process", "name": "p", "version": "1.0.0",
+			"system_template": "You process. Summary: {{artifacts.summary}}"}
+	},
+	"workflow": {"version": 2, "entry": "intake", "states": {
+		"intake": {"prompt_task": "gather_info", "on_event": {"InfoComplete": "processing"},
+			"artifacts": {"summary": {"type": "text/plain"}}},
+		"processing": {"prompt_task": "process"}
+	}}
+}`
+
+// orchArtifactHandoffProvider makes the given calls on round one, one per
+// round, then answers in text. It records the system prompt of every round.
+type orchArtifactHandoffProvider struct {
+	*mock.ToolProvider
+	calls       []types.MessageToolCall
+	seenPrompts []string
+}
+
+func (p *orchArtifactHandoffProvider) SupportsStreaming() bool { return false }
+
+func (p *orchArtifactHandoffProvider) PredictWithTools(
+	_ context.Context, req providers.PredictionRequest, _ providers.ProviderTools, _ string,
+) (providers.PredictionResponse, []types.MessageToolCall, error) {
+	p.seenPrompts = append(p.seenPrompts, req.System)
+	if n := len(p.seenPrompts); n <= len(p.calls) {
+		call := []types.MessageToolCall{p.calls[n-1]}
+		return providers.PredictionResponse{ToolCalls: call}, call, nil
+	}
+	return providers.PredictionResponse{Content: "destination speaking"}, nil, nil
+}
+
+func orchTransitionCall() types.MessageToolCall {
+	return types.MessageToolCall{ID: "call-t", Name: "workflow__transition",
+		Args: []byte(`{"event":"InfoComplete","context":"collected"}`)}
+}
+
+// A mid-turn handoff to a state whose prompt reads an artifact nobody has set
+// fails the handoff round with ErrTemplateUnresolved naming the placeholder;
+// the destination round never reaches the model. This pins the v2.19.0
+// behavior (#2549). Whether it should instead render the artifact empty is an
+// open decision; change this test only with that decision.
+func TestWorkflowHandoff_UnsetArtifactFailsTheHandoffRound(t *testing.T) {
+	provider := &orchArtifactHandoffProvider{
+		ToolProvider: mock.NewToolProvider("mock", "mock-model", false, nil),
+		calls:        []types.MessageToolCall{orchTransitionCall()},
+	}
+	wc, err := OpenWorkflow(writeWorkflowTestPack(t, orchArtifactHandoffPackJSON),
+		WithProvider(provider), WithSkipSchemaValidation())
+	require.NoError(t, err)
+	defer func() { _ = wc.Close() }()
+
+	_, err = wc.Send(context.Background(), "help")
+	require.ErrorIs(t, err, stage.ErrTemplateUnresolved)
+	assert.Contains(t, err.Error(), "artifacts.summary")
+	assert.Equal(t, []string{"You gather."}, provider.seenPrompts,
+		"the destination round, with its literal placeholder, never reaches the model")
+}
+
+// The same handoff after the origin state set the artifact renders it into the
+// destination's prompt on the handoff round.
+func TestWorkflowHandoff_SetArtifactRendersOnTheHandoffRound(t *testing.T) {
+	provider := &orchArtifactHandoffProvider{
+		ToolProvider: mock.NewToolProvider("mock", "mock-model", false, nil),
+		calls: []types.MessageToolCall{
+			{ID: "call-a", Name: "workflow__set_artifact", Args: []byte(`{"name":"summary","value":"two refunds"}`)},
+			orchTransitionCall(),
+		},
+	}
+	wc, err := OpenWorkflow(writeWorkflowTestPack(t, orchArtifactHandoffPackJSON),
+		WithProvider(provider), WithSkipSchemaValidation())
+	require.NoError(t, err)
+	defer func() { _ = wc.Close() }()
+
+	resp, err := wc.Send(context.Background(), "help")
+	require.NoError(t, err)
+	assert.Equal(t, "processing", wc.CurrentState())
+	assert.Equal(t, []string{"You gather.", "You gather.", "You process. Summary: two refunds"}, provider.seenPrompts)
+	assert.Equal(t, "destination speaking", resp.Text())
 }

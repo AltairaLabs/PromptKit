@@ -118,22 +118,21 @@ func TestOpenWorkflow_NonexistentPack(t *testing.T) {
 
 func TestOpenWorkflow_InitialState(t *testing.T) {
 	packPath := writeWorkflowTestPack(t, workflowPackJSON)
-	wc, err := OpenWorkflow(packPath, WithSkipSchemaValidation())
-	// OpenWorkflow will fail at provider detection since no API key is set,
-	// but we can test the pack loading and workflow detection path.
-	// If it fails, it should fail at the Open() step, not at workflow validation.
-	if err != nil {
-		// Expected: provider detection failure, not workflow error
-		assert.NotErrorIs(t, err, ErrNoWorkflow)
-		return
-	}
+	provider := &handoffSDKProvider{ToolProvider: mock.NewToolProvider("mock", "mock-model", false, nil)}
+	provider.seenPrompts = append(provider.seenPrompts, "PRIMED") // answer in text, no transition
+	wc, err := OpenWorkflow(packPath, WithSkipSchemaValidation(), WithProvider(provider))
+	require.NoError(t, err)
 	defer wc.Close()
 
 	assert.Equal(t, "intake", wc.CurrentState())
 	assert.Equal(t, "gather_info", wc.CurrentPromptTask())
 	assert.False(t, wc.IsComplete())
-	assert.Contains(t, wc.AvailableEvents(), "InfoComplete")
-	assert.Contains(t, wc.AvailableEvents(), "NeedMore")
+	assert.ElementsMatch(t, []string{"InfoComplete", "NeedMore"}, wc.AvailableEvents())
+
+	// The entry state's prompt is the one the model runs under.
+	_, err = wc.Send(context.Background(), "hello")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"PRIMED", "You gather information."}, provider.seenPrompts)
 }
 
 // (TestConvertWorkflowSpec* removed: pack.WorkflowSpec is now workflow.Spec, so
@@ -192,10 +191,21 @@ func TestWorkflowConversation_Context(t *testing.T) {
 	assert.Empty(t, ctx.History)
 }
 
+// Close ends the workflow and its state's conversation; a second Close is
+// harmless.
 func TestWorkflowConversation_CloseIdempotent(t *testing.T) {
-	wc := &WorkflowConversation{}
-	assert.NoError(t, wc.Close())
-	assert.NoError(t, wc.Close()) // second close is safe
+	wc := orchOpenExternalWorkflow(t)
+	active := wc.ActiveConversation()
+
+	require.NoError(t, wc.Close())
+	require.NoError(t, wc.Close(), "second close is safe")
+
+	_, err := wc.Send(context.Background(), "hi")
+	assert.ErrorIs(t, err, ErrWorkflowClosed)
+	_, err = wc.Transition("Next")
+	assert.ErrorIs(t, err, ErrWorkflowClosed)
+	_, err = active.Send(context.Background(), "hi")
+	assert.ErrorIs(t, err, ErrConversationClosed, "the state's conversation is closed with the workflow")
 }
 
 func TestWorkflowConversation_ActiveConversation(t *testing.T) {
@@ -294,17 +304,24 @@ func TestWorkflowConversation_SendDelegatesToConversation(t *testing.T) {
 	assert.ErrorIs(t, err, ErrConversationClosed)
 }
 
+// After a transition, Close closes the conversation the workflow moved to, and
+// the transition already closed the one it left.
 func TestWorkflowConversation_CloseWithActiveConv(t *testing.T) {
-	// Test that Close properly closes the active conversation
-	conv := &Conversation{
-		handlers: make(map[string]ToolHandler),
-		config:   &config{},
-	}
-	wc := &WorkflowConversation{
-		activeConv: conv,
-	}
-	assert.NoError(t, wc.Close())
-	assert.True(t, wc.closed)
+	wc := orchOpenExternalWorkflow(t)
+	first := wc.ActiveConversation()
+	_, err := wc.Transition("Next")
+	require.NoError(t, err)
+	second := wc.ActiveConversation()
+	require.NotSame(t, first, second)
+
+	_, err = first.Send(context.Background(), "hi")
+	assert.ErrorIs(t, err, ErrConversationClosed, "the state left behind is closed by the transition")
+	_, err = second.Send(context.Background(), "hi")
+	require.NoError(t, err)
+
+	require.NoError(t, wc.Close())
+	_, err = second.Send(context.Background(), "hi")
+	assert.ErrorIs(t, err, ErrConversationClosed)
 }
 
 func TestOpenWorkflow_BadOption(t *testing.T) {
@@ -521,60 +538,87 @@ func TestExtractWorkflowContext_InvalidType(t *testing.T) {
 	assert.Contains(t, err.Error(), "unexpected workflow context type")
 }
 
-func TestPersistWorkflowContext(t *testing.T) {
-	store := statestore.NewMemoryStore()
-	spec := &workflow.Spec{
-		Version: 1,
-		Entry:   "start",
-		States: map[string]*workflow.State{
-			"start": {PromptTask: "p1", OnEvent: map[string]string{"Next": "end"}},
-			"end":   {PromptTask: "p2"},
-		},
+// orchPersistPackJSON is workflowPackJSON with a transient terminal state.
+const orchPersistPackJSON = `{
+	"id": "wf-persist", "version": "1.0.0",
+	"template_engine": {"version": "v1", "syntax": "handlebars", "features": []},
+	"prompts": {
+		"gather_info": {"id": "gather_info", "name": "g", "version": "1.0.0", "system_template": "You gather."},
+		"process": {"id": "process", "name": "p", "version": "1.0.0", "system_template": "You process."},
+		"confirm": {"id": "confirm", "name": "c", "version": "1.0.0", "system_template": "You confirm."}
+	},
+	"workflow": {"version": 1, "entry": "intake", "states": {
+		"intake": {"prompt_task": "gather_info", "on_event": {"InfoComplete": "processing"}},
+		"processing": {"prompt_task": "process", "on_event": {"Done": "confirmation", "Retry": "processing"}},
+		"confirmation": {"prompt_task": "confirm", "persistence": "transient"}
+	}}
+}`
+
+func orchWorkflowOpts(store statestore.Store, id string) []Option {
+	return []Option{
+		WithStateStore(store),
+		WithConversationID(id),
+		WithSkipSchemaValidation(),
+		WithProvider(mock.NewProvider("mock", "mock-model", false)),
 	}
-	machine := workflow.NewStateMachine(spec)
-
-	wc := &WorkflowConversation{
-		machine:      machine,
-		workflowSpec: spec,
-		stateStore:   store,
-		workflowID:   "wf-123",
-		packPath:     "/nonexistent/pack.json",
-	}
-
-	wc.persistWorkflowContext()
-
-	ctx := context.Background()
-	meta, err := store.LoadMetadata(ctx, "wf-123")
-	require.NoError(t, err)
-	require.NotNil(t, meta[workflowCurrentKey])
 }
 
-func TestPersistWorkflowContext_TransientSkips(t *testing.T) {
+// orchTransitions reduces a history to from/event/to triples.
+func orchTransitions(h []workflow.StateTransition) []string {
+	out := make([]string, 0, len(h))
+	for _, tr := range h {
+		out = append(out, tr.From+" -"+tr.Event+"-> "+tr.To)
+	}
+	return out
+}
+
+// A transition persists the workflow's position and history, so ResumeWorkflow
+// on another instance continues from the state the workflow reached, with every
+// transition recorded once.
+func TestPersistWorkflowContext(t *testing.T) {
+	packPath := writeWorkflowTestPack(t, orchPersistPackJSON)
 	store := statestore.NewMemoryStore()
-	spec := &workflow.Spec{
-		Version: 1,
-		Entry:   "transient_state",
-		States: map[string]*workflow.State{
-			"transient_state": {
-				PromptTask:  "p1",
-				Persistence: workflow.PersistenceTransient,
-			},
-		},
-	}
-	machine := workflow.NewStateMachine(spec)
+	const id = "wf-123"
 
-	wc := &WorkflowConversation{
-		machine:      machine,
-		workflowSpec: spec,
-		stateStore:   store,
-		workflowID:   "wf-456",
-	}
+	wc, err := OpenWorkflow(packPath, orchWorkflowOpts(store, id)...)
+	require.NoError(t, err)
+	_, err = wc.Transition("InfoComplete")
+	require.NoError(t, err)
+	_, err = wc.Transition("Retry")
+	require.NoError(t, err)
+	require.NoError(t, wc.Close())
 
-	wc.persistWorkflowContext()
+	resumed, err := ResumeWorkflow(id, packPath, orchWorkflowOpts(store, id)...)
+	require.NoError(t, err)
+	assert.Equal(t, "processing", resumed.CurrentState())
+	assert.Equal(t, "process", resumed.CurrentPromptTask())
+	assert.Equal(t, []string{"intake -InfoComplete-> processing", "processing -Retry-> processing"},
+		orchTransitions(resumed.Context().History), "each transition is recorded once")
+	assert.Equal(t, map[string]int{"intake": 1, "processing": 2}, resumed.Context().VisitCounts)
+	require.NoError(t, resumed.Close())
+}
 
-	ctx := context.Background()
-	state, _ := store.Load(ctx, "wf-456")
-	assert.Nil(t, state) // Should not have persisted
+// A transition into a transient state is not persisted: a resume continues
+// from the last persistent state the workflow reached.
+func TestPersistWorkflowContext_TransientSkips(t *testing.T) {
+	packPath := writeWorkflowTestPack(t, orchPersistPackJSON)
+	store := statestore.NewMemoryStore()
+	const id = "wf-456"
+
+	wc, err := OpenWorkflow(packPath, orchWorkflowOpts(store, id)...)
+	require.NoError(t, err)
+	_, err = wc.Transition("InfoComplete")
+	require.NoError(t, err)
+	_, err = wc.Transition("Done")
+	require.NoError(t, err)
+	require.Equal(t, "confirmation", wc.CurrentState())
+	require.NoError(t, wc.Close())
+
+	resumed, err := ResumeWorkflow(id, packPath, orchWorkflowOpts(store, id)...)
+	require.NoError(t, err)
+	defer resumed.Close()
+	assert.Equal(t, "processing", resumed.CurrentState(), "the transient state is never written")
+	assert.Equal(t, []string{"intake -InfoComplete-> processing"}, orchTransitions(resumed.Context().History))
 }
 
 func TestResumeWorkflow_NoStateStore(t *testing.T) {
@@ -886,43 +930,74 @@ func TestWorkflowConversation_OrchestrationMode_NilSpec(t *testing.T) {
 	assert.Equal(t, workflow.OrchestrationInternal, string(wc.OrchestrationMode()))
 }
 
+// orchExternalPackJSON is a three-state, externally driven workflow.
+const orchExternalPackJSON = `{
+	"id": "wf-external", "version": "1.0.0",
+	"template_engine": {"version": "v1", "syntax": "handlebars", "features": []},
+	"prompts": {
+		"p1": {"id": "p1", "name": "p1", "version": "1.0.0", "system_template": "One."},
+		"p2": {"id": "p2", "name": "p2", "version": "1.0.0", "system_template": "Two."},
+		"p3": {"id": "p3", "name": "p3", "version": "1.0.0", "system_template": "Three."}
+	},
+	"workflow": {"version": 1, "entry": "start", "states": {
+		"start": {"prompt_task": "p1", "orchestration": "external", "on_event": {"Next": "mid"}},
+		"mid": {"prompt_task": "p2", "orchestration": "external", "on_event": {"Next": "end"}},
+		"end": {"prompt_task": "p3"}
+	}}
+}`
+
+func orchOpenExternalWorkflow(t *testing.T) *WorkflowConversation {
+	t.Helper()
+	wc, err := OpenWorkflow(writeWorkflowTestPack(t, orchExternalPackJSON),
+		WithSkipSchemaValidation(),
+		WithProvider(mock.NewProvider("mock", "mock-model", false)))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = wc.Close() })
+	return wc
+}
+
+// Readers racing a transition each see one consistent position: the state,
+// its prompt task and its events all belong to the same state.
 func TestWorkflowConversation_ConcurrentReads(t *testing.T) {
 	t.Parallel()
+	wc := orchOpenExternalWorkflow(t)
+	want := map[string]string{"start": "p1", "mid": "p2"}
 
-	spec := &workflow.Spec{
-		Version: 1,
-		Entry:   "start",
-		States: map[string]*workflow.State{
-			"start": {
-				PromptTask:    "p1",
-				Orchestration: packspec.Ptr(workflow.OrchestrationExternal),
-				OnEvent:       map[string]string{"Next": "end"},
-			},
-			"end": {PromptTask: "p2"},
-		},
-	}
-	machine := workflow.NewStateMachine(spec)
-	wc := &WorkflowConversation{
-		machine:      machine,
-		workflowSpec: spec,
-	}
-
-	// Spawn multiple goroutines reading concurrently — should not race
+	start := make(chan struct{})
 	var wg sync.WaitGroup
+	var mu sync.Mutex
+	seen := map[string]bool{}
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = wc.CurrentState()
-			_ = wc.CurrentPromptTask()
-			_ = wc.IsComplete()
-			_ = wc.AvailableEvents()
-			_ = wc.OrchestrationMode()
-			_ = wc.Context()
-			_ = wc.ActiveConversation()
+			<-start
+			ctx := wc.Context()
+			state := ctx.CurrentState
+			mu.Lock()
+			seen[state] = true
+			mu.Unlock()
+			assert.Contains(t, want, state)
+			assert.False(t, wc.IsComplete())
+			assert.Equal(t, workflow.Orchestration(workflow.OrchestrationExternal), wc.OrchestrationMode())
+			assert.Equal(t, []string{"Next"}, wc.AvailableEvents())
+			assert.NotNil(t, wc.ActiveConversation())
 		}()
 	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-start
+		got, err := wc.Transition("Next")
+		assert.NoError(t, err)
+		assert.Equal(t, "mid", got)
+	}()
+	close(start)
 	wg.Wait()
+
+	assert.Equal(t, "mid", wc.CurrentState())
+	assert.Equal(t, "p2", wc.CurrentPromptTask())
+	assert.Equal(t, "p2", wc.ActiveConversation().promptName, "the active conversation follows the transition")
 }
 
 func TestHandleTransitionTool(t *testing.T) {
@@ -1150,86 +1225,55 @@ func TestSend_ClearsPendingTransitionBeforeSend(t *testing.T) {
 	// transExec pending should have been cleared before the send attempt
 }
 
+// Concurrent transitions on one workflow are serialized: of ten callers
+// firing the same event at a two-step workflow, exactly two move it (start ->
+// mid -> end) and the rest find it terminal. A Send racing them either
+// completes or finds the state's conversation closed by a transition; it never
+// races the swap. (Concurrent Sends on one conversation are #2570.)
 func TestWorkflowConversation_ConcurrentSendAndTransition(t *testing.T) {
 	t.Parallel()
+	wc := orchOpenExternalWorkflow(t)
 
-	spec := &workflow.Spec{
-		Version: 1,
-		Entry:   "start",
-		States: map[string]*workflow.State{
-			"start": {
-				PromptTask:    "p1",
-				Orchestration: packspec.Ptr(workflow.OrchestrationExternal),
-				OnEvent:       map[string]string{"Next": "mid"},
-			},
-			"mid": {
-				PromptTask:    "p2",
-				Orchestration: packspec.Ptr(workflow.OrchestrationExternal),
-				OnEvent:       map[string]string{"Next": "end"},
-			},
-			"end": {PromptTask: "p3"},
-		},
-	}
-	machine := workflow.NewStateMachine(spec)
-
-	// Use a closed conversation so Send returns immediately with ErrConversationClosed
-	conv := &Conversation{closed: true}
-	wc := &WorkflowConversation{
-		machine:      machine,
-		workflowSpec: spec,
-		activeConv:   conv,
-		packPath:     "/nonexistent/pack.json",
-	}
-
-	// Concurrent reads and writes should not cause data races
+	start := make(chan struct{})
 	var wg sync.WaitGroup
-
-	// Concurrent Send calls (will fail, but exercises the lock)
+	var mu sync.Mutex
+	var moved []string
+	terminal := 0
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-start
+		resp, err := wc.Send(context.Background(), "hello")
+		if err != nil {
+			assert.ErrorIs(t, err, ErrConversationClosed)
+			return
+		}
+		assert.NotEmpty(t, resp.Text())
+	}()
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _ = wc.Send(context.Background(), "hello")
+			<-start
+			to, err := wc.Transition("Next")
+			mu.Lock()
+			defer mu.Unlock()
+			if errors.Is(err, ErrWorkflowTerminal) {
+				terminal++
+				return
+			}
+			assert.NoError(t, err)
+			moved = append(moved, to)
 		}()
 	}
-
-	// Concurrent reads
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_ = wc.CurrentState()
-			_ = wc.OrchestrationMode()
-			_ = wc.IsComplete()
-		}()
-	}
-
+	close(start)
 	wg.Wait()
-	// No assertions needed — test validates absence of data races with -race flag
-}
 
-func TestPersistWorkflowContext_TransientStateSkipped(t *testing.T) {
-	spec := &workflow.Spec{
-		Version: 1,
-		Entry:   "start",
-		States: map[string]*workflow.State{
-			"start": {
-				PromptTask:  "p1",
-				Persistence: workflow.PersistenceTransient,
-			},
-		},
-	}
-	machine := workflow.NewStateMachine(spec)
-
-	wc := &WorkflowConversation{
-		machine:      machine,
-		workflowSpec: spec,
-		stateStore:   statestore.NewMemoryStore(),
-		workflowID:   "wf-1",
-	}
-
-	// Should be a no-op (transient state).
-	wc.persistWorkflowContext()
+	assert.ElementsMatch(t, []string{"mid", "end"}, moved, "each step is taken exactly once")
+	assert.Equal(t, 8, terminal)
+	assert.Equal(t, "end", wc.CurrentState())
+	assert.True(t, wc.IsComplete())
+	assert.Equal(t, []string{"start -Next-> mid", "mid -Next-> end"}, orchTransitions(wc.Context().History))
 }
 
 // readOnlyStore implements only the bare Store interface (Load + Fork) —
@@ -1242,29 +1286,6 @@ func (readOnlyStore) Load(_ context.Context, id string) (*statestore.Conversatio
 	return &statestore.ConversationState{ID: id, Metadata: make(map[string]any)}, nil
 }
 func (readOnlyStore) Fork(_ context.Context, _, _ string) error { return nil }
-
-// TestPersistWorkflowContext_NoWriteCapability covers the branch where the
-// store implements neither MetadataAccessor nor ListAccessor — the
-// function must log an error and return without panicking.
-func TestPersistWorkflowContext_NoWriteCapability(t *testing.T) {
-	spec := &workflow.Spec{
-		Version: 1,
-		Entry:   "start",
-		States: map[string]*workflow.State{
-			"start": {PromptTask: "p1"},
-		},
-	}
-	machine := workflow.NewStateMachine(spec)
-
-	wc := &WorkflowConversation{
-		machine:      machine,
-		workflowSpec: spec,
-		stateStore:   readOnlyStore{},
-		workflowID:   "wf-1",
-	}
-
-	wc.persistWorkflowContext() // Must not panic.
-}
 
 // metadataOnlyStore satisfies MetadataAccessor but not ListAccessor —
 // exercises the requirement that persistWorkflowContext refuses to write
@@ -1316,31 +1337,6 @@ func TestPersistWorkflowContext_FailsWhenStoreMissingListAccessor(t *testing.T) 
 	assert.Empty(t, store.merged)
 }
 
-func TestPersistWorkflowContext_Success(t *testing.T) {
-	spec := &workflow.Spec{
-		Version: 1,
-		Entry:   "start",
-		States: map[string]*workflow.State{
-			"start": {PromptTask: "p1"},
-		},
-	}
-	machine := workflow.NewStateMachine(spec)
-	store := statestore.NewMemoryStore()
-
-	wc := &WorkflowConversation{
-		machine:      machine,
-		workflowSpec: spec,
-		stateStore:   store,
-		workflowID:   "wf-1",
-	}
-
-	wc.persistWorkflowContext()
-
-	meta, err := store.LoadMetadata(context.Background(), "wf-1")
-	require.NoError(t, err)
-	require.NotNil(t, meta[workflowCurrentKey])
-}
-
 // TestCommitDeferredTransition_NoTransExec is a no-op when the workflow
 // conversation has no transition executor wired up.
 func TestCommitDeferredTransition_NoTransExec(t *testing.T) {
@@ -1361,6 +1357,8 @@ func TestCommitDeferredTransition_NoPending(t *testing.T) {
 		transExec: workflow.NewTransitionExecutor(machine, spec),
 	}
 	require.NoError(t, wc.commitDeferredTransition())
+	assert.Equal(t, "a", wc.CurrentState(), "nothing pending, so the workflow does not move")
+	assert.Empty(t, wc.Context().History)
 }
 
 // TestCommitDeferredTransition_FiresErrorEvent verifies that a deferred
@@ -1601,10 +1599,32 @@ func TestEmitWorkflowError_NilSafe(t *testing.T) {
 	wc := &WorkflowConversation{}
 	wc.emitWorkflowError("", nil)             // no emitter, no error
 	wc.emitWorkflowError("", fmt.Errorf("x")) // no emitter, arbitrary error
+
 	bus := events.NewEventBus()
+	var mu sync.Mutex
+	var seen []events.EventType
+	bus.SubscribeAll(func(e *events.Event) {
+		mu.Lock()
+		seen = append(seen, e.Type)
+		mu.Unlock()
+	})
 	wc.emitter = events.NewEmitter(bus, "", "", "")
+	wc.machine = workflow.NewStateMachine(&workflow.Spec{Version: 2, Entry: "a",
+		States: map[string]*workflow.State{"a": {PromptTask: "t"}}})
 	wc.emitWorkflowError("", nil)             // nil error is ignored
 	wc.emitWorkflowError("", fmt.Errorf("x")) // unmatched error is ignored
+	// A matched error after them is the marker that delivery has caught up.
+	wc.emitWorkflowError("", &workflow.BudgetExhaustedError{Limit: workflow.BudgetLimitToolCalls, Max: 1})
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(seen) > 0
+	}, time.Second, time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []events.EventType{events.EventWorkflowBudgetExhausted}, seen,
+		"only the recognized workflow error produces an event")
 }
 
 // waitWithTimeout blocks on wg with a deadline. Fails the test if the
