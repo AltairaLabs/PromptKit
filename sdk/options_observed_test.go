@@ -59,16 +59,18 @@ func convLongTurns(t *testing.T, opts ...Option) ([]string, error) {
 }
 
 // WithTokenBudget keeps the request within the budget, counting what the user
-// said: "sliding" drops the oldest messages, "fail" refuses the turn.
+// said: "sliding" drops the oldest whole turns, so the history after the system
+// prompt opens on a user message; "fail" refuses the turn.
 func TestConv_TokenBudgetTruncatesTheRequest(t *testing.T) {
 	got, err := convLongTurns(t)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"You he", "turn 0", "ok", "turn 1", "ok", "turn 2", "ok", "turn 3"}, got,
 		"without a budget every turn is sent")
 
+	// The budget fits turn 1's reply but not turn 1 itself: the reply goes too.
 	got, err = convLongTurns(t, WithTokenBudget(120), WithTruncation("sliding"))
 	require.NoError(t, err)
-	assert.Equal(t, []string{"You he", "ok", "turn 2", "ok", "turn 3"}, got)
+	assert.Equal(t, []string{"You he", "turn 2", "ok", "turn 3"}, got)
 
 	_, err = convLongTurns(t, WithTokenBudget(120), WithTruncation("fail"))
 	require.Error(t, err)
