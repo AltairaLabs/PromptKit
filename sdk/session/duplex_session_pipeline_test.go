@@ -90,6 +90,7 @@ func TestDuplexSession_HandleToolCalls(t *testing.T) {
 			toolRegistry: registry,
 			stageInput:   make(chan stage.StreamElement, 10),
 			streamOutput: make(chan providers.StreamChunk, 10),
+			sessionCtx:   context.Background(),
 		}
 	}
 
