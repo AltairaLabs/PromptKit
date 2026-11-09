@@ -90,12 +90,12 @@ func TestSTTStage_EmptyTranscription(t *testing.T) {
 	assert.Equal(t, "hello", *results[0].Text)
 }
 
+// Audio shorter than MinAudioBytes is not transcribed: no transcription
+// reaches the output, so a fragment of noise never becomes a user turn.
 func TestSTTStage_SkipsSmallAudio(t *testing.T) {
-	transcribeCalled := false
 	mock := &mockSTTService{
 		transcribeFunc: func(_ context.Context, _ base.STTRequest) (base.STTResponse, error) {
-			transcribeCalled = true
-			return base.STTResponse{Text: "should not be called"}, nil
+			return base.STTResponse{Text: "transcribed noise"}, nil
 		},
 	}
 	config := stage.DefaultSTTStageConfig()
@@ -108,10 +108,7 @@ func TestSTTStage_SkipsSmallAudio(t *testing.T) {
 	}
 	results := runStage(t, s, inputs, 2*time.Second)
 
-	assert.False(t, transcribeCalled, "Transcribe should not be called for small audio")
-	for _, r := range results {
-		assert.Nil(t, r.Text, "No text output expected for small audio")
-	}
+	assert.Empty(t, results, "small audio must produce no element")
 }
 
 func TestSTTStage_PassesThroughNonAudio(t *testing.T) {

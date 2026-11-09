@@ -2186,7 +2186,10 @@ func (m *mockEmbeddingProvider) ID() string {
 }
 
 func TestContextBuilderStage_TruncateByRelevance(t *testing.T) {
-	t.Run("falls back to oldest when no embedding provider", func(t *testing.T) {
+	// Without an embedding provider the strategy cannot rank messages, but a
+	// conversation within the budget needs no ranking: it passes through
+	// whole, without the error an over-budget one gets.
+	t.Run("within budget needs no embedding provider", func(t *testing.T) {
 		policy := &ContextBuilderPolicy{
 			TokenBudget:      30,
 			ReserveForOutput: 5,
@@ -2206,14 +2209,13 @@ func TestContextBuilderStage_TruncateByRelevance(t *testing.T) {
 		err := stage.Process(context.Background(), input, output)
 		require.NoError(t, err)
 
-		// Should have truncated using oldest strategy
-		var results []types.Message
+		var results []string
 		for elem := range output {
 			if elem.Message != nil {
-				results = append(results, *elem.Message)
+				results = append(results, elem.Message.Content)
 			}
 		}
-		assert.LessOrEqual(t, len(results), 3)
+		assert.Equal(t, []string{"First message with long content", "Second", "Third"}, results)
 	})
 
 	t.Run("uses relevance with embedding provider", func(t *testing.T) {
@@ -2261,8 +2263,15 @@ func TestContextBuilderStage_TruncateByRelevance(t *testing.T) {
 		err := stage.Process(context.Background(), input, output)
 		require.NoError(t, err)
 
-		// Embedding provider should have been called
-		assert.Equal(t, 1, mockProvider.embedCalled)
+		// The message the query resembles is kept over the unrelated one,
+		// although the unrelated one is newer.
+		var kept []string
+		for elem := range output {
+			if elem.Message != nil {
+				kept = append(kept, elem.Message.Content)
+			}
+		}
+		assert.Equal(t, []string{"AI is interesting topic to discuss", "What is AI?"}, kept)
 	})
 
 	t.Run("protects system messages when configured", func(t *testing.T) {
