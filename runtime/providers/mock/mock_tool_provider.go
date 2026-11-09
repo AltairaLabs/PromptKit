@@ -179,9 +179,10 @@ func (m *ToolProvider) PredictWithTools(
 			"tool_call_count", len(toolCalls))
 
 		return providers.PredictionResponse{
-			Content:   mockTurn.Content,
-			ToolCalls: toolCalls,
-			CostInfo:  &costInfo,
+			Content:      mockTurn.Content,
+			ToolCalls:    toolCalls,
+			CostInfo:     &costInfo,
+			FinishReason: types.FinishReasonToolUse,
 		}, toolCalls, nil
 	}
 
@@ -191,8 +192,9 @@ func (m *ToolProvider) PredictWithTools(
 		"response_length", len(mockTurn.Content))
 
 	return providers.PredictionResponse{
-		Content:  mockTurn.Content,
-		CostInfo: &costInfo,
+		Content:      mockTurn.Content,
+		CostInfo:     &costInfo,
+		FinishReason: types.FinishReasonStop,
 	}, nil, nil
 }
 
@@ -340,9 +342,10 @@ func (m *ToolProvider) PredictStreamWithTools(
 		}
 
 		// Send final chunk with tool calls and finish reason
-		finishReason := finishReasonStop
+		// The canonical vocabulary the real providers normalize to.
+		finishReason := types.FinishReasonStop
 		if len(toolCalls) > 0 {
-			finishReason = turnTypeToolCalls
+			finishReason = types.FinishReasonToolUse
 		}
 		outChan <- providers.StreamChunk{
 			Content:      content,

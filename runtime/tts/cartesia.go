@@ -361,11 +361,17 @@ func (s *CartesiaService) mapFormat(format AudioFormat) cartesiaOutputFormat {
 			SampleRate: sampleRate44100,
 		}
 	default:
-		// Default to PCM raw format (also handles formatPCM explicitly)
+		// Default to PCM raw format (also handles formatPCM explicitly). Raw
+		// PCM has no header to carry its rate, so the requested rate is sent;
+		// mp3 and wav self-describe and keep their fixed rate.
+		rate := sampleRate24000
+		if format.SampleRate > 0 {
+			rate = format.SampleRate
+		}
 		return cartesiaOutputFormat{
 			Container:  "raw",
 			Encoding:   cartesiaEncodingPCMS16LE,
-			SampleRate: sampleRate24000,
+			SampleRate: rate,
 		}
 	}
 }

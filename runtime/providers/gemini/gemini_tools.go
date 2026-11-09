@@ -720,7 +720,7 @@ func (p *ToolProvider) parseToolResponse(
 	predictResp.Latency = time.Since(start)
 	predictResp.Raw = respBytes
 	predictResp.ToolCalls = toolCalls
-	predictResp.FinishReason = normalizeFinishReason(candidate.FinishReason)
+	predictResp.FinishReason = turnFinishReason(candidate.FinishReason, len(toolCalls) > 0)
 
 	return predictResp, toolCalls, nil
 }

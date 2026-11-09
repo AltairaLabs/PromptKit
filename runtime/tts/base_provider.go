@@ -38,6 +38,7 @@ func (s *OpenAIService) SynthesizeTTS(ctx context.Context, req base.TTSRequest) 
 	} else {
 		cfg.Format = FormatPCM16
 	}
+	applyRequestedSampleRate(&cfg, req)
 	reader, err := s.Synthesize(ctx, req.Text, cfg)
 	if err != nil {
 		return nil, err
@@ -73,6 +74,7 @@ func (s *ElevenLabsService) SynthesizeTTS(ctx context.Context, req base.TTSReque
 	} else {
 		cfg.Format = FormatMP3
 	}
+	applyRequestedSampleRate(&cfg, req)
 	reader, err := s.Synthesize(ctx, req.Text, cfg)
 	if err != nil {
 		return nil, err
@@ -108,9 +110,20 @@ func (s *CartesiaService) SynthesizeTTS(ctx context.Context, req base.TTSRequest
 	} else {
 		cfg.Format = FormatPCM16
 	}
+	applyRequestedSampleRate(&cfg, req)
 	reader, err := s.Synthesize(ctx, req.Text, cfg)
 	if err != nil {
 		return nil, err
 	}
 	return newReaderStream(reader, req.Text, s.Pricing(), s.ImplName()), nil
+}
+
+// applyRequestedSampleRate carries TTSRequest.SampleRate onto the synthesis
+// format. Raw PCM carries no header naming its rate, so a service that honors
+// Format.SampleRate for PCM must be told the rate the caller will play it at;
+// zero keeps the format's default.
+func applyRequestedSampleRate(cfg *SynthesisConfig, req base.TTSRequest) {
+	if req.SampleRate > 0 {
+		cfg.Format.SampleRate = req.SampleRate
+	}
 }

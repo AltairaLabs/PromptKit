@@ -175,8 +175,11 @@ func (p *Provider) PredictWithTools( // NOSONAR
 	}
 
 	choice := vllmResp.Choices[0]
-	predictResp.Content = choice.Message.Content.(string)
+	// A tool-call turn sends "content": null, so the content is not always a
+	// string; extractContentString reads null as "".
+	predictResp.Content = extractContentString(choice.Message.Content)
 	predictResp.Reasoning = reasoningFromContent(choice.Message.ReasoningContent)
+	predictResp.FinishReason = providers.NormalizeOpenAIFinishReason(choice.FinishReason)
 
 	// Calculate cost from the full wire usage.
 	costInfo := p.costFromUsage(vllmResp.Usage)
@@ -415,6 +418,9 @@ func (p *Provider) streamToolResponse(ctx context.Context, body io.ReadCloser, c
 			continue
 		}
 		if data == sseDoneMessage {
+			// No usage chunk came (include_usage unsupported): end with the
+			// finish reason alone.
+			p.sendToolTerminal(st, nil, chunks)
 			return
 		}
 
@@ -436,14 +442,38 @@ func (p *Provider) streamToolResponse(ctx context.Context, body io.ReadCloser, c
 	}
 	if !st.finished {
 		chunks <- st.errorChunk(fmt.Errorf("vllm stream ended before completion: %w", io.ErrUnexpectedEOF))
+		return
 	}
+	p.sendToolTerminal(st, nil, chunks)
 }
 
 // toolStreamState accumulates a tool stream's content and tool calls.
 type toolStreamState struct {
 	accumulated strings.Builder
 	toolCalls   []types.MessageToolCall
-	finished    bool
+	finished    bool   // finish_reason was seen
+	finish      string // the normalized finish reason
+	sent        bool   // the terminal chunk was sent
+}
+
+// sendToolTerminal sends the terminal chunk once, after finish_reason: the
+// content, the assembled tool calls and, when usage arrived, its cost.
+func (p *Provider) sendToolTerminal(st *toolStreamState, usage *vllmUsage, chunks chan<- providers.StreamChunk) {
+	if st.sent || !st.finished {
+		return
+	}
+	st.sent = true
+	finish := st.finish
+	terminal := providers.StreamChunk{
+		Content:      st.accumulated.String(),
+		FinishReason: &finish,
+		ToolCalls:    st.toolCalls,
+	}
+	if usage != nil {
+		costInfo := p.costFromUsage(*usage)
+		terminal.CostInfo = &costInfo
+	}
+	chunks <- terminal
 }
 
 func (st *toolStreamState) errorChunk(err error) providers.StreamChunk {
@@ -489,6 +519,11 @@ func (p *Provider) handleToolStreamChunk(
 	chunk *vllmStreamChunk, st *toolStreamState, chunks chan<- providers.StreamChunk,
 ) {
 	if len(chunk.Choices) == 0 {
+		// With stream_options.include_usage, usage arrives in its own chunk
+		// with no choices, after the one carrying finish_reason.
+		if chunk.Usage != nil {
+			p.sendToolTerminal(st, chunk.Usage, chunks)
+		}
 		return
 	}
 	choice := chunk.Choices[0]
@@ -506,22 +541,15 @@ func (p *Provider) handleToolStreamChunk(
 		st.applyToolCallDelta(&choice.Delta.ToolCalls[i])
 	}
 
-	// Check for finish reason. Normalize to the canonical vocabulary (matching
-	// the non-tool streaming and non-streaming paths) and, when the terminal
-	// chunk carries usage (requires stream_options.include_usage on the
-	// request, see buildRequest), attach the priced cost breakdown.
+	// Normalize the finish reason to the canonical vocabulary (matching the
+	// non-tool paths). The terminal chunk waits for the usage-only chunk that
+	// follows, unless this chunk carries usage itself (see buildRequest for
+	// stream_options.include_usage).
 	if choice.FinishReason != "" {
 		st.finished = true
-		finishReason := providers.NormalizeOpenAIFinishReason(choice.FinishReason)
-		terminal := providers.StreamChunk{
-			Content:      st.accumulated.String(),
-			FinishReason: &finishReason,
-			ToolCalls:    st.toolCalls,
-		}
+		st.finish = providers.NormalizeOpenAIFinishReason(choice.FinishReason)
 		if chunk.Usage != nil {
-			costInfo := p.costFromUsage(*chunk.Usage)
-			terminal.CostInfo = &costInfo
+			p.sendToolTerminal(st, chunk.Usage, chunks)
 		}
-		chunks <- terminal
 	}
 }

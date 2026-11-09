@@ -147,9 +147,10 @@ func (m *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	}
 
 	return providers.PredictionResponse{
-		Content:  responseText,
-		Parts:    parts,
-		CostInfo: &costBreakdown,
+		Content:      responseText,
+		Parts:        parts,
+		CostInfo:     &costBreakdown,
+		FinishReason: types.FinishReasonStop,
 	}, nil
 }
 

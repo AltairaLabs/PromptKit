@@ -18,3 +18,15 @@ func normalizeFinishReason(raw string) string {
 		return raw
 	}
 }
+
+// turnFinishReason is the canonical finish reason of a finished turn. Gemini
+// ends a turn that calls functions with STOP, where every other provider (and
+// Gemini's own Live and Interactions paths) reports tool_use, so a STOP turn
+// that carries tool calls is reported as tool_use.
+func turnFinishReason(raw string, hasToolCalls bool) string {
+	normalized := normalizeFinishReason(raw)
+	if hasToolCalls && normalized == types.FinishReasonStop {
+		return types.FinishReasonToolUse
+	}
+	return normalized
+}

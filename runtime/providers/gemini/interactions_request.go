@@ -94,6 +94,7 @@ func (p *ToolProvider) predictWithInteractions(
 
 	predictResp.Content = content
 	predictResp.Reasoning = reasoning
+	predictResp.FinishReason = finishReasonForInteraction(len(toolCalls) > 0)
 	if p.ShouldIncludeRawOutput() {
 		predictResp.Raw = respBytes
 	}

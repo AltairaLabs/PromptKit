@@ -219,6 +219,11 @@ func (s *ElevenLabsService) mapFormat(format AudioFormat) string {
 	case formatMP3:
 		return elevenLabsFormatMP3
 	case formatPCM:
+		// Raw PCM has no header to carry its rate, so the requested rate is
+		// sent (pcm_16000, pcm_22050, ...); mp3 self-describes.
+		if format.SampleRate > 0 {
+			return fmt.Sprintf("pcm_%d", format.SampleRate)
+		}
 		return elevenLabsFormatPCM
 	case "":
 		return elevenLabsFormatMP3
