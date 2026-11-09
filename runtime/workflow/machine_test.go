@@ -403,7 +403,10 @@ func TestConcurrentReadsDuringWrites(t *testing.T) {
 					}
 				}
 				if task := sm.CurrentPromptTask(); task != "write" && task != "check" {
-					errs <- "CurrentPromptTask = " + task
+					select {
+					case errs <- "CurrentPromptTask = " + task:
+					default:
+					}
 				}
 			}
 		}()
