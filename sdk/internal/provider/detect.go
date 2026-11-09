@@ -2,12 +2,14 @@
 package provider
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"strings"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/claude"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
@@ -80,6 +82,11 @@ func Detect(apiKey, model string) (providers.Provider, error) {
 		if providerName := inferProviderFromModel(model); providerName != "" {
 			// Try to get API key for the inferred provider
 			info := detectInfoForProvider(providerName)
+			if info == nil && apiKey != "" {
+				// The caller's key is for the vendor the model names, even
+				// when that vendor has no key in the environment.
+				info = &Info{Name: providerName}
+			}
 			if info != nil {
 				info.Model = model
 				if apiKey != "" {
@@ -200,6 +207,28 @@ func detectInfo() *Info {
 	return nil
 }
 
+// apiKeyCredential turns the detected or caller-supplied key into the
+// credential the provider authenticates with, in the header (or query
+// parameter) its vendor expects. It returns nil when there is no key, leaving
+// the provider to read its own environment variable.
+func apiKeyCredential(info *Info) providers.Credential {
+	if info.APIKey == "" {
+		return nil
+	}
+	providerType := strings.ToLower(info.Name)
+	if providerType == providerAnthropic {
+		providerType = "claude"
+	}
+	cred, err := credentials.Resolve(context.Background(), credentials.ResolverConfig{
+		ProviderType:     providerType,
+		CredentialConfig: &credentials.CredentialConfig{APIKey: info.APIKey},
+	})
+	if err != nil {
+		return nil
+	}
+	return cred
+}
+
 // createProvider creates a runtime provider from info.
 func createProvider(info *Info) (providers.Provider, error) {
 	defaults := providers.ProviderDefaults{
@@ -213,8 +242,14 @@ func createProvider(info *Info) (providers.Provider, error) {
 		DisablePromptCaching: false,
 	}
 
+	cred := apiKeyCredential(info)
 	switch strings.ToLower(info.Name) {
 	case "openai":
+		if cred != nil {
+			return openai.NewToolProviderWithCredential(
+				"openai", info.Model, "https://api.openai.com/v1", defaults, false, nil, cred, "", nil, nil,
+			), nil
+		}
 		return openai.NewToolProvider(
 			"openai",
 			info.Model,
@@ -225,6 +260,11 @@ func createProvider(info *Info) (providers.Provider, error) {
 			nil,
 		), nil
 	case "anthropic":
+		if cred != nil {
+			return claude.NewToolProviderWithCredential(
+				"anthropic", info.Model, "https://api.anthropic.com", defaults, false, cred, "", nil,
+			), nil
+		}
 		return claude.NewToolProvider(
 			"anthropic",
 			info.Model,
@@ -233,6 +273,11 @@ func createProvider(info *Info) (providers.Provider, error) {
 			false,
 		), nil
 	case "gemini", "google":
+		if cred != nil {
+			return gemini.NewToolProviderWithCredential(
+				"gemini", info.Model, "https://generativelanguage.googleapis.com/v1beta", defaults, false, cred, "", nil,
+			), nil
+		}
 		return gemini.NewToolProvider(
 			"gemini",
 			info.Model,

@@ -129,6 +129,16 @@ func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOpti
 		defer close(ch)
 		startTime := time.Now()
 
+		// Hold the conversation's turn until the stream completes or the
+		// caller's context ends (#2570).
+		release, err := c.turn.acquire(ctx, c)
+		if err != nil {
+			sendFinalErrorChunk(ctx, ch, StreamChunk{Error: err})
+			return
+		}
+		defer release()
+		ctx = c.turn.mark(ctx, c)
+
 		c.mu.RLock()
 		if err := c.requireUnary("Stream()"); err != nil {
 			c.mu.RUnlock()

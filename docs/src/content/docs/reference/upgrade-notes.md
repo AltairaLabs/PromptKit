@@ -302,6 +302,18 @@ order, so the error `OpenWorkflow` and `Open` return named a different first
 finding from run to run. The findings now come in state, event and member
 name order.
 
+### Conversation behavior fixes
+
+| If you | You will see | Change |
+|---|---|---|
+| Pass `WithAPIKey` (or `WithCredential`) without `WithProvider` | requests authenticate with that key, where they used the vendor's environment variable or no key | nothing |
+| Pass `WithAPIKey` with a Claude or Gemini `WithModel` and no environment key for that vendor | an Anthropic or Gemini provider, where the SDK built an OpenAI one asking for that model | nothing |
+| Call `Send`, `Stream`, `Resume`, `ResumeStream` or `Continue` on one conversation from several goroutines | the turns run one at a time, in arrival order; a waiting turn gives up when its context ends | nothing |
+| Start a turn on a conversation from inside one of its own turns, with the turn's context | `ErrReentrantTurn`, where the call shared the running turn's state | run the nested work on another conversation, or after the turn |
+| `Fork` a conversation opened without `WithStateStore` | the fork continues from the parent's history and records its own turns, where it started empty every turn | nothing |
+| Use `WithContextRetrieval`, or an embedding provider in a runtime config | older messages outside the window reach the request, once each and in conversation order, where retrieval never ran | nothing |
+| Check `errors.Is(err, sdk.ErrConversationNotFound)` after `Resume` or `ResumeDuplex` of an unknown ID | it holds for the memory and Redis stores, where they returned only `statestore.ErrNotFound` | nothing |
+
 ## v2.18.0
 
 ### Config errors, workflow findings and capability matching

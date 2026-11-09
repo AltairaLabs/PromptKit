@@ -883,6 +883,7 @@ func initInternalStateStore(conv *Conversation, cfg *config) error {
 
 	conv.mode = UnaryMode
 	conv.unarySession = unarySession
+	conv.sessionStore = store
 	return nil
 }
 
@@ -1242,6 +1243,11 @@ func resumeWith(
 	// Try to load existing state
 	ctx := context.Background()
 	state, err := cfg.stateStore.Load(ctx, conversationID)
+	if errors.Is(err, statestore.ErrNotFound) {
+		// The stores report a missing ID as statestore.ErrNotFound; callers
+		// test for ErrConversationNotFound, as documented, so both match.
+		return nil, fmt.Errorf("%w: %w", ErrConversationNotFound, err)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to load conversation state: %w", err)
 	}

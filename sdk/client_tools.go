@@ -335,6 +335,13 @@ func (c *Conversation) RejectClientTool(_ context.Context, callID, reason string
 func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
 	startTime := time.Now()
 
+	release, err := c.turn.acquire(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	ctx = c.turn.mark(ctx, c)
+
 	if err := c.validateSendState(); err != nil {
 		return nil, err
 	}
@@ -382,6 +389,14 @@ func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk {
 	go func() {
 		defer close(ch)
 		startTime := time.Now()
+
+		release, err := c.turn.acquire(ctx, c)
+		if err != nil {
+			ch <- StreamChunk{Error: err}
+			return
+		}
+		defer release()
+		ctx = c.turn.mark(ctx, c)
 
 		if err := c.validateSendState(); err != nil {
 			ch <- StreamChunk{Error: err}

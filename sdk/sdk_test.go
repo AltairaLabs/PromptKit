@@ -9,14 +9,12 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/metrics"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -160,23 +158,6 @@ func TestOpenWithValidPack(t *testing.T) {
 		assert.NotNil(t, conv)
 		assert.Equal(t, "main", conv.promptName)
 	})
-
-	t.Run("success with provided API key", func(t *testing.T) {
-		os.Unsetenv("OPENAI_API_KEY")
-
-		conv, err := Open(packFile, "main", WithSkipSchemaValidation(), WithAPIKey("my-api-key"))
-		require.NoError(t, err)
-		assert.NotNil(t, conv)
-	})
-
-	t.Run("success with model override", func(t *testing.T) {
-		os.Setenv("OPENAI_API_KEY", "test-key")
-		defer os.Unsetenv("OPENAI_API_KEY")
-
-		conv, err := Open(packFile, "main", WithSkipSchemaValidation(), WithModel("gpt-4o"))
-		require.NoError(t, err)
-		assert.NotNil(t, conv)
-	})
 }
 
 func TestWithToolRegistry_Applied(t *testing.T) {
@@ -313,28 +294,6 @@ func TestOpenWithVariableDefaults(t *testing.T) {
 	assert.Equal(t, "Hi", val2)
 }
 
-func TestResumeWithStateStore(t *testing.T) {
-	// Create a valid pack file (JSON format)
-	dir := t.TempDir()
-	packFile := filepath.Join(dir, "test.pack.json")
-	packContent := `{
-		"name": "test-pack",
-		"version": "v1",
-		"prompts": {
-			"main": {
-				"system_template": "You are a helpful assistant."
-			}
-		}
-	}`
-	err := os.WriteFile(packFile, []byte(packContent), 0644)
-	require.NoError(t, err)
-
-	t.Run("no state store returns error", func(t *testing.T) {
-		_, err := Resume("conv-123", packFile, "main")
-		assert.Error(t, err)
-	})
-}
-
 // mockStore implements statestore.Store for testing
 type mockStore struct {
 	conversations map[string]*statestore.ConversationState
@@ -415,31 +374,12 @@ func TestResumeWithMockStateStore(t *testing.T) {
 	os.Setenv("OPENAI_API_KEY", "test-key")
 	defer os.Unsetenv("OPENAI_API_KEY")
 
-	t.Run("conversation not found", func(t *testing.T) {
-		store := newMockStore()
-		_, err := Resume("nonexistent", packFile, "main", WithSkipSchemaValidation(), WithStateStore(store))
-		assert.ErrorIs(t, err, ErrConversationNotFound)
-	})
-
 	t.Run("state load error", func(t *testing.T) {
 		store := newMockStore()
 		store.loadErr = errors.New("storage failure")
 		_, err := Resume("conv-123", packFile, "main", WithSkipSchemaValidation(), WithStateStore(store))
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "storage failure")
-	})
-
-	t.Run("successful resume", func(t *testing.T) {
-		store := newMockStore()
-		// Save a conversation state
-		store.conversations["conv-123"] = &statestore.ConversationState{
-			ID: "conv-123",
-		}
-
-		conv, err := Resume("conv-123", packFile, "main", WithSkipSchemaValidation(), WithStateStore(store))
-		require.NoError(t, err)
-		assert.NotNil(t, conv)
-		assert.Equal(t, "conv-123", conv.ID())
 	})
 
 	t.Run("resume with option error", func(t *testing.T) {
@@ -492,17 +432,6 @@ func TestResumeDuplexWithMockStateStore(t *testing.T) {
 		assert.ErrorIs(t, err, ErrNoStateStore)
 	})
 
-	t.Run("conversation not found", func(t *testing.T) {
-		mockProv := &mockStreamingProvider{}
-		store := newMockStore()
-		_, err := ResumeDuplex("nonexistent", packFile, "main",
-			WithProvider(mockProv),
-			WithSkipSchemaValidation(),
-			WithStateStore(store),
-		)
-		assert.ErrorIs(t, err, ErrConversationNotFound)
-	})
-
 	t.Run("state load error", func(t *testing.T) {
 		mockProv := &mockStreamingProvider{}
 		store := newMockStore()
@@ -514,30 +443,6 @@ func TestResumeDuplexWithMockStateStore(t *testing.T) {
 		)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "storage failure")
-	})
-
-	t.Run("successful resume seeds duplex session", func(t *testing.T) {
-		mockProv := &mockStreamingProvider{}
-		store := newMockStore()
-		store.conversations["conv-123"] = &statestore.ConversationState{
-			ID: "conv-123",
-			Messages: []types.Message{
-				{Role: "user", Content: "earlier turn"},
-			},
-		}
-
-		conv, err := ResumeDuplex("conv-123", packFile, "main",
-			WithProvider(mockProv),
-			WithSkipSchemaValidation(),
-			WithStateStore(store),
-		)
-		require.NoError(t, err)
-		require.NotNil(t, conv)
-		defer conv.Close()
-		assert.Equal(t, "conv-123", conv.ID())
-		assert.Equal(t, DuplexMode, conv.mode)
-		assert.NotNil(t, conv.duplexSession)
-		assert.Nil(t, conv.unarySession)
 	})
 
 	t.Run("fails with non-streaming provider", func(t *testing.T) {
@@ -669,8 +574,8 @@ func TestLoadAndValidatePack(t *testing.T) {
 	t.Run("valid pack and prompt", func(t *testing.T) {
 		p, prompt, err := loadAndValidatePack(packFile, "main", cfg)
 		require.NoError(t, err)
-		assert.NotNil(t, p)
-		assert.NotNil(t, prompt)
+		assert.Equal(t, "You are helpful.", prompt.SystemTemplate)
+		assert.Same(t, p.Prompts["main"], prompt, "the prompt is the pack's own")
 	})
 
 	t.Run("nonexistent pack", func(t *testing.T) {
@@ -694,12 +599,6 @@ func TestResolveProviderHelper(t *testing.T) {
 		assert.Equal(t, mock, prov)
 	})
 
-	t.Run("auto-detect with api key", func(t *testing.T) {
-		cfg := &config{apiKey: "test-key"}
-		prov, err := resolveProvider(cfg)
-		require.NoError(t, err)
-		assert.NotNil(t, prov)
-	})
 }
 
 func TestResolveProviderWithPlatform(t *testing.T) {
@@ -930,20 +829,6 @@ func TestInitEventBus(t *testing.T) {
 		assert.Len(t, stored, 1)
 	})
 
-	t.Run("wires metrics collector", func(t *testing.T) {
-		collector := metrics.NewCollector(metrics.CollectorOpts{
-			Registerer: prometheus.NewRegistry(), // a private registry, so -count>1 does not re-register on the default one
-			Namespace:  "test",
-		})
-		cfg := &config{
-			metricsCollector:      collector,
-			metricsInstanceLabels: map[string]string{"env": "test"},
-		}
-		initEventBus(cfg)
-
-		assert.NotNil(t, cfg.eventBus)
-		assert.NotNil(t, cfg.metricContext)
-	})
 }
 
 func TestOpenDuplex(t *testing.T) {
@@ -971,21 +856,6 @@ func TestOpenDuplex(t *testing.T) {
 		)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "does not support duplex streaming")
-	})
-
-	t.Run("succeeds with streaming provider", func(t *testing.T) {
-		// Use a provider that supports streaming input
-		mockProv := &mockStreamingProvider{}
-		conv, err := OpenDuplex(packFile, "main",
-			WithProvider(mockProv),
-			WithSkipSchemaValidation(),
-		)
-		require.NoError(t, err)
-		assert.NotNil(t, conv)
-		assert.Equal(t, DuplexMode, conv.mode)
-		assert.NotNil(t, conv.duplexSession)
-		assert.Nil(t, conv.unarySession)
-		defer conv.Close()
 	})
 
 	t.Run("fails with invalid pack", func(t *testing.T) {

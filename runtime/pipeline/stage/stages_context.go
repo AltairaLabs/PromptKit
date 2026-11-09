@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
@@ -231,7 +232,9 @@ func (s *ContextAssemblyStage) retrieveRelevant(
 	var query string
 	for i := len(recentMsgs) - 1; i >= 0; i-- {
 		if recentMsgs[i].Role == roleUser {
-			query = recentMsgs[i].Content
+			// GetContent, not Content: a user message built from a Send keeps
+			// its text in Parts, so Content is empty and retrieval never ran.
+			query = recentMsgs[i].GetContent()
 			break
 		}
 	}
@@ -244,18 +247,29 @@ func (s *ContextAssemblyStage) retrieveRelevant(
 		return nil, fmt.Errorf("context assembly: index search failed: %w", err)
 	}
 
-	// Build a set of recent message turn indices for deduplication
-	// Use message timestamps as a proxy for turn identity since we have recent N messages
-	recentSet := make(map[int]bool)
-	// We don't have turn indices on messages directly, so use IndexResult.TurnIndex for dedup
-	// The hot window is the last N messages — their turn indices start from totalCount - N
-
-	var retrieved []types.Message
+	// Results index messages by their position in the transcript. The hot
+	// window holds the last len(recentMsgs) positions, which are already sent,
+	// so a result from there would repeat a message.
+	windowStart := -1
+	if reader, ok := s.config.StateStoreConfig.Store.(statestore.MessageReader); ok {
+		if total, countErr := reader.MessageCount(ctx, convID); countErr == nil {
+			windowStart = total - len(recentMsgs)
+		}
+	}
+	kept := make([]statestore.IndexResult, 0, len(results))
 	for i := range results {
-		if recentSet[results[i].TurnIndex] {
+		if windowStart >= 0 && results[i].TurnIndex >= windowStart {
 			continue
 		}
-		msg := results[i].Message
+		kept = append(kept, results[i])
+	}
+	// Results arrive by relevance; the model reads them as conversation, so
+	// they go back in the order they were said.
+	sort.SliceStable(kept, func(a, b int) bool { return kept[a].TurnIndex < kept[b].TurnIndex })
+
+	retrieved := make([]types.Message, 0, len(kept))
+	for i := range kept {
+		msg := kept[i].Message
 		msg.Source = "retrieved"
 		retrieved = append(retrieved, msg)
 	}
