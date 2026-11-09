@@ -3,6 +3,7 @@ package skills
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -203,9 +204,17 @@ func TestNewTagSelector_Deduplicates(t *testing.T) {
 	}
 }
 
-// --- Interface compliance ---
+// ModelDrivenSelector, given to ExecutorConfig.Selector, leaves the choice to
+// the model: every skill stays selectable and listed in the index.
+func TestExecutorConfig_ModelDrivenSelectorSurfacesEverySkill(t *testing.T) {
+	e := newTaggedExecutor(t, ExecutorConfig{Selector: NewModelDrivenSelector()})
 
-func TestInterfaceCompliance(t *testing.T) {
-	var _ SkillSelector = (*ModelDrivenSelector)(nil)
-	var _ SkillSelector = (*TagSelector)(nil)
+	// nil is SelectSkillsIn's "nothing was narrowed away".
+	if got := e.SelectSkillsIn(context.Background(), "help me refactor", NewActiveSet()); got != nil {
+		t.Fatalf("SelectSkillsIn = %v, want nil (no narrowing)", got)
+	}
+	index := e.SkillIndexFiltered(context.Background(), "help me refactor", "")
+	if !strings.Contains(index, "alpha") || !strings.Contains(index, "beta") {
+		t.Errorf("index should list both skills:\n%s", index)
+	}
 }

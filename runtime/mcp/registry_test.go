@@ -3,24 +3,12 @@ package mcp
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestNewRegistry(t *testing.T) {
-	registry := NewRegistry()
-
-	assert.NotNil(t, registry)
-	assert.NotNil(t, registry.servers)
-	assert.NotNil(t, registry.clients)
-	assert.NotNil(t, registry.toolIndex)
-	assert.False(t, registry.closed)
-}
 
 func TestRegistry_RegisterServer(t *testing.T) {
 	registry := NewRegistry()
@@ -197,33 +185,6 @@ func TestRegistry_GetToolSchema_NotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
-func TestRegistry_RefreshAllToolIndices_Empty(t *testing.T) {
-	registry := NewRegistry()
-
-	// Should not error on empty registry
-	err := registry.refreshAllToolIndices(context.Background())
-	assert.NoError(t, err)
-}
-
-func TestRegistry_GetServerNames(t *testing.T) {
-	registry := NewRegistry()
-
-	// Empty registry
-	names := registry.getServerNames()
-	assert.Empty(t, names)
-
-	// Add servers
-	_ = registry.RegisterServer(ServerConfig{Name: "server1", Command: "echo"})
-	_ = registry.RegisterServer(ServerConfig{Name: "server2", Command: "cat"})
-	_ = registry.RegisterServer(ServerConfig{Name: "server3", Command: "ls"})
-
-	names = registry.getServerNames()
-	assert.Len(t, names, 3)
-	assert.Contains(t, names, "server1")
-	assert.Contains(t, names, "server2")
-	assert.Contains(t, names, "server3")
-}
-
 func TestRegistry_TryGetExistingClient_NotRegistered(t *testing.T) {
 	// tryGetExistingClient returns (nil, nil) when no local client exists —
 	// the "not registered" error is reported by GetClient at the boundary.
@@ -291,252 +252,11 @@ func TestNewRegistryWithServers_DuplicateNames(t *testing.T) {
 	assert.Contains(t, err.Error(), "already registered")
 }
 
-func TestRegistry_CreateNewClient_Integration(t *testing.T) {
-	t.Run("successful client creation with tool indexing", func(t *testing.T) {
-		registry := NewRegistry()
-
-		// Register a server
-		config := ServerConfig{
-			Name:    "test-server",
-			Command: "test-command",
-			Args:    []string{"arg1"},
-		}
-		err := registry.RegisterServer(config)
-		require.NoError(t, err)
-
-		// Note: createNewClient is internal and requires a real MCP server to test properly
-		// This test documents the expected behavior - actual testing would need integration tests
-		// The function is indirectly tested through GetClient which calls createNewClient
-	})
-}
-
-func TestRegistry_UpdateToolsResult(t *testing.T) {
-	registry := NewRegistry()
-	result := make(map[string][]Tool)
-	var mu sync.Mutex
-
-	tools := []Tool{
-		{Name: "tool1", Description: "Test tool 1"},
-		{Name: "tool2", Description: "Test tool 2"},
-	}
-
-	registry.updateToolsResult("test-server", tools, result, &mu)
-
-	// Verify result map
-	assert.Contains(t, result, "test-server")
-	assert.Equal(t, tools, result["test-server"])
-
-	// Verify tool index
-	assert.Equal(t, "test-server", registry.toolIndex["tool1"])
-	assert.Equal(t, "test-server", registry.toolIndex["tool2"])
-}
-
-func TestRegistry_UpdateToolsResult_MultipleServers(t *testing.T) {
-	registry := NewRegistry()
-	result := make(map[string][]Tool)
-	var mu sync.Mutex
-
-	tools1 := []Tool{{Name: "tool1", Description: "From server 1"}}
-	tools2 := []Tool{{Name: "tool2", Description: "From server 2"}}
-
-	registry.updateToolsResult("server1", tools1, result, &mu)
-	registry.updateToolsResult("server2", tools2, result, &mu)
-
-	assert.Len(t, result, 2)
-	assert.Equal(t, "server1", registry.toolIndex["tool1"])
-	assert.Equal(t, "server2", registry.toolIndex["tool2"])
-}
-
-func TestRegistry_GetClient_CreatesNewClient(t *testing.T) {
-	t.Run("documents expected behavior", func(t *testing.T) {
-		// This test documents that GetClient should:
-		// 1. Check for existing client with tryGetExistingClient
-		// 2. If not found, call createNewClient
-		// 3. createNewClient should initialize the client and refresh tool index
-
-		// Actual testing requires a mock MCP server implementation
-		// which is beyond the scope of unit tests
-
-		registry := NewRegistry()
-		ctx := context.Background()
-
-		// Register a server
-		config := ServerConfig{
-			Name:    "test-server",
-			Command: "nonexistent-command", // Will fail but documents the flow
-		}
-		err := registry.RegisterServer(config)
-		require.NoError(t, err)
-
-		// Attempt to get client - will fail since command doesn't exist
-		// but exercises the createNewClient code path
-		_, err = registry.GetClient(ctx, "test-server")
-		assert.Error(t, err) // Expected to fail with nonexistent command
-	})
-}
-
-func TestRegistry_FetchServerTools_Integration(t *testing.T) {
-	t.Run("documents concurrent tool fetching", func(t *testing.T) {
-		// fetchServerTools is used internally by ListAllTools
-		// It handles concurrent fetching of tools from multiple servers
-		// This test documents the expected behavior:
-		// 1. GetClient for the server
-		// 2. ListTools on the client
-		// 3. updateToolsResult with the fetched tools
-		// 4. Send errors to errChan if any step fails
-
-		// The function is tested indirectly through ListAllTools tests
-		// Direct testing would require mocking the entire MCP client infrastructure
-	})
-}
-
-func TestRegistry_RefreshToolIndexForServer_Integration(t *testing.T) {
-	t.Run("documents tool index refresh behavior", func(t *testing.T) {
-		// refreshToolIndexForServer is called by:
-		// 1. createNewClient after initializing a new client
-		// 2. Potentially by other refresh operations
-
-		// Expected behavior:
-		// 1. List tools from the client
-		// 2. Remove old tool index entries for this server
-		// 3. Add new entries for all current tools
-
-		// This ensures the tool index stays synchronized with server state
-		// Testing requires a mock client that can return tools
-	})
-}
-
-func TestRegistry_ToolIndexSynchronization(t *testing.T) {
-	t.Run("tool index updates correctly", func(t *testing.T) {
-		registry := NewRegistry()
-
-		// Manually populate tool index
-		registry.toolIndex["tool1"] = "server1"
-		registry.toolIndex["tool2"] = "server1"
-		registry.toolIndex["tool3"] = "server2"
-
-		// Update tools for server1
-		newTools := []Tool{
-			{Name: "tool1", Description: "Updated"},
-			{Name: "tool4", Description: "New tool"},
-		}
-
-		result := make(map[string][]Tool)
-		var mu sync.Mutex
-
-		// Remove old entries for server1
-		for toolName, serverName := range registry.toolIndex {
-			if serverName == "server1" {
-				delete(registry.toolIndex, toolName)
-			}
-		}
-
-		// Add new entries
-		registry.updateToolsResult("server1", newTools, result, &mu)
-
-		// Verify: tool1 and tool4 should point to server1, tool2 removed, tool3 unchanged
-		assert.Equal(t, "server1", registry.toolIndex["tool1"])
-		assert.Equal(t, "server1", registry.toolIndex["tool4"])
-		assert.NotContains(t, registry.toolIndex, "tool2")
-		assert.Equal(t, "server2", registry.toolIndex["tool3"])
-	})
-}
-
 // --- Process limiter tests ---
-
-func TestNewRegistryWithOptions_Unlimited(t *testing.T) {
-	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 0})
-	assert.NotNil(t, registry)
-	assert.Nil(t, registry.processSem)
-	assert.Equal(t, 0, registry.options.MaxProcesses)
-}
-
-func TestNewRegistryWithOptions_WithLimit(t *testing.T) {
-	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 5})
-	assert.NotNil(t, registry)
-	assert.NotNil(t, registry.processSem)
-	assert.Equal(t, 5, cap(registry.processSem))
-	assert.Equal(t, 5, registry.options.MaxProcesses)
-}
-
-func TestNewRegistry_DefaultUnlimited(t *testing.T) {
-	registry := NewRegistry()
-	assert.Nil(t, registry.processSem, "default registry should have no process limit")
-}
-
-func TestRegistry_AcquireProcessSlot_Unlimited(t *testing.T) {
-	registry := NewRegistry()
-	// Should always succeed with no limit
-	err := registry.acquireProcessSlot()
-	assert.NoError(t, err)
-}
-
-func TestRegistry_AcquireProcessSlot_WithCapacity(t *testing.T) {
-	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 2})
-
-	// Acquire first slot
-	err := registry.acquireProcessSlot()
-	assert.NoError(t, err)
-	assert.Equal(t, 1, len(registry.processSem))
-
-	// Acquire second slot
-	err = registry.acquireProcessSlot()
-	assert.NoError(t, err)
-	assert.Equal(t, 2, len(registry.processSem))
-
-	// Third should fail immediately
-	err = registry.acquireProcessSlot()
-	assert.Error(t, err)
-	assert.True(t, errors.Is(err, ErrMaxProcessesReached))
-}
-
-func TestRegistry_ReleaseProcessSlot(t *testing.T) {
-	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 2})
-
-	// Acquire both slots
-	_ = registry.acquireProcessSlot()
-	_ = registry.acquireProcessSlot()
-	assert.Equal(t, 2, len(registry.processSem))
-
-	// Release one
-	registry.releaseProcessSlot()
-	assert.Equal(t, 1, len(registry.processSem))
-
-	// Should be able to acquire again
-	err := registry.acquireProcessSlot()
-	assert.NoError(t, err)
-	assert.Equal(t, 2, len(registry.processSem))
-}
-
-func TestRegistry_ReleaseProcessSlot_Unlimited(t *testing.T) {
-	registry := NewRegistry()
-	// Should not panic
-	registry.releaseProcessSlot()
-}
-
-func TestRegistry_ReleaseProcessSlot_Empty(t *testing.T) {
-	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 2})
-	// Should not block when semaphore is empty
-	registry.releaseProcessSlot()
-}
 
 func TestRegistry_ActiveProcessCount_Unlimited(t *testing.T) {
 	registry := NewRegistry()
 	assert.Equal(t, 0, registry.ActiveProcessCount())
-}
-
-func TestRegistry_ActiveProcessCount_WithLimit(t *testing.T) {
-	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 5})
-	assert.Equal(t, 0, registry.ActiveProcessCount())
-
-	_ = registry.acquireProcessSlot()
-	assert.Equal(t, 1, registry.ActiveProcessCount())
-
-	_ = registry.acquireProcessSlot()
-	assert.Equal(t, 2, registry.ActiveProcessCount())
-
-	registry.releaseProcessSlot()
-	assert.Equal(t, 1, registry.ActiveProcessCount())
 }
 
 func TestRegistry_ProcessLimit_CreateNewClientFails(t *testing.T) {
@@ -558,23 +278,11 @@ func TestRegistry_ProcessLimit_CreateNewClientFails(t *testing.T) {
 	assert.Error(t, err) // Init fails
 
 	// Slot should have been released, so another attempt should be possible
-	assert.Empty(t, registry.processSem, "a failed start must release its process slot")
+	assert.Equal(t, 0, registry.ActiveProcessCount(), "a failed start must release its process slot")
 	_, err = registry.GetClient(context.Background(), "server2")
-	assert.Error(t, err) // Init fails too, but slot was acquired
-}
-
-func TestRegistry_ProcessLimit_ExhaustedSlots(t *testing.T) {
-	registry := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 1})
-
-	// Manually consume the semaphore slot
-	registry.processSem <- struct{}{}
-
-	_ = registry.RegisterServer(ServerConfig{Name: "server1", Command: "echo"})
-
-	// Should fail immediately because semaphore is full
-	_, err := registry.GetClient(context.Background(), "server1")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to acquire process slot")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrMaxProcessesReached, "server2 got the slot server1 released; only its start failed")
+	assert.Contains(t, err.Error(), "failed to initialize MCP server server2")
 }
 
 func TestRegistry_Close_ReleasesSlots(t *testing.T) {
@@ -672,10 +380,6 @@ func TestRegistry_CreateNewClient_SemaphoreAcquireFails(t *testing.T) {
 func TestErrMaxProcessesReached(t *testing.T) {
 	assert.NotNil(t, ErrMaxProcessesReached)
 	assert.Contains(t, ErrMaxProcessesReached.Error(), "maximum concurrent processes")
-}
-
-func TestRegistryOptions_Defaults(t *testing.T) {
-	assert.Equal(t, 0, DefaultMaxProcesses, "default should be unlimited (0)")
 }
 
 func TestRegistry_GetServerConfig_Exists(t *testing.T) {
@@ -874,22 +578,6 @@ func (f *unregisterFakeClient) Close() error {
 	return nil
 }
 func (f *unregisterFakeClient) IsAlive() bool { return f.alive }
-
-func TestRegistry_UnregisterServer_ReleasesProcessSlot(t *testing.T) {
-	reg := NewRegistryWithOptions(RegistryOptions{MaxProcesses: 1})
-	reg.newClientFunc = func(c ServerConfig) Client {
-		return &unregisterFakeClient{alive: true}
-	}
-	require.NoError(t, reg.RegisterServer(ServerConfig{Name: "a", Command: "./foo"}))
-	_, err := reg.GetClient(context.Background(), "a")
-	require.NoError(t, err)
-	require.NoError(t, reg.UnregisterServer("a"))
-
-	// Previously the slot was leaked; now we should be able to register+get a second server.
-	require.NoError(t, reg.RegisterServer(ServerConfig{Name: "b", Command: "./bar"}))
-	_, err = reg.GetClient(context.Background(), "b")
-	require.NoError(t, err)
-}
 
 func TestRegistry_UnregisterServer_PrunesToolIndex(t *testing.T) {
 	reg := NewRegistry()

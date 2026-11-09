@@ -99,7 +99,15 @@ func TestGetEmbeddedSchema(t *testing.T) {
 func TestGetEmbeddedSchemaVersion(t *testing.T) {
 	version, err := GetEmbeddedSchemaVersion()
 	require.NoError(t, err)
-	assert.NotEmpty(t, version)
+	assert.Regexp(t, `^\d+\.\d+\.\d+`, version, "the mirrored spec release carries a semver version")
+
+	// The version is the schema's own "version" field, whatever release is embedded.
+	orig := embeddedSchema
+	t.Cleanup(func() { embeddedSchema = orig })
+	embeddedSchema = `{"version":"9.9.9","title":"x"}`
+	version, err = GetEmbeddedSchemaVersion()
+	require.NoError(t, err)
+	assert.Equal(t, "9.9.9", version)
 }
 
 func TestGetEmbeddedSchemaVersion_ParseError(t *testing.T) {

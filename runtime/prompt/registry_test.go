@@ -168,23 +168,21 @@ func TestRegistry_GetLoadedFragments(t *testing.T) {
 	})
 }
 
-func TestRegistry_ClearCache(t *testing.T) {
-	reg := createTestRegistry()
-	reg.promptCache["task1"] = &Config{Spec: Spec{TaskType: "task1"}}
-	reg.fragmentResolver.fragmentCache["name:fragment1"] = &Fragment{Content: "test"}
-
-	reg.ClearCache()
-
-	assert.Empty(t, reg.promptCache)
-	assert.Empty(t, reg.fragmentResolver.fragmentCache)
-}
-
-func TestNewRegistryWithRepository(t *testing.T) {
-	// Create a mock repository (nil is fine for this test)
+// A registry made without a repository serves only what RegisterConfig puts in
+// it: RegisterConfig documents the repository as optional, so a registered
+// prompt must load and render, and an unregistered one must not.
+func TestNewRegistryWithRepository_NilRepositoryServesRegisteredConfigs(t *testing.T) {
 	reg := NewRegistryWithRepository(nil)
+	require.NoError(t, reg.RegisterConfig("greet", &Config{Spec: Spec{
+		SystemTemplate: "Hello {{name}}.",
+		Variables:      []VariableMetadata{{Name: "name", Required: true}},
+	}}))
 
-	require.NotNil(t, reg)
-	// Private fields exist but cannot be tested directly
+	got := reg.LoadWithVars("greet", map[string]string{"name": "Ada"}, "")
+	require.NotNil(t, got, "a registered prompt must load without a repository")
+	assert.Equal(t, "Hello Ada.", got.SystemPrompt)
+
+	assert.Nil(t, reg.Load("missing"))
 }
 
 // Test removed: NewRegistryWithMappings relied on configMappings field that was deleted in config-first refactoring

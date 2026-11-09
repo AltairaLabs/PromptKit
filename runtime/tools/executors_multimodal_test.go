@@ -17,8 +17,73 @@ import (
 
 func strPtr(s string) *string { return &s }
 
-func TestMockStaticExecutor_ImplementsMultimodalExecutor(t *testing.T) {
-	var _ tools.MultimodalExecutor = tools.NewMockStaticExecutor()
+// base64File returns the base64 encoding of the file at path.
+func base64File(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.StdEncoding.EncodeToString(data)
+}
+
+// TestRegistryExecute_MockToolReturnsMockParts runs mock tools with MockParts
+// through the registry, the way a conversation calls them, and checks that the
+// parts reach the tool result with file_path media resolved to base64. The
+// registry only sees parts when the mock executor is a MultimodalExecutor.
+func TestRegistryExecute_MockToolReturnsMockParts(t *testing.T) {
+	imgPath := filepath.Join("testdata", "sample-chart.png")
+	wantData := base64File(t, imgPath)
+
+	for _, tc := range []struct {
+		name     string
+		desc     tools.ToolDescriptor
+		args     string
+		wantJSON string
+	}{
+		{
+			name:     "static mock",
+			desc:     tools.ToolDescriptor{Name: "chart_static", Mode: "mock", MockResult: json.RawMessage(`{"ok":true}`)},
+			args:     `{}`,
+			wantJSON: `{"ok":true}`,
+		},
+		{
+			name:     "scripted mock",
+			desc:     tools.ToolDescriptor{Name: "chart_scripted", Mode: "mock", MockTemplate: `{"metric":"{{.metric}}"}`},
+			args:     `{"metric":"revenue"}`,
+			wantJSON: `{"metric":"revenue"}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			desc := tc.desc
+			desc.MockParts = []types.ContentPart{
+				{Type: types.ContentTypeText, Text: strPtr("Chart generated")},
+				{Type: types.ContentTypeImage, Media: &types.MediaContent{
+					FilePath: strPtr(imgPath), MIMEType: types.MIMETypeImagePNG,
+				}},
+			}
+			reg := tools.NewRegistry()
+			require.NoError(t, reg.Register(&desc))
+
+			res, err := reg.Execute(context.Background(), desc.Name, json.RawMessage(tc.args))
+			require.NoError(t, err)
+			require.Empty(t, res.Error)
+			assert.JSONEq(t, tc.wantJSON, string(res.Result))
+			require.Len(t, res.Parts, 2)
+			assert.Equal(t, "Chart generated", *res.Parts[0].Text)
+			require.NotNil(t, res.Parts[1].Media)
+			require.NotNil(t, res.Parts[1].Media.Data)
+			assert.Equal(t, wantData, *res.Parts[1].Media.Data)
+			assert.Nil(t, res.Parts[1].Media.FilePath)
+
+			async, err := reg.ExecuteAsync(context.Background(), desc.Name, json.RawMessage(tc.args))
+			require.NoError(t, err)
+			assert.Equal(t, tools.ToolStatusComplete, async.Status)
+			assert.JSONEq(t, tc.wantJSON, string(async.Content))
+			require.Len(t, async.Parts, 2)
+			assert.Equal(t, wantData, *async.Parts[1].Media.Data)
+		})
+	}
 }
 
 func TestMockStaticExecutor_ExecuteMultimodal_NoParts(t *testing.T) {
@@ -178,8 +243,10 @@ func TestMockStaticExecutor_ExecuteMultimodal_ExecuteError(t *testing.T) {
 		},
 	}
 
-	_, _, err := exec.ExecuteMultimodal(context.Background(), desc, json.RawMessage(`{}`))
-	require.Error(t, err)
+	result, parts, err := exec.ExecuteMultimodal(context.Background(), desc, json.RawMessage(`{}`))
+	require.ErrorIs(t, err, tools.ErrMockExecutorOnly)
+	assert.Nil(t, result)
+	assert.Nil(t, parts, "a failed call must not return the mock parts")
 }
 
 func TestResolveMockParts_EmptySlice(t *testing.T) {
@@ -354,10 +421,6 @@ func TestToolDescriptor_MockParts_JSONRoundTrip(t *testing.T) {
 	assert.Equal(t, "testdata/sample-chart.png", *decoded.MockParts[1].Media.FilePath)
 }
 
-func TestMockScriptedExecutor_ImplementsMultimodalExecutor(t *testing.T) {
-	var _ tools.MultimodalExecutor = tools.NewMockScriptedExecutor()
-}
-
 func TestMockScriptedExecutor_ExecuteMultimodal_NoParts(t *testing.T) {
 	exec := tools.NewMockScriptedExecutor()
 	desc := &tools.ToolDescriptor{
@@ -401,7 +464,10 @@ func TestMockScriptedExecutor_ExecuteMultimodal_WithParts(t *testing.T) {
 	require.Len(t, parts, 2)
 	assert.Equal(t, types.ContentTypeText, parts[0].Type)
 	assert.Equal(t, types.ContentTypeImage, parts[1].Type)
-	assert.NotNil(t, parts[1].Media.Data, "file_path should be resolved to base64 data")
+	imgData, err := os.ReadFile(imgPath)
+	require.NoError(t, err)
+	require.NotNil(t, parts[1].Media.Data, "file_path should be resolved to base64 data")
+	assert.Equal(t, base64.StdEncoding.EncodeToString(imgData), *parts[1].Media.Data)
 	assert.Nil(t, parts[1].Media.FilePath, "file_path should be cleared after resolution")
 }
 
@@ -416,7 +482,7 @@ func TestMockScriptedExecutor_ExecuteMultimodal_NonMockMode(t *testing.T) {
 	_, _, err := exec.ExecuteMultimodal(
 		context.Background(), desc, json.RawMessage(`{}`),
 	)
-	assert.Error(t, err)
+	assert.ErrorIs(t, err, tools.ErrMockExecutorOnly)
 }
 
 func TestToolDescriptor_MockParts_Empty(t *testing.T) {
