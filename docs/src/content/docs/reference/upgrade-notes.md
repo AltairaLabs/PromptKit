@@ -371,6 +371,7 @@ Nothing changes for callers.
 | Start a turn on a conversation from an `OnTool` handler of that conversation, or with an unrelated context | the call waits for the running turn, which waits for the handler | use `OnToolCtx` and pass its context, or run the work after the turn |
 | `Fork` a conversation opened without `WithStateStore` | the fork continues from the parent's history and records its own turns, where it started empty every turn | nothing |
 | Use `WithContextRetrieval`, or an embedding provider in a runtime config | older messages outside the window reach the request, once each and in conversation order, where retrieval never ran | nothing |
+| Use `WithContextRetrieval` and send a message | the older messages retrieved are the ones relevant to that message, where retrieval searched with the previous turn's | nothing |
 | Check `errors.Is(err, sdk.ErrConversationNotFound)` after `Resume` or `ResumeDuplex` of an unknown ID | it holds for the memory and Redis stores, where they returned only `statestore.ErrNotFound` | nothing |
 | Pass `WithUserID` with a state store | a new conversation's persisted state carries the user ID, where the ID reached events only; a resumed conversation's state is left as it was | nothing |
 | Call `SetVar` from another goroutine while a turn runs | the call returns and the next turn renders it, where the two could deadlock | nothing |
