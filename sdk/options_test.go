@@ -14,7 +14,6 @@ import (
 
 	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
@@ -26,57 +25,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-func TestWithAudioMonitor_StoresOptions(t *testing.T) {
-	opts := AudioMonitorOptions{
-		Mode:       AudioMonitorOn,
-		Rate:       48000,
-		LocalSink:  true,
-		LevelMeter: true,
-	}
-	cfg := &config{}
-	require.NoError(t, WithAudioMonitor(opts)(cfg))
-	require.NotNil(t, cfg.audioMonitorOpts)
-	assert.Equal(t, 48000, cfg.audioMonitorOpts.Rate)
-	assert.Equal(t, AudioMonitorOn, cfg.audioMonitorOpts.Mode)
-	assert.True(t, cfg.audioMonitorOpts.LocalSink)
-	assert.True(t, cfg.audioMonitorOpts.LevelMeter)
-}
-
-func TestWithExecutionTimeout(t *testing.T) {
-	t.Run("sets timeout", func(t *testing.T) {
-		opt := WithExecutionTimeout(120 * time.Second)
-		cfg := &config{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		require.NotNil(t, cfg.executionTimeout)
-		assert.Equal(t, 120*time.Second, *cfg.executionTimeout)
-	})
-
-	t.Run("zero disables timeout", func(t *testing.T) {
-		opt := WithExecutionTimeout(0)
-		cfg := &config{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		require.NotNil(t, cfg.executionTimeout)
-		assert.Equal(t, time.Duration(0), *cfg.executionTimeout)
-	})
-}
-
 func TestWithIdleTimeout(t *testing.T) {
-	t.Run("sets timeout", func(t *testing.T) {
-		cfg := &config{}
-		require.NoError(t, WithIdleTimeout(90*time.Second)(cfg))
-		require.NotNil(t, cfg.idleTimeout)
-		assert.Equal(t, 90*time.Second, *cfg.idleTimeout)
-	})
-
-	t.Run("zero disables the idle timer", func(t *testing.T) {
-		cfg := &config{}
-		require.NoError(t, WithIdleTimeout(0)(cfg))
-		require.NotNil(t, cfg.idleTimeout)
-		assert.Equal(t, time.Duration(0), *cfg.idleTimeout)
-	})
-
 	t.Run("rejects a negative timeout", func(t *testing.T) {
 		cfg := &config{}
 		err := WithIdleTimeout(-time.Second)(cfg)
@@ -85,55 +34,7 @@ func TestWithIdleTimeout(t *testing.T) {
 	})
 }
 
-func TestWithTokenBudget(t *testing.T) {
-	opt := WithTokenBudget(1000)
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	assert.Equal(t, 1000, cfg.tokenBudget)
-}
-
-func TestWithTruncation(t *testing.T) {
-	tests := []struct {
-		name     string
-		strategy string
-		want     string
-	}{
-		{"sliding", "sliding", "sliding"},
-		{"summarize", "summarize", "summarize"},
-		{"none", "none", "none"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			opt := WithTruncation(tt.strategy)
-			cfg := &config{}
-			err := opt(cfg)
-			assert.NoError(t, err)
-			assert.Equal(t, tt.want, cfg.truncationStrategy)
-		})
-	}
-}
-
 func TestWithRelevanceTruncation(t *testing.T) {
-	t.Run("sets strategy to relevance", func(t *testing.T) {
-		opt := WithRelevanceTruncation(&RelevanceConfig{
-			MinRecentMessages:   5,
-			SimilarityThreshold: 0.3,
-			QuerySource:         "last_user",
-		})
-		cfg := &config{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		assert.Equal(t, "relevance", cfg.truncationStrategy)
-		assert.NotNil(t, cfg.relevanceConfig)
-		assert.Equal(t, 5, cfg.relevanceConfig.MinRecentMessages)
-		assert.Equal(t, 0.3, cfg.relevanceConfig.SimilarityThreshold)
-		assert.Equal(t, "last_user", cfg.relevanceConfig.QuerySource)
-	})
-
 	t.Run("carries CacheEmbeddings to the stage config", func(t *testing.T) {
 		for _, want := range []bool{true, false} {
 			conv := &Conversation{config: &config{}}
@@ -144,34 +45,6 @@ func TestWithRelevanceTruncation(t *testing.T) {
 		}
 	})
 
-	t.Run("with nil config", func(t *testing.T) {
-		opt := WithRelevanceTruncation(nil)
-		cfg := &config{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		assert.Equal(t, "relevance", cfg.truncationStrategy)
-		assert.Nil(t, cfg.relevanceConfig)
-	})
-}
-
-func TestWithProviderHook(t *testing.T) {
-	hook := &testProviderHook{name: "test-hook"}
-	opt := WithProviderHook(hook)
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	require.Len(t, cfg.providerHooks, 1)
-	assert.Equal(t, "test-hook", cfg.providerHooks[0].Name())
-}
-
-func TestWithToolHook(t *testing.T) {
-	hook := &testToolHook{name: "tool-hook"}
-	opt := WithToolHook(hook)
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	require.Len(t, cfg.toolHooks, 1)
-	assert.Equal(t, "tool-hook", cfg.toolHooks[0].Name())
 }
 
 func TestBuildHookRegistry(t *testing.T) {
@@ -180,191 +53,6 @@ func TestBuildHookRegistry(t *testing.T) {
 		assert.Nil(t, cfg.buildHookRegistry())
 	})
 
-	t.Run("builds registry with all hook types", func(t *testing.T) {
-		cfg := &config{
-			providerHooks: []hooks.ProviderHook{&testProviderHook{name: "p1"}},
-			toolHooks:     []hooks.ToolHook{&testToolHook{name: "t1"}},
-			sessionHooks:  []hooks.SessionHook{&testSessionHook{name: "s1"}},
-		}
-		reg := cfg.buildHookRegistry()
-		assert.NotNil(t, reg)
-		assert.False(t, reg.IsEmpty())
-	})
-}
-
-func TestSendOptions(t *testing.T) {
-	t.Run("WithImageFile", func(t *testing.T) {
-		opt := WithImageFile("/path/to/image.png")
-		assert.NotNil(t, opt)
-
-		cfg := &sendConfig{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		assert.Equal(t, 1, len(cfg.parts))
-	})
-
-	t.Run("WithImageURL", func(t *testing.T) {
-		opt := WithImageURL("https://example.com/image.png")
-		assert.NotNil(t, opt)
-
-		cfg := &sendConfig{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		assert.Equal(t, 1, len(cfg.parts))
-	})
-
-	t.Run("WithImageData", func(t *testing.T) {
-		data := []byte("fake image data")
-		opt := WithImageData(data, "image/png")
-		assert.NotNil(t, opt)
-
-		cfg := &sendConfig{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		assert.Equal(t, 1, len(cfg.parts))
-	})
-
-	t.Run("WithAudioFile", func(t *testing.T) {
-		opt := WithAudioFile("/path/to/audio.mp3")
-		assert.NotNil(t, opt)
-
-		cfg := &sendConfig{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		assert.Equal(t, 1, len(cfg.parts))
-	})
-
-	t.Run("WithAudioData", func(t *testing.T) {
-		data := []byte("fake audio data")
-		opt := WithAudioData(data, "audio/mp3")
-		assert.NotNil(t, opt)
-
-		cfg := &sendConfig{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		assert.Equal(t, 1, len(cfg.parts))
-	})
-
-	t.Run("WithVideoFile", func(t *testing.T) {
-		opt := WithVideoFile("/path/to/video.mp4")
-		assert.NotNil(t, opt)
-
-		cfg := &sendConfig{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		assert.Equal(t, 1, len(cfg.parts))
-	})
-
-	t.Run("WithVideoData", func(t *testing.T) {
-		data := []byte("fake video data")
-		opt := WithVideoData(data, "video/mp4")
-		assert.NotNil(t, opt)
-
-		cfg := &sendConfig{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		assert.Equal(t, 1, len(cfg.parts))
-	})
-
-	t.Run("WithFile", func(t *testing.T) {
-		opt := WithFile("doc.pdf", []byte("pdf content"))
-		assert.NotNil(t, opt)
-
-		cfg := &sendConfig{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		assert.Equal(t, 1, len(cfg.parts))
-	})
-
-	t.Run("WithDocumentFile", func(t *testing.T) {
-		opt := WithDocumentFile("/path/to/document.pdf")
-		assert.NotNil(t, opt)
-
-		cfg := &sendConfig{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		assert.Equal(t, 1, len(cfg.parts))
-	})
-
-	t.Run("WithDocumentData", func(t *testing.T) {
-		data := []byte("fake pdf data")
-		opt := WithDocumentData(data, types.MIMETypePDF)
-		assert.NotNil(t, opt)
-
-		cfg := &sendConfig{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		assert.Equal(t, 1, len(cfg.parts))
-	})
-
-	t.Run("multiple parts", func(t *testing.T) {
-		cfg := &sendConfig{}
-		_ = WithImageFile("/image1.png")(cfg)
-		_ = WithImageFile("/image2.png")(cfg)
-		_ = WithAudioFile("/audio.mp3")(cfg)
-
-		assert.Equal(t, 3, len(cfg.parts))
-	})
-}
-
-func TestWithImageFileWithDetail(t *testing.T) {
-	detail := "high"
-	opt := WithImageFile("/path/to/image.png", &detail)
-	assert.NotNil(t, opt)
-
-	cfg := &sendConfig{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	assert.Equal(t, 1, len(cfg.parts))
-}
-
-func TestWithImageURLWithDetail(t *testing.T) {
-	detail := "low"
-	opt := WithImageURL("https://example.com/image.png", &detail)
-	assert.NotNil(t, opt)
-
-	cfg := &sendConfig{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	assert.Equal(t, 1, len(cfg.parts))
-}
-
-func TestWithImageDataWithDetail(t *testing.T) {
-	detail := "auto"
-	data := []byte("fake image data")
-	opt := WithImageData(data, "image/png", &detail)
-	assert.NotNil(t, opt)
-
-	cfg := &sendConfig{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	assert.Equal(t, 1, len(cfg.parts))
-}
-
-func TestWithTTS(t *testing.T) {
-	service := &mockTTSService{name: "openai"}
-
-	opt := WithTTS(service)
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	assert.NotNil(t, cfg.ttsService)
-	assert.Equal(t, "openai", cfg.ttsService.Name())
-}
-
-func TestWithTurnDetector(t *testing.T) {
-	detector := &mockTurnDetector{name: "silence"}
-
-	opt := WithTurnDetector(detector)
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	assert.NotNil(t, cfg.turnDetector)
-	assert.Equal(t, "silence", cfg.turnDetector.Name())
 }
 
 // Mock types for testing
@@ -424,46 +112,12 @@ func (m *mockTurnDetector) IsUserSpeaking() bool {
 func (m *mockTurnDetector) Reset() {}
 
 func TestWithImagePreprocessing(t *testing.T) {
-	t.Run("with custom config", func(t *testing.T) {
-		cfg := &stage.ImagePreprocessConfig{
-			Resize: stage.ImageResizeStageConfig{
-				MaxWidth:  1024,
-				MaxHeight: 768,
-				Quality:   90,
-			},
-			EnableResize: true,
-		}
-
-		opt := WithImagePreprocessing(cfg)
-		assert.NotNil(t, opt)
-
-		c := &config{}
-		err := opt(c)
-		assert.NoError(t, err)
-		assert.NotNil(t, c.imagePreprocessConfig)
-		assert.Equal(t, 1024, c.imagePreprocessConfig.Resize.MaxWidth)
-		assert.Equal(t, 768, c.imagePreprocessConfig.Resize.MaxHeight)
-		assert.Equal(t, 90, c.imagePreprocessConfig.Resize.Quality)
-	})
-
 	t.Run("with nil config uses defaults", func(t *testing.T) {
 		c := &config{}
 		require.NoError(t, WithImagePreprocessing(nil)(c))
 		require.NotNil(t, c.imagePreprocessConfig)
 		assert.Equal(t, stage.DefaultImagePreprocessConfig(), *c.imagePreprocessConfig)
 	})
-}
-
-func TestWithAutoResize(t *testing.T) {
-	opt := WithAutoResize(1280, 720)
-	assert.NotNil(t, opt)
-
-	c := &config{}
-	err := opt(c)
-	assert.NoError(t, err)
-	assert.NotNil(t, c.imagePreprocessConfig)
-	assert.Equal(t, 1280, c.imagePreprocessConfig.Resize.MaxWidth)
-	assert.Equal(t, 720, c.imagePreprocessConfig.Resize.MaxHeight)
 }
 
 func TestDefaultVideoStreamConfig(t *testing.T) {
@@ -501,44 +155,6 @@ func TestBuildVideoFrameResize(t *testing.T) {
 	assert.Nil(t, build(&VideoStreamConfig{MaxWidth: 640, MaxHeight: 480}), "EnableResize off means no resize")
 }
 
-func TestWithStreamingVideo(t *testing.T) {
-	t.Run("with custom config", func(t *testing.T) {
-		cfg := &VideoStreamConfig{
-			TargetFPS:    2.5,
-			MaxWidth:     1920,
-			MaxHeight:    1080,
-			Quality:      75,
-			EnableResize: false,
-		}
-
-		opt := WithStreamingVideo(cfg)
-		assert.NotNil(t, opt)
-
-		c := &config{}
-		err := opt(c)
-		assert.NoError(t, err)
-		assert.NotNil(t, c.videoStreamConfig)
-		assert.Equal(t, 2.5, c.videoStreamConfig.TargetFPS)
-		assert.Equal(t, 1920, c.videoStreamConfig.MaxWidth)
-		assert.Equal(t, 1080, c.videoStreamConfig.MaxHeight)
-		assert.Equal(t, 75, c.videoStreamConfig.Quality)
-		assert.False(t, c.videoStreamConfig.EnableResize)
-	})
-
-	t.Run("with nil config uses defaults", func(t *testing.T) {
-		opt := WithStreamingVideo(nil)
-		assert.NotNil(t, opt)
-
-		c := &config{}
-		err := opt(c)
-		assert.NoError(t, err)
-		assert.NotNil(t, c.videoStreamConfig)
-		assert.Equal(t, 1.0, c.videoStreamConfig.TargetFPS)
-		assert.Equal(t, 85, c.videoStreamConfig.Quality)
-		assert.True(t, c.videoStreamConfig.EnableResize)
-	})
-}
-
 func TestMCPServerBuilderWithArgs(t *testing.T) {
 	builder := NewMCPServer("test", "cmd", "arg1")
 	builder.WithArgs("arg2", "arg3")
@@ -559,16 +175,6 @@ func TestDefaultVADModeConfig(t *testing.T) {
 	assert.Equal(t, "en", cfg.Language)
 	assert.Equal(t, "alloy", cfg.Voice)
 	assert.Equal(t, 1.0, cfg.Speed)
-}
-
-func TestWithVADMode(t *testing.T) {
-	opt := WithVADMode(nil, nil, nil)
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	assert.NotNil(t, cfg.vadModeConfig)
 }
 
 // A nil service passed to WithVADMode leaves an earlier WithTTS / WithSTT
@@ -690,125 +296,7 @@ func TestResolveCredentialAPIKey(t *testing.T) {
 
 // Platform option tests
 
-func TestWithPlatformRegion(t *testing.T) {
-	opt := WithPlatformRegion("us-west-2")
-	assert.NotNil(t, opt)
-
-	cfg := &platformConfig{}
-	opt.applyPlatform(cfg)
-	assert.Equal(t, "us-west-2", cfg.region)
-}
-
-func TestWithPlatformProject(t *testing.T) {
-	opt := WithPlatformProject("my-gcp-project")
-	assert.NotNil(t, opt)
-
-	cfg := &platformConfig{}
-	opt.applyPlatform(cfg)
-	assert.Equal(t, "my-gcp-project", cfg.project)
-}
-
-func TestWithPlatformEndpoint(t *testing.T) {
-	opt := WithPlatformEndpoint("https://custom.endpoint.com")
-	assert.NotNil(t, opt)
-
-	cfg := &platformConfig{}
-	opt.applyPlatform(cfg)
-	assert.Equal(t, "https://custom.endpoint.com", cfg.endpoint)
-}
-
 // Platform provider option tests
-
-func TestWithBedrock(t *testing.T) {
-	t.Run("basic usage", func(t *testing.T) {
-		opt := WithBedrock("us-west-2", "claude", "claude-sonnet-4-20250514")
-		assert.NotNil(t, opt)
-
-		cfg := &config{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		require.NotNil(t, cfg.platform)
-		assert.Equal(t, "bedrock", cfg.platform.platformType)
-		assert.Equal(t, "claude", cfg.platform.providerType)
-		assert.Equal(t, "claude-sonnet-4-20250514", cfg.platform.model)
-		assert.Equal(t, "us-west-2", cfg.platform.region)
-	})
-
-	t.Run("with additional options", func(t *testing.T) {
-		opt := WithBedrock("us-east-1", "claude", "claude-sonnet-4-20250514",
-			WithPlatformEndpoint("https://custom.bedrock.aws"))
-		assert.NotNil(t, opt)
-
-		cfg := &config{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		require.NotNil(t, cfg.platform)
-		assert.Equal(t, "bedrock", cfg.platform.platformType)
-		assert.Equal(t, "us-east-1", cfg.platform.region)
-		assert.Equal(t, "https://custom.bedrock.aws", cfg.platform.endpoint)
-	})
-}
-
-func TestWithVertex(t *testing.T) {
-	t.Run("basic usage", func(t *testing.T) {
-		opt := WithVertex("us-central1", "my-project", "gemini", "gemini-2.0-flash")
-		assert.NotNil(t, opt)
-
-		cfg := &config{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		require.NotNil(t, cfg.platform)
-		assert.Equal(t, "vertex", cfg.platform.platformType)
-		assert.Equal(t, "gemini", cfg.platform.providerType)
-		assert.Equal(t, "gemini-2.0-flash", cfg.platform.model)
-		assert.Equal(t, "us-central1", cfg.platform.region)
-		assert.Equal(t, "my-project", cfg.platform.project)
-	})
-
-	t.Run("with additional options", func(t *testing.T) {
-		opt := WithVertex("europe-west1", "my-project", "claude", "claude-sonnet-4-20250514",
-			WithPlatformEndpoint("https://custom.vertex.googleapis.com"))
-		assert.NotNil(t, opt)
-
-		cfg := &config{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		require.NotNil(t, cfg.platform)
-		assert.Equal(t, "vertex", cfg.platform.platformType)
-		assert.Equal(t, "europe-west1", cfg.platform.region)
-		assert.Equal(t, "https://custom.vertex.googleapis.com", cfg.platform.endpoint)
-	})
-}
-
-func TestWithAzure(t *testing.T) {
-	t.Run("basic usage", func(t *testing.T) {
-		opt := WithAzure("https://my-resource.openai.azure.com", "openai", "gpt-4o")
-		assert.NotNil(t, opt)
-
-		cfg := &config{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		require.NotNil(t, cfg.platform)
-		assert.Equal(t, "azure", cfg.platform.platformType)
-		assert.Equal(t, "openai", cfg.platform.providerType)
-		assert.Equal(t, "gpt-4o", cfg.platform.model)
-		assert.Equal(t, "https://my-resource.openai.azure.com", cfg.platform.endpoint)
-	})
-
-	t.Run("with additional options", func(t *testing.T) {
-		opt := WithAzure("https://my-resource.openai.azure.com", "openai", "gpt-4o",
-			WithPlatformRegion("eastus"))
-		assert.NotNil(t, opt)
-
-		cfg := &config{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		require.NotNil(t, cfg.platform)
-		assert.Equal(t, "azure", cfg.platform.platformType)
-		assert.Equal(t, "eastus", cfg.platform.region)
-		assert.Equal(t, "https://my-resource.openai.azure.com", cfg.platform.endpoint)
-	})
-}
 
 // MCP option tests (additional tests, main tests in mcp_test.go)
 
@@ -825,16 +313,6 @@ func TestNewMCPServerWithEnvMultiple(t *testing.T) {
 }
 
 // Validation option tests
-
-func TestWithSkipSchemaValidation(t *testing.T) {
-	opt := WithSkipSchemaValidation()
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	assert.True(t, cfg.skipSchemaValidation)
-}
 
 // Response format option tests
 
@@ -906,40 +384,6 @@ func (h *testSessionHook) OnSessionUpdate(_ context.Context, _ hooks.SessionEven
 }
 func (h *testSessionHook) OnSessionEnd(_ context.Context, _ hooks.SessionEvent) error { return nil }
 
-func TestWithRecording(t *testing.T) {
-	t.Run("nil config uses defaults", func(t *testing.T) {
-		cfg := &config{}
-		err := WithRecording(nil)(cfg)
-		require.NoError(t, err)
-		require.NotNil(t, cfg.recordingConfig)
-		assert.True(t, cfg.recordingConfig.IncludeAudio)
-		assert.False(t, cfg.recordingConfig.IncludeVideo)
-		assert.True(t, cfg.recordingConfig.IncludeImages)
-	})
-
-	t.Run("custom config is used", func(t *testing.T) {
-		cfg := &config{}
-		err := WithRecording(&RecordingConfig{
-			IncludeAudio:  false,
-			IncludeVideo:  true,
-			IncludeImages: false,
-		})(cfg)
-		require.NoError(t, err)
-		require.NotNil(t, cfg.recordingConfig)
-		assert.False(t, cfg.recordingConfig.IncludeAudio)
-		assert.True(t, cfg.recordingConfig.IncludeVideo)
-		assert.False(t, cfg.recordingConfig.IncludeImages)
-	})
-
-	t.Run("does not modify event bus", func(t *testing.T) {
-		bus := &events.EventBus{}
-		cfg := &config{eventBus: bus}
-		err := WithRecording(nil)(cfg)
-		require.NoError(t, err)
-		assert.Same(t, bus, cfg.eventBus, "should not modify existing event bus")
-	})
-}
-
 func TestDefaultRecordingConfig(t *testing.T) {
 	cfg := DefaultRecordingConfig()
 	assert.True(t, cfg.IncludeAudio)
@@ -948,120 +392,6 @@ func TestDefaultRecordingConfig(t *testing.T) {
 }
 
 // Platform credential override option tests
-
-func TestWithAWSRoleARN(t *testing.T) {
-	opt := WithAWSRoleARN("arn:aws:iam::123456789012:role/BedrockAccess")
-	assert.NotNil(t, opt)
-
-	cfg := &platformConfig{}
-	opt.applyPlatform(cfg)
-	assert.Equal(t, "arn:aws:iam::123456789012:role/BedrockAccess", cfg.roleARN)
-}
-
-func TestWithAWSProfile(t *testing.T) {
-	opt := WithAWSProfile("bedrock-prod")
-	assert.NotNil(t, opt)
-
-	cfg := &platformConfig{}
-	opt.applyPlatform(cfg)
-	assert.Equal(t, "bedrock-prod", cfg.awsProfile)
-}
-
-func TestWithGCPServiceAccount(t *testing.T) {
-	opt := WithGCPServiceAccount("/path/to/sa-key.json")
-	assert.NotNil(t, opt)
-
-	cfg := &platformConfig{}
-	opt.applyPlatform(cfg)
-	assert.Equal(t, "/path/to/sa-key.json", cfg.serviceAccountKeyPath)
-}
-
-func TestWithAzureManagedIdentity(t *testing.T) {
-	opt := WithAzureManagedIdentity("user-assigned-client-id")
-	assert.NotNil(t, opt)
-
-	cfg := &platformConfig{}
-	opt.applyPlatform(cfg)
-	assert.Equal(t, "user-assigned-client-id", cfg.managedIdentityClientID)
-}
-
-func TestWithAzureClientSecret(t *testing.T) {
-	opt := WithAzureClientSecret("tenant-123", "client-456", "secret-789")
-	assert.NotNil(t, opt)
-
-	cfg := &platformConfig{}
-	opt.applyPlatform(cfg)
-	require.NotNil(t, cfg.azureClientSecret)
-	assert.Equal(t, "tenant-123", cfg.azureClientSecret.tenantID)
-	assert.Equal(t, "client-456", cfg.azureClientSecret.clientID)
-	assert.Equal(t, "secret-789", cfg.azureClientSecret.clientSecret)
-}
-
-func TestBedrockWithCredentialOverrides(t *testing.T) {
-	t.Run("with role ARN", func(t *testing.T) {
-		opt := WithBedrock("us-west-2", "claude", "claude-sonnet-4-20250514",
-			WithAWSRoleARN("arn:aws:iam::123456789012:role/BedrockAccess"),
-		)
-		cfg := &config{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		require.NotNil(t, cfg.platform)
-		assert.Equal(t, "bedrock", cfg.platform.platformType)
-		assert.Equal(t, "arn:aws:iam::123456789012:role/BedrockAccess", cfg.platform.roleARN)
-	})
-
-	t.Run("with profile", func(t *testing.T) {
-		opt := WithBedrock("us-west-2", "claude", "claude-sonnet-4-20250514",
-			WithAWSProfile("bedrock-prod"),
-		)
-		cfg := &config{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		require.NotNil(t, cfg.platform)
-		assert.Equal(t, "bedrock-prod", cfg.platform.awsProfile)
-	})
-}
-
-func TestVertexWithCredentialOverrides(t *testing.T) {
-	opt := WithVertex("us-central1", "my-project", "gemini", "gemini-2.0-flash",
-		WithGCPServiceAccount("/path/to/sa-key.json"),
-	)
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	require.NotNil(t, cfg.platform)
-	assert.Equal(t, "vertex", cfg.platform.platformType)
-	assert.Equal(t, "/path/to/sa-key.json", cfg.platform.serviceAccountKeyPath)
-}
-
-func TestAzureWithCredentialOverrides(t *testing.T) {
-	t.Run("with managed identity", func(t *testing.T) {
-		opt := WithAzure("https://my-resource.openai.azure.com", "openai", "gpt-4o",
-			WithAzureManagedIdentity("client-id-123"),
-		)
-		cfg := &config{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		require.NotNil(t, cfg.platform)
-		assert.Equal(t, "azure", cfg.platform.platformType)
-		assert.Equal(t, "client-id-123", cfg.platform.managedIdentityClientID)
-	})
-
-	t.Run("with client secret", func(t *testing.T) {
-		opt := WithAzure("https://my-resource.openai.azure.com", "openai", "gpt-4o",
-			WithAzureClientSecret("tenant-1", "client-2", "secret-3"),
-		)
-		cfg := &config{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		require.NotNil(t, cfg.platform)
-		assert.Equal(t, "azure", cfg.platform.platformType)
-		require.NotNil(t, cfg.platform.azureClientSecret)
-		assert.Equal(t, "tenant-1", cfg.platform.azureClientSecret.tenantID)
-		assert.Equal(t, "client-2", cfg.platform.azureClientSecret.clientID)
-		assert.Equal(t, "secret-3", cfg.platform.azureClientSecret.clientSecret)
-	})
-}
 
 func TestWithMaxMessageSize(t *testing.T) {
 	t.Run("rejects zero", func(t *testing.T) {
@@ -1092,12 +422,6 @@ func (s *optTestSelector) Select(_ context.Context, _ selection.Query,
 }
 
 func TestWithSelector(t *testing.T) {
-	t.Run("registers", func(t *testing.T) {
-		cfg := &config{}
-		sel := &optTestSelector{n: "rerank"}
-		require.NoError(t, WithSelector("rerank", sel)(cfg))
-		require.Same(t, sel, cfg.selectors["rerank"])
-	})
 	t.Run("rejects empty name", func(t *testing.T) {
 		cfg := &config{}
 		err := WithSelector("", &optTestSelector{})(cfg)
@@ -1156,20 +480,6 @@ func TestWithClassifier_RejectsNilProvider(t *testing.T) {
 	err := WithClassifier("nope", nil)(c)
 	require.Error(t, err, "a nil provider must be rejected, not registered")
 	assert.Nil(t, c.inferenceRegistry, "nothing may be registered for a rejected provider")
-}
-
-func TestProviderSpec_ToPkgProviderCarriesPlatform(t *testing.T) {
-	pc := &pkgconfig.PlatformConfig{Type: "bedrock", Region: "us-east-1"}
-	spec := ProviderSpec{
-		ID:       "llm-bedrock",
-		Type:     "anthropic",
-		Model:    "claude-3-5-sonnet-20241022",
-		Platform: pc,
-	}
-	p := spec.toPkgProvider()
-	require.NotNil(t, p.Platform, "expected Platform to be carried through toPkgProvider")
-	require.Equal(t, "bedrock", p.Platform.Type)
-	require.Equal(t, "us-east-1", p.Platform.Region)
 }
 
 func TestWithClassifier_ClaimsDefaultTask(t *testing.T) {

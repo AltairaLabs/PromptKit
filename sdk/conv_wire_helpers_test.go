@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -35,6 +36,9 @@ type convWireReply struct {
 	Status int
 	// Chunks, when set, streams the text in that many deltas (default two).
 	Chunks int
+	// Delay, when set, holds the answer back for that long (or until the
+	// request is abandoned).
+	Delay time.Duration
 }
 
 // convWire is an OpenAI-compatible endpoint that records every request and
@@ -74,6 +78,13 @@ func (w *convWire) serve(rw http.ResponseWriter, r *http.Request) {
 	w.mu.Unlock()
 	if reply.Echo {
 		reply.Text = "echo:" + convLastUserText(body)
+	}
+	if reply.Delay > 0 {
+		select {
+		case <-time.After(reply.Delay):
+		case <-r.Context().Done():
+			return
+		}
 	}
 
 	switch {
