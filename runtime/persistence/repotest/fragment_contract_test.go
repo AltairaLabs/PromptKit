@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -38,6 +39,25 @@ func TestContract_PassesRealRepositories(t *testing.T) {
 	})
 }
 
+// Where the platform makes symlinks, every check runs: a check that reports
+// itself skipped there would pass any repository without testing it.
+func TestContract_RunsEveryCheckWhereSymlinksWork(t *testing.T) {
+	probe := t.TempDir()
+	if err := os.Symlink(probe, filepath.Join(probe, "link")); err != nil {
+		t.Skipf("os.Symlink: %v", err)
+	}
+	for _, check := range repotest.Checks() {
+		root := t.TempDir()
+		if err := repotest.WriteFixtures(root); err != nil {
+			t.Fatal(err)
+		}
+		err := check.Run(yaml.NewYAMLPromptRepository(root, nil), root)
+		if err != nil {
+			t.Errorf("%s: %v, want the check to run and pass", check.Name, err)
+		}
+	}
+}
+
 // fakeRepo answers LoadFragment with fn.
 type fakeRepo func(name, path, baseDir string) (*prompt.Fragment, error)
 
@@ -69,6 +89,7 @@ func TestContract_CatchesBrokenRepositories(t *testing.T) {
 				"relative path resolves against baseDir", "absolute path ignores baseDir",
 				"path miss is fs.ErrNotExist", "invalid file is not fs.ErrNotExist",
 				"unreadable path is not fs.ErrNotExist", "relative path climbing past its start is an error", "symlink out of the root is an error", "symlink within the root resolves",
+				"baseDir through a symlinked directory resolves",
 			},
 		},
 		{
@@ -125,6 +146,7 @@ func TestContract_CatchesBrokenRepositories(t *testing.T) {
 				"relative path resolves against baseDir", "absolute path ignores baseDir",
 				"path miss is fs.ErrNotExist", "invalid file is not fs.ErrNotExist",
 				"unreadable path is not fs.ErrNotExist", "relative path climbing past its start is an error", "symlink out of the root is an error", "symlink within the root resolves",
+				"baseDir through a symlinked directory resolves",
 			},
 		},
 		{
@@ -137,6 +159,7 @@ func TestContract_CatchesBrokenRepositories(t *testing.T) {
 				"relative path resolves against baseDir", "absolute path ignores baseDir",
 				"path miss is fs.ErrNotExist", "invalid file is not fs.ErrNotExist",
 				"unreadable path is not fs.ErrNotExist", "relative path climbing past its start is an error", "symlink out of the root is an error", "symlink within the root resolves",
+				"baseDir through a symlinked directory resolves",
 			},
 		},
 		{
@@ -168,7 +191,7 @@ func TestContract_CatchesBrokenRepositories(t *testing.T) {
 					return yamlRepo(root).LoadFragment(name, path, baseDir)
 				})
 			},
-			fails: []string{"symlink out of the root is an error"},
+			fails: []string{"symlink out of the root is an error", "baseDir through a symlinked directory resolves"},
 		},
 	}
 	for _, tc := range cases {

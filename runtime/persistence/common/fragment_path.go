@@ -28,30 +28,47 @@ import (
 //     must stay in basePath/fragments.
 //
 // Containment holds on the resolved file too: a symlink that points outside
-// the point the path may reach is refused.
+// the point the path may reach is refused. This is a check on the files as
+// they are now; ReadFragmentFile holds the same rules on the read itself.
 func FragmentFilePath(basePath, name, relativePath, baseDir, ext string) (string, error) {
+	path, anchor, err := lexicalFragmentPath(basePath, name, relativePath, baseDir, ext)
+	if err != nil || filepath.IsAbs(relativePath) {
+		return path, err
+	}
+	ref := relativePath
+	if ref == "" {
+		ref = name
+	}
+	return containResolved(path, ref, anchor)
+}
+
+// lexicalFragmentPath applies FragmentFilePath's rules to the path as
+// written, without touching the filesystem. It returns the file and the
+// anchor: the directory the lookup may reach (the climb anchor for a
+// relative path, basePath for the default file, none for an absolute path).
+func lexicalFragmentPath(basePath, name, relativePath, baseDir, ext string) (path, anchor string, err error) {
 	switch {
 	case filepath.IsAbs(relativePath):
-		return relativePath, nil
+		return relativePath, "", nil
 	case relativePath == "":
-		path := filepath.Join(basePath, "fragments", name+ext)
+		path = filepath.Join(basePath, "fragments", name+ext)
 		if !within(filepath.Join(basePath, "fragments"), path) {
-			return "", fmt.Errorf("%w: fragment name %q", persistence.ErrFragmentPathOutsideBase, name)
+			return "", "", fmt.Errorf("%w: fragment name %q", persistence.ErrFragmentPathOutsideBase, name)
 		}
-		return containResolved(path, name, basePath)
+		return path, basePath, nil
 	}
-	path := filepath.Join(baseDir, relativePath)
-	anchor := climbAnchor(baseDir, relativePath)
+	path = filepath.Join(baseDir, relativePath)
+	anchor = climbAnchor(baseDir, relativePath)
 	if !within(anchor, path) {
-		err := fmt.Errorf("%w: %q climbs past %q", persistence.ErrFragmentPathOutsideBase, relativePath, anchor)
+		err = fmt.Errorf("%w: %q climbs past %q", persistence.ErrFragmentPathOutsideBase, relativePath, anchor)
 		if baseDir == "" {
 			// The working-directory fallback FragmentResolver tries after a
 			// miss: report it as not found, so the resolver reports that miss.
 			err = fmt.Errorf("%w: %w", err, fs.ErrNotExist)
 		}
-		return "", err
+		return "", "", err
 	}
-	return containResolved(path, relativePath, anchor)
+	return path, anchor, nil
 }
 
 // climbAnchor returns the directory a relative path may reach: baseDir (the
@@ -127,39 +144,41 @@ func within(root, path string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// afterContainmentCheck, when set (by tests), runs between the containment
-// check and the read, so a test can change the files in that window.
-var afterContainmentCheck func()
+// beforeRootedRead, when set (by tests), runs inside a read once the lookup
+// has checked the path and opened the anchor, before it reads, so a test can
+// change the files in that window.
+var beforeRootedRead func()
 
 // ReadFragmentFile reads the fragment file a lookup names (see
 // FragmentFilePath for the rules) and returns its content and path.
 //
-// A relative or default path is read through an os.Root opened at the point
-// the path may reach (the climb anchor, or basePath), so the read itself
-// refuses a path or symlink that leaves it: a link swapped to point outside
-// after FragmentFilePath checked it is not followed. Such a refusal is
+// A relative or default path is read through an os.Root opened at the
+// anchor, the point the path may reach (the climb anchor, or basePath). The
+// anchor is resolved once, when the root is opened: symlinks in it or in its
+// parent directories are followed then, so a pack directory that is a link to
+// elsewhere is read where it really is. Every read of the lookup goes through
+// that root, so nothing changed afterwards moves it: a fragment link swapped
+// to point outside, or a parent directory swapped for a link, is not
+// followed. A path or link that leaves the anchor is
 // persistence.ErrFragmentPathOutsideBase, which also satisfies fs.ErrNotExist
 // for the working-directory fallback. A missing file is fs.ErrNotExist. An
 // absolute path, which the config wrote, is read as it is.
 func ReadFragmentFile(basePath, name, relativePath, baseDir, ext string) ([]byte, string, error) {
-	path, err := FragmentFilePath(basePath, name, relativePath, baseDir, ext)
+	path, anchor, err := lexicalFragmentPath(basePath, name, relativePath, baseDir, ext)
 	if err != nil {
 		return nil, "", err
-	}
-	if afterContainmentCheck != nil {
-		afterContainmentCheck()
 	}
 	if filepath.IsAbs(relativePath) {
 		data, readErr := os.ReadFile(path) //nolint:gosec // G304: an absolute path the config wrote
 		return data, path, readErr
 	}
-	anchor := basePath
-	if relativePath != "" {
-		anchor = climbAnchor(baseDir, relativePath)
-	}
-	data, err := readInRoot(anchor, path)
+	data, err := readInAnchor(anchor, path)
 	if errors.Is(err, errPathEscapesRoot) {
-		err = fmt.Errorf("%w: %q leaves %q", persistence.ErrFragmentPathOutsideBase, relativePath, anchor)
+		ref := relativePath
+		if ref == "" {
+			ref = name
+		}
+		err = fmt.Errorf("%w: %q leaves %q", persistence.ErrFragmentPathOutsideBase, ref, anchor)
 		if relativePath != "" && baseDir == "" {
 			err = fmt.Errorf("%w: %w", err, fs.ErrNotExist)
 		}
@@ -171,30 +190,40 @@ func ReadFragmentFile(basePath, name, relativePath, baseDir, ext string) ([]byte
 // link on it, leaves the root.
 var errPathEscapesRoot = errors.New("path escapes the root")
 
-// readInRoot reads path, which is lexically inside anchor, through an os.Root
-// opened at anchor.
-func readInRoot(anchor, path string) ([]byte, error) {
-	absAnchor, err := filepath.Abs(anchor)
+// readInAnchor reads path, which is lexically inside anchor, through one
+// os.Root opened at anchor. Opening it is the anchor's one resolution: the
+// anchor is opened as written, so a relative one binds to the working
+// directory itself, not to a path string taken from it.
+func readInAnchor(anchor, path string) ([]byte, error) {
+	rel, err := filepath.Rel(anchor, path)
 	if err != nil {
 		return nil, err
 	}
-	absPath, err := filepath.Abs(path)
+	root, err := os.OpenRoot(anchor)
 	if err != nil {
 		return nil, err
 	}
-	rel, err := filepath.Rel(absAnchor, absPath)
-	if err != nil {
-		return nil, err
+	defer func() { _ = root.Close() }()
+	if beforeRootedRead != nil {
+		beforeRootedRead()
 	}
-	data, err := readRooted(absAnchor, rel)
-	if err == nil || !isRootEscape(err) {
+	data, err := root.ReadFile(rel)
+	if !isRootEscape(err) {
 		return data, err
 	}
-	// A link to nothing names no file, wherever it points: not found.
-	if _, rerr := resolvedAbs(absPath); errors.Is(rerr, fs.ErrNotExist) {
-		return nil, rerr
+	// os.Root refuses every absolute link target. The anchor's real path
+	// names such a target's file inside the root, and that file is read
+	// through root, so a stale real path can refuse a read but never move it.
+	realAnchor, realErr := resolvedAbs(anchor)
+	if realErr != nil {
+		// The anchor no longer resolves: nothing can be named inside it.
+		return nil, fmt.Errorf("%w: %w", errPathEscapesRoot, err)
 	}
-	data, inside, readErr := readThroughResolvedLink(absAnchor, absPath)
+	data, inside, readErr := readThroughResolvedLink(root, realAnchor, rel)
+	if errors.Is(readErr, fs.ErrNotExist) && !inside {
+		// A link to nothing names no file, wherever it points: not found.
+		return nil, readErr
+	}
 	if inside && (readErr == nil || !isRootEscape(readErr)) {
 		return data, readErr
 	}
@@ -202,37 +231,26 @@ func readInRoot(anchor, path string) ([]byte, error) {
 }
 
 // readThroughResolvedLink handles os.Root refusing every absolute link
-// target, including one inside the root: it resolves the path, and when the
-// file lands inside the anchor reads it through the root again by its
-// relative path, so the read stays confined (a link swapped meanwhile is
-// refused by that read). inside reports whether the file resolved inside
-// the anchor; the read's own error (permission denied, a directory) is then
-// returned as it is.
-func readThroughResolvedLink(absAnchor, absPath string) (data []byte, inside bool, err error) {
-	target, err := resolvedAbs(absPath)
+// target, including one inside the root: it resolves rel under realAnchor,
+// and when the file lands inside reads it through root again by its path
+// there, so the read stays confined (a link swapped meanwhile is refused by
+// that read). inside reports whether the file resolved inside the anchor;
+// the read's own error (permission denied, a directory) is then returned as
+// it is.
+func readThroughResolvedLink(root *os.Root, realAnchor, rel string) (data []byte, inside bool, err error) {
+	target, err := resolvedAbs(filepath.Join(realAnchor, rel))
 	if err != nil {
 		return nil, false, err
 	}
-	resolvedAnchor, err := resolvedAbs(absAnchor)
-	if err != nil || !within(resolvedAnchor, target) {
-		return nil, false, err
+	if !within(realAnchor, target) {
+		return nil, false, nil
 	}
-	inner, err := filepath.Rel(resolvedAnchor, target)
+	inner, err := filepath.Rel(realAnchor, target)
 	if err != nil {
 		return nil, false, err
 	}
-	data, err = readRooted(resolvedAnchor, inner)
+	data, err = root.ReadFile(inner)
 	return data, true, err
-}
-
-// readRooted reads rel through an os.Root opened at dir.
-func readRooted(dir, rel string) ([]byte, error) {
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = root.Close() }()
-	return root.ReadFile(rel)
 }
 
 // isRootEscape reports whether err is os.Root refusing a path that leaves

@@ -260,9 +260,15 @@ started (`x/../../secret.yaml`), is refused with
 `persistence.ErrFragmentPathOutsideBase`; since a variable cannot add `..`, a
 variable cannot move that point. The check holds on the file the path resolves
 to, and the read goes through an `os.Root` opened at that point, so a symlink
-pointing past it is refused the same way, even one swapped in after the check,
-while one that stays inside is followed. An absolute path written in the config is used
-as it is. A name-only lookup stays in the repository's `fragments/`.
+pointing past it is refused the same way, while one that stays inside is
+followed. That point's real path is resolved once per lookup, when the root is
+opened: a pack directory that is itself a symlink, or sits under one, is read
+where it really is. Every read of the lookup goes through that one root, so a
+fragment link or a parent directory swapped for a symlink afterwards cannot
+move it. An absolute path written in the config is used as it is. A name-only
+lookup stays in the repository's `fragments/`. From the working-directory
+fallback, a symlink pointing past that point reads as not found, as a `..`
+after a name does there.
 
 | If you | You will see | Change |
 |---|---|---|

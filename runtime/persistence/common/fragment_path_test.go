@@ -85,11 +85,25 @@ func TestFragmentFilePath_Symlinks(t *testing.T) {
 	}
 	prompts := filepath.Join(base, "prompts")
 
-	if _, err := FragmentFilePath(base, "x", "../fragments/out.yaml", prompts, ".yaml"); !errors.Is(err, persistence.ErrFragmentPathOutsideBase) {
-		t.Fatalf("link out: err = %v", err)
+	realOutside, err := filepath.EvalSymlinks(outside)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := FragmentFilePath(base, "out", "", "", ".yaml"); !errors.Is(err, persistence.ErrFragmentPathOutsideBase) {
-		t.Fatalf("default name through a link out: err = %v", err)
+	// The error names what the lookup asked for: the path when one was
+	// written, the fragment name for the default file.
+	for _, c := range []struct{ name, rel, baseDir, ref string }{
+		{name: "x", rel: "../fragments/out.yaml", baseDir: prompts, ref: "../fragments/out.yaml"},
+		{name: "out", ref: "out"},
+	} {
+		_, err := FragmentFilePath(base, c.name, c.rel, c.baseDir, ".yaml")
+		if !errors.Is(err, persistence.ErrFragmentPathOutsideBase) {
+			t.Fatalf("link out via %q: err = %v", c.ref, err)
+		}
+		want := persistence.ErrFragmentPathOutsideBase.Error() + ": \"" + c.ref +
+			"\" resolves through a symlink to \"" + realOutside + "\""
+		if err.Error() != want {
+			t.Fatalf("link out via %q:\n got %s\nwant %s", c.ref, err, want)
+		}
 	}
 	if got, err := FragmentFilePath(base, "x", "../fragments/in.yaml", prompts, ".yaml"); err != nil || got == "" {
 		t.Fatalf("link in: %q, %v", got, err)
