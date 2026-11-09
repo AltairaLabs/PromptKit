@@ -696,24 +696,25 @@ func TestDeserializeEventData(t *testing.T) {
 }
 
 // Close is idempotent: closing a store whose session files are already closed
-// succeeds, and the events written before the first Close are on disk.
+// succeeds rather than closing them again, and the store stays usable.
 func TestFileEventStore_Close_AlreadyClosed(t *testing.T) {
-	dir := t.TempDir()
-	store, err := NewFileEventStore(dir)
+	store, err := NewFileEventStore(t.TempDir())
 	require.NoError(t, err)
+	// Open a session file, so the first Close has something to close.
 	require.NoError(t, store.Append(context.Background(), &Event{
-		Type: EventMessageCreated, Timestamp: time.Now(), SessionID: "s", ConversationID: "c",
+		Type: EventMessageCreated, Timestamp: time.Now(), SessionID: "s",
 	}))
 
 	require.NoError(t, store.Close())
 	require.NoError(t, store.Close(), "a second Close must not re-close the session files")
 
-	reopened, err := NewFileEventStore(dir)
+	// The store is still usable: the next write reopens the session file.
+	require.NoError(t, store.Append(context.Background(), &Event{
+		Type: EventToolCallStarted, Timestamp: time.Now(), SessionID: "s",
+	}))
+	got, err := store.Query(context.Background(), &EventFilter{SessionID: "s"})
 	require.NoError(t, err)
-	defer reopened.Close()
-	got, err := reopened.Query(context.Background(), &EventFilter{SessionID: "s"})
-	require.NoError(t, err)
-	assert.Equal(t, []string{"c"}, conversationIDs(got))
+	assert.Equal(t, []EventType{EventMessageCreated, EventToolCallStarted}, eventTypes(got))
 }
 
 func TestFileEventStore_Query_AdvancedFilters(t *testing.T) {

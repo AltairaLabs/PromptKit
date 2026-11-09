@@ -1224,6 +1224,8 @@ func TestFileStore_Flush(t *testing.T) {
 		require.NoError(t, err)
 
 		require.NoError(t, fs.Flush())
+		// Neither the store nor the flush writes an index: StoreMedia never
+		// marks one dirty without dedup, and Flush skips it.
 		assert.NoFileExists(t, filepath.Join(tempDir, ".dedup_index.json"),
 			"a store without deduplication writes no dedup index")
 	})

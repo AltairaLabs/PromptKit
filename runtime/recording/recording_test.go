@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -524,9 +525,26 @@ func TestDeserializeEventData_AllRegistryTypes(t *testing.T) {
 		})
 	}
 
+	// Names older recordings carry for types since consolidated, mapped to the
+	// type they now read back as. Every other name reads back as itself.
+	consolidated := map[string]string{
+		"AudioInputData":        "*events.AudioEventData",
+		"AudioOutputData":       "*events.AudioEventData",
+		"ImageInputData":        "*events.ImageEventData",
+		"ImageOutputData":       "*events.ImageEventData",
+		"ToolCallStartedData":   "*events.ToolCallEventData",
+		"ToolCallCompletedData": "*events.ToolCallEventData",
+		"ToolCallFailedData":    "*events.ToolCallEventData",
+	}
 	for typeName := range eventDataRegistry {
+		base := strings.TrimPrefix(strings.TrimPrefix(typeName, "*"), "events.")
+		want, ok := consolidated[base]
+		if !ok {
+			want = "*events." + base
+		}
 		got, err := deserializeEventData(typeName, json.RawMessage(`{}`))
 		require.NoError(t, err, typeName)
+		assert.Equal(t, want, fmt.Sprintf("%T", got), "%s reads back as the wrong type", typeName)
 		assert.True(t, kept[reflect.TypeOf(got)], "%s reads back as %T, which is not a kept event type", typeName, got)
 	}
 }
