@@ -71,12 +71,17 @@ The wire protocol is:
 // stdin
 {
   "query":      {"text": "...", "kind": "skill", "pack_id": "...", "k": 5},
-  "candidates": [{"id": "...", "name": "...", "description": "...", "metadata": {}}]
+  "candidates": [{"id": "...", "name": "...", "description": "...", "metadata": {}, "allowed_tools": []}]
 }
 
 // stdout
 {"selected": ["id1", "id2"], "reason": "optional"}
 ```
+
+`agent_id` is sent when the conversation has one. `metadata` and
+`allowed_tools` (a skill's `allowed-tools`) are left out when empty.
+Response keys match case-insensitively. An empty `selected` lists every
+candidate.
 
 The bundled `rerank.py` calls a remote rerank endpoint when
 `RERANK_URL` and `RERANK_API_KEY` are set; otherwise it falls back to a

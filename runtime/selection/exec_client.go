@@ -25,7 +25,14 @@ type ExecClientConfig struct {
 	Sandbox   sandbox.Sandbox
 }
 
-// execRequest is the JSON payload sent to the selector subprocess.
+// execRequest is the JSON payload sent to the selector subprocess:
+//
+//	{"query": {"text": "...", "kind": "skill", "pack_id": "...", "k": 5},
+//	 "candidates": [{"id": "...", "name": "...", "description": "...",
+//	                 "metadata": {...}, "allowed_tools": [...]}]}
+//
+// Every key is lowercase, as the json tags on Query and Candidate say.
+// agent_id, metadata and allowed_tools are left out when empty.
 type execRequest struct {
 	Query      Query       `json:"query"`
 	Candidates []Candidate `json:"candidates"`
@@ -33,7 +40,10 @@ type execRequest struct {
 
 // execResponse is the JSON payload expected from the selector
 // subprocess. Additional fields (reason, scores, ...) are ignored;
-// only Selected drives behavior.
+// only Selected drives behavior. Keys match case-insensitively, as
+// encoding/json matches them, so "Selected" is read as "selected":
+// a selector written against the PascalCase keys PromptKit sent
+// before v2.19.0 keeps being read.
 type execResponse struct {
 	Selected []string `json:"selected"`
 	Reason   string   `json:"reason,omitempty"`

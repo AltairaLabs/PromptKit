@@ -375,12 +375,33 @@ an empty `AllowedTools`, so it could not choose skills by the tools they grant.
 `skills.AdaptSkillSelector` now hands it the skill's `allowed-tools` as well.
 They reach a `selection.Selector` as the new `selection.Candidate.AllowedTools`
 field, empty for a tool candidate, and an exec selector receives them as
-`AllowedTools` in each skill candidate's JSON when the skill declares any.
+`allowed_tools` in each skill candidate's JSON when the skill declares any.
 
 | If you | You will see | Change |
 |---|---|---|
 | Read `SkillMetadata.AllowedTools` in a `SkillSelector` | the skill's `allowed-tools`, where it was empty | nothing |
 | Write a `selection.Selector` or an exec selector | skill candidates carry `AllowedTools` | nothing; read it to choose by the tools a skill grants |
+
+### Exec selectors receive the documented lowercase keys
+
+An exec selector (`spec.selectors.<name>.command`) was documented to read
+lowercase keys on stdin (`query.text`, `candidates[].id`), and the bundled
+`rerank.py` reads them, but PromptKit sent the Go field names (`Text`, `ID`,
+`Description`). The example saw an empty query, returned no IDs, and every
+skill stayed listed. `selection.Query` and `selection.Candidate` now carry
+json tags, and the exec selector's stdin uses them: `text`, `kind`,
+`pack_id`, `agent_id` (left out when empty) and `k` in `query`; `id`, `name`,
+`description`, `metadata` and `allowed_tools` (the last two left out when
+empty) in each candidate. The response is read with keys matched
+case-insensitively, so `{"Selected": [...]}` still works. `rerank.py`'s
+local fallback ranker now leaves out a candidate that shares no word with the
+query, so it narrows the list instead of returning every candidate.
+
+| If you | You will see | Change |
+|---|---|---|
+| Wrote an exec selector against the documented wire, or use `rerank.py` | it reads the query and candidates, and narrows the index | nothing |
+| Wrote an exec selector that reads the PascalCase keys PromptKit sent (`Text`, `ID`, `Description`) | it gets no query and no IDs | read the lowercase keys |
+| Marshal `selection.Query` or `selection.Candidate` to JSON yourself | lowercase keys | read the lowercase keys |
 
 ### Conversation behavior fixes
 

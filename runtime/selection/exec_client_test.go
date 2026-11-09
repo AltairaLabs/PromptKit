@@ -145,9 +145,8 @@ func TestExecClient_Init_Noop(t *testing.T) {
 	}
 }
 
-// The exec selector's stdin carries a skill candidate's AllowedTools, and
-// leaves the key out for a candidate with none, so the wire a tool candidate
-// sends is unchanged.
+// The exec selector's stdin carries a skill candidate's allowed_tools, and
+// leaves the key out for a candidate with none.
 func TestExecClient_Select_SendsAllowedToolsOnlyWhenSet(t *testing.T) {
 	fake := &fakeSandbox{}
 	fake.resp.Stdout = []byte(`{"selected":["refunds"]}`)
@@ -166,10 +165,46 @@ func TestExecClient_Select_SendsAllowedToolsOnlyWhenSet(t *testing.T) {
 	if err := json.Unmarshal(fake.captured.Stdin, &sent); err != nil {
 		t.Fatalf("captured stdin not valid JSON: %v", err)
 	}
-	if got := string(sent.Candidates[0]["AllowedTools"]); got != `["refund"]` {
-		t.Errorf("skill candidate AllowedTools = %s, want [\"refund\"]", got)
+	if got := string(sent.Candidates[0]["allowed_tools"]); got != `["refund"]` {
+		t.Errorf("skill candidate allowed_tools = %s, want [\"refund\"]", got)
 	}
-	if _, ok := sent.Candidates[1]["AllowedTools"]; ok {
-		t.Errorf("candidate with no AllowedTools sent the key: %s", fake.captured.Stdin)
+	if _, ok := sent.Candidates[1]["allowed_tools"]; ok {
+		t.Errorf("candidate with no allowed_tools sent the key: %s", fake.captured.Stdin)
+	}
+}
+
+// The exec selector's stdin uses the documented lowercase keys, exactly.
+func TestExecClient_Select_SendsTheDocumentedLowercaseKeys(t *testing.T) {
+	fake := &fakeSandbox{}
+	fake.resp.Stdout = []byte(`{"selected":["a"]}`)
+	c := NewExecClient(ExecClientConfig{Name: "x", Command: "/bin/true", Sandbox: fake})
+
+	_, err := c.Select(context.Background(),
+		Query{Text: "refund", Kind: "skill", PackID: "p", AgentID: "agent", K: 3},
+		[]Candidate{{ID: "a", Name: "A", Description: "d", Metadata: map[string]string{"tags": "x"},
+			AllowedTools: []string{"refund"}}},
+	)
+	if err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	want := `{"query":{"text":"refund","kind":"skill","pack_id":"p","agent_id":"agent","k":3},` +
+		`"candidates":[{"id":"a","name":"A","description":"d","metadata":{"tags":"x"},"allowed_tools":["refund"]}]}`
+	if got := string(fake.captured.Stdin); got != want {
+		t.Errorf("stdin =\n%s\nwant\n%s", got, want)
+	}
+}
+
+// A response written with the PascalCase key is read as the lowercase one.
+func TestExecClient_Select_ReadsPascalCaseSelected(t *testing.T) {
+	fake := &fakeSandbox{}
+	fake.resp.Stdout = []byte(`{"Selected":["b"]}`)
+	c := NewExecClient(ExecClientConfig{Name: "x", Command: "/bin/true", Sandbox: fake})
+
+	ids, err := c.Select(context.Background(), Query{Text: "q"}, []Candidate{{ID: "a"}, {ID: "b"}})
+	if err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != "b" {
+		t.Errorf("Selected = %v, want [b]", ids)
 	}
 }
