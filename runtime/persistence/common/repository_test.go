@@ -58,10 +58,20 @@ func TestLoadPrompt(t *testing.T) {
 		assert.Contains(t, repo.Cache, "test-task")
 	})
 
+	// A second load is served from the cache: a change to the file after the
+	// first load is not seen.
 	t.Run("returns cached config", func(t *testing.T) {
-		loaded1, _ := repo.LoadPrompt("test-task")
-		loaded2, _ := repo.LoadPrompt("test-task")
-		assert.Equal(t, loaded1, loaded2)
+		_, err := repo.LoadPrompt("test-task")
+		require.NoError(t, err)
+		changed := config
+		changed.Spec.Description = "edited on disk"
+		changedData, err := json.Marshal(changed)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(configPath, changedData, 0644))
+
+		loaded, err := repo.LoadPrompt("test-task")
+		require.NoError(t, err)
+		assert.Equal(t, "", loaded.Spec.Description)
 	})
 
 	t.Run("file not found", func(t *testing.T) {

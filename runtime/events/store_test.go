@@ -128,6 +128,18 @@ func TestFileEventStore_Query(t *testing.T) {
 		assert.Len(t, result, 2)
 	})
 
+	// An empty type list is no type filter, not a filter that matches nothing.
+	t.Run("empty type list matches every type", func(t *testing.T) {
+		result, err := store.Query(context.Background(), &EventFilter{
+			SessionID: sessionID,
+			Types:     []EventType{},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []EventType{
+			EventMessageCreated, EventToolCallStarted, EventToolCallCompleted, EventMessageCreated,
+		}, eventTypes(result))
+	})
+
 	t.Run("limit results", func(t *testing.T) {
 		result, err := store.Query(context.Background(), &EventFilter{
 			SessionID: sessionID,
@@ -252,15 +264,19 @@ func TestFileEventStore_Stream_NonExistentSession(t *testing.T) {
 	assert.Equal(t, 0, count)
 }
 
+// Cancelling the context stops the stream: the channel closes without
+// delivering the rest of the session. The session holds far more events than
+// the channel buffers, so a stream that ignored cancellation would deliver
+// every one of them.
 func TestFileEventStore_Stream_ContextCancellation(t *testing.T) {
 	store, err := NewFileEventStore(t.TempDir())
 	require.NoError(t, err)
 	defer store.Close()
 
 	sessionID := "session-cancel-test"
+	const total = 10 * streamChanSize
 
-	// Append many events
-	for i := 0; i < 100; i++ {
+	for i := 0; i < total; i++ {
 		require.NoError(t, store.Append(context.Background(), &Event{
 			Type:      EventMessageCreated,
 			Timestamp: time.Now(),
@@ -276,15 +292,15 @@ func TestFileEventStore_Stream_ContextCancellation(t *testing.T) {
 	ch, err := store.Stream(ctx, sessionID)
 	require.NoError(t, err)
 
-	// Read a few then cancel
 	<-ch
 	<-ch
 	cancel()
 
-	// Channel should close eventually
+	delivered := 2
 	for range ch {
-		// drain
+		delivered++
 	}
+	assert.Less(t, delivered, total, "a cancelled stream must stop before the end of the session")
 }
 
 func TestStoreSubscribedToBus(t *testing.T) {
@@ -679,17 +695,25 @@ func TestDeserializeEventData(t *testing.T) {
 	}
 }
 
+// Close is idempotent: closing a store whose session files are already closed
+// succeeds, and the events written before the first Close are on disk.
 func TestFileEventStore_Close_AlreadyClosed(t *testing.T) {
-	store, err := NewFileEventStore(t.TempDir())
+	dir := t.TempDir()
+	store, err := NewFileEventStore(dir)
 	require.NoError(t, err)
+	require.NoError(t, store.Append(context.Background(), &Event{
+		Type: EventMessageCreated, Timestamp: time.Now(), SessionID: "s", ConversationID: "c",
+	}))
 
-	// First close
-	err = store.Close()
-	require.NoError(t, err)
+	require.NoError(t, store.Close())
+	require.NoError(t, store.Close(), "a second Close must not re-close the session files")
 
-	// Second close should also succeed
-	err = store.Close()
+	reopened, err := NewFileEventStore(dir)
 	require.NoError(t, err)
+	defer reopened.Close()
+	got, err := reopened.Query(context.Background(), &EventFilter{SessionID: "s"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"c"}, conversationIDs(got))
 }
 
 func TestFileEventStore_Query_AdvancedFilters(t *testing.T) {
@@ -859,16 +883,6 @@ func TestFileEventStore_WithMaxOpenFiles(t *testing.T) {
 }
 
 func TestBuildTypeSet(t *testing.T) {
-	t.Run("nil types", func(t *testing.T) {
-		result := buildTypeSet(nil)
-		assert.Nil(t, result)
-	})
-
-	t.Run("empty types", func(t *testing.T) {
-		result := buildTypeSet([]EventType{})
-		assert.Nil(t, result)
-	})
-
 	t.Run("multiple types", func(t *testing.T) {
 		types := []EventType{EventMessageCreated, EventToolCallStarted, EventPipelineStarted}
 		result := buildTypeSet(types)

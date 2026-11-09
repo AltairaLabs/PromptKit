@@ -1217,9 +1217,15 @@ func TestFileStore_Flush(t *testing.T) {
 			Organization: storage.OrganizationByRun,
 		})
 		require.NoError(t, err)
+		data := base64.StdEncoding.EncodeToString([]byte("no dedup"))
+		_, err = fs.StoreMedia(context.Background(),
+			&types.MediaContent{Data: &data, MIMEType: "image/jpeg"},
+			&storage.MediaMetadata{RunID: "run-no-dedup", MIMEType: "image/jpeg", Timestamp: time.Now()})
+		require.NoError(t, err)
 
-		err = fs.Flush()
-		assert.NoError(t, err)
+		require.NoError(t, fs.Flush())
+		assert.NoFileExists(t, filepath.Join(tempDir, ".dedup_index.json"),
+			"a store without deduplication writes no dedup index")
 	})
 
 	t.Run("flush is no-op when index unchanged", func(t *testing.T) {
