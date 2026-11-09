@@ -153,49 +153,50 @@ func TestNewUnarySession(t *testing.T) {
 		assert.Equal(t, "test-conversation", session.ID())
 	})
 
-	t.Run("uses provided state store", func(t *testing.T) {
-		pipe := createTestPipeline(t)
+	t.Run("reads history from the provided state store", func(t *testing.T) {
 		store := statestore.NewMemoryStore()
-
-		cfg := UnarySessionConfig{
-			Pipeline:   pipe,
-			StateStore: store,
-		}
-
-		session, err := NewUnarySession(cfg)
+		session, err := NewUnarySession(UnarySessionConfig{
+			ConversationID: "conv-store",
+			Pipeline:       createStoredTestPipeline(t, store, "conv-store"),
+			StateStore:     store,
+		})
 		require.NoError(t, err)
-		assert.NotNil(t, session)
+
+		_, err = session.Execute(context.Background(), "user", "remember me")
+		require.NoError(t, err)
+
+		// The session reads the store it was given, which the pipeline wrote.
+		msgs, err := session.Messages(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, []string{"user:remember me", "assistant:" + testReply}, transcript(msgs))
 	})
 
-	t.Run("initializes with metadata", func(t *testing.T) {
-		pipe := createTestPipeline(t)
-
-		cfg := UnarySessionConfig{
-			Pipeline: pipe,
-			UserID:   "user123",
-			Metadata: map[string]any{
-				"key": "value",
-			},
-		}
-
-		session, err := NewUnarySession(cfg)
+	t.Run("seeds metadata into the state store", func(t *testing.T) {
+		store := statestore.NewMemoryStore()
+		_, err := NewUnarySession(UnarySessionConfig{
+			ConversationID: "conv-meta",
+			Pipeline:       createTestPipeline(t),
+			StateStore:     store,
+			UserID:         "user123",
+			Metadata:       map[string]any{"key": "value"},
+		})
 		require.NoError(t, err)
-		assert.NotNil(t, session)
+
+		meta, err := store.LoadMetadata(context.Background(), "conv-meta")
+		require.NoError(t, err)
+		assert.Equal(t, "value", meta["key"])
 	})
 
 	t.Run("initializes with variables", func(t *testing.T) {
-		pipe := createTestPipeline(t)
-
-		cfg := UnarySessionConfig{
-			Pipeline: pipe,
-			Variables: map[string]string{
-				"var1": "value1",
-			},
-		}
-
-		session, err := NewUnarySession(cfg)
+		session, err := NewUnarySession(UnarySessionConfig{
+			Pipeline:  createTestPipeline(t),
+			Variables: map[string]string{"var1": "value1"},
+		})
 		require.NoError(t, err)
-		assert.NotNil(t, session)
+
+		val, ok := session.GetVar("var1")
+		assert.True(t, ok)
+		assert.Equal(t, "value1", val)
 	})
 }
 
@@ -213,7 +214,10 @@ func TestUnarySession_Execute(t *testing.T) {
 		ctx := context.Background()
 		result, err := session.Execute(ctx, "user", "test message")
 		require.NoError(t, err)
-		assert.NotNil(t, result)
+		require.NotNil(t, result.Response)
+		assert.Equal(t, "assistant", result.Response.Role)
+		assert.Equal(t, testReply, result.Response.Content)
+		assert.Equal(t, []string{"user:test message", "assistant:" + testReply}, transcript(result.Messages))
 	})
 }
 
@@ -236,7 +240,9 @@ func TestUnarySession_ExecuteWithMessage(t *testing.T) {
 
 		result, err := session.ExecuteWithMessage(ctx, msg)
 		require.NoError(t, err)
-		assert.NotNil(t, result)
+		require.NotNil(t, result.Response)
+		assert.Equal(t, testReply, result.Response.Content)
+		assert.Equal(t, []string{"user:test", "assistant:" + testReply}, transcript(result.Messages))
 	})
 }
 
@@ -289,27 +295,37 @@ func TestUnarySession_Messages(t *testing.T) {
 		session, err := NewUnarySession(cfg)
 		require.NoError(t, err)
 
+		// A conversation nothing has been written to yet reads as empty, not
+		// as an error and not as nil.
 		ctx := context.Background()
 		messages, err := session.Messages(ctx)
 		require.NoError(t, err)
-		assert.NotNil(t, messages)
+		require.NotNil(t, messages)
+		assert.Empty(t, messages)
 	})
 }
 
 func TestUnarySession_Clear(t *testing.T) {
-	t.Run("clears successfully", func(t *testing.T) {
-		pipe := createTestPipeline(t)
-
-		cfg := UnarySessionConfig{
-			Pipeline: pipe,
-		}
-
-		session, err := NewUnarySession(cfg)
+	t.Run("clear empties the persisted history", func(t *testing.T) {
+		store := statestore.NewMemoryStore()
+		session, err := NewUnarySession(UnarySessionConfig{
+			ConversationID: "conv-clear",
+			Pipeline:       createStoredTestPipeline(t, store, "conv-clear"),
+			StateStore:     store,
+		})
 		require.NoError(t, err)
 
 		ctx := context.Background()
-		err = session.Clear(ctx)
+		_, err = session.Execute(ctx, "user", "forget me")
 		require.NoError(t, err)
+		before, err := session.Messages(ctx)
+		require.NoError(t, err)
+		require.Len(t, before, 2, "test premise: the turn was persisted")
+
+		require.NoError(t, session.Clear(ctx))
+		after, err := session.Messages(ctx)
+		require.NoError(t, err)
+		assert.Empty(t, after)
 	})
 }
 
@@ -350,8 +366,31 @@ func TestConvertExecutionResult(t *testing.T) {
 	})
 }
 
+// testReply is what the test pipeline's mock provider answers.
+const testReply = "Mock response from test model test-model"
+
+// transcript renders messages as role:text for exact comparison.
+func transcript(msgs []types.Message) []string {
+	out := make([]string, 0, len(msgs))
+	for i := range msgs {
+		out = append(out, msgs[i].Role+":"+msgs[i].GetContent())
+	}
+	return out
+}
+
+// createStoredTestPipeline is createTestPipeline persisting to store under convID.
+func createStoredTestPipeline(t *testing.T, store statestore.Store, convID string) *stage.StreamPipeline {
+	t.Helper()
+	return buildTestPipeline(t, store, convID)
+}
+
 // Helper function to create a test pipeline
 func createTestPipeline(t *testing.T) *stage.StreamPipeline {
+	t.Helper()
+	return buildTestPipeline(t, nil, "")
+}
+
+func buildTestPipeline(t *testing.T, store statestore.Store, convID string) *stage.StreamPipeline {
 	t.Helper()
 
 	// Create prompt registry
@@ -371,11 +410,32 @@ func createTestPipeline(t *testing.T) *stage.StreamPipeline {
 		PromptRegistry: registry,
 		TaskType:       "chat",
 		Provider:       mock.NewProvider("test", "test-model", false),
+		StateStore:     store,
+		ConversationID: convID,
 	}
 
 	pipe, err := pipeline.Build(cfg)
 	require.NoError(t, err)
 	return pipe
+}
+
+// assertStreamEndsWithReply drains stream and checks its terminal chunk: a
+// "stop" finish carrying the provider's reply as the final result.
+func assertStreamEndsWithReply(t *testing.T, stream <-chan providers.StreamChunk) {
+	t.Helper()
+	var chunks []providers.StreamChunk
+	for chunk := range stream {
+		require.NoError(t, chunk.Error)
+		chunks = append(chunks, chunk)
+	}
+	require.NotEmpty(t, chunks)
+	last := chunks[len(chunks)-1]
+	require.NotNil(t, last.FinishReason)
+	assert.Equal(t, "stop", *last.FinishReason)
+	final, ok := last.FinalResult.(*rtpipeline.ExecutionResult)
+	require.True(t, ok, "the terminal chunk carries the turn's result")
+	require.NotNil(t, final.Response)
+	assert.Equal(t, testReply, final.Response.Content)
 }
 
 func TestUnarySession_ExecuteStream(t *testing.T) {
@@ -393,14 +453,7 @@ func TestUnarySession_ExecuteStream(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, stream)
 
-	// Consume stream
-	var chunks []providers.StreamChunk
-	for chunk := range stream {
-		chunks = append(chunks, chunk)
-	}
-
-	// Should have received chunks
-	assert.NotEmpty(t, chunks)
+	assertStreamEndsWithReply(t, stream)
 }
 
 func TestUnarySession_ExecuteStreamWithMessage(t *testing.T) {
@@ -421,14 +474,7 @@ func TestUnarySession_ExecuteStreamWithMessage(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, stream)
 
-	// Consume stream
-	var chunks []providers.StreamChunk
-	for chunk := range stream {
-		chunks = append(chunks, chunk)
-	}
-
-	// Should have received chunks
-	assert.NotEmpty(t, chunks)
+	assertStreamEndsWithReply(t, stream)
 }
 
 func TestUnarySession_ResumeWithToolResults(t *testing.T) {
@@ -455,8 +501,13 @@ func TestUnarySession_ResumeWithToolResults(t *testing.T) {
 
 	result, err := sess.ResumeWithToolResults(context.Background(), toolResults)
 	require.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.NotNil(t, result.Response)
+	require.NotNil(t, result.Response)
+	assert.Equal(t, testReply, result.Response.Content)
+	// The tool result is part of the resumed turn, ahead of the reply.
+	require.NotEmpty(t, result.Messages)
+	assert.Equal(t, "tool", result.Messages[0].Role)
+	require.NotNil(t, result.Messages[0].ToolResult)
+	assert.Equal(t, "call-1", result.Messages[0].ToolResult.ID)
 }
 
 func TestProcessStreamElements_PropagatesPendingTools(t *testing.T) {
