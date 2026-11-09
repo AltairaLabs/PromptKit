@@ -1807,9 +1807,10 @@ func TestContextBuilderStage_TruncateStrategies(t *testing.T) {
 
 	t.Run("TruncateSummarize without summarizer falls back to oldest", func(t *testing.T) {
 		policy := &ContextBuilderPolicy{
-			TokenBudget:      5, // Small budget to trigger truncation
+			TokenBudget:      8, // fits the latest message (6 words), not two
 			ReserveForOutput: 1,
 			Strategy:         TruncateSummarize,
+			TokenCounter:     turnWordCounter{},
 			// No Summarizer configured — should fall back to TruncateOldest
 		}
 		stage := NewContextBuilderStage(policy)
@@ -1826,12 +1827,11 @@ func TestContextBuilderStage_TruncateStrategies(t *testing.T) {
 		err := stage.Process(context.Background(), input, output)
 		require.NoError(t, err, "Should fall back to TruncateOldest, not error")
 
-		// Should have truncated some messages
-		var count int
-		for range output {
-			count++
+		var got []string
+		for e := range output {
+			got = append(got, e.Message.Content)
 		}
-		assert.LessOrEqual(t, count, 3)
+		assert.Equal(t, []string{"Latest message that also has content"}, got, "the oldest are dropped")
 	})
 
 	t.Run("default strategy uses TruncateOldest", func(t *testing.T) {

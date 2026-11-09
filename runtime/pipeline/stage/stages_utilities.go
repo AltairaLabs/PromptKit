@@ -774,7 +774,9 @@ type ContextBuilderPolicy struct {
 //   - TruncateFail: returns error if budget exceeded (strict mode)
 //
 // Whatever the strategy, the truncated history starts at a user message and
-// keeps a tool call only with all of its results, so no provider rejects it.
+// keeps a tool call only with all of its results. When the budget cannot fit
+// any user message (the current turn does not fit), the stage returns an
+// error rather than send a request with no question in it.
 //
 // Configuration (ContextBuilderPolicy):
 //   - TokenBudget: total tokens allowed (0 = unlimited, pass-through mode)
@@ -1026,7 +1028,25 @@ func (s *ContextBuilderStage) truncateMessages(
 	if err != nil {
 		return nil, err
 	}
-	return wellFormedHistory(kept), nil
+	out := wellFormedHistory(kept)
+	// Truncation drops history, never the current turn: a request with no
+	// user message is rejected by every provider (or, with only a summary,
+	// asks the model nothing), so say the budget is too small instead.
+	if hasUserMessage(messages) && !hasUserMessage(out) {
+		return nil, fmt.Errorf("token budget exceeded: budget %d is too small for the current turn "+
+			"(its user message and the tool calls and results that follow it)", budget)
+	}
+	return out, nil
+}
+
+// hasUserMessage reports whether any message is a user message.
+func hasUserMessage(messages []types.Message) bool {
+	for i := range messages {
+		if isUserTurn(&messages[i]) {
+			return true
+		}
+	}
+	return false
 }
 
 // wellFormedHistory removes what truncation can leave behind that providers
@@ -1043,20 +1063,26 @@ func (s *ContextBuilderStage) truncateMessages(
 // It only ever drops messages, so the result stays within the budget the
 // strategy chose for.
 func wellFormedHistory(messages []types.Message) []types.Message {
-	paired, callIDs := dropUnansweredCalls(messages)
-	// Keep a tool result only when its call is kept; open on a user turn.
-	out := make([]types.Message, 0, len(paired))
+	// Open on a user turn first, so a call dropped here cannot vouch for a
+	// later result that reuses its ID.
+	opened := make([]types.Message, 0, len(messages))
 	seenUser := false
+	for i := range messages {
+		m := &messages[i]
+		if !seenUser && m.Role != roleSystem && !isUserTurn(m) {
+			continue
+		}
+		seenUser = seenUser || isUserTurn(m)
+		opened = append(opened, *m)
+	}
+	paired, callIDs := dropUnansweredCalls(opened)
+	// Keep a tool result only when its call is kept.
+	out := make([]types.Message, 0, len(paired))
 	for i := range paired {
-		m := paired[i]
-		if m.ToolResult != nil && !callIDs[m.ToolResult.ID] {
+		if paired[i].ToolResult != nil && !callIDs[paired[i].ToolResult.ID] {
 			continue
 		}
-		if !seenUser && m.Role != roleSystem && !isUserTurn(&m) {
-			continue
-		}
-		seenUser = seenUser || isUserTurn(&m)
-		out = append(out, m)
+		out = append(out, paired[i])
 	}
 	return out
 }

@@ -49,6 +49,14 @@ func turnResult(id, text string) types.Message {
 // it emits, one "role:content" (or "role:calls=ids") per message.
 func runTurnBoundary(t *testing.T, policy *ContextBuilderPolicy, msgs ...types.Message) []string {
 	t.Helper()
+	got, err := runTurnBoundaryErr(t, policy, msgs...)
+	require.NoError(t, err)
+	return got
+}
+
+// runTurnBoundaryErr is runTurnBoundary for a run that may fail.
+func runTurnBoundaryErr(t *testing.T, policy *ContextBuilderPolicy, msgs ...types.Message) ([]string, error) {
+	t.Helper()
 	policy.TokenCounter = turnWordCounter{}
 	s := NewContextBuilderStage(policy)
 	input := make(chan StreamElement, len(msgs))
@@ -57,7 +65,7 @@ func runTurnBoundary(t *testing.T, policy *ContextBuilderPolicy, msgs ...types.M
 	}
 	close(input)
 	output := make(chan StreamElement, len(msgs)+1)
-	require.NoError(t, s.Process(context.Background(), input, output))
+	err := s.Process(context.Background(), input, output)
 	var got []string
 	for e := range output {
 		if e.Message == nil {
@@ -73,7 +81,61 @@ func runTurnBoundary(t *testing.T, policy *ContextBuilderPolicy, msgs ...types.M
 		}
 		got = append(got, e.Message.Role+":"+e.Message.Content)
 	}
-	return got
+	return got, err
+}
+
+// When the budget cannot fit the current turn's user message, the stage
+// fails with a reason rather than send a request with no question in it.
+// This is the shape a Resume with tool results sends.
+func TestContextBuilder_CurrentTurnThatDoesNotFitFails(t *testing.T) {
+	got, err := runTurnBoundaryErr(t, &ContextBuilderPolicy{TokenBudget: 6, Strategy: TruncateOldest},
+		turnMsg(roleUser, "q0 "+strings.Repeat("w ", 20)),
+		turnCall(1, "c1"),
+		turnResult("c1", "found it"),
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "too small for the current turn")
+	assert.Empty(t, got, "nothing is sent")
+}
+
+// A system message ahead of the first user message is kept; a call dropped
+// because it came before the first user message does not keep a later result
+// that reuses its (empty) ID.
+func TestContextBuilder_OpeningPassRunsBeforePairing(t *testing.T) {
+	got := runTurnBoundary(t, &ContextBuilderPolicy{TokenBudget: 12, Strategy: TruncateOldest},
+		turnMsg(roleUser, "q0 "+strings.Repeat("w ", 20)),
+		turnMsg(roleSystem, "be brief"),
+		turnCall(1, ""),
+		turnMsg(roleUser, "q1"),
+		turnResult("", "r1"),
+		turnMsg(roleUser, "q2"),
+	)
+	assert.Equal(t, []string{"system:be brief", "user:q1", "user:q2"}, got)
+}
+
+// A message with parallel tool calls is kept only when every result is.
+func TestContextBuilder_ParallelCallsNeedEveryResult(t *testing.T) {
+	topic := newMockEmbeddingProvider()
+	topic.embedFunc = func(texts []string) ([][]float32, error) {
+		out := make([][]float32, len(texts))
+		for i, x := range texts {
+			out[i] = []float32{0, 1, 0}
+			if strings.Contains(x, "apples") {
+				out[i] = []float32{1, 0, 0}
+			}
+		}
+		return out, nil
+	}
+	got := runTurnBoundary(t, &ContextBuilderPolicy{TokenBudget: 9, Strategy: TruncateLeastRelevant,
+		RelevanceConfig: &RelevanceConfig{EmbeddingProvider: topic, MinRecentMessages: 1}},
+		turnMsg(roleUser, "apples please"),
+		turnCall(1, "c1", "c2"),
+		turnResult("c1", "pears w w w w w w"),
+		turnResult("c2", "apples found"),
+		turnMsg(roleUser, "apples again"),
+	)
+	assert.Equal(t, []string{"user:apples please", "user:apples again"}, got,
+		"c1's result did not fit, so the call and c2's result go too")
 }
 
 // Sliding truncation keeps whole turns: the kept history opens on a user
@@ -127,13 +189,15 @@ func TestContextBuilder_SummarizeSplitsOnATurn(t *testing.T) {
 	require.Len(t, summarizer.batch, 2)
 	assert.Equal(t, "a0 w w w w", summarizer.batch[1].Content, "the reply is summarized, not dropped")
 
-	// With no user message in the recent tail, everything is summarized.
-	got = runTurnBoundary(t,
+	// With no user message in the recent tail, a summary alone would ask the
+	// model nothing, so the stage fails instead.
+	_, err := runTurnBoundaryErr(t,
 		&ContextBuilderPolicy{TokenBudget: 80, Strategy: TruncateSummarize, Summarizer: summarizer},
 		turnMsg(roleUser, "q0 "+strings.Repeat("w ", 79)),
 		turnMsg(roleAssistant, "a0 w w w w"),
 	)
-	assert.Equal(t, []string{"system:[Summary of 2 earlier messages]: summary"}, got)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "too small for the current turn")
 }
 
 // Relevance truncation picks messages one by one, so it can keep half of a
