@@ -374,6 +374,8 @@ Nothing changes for callers.
 | Check `errors.Is(err, sdk.ErrConversationNotFound)` after `Resume` or `ResumeDuplex` of an unknown ID | it holds for the memory and Redis stores, where they returned only `statestore.ErrNotFound` | nothing |
 | Pass `WithUserID` with a state store | a new conversation's persisted state carries the user ID, where the ID reached events only; a resumed conversation's state is left as it was | nothing |
 | Call `SetVar` from another goroutine while a turn runs | the call returns and the next turn renders it, where the two could deadlock | nothing |
+| `ResumeDuplex` a realtime conversation | the new provider session is given the persisted user and assistant turns before your first input, where it started with no memory of them | nothing |
+| `ResumeDuplex` a realtime conversation that has history, on a provider that cannot replay it | `ErrResumeHistoryUnsupported`, where the conversation continued without its history | use a provider that implements `providers.StreamHistorySupport` (OpenAI Realtime, Gemini Live) |
 
 ## v2.18.0
 
