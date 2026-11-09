@@ -1019,10 +1019,12 @@ func (s *ContextBuilderStage) truncateMessages(
 	case TruncateLeastRelevant:
 		kept, err = s.truncateByRelevance(ctx, messages, budget)
 	case TruncateSummarize:
-		kept, err = s.truncateBySummarization(ctx, messages, budget)
+		kept = s.truncateBySummarization(ctx, messages, budget)
 	case TruncateFail:
 		return nil, fmt.Errorf("token budget exceeded: have %d, budget %d", s.countMessagesTokens(messages), budget)
-	default: // TruncateOldest and unrecognized strategies
+	case TruncateOldest:
+		kept = s.truncateOldest(messages, budget)
+	default: // unrecognized strategies truncate like TruncateOldest
 		kept = s.truncateOldest(messages, budget)
 	}
 	if err != nil {
@@ -1165,10 +1167,10 @@ func (s *ContextBuilderStage) truncateBySummarization(
 	ctx context.Context,
 	messages []types.Message,
 	budget int,
-) ([]types.Message, error) {
+) []types.Message {
 	if s.policy.Summarizer == nil {
 		logger.Warn("TruncateSummarize requires a Summarizer; falling back to TruncateOldest")
-		return s.truncateOldest(messages, budget), nil
+		return s.truncateOldest(messages, budget)
 	}
 
 	// Keep as many recent messages as fit in half the budget (leave room for summary)
@@ -1192,7 +1194,7 @@ func (s *ContextBuilderStage) truncateBySummarization(
 
 	// If all messages fit in half budget, no summarization needed
 	if splitIdx == 0 {
-		return messages, nil
+		return messages
 	}
 
 	// Keep whole turns: fold the replies and tool messages that open the kept
@@ -1208,7 +1210,7 @@ func (s *ContextBuilderStage) truncateBySummarization(
 	if err != nil {
 		// Fall back to truncation on summarization failure
 		logger.Warn("Summarization failed, falling back to TruncateOldest", "error", err)
-		return s.truncateOldest(messages, budget), nil
+		return s.truncateOldest(messages, budget)
 	}
 
 	// Build result: summary message + kept recent messages
@@ -1225,10 +1227,10 @@ func (s *ContextBuilderStage) truncateBySummarization(
 	// Verify result fits budget; if not, truncate further
 	resultTokens := s.countMessagesTokens(result)
 	if resultTokens > budget {
-		return s.truncateOldest(result, budget), nil
+		return s.truncateOldest(result, budget)
 	}
 
-	return result, nil
+	return result
 }
 
 // truncateByRelevance removes least relevant messages based on embedding similarity.
