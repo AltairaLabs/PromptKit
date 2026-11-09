@@ -29,14 +29,8 @@ func assertPanicLogged(t *testing.T, out, name, value string) {
 
 func TestRun_NilOnPanicStillRecoversAndLogs(t *testing.T) {
 	buf := captureLog(t)
-	returned := false
-	func() {
-		Run("worker-a", func() { panic(errors.New("x")) }, nil)
-		returned = true
-	}()
-	if !returned {
-		t.Fatal("Run did not return after a panic")
-	}
+	// Reaching the next line means the panic did not escape Run.
+	Run("worker-a", func() { panic(errors.New("x")) }, nil)
 	assertPanicLogged(t, buf.String(), "worker-a", "x")
 }
 

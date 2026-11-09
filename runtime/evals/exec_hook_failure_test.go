@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -50,24 +51,38 @@ func TestExecEvalHook_SubprocessFailureIsLoggedNotRaised(t *testing.T) {
 	}
 }
 
+// workerCountingHandler is an eval handler that counts how often it runs.
+type workerCountingHandler struct{ calls atomic.Int32 }
+
+func (h *workerCountingHandler) Type() string { return "counting" }
+
+func (h *workerCountingHandler) Eval(context.Context, *EvalContext, map[string]any) (*EvalResult, error) {
+	h.calls.Add(1)
+	score := 1.0
+	return &EvalResult{EvalID: "counting", Score: &score}, nil
+}
+
 // TestEvalWorker_NilResultWriter pins that a worker built without a result
-// writer still runs each event and keeps its subscription open: Start ends
-// only with the context, not with a handler error.
+// writer still runs the eval for each event and keeps its subscription open:
+// Start ends only with the context, not with a handler error.
 func TestEvalWorker_NilResultWriter(t *testing.T) {
-	reg := newTestRegistry(&stubHandler{typeName: "test"})
-	runner := NewEvalRunner(reg)
+	handler := &workerCountingHandler{}
+	runner := NewEvalRunner(newTestRegistry(handler))
 	payload := makePayload(t,
-		[]EvalDef{{ID: "e1", Type: "test", Trigger: TriggerEveryTurn}},
+		[]EvalDef{{ID: "e1", Type: "counting", Trigger: TriggerEveryTurn}},
 		&EvalContext{SessionID: "s1"},
 	)
-	sub := &mockSubscriber{turnEvents: [][]byte{payload}, sessionEvents: [][]byte{payload}}
+	sub := &mockSubscriber{turnEvents: [][]byte{payload, payload}}
 	worker := NewEvalWorker(runner, sub, nil)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
 	err := worker.Start(ctx)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Start = %v, want the context deadline (no handler error)", err)
+	}
+	if got := handler.calls.Load(); got != 2 {
+		t.Errorf("eval ran %d times, want 2 (once per turn event)", got)
 	}
 }

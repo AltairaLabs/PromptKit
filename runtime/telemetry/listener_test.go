@@ -668,7 +668,7 @@ func TestOTelEventListener_UnknownEventType(t *testing.T) {
 
 	listener.StartSession(context.Background(), "sess-1")
 
-	// An event type the listener does not trace is ignored: no span, no panic.
+	// An event type the listener does not trace ends no span and does not panic.
 	listener.OnEvent(&events.Event{
 		Type:      events.EventConversationStarted,
 		SessionID: "sess-1", ExecutionID: "run-1",
