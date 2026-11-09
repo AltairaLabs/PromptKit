@@ -54,6 +54,13 @@ type duplexSession struct {
 	// Internal pipeline channel (stage.StreamElement)
 	stageInput chan stage.StreamElement // Feeds converted elements to pipeline
 
+	// inputMu guards sends on stageInput against Close closing it: every send
+	// holds the read lock across its channel send, and Close takes the write
+	// lock to close the channel, so no send can land on a closed channel
+	// (#2606). inputClosed is set under the write lock.
+	inputMu     sync.RWMutex
+	inputClosed bool
+
 	// External API channel (providers.StreamChunk)
 	streamOutput chan providers.StreamChunk // Consumer receives chunks here
 
@@ -239,12 +246,25 @@ func (s *duplexSession) SendChunk(ctx context.Context, chunk *providers.StreamCh
 		elem.WithSource(chunk.Source)
 	}
 
-	// Send converted element to Pipeline
+	return s.sendInput(ctx, elem)
+}
+
+// sendInput delivers elem to the pipeline, or returns the session-closed error
+// once Close has run. A send blocked on a full channel is woken by Close
+// canceling the session context, so it never holds Close off.
+func (s *duplexSession) sendInput(ctx context.Context, elem stage.StreamElement) error {
+	s.inputMu.RLock()
+	defer s.inputMu.RUnlock()
+	if s.inputClosed {
+		return errors.New(errSessionClosed)
+	}
 	select {
 	case s.stageInput <- elem:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
+	case <-s.sessionCtx.Done():
+		return errors.New(errSessionClosed)
 	}
 }
 
@@ -423,7 +443,7 @@ func (s *duplexSession) handleToolCalls(ctx context.Context, elem *stage.StreamE
 
 	// Send completed tool results back to the pipeline
 	if len(duplexResult.Completed.ProviderResponses) > 0 {
-		if err := streaming.SendToolResults(ctx, duplexResult.Completed, s.stageInput); err != nil {
+		if err := s.sendInput(ctx, streaming.BuildToolResponseElement(duplexResult.Completed)); err != nil {
 			return fmt.Errorf("failed to send tool results: %w", err)
 		}
 	}
@@ -548,13 +568,12 @@ func (s *duplexSession) Drain(ctx context.Context) error {
 	// marks this as a graceful drain (not an end-of-turn boundary), so a streaming
 	// provider stage closes its session immediately instead of waiting out its
 	// final-response timeout — otherwise draining a live voice session blocks ~30s.
-	select {
-	case s.stageInput <- stage.StreamElement{
+	if err := s.sendInput(ctx, stage.StreamElement{
 		EndOfStream: true,
 		Meta:        stage.ElementMetadata{AllResponsesReceived: true},
-	}:
-	case <-ctx.Done():
-		// Context expired before we could send — fall back to hard close.
+	}); err != nil {
+		// The context expired before the send, or Close won the race: fall
+		// back to a hard close.
 		return s.Close()
 	}
 
@@ -590,8 +609,13 @@ func (s *duplexSession) Close() error {
 	}
 
 	s.closed = true
-	close(s.stageInput)
+	// Cancel first: it wakes any send blocked on a full input channel, so the
+	// write lock below is not held off by it.
 	s.sessionCancel()
+	s.inputMu.Lock()
+	s.inputClosed = true
+	close(s.stageInput)
+	s.inputMu.Unlock()
 
 	// executePipeline closes streamOutput and pipelineDone, but it starts on
 	// the first send. A session closed before any send must close them here,
@@ -659,7 +683,7 @@ func (s *duplexSession) SubmitToolResults(ctx context.Context, responses []provi
 		result.ResultMessages = append(result.ResultMessages, types.NewToolResultMessage(toolResult))
 	}
 
-	return streaming.SendToolResults(ctx, result, s.stageInput)
+	return s.sendInput(ctx, streaming.BuildToolResponseElement(result))
 }
 
 // copyStreamConfig returns a shallow copy of cfg, or nil.
