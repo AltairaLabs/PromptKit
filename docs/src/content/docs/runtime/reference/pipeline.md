@@ -5951,9 +5951,11 @@ type TokenBudgetConfig struct {
 ```
 
 <a name="TokenBudgetStage"></a>
-## type [TokenBudgetStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_token_budget.go#L49-L53>)
+## type [TokenBudgetStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_token_budget.go#L54-L58>)
 
 TokenBudgetStage enforces a token budget on conversation messages before they are sent to the provider. When the total token count exceeds the configured budget, older messages are truncated while preserving the system prompt and the most recent messages that fit within the budget.
+
+Truncation keeps whole turns, as ContextBuilderStage does: the kept history starts at a user message and keeps a tool call only with all of its results. When no user message fits, Process returns an error rather than send a request with no question in it.
 
 This stage should be placed immediately before the ProviderStage in the pipeline to prevent context window overflow errors.
 
@@ -5965,7 +5967,7 @@ type TokenBudgetStage struct {
 ```
 
 <a name="NewTokenBudgetStage"></a>
-### func [NewTokenBudgetStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_token_budget.go#L56>)
+### func [NewTokenBudgetStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_token_budget.go#L61>)
 
 ```go
 func NewTokenBudgetStage(config *TokenBudgetConfig) *TokenBudgetStage
@@ -5974,7 +5976,7 @@ func NewTokenBudgetStage(config *TokenBudgetConfig) *TokenBudgetStage
 NewTokenBudgetStage creates a new token budget enforcement stage.
 
 <a name="NewTokenBudgetStageWithTurnState"></a>
-### func [NewTokenBudgetStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_token_budget.go#L62>)
+### func [NewTokenBudgetStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_token_budget.go#L67>)
 
 ```go
 func NewTokenBudgetStageWithTurnState(config *TokenBudgetConfig, turnState *TurnState) *TokenBudgetStage
@@ -5983,7 +5985,7 @@ func NewTokenBudgetStageWithTurnState(config *TokenBudgetConfig, turnState *Turn
 NewTokenBudgetStageWithTurnState creates a token budget stage that reads the system prompt from the supplied TurnState.
 
 <a name="TokenBudgetStage.Process"></a>
-### func \(\*TokenBudgetStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_token_budget.go#L92-L96>)
+### func \(\*TokenBudgetStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_token_budget.go#L97-L101>)
 
 ```go
 func (s *TokenBudgetStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error

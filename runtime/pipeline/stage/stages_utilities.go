@@ -1030,10 +1030,17 @@ func (s *ContextBuilderStage) truncateMessages(
 	if err != nil {
 		return nil, err
 	}
+	return turnBoundedHistory(messages, kept, budget)
+}
+
+// turnBoundedHistory finishes a truncation: it trims kept, the messages a
+// strategy chose from messages, to a history every provider accepts (see
+// wellFormedHistory). Truncation drops history, never the current turn: a
+// request with no user message is rejected by every provider (or, with only
+// a summary, asks the model nothing), so when none survives it returns an
+// error saying the budget is too small instead.
+func turnBoundedHistory(messages, kept []types.Message, budget int) ([]types.Message, error) {
 	out := wellFormedHistory(kept)
-	// Truncation drops history, never the current turn: a request with no
-	// user message is rejected by every provider (or, with only a summary,
-	// asks the model nothing), so say the budget is too small instead.
 	if hasUserMessage(messages) && !hasUserMessage(out) {
 		return nil, fmt.Errorf("token budget exceeded: budget %d is too small for the current turn "+
 			"(its user message and the tool calls and results that follow it)", budget)

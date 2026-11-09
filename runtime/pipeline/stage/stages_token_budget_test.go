@@ -219,10 +219,18 @@ func TestTokenBudgetStage_SystemMessagesExceedBudget(t *testing.T) {
 		newTestMsgElement("user", "Hello"),
 	}
 
-	results := runTestStage(t, s, inputs)
-	// When system messages exceed budget, they're still returned
-	require.Greater(t, len(results), 0)
-	assert.Equal(t, "system", results[0].Message.Role)
+	// The system message leaves no room for the user's: rather than send the
+	// system prompt alone, the stage fails.
+	input := make(chan StreamElement, len(inputs))
+	for _, e := range inputs {
+		input <- e
+	}
+	close(input)
+	output := make(chan StreamElement, len(inputs))
+	err := s.Process(context.Background(), input, output)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "token budget exceeded")
+	assert.Empty(t, output, "nothing is sent")
 }
 
 func TestTokenBudgetStage_ContextCancellation(t *testing.T) {
