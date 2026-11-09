@@ -4,7 +4,9 @@ Reference exec selector that calls a remote rerank service.
 
 Wire protocol (matches PromptKit's selection.ExecClient):
 
-  stdin:  {"query": {"text": "...", "kind": "skill", "k": 5}, "candidates": [...]}
+  stdin:  {"query": {"text": "...", "kind": "skill", "pack_id": "...", "k": 5},
+           "candidates": [{"id": "...", "name": "...", "description": "...",
+                           "metadata": {...}, "allowed_tools": [...]}]}
   stdout: {"selected": ["id1", "id2"], "reason": "optional"}
 
 This script forwards the candidates to a hosted reranker (Cohere, Voyage,
@@ -45,8 +47,9 @@ def call_reranker(query: str, docs: list[str], k: int) -> list[int]:
     """Return the indices of the top-k documents, ranked best first.
 
     Stub implementation: ranks by the count of overlapping whitespace
-    tokens between the query and each document. Replace with a real
-    rerank API call (Cohere /v1/rerank, Voyage /v1/rerank, etc.).
+    tokens between the query and each document, and leaves out a
+    document that shares none. Replace with a real rerank API call
+    (Cohere /v1/rerank, Voyage /v1/rerank, etc.).
     """
     api_url = os.environ.get("RERANK_URL")
     api_key = os.environ.get("RERANK_API_KEY")
@@ -71,6 +74,7 @@ def call_reranker(query: str, docs: list[str], k: int) -> list[int]:
         (i, sum(1 for t in d.lower().split() if t in q_tokens))
         for i, d in enumerate(docs)
     ]
+    scored = [(i, score) for i, score in scored if score > 0]
     scored.sort(key=lambda x: x[1], reverse=True)
     return [i for i, _ in scored[:k]]
 

@@ -17,28 +17,30 @@ import (
 
 // Candidate describes one item a Selector may choose to surface.
 // IDs are stable identifiers (skill name, tool name); the rest is
-// descriptive context for the ranker.
+// descriptive context for the ranker. The json tags are the exec
+// selector's wire keys (see ExecClient).
 type Candidate struct {
-	ID          string
-	Name        string
-	Description string
-	Metadata    map[string]string
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
 	// AllowedTools is a skill candidate's allowed-tools: the tools the skill
 	// grants on activation, before the pack's tools cap them. It is empty for
 	// a tool candidate, and an exec selector receives it only when set. It
 	// shares the registry's slice: treat it, like Metadata, as read-only.
-	AllowedTools []string `json:"AllowedTools,omitempty"`
+	AllowedTools []string `json:"allowed_tools,omitempty"`
 }
 
 // Query carries the context PromptKit has assembled for this
 // selection round. Kind distinguishes skills from tools so one
-// Selector implementation can serve both hook points.
+// Selector implementation can serve both hook points. The json tags
+// are the exec selector's wire keys (see ExecClient).
 type Query struct {
-	Text    string
-	Kind    string // "skill" | "tool"
-	PackID  string
-	AgentID string
-	K       int // desired max results; selector may return fewer
+	Text    string `json:"text"`
+	Kind    string `json:"kind"` // "skill" | "tool"
+	PackID  string `json:"pack_id"`
+	AgentID string `json:"agent_id,omitempty"`
+	K       int    `json:"k"` // desired max results; selector may return fewer
 }
 
 // SelectorContext is handed to Init. It carries shared infrastructure
