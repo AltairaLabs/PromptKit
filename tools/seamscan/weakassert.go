@@ -61,8 +61,9 @@ var comparisons = map[string]bool{
 
 // isVacuous reports whether a testify call is decided by the test's own
 // source, whatever the code under test does: assert.True(t, true), or
-// assert.Equal(t, x, x) where both sides are the same expression or both are
-// literals.
+// assert.Equal(t, x, x) where both sides are literals or the same expression.
+// The same expression with a call in it is not vacuous:
+// assert.Equal(t, Key(req), Key(req)) tests that Key is deterministic.
 func isVacuous(name string, args []ast.Expr) bool {
 	switch {
 	case constantConditions[name] && len(args) >= conditionArgs:
@@ -71,20 +72,49 @@ func isVacuous(name string, args []ast.Expr) bool {
 	case comparisons[name] && len(args) >= comparisonArgs:
 		_, lit1 := args[1].(*ast.BasicLit)
 		_, lit2 := args[2].(*ast.BasicLit)
-		return (lit1 && lit2) || types.ExprString(args[1]) == types.ExprString(args[2])
+		if lit1 && lit2 {
+			return true
+		}
+		return !containsCall(args[1]) && types.ExprString(args[1]) == types.ExprString(args[2])
 	}
 	return false
 }
 
+func containsCall(expr ast.Expr) bool {
+	found := false
+	ast.Inspect(expr, func(n ast.Node) bool {
+		if _, ok := n.(*ast.CallExpr); ok {
+			found = true
+		}
+		return !found
+	})
+	return found
+}
+
 // callCountNames are the last selector or identifier names, lowercased, that
-// mark a value as a tally of calls to a collaborator: fake.calls,
-// prov.CallCount(), len(m.Calls), handlerCalled.
+// mark a value as a tally of calls: fake.calls, mock.CallCount(),
+// len(m.calls), handlerCalled.
 var callCountNames = []string{"calls", "callcount", "numcalls", "invocations", "called", "invoked"}
 
 // domainCallNames end in a callCountNames suffix but name data a caller
 // observes: in an LLM library, a response's tool calls are output, not a
 // tally of calls to a fake.
-var domainCallNames = []string{"toolcalls"}
+var domainCallNames = []string{"toolcalls", "toolcallcount"}
+
+// fakeReceiverMarkers mark a receiver as a test double, whose exported tally
+// fields (fakeProv.Calls) count calls to it rather than describe output.
+var fakeReceiverMarkers = []string{"fake", "mock", "stub", "spy", "rec", "count"}
+
+// scalarAssertions inspect one value's truth, size or magnitude. Only these
+// can reduce a tally to a pass/fail; ElementsMatch, Contains and Subset on
+// recorded calls check what the fake received, which is a real assertion.
+// The True/False family is in constantConditions and checked alongside.
+var scalarAssertions = map[string]bool{
+	"Zero": true, "Zerof": true, "NotZero": true, "NotZerof": true,
+	"Positive": true, "Positivef": true,
+	"Greater": true, "Greaterf": true, "GreaterOrEqual": true, "GreaterOrEqualf": true,
+	"Less": true, "Lessf": true, "LessOrEqual": true, "LessOrEqualf": true,
+}
 
 // collectionAssertions inspect a collection's size. On a bare identifier
 // (`calls := ExtractToolCalls(...)`) the name says nothing about where the
@@ -101,23 +131,27 @@ func countsCalls(name string, args []ast.Expr) bool {
 	if len(args) < conditionArgs {
 		return false
 	}
-	if !comparisons[name] {
-		return isCallTally(args[1], !collectionAssertions[name])
+	switch {
+	case scalarAssertions[name] || constantConditions[name]:
+		return isCallTally(args[1], true)
+	case collectionAssertions[name]:
+		return isCallTally(args[1], false)
+	case comparisons[name] && len(args) >= comparisonArgs:
+		// assert.Equal(t, 2, fake.calls): an integer literal against a tally.
+		// A slice of recorded requests compared with an expected slice
+		// inspects what the fake received, and is a real assertion.
+		lit, ok := args[1].(*ast.BasicLit)
+		return ok && lit.Kind == token.INT && isCallTally(args[2], true)
 	}
-	// assert.Equal(t, 2, fake.calls): an integer literal against a tally. A
-	// slice of recorded requests compared with an expected slice inspects
-	// what the fake received, and is a real assertion.
-	if len(args) < comparisonArgs {
-		return false
-	}
-	lit, ok := args[1].(*ast.BasicLit)
-	return ok && lit.Kind == token.INT && isCallTally(args[2], true)
+	return false
 }
 
-// isCallTally reports whether expr ends in one of callCountNames, looking
-// through len(...), calls, and a dereference. bareIdent says whether a plain
-// identifier may count; it never does inside len(...), for the reason given
-// on collectionAssertions.
+// isCallTally reports whether expr is a tally of calls, looking through
+// len(...), calls, and a dereference. A selector counts when its name is a
+// tally name and it is unexported (a test's own counter) or its receiver is
+// a test double; an exported field such as s.Metadata.ProviderCalls is
+// output. bareIdent says whether a plain identifier may count; it never does
+// inside len(...), for the reason given on collectionAssertions.
 func isCallTally(expr ast.Expr, bareIdent bool) bool {
 	for {
 		switch e := expr.(type) {
@@ -132,13 +166,34 @@ func isCallTally(expr ast.Expr, bareIdent bool) bool {
 		case *ast.ParenExpr:
 			expr = e.X
 		case *ast.SelectorExpr:
-			return endsInCallCount(e.Sel.Name)
+			return endsInCallCount(e.Sel.Name) && (!ast.IsExported(e.Sel.Name) || isFakeReceiver(e.X))
 		case *ast.Ident:
 			return bareIdent && endsInCallCount(e.Name)
 		default:
 			return false
 		}
 	}
+}
+
+// isFakeReceiver reports whether expr, the receiver of a selector, is named
+// like a test double: fakeProv, mockStore, rec, countingRepo.
+func isFakeReceiver(expr ast.Expr) bool {
+	var name string
+	switch e := expr.(type) {
+	case *ast.Ident:
+		name = e.Name
+	case *ast.SelectorExpr:
+		name = e.Sel.Name
+	default:
+		return false
+	}
+	lower := strings.ToLower(name)
+	for _, marker := range fakeReceiverMarkers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func endsInCallCount(name string) bool {

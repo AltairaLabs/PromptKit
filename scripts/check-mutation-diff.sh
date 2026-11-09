@@ -69,13 +69,14 @@ MERGE_BASE="$(git -C "${ROOT}" merge-base HEAD "${BASE}")"
 changed_files() {
   local mod
   for mod in ${MODULES}; do
-    git -C "${ROOT}" diff --name-only --diff-filter=AM "${MERGE_BASE}" -- "${mod}/*.go"
+    git -C "${ROOT}" diff --name-only --no-renames --diff-filter=AM "${MERGE_BASE}" -- "${mod}/*.go"
   done | while IFS= read -r f; do
     case "${f}" in
       *_test.go | */testdata/* | */examples/* | runtime/packspec/*) continue ;;
     esac
     [ -f "${ROOT}/${f}" ] || continue
-    head -5 "${ROOT}/${f}" | grep -q '^// Code generated .* DO NOT EDIT\.$' && continue
+    # The marker may sit anywhere before the package clause.
+    awk '/^package /{exit} /^\/\/ Code generated .* DO NOT EDIT\.$/{g=1; exit} END{exit !g}' "${ROOT}/${f}" && continue
     echo "${f}"
   done
 }
@@ -99,16 +100,16 @@ module_of() {
 modfile_flags() {
   local mod="$1" dir="${tmp}/modfile/$1"
   local olds news i
-  olds="$(go -C "${ROOT}/${mod}" mod edit -json | jq -r '.Replace[]? | select(.New.Path | startswith(".")) | .Old.Path')"
+  olds="$(go -C "${ROOT}/${mod}" mod edit -json | jq -r '.Replace[]? | select(.New.Path | startswith(".")) | .Old.Path')" || return 1
   [ -z "${olds}" ] && return 0
   mkdir -p "${dir}"
   cp "${ROOT}/${mod}/go.mod" "${dir}/go.mod"
   cp "${ROOT}/${mod}/go.sum" "${dir}/go.sum"
-  news="$(go -C "${ROOT}/${mod}" mod edit -json | jq -r '.Replace[]? | select(.New.Path | startswith(".")) | .New.Path')"
+  news="$(go -C "${ROOT}/${mod}" mod edit -json | jq -r '.Replace[]? | select(.New.Path | startswith(".")) | .New.Path')" || return 1
   i=1
   for old in ${olds}; do
     new="$(echo "${news}" | sed -n "${i}p")"
-    go mod edit -replace "${old}=$(cd "${ROOT}/${mod}/${new}" && pwd)" "${dir}/go.mod"
+    go mod edit -replace "${old}=$(cd "${ROOT}/${mod}/${new}" && pwd)" "${dir}/go.mod" || return 1
     i=$((i + 1))
   done
   echo " -modfile=${dir}/go.mod"
@@ -126,7 +127,7 @@ start="$(date +%s)"
 n=0
 for pkg in ${pkgs}; do
   mod="$(module_of "${pkg}")"
-  flags="$(modfile_flags "${mod}")"
+  flags="$(modfile_flags "${mod}")" || { echo "FAIL: could not rewrite ${mod}/go.mod replaces" >&2; exit 1; }
   n=$((n + 1))
   out="${tmp}/result-${n}.json"
   echo "---- ${pkg}"
@@ -168,7 +169,11 @@ echo ""
 echo "packages: $(echo "${pkgs}" | wc -l | tr -d ' ')  mutants: caught ${killed} (${timedout} timed out), lived ${lived}, not covered ${uncovered} (not scored)  (${elapsed}s)"
 
 if [ "${judged}" -eq 0 ]; then
-  echo "OK:   no mutable changed lines (no conditions or arithmetic to flip)."
+  if [ "${uncovered}" -gt 0 ]; then
+    echo "OK:   no tested mutants; ${uncovered} on lines no test runs are left to the coverage gate."
+  else
+    echo "OK:   no mutable changed lines (no conditions or arithmetic to flip)."
+  fi
   exit 0
 fi
 # A TIMED OUT mutant counts as caught (a test hung on it). Many of them means

@@ -60,6 +60,10 @@ func TestTrueOnResult(t *testing.T) {
 func TestEqualOnResult(t *testing.T) {
 	assert.Equal(t, "x", run().Name)
 }
+
+func TestDeterminism(t *testing.T) {
+	assert.Equal(t, Key(req), Key(req))
+}
 `)
 
 	assert.Equal(t, []string{
@@ -89,11 +93,24 @@ func TestFieldCount(t *testing.T) {
 }
 
 func TestMethodCount(t *testing.T) {
-	assert.Equal(t, 2, prov.CallCount())
+	assert.Equal(t, 2, mockProv.CallCount())
 }
 
 func TestLenOfCalls(t *testing.T) {
-	require.Len(t, prov.Calls, 1)
+	require.Len(t, fakeProv.Calls, 1)
+}
+
+func TestUnexportedCounterMethod(t *testing.T) {
+	assert.Equal(t, 0, provider.callCount())
+}
+
+func TestExportedTallyIsOutput(t *testing.T) {
+	assert.Equal(t, 1, s.Metadata.ProviderCalls)
+}
+
+func TestRecordedCallsMatched(t *testing.T) {
+	assert.ElementsMatch(t, want, fakeProv.Calls)
+	assert.Contains(t, calls, req)
 }
 
 func TestLenInsideEqual(t *testing.T) {
@@ -129,7 +146,7 @@ func TestLenOfExtractedSlice(t *testing.T) {
 }
 
 func TestPredicateOverCalls(t *testing.T) {
-	assert.True(t, allGreeted(prov.Calls))
+	assert.True(t, allGreeted(fakeProv.Calls))
 }
 
 func TestLenOfResult(t *testing.T) {
@@ -144,6 +161,7 @@ func TestLenOfResult(t *testing.T) {
 		"weak-assertion TestLenInsideEqual",
 		"weak-assertion TestLenOfCalls",
 		"weak-assertion TestMethodCount",
+		"weak-assertion TestUnexportedCounterMethod",
 	}, got)
 }
 
