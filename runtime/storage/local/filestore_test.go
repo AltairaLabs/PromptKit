@@ -785,9 +785,17 @@ func TestFileStore_MaxFileSize(t *testing.T) {
 			Organization: storage.OrganizationByRun,
 		})
 		require.NoError(t, err)
-		require.NotNil(t, fs)
-		// Default is applied internally; we verify by storing data just under the limit
-		// (we can't inspect config directly, but behavior confirms it)
+
+		// A sparse file one byte over the default: no 50MB allocation needed.
+		over := filepath.Join(t.TempDir(), "over.bin")
+		f, err := os.Create(over)
+		require.NoError(t, err)
+		require.NoError(t, f.Truncate(local.DefaultMaxFileSize+1))
+		require.NoError(t, f.Close())
+
+		_, err = fs.StoreMedia(ctx, &types.MediaContent{FilePath: &over, MIMEType: "image/jpeg"},
+			&storage.MediaMetadata{RunID: "run-default-max", Timestamp: time.Now()})
+		assert.ErrorIs(t, err, local.ErrFileTooLarge)
 	})
 
 	t.Run("WithMaxFileSize option overrides config", func(t *testing.T) {

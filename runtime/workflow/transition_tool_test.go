@@ -69,13 +69,23 @@ func TestSortedEvents_Empty(t *testing.T) {
 
 func TestRegisterTransitionTool(t *testing.T) {
 	registry := tools.NewRegistry()
-	state := &State{OnEvent: map[string]string{"Escalate": "s2"}}
+	state := &State{OnEvent: map[string]string{"Resolve": "s3", "Escalate": "s2"}}
 
 	RegisterTransitionTool(registry, state)
 
 	desc := registry.Get(TransitionToolName)
 	require.NotNil(t, desc)
 	assert.Equal(t, TransitionToolName, desc.Name)
+	var schema struct {
+		Properties struct {
+			Event struct {
+				Enum []string `json:"enum"`
+			} `json:"event"`
+		} `json:"properties"`
+	}
+	require.NoError(t, json.Unmarshal(desc.InputSchema, &schema))
+	assert.Equal(t, []string{"Escalate", "Resolve"}, schema.Properties.Event.Enum,
+		"the tool offers exactly the state's events, sorted")
 }
 
 func TestRegisterTransitionTool_NilState(t *testing.T) {

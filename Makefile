@@ -544,3 +544,8 @@ sonar-quick: coverage sonar-scan ## Generate coverage and run Sonar analysis in 
 
 check-weak-assertions: ## Fail on new tests whose assertions cannot fail
 	@./scripts/check-weak-assertions.sh
+
+MUTATION_BASE ?= origin/main
+check-mutation: ## Mutation-test lines changed since MUTATION_BASE (default origin/main); fails under 75% caught
+	@./scripts/check-mutation-diff.sh $(MUTATION_BASE)
+.PHONY: check-weak-assertions check-mutation

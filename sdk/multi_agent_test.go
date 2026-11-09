@@ -1,11 +1,13 @@
 package sdk
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -61,17 +63,6 @@ func TestOpenMultiAgent_NoEntryDefined(t *testing.T) {
 	assert.Contains(t, err.Error(), "entry is required")
 }
 
-func TestMultiAgentSession_Close_NilMembers(t *testing.T) {
-	// Test that Close handles empty members map gracefully
-	session := &MultiAgentSession{
-		entry:   &Conversation{config: &config{}},
-		members: map[string]Agent{},
-	}
-	// Close on a zero-value Conversation will just set closed=true
-	err := session.Close()
-	assert.NoError(t, err)
-}
-
 func TestMultiAgentSession_Members_ReturnsCopy(t *testing.T) {
 	conv1 := &Conversation{config: &config{}}
 	conv2 := &Conversation{config: &config{}}
@@ -100,36 +91,6 @@ func TestMultiAgentSession_Entry(t *testing.T) {
 		members: map[string]Agent{},
 	}
 	assert.Equal(t, entry, session.Entry())
-}
-
-func TestMultiAgentSession_Close_CollectsErrors(t *testing.T) {
-	// Close on a Conversation with both unary and duplex nil sessions should succeed.
-	session := &MultiAgentSession{
-		entry: &Conversation{config: &config{}},
-		members: map[string]Agent{
-			"m1": &Conversation{config: &config{}},
-			"m2": &Conversation{config: &config{}},
-		},
-	}
-	err := session.Close()
-	assert.NoError(t, err)
-
-	// Close again — entry and members are already closed, returns nil from Conversation.Close.
-	err = session.Close()
-	assert.NoError(t, err)
-}
-
-func TestMultiAgentSession_Close_WithMembers(t *testing.T) {
-	// Create conversations with configs; closing them should succeed.
-	entry := &Conversation{config: &config{}, handlers: make(map[string]ToolHandler)}
-	m1 := &Conversation{config: &config{}, handlers: make(map[string]ToolHandler)}
-	m2 := &Conversation{config: &config{}, handlers: make(map[string]ToolHandler)}
-	session := &MultiAgentSession{
-		entry:   entry,
-		members: map[string]Agent{"m1": m1, "m2": m2},
-	}
-	err := session.Close()
-	assert.NoError(t, err)
 }
 
 func TestMultiAgentSession_Close_EntryError(t *testing.T) {
@@ -183,6 +144,30 @@ func TestMultiAgentSession_Close_EntryAndMemberErrors(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, entryErr)
 	assert.ErrorIs(t, err, memberErr)
+}
+
+// Close on an opened multi-agent session closes the entry and every member,
+// workflow-backed ones included: none of them takes another turn, and closing
+// again is harmless.
+func TestMultiAgentSession_Close_ClosesEntryAndMembers(t *testing.T) {
+	sess, err := OpenMultiAgent(createTestPackFile(t, stateBackedAgentPackJSON),
+		WithSkipSchemaValidation(), WithProvider(mock.NewProvider("m", "m", false)))
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	// Open: the entry answers.
+	_, err = sess.Entry().Send(ctx, "hi")
+	require.NoError(t, err)
+	require.Len(t, sess.Members(), 1, "members are the non-entry agents")
+
+	require.NoError(t, sess.Close())
+	_, err = sess.Entry().Send(ctx, "hi")
+	assert.ErrorIs(t, err, ErrConversationClosed)
+	for name, m := range sess.Members() {
+		_, err := m.Send(ctx, "hi")
+		assert.ErrorIs(t, err, ErrWorkflowClosed, "state-backed member %q must be closed", name)
+	}
+	assert.NoError(t, sess.Close(), "a second Close is harmless")
 }
 
 // createTestPackFile creates a temporary pack JSON file for testing.

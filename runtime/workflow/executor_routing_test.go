@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 func routingSpec() *Spec {
@@ -61,8 +59,3 @@ func TestArtifactExecutor_WritesToItsOwnMachine(t *testing.T) {
 	assert.Equal(t, "42", mineSM.Context().Artifacts["quote"])
 	assert.NotContains(t, otherSM.Context().Artifacts, "quote")
 }
-
-var (
-	_ tools.Executor = (*TransitionExecutor)(nil)
-	_ tools.Executor = (*ArtifactExecutor)(nil)
-)

@@ -630,9 +630,24 @@ func TestExportSession_Success(t *testing.T) {
 	err := ExportSession(context.Background(), session, outputPath, ExportFormatJSON)
 	require.NoError(t, err)
 
-	// Verify file was created
-	_, err = os.Stat(outputPath)
+	raw, err := os.ReadFile(outputPath)
 	require.NoError(t, err)
+	var got JSONTimeline
+	require.NoError(t, json.Unmarshal(raw, &got))
+
+	assert.Equal(t, "test-session", got.SessionID)
+	assert.Equal(t, 1.0, got.Duration)
+	require.Len(t, got.Events, 3)
+	assert.Equal(t, JSONTimelineItem{
+		Time: 0, Type: string(EventMessageCreated),
+		Data: map[string]interface{}{"role": "user", "content": "Hello"},
+	}, got.Events[0])
+	assert.Equal(t, JSONTimelineItem{
+		Time: 1, Type: string(EventMessageCreated),
+		Data: map[string]interface{}{"role": "assistant", "content": "Hi there!"},
+	}, got.Events[1])
+	assert.Equal(t, "annotation.comment", got.Events[2].Type)
+	assert.Equal(t, "quality", got.Events[2].Data["key"])
 }
 
 func TestSessionExporter_Export_JSON_WriteError(t *testing.T) {

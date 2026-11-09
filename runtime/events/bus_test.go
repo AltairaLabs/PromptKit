@@ -194,9 +194,19 @@ func TestEventBusClose(t *testing.T) {
 func TestEventBusCloseIsIdempotent(t *testing.T) {
 	t.Parallel()
 
+	var delivered atomic.Int32
 	bus := NewEventBus()
+	bus.SubscribeAll(func(*Event) { delivered.Add(1) })
+	bus.Publish(&Event{Type: EventPipelineStarted})
 	bus.Close()
-	bus.Close() // should not panic
+	bus.Close() // a second Close must neither panic nor redeliver
+
+	if bus.Publish(&Event{Type: EventPipelineStarted}) {
+		t.Fatal("Publish after a repeated Close returned true")
+	}
+	if got := delivered.Load(); got != 1 {
+		t.Fatalf("delivered %d events, want 1", got)
+	}
 }
 
 func TestEventBusCustomPoolSize(t *testing.T) {
@@ -825,6 +835,9 @@ func TestPublishConcurrentWithClose(t *testing.T) {
 		// Close concurrently — must not panic or race
 		bus.Close()
 		wg.Wait()
+		if bus.Publish(&Event{Type: "test.event", Timestamp: time.Now()}) {
+			t.Fatal("Publish after Close returned true")
+		}
 	}
 }
 

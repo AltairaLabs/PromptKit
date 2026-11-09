@@ -2,11 +2,13 @@ package events
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/annotations"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSyncPlayer_BasicPlayback(t *testing.T) {
@@ -194,25 +196,56 @@ func TestSyncPlayer_Seek(t *testing.T) {
 
 func TestSyncPlayer_SpeedChange(t *testing.T) {
 	sessionStart := time.Now()
-
+	// A 10s session: at real time it cannot finish inside the deadlines below.
 	events := []*Event{
-		{
-			Type:      EventMessageCreated,
-			Timestamp: sessionStart,
-			SessionID: "test-session",
-			Data:      &MessageCreatedData{Role: "user", Content: "Hello"},
-		},
+		{Type: EventMessageCreated, Timestamp: sessionStart, SessionID: "s",
+			Data: &MessageCreatedData{Role: "user", Content: "Hello"}},
+		{Type: EventMessageCreated, Timestamp: sessionStart.Add(10 * time.Second), SessionID: "s",
+			Data: &MessageCreatedData{Role: "assistant", Content: "Hi"}},
 	}
 
-	timeline := NewMediaTimeline("test-session", events, nil)
-	config := &SyncPlayerConfig{Speed: 1.0}
-	player := NewSyncPlayer(timeline, nil, config)
+	play := func(t *testing.T, speeds ...float64) (*SyncPlayer, <-chan struct{}) {
+		t.Helper()
+		done := make(chan struct{})
+		var once sync.Once
+		player := NewSyncPlayer(NewMediaTimeline("s", events, nil), nil, &SyncPlayerConfig{
+			Speed:      1.0,
+			OnComplete: func() { once.Do(func() { close(done) }) },
+		})
+		for _, sp := range speeds {
+			player.SetSpeed(sp)
+		}
+		require.NoError(t, player.Play(context.Background()))
+		t.Cleanup(player.Stop)
+		return player, done
+	}
 
-	player.SetSpeed(2.0)
+	t.Run("raised speed finishes the session fast", func(t *testing.T) {
+		_, done := play(t, 1000)
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("10s session at 1000x did not complete within 2s")
+		}
+	})
 
-	// Speed should be updated (we can't easily verify internal state, but ensure no crash)
-	player.SetSpeed(0)  // Should default to 1.0
-	player.SetSpeed(-1) // Should default to 1.0
+	for _, invalid := range []float64{0, -1} {
+		t.Run(fmt.Sprintf("speed %v resets to real time", invalid), func(t *testing.T) {
+			player, done := play(t, 1000, invalid)
+			select {
+			case <-done:
+				t.Fatal("session completed: the invalid speed did not reset to 1.0")
+			case <-time.After(200 * time.Millisecond):
+			}
+			// At real time, ~200ms of the session has played: not 0 (stalled)
+			// and nowhere near the end. Position moves on a 20ms ticker, so
+			// the lower bound leaves room for a slow runner.
+			pos := player.Position()
+			if pos <= 40*time.Millisecond || pos >= 5*time.Second {
+				t.Fatalf("position after 200ms = %v, want about 200ms", pos)
+			}
+		})
+	}
 }
 
 func TestSyncPlayer_WithAnnotations(t *testing.T) {

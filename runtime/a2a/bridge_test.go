@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 // serveAgentCard returns an httptest.Server that serves the given AgentCard
@@ -413,6 +411,3 @@ func TestToolBridge_GetToolDescriptors(t *testing.T) {
 		}
 	}
 }
-
-// Verify that the unused import doesn't cause issues — tools is used for A2AConfig type assertions.
-var _ *tools.A2AConfig

@@ -165,34 +165,80 @@ func TestServer_ShutdownStopsEviction(t *testing.T) {
 	}
 }
 
+// evictionFixture is a server whose store holds a completed task finished
+// age ago and whose conversation table holds one conversation idle for age.
+type evictionFixture struct {
+	srv   *Server
+	store *InMemoryTaskStore
+	conv  *mockConv
+}
+
+func newEvictionFixture(t *testing.T, age time.Duration, opts ...Option) *evictionFixture {
+	t.Helper()
+	store := NewInMemoryTaskStore()
+	_, err := store.Create("done", "ctx-1")
+	require.NoError(t, err)
+	require.NoError(t, store.SetState("done", a2a.TaskStateWorking, nil))
+	require.NoError(t, store.SetState("done", a2a.TaskStateCompleted, nil))
+	setTaskTimestamp(store, "done", time.Now().Add(-age))
+
+	opener := func(_ string) (Conversation, error) { return nil, nil }
+	srv := NewServer(opener, append([]Option{WithTaskStore(store)}, opts...)...)
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+
+	conv := &mockConv{}
+	srv.convsMu.Lock()
+	srv.convs["idle"] = conv
+	srv.convLastUse["idle"] = time.Now().Add(-age)
+	srv.convsMu.Unlock()
+	return &evictionFixture{srv: srv, store: store, conv: conv}
+}
+
+func (f *evictionFixture) taskKept() bool {
+	_, err := f.store.Get("done")
+	return err == nil
+}
+
+func (f *evictionFixture) convKept() bool {
+	f.srv.convsMu.RLock()
+	defer f.srv.convsMu.RUnlock()
+	_, ok := f.srv.convs["idle"]
+	return ok
+}
+
+// WithTaskTTL sets how long a finished task is kept: one older than the TTL
+// is evicted, one younger is kept.
 func TestWithTaskTTL(t *testing.T) {
-	opener := func(_ string) (Conversation, error) { return nil, nil }
+	older := newEvictionFixture(t, time.Hour, WithTaskTTL(30*time.Minute), WithConversationTTL(0))
+	older.srv.evictOnce()
+	assert.False(t, older.taskKept(), "a task finished before the TTL must be evicted")
 
-	srv := NewServer(opener, WithTaskTTL(30*time.Minute))
-	defer func() { _ = srv.Shutdown(context.Background()) }()
-	assert.Equal(t, 30*time.Minute, srv.taskTTL)
+	younger := newEvictionFixture(t, 10*time.Minute, WithTaskTTL(30*time.Minute), WithConversationTTL(0))
+	younger.srv.evictOnce()
+	assert.True(t, younger.taskKept(), "a task finished within the TTL must be kept")
 }
 
+// WithConversationTTL sets how long an idle conversation is kept: one idle
+// longer is closed and dropped, one idle less is kept open.
 func TestWithConversationTTL(t *testing.T) {
-	opener := func(_ string) (Conversation, error) { return nil, nil }
+	older := newEvictionFixture(t, time.Hour, WithTaskTTL(0), WithConversationTTL(45*time.Minute))
+	older.srv.evictOnce()
+	assert.False(t, older.convKept())
+	assert.True(t, older.conv.closed.Load(), "an evicted conversation must be closed")
 
-	srv := NewServer(opener, WithConversationTTL(45*time.Minute))
-	defer func() { _ = srv.Shutdown(context.Background()) }()
-	assert.Equal(t, 45*time.Minute, srv.convTTL)
+	younger := newEvictionFixture(t, 30*time.Minute, WithTaskTTL(0), WithConversationTTL(45*time.Minute))
+	younger.srv.evictOnce()
+	assert.True(t, younger.convKept())
+	assert.False(t, younger.conv.closed.Load())
 }
 
+// A TTL of zero disables that eviction: nothing is evicted however old.
 func TestServer_DisabledEviction(t *testing.T) {
-	opener := func(_ string) (Conversation, error) { return nil, nil }
-
-	// Both TTLs set to 0 should not start the eviction goroutine.
-	srv := NewServer(opener,
-		WithTaskTTL(0),
-		WithConversationTTL(0),
-	)
-	defer func() { _ = srv.Shutdown(context.Background()) }()
-
-	// evictOnce should be safe to call even with TTLs disabled.
-	srv.evictOnce()
+	f := newEvictionFixture(t, 1000*time.Hour, WithTaskTTL(0), WithConversationTTL(0))
+	f.srv.evictOnce()
+	assert.True(t, f.taskKept(), "task eviction is off at TTL 0")
+	assert.True(t, f.convKept(), "conversation eviction is off at TTL 0")
+	assert.False(t, f.conv.closed.Load())
 }
 
 func TestServer_ConversationLastUseUpdated(t *testing.T) {

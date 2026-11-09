@@ -120,22 +120,39 @@ Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
 
 ## Testing Strategy
 
+PromptKit is a library. A behavior change that breaks a client is our bug, and our
+tests must catch it. Test behavior, not code.
+
 ### Required Tests
 - Happy path scenarios
 - Error cases
 - Edge cases (nil, empty, invalid)
 - Integration scenarios
 
-### Mock Strategy
-- Use interfaces for dependencies
-- Create simple mock implementations in test files
-- Test behavior, not implementation
+### Rules
+- ✅ Assert what a caller observes, as an exact value: the returned value, the
+  rendered prompt, the provider request, emitted events, persisted state, or the
+  error's type and message
+- ✅ Use real collaborators at the seam: drive the public entry point with real
+  repositories and the real mock provider
+- ✅ Mutation-check every new test: break the code it protects (return the zero
+  value, skip the side effect, invert the condition), see it go red, restore it.
+  Use file copies, never `git stash`
+- ❌ NEVER mock either side of the contract under test
+- ❌ NEVER write a test that asserts only `NoError`/`NotNil`, re-asserts a field
+  the test itself set, asserts a constant, or only counts mock calls
+
+The **Weak Assertion Guard** (`make check-weak-assertions`) and the **Mutation
+Gate** (`make check-mutation`, at least 75% of mutants on changed lines caught)
+enforce this on every PR. A surviving mutant is listed as `file:line:col`: write
+the test that kills it.
 
 ## Tools & Commands
 
 - `make verify` - Run all checks locally
 - `make test` - Run all tests
 - `make lint` - Run linter
+- `make check-mutation` - Mutation-test the lines changed since `origin/main`
 - `go test ./... -coverprofile=coverage.out` - Check coverage
 - `golangci-lint run ./path/to/package` - Lint specific package
 

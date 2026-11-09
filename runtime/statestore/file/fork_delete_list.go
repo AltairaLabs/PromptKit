@@ -53,7 +53,8 @@ func (s *Store) Fork(_ context.Context, sourceID, newID string) error {
 	return copyDirContents(s.convDir(sourceID), dstDir, newID)
 }
 
-// Delete removes the entire conv-<id> directory. No-op when absent.
+// Delete removes the entire conv-<id> directory. Returns ErrNotFound when the
+// conversation does not exist, as MemoryStore and RedisStore do.
 func (s *Store) Delete(_ context.Context, id string) error {
 	if id == "" {
 		return statestore.ErrInvalidID
@@ -64,6 +65,15 @@ func (s *Store) Delete(_ context.Context, id string) error {
 	lock := s.convLock(id)
 	lock.Lock()
 	defer lock.Unlock()
+
+	if err := s.requireConv(id); err != nil {
+		if errors.Is(err, statestore.ErrNotFound) {
+			// A directory without state.json (a write interrupted before
+			// its stub) is still removed; the conversation never existed.
+			_ = os.RemoveAll(s.convDir(id))
+		}
+		return err
+	}
 
 	if err := os.RemoveAll(s.convDir(id)); err != nil {
 		return fmt.Errorf("filestore: remove conv: %w", err)
