@@ -28,6 +28,10 @@ const (
 	defaultLocation = "us-central1"
 	// unitImage is the pricing/quantity unit for one generated image.
 	unitImage = "image"
+	// costDimensionSize and costDimensionQuality are the cost dimensions an
+	// Imagen call has always reported, which price tables may be keyed on.
+	costDimensionSize    = "1024x1024"
+	costDimensionQuality = "standard"
 	// roleUser is the chat role of the prompting message.
 	roleUser = "user"
 )
@@ -226,7 +230,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 
 		// Unified cost fields for the new aggregation path:
 		Quantities:     map[string]float64{unitImage: 1},
-		DimensionMatch: map[string]string{"size": "1024x1024", "quality": "standard"},
+		DimensionMatch: legacyCostDimensions(),
 		ProviderName:   p.Name(),
 		Capability:     string(base.ProviderTypeImage),
 		Latency:        latency,
@@ -293,11 +297,11 @@ func (p *Provider) Generate(ctx context.Context, req base.ImageRequest) (base.Im
 		Images:   images,
 		MIMEType: mime,
 		Cost: &types.CostInfo{
-			TotalCost:      costPerImage * n,
-			Quantities:     map[string]float64{unitImage: n},
+			TotalCost:  costPerImage * n,
+			Quantities: map[string]float64{unitImage: n},
 			// size and quality keep the keys Predict's cost has always used, so
 			// a price table keyed on them still matches.
-			DimensionMatch: map[string]string{"size": "1024x1024", "quality": "standard", "aspect_ratio": aspect},
+			DimensionMatch: withAspectRatio(legacyCostDimensions(), aspect),
 			ProviderName:   p.Name(),
 			Capability:     string(base.ProviderTypeImage),
 			Latency:        latency,
@@ -324,6 +328,19 @@ var imagenAspectRatios = []struct {
 	{"4:3", 4.0 / 3},
 	{"9:16", 9.0 / 16},
 	{"16:9", 16.0 / 9},
+}
+
+// legacyCostDimensions returns the size and quality cost dimensions an Imagen
+// call has always reported, which price tables may be keyed on.
+func legacyCostDimensions() map[string]string {
+	return map[string]string{"size": costDimensionSize, "quality": costDimensionQuality}
+}
+
+// withAspectRatio adds the aspect ratio a call was sent with to its cost
+// dimensions.
+func withAspectRatio(dims map[string]string, aspect string) map[string]string {
+	dims["aspect_ratio"] = aspect
+	return dims
 }
 
 // defaultImagenParameters is the parameters block every call sends.
