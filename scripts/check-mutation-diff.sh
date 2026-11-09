@@ -127,6 +127,16 @@ modfile_flags() {
   echo " -modfile=${dir}/go.mod"
 }
 
+# show_log prints a gremlins log to stderr: its test failures and errors
+# first, since chatty test output can push them out of the tail, then the
+# last 200 lines.
+show_log() {
+  echo "Failures and errors in the gremlins output:" >&2
+  grep -E -- '^(--- FAIL|FAIL|panic:|ERROR:)' "$1" >&2 || echo "  (none)" >&2
+  echo "Last 200 lines of the gremlins output:" >&2
+  tail -n 200 "$1" >&2
+}
+
 files="$(changed_files)"
 if [ -z "${files}" ]; then
   echo "OK:   no changed non-test Go source in ${MODULES}; nothing to mutate."
@@ -167,16 +177,23 @@ for pkg in ${pkgs}; do
   ) > "${log}" 2>&1 || {
     # Its coverage run tests ./... under the package dir with GOWORK=off and
     # -trimpath, so a test can fail here that passes in the Test job.
-    echo "FAIL: gremlins failed on ${pkg}; its output (the last 200 lines):" >&2
-    tail -n 200 "${log}" >&2
+    echo "FAIL: gremlins failed on ${pkg}." >&2
+    show_log "${log}"
     exit 1
   }
-  # gremlins writes no report for a package with no mutable tokens on any line.
-  [ -f "${out}" ] || continue
+  # gremlins writes no report for a package with no mutable tokens on any
+  # line, and says so. Any other missing report is a failure: gremlins logs a
+  # report it could not write and still exits 0.
+  if [ ! -f "${out}" ]; then
+    grep -q 'No results to report' "${log}" && continue
+    echo "FAIL: gremlins wrote no report for ${pkg} (${out})." >&2
+    show_log "${log}"
+    exit 1
+  fi
   jq -r --arg pkg "${pkg}" '.files[]? as $f | $f.mutations[]?
     | "\(.status)\t\($pkg)/\($f.file_name):\(.line):\(.column)\t\(.type)"' "${out}" >> "${tmp}/mutants.tsv" || {
-    echo "FAIL: could not read the gremlins report for ${pkg} (${out}); gremlins output:" >&2
-    tail -n 200 "${log}" >&2
+    echo "FAIL: could not read the gremlins report for ${pkg} (${out})." >&2
+    show_log "${log}"
     exit 1
   }
 done
