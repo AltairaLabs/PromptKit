@@ -165,7 +165,9 @@ func TestFileStore_GetURL_FromStreamedFile(t *testing.T) {
 	t.Run("returns file:// URL for valid reference", func(t *testing.T) {
 		url, err := fs.GetURL(ctx, ref, time.Hour)
 		require.NoError(t, err)
-		assert.True(t, strings.HasPrefix(url, "file://"))
+		abs, err := filepath.Abs(string(ref))
+		require.NoError(t, err)
+		assert.Equal(t, "file://"+abs, url)
 	})
 
 	t.Run("rejects path outside base dir", func(t *testing.T) {

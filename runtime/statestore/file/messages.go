@@ -63,6 +63,9 @@ func (s *Store) LogLoad(_ context.Context, id string, recent int) ([]types.Messa
 	if id == "" {
 		return nil, statestore.ErrInvalidID
 	}
+	if err := s.checkOpen(); err != nil {
+		return nil, err
+	}
 	all, err := scanJSONLines[types.Message](s.messagesFile(id))
 	if err != nil {
 		return nil, err
@@ -78,6 +81,9 @@ func (s *Store) LogLen(_ context.Context, id string) (int, error) {
 	if id == "" {
 		return 0, statestore.ErrInvalidID
 	}
+	if err := s.checkOpen(); err != nil {
+		return 0, err
+	}
 	return countLines(s.messagesFile(id))
 }
 
@@ -90,12 +96,8 @@ func (s *Store) LoadRecentMessages(
 	if id == "" {
 		return nil, statestore.ErrInvalidID
 	}
-	exists, err := s.convExists(id)
-	if err != nil {
+	if err := s.requireConv(id); err != nil {
 		return nil, err
-	}
-	if !exists {
-		return nil, statestore.ErrNotFound
 	}
 	return s.LogLoad(ctx, id, n)
 }
@@ -106,12 +108,8 @@ func (s *Store) MessageCount(_ context.Context, id string) (int, error) {
 	if id == "" {
 		return 0, statestore.ErrInvalidID
 	}
-	exists, err := s.convExists(id)
-	if err != nil {
+	if err := s.requireConv(id); err != nil {
 		return 0, err
-	}
-	if !exists {
-		return 0, statestore.ErrNotFound
 	}
 	return countLines(s.messagesFile(id))
 }

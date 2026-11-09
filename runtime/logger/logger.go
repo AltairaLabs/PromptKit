@@ -83,15 +83,22 @@ func init() {
 	}
 
 	// Check LOG_FORMAT environment variable
-	if envFormat := os.Getenv("LOG_FORMAT"); strings.EqualFold(envFormat, FormatJSON) {
-		currentFormat = FormatJSON
-	}
+	currentFormat = formatFromEnv(os.Getenv("LOG_FORMAT"))
 
 	// Initialize with appropriate handler wrapped in context handler
 	initLogger(currentLevel)
 
 	// Log version info at startup (debug level only)
 	version.LogStartup()
+}
+
+// formatFromEnv maps a LOG_FORMAT value to a log format: "json" in any case
+// selects FormatJSON, and anything else selects FormatText.
+func formatFromEnv(value string) string {
+	if strings.EqualFold(value, FormatJSON) {
+		return FormatJSON
+	}
+	return FormatText
 }
 
 // GetLogger returns the current logger, safe for concurrent use.
@@ -314,11 +321,13 @@ func ToolResponse(provider string, tokensIn, tokensOut, toolCalls int, cost floa
 var (
 	// apiKeyPatterns contains compiled regular expressions for detecting sensitive data.
 	// Patterns match common API key formats from various providers.
+	// Bearer runs first: a key sent as "Bearer sk-..." must redact to
+	// "Bearer [REDACTED]", not have its key prefix rewritten and then split.
 	apiKeyPatterns = []*regexp.Regexp{
-		regexp.MustCompile(`sk-[a-zA-Z0-9]{32,}`),   // OpenAI API keys
-		regexp.MustCompile(`AIza[a-zA-Z0-9_-]{35}`), // Google API keys
 		// Bearer tokens: opaque, base64 ("+", "/", "=") or dotted JWT; "." only between segments.
 		regexp.MustCompile(`Bearer\s+[a-zA-Z0-9_~+/=-]+(?:\.[a-zA-Z0-9_~+/=-]+)*`),
+		regexp.MustCompile(`sk-[a-zA-Z0-9]{32,}`),   // OpenAI API keys
+		regexp.MustCompile(`AIza[a-zA-Z0-9_-]{35}`), // Google API keys
 	}
 )
 

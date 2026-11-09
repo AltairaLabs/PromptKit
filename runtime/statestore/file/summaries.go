@@ -13,6 +13,9 @@ func (s *Store) LoadSummaries(_ context.Context, id string) ([]statestore.Summar
 	if id == "" {
 		return nil, statestore.ErrInvalidID
 	}
+	if err := s.checkOpen(); err != nil {
+		return nil, err
+	}
 	return scanJSONLines[statestore.Summary](s.summariesFile(id))
 }
 

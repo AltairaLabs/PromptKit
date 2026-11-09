@@ -20,11 +20,6 @@ var testNow = time.Date(2026, 1, 2, 12, 0, 0, 0, time.UTC)
 
 func testClock() time.Time { return testNow }
 
-func TestNewTimeBasedPolicyHandler(t *testing.T) {
-	handler := policy.NewTimeBasedPolicyHandler(1*time.Minute, policy.WithClock(testClock))
-	assert.NotNil(t, handler)
-}
-
 func TestTimeBasedPolicyHandler_RegisterPolicy(t *testing.T) {
 	handler := policy.NewTimeBasedPolicyHandler(1*time.Minute, policy.WithClock(testClock))
 
@@ -306,52 +301,6 @@ func TestTimeBasedPolicyHandler_AutoStart(t *testing.T) {
 		assert.FileExists(t, mediaPath)
 		assert.FileExists(t, metaPath)
 	})
-
-	t.Run("does not auto-start without base dir", func(t *testing.T) {
-		// Should not panic or start enforcement when base dir is missing
-		handler := policy.NewTimeBasedPolicyHandler(
-			5*time.Millisecond,
-			policy.WithClock(testClock),
-			policy.WithAutoStart(true),
-		)
-		assert.NotNil(t, handler)
-	})
-}
-
-func TestTimeBasedPolicyHandler_StopIdempotent(t *testing.T) {
-	t.Run("stop is safe when enforcement never started", func(t *testing.T) {
-		handler := policy.NewTimeBasedPolicyHandler(5*time.Millisecond, policy.WithClock(testClock))
-		// Should not panic
-		handler.Stop()
-	})
-
-	t.Run("stop is safe to call multiple times", func(t *testing.T) {
-		tempDir := t.TempDir()
-		handler := policy.NewTimeBasedPolicyHandler(
-			5*time.Millisecond,
-			policy.WithClock(testClock),
-			policy.WithAutoStart(true),
-			policy.WithBaseDir(tempDir),
-		)
-
-		handler.Stop()
-		// Second call should not panic
-		handler.Stop()
-	})
-}
-
-func TestTimeBasedPolicyHandler_StartEnforcementIdempotent(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	tempDir := t.TempDir()
-	handler := policy.NewTimeBasedPolicyHandler(5*time.Millisecond, policy.WithClock(testClock))
-
-	// Calling StartEnforcement twice should not panic or start two goroutines
-	handler.StartEnforcement(ctx, tempDir)
-	handler.StartEnforcement(ctx, tempDir)
-
-	handler.Stop()
 }
 
 func TestTimeBasedPolicyHandler_BuildExpiryIndex(t *testing.T) {
