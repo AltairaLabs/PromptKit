@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -38,7 +39,7 @@ spec:
   selectors:
     rerank:
       command: python3
-      args: [`+script+`]
+      args: [`+strconv.Quote(script)+`]
       timeout_ms: 10000
   skills:
     selector: rerank
