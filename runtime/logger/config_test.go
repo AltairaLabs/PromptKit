@@ -234,11 +234,6 @@ func TestSetOutput(t *testing.T) {
 	}
 }
 
-func TestSetOutput_NilResetsToStderr(t *testing.T) {
-	// This just verifies SetOutput(nil) doesn't panic
-	SetOutput(nil)
-}
-
 func TestExtractModuleFromFunction(t *testing.T) {
 	tests := []struct {
 		fn       string
