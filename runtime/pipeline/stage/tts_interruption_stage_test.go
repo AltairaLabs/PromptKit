@@ -286,7 +286,8 @@ func TestTTSStageWithInterruption_SkipsEmptyText(t *testing.T) {
 
 	s := stage.NewTTSStageWithInterruption(mock, config)
 
-	results := runStage(t, s, []stage.StreamElement{makeTextElement("Hi")}, 2*time.Second) // shorter than MinTextLength=5
+	// "Hi" is shorter than MinTextLength=5.
+	results := runStage(t, s, []stage.StreamElement{makeTextElement("Hi")}, 2*time.Second)
 
 	var spoken int
 	for _, r := range results {

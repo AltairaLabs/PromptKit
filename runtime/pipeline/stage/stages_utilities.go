@@ -1273,7 +1273,8 @@ func (s *ContextBuilderStage) truncateBySummarization(
 }
 
 // truncateByRelevance removes least relevant messages based on embedding similarity.
-// It returns an error if no EmbeddingProvider is configured.
+// It returns an error if no EmbeddingProvider is configured; with one, it
+// falls back to truncateOldest when there is no query or embedding fails.
 func (s *ContextBuilderStage) truncateByRelevance(
 	ctx context.Context,
 	messages []types.Message,

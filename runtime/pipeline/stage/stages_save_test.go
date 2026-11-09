@@ -572,10 +572,9 @@ func (s *readerOnlyStore) MessageCount(_ context.Context, id string) (int, error
 
 // readerWithSummaryStore implements MessageAppender, MessageReader, SummaryAccessor, and Store.
 type readerWithSummaryStore struct {
-	messages       map[string][]types.Message
-	states         map[string]*statestore.ConversationState
-	summaries      map[string][]statestore.Summary
-	countOverride  int
+	messages  map[string][]types.Message
+	states    map[string]*statestore.ConversationState
+	summaries map[string][]statestore.Summary
 	// countErr makes MessageCount fail. The count it reports alongside the
 	// error is still the real one, so a caller that ignored the error would
 	// act on it.
@@ -620,9 +619,6 @@ func (s *readerWithSummaryStore) LoadRecentMessages(_ context.Context, id string
 func (s *readerWithSummaryStore) MessageCount(_ context.Context, id string) (int, error) {
 	if s.countErr != nil {
 		return len(s.messages[id]), s.countErr
-	}
-	if s.countOverride > 0 {
-		return s.countOverride, nil
 	}
 	return len(s.messages[id]), nil
 }
