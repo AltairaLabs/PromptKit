@@ -773,6 +773,11 @@ type ContextBuilderPolicy struct {
 //     (falls back to TruncateOldest without one)
 //   - TruncateFail: returns error if budget exceeded (strict mode)
 //
+// Whatever the strategy, the truncated history starts at a user message and
+// keeps a tool call only with all of its results. When the budget cannot fit
+// any user message (the current turn does not fit), the stage returns an
+// error rather than send a request with no question in it.
+//
 // Configuration (ContextBuilderPolicy):
 //   - TokenBudget: total tokens allowed (0 = unlimited, pass-through mode)
 //   - ReserveForOutput: tokens reserved for LLM response
@@ -999,24 +1004,129 @@ func (s *ContextBuilderStage) countMessagesTokens(messages []types.Message) int 
 	return total
 }
 
-// truncateMessages applies truncation strategy.
+// truncateMessages applies truncation strategy, then trims the result to a
+// history every provider accepts (see wellFormedHistory).
 func (s *ContextBuilderStage) truncateMessages(
 	ctx context.Context,
 	messages []types.Message,
 	budget int,
 ) ([]types.Message, error) {
+	var (
+		kept []types.Message
+		err  error
+	)
 	switch s.policy.Strategy {
-	case TruncateOldest:
-		return s.truncateOldest(messages, budget), nil
 	case TruncateLeastRelevant:
-		return s.truncateByRelevance(ctx, messages, budget)
+		kept, err = s.truncateByRelevance(ctx, messages, budget)
 	case TruncateSummarize:
-		return s.truncateBySummarization(ctx, messages, budget)
+		kept = s.truncateBySummarization(ctx, messages, budget)
 	case TruncateFail:
 		return nil, fmt.Errorf("token budget exceeded: have %d, budget %d", s.countMessagesTokens(messages), budget)
-	default:
-		return s.truncateOldest(messages, budget), nil
+	case TruncateOldest:
+		kept = s.truncateOldest(messages, budget)
+	default: // unrecognized strategies truncate like TruncateOldest
+		kept = s.truncateOldest(messages, budget)
 	}
+	if err != nil {
+		return nil, err
+	}
+	out := wellFormedHistory(kept)
+	// Truncation drops history, never the current turn: a request with no
+	// user message is rejected by every provider (or, with only a summary,
+	// asks the model nothing), so say the budget is too small instead.
+	if hasUserMessage(messages) && !hasUserMessage(out) {
+		return nil, fmt.Errorf("token budget exceeded: budget %d is too small for the current turn "+
+			"(its user message and the tool calls and results that follow it)", budget)
+	}
+	return out, nil
+}
+
+// hasUserMessage reports whether any message is a user message.
+func hasUserMessage(messages []types.Message) bool {
+	for i := range messages {
+		if isUserTurn(&messages[i]) {
+			return true
+		}
+	}
+	return false
+}
+
+// wellFormedHistory removes what truncation can leave behind that providers
+// reject:
+//
+//   - a tool result whose tool call was dropped (Claude, OpenAI, Gemini and
+//     Bedrock all 400 on it), and an assistant tool call missing any of its
+//     results (Claude and OpenAI 400 on that too);
+//   - non-system messages ahead of the first user turn. A history that opens
+//     on an assistant tool call is rejected by Gemini ("function call turn
+//     comes immediately after a user turn"), and one that opens on an
+//     assistant reply puts words in the model's mouth with no question.
+//
+// It only ever drops messages, so the result stays within the budget the
+// strategy chose for.
+func wellFormedHistory(messages []types.Message) []types.Message {
+	// Open on a user turn first, so a call dropped here cannot vouch for a
+	// later result that reuses its ID.
+	opened := make([]types.Message, 0, len(messages))
+	seenUser := false
+	for i := range messages {
+		m := &messages[i]
+		if !seenUser && m.Role != roleSystem && !isUserTurn(m) {
+			continue
+		}
+		seenUser = seenUser || isUserTurn(m)
+		opened = append(opened, *m)
+	}
+	paired, callIDs := dropUnansweredCalls(opened)
+	// Keep a tool result only when its call is kept.
+	out := make([]types.Message, 0, len(paired))
+	for i := range paired {
+		if paired[i].ToolResult != nil && !callIDs[paired[i].ToolResult.ID] {
+			continue
+		}
+		out = append(out, paired[i])
+	}
+	return out
+}
+
+// dropUnansweredCalls drops each assistant message with a tool call that has
+// no result among messages, and returns the rest with the IDs of the calls
+// they make.
+func dropUnansweredCalls(messages []types.Message) (kept []types.Message, callIDs map[string]bool) {
+	resultIDs := make(map[string]bool)
+	for i := range messages {
+		if messages[i].ToolResult != nil {
+			resultIDs[messages[i].ToolResult.ID] = true
+		}
+	}
+	callIDs = make(map[string]bool)
+	kept = make([]types.Message, 0, len(messages))
+	for i := range messages {
+		if !allCallsAnswered(messages[i].ToolCalls, resultIDs) {
+			continue
+		}
+		for _, tc := range messages[i].ToolCalls {
+			callIDs[tc.ID] = true
+		}
+		kept = append(kept, messages[i])
+	}
+	return kept, callIDs
+}
+
+// isUserTurn reports whether m opens a turn. Tool results carry the "tool"
+// role, so a user message is always the start of one.
+func isUserTurn(m *types.Message) bool {
+	return m.Role == roleUser
+}
+
+// allCallsAnswered reports whether every call has a result in resultIDs.
+func allCallsAnswered(calls []types.MessageToolCall, resultIDs map[string]bool) bool {
+	for _, tc := range calls {
+		if !resultIDs[tc.ID] {
+			return false
+		}
+	}
+	return true
 }
 
 // truncateOldest keeps most recent messages that fit budget.
@@ -1057,10 +1167,10 @@ func (s *ContextBuilderStage) truncateBySummarization(
 	ctx context.Context,
 	messages []types.Message,
 	budget int,
-) ([]types.Message, error) {
+) []types.Message {
 	if s.policy.Summarizer == nil {
 		logger.Warn("TruncateSummarize requires a Summarizer; falling back to TruncateOldest")
-		return s.truncateOldest(messages, budget), nil
+		return s.truncateOldest(messages, budget)
 	}
 
 	// Keep as many recent messages as fit in half the budget (leave room for summary)
@@ -1084,8 +1194,15 @@ func (s *ContextBuilderStage) truncateBySummarization(
 
 	// If all messages fit in half budget, no summarization needed
 	if splitIdx == 0 {
-		return messages, nil
+		return messages
 	}
+
+	// Keep whole turns: fold the replies and tool messages that open the kept
+	// tail into the summary, so the kept messages start on a user turn.
+	for splitIdx < len(messages) && !isUserTurn(&messages[splitIdx]) {
+		splitIdx++
+	}
+	kept = messages[splitIdx:]
 
 	// Summarize older messages
 	toSummarize := messages[:splitIdx]
@@ -1093,7 +1210,7 @@ func (s *ContextBuilderStage) truncateBySummarization(
 	if err != nil {
 		// Fall back to truncation on summarization failure
 		logger.Warn("Summarization failed, falling back to TruncateOldest", "error", err)
-		return s.truncateOldest(messages, budget), nil
+		return s.truncateOldest(messages, budget)
 	}
 
 	// Build result: summary message + kept recent messages
@@ -1110,10 +1227,10 @@ func (s *ContextBuilderStage) truncateBySummarization(
 	// Verify result fits budget; if not, truncate further
 	resultTokens := s.countMessagesTokens(result)
 	if resultTokens > budget {
-		return s.truncateOldest(result, budget), nil
+		return s.truncateOldest(result, budget)
 	}
 
-	return result, nil
+	return result
 }
 
 // truncateByRelevance removes least relevant messages based on embedding similarity.

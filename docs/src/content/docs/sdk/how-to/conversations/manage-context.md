@@ -54,6 +54,8 @@ Keep a long conversation inside the model's context window.
 
    An unrecognized value behaves as `"sliding"`.
 
+   Every strategy that truncates drops whole turns. The kept messages start at a user message, and a tool call is kept only together with all of its results. A reply or tool exchange left at the cut is dropped as well, even if it would fit in the budget. `"summarize"` adds it to the summary. If the budget cannot fit any user message, the send fails with a `token budget exceeded` error instead of sending a request with no question in it.
+
 2. To keep the messages most similar to the latest user message instead, use relevance truncation:
 
    ```go
