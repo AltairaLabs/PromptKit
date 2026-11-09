@@ -91,6 +91,9 @@ const streamBufferSize = 100 // Size of buffered channels for streaming
 // first typed write (AppendMessages, MergeMetadata, SaveSummary). No bulk
 // Save needed.
 func initConversationState(ctx context.Context, store statestore.Store, cfg *DuplexSessionConfig, convID string) error {
+	if err := seedUserID(ctx, store, convID, cfg.UserID); err != nil {
+		return err
+	}
 	if len(cfg.Metadata) == 0 {
 		return nil
 	}

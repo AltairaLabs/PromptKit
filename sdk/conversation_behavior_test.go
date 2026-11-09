@@ -245,10 +245,12 @@ func TestConv_VariableProviderRendersIntoTheSystemPrompt(t *testing.T) {
 		"variables": [{"name": "name", "type": "string", "required": false, "default": "nobody"},
 			{"name": "city", "type": "string", "required": false}]}}}`
 	w := newConvWire(t)
-	conv := openConvPack(t, w, pack, WithVariableProvider(convStaticVars{"name": "Grace", "city": "Oslo"}))
+	conv := openConvPack(t, w, pack,
+		WithVariableProvider(convStaticVars{"name": "Grace", "city": "Paris"}),
+		WithVariableProvider(convStaticVars{"city": "Oslo"}))
 	_, err := conv.Send(context.Background(), "hi")
 	require.NoError(t, err)
-	assert.Equal(t, "You help nobody in Oslo.", w.lastChat(t).system(t))
+	assert.Equal(t, "You help nobody in Oslo.", w.lastChat(t).system(t), "a later provider overrides an earlier one")
 }
 
 // OnTool, OnToolCtx and OnTools handlers run when the model calls the tool:
@@ -774,4 +776,28 @@ func TestConv_ResumeErrors(t *testing.T) {
 			assert.ErrorIs(t, err, ErrConversationNotFound)
 		})
 	}
+}
+
+// WithEventStore: a conversation's events are persisted under its ID.
+func TestConv_EventStoreRecordsTheConversation(t *testing.T) {
+	store, err := events.NewFileEventStore(t.TempDir())
+	require.NoError(t, err)
+	defer store.Close()
+	w := newConvWire(t, convWireReply{Text: "recorded"})
+	conv := openConv(t, w, WithEventStore(store))
+	_, err = conv.Send(context.Background(), "hi")
+	require.NoError(t, err)
+	id := conv.ID()
+	require.NoError(t, conv.Close())
+	require.NoError(t, store.Sync())
+
+	stored, err := store.Query(context.Background(), &events.EventFilter{SessionID: id})
+	require.NoError(t, err)
+	var assistant []string
+	for _, e := range stored {
+		if d, ok := e.Data.(*events.MessageCreatedData); ok && d.Role == "assistant" {
+			assistant = append(assistant, d.Content)
+		}
+	}
+	assert.Equal(t, []string{"recorded"}, assistant, "the reply is in the store under the conversation's ID")
 }

@@ -137,3 +137,51 @@ func TestConv_WaitingTurnHonorsContextAndClose(t *testing.T) {
 	<-first
 	assert.ErrorIs(t, <-waiting, ErrConversationClosed)
 }
+
+// Variables and history are safe to read and write while turns run: every
+// SetVar lands, Messages always returns whole turns, and the last SetVar
+// before a turn is what that turn renders. Run under -race.
+func TestConv_VarsAndMessagesDuringTurns(t *testing.T) {
+	ctx := context.Background()
+	w := newConvWire(t, convWireReply{Echo: true})
+	conv := openConv(t, w)
+
+	const writers, turns = 8, 4
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			conv.SetVar(fmt.Sprintf("k%d", i), fmt.Sprintf("v%d", i))
+			for _, m := range conv.Messages(ctx) {
+				assert.Contains(t, []string{"user", "assistant"}, m.Role)
+			}
+			assert.Equal(t, 0, len(conv.Messages(ctx))%2, "Messages must not show half a turn")
+		}(i)
+	}
+	for i := 0; i < turns; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			_, err := conv.Send(ctx, fmt.Sprintf("t%d", i))
+			assert.NoError(t, err)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	for i := 0; i < writers; i++ {
+		got, ok := conv.GetVar(fmt.Sprintf("k%d", i))
+		assert.True(t, ok)
+		assert.Equal(t, fmt.Sprintf("v%d", i), got)
+	}
+	assert.Len(t, conv.Messages(ctx), 2*turns)
+
+	conv.SetVar("name", "Last")
+	_, err := conv.Send(ctx, "final")
+	require.NoError(t, err)
+	assert.Equal(t, "You help Last.", w.lastChat(t).system(t))
+}

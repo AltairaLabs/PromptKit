@@ -732,6 +732,7 @@ func (c *Conversation) buildPipelineConfig(
 		VariableProviders:     appendSendScopedProvider(c.withSessionVars(c.config.variableProviders)),
 		StateStore:            store,
 		ConversationID:        conversationID,
+		UserID:                c.config.userID,
 		StreamInputProvider:   streamProvider, // For duplex mode: provider creates session lazily
 		StreamInputConfig:     streamConfig,   // Base config for session
 		TokenBudget:           c.config.tokenBudget,

@@ -1,7 +1,6 @@
 package sdk
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"sync"
@@ -75,17 +74,6 @@ func TestPackTemplateOpen(t *testing.T) {
 	tmpl, err := LoadTemplate(packFile, WithSkipSchemaValidation())
 	require.NoError(t, err)
 
-	t.Run("success with mock provider", func(t *testing.T) {
-		provider := mock.NewProvider("mock", "mock-model", false)
-		conv, err := tmpl.Open("chat", WithProvider(provider))
-		require.NoError(t, err)
-		require.NotNil(t, conv)
-
-		assert.Equal(t, "chat", conv.promptName)
-		assert.NotNil(t, conv.toolRegistry)
-		defer conv.Close()
-	})
-
 	t.Run("prompt not found", func(t *testing.T) {
 		provider := mock.NewProvider("mock", "mock-model", false)
 		_, err := tmpl.Open("nonexistent", WithProvider(provider))
@@ -109,23 +97,6 @@ func TestPackTemplateOpen(t *testing.T) {
 			return assert.AnError
 		})
 		assert.Error(t, err)
-	})
-
-	t.Run("multiple prompts same template", func(t *testing.T) {
-		provider := mock.NewProvider("mock", "mock-model", false)
-
-		conv1, err := tmpl.Open("chat", WithProvider(provider))
-		require.NoError(t, err)
-		defer conv1.Close()
-
-		conv2, err := tmpl.Open("summarize", WithProvider(provider))
-		require.NoError(t, err)
-		defer conv2.Close()
-
-		// Each conversation has its own state
-		assert.NotEqual(t, conv1.ID(), conv2.ID())
-		assert.Equal(t, "chat", conv1.promptName)
-		assert.Equal(t, "summarize", conv2.promptName)
 	})
 
 	t.Run("conversations share prompt registry", func(t *testing.T) {
@@ -206,23 +177,6 @@ func TestPackTemplateOpenConcurrent(t *testing.T) {
 		ids[conv.ID()] = true
 	}
 	assert.Len(t, ids, goroutines, "all conversation IDs should be unique")
-}
-
-func TestPackTemplateOpenSendReceive(t *testing.T) {
-	packFile := writeTestPack(t)
-	tmpl, err := LoadTemplate(packFile, WithSkipSchemaValidation())
-	require.NoError(t, err)
-
-	provider := mock.NewProvider("mock", "mock-model", false)
-	conv, err := tmpl.Open("chat", WithProvider(provider))
-	require.NoError(t, err)
-	defer conv.Close()
-
-	// Verify conversation is functional by sending a message
-	resp, err := conv.Send(context.Background(), "Hello")
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-	assert.NotEmpty(t, resp.Text())
 }
 
 func TestPackTemplateOpenDuplex(t *testing.T) {

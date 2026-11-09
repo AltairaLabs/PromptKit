@@ -133,11 +133,6 @@ func TestE2E_Vision_URLImage(t *testing.T) {
 // Video Tests (Gemini-specific) - TODO
 // =============================================================================
 
-// TestE2E_Vision_Video tests video understanding (Gemini only).
-func TestE2E_Vision_Video(t *testing.T) {
-	t.Skip("Video test requires video file - implement when test assets available")
-}
-
 // =============================================================================
 // Test Image Helpers
 // =============================================================================

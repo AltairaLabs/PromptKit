@@ -136,14 +136,6 @@ func TestBuildStreamMessage(t *testing.T) {
 		assert.NotEmpty(t, msg.Parts)
 	})
 
-	t.Run("message with parts", func(t *testing.T) {
-		msg, _, err := conv.buildStreamMessage("text", []SendOption{
-			WithImageURL("http://example.com/image.jpg"),
-		})
-		require.NoError(t, err)
-		assert.NotNil(t, msg)
-	})
-
 	t.Run("empty message falls back to JSON input as user turn", func(t *testing.T) {
 		msg, cfg, err := conv.buildStreamMessage("", []SendOption{
 			WithJSONInput(map[string]any{"topic": "x"}),
@@ -166,36 +158,16 @@ func TestBuildStreamMessage(t *testing.T) {
 	})
 }
 
-func TestAddContentParts(t *testing.T) {
-	conv := newTestConversation()
-
-	t.Run("empty parts", func(t *testing.T) {
-		msg := &types.Message{Role: "user"}
-		err := conv.addContentParts(msg, []any{})
-		assert.NoError(t, err)
-	})
-
-	t.Run("with text parts", func(t *testing.T) {
-		// Skip - requires proper ContentPart types
-		t.Skip("requires proper ContentPart construction")
-	})
-}
-
 func TestStreamWhenClosed(t *testing.T) {
 	conv := newTestConversation()
 	conv.closed = true
 
-	chunks := conv.Stream(context.Background(), "test")
-
 	var receivedChunks []StreamChunk
-	for chunk := range chunks {
+	for chunk := range conv.Stream(context.Background(), "test") {
 		receivedChunks = append(receivedChunks, chunk)
-		if chunk.Error != nil {
-			assert.Equal(t, ErrConversationClosed, chunk.Error)
-		}
 	}
-
-	assert.NotEmpty(t, receivedChunks)
+	require.Len(t, receivedChunks, 1, "a closed conversation streams only its error")
+	assert.ErrorIs(t, receivedChunks[0].Error, ErrConversationClosed)
 }
 
 func TestStreamContextCancellation_NoGoroutineLeak(t *testing.T) {
@@ -235,59 +207,13 @@ func TestStreamInDuplexMode(t *testing.T) {
 	conv := newTestConversation()
 	conv.mode = DuplexMode
 
-	chunks := conv.Stream(context.Background(), "test")
-
 	var receivedChunks []StreamChunk
-	for chunk := range chunks {
+	for chunk := range conv.Stream(context.Background(), "test") {
 		receivedChunks = append(receivedChunks, chunk)
-		if chunk.Error != nil {
-			assert.Contains(t, chunk.Error.Error(), "unary mode")
-		}
 	}
-
-	assert.NotEmpty(t, receivedChunks)
-}
-
-func TestStreamRaw(t *testing.T) {
-	ctx := context.Background()
-	repo := mock.NewInMemoryMockRepository("Raw stream")
-	mockProv := mock.NewProviderWithRepository("test-mock", "test-model", false, repo)
-	store := statestore.NewMemoryStore()
-
-	p := &pack.Pack{Pack: packspec.Pack{
-		ID: "test-pack",
-		Prompts: map[string]*pack.Prompt{
-			"chat": {ID: "chat", SystemTemplate: "System"},
-		},
-	}}
-
-	conv := &Conversation{
-		pack:           p,
-		prompt:         p.Prompts["chat"],
-		promptName:     "chat",
-		promptRegistry: pack.ToPromptRegistry(p),
-		toolRegistry:   tools.NewRegistry(),
-		config:         &config{provider: mockProv},
-		mode:           UnaryMode,
-		handlers:       make(map[string]ToolHandler),
-		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
-		pendingStore:   sdktools.NewMemoryPendingStore(),
-	}
-
-	pipeline, err := conv.buildPipelineWithParams(store, "test-conv", nil, nil)
-	require.NoError(t, err)
-
-	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
-		ConversationID: "test-conv",
-		StateStore:     store,
-		Pipeline:       pipeline,
-	})
-	require.NoError(t, err)
-	conv.unarySession = unarySession
-
-	chunks, err := conv.StreamRaw(ctx, "test message")
-	require.NoError(t, err)
-	assert.NotNil(t, chunks)
+	require.Len(t, receivedChunks, 1, "a duplex conversation streams only its error")
+	require.Error(t, receivedChunks[0].Error)
+	assert.Contains(t, receivedChunks[0].Error.Error(), "unary mode")
 }
 
 func TestEmitStreamChunk(t *testing.T) {

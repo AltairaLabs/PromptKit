@@ -15,9 +15,9 @@ import (
 )
 
 // openConvDuplex opens a duplex conversation on the mock realtime provider.
-func openConvDuplex(t *testing.T) (*Conversation, *mock.StreamingProvider) {
+func openConvDuplex(t *testing.T) (*Conversation, *sessionConfigSpy) {
 	t.Helper()
-	prov := mock.NewStreamingProvider("rt", "rt-model", false).WithAutoRespond("hi")
+	prov := &sessionConfigSpy{StreamingProvider: mock.NewStreamingProvider("rt", "rt-model", false).WithAutoRespond("hi")}
 	conv, err := OpenDuplex(createTestPackFile(t, convChatPack), "chat",
 		WithProvider(prov), WithSkipSchemaValidation(),
 		WithStreamingConfig(&providers.StreamingInputConfig{Config: types.StreamingMediaConfig{
@@ -30,7 +30,7 @@ func openConvDuplex(t *testing.T) (*Conversation, *mock.StreamingProvider) {
 
 // convSessionChunks waits for the provider's realtime session to receive n
 // media chunks and returns them.
-func convSessionChunks(t *testing.T, prov *mock.StreamingProvider, n int) []*types.MediaChunk {
+func convSessionChunks(t *testing.T, prov *sessionConfigSpy, n int) []*types.MediaChunk {
 	t.Helper()
 	var got []*types.MediaChunk
 	require.Eventually(t, func() bool {
@@ -63,6 +63,14 @@ func TestConv_DuplexFramesAndVideoReachTheSession(t *testing.T) {
 	chunks = convSessionChunks(t, prov, 2)
 	assert.Equal(t, []byte("video-bytes"), chunks[1].Data)
 	assert.Equal(t, "video/h264", chunks[1].Metadata["mime_type"])
+
+	// WithStreamingConfig is the session the provider was asked to open, and
+	// the rendered system prompt is its instruction.
+	cfg := prov.first()
+	require.NotNil(t, cfg)
+	assert.Equal(t, 16000, cfg.Config.SampleRate)
+	assert.Equal(t, "pcm_linear16", cfg.Config.Encoding)
+	assert.Equal(t, "You help nobody.", cfg.SystemInstruction)
 }
 
 // TriggerStart sends the caller's text to the realtime session so the model

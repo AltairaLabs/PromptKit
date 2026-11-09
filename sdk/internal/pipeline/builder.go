@@ -124,6 +124,10 @@ type Config struct {
 	// ConversationID for state store operations
 	ConversationID string
 
+	// UserID is the caller's WithUserID identity, persisted with the
+	// conversation and published on the turn state.
+	UserID string
+
 	// MessageLog for per-round write-through during tool loops (optional).
 	// When set, the provider stage persists messages per-round and the
 	// save stage skips message append.
@@ -462,6 +466,7 @@ func buildStateStoreConfig(cfg *Config) (*rtpipeline.StateStoreConfig, bool) {
 	return &rtpipeline.StateStoreConfig{
 		Store:          cfg.StateStore,
 		ConversationID: cfg.ConversationID,
+		UserID:         cfg.UserID,
 	}, useRAGContext
 }
 
