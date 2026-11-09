@@ -124,34 +124,17 @@ func (s *ContextAssemblyStage) Process(
 		s.turnState.UserID = s.config.StateStoreConfig.UserID
 	}
 
-	// Try to use MessageReader for efficient partial reads
-	reader, hasReader := s.config.StateStoreConfig.Store.(statestore.MessageReader)
+	// Retrieval searches with what the user is asking now, so the turn's
+	// first input element is read before the history is assembled. It is
+	// forwarded, unchanged, after the history.
+	first, query, err := s.peekCurrentInput(ctx, input)
+	if err != nil {
+		return err
+	}
 
-	var historyMessages []types.Message
-
-	if hasReader {
-		msgs, err := s.assembleFromReader(ctx, convID, reader, store)
-		if err != nil {
-			return err
-		}
-		historyMessages = msgs
-		// The hot window is a subset, so the turn cannot be counted from it.
-		// Read the transcript once purely to place this turn against it: a
-		// context-window conversation otherwise reports turn 0 on every
-		// guardrail and eval event.
-		priorTurns, err := deriveTurnIndex(ctx, store, convID)
-		if err != nil {
-			return fmt.Errorf("context assembly: %w", err)
-		}
-		s.turnState.SetTurnIndex(priorTurns)
-	} else {
-		// Fallback: load full state (same as StateStoreLoadStage)
-		msgs, err := s.loadFullHistory(ctx, convID, store)
-		if err != nil {
-			return err
-		}
-		historyMessages = msgs
-		s.turnState.SetTurnIndex(countUserTurns(historyMessages))
+	historyMessages, err := s.loadHistory(ctx, convID, store, query)
+	if err != nil {
+		return err
 	}
 
 	// Warn about large conversations without token budget or context window
@@ -165,7 +148,84 @@ func (s *ContextAssemblyStage) Process(
 		return err
 	}
 
+	if first != nil {
+		if err := s.forwardElement(ctx, *first, output); err != nil {
+			return err
+		}
+	}
 	return s.forwardInput(ctx, input, output)
+}
+
+// peekCurrentInput reads the turn's first input element when retrieval is
+// configured, returning it (nil when input is closed or retrieval is off) and
+// its user text.
+func (s *ContextAssemblyStage) peekCurrentInput(
+	ctx context.Context, input <-chan StreamElement,
+) (*StreamElement, string, error) {
+	if !s.retrievalEnabled() {
+		return nil, "", nil
+	}
+	elem, ok, err := receiveFirst(ctx, input)
+	if err != nil || !ok {
+		return nil, "", err
+	}
+	return &elem, userText(elem), nil
+}
+
+// loadHistory loads the history to send before the input and places this turn
+// against the transcript: from the hot window, summaries and retrieval when the
+// store can read partially, or the whole stored conversation otherwise.
+func (s *ContextAssemblyStage) loadHistory(
+	ctx context.Context, convID string, store statestore.Store, query string,
+) ([]types.Message, error) {
+	reader, hasReader := s.config.StateStoreConfig.Store.(statestore.MessageReader)
+	if !hasReader {
+		msgs, err := s.loadFullHistory(ctx, convID, store)
+		if err != nil {
+			return nil, err
+		}
+		s.turnState.SetTurnIndex(countUserTurns(msgs))
+		return msgs, nil
+	}
+	msgs, err := s.assembleFromReader(ctx, convID, reader, query)
+	if err != nil {
+		return nil, err
+	}
+	// The hot window is a subset, so the turn cannot be counted from it.
+	// Read the transcript once purely to place this turn against it: a
+	// context-window conversation otherwise reports turn 0 on every
+	// guardrail and eval event.
+	priorTurns, err := deriveTurnIndex(ctx, store, convID)
+	if err != nil {
+		return nil, fmt.Errorf("context assembly: %w", err)
+	}
+	s.turnState.SetTurnIndex(priorTurns)
+	return msgs, nil
+}
+
+// retrievalEnabled reports whether semantic retrieval is configured.
+func (s *ContextAssemblyStage) retrievalEnabled() bool {
+	return s.config.MessageIndex != nil && s.config.RetrievalTopK > 0
+}
+
+// receiveFirst reads one element from input; ok is false when input is
+// already closed.
+func receiveFirst(ctx context.Context, input <-chan StreamElement) (elem StreamElement, ok bool, err error) {
+	select {
+	case elem, ok = <-input:
+		return elem, ok, nil
+	case <-ctx.Done():
+		return StreamElement{}, false, ctx.Err()
+	}
+}
+
+// userText returns the text of elem's user message, or "" when it carries none
+// (audio, a tool result, a resumed turn).
+func userText(elem StreamElement) string {
+	if elem.Message == nil || elem.Message.Role != roleUser || elem.Meta.FromHistory {
+		return ""
+	}
+	return elem.Message.GetContent()
 }
 
 // assembleFromReader uses MessageReader and SummaryAccessor for efficient loading.
@@ -173,7 +233,7 @@ func (s *ContextAssemblyStage) assembleFromReader(
 	ctx context.Context,
 	convID string,
 	reader statestore.MessageReader,
-	_ statestore.Store,
+	query string,
 ) ([]types.Message, error) {
 	var assembled []types.Message
 
@@ -209,8 +269,8 @@ func (s *ContextAssemblyStage) assembleFromReader(
 	}
 
 	// 3. Semantic retrieval, inserted between summaries and hot window
-	if s.config.MessageIndex != nil && s.config.RetrievalTopK > 0 && len(recentMsgs) > 0 {
-		retrieved, err := s.retrieveRelevant(ctx, convID, reader, recentMsgs)
+	if s.retrievalEnabled() {
+		retrieved, err := s.retrieveRelevant(ctx, convID, reader, query, recentMsgs)
 		if err != nil {
 			logger.Warn("Context assembly: semantic retrieval failed, using hot window only",
 				"conversation", convID, "error", err)
@@ -228,11 +288,12 @@ func (s *ContextAssemblyStage) retrieveRelevant(
 	ctx context.Context,
 	convID string,
 	reader statestore.MessageReader,
+	query string,
 	recentMsgs []types.Message,
 ) ([]types.Message, error) {
-	// Build query from the last user message
-	var query string
-	for i := len(recentMsgs) - 1; i >= 0; i-- {
+	// Search with the current input; a turn with no user text of its own (a
+	// resumed turn, audio) falls back to the last stored user message.
+	for i := len(recentMsgs) - 1; query == "" && i >= 0; i-- {
 		if recentMsgs[i].Role == roleUser {
 			// GetContent, not Content: a user message built from a Send keeps
 			// its text in Parts, so Content is empty and retrieval never ran.
@@ -385,20 +446,29 @@ func (s *ContextAssemblyStage) forwardInput(
 	output chan<- StreamElement,
 ) error {
 	for elem := range input {
-		// This turn's own user message completes the count started from the
-		// persisted transcript, exactly as StateStoreLoadStage does. A resumed
-		// turn whose user message is already persisted carries no new user
-		// element and so does not advance twice.
-		if elem.Message != nil && elem.Message.Role == roleUser && !elem.Meta.FromHistory {
-			s.turnState.AdvanceTurn()
-		}
-		select {
-		case output <- elem:
-		case <-ctx.Done():
-			return ctx.Err()
+		if err := s.forwardElement(ctx, elem, output); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// forwardElement forwards one input element. This turn's own user message
+// completes the count started from the persisted transcript, exactly as
+// StateStoreLoadStage does. A resumed turn whose user message is already
+// persisted carries no new user element and so does not advance twice.
+func (s *ContextAssemblyStage) forwardElement(
+	ctx context.Context, elem StreamElement, output chan<- StreamElement,
+) error {
+	if elem.Message != nil && elem.Message.Role == roleUser && !elem.Meta.FromHistory {
+		s.turnState.AdvanceTurn()
+	}
+	select {
+	case output <- elem:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // forwardAll forwards all elements without modification.

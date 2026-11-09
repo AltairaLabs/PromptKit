@@ -258,13 +258,15 @@ func TestContextAssemblyStage_NilConfig(t *testing.T) {
 type mockMessageIndex struct {
 	results []statestore.IndexResult
 	err     error
+	queries []string
 }
 
 func (m *mockMessageIndex) Index(_ context.Context, _ string, _ int, _ types.Message) error {
 	return nil
 }
 
-func (m *mockMessageIndex) Search(_ context.Context, _, _ string, _ int) ([]statestore.IndexResult, error) {
+func (m *mockMessageIndex) Search(_ context.Context, _, query string, _ int) ([]statestore.IndexResult, error) {
+	m.queries = append(m.queries, query)
 	return m.results, m.err
 }
 
@@ -1020,4 +1022,74 @@ func TestContextAssemblyStage_ForwardAll_ContextCancelled(t *testing.T) {
 	err := s.Process(ctx, input, output)
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, context.Canceled)
+}
+
+// Retrieval searches with the turn's own user text; a turn whose first element
+// carries none (a message from history, audio) searches with the last stored
+// user message. Every input element is still forwarded, after the history.
+func TestContextAssemblyStage_RetrievalQueryIsTheCurrentInput(t *testing.T) {
+	ctx := context.Background()
+	history := []types.Message{
+		{Role: "user", Content: "earlier question"},
+		{Role: "assistant", Content: "earlier answer"},
+	}
+	fromHistory := newTestMsgElement("user", "replayed")
+	fromHistory.Meta.FromHistory = true
+	cases := []struct {
+		name      string
+		inputs    []StreamElement
+		wantQuery string
+		wantLast  []string
+		wantTurn  int
+	}{
+		{name: "user input", inputs: []StreamElement{newTestMsgElement("user", "current question")},
+			wantQuery: "current question", wantLast: []string{"current question"}, wantTurn: 2},
+		{name: "assistant element", inputs: []StreamElement{newTestMsgElement("assistant", "not a question")},
+			wantQuery: "earlier question", wantLast: []string{"not a question"}, wantTurn: 1},
+		{name: "element from history", inputs: []StreamElement{fromHistory},
+			wantQuery: "earlier question", wantLast: []string{"replayed"}, wantTurn: 1},
+		{name: "no input", inputs: nil, wantQuery: "earlier question", wantTurn: 1},
+		{name: "three inputs", inputs: []StreamElement{newTestMsgElement("user", "q1"),
+			newTestMsgElement("assistant", "a1"), newTestMsgElement("user", "q2")},
+			wantQuery: "q1", wantLast: []string{"q1", "a1", "q2"}, wantTurn: 3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := statestore.NewMemoryStore()
+			require.NoError(t, store.Save(ctx, &statestore.ConversationState{ID: "c", Messages: history}))
+			idx := &mockMessageIndex{}
+			ts := NewTurnState()
+			s := NewContextAssemblyStageWithTurnState(&ContextAssemblyConfig{
+				StateStoreConfig: &pipeline.StateStoreConfig{Store: store, ConversationID: "c"},
+				RecentMessages:   2, MessageIndex: idx, RetrievalTopK: 3,
+			}, ts)
+			results := runTestStage(t, s, tc.inputs)
+			assert.Equal(t, []string{tc.wantQuery}, idx.queries)
+			assert.Equal(t, tc.wantTurn, ts.TurnIndex(), "only the turn's own user messages advance it")
+			var got []string
+			for _, r := range results {
+				require.NotNil(t, r.Message, "an element with no message was emitted")
+				got = append(got, r.Message.Content)
+			}
+			want := append([]string{"earlier question", "earlier answer"}, tc.wantLast...)
+			assert.Equal(t, want, got)
+		})
+	}
+}
+
+// Without retrieval the input is not consulted: nothing is searched.
+func TestContextAssemblyStage_NoRetrievalNoSearch(t *testing.T) {
+	ctx := context.Background()
+	store := statestore.NewMemoryStore()
+	require.NoError(t, store.Save(ctx, &statestore.ConversationState{ID: "c",
+		Messages: []types.Message{{Role: "user", Content: "q"}}}))
+	idx := &mockMessageIndex{}
+	s := NewContextAssemblyStage(&ContextAssemblyConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{Store: store, ConversationID: "c"},
+		RecentMessages:   2, MessageIndex: idx, RetrievalTopK: 0,
+	})
+	results := runTestStage(t, s, []StreamElement{newTestMsgElement("user", "now")})
+	assert.Empty(t, idx.queries)
+	require.Len(t, results, 2)
+	assert.Equal(t, "now", results[1].Message.Content)
 }
