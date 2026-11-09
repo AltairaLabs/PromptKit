@@ -102,6 +102,12 @@ type CompositionExecutorDeps struct {
 	// step's (see stepToolPolicy). Nil: the step's bounds alone.
 	ToolPolicy *pipeline.ToolPolicy
 
+	// ApprovalChecker is the conversation's human-in-the-loop approval gate
+	// (ProviderConfig.ApprovalChecker). A tool call it holds inside an agent
+	// step fails the step with ErrCompositionToolNeedsApproval, so the tool
+	// never runs unapproved. Nil: no tool needs approval.
+	ApprovalChecker tools.ApprovalChecker
+
 	// CallRate is the enclosing conversation's call-rate window
 	// (ProviderConfig.CallRate). Every step's provider stage counts in it, so
 	// ToolPolicy.MaxCallsPerMinute spans the composition's steps and turns.
@@ -196,6 +202,7 @@ func (deps CompositionExecutorDeps) stepProviderConfig(
 		PromptDeclarations:    deps.PromptDeclarations,
 		SkipContentValidation: deps.SkipContentValidation,
 		CallRate:              deps.CallRate,
+		ApprovalChecker:       deps.ApprovalChecker,
 	}
 	// The step's prompt parameters, with its model_overrides entry for the
 	// provider that runs the step, as an opened prompt gets them.
@@ -281,6 +288,10 @@ func (deps CompositionExecutorDeps) execLLM(
 	}
 	if err != nil {
 		return nil, fmt.Errorf("step %q: %w", step.ID, err)
+	}
+	if res != nil && len(res.PendingTools) > 0 {
+		return nil, fmt.Errorf("step %q: tool %q: %w",
+			step.ID, res.PendingTools[0].ToolName, ErrCompositionToolNeedsApproval)
 	}
 	if res == nil || res.Response == nil {
 		return nil, fmt.Errorf("step %q: sub-pipeline produced no response", step.ID)

@@ -806,3 +806,33 @@ func TestCompositionExecutor_StepCarriesPromptParameters(t *testing.T) {
 	assert.Equal(t, 300, prov.rounds[0].maxTokens)
 	assert.InDelta(t, 0.4, prov.rounds[0].temperature, 1e-6)
 }
+
+// An agent step whose tool call the ApprovalChecker holds fails with
+// ErrCompositionToolNeedsApproval, naming the tool, and the tool never runs:
+// a step cannot wait for the approval (#2603).
+func TestCompositionExecutor_ApprovalHeldToolFailsTheStep(t *testing.T) {
+	reg := prompt.NewRegistryWithRepository(newMockRepo())
+	require.NoError(t, reg.RegisterConfig("a", &prompt.Config{Spec: prompt.Spec{
+		TaskType: "a", SystemTemplate: "You are a helpful assistant.", AllowedTools: []string{"search"},
+	}}))
+	toolReg := tools.NewRegistry()
+	registerEchoTool(t, toolReg, "search")
+	exec := NewCompositionStepExecutor(CompositionExecutorDeps{
+		PromptRegistry: reg,
+		Provider:       &toolCallingProvider{Provider: mock.NewProvider("p", "m", false)},
+		ToolRegistry:   toolReg,
+		ApprovalChecker: func(_ context.Context, _, _ string, _ map[string]any) *tools.PendingToolInfo {
+			return &tools.PendingToolInfo{Reason: "requires_approval"}
+		},
+	})
+	step := &composition.Step{
+		ID: "s", Kind: composition.KindAgent, PromptTask: "a", Tools: []string{"search"},
+		Termination: &composition.Termination{MaxSteps: packspec.Ptr(3)},
+	}
+
+	out, err := exec(context.Background(), step, json.RawMessage(`"look it up"`))
+
+	require.ErrorIs(t, err, ErrCompositionToolNeedsApproval)
+	assert.Contains(t, err.Error(), `tool "search"`)
+	assert.Nil(t, out)
+}

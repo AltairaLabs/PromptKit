@@ -664,48 +664,59 @@ func (s *ProviderStage) processStreaming(
 	var pending []types.Message
 
 	for elem := range work {
-		inMsg := inputMessage(&elem)
-		switch {
-		case elem.Interrupt:
-			// Barge-in: in-flight generation was already canceled out of band by
-			// the reader. Drop the partial turn's input, roll a fresh context,
-			// and forward the Interrupt downstream.
-			pending = nil
-			canceller.refresh()
-			if err := sendStreamElement(ctx, elem, output); err != nil {
-				return err
-			}
-		case elem.EndOfTurn:
-			next, err := s.fireIfPending(ctx, canceller.context(), &history, pending, output)
-			if err != nil {
-				return err
-			}
-			pending = next
-		case elem.EndOfStream:
-			// Session over: fire any partial turn, then stop. Closing output
-			// downstream signals end-of-conversation to the next stages.
-			_, err := s.fireIfPending(ctx, canceller.context(), &history, pending, output)
+		next, stop, err := s.streamingStep(ctx, canceller, &history, pending, elem, output)
+		if err != nil || stop {
 			return err
-		case isTurnFailureSignal(&elem):
-			// An upstream stage failed the turn in progress. Its input is
-			// incomplete, so it is not fired when the input then ends.
-			pending = nil
-			if err := sendStreamElement(ctx, elem, output); err != nil {
-				return err
-			}
-		case inMsg != nil:
-			pending = append(pending, *inMsg)
-		default:
-			// Stray content passes through unchanged.
-			if err := sendStreamElement(ctx, elem, output); err != nil {
-				return err
-			}
 		}
+		pending = next
 	}
 
 	// Input closed without an explicit EndOfStream: fire any trailing turn.
 	_, err := s.fireIfPending(ctx, canceller.context(), &history, pending, output)
 	return err
+}
+
+// streamingStep handles one input element of the continuous mode and returns
+// the pending input after it. stop is set when the session is over.
+func (s *ProviderStage) streamingStep(
+	ctx context.Context,
+	canceller *turnCanceller,
+	history *[]types.Message,
+	pending []types.Message,
+	elem StreamElement,
+	output chan<- StreamElement,
+) (next []types.Message, stop bool, err error) {
+	inMsg := inputMessage(&elem)
+	switch {
+	case elem.Interrupt:
+		// Barge-in: in-flight generation was already canceled out of band by
+		// the reader. Drop the partial turn's input, roll a fresh context,
+		// and forward the Interrupt downstream.
+		canceller.refresh()
+		return nil, false, sendStreamElement(ctx, elem, output)
+	case elem.EndOfTurn:
+		next, err = s.fireIfPending(ctx, canceller.context(), history, pending, output)
+		return next, false, err
+	case elem.EndOfStream:
+		// Session over: fire any partial turn, then stop. Closing output
+		// downstream signals end-of-conversation to the next stages.
+		_, err = s.fireIfPending(ctx, canceller.context(), history, pending, output)
+		return nil, true, err
+	case isTurnFailureSignal(&elem):
+		// An upstream stage failed the turn in progress. Its input is
+		// incomplete, so it is not fired when the input then ends.
+		return nil, false, sendStreamElement(ctx, elem, output)
+	case inMsg != nil && elem.Message == nil:
+		// Typed text (SendText, TriggerStart) is a whole user turn: no
+		// turn detector will end it, since it never passed through one.
+		next, err = s.fireIfPending(ctx, canceller.context(), history, append(pending, *inMsg), output)
+		return next, false, err
+	case inMsg != nil:
+		return append(pending, *inMsg), false, nil
+	default:
+		// Stray content passes through unchanged.
+		return pending, false, sendStreamElement(ctx, elem, output)
+	}
 }
 
 // fireIfPending fires a streaming turn when there is buffered input, returning
@@ -2338,12 +2349,6 @@ func (s *ProviderStage) startStreamingRequest(
 	return streamChan, nil
 }
 
-// Finish reasons predictAsStream stamps when the provider reports none.
-const (
-	finishReasonStop      = "stop"
-	finishReasonToolCalls = "tool_calls"
-)
-
 // predictAsStream runs a non-streaming call and returns its reply as a single
 // final stream chunk.
 func (s *ProviderStage) predictAsStream(
@@ -2360,18 +2365,26 @@ func (s *ProviderStage) predictAsStream(
 		err  error
 	)
 	if useTools {
-		resp, _, err = toolProvider.PredictWithTools(ctx, req, providerTools, toolChoice)
+		// The tool calls are PredictWithTools' second result, as the unary
+		// round reads them; the response need not carry them.
+		var toolCalls []types.MessageToolCall
+		resp, toolCalls, err = toolProvider.PredictWithTools(ctx, req, providerTools, toolChoice)
+		if len(resp.ToolCalls) == 0 {
+			resp.ToolCalls = toolCalls
+		}
 	} else {
 		resp, err = prov.Predict(ctx, req)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("provider call failed: %w", err)
 	}
+	// A provider that reports no finish reason gets the provider contract's
+	// own values, not a vocabulary of the stage's.
 	finish := resp.FinishReason
 	if finish == "" {
-		finish = finishReasonStop
+		finish = types.FinishReasonStop
 		if len(resp.ToolCalls) > 0 {
-			finish = finishReasonToolCalls
+			finish = types.FinishReasonToolUse
 		}
 	}
 	out := make(chan providers.StreamChunk, 1)

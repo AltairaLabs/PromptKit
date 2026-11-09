@@ -39,6 +39,12 @@ var (
 	// ErrNoStages is returned when trying to build a pipeline with no stages.
 	ErrNoStages = errors.New("pipeline must have at least one stage")
 
+	// ErrCompositionToolNeedsApproval is returned when a tool an agent step of
+	// a composition called is held for approval (CompositionExecutorDeps.
+	// ApprovalChecker). A step cannot suspend for the approval, so it fails
+	// rather than run the tool unapproved.
+	ErrCompositionToolNeedsApproval = errors.New("tool call needs approval, which a composition step cannot wait for")
+
 	// ErrInvalidChannelBufferSize is returned for invalid buffer size.
 	ErrInvalidChannelBufferSize = errors.New("channel buffer size must be non-negative")
 

@@ -623,6 +623,12 @@ var (
     // ErrNoStages is returned when trying to build a pipeline with no stages.
     ErrNoStages = errors.New("pipeline must have at least one stage")
 
+    // ErrCompositionToolNeedsApproval is returned when a tool an agent step of
+    // a composition called is held for approval (CompositionExecutorDeps.
+    // ApprovalChecker). A step cannot suspend for the approval, so it fails
+    // rather than run the tool unapproved.
+    ErrCompositionToolNeedsApproval = errors.New("tool call needs approval, which a composition step cannot wait for")
+
     // ErrInvalidChannelBufferSize is returned for invalid buffer size.
     ErrInvalidChannelBufferSize = errors.New("channel buffer size must be non-negative")
 
@@ -736,7 +742,7 @@ func DescribeCapabilities(stage Stage) string
 DescribeCapabilities returns a human\-readable description of a stage's capabilities. Useful for debugging and logging.
 
 <a name="NewCompositionStepExecutor"></a>
-## func [NewCompositionStepExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L114>)
+## func [NewCompositionStepExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L120>)
 
 ```go
 func NewCompositionStepExecutor(deps CompositionExecutorDeps) engine.StepExecutor
@@ -1434,7 +1440,7 @@ type CompactionStrategy interface {
 ```
 
 <a name="CompositionExecutorDeps"></a>
-## type [CompositionExecutorDeps](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L64-L110>)
+## type [CompositionExecutorDeps](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L64-L116>)
 
 CompositionExecutorDeps carries the runtime collaborators a composition step needs to execute. Injected once; reused for every step of every Execute call.
 
@@ -1479,6 +1485,12 @@ type CompositionExecutorDeps struct {
     // ToolPolicy is the host's tool policy, the base of every prompt and agent
     // step's (see stepToolPolicy). Nil: the step's bounds alone.
     ToolPolicy *pipeline.ToolPolicy
+
+    // ApprovalChecker is the conversation's human-in-the-loop approval gate
+    // (ProviderConfig.ApprovalChecker). A tool call it holds inside an agent
+    // step fails the step with ErrCompositionToolNeedsApproval, so the tool
+    // never runs unapproved. Nil: no tool needs approval.
+    ApprovalChecker tools.ApprovalChecker
 
     // CallRate is the enclosing conversation's call-rate window
     // (ProviderConfig.CallRate). Every step's provider stage counts in it, so
@@ -3003,7 +3015,7 @@ func (ms *MapStage) Process(ctx context.Context, input <-chan StreamElement, out
 Process transforms each element using the map function.
 
 <a name="MaxRoundsError"></a>
-## type [MaxRoundsError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/errors.go#L144-L147>)
+## type [MaxRoundsError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/errors.go#L150-L153>)
 
 MaxRoundsError is the error the provider stage returns when the tool loop reaches its round limit. It wraps ErrMaxRoundsExceeded.
 
@@ -3015,7 +3027,7 @@ type MaxRoundsError struct {
 ```
 
 <a name="MaxRoundsError.Error"></a>
-### func \(\*MaxRoundsError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/errors.go#L150>)
+### func \(\*MaxRoundsError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/errors.go#L156>)
 
 ```go
 func (e *MaxRoundsError) Error() string
@@ -3024,7 +3036,7 @@ func (e *MaxRoundsError) Error() string
 Error returns the error message.
 
 <a name="MaxRoundsError.Unwrap"></a>
-### func \(\*MaxRoundsError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/errors.go#L155>)
+### func \(\*MaxRoundsError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/errors.go#L161>)
 
 ```go
 func (e *MaxRoundsError) Unwrap() error
@@ -5067,7 +5079,7 @@ An empty prefix returns s unchanged, which is the single\-branch case: the const
 The original stage is not mutated, so the same instance can be wrapped more than once. Wrapping shares the underlying stage, including any state it holds. Branches needing independent state must construct separate stages.
 
 <a name="StageError"></a>
-## type [StageError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/errors.go#L104-L108>)
+## type [StageError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/errors.go#L110-L114>)
 
 StageError wraps an error with stage information. The pipeline delivers a failed stage's error to the caller as a \*StageError, except for an error the stage already emitted as an error element before returning it, which the caller receives as emitted. errors.Is and errors.As see through it to the stage's error.
 
@@ -5080,7 +5092,7 @@ type StageError struct {
 ```
 
 <a name="NewStageError"></a>
-### func [NewStageError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/errors.go#L121>)
+### func [NewStageError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/errors.go#L127>)
 
 ```go
 func NewStageError(stageName string, stageType StageType, err error) *StageError
@@ -5089,7 +5101,7 @@ func NewStageError(stageName string, stageType StageType, err error) *StageError
 NewStageError creates a new StageError.
 
 <a name="StageError.Error"></a>
-### func \(\*StageError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/errors.go#L111>)
+### func \(\*StageError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/errors.go#L117>)
 
 ```go
 func (e *StageError) Error() string
@@ -5098,7 +5110,7 @@ func (e *StageError) Error() string
 Error returns the error message.
 
 <a name="StageError.Unwrap"></a>
-### func \(\*StageError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/errors.go#L116>)
+### func \(\*StageError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/errors.go#L122>)
 
 ```go
 func (e *StageError) Unwrap() error
@@ -5522,7 +5534,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2748>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2761>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement

@@ -721,6 +721,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			SkipContentValidation: cfg.SkipContentValidation,
 			ToolPolicy:            cfg.ToolPolicy,
 			CallRate:              cfg.CallRate,
+			ApprovalChecker:       cfg.ApprovalChecker,
 		}
 		name := cfg.CompositionName
 		if name == "" {
