@@ -148,13 +148,13 @@ user -> Hello!
 </details>
 
 <a name="MessagesFromAGUI"></a>
-## func [MessagesFromAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L206>)
+## func [MessagesFromAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L208>)
 
 ```go
 func MessagesFromAGUI(msgs []aguitypes.Message) []types.Message
 ```
 
-MessagesFromAGUI converts a slice of AG\-UI Messages to PromptKit Messages.
+MessagesFromAGUI converts a slice of AG\-UI Messages to PromptKit Messages. A tool message's result takes the name of the assistant tool call with the same ID; [MessageFromAGUI](<#MessageFromAGUI>) alone cannot know it and leaves the name empty.
 
 A reasoning message is attached to the assistant message that follows it, as that message's Reasoning; with no assistant message after it, it is dropped. Activity messages are UI material that AG\-UI says never travels back to the agent, and are dropped too.
 
@@ -168,7 +168,7 @@ func MessagesToAGUI(msgs []types.Message) []aguitypes.Message
 MessagesToAGUI converts a slice of PromptKit Messages to AG\-UI Messages.
 
 <a name="ToolsFromAGUI"></a>
-## func [ToolsFromAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L303>)
+## func [ToolsFromAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L320>)
 
 ```go
 func ToolsFromAGUI(aguiTools []aguitypes.Tool) []*tools.ToolDescriptor
@@ -179,7 +179,7 @@ ToolsFromAGUI converts a slice of AG\-UI Tool definitions to PromptKit ToolDescr
 The tools in RunAgentInput.tools are the application's own, executed by the application, so each descriptor has Mode "client": a call to one suspends the turn until the application answers it.
 
 <a name="ToolsToAGUI"></a>
-## func [ToolsToAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L275>)
+## func [ToolsToAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L292>)
 
 ```go
 func ToolsToAGUI(descs []tools.ToolDescriptor) []aguitypes.Tool
@@ -427,7 +427,7 @@ type ToolResult struct {
 ```
 
 <a name="ToolResultsFromAGUI"></a>
-### func [ToolResultsFromAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L241>)
+### func [ToolResultsFromAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L258>)
 
 ```go
 func ToolResultsFromAGUI(msgs []aguitypes.Message) []ToolResult

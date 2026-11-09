@@ -197,6 +197,15 @@ func TestMemoryPendingStore_MaxEntries(t *testing.T) {
 		_, _, err := store.Claim(ctx, testConv, "1")
 		require.NoError(t, err)
 		require.NoError(t, store.Add(ctx, &PendingToolCall{ID: "3", ConversationID: testConv, Name: "t3"}))
+
+		// The freed slot holds the new call, and the store is full again.
+		got, ok, err := store.Claim(ctx, testConv, "3")
+		require.NoError(t, err)
+		require.True(t, ok)
+		assert.Equal(t, "t3", got.Name)
+		require.NoError(t, store.Add(ctx, &PendingToolCall{ID: "4", ConversationID: testConv, Name: "t4"}))
+		assert.ErrorIs(t, store.Add(ctx, &PendingToolCall{ID: "5", ConversationID: testConv, Name: "t5"}),
+			ErrPendingStoreFull)
 	})
 }
 

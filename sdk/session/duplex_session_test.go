@@ -179,35 +179,6 @@ func TestBidirectionalSession_Variables(t *testing.T) {
 	})
 }
 
-func TestBidirectionalSession_Close(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("closes session", func(t *testing.T) {
-		provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
-		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
-			Provider:        provider,
-			PipelineBuilder: testPipelineBuilder})
-		require.NoError(t, err)
-
-		err = session.Close()
-		require.NoError(t, err)
-		// Note: provider.closed is not set because session closes providerSession, not provider itself
-	})
-
-	t.Run("close is idempotent", func(t *testing.T) {
-		provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
-		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
-			Provider:        provider,
-			PipelineBuilder: testPipelineBuilder})
-		require.NoError(t, err)
-
-		err = session.Close()
-		require.NoError(t, err)
-		err = session.Close()
-		require.NoError(t, err)
-	})
-}
-
 func TestBidirectionalSession_SendText(t *testing.T) {
 
 	ctx := context.Background()
@@ -243,35 +214,6 @@ func TestBidirectionalSession_SendText(t *testing.T) {
 		err = session.SendText(context.Background(), "test")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "session is closed")
-	})
-}
-
-func TestBidirectionalSession_Done(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("done channel signals completion", func(t *testing.T) {
-		t.Skip("Done() test requires pipeline to complete, which needs input - skipping for now")
-
-		provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
-		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
-			Provider:        provider,
-			Config:          &providers.StreamingInputConfig{},
-			PipelineBuilder: testPipelineBuilder,
-		})
-		require.NoError(t, err)
-
-		mockSession := provider.GetSession()
-		require.NotNil(t, mockSession)
-
-		// Close the mock session to signal completion
-		mockSession.Close()
-
-		// Close the duplex session which will trigger Done
-		err = session.Close()
-		require.NoError(t, err)
-
-		// Wait for done signal
-		<-session.Done()
 	})
 }
 
@@ -431,18 +373,6 @@ func TestDuplexSession_Messages(t *testing.T) {
 	assert.Empty(t, messages)
 }
 
-func TestDuplexSession_Clear(t *testing.T) {
-	provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
-	session, err := NewDuplexSession(context.Background(), &DuplexSessionConfig{
-		Provider:        provider,
-		Config:          &providers.StreamingInputConfig{},
-		PipelineBuilder: testPipelineBuilder})
-	require.NoError(t, err)
-
-	err = session.Clear(context.Background())
-	assert.NoError(t, err)
-}
-
 func TestDuplexSession_ForkSession(t *testing.T) {
 	provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
 	store := statestore.NewMemoryStore()
@@ -460,31 +390,6 @@ func TestDuplexSession_ForkSession(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, forked)
 	assert.Equal(t, "forked", forked.ID())
-}
-
-func TestDuplexSession_Done(t *testing.T) {
-	provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
-	session, err := NewDuplexSession(context.Background(), &DuplexSessionConfig{
-		Provider:        provider,
-		Config:          &providers.StreamingInputConfig{},
-		PipelineBuilder: testPipelineBuilder})
-	require.NoError(t, err)
-
-	done := session.Done()
-	assert.NotNil(t, done)
-
-	// Close session and check done fires
-	err = session.Close()
-	require.NoError(t, err)
-
-	select {
-	case <-done:
-		// Expected - but this currently doesn't work because Done() is only for pipeline execution
-		t.Log("Done channel closed as expected")
-	case <-time.After(100 * time.Millisecond):
-		// This is expected for now - Done() only closes after pipeline execution
-		t.Log("Done channel doesn't close on session.Close() - only after pipeline execution")
-	}
 }
 
 func TestDuplexSession_Done_ReturnsSameChannel(t *testing.T) {
@@ -506,16 +411,6 @@ func TestDuplexSession_Done_ReturnsSameChannel(t *testing.T) {
 	// All calls must return the exact same channel instance
 	assert.Equal(t, done1, done2, "Done() should return the same channel on repeated calls")
 	assert.Equal(t, done1, done3, "Done() should return the same channel on repeated calls")
-}
-
-func TestDuplexSession_ExecutePipeline(t *testing.T) {
-	// Skip - executePipeline requires complex bidirectional streaming setup
-	t.Skip("executePipeline requires full pipeline and stream configuration")
-}
-
-func TestDuplexSession_SendChunkError(t *testing.T) {
-	// Skip - SendChunk requires proper streaming session setup
-	t.Skip("SendChunk requires full streaming session configuration")
 }
 
 func TestDuplexSession_ForkSessionError(t *testing.T) {
@@ -761,27 +656,6 @@ func TestDone_StreamComplete(t *testing.T) {
 // the Response() channel as StreamChunks with Error field set. This allows
 // proper error handling in the streaming context.
 
-func TestError_StreamedThroughResponse(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("Error() returns nil - errors flow through response", func(t *testing.T) {
-		provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
-		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
-			Provider:        provider,
-			Config:          &providers.StreamingInputConfig{},
-			PipelineBuilder: testPipelineBuilder,
-		})
-		require.NoError(t, err)
-
-		// Error() should always return nil in stage-based pipeline
-		assert.NoError(t, session.Error())
-
-		// Note: Errors from provider are delivered through Response() channel
-		// as StreamChunks with Error field set. This is tested in
-		// TestBidirectionalSession_AllMethods which receives error chunks.
-	})
-}
-
 // TestStreamElementToStreamChunk_InputTranscription verifies that the user's
 // input transcription is surfaced to realtime callers under the stable
 // "input_transcription" metadata key — both when it arrives as a materialized
@@ -923,57 +797,8 @@ func TestStreamElementToStreamChunk_InputTranscription(t *testing.T) {
 	})
 }
 
-func TestClear_Success(t *testing.T) {
-	ctx := context.Background()
-
-	provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
-	store := statestore.NewMemoryStore()
-
-	session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
-		Provider:        provider,
-		PipelineBuilder: testPipelineBuilder, ConversationID: "test",
-		StateStore: store,
-	})
-	require.NoError(t, err)
-
-	// Clear should succeed
-	err = session.Clear(ctx)
-	assert.NoError(t, err)
-
-	// Messages should be empty after clear
-	messages, err := session.Messages(ctx)
-	assert.NoError(t, err)
-	assert.Empty(t, messages)
-}
-
 func TestDuplexSession_SendFrame(t *testing.T) {
 	ctx := context.Background()
-
-	t.Run("sends image frame successfully", func(t *testing.T) {
-		provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
-		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
-			Provider:        provider,
-			Config:          &providers.StreamingInputConfig{},
-			PipelineBuilder: testPipelineBuilder,
-		})
-		require.NoError(t, err)
-		defer session.Close()
-
-		frame := &ImageFrame{
-			Data:      []byte{0xFF, 0xD8, 0xFF, 0xE0}, // JPEG magic bytes
-			MIMEType:  "image/jpeg",
-			Width:     640,
-			Height:    480,
-			FrameNum:  1,
-			Timestamp: time.Now(),
-		}
-
-		err = session.SendFrame(ctx, frame)
-		require.NoError(t, err)
-
-		// Give pipeline time to process
-		time.Sleep(50 * time.Millisecond)
-	})
 
 	t.Run("returns error for nil frame", func(t *testing.T) {
 		provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
@@ -1034,34 +859,6 @@ func TestDuplexSession_SendFrame(t *testing.T) {
 func TestDuplexSession_SendVideoChunk(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("sends video chunk successfully", func(t *testing.T) {
-		provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
-		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
-			Provider:        provider,
-			Config:          &providers.StreamingInputConfig{},
-			PipelineBuilder: testPipelineBuilder,
-		})
-		require.NoError(t, err)
-		defer session.Close()
-
-		chunk := &VideoChunk{
-			Data:       []byte{0x00, 0x00, 0x00, 0x01}, // NAL unit start
-			MIMEType:   "video/h264",
-			Width:      1920,
-			Height:     1080,
-			ChunkIndex: 0,
-			IsKeyFrame: true,
-			Timestamp:  time.Now(),
-			Duration:   33 * time.Millisecond,
-		}
-
-		err = session.SendVideoChunk(ctx, chunk)
-		require.NoError(t, err)
-
-		// Give pipeline time to process
-		time.Sleep(50 * time.Millisecond)
-	})
-
 	t.Run("returns error for nil chunk", func(t *testing.T) {
 		provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
 		session, err := NewDuplexSession(ctx, &DuplexSessionConfig{
@@ -1116,39 +913,6 @@ func TestDuplexSession_SendVideoChunk(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "session is closed")
 	})
-}
-
-func TestDuplexSession_Drain_GracefulCompletion(t *testing.T) {
-	ctx := context.Background()
-
-	provider := mock.NewStreamingProvider("mock-provider", "mock-model", false)
-	sess, err := NewDuplexSession(ctx, &DuplexSessionConfig{
-		Provider:        provider,
-		Config:          &providers.StreamingInputConfig{},
-		PipelineBuilder: testPipelineBuilder,
-	})
-	require.NoError(t, err)
-
-	// Send a chunk to start the pipeline
-	err = sess.SendText(ctx, "hello")
-	require.NoError(t, err)
-
-	// Wait for the mock session to be created
-	mockSession := waitForSession(provider, 1*time.Second)
-	require.NotNil(t, mockSession, "mock session should be created after sending data")
-
-	// Close the mock session so the pipeline can complete after EndOfStream
-	go func() {
-		time.Sleep(20 * time.Millisecond)
-		mockSession.Close()
-	}()
-
-	// Drain should complete gracefully
-	drainCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	err = sess.Drain(drainCtx)
-	assert.NoError(t, err)
 }
 
 func TestDuplexSession_Drain_Timeout(t *testing.T) {

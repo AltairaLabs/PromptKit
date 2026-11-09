@@ -97,28 +97,19 @@ func TestBuildWithIngestionPropagatesCallbackError(t *testing.T) {
 }
 
 // TestBuildWithoutIngestionUnaffected pins the non-ingestion path: when
-// Config.Ingestion is nil, the agent chain is still rooted at its own head
-// (existing behavior, unchanged).
+// Config.Ingestion is nil, the agent chain is rooted at its own head, so the
+// user's message reaches the provider and its reply comes back.
 func TestBuildWithoutIngestionUnaffected(t *testing.T) {
-	registry := createTestRegistry("chat")
-	mockProvider := mock.NewProvider("test-mock", "test-model", false)
-
-	cfg := &Config{
-		PromptRegistry: registry,
+	p := newRecordingProvider()
+	result := runTurn(t, &Config{
+		PromptRegistry: createTestRegistry("chat"),
 		TaskType:       "chat",
-		Provider:       mockProvider,
-	}
+		Provider:       p,
+	}, "Hello!")
 
-	p, err := Build(cfg)
-	require.NoError(t, err)
-	require.NotNil(t, p)
-
-	userMsg := types.Message{Role: "user"}
-	userMsg.AddTextPart("Hello!")
-	elem := stage.StreamElement{Message: &userMsg}
-
-	result, err := p.ExecuteSync(context.Background(), elem)
-	require.NoError(t, err)
-	assert.NotNil(t, result)
-	assert.NotNil(t, result.Response)
+	req := p.onlyRequest(t)
+	require.Len(t, req.Messages, 1)
+	assert.Equal(t, "Hello!", req.Messages[0].GetContent())
+	require.NotNil(t, result.Response)
+	assert.Equal(t, recordedReply, result.Response.Content)
 }

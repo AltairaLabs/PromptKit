@@ -35,6 +35,14 @@ type duplexSession struct {
 	store    statestore.Store
 	pipeline *stage.StreamPipeline
 	provider providers.Provider // Provider for LLM calls
+	// streamConfig is the realtime (ASM) streaming config the session was
+	// opened with, nil in pipeline mode; ForkSession passes it on.
+	streamConfig *providers.StreamingInputConfig
+
+	// callNames maps each tool call the model made to its tool name, so a
+	// result submitted by call ID alone can be named (#2589).
+	callNamesMu sync.Mutex
+	callNames   map[string]string
 	// Note: Session is NOT stored here - DuplexProviderStage creates and manages it
 	toolRegistry     *tools.Registry  // Optional: for executing tool calls (client tools, etc.)
 	asyncToolChecker AsyncToolChecker // Optional: HITL gate for tool calls
@@ -178,6 +186,7 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 		store:            store,
 		pipeline:         builtPipeline,
 		provider:         cfg.Provider,
+		streamConfig:     cfg.Config,
 		toolRegistry:     cfg.ToolRegistry,
 		asyncToolChecker: cfg.AsyncToolChecker,
 		variables:        vars,
@@ -395,6 +404,8 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 //   - Completed tools: results sent back to the pipeline
 //   - Pending tools: forwarded to the caller with pending_tools metadata
 func (s *duplexSession) handleToolCalls(ctx context.Context, elem *stage.StreamElement) error {
+	s.rememberCallNames(elem.Message.ToolCalls)
+
 	// No registry — forward the element as-is (caller must handle tool calls)
 	if s.toolRegistry == nil {
 		chunk := streamElementToStreamChunk(elem)
@@ -581,6 +592,18 @@ func (s *duplexSession) Close() error {
 	s.closed = true
 	close(s.stageInput)
 	s.sessionCancel()
+
+	// executePipeline closes streamOutput and pipelineDone, but it starts on
+	// the first send. A session closed before any send must close them here,
+	// or Done() and ranging over Response() block forever (#2579). Marking
+	// execution started keeps a racing first send from starting it after.
+	s.executionMu.Lock()
+	if !s.executionStarted {
+		s.executionStarted = true
+		close(s.streamOutput)
+		close(s.pipelineDone)
+	}
+	s.executionMu.Unlock()
 	// Note: DuplexProviderStage manages the provider session and closes it when pipeline completes
 
 	return nil
@@ -626,7 +649,10 @@ func (s *duplexSession) SubmitToolResults(ctx context.Context, responses []provi
 	}
 
 	for _, resp := range responses {
-		toolResult := types.NewTextToolResult(resp.ToolCallID, "", resp.Result)
+		// The response carries only the call ID. The result message joins
+		// the conversation history, and a provider that replays history keyed
+		// by name (unary Gemini's functionResponse.name) rejects an empty one.
+		toolResult := types.NewTextToolResult(resp.ToolCallID, s.takeCallName(resp.ToolCallID), resp.Result)
 		if resp.IsError {
 			toolResult.Error = resp.Result
 		}
@@ -634,6 +660,41 @@ func (s *duplexSession) SubmitToolResults(ctx context.Context, responses []provi
 	}
 
 	return streaming.SendToolResults(ctx, result, s.stageInput)
+}
+
+// copyStreamConfig returns a shallow copy of cfg, or nil.
+func copyStreamConfig(cfg *providers.StreamingInputConfig) *providers.StreamingInputConfig {
+	if cfg == nil {
+		return nil
+	}
+	cp := *cfg
+	return &cp
+}
+
+// rememberCallNames records the tool name of each call by its ID.
+func (s *duplexSession) rememberCallNames(calls []types.MessageToolCall) {
+	if len(calls) == 0 {
+		return
+	}
+	s.callNamesMu.Lock()
+	defer s.callNamesMu.Unlock()
+	if s.callNames == nil {
+		s.callNames = make(map[string]string, len(calls))
+	}
+	for _, tc := range calls {
+		s.callNames[tc.ID] = tc.Name
+	}
+}
+
+// takeCallName returns the tool name of the call with id and forgets it, or
+// "" if the session never saw it. A call is answered once, so the entry is
+// dropped rather than kept for the life of the session.
+func (s *duplexSession) takeCallName(id string) string {
+	s.callNamesMu.Lock()
+	defer s.callNamesMu.Unlock()
+	name := s.callNames[id]
+	delete(s.callNames, id)
+	return name
 }
 
 // Variables returns a copy of the current variables.
@@ -709,10 +770,14 @@ func (s *duplexSession) ForkSession(
 
 	// Create new duplex session with the builder
 	return NewDuplexSession(ctx, &DuplexSessionConfig{
-		ConversationID:   forkID,
-		StateStore:       s.store,
-		PipelineBuilder:  pipelineBuilder,
-		Provider:         s.provider,
+		ConversationID:  forkID,
+		StateStore:      s.store,
+		PipelineBuilder: pipelineBuilder,
+		Provider:        s.provider,
+		// The parent's streaming config, so a realtime session forks into a
+		// realtime session rather than a text pipeline (#2582). A copy: the
+		// duplex stage writes the rendered system instruction into it.
+		Config:           copyStreamConfig(s.streamConfig),
 		ToolRegistry:     s.toolRegistry,
 		AsyncToolChecker: s.asyncToolChecker,
 		Variables:        forkVars,

@@ -49,8 +49,7 @@ func TestOnEvent(t *testing.T) {
 
 	t.Run("handles nil event bus", func(t *testing.T) {
 		source := &mockEventSource{bus: nil}
-		// Should not panic
-		OnEvent(source, func(e *events.Event) {})
+		assert.NotPanics(t, func() { OnEvent(source, func(e *events.Event) {}) })
 	})
 }
 
@@ -81,8 +80,7 @@ func TestOn(t *testing.T) {
 
 	t.Run("handles nil event bus", func(t *testing.T) {
 		source := &mockEventSource{bus: nil}
-		// Should not panic
-		On(source, events.EventToolCallStarted, func(e *events.Event) {})
+		assert.NotPanics(t, func() { On(source, events.EventToolCallStarted, func(e *events.Event) {}) })
 	})
 }
 
@@ -218,12 +216,6 @@ func TestOnPipelineComplete(t *testing.T) {
 		assert.Equal(t, 200, receivedIn)
 		assert.Equal(t, 100, receivedOut)
 		mu.Unlock()
-	})
-}
-
-func TestEventSourceInterface(t *testing.T) {
-	t.Run("mockEventSource implements EventSource", func(t *testing.T) {
-		var _ EventSource = (*mockEventSource)(nil)
 	})
 }
 

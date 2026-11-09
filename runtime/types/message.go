@@ -26,7 +26,8 @@ type Message struct {
 	ToolResult *MessageToolResult `json:"tool_result,omitempty"`
 
 	// Source indicates where this message originated (runtime-only, not persisted in JSON)
-	// Values: "statestore" (loaded from StateStore), "pipeline" (created during execution), "" (user input)
+	// Values: "statestore" (loaded from StateStore), "pipeline" (created during execution), "" (user input),
+	// "recorded_input" (user input the input RecordingStage has already recorded)
 	Source string `json:"-"`
 
 	// Metadata for observability and tracking

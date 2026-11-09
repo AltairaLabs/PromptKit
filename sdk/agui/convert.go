@@ -198,6 +198,8 @@ func MessagesToAGUI(msgs []types.Message) []aguitypes.Message {
 }
 
 // MessagesFromAGUI converts a slice of AG-UI Messages to PromptKit Messages.
+// A tool message's result takes the name of the assistant tool call with the
+// same ID; [MessageFromAGUI] alone cannot know it and leaves the name empty.
 //
 // A reasoning message is attached to the assistant message that follows it,
 // as that message's Reasoning; with no assistant message after it, it is
@@ -206,6 +208,7 @@ func MessagesToAGUI(msgs []types.Message) []aguitypes.Message {
 func MessagesFromAGUI(msgs []aguitypes.Message) []types.Message {
 	result := make([]types.Message, 0, len(msgs))
 	var reasoning []string
+	callNames := map[string]string{}
 	for i := range msgs {
 		if msgs[i].Role == aguitypes.RoleReasoning {
 			reasoning = append(reasoning, contentString(&msgs[i]))
@@ -219,9 +222,23 @@ func MessagesFromAGUI(msgs []aguitypes.Message) []types.Message {
 			pkMsg.Reasoning = &types.ReasoningTrace{Text: strings.Join(reasoning, "\n\n")}
 			reasoning = nil
 		}
+		nameToolResult(&pkMsg, callNames)
 		result = append(result, pkMsg)
 	}
 	return result
+}
+
+// nameToolResult records an assistant message's tool call names by ID, and
+// gives a tool result with no name the name of the call it answers. An AG-UI
+// tool message carries only the call ID, and a provider that keys results by
+// name (Gemini's functionResponse.name) rejects an empty one (#2589).
+func nameToolResult(msg *types.Message, callNames map[string]string) {
+	for _, tc := range msg.ToolCalls {
+		callNames[tc.ID] = tc.Name
+	}
+	if msg.ToolResult != nil && msg.ToolResult.Name == "" {
+		msg.ToolResult.Name = callNames[msg.ToolResult.ID]
+	}
 }
 
 // ToolResultsFromAGUI returns the answers a RunAgentInput carries for the
