@@ -111,7 +111,7 @@ func TestFileRepositories_AncestorSwappedMidLookupStaysInTheResolvedTree(t *test
 				pack, swap := swapFixture(t, repo.ext)
 				r := repo.open(pack)
 				baseDir := tc.baseDir(pack)
-				common.SetAfterContainmentCheck(t, swap)
+				common.SetBeforeRootedRead(t, swap)
 
 				frag, err := r.LoadFragment("tone", tc.path(repo.ext), baseDir)
 				if err != nil {
@@ -137,7 +137,7 @@ func TestFileRepositories_AncestorSwappedUnderAnAbsoluteLink(t *testing.T) {
 			writeFragment(t, shared, insideContent)
 			symlink(t, shared, filepath.Join(pack, "fragments", "alias"+repo.ext))
 			r := repo.open(pack)
-			common.SetAfterContainmentCheck(t, func() {
+			common.SetBeforeRootedRead(t, func() {
 				swap()
 				// After the swap, <pack> names the look-alike tree: give it a
 				// plain alias file holding the secret.

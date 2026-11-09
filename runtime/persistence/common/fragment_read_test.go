@@ -39,15 +39,14 @@ func TestReadFragmentFile_LinkSwappedAfterTheCheck(t *testing.T) {
 	if err := os.Symlink(inside, link); err != nil {
 		t.Skipf("os.Symlink: %v", err)
 	}
-	afterContainmentCheck = func() {
+	SetBeforeRootedRead(t, func() {
 		if err := os.Remove(link); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.Symlink(outside, link); err != nil {
 			t.Fatal(err)
 		}
-	}
-	t.Cleanup(func() { afterContainmentCheck = nil })
+	})
 
 	data, _, err := ReadFragmentFile(base, "x", "../fragments/swap.yaml", filepath.Join(base, "prompts"), ".yaml")
 	if string(data) == "SECRET" {

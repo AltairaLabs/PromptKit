@@ -35,15 +35,14 @@ func TestReadFragmentFile_EscapeIsNotFoundOnlyForWorkingDirFallback(t *testing.T
 			if err := os.Symlink(inside, link); err != nil {
 				t.Skipf("os.Symlink: %v", err)
 			}
-			afterContainmentCheck = func() {
+			SetBeforeRootedRead(t, func() {
 				if err := os.Remove(link); err != nil {
 					t.Fatal(err)
 				}
 				if err := os.Symlink(outside, link); err != nil {
 					t.Fatal(err)
 				}
-			}
-			t.Cleanup(func() { afterContainmentCheck = nil })
+			})
 
 			baseDir := filepath.Join(base, "prompts")
 			if !tt.useBaseDir {

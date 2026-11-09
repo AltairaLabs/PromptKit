@@ -144,10 +144,10 @@ func within(root, path string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// afterContainmentCheck, when set (by tests), runs inside a read once the
-// lookup has checked the path and opened the anchor, before it reads, so a
-// test can change the files in that window.
-var afterContainmentCheck func()
+// beforeRootedRead, when set (by tests), runs inside a read once the lookup
+// has checked the path and opened the anchor, before it reads, so a test can
+// change the files in that window.
+var beforeRootedRead func()
 
 // ReadFragmentFile reads the fragment file a lookup names (see
 // FragmentFilePath for the rules) and returns its content and path.
@@ -191,37 +191,32 @@ func ReadFragmentFile(basePath, name, relativePath, baseDir, ext string) ([]byte
 var errPathEscapesRoot = errors.New("path escapes the root")
 
 // readInAnchor reads path, which is lexically inside anchor, through one
-// os.Root opened at anchor. Opening it is the anchor's one resolution.
+// os.Root opened at anchor. Opening it is the anchor's one resolution: the
+// anchor is opened as written, so a relative one binds to the working
+// directory itself, not to a path string taken from it.
 func readInAnchor(anchor, path string) ([]byte, error) {
-	absAnchor, err := filepath.Abs(anchor)
+	rel, err := filepath.Rel(anchor, path)
 	if err != nil {
 		return nil, err
 	}
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return nil, err
-	}
-	rel, err := filepath.Rel(absAnchor, absPath)
-	if err != nil {
-		return nil, err
-	}
-	root, err := os.OpenRoot(absAnchor)
+	root, err := os.OpenRoot(anchor)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = root.Close() }()
-	// The anchor's real path, to recognize an absolute link target inside it.
-	// It only names files to read through root, so if it is stale the read
-	// still cannot leave the root.
-	realAnchor, realErr := resolvedAbs(absAnchor)
-	if afterContainmentCheck != nil {
-		afterContainmentCheck()
+	if beforeRootedRead != nil {
+		beforeRootedRead()
 	}
 	data, err := root.ReadFile(rel)
 	if err == nil || !isRootEscape(err) {
 		return data, err
 	}
+	// os.Root refuses every absolute link target. The anchor's real path
+	// names such a target's file inside the root, and that file is read
+	// through root, so a stale real path can refuse a read but never move it.
+	realAnchor, realErr := resolvedAbs(anchor)
 	if realErr != nil {
+		// The anchor no longer resolves: nothing can be named inside it.
 		return nil, fmt.Errorf("%w: %w", errPathEscapesRoot, err)
 	}
 	data, inside, readErr := readThroughResolvedLink(root, realAnchor, rel)
