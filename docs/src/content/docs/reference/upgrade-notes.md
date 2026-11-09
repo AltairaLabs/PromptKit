@@ -198,7 +198,13 @@ and context variables only, and sent the raw template when that render
 failed, so a prompt using a `WithVariables`, `SetVar` or variable-provider
 value reached the model with literal `{{name}}` in it, on every round of a
 workflow conversation. It now renders with the turn's variables and fails the
-round as `TemplateStage` does.
+round as `TemplateStage` does, with one exception: every artifact a state of
+the workflow declares is bound, so `{{artifacts.name}}` renders empty until a
+state sets it, as a missing optional fragment renders empty, and renders the
+value from the next round on. That holds on the
+handoff round, on later turns, on the entry state and after `ResumeWorkflow`,
+which before bound no artifacts at all, set or not. A placeholder for an
+artifact no state declares still fails the round.
 
 | If you | You will see | Change |
 |---|---|---|
@@ -206,7 +212,9 @@ round as `TemplateStage` does.
 | Send to a prompt whose required variable no source sets | `Send` returns an error wrapping `stage.ErrTemplateUnresolved` that names the variable, where the turn ran on the default prompt | supply the variable |
 | Open a task type the registry cannot load, or a prompt whose required fragment cannot load | `Send` returns the load error | fix the prompt or the fragment |
 | Use variables in the prompts of a workflow's states | every round, including the one after a mid-turn handoff, renders them | nothing |
-| Hand off mid-turn to a workflow state whose prompt uses `{{artifacts.name}}` before any state has set that artifact | the handoff round fails with an error wrapping `stage.ErrTemplateUnresolved` that names the placeholder. Before, the model got the literal `{{artifacts.name}}` for that round, and the next `Send` failed on it | set the artifact (`workflow__set_artifact`) before the transition, or reference it only from states that are reached after it is set |
+| Hand off to, or open, a workflow state whose prompt uses `{{artifacts.name}}` before any state has set that declared artifact | the placeholder renders empty, and the turn runs. Before, the handoff round sent the model the literal `{{artifacts.name}}`, and the next `Send` failed with `stage.ErrTemplateUnresolved` | nothing; to tell the model an artifact is missing, say so in the prompt around the placeholder |
+| Resume a workflow with `ResumeWorkflow` in a state whose prompt uses `{{artifacts.name}}` | the artifact's persisted value, or empty when it was never set, where the first `Send` failed with `stage.ErrTemplateUnresolved` | nothing |
+| Use `{{artifacts.name}}` for an artifact no state declares | the round fails with an error wrapping `stage.ErrTemplateUnresolved` that names the placeholder | declare the artifact on a state, or fix the name |
 | Bind a variable for one `Send` (`WithJSONInput`) | it applies to that turn only, where it stayed on every later turn. `TurnState.BeginTurn` now clears `Variables` | pass it on each `Send` that needs it |
 
 ### Variables set with `SetVar` follow a workflow, and choose fragments

@@ -140,6 +140,8 @@ stage 'template' (transform) failed: system prompt has unresolved variables:
 support: unresolved template placeholders: [{{company}}] (variables available: role)
 ```
 
+In a workflow, `{{artifacts.name}}` for an artifact a state declares is the exception: it renders empty until a state sets the artifact, and from the round after that it renders the value.
+
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | Unresolved placeholder error | No source supplied the variable | Supply it, or declare an optional variable with a `default`. |

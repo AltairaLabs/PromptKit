@@ -152,12 +152,12 @@ func openWorkflowAtState(packPath, startState string, opts ...Option) (*Workflow
 	// For composition states (RFC 0010), promptName is empty and a composition
 	// option is prepended so the pipeline runs CompositionStage instead.
 	promptName := machine.CurrentPromptTask()
-	initOpts := opts
+	initOpts := withArtifactVars(opts, spec, machine.Artifacts())
 	if compOpt, compErr := resolveCompositionOptForState(p, machine.CurrentState()); compErr != nil {
 		return nil, fmt.Errorf("failed to resolve composition for initial state %q: %w",
 			machine.CurrentState(), compErr)
 	} else if compOpt != nil {
-		initOpts = append(append([]Option{}, opts...), compOpt)
+		initOpts = append(append([]Option{}, initOpts...), compOpt)
 	}
 	conv, err := Open(packPath, promptName, initOpts...)
 	if err != nil {
@@ -298,13 +298,16 @@ func ResumeWorkflow(workflowID, packPath string, opts ...Option) (*WorkflowConve
 	optsWithID := make([]Option, len(opts))
 	copy(optsWithID, opts)
 	optsWithID = append(withWorkflowCallRate(optsWithID), WithConversationID(workflowID))
+	// The artifacts are bound for this conversation only: wc.opts is reused
+	// for every later state, which binds the artifacts' values at that time.
+	convOpts := withArtifactVars(optsWithID, spec, machine.Artifacts())
 	if compOpt, compErr := resolveCompositionOptForState(p, machine.CurrentState()); compErr != nil {
 		return nil, fmt.Errorf("failed to resolve composition for state %q: %w",
 			machine.CurrentState(), compErr)
 	} else if compOpt != nil {
-		optsWithID = append(optsWithID, compOpt)
+		convOpts = append(append([]Option{}, convOpts...), compOpt)
 	}
-	conv, err := Open(packPath, promptName, optsWithID...)
+	conv, err := Open(packPath, promptName, convOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open conversation for state %q (prompt %q): %w",
 			machine.CurrentState(), promptName, err)
@@ -499,6 +502,45 @@ func (wc *WorkflowConversation) reconcileActiveConv(contextSummary string) error
 	return wc.openConvForCurrentState(contextSummary)
 }
 
+// withArtifactVars returns opts with the workflow's artifacts bound as
+// "artifacts.<name>" variables: each value in set, after opts, and every
+// artifact a state of spec declares bound to "", before opts, so a variable
+// the application set under the same name outranks the empty default.
+func withArtifactVars(opts []Option, spec *workflow.Spec, set map[string]string) []Option {
+	out := opts
+	if unset := unsetArtifactVars(spec); len(unset) > 0 {
+		out = append([]Option{WithVariables(unset)}, out...)
+	}
+	if len(set) > 0 {
+		vars := make(map[string]string, len(set))
+		for name, value := range set {
+			vars["artifacts."+name] = value
+		}
+		out = append(append([]Option{}, out...), WithVariables(vars))
+	}
+	return out
+}
+
+// unsetArtifactVars returns "artifacts.<name>" bound to "" for every artifact
+// a state of spec declares. Bound beneath the artifacts' current values, it
+// makes a prompt that reads an artifact no state has set yet render it empty,
+// as a missing optional fragment renders empty, instead of failing the render.
+func unsetArtifactVars(spec *workflow.Spec) map[string]string {
+	if spec == nil {
+		return nil
+	}
+	vars := map[string]string{}
+	for _, state := range spec.States {
+		if state == nil {
+			continue
+		}
+		for name := range state.Artifacts {
+			vars["artifacts."+name] = ""
+		}
+	}
+	return vars
+}
+
 // openConvForCurrentState closes the active conversation (if any) and opens
 // a new one for the workflow machine's current prompt_task. The new conv
 // receives carry-forward context (when non-empty) and artifact values as
@@ -528,13 +570,7 @@ func (wc *WorkflowConversation) openConvForCurrentState(contextSummary string) e
 			workflowContextVar: contextSummary,
 		}))
 	}
-	if arts := wc.machine.Artifacts(); len(arts) > 0 {
-		artVars := make(map[string]string, len(arts))
-		for k, v := range arts {
-			artVars["artifacts."+k] = v
-		}
-		opts = append(append([]Option{}, opts...), WithVariables(artVars))
-	}
+	opts = withArtifactVars(opts, wc.workflowSpec, wc.machine.Artifacts())
 
 	// RFC 0010: composition states have no prompt_task — resolve and thread the
 	// composition so the pipeline runs CompositionStage instead of the normal
