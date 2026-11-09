@@ -76,7 +76,6 @@ func (s *unarySession) ID() string {
 
 // Execute implements TextSession.
 func (s *unarySession) Execute(ctx context.Context, role, content string) (*pipeline.ExecutionResult, error) {
-
 	// Create input message
 	message := types.Message{
 		Role:    role,
@@ -109,7 +108,6 @@ func (s *unarySession) ExecuteWithMessage(
 	ctx context.Context,
 	message types.Message,
 ) (*pipeline.ExecutionResult, error) {
-
 	// Create input element
 	inputElem := stage.StreamElement{
 		Message: &message,
@@ -136,7 +134,6 @@ func (s *unarySession) ResumeWithToolResults(
 	ctx context.Context,
 	toolResults []types.Message,
 ) (*pipeline.ExecutionResult, error) {
-
 	// Build input elements: one per tool result message
 	inputElems := make([]stage.StreamElement, 0, len(toolResults))
 	for i := range toolResults {
@@ -155,7 +152,6 @@ func (s *unarySession) ResumeWithToolResults(
 
 // ExecuteStream implements TextSession.
 func (s *unarySession) ExecuteStream(ctx context.Context, role, content string) (<-chan providers.StreamChunk, error) {
-
 	// Create input message
 	message := types.Message{
 		Role:    role,
@@ -187,7 +183,6 @@ func (s *unarySession) ExecuteStreamWithMessage(
 	ctx context.Context,
 	message types.Message,
 ) (<-chan providers.StreamChunk, error) {
-
 	// Create input element
 	inputElem := stage.StreamElement{
 		Message: &message,
@@ -213,7 +208,6 @@ func (s *unarySession) ResumeStreamWithToolResults(
 	ctx context.Context,
 	toolResults []types.Message,
 ) (<-chan providers.StreamChunk, error) {
-
 	// Build input elements: one per tool result message
 	inputElems := make([]stage.StreamElement, 0, len(toolResults))
 	for i := range toolResults {

@@ -302,9 +302,9 @@ type ToolHandlerCtx func(ctx context.Context, args map[string]any) (any, error)
 func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption) (*Response, error) {
 	startTime := time.Now()
 
-	release, err := c.turn.acquire(ctx, c)
-	if err != nil {
-		return nil, err
+	release, gateErr := c.turn.acquire(ctx, c)
+	if gateErr != nil {
+		return nil, gateErr
 	}
 	defer release()
 	ctx = c.turn.mark(ctx, c)

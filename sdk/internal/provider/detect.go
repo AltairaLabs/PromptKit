@@ -78,23 +78,8 @@ type Info struct {
 // Returns the provider or an error if none can be detected.
 func Detect(apiKey, model string) (providers.Provider, error) {
 	// If model is specified, try to infer provider from model name first
-	if model != "" {
-		if providerName := inferProviderFromModel(model); providerName != "" {
-			// Try to get API key for the inferred provider
-			info := detectInfoForProvider(providerName)
-			if info == nil && apiKey != "" {
-				// The caller's key is for the vendor the model names, even
-				// when that vendor has no key in the environment.
-				info = &Info{Name: providerName}
-			}
-			if info != nil {
-				info.Model = model
-				if apiKey != "" {
-					info.APIKey = apiKey
-				}
-				return createProvider(info)
-			}
-		}
+	if info := infoForModel(apiKey, model); info != nil {
+		return createProvider(info)
 	}
 
 	// Fall back to environment variable detection
@@ -120,6 +105,33 @@ func Detect(apiKey, model string) (providers.Provider, error) {
 	}
 
 	return createProvider(info)
+}
+
+// infoForModel returns the provider the model's name implies, with the
+// caller's key or that vendor's environment key, or nil when the model names
+// no known vendor or no key is available for it.
+func infoForModel(apiKey, model string) *Info {
+	if model == "" {
+		return nil
+	}
+	providerName := inferProviderFromModel(model)
+	if providerName == "" {
+		return nil
+	}
+	info := detectInfoForProvider(providerName)
+	if info == nil && apiKey != "" {
+		// The caller's key is for the vendor the model names, even when that
+		// vendor has no key in the environment.
+		info = &Info{Name: providerName}
+	}
+	if info == nil {
+		return nil
+	}
+	info.Model = model
+	if apiKey != "" {
+		info.APIKey = apiKey
+	}
+	return info
 }
 
 // inferProviderFromModel attempts to determine the provider from the model name.

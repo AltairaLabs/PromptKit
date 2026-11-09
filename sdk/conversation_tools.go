@@ -356,9 +356,9 @@ func (c *Conversation) RejectTool(ctx context.Context, id, reason string) (*sdkt
 func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	startTime := time.Now()
 
-	release, err := c.turn.acquire(ctx, c)
-	if err != nil {
-		return nil, err
+	release, gateErr := c.turn.acquire(ctx, c)
+	if gateErr != nil {
+		return nil, gateErr
 	}
 	defer release()
 	ctx = c.turn.mark(ctx, c)
@@ -413,6 +413,7 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	// Each call appends the tool result to conversation state; the final call
 	// returns the LLM's response incorporating all accumulated tool results.
 	var result *rtpipeline.ExecutionResult
+	var err error
 	var turn []types.Message
 
 	for i := range toolMsgs {

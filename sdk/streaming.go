@@ -135,9 +135,9 @@ func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOpti
 
 		// Hold the conversation's turn until the stream completes or the
 		// caller's context ends (#2570).
-		release, err := c.turn.acquire(ctx, c)
-		if err != nil {
-			sendFinalErrorChunk(ctx, ch, StreamChunk{Error: err})
+		release, gateErr := c.turn.acquire(ctx, c)
+		if gateErr != nil {
+			sendFinalErrorChunk(ctx, ch, StreamChunk{Error: gateErr})
 			return
 		}
 		defer release()
