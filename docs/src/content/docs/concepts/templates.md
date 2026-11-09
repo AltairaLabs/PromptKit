@@ -133,12 +133,14 @@ Load the pack in Go with `sdk.Open`. The PromptArena documentation covers the ar
 
 ## Failure modes
 
-A prompt that cannot be loaded fails the turn, and so does a placeholder with no value. Neither is replaced by a default prompt. In a workflow, `{{artifacts.name}}` for an artifact a state declares is the exception: it renders empty until a state sets the artifact. Both fail before the model runs: `Send` returns an error for which `errors.Is(err, stage.ErrTemplateUnresolved)` holds. The error lists the variable names available and never their values:
+A prompt that cannot be loaded fails the turn, and so does a placeholder with no value. Neither is replaced by a default prompt. Both fail before the model runs: `Send` returns an error for which `errors.Is(err, stage.ErrTemplateUnresolved)` holds. The error lists the variable names available and never their values:
 
 ```text
 stage 'template' (transform) failed: system prompt has unresolved variables:
 support: unresolved template placeholders: [{{company}}] (variables available: role)
 ```
+
+In a workflow, `{{artifacts.name}}` for an artifact a state declares is the exception: it renders empty until a state sets the artifact, and from the round after that it renders the value.
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|

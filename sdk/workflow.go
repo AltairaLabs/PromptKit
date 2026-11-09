@@ -305,7 +305,7 @@ func ResumeWorkflow(workflowID, packPath string, opts ...Option) (*WorkflowConve
 		return nil, fmt.Errorf("failed to resolve composition for state %q: %w",
 			machine.CurrentState(), compErr)
 	} else if compOpt != nil {
-		convOpts = append(convOpts, compOpt)
+		convOpts = append(append([]Option{}, convOpts...), compOpt)
 	}
 	conv, err := Open(packPath, promptName, convOpts...)
 	if err != nil {

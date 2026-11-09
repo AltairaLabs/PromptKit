@@ -200,7 +200,8 @@ value reached the model with literal `{{name}}` in it, on every round of a
 workflow conversation. It now renders with the turn's variables and fails the
 round as `TemplateStage` does, with one exception: every artifact a state of
 the workflow declares is bound, so `{{artifacts.name}}` renders empty until a
-state sets it, as a missing optional fragment renders empty. That holds on the
+state sets it, as a missing optional fragment renders empty, and renders the
+value from the next round on. That holds on the
 handoff round, on later turns, on the entry state and after `ResumeWorkflow`,
 which before bound no artifacts at all, set or not. A placeholder for an
 artifact no state declares still fails the round.

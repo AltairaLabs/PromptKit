@@ -328,3 +328,44 @@ func TestOpenWorkflow_EntryStateRendersUnsetArtifactEmpty(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"You gather. So far: "}, provider.seenPrompts)
 }
+
+// An artifact a state sets reaches that same state's prompt on the next round:
+// the round after workflow__set_artifact, and every later Send in the state.
+func TestWorkflowState_ArtifactItSetsRendersOnItsNextRound(t *testing.T) {
+	packJSON := strings.Replace(orchArtifactHandoffPackJSON,
+		`"system_template": "You gather."`, `"system_template": "You gather. So far: {{artifacts.summary}}"`, 1)
+	require.NotEqual(t, orchArtifactHandoffPackJSON, packJSON)
+	provider := &orchArtifactHandoffProvider{
+		ToolProvider: mock.NewToolProvider("mock", "mock-model", false, nil),
+		calls: []types.MessageToolCall{
+			{ID: "call-a", Name: "workflow__set_artifact", Args: []byte(`{"name":"summary","value":"two refunds"}`)},
+		},
+	}
+	wc, err := OpenWorkflow(writeWorkflowTestPack(t, packJSON), WithProvider(provider), WithSkipSchemaValidation())
+	require.NoError(t, err)
+	defer func() { _ = wc.Close() }()
+
+	_, err = wc.Send(context.Background(), "help")
+	require.NoError(t, err)
+	_, err = wc.Send(context.Background(), "again")
+	require.NoError(t, err)
+	assert.Equal(t, "intake", wc.CurrentState())
+	assert.Equal(t, []string{"You gather. So far: ", "You gather. So far: two refunds",
+		"You gather. So far: two refunds"}, provider.seenPrompts)
+}
+
+// A value the application binds under an artifact's name with WithVariables
+// outranks the empty default an unset artifact gets.
+func TestOpenWorkflow_AppVariableOutranksTheUnsetArtifactDefault(t *testing.T) {
+	packJSON := strings.Replace(orchArtifactHandoffPackJSON,
+		`"system_template": "You gather."`, `"system_template": "You gather. So far: {{artifacts.summary}}"`, 1)
+	provider := &orchArtifactHandoffProvider{ToolProvider: mock.NewToolProvider("mock", "mock-model", false, nil)}
+	wc, err := OpenWorkflow(writeWorkflowTestPack(t, packJSON), WithProvider(provider), WithSkipSchemaValidation(),
+		WithVariables(map[string]string{"artifacts.summary": "from the app"}))
+	require.NoError(t, err)
+	defer func() { _ = wc.Close() }()
+
+	_, err = wc.Send(context.Background(), "help")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"You gather. So far: from the app"}, provider.seenPrompts)
+}
