@@ -38,6 +38,11 @@ type duplexSession struct {
 	// streamConfig is the realtime (ASM) streaming config the session was
 	// opened with, nil in pipeline mode; ForkSession passes it on.
 	streamConfig *providers.StreamingInputConfig
+
+	// callNames maps each tool call the model made to its tool name, so a
+	// result submitted by call ID alone can be named (#2589).
+	callNamesMu sync.Mutex
+	callNames   map[string]string
 	// Note: Session is NOT stored here - DuplexProviderStage creates and manages it
 	toolRegistry     *tools.Registry  // Optional: for executing tool calls (client tools, etc.)
 	asyncToolChecker AsyncToolChecker // Optional: HITL gate for tool calls
@@ -399,6 +404,8 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 //   - Completed tools: results sent back to the pipeline
 //   - Pending tools: forwarded to the caller with pending_tools metadata
 func (s *duplexSession) handleToolCalls(ctx context.Context, elem *stage.StreamElement) error {
+	s.rememberCallNames(elem.Message.ToolCalls)
+
 	// No registry — forward the element as-is (caller must handle tool calls)
 	if s.toolRegistry == nil {
 		chunk := streamElementToStreamChunk(elem)
@@ -642,7 +649,10 @@ func (s *duplexSession) SubmitToolResults(ctx context.Context, responses []provi
 	}
 
 	for _, resp := range responses {
-		toolResult := types.NewTextToolResult(resp.ToolCallID, "", resp.Result)
+		// A provider that keys results by name (Gemini's
+		// functionResponse.name) rejects an empty one, and the response
+		// carries only the call ID.
+		toolResult := types.NewTextToolResult(resp.ToolCallID, s.callName(resp.ToolCallID), resp.Result)
 		if resp.IsError {
 			toolResult.Error = resp.Result
 		}
@@ -650,6 +660,29 @@ func (s *duplexSession) SubmitToolResults(ctx context.Context, responses []provi
 	}
 
 	return streaming.SendToolResults(ctx, result, s.stageInput)
+}
+
+// rememberCallNames records the tool name of each call by its ID.
+func (s *duplexSession) rememberCallNames(calls []types.MessageToolCall) {
+	if len(calls) == 0 {
+		return
+	}
+	s.callNamesMu.Lock()
+	defer s.callNamesMu.Unlock()
+	if s.callNames == nil {
+		s.callNames = make(map[string]string, len(calls))
+	}
+	for _, tc := range calls {
+		s.callNames[tc.ID] = tc.Name
+	}
+}
+
+// callName returns the tool name of the call with id, or "" if the session
+// never saw it.
+func (s *duplexSession) callName(id string) string {
+	s.callNamesMu.Lock()
+	defer s.callNamesMu.Unlock()
+	return s.callNames[id]
 }
 
 // Variables returns a copy of the current variables.
