@@ -16,6 +16,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/workflow"
 	"github.com/stretchr/testify/assert"
@@ -993,6 +994,235 @@ func TestWorkflowConversation_ConcurrentReads(t *testing.T) {
 	resp, err := wc.ActiveConversation().Send(context.Background(), "hi")
 	require.NoError(t, err, "the conversation for the state moved to is open")
 	assert.NotEmpty(t, resp.Text())
+}
+
+func TestHandleTransitionTool(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "intake",
+		States: map[string]*workflow.State{
+			"intake": {
+				PromptTask: "gather_info",
+				OnEvent:    map[string]string{"InfoComplete": "processing"},
+			},
+			"processing": {PromptTask: "process"},
+		},
+	}
+	machine := workflow.NewStateMachine(spec)
+
+	// Use the runtime TransitionExecutor directly (replaces handleTransitionTool)
+	transExec := workflow.NewTransitionExecutor(machine, spec)
+
+	args, _ := json.Marshal(map[string]string{
+		"event":   "InfoComplete",
+		"context": "User wants billing help",
+	})
+
+	result, err := transExec.Execute(context.Background(), nil, args)
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+
+	// Verify pending transition is set on the executor
+	pending := transExec.Pending()
+	require.NotNil(t, pending)
+	assert.Equal(t, "InfoComplete", pending.Event)
+	assert.Equal(t, "User wants billing help", pending.ContextSummary)
+}
+
+func TestRegisterWorkflowTools_InternalState(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "intake",
+		States: map[string]*workflow.State{
+			"intake": {
+				PromptTask:    "gather_info",
+				OnEvent:       map[string]string{"InfoComplete": "processing"},
+				Orchestration: packspec.Ptr(workflow.OrchestrationInternal),
+			},
+			"processing": {PromptTask: "process"},
+		},
+	}
+	machine := workflow.NewStateMachine(spec)
+
+	conv := &Conversation{
+		toolRegistry: tools.NewRegistry(),
+		handlers:     make(map[string]ToolHandler),
+		config:       &config{},
+	}
+
+	wfCap := NewWorkflowCapability()
+
+	wc := &WorkflowConversation{
+		machine:      machine,
+		workflowSpec: spec,
+		activeConv:   conv,
+		workflowCap:  wfCap,
+	}
+
+	wc.registerWorkflowTools()
+
+	// Tool should be registered with executor mode
+	tool := conv.ToolRegistry().Get(workflow.TransitionToolName)
+	assert.NotNil(t, tool)
+	assert.Equal(t, workflow.TransitionExecutorMode, tool.Mode)
+
+	// TransitionExecutor should be created
+	assert.NotNil(t, wc.transExec)
+}
+
+func TestRegisterWorkflowTools_ExternalState(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "intake",
+		States: map[string]*workflow.State{
+			"intake": {
+				PromptTask:    "gather_info",
+				OnEvent:       map[string]string{"InfoComplete": "processing"},
+				Orchestration: packspec.Ptr(workflow.OrchestrationExternal),
+			},
+			"processing": {PromptTask: "process"},
+		},
+	}
+	machine := workflow.NewStateMachine(spec)
+
+	conv := &Conversation{
+		toolRegistry: tools.NewRegistry(),
+		handlers:     make(map[string]ToolHandler),
+		config:       &config{},
+	}
+
+	wfCap := NewWorkflowCapability()
+
+	wc := &WorkflowConversation{
+		machine:      machine,
+		workflowSpec: spec,
+		activeConv:   conv,
+		workflowCap:  wfCap,
+	}
+
+	wc.registerWorkflowTools()
+
+	// The model gets no transition tool; the host drives the state's events.
+	tool := conv.ToolRegistry().Get(workflow.TransitionToolName)
+	assert.Nil(t, tool)
+	assert.Equal(t, []string{"InfoComplete"}, wc.AvailableEvents(), "the events stay the host's to fire")
+}
+
+func TestRegisterWorkflowTools_TerminalState(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "done",
+		States: map[string]*workflow.State{
+			"done": {PromptTask: "confirm"}, // No OnEvent = terminal
+		},
+	}
+	machine := workflow.NewStateMachine(spec)
+
+	conv := &Conversation{
+		toolRegistry: tools.NewRegistry(),
+		handlers:     make(map[string]ToolHandler),
+		config:       &config{},
+	}
+
+	wfCap := NewWorkflowCapability()
+
+	wc := &WorkflowConversation{
+		machine:      machine,
+		workflowSpec: spec,
+		activeConv:   conv,
+		workflowCap:  wfCap,
+	}
+
+	wc.registerWorkflowTools()
+
+	// A terminal state has nowhere to go: no transition tool, no events.
+	tool := conv.ToolRegistry().Get(workflow.TransitionToolName)
+	assert.Nil(t, tool)
+	assert.True(t, wc.IsComplete(), "the workflow is complete in a terminal state")
+	_, err := wc.Transition("Anything")
+	assert.ErrorIs(t, err, ErrWorkflowTerminal)
+}
+
+func TestOpenWorkflow_InvalidPackJSON(t *testing.T) {
+	packPath := writeWorkflowTestPack(t, `{invalid json`)
+	_, err := OpenWorkflow(packPath, WithSkipSchemaValidation())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to load pack")
+}
+
+func TestTransitionInternal_InvalidEvent(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "start",
+		States: map[string]*workflow.State{
+			"start": {PromptTask: "p1", OnEvent: map[string]string{"Next": "end"}},
+			"end":   {PromptTask: "p2"},
+		},
+	}
+	machine := workflow.NewStateMachine(spec)
+
+	wc := &WorkflowConversation{
+		machine:      machine,
+		workflowSpec: spec,
+	}
+
+	_, err := wc.transitionInternal("InvalidEvent", "")
+	require.Error(t, err)
+}
+
+func TestTransitionInternal_WithContextSummary(t *testing.T) {
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "start",
+		States: map[string]*workflow.State{
+			"start": {PromptTask: "p1", OnEvent: map[string]string{"Next": "end"}},
+			"end":   {PromptTask: "p2"},
+		},
+	}
+	machine := workflow.NewStateMachine(spec)
+
+	conv := &Conversation{
+		handlers: make(map[string]ToolHandler),
+		config:   &config{},
+	}
+
+	wc := &WorkflowConversation{
+		machine:      machine,
+		workflowSpec: spec,
+		activeConv:   conv,
+	}
+
+	// ProcessEvent succeeds but Open() will fail (no pack) — tests context summary path
+	_, err := wc.transitionInternal("Next", "some context summary")
+	// Should fail at Open() since there's no packPath
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to open conversation")
+}
+
+func TestSend_ClearsPendingTransitionBeforeSend(t *testing.T) {
+	conv := &Conversation{closed: true} // will cause Send to return error
+	spec := &workflow.Spec{
+		Version: 1,
+		Entry:   "s",
+		States:  map[string]*workflow.State{"s": {PromptTask: "p"}},
+	}
+
+	sm := workflow.NewStateMachine(spec)
+	transExec := workflow.NewTransitionExecutor(sm, spec)
+	// Pre-set a pending transition to verify it gets cleared
+	preArgs, _ := json.Marshal(map[string]string{"event": "stale", "context": "old"})
+	_, _ = transExec.Execute(context.Background(), nil, preArgs)
+
+	wc := &WorkflowConversation{
+		activeConv: conv,
+		machine:    sm,
+		transExec:  transExec,
+	}
+
+	_, err := wc.Send(context.Background(), "hello")
+	// Send fails because inner conversation is closed
+	assert.ErrorIs(t, err, ErrConversationClosed)
+	// transExec pending should have been cleared before the send attempt
 }
 
 // Concurrent transitions on one workflow are serialized: of ten callers
