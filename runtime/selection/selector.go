@@ -23,6 +23,11 @@ type Candidate struct {
 	Name        string
 	Description string
 	Metadata    map[string]string
+	// AllowedTools is a skill candidate's allowed-tools: the tools the skill
+	// grants on activation, before the pack's tools cap them. It is empty for
+	// a tool candidate, and an exec selector receives it only when set. It
+	// shares the registry's slice: treat it, like Metadata, as read-only.
+	AllowedTools []string `json:"AllowedTools,omitempty"`
 }
 
 // Query carries the context PromptKit has assembled for this

@@ -144,3 +144,32 @@ func TestExecClient_Init_Noop(t *testing.T) {
 		t.Errorf("Init: unexpected error %v", err)
 	}
 }
+
+// The exec selector's stdin carries a skill candidate's AllowedTools, and
+// leaves the key out for a candidate with none, so the wire a tool candidate
+// sends is unchanged.
+func TestExecClient_Select_SendsAllowedToolsOnlyWhenSet(t *testing.T) {
+	fake := &fakeSandbox{}
+	fake.resp.Stdout = []byte(`{"selected":["refunds"]}`)
+	c := NewExecClient(ExecClientConfig{Name: "x", Command: "/bin/true", Sandbox: fake})
+
+	_, err := c.Select(context.Background(), Query{Text: "refund", Kind: "skill"}, []Candidate{
+		{ID: "refunds", Name: "refunds", AllowedTools: []string{"refund"}},
+		{ID: "lookup", Name: "lookup"},
+	})
+	if err != nil {
+		t.Fatalf("Select: %v", err)
+	}
+	var sent struct {
+		Candidates []map[string]json.RawMessage `json:"candidates"`
+	}
+	if err := json.Unmarshal(fake.captured.Stdin, &sent); err != nil {
+		t.Fatalf("captured stdin not valid JSON: %v", err)
+	}
+	if got := string(sent.Candidates[0]["AllowedTools"]); got != `["refund"]` {
+		t.Errorf("skill candidate AllowedTools = %s, want [\"refund\"]", got)
+	}
+	if _, ok := sent.Candidates[1]["AllowedTools"]; ok {
+		t.Errorf("candidate with no AllowedTools sent the key: %s", fake.captured.Stdin)
+	}
+}

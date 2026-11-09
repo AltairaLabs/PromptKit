@@ -367,6 +367,21 @@ empty tool name, so a provider that matches a result to its call by name
 name of the tool the model called, as a result produced inside the turn does.
 Nothing changes for callers.
 
+### Skill selectors see a skill's `allowed-tools`
+
+A `skills.SkillSelector` (`WithSkillSelectorOption`, `WithSkillSelector`,
+`ExecutorConfig.Selector`) got each skill's name, description and metadata, and
+an empty `AllowedTools`, so it could not choose skills by the tools they grant.
+`skills.AdaptSkillSelector` now hands it the skill's `allowed-tools` as well.
+They reach a `selection.Selector` as the new `selection.Candidate.AllowedTools`
+field, empty for a tool candidate, and an exec selector receives them as
+`AllowedTools` in each skill candidate's JSON when the skill declares any.
+
+| If you | You will see | Change |
+|---|---|---|
+| Read `SkillMetadata.AllowedTools` in a `SkillSelector` | the skill's `allowed-tools`, where it was empty | nothing |
+| Write a `selection.Selector` or an exec selector | skill candidates carry `AllowedTools` | nothing; read it to choose by the tools a skill grants |
+
 ### Conversation behavior fixes
 
 | If you | You will see | Change |

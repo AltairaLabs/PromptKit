@@ -26,7 +26,9 @@ type SkillSelector interface {
 // interface the skill index is narrowed through, so ExecutorConfig.Selector and
 // the SDK's skill-selector options feed the same path as a selector bound in
 // RuntimeConfig. Each candidate is handed over as SkillMetadata carrying its
-// name, description and metadata. A nil SkillSelector adapts to nil.
+// name, description, metadata and allowed-tools, so a selector can choose by
+// the tools a skill grants. License and compatibility are not carried. A nil
+// SkillSelector adapts to nil.
 func AdaptSkillSelector(s SkillSelector) selection.Selector {
 	if s == nil {
 		return nil
@@ -52,9 +54,10 @@ func (a skillSelectorAdapter) Select(
 	available := make([]SkillMetadata, 0, len(candidates))
 	for _, c := range candidates {
 		available = append(available, SkillMetadata{
-			Name:        c.ID,
-			Description: c.Description,
-			Metadata:    c.Metadata,
+			Name:         c.ID,
+			Description:  c.Description,
+			Metadata:     c.Metadata,
+			AllowedTools: c.AllowedTools,
 		})
 	}
 	return a.inner.Select(ctx, q.Text, available)
