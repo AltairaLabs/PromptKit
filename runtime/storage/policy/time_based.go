@@ -75,8 +75,10 @@ var (
 // passed, avoiding a full directory walk on every tick. TrackFile and
 // TrackMedia keep a built index current but never build it themselves.
 type TimeBasedPolicyHandler struct {
-	// policies maps policy names to their configurations
-	policies map[string]Config
+	// policies maps policy names to their configurations, guarded by
+	// policiesMu. A media's policy name is resolved here first.
+	policies   map[string]Config
+	policiesMu sync.RWMutex
 
 	// enforcementInterval is how often to scan for expired media
 	enforcementInterval time.Duration
@@ -172,29 +174,47 @@ func NewTimeBasedPolicyHandler(enforcementInterval time.Duration, opts ...Option
 	return h
 }
 
-// RegisterPolicy adds a policy configuration to the handler.
+// RegisterPolicy adds a policy configuration to the handler. Media whose
+// PolicyName is a registered policy's name are kept for that policy's
+// Retention, which lets a policy have a name of its own (with a RetentionRule)
+// or override the duration a parseable name encodes. Registering a name again
+// replaces the earlier policy.
 func (h *TimeBasedPolicyHandler) RegisterPolicy(policy Config) error {
 	if err := policy.Validate(); err != nil {
 		return fmt.Errorf("invalid policy: %w", err)
 	}
 
-	h.mu.Lock()
-	defer h.mu.Unlock()
+	h.policiesMu.Lock()
+	defer h.policiesMu.Unlock()
 	h.policies[policy.Name] = policy
 	return nil
 }
 
+// policyRetention returns the retention for a media's policy name: the
+// registered policy's when one has that name, otherwise the duration the
+// name encodes.
+func (h *TimeBasedPolicyHandler) policyRetention(name string) (time.Duration, error) {
+	h.policiesMu.RLock()
+	registered, ok := h.policies[name]
+	h.policiesMu.RUnlock()
+	if ok {
+		return registered.Retention()
+	}
+	_, duration, err := ParsePolicyName(name)
+	return duration, err
+}
+
 // ApplyPolicy implements storage.MediaPolicyHandler.ApplyPolicy. It returns an
-// error when metadata names a policy that ParsePolicyName cannot parse, so a
-// store using the handler rejects media whose retention it could never
-// enforce. An empty policy name is accepted.
+// error when metadata names a policy that is neither registered nor
+// parseable, so a store using the handler rejects media whose retention it
+// could never enforce. An empty policy name is accepted.
 func (h *TimeBasedPolicyHandler) ApplyPolicy(ctx context.Context, metadata *storage.MediaMetadata) error {
 	if metadata.PolicyName == "" {
 		return nil // No policy to apply
 	}
 
-	// Parse the policy name to get duration
-	_, duration, err := ParsePolicyName(metadata.PolicyName)
+	// Resolve the policy: registered first, then the name's own format.
+	duration, err := h.policyRetention(metadata.PolicyName)
 	if err != nil {
 		return fmt.Errorf("failed to parse policy name: %w", err)
 	}
@@ -655,9 +675,9 @@ func (h *TimeBasedPolicyHandler) TrackFile(metaPath string, expiresAt time.Time)
 // metadata file is at metaPath to the expiry index, expiring when
 // MediaExpiresAt says, so media stored after StartEnforcement has built the
 // index still expires. Media with no policy and no ExpiresAt is not tracked; a
-// policy ParsePolicyName cannot parse is an error.
+// policy that is neither registered nor parseable is an error.
 func (h *TimeBasedPolicyHandler) TrackMedia(metaPath string, metadata *storage.MediaMetadata) error {
-	expiresAt, expires, err := mediaExpiry(metadata)
+	expiresAt, expires, err := h.mediaExpiry(metadata)
 	if err != nil || !expires {
 		return err
 	}
@@ -668,21 +688,21 @@ func (h *TimeBasedPolicyHandler) TrackMedia(metaPath string, metadata *storage.M
 // MediaExpiresAt implements storage.MediaExpiryReporter: media expires at its
 // ExpiresAt when that is set, with or without a policy, and otherwise at its
 // Timestamp plus its policy's duration. Media with neither never expires; a
-// policy ParsePolicyName cannot parse is an error.
+// policy that is neither registered nor parseable is an error.
 func (h *TimeBasedPolicyHandler) MediaExpiresAt(metadata *storage.MediaMetadata) (time.Time, bool, error) {
-	return mediaExpiry(metadata)
+	return h.mediaExpiry(metadata)
 }
 
 // mediaExpiry returns when media with metadata expires, as MediaExpiresAt
 // documents.
-func mediaExpiry(metadata *storage.MediaMetadata) (time.Time, bool, error) {
+func (h *TimeBasedPolicyHandler) mediaExpiry(metadata *storage.MediaMetadata) (time.Time, bool, error) {
 	if metadata == nil {
 		return time.Time{}, false, nil
 	}
 	var duration time.Duration
 	if metadata.PolicyName != "" {
 		var err error
-		if _, duration, err = ParsePolicyName(metadata.PolicyName); err != nil {
+		if duration, err = h.policyRetention(metadata.PolicyName); err != nil {
 			return time.Time{}, false, fmt.Errorf("failed to parse policy name: %w", err)
 		}
 	}
@@ -732,7 +752,7 @@ func (h *TimeBasedPolicyHandler) loadPolicyMetadata(metaPath string) (*Metadata,
 		return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
 	}
 
-	expiresAt, expires, err := mediaExpiry(&mediaMetadata)
+	expiresAt, expires, err := h.mediaExpiry(&mediaMetadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse policy: %w", err)
 	}
