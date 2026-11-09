@@ -139,7 +139,8 @@ func TestDetect(t *testing.T) {
 
 		prov, err := Detect("", "gpt-4-turbo")
 		require.NoError(t, err)
-		assert.NotNil(t, prov)
+		assert.Equal(t, "openai", prov.ID())
+		assert.Equal(t, "gpt-4-turbo", prov.Model(), "the model argument overrides the default model")
 	})
 
 	t.Run("openai provider", func(t *testing.T) {

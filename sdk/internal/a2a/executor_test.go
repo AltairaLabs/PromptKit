@@ -6,7 +6,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestNewExecutor(t *testing.T) {
-	exec := NewExecutor()
-	assert.NotNil(t, exec)
+// The SDK registers this executor on the tool registry, which routes a tool
+// to the executor whose Name matches the tool's mode. Pack A2A tools carry
+// mode "a2a", so that is the name the executor must answer to.
+func TestNewExecutor_ServesTheA2AToolMode(t *testing.T) {
+	assert.Equal(t, "a2a", NewExecutor().Name())
 }
