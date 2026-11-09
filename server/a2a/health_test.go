@@ -167,15 +167,17 @@ func TestReadyz_MultipleCheckers_MixedResults(t *testing.T) {
 func TestHealthCheckerFunc(t *testing.T) {
 	t.Parallel()
 
-	called := false
-	f := HealthCheckerFunc(func(context.Context) error {
-		called = true
-		return nil
+	type ctxKey struct{}
+	unhealthy := errors.New("database unreachable")
+	var gotValue any
+	f := HealthCheckerFunc(func(ctx context.Context) error {
+		gotValue = ctx.Value(ctxKey{})
+		return unhealthy
 	})
 
-	err := f.Check(context.Background())
-	assert.NoError(t, err)
-	assert.True(t, called)
+	err := f.Check(context.WithValue(context.Background(), ctxKey{}, "probe"))
+	assert.Same(t, unhealthy, err, "Check returns the function's own error")
+	assert.Equal(t, "probe", gotValue, "Check passes the caller's context to the function")
 }
 
 func TestReadyz_NotReadyBeforeInit(t *testing.T) {

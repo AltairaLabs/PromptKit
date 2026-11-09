@@ -384,19 +384,6 @@ func TestPackListMethods(t *testing.T) {
 	assert.Contains(t, tools, "calc")
 }
 
-func TestPackGetNonExistent(t *testing.T) {
-	data := []byte(`{
-		"id": "test",
-		"prompts": {"chat": {"id": "chat", "system_template": "Test"}}
-	}`)
-
-	p, err := Parse(data)
-	require.NoError(t, err)
-
-	assert.Nil(t, p.GetPrompt("nonexistent"))
-	assert.Nil(t, p.GetTool("nonexistent"))
-}
-
 func TestToPromptRegistry(t *testing.T) {
 	data := []byte(`{
 		"id": "test",

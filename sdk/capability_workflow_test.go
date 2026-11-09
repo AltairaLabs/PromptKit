@@ -129,6 +129,6 @@ func TestRegisterTools_IsNoOp(t *testing.T) {
 	// RegisterTools at conversation level is a no-op
 	cap.RegisterTools(registry)
 
-	tool := registry.Get(workflow.TransitionToolName)
-	assert.Nil(t, tool, "RegisterTools should not register any tools")
+	assert.Equal(t, map[string]*tools.ToolDescriptor{}, registry.GetTools(),
+		"the transition tool is registered per state, never at conversation level")
 }

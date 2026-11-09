@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/sdk/v2/integration/probes"
@@ -38,9 +39,18 @@ func TestContract_PipelineStateStoreBudget(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			p, conv := probes.Run(t, probes.RunOptions{SeedHistory: tc.history})
-			_, err := conv.Send(context.Background(), "x")
+			resp, err := conv.Send(context.Background(), "x")
 			require.NoError(t, err)
 			inv.AssertHolds(t, p.Snapshot())
+
+			// The one append persisted the whole turn: the seeded history,
+			// then the user message and the provider's answer.
+			msgs := conv.Messages(context.Background())
+			require.Len(t, msgs, tc.history+2)
+			assert.Equal(t, "user", msgs[tc.history].Role)
+			assert.Equal(t, "x", msgs[tc.history].GetContent())
+			assert.Equal(t, "assistant", msgs[tc.history+1].Role)
+			assert.Equal(t, resp.Text(), msgs[tc.history+1].GetContent())
 		})
 	}
 }

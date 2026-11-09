@@ -19,8 +19,8 @@ import (
 // don't cover summarizer traffic. The probes layer wraps the dedicated
 // summarizer provider and exposes the count under op "summarizer.Predict".
 //
-// Contract: when history exceeds the threshold, a single Send produces at
-// most one Summarize call (one batch per Send). When history is below the
+// Contract: when history reaches the threshold, a single Send produces
+// exactly one Summarize call (one batch per Send). When history is below the
 // threshold, no Summarize call should fire.
 func TestContract_AutoSummarizeFiresOncePerThresholdCrossing(t *testing.T) {
 	const threshold = 50
@@ -36,11 +36,11 @@ func TestContract_AutoSummarizeFiresOncePerThresholdCrossing(t *testing.T) {
 	}{
 		{"well-below-threshold", 10, probes.Exactly(0)},
 		{"just-below", threshold - 5, probes.Exactly(0)},
-		{"at-threshold", threshold, probes.AtMost(1)},
-		{"above-threshold", threshold * 2, probes.AtMost(1)},
-		// Even at 10× threshold, summarization fires at most once per Send —
+		{"at-threshold", threshold, probes.Exactly(1)},
+		{"above-threshold", threshold * 2, probes.Exactly(1)},
+		// Even at 10× threshold, summarization fires exactly once per Send —
 		// the IncrementalSaveStage processes one batch per turn, not many.
-		{"deeply-above", threshold * 10, probes.AtMost(1)},
+		{"deeply-above", threshold * 10, probes.Exactly(1)},
 	}
 
 	for _, tc := range cases {

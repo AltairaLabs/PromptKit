@@ -849,11 +849,15 @@ func TestInitSelectors_PassesEmbeddingProvider(t *testing.T) {
 	require.Same(t, emb, rec.gotInit.Embeddings)
 }
 
+// A selector is still initialized when no embedding or rerank provider is
+// configured: it receives an empty context and decides for itself whether it
+// can run without them.
 func TestInitSelectors_NilEmbeddings(t *testing.T) {
 	rec := &recordingSelector{name: "s"}
 	c := &config{selectors: map[string]selection.Selector{"s": rec}}
 	require.NoError(t, initSelectors(c))
-	require.Nil(t, rec.gotInit.Embeddings)
+	require.Equal(t, 1, rec.initCalls, "the selector is initialized without an embedding provider")
+	require.Equal(t, selection.SelectorContext{}, rec.gotInit)
 }
 
 func TestInitSelectors_PropagatesError(t *testing.T) {

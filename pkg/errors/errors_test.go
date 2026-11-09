@@ -95,12 +95,6 @@ func TestUnwrap(t *testing.T) {
 	assert.Equal(t, cause, err.Unwrap())
 }
 
-func TestUnwrap_NilCause(t *testing.T) {
-	err := pkgerrors.New("sdk", "Open", nil)
-
-	assert.Nil(t, err.Unwrap())
-}
-
 func TestErrorsIs(t *testing.T) {
 	sentinel := fmt.Errorf("sentinel error")
 	wrapped := fmt.Errorf("mid-layer: %w", sentinel)

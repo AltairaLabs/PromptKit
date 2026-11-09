@@ -134,7 +134,7 @@ func TestOpenWithValidPack(t *testing.T) {
 		_, err := Open(packFile, "main", WithSkipSchemaValidation(), func(c *config) error {
 			return assert.AnError
 		})
-		assert.Error(t, err)
+		assert.ErrorIs(t, err, assert.AnError, "Open returns the failing option's error")
 	})
 
 	t.Run("no provider configured", func(t *testing.T) {
@@ -393,7 +393,7 @@ func TestResumeWithMockStateStore(t *testing.T) {
 			WithStateStore(store),
 			func(c *config) error { return errors.New("option error") },
 		)
-		assert.Error(t, err)
+		assert.ErrorContains(t, err, "option error")
 	})
 
 	t.Run("resume with invalid pack", func(t *testing.T) {
@@ -403,7 +403,10 @@ func TestResumeWithMockStateStore(t *testing.T) {
 		}
 
 		_, err := Resume("conv-123", "/nonexistent/pack.json", "main", WithSkipSchemaValidation(), WithStateStore(store))
-		assert.Error(t, err)
+		var pe *PackError
+		require.ErrorAs(t, err, &pe, "a pack that cannot be read is a PackError")
+		assert.Equal(t, "/nonexistent/pack.json", pe.Path)
+		assert.ErrorIs(t, err, ErrPackNotFound)
 	})
 }
 
@@ -469,7 +472,7 @@ func TestResumeDuplexWithMockStateStore(t *testing.T) {
 			WithStateStore(store),
 			func(c *config) error { return errors.New("option error") },
 		)
-		assert.Error(t, err)
+		assert.ErrorContains(t, err, "option error")
 	})
 }
 
@@ -580,7 +583,10 @@ func TestLoadAndValidatePack(t *testing.T) {
 
 	t.Run("nonexistent pack", func(t *testing.T) {
 		_, _, err := loadAndValidatePack("/nonexistent.pack.json", "main", cfg)
-		assert.Error(t, err)
+		var pe *PackError
+		require.ErrorAs(t, err, &pe, "a pack that cannot be read is a PackError")
+		assert.Equal(t, "/nonexistent.pack.json", pe.Path)
+		assert.ErrorIs(t, err, ErrPackNotFound)
 	})
 
 	t.Run("nonexistent prompt", func(t *testing.T) {
@@ -863,7 +869,10 @@ func TestOpenDuplex(t *testing.T) {
 		_, err := OpenDuplex("/nonexistent.pack.json", "main",
 			WithProvider(mockProv),
 		)
-		assert.Error(t, err)
+		var pe *PackError
+		require.ErrorAs(t, err, &pe, "a pack that cannot be read is a PackError")
+		assert.Equal(t, "/nonexistent.pack.json", pe.Path)
+		assert.ErrorIs(t, err, ErrPackNotFound)
 	})
 
 	t.Run("fails with non-existent prompt", func(t *testing.T) {

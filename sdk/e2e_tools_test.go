@@ -134,15 +134,16 @@ func TestE2E_Tools_MultipleToolCalls(t *testing.T) {
 		conv := NewToolsConversation(t, provider)
 		defer conv.Close()
 
-		calculatorCalls := 0
+		var calculatorCalls, weatherCalls int
 		conv.OnTool("calculator", func(args map[string]any) (any, error) {
 			calculatorCalls++
 			return map[string]any{"result": 10}, nil
 		})
 
-		weatherCalls := 0
+		var weatherCity string
 		conv.OnTool("weather", func(args map[string]any) (any, error) {
 			weatherCalls++
+			weatherCity, _ = args["location"].(string)
 			return map[string]any{"temperature": 65, "conditions": "cloudy"}, nil
 		})
 
@@ -151,13 +152,17 @@ func TestE2E_Tools_MultipleToolCalls(t *testing.T) {
 
 		resp, err := conv.Send(ctx, "What's 5+5, and what's the weather in NYC?")
 		require.NoError(t, err)
-
-		// At least one tool should have been called
-		totalCalls := calculatorCalls + weatherCalls
-		assert.GreaterOrEqual(t, totalCalls, 1, "At least one tool should be called")
-
 		t.Logf("Provider %s: calculator=%d, weather=%d calls. Response: %s",
 			provider.ID, calculatorCalls, weatherCalls, truncate(resp.Text(), 150))
+
+		// The weather can only be known from the tool: its arguments come from
+		// the question and its result has to reach the model's answer.
+		city := strings.ToLower(weatherCity)
+		assert.True(t, strings.Contains(city, "nyc") || strings.Contains(city, "new york"),
+			"weather tool got location %q, want NYC", weatherCity)
+		text := strings.ToLower(resp.Text())
+		assert.True(t, strings.Contains(text, "65") || strings.Contains(text, "cloudy"),
+			"the weather tool's result is missing from the answer")
 	})
 }
 

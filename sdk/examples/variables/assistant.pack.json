@@ -19,56 +19,48 @@
           "name": "current_time",
           "type": "string",
           "required": false,
-          "default": "unknown",
           "description": "Current timestamp (from TimeProvider)"
         },
         {
           "name": "current_date",
           "type": "string",
           "required": false,
-          "default": "unknown",
           "description": "Current date (from TimeProvider)"
         },
         {
           "name": "current_weekday",
           "type": "string",
           "required": false,
-          "default": "unknown",
           "description": "Current day of week (from TimeProvider)"
         },
         {
           "name": "current_hour",
           "type": "string",
           "required": false,
-          "default": "unknown",
           "description": "Current hour 0-23 (from TimeProvider)"
         },
         {
           "name": "user_id",
           "type": "string",
           "required": false,
-          "default": "anonymous",
           "description": "User identifier (from UserContextProvider)"
         },
         {
           "name": "user_language",
           "type": "string",
           "required": false,
-          "default": "English",
           "description": "User's preferred language"
         },
         {
           "name": "response_style",
           "type": "string",
           "required": false,
-          "default": "professional",
           "description": "How to style responses"
         },
         {
           "name": "user_expertise",
           "type": "string",
           "required": false,
-          "default": "intermediate",
           "description": "User's expertise level"
         }
       ]

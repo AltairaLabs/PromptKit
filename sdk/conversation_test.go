@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -1263,12 +1264,13 @@ func TestCloseWithErrors(t *testing.T) {
 		assert.True(t, conv.closed)
 	})
 
-	t.Run("already closed returns nil", func(t *testing.T) {
+	t.Run("a second Close is a no-op", func(t *testing.T) {
 		conv := newTestConversation()
-		conv.closed = true
+		capErr := errors.New("capability close error")
+		conv.capabilities = []Capability{&closeErrorCapability{name: "cap", closeErr: capErr}}
 
-		err := conv.Close()
-		assert.NoError(t, err) // Safe to call multiple times
+		require.ErrorIs(t, conv.Close(), capErr, "the first Close closes the capabilities")
+		assert.NoError(t, conv.Close(), "a second Close must not close the capabilities again")
 	})
 
 	t.Run("collects all errors from capabilities", func(t *testing.T) {
@@ -1437,10 +1439,11 @@ func TestSessionHookDispatcher_IncrementTurn(t *testing.T) {
 func TestMessageSizeValidation(t *testing.T) {
 	t.Run("string message within limit", func(t *testing.T) {
 		conv := newTestConversation()
-		conv.config.maxMessageSize = 100
+		conv.config.maxMessageSize = 5
 		msg, err := conv.buildUserMessage("hello")
-		assert.NoError(t, err)
-		assert.NotNil(t, msg)
+		require.NoError(t, err, "a message exactly at the limit is accepted")
+		assert.Equal(t, "user", msg.Role)
+		assert.Equal(t, "hello", msg.GetContent())
 	})
 
 	t.Run("string message exceeds limit", func(t *testing.T) {
@@ -1453,11 +1456,11 @@ func TestMessageSizeValidation(t *testing.T) {
 
 	t.Run("typed message within limit", func(t *testing.T) {
 		conv := newTestConversation()
-		conv.config.maxMessageSize = 100
+		conv.config.maxMessageSize = 2
 		userMsg := &types.Message{Role: "user", Content: "hi"}
 		msg, err := conv.buildUserMessage(userMsg)
-		assert.NoError(t, err)
-		assert.NotNil(t, msg)
+		require.NoError(t, err, "a message exactly at the limit is accepted")
+		assert.Same(t, userMsg, msg, "a typed message is sent as given")
 	})
 
 	t.Run("typed message exceeds limit", func(t *testing.T) {
@@ -1471,25 +1474,33 @@ func TestMessageSizeValidation(t *testing.T) {
 
 	t.Run("multimodal message size counts parts", func(t *testing.T) {
 		conv := newTestConversation()
-		conv.config.maxMessageSize = 10
+		conv.config.maxMessageSize = 9
 		text := "hello"
 		userMsg := &types.Message{
 			Role: "user",
 			Parts: []types.ContentPart{
 				{Type: types.ContentTypeText, Text: &text},
+				{Type: types.ContentTypeText, Text: &text},
 			},
 		}
+		_, err := conv.buildUserMessage(userMsg)
+		require.ErrorIs(t, err, ErrMessageTooLarge, "two 5-byte parts are 10 bytes, over a 9-byte limit")
+
+		conv.config.maxMessageSize = 10
 		msg, err := conv.buildUserMessage(userMsg)
-		assert.NoError(t, err)
-		assert.NotNil(t, msg)
+		require.NoError(t, err)
+		assert.Same(t, userMsg, msg)
 	})
 
 	t.Run("default limit allows normal messages", func(t *testing.T) {
 		conv := newTestConversation()
 		// config.maxMessageSize is 0, so defaultMaxMessageSize (10MB) is used
-		msg, err := conv.buildUserMessage("normal message")
-		assert.NoError(t, err)
-		assert.NotNil(t, msg)
+		msg, err := conv.buildUserMessage(strings.Repeat("x", defaultMaxMessageSize))
+		require.NoError(t, err, "a message of exactly the default limit is accepted")
+		assert.Len(t, msg.GetContent(), defaultMaxMessageSize)
+
+		_, err = conv.buildUserMessage(strings.Repeat("x", defaultMaxMessageSize+1))
+		assert.ErrorIs(t, err, ErrMessageTooLarge, "one byte over the default limit is refused")
 	})
 
 	t.Run("error message includes sizes", func(t *testing.T) {

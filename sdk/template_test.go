@@ -64,7 +64,7 @@ func TestLoadTemplate(t *testing.T) {
 		_, err := LoadTemplate(packFile, func(c *config) error {
 			return assert.AnError
 		})
-		assert.Error(t, err)
+		assert.ErrorIs(t, err, assert.AnError, "the failing option's error is returned")
 		assert.Contains(t, err.Error(), "failed to apply option")
 	})
 }
@@ -89,14 +89,14 @@ func TestPackTemplateOpen(t *testing.T) {
 		os.Unsetenv("GEMINI_API_KEY")
 
 		_, err := tmpl.Open("chat")
-		assert.Error(t, err)
+		assert.ErrorIs(t, err, ErrProviderNotDetected)
 	})
 
 	t.Run("option error", func(t *testing.T) {
 		_, err := tmpl.Open("chat", func(c *config) error {
 			return assert.AnError
 		})
-		assert.Error(t, err)
+		assert.ErrorIs(t, err, assert.AnError, "the failing option's error is returned")
 	})
 
 	t.Run("conversations share prompt registry", func(t *testing.T) {
@@ -205,7 +205,7 @@ func TestPackTemplateOpenDuplex(t *testing.T) {
 		_, err := tmpl.OpenDuplex("chat", func(c *config) error {
 			return assert.AnError
 		})
-		assert.Error(t, err)
+		assert.ErrorIs(t, err, assert.AnError, "the failing option's error is returned")
 	})
 }
 
