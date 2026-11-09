@@ -2,7 +2,6 @@
 package provider
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -221,24 +220,16 @@ func detectInfo() *Info {
 
 // apiKeyCredential turns the detected or caller-supplied key into the
 // credential the provider authenticates with, in the header (or query
-// parameter) its vendor expects. It returns nil when there is no key, leaving
-// the provider to read its own environment variable.
+// parameter) its vendor expects. Every vendor Detect builds with a key has an
+// entry in credentials.ProviderHeaderConfig.
 func apiKeyCredential(info *Info) providers.Credential {
-	if info.APIKey == "" {
-		return nil
-	}
 	providerType := strings.ToLower(info.Name)
 	if providerType == providerAnthropic {
 		providerType = "claude"
 	}
-	cred, err := credentials.Resolve(context.Background(), credentials.ResolverConfig{
-		ProviderType:     providerType,
-		CredentialConfig: &credentials.CredentialConfig{APIKey: info.APIKey},
-	})
-	if err != nil {
-		return nil
-	}
-	return cred
+	h := credentials.ProviderHeaderConfig[providerType]
+	return credentials.NewAPIKeyCredential(info.APIKey,
+		credentials.WithHeaderName(h.HeaderName), credentials.WithPrefix(h.Prefix))
 }
 
 // createProvider creates a runtime provider from info.
@@ -254,48 +245,19 @@ func createProvider(info *Info) (providers.Provider, error) {
 		DisablePromptCaching: false,
 	}
 
-	cred := apiKeyCredential(info)
 	switch strings.ToLower(info.Name) {
 	case "openai":
-		if cred != nil {
-			return openai.NewToolProviderWithCredential(
-				"openai", info.Model, "https://api.openai.com/v1", defaults, false, nil, cred, "", nil, nil,
-			), nil
-		}
-		return openai.NewToolProvider(
-			"openai",
-			info.Model,
-			"https://api.openai.com/v1",
-			defaults,
-			false,
-			nil,
-			nil,
+		return openai.NewToolProviderWithCredential(
+			"openai", info.Model, "https://api.openai.com/v1", defaults, false, nil, apiKeyCredential(info), "", nil, nil,
 		), nil
 	case "anthropic":
-		if cred != nil {
-			return claude.NewToolProviderWithCredential(
-				"anthropic", info.Model, "https://api.anthropic.com", defaults, false, cred, "", nil,
-			), nil
-		}
-		return claude.NewToolProvider(
-			"anthropic",
-			info.Model,
-			"https://api.anthropic.com",
-			defaults,
-			false,
+		return claude.NewToolProviderWithCredential(
+			"anthropic", info.Model, "https://api.anthropic.com", defaults, false, apiKeyCredential(info), "", nil,
 		), nil
 	case "gemini", "google":
-		if cred != nil {
-			return gemini.NewToolProviderWithCredential(
-				"gemini", info.Model, "https://generativelanguage.googleapis.com/v1beta", defaults, false, cred, "", nil,
-			), nil
-		}
-		return gemini.NewToolProvider(
-			"gemini",
-			info.Model,
-			"https://generativelanguage.googleapis.com/v1beta",
-			defaults,
-			false,
+		return gemini.NewToolProviderWithCredential(
+			"gemini", info.Model, "https://generativelanguage.googleapis.com/v1beta", defaults, false,
+			apiKeyCredential(info), "", nil,
 		), nil
 	case "ollama":
 		// Use OLLAMA_HOST_URL env var or default to localhost:11434

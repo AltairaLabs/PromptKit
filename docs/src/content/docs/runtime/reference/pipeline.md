@@ -1741,7 +1741,7 @@ func (ct ContentType) String() string
 String returns the string representation of the content type.
 
 <a name="ContextAssemblyConfig"></a>
-## type [ContextAssemblyConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_context.go#L27-L62>)
+## type [ContextAssemblyConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_context.go#L28-L63>)
 
 ContextAssemblyConfig configures the ContextAssemblyStage.
 
@@ -1785,7 +1785,7 @@ type ContextAssemblyConfig struct {
 ```
 
 <a name="ContextAssemblyStage"></a>
-## type [ContextAssemblyStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_context.go#L71-L75>)
+## type [ContextAssemblyStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_context.go#L72-L76>)
 
 ContextAssemblyStage loads a subset of conversation history using efficient partial reads \(MessageReader\) instead of loading the full state. It assembles context from three tiers: summaries, semantically retrieved messages, and the most recent messages \(hot window\).
 
@@ -1799,7 +1799,7 @@ type ContextAssemblyStage struct {
 ```
 
 <a name="NewContextAssemblyStage"></a>
-### func [NewContextAssemblyStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_context.go#L78>)
+### func [NewContextAssemblyStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_context.go#L79>)
 
 ```go
 func NewContextAssemblyStage(config *ContextAssemblyConfig) *ContextAssemblyStage
@@ -1808,7 +1808,7 @@ func NewContextAssemblyStage(config *ContextAssemblyConfig) *ContextAssemblyStag
 NewContextAssemblyStage creates a new context assembly stage.
 
 <a name="NewContextAssemblyStageWithTurnState"></a>
-### func [NewContextAssemblyStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_context.go#L84-L86>)
+### func [NewContextAssemblyStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_context.go#L85-L87>)
 
 ```go
 func NewContextAssemblyStageWithTurnState(config *ContextAssemblyConfig, turnState *TurnState) *ContextAssemblyStage
@@ -1817,7 +1817,7 @@ func NewContextAssemblyStageWithTurnState(config *ContextAssemblyConfig, turnSta
 NewContextAssemblyStageWithTurnState creates a context assembly stage that publishes ConversationID/UserID onto the supplied TurnState.
 
 <a name="ContextAssemblyStage.Process"></a>
-### func \(\*ContextAssemblyStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_context.go#L103-L107>)
+### func \(\*ContextAssemblyStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_context.go#L104-L108>)
 
 ```go
 func (s *ContextAssemblyStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error

@@ -301,12 +301,14 @@ func TestContextAssemblyStage_WithSemanticRetrieval(t *testing.T) {
 	require.NoError(t, err)
 
 	// The index answers by relevance: an older message (position 1), an even
-	// older one (position 0), and one already in the hot window (position 3).
+	// older one (position 0), and the two the hot window already holds
+	// (positions 3 and 2, the window's first).
 	idx := &mockMessageIndex{
 		results: []statestore.IndexResult{
 			{TurnIndex: 1, Message: types.Message{Role: "assistant", Content: "Dogs are great pets."}, Score: 0.9},
 			{TurnIndex: 0, Message: types.Message{Role: "user", Content: "Tell me about dogs"}, Score: 0.85},
 			{TurnIndex: 3, Message: types.Message{Role: "assistant", Content: "Cats are independent."}, Score: 0.8},
+			{TurnIndex: 2, Message: types.Message{Role: "user", Content: "What about cats?"}, Score: 0.7},
 		},
 	}
 

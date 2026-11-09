@@ -1,10 +1,11 @@
 package stage
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
@@ -209,7 +210,7 @@ func (s *ContextAssemblyStage) assembleFromReader(
 
 	// 3. Semantic retrieval, inserted between summaries and hot window
 	if s.config.MessageIndex != nil && s.config.RetrievalTopK > 0 && len(recentMsgs) > 0 {
-		retrieved, err := s.retrieveRelevant(ctx, convID, recentMsgs)
+		retrieved, err := s.retrieveRelevant(ctx, convID, reader, recentMsgs)
 		if err != nil {
 			logger.Warn("Context assembly: semantic retrieval failed, using hot window only",
 				"conversation", convID, "error", err)
@@ -226,6 +227,7 @@ func (s *ContextAssemblyStage) assembleFromReader(
 func (s *ContextAssemblyStage) retrieveRelevant(
 	ctx context.Context,
 	convID string,
+	reader statestore.MessageReader,
 	recentMsgs []types.Message,
 ) ([]types.Message, error) {
 	// Build query from the last user message
@@ -250,22 +252,17 @@ func (s *ContextAssemblyStage) retrieveRelevant(
 	// Results index messages by their position in the transcript. The hot
 	// window holds the last len(recentMsgs) positions, which are already sent,
 	// so a result from there would repeat a message.
-	windowStart := -1
-	if reader, ok := s.config.StateStoreConfig.Store.(statestore.MessageReader); ok {
-		if total, countErr := reader.MessageCount(ctx, convID); countErr == nil {
-			windowStart = total - len(recentMsgs)
-		}
+	total, err := reader.MessageCount(ctx, convID)
+	if err != nil {
+		return nil, fmt.Errorf("context assembly: counting messages: %w", err)
 	}
-	kept := make([]statestore.IndexResult, 0, len(results))
-	for i := range results {
-		if windowStart >= 0 && results[i].TurnIndex >= windowStart {
-			continue
-		}
-		kept = append(kept, results[i])
-	}
+	windowStart := total - len(recentMsgs)
+	kept := slices.DeleteFunc(slices.Clone(results), func(r statestore.IndexResult) bool {
+		return r.TurnIndex >= windowStart
+	})
 	// Results arrive by relevance; the model reads them as conversation, so
 	// they go back in the order they were said.
-	sort.SliceStable(kept, func(a, b int) bool { return kept[a].TurnIndex < kept[b].TurnIndex })
+	slices.SortStableFunc(kept, func(a, b statestore.IndexResult) int { return cmp.Compare(a.TurnIndex, b.TurnIndex) })
 
 	retrieved := make([]types.Message, 0, len(kept))
 	for i := range kept {
