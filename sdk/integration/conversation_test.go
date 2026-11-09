@@ -112,6 +112,10 @@ func TestConversation_CloseIsIdempotent(t *testing.T) {
 
 	err2 := conv.Close()
 	assert.NoError(t, err2, "second Close should not error")
+
+	// Still closed after the second Close: it must not reopen or reset it.
+	_, err := conv.Send(context.Background(), "after two closes")
+	assert.ErrorIs(t, err, sdk.ErrConversationClosed)
 }
 
 func TestConversation_SendAfterCloseReturnsError(t *testing.T) {

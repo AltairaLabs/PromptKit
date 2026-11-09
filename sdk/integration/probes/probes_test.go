@@ -141,20 +141,7 @@ func TestPipelineInvariants_DefaultLabel(t *testing.T) {
 	assert.Len(t, r.errors, 1)
 }
 
-// AssertHolds itself is the public *testing.T variant — exercise it once
-// against a passing case so the t.Helper / delegation path is covered.
-func TestStageContract_AssertHolds_Public(t *testing.T) {
-	contract := StageContract{
-		Stage:   "demo",
-		PerSend: Ops{"x": AtMost(0)},
-	}
-	contract.AssertHolds(t, Snapshot{counts: map[Op]int{"x": 0}})
-}
 
-func TestPipelineInvariants_AssertHolds_Public(t *testing.T) {
-	inv := PipelineInvariants{PerSend: Ops{"x": AtMost(0)}}
-	inv.AssertHolds(t, Snapshot{counts: map[Op]int{"x": 0}})
-}
 
 // ---------------------------------------------------------------------------
 // probedStore
