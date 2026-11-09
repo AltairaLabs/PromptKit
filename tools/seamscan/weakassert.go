@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,128 @@ var assertionsProvingNothing = map[string]bool{
 	"NoError": true, "NoErrorf": true,
 	"Nil": true, "Nilf": true,
 	"NotNil": true, "NotNilf": true,
+	provesNothing: true,
+}
+
+// provesNothing stands in for a testify call that names a real assertion but
+// cannot fail on the code under test: a constant condition, a value compared
+// with itself, or a count of calls to a collaborator. See isVacuous and
+// countsCalls.
+const provesNothing = "<proves-nothing>"
+
+// Minimum argument counts, t included, for a condition assertion
+// (assert.True(t, cond)) and a comparison (assert.Equal(t, want, got)).
+const (
+	conditionArgs  = 2
+	comparisonArgs = 3
+)
+
+// constantConditions are assertions whose second argument is the condition.
+var constantConditions = map[string]bool{
+	"True": true, "Truef": true, "False": true, "Falsef": true,
+}
+
+// comparisons are assertions whose second and third arguments are compared.
+var comparisons = map[string]bool{
+	"Equal": true, "Equalf": true, "EqualValues": true, "EqualValuesf": true,
+	"Exactly": true, "Exactlyf": true,
+}
+
+// isVacuous reports whether a testify call is decided by the test's own
+// source, whatever the code under test does: assert.True(t, true), or
+// assert.Equal(t, x, x) where both sides are the same expression or both are
+// literals.
+func isVacuous(name string, args []ast.Expr) bool {
+	switch {
+	case constantConditions[name] && len(args) >= conditionArgs:
+		id, ok := args[1].(*ast.Ident)
+		return ok && (id.Name == "true" || id.Name == "false")
+	case comparisons[name] && len(args) >= comparisonArgs:
+		_, lit1 := args[1].(*ast.BasicLit)
+		_, lit2 := args[2].(*ast.BasicLit)
+		return (lit1 && lit2) || types.ExprString(args[1]) == types.ExprString(args[2])
+	}
+	return false
+}
+
+// callCountNames are the last selector or identifier names, lowercased, that
+// mark a value as a tally of calls to a collaborator: fake.calls,
+// prov.CallCount(), len(m.Calls), handlerCalled.
+var callCountNames = []string{"calls", "callcount", "numcalls", "invocations", "called", "invoked"}
+
+// domainCallNames end in a callCountNames suffix but name data a caller
+// observes: in an LLM library, a response's tool calls are output, not a
+// tally of calls to a fake.
+var domainCallNames = []string{"toolcalls"}
+
+// collectionAssertions inspect a collection's size. On a bare identifier
+// (`calls := ExtractToolCalls(...)`) the name says nothing about where the
+// collection came from, so only a field or method of a collaborator counts.
+var collectionAssertions = map[string]bool{
+	"Len": true, "Lenf": true, "Empty": true, "Emptyf": true, "NotEmpty": true, "NotEmptyf": true,
+}
+
+// countsCalls reports whether the value a testify call inspects is a call
+// tally. A test that checks only how often a fake was called passes with the
+// fake fed garbage, so it pins the implementation's call pattern, not what a
+// caller observes.
+func countsCalls(name string, args []ast.Expr) bool {
+	if len(args) < conditionArgs {
+		return false
+	}
+	if !comparisons[name] {
+		return isCallTally(args[1], !collectionAssertions[name])
+	}
+	// assert.Equal(t, 2, fake.calls): an integer literal against a tally. A
+	// slice of recorded requests compared with an expected slice inspects
+	// what the fake received, and is a real assertion.
+	if len(args) < comparisonArgs {
+		return false
+	}
+	lit, ok := args[1].(*ast.BasicLit)
+	return ok && lit.Kind == token.INT && isCallTally(args[2], true)
+}
+
+// isCallTally reports whether expr ends in one of callCountNames, looking
+// through len(...), calls, and a dereference. bareIdent says whether a plain
+// identifier may count; it never does inside len(...), for the reason given
+// on collectionAssertions.
+func isCallTally(expr ast.Expr, bareIdent bool) bool {
+	for {
+		switch e := expr.(type) {
+		case *ast.CallExpr:
+			if id, ok := e.Fun.(*ast.Ident); ok && id.Name == "len" && len(e.Args) == 1 {
+				expr, bareIdent = e.Args[0], false
+				continue
+			}
+			expr = e.Fun
+		case *ast.StarExpr:
+			expr = e.X
+		case *ast.ParenExpr:
+			expr = e.X
+		case *ast.SelectorExpr:
+			return endsInCallCount(e.Sel.Name)
+		case *ast.Ident:
+			return bareIdent && endsInCallCount(e.Name)
+		default:
+			return false
+		}
+	}
+}
+
+func endsInCallCount(name string) bool {
+	lower := strings.ToLower(name)
+	for _, suffix := range domainCallNames {
+		if strings.HasSuffix(lower, suffix) {
+			return false
+		}
+	}
+	for _, suffix := range callCountNames {
+		if strings.HasSuffix(lower, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // WeakAssertions reports test functions and subtests whose assertions cannot
@@ -286,7 +409,11 @@ func (c *assertionCollector) recordCall(call *ast.CallExpr) bool {
 		}
 		switch pkg.Name {
 		case testifyPackageAlias, testifyRequireAlias:
-			c.testify = append(c.testify, fn.Sel.Name)
+			name := fn.Sel.Name
+			if isVacuous(name, call.Args) || countsCalls(name, call.Args) {
+				name = provesNothing
+			}
+			c.testify = append(c.testify, name)
 		case "t":
 			if strings.HasPrefix(fn.Sel.Name, "Error") || strings.HasPrefix(fn.Sel.Name, "Fatal") {
 				c.native = true

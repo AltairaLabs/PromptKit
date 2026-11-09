@@ -63,6 +63,7 @@ iterate the modules for you.
 | `make verify` | `lint-diff` + `test-fast` — what pre-commit and CI run |
 | `make lint` | `go vet` + `go fmt`. **Not golangci-lint** — that's `make lint-diff` |
 | `make lint-diff` | golangci-lint on changed code only (`--new-from-rev=HEAD`) |
+| `make check-mutation` | Mutation-test the lines changed since `origin/main` (see [Tests](#tests)) |
 | `make modules-standalone-check` | Build each module with `GOWORK=off`, as a consumer resolves it — catches dep skew the workspace hides (#1920) |
 | `make api-compat-check VERSION=vX.Y.Z` | Check the API changes fit the claimed version |
 | `make mcp-conformance` / `make mcp-interop` | MCP client against the official conformance suite / against real SDK-built servers (need Node; interop also Python) |
@@ -86,6 +87,31 @@ go -C runtime test ./evals/... -count=1
 - **Nested example modules have their own `go.mod`.** `make build` covers the four
   published modules; it does not compile `sdk/examples/*`, and neither does
   `go -C sdk build ./...`. CI catches breakage there, so check them before claiming green.
+
+## Tests
+
+PromptKit is a library: a behavior change that breaks a client is our bug, and our tests
+have to catch it before a consumer's do. Test behavior, not code.
+
+- **Assert what a caller observes, as an exact value**: the returned value, the rendered
+  prompt, the provider request, the emitted events, the persisted state, or the error's
+  type and message.
+- **Use real collaborators at the seam.** Drive the public entry point (`sdk.Open`,
+  `Registry.Load`, `PackCompiler.Compile`, ...) with real repositories and the real mock
+  provider. Never mock either side of the contract the test is about.
+- **Mutation-check every new test.** Break the code it protects (return the zero value,
+  skip the side effect, invert the condition), watch the test go red, then restore it. Use
+  file copies, never `git stash` (it is shared across worktrees).
+- **Not acceptable:** a test that asserts only `NoError`/`NotNil`, re-asserts a field the
+  test itself set, asserts a constant (`assert.True(t, true)`), or checks only how often a
+  mock was called.
+
+Two gates enforce this on PRs. The **Weak Assertion Guard** (`make check-weak-assertions`,
+also in pre-commit) fails a new test whose assertions cannot fail. The **Mutation Gate**
+(`make check-mutation`) mutates the conditions and arithmetic on the lines the PR changes,
+reruns those packages' tests, and fails when fewer than 75% of the mutants are caught. It
+lists each surviving mutant as `file:line:col`; write the test that kills it. The
+`audit-test-seams` skill finds weak tests and untested seams in existing code.
 
 ## SDK Architecture
 
