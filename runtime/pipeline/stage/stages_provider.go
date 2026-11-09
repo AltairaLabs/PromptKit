@@ -693,6 +693,14 @@ func (s *ProviderStage) processStreaming(
 			if err := sendStreamElement(ctx, elem, output); err != nil {
 				return err
 			}
+		case inMsg != nil && elem.Message == nil:
+			// Typed text (SendText, TriggerStart) is a whole user turn: no
+			// turn detector will end it, since it never passed through one.
+			next, err := s.fireIfPending(ctx, canceller.context(), &history, append(pending, *inMsg), output)
+			if err != nil {
+				return err
+			}
+			pending = next
 		case inMsg != nil:
 			pending = append(pending, *inMsg)
 		default:
