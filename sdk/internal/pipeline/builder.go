@@ -812,13 +812,23 @@ func appendStateStoreSaveStages(
 	if stateStoreConfig == nil {
 		return stages
 	}
+	// A realtime (ASM) session's provider stage has no per-round write-through,
+	// so the save stage persists its messages whether or not a MessageLog is
+	// configured; skipping them on its account persisted nothing at all.
+	messageLog := cfg.MessageLog
+	if cfg.StreamInputProvider != nil {
+		messageLog = nil
+	}
 	return append(stages, stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{
 		StateStoreConfig:   stateStoreConfig,
 		MessageIndex:       cfg.MessageIndex,
 		Summarizer:         cfg.Summarizer,
 		SummarizeThreshold: cfg.SummarizeThreshold,
 		SummarizeBatchSize: cfg.SummarizeBatchSize,
-		MessageLog:         cfg.MessageLog,
+		MessageLog:         messageLog,
+		// A duplex session's input stays open for the whole session: persist
+		// each turn as it completes, not at hang-up.
+		FlushEachTurn: cfg.StreamInputProvider != nil || cfg.VADConfig != nil,
 	}))
 }
 
