@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -36,6 +37,25 @@ func TestContract_PassesRealRepositories(t *testing.T) {
 			return repo
 		})
 	})
+}
+
+// Where the platform makes symlinks, every check runs: a check that reports
+// itself skipped there would pass any repository without testing it.
+func TestContract_RunsEveryCheckWhereSymlinksWork(t *testing.T) {
+	probe := t.TempDir()
+	if err := os.Symlink(probe, filepath.Join(probe, "link")); err != nil {
+		t.Skipf("os.Symlink: %v", err)
+	}
+	for _, check := range repotest.Checks() {
+		root := t.TempDir()
+		if err := repotest.WriteFixtures(root); err != nil {
+			t.Fatal(err)
+		}
+		err := check.Run(yaml.NewYAMLPromptRepository(root, nil), root)
+		if err != nil {
+			t.Errorf("%s: %v, want the check to run and pass", check.Name, err)
+		}
+	}
 }
 
 // fakeRepo answers LoadFragment with fn.

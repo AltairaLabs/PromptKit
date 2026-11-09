@@ -208,7 +208,7 @@ func readInAnchor(anchor, path string) ([]byte, error) {
 		beforeRootedRead()
 	}
 	data, err := root.ReadFile(rel)
-	if err == nil || !isRootEscape(err) {
+	if !isRootEscape(err) {
 		return data, err
 	}
 	// os.Root refuses every absolute link target. The anchor's real path
