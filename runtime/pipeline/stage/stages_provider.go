@@ -664,56 +664,59 @@ func (s *ProviderStage) processStreaming(
 	var pending []types.Message
 
 	for elem := range work {
-		inMsg := inputMessage(&elem)
-		switch {
-		case elem.Interrupt:
-			// Barge-in: in-flight generation was already canceled out of band by
-			// the reader. Drop the partial turn's input, roll a fresh context,
-			// and forward the Interrupt downstream.
-			pending = nil
-			canceller.refresh()
-			if err := sendStreamElement(ctx, elem, output); err != nil {
-				return err
-			}
-		case elem.EndOfTurn:
-			next, err := s.fireIfPending(ctx, canceller.context(), &history, pending, output)
-			if err != nil {
-				return err
-			}
-			pending = next
-		case elem.EndOfStream:
-			// Session over: fire any partial turn, then stop. Closing output
-			// downstream signals end-of-conversation to the next stages.
-			_, err := s.fireIfPending(ctx, canceller.context(), &history, pending, output)
+		next, stop, err := s.streamingStep(ctx, canceller, &history, pending, elem, output)
+		if err != nil || stop {
 			return err
-		case isTurnFailureSignal(&elem):
-			// An upstream stage failed the turn in progress. Its input is
-			// incomplete, so it is not fired when the input then ends.
-			pending = nil
-			if err := sendStreamElement(ctx, elem, output); err != nil {
-				return err
-			}
-		case inMsg != nil && elem.Message == nil:
-			// Typed text (SendText, TriggerStart) is a whole user turn: no
-			// turn detector will end it, since it never passed through one.
-			next, err := s.fireIfPending(ctx, canceller.context(), &history, append(pending, *inMsg), output)
-			if err != nil {
-				return err
-			}
-			pending = next
-		case inMsg != nil:
-			pending = append(pending, *inMsg)
-		default:
-			// Stray content passes through unchanged.
-			if err := sendStreamElement(ctx, elem, output); err != nil {
-				return err
-			}
 		}
+		pending = next
 	}
 
 	// Input closed without an explicit EndOfStream: fire any trailing turn.
 	_, err := s.fireIfPending(ctx, canceller.context(), &history, pending, output)
 	return err
+}
+
+// streamingStep handles one input element of the continuous mode and returns
+// the pending input after it. stop is set when the session is over.
+func (s *ProviderStage) streamingStep(
+	ctx context.Context,
+	canceller *turnCanceller,
+	history *[]types.Message,
+	pending []types.Message,
+	elem StreamElement,
+	output chan<- StreamElement,
+) (next []types.Message, stop bool, err error) {
+	inMsg := inputMessage(&elem)
+	switch {
+	case elem.Interrupt:
+		// Barge-in: in-flight generation was already canceled out of band by
+		// the reader. Drop the partial turn's input, roll a fresh context,
+		// and forward the Interrupt downstream.
+		canceller.refresh()
+		return nil, false, sendStreamElement(ctx, elem, output)
+	case elem.EndOfTurn:
+		next, err = s.fireIfPending(ctx, canceller.context(), history, pending, output)
+		return next, false, err
+	case elem.EndOfStream:
+		// Session over: fire any partial turn, then stop. Closing output
+		// downstream signals end-of-conversation to the next stages.
+		_, err = s.fireIfPending(ctx, canceller.context(), history, pending, output)
+		return nil, true, err
+	case isTurnFailureSignal(&elem):
+		// An upstream stage failed the turn in progress. Its input is
+		// incomplete, so it is not fired when the input then ends.
+		return nil, false, sendStreamElement(ctx, elem, output)
+	case inMsg != nil && elem.Message == nil:
+		// Typed text (SendText, TriggerStart) is a whole user turn: no
+		// turn detector will end it, since it never passed through one.
+		next, err = s.fireIfPending(ctx, canceller.context(), history, append(pending, *inMsg), output)
+		return next, false, err
+	case inMsg != nil:
+		return append(pending, *inMsg), false, nil
+	default:
+		// Stray content passes through unchanged.
+		return pending, false, sendStreamElement(ctx, elem, output)
+	}
 }
 
 // fireIfPending fires a streaming turn when there is buffered input, returning
