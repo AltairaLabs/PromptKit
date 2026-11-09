@@ -122,3 +122,13 @@ func TestRegisterToolsForState_NilState(t *testing.T) {
 	assert.Nil(t, tool)
 }
 
+func TestRegisterTools_IsNoOp(t *testing.T) {
+	cap := NewWorkflowCapability()
+	registry := tools.NewRegistry()
+
+	// RegisterTools at conversation level is a no-op
+	cap.RegisterTools(registry)
+
+	assert.Equal(t, map[string]*tools.ToolDescriptor{}, registry.GetTools(),
+		"the transition tool is registered per state, never at conversation level")
+}

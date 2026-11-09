@@ -122,7 +122,9 @@ func TestContract_CompactionRunsOncePerProviderRound(t *testing.T) {
 
 			// Compaction events are bus-async; wait for the expected count so
 			// the assertion reads the settled total, not a partial one.
-			p.WaitForCount(probes.Op("events."+string(events.EventContextCompacted)), toolRounds, time.Second)
+			require.True(t, p.WaitForCount(
+				probes.Op("events."+string(events.EventContextCompacted)), toolRounds, time.Second),
+				"the compactor ran fewer times than the tool loop has later rounds")
 			time.Sleep(50 * time.Millisecond)
 
 			contract.AssertHolds(t, p.Snapshot())
