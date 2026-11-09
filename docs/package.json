@@ -17,7 +17,7 @@
     "@astrojs/mdx": "^8.1.2",
     "@astrojs/sitemap": "^3.7.4",
     "@astrojs/starlight": "^0.42.8",
-    "astro": "^7.4.4",
+    "astro": "^7.4.7",
     "astro-d2": "^0.14.0",
     "mermaid": "^12.2.0",
     "starlight-llms-txt": "^0.12.0",
