@@ -814,7 +814,7 @@ store := NewRedisStore(
 ```
 
 <a name="RedisStore.AppendList"></a>
-### func \(\*RedisStore\) [AppendList](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L862>)
+### func \(\*RedisStore\) [AppendList](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L865>)
 
 ```go
 func (s *RedisStore) AppendList(ctx context.Context, id, listName string, items [][]byte) error
@@ -822,10 +822,10 @@ func (s *RedisStore) AppendList(ctx context.Context, id, listName string, items 
 
 AppendList appends opaque items to the named per\-conversation list using RPUSH. The list name is also recorded in a per\-conversation index set \(SADD\) so Delete can enumerate list keys without a SCAN. All commands run in a single pipeline; TTLs are refreshed on the list, the index set, and the meta key so that long\-running workflows that only append list entries don't expire prematurely.
 
-Auto\-creates the conversation if it doesn't exist — meta is touched on the next interaction \(or by an explicit Save\). No Save is required.
+Auto\-creates the conversation if it doesn't exist \(a minimal meta record, written only when absent\). No Save is required.
 
 <a name="RedisStore.AppendMessages"></a>
-### func \(\*RedisStore\) [AppendMessages](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1026>)
+### func \(\*RedisStore\) [AppendMessages](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1032>)
 
 ```go
 func (s *RedisStore) AppendMessages(ctx context.Context, id string, messages []types.Message) error
@@ -861,7 +861,7 @@ func (s *RedisStore) List(ctx context.Context, opts ListOptions) ([]string, erro
 List returns conversation IDs matching the given criteria.
 
 <a name="RedisStore.ListLen"></a>
-### func \(\*RedisStore\) [ListLen](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L939>)
+### func \(\*RedisStore\) [ListLen](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L945>)
 
 ```go
 func (s *RedisStore) ListLen(ctx context.Context, id, listName string) (int, error)
@@ -879,7 +879,7 @@ func (s *RedisStore) Load(ctx context.Context, id string) (*ConversationState, e
 Load retrieves a conversation state by ID from Redis. Tries the decomposed format \(meta key \+ messages list \+ summaries list\) first, then falls back to the legacy monolithic JSON string for backward compatibility.
 
 <a name="RedisStore.LoadList"></a>
-### func \(\*RedisStore\) [LoadList](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L901>)
+### func \(\*RedisStore\) [LoadList](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L907>)
 
 ```go
 func (s *RedisStore) LoadList(ctx context.Context, id, listName string) ([][]byte, error)
@@ -897,7 +897,7 @@ func (s *RedisStore) LoadMetadata(ctx context.Context, id string) (map[string]in
 LoadMetadata returns the user metadata map for the given conversation by reading the dedicated metadata hash. Returns ErrNotFound when the conversation doesn't exist \(matches MemoryStore.LoadMetadata\). Returns an empty \(or nil\) map when the conversation exists but has no metadata.
 
 <a name="RedisStore.LoadRecentMessages"></a>
-### func \(\*RedisStore\) [LoadRecentMessages](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L966>)
+### func \(\*RedisStore\) [LoadRecentMessages](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L972>)
 
 ```go
 func (s *RedisStore) LoadRecentMessages(ctx context.Context, id string, n int) ([]types.Message, error)
@@ -906,7 +906,7 @@ func (s *RedisStore) LoadRecentMessages(ctx context.Context, id string, n int) (
 LoadRecentMessages returns the last n messages using LRANGE on the messages list. Falls back to loading from the monolithic key if the list doesn't exist.
 
 <a name="RedisStore.LoadSummaries"></a>
-### func \(\*RedisStore\) [LoadSummaries](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1129>)
+### func \(\*RedisStore\) [LoadSummaries](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1135>)
 
 ```go
 func (s *RedisStore) LoadSummaries(ctx context.Context, id string) ([]Summary, error)
@@ -915,7 +915,7 @@ func (s *RedisStore) LoadSummaries(ctx context.Context, id string) ([]Summary, e
 LoadSummaries returns all summaries for the conversation.
 
 <a name="RedisStore.LogAppend"></a>
-### func \(\*RedisStore\) [LogAppend](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1403-L1405>)
+### func \(\*RedisStore\) [LogAppend](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1426-L1428>)
 
 ```go
 func (s *RedisStore) LogAppend(ctx context.Context, id string, startSeq int, messages []types.Message) (int, error)
@@ -924,7 +924,7 @@ func (s *RedisStore) LogAppend(ctx context.Context, id string, startSeq int, mes
 LogAppend appends messages with sequence\-based idempotent deduplication. The on\-disk layout matches what Save writes \(a Redis list at messagesKey\(id\)\) so messages persisted via the tool\-loop write\-through path are loaded back transparently by Load. A minimal meta stub is written via SETNX so a subsequent Load\(id\) does not return ErrNotFound after a crash recovery before the end\-of\-turn Save has run; the next Save overwrites it.
 
 <a name="RedisStore.LogLen"></a>
-### func \(\*RedisStore\) [LogLen](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1473>)
+### func \(\*RedisStore\) [LogLen](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1496>)
 
 ```go
 func (s *RedisStore) LogLen(ctx context.Context, id string) (int, error)
@@ -933,7 +933,7 @@ func (s *RedisStore) LogLen(ctx context.Context, id string) (int, error)
 LogLen returns the message count for the conversation, or 0 if absent.
 
 <a name="RedisStore.LogLoad"></a>
-### func \(\*RedisStore\) [LogLoad](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1456>)
+### func \(\*RedisStore\) [LogLoad](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1479>)
 
 ```go
 func (s *RedisStore) LogLoad(ctx context.Context, id string, recent int) ([]types.Message, error)
@@ -951,7 +951,7 @@ func (s *RedisStore) MergeMetadata(ctx context.Context, id string, updates map[s
 MergeMetadata writes the supplied keys into the conversation's metadata hash via a single HMSET. Each Redis hash field write is server\-atomic, so concurrent MergeMetadata calls on the same conversation need no WATCH/MULTI/EXEC and no retry loop. Updates the meta\-key TTL too so metadata\-only writes count as activity for retention purposes.
 
 <a name="RedisStore.MessageCount"></a>
-### func \(\*RedisStore\) [MessageCount](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L998>)
+### func \(\*RedisStore\) [MessageCount](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1004>)
 
 ```go
 func (s *RedisStore) MessageCount(ctx context.Context, id string) (int, error)
@@ -969,7 +969,7 @@ func (s *RedisStore) Save(ctx context.Context, state *ConversationState) error
 Save persists a conversation state to Redis using decomposed keys. Metadata is stored in a meta key, messages in a Redis list, and summaries in a separate list. Messages use append\-only delta writes: only new messages \(beyond what is already stored\) are RPUSHed, avoiding the cost of DEL\+RPUSH for the entire list on every save. If the message count in Redis exceeds the local count \(e.g., external truncation\), a full rewrite is performed.
 
 <a name="RedisStore.SaveSummary"></a>
-### func \(\*RedisStore\) [SaveSummary](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1169>)
+### func \(\*RedisStore\) [SaveSummary](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1175>)
 
 ```go
 func (s *RedisStore) SaveSummary(ctx context.Context, id string, summary Summary) error

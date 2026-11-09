@@ -66,7 +66,7 @@ func TestStore_Delete(t *testing.T) {
 
 func TestStore_Delete_Missing(t *testing.T) {
 	s := newTestStore(t)
-	require.NoError(t, s.Delete(context.Background(), "missing"))
+	assert.ErrorIs(t, s.Delete(context.Background(), "missing"), statestore.ErrNotFound)
 }
 
 func TestStore_Delete_InvalidID(t *testing.T) {
@@ -165,6 +165,7 @@ func TestStore_TTLSweep_NoTTL_KeepsEverything(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, s.Save(ctx, &statestore.ConversationState{ID: "x"}))
 	require.NoError(t, s.sweepStale(time.Now()))
-	_, err := s.Load(ctx, "x")
+	got, err := s.Load(ctx, "x")
 	require.NoError(t, err)
+	assert.Equal(t, "x", got.ID)
 }

@@ -1883,9 +1883,15 @@ func TestRedisStore_AppendMessages_EmptySlice(t *testing.T) {
 	store, _ := setupRedisStore(t)
 	ctx := context.Background()
 
-	// Append empty messages — rpushMessages returns nil early
-	err := store.AppendMessages(ctx, "conv-empty-append", []types.Message{})
+	require.NoError(t, store.AppendMessages(ctx, "conv-empty-append",
+		[]types.Message{{Role: "user", Content: "kept"}}))
+
+	// An empty append succeeds and leaves the history unchanged.
+	require.NoError(t, store.AppendMessages(ctx, "conv-empty-append", []types.Message{}))
+	msgs, err := store.LoadRecentMessages(ctx, "conv-empty-append", 10)
 	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "kept", msgs[0].Content)
 }
 
 func TestRedisStore_List_SortError(t *testing.T) {

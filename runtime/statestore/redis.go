@@ -836,6 +836,9 @@ func (s *RedisStore) MergeMetadata(ctx context.Context, id string, updates map[s
 	}
 
 	pipe := s.client.Pipeline()
+	if err := s.createMetaIfMissing(ctx, pipe, id); err != nil {
+		return err
+	}
 	pipe.HSet(ctx, s.metadataKey(id), fields)
 	if s.ttl > 0 {
 		pipe.Expire(ctx, s.metadataKey(id), s.ttl)
@@ -857,8 +860,8 @@ func (s *RedisStore) MergeMetadata(ctx context.Context, id string, updates map[s
 // set, and the meta key so that long-running workflows that only append
 // list entries don't expire prematurely.
 //
-// Auto-creates the conversation if it doesn't exist — meta is touched on
-// the next interaction (or by an explicit Save). No Save is required.
+// Auto-creates the conversation if it doesn't exist (a minimal meta record,
+// written only when absent). No Save is required.
 func (s *RedisStore) AppendList(ctx context.Context, id, listName string, items [][]byte) error {
 	if id == "" {
 		return ErrInvalidID
@@ -879,6 +882,9 @@ func (s *RedisStore) AppendList(ctx context.Context, id, listName string, items 
 	indexK := s.listsIndexKey(id)
 
 	pipe := s.client.Pipeline()
+	if err := s.createMetaIfMissing(ctx, pipe, id); err != nil {
+		return err
+	}
 	pipe.RPush(ctx, listK, args...)
 	pipe.SAdd(ctx, indexK, listName)
 	if s.ttl > 0 {
@@ -1178,6 +1184,9 @@ func (s *RedisStore) SaveSummary(ctx context.Context, id string, summary Summary
 	}
 
 	pipe := s.client.Pipeline()
+	if err := s.createMetaIfMissing(ctx, pipe, id); err != nil {
+		return err
+	}
 	pipe.RPush(ctx, key, data)
 	if s.ttl > 0 {
 		pipe.Expire(ctx, key, s.ttl)
@@ -1187,6 +1196,20 @@ func (s *RedisStore) SaveSummary(ctx context.Context, id string, summary Summary
 		return fmt.Errorf("redis pipeline failed: %w", err)
 	}
 
+	return nil
+}
+
+// createMetaIfMissing queues a SET NX of a minimal meta record on pipe. A
+// typed write that is the first touch of a conversation must create it, as
+// the interfaces document: without a meta key, Load, Delete and the list
+// reads all report the conversation as not found. An existing meta key is
+// left as it is.
+func (s *RedisStore) createMetaIfMissing(ctx context.Context, pipe redis.Pipeliner, id string) error {
+	data, err := json.Marshal(redisStateMeta{ID: id, LastAccessedAt: time.Now()})
+	if err != nil {
+		return fmt.Errorf(errMarshalMeta, err)
+	}
+	pipe.SetNX(ctx, s.metaKey(id), data, s.ttl)
 	return nil
 }
 
