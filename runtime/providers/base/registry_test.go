@@ -88,10 +88,14 @@ func TestBaseRegistry_InitAllAndCloseAllReachEveryProvider(t *testing.T) {
 	require.NoError(t, r.Register(a))
 	require.NoError(t, r.Register(b))
 
-	require.NoError(t, r.InitAll(context.Background()))
-	require.NoError(t, r.CloseAll())
+	initErr := r.InitAll(context.Background())
+	closeErr := r.CloseAll()
 
-	assert.Equal(t, []int{1, 1, 1, 1}, []int{a.inits, b.inits, a.closes, b.closes})
+	assert.Equal(t, [2]error{nil, nil}, [2]error{initErr, closeErr})
+	assert.Equal(t, 1, a.inits, "a initialized once")
+	assert.Equal(t, 1, b.inits, "b initialized once")
+	assert.Equal(t, 1, a.closes, "a closed once")
+	assert.Equal(t, 1, b.closes, "b closed once")
 }
 
 func TestBaseRegistry_InitAllReturnsTheFailingProvider(t *testing.T) {
