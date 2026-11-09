@@ -30,7 +30,13 @@
 #                   installed at the pinned version into a temp GOBIN).
 #   MUTATION_WORKERS    parallel mutants per package (default 4; each worker
 #                   copies the module, so more is not faster on a laptop).
-set -euo pipefail
+set -Eeuo pipefail
+
+# Every failure says why. A command that fails with no message of its own
+# (a jq parse, a git plumbing call) would otherwise end the gate with only an
+# exit code; -E carries this into functions and command substitutions.
+# shellcheck disable=SC2154 # rc is assigned inside the trap string
+trap 'rc=$?; echo "FAIL: ${BASH_SOURCE[0]##*/} line ${LINENO}: \`${BASH_COMMAND}\` exited ${rc}" >&2' ERR
 
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 
@@ -57,12 +63,18 @@ if [ -z "${GREMLINS:-}" ]; then
   if command -v gremlins >/dev/null 2>&1; then
     GREMLINS="$(command -v gremlins)"
   else
-    env GOBIN="${tmp}/bin" go install "github.com/go-gremlins/gremlins/cmd/gremlins@${GREMLINS_VERSION}"
+    env GOBIN="${tmp}/bin" go install "github.com/go-gremlins/gremlins/cmd/gremlins@${GREMLINS_VERSION}" ||
+      { echo "FAIL: could not install gremlins ${GREMLINS_VERSION} (output above)" >&2; exit 1; }
     GREMLINS="${tmp}/bin/gremlins"
   fi
 fi
 
-MERGE_BASE="$(git -C "${ROOT}" merge-base HEAD "${BASE}")"
+# merge-base prints nothing when the two commits share no history (a shallow
+# clone), so say what was looked for.
+MERGE_BASE="$(git -C "${ROOT}" merge-base HEAD "${BASE}")" || {
+  echo "FAIL: no merge base between HEAD and ${BASE}: is ${BASE} fetched, with full history (fetch-depth: 0)?" >&2
+  exit 1
+}
 
 # Changed non-test Go source, minus what has no tests of its own to judge:
 # testdata, nested example modules, generated code.
@@ -115,6 +127,16 @@ modfile_flags() {
   echo " -modfile=${dir}/go.mod"
 }
 
+# show_log prints a gremlins log to stderr: its test failures and errors
+# first, since chatty test output can push them out of the tail, then the
+# last 200 lines.
+show_log() {
+  echo "Failures and errors in the gremlins output:" >&2
+  grep -E -- '^(--- FAIL|FAIL|panic:|ERROR:)' "$1" >&2 || echo "  (none)" >&2
+  echo "Last 200 lines of the gremlins output:" >&2
+  tail -n 200 "$1" >&2
+}
+
 files="$(changed_files)"
 if [ -z "${files}" ]; then
   echo "OK:   no changed non-test Go source in ${MODULES}; nothing to mutate."
@@ -130,9 +152,13 @@ for pkg in ${pkgs}; do
   flags="$(modfile_flags "${mod}")" || { echo "FAIL: could not rewrite ${mod}/go.mod replaces" >&2; exit 1; }
   n=$((n + 1))
   out="${tmp}/result-${n}.json"
+  log="${tmp}/gremlins-${n}.log"
   echo "---- ${pkg}"
+  # Not --silent: that also hides the output of gremlins' coverage run, so a
+  # failing test ended the gate with only "impossible to executeCoverage".
+  # The log is printed when gremlins fails.
   args=(unleash --diff "${MERGE_BASE}" --invert-logical --exclude-files '/'
-    --timeout-coefficient "${TIMEOUT_COEFFICIENT}" --output "${out}" --silent)
+    --timeout-coefficient "${TIMEOUT_COEFFICIENT}" --output "${out}")
   args+=(--workers "${MUTATION_WORKERS:-4}")
   # diff.relative makes gremlins' own `git diff` name files relative to the
   # package dir, the same form it uses for the files it walks; without it no
@@ -148,11 +174,28 @@ for pkg in ${pkgs}; do
     env GOWORK=off GOFLAGS="-count=1 -trimpath${flags}" \
       GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.relative GIT_CONFIG_VALUE_0=true \
       "${GREMLINS}" "${args[@]}" "${ROOT}/${pkg}"
-  ) || { echo "FAIL: gremlins failed on ${pkg} (are its tests green?)" >&2; exit 1; }
-  # gremlins writes no report for a package with no mutable tokens on any line.
-  [ -f "${out}" ] || continue
+  ) > "${log}" 2>&1 || {
+    # Its coverage run tests ./... under the package dir with GOWORK=off and
+    # -trimpath, so a test can fail here that passes in the Test job.
+    echo "FAIL: gremlins failed on ${pkg}." >&2
+    show_log "${log}"
+    exit 1
+  }
+  # gremlins writes no report for a package with no mutable tokens on any
+  # line, and says so. Any other missing report is a failure: gremlins logs a
+  # report it could not write and still exits 0.
+  if [ ! -f "${out}" ]; then
+    grep -q 'No results to report' "${log}" && continue
+    echo "FAIL: gremlins wrote no report for ${pkg} (${out})." >&2
+    show_log "${log}"
+    exit 1
+  fi
   jq -r --arg pkg "${pkg}" '.files[]? as $f | $f.mutations[]?
-    | "\(.status)\t\($pkg)/\($f.file_name):\(.line):\(.column)\t\(.type)"' "${out}" >> "${tmp}/mutants.tsv"
+    | "\(.status)\t\($pkg)/\($f.file_name):\(.line):\(.column)\t\(.type)"' "${out}" >> "${tmp}/mutants.tsv" || {
+    echo "FAIL: could not read the gremlins report for ${pkg} (${out})." >&2
+    show_log "${log}"
+    exit 1
+  }
 done
 elapsed=$(($(date +%s) - start))
 
