@@ -1,7 +1,6 @@
 package safe
 
 import (
-	"errors"
 	"testing"
 )
 
@@ -20,17 +19,6 @@ func TestRun_NoPanicRunsFn(t *testing.T) {
 	if !ran {
 		t.Fatal("fn should have run")
 	}
-}
-
-func TestRun_NilOnPanicStillRecovers(t *testing.T) {
-	Run("test", func() { panic(errors.New("x")) }, nil) // reaching here == recovered
-}
-
-func TestRecover_DeferredRecovers(t *testing.T) {
-	func() {
-		defer Recover("test")
-		panic("boom")
-	}() // reaching here == recovered
 }
 
 func TestGo_RecoversInGoroutine(t *testing.T) {

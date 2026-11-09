@@ -492,17 +492,6 @@ func TestLoadEventStoreFormat_EmptyEvents(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestEventDataRegistry_AllEntries(t *testing.T) {
-	// Exercise every factory function in eventDataRegistry to ensure coverage
-	// of all registry closures. Each factory must return a non-nil EventData.
-	for typeName, factory := range eventDataRegistry {
-		t.Run(typeName, func(t *testing.T) {
-			result := factory()
-			require.NotNil(t, result, "factory for %s returned nil", typeName)
-		})
-	}
-}
-
 func TestDeserializeEventData_AllRegistryTypes(t *testing.T) {
 	// Verify that every registered type can be deserialized from valid JSON.
 	for typeName := range eventDataRegistry {

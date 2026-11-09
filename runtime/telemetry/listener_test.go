@@ -14,6 +14,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // newTestListener returns a listener, in-memory exporter, and TracerProvider for tests.
@@ -647,28 +649,36 @@ func TestOTelEventListener_ParentTraceContext(t *testing.T) {
 }
 
 func TestOTelEventListener_EndSession_Idempotent(t *testing.T) {
-	listener, _, tp := newTestListener(t)
+	listener, exp, tp := newTestListener(t)
 	defer func() { _ = tp.Shutdown(context.Background()) }()
 
 	listener.StartSession(context.Background(), "sess-1")
 	listener.EndSession("sess-1")
-	// Second call should not panic.
+	// A second EndSession neither panics nor ends a second span.
 	listener.EndSession("sess-1")
+
+	spans := flushAndGetSpans(t, tp, exp)
+	require.Len(t, spans, 1)
+	assert.Equal(t, "promptkit invoke_agent", spans[0].Name)
 }
 
 func TestOTelEventListener_UnknownEventType(t *testing.T) {
-	listener, _, tp := newTestListener(t)
+	listener, exp, tp := newTestListener(t)
 	defer func() { _ = tp.Shutdown(context.Background()) }()
 
 	listener.StartSession(context.Background(), "sess-1")
 
-	// Should not panic on unhandled event types.
+	// An event type the listener does not trace is ignored: no span, no panic.
 	listener.OnEvent(&events.Event{
 		Type:      events.EventConversationStarted,
 		SessionID: "sess-1", ExecutionID: "run-1",
 	})
 
 	listener.EndSession("sess-1")
+
+	spans := flushAndGetSpans(t, tp, exp)
+	require.Len(t, spans, 1)
+	assert.Equal(t, "promptkit invoke_agent", spans[0].Name)
 }
 
 func TestOTelEventListener_SpanAttributes(t *testing.T) {
@@ -1278,11 +1288,11 @@ func TestOTelEventListener_SessionNoAgentInfo(t *testing.T) {
 func TestOTelEventListener_Close(t *testing.T) {
 	listener, _, _ := newTestListener(t)
 
-	// Close should stop the cleanup goroutine.
-	listener.Close()
-
-	// Double close should be a no-op (not panic).
-	listener.Close()
+	// Close stops the cleanup goroutine; a second Close is a no-op.
+	require.NotPanics(t, func() {
+		listener.Close()
+		listener.Close()
+	})
 }
 
 func TestOTelEventListener_CompositionSpans(t *testing.T) {

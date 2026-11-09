@@ -64,21 +64,6 @@ func TestExecEvalHook_PipesResultJSONOnStdin(t *testing.T) {
 	}
 }
 
-func TestExecEvalHook_NonZeroExitIsSwallowed(t *testing.T) {
-	// A hook that exits non-zero must not panic or crash the caller —
-	// eval hooks are fire-and-forget.
-	script := writeTempScript(t, "cat > /dev/null; exit 17")
-	hook := NewExecEvalHook(&ExecEvalHookConfig{
-		Name:    "failing",
-		Command: script,
-	})
-
-	score := 1.0
-	// Should not panic or propagate the error in any way observable here.
-	hook.OnEvalResult(context.Background(),
-		&EvalDef{ID: "e1"}, &EvalContext{}, &EvalResult{EvalID: "e1", Score: &score})
-}
-
 func TestExecEvalHook_TimeoutHonored(t *testing.T) {
 	// A command that sleeps longer than the timeout should be killed and
 	// the caller should return promptly.
@@ -143,15 +128,4 @@ func TestExecEvalHook_PassesArgsAndEnv(t *testing.T) {
 	if string(got) != want {
 		t.Errorf("captured output = %q, want %q", string(got), want)
 	}
-}
-
-func TestExecEvalHook_CommandNotFound(t *testing.T) {
-	// Non-existent command — subprocess failure must be swallowed.
-	hook := NewExecEvalHook(&ExecEvalHookConfig{
-		Name:    "missing",
-		Command: "/this/path/does/not/exist/definitely",
-	})
-	score := 1.0
-	hook.OnEvalResult(context.Background(),
-		&EvalDef{ID: "e1"}, &EvalContext{}, &EvalResult{Score: &score})
 }

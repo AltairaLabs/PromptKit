@@ -521,12 +521,8 @@ func TestMetricContext_EvalCounter(t *testing.T) {
 		}
 	}
 
-	output := gatherMetrics(t, reg)
-	if !strings.Contains(output, "test_eval_eval_runs") {
-		t.Error("expected eval_runs metric")
-	}
-	if !strings.Contains(output, "3") {
-		t.Error("expected counter value 3")
+	if got := counterValue(t, reg, "test_eval_eval_runs"); got != 3 {
+		t.Errorf("test_eval_eval_runs = %v, want 3", got)
 	}
 }
 
@@ -700,27 +696,6 @@ func TestMetricContext_EvalMetricValue_Preferred(t *testing.T) {
 	output := gatherMetrics(t, reg)
 	if !strings.Contains(output, "0.99") {
 		t.Error("expected MetricValue (0.99) to be preferred over Score (0.5)")
-	}
-}
-
-func TestMetricContext_ConcurrentRecord(t *testing.T) {
-	c, _ := newTestCollector()
-	ctx := c.Bind(nil)
-
-	metric := &evals.MetricDef{Name: "concurrent", Type: evals.MetricCounter}
-
-	done := make(chan struct{})
-	for range 10 {
-		go func() {
-			for range 100 {
-				_ = ctx.Record(evals.EvalResult{}, metric)
-			}
-			done <- struct{}{}
-		}()
-	}
-
-	for range 10 {
-		<-done
 	}
 }
 

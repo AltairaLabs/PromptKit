@@ -55,8 +55,13 @@ func getCommitFromBuildInfo() string {
 	if !ok {
 		return ""
 	}
+	return commitFromSettings(info.Settings)
+}
 
-	for _, setting := range info.Settings {
+// commitFromSettings returns the short vcs.revision from build settings, or
+// "" when none is recorded.
+func commitFromSettings(settings []debug.BuildSetting) string {
+	for _, setting := range settings {
 		if setting.Key == vcsRevisionKey && setting.Value != "" {
 			return setting.Value[:min(shortCommitLen, len(setting.Value))]
 		}
@@ -70,8 +75,12 @@ func isDirtyFromBuildInfo() bool {
 	if !ok {
 		return false
 	}
+	return dirtyFromSettings(info.Settings)
+}
 
-	for _, setting := range info.Settings {
+// dirtyFromSettings reports whether build settings record vcs.modified=true.
+func dirtyFromSettings(settings []debug.BuildSetting) bool {
+	for _, setting := range settings {
 		if setting.Key == vcsModifiedKey && setting.Value == "true" {
 			return true
 		}
