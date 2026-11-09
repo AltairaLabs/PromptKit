@@ -64,3 +64,32 @@ func TestReadFragmentFile_EscapeIsNotFoundOnlyForWorkingDirFallback(t *testing.T
 		})
 	}
 }
+
+// A link that already points outside when the lookup starts is refused the
+// same way as one swapped in: ErrFragmentPathOutsideBase, which only the
+// working-directory fallback also reports as not found.
+func TestReadFragmentFile_StaticLinkOutMatchesTheSwappedOne(t *testing.T) {
+	for _, useBaseDir := range []bool{true, false} {
+		t.Run(map[bool]string{true: "against baseDir", false: "working-directory fallback"}[useBaseDir], func(t *testing.T) {
+			base, _, outside := fragmentReadFixture(t)
+			if err := os.Symlink(outside, filepath.Join(base, "fragments", "out.yaml")); err != nil {
+				t.Skipf("os.Symlink: %v", err)
+			}
+			baseDir := filepath.Join(base, "prompts")
+			if !useBaseDir {
+				t.Chdir(baseDir)
+				baseDir = ""
+			}
+			data, _, err := ReadFragmentFile(base, "out", "../fragments/out.yaml", baseDir, ".yaml")
+			if string(data) == "SECRET" {
+				t.Fatal("followed the link out of the base")
+			}
+			if !errors.Is(err, persistence.ErrFragmentPathOutsideBase) {
+				t.Fatalf("err = %v, want ErrFragmentPathOutsideBase", err)
+			}
+			if got := errors.Is(err, fs.ErrNotExist); got == useBaseDir {
+				t.Errorf("errors.Is(err, fs.ErrNotExist) = %v for useBaseDir %v (err: %v)", got, useBaseDir, err)
+			}
+		})
+	}
+}

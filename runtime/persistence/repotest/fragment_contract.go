@@ -81,6 +81,11 @@ type Check struct {
 //     there. An absolute path is the config's to choose;
 //   - so is a path whose file is a symlink pointing outside the root, while a
 //     symlink that stays inside the root is followed;
+//   - a baseDir reached through a symlinked directory is that directory: its
+//     relative paths, their leading "../" and an absolute link written through
+//     the symlinked path all read the files it holds. Where the anchor a path
+//     may reach really is is settled once per lookup, and the read stays
+//     there;
 //   - a repository that cannot honor a path (the in-memory one) says so with
 //     persistence.ErrFragmentPathUnsupported on every path lookup, and never
 //     answers one by name.
@@ -144,6 +149,7 @@ func Checks() []Check {
 		{Name: "relative path climbing past its start is an error", Run: checkPathOutsideRoot},
 		{Name: "symlink out of the root is an error", Run: checkSymlinkOutOfRoot},
 		{Name: "symlink within the root resolves", Run: checkSymlinkWithinRoot},
+		{Name: "baseDir through a symlinked directory resolves", Run: checkBaseDirThroughSymlink},
 	}
 }
 
@@ -244,6 +250,33 @@ func checkSymlinkWithinRoot(repo prompt.FragmentRepository, root string) error {
 		return fmt.Errorf("%w: os.Symlink: %v", ErrCheckSkipped, err)
 	}
 	return wantPathContent(repo, filepath.Join("..", "fragments", "inside.yaml"), filepath.Join(root, "a"), underB)
+}
+
+// checkBaseDirThroughSymlink reaches the root through a symlink next to it,
+// as a pack directory linked from elsewhere is reached. Relative paths under
+// it, a leading climb, and an absolute link written through the symlinked
+// path all load the root's files.
+func checkBaseDirThroughSymlink(repo prompt.FragmentRepository, root string) error {
+	linked := filepath.Join(filepath.Dir(root), filepath.Base(root)+"-linked-dir")
+	if err := os.Symlink(root, linked); err != nil {
+		return fmt.Errorf("%w: os.Symlink: %v", ErrCheckSkipped, err)
+	}
+	defer func() { _ = os.Remove(linked) }()
+	alias := filepath.Join(root, "fragments", "via-linked-dir.yaml")
+	if err := os.Symlink(filepath.Join(linked, "b", fragmentFile), alias); err != nil {
+		return fmt.Errorf("%w: os.Symlink: %v", ErrCheckSkipped, err)
+	}
+	cases := []struct{ path, baseDir, want string }{
+		{fragmentFile, filepath.Join(linked, "a"), underA},
+		{filepath.Join("..", fragmentFile), filepath.Join(linked, "a", "prompts"), underA},
+		{filepath.Join("..", "fragments", "via-linked-dir.yaml"), filepath.Join(linked, "a"), underB},
+	}
+	for _, c := range cases {
+		if err := wantPathContent(repo, c.path, c.baseDir, c.want); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // lookup describes one LoadFragment call, for error messages.
