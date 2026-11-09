@@ -3,6 +3,10 @@ package base_test
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"testing"
@@ -101,12 +105,36 @@ func TestAPIKeyFromCredential_APIKeyType(t *testing.T) {
 	assert.Equal(t, "secret-123", base.APIKeyFromCredential(cred))
 }
 
-func TestResolveCredential_NilConfigPassesThrough(t *testing.T) {
-	// ResolveCredential delegates to credentials.Resolve; with a nil config
-	// the resolver returns a NoOpCredential rather than an error.
+// ResolveCredential passes the provider type and config dir through to the
+// resolver: a relative credential_file is read from cfgDir, and the provider
+// type picks the header the key is sent in.
+func TestResolveCredential_PassesProviderTypeAndConfigDir(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "key.txt"), []byte("sk-from-file\n"), 0o600))
+
+	got, err := base.ResolveCredential(context.Background(), "claude", dir,
+		&credentials.CredentialConfig{CredentialFile: "key.txt"})
+	require.NoError(t, err)
+	assert.Equal(t, "sk-from-file", base.APIKeyFromCredential(got))
+
+	req := httptest.NewRequest(http.MethodPost, "https://api.anthropic.com/v1/messages", http.NoBody)
+	require.NoError(t, got.Apply(context.Background(), req))
+	assert.Equal(t, "sk-from-file", req.Header.Get("X-API-Key"))
+	assert.Empty(t, req.Header.Get("Authorization"))
+}
+
+// With no config and no default env var set, the credential sends nothing.
+func TestResolveCredential_NoConfigNoEnvSendsNoAuth(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("OPENAI_TOKEN", "")
+
 	got, err := base.ResolveCredential(context.Background(), "openai", "", nil)
 	require.NoError(t, err)
-	assert.NotNil(t, got)
+	assert.Equal(t, "none", got.Type())
+
+	req := httptest.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", http.NoBody)
+	require.NoError(t, got.Apply(context.Background(), req))
+	assert.Empty(t, req.Header)
 }
 
 // tunableService records the tuning applied to it.

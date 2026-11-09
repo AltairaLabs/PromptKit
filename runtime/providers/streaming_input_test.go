@@ -244,11 +244,9 @@ func TestBargeInSignal(t *testing.T) {
 	}
 }
 
-func TestMockStreamSession(t *testing.T) {
-	t.Run("implements StreamInputSession", func(t *testing.T) {
-		var _ StreamInputSession = (*MockStreamSession)(nil)
-	})
+var _ StreamInputSession = (*MockStreamSession)(nil)
 
+func TestMockStreamSession(t *testing.T) {
 	t.Run("sends chunks", func(t *testing.T) {
 		session := NewMockStreamSession()
 		defer session.Close()

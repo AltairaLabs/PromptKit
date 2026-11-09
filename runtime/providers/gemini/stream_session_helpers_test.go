@@ -2,8 +2,14 @@ package gemini
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -20,17 +26,113 @@ func TestSendSystemContext_NilSession(t *testing.T) {
 	}
 }
 
-func TestEndInput_SilenceFrames(t *testing.T) {
-	// This tests the logic of EndInput without needing a real WebSocket
-	// The function should create and send silence frames
+// recordLiveClient runs a Live API stand-in that completes setup and then
+// forwards every client message, raw, until the client sends the text "done".
+func recordLiveClient(t *testing.T) (wsURL string, msgs <-chan []string) {
+	t.Helper()
+	out := make(chan []string, 1)
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		replySetupComplete(t, conn)
+		var got []string
+		for {
+			_, data, err := conn.ReadMessage()
+			if err != nil {
+				out <- got
+				return
+			}
+			if strings.Contains(string(data), `"done"`) {
+				out <- got
+				return
+			}
+			got = append(got, string(data))
+		}
+	}))
+	t.Cleanup(server.Close)
+	return "ws" + strings.TrimPrefix(server.URL, "http"), out
+}
 
-	// We can't easily test this without mocking, but we can at least
-	// verify the function exists and can be called
-	// (coverage will increase from actually calling it)
+// liveMessageKind names a client message by what the Live API sees.
+func liveMessageKind(t *testing.T, raw string) string {
+	t.Helper()
+	var m map[string]map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		t.Fatalf("client sent non-JSON %q: %v", raw, err)
+	}
+	// The Live API parses proto3 JSON, which accepts both field spellings;
+	// the session sends audio as realtimeInput and activity signals as
+	// realtime_input.
+	ri, ok := m["realtimeInput"]
+	if !ok {
+		if ri, ok = m["realtime_input"]; !ok {
+			return raw
+		}
+	}
+	for _, k := range []string{"activityStart", "activityEnd"} {
+		if _, ok := ri[k]; ok {
+			return k
+		}
+	}
+	return "audio"
+}
 
-	// Note: In a real test environment, this would need a mock WebSocket
-	// For now, we're documenting that this method needs integration testing
-	t.Skip("EndInput requires WebSocket connection - needs integration test")
+// EndInput is the turn boundary in manual turn control (VAD disabled): it
+// sends activityEnd, and the next turn's first audio is preceded by a fresh
+// activityStart. With automatic activity detection it sends nothing, because
+// the API rejects activity signals in that mode.
+func TestEndInput_WireMessagesPerTurnControlMode(t *testing.T) {
+	audio := &types.MediaChunk{Data: make([]byte, 320), Timestamp: time.Now()}
+	cases := []struct {
+		name string
+		vad  *VADConfig
+		want []string
+	}{
+		{"manual", &VADConfig{Disabled: true},
+			[]string{"activityStart", "audio", "audio", "activityEnd", "activityStart", "audio"}},
+		{"automatic", nil, []string{"audio", "audio", "audio"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			url, msgs := recordLiveClient(t)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			s, err := NewStreamSession(ctx, url, "k", &StreamSessionConfig{VAD: tc.vad})
+			if err != nil {
+				t.Fatalf("NewStreamSession: %v", err)
+			}
+			defer s.Close()
+
+			for _, step := range []func() error{
+				func() error { return s.SendChunk(ctx, audio) },
+				func() error { return s.SendChunk(ctx, audio) },
+				func() error { s.EndInput(); return nil },
+				func() error { return s.SendChunk(ctx, audio) },
+				func() error { return s.SendText(ctx, "done") },
+			} {
+				if err := step(); err != nil {
+					t.Fatalf("send: %v", err)
+				}
+			}
+
+			var got []string
+			select {
+			case raw := <-msgs:
+				for _, m := range raw {
+					got = append(got, liveMessageKind(t, m))
+				}
+			case <-ctx.Done():
+				t.Fatal("server never saw the end marker")
+			}
+			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+				t.Errorf("client messages = %v, want %v", got, tc.want)
+			}
+		})
+	}
 }
 
 func TestBuildTextMessage_TurnComplete(t *testing.T) {

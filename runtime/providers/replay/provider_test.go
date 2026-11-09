@@ -231,15 +231,6 @@ func TestProvider_CalculateCost(t *testing.T) {
 	assert.Equal(t, 0.0, cost.TotalCost) // Replays are free
 }
 
-func TestProvider_Close(t *testing.T) {
-	rec := createTestRecording(t, 1)
-	p, err := NewProvider(rec, nil)
-	require.NoError(t, err)
-
-	err = p.Close()
-	assert.NoError(t, err)
-}
-
 func TestProvider_TimingInstant(t *testing.T) {
 	rec := createTestRecording(t, 2)
 	cfg := &Config{Timing: TimingInstant}
@@ -478,13 +469,12 @@ func TestCreateProviderFromSpec(t *testing.T) {
 }
 
 func TestProvider_GetMetadata(t *testing.T) {
-	t.Run("returns empty metadata when none configured", func(t *testing.T) {
+	t.Run("returns only the session id when none configured", func(t *testing.T) {
 		rec := createTestRecording(t, 1)
 		p, err := NewProvider(rec, nil)
 		require.NoError(t, err)
 
-		metadata := p.GetMetadata()
-		assert.NotNil(t, metadata)
+		assert.Equal(t, map[string]interface{}{"session_id": "test-session"}, p.GetMetadata())
 	})
 
 	t.Run("returns configured metadata", func(t *testing.T) {

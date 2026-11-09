@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -86,17 +87,43 @@ func TestConn_SendRaw(t *testing.T) {
 	assert.Equal(t, payload, data)
 }
 
-func TestConn_ConnectWithRetry_Success(t *testing.T) {
-	srv := echoServer(t)
+// A server that refuses the first handshakes is retried until it accepts, and
+// the connection that results carries messages.
+func TestConn_ConnectWithRetry_SucceedsAfterRefusedHandshakes(t *testing.T) {
+	var attempts atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if attempts.Add(1) < 3 {
+			http.Error(w, "busy", http.StatusServiceUnavailable)
+			return
+		}
+		conn, err := wsUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		mt, data, err := conn.ReadMessage()
+		if err == nil {
+			_ = conn.WriteMessage(mt, data)
+		}
+	}))
 	defer srv.Close()
 
 	c := NewConn(&ConnConfig{
-		URL:        wsURL(srv),
-		MaxRetries: 3,
+		URL:              wsURL(srv),
+		MaxRetries:       3,
+		RetryBackoffBase: time.Millisecond,
+		RetryBackoffMax:  2 * time.Millisecond,
 	})
-
 	require.NoError(t, c.ConnectWithRetry(context.Background()))
 	defer c.Close()
+	assert.Equal(t, int32(3), attempts.Load())
+
+	require.NoError(t, c.SendRaw([]byte(`{"ping":1}`)))
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	got, err := c.Receive(ctx)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"ping":1}`, string(got))
 }
 
 func TestConn_ConnectWithRetry_Failure(t *testing.T) {

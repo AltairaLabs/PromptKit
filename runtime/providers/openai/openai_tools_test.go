@@ -822,17 +822,7 @@ func TestToolProvider_PredictStreamWithTools_BuildsRequestWithTools(t *testing.T
 	}
 }
 
-func TestToolProvider_PredictStreamWithTools_ImplementsToolSupport(t *testing.T) {
-	provider := NewToolProvider("test", "gpt-4", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
-
-	// Verify it implements ToolSupport interface which now includes PredictStreamWithTools
-	var toolSupport providers.ToolSupport = provider
-
-	// Verify the methods exist (compile-time check via interface)
-	_ = toolSupport.BuildTooling
-	_ = toolSupport.PredictWithTools
-	// PredictStreamWithTools is part of the interface, so if this compiles, it's implemented
-}
+var _ providers.ToolSupport = (*ToolProvider)(nil)
 
 func TestToolProvider_PredictStreamWithTools_TextResponse(t *testing.T) {
 	// Create mock SSE stream with tool-aware response

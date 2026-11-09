@@ -39,5 +39,7 @@ func TestRealtimeSessionBookkeeping_EndInputNoopWithoutInterface(t *testing.T) {
 		StreamInputSession: &fakeStreamInputSession{},
 		release:            func() {},
 	}
-	wrapper.EndInput() // must not panic
+	if r := func() (r any) { defer func() { r = recover() }(); wrapper.EndInput(); return nil }(); r != nil {
+		t.Fatalf("EndInput panicked on an inner session without EndInput: %v", r)
+	}
 }

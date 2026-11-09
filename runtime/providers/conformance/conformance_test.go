@@ -51,13 +51,8 @@ func TestInferenceProviders_SatisfyBaseProvider(t *testing.T) {
 	}
 }
 
-// TestProvider_AliasedToInferenceProvider verifies at compile time that
 // providers.Provider and providers.InferenceProvider are the same type.
-func TestProvider_AliasedToInferenceProvider(t *testing.T) {
-	var p providers.Provider
-	var inf providers.InferenceProvider = p // compile-time check; nil interface assignment is fine
-	_ = inf
-}
+var _ providers.InferenceProvider = providers.Provider(nil)
 
 // TestAssertInferenceProvider_BaseImplIsNotInference verifies that a bare
 // *base.Implementation (which satisfies base.Provider but not InferenceProvider)
@@ -82,7 +77,7 @@ func TestAssertInferenceProvider_RealImplSucceeds(t *testing.T) {
 	op := openai.NewProvider("openai-test", "gpt-4o-mini", "https://api.openai.com/v1", providers.ProviderDefaults{}, false)
 	inf, err := providers.AssertInferenceProvider(op)
 	require.NoError(t, err)
-	assert.NotNil(t, inf)
+	assert.Same(t, op, inf.(*openai.Provider), "the assertion must return the provider it was given")
 }
 
 func mustOpenAI(t *testing.T) base.Provider {

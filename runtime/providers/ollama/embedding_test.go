@@ -214,10 +214,7 @@ func TestEmbeddingProvider_Embed(t *testing.T) {
 	})
 }
 
-func TestEmbeddingProvider_Interface(t *testing.T) {
-	// Compile-time check that EmbeddingProvider implements providers.EmbeddingProvider
-	var _ providers.EmbeddingProvider = (*EmbeddingProvider)(nil)
-}
+var _ providers.EmbeddingProvider = (*EmbeddingProvider)(nil)
 
 func TestDimensionsForModel(t *testing.T) {
 	tests := []struct {

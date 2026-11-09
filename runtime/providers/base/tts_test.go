@@ -64,13 +64,17 @@ func TestReadAllAudio_ErrorChunk(t *testing.T) {
 	assert.True(t, stream.closed, "Close should have been called even on error")
 }
 
+// An empty stream still reports the stream's cost and is closed: a TTS call
+// that bills but yields no audio must not lose its cost record.
 func TestReadAllAudio_EmptyStream(t *testing.T) {
-	stream := newFakeTTSStream(nil, nil)
+	want := &types.CostInfo{TotalCost: 0.25}
+	stream := newFakeTTSStream(nil, want)
 
 	data, cost, err := base.ReadAllAudio(stream)
 	require.NoError(t, err)
-	assert.Nil(t, data)
-	assert.Nil(t, cost)
+	assert.Empty(t, data)
+	assert.Same(t, want, cost)
+	assert.True(t, stream.closed, "ReadAllAudio must close an empty stream")
 }
 
 func TestTTSRequest_Fields(t *testing.T) {

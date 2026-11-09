@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -400,8 +401,33 @@ func TestSession_Reconnect(t *testing.T) {
 	assert.Contains(t, received, "after_reconnect")
 }
 
+// serverThatDrops accepts connections and drops each one without a close
+// frame, which the client sees as an abnormal closure. It counts connections.
+func serverThatDrops(t *testing.T, conns *atomic.Int32) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := wsUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		conns.Add(1)
+		_ = conn.UnderlyingConn().Close()
+	}))
+}
+
+// drainAndError drains the session and returns the error it ended with.
+func drainAndError(t *testing.T, session *Session) error {
+	t.Helper()
+	for range session.Response() {
+	}
+	return session.Error()
+}
+
+// Without OnReconnect a dropped connection ends the session with the drop as
+// its error, and nothing redials.
 func TestSession_ReconnectDisabled(t *testing.T) {
-	srv := serverThatCloses(t)
+	var conns atomic.Int32
+	srv := serverThatDrops(t, &conns)
 	defer srv.Close()
 
 	wsConn := NewConn(&ConnConfig{URL: wsURL(srv)})
@@ -411,21 +437,22 @@ func TestSession_ReconnectDisabled(t *testing.T) {
 	defer cancel()
 
 	session, err := NewSession(ctx, SessionConfig{
-		Conn:      wsConn,
-		OnMessage: simpleHandler,
-		// No OnReconnect, so reconnection is disabled
+		Conn:                 wsConn,
+		OnMessage:            simpleHandler,
+		MaxReconnectAttempts: 3,
 	})
 	require.NoError(t, err)
 	defer session.Close()
 
-	// Should close the response channel without reconnecting
-	for range session.Response() {
-		// drain
-	}
+	require.Error(t, drainAndError(t, session), "the drop must surface as the session error")
+	assert.Equal(t, int32(1), conns.Load(), "no reconnect without OnReconnect")
 }
 
+// The classifier sees the drop error and, by refusing it, stops the reconnect
+// before OnReconnect runs.
 func TestSession_ReconnectRejectedByClassifier(t *testing.T) {
-	srv := serverThatCloses(t)
+	var conns atomic.Int32
+	srv := serverThatDrops(t, &conns)
 	defer srv.Close()
 
 	wsConn := NewConn(&ConnConfig{URL: wsURL(srv)})
@@ -434,13 +461,17 @@ func TestSession_ReconnectRejectedByClassifier(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
+	var classified error
+	var reconnects atomic.Int32
 	session, err := NewSession(ctx, SessionConfig{
 		Conn:      wsConn,
 		OnMessage: simpleHandler,
-		OnError: func(_ error) bool {
-			return false // Never reconnect
+		OnError: func(err error) bool {
+			classified = err
+			return false
 		},
 		OnReconnect: func(_ context.Context, _ *Conn) error {
+			reconnects.Add(1)
 			return nil
 		},
 		MaxReconnectAttempts: 3,
@@ -448,9 +479,11 @@ func TestSession_ReconnectRejectedByClassifier(t *testing.T) {
 	require.NoError(t, err)
 	defer session.Close()
 
-	for range session.Response() {
-		// drain
-	}
+	sessErr := drainAndError(t, session)
+	require.Error(t, sessErr)
+	assert.Equal(t, sessErr, classified, "the classifier judges the error the session ends with")
+	assert.Equal(t, int32(0), reconnects.Load())
+	assert.Equal(t, int32(1), conns.Load())
 }
 
 func TestSession_Conn(t *testing.T) {
@@ -470,8 +503,10 @@ func TestSession_Conn(t *testing.T) {
 	assert.Equal(t, wsConn, session.Conn())
 }
 
+// A session that delivered its messages and was closed by the caller has no
+// error: a caller-initiated close is not a failure.
 func TestSession_ErrorWhenNoError(t *testing.T) {
-	srv := echoServer(t)
+	srv := serverThatSends(t, []string{`{"text":"hello"}`})
 	defer srv.Close()
 
 	wsConn := NewConn(&ConnConfig{URL: wsURL(srv)})
@@ -482,9 +517,12 @@ func TestSession_ErrorWhenNoError(t *testing.T) {
 		OnMessage: simpleHandler,
 	})
 	require.NoError(t, err)
-	defer session.Close()
 
-	// Error should be nil when no error has occurred
+	chunk := <-session.Response()
+	assert.Equal(t, "hello", chunk.Delta)
+	require.NoError(t, session.Close())
+	for range session.Response() {
+	}
 	assert.NoError(t, session.Error())
 }
 

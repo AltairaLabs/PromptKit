@@ -5,6 +5,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/stretchr/testify/assert"
 )
 
 // fakeJitter is a hand-driven jitterHealthCounters for reporter tests.
@@ -60,5 +61,5 @@ func TestJitterHealthReporter_NilMetricsSafe(t *testing.T) {
 	t.Parallel()
 	var r JitterHealthReporter
 	// Nil StreamMetrics must be a no-op (methods are nil-safe), no panic.
-	r.Report(nil, &fakeJitter{u: 1, us: 480, d: 1}, "output")
+	assert.NotPanics(t, func() { r.Report(nil, &fakeJitter{u: 1, us: 480, d: 1}, "output") })
 }

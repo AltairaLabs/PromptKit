@@ -812,16 +812,7 @@ func TestClaudeToolProvider_BuildToolRequest_AppliesDefaults(t *testing.T) {
 // PredictStreamWithTools Tests
 // ============================================================================
 
-func TestClaudeToolProvider_PredictStreamWithTools_ImplementsToolSupport(t *testing.T) {
-	provider := NewToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)
-
-	// Verify it implements ToolSupport interface which includes PredictStreamWithTools
-	var toolSupport providers.ToolSupport = provider
-
-	// If this compiles, the interface is implemented correctly
-	_ = toolSupport.BuildTooling
-	_ = toolSupport.PredictWithTools
-}
+var _ providers.ToolSupport = (*ToolProvider)(nil)
 
 func TestClaudeToolProvider_PredictStreamWithTools_BuildsRequestWithTools(t *testing.T) {
 	provider := NewToolProvider("test", "claude-3-opus", "https://api.anthropic.com/v1", providers.ProviderDefaults{}, false)

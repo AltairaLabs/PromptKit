@@ -8,6 +8,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/stretchr/testify/assert"
 )
 
 // --- Nil-safety ---
@@ -18,13 +19,14 @@ import (
 func TestStreamMetrics_NilSafe(t *testing.T) {
 	t.Parallel()
 	var m *StreamMetrics
-	// These should not panic on nil.
-	m.StreamsInFlightInc("p")
-	m.StreamsInFlightDec("p")
-	m.ProviderCallsInFlightInc("p")
-	m.ProviderCallsInFlightDec("p")
-	m.ObserveFirstChunkLatency("p", time.Second)
-	m.RetryAttempt("p", "success")
+	assert.NotPanics(t, func() {
+		m.StreamsInFlightInc("p")
+		m.StreamsInFlightDec("p")
+		m.ProviderCallsInFlightInc("p")
+		m.ProviderCallsInFlightDec("p")
+		m.ObserveFirstChunkLatency("p", time.Second)
+		m.RetryAttempt("p", "success")
+	})
 }
 
 // --- Gauge and histogram increments ---

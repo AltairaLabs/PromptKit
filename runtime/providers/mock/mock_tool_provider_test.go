@@ -769,13 +769,4 @@ func TestToolProvider_PredictStreamWithTools_StreamsContentInChunks(t *testing.T
 	assert.Equal(t, longContent, lastContent)
 }
 
-func TestToolProvider_PredictStreamWithTools_ImplementsToolSupport(t *testing.T) {
-	provider := NewToolProvider("test-id", "test-model", false, nil)
-
-	// Verify it implements ToolSupport interface which includes PredictStreamWithTools
-	var toolSupport providers.ToolSupport = provider
-
-	// If this compiles, the interface is implemented correctly
-	_ = toolSupport.BuildTooling
-	_ = toolSupport.PredictWithTools
-}
+var _ providers.ToolSupport = (*ToolProvider)(nil)

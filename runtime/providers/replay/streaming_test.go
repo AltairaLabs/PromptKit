@@ -310,10 +310,25 @@ func TestStreamSession_EndInput(t *testing.T) {
 		case <-time.After(100 * time.Millisecond):
 			t.Error("timeout waiting for response")
 		}
+		select {
+		case chunk := <-session.Response():
+			if chunk.FinishReason == nil {
+				t.Errorf("expected the turn's finish chunk, got %+v", chunk)
+			}
+		case <-time.After(100 * time.Millisecond):
+			t.Error("timeout waiting for finish chunk")
+		}
 	})
 
 	t.Run("no-op when no more responses", func(t *testing.T) {
-		ss.EndInput() // Should not panic
+		ss.EndInput()
+		select {
+		case chunk, ok := <-session.Response():
+			if ok {
+				t.Errorf("EndInput past the last recorded turn emitted %+v", chunk)
+			}
+		case <-time.After(20 * time.Millisecond):
+		}
 	})
 }
 

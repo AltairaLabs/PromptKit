@@ -1,6 +1,7 @@
 package tts
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -115,10 +116,14 @@ func TestCartesiaService_BaseTTSProvider(t *testing.T) {
 	assert.Greater(t, cost.TotalCost, 0.0)
 }
 
+// Close on an undrained stream consumes the rest of the body so the reader
+// goroutine finishes: afterwards the chunk channel is closed and the call's
+// cost is stamped. A second Close is a no-op.
 func TestTTSStream_Close_DrainsSafely(t *testing.T) {
+	body := bytes.Repeat([]byte{1}, 1<<20) // far more than the channel buffers
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "audio/pcm")
-		_, _ = w.Write([]byte("some audio"))
+		_, _ = w.Write(body)
 	}))
 	defer server.Close()
 
@@ -126,8 +131,11 @@ func TestTTSStream_Close_DrainsSafely(t *testing.T) {
 	stream, err := svc.SynthesizeTTS(context.Background(), base.TTSRequest{Text: "test"})
 	require.NoError(t, err)
 
-	// Close without draining should not block.
-	assert.NoError(t, stream.Close())
-	// Second close should be a no-op.
+	require.NoError(t, stream.Close())
+	_, open := <-stream.Chunks()
+	assert.False(t, open, "Close must leave the chunk channel drained and closed")
+	cost := stream.Cost()
+	require.NotNil(t, cost, "the reader goroutine stamps cost before it exits")
+	assert.Equal(t, float64(4), cost.Quantities["character"])
 	assert.NoError(t, stream.Close())
 }
