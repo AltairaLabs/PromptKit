@@ -906,7 +906,7 @@ func (s *RedisStore) LoadRecentMessages(ctx context.Context, id string, n int) (
 LoadRecentMessages returns the last n messages using LRANGE on the messages list. Falls back to loading from the monolithic key if the list doesn't exist.
 
 <a name="RedisStore.LoadSummaries"></a>
-### func \(\*RedisStore\) [LoadSummaries](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1135>)
+### func \(\*RedisStore\) [LoadSummaries](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1137>)
 
 ```go
 func (s *RedisStore) LoadSummaries(ctx context.Context, id string) ([]Summary, error)
@@ -915,7 +915,7 @@ func (s *RedisStore) LoadSummaries(ctx context.Context, id string) ([]Summary, e
 LoadSummaries returns all summaries for the conversation.
 
 <a name="RedisStore.LogAppend"></a>
-### func \(\*RedisStore\) [LogAppend](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1426-L1428>)
+### func \(\*RedisStore\) [LogAppend](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1411-L1413>)
 
 ```go
 func (s *RedisStore) LogAppend(ctx context.Context, id string, startSeq int, messages []types.Message) (int, error)
@@ -924,7 +924,7 @@ func (s *RedisStore) LogAppend(ctx context.Context, id string, startSeq int, mes
 LogAppend appends messages with sequence\-based idempotent deduplication. The on\-disk layout matches what Save writes \(a Redis list at messagesKey\(id\)\) so messages persisted via the tool\-loop write\-through path are loaded back transparently by Load. A minimal meta stub is written via SETNX so a subsequent Load\(id\) does not return ErrNotFound after a crash recovery before the end\-of\-turn Save has run; the next Save overwrites it.
 
 <a name="RedisStore.LogLen"></a>
-### func \(\*RedisStore\) [LogLen](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1496>)
+### func \(\*RedisStore\) [LogLen](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1481>)
 
 ```go
 func (s *RedisStore) LogLen(ctx context.Context, id string) (int, error)
@@ -933,7 +933,7 @@ func (s *RedisStore) LogLen(ctx context.Context, id string) (int, error)
 LogLen returns the message count for the conversation, or 0 if absent.
 
 <a name="RedisStore.LogLoad"></a>
-### func \(\*RedisStore\) [LogLoad](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1479>)
+### func \(\*RedisStore\) [LogLoad](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1464>)
 
 ```go
 func (s *RedisStore) LogLoad(ctx context.Context, id string, recent int) ([]types.Message, error)
@@ -969,7 +969,7 @@ func (s *RedisStore) Save(ctx context.Context, state *ConversationState) error
 Save persists a conversation state to Redis using decomposed keys. Metadata is stored in a meta key, messages in a Redis list, and summaries in a separate list. Messages use append\-only delta writes: only new messages \(beyond what is already stored\) are RPUSHed, avoiding the cost of DEL\+RPUSH for the entire list on every save. If the message count in Redis exceeds the local count \(e.g., external truncation\), a full rewrite is performed.
 
 <a name="RedisStore.SaveSummary"></a>
-### func \(\*RedisStore\) [SaveSummary](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1175>)
+### func \(\*RedisStore\) [SaveSummary](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/statestore/redis.go#L1177>)
 
 ```go
 func (s *RedisStore) SaveSummary(ctx context.Context, id string, summary Summary) error

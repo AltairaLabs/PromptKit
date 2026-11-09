@@ -67,6 +67,11 @@ func (s *Store) Delete(_ context.Context, id string) error {
 	defer lock.Unlock()
 
 	if err := s.requireConv(id); err != nil {
+		if errors.Is(err, statestore.ErrNotFound) {
+			// A directory without state.json (a write interrupted before
+			// its stub) is still removed; the conversation never existed.
+			_ = os.RemoveAll(s.convDir(id))
+		}
 		return err
 	}
 

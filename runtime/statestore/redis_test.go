@@ -2571,3 +2571,58 @@ func TestRedisStore_TTLSlideKeepsSubSecondPrecision(t *testing.T) {
 	_, err = store.Load(ctx, "conv-ms")
 	assert.ErrorIs(t, err, ErrNotFound, "sub-second TTL was rounded up by the refresh")
 }
+
+// TestRedisStore_TypedWritesKeepLegacyConversation pins that a typed write
+// to a conversation stored only in the legacy monolithic format does not hide
+// it: Load must still return the legacy state, with the write applied where
+// the decomposed key is read.
+func TestRedisStore_TypedWritesKeepLegacyConversation(t *testing.T) {
+	writes := map[string]func(ctx context.Context, s *RedisStore, id string) error{
+		"AppendMessages": func(ctx context.Context, s *RedisStore, id string) error {
+			return s.AppendMessages(ctx, id, []types.Message{{Role: "assistant", Content: "new"}})
+		},
+		"MergeMetadata": func(ctx context.Context, s *RedisStore, id string) error {
+			return s.MergeMetadata(ctx, id, map[string]interface{}{"k": "v"})
+		},
+		"SaveSummary": func(ctx context.Context, s *RedisStore, id string) error {
+			return s.SaveSummary(ctx, id, Summary{Content: "sum"})
+		},
+		"AppendList": func(ctx context.Context, s *RedisStore, id string) error {
+			return s.AppendList(ctx, id, "history", [][]byte{[]byte(`"x"`)})
+		},
+	}
+	for name, write := range writes {
+		t.Run(name, func(t *testing.T) {
+			store, _ := setupRedisStore(t)
+			ctx := context.Background()
+			saveMonolithicLegacy(t, store, &ConversationState{
+				ID: "legacy", UserID: "u-legacy", SystemPrompt: "legacy prompt",
+				Messages: []types.Message{{Role: "user", Content: "old"}},
+			})
+
+			require.NoError(t, write(ctx, store, "legacy"))
+
+			got, err := store.Load(ctx, "legacy")
+			require.NoError(t, err)
+			assert.Equal(t, "u-legacy", got.UserID)
+			assert.Equal(t, "legacy prompt", got.SystemPrompt)
+			require.NotEmpty(t, got.Messages)
+			assert.Equal(t, "old", got.Messages[0].Content)
+		})
+	}
+}
+
+// TestRedisStore_AutoCreatedMetaCarriesTTL pins that the meta record a typed
+// write creates expires with the store's TTL, like every other key.
+func TestRedisStore_AutoCreatedMetaCarriesTTL(t *testing.T) {
+	store, mr := setupRedisStore(t, WithTTL(time.Hour))
+	ctx := context.Background()
+	require.NoError(t, store.SaveSummary(ctx, "ttl-conv", Summary{Content: "s"}))
+
+	assert.True(t, mr.Exists(store.metaKey("ttl-conv")))
+	assert.Equal(t, time.Hour, mr.TTL(store.metaKey("ttl-conv")))
+
+	mr.FastForward(2 * time.Hour)
+	_, err := store.Load(ctx, "ttl-conv")
+	assert.ErrorIs(t, err, ErrNotFound)
+}

@@ -1,6 +1,7 @@
 package events
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 )
@@ -14,6 +15,11 @@ import (
 
 // errorFieldKey is the JSON key of the Error field on every type below.
 const errorFieldKey = "Error"
+
+// legacyErrorMessage is the message of an error decoded from data written
+// before these methods existed, which recorded every error as {}: the event
+// failed, but its message was never stored.
+const legacyErrorMessage = "error (message not recorded)"
 
 // marshalErrorField marshals plain, whose Error field the caller has cleared,
 // with Error written as err's message (null for a nil err).
@@ -46,7 +52,11 @@ func unmarshalErrorField[P any](b []byte, plain *P) (*string, error) {
 	}
 	var msg *string
 	if raw, ok := fields[errorFieldKey]; ok {
-		if err := json.Unmarshal(raw, &msg); err != nil {
+		if trimmed := bytes.TrimSpace(raw); len(trimmed) > 0 && trimmed[0] == '{' {
+			// Written before errors were serialized as messages: "Error":{}.
+			legacy := legacyErrorMessage
+			msg = &legacy
+		} else if err := json.Unmarshal(raw, &msg); err != nil {
 			return nil, err
 		}
 		delete(fields, errorFieldKey)

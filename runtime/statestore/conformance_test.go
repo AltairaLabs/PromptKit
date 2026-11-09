@@ -339,6 +339,8 @@ func TestStoreConformance_TypedWritesAutoCreate(t *testing.T) {
 		},
 	}
 	eachStore(t, func(t *testing.T, s fullStore) {
+		// A saved conversation first, so List reads a non-empty index.
+		require.NoError(t, s.Save(context.Background(), &statestore.ConversationState{ID: "seed"}))
 		for name, write := range writes {
 			t.Run(name, func(t *testing.T) {
 				ctx := context.Background()
@@ -348,6 +350,9 @@ func TestStoreConformance_TypedWritesAutoCreate(t *testing.T) {
 				got, err := s.Load(ctx, id)
 				require.NoError(t, err)
 				assert.Equal(t, id, got.ID)
+				ids, err := s.List(ctx, statestore.ListOptions{})
+				require.NoError(t, err)
+				assert.Contains(t, ids, id, "an auto-created conversation is listed")
 				items, err := s.LoadList(ctx, id, "unwritten")
 				require.NoError(t, err)
 				assert.Nil(t, items)

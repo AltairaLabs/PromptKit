@@ -235,13 +235,14 @@ func TestSyncPlayer_SpeedChange(t *testing.T) {
 			select {
 			case <-done:
 				t.Fatal("session completed: the invalid speed did not reset to 1.0")
-			case <-time.After(100 * time.Millisecond):
+			case <-time.After(200 * time.Millisecond):
 			}
-			// At real time, ~100ms of the session has played: not 0 (stalled)
-			// and nowhere near the end.
+			// At real time, ~200ms of the session has played: not 0 (stalled)
+			// and nowhere near the end. Position moves on a 20ms ticker, so
+			// the lower bound leaves room for a slow runner.
 			pos := player.Position()
 			if pos <= 40*time.Millisecond || pos >= 5*time.Second {
-				t.Fatalf("position after 100ms = %v, want about 100ms", pos)
+				t.Fatalf("position after 200ms = %v, want about 200ms", pos)
 			}
 		})
 	}

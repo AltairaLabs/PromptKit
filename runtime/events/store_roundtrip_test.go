@@ -204,6 +204,10 @@ func TestDeserializeEventData_LegacyAliasNames(t *testing.T) {
 		{"*events.ToolCallFailedData", `{"ToolName":"search","CallID":"c1","Error":"timeout"}`,
 			&ToolCallEventData{ToolName: "search", CallID: "c1", Error: errors.New("timeout")}},
 		{"*events.ValidationPassedData", `{"ValidatorName":"guard"}`, &ValidationEventData{ValidatorName: "guard"}},
+		// Recordings written before errors were serialized hold "Error":{}.
+		{"*events.ProviderCallFailedData", `{"Provider":"openai","Error":{}}`,
+			&ProviderCallFailedData{Provider: "openai", Error: errors.New(legacyErrorMessage)}},
+		{"*events.PipelineFailedData", `{"Error":null,"Duration":5}`, &PipelineFailedData{Duration: 5}},
 		{"*events.StateLoadedData", `{"ConversationID":"conv","MessageCount":3}`,
 			&StateEventData{ConversationID: "conv", MessageCount: 3}},
 		{"*events.AudioInputData", `{"actor":"user","direction":"input"}`, &AudioEventData{Actor: "user", Direction: "input"}},
