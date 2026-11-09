@@ -576,16 +576,39 @@ func TestContentPartToAGUI_UnknownType(t *testing.T) {
 	assert.False(t, ok)
 }
 
-func TestTryDecodeInputContents_NonSlice(t *testing.T) {
-	result := tryDecodeInputContents("not a slice")
-	assert.Nil(t, result)
-}
-
-func TestTryDecodeInputContents_UnrecognizedTypes(t *testing.T) {
-	// Slice of maps with unrecognized type fields
-	input := []any{
-		map[string]any{"type": "unknown_type", "text": "hello"},
+// TestMessageFromAGUI_ContentShapes pins how a user message's untyped Content
+// reaches PromptKit: parts decoded from JSON become Parts, while content that
+// holds no recognized part type, or is not a list at all, is kept as its JSON
+// text rather than dropped.
+func TestMessageFromAGUI_ContentShapes(t *testing.T) {
+	hello := "hello"
+	cases := []struct {
+		name    string
+		content any
+		want    types.Message
+	}{
+		{
+			name:    "decoded text parts become parts",
+			content: []any{map[string]any{"type": "text", "text": "hello"}},
+			want: types.Message{Role: "user", Parts: []types.ContentPart{
+				{Type: types.ContentTypeText, Text: &hello},
+			}},
+		},
+		{
+			name:    "a list with no recognized part type is kept as JSON text",
+			content: []any{map[string]any{"type": "unknown_type", "text": "hello"}},
+			want:    types.Message{Role: "user", Content: `[{"text":"hello","type":"unknown_type"}]`},
+		},
+		{
+			name:    "an object is kept as JSON text",
+			content: map[string]any{"type": "text", "text": "hello"},
+			want:    types.Message{Role: "user", Content: `{"text":"hello","type":"text"}`},
+		},
 	}
-	result := tryDecodeInputContents(input)
-	assert.Nil(t, result)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := aguitypes.Message{Role: aguitypes.RoleUser, Content: tc.content}
+			assert.Equal(t, tc.want, MessageFromAGUI(&msg))
+		})
+	}
 }

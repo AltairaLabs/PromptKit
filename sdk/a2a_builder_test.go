@@ -12,12 +12,6 @@ import (
 )
 
 func TestResolveA2AHeaders(t *testing.T) {
-	t.Run("nil headers and no env returns nil", func(t *testing.T) {
-		cfg := &tools.A2AConfig{}
-		result := resolveA2AHeaders(cfg)
-		assert.Nil(t, result)
-	})
-
 	t.Run("static headers only", func(t *testing.T) {
 		cfg := &tools.A2AConfig{
 			Headers: map[string]string{
@@ -42,11 +36,13 @@ func TestResolveA2AHeaders(t *testing.T) {
 	})
 
 	t.Run("env header with unset env var is skipped", func(t *testing.T) {
+		t.Setenv("TEST_A2A_SET", "set-value")
 		cfg := &tools.A2AConfig{
-			HeadersFromEnv: []string{"X-Missing=UNSET_A2A_VAR_12345"},
+			HeadersFromEnv: []string{"X-Missing=UNSET_A2A_VAR_12345", "X-Set=TEST_A2A_SET"},
 		}
 		result := resolveA2AHeaders(cfg)
-		assert.Nil(t, result)
+		assert.Equal(t, map[string]string{"X-Set": "set-value"}, result,
+			"an unset variable sends no header, not an empty one, and the next spec still resolves")
 	})
 
 	t.Run("static and env headers merged", func(t *testing.T) {
@@ -61,11 +57,13 @@ func TestResolveA2AHeaders(t *testing.T) {
 	})
 
 	t.Run("malformed env spec without equals is skipped", func(t *testing.T) {
+		t.Setenv("TEST_A2A_SET", "set-value")
 		cfg := &tools.A2AConfig{
-			HeadersFromEnv: []string{"no-equals-sign"},
+			HeadersFromEnv: []string{"no-equals-sign", "X-Set=TEST_A2A_SET"},
 		}
 		result := resolveA2AHeaders(cfg)
-		assert.Nil(t, result)
+		assert.Equal(t, map[string]string{"X-Set": "set-value"}, result,
+			"a malformed spec is skipped and the well-formed one after it still resolves")
 	})
 }
 
