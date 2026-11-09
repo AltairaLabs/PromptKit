@@ -734,6 +734,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			cfg.StreamInputProvider, cfg.streamSessionConfig(), cfg.EventEmitter, turnState,
 		)
 		duplexStage.SetHookRegistry(cfg.HookRegistry)
+		duplexStage.SetPromptDeclarations(cfg.PromptDeclarations)
 		return []stage.Stage{duplexStage}, nil
 	}
 	if cfg.VADConfig != nil && cfg.STTService != nil && cfg.TTSService != nil {

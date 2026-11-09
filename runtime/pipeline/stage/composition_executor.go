@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -271,6 +272,13 @@ func (deps CompositionExecutorDeps) execLLM(
 
 	userMsg := types.Message{Role: roleUser, Content: stepInputToText(input)}
 	res, err := pipe.ExecuteSync(ctx, NewMessageElement(&userMsg))
+	// A caller cancel is silent in the sub-pipeline: it ends with whatever it
+	// produced, which may be nothing or a partial turn. Report the cancel
+	// itself, so the caller can tell it from a failed step.
+	// A real sub-pipeline error that arrives with the cancel is kept alongside it.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, fmt.Errorf("step %q: %w", step.ID, errors.Join(ctxErr, err))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("step %q: %w", step.ID, err)
 	}

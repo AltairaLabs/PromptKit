@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -48,5 +49,35 @@ func TestTruncateAtRune(t *testing.T) {
 		if got := truncateAtRune(tc.in, tc.max); got != tc.want {
 			t.Errorf("truncateAtRune(%q, %d) = %q, want %q", tc.in, tc.max, got, tc.want)
 		}
+	}
+}
+
+// A reply that does not start on a rune boundary (stray continuation bytes,
+// as from a provider that split a multi-byte character across a stream)
+// truncates to nothing rather than reading before the start of the string.
+// The cut stops at byte 0 whether or not byte 0 starts a rune.
+func TestLengthGuardrail_TruncatesInvalidLeadingBytesWithoutPanic(t *testing.T) {
+	hook, err := NewGuardrailHookFromRegistry("max_length", map[string]any{"max_characters": 2},
+		evals.NewEvalTypeRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := &hooks.ProviderResponse{Message: types.Message{Role: "assistant", Content: "\x80\x80\x80 rest of reply"}}
+
+	var d hooks.Decision
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("truncation panicked on a reply starting mid-rune: %v", r)
+			}
+		}()
+		d = hook.AfterCall(context.Background(), &hooks.ProviderRequest{}, resp)
+	}()
+
+	if d.Allow {
+		t.Fatalf("a 17-byte reply passed max_characters=2")
+	}
+	if resp.Message.Content != "" {
+		t.Fatalf("content = %q, want the cut to stop at byte 0", resp.Message.Content)
 	}
 }

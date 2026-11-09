@@ -13,6 +13,8 @@ import (
 // Returns a slice of output names. Empty slice means drop the element.
 type RouterFunc func(elem *StreamElement) []string
 
+var _ MultiOutputStage = (*RouterStage)(nil)
+
 // RouterStage routes elements to different output channels based on a routing function.
 // This enables conditional branching and dynamic routing in the pipeline.
 //
@@ -111,6 +113,8 @@ func closeRegisteredOutputs(mu *sync.RWMutex, outputs map[string]chan<- StreamEl
 		logger.Debug("router: closed output", "name", name)
 	}
 }
+
+var _ MultiInputStage = (*MergeStage)(nil)
 
 // MergeStage merges multiple input channels into a single output channel.
 // This enables fan-in patterns where multiple stages feed into one.

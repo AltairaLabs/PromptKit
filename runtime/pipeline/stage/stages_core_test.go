@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
@@ -130,22 +131,27 @@ func TestPromptAssemblyStage_EnrichesAllElements(t *testing.T) {
 	assert.Equal(t, "You are a helpful AI assistant.", turnState.Template.RawTemplate)
 }
 
+// A cancelled stage whose downstream has stopped reading returns the
+// cancellation instead of blocking forever on the send, and closes its output.
 func TestPromptAssemblyStage_ContextCancellation(t *testing.T) {
 	s := NewPromptAssemblyStage(nil, "chat", nil)
 
 	input := make(chan StreamElement, 1)
 	input <- newTestMsgElement("user", "Test")
-	// Don't close input
-
-	output := make(chan StreamElement, 10)
+	output := make(chan StreamElement) // nobody reads it
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
+	cancel()
 
-	go func() {
-		_ = s.Process(ctx, input, output)
-	}()
-
-	// Should not hang
+	done := make(chan error, 1)
+	go func() { done <- s.Process(ctx, input, output) }()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Process blocked on a send after its context was cancelled")
+	}
+	_, open := <-output
+	assert.False(t, open, "output must be closed when Process returns")
 }
 
 func TestPromptAssemblyStage_WithRegistry(t *testing.T) {

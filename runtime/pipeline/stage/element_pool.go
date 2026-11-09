@@ -16,7 +16,11 @@ import (
 // and ready to use but currently unused by the pipeline internals.
 var elementPool = sync.Pool{
 	New: func() interface{} {
-		return &StreamElement{}
+		// A new element must match a recycled one: Reset leaves
+		// Priority at PriorityNormal, not the zero PriorityLow.
+		e := &StreamElement{}
+		e.Reset()
+		return e
 	},
 }
 

@@ -22,9 +22,9 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("executes pipeline when chunk is sent", func(t *testing.T) {
-		// Create pipeline with mock provider
-		provider := mock.NewProviderWithRepository("mock", "mock-model", false,
-			mock.NewInMemoryMockRepository("Hello from mock provider"))
+		// Create pipeline with mock provider, recording what it is sent
+		provider := &requestRecordingProvider{Provider: mock.NewProviderWithRepository("mock", "mock-model", false,
+			mock.NewInMemoryMockRepository("Hello from mock provider"))}
 
 		pipelineBuilder := func(ctx context.Context, p providers.Provider, streamProvider providers.StreamInputSupport, streamConfig *providers.StreamingInputConfig, cid string, s statestore.Store) (*stage.StreamPipeline, error) {
 			providerStage := stage.NewProviderStage(provider, nil, nil, nil)
@@ -74,6 +74,10 @@ func TestBidirectionalSession_PipelineMode(t *testing.T) {
 			}
 		}
 		assert.Contains(t, reply, "Hello from mock provider", "the provider's reply must reach the caller")
+		// The user's text is what the provider was asked: exactly one request,
+		// carrying it as the user message.
+		assert.Equal(t, [][]types.Message{{{Role: "user", Content: "test message"}}}, provider.recorded(),
+			"the provider must receive the user's text as the user message")
 
 		// Close session
 		err = session.Close()

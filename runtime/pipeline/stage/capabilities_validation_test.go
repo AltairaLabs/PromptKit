@@ -1,8 +1,12 @@
 package stage
 
 import (
+	"bytes"
 	"context"
+	"strings"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // mockFormatCapableStage is a test stage that implements FormatCapable
@@ -40,100 +44,6 @@ func (m *mockFormatCapableStage) Process(ctx context.Context, input <-chan Strea
 	return nil
 }
 
-func TestValidateCapabilities_Compatible(t *testing.T) {
-	// Two stages with compatible formats - should not log warnings
-	stageA := newMockFormatCapableStage("stage-a",
-		AnyCapabilities(),
-		AudioCapabilities([]AudioFormat{AudioFormatPCM16}, nil, nil),
-	)
-	stageB := newMockFormatCapableStage("stage-b",
-		AudioCapabilities([]AudioFormat{AudioFormatPCM16}, nil, nil),
-		AnyCapabilities(),
-	)
-
-	stages := []Stage{stageA, stageB}
-	edges := map[string][]string{"stage-a": {"stage-b"}}
-
-	// This should not panic or error
-	ValidateCapabilities(stages, edges)
-}
-
-func TestValidateCapabilities_Incompatible(t *testing.T) {
-	// Two stages with incompatible formats - should log warnings
-	// (We can't easily verify the log output in unit tests, but we verify no panic)
-	stageA := newMockFormatCapableStage("stage-a",
-		AnyCapabilities(),
-		AudioCapabilities([]AudioFormat{AudioFormatOpus}, nil, nil),
-	)
-	stageB := newMockFormatCapableStage("stage-b",
-		AudioCapabilities([]AudioFormat{AudioFormatPCM16}, nil, nil), // Only accepts PCM16
-		AnyCapabilities(),
-	)
-
-	stages := []Stage{stageA, stageB}
-	edges := map[string][]string{"stage-a": {"stage-b"}}
-
-	// This should log a warning but not panic
-	ValidateCapabilities(stages, edges)
-}
-
-func TestValidateCapabilities_MixedStages(t *testing.T) {
-	// Mix of FormatCapable and non-FormatCapable stages
-	stageA := NewPassthroughStage("stage-a") // Does not implement FormatCapable
-	stageB := newMockFormatCapableStage("stage-b",
-		AudioCapabilities([]AudioFormat{AudioFormatPCM16}, nil, nil),
-		AnyCapabilities(),
-	)
-
-	stages := []Stage{stageA, stageB}
-	edges := map[string][]string{"stage-a": {"stage-b"}}
-
-	// Should handle mixed stages gracefully
-	ValidateCapabilities(stages, edges)
-}
-
-func TestValidateCapabilities_ContentTypeMismatch(t *testing.T) {
-	// Stage A produces audio, Stage B only accepts text
-	stageA := newMockFormatCapableStage("stage-a",
-		AnyCapabilities(),
-		Capabilities{ContentTypes: []ContentType{ContentTypeAudio}},
-	)
-	stageB := newMockFormatCapableStage("stage-b",
-		Capabilities{ContentTypes: []ContentType{ContentTypeText}},
-		AnyCapabilities(),
-	)
-
-	stages := []Stage{stageA, stageB}
-	edges := map[string][]string{"stage-a": {"stage-b"}}
-
-	// Should log warning about content type mismatch
-	ValidateCapabilities(stages, edges)
-}
-
-func TestValidateCapabilities_SampleRateMismatch(t *testing.T) {
-	// Stage A produces 44100Hz, Stage B only accepts 16000Hz
-	stageA := newMockFormatCapableStage("stage-a",
-		AnyCapabilities(),
-		Capabilities{
-			ContentTypes: []ContentType{ContentTypeAudio},
-			Audio:        &AudioCapability{SampleRates: []int{44100}},
-		},
-	)
-	stageB := newMockFormatCapableStage("stage-b",
-		Capabilities{
-			ContentTypes: []ContentType{ContentTypeAudio},
-			Audio:        &AudioCapability{SampleRates: []int{16000}},
-		},
-		AnyCapabilities(),
-	)
-
-	stages := []Stage{stageA, stageB}
-	edges := map[string][]string{"stage-a": {"stage-b"}}
-
-	// Should log warning about sample rate mismatch
-	ValidateCapabilities(stages, edges)
-}
-
 func TestDescribeCapabilities(t *testing.T) {
 	t.Run("non-FormatCapable stage", func(t *testing.T) {
 		stage := NewPassthroughStage("test")
@@ -145,16 +55,20 @@ func TestDescribeCapabilities(t *testing.T) {
 
 	t.Run("FormatCapable stage", func(t *testing.T) {
 		stage := newMockFormatCapableStage("test",
-			AudioCapabilities([]AudioFormat{AudioFormatPCM16}, nil, nil),
+			AudioCapabilities([]AudioFormat{AudioFormatPCM16, AudioFormatOpus}, nil, nil),
 			TextCapabilities(),
 		)
-		desc := DescribeCapabilities(stage)
-		// Just verify it doesn't panic and returns non-empty
-		if desc == "" {
-			t.Error("Expected non-empty description")
+		want := "test: accepts=audio(pcm16|opus) produces=text"
+		if got := DescribeCapabilities(stage); got != want {
+			t.Errorf("DescribeCapabilities() = %q, want %q", got, want)
 		}
-		if len(desc) < 10 {
-			t.Errorf("Description seems too short: %s", desc)
+	})
+
+	t.Run("FormatCapable stage with no content types", func(t *testing.T) {
+		stage := newMockFormatCapableStage("open", Capabilities{}, Capabilities{})
+		want := "open: accepts=any produces=any"
+		if got := DescribeCapabilities(stage); got != want {
+			t.Errorf("DescribeCapabilities() = %q, want %q", got, want)
 		}
 	})
 }
@@ -264,36 +178,123 @@ func TestDescribeAudioCapability(t *testing.T) {
 	}
 }
 
-func TestCheckAudioCompatibility_ChannelMismatch(t *testing.T) {
-	// This test verifies the channel mismatch logging path
-	output := &AudioCapability{Channels: []int{1}}
-	input := &AudioCapability{Channels: []int{2}}
-
-	// Should log warning but not panic
-	checkAudioCompatibility("from", "to", output, input)
+// captureWarnings routes the package logger into a buffer for the test.
+func captureWarnings(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	logger.SetOutput(&buf)
+	t.Cleanup(func() { logger.SetOutput(nil) })
+	return &buf
 }
 
-func TestPipelineBuilder_ValidatesCapabilities(t *testing.T) {
-	// Build a pipeline with incompatible stages
-	// This should build successfully but log warnings
-	stageA := newMockFormatCapableStage("stage-a",
-		AnyCapabilities(),
-		Capabilities{ContentTypes: []ContentType{ContentTypeAudio}},
-	)
-	stageB := newMockFormatCapableStage("stage-b",
-		Capabilities{ContentTypes: []ContentType{ContentTypeText}}, // Incompatible!
-		AnyCapabilities(),
-	)
+const mismatchMarker = "Pipeline format mismatch"
 
-	pipeline, err := NewPipelineBuilder().
-		Chain(stageA, stageB).
-		Build()
-
-	// Should build successfully (validation only logs warnings)
-	if err != nil {
-		t.Fatalf("Pipeline build failed: %v", err)
+// A pipeline whose connected stages cannot exchange data builds, but the
+// builder warns once per incompatibility, naming the edge. The warning is the
+// only signal a host gets before runtime, so each mismatch kind must produce
+// its own message and a compatible graph must produce none.
+func TestPipelineBuilder_WarnsOnFormatMismatch(t *testing.T) {
+	audio := func(c AudioCapability) Capabilities {
+		return Capabilities{ContentTypes: []ContentType{ContentTypeAudio}, Audio: &c}
 	}
-	if pipeline == nil {
-		t.Fatal("Pipeline is nil")
+	tests := []struct {
+		name     string
+		from, to Stage
+		want     []string // substrings that must appear
+		wantNone bool     // no mismatch warning at all
+	}{
+		{
+			name: "compatible audio formats",
+			from: newMockFormatCapableStage("stage-a", AnyCapabilities(),
+				AudioCapabilities([]AudioFormat{AudioFormatPCM16}, nil, nil)),
+			to: newMockFormatCapableStage("stage-b",
+				AudioCapabilities([]AudioFormat{AudioFormatPCM16}, nil, nil), AnyCapabilities()),
+			wantNone: true,
+		},
+		{
+			name: "upstream declares nothing",
+			from: NewPassthroughStage("stage-a"),
+			to: newMockFormatCapableStage("stage-b",
+				AudioCapabilities([]AudioFormat{AudioFormatPCM16}, nil, nil), AnyCapabilities()),
+			wantNone: true,
+		},
+		{
+			name: "audio format",
+			from: newMockFormatCapableStage("stage-a", AnyCapabilities(),
+				AudioCapabilities([]AudioFormat{AudioFormatOpus}, nil, nil)),
+			to: newMockFormatCapableStage("stage-b",
+				AudioCapabilities([]AudioFormat{AudioFormatPCM16}, nil, nil), AnyCapabilities()),
+			want: []string{"audio format incompatibility", "from_stage=stage-a", "to_stage=stage-b",
+				"from_produces=[opus]", "to_accepts=[pcm16]"},
+		},
+		{
+			name: "content type",
+			from: newMockFormatCapableStage("stage-a", AnyCapabilities(),
+				Capabilities{ContentTypes: []ContentType{ContentTypeAudio}}),
+			to: newMockFormatCapableStage("stage-b",
+				Capabilities{ContentTypes: []ContentType{ContentTypeText}}, AnyCapabilities()),
+			want: []string{"content type incompatibility", "from_stage=stage-a", "to_stage=stage-b",
+				"from_produces=[audio]", "to_accepts=[text]"},
+		},
+		{
+			name: "sample rate",
+			from: newMockFormatCapableStage("stage-a", AnyCapabilities(),
+				audio(AudioCapability{SampleRates: []int{44100}})),
+			to: newMockFormatCapableStage("stage-b",
+				audio(AudioCapability{SampleRates: []int{16000}}), AnyCapabilities()),
+			want: []string{"sample rate incompatibility", "from_produces=[44100]", "to_accepts=[16000]"},
+		},
+		{
+			name: "channel count",
+			from: newMockFormatCapableStage("stage-a", AnyCapabilities(),
+				audio(AudioCapability{Channels: []int{1}})),
+			to: newMockFormatCapableStage("stage-b",
+				audio(AudioCapability{Channels: []int{2}}), AnyCapabilities()),
+			want: []string{"channel count incompatibility", "from_produces=[1]", "to_accepts=[2]"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buf := captureWarnings(t)
+			_, err := NewPipelineBuilder().Chain(tt.from, tt.to).Build()
+			if err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			log := buf.String()
+			if tt.wantNone {
+				if strings.Contains(log, mismatchMarker) {
+					t.Fatalf("compatible stages logged a mismatch: %s", log)
+				}
+				return
+			}
+			if n := strings.Count(log, mismatchMarker); n != 1 {
+				t.Fatalf("want exactly 1 mismatch warning, got %d: %s", n, log)
+			}
+			for _, w := range tt.want {
+				if !strings.Contains(log, w) {
+					t.Errorf("warning missing %q: %s", w, log)
+				}
+			}
+		})
+	}
+}
+
+// ValidateCapabilities checks only the edges it is given: a mismatched pair
+// with no edge between them is not a mismatch.
+func TestValidateCapabilities_OnlyChecksConnectedStages(t *testing.T) {
+	buf := captureWarnings(t)
+	a := newMockFormatCapableStage("stage-a", AnyCapabilities(),
+		Capabilities{ContentTypes: []ContentType{ContentTypeAudio}})
+	b := newMockFormatCapableStage("stage-b",
+		Capabilities{ContentTypes: []ContentType{ContentTypeText}}, AnyCapabilities())
+
+	ValidateCapabilities([]Stage{a, b}, map[string][]string{"stage-b": {"stage-a"}, "missing": {"stage-a"}})
+	if strings.Contains(buf.String(), mismatchMarker) {
+		t.Fatalf("reverse edge b->a is compatible; got warning: %s", buf.String())
+	}
+
+	ValidateCapabilities([]Stage{a, b}, map[string][]string{"stage-a": {"stage-b"}})
+	if !strings.Contains(buf.String(), "content type incompatibility") {
+		t.Fatalf("edge a->b should warn; got: %s", buf.String())
 	}
 }

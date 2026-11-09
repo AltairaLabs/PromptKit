@@ -85,24 +85,41 @@ func TestNewGuardrailHookRejectsMissingRequiredParams(t *testing.T) {
 		"error should name the missing key")
 }
 
+// A hook built from valid params enforces them: over the limit is denied,
+// within it is allowed.
 func TestNewGuardrailHookAcceptsValidParams(t *testing.T) {
 	reg := evals.NewEvalTypeRegistry()
 
 	hook, err := NewGuardrailHookFromRegistry(
-		"max_length", map[string]any{"max_characters": 2000}, reg,
+		"max_length", map[string]any{"max_characters": 10}, reg,
 	)
 	require.NoError(t, err)
-	require.NotNil(t, hook)
+
+	over := hook.AfterCall(context.Background(), nil,
+		&hooks.ProviderResponse{Message: types.Message{Role: "assistant", Content: "eleven char"}})
+	assert.False(t, over.Allow, "11 characters must exceed max_characters=10")
+
+	within := hook.AfterCall(context.Background(), nil,
+		&hooks.ProviderResponse{Message: types.Message{Role: "assistant", Content: "short"}})
+	assert.True(t, within.Allow, "5 characters is within the limit: %s", within.Reason)
 }
 
+// A handler with no required params builds from empty params, and the hook
+// it builds runs: with no banned words configured, content passes.
 func TestNewGuardrailHookAcceptsHandlersWithoutRequiredParams(t *testing.T) {
 	reg := evals.NewEvalTypeRegistry()
 
-	// banned_words maps to content_excludes, which has no required params
-	// (patterns is optional). Must succeed even with empty params.
 	hook, err := NewGuardrailHookFromRegistry("banned_words", map[string]any{}, reg)
 	require.NoError(t, err)
-	require.NotNil(t, hook)
+	d := hook.AfterCall(context.Background(), nil,
+		&hooks.ProviderResponse{Message: types.Message{Role: "assistant", Content: "anything at all"}})
+	assert.True(t, d.Allow, "no banned words configured, nothing to deny: %s", d.Reason)
+
+	strict, err := NewGuardrailHookFromRegistry("banned_words", map[string]any{"words": []any{"anything"}}, reg)
+	require.NoError(t, err)
+	d = strict.AfterCall(context.Background(), nil,
+		&hooks.ProviderResponse{Message: types.Message{Role: "assistant", Content: "anything at all"}})
+	assert.False(t, d.Allow, "the same handler with a banned word must deny")
 }
 
 func TestNewGuardrailHookStillRejectsUnknownType(t *testing.T) {
