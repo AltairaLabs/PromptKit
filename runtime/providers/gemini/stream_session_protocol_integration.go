@@ -25,6 +25,7 @@ const audioPCMMimeRate = "audio/pcm;rate=16000"
 // Gemini Live client-message wire keys.
 const (
 	liveKeyClientContent      = "client_content"
+	liveKeyTurns              = "turns"
 	liveKeyTurnComplete       = "turn_complete"
 	liveKeyRealtimeInput      = "realtime_input"
 	liveKeyRealtimeInputCamel = "realtimeInput"
@@ -438,7 +439,7 @@ func buildTextMessage(text string, turnComplete bool) map[string]interface{} {
 
 	return map[string]interface{}{
 		liveKeyClientContent: map[string]interface{}{
-			"turns": []map[string]interface{}{
+			liveKeyTurns: []map[string]interface{}{
 				{
 					wireKeyRole:  roleUser,
 					wireKeyParts: []interface{}{part},
