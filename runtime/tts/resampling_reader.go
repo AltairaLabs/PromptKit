@@ -14,7 +14,7 @@ type resamplingReader struct {
 	rs      *audio.PCM16StreamResampler
 	buf     []byte // resampled bytes not yet returned
 	readBuf []byte
-	done    bool
+	err     error // the source's terminal error (io.EOF at the end), once seen
 }
 
 func newResamplingReader(src io.ReadCloser, fromRate, toRate int) (io.ReadCloser, error) {
@@ -27,21 +27,25 @@ func newResamplingReader(src io.ReadCloser, fromRate, toRate int) (io.ReadCloser
 }
 
 // Read returns resampled bytes, reading more of the source as needed. The
-// source's own error is returned once the resampled audio before it is out.
+// source's error, io.EOF included, is returned once the resampled audio before
+// it has been read, and on every Read after.
 func (r *resamplingReader) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
 	for len(r.buf) == 0 {
-		if r.done {
-			return 0, io.EOF
+		if r.err != nil {
+			return 0, r.err
 		}
 		n, err := r.src.Read(r.readBuf)
 		if n > 0 {
 			r.buf = append(r.buf, r.rs.Write(r.readBuf[:n])...)
 		}
-		if errors.Is(err, io.EOF) {
-			r.done = true
-			r.buf = append(r.buf, r.rs.Flush()...)
-		} else if err != nil {
-			return 0, err
+		if err != nil {
+			r.err = err
+			if errors.Is(err, io.EOF) {
+				r.buf = append(r.buf, r.rs.Flush()...)
+			}
 		}
 	}
 	n := copy(p, r.buf)

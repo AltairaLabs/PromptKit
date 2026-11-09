@@ -888,24 +888,6 @@ func TestPredictCostInfoUnifiedFields(t *testing.T) {
 	}
 }
 
-// TestGenerate_DelegatesToPredict verifies that Generate() wraps Predict and returns
-// image bytes extracted from the content parts.
-// TestGenerate_PropagatesError verifies that Generate() surfaces errors from Predict.
-func TestGenerate_PropagatesError(t *testing.T) {
-	p := NewProvider(Config{
-		ID:      "generate-err-test",
-		Model:   "imagen-4.0-generate-001",
-		BaseURL: "https://invalid.example.invalid",
-		ApiKey:  "test-key",
-	})
-
-	ctx := context.Background()
-	_, err := p.Generate(ctx, base.ImageRequest{Prompt: ""})
-	if err == nil {
-		t.Fatal("Expected error from Generate() with empty prompt, got nil")
-	}
-}
-
 // Helper function to check if string contains substring
 func containsString(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) &&

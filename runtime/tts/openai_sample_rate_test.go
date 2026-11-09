@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
+	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -61,4 +64,71 @@ func TestOpenAISynthesizeTTS_PCMIsResampledToTheRequestedRate(t *testing.T) {
 			assert.Equal(t, pcm, got, "no resampling at the API's own rate")
 		}
 	}
+}
+
+// Resampling streams: the first resampled bytes reach the caller while the
+// server is still holding the rest of the body.
+func TestOpenAISynthesizeTTS_ResampledPCMStillStreams(t *testing.T) {
+	pcm := oneSecondAt24k()
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "audio/pcm")
+		_, _ = w.Write(pcm[:8192])
+		w.(http.Flusher).Flush()
+		<-release
+		_, _ = w.Write(pcm[8192:])
+	}))
+	defer server.Close()
+
+	stream, err := NewOpenAI("k", base.WithBaseURL(server.URL)).SynthesizeTTS(context.Background(),
+		base.TTSRequest{Text: "hello", Format: "pcm", SampleRate: 16000})
+	require.NoError(t, err)
+	// Close drains the stream, so the server must be let finish first.
+	defer func() {
+		close(release)
+		_ = stream.Close()
+	}()
+
+	select {
+	case chunk := <-stream.Chunks():
+		require.NoError(t, chunk.Error)
+		assert.NotEmpty(t, chunk.Data, "resampled audio arrives before the body ends")
+	case <-time.After(2 * time.Second):
+		t.Fatal("no audio until the whole body arrived: resampling buffers the stream")
+	}
+}
+
+// failingBody returns its data with an error in the same Read.
+type failingBody struct {
+	data []byte
+	err  error
+	done bool
+}
+
+func (b *failingBody) Read(p []byte) (int, error) {
+	if b.done {
+		return 0, b.err
+	}
+	b.done = true
+	return copy(p, b.data), b.err
+}
+
+func (b *failingBody) Close() error { return nil }
+
+// A source error that arrives with data is returned only after the audio it
+// came with, and again on every later Read.
+func TestResamplingReader_ErrorFollowsItsAudio(t *testing.T) {
+	boom := errors.New("connection reset")
+	r, err := newResamplingReader(&failingBody{data: make([]byte, 4800), err: boom}, 24000, 16000)
+	require.NoError(t, err)
+
+	got, err := io.ReadAll(r)
+	require.ErrorIs(t, err, boom)
+	assert.NotEmpty(t, got, "the audio read with the error is not lost")
+	_, err = r.Read(make([]byte, 8))
+	assert.ErrorIs(t, err, boom, "the error is sticky")
+
+	n, err := r.Read(nil)
+	assert.Equal(t, 0, n)
+	assert.NoError(t, err, "an empty read does not touch the source")
 }

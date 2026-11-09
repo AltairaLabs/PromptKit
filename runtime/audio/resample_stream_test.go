@@ -64,3 +64,32 @@ func TestPCM16StreamResampler_RejectsNonPositiveRates(t *testing.T) {
 		t.Error("to=-1 must be refused")
 	}
 }
+
+// Edge streams: nothing in gives nothing out; a single sample upsampled is
+// held to the end on Flush; a single sample downsampled 3:1 gives none.
+func TestPCM16StreamResampler_EdgeStreams(t *testing.T) {
+	one := []byte{0x34, 0x12} // 0x1234
+	cases := []struct {
+		name     string
+		in       []byte
+		from, to int
+		want     []byte
+	}{
+		{"empty", nil, 24000, 16000, []byte{}},
+		{"one sample upsampled", one, 24000, 48000, []byte{0x34, 0x12, 0x34, 0x12}},
+		{"one sample downsampled", one, 24000, 8000, []byte{}},
+		{"lone odd byte", []byte{0x01}, 24000, 48000, []byte{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, err := NewPCM16StreamResampler(tc.from, tc.to)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := append(r.Write(tc.in), r.Flush()...)
+			if !bytes.Equal(got, tc.want) {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

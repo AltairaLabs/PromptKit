@@ -110,6 +110,7 @@ func TestGenerate_RefusesWhatTheAPICannotServe(t *testing.T) {
 			`imagen: size "large" is not WIDTHxHEIGHT, e.g. "1024x1024"`},
 		{"zero dimension", base.ImageRequest{Prompt: "x", Size: "0x1024"},
 			`imagen: size "0x1024" is not WIDTHxHEIGHT, e.g. "1024x1024"`},
+		{"empty prompt", base.ImageRequest{Prompt: ""}, "imagen: no text prompt"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -119,4 +120,22 @@ func TestGenerate_RefusesWhatTheAPICannotServe(t *testing.T) {
 			assert.Equal(t, int32(0), calls.Load(), "nothing is sent")
 		})
 	}
+}
+
+// A prediction without a mimeType is PNG, Imagen's default output, and the
+// cost keeps the size/quality keys a price table may be keyed on.
+func TestGenerate_DefaultsMIMEAndKeepsCostKeys(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"predictions":[{"bytesBase64Encoded":"SU1H"}]}`)
+	}))
+	defer srv.Close()
+
+	resp, err := newTestImagen(srv.URL).Generate(context.Background(),
+		base.ImageRequest{Prompt: "a fox", Size: "1792x1024"})
+	require.NoError(t, err)
+	assert.Equal(t, "image/png", resp.MIMEType)
+	require.NotNil(t, resp.Cost)
+	assert.Equal(t, map[string]string{"size": "1024x1024", "quality": "standard", "aspect_ratio": "16:9"},
+		resp.Cost.DimensionMatch)
+	assert.Positive(t, resp.Latency)
 }

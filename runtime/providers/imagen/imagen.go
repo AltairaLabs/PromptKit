@@ -295,7 +295,9 @@ func (p *Provider) Generate(ctx context.Context, req base.ImageRequest) (base.Im
 		Cost: &types.CostInfo{
 			TotalCost:      costPerImage * n,
 			Quantities:     map[string]float64{unitImage: n},
-			DimensionMatch: map[string]string{"aspect_ratio": aspect},
+			// size and quality keep the keys Predict's cost has always used, so
+			// a price table keyed on them still matches.
+			DimensionMatch: map[string]string{"size": "1024x1024", "quality": "standard", "aspect_ratio": aspect},
 			ProviderName:   p.Name(),
 			Capability:     string(base.ProviderTypeImage),
 			Latency:        latency,
