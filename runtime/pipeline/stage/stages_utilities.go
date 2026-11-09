@@ -991,7 +991,7 @@ func (s *ContextBuilderStage) countTokens(text string) int {
 func (s *ContextBuilderStage) countMessagesTokens(messages []types.Message) int {
 	total := 0
 	for i := range messages {
-		total += s.countTokens(messages[i].Content)
+		total += s.countTokens(messages[i].GetContent())
 		for _, tc := range messages[i].ToolCalls {
 			total += s.countTokens(string(tc.Args))
 		}
@@ -1027,7 +1027,7 @@ func (s *ContextBuilderStage) truncateOldest(messages []types.Message, budget in
 	// Start from most recent, work backwards, collecting in reverse order
 	for i := len(messages) - 1; i >= 0; i-- {
 		msg := messages[i]
-		msgTokens := s.countTokens(msg.Content)
+		msgTokens := s.countTokens(msg.GetContent())
 
 		// Add tool call tokens
 		for _, tc := range msg.ToolCalls {
@@ -1070,7 +1070,7 @@ func (s *ContextBuilderStage) truncateBySummarization(
 	splitIdx := len(messages) // index where we start keeping messages
 
 	for i := len(messages) - 1; i >= 0; i-- {
-		msgTokens := s.countTokens(messages[i].Content)
+		msgTokens := s.countTokens(messages[i].GetContent())
 		if keptTokens+msgTokens > halfBudget {
 			splitIdx = i + 1
 			break
@@ -1243,7 +1243,7 @@ func (s *ContextBuilderStage) buildScoredMessages(
 
 // countMessageTokens counts tokens for a single message.
 func (s *ContextBuilderStage) countMessageTokens(msg *types.Message) int {
-	tokens := s.countTokens(msg.Content)
+	tokens := s.countTokens(msg.GetContent())
 	for _, tc := range msg.ToolCalls {
 		tokens += s.countTokens(string(tc.Args))
 	}

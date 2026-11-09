@@ -375,6 +375,7 @@ Nothing changes for callers.
 | Check `errors.Is(err, sdk.ErrConversationNotFound)` after `Resume` or `ResumeDuplex` of an unknown ID | it holds for the memory and Redis stores, where they returned only `statestore.ErrNotFound` | nothing |
 | Pass `WithUserID` with a state store | a new conversation's persisted state carries the user ID, where the ID reached events only; a resumed conversation's state is left as it was | nothing |
 | Call `SetVar` from another goroutine while a turn runs | the call returns and the next turn renders it, where the two could deadlock | nothing |
+| Set `WithTokenBudget` | what users said counts against the budget, so long conversations are truncated by `WithTruncation`'s strategy (or fail with `"fail"`), where user text was counted as zero tokens and the budget was rarely reached | check that the budget leaves room for the history you want sent |
 
 ## v2.18.0
 
