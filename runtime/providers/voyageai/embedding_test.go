@@ -34,9 +34,22 @@ func TestNewEmbeddingProvider(t *testing.T) {
 	t.Run("creates with explicit API key", func(t *testing.T) {
 		t.Setenv("VOYAGE_API_KEY", "")
 
-		p, err := NewEmbeddingProvider(WithAPIKey("explicit-key"))
+		var gotAuth string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotAuth = r.Header.Get("Authorization")
+			_ = json.NewEncoder(w).Encode(voyageResponse{
+				Object: "list",
+				Data:   []voyageEmbedding{{Object: "embedding", Embedding: fixtureVector(Dimensions1024, 1), Index: 0}},
+				Model:  DefaultModel,
+			})
+		}))
+		defer server.Close()
+
+		p, err := NewEmbeddingProvider(WithAPIKey("explicit-key"), WithBaseURL(server.URL))
 		require.NoError(t, err)
-		assert.NotNil(t, p)
+		_, err = p.Embed(context.Background(), providers.EmbeddingRequest{Texts: []string{"x"}})
+		require.NoError(t, err)
+		assert.Equal(t, "Bearer explicit-key", gotAuth)
 	})
 
 	t.Run("applies options", func(t *testing.T) {
@@ -260,16 +273,6 @@ func TestEmbeddingProvider_Methods(t *testing.T) {
 	t.Run("MaxBatchSize", func(t *testing.T) {
 		assert.Equal(t, 128, p.MaxBatchSize())
 	})
-}
-
-func TestEmbeddingProvider_InterfaceCompliance(t *testing.T) {
-	t.Setenv("VOYAGE_API_KEY", "test-key")
-
-	p, err := NewEmbeddingProvider()
-	require.NoError(t, err)
-
-	// Verify it implements the interface
-	var _ providers.EmbeddingProvider = p
 }
 
 func TestEmbeddingProvider_ContextCancellation(t *testing.T) {

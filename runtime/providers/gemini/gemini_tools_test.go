@@ -362,17 +362,7 @@ func TestGeminiProvider_ApplyRequestDefaults(t *testing.T) {
 // PredictStreamWithTools Tests
 // ============================================================================
 
-func TestGeminiToolProvider_PredictStreamWithTools_ImplementsToolSupport(t *testing.T) {
-	geminiProvider := NewProvider("test", "gemini-2.0-flash", "", providers.ProviderDefaults{}, false)
-	provider := &ToolProvider{Provider: geminiProvider}
-
-	// Verify it implements ToolSupport interface which includes PredictStreamWithTools
-	var toolSupport providers.ToolSupport = provider
-
-	// If this compiles, the interface is implemented correctly
-	_ = toolSupport.BuildTooling
-	_ = toolSupport.PredictWithTools
-}
+var _ providers.ToolSupport = (*ToolProvider)(nil)
 
 func TestGeminiToolProvider_PredictStreamWithTools_BuildsRequestWithTools(t *testing.T) {
 	geminiProvider := NewProvider("test", "gemini-2.0-flash", "", providers.ProviderDefaults{}, false)

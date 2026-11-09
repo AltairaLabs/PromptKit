@@ -125,13 +125,6 @@ func TestMockStreamSession_SendText(t *testing.T) {
 	})
 }
 
-func TestMockStreamSession_Response(t *testing.T) {
-	session := NewMockStreamSession()
-	responseChan := session.Response()
-	assert.NotNil(t, responseChan)
-	// The channel is not nil and is usable
-}
-
 func TestMockStreamSession_Close(t *testing.T) {
 	t.Run("closes successfully", func(t *testing.T) {
 		session := NewMockStreamSession()
@@ -215,9 +208,10 @@ func TestMockStreamSession_EmitChunk(t *testing.T) {
 		session := NewMockStreamSession()
 		session.Close()
 
-		// This should not panic or block
 		chunk := &providers.StreamChunk{Content: "test"}
-		session.EmitChunk(chunk)
+		assert.NotPanics(t, func() { session.EmitChunk(chunk) })
+		_, open := <-session.Response()
+		assert.False(t, open, "a closed session delivers nothing")
 	})
 }
 

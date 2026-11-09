@@ -12,6 +12,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -21,8 +22,7 @@ import (
 func TestStreamMetrics_ObserveStreamErrorChunksForwarded_NilSafe(t *testing.T) {
 	t.Parallel()
 	var m *StreamMetrics
-	// Must not panic on a nil receiver.
-	m.ObserveStreamErrorChunksForwarded("openai", 5)
+	assert.NotPanics(t, func() { m.ObserveStreamErrorChunksForwarded("openai", 5) })
 }
 
 // --- chunkForwardedContent ---

@@ -829,11 +829,6 @@ func TestImagenProvider_Pricing(t *testing.T) {
 	}
 }
 
-// TestImagenProvider_SatisfiesBaseImageProvider is a compile-time assertion expressed
-// as a runtime test. If this test file compiles the interface is satisfied.
-func TestImagenProvider_SatisfiesBaseImageProvider(t *testing.T) {
-	var _ base.ImageProvider = NewProvider(Config{ID: "x", Model: "y", ApiKey: "z"})
-}
 
 // TestPredictCostInfoUnifiedFields verifies that the new unified CostInfo fields are
 // populated correctly on a successful Predict call.

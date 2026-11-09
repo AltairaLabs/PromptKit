@@ -286,6 +286,7 @@ func (p *ToolProvider) parseToolResponse(
 				// model chose the calls it did.
 				ReasoningContent string `json:"reasoning_content,omitempty"`
 			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 		Usage struct {
 			PromptTokens     int `json:"prompt_tokens"`
@@ -309,10 +310,11 @@ func (p *ToolProvider) parseToolResponse(
 	)
 
 	resp := providers.PredictionResponse{
-		Content:   choice.Message.Content,
-		CostInfo:  &costBreakdown,
-		Raw:       respBytes,
-		Reasoning: reasoningFromContent(choice.Message.ReasoningContent),
+		Content:      choice.Message.Content,
+		CostInfo:     &costBreakdown,
+		Raw:          respBytes,
+		Reasoning:    reasoningFromContent(choice.Message.ReasoningContent),
+		FinishReason: providers.NormalizeOpenAIFinishReason(choice.FinishReason),
 	}
 
 	// Extract tool calls

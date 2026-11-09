@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -277,7 +278,9 @@ func TestProvider_applyStreamMetadata(t *testing.T) {
 	t.Run("nil metadata is safe", func(t *testing.T) {
 		config := DefaultRealtimeSessionConfig()
 		p.applyStreamMetadata(nil, &config)
-		// Should not panic
+		if !reflect.DeepEqual(config, DefaultRealtimeSessionConfig()) {
+			t.Errorf("nil metadata changed the config: %+v", config)
+		}
 	})
 }
 
@@ -326,10 +329,7 @@ func TestProvider_applyStreamTools(t *testing.T) {
 	})
 }
 
-func TestProvider_StreamInputSupport_Interface(t *testing.T) {
-	// Verify Provider implements StreamInputSupport
-	var _ providers.StreamInputSupport = (*Provider)(nil)
-}
+var _ providers.StreamInputSupport = (*Provider)(nil)
 
 // --- Realtime concurrency bounds (#862) ---
 //

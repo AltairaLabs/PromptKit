@@ -1,10 +1,13 @@
 package mock
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -101,13 +104,20 @@ func TestNewToolProvider_InterruptAndCloseSimulation(t *testing.T) {
 }
 
 func TestNewToolProvider_InvalidMockConfigFallsBack(t *testing.T) {
-	// A bad mock_config path must not fail construction — it falls back to a
-	// repository-less StreamingProvider.
-	provider := NewToolProvider("id", "model", false, map[string]interface{}{
+	// A bad mock_config path must not fail construction: the provider answers
+	// exactly as one built with no mock_config at all.
+	req := providers.PredictionRequest{Messages: []types.Message{{Role: "user", Content: "hi"}}}
+	bad := NewToolProvider("id", "model", false, map[string]interface{}{
 		"mock_config": "/definitely/not/here.yaml",
 	})
-	require.NotNil(t, provider)
-	assert.Nil(t, provider.repo, "failed config load must leave no scripted repo wired")
+	plain := NewToolProvider("id", "model", false, map[string]interface{}{})
+
+	got, err := bad.Predict(context.Background(), req)
+	require.NoError(t, err)
+	want, err := plain.Predict(context.Background(), req)
+	require.NoError(t, err)
+	require.NotEmpty(t, want.Content)
+	assert.Equal(t, want.Content, got.Content)
 }
 
 func TestNewToolProvider_ValidMockConfigWiresScenario(t *testing.T) {

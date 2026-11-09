@@ -172,7 +172,7 @@ func TestInteractionsStream_ToolCall(t *testing.T) {
 		"argument deltas must be concatenated before the call is emitted")
 
 	require.NotNil(t, final.FinishReason)
-	assert.Equal(t, "tool_calls", *final.FinishReason,
+	assert.Equal(t, types.FinishReasonToolUse, *final.FinishReason,
 		"a caller must be able to tell a tool hand-off from a finished answer")
 }
 

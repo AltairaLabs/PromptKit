@@ -263,7 +263,15 @@ func TestHeuristicTokenCounter_ThreadSafety(t *testing.T) {
 	}
 
 	wg.Wait()
-	// If we get here without a race condition, the test passes
+	// The race detector checks the locking. The last write wins whole: the
+	// ratio is one that was set, and counts use it.
+	r := counter.Ratio()
+	if r < 1 || r > 10 || r != float64(int(r)) {
+		t.Fatalf("Ratio after concurrent SetRatio = %v, want one of 1..10", r)
+	}
+	if got, want := counter.CountTokens("a b c d"), int(4*r); got != want {
+		t.Errorf("CountTokens with ratio %v = %d, want %d", r, got, want)
+	}
 }
 
 func TestTokenRatios(t *testing.T) {

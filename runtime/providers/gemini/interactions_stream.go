@@ -46,9 +46,10 @@ const (
 	deltaTypeSignature = "thought_signature"
 
 	// finishReasonToolCalls marks a turn that ended by handing off to tools
-	// rather than answering.
-	finishReasonToolCalls = "tool_calls"
-	finishReasonStop      = "stop"
+	// rather than answering. Both are the canonical values every provider
+	// normalizes to, so a turn reports the same reason on either Gemini API.
+	finishReasonToolCalls = types.FinishReasonToolUse
+	finishReasonStop      = types.FinishReasonStop
 
 	streamChunkBuffer = 32
 	sseInitialBuffer  = 64 * 1024

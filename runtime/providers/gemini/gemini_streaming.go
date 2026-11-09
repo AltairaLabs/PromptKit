@@ -204,7 +204,7 @@ func (p *Provider) emitGeminiStreamFinish(
 		return
 	}
 
-	normalized := normalizeFinishReason(finishReason)
+	normalized := turnFinishReason(finishReason, len(toolCalls) > 0)
 	finalChunk := providers.StreamChunk{
 		Content:      sb.String(),
 		FinishReason: &normalized,

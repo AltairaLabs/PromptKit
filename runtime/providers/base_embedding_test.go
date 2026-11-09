@@ -1,8 +1,10 @@
 package providers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 func TestNewBaseEmbeddingProvider(t *testing.T) {
@@ -349,16 +353,42 @@ func TestUnmarshalResponse(t *testing.T) {
 	})
 }
 
-func TestLogEmbeddingRequest(t *testing.T) {
-	// Just verify it doesn't panic
-	start := time.Now()
-	LogEmbeddingRequest("Test", "model-v1", 5, start)
+// captureDebugLog routes the package logger into a JSON buffer for one test
+// and returns the decoded record emitted by fn.
+func captureDebugLog(t *testing.T, fn func()) map[string]any {
+	t.Helper()
+	var buf bytes.Buffer
+	restore := logger.GetLogger()
+	logger.SetLogger(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { logger.SetLogger(restore) })
+	fn()
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec), "no log record captured: %q", buf.String())
+	return rec
 }
 
-func TestLogEmbeddingRequestWithTokens(t *testing.T) {
-	// Just verify it doesn't panic
-	start := time.Now()
-	LogEmbeddingRequestWithTokens("Test", "model-v1", 5, 100, start)
+// The completion record carries what identifies the call in a trace: the
+// provider in the message, the model, the input count and the latency.
+func TestLogEmbeddingRequest_RecordsModelCountAndLatency(t *testing.T) {
+	rec := captureDebugLog(t, func() {
+		LogEmbeddingRequest("Test", "model-v1", 5, time.Now().Add(-40*time.Millisecond))
+	})
+	assert.Equal(t, "Test embedding request completed", rec["msg"])
+	assert.Equal(t, "model-v1", rec["model"])
+	assert.Equal(t, float64(5), rec["texts"])
+	assert.GreaterOrEqual(t, rec["latency_ms"], float64(40))
+	assert.NotContains(t, rec, "tokens")
+}
+
+func TestLogEmbeddingRequestWithTokens_RecordsTokens(t *testing.T) {
+	rec := captureDebugLog(t, func() {
+		LogEmbeddingRequestWithTokens("Test", "model-v1", 5, 100, time.Now().Add(-40*time.Millisecond))
+	})
+	assert.Equal(t, "Test embedding request completed", rec["msg"])
+	assert.Equal(t, "model-v1", rec["model"])
+	assert.Equal(t, float64(5), rec["texts"])
+	assert.Equal(t, float64(100), rec["tokens"])
+	assert.GreaterOrEqual(t, rec["latency_ms"], float64(40))
 }
 
 // fixtureVector returns an n-length vector whose leading elements are lead,

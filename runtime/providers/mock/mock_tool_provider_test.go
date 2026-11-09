@@ -724,7 +724,7 @@ scenarios:
 	// Final chunk should have tool calls
 	finalChunk := chunks[len(chunks)-1]
 	assert.NotNil(t, finalChunk.FinishReason)
-	assert.Equal(t, "tool_calls", *finalChunk.FinishReason)
+	assert.Equal(t, types.FinishReasonToolUse, *finalChunk.FinishReason)
 	assert.Len(t, finalChunk.ToolCalls, 1)
 	assert.Equal(t, "search", finalChunk.ToolCalls[0].Name)
 }
@@ -769,13 +769,4 @@ func TestToolProvider_PredictStreamWithTools_StreamsContentInChunks(t *testing.T
 	assert.Equal(t, longContent, lastContent)
 }
 
-func TestToolProvider_PredictStreamWithTools_ImplementsToolSupport(t *testing.T) {
-	provider := NewToolProvider("test-id", "test-model", false, nil)
-
-	// Verify it implements ToolSupport interface which includes PredictStreamWithTools
-	var toolSupport providers.ToolSupport = provider
-
-	// If this compiles, the interface is implemented correctly
-	_ = toolSupport.BuildTooling
-	_ = toolSupport.PredictWithTools
-}
+var _ providers.ToolSupport = (*ToolProvider)(nil)

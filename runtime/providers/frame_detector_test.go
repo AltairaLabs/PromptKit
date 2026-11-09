@@ -219,15 +219,13 @@ func TestJSONArrayFrameDetector_Name(t *testing.T) {
 	}
 }
 
-// --- Interface compliance checks ---
-
-func TestFrameDetector_InterfaceCompliance(t *testing.T) {
-	t.Parallel()
-	var _ FrameDetector = SSEFrameDetector{}
-	var _ FrameDetector = NDJSONFrameDetector{}
-	var _ FrameDetector = JSONArrayFrameDetector{}
-	var _ FrameDetector = BedrockEventStreamFrameDetector{}
-}
+// Every detector satisfies FrameDetector at compile time.
+var (
+	_ FrameDetector = SSEFrameDetector{}
+	_ FrameDetector = NDJSONFrameDetector{}
+	_ FrameDetector = JSONArrayFrameDetector{}
+	_ FrameDetector = BedrockEventStreamFrameDetector{}
+)
 
 // --- Bedrock event-stream ---
 

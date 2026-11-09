@@ -277,11 +277,6 @@ func TestFileMockRepository_parseToolCalls_ErrorHandling(t *testing.T) {
 	assert.Equal(t, 42, toolCalls[0].Arguments["param2"]) // Direct map data preserves original type
 }
 
-func TestFileMockRepository_GetTurn_WithToolResponses(t *testing.T) {
-	// Deprecated: tool_responses support removed. Keep placeholder to ensure backward compatibility expectations are clear.
-	t.Skip("tool_responses support removed from mock repository")
-}
-
 func TestInMemoryMockRepository_GetTurn(t *testing.T) {
 	repo := NewInMemoryMockRepository("Default response")
 

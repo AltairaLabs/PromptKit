@@ -10,6 +10,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/stretchr/testify/assert"
 )
 
 // --- NewPooledTransportWithOptions ---
@@ -304,6 +305,8 @@ func TestConnTrackingTransport_NilBaseFallsBackToDefault(t *testing.T) {
 func TestStreamMetrics_HTTPConnsInUse_NilSafe(t *testing.T) {
 	t.Parallel()
 	var m *StreamMetrics
-	m.HTTPConnsInUseInc("example.com")
-	m.HTTPConnsInUseDec("example.com")
+	assert.NotPanics(t, func() {
+		m.HTTPConnsInUseInc("example.com")
+		m.HTTPConnsInUseDec("example.com")
+	})
 }

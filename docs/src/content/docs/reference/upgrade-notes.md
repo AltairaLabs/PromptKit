@@ -302,6 +302,37 @@ order, so the error `OpenWorkflow` and `Open` return named a different first
 finding from run to run. The findings now come in state, event and member
 name order.
 
+### Providers report the same finish reason and usage for the same turn
+
+Every provider now reports a finished turn's `FinishReason` in the canonical
+values in `runtime/types`: `stop` for an answer, `tool_use` for a turn that
+calls tools. Some paths reported nothing, or a vendor value, so the same turn
+read differently depending on the provider, the request path and, for Gemini,
+which Gemini API the request was routed to.
+
+| If you | You will see | Change |
+|---|---|---|
+| Call `PredictWithTools` on ollama or vllm | `FinishReason` set, where it was empty | nothing |
+| Run a Gemini turn that calls a function | `tool_use`, where generateContent reported `stop` | compare against `types.FinishReasonToolUse` |
+| Run a Gemini turn through the Interactions API | `tool_use` / `stop`, where a stream reported `tool_calls` and a unary call reported nothing | compare against `types.FinishReasonToolUse` and `types.FinishReasonStop` |
+| Use the mock provider | `stop` on `Predict` and `PredictWithTools`, and `tool_use` on a tool-call turn, where it reported nothing or `tool_calls` | compare against the `types.FinishReason*` constants |
+| Stream from vllm | a final chunk with the finish reason and, when the server sends usage, its `CostInfo`; `PredictStream` sent no final chunk and tool streams no cost | nothing |
+| Call vllm `PredictWithTools` on a turn that only calls tools | the tool calls, where the provider panicked on the response's null content | nothing |
+
+### TTS honors the requested PCM sample rate
+
+`base.TTSRequest.SampleRate` reaches the wire for raw PCM on Cartesia
+(`output_format.sample_rate`) and ElevenLabs (`output_format=pcm_<rate>`).
+Both synthesized 24 kHz whatever was asked, and raw PCM carries no header naming
+its rate, so audio requested at another rate played at the wrong pitch. The
+OpenAI speech API takes no sample rate; its PCM stays 24 kHz. MP3 and WAV carry
+their rate in the file and keep each service's fixed rate.
+
+| If you | You will see | Change |
+|---|---|---|
+| Request PCM at a rate the vendor takes (Cartesia: 8000, 16000, 22050, 24000, 44100; ElevenLabs: those and 48000) | audio at that rate, where it came back at 24 kHz | nothing |
+| Request PCM at any other rate | an error from `SynthesizeTTS` naming the supported rates, where the call returned 24 kHz audio | request a supported rate, or resample |
+
 ### Resumed tool results name their tool
 
 A tool result that `Resume`, `ResumeStream` or `Continue` gave the model had an

@@ -182,8 +182,11 @@ func TestPricingFromSpec_ValidPricing(t *testing.T) {
 func TestPricingFromSpec_InvalidValue(t *testing.T) {
 	// A non-map value (e.g. string) should return nil without panicking.
 	spec := tts.ProviderSpec{AdditionalConfig: map[string]any{"pricing": "not-a-map"}}
-	// Should not panic; may return nil or a zero descriptor (both acceptable).
-	_ = tts.PricingFromSpec(spec)
+	// A zero descriptor would price every call at $0 as if configured; nil
+	// means "no pricing", which is what an unparseable value is.
+	if got := tts.PricingFromSpec(spec); got != nil {
+		t.Errorf("PricingFromSpec(string) = %+v, want nil", got)
+	}
 }
 
 // --- YAML-driven pricing through factory ---

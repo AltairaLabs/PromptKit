@@ -622,45 +622,64 @@ func (p *Provider) predictStreamWithMessages(
 	}, p.streamResponse)
 }
 
-// emitStreamChoice forwards the first choice of a stream chunk (reasoning,
-// content delta, and the final finish-reason chunk when usage is present) and
-// reports whether the choice carried a finish reason.
+// emitStreamChoice forwards the first choice of a stream chunk (reasoning and
+// content deltas) and records its finish reason. With
+// stream_options.include_usage, vLLM sends usage in a separate chunk with no
+// choices after the one carrying finish_reason, so the terminal chunk waits
+// for it (see finishStream) unless this chunk carries usage itself.
 func (p *Provider) emitStreamChoice(
-	chunk *vllmStreamChunk, sb *strings.Builder, outChan chan<- providers.StreamChunk,
-) bool {
+	chunk *vllmStreamChunk, st *vllmStreamState, outChan chan<- providers.StreamChunk,
+) {
 	choice := chunk.Choices[0]
 
 	// Reasoning streams separately from content so it reaches
 	// Message.Reasoning without contaminating spoken output.
 	if choice.Delta.ReasoningContent != "" {
 		outChan <- providers.StreamChunk{
-			Content:   sb.String(),
+			Content:   st.sb.String(),
 			Reasoning: choice.Delta.ReasoningContent,
 		}
 	}
 
 	// Send content chunk
 	if choice.Delta.Content != "" {
-		sb.WriteString(choice.Delta.Content)
+		st.sb.WriteString(choice.Delta.Content)
 		outChan <- providers.StreamChunk{
-			Content:     sb.String(),
+			Content:     st.sb.String(),
 			Delta:       choice.Delta.Content,
 			DeltaTokens: 1,
 		}
 	}
 
-	// Send final chunk with finish reason and usage
-	if choice.FinishReason != "" && chunk.Usage != nil {
-		costInfo := p.costFromUsage(*chunk.Usage)
-		normalized := providers.NormalizeOpenAIFinishReason(choice.FinishReason)
-		outChan <- providers.StreamChunk{
-			Content:      sb.String(),
-			FinishReason: &normalized,
-			CostInfo:     &costInfo,
+	if choice.FinishReason != "" {
+		st.finish = providers.NormalizeOpenAIFinishReason(choice.FinishReason)
+		if chunk.Usage != nil {
+			p.finishStream(st, chunk.Usage, outChan)
 		}
 	}
+}
 
-	return choice.FinishReason != ""
+// vllmStreamState is the state of one non-tool stream.
+type vllmStreamState struct {
+	sb     strings.Builder
+	finish string // normalized finish reason, once seen
+	done   bool   // the terminal chunk was sent
+}
+
+// finishStream sends the terminal chunk once: the finish reason, the full
+// content and, when usage arrived, its cost.
+func (p *Provider) finishStream(st *vllmStreamState, usage *vllmUsage, outChan chan<- providers.StreamChunk) {
+	if st.done || st.finish == "" {
+		return
+	}
+	st.done = true
+	finish := st.finish
+	terminal := providers.StreamChunk{Content: st.sb.String(), FinishReason: &finish}
+	if usage != nil {
+		costInfo := p.costFromUsage(*usage)
+		terminal.CostInfo = &costInfo
+	}
+	outChan <- terminal
 }
 
 // streamResponse reads SSE stream from vLLM and sends chunks
@@ -683,17 +702,19 @@ func (p *Provider) streamResponse(
 	defer idleBody.Close()
 
 	scanner := providers.NewSSEScanner(idleBody)
-	var sb strings.Builder // Track accumulated content
-	sawFinish := false
+	st := &vllmStreamState{}
 
 	for scanner.Scan() {
 		if ctx.Err() != nil {
-			outChan <- providers.StreamChunk{Content: sb.String(), Error: ctx.Err()}
+			outChan <- providers.StreamChunk{Content: st.sb.String(), Error: ctx.Err()}
 			return
 		}
 
 		data := scanner.Data()
 		if data == "[DONE]" {
+			// No usage chunk came (include_usage unsupported): end with the
+			// finish reason alone.
+			p.finishStream(st, nil, outChan)
 			return
 		}
 
@@ -704,29 +725,33 @@ func (p *Provider) streamResponse(
 		}
 
 		if len(chunk.Choices) == 0 {
+			// The usage-only chunk that follows the finish_reason choice.
+			if chunk.Usage != nil {
+				p.finishStream(st, chunk.Usage, outChan)
+			}
 			continue
 		}
 
-		if p.emitStreamChoice(&chunk, &sb, outChan) {
-			sawFinish = true
-		}
+		p.emitStreamChoice(&chunk, st, outChan)
 	}
 
 	// The loop ended without [DONE]. A canceled stream (its body closed by
 	// the goroutine above) reports the cancellation; a clean EOF before any
 	// finish_reason is a server-side truncation, never a completed reply.
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		outChan <- providers.StreamChunk{Content: sb.String(), Error: ctxErr}
+		outChan <- providers.StreamChunk{Content: st.sb.String(), Error: ctxErr}
 		return
 	}
 	if err := scanner.Err(); err != nil {
-		outChan <- providers.StreamChunk{Content: sb.String(), Error: err}
+		outChan <- providers.StreamChunk{Content: st.sb.String(), Error: err}
 		return
 	}
-	if !sawFinish {
+	if st.finish == "" {
 		outChan <- providers.StreamChunk{
-			Content: sb.String(),
+			Content: st.sb.String(),
 			Error:   fmt.Errorf("vllm stream ended before completion: %w", io.ErrUnexpectedEOF),
 		}
+		return
 	}
+	p.finishStream(st, nil, outChan)
 }

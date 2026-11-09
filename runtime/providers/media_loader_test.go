@@ -507,28 +507,34 @@ func TestMediaLoader_MaxMediaItems_WithURLs(t *testing.T) {
 	assert.Contains(t, err.Error(), "media item limit exceeded")
 }
 
+// File bytes accumulate across loads on one loader: two files that together
+// sit exactly at MaxAggregateMediaSize load, and one more byte is refused with
+// ErrAggregateMediaSizeExceeded. Sparse files keep the fixture off the disk.
 func TestMediaLoader_AggregateSize_TrackedAcrossFiles(t *testing.T) {
 	tmpDir := t.TempDir()
+	half := providers.MaxAggregateMediaSize / 2
+	sparse := func(name string, size int64) *string {
+		p := filepath.Join(tmpDir, name)
+		f, err := os.Create(p)
+		require.NoError(t, err)
+		require.NoError(t, f.Truncate(size))
+		require.NoError(t, f.Close())
+		return &p
+	}
+	f1, f2, f3 := sparse("f1.bin", half), sparse("f2.bin", half), sparse("f3.bin", 1)
 
-	// Create two files: each 512 bytes. Set max URL size to 1024 per file.
-	// Set aggregate limit to 100MB (can't change const), so this just verifies
-	// the tracking doesn't error for small files.
-	f1 := filepath.Join(tmpDir, "f1.bin")
-	f2 := filepath.Join(tmpDir, "f2.bin")
-	err := os.WriteFile(f1, make([]byte, 512), 0644)
-	require.NoError(t, err)
-	err = os.WriteFile(f2, make([]byte, 512), 0644)
-	require.NoError(t, err)
+	loader := newLocalMediaLoader(providers.MediaLoaderConfig{MaxURLSizeBytes: half})
+	for _, f := range []*string{f1, f2} {
+		got, err := loader.GetBase64Data(context.Background(),
+			&types.MediaContent{FilePath: f, MIMEType: "application/octet-stream"})
+		require.NoError(t, err, "file %s is within the aggregate limit", *f)
+		require.Equal(t, base64.StdEncoding.EncodedLen(int(half)), len(got))
+	}
 
-	loader := newLocalMediaLoader(providers.MediaLoaderConfig{})
-
-	media1 := &types.MediaContent{FilePath: &f1, MIMEType: "application/octet-stream"}
-	_, err = loader.GetBase64Data(context.Background(), media1)
-	assert.NoError(t, err)
-
-	media2 := &types.MediaContent{FilePath: &f2, MIMEType: "application/octet-stream"}
-	_, err = loader.GetBase64Data(context.Background(), media2)
-	assert.NoError(t, err)
+	_, err := loader.GetBase64Data(context.Background(),
+		&types.MediaContent{FilePath: f3, MIMEType: "application/octet-stream"})
+	require.ErrorIs(t, err, providers.ErrAggregateMediaSizeExceeded)
+	assert.Contains(t, err.Error(), fmt.Sprintf("total %d bytes", providers.MaxAggregateMediaSize+1))
 }
 
 func TestMediaLoader_LargeFileWarning(t *testing.T) {
@@ -635,24 +641,25 @@ func TestMediaLoader_MixedSourceTypes_ItemCounting(t *testing.T) {
 	assert.Contains(t, err.Error(), "media item limit exceeded")
 }
 
+// The item limit is per loader: a loader that has hit MaxMediaItems refuses
+// the next item, while a second loader still loads.
 func TestMediaLoader_NewLoaderResetsCounters(t *testing.T) {
-	// Verify that each new MediaLoader instance starts fresh
 	loader1 := newLocalMediaLoader(providers.MediaLoaderConfig{})
 	loader2 := newLocalMediaLoader(providers.MediaLoaderConfig{})
 
-	// Load items on loader1
-	for i := 0; i < 5; i++ {
+	for i := 0; i < providers.MaxMediaItems; i++ {
 		data := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("data-%d", i)))
 		media := &types.MediaContent{Data: &data, MIMEType: "text/plain"}
 		_, err := loader1.GetBase64Data(context.Background(), media)
 		require.NoError(t, err)
 	}
-
-	// loader2 should be unaffected
 	data := base64.StdEncoding.EncodeToString([]byte("fresh"))
-	media := &types.MediaContent{Data: &data, MIMEType: "text/plain"}
-	_, err := loader2.GetBase64Data(context.Background(), media)
-	assert.NoError(t, err)
+	_, err := loader1.GetBase64Data(context.Background(), &types.MediaContent{Data: &data, MIMEType: "text/plain"})
+	require.ErrorIs(t, err, providers.ErrMediaItemLimitExceeded)
+
+	got, err := loader2.GetBase64Data(context.Background(), &types.MediaContent{Data: &data, MIMEType: "text/plain"})
+	require.NoError(t, err)
+	assert.Equal(t, data, got)
 }
 
 func TestMediaLoader_FileStatError(t *testing.T) {

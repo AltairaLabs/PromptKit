@@ -35,20 +35,30 @@ func TestSetRateLimit(t *testing.T) {
 	assert.Nil(t, base.RateLimiter(), "negative rps should disable rate limiting")
 }
 
-func TestWaitForRateLimit_NilLimiter(t *testing.T) {
+// With no limiter there is nothing to wait for, so even a cancelled context
+// is not consulted: the call is admitted.
+func TestWaitForRateLimit_NilLimiterAdmitsEvenACancelledContext(t *testing.T) {
 	base := NewBaseProvider("test", false, nil)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
 
-	// Should return immediately with no error when no limiter is configured
-	err := base.WaitForRateLimit(t.Context())
-	assert.NoError(t, err)
+	// A limiter would report the cancellation (context.Canceled); with none
+	// the call is admitted.
+	assert.Equal(t, error(nil), base.WaitForRateLimit(ctx))
 }
 
-func TestWaitForRateLimit_Allows(t *testing.T) {
+// The configured burst is admitted at once; the request after it has to wait
+// for a token, which a 1 rps limit cannot supply inside a 50ms deadline.
+func TestWaitForRateLimit_AdmitsTheBurstThenThrottles(t *testing.T) {
 	base := NewBaseProvider("test", false, nil)
-	base.SetRateLimit(1000.0, 10) // generous limit
+	base.SetRateLimit(1.0, 10)
 
-	err := base.WaitForRateLimit(t.Context())
-	assert.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	for i := 0; i < 10; i++ {
+		require.NoError(t, base.WaitForRateLimit(ctx), "request %d is inside the burst", i+1)
+	}
+	assert.Error(t, base.WaitForRateLimit(ctx), "request 11 exceeds the burst")
 }
 
 func TestWaitForRateLimit_CancelledContext(t *testing.T) {

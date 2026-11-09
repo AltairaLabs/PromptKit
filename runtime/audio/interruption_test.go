@@ -2,7 +2,9 @@ package audio
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestInterruptionStrategy_String(t *testing.T) {
@@ -168,29 +170,43 @@ func TestInterruptionHandler_Reset(t *testing.T) {
 	}
 }
 
+// Deferred: user speech while the bot talks queues the interruption, and it
+// fires once, when the bot stops.
 func TestInterruptionHandler_DeferredTriggerOnBotStop(t *testing.T) {
 	vad := &mockVAD{state: VADStateSpeaking}
 	h := NewInterruptionHandler(InterruptionDeferred, vad)
 
-	callbackChan := make(chan struct{}, 1)
+	var fired atomic.Int32
+	callbackChan := make(chan struct{}, 2)
 	h.OnInterrupt(func() {
+		fired.Add(1)
 		callbackChan <- struct{}{}
 	})
 
 	h.SetBotSpeaking(true)
-
-	// User starts speaking - queue deferred interruption
-	h.ProcessVADState(context.Background(), VADStateSpeaking)
-
-	// Bot stops speaking - should trigger deferred interruption
-	h.SetBotSpeaking(false)
-
-	// Check callback was queued
+	interrupted, err := h.ProcessVADState(context.Background(), VADStateSpeaking)
+	if err != nil {
+		t.Fatalf("ProcessVADState: %v", err)
+	}
+	if interrupted {
+		t.Fatal("deferred strategy must not interrupt immediately")
+	}
 	select {
 	case <-callbackChan:
-		// Success
-	default:
-		// May not have executed yet due to goroutine timing
+		t.Fatal("deferred interruption fired while the bot was still speaking")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	h.SetBotSpeaking(false)
+	select {
+	case <-callbackChan:
+	case <-time.After(time.Second):
+		t.Fatal("deferred interruption did not fire when the bot stopped")
+	}
+	h.SetBotSpeaking(false)
+	time.Sleep(20 * time.Millisecond)
+	if got := fired.Load(); got != 1 {
+		t.Errorf("callback fired %d times, want 1", got)
 	}
 }
 
@@ -286,15 +302,25 @@ func TestInterruptionHandler_NoCallback(t *testing.T) {
 	}
 }
 
+// Deferred handling with no callback registered queues and drains without
+// panicking, and never reports an immediate interruption.
 func TestInterruptionHandler_DeferredNoCallback(t *testing.T) {
 	vad := &mockVAD{state: VADStateSpeaking}
 	h := NewInterruptionHandler(InterruptionDeferred, vad)
-	// Don't register a callback
 
 	h.SetBotSpeaking(true)
-
-	// Should not panic
-	h.ProcessVADState(context.Background(), VADStateSpeaking)
-	h.NotifySentenceBoundary()
-	h.SetBotSpeaking(false)
+	var interrupted bool
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("deferred handling without a callback panicked: %v", r)
+			}
+		}()
+		interrupted, _ = h.ProcessVADState(context.Background(), VADStateSpeaking)
+		h.NotifySentenceBoundary()
+		h.SetBotSpeaking(false)
+	}()
+	if interrupted {
+		t.Error("deferred strategy must not interrupt immediately")
+	}
 }

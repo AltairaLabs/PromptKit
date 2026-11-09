@@ -217,7 +217,16 @@ func TestJitterBuffer_Concurrency(t *testing.T) {
 		}
 	}()
 	wg.Wait()
-	// No race / panic is the assertion (race detector enforces correctness).
+	// Under -race the detector checks the locking; afterwards the buffer must
+	// still be coherent: within capacity, and FIFO for fresh samples.
+	if n := jb.Len(); n < 0 || n > 1000 {
+		t.Fatalf("Len after concurrent use = %d, want 0..1000", n)
+	}
+	jb.Clear()
+	jb.Push([]int16{7, 8})
+	if got := jb.Pull(2); len(got) != 2 || got[0] != 7 || got[1] != 8 {
+		t.Fatalf("Pull after Clear+Push = %v, want [7 8]", got)
+	}
 }
 
 func TestJitterBuffer_UnderrunCounters(t *testing.T) {
