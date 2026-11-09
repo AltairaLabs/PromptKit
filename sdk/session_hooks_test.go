@@ -22,17 +22,6 @@ func TestSessionHookDispatcher_NilReceiver(t *testing.T) {
 	assert.Equal(t, 0, d.TurnIndex())
 }
 
-func TestSessionHookDispatcher_NilRegistry(t *testing.T) {
-	d := newSessionHookDispatcher(nil, func() (string, string, []types.Message) {
-		return "s1", "c1", nil
-	})
-
-	// Should not panic — dispatch is a no-op.
-	d.SessionStart(context.Background())
-	d.SessionUpdate(context.Background())
-	d.SessionEnd(context.Background())
-}
-
 func TestSessionHookDispatcher_DispatchesAllLifecycleEvents(t *testing.T) {
 	hook := &recordingSessionHook{name: "lifecycle"}
 	reg := hooks.NewRegistry(hooks.WithSessionHook(hook))

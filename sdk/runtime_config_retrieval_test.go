@@ -42,27 +42,27 @@ spec:
 
 // A YAML-declared embedding provider must enable retrieval on its own: the
 // only programmatic input is the context window, which a runtime config has no
-// field for (#2338).
+// field for (#2338). Retrieval is observable as an older message, outside the
+// hot window, reaching the provider's request.
 func TestOpen_YAMLDeclaredRetrievalProviderEnablesRetrieval(t *testing.T) {
 	emb := &countingEmbedder{}
 	providers.RegisterEmbeddingProviderFactory("retrievalmock",
 		func(_ providers.EmbeddingProviderSpec) (providers.EmbeddingProvider, error) { return emb, nil })
 
-	packPath := createTestPackFile(t, testPackJSON)
-	rcPath := writeRuntimeConfig(t, retrievalRuntimeYAML)
-	prov := mock.NewProvider("mock", "mock-model", false)
-
-	conv, err := Open(packPath, "chat", WithSkipSchemaValidation(), WithProvider(prov),
-		WithRuntimeConfig(rcPath), WithContextWindow(2))
-	require.NoError(t, err)
-	defer conv.Close()
-
+	w := newConvWire(t, convWireReply{Echo: true})
+	conv := openConv(t, w, WithRuntimeConfig(writeRuntimeConfig(t, retrievalRuntimeYAML)), WithContextWindow(2))
 	assert.Equal(t, defaultRetrievalTopK, conv.config.retrievalTopK, "declared provider gets the default top-k")
 	for _, msg := range []string{"one", "two", "three", "four"} {
 		_, err := conv.Send(context.Background(), msg)
 		require.NoError(t, err)
 	}
-	assert.Positive(t, emb.calls.Load(), "retrieval must run: the embedding provider was never called")
+
+	var texts []string
+	for _, m := range w.lastChat(t).messages(t) {
+		texts = append(texts, m.Text)
+	}
+	assert.Subset(t, texts, []string{"three", "echo:three", "four"}, "the hot window")
+	assert.Contains(t, texts, "one", "retrieval must bring back a message from before the hot window: %v", texts)
 }
 
 func TestOpen_YAMLDeclaredRetrievalProviderNamesMissingOptions(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/claude"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
@@ -76,18 +77,8 @@ type Info struct {
 // Returns the provider or an error if none can be detected.
 func Detect(apiKey, model string) (providers.Provider, error) {
 	// If model is specified, try to infer provider from model name first
-	if model != "" {
-		if providerName := inferProviderFromModel(model); providerName != "" {
-			// Try to get API key for the inferred provider
-			info := detectInfoForProvider(providerName)
-			if info != nil {
-				info.Model = model
-				if apiKey != "" {
-					info.APIKey = apiKey
-				}
-				return createProvider(info)
-			}
-		}
+	if info := infoForModel(apiKey, model); info != nil {
+		return createProvider(info)
 	}
 
 	// Fall back to environment variable detection
@@ -113,6 +104,33 @@ func Detect(apiKey, model string) (providers.Provider, error) {
 	}
 
 	return createProvider(info)
+}
+
+// infoForModel returns the provider the model's name implies, with the
+// caller's key or that vendor's environment key, or nil when the model names
+// no known vendor or no key is available for it.
+func infoForModel(apiKey, model string) *Info {
+	if model == "" {
+		return nil
+	}
+	providerName := inferProviderFromModel(model)
+	if providerName == "" {
+		return nil
+	}
+	info := detectInfoForProvider(providerName)
+	if info == nil && apiKey != "" {
+		// The caller's key is for the vendor the model names, even when that
+		// vendor has no key in the environment.
+		info = &Info{Name: providerName}
+	}
+	if info == nil {
+		return nil
+	}
+	info.Model = model
+	if apiKey != "" {
+		info.APIKey = apiKey
+	}
+	return info
 }
 
 // inferProviderFromModel attempts to determine the provider from the model name.
@@ -200,6 +218,20 @@ func detectInfo() *Info {
 	return nil
 }
 
+// apiKeyCredential turns the detected or caller-supplied key into the
+// credential the provider authenticates with, in the header (or query
+// parameter) its vendor expects. Every vendor Detect builds with a key has an
+// entry in credentials.ProviderHeaderConfig.
+func apiKeyCredential(info *Info) providers.Credential {
+	providerType := strings.ToLower(info.Name)
+	if providerType == providerAnthropic {
+		providerType = "claude"
+	}
+	h := credentials.ProviderHeaderConfig[providerType]
+	return credentials.NewAPIKeyCredential(info.APIKey,
+		credentials.WithHeaderName(h.HeaderName), credentials.WithPrefix(h.Prefix))
+}
+
 // createProvider creates a runtime provider from info.
 func createProvider(info *Info) (providers.Provider, error) {
 	defaults := providers.ProviderDefaults{
@@ -215,30 +247,17 @@ func createProvider(info *Info) (providers.Provider, error) {
 
 	switch strings.ToLower(info.Name) {
 	case "openai":
-		return openai.NewToolProvider(
-			"openai",
-			info.Model,
-			"https://api.openai.com/v1",
-			defaults,
-			false,
-			nil,
-			nil,
+		return openai.NewToolProviderWithCredential(
+			"openai", info.Model, "https://api.openai.com/v1", defaults, false, nil, apiKeyCredential(info), "", nil, nil,
 		), nil
 	case "anthropic":
-		return claude.NewToolProvider(
-			"anthropic",
-			info.Model,
-			"https://api.anthropic.com",
-			defaults,
-			false,
+		return claude.NewToolProviderWithCredential(
+			"anthropic", info.Model, "https://api.anthropic.com", defaults, false, apiKeyCredential(info), "", nil,
 		), nil
 	case "gemini", "google":
-		return gemini.NewToolProvider(
-			"gemini",
-			info.Model,
-			"https://generativelanguage.googleapis.com/v1beta",
-			defaults,
-			false,
+		return gemini.NewToolProviderWithCredential(
+			"gemini", info.Model, "https://generativelanguage.googleapis.com/v1beta", defaults, false,
+			apiKeyCredential(info), "", nil,
 		), nil
 	case "ollama":
 		// Use OLLAMA_HOST_URL env var or default to localhost:11434

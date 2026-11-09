@@ -31,6 +31,12 @@ import (
 //
 // The handler's return value is automatically serialized to JSON and sent
 // back to the LLM as the tool result.
+//
+// The handler runs inside the conversation's turn, so it must not start a turn
+// on the same conversation: with no context to recognize it by, that call
+// waits for the turn running it. A handler that needs to should use
+// [Conversation.OnToolCtx] and pass its context on, which gets
+// [ErrReentrantTurn] instead.
 func (c *Conversation) OnTool(name string, handler ToolHandler) {
 	c.handlersMu.Lock()
 	defer c.handlersMu.Unlock()
@@ -349,6 +355,13 @@ func (c *Conversation) RejectTool(ctx context.Context, id, reason string) (*sdkt
 //	resp, _ = conv.Continue(ctx) // LLM receives tool results
 func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	startTime := time.Now()
+
+	release, gateErr := c.turn.acquire(ctx, c)
+	if gateErr != nil {
+		return nil, gateErr
+	}
+	defer release()
+	ctx = c.turn.mark(ctx, c)
 
 	c.mu.RLock()
 	if c.closed {

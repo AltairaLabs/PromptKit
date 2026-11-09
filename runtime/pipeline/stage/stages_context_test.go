@@ -300,17 +300,15 @@ func TestContextAssemblyStage_WithSemanticRetrieval(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Configure mock index that returns a semantically retrieved message
+	// The index answers by relevance: an older message (position 1), an even
+	// older one (position 0), and the two the hot window already holds
+	// (positions 3 and 2, the window's first).
 	idx := &mockMessageIndex{
 		results: []statestore.IndexResult{
-			{
-				TurnIndex: 42, // some older turn not in hot window
-				Message: types.Message{
-					Role:    "user",
-					Content: "I had a cat named Whiskers",
-				},
-				Score: 0.85,
-			},
+			{TurnIndex: 1, Message: types.Message{Role: "assistant", Content: "Dogs are great pets."}, Score: 0.9},
+			{TurnIndex: 0, Message: types.Message{Role: "user", Content: "Tell me about dogs"}, Score: 0.85},
+			{TurnIndex: 3, Message: types.Message{Role: "assistant", Content: "Cats are independent."}, Score: 0.8},
+			{TurnIndex: 2, Message: types.Message{Role: "user", Content: "What about cats?"}, Score: 0.7},
 		},
 	}
 
@@ -319,7 +317,7 @@ func TestContextAssemblyStage_WithSemanticRetrieval(t *testing.T) {
 			Store:          store,
 			ConversationID: "conv-sr",
 		},
-		RecentMessages: 20,
+		RecentMessages: 2,
 		MessageIndex:   idx,
 		RetrievalTopK:  3,
 	}
@@ -332,27 +330,21 @@ func TestContextAssemblyStage_WithSemanticRetrieval(t *testing.T) {
 
 	results := runTestStage(t, s, inputs)
 
-	// Expected order: 1 summary + 1 retrieved + 4 hot window + 1 current = 7
-	require.Len(t, results, 7)
-
-	// First: summary
+	var got []string
+	for _, r := range results {
+		got = append(got, r.Message.Content)
+	}
+	// summary, then the retrieved messages in transcript order without the one
+	// the hot window already holds, then the hot window, then the input.
+	assert.Equal(t, []string{
+		"[Conversation summary (turns 0-5)]: Early discussion about pets",
+		"Tell me about dogs",
+		"Dogs are great pets.",
+		"What about cats?",
+		"Cats are independent.",
+		"Current question",
+	}, got)
 	assert.Equal(t, "system", results[0].Message.Role)
-	assert.Contains(t, results[0].Message.Content, "Early discussion about pets")
-
-	// Second: retrieved message with source="retrieved"
-	assert.Equal(t, "I had a cat named Whiskers", results[1].Message.Content)
-	// Note: emitHistory overwrites Source to "statestore", but the retrieved message
-	// gets Source="retrieved" set in retrieveRelevant before emitHistory runs
-	assert.Equal(t, "statestore", results[1].Message.Source) // emitHistory sets this
-
-	// Messages 2-5: hot window
-	assert.Equal(t, "Tell me about dogs", results[2].Message.Content)
-	assert.Equal(t, "Dogs are great pets.", results[3].Message.Content)
-	assert.Equal(t, "What about cats?", results[4].Message.Content)
-	assert.Equal(t, "Cats are independent.", results[5].Message.Content)
-
-	// Last: current input
-	assert.Equal(t, "Current question", results[6].Message.Content)
 }
 
 func TestContextAssemblyStage_SemanticRetrieval_SearchError(t *testing.T) {

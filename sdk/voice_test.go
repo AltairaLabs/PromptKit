@@ -2,12 +2,14 @@ package sdk
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -119,11 +121,55 @@ func TestPumpAudioOutput_InvokesObserverPerChunk(t *testing.T) {
 	require.Len(t, sink.Written(), 1, "audio still reaches the sink")
 }
 
-// TestWithVoiceObserver_SetsConfig: the option installs the observer.
-func TestWithVoiceObserver_SetsConfig(t *testing.T) {
-	c := &config{}
-	require.NoError(t, WithVoiceObserver(func(providers.StreamChunk) {})(c))
-	assert.NotNil(t, c.voiceObserver)
+// WithVoiceObserver sees the voice conversation's response chunks: speak a
+// turn into the microphone and the observer gets the reply as it is played.
+func TestConv_WithVoiceObserverSeesTheReply(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives a real VAD turn")
+	}
+	src := audio.NewMemSource(audio.KindAudio, 128)
+	sink := audio.NewMemSink(audio.KindAudio)
+	sess := &fakeAudioSession{sources: []audio.Source{src}, sinks: []audio.Sink{sink}}
+	var mu sync.Mutex
+	var seen []providers.StreamChunk
+	conv, err := OpenVoice(writeIngestionTestPack(t), "main",
+		WithProvider(mock.NewProvider("mock-voice", "mock-model", false)),
+		WithSkipSchemaValidation(),
+		WithVADMode(newScriptedSTT("hello there"), newConvMockTTSService(), vadTestConfig()),
+		WithAudioSession(sess),
+		WithVoiceObserver(func(c providers.StreamChunk) {
+			mu.Lock()
+			seen = append(seen, c)
+			mu.Unlock()
+		}),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conv.Close() })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- conv.Start(ctx) }()
+
+	format := audio.Format{SampleRate: perTurnTestSampleRate, Channels: 1}
+	for i := 0; i < 30; i++ {
+		src.Push(audio.MediaFrame{Kind: audio.KindAudio, Data: pcmSpeech(20*time.Millisecond, perTurnTestSampleRate), Format: format})
+	}
+	for i := 0; i < 30; i++ {
+		src.Push(audio.MediaFrame{Kind: audio.KindAudio, Data: pcmSilence(20*time.Millisecond, perTurnTestSampleRate), Format: format})
+	}
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range seen {
+			if c.MediaData != nil && len(c.MediaData.Data) > 0 {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 5*time.Millisecond, "the observer must see the spoken reply")
+	assert.NotEmpty(t, sink.Written(), "the reply is also played")
+	cancel()
+	<-done
 }
 
 // TestOpenVoice_RequiresAudioSession: OpenVoice without a session is a

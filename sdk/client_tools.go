@@ -335,6 +335,13 @@ func (c *Conversation) RejectClientTool(_ context.Context, callID, reason string
 func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
 	startTime := time.Now()
 
+	release, gateErr := c.turn.acquire(ctx, c)
+	if gateErr != nil {
+		return nil, gateErr
+	}
+	defer release()
+	ctx = c.turn.mark(ctx, c)
+
 	if err := c.validateSendState(); err != nil {
 		return nil, err
 	}
@@ -374,6 +381,9 @@ func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
 //	    if chunk.Error != nil { break }
 //	    fmt.Print(chunk.Text)
 //	}
+//
+// As with [Conversation.Stream], drain the channel or cancel ctx: the stream
+// holds the conversation's turn until it ends.
 func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk {
 	ch := make(chan StreamChunk, streamChannelBufferSize)
 
@@ -382,6 +392,14 @@ func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk {
 	go func() {
 		defer close(ch)
 		startTime := time.Now()
+
+		release, gateErr := c.turn.acquire(ctx, c)
+		if gateErr != nil {
+			ch <- StreamChunk{Error: gateErr}
+			return
+		}
+		defer release()
+		ctx = c.turn.mark(ctx, c)
 
 		if err := c.validateSendState(); err != nil {
 			ch <- StreamChunk{Error: err}

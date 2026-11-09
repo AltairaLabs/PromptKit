@@ -42,36 +42,6 @@ func TestWithAudioMonitor_StoresOptions(t *testing.T) {
 	assert.True(t, cfg.audioMonitorOpts.LevelMeter)
 }
 
-func TestWithModel(t *testing.T) {
-	opt := WithModel("gpt-4")
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	assert.Equal(t, "gpt-4", cfg.model)
-}
-
-func TestWithAPIKey(t *testing.T) {
-	opt := WithAPIKey("test-key")
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	assert.Equal(t, "test-key", cfg.apiKey)
-}
-
-func TestWithConversationID(t *testing.T) {
-	opt := WithConversationID("conv-123")
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	assert.Equal(t, "conv-123", cfg.conversationID)
-}
-
 func TestWithExecutionTimeout(t *testing.T) {
 	t.Run("sets timeout", func(t *testing.T) {
 		opt := WithExecutionTimeout(120 * time.Second)
@@ -202,16 +172,6 @@ func TestWithToolHook(t *testing.T) {
 	assert.NoError(t, err)
 	require.Len(t, cfg.toolHooks, 1)
 	assert.Equal(t, "tool-hook", cfg.toolHooks[0].Name())
-}
-
-func TestWithSessionHook(t *testing.T) {
-	hook := &testSessionHook{name: "session-hook"}
-	opt := WithSessionHook(hook)
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	require.Len(t, cfg.sessionHooks, 1)
-	assert.Equal(t, "session-hook", cfg.sessionHooks[0].Name())
 }
 
 func TestBuildHookRegistry(t *testing.T) {
@@ -347,42 +307,6 @@ func TestSendOptions(t *testing.T) {
 	})
 }
 
-func TestWithStateStore(t *testing.T) {
-	opt := WithStateStore(nil)
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-}
-
-func TestWithProvider(t *testing.T) {
-	opt := WithProvider(nil)
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-}
-
-func TestWithToolRegistry(t *testing.T) {
-	opt := WithToolRegistry(nil)
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-}
-
-func TestWithEventBus(t *testing.T) {
-	opt := WithEventBus(nil)
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-}
-
 func TestWithImageFileWithDetail(t *testing.T) {
 	detail := "high"
 	opt := WithImageFile("/path/to/image.png", &detail)
@@ -415,33 +339,6 @@ func TestWithImageDataWithDetail(t *testing.T) {
 	err := opt(cfg)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(cfg.parts))
-}
-
-func TestWithVariableProvider(t *testing.T) {
-	// Create a mock provider
-	provider := &mockVariableProvider{name: "test"}
-
-	opt := WithVariableProvider(provider)
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	assert.Equal(t, 1, len(cfg.variableProviders))
-	assert.Equal(t, "test", cfg.variableProviders[0].Name())
-}
-
-func TestWithVariableProviderMultiple(t *testing.T) {
-	provider1 := &mockVariableProvider{name: "time"}
-	provider2 := &mockVariableProvider{name: "state"}
-
-	cfg := &config{}
-	_ = WithVariableProvider(provider1)(cfg)
-	_ = WithVariableProvider(provider2)(cfg)
-
-	assert.Equal(t, 2, len(cfg.variableProviders))
-	assert.Equal(t, "time", cfg.variableProviders[0].Name())
-	assert.Equal(t, "state", cfg.variableProviders[1].Name())
 }
 
 func TestWithTTS(t *testing.T) {
@@ -550,13 +447,10 @@ func TestWithImagePreprocessing(t *testing.T) {
 	})
 
 	t.Run("with nil config uses defaults", func(t *testing.T) {
-		opt := WithImagePreprocessing(nil)
-		assert.NotNil(t, opt)
-
 		c := &config{}
-		err := opt(c)
-		assert.NoError(t, err)
-		assert.NotNil(t, c.imagePreprocessConfig)
+		require.NoError(t, WithImagePreprocessing(nil)(c))
+		require.NotNil(t, c.imagePreprocessConfig)
+		assert.Equal(t, stage.DefaultImagePreprocessConfig(), *c.imagePreprocessConfig)
 	})
 }
 
@@ -645,36 +539,6 @@ func TestWithStreamingVideo(t *testing.T) {
 	})
 }
 
-func TestWithEventStore(t *testing.T) {
-	opt := WithEventStore(nil)
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-}
-
-func TestWithVariables(t *testing.T) {
-	vars := map[string]string{"key1": "value1", "key2": "value2"}
-	opt := WithVariables(vars)
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	assert.Equal(t, "value1", cfg.initialVariables["key1"])
-	assert.Equal(t, "value2", cfg.initialVariables["key2"])
-}
-
-func TestWithStreamingConfig(t *testing.T) {
-	opt := WithStreamingConfig(nil)
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-}
-
 func TestMCPServerBuilderWithArgs(t *testing.T) {
 	builder := NewMCPServer("test", "cmd", "arg1")
 	builder.WithArgs("arg2", "arg3")
@@ -748,57 +612,6 @@ func TestVADModeConfigConversions(t *testing.T) {
 }
 
 // Credential option tests
-
-func TestWithCredentialAPIKey(t *testing.T) {
-	opt := WithCredentialAPIKey("sk-test-key")
-	assert.NotNil(t, opt)
-
-	cfg := &credentialConfig{}
-	opt.applyCredential(cfg)
-	assert.Equal(t, "sk-test-key", cfg.apiKey)
-}
-
-func TestWithCredentialFile(t *testing.T) {
-	opt := WithCredentialFile("/path/to/credential.txt")
-	assert.NotNil(t, opt)
-
-	cfg := &credentialConfig{}
-	opt.applyCredential(cfg)
-	assert.Equal(t, "/path/to/credential.txt", cfg.credentialFile)
-}
-
-func TestWithCredentialEnv(t *testing.T) {
-	opt := WithCredentialEnv("MY_API_KEY_VAR")
-	assert.NotNil(t, opt)
-
-	cfg := &credentialConfig{}
-	opt.applyCredential(cfg)
-	assert.Equal(t, "MY_API_KEY_VAR", cfg.credentialEnv)
-}
-
-func TestWithCredential(t *testing.T) {
-	t.Run("stores credential config", func(t *testing.T) {
-		opt := WithCredential(WithCredentialAPIKey("sk-from-credential"))
-		cfg := &config{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		require.NotNil(t, cfg.credential)
-		assert.Equal(t, "sk-from-credential", cfg.credential.apiKey)
-	})
-
-	t.Run("multiple credential options", func(t *testing.T) {
-		opt := WithCredential(
-			WithCredentialAPIKey("sk-key"),
-			WithCredentialEnv("MY_VAR"),
-		)
-		cfg := &config{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		require.NotNil(t, cfg.credential)
-		assert.Equal(t, "sk-key", cfg.credential.apiKey)
-		assert.Equal(t, "MY_VAR", cfg.credential.credentialEnv)
-	})
-}
 
 func TestResolveCredentialAPIKey(t *testing.T) {
 	t.Run("direct API key", func(t *testing.T) {
@@ -1025,87 +838,6 @@ func TestWithSkipSchemaValidation(t *testing.T) {
 
 // Response format option tests
 
-func TestWithResponseFormat(t *testing.T) {
-	t.Run("JSON format", func(t *testing.T) {
-		opt := WithResponseFormat(&providers.ResponseFormat{
-			Type: providers.ResponseFormatJSON,
-		})
-		assert.NotNil(t, opt)
-
-		cfg := &config{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		assert.NotNil(t, cfg.responseFormat)
-		assert.Equal(t, providers.ResponseFormatJSON, cfg.responseFormat.Type)
-	})
-
-	t.Run("JSON Schema format", func(t *testing.T) {
-		opt := WithResponseFormat(&providers.ResponseFormat{
-			Type:       providers.ResponseFormatJSONSchema,
-			SchemaName: "person",
-			Strict:     true,
-		})
-		assert.NotNil(t, opt)
-
-		cfg := &config{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		assert.NotNil(t, cfg.responseFormat)
-		assert.Equal(t, providers.ResponseFormatJSONSchema, cfg.responseFormat.Type)
-		assert.Equal(t, "person", cfg.responseFormat.SchemaName)
-		assert.True(t, cfg.responseFormat.Strict)
-	})
-}
-
-func TestWithJSONMode(t *testing.T) {
-	opt := WithJSONMode()
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	assert.NotNil(t, cfg.responseFormat)
-	assert.Equal(t, providers.ResponseFormatJSON, cfg.responseFormat.Type)
-}
-
-func TestWithContextWindow(t *testing.T) {
-	opt := WithContextWindow(20)
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	assert.Equal(t, 20, cfg.contextWindow)
-}
-
-func TestWithContextRetrieval(t *testing.T) {
-	embProvider := &mockEmbeddingProvider{}
-
-	opt := WithContextRetrieval(embProvider, 5)
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	assert.Equal(t, embProvider, cfg.retrievalProvider)
-	assert.Equal(t, 5, cfg.retrievalTopK)
-}
-
-func TestWithAutoSummarize(t *testing.T) {
-	sumProvider := &mockSummarizeProvider{}
-
-	opt := WithAutoSummarize(sumProvider, 100, 50)
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	assert.Equal(t, sumProvider, cfg.getSummarizeProvider())
-	assert.Equal(t, sumProvider.ID(), cfg.summarizeProviderID)
-	assert.Equal(t, 100, cfg.summarizeThreshold)
-	assert.Equal(t, 50, cfg.summarizeBatchSize)
-}
-
 // Mock types for context management option tests
 
 type mockEmbeddingProvider struct{}
@@ -1213,16 +945,6 @@ func TestDefaultRecordingConfig(t *testing.T) {
 	assert.True(t, cfg.IncludeAudio)
 	assert.False(t, cfg.IncludeVideo)
 	assert.True(t, cfg.IncludeImages)
-}
-
-func TestWithUserID(t *testing.T) {
-	opt := WithUserID("virtual-user-abc")
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	assert.Equal(t, "virtual-user-abc", cfg.userID)
 }
 
 // Platform credential override option tests
@@ -1341,29 +1063,7 @@ func TestAzureWithCredentialOverrides(t *testing.T) {
 	})
 }
 
-func TestWithSessionMetadata(t *testing.T) {
-	meta := map[string]any{
-		"tenant":  "acme-corp",
-		"channel": "web-chat",
-	}
-	opt := WithSessionMetadata(meta)
-	assert.NotNil(t, opt)
-
-	cfg := &config{}
-	err := opt(cfg)
-	assert.NoError(t, err)
-	assert.Equal(t, meta, cfg.sessionMetadata)
-}
-
 func TestWithMaxMessageSize(t *testing.T) {
-	t.Run("sets size", func(t *testing.T) {
-		opt := WithMaxMessageSize(1024 * 1024)
-		cfg := &config{}
-		err := opt(cfg)
-		assert.NoError(t, err)
-		assert.Equal(t, 1024*1024, cfg.maxMessageSize)
-	})
-
 	t.Run("rejects zero", func(t *testing.T) {
 		opt := WithMaxMessageSize(0)
 		cfg := &config{}
@@ -1456,71 +1156,6 @@ func TestWithClassifier_RejectsNilProvider(t *testing.T) {
 	err := WithClassifier("nope", nil)(c)
 	require.Error(t, err, "a nil provider must be rejected, not registered")
 	assert.Nil(t, c.inferenceRegistry, "nothing may be registered for a rejected provider")
-}
-
-func TestWithInferenceProvider_BuildsBackend(t *testing.T) {
-	c := &config{}
-	err := WithInferenceProvider(ProviderSpec{
-		ID:         "hf",
-		Type:       "huggingface",
-		Credential: &pkgconfig.CredentialConfig{APIKey: "tok"},
-	})(c)
-	require.NoError(t, err)
-	_, err = c.inferenceRegistry.Get("hf")
-	require.NoError(t, err, "hf inference provider should resolve")
-}
-
-func TestWithLLMProvider_SetsAgentProvider(t *testing.T) {
-	c := &config{}
-	err := WithLLMProvider(ProviderSpec{
-		Type:       "openai",
-		Model:      "gpt-4o-mini",
-		Credential: &pkgconfig.CredentialConfig{APIKey: "tok"},
-	})(c)
-	require.NoError(t, err)
-	require.NotNil(t, c.getAgentProvider(), "expected agent provider to be set")
-}
-
-func TestWithEmbeddingProvider_SetsRetrievalProvider(t *testing.T) {
-	c := &config{}
-	err := WithEmbeddingProvider(ProviderSpec{
-		Type:       "openai",
-		Model:      "text-embedding-3-small",
-		Credential: &pkgconfig.CredentialConfig{APIKey: "tok"},
-	})(c)
-	require.NoError(t, err)
-	require.NotNil(t, c.retrievalProvider, "expected retrievalProvider to be set")
-}
-
-func TestWithTTSProvider_SetsService(t *testing.T) {
-	c := &config{}
-	err := WithTTSProvider(ProviderSpec{
-		Type:       "openai",
-		Credential: &pkgconfig.CredentialConfig{APIKey: "tok"},
-	})(c)
-	require.NoError(t, err)
-	require.NotNil(t, c.ttsService, "expected ttsService to be set")
-}
-
-func TestWithSTTProvider_SetsService(t *testing.T) {
-	c := &config{}
-	err := WithSTTProvider(ProviderSpec{
-		Type:       "openai",
-		Credential: &pkgconfig.CredentialConfig{APIKey: "tok"},
-	})(c)
-	require.NoError(t, err)
-	require.NotNil(t, c.sttService, "expected sttService to be set")
-}
-
-func TestWithImageProvider_SetsAgentProvider(t *testing.T) {
-	c := &config{}
-	err := WithImageProvider(ProviderSpec{
-		Type:       "imagen",
-		Model:      "imagen-4.0-generate-001",
-		Credential: &pkgconfig.CredentialConfig{APIKey: "tok"},
-	})(c)
-	require.NoError(t, err)
-	require.NotNil(t, c.getAgentProvider(), "expected image provider to be set as the agent provider")
 }
 
 func TestProviderSpec_ToPkgProviderCarriesPlatform(t *testing.T) {

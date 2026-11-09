@@ -202,6 +202,16 @@ type Conversation struct {
 	// same one the guardrails did.
 	turnState *stage.TurnState
 
+	// turn serializes the turns run on this conversation (#2570): the
+	// pipeline and its TurnState are built once and shared by every turn.
+	turn turnGate
+
+	// sessionStore is the store the unary session keeps history in: the
+	// caller's WithStateStore, or the private memory store Open made. Fork
+	// builds the fork's pipeline on it, so the fork reads the history it
+	// copied and records its own turns.
+	sessionStore statestore.Store
+
 	// Stream event handler for StreamWithCallback
 	streamEventHandler StreamEventHandler
 
@@ -291,6 +301,13 @@ type ToolHandlerCtx func(ctx context.Context, args map[string]any) (any, error)
 // conversation, but is never sent back to the model on later turns.
 func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption) (*Response, error) {
 	startTime := time.Now()
+
+	release, gateErr := c.turn.acquire(ctx, c)
+	if gateErr != nil {
+		return nil, gateErr
+	}
+	defer release()
+	ctx = c.turn.mark(ctx, c)
 
 	if err := c.validateSendState(); err != nil {
 		return nil, err
@@ -715,6 +732,7 @@ func (c *Conversation) buildPipelineConfig(
 		VariableProviders:     appendSendScopedProvider(c.withSessionVars(c.config.variableProviders)),
 		StateStore:            store,
 		ConversationID:        conversationID,
+		UserID:                c.config.userID,
 		StreamInputProvider:   streamProvider, // For duplex mode: provider creates session lazily
 		StreamInputConfig:     streamConfig,   // Base config for session
 		TokenBudget:           c.config.tokenBudget,
@@ -1520,12 +1538,12 @@ func (c *Conversation) Fork() (*Conversation, error) {
 	forkID := sess.ID() + "-fork"
 
 	// Build a new pipeline for the fork
-	var store statestore.Store
-	if c.config != nil && c.config.stateStore != nil {
+	// The fork's pipeline must load and save history in the store the session
+	// forks into, the private memory store included: a pipeline without one
+	// sends the fork's turns with no history and records none of them.
+	store := c.sessionStore
+	if store == nil && c.config != nil {
 		store = c.config.stateStore
-	} else {
-		// Session is using internal memory store - it will be reused by ForkSession
-		store = nil
 	}
 
 	ctx := context.Background()
@@ -1562,6 +1580,7 @@ func (c *Conversation) Fork() (*Conversation, error) {
 		// executor into forkRegistry and its skill and memory tools resolve to
 		// descriptors with no executor behind them (#2011).
 		capabilities: c.capabilities,
+		sessionStore: store,
 	}
 	fork.sessionHooks = newSessionHookDispatcher(fork.hookRegistry, fork.sessionInfo)
 	// A fork gets its own active skills and memory scope: what it activates

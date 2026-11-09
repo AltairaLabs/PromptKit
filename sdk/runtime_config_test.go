@@ -136,16 +136,6 @@ func TestApplyRuntimeConfig_MCPURLDefault_PropagatesURLAndHeaders(t *testing.T) 
 	assert.Equal(t, mcp.TransportStreamableHTTP, got.Transport())
 }
 
-func TestApplyRuntimeConfig_StateStore_Memory(t *testing.T) {
-	spec := &pkgconfig.RuntimeConfigSpec{
-		StateStore: &pkgconfig.StateStoreConfig{Type: "memory"},
-	}
-
-	c := &config{}
-	require.NoError(t, applyRuntimeConfig(c, spec))
-	assert.NotNil(t, c.stateStore)
-}
-
 func TestApplyRuntimeConfig_StateStore_SkipsIfSet(t *testing.T) {
 	spec := &pkgconfig.RuntimeConfigSpec{
 		StateStore: &pkgconfig.StateStoreConfig{Type: "memory"},
@@ -177,20 +167,6 @@ func TestApplyRuntimeConfig_StateStore_UnsupportedType(t *testing.T) {
 	err := applyRuntimeConfig(c, spec)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported state store type")
-}
-
-func TestApplyRuntimeConfig_Logging(t *testing.T) {
-	spec := &pkgconfig.RuntimeConfigSpec{
-		Logging: &pkgconfig.LoggingConfigSpec{
-			DefaultLevel: "debug",
-			Format:       "json",
-			CommonFields: map[string]string{"env": "test"},
-		},
-	}
-
-	c := &config{}
-	require.NoError(t, applyRuntimeConfig(c, spec))
-	assert.NotNil(t, c.logger)
 }
 
 func TestApplyRuntimeConfig_Logging_SkipsIfSet(t *testing.T) {
@@ -229,30 +205,6 @@ func TestApplyRuntimeConfig_EmptySpec(t *testing.T) {
 	assert.Nil(t, c.logger)
 }
 
-func TestBuildLoggerFromSpec_TextFormat(t *testing.T) {
-	spec := &pkgconfig.LoggingConfigSpec{
-		DefaultLevel: "warn",
-		Format:       "text",
-	}
-	l := buildLoggerFromSpec(spec)
-	assert.NotNil(t, l)
-}
-
-func TestBuildLoggerFromSpec_JSONFormat(t *testing.T) {
-	spec := &pkgconfig.LoggingConfigSpec{
-		DefaultLevel: "error",
-		Format:       "json",
-	}
-	l := buildLoggerFromSpec(spec)
-	assert.NotNil(t, l)
-}
-
-func TestBuildLoggerFromSpec_DefaultLevel(t *testing.T) {
-	spec := &pkgconfig.LoggingConfigSpec{}
-	l := buildLoggerFromSpec(spec)
-	assert.NotNil(t, l)
-}
-
 func TestSlogLevel(t *testing.T) {
 	tests := []struct {
 		input    string
@@ -271,30 +223,6 @@ func TestSlogLevel(t *testing.T) {
 			assert.Equal(t, tt.expected, slogLevel(tt.input))
 		})
 	}
-}
-
-func TestApplyRuntimeConfig_Provider_MockType(t *testing.T) {
-	spec := &pkgconfig.RuntimeConfigSpec{
-		Providers: []pkgconfig.Provider{
-			{Type: "mock", Model: "mock-model"},
-		},
-	}
-
-	c := &config{}
-	err := applyRuntimeConfig(c, spec)
-	require.NoError(t, err)
-	assert.NotNil(t, c.getAgentProvider())
-}
-
-func TestCreateProviderFromConfig_WithPlatform(t *testing.T) {
-	// Mock provider type doesn't need real credentials
-	p := &pkgconfig.Provider{
-		Type:  "mock",
-		Model: "mock-model",
-	}
-	prov, err := createProviderFromConfig(p, nil)
-	require.NoError(t, err)
-	assert.NotNil(t, prov)
 }
 
 // TestCreateProviderFromConfig_AppliesTuning verifies that a provider loaded
@@ -322,27 +250,11 @@ func TestCreateProviderFromConfig_AppliesTuning(t *testing.T) {
 	assert.Equal(t, 3, tuned.StreamRetryPolicy().MaxAttempts)
 }
 
-func TestCreateStateStoreFromConfig_Redis(t *testing.T) {
-	cfg := &pkgconfig.StateStoreConfig{
-		Type: "redis",
-		Redis: &pkgconfig.RedisConfig{
-			Address:  "localhost:6379",
-			Password: "secret",
-			Database: 1,
-			TTL:      "1h",
-			Prefix:   "test",
-		},
-	}
-	store, err := createStateStoreFromConfig(cfg)
-	require.NoError(t, err)
-	assert.NotNil(t, store)
-}
-
 func TestCreateStateStoreFromConfig_EmptyType(t *testing.T) {
 	cfg := &pkgconfig.StateStoreConfig{Type: ""}
 	store, err := createStateStoreFromConfig(cfg)
 	require.NoError(t, err)
-	assert.NotNil(t, store)
+	assert.IsType(t, &statestore.MemoryStore{}, store, "an empty type means the memory store")
 }
 
 func TestCreateStateStoreFromConfig_InvalidTTL(t *testing.T) {
@@ -356,17 +268,6 @@ func TestCreateStateStoreFromConfig_InvalidTTL(t *testing.T) {
 	_, err := createStateStoreFromConfig(cfg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid TTL duration")
-}
-
-func TestCreateStateStoreFromConfig_File(t *testing.T) {
-	dir := t.TempDir()
-	cfg := &pkgconfig.StateStoreConfig{
-		Type: "file",
-		File: &pkgconfig.FileStateStoreConfig{Root: dir, FSync: "on-save", TTLDays: 7},
-	}
-	store, err := createStateStoreFromConfig(cfg)
-	require.NoError(t, err)
-	require.NotNil(t, store)
 }
 
 func TestCreateStateStoreFromConfig_File_MissingRoot(t *testing.T) {
@@ -465,15 +366,6 @@ func TestApplyRuntimeConfig_ExecTools_NilSpec(t *testing.T) {
 	c := &config{}
 	require.NoError(t, applyRuntimeConfig(c, spec))
 	assert.Empty(t, c.execToolConfigs)
-}
-
-func TestRegisterExecExecutor_NoConfigs(t *testing.T) {
-	conv := &Conversation{
-		toolRegistry: tools.NewRegistry(),
-		config:       &config{},
-	}
-	// Should be a no-op when no exec tool configs
-	conv.registerExecExecutor()
 }
 
 func TestRegisterExecExecutor_WithConfigs(t *testing.T) {

@@ -81,6 +81,11 @@ type Handler func(chunk Chunk) error
 //	    return nil
 //	})
 func Process(ctx context.Context, streamer Streamer, message any, handler Handler) error {
+	// Ending the stream early (a handler error, a chunk error) must stop the
+	// producer too, or it waits forever on a channel nobody reads, holding
+	// the conversation's turn.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	chunks, err := streamer.StreamRaw(ctx, message)
 	if err != nil {
 		return err

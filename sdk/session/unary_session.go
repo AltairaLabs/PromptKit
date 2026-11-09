@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -38,6 +39,10 @@ func NewUnarySession(cfg UnarySessionConfig) (UnarySession, error) {
 		return nil, fmt.Errorf("pipeline is required")
 	}
 
+	if err := seedUserID(context.Background(), cfg.StateStore, cfg.ConversationID, cfg.UserID); err != nil {
+		return nil, err
+	}
+
 	// Seed initial metadata if provided. Otherwise the conversation is
 	// created lazily on the first typed write (AppendMessages, MergeMetadata,
 	// SaveSummary). No bulk Save needed.
@@ -59,6 +64,11 @@ func NewUnarySession(cfg UnarySessionConfig) (UnarySession, error) {
 	}, nil
 }
 
+// A turn runs without holding s.mu: the pipeline, store and ID never change
+// after construction, and the pipeline reads the variables through Variables,
+// which takes s.mu itself. Holding the read lock for the turn made that read a
+// recursive RLock, which deadlocks once a SetVar is waiting for the write lock.
+
 // ID implements TextSession.
 func (s *unarySession) ID() string {
 	return s.id
@@ -66,9 +76,6 @@ func (s *unarySession) ID() string {
 
 // Execute implements TextSession.
 func (s *unarySession) Execute(ctx context.Context, role, content string) (*pipeline.ExecutionResult, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	// Create input message
 	message := types.Message{
 		Role:    role,
@@ -101,9 +108,6 @@ func (s *unarySession) ExecuteWithMessage(
 	ctx context.Context,
 	message types.Message,
 ) (*pipeline.ExecutionResult, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	// Create input element
 	inputElem := stage.StreamElement{
 		Message: &message,
@@ -130,9 +134,6 @@ func (s *unarySession) ResumeWithToolResults(
 	ctx context.Context,
 	toolResults []types.Message,
 ) (*pipeline.ExecutionResult, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	// Build input elements: one per tool result message
 	inputElems := make([]stage.StreamElement, 0, len(toolResults))
 	for i := range toolResults {
@@ -151,9 +152,6 @@ func (s *unarySession) ResumeWithToolResults(
 
 // ExecuteStream implements TextSession.
 func (s *unarySession) ExecuteStream(ctx context.Context, role, content string) (<-chan providers.StreamChunk, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	// Create input message
 	message := types.Message{
 		Role:    role,
@@ -185,9 +183,6 @@ func (s *unarySession) ExecuteStreamWithMessage(
 	ctx context.Context,
 	message types.Message,
 ) (<-chan providers.StreamChunk, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	// Create input element
 	inputElem := stage.StreamElement{
 		Message: &message,
@@ -213,9 +208,6 @@ func (s *unarySession) ResumeStreamWithToolResults(
 	ctx context.Context,
 	toolResults []types.Message,
 ) (<-chan providers.StreamChunk, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	// Build input elements: one per tool result message
 	inputElems := make([]stage.StreamElement, 0, len(toolResults))
 	for i := range toolResults {
@@ -482,4 +474,30 @@ func processStreamElements(
 
 func strPtr(s string) *string {
 	return &s
+}
+
+// seedUserID records userID on a new conversation's persisted state. An
+// existing conversation keeps the state it has: a resumed conversation belongs
+// to whoever started it. A store that cannot write a whole state (no
+// BulkWriter) is left as it is.
+func seedUserID(ctx context.Context, store statestore.Store, convID, userID string) error {
+	writer, ok := store.(statestore.BulkWriter)
+	if userID == "" || !ok {
+		return nil
+	}
+	state, err := store.Load(ctx, convID)
+	switch {
+	case errors.Is(err, statestore.ErrNotFound) || (err == nil && state == nil):
+	case err != nil:
+		return fmt.Errorf("session: loading state to record its user: %w", err)
+	default:
+		// An existing conversation is never rewritten here: a whole-state
+		// Save would race with turns other processes append.
+		return nil
+	}
+	state = &statestore.ConversationState{ID: convID, UserID: userID, Metadata: map[string]any{}}
+	if err := writer.Save(ctx, state); err != nil {
+		return fmt.Errorf("session: recording the conversation's user: %w", err)
+	}
+	return nil
 }

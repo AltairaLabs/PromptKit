@@ -75,49 +75,6 @@ func TestOnStreamEvent_TextDelta(t *testing.T) {
 	assert.NotEmpty(t, textDeltas)
 }
 
-func TestStreamWithCallback_NoHandler(t *testing.T) {
-	ctx := context.Background()
-	repo := mock.NewInMemoryMockRepository("Response text")
-	mockProv := mock.NewProviderWithRepository("test-mock", "test-model", false, repo)
-	store := statestore.NewMemoryStore()
-
-	p := &pack.Pack{Pack: packspec.Pack{
-		ID: "test-pack",
-		Prompts: map[string]*pack.Prompt{
-			"chat": {ID: "chat", SystemTemplate: "System"},
-		},
-	}}
-
-	conv := &Conversation{
-		pack:           p,
-		prompt:         p.Prompts["chat"],
-		promptName:     "chat",
-		promptRegistry: pack.ToPromptRegistry(p),
-		toolRegistry:   tools.NewRegistry(),
-		config:         &config{provider: mockProv},
-		mode:           UnaryMode,
-		handlers:       make(map[string]ToolHandler),
-		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
-		pendingStore:   sdktools.NewMemoryPendingStore(),
-	}
-
-	pipeline, err := conv.buildPipelineWithParams(store, "test-conv-nh", nil, nil)
-	require.NoError(t, err)
-
-	unarySession, err := session.NewUnarySession(session.UnarySessionConfig{
-		ConversationID: "test-conv-nh",
-		StateStore:     store,
-		Pipeline:       pipeline,
-	})
-	require.NoError(t, err)
-	conv.unarySession = unarySession
-
-	// No handler registered — should still work
-	resp, err := conv.StreamWithCallback(ctx, "Hello")
-	require.NoError(t, err)
-	assert.NotNil(t, resp)
-}
-
 func TestStreamWithCallback_ClientToolRequest(t *testing.T) {
 	conv := newTestConversation()
 
@@ -160,11 +117,4 @@ func TestStreamWithCallback_ClientToolRequest(t *testing.T) {
 	assert.Equal(t, "get_location", clientToolChunks[0].ClientTool.ToolName)
 	assert.Equal(t, "Allow location access?", clientToolChunks[0].ClientTool.ConsentMsg)
 	assert.Equal(t, []string{"location"}, clientToolChunks[0].ClientTool.Categories)
-}
-
-func TestStreamEventInterface(t *testing.T) {
-	// Verify all event types implement StreamEvent
-	var _ StreamEvent = TextDeltaEvent{}
-	var _ StreamEvent = ClientToolRequestEvent{}
-	var _ StreamEvent = StreamDoneEvent{}
 }

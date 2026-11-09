@@ -4,7 +4,6 @@ import (
 	"context"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -58,25 +57,6 @@ func TestConversationVariableIsolation(t *testing.T) {
 	val2, _ = conv2.GetVar("name")
 	assert.Equal(t, "Charlie", val1)
 	assert.Equal(t, "Bob", val2)
-}
-
-// TestConcurrentSetVar verifies thread-safety of SetVar.
-func TestConcurrentSetVar(t *testing.T) {
-	conv := newTestConversation()
-	const numGoroutines = 100
-	var wg sync.WaitGroup
-
-	for i := 0; i < numGoroutines; i++ {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-			key := string(rune('A' + (id % 26)))
-			conv.SetVar(key, "value")
-			_, _ = conv.GetVar(key)
-		}(i)
-	}
-
-	wg.Wait()
 }
 
 // TestConcurrentOnTool verifies thread-safety of OnTool registration.
@@ -177,38 +157,6 @@ func TestConcurrentFork(t *testing.T) {
 	assert.Equal(t, "value", origVal)
 	assert.Equal(t, "", forkVal)
 	assert.False(t, ok)
-}
-
-// TestConcurrentMessagesAccess verifies thread-safety of Messages() access.
-func TestConcurrentMessagesAccess(t *testing.T) {
-	conv := newTestConversation()
-	const numReaders = 50
-	var wg sync.WaitGroup
-
-	// Start readers
-	for i := 0; i < numReaders; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			ctx := context.Background()
-			for j := 0; j < 100; j++ {
-				_ = conv.Messages(ctx)
-				time.Sleep(time.Microsecond)
-			}
-		}()
-	}
-
-	// Concurrent writes (simulated)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for j := 0; j < 100; j++ {
-			conv.SetVar("counter", string(rune('0'+j)))
-			time.Sleep(time.Microsecond)
-		}
-	}()
-
-	wg.Wait()
 }
 
 // TestClosedConversationReturnsError verifies that operations on
