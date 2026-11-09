@@ -23,15 +23,24 @@ func TestProviderStage_Streaming_TypedTextFiresWithoutEndOfTurn(t *testing.T) {
 
 	input <- NewMessageElement(&types.Message{Role: "user", Content: "spoken, turn not ended"})
 	input <- NewTextElement("typed")
+	replies := assistantContents(output)
 	select {
-	case e := <-firstAssistant(output):
+	case e := <-replies:
 		assert.Equal(t, "reply-1", e)
 	case <-time.After(2 * time.Second):
 		t.Fatal("typed text did not fire a turn")
 	}
+	// The session stays open: the next typed text is the next turn.
+	input <- NewTextElement("typed again")
+	select {
+	case e := <-replies:
+		assert.Equal(t, "reply-2", e)
+	case <-time.After(2 * time.Second):
+		t.Fatal("the stage stopped after the first typed turn")
+	}
 	close(input)
 	require.NoError(t, <-done)
-	require.Len(t, provider.requests, 1)
+	require.Len(t, provider.requests, 2)
 	assert.Equal(t, []types.Message{
 		{Role: "user", Content: "spoken, turn not ended"},
 		{Role: "user", Content: "typed"},
@@ -67,14 +76,14 @@ func TestProviderStage_Streaming_TypedTextTurnFailureIsReported(t *testing.T) {
 	assert.Contains(t, reported.Error(), "boom")
 }
 
-// firstAssistant forwards the content of the first assistant message on out.
-func firstAssistant(out <-chan StreamElement) <-chan string {
-	ch := make(chan string, 1)
+// assistantContents forwards the content of each assistant message on out.
+func assistantContents(out <-chan StreamElement) <-chan string {
+	ch := make(chan string, 8)
 	go func() {
+		defer close(ch)
 		for e := range out {
 			if e.Message != nil && e.Message.Role == roleAssistant {
 				ch <- e.Message.Content
-				return
 			}
 		}
 	}()
