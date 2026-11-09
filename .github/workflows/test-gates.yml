@@ -1,0 +1,110 @@
+# The two test-quality gates, required checks on main.
+#
+# They live outside ci.yml because ci.yml skips docs-only pull requests, and a
+# required check that never reports leaves the PR waiting forever. This
+# workflow runs on every pull request to main; when the PR changes no Go code
+# each job passes after one cheap diff instead of building anything.
+name: Test Gates
+
+on:
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  weak-assertions:
+    # Job name must match the required status check context in the ruleset.
+    name: Weak Assertion Guard
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        # The guard scans the merge base in a throwaway worktree and diffs it
+        # against the working tree, so it needs real history — the default
+        # shallow clone cannot check out the base commit at all.
+        fetch-depth: 0
+
+    - name: Detect Go changes
+      id: scope
+      env:
+        BASE: ${{ github.event.pull_request.base.sha }}
+      run: |
+        if git diff --name-only "$BASE" HEAD | grep -qE '\.go$|(^|/)go\.(mod|sum)$'; then
+          echo "go=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "No Go files changed; nothing for the guard to check."
+          echo "go=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Set up Go
+      if: steps.scope.outputs.go == 'true'
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: '1.26.0'
+        cache-dependency-path: tools/seamscan/go.sum
+
+    # Fails only on NEW tests whose assertions cannot fail. The pre-existing
+    # ones must not block unrelated work — see scripts/check-weak-assertions.sh
+    # and .claude/skills/audit-test-seams/SKILL.md for the known limitations.
+    #
+    # The base SHA is passed explicitly rather than relying on the script's
+    # origin/main default: on a pull_request event the checkout is a detached
+    # merge commit, and depending on a remote-tracking ref existing is how this
+    # kind of guard silently ends up diffing against the wrong tree.
+    - name: Check for new tests that cannot fail (issue #1703)
+      if: steps.scope.outputs.go == 'true'
+      run: ./scripts/check-weak-assertions.sh "${{ github.event.pull_request.base.sha }}"
+
+  mutation:
+    # Job name must match the required status check context in the ruleset.
+    name: Mutation Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PROMPTKIT_SCHEMA_SOURCE: local
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        # gremlins diffs the working tree against the merge base.
+        fetch-depth: 0
+
+    - name: Detect Go changes
+      id: scope
+      env:
+        BASE: ${{ github.event.pull_request.base.sha }}
+      run: |
+        if git diff --name-only "$BASE" HEAD | grep -qE '\.go$|(^|/)go\.(mod|sum)$'; then
+          echo "go=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "No Go files changed; nothing to mutate."
+          echo "go=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Install ALSA dev headers (Linux)
+      if: steps.scope.outputs.go == 'true'
+      timeout-minutes: 15
+      run: scripts/ci-install-alsa.sh
+
+    - name: Set up Go
+      if: steps.scope.outputs.go == 'true'
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: '1.26.0'
+
+    - name: Install gremlins
+      if: steps.scope.outputs.go == 'true'
+      run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+
+    # Mutates the conditions and arithmetic on the lines this PR changes in
+    # runtime/sdk/pkg/server-a2a, reruns each changed package's tests per
+    # mutant, and fails when fewer than 75% of the mutants are caught. See
+    # scripts/check-mutation-diff.sh for the scope and the score.
+    - name: Check that tests catch the changed lines
+      if: steps.scope.outputs.go == 'true'
+      run: ./scripts/check-mutation-diff.sh "${{ github.event.pull_request.base.sha }}"

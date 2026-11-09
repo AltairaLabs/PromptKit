@@ -28,6 +28,7 @@ flowchart LR
 
     PR --> ci[ci.yml]
     PR --> gate[dependabot-gate.yml]
+    PR --> tgates[test-gates.yml]
     PR --> cla[cla.yml]
     PR --> dep[deprecation-gate.yml]
     PR --> dchecks[docs-checks.yml]
@@ -72,14 +73,13 @@ flowchart TD
     integ["integration-tests: SDK Integration Tests"]
     e2e["e2e-mock: SDK E2E Tests (mock)"]
     build["build: Build"]
-    weak["weak-assertions: Weak Assertion Guard"]
     perf["perf-regression: Performance Regression Check"]
 
     test --> sonar
     lint --> sonar
 ```
 
-`integration-tests`, `e2e-mock`, `build`, `weak-assertions` and `perf-regression` have no dependencies. `weak-assertions` runs on pull requests only. `lint`, `sonarcloud` and `perf-regression` skip Dependabot pull requests.
+`integration-tests`, `e2e-mock`, `build` and `perf-regression` have no dependencies. `lint`, `sonarcloud` and `perf-regression` skip Dependabot pull requests.
 
 ## Coverage and lint data flow
 
