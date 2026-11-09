@@ -252,6 +252,8 @@ func TestStateless_ToolResultsRefusedWithoutAToolResultHandler(t *testing.T) {
 	})
 
 	require.NotNil(t, resp.Error, "a server with nothing to resume must refuse, not fabricate")
+	assert.Equal(t, a2a.ErrCodeUnsupportedOperation, resp.Error.Code)
+	assert.Equal(t, "Client tool results are not supported by this agent", resp.Error.Message)
 	calls, _, _ := h.snapshot()
 	assert.Zero(t, calls, "the message must not be delivered as if it were a fresh turn")
 }

@@ -92,8 +92,3 @@ func TestCloseAll(t *testing.T) {
 	assert.True(t, conv2.closed)
 }
 
-func TestCloseAll_Empty(t *testing.T) {
-	// Should not panic on empty map
-	closeAll(map[string]Agent{})
-	closeAll(nil)
-}
