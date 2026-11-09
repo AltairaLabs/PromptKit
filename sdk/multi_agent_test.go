@@ -165,9 +165,7 @@ func TestMultiAgentSession_Close_ClosesEntryAndMembers(t *testing.T) {
 	assert.ErrorIs(t, err, ErrConversationClosed)
 	for name, m := range sess.Members() {
 		_, err := m.Send(ctx, "hi")
-		assert.Error(t, err, "member %q must be closed", name)
-		assert.True(t, errors.Is(err, ErrConversationClosed) || errors.Is(err, ErrWorkflowClosed),
-			"member %q: %v", name, err)
+		assert.ErrorIs(t, err, ErrWorkflowClosed, "state-backed member %q must be closed", name)
 	}
 	assert.NoError(t, sess.Close(), "a second Close is harmless")
 }

@@ -241,8 +241,8 @@ func TestConvAdapter_SendReturnsError(t *testing.T) {
 	adapter := &convAdapter{c: conv}
 
 	_, err := adapter.Send(context.Background(), "hello")
-	if err == nil {
-		t.Fatal("expected error from Send on closed conversation")
+	if !errors.Is(err, ErrConversationClosed) {
+		t.Fatalf("Send on a closed conversation: got %v, want ErrConversationClosed", err)
 	}
 }
 

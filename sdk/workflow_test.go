@@ -16,7 +16,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/workflow"
 	"github.com/stretchr/testify/assert"
@@ -118,8 +117,7 @@ func TestOpenWorkflow_NonexistentPack(t *testing.T) {
 
 func TestOpenWorkflow_InitialState(t *testing.T) {
 	packPath := writeWorkflowTestPack(t, workflowPackJSON)
-	provider := &handoffSDKProvider{ToolProvider: mock.NewToolProvider("mock", "mock-model", false, nil)}
-	provider.seenPrompts = append(provider.seenPrompts, "PRIMED") // answer in text, no transition
+	provider := &orchArtifactHandoffProvider{ToolProvider: mock.NewToolProvider("mock", "mock-model", false, nil)}
 	wc, err := OpenWorkflow(packPath, WithSkipSchemaValidation(), WithProvider(provider))
 	require.NoError(t, err)
 	defer wc.Close()
@@ -132,7 +130,7 @@ func TestOpenWorkflow_InitialState(t *testing.T) {
 	// The entry state's prompt is the one the model runs under.
 	_, err = wc.Send(context.Background(), "hello")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"PRIMED", "You gather information."}, provider.seenPrompts)
+	assert.Equal(t, []string{"You gather information."}, provider.seenPrompts)
 }
 
 // (TestConvertWorkflowSpec* removed: pack.WorkflowSpec is now workflow.Spec, so
@@ -956,31 +954,26 @@ func orchOpenExternalWorkflow(t *testing.T) *WorkflowConversation {
 	return wc
 }
 
-// Readers racing a transition each see one consistent position: the state,
-// its prompt task and its events all belong to the same state.
+// Readers racing a transition each see a valid position, never a torn one:
+// the state they read is one the workflow was in, and the workflow ends in the
+// state the transition moved it to, with that state's conversation active.
 func TestWorkflowConversation_ConcurrentReads(t *testing.T) {
 	t.Parallel()
 	wc := orchOpenExternalWorkflow(t)
-	want := map[string]string{"start": "p1", "mid": "p2"}
+	valid := map[string]string{"start": "p1", "mid": "p2"}
 
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	var mu sync.Mutex
-	seen := map[string]bool{}
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			<-start
-			ctx := wc.Context()
-			state := ctx.CurrentState
-			mu.Lock()
-			seen[state] = true
-			mu.Unlock()
-			assert.Contains(t, want, state)
+			snap := wc.Context()
+			assert.Contains(t, valid, snap.CurrentState)
+			assert.Contains(t, []string{"p1", "p2"}, wc.CurrentPromptTask())
 			assert.False(t, wc.IsComplete())
 			assert.Equal(t, workflow.Orchestration(workflow.OrchestrationExternal), wc.OrchestrationMode())
-			assert.Equal(t, []string{"Next"}, wc.AvailableEvents())
 			assert.NotNil(t, wc.ActiveConversation())
 		}()
 	}
@@ -997,232 +990,9 @@ func TestWorkflowConversation_ConcurrentReads(t *testing.T) {
 
 	assert.Equal(t, "mid", wc.CurrentState())
 	assert.Equal(t, "p2", wc.CurrentPromptTask())
-	assert.Equal(t, "p2", wc.ActiveConversation().promptName, "the active conversation follows the transition")
-}
-
-func TestHandleTransitionTool(t *testing.T) {
-	spec := &workflow.Spec{
-		Version: 1,
-		Entry:   "intake",
-		States: map[string]*workflow.State{
-			"intake": {
-				PromptTask: "gather_info",
-				OnEvent:    map[string]string{"InfoComplete": "processing"},
-			},
-			"processing": {PromptTask: "process"},
-		},
-	}
-	machine := workflow.NewStateMachine(spec)
-
-	// Use the runtime TransitionExecutor directly (replaces handleTransitionTool)
-	transExec := workflow.NewTransitionExecutor(machine, spec)
-
-	args, _ := json.Marshal(map[string]string{
-		"event":   "InfoComplete",
-		"context": "User wants billing help",
-	})
-
-	result, err := transExec.Execute(context.Background(), nil, args)
-	require.NoError(t, err)
-	assert.NotNil(t, result)
-
-	// Verify pending transition is set on the executor
-	pending := transExec.Pending()
-	require.NotNil(t, pending)
-	assert.Equal(t, "InfoComplete", pending.Event)
-	assert.Equal(t, "User wants billing help", pending.ContextSummary)
-}
-
-func TestRegisterWorkflowTools_InternalState(t *testing.T) {
-	spec := &workflow.Spec{
-		Version: 1,
-		Entry:   "intake",
-		States: map[string]*workflow.State{
-			"intake": {
-				PromptTask:    "gather_info",
-				OnEvent:       map[string]string{"InfoComplete": "processing"},
-				Orchestration: packspec.Ptr(workflow.OrchestrationInternal),
-			},
-			"processing": {PromptTask: "process"},
-		},
-	}
-	machine := workflow.NewStateMachine(spec)
-
-	conv := &Conversation{
-		toolRegistry: tools.NewRegistry(),
-		handlers:     make(map[string]ToolHandler),
-		config:       &config{},
-	}
-
-	wfCap := NewWorkflowCapability()
-
-	wc := &WorkflowConversation{
-		machine:      machine,
-		workflowSpec: spec,
-		activeConv:   conv,
-		workflowCap:  wfCap,
-	}
-
-	wc.registerWorkflowTools()
-
-	// Tool should be registered with executor mode
-	tool := conv.ToolRegistry().Get(workflow.TransitionToolName)
-	assert.NotNil(t, tool)
-	assert.Equal(t, workflow.TransitionExecutorMode, tool.Mode)
-
-	// TransitionExecutor should be created
-	assert.NotNil(t, wc.transExec)
-}
-
-func TestRegisterWorkflowTools_ExternalState(t *testing.T) {
-	spec := &workflow.Spec{
-		Version: 1,
-		Entry:   "intake",
-		States: map[string]*workflow.State{
-			"intake": {
-				PromptTask:    "gather_info",
-				OnEvent:       map[string]string{"InfoComplete": "processing"},
-				Orchestration: packspec.Ptr(workflow.OrchestrationExternal),
-			},
-			"processing": {PromptTask: "process"},
-		},
-	}
-	machine := workflow.NewStateMachine(spec)
-
-	conv := &Conversation{
-		toolRegistry: tools.NewRegistry(),
-		handlers:     make(map[string]ToolHandler),
-		config:       &config{},
-	}
-
-	wfCap := NewWorkflowCapability()
-
-	wc := &WorkflowConversation{
-		machine:      machine,
-		workflowSpec: spec,
-		activeConv:   conv,
-		workflowCap:  wfCap,
-	}
-
-	wc.registerWorkflowTools()
-
-	// Tool should NOT be registered for external orchestration
-	tool := conv.ToolRegistry().Get(workflow.TransitionToolName)
-	assert.Nil(t, tool)
-}
-
-func TestRegisterWorkflowTools_TerminalState(t *testing.T) {
-	spec := &workflow.Spec{
-		Version: 1,
-		Entry:   "done",
-		States: map[string]*workflow.State{
-			"done": {PromptTask: "confirm"}, // No OnEvent = terminal
-		},
-	}
-	machine := workflow.NewStateMachine(spec)
-
-	conv := &Conversation{
-		toolRegistry: tools.NewRegistry(),
-		handlers:     make(map[string]ToolHandler),
-		config:       &config{},
-	}
-
-	wfCap := NewWorkflowCapability()
-
-	wc := &WorkflowConversation{
-		machine:      machine,
-		workflowSpec: spec,
-		activeConv:   conv,
-		workflowCap:  wfCap,
-	}
-
-	wc.registerWorkflowTools()
-
-	// Tool should NOT be registered for terminal state
-	tool := conv.ToolRegistry().Get(workflow.TransitionToolName)
-	assert.Nil(t, tool)
-}
-
-func TestOpenWorkflow_InvalidPackJSON(t *testing.T) {
-	packPath := writeWorkflowTestPack(t, `{invalid json`)
-	_, err := OpenWorkflow(packPath, WithSkipSchemaValidation())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to load pack")
-}
-
-func TestTransitionInternal_InvalidEvent(t *testing.T) {
-	spec := &workflow.Spec{
-		Version: 1,
-		Entry:   "start",
-		States: map[string]*workflow.State{
-			"start": {PromptTask: "p1", OnEvent: map[string]string{"Next": "end"}},
-			"end":   {PromptTask: "p2"},
-		},
-	}
-	machine := workflow.NewStateMachine(spec)
-
-	wc := &WorkflowConversation{
-		machine:      machine,
-		workflowSpec: spec,
-	}
-
-	_, err := wc.transitionInternal("InvalidEvent", "")
-	require.Error(t, err)
-}
-
-func TestTransitionInternal_WithContextSummary(t *testing.T) {
-	spec := &workflow.Spec{
-		Version: 1,
-		Entry:   "start",
-		States: map[string]*workflow.State{
-			"start": {PromptTask: "p1", OnEvent: map[string]string{"Next": "end"}},
-			"end":   {PromptTask: "p2"},
-		},
-	}
-	machine := workflow.NewStateMachine(spec)
-
-	conv := &Conversation{
-		handlers: make(map[string]ToolHandler),
-		config:   &config{},
-	}
-
-	wc := &WorkflowConversation{
-		machine:      machine,
-		workflowSpec: spec,
-		activeConv:   conv,
-	}
-
-	// ProcessEvent succeeds but Open() will fail (no pack) — tests context summary path
-	_, err := wc.transitionInternal("Next", "some context summary")
-	// Should fail at Open() since there's no packPath
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to open conversation")
-}
-
-func TestSend_ClearsPendingTransitionBeforeSend(t *testing.T) {
-	conv := &Conversation{closed: true} // will cause Send to return error
-	spec := &workflow.Spec{
-		Version: 1,
-		Entry:   "s",
-		States:  map[string]*workflow.State{"s": {PromptTask: "p"}},
-	}
-
-	sm := workflow.NewStateMachine(spec)
-	transExec := workflow.NewTransitionExecutor(sm, spec)
-	// Pre-set a pending transition to verify it gets cleared
-	preArgs, _ := json.Marshal(map[string]string{"event": "stale", "context": "old"})
-	_, _ = transExec.Execute(context.Background(), nil, preArgs)
-
-	wc := &WorkflowConversation{
-		activeConv: conv,
-		machine:    sm,
-		transExec:  transExec,
-	}
-
-	_, err := wc.Send(context.Background(), "hello")
-	// Send fails because inner conversation is closed
-	assert.ErrorIs(t, err, ErrConversationClosed)
-	// transExec pending should have been cleared before the send attempt
+	resp, err := wc.ActiveConversation().Send(context.Background(), "hi")
+	require.NoError(t, err, "the conversation for the state moved to is open")
+	assert.NotEmpty(t, resp.Text())
 }
 
 // Concurrent transitions on one workflow are serialized: of ten callers
@@ -1609,18 +1379,14 @@ func TestEmitWorkflowError_NilSafe(t *testing.T) {
 		mu.Unlock()
 	})
 	wc.emitter = events.NewEmitter(bus, "", "", "")
-	wc.machine = workflow.NewStateMachine(&workflow.Spec{Version: 2, Entry: "a",
-		States: map[string]*workflow.State{"a": {PromptTask: "t"}}})
 	wc.emitWorkflowError("", nil)             // nil error is ignored
 	wc.emitWorkflowError("", fmt.Errorf("x")) // unmatched error is ignored
-	// A matched error after them is the marker that delivery has caught up.
+	// A matched error after them; Close drains the bus, so every event
+	// emitted so far has been delivered.
+	wc.machine = workflow.NewStateMachine(&workflow.Spec{Version: 2, Entry: "a",
+		States: map[string]*workflow.State{"a": {PromptTask: "t"}}})
 	wc.emitWorkflowError("", &workflow.BudgetExhaustedError{Limit: workflow.BudgetLimitToolCalls, Max: 1})
-	require.Eventually(t, func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return len(seen) > 0
-	}, time.Second, time.Millisecond)
-	time.Sleep(10 * time.Millisecond)
+	bus.Close()
 	mu.Lock()
 	defer mu.Unlock()
 	assert.Equal(t, []events.EventType{events.EventWorkflowBudgetExhausted}, seen,

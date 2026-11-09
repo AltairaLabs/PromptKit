@@ -206,6 +206,9 @@ func TestSkillsCapability_WithSkillSelector(t *testing.T) {
 
 	registry := tools.NewRegistry()
 	cap.RegisterTools(registry)
+	before := registry.Get(skills.SkillActivateTool).Description
+	require.Contains(t, before, "coder")
+	require.Contains(t, before, "chef", "both skills load; only the selector narrows them")
 	cap.RefreshSkillIndex(context.Background(), "write some code", registry)
 	desc := registry.Get(skills.SkillActivateTool).Description
 	assert.Contains(t, desc, "coder")
