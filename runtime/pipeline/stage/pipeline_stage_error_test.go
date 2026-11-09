@@ -608,8 +608,7 @@ func TestExecute_BranchLosesNoElementToAReturnedReader(t *testing.T) {
 // stage emits as a non-fatal report (FramesToMessageStage, MediaComposeStage)
 // is not a turn failure; the provider still answers the turn.
 func TestProviderStage_NonFatalErrorElementStillCallsModel(t *testing.T) {
-	provider := &stageErrCountingProvider{Provider: mock.NewProvider("mock", "m", false)}
-	ps := NewProviderStage(provider, nil, nil, nil)
+	ps := NewProviderStage(mock.NewProvider("mock", "m", false), nil, nil, nil)
 	in := make(chan StreamElement, 2)
 	in <- userElement("hi")
 	in <- NewErrorElement(errors.New("frame 3 could not be decoded"))
@@ -617,7 +616,11 @@ func TestProviderStage_NonFatalErrorElementStillCallsModel(t *testing.T) {
 	out := make(chan StreamElement, 8)
 
 	require.NoError(t, ps.Process(context.Background(), in, out))
-	assert.Equal(t, 1, provider.callCount())
+	var elems []StreamElement
+	for e := range out {
+		elems = append(elems, e)
+	}
+	assert.Equal(t, []string{"Mock response from mock model m"}, replyContents(elems), "the model answers the turn")
 }
 
 // TestProviderStage_TurnFailureSignalSkipsModel is the other side: the

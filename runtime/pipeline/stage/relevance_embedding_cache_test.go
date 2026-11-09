@@ -148,13 +148,16 @@ func TestRelevanceCache_SecondTruncationEmbedsOnlyNewMessages(t *testing.T) {
 	assert.Equal(t, 2, emb.callCount())
 }
 
+// A second truncation of the same conversation sends the embedding provider
+// nothing, and keeps exactly what the first one kept.
 func TestRelevanceCache_UnchangedConversationMakesNoEmbedCall(t *testing.T) {
 	emb := &countingEmbedder{id: "emb", model: "m1"}
 	s := cachingRelevanceStage(emb, true)
 
-	runRelevance(t, s, conversation())
-	runRelevance(t, s, conversation())
-	assert.Equal(t, 1, emb.callCount())
+	first := runRelevance(t, s, conversation())
+	second := runRelevance(t, s, conversation())
+	assert.Equal(t, []string(nil), emb.textsSince(1), "no text is embedded again")
+	assert.Equal(t, first, second)
 }
 
 func TestRelevanceCache_ChangedContentIsReembedded(t *testing.T) {
@@ -189,6 +192,10 @@ func TestRelevanceCache_KeyIncludesProviderIdentity(t *testing.T) {
 	first := &countingEmbedder{id: "emb", model: "m1"}
 	s := cachingRelevanceStage(first, true)
 	runRelevance(t, s, conversation())
+	// The four messages; the query is the last user message, which is one
+	// of them, so it is not embedded separately.
+	allTexts := first.textsSince(0)
+	require.Len(t, allTexts, 4)
 
 	for _, other := range []*countingEmbedder{
 		{id: "emb", model: "m2"},   // same provider, different model
@@ -196,7 +203,8 @@ func TestRelevanceCache_KeyIncludesProviderIdentity(t *testing.T) {
 	} {
 		s.policy.RelevanceConfig.EmbeddingProvider = other
 		runRelevance(t, s, conversation())
-		assert.Equal(t, 1, other.callCount(), "%s/%s must not reuse another identity's vectors", other.id, other.model)
+		assert.Equal(t, allTexts, other.textsSince(0),
+			"%s/%s must embed every message itself, not reuse another identity's vectors", other.id, other.model)
 	}
 }
 

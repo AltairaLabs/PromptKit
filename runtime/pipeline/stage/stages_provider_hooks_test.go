@@ -281,6 +281,23 @@ func (p *redactionRecordingProvider) callCount() int {
 	return p.calls
 }
 
+// userInputs returns, per request the provider received, the content of the
+// request's last user message.
+func (p *redactionRecordingProvider) userInputs() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var out []string
+	for _, req := range p.requests {
+		for i := len(req.Messages) - 1; i >= 0; i-- {
+			if req.Messages[i].Role == "user" {
+				out = append(out, req.Messages[i].GetContent())
+				break
+			}
+		}
+	}
+	return out
+}
+
 func (p *redactionRecordingProvider) lastRequest() providers.PredictionRequest {
 	p.mu.Lock()
 	defer p.mu.Unlock()

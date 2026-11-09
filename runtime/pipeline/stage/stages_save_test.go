@@ -572,10 +572,13 @@ func (s *readerOnlyStore) MessageCount(_ context.Context, id string) (int, error
 
 // readerWithSummaryStore implements MessageAppender, MessageReader, SummaryAccessor, and Store.
 type readerWithSummaryStore struct {
-	messages       map[string][]types.Message
-	states         map[string]*statestore.ConversationState
-	summaries      map[string][]statestore.Summary
-	countOverride  int
+	messages  map[string][]types.Message
+	states    map[string]*statestore.ConversationState
+	summaries map[string][]statestore.Summary
+	// countErr makes MessageCount fail. The count it reports alongside the
+	// error is still the real one, so a caller that ignored the error would
+	// act on it.
+	countErr       error
 	loadSumErr     error
 	loadErr        error
 	loadRecentErr  error
@@ -614,8 +617,8 @@ func (s *readerWithSummaryStore) LoadRecentMessages(_ context.Context, id string
 }
 
 func (s *readerWithSummaryStore) MessageCount(_ context.Context, id string) (int, error) {
-	if s.countOverride > 0 {
-		return s.countOverride, nil
+	if s.countErr != nil {
+		return len(s.messages[id]), s.countErr
 	}
 	return len(s.messages[id]), nil
 }
@@ -733,79 +736,110 @@ func callMaybeSummarize(t *testing.T, store interface{}, summarizer statestore.S
 	s.maybeSummarize(context.Background(), "conv-ms")
 }
 
-func TestMaybeSummarize_StoreNotMessageReader(t *testing.T) {
-	// noReaderStore does not implement MessageReader
-	store := newNoReaderStore()
-	summarizer := &mockSummarizerForSave{summaryContent: "summary"}
-	callMaybeSummarize(t, store, summarizer, 3, 3)
-	// Should return early — summarizer never called
-	assert.Equal(t, 0, summarizer.summarizeCalls)
+// summarizingSaveStage builds an IncrementalSaveStage over store that
+// summarizes in batches once the conversation passes threshold messages.
+func summarizingSaveStage(store interface{}, threshold, batch int) *IncrementalSaveStage {
+	return NewIncrementalSaveStage(&IncrementalSaveConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{
+			Store:          store,
+			ConversationID: "conv-ms",
+		},
+		Summarizer:         &mockSummarizerForSave{summaryContent: "summary"},
+		SummarizeThreshold: threshold,
+		SummarizeBatchSize: batch,
+	})
 }
 
-func TestMaybeSummarize_MessageCountError(t *testing.T) {
-	store := newReaderOnlyStore()
-	store.countErr = errors.New("count error")
-	summarizer := &mockSummarizerForSave{summaryContent: "summary"}
-	callMaybeSummarize(t, store, summarizer, 3, 3)
-	assert.Equal(t, 0, summarizer.summarizeCalls)
-}
-
-func TestMaybeSummarize_CountBelowThreshold(t *testing.T) {
-	store := newReaderOnlyStore()
-	// 2 messages, threshold 3 → no summarization
-	store.messages["conv-ms"] = []types.Message{
-		{Role: "user", Content: "m1"},
-		{Role: "assistant", Content: "m2"},
+// numberedMessages returns n messages with distinct content.
+func numberedMessages(n int) []types.Message {
+	msgs := make([]types.Message, n)
+	for i := range msgs {
+		msgs[i] = types.Message{Role: "user", Content: fmt.Sprintf("msg %d", i)}
 	}
-	summarizer := &mockSummarizerForSave{summaryContent: "summary"}
-	callMaybeSummarize(t, store, summarizer, 3, 3)
-	assert.Equal(t, 0, summarizer.summarizeCalls)
+	return msgs
 }
 
+// Auto-summarize configured over a store that cannot read messages back is
+// skipped; the turn itself is still saved.
+func TestMaybeSummarize_StoreNotMessageReader(t *testing.T) {
+	store := newNoReaderStore()
+	s := summarizingSaveStage(store, 1, 1)
+
+	q := types.Message{Role: "user", Content: "question"}
+	a := types.Message{Role: "assistant", Content: "answer"}
+	results := runTestStage(t, s, []StreamElement{NewMessageElement(&q), NewMessageElement(&a)})
+
+	require.Len(t, results, 2)
+	assert.Equal(t, []types.Message{q, a}, store.messages["conv-ms"])
+}
+
+// A message count that came back with an error is not acted on, even when the
+// count it reported is past the threshold.
+func TestMaybeSummarize_MessageCountError(t *testing.T) {
+	store := newReaderWithSummaryStore()
+	store.messages["conv-ms"] = numberedMessages(10)
+	store.countErr = errors.New("count error")
+
+	callMaybeSummarize(t, store, &mockSummarizerForSave{summaryContent: "summary"}, 3, 3)
+	assert.Empty(t, store.summaries["conv-ms"])
+}
+
+// The threshold is exclusive: a conversation exactly at it is not summarized.
+func TestMaybeSummarize_CountBelowThreshold(t *testing.T) {
+	store := newReaderWithSummaryStore()
+	store.messages["conv-ms"] = numberedMessages(3)
+
+	callMaybeSummarize(t, store, &mockSummarizerForSave{summaryContent: "summary"}, 3, 3)
+	assert.Empty(t, store.summaries["conv-ms"])
+}
+
+// Auto-summarize configured over a store that cannot hold summaries is
+// skipped; the turn itself is still saved.
 func TestMaybeSummarize_StoreNotSummaryAccessor(t *testing.T) {
 	store := newReaderOnlyStore()
-	// Enough messages to pass the threshold
-	store.countOverride = 10
-	summarizer := &mockSummarizerForSave{summaryContent: "summary"}
-	callMaybeSummarize(t, store, summarizer, 3, 3)
-	// readerOnlyStore does not implement SummaryAccessor → early return
-	assert.Equal(t, 0, summarizer.summarizeCalls)
+	store.messages["conv-ms"] = numberedMessages(10)
+	s := summarizingSaveStage(store, 3, 3)
+
+	q := types.Message{Role: "user", Content: "question"}
+	results := runTestStage(t, s, []StreamElement{NewMessageElement(&q)})
+
+	require.Len(t, results, 1)
+	assert.Equal(t, append(numberedMessages(10), q), store.messages["conv-ms"])
 }
 
+// Without the existing summaries the stage cannot tell which turns are already
+// summarized, so it does not summarize at all.
 func TestMaybeSummarize_LoadSummariesError(t *testing.T) {
 	store := newReaderWithSummaryStore()
-	store.countOverride = 10
+	store.messages["conv-ms"] = numberedMessages(10)
 	store.loadSumErr = errors.New("load summaries error")
-	summarizer := &mockSummarizerForSave{summaryContent: "summary"}
-	callMaybeSummarize(t, store, summarizer, 3, 3)
-	assert.Equal(t, 0, summarizer.summarizeCalls)
+
+	callMaybeSummarize(t, store, &mockSummarizerForSave{summaryContent: "summary"}, 3, 3)
+	assert.Empty(t, store.summaries["conv-ms"])
 }
 
+// Fewer unsummarized messages than one batch are left for a later turn.
 func TestMaybeSummarize_UnsummarizedLessThanBatch(t *testing.T) {
 	store := newReaderWithSummaryStore()
 	// 5 messages total, batch = 6 → unsummarized (5) < batch (6) → skip
-	store.messages["conv-ms"] = make([]types.Message, 5)
-	store.states["conv-ms"] = &statestore.ConversationState{
-		ID:       "conv-ms",
-		Messages: make([]types.Message, 5),
-	}
-	summarizer := &mockSummarizerForSave{summaryContent: "summary"}
-	callMaybeSummarize(t, store, summarizer, 3, 6)
-	assert.Equal(t, 0, summarizer.summarizeCalls)
+	store.messages["conv-ms"] = numberedMessages(5)
+
+	callMaybeSummarize(t, store, &mockSummarizerForSave{summaryContent: "summary"}, 3, 6)
+	assert.Empty(t, store.summaries["conv-ms"])
 }
 
-// TestMaybeSummarize_LoadRecentMessagesReturnsError verifies that the
-// summarizer is NOT invoked when MessageReader.LoadRecentMessages
-// returns an error. Replaces the previous TestMaybeSummarize_StoreLoadFails
-// and TestMaybeSummarize_StoreLoadReturnsError pair, which pinned the
-// (now removed) Store.Load fallback path.
+// TestMaybeSummarize_LoadRecentMessagesReturnsError verifies that nothing is
+// summarized when MessageReader.LoadRecentMessages returns an error. Replaces
+// the previous TestMaybeSummarize_StoreLoadFails and
+// TestMaybeSummarize_StoreLoadReturnsError pair, which pinned the (now
+// removed) Store.Load fallback path.
 func TestMaybeSummarize_LoadRecentMessagesReturnsError(t *testing.T) {
 	store := newReaderWithSummaryStore()
-	store.countOverride = 10
+	store.messages["conv-ms"] = numberedMessages(10)
 	store.loadRecentErr = errors.New("load recent error")
-	summarizer := &mockSummarizerForSave{summaryContent: "summary"}
-	callMaybeSummarize(t, store, summarizer, 3, 3)
-	assert.Equal(t, 0, summarizer.summarizeCalls)
+
+	callMaybeSummarize(t, store, &mockSummarizerForSave{summaryContent: "summary"}, 3, 3)
+	assert.Empty(t, store.summaries["conv-ms"])
 }
 
 func TestMaybeSummarize_SummarizeFails(t *testing.T) {

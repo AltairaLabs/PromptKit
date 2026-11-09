@@ -98,14 +98,18 @@ func TestProviderStage_TopicPolicy_DeniedTurnNeverCallsProvider(t *testing.T) {
 	assert.Equal(t, "I can only help with AltairaLabs products.", msgs[0].Content)
 }
 
+// An in-scope turn reaches the agent provider and the caller gets the model's
+// answer, not the policy's refusal.
 func TestProviderStage_TopicPolicy_AllowedTurnCallsProvider(t *testing.T) {
 	provider := &redactionRecordingProvider{Provider: mock.NewProvider("p", "m", false)}
 	stage := topicStage(t, provider)
 
-	_, err := runProviderStageWithCtx(t, topicCtx(t, "allow"), stage, "Can Omnia run on OpenShift?")
+	elems, err := runProviderStageWithCtx(t, topicCtx(t, "allow"), stage, "Can Omnia run on OpenShift?")
 
 	require.NoError(t, err)
-	assert.Equal(t, 1, provider.callCount(), "an in-scope turn must reach the agent provider")
+	assert.Equal(t, []string{"Can Omnia run on OpenShift?"}, provider.userInputs(),
+		"an in-scope turn must reach the agent provider")
+	assert.Equal(t, []string{"Mock response from p model m"}, replyContents(elems))
 }
 
 // TestProviderStage_TopicPolicy_UnboundClassifierBlocks proves the guardrail
@@ -114,11 +118,12 @@ func TestProviderStage_TopicPolicy_UnboundClassifierBlocks(t *testing.T) {
 	provider := &redactionRecordingProvider{Provider: mock.NewProvider("p", "m", false)}
 	stage := topicStage(t, provider)
 
-	_, err := runProviderStageWithCtx(t, context.Background(), stage, "Can Omnia run on OpenShift?")
+	elems, err := runProviderStageWithCtx(t, context.Background(), stage, "Can Omnia run on OpenShift?")
 
 	require.NoError(t, err)
-	assert.Equal(t, 0, provider.callCount(),
+	assert.Equal(t, []string(nil), provider.userInputs(),
 		"with no classifier bound the guardrail must block rather than silently pass")
+	assert.Equal(t, []string{"I can only help with AltairaLabs products."}, replyContents(elems))
 }
 
 // TestProviderStage_TopicPolicy_GatesInputByDefault is the direction-default
@@ -129,9 +134,19 @@ func TestProviderStage_TopicPolicy_GatesInputByDefault(t *testing.T) {
 	provider := &redactionRecordingProvider{Provider: mock.NewProvider("p", "m", false)}
 	stage := topicStage(t, provider)
 
-	_, err := runProviderStageWithCtx(t, topicCtx(t, "deny"), stage, "off topic please")
+	elems, err := runProviderStageWithCtx(t, topicCtx(t, "deny"), stage, "off topic please")
 
 	require.NoError(t, err)
-	assert.Equal(t, 0, provider.callCount(),
+	assert.Equal(t, []string(nil), provider.userInputs(),
 		"topic_policy must default to direction: input; an output-only check calls the provider first")
+	assert.Equal(t, []string{"I can only help with AltairaLabs products."}, replyContents(elems))
+}
+
+// replyContents returns the content of each assistant message in elems.
+func replyContents(elems []StreamElement) []string {
+	var out []string
+	for _, m := range assistantMessages(elems) {
+		out = append(out, m.Content)
+	}
+	return out
 }

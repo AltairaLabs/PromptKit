@@ -272,11 +272,11 @@ func TestTTSStageWithInterruption_EndOfStream(t *testing.T) {
 	assert.False(t, synthesizeCalled, "Synthesize should not be called for EndOfStream")
 }
 
+// Text shorter than MinTextLength is not spoken: nothing the stage emits
+// carries audio.
 func TestTTSStageWithInterruption_SkipsEmptyText(t *testing.T) {
-	synthesizeCalled := false
 	mock := &mockTTSService{
 		synthesizeFunc: func(_ context.Context, _ string, _ tts.SynthesisConfig) (io.ReadCloser, error) {
-			synthesizeCalled = true
 			return io.NopCloser(strings.NewReader("audio")), nil
 		},
 	}
@@ -286,21 +286,16 @@ func TestTTSStageWithInterruption_SkipsEmptyText(t *testing.T) {
 
 	s := stage.NewTTSStageWithInterruption(mock, config)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+	// "Hi" is shorter than MinTextLength=5.
+	results := runStage(t, s, []stage.StreamElement{makeTextElement("Hi")}, 2*time.Second)
 
-	input := make(chan stage.StreamElement, 1)
-	output := make(chan stage.StreamElement, 10)
-
-	go func() {
-		_ = s.Process(ctx, input, output)
-	}()
-
-	input <- makeTextElement("Hi") // shorter than MinTextLength=5
-	close(input)
-
-	time.Sleep(100 * time.Millisecond)
-	assert.False(t, synthesizeCalled, "Synthesize should not be called for short text")
+	var spoken int
+	for _, r := range results {
+		if r.Audio != nil {
+			spoken++
+		}
+	}
+	assert.Equal(t, 0, spoken, "short text must not be synthesized")
 }
 
 // An element with nothing to speak (no Text, no Message) is forwarded as it
