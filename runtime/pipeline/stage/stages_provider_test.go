@@ -158,16 +158,21 @@ func TestProviderStage_NoProvider(t *testing.T) {
 	assert.Contains(t, err.Error(), "no provider configured")
 }
 
-// An input that closes with no message makes no provider call and emits
-// nothing.
+// A unary turn with no message still calls the model, on its system prompt
+// alone: that is how a caller has the model speak first (PromptArena's
+// self-play persona generates the opening user turn this way). The reply is
+// the turn's output.
 func TestProviderStage_EmptyInput(t *testing.T) {
 	provider := &multiTurnRecordingProvider{}
-	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{})
+	ts := NewTurnState()
+	ts.SystemPrompt = "You are a customer opening a support chat."
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{}, nil, nil, ts)
 
 	results := runTestStage(t, stage, nil)
 
-	assert.Empty(t, results)
-	assert.Empty(t, provider.requests, "no message, no provider call")
+	require.Len(t, provider.requests, 1, "no message: one call on the system prompt alone")
+	assert.Empty(t, provider.requests[0])
+	assert.Equal(t, []string{"reply-1"}, assistantReplies(results))
 }
 
 // TestProviderStage_MultipleMessages tests processing multiple messages

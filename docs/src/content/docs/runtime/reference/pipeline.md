@@ -5522,7 +5522,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2755>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2748>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement

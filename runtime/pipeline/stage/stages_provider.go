@@ -543,13 +543,6 @@ func (s *ProviderStage) Process(
 		return forwardUpstreamErrors(ctx, accumulated.upstreamErrors, output)
 	}
 
-	// No message, no turn: the streaming path fires only on pending input,
-	// and the unary path must match it rather than call the model with an
-	// empty conversation.
-	if len(accumulated.messages) == 0 {
-		return nil
-	}
-
 	logger.Debug("ProviderStage accumulated input",
 		"messages", len(accumulated.messages),
 		"allowed_tools", accumulated.allowedTools,
