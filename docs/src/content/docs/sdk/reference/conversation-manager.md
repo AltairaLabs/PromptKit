@@ -643,6 +643,12 @@ var (
     // ErrConversationNotFound is returned by Resume when the conversation ID doesn't exist.
     ErrConversationNotFound = errors.New("conversation not found")
 
+    // ErrResumeHistoryUnsupported is returned by ResumeDuplex for a realtime
+    // conversation whose provider cannot give a new session the persisted
+    // history, so the conversation would continue without it.
+    ErrResumeHistoryUnsupported = errors.New(
+        "the realtime provider cannot replay the persisted conversation into a new session")
+
     // ErrNoStateStore is returned by Resume when no state store is configured.
     ErrNoStateStore = errors.New("no state store configured")
 
@@ -1416,7 +1422,7 @@ type Conversation struct {
 ```
 
 <a name="Open"></a>
-### func [Open](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L89>)
+### func [Open](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L90>)
 
 ```go
 func Open(packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1500,7 +1506,7 @@ true
 </details>
 
 <a name="OpenComposition"></a>
-### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1320>)
+### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1349>)
 
 ```go
 func OpenComposition(packPath, name string, opts ...Option) (*Conversation, error)
@@ -1528,7 +1534,7 @@ fmt.Println(string(resp.CompositionOutput()))
 ```
 
 <a name="OpenDuplex"></a>
-### func [OpenDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L137>)
+### func [OpenDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L138>)
 
 ```go
 func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1587,7 +1593,7 @@ _ = conv.Start(ctx) // blocks: mic → LLM → speaker, until ctx is canceled
 ```
 
 <a name="Resume"></a>
-### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1213>)
+### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1214>)
 
 ```go
 func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1615,7 +1621,7 @@ if errors.Is(err, sdk.ErrConversationNotFound) {
 Resume requires a state store to be configured. If no state store is provided, it returns [ErrNoStateStore](<#ErrConversationClosed>).
 
 <a name="ResumeDuplex"></a>
-### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1294>)
+### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1323>)
 
 ```go
 func ResumeDuplex(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1644,7 +1650,7 @@ if errors.Is(err, sdk.ErrConversationNotFound) {
 
 ResumeDuplex requires a state store to be configured. If no state store is provided, it returns [ErrNoStateStore](<#ErrConversationClosed>). If no persisted state exists for the given conversationID, it returns [ErrConversationNotFound](<#ErrConversationClosed>).
 
-The persisted message history is seeded into the duplex pipeline by the same StateStore load stage that the unary path uses; no separate replay is needed.
+In a realtime \(ASM\) conversation the new provider session is given the persisted user and assistant turns before the caller's first input, through the provider's own mechanism \(OpenAI Realtime conversation.item.create items, Gemini Live client\_content turns\). A provider that cannot take them \(see \[providers.StreamHistorySupport\]\) makes ResumeDuplex return [ErrResumeHistoryUnsupported](<#ErrConversationClosed>) rather than continue without memory. In VAD mode each turn's request carries the history, as in a unary conversation.
 
 <a name="Conversation.AudioMonitor"></a>
 ### func \(\*Conversation\) [AudioMonitor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/audio_monitor.go#L214>)
@@ -5889,7 +5895,7 @@ func WithoutContentValidation() Option
 WithoutContentValidation turns off the check made before every provider call that each image, audio, video and document part of the request is a modality and MIME type the provider's adapter can send. A provider config's capabilities list never narrows the check. By default an unsupported part fails the Send with a \*providers.UnsupportedContentError before any request is sent. Use this for a custom provider whose declared capabilities are narrower than what it sends; the parts are then passed to the provider as they are.
 
 <a name="PackError"></a>
-## type [PackError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L121-L127>)
+## type [PackError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L127-L133>)
 
 PackError represents an error loading or parsing a pack file. Open and its variants, ValidatePack and Evaluate return one when the pack file is missing, unreadable, malformed or fails validation; Cause is the underlying error, so errors.Is\(err, ErrPackNotFound\) still matches a missing file.
 
@@ -5904,7 +5910,7 @@ type PackError struct {
 ```
 
 <a name="PackError.Error"></a>
-### func \(\*PackError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L130>)
+### func \(\*PackError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L136>)
 
 ```go
 func (e *PackError) Error() string
@@ -5913,7 +5919,7 @@ func (e *PackError) Error() string
 Error implements the error interface.
 
 <a name="PackError.Unwrap"></a>
-### func \(\*PackError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L135>)
+### func \(\*PackError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L141>)
 
 ```go
 func (e *PackError) Unwrap() error
@@ -6275,7 +6281,7 @@ func WithPlatformRegion(region string) PlatformOption
 WithPlatformRegion sets the cloud region.
 
 <a name="ProviderError"></a>
-## type [ProviderError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L144-L156>)
+## type [ProviderError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L150-L162>)
 
 ProviderError represents an error from the LLM provider. Send, Stream and their Resume and Continue counterparts return one when the provider's API answered with an error status \(\*providers.ProviderHTTPError\) or the connection failed \(\*providers.ProviderTransportError\). Cause is that runtime error, so errors.As and providers.IsTransient still see it.
 
@@ -6296,7 +6302,7 @@ type ProviderError struct {
 ```
 
 <a name="ProviderError.Error"></a>
-### func \(\*ProviderError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L159>)
+### func \(\*ProviderError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L165>)
 
 ```go
 func (e *ProviderError) Error() string
@@ -6305,7 +6311,7 @@ func (e *ProviderError) Error() string
 Error implements the error interface.
 
 <a name="ProviderError.Unwrap"></a>
-### func \(\*ProviderError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L168>)
+### func \(\*ProviderError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L174>)
 
 ```go
 func (e *ProviderError) Unwrap() error
@@ -7286,7 +7292,7 @@ type ToolDescriptorPatchFn func(d *tools.ToolDescriptor)
 ```
 
 <a name="ToolError"></a>
-## type [ToolError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L175-L181>)
+## type [ToolError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L181-L187>)
 
 ToolError represents an error executing a tool. ResolveTool and ResolveToolWithArgs set one as the ToolResolution's Error when the approved tool's handler fails.
 
@@ -7301,7 +7307,7 @@ type ToolError struct {
 ```
 
 <a name="ToolError.Error"></a>
-### func \(\*ToolError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L184>)
+### func \(\*ToolError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L190>)
 
 ```go
 func (e *ToolError) Error() string
@@ -7310,7 +7316,7 @@ func (e *ToolError) Error() string
 Error implements the error interface.
 
 <a name="ToolError.Unwrap"></a>
-### func \(\*ToolError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L189>)
+### func \(\*ToolError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L195>)
 
 ```go
 func (e *ToolError) Unwrap() error
@@ -7446,7 +7452,7 @@ type ValidateEvalTypesOpts struct {
 ```
 
 <a name="ValidationError"></a>
-## type [ValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L77-L89>)
+## type [ValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L83-L95>)
 
 ValidationError represents a validation failure. Send, Stream and their Resume and Continue counterparts return one when a hook or guardrail denies the turn: it wraps the runtime's \*hooks.HookDeniedError \(a provider hook denied the call\) or \*providers.ValidationAbortError \(a chunk hook aborted the stream\), so errors.As still finds those.
 
@@ -7465,7 +7471,7 @@ type ValidationError struct {
 ```
 
 <a name="AsValidationError"></a>
-### func [AsValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L109>)
+### func [AsValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L115>)
 
 ```go
 func AsValidationError(err error) (*ValidationError, bool)
@@ -7525,7 +7531,7 @@ matched: false
 </details>
 
 <a name="ValidationError.Error"></a>
-### func \(\*ValidationError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L92>)
+### func \(\*ValidationError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L98>)
 
 ```go
 func (e *ValidationError) Error() string
@@ -7534,7 +7540,7 @@ func (e *ValidationError) Error() string
 Error implements the error interface.
 
 <a name="ValidationError.Unwrap"></a>
-### func \(\*ValidationError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L97>)
+### func \(\*ValidationError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L103>)
 
 ```go
 func (e *ValidationError) Unwrap() error

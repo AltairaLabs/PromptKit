@@ -13,6 +13,12 @@ var (
 	// ErrConversationNotFound is returned by Resume when the conversation ID doesn't exist.
 	ErrConversationNotFound = errors.New("conversation not found")
 
+	// ErrResumeHistoryUnsupported is returned by ResumeDuplex for a realtime
+	// conversation whose provider cannot give a new session the persisted
+	// history, so the conversation would continue without it.
+	ErrResumeHistoryUnsupported = errors.New(
+		"the realtime provider cannot replay the persisted conversation into a new session")
+
 	// ErrNoStateStore is returned by Resume when no state store is configured.
 	ErrNoStateStore = errors.New("no state store configured")
 

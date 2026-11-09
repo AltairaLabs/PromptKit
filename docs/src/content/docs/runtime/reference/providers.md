@@ -201,6 +201,8 @@ The package provides:
 - [type FrameDetector](<#FrameDetector>)
 - [type HTTPRequestConfig](<#HTTPRequestConfig>)
 - [type HTTPTransportOptions](<#HTTPTransportOptions>)
+- [type HistoryTurn](<#HistoryTurn>)
+  - [func HistoryTurns\(messages \[\]types.Message\) \[\]HistoryTurn](<#HistoryTurns>)
 - [type IdleTimeoutReader](<#IdleTimeoutReader>)
   - [func NewIdleTimeoutReader\(r io.ReadCloser, timeout time.Duration\) \*IdleTimeoutReader](<#NewIdleTimeoutReader>)
   - [func \(r \*IdleTimeoutReader\) Close\(\) error](<#IdleTimeoutReader.Close>)
@@ -308,6 +310,8 @@ The package provides:
 - [type StreamConsumer](<#StreamConsumer>)
 - [type StreamEvent](<#StreamEvent>)
 - [type StreamEventObserver](<#StreamEventObserver>)
+- [type StreamHistorySession](<#StreamHistorySession>)
+- [type StreamHistorySupport](<#StreamHistorySupport>)
 - [type StreamInputSession](<#StreamInputSession>)
 - [type StreamInputSupport](<#StreamInputSupport>)
 - [type StreamMediaData](<#StreamMediaData>)
@@ -2445,6 +2449,27 @@ type HTTPTransportOptions struct {
 }
 ```
 
+<a name="HistoryTurn"></a>
+## type [HistoryTurn](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_history.go#L32-L35>)
+
+HistoryTurn is one message of prior conversation reduced to what a realtime session can replay: its role \(user or assistant\) and text.
+
+```go
+type HistoryTurn struct {
+    Role string
+    Text string
+}
+```
+
+<a name="HistoryTurns"></a>
+### func [HistoryTurns](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_history.go#L39>)
+
+```go
+func HistoryTurns(messages []types.Message) []HistoryTurn
+```
+
+HistoryTurns reduces messages to the user and assistant turns that carry text, in order. It is the replay rule every StreamHistorySession follows.
+
 <a name="IdleTimeoutReader"></a>
 ## type [IdleTimeoutReader](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/idle_timeout.go#L17-L25>)
 
@@ -4074,6 +4099,32 @@ StreamEventObserver is implemented by a StreamObserver that also wants each obse
 ```go
 type StreamEventObserver interface {
     OnStreamEvent(event StreamEvent)
+}
+```
+
+<a name="StreamHistorySession"></a>
+## type [StreamHistorySession](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_history.go#L14-L20>)
+
+StreamHistorySession is a realtime session that can be given the prior conversation before the first input, through its provider's own mechanism \(for OpenAI Realtime, conversation.item.create; for Gemini Live, a client\_content turn list\). A resumed duplex conversation uses it so the model continues with memory.
+
+```go
+type StreamHistorySession interface {
+    // SeedHistory adds messages to the session's conversation without asking
+    // for a response. Messages with no text (audio-only, tool calls and
+    // results) are skipped; system messages are carried by the session's
+    // instruction, not here.
+    SeedHistory(ctx context.Context, messages []types.Message) error
+}
+```
+
+<a name="StreamHistorySupport"></a>
+## type [StreamHistorySupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_history.go#L26-L28>)
+
+StreamHistorySupport is implemented by a provider whose realtime sessions accept prior conversation \(StreamHistorySession\). A caller resuming a conversation checks it before opening a session, so a provider that cannot take the history is refused instead of silently starting fresh.
+
+```go
+type StreamHistorySupport interface {
+    SupportsStreamHistory() bool
 }
 ```
 

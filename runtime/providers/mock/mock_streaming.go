@@ -118,6 +118,10 @@ type MockStreamSession struct {
 	// so the file scoping makes the dependency on ToolResponseSupport
 	// obvious from the directory listing.
 	toolResponses []providers.ToolResponse
+
+	// history is every prior-conversation turn SeedHistory was given, in the
+	// order received (see mock_stream_history.go).
+	history []providers.HistoryTurn
 }
 
 // NewMockStreamSession creates a new mock stream session.

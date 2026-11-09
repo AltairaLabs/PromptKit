@@ -30,6 +30,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/telemetry"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
 	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/provider"
 	"github.com/AltairaLabs/PromptKit/sdk/v2/session"
@@ -1258,7 +1259,30 @@ func resumeWith(
 	// Open conversation with the loaded state. WithConversationID preserves the
 	// original ID so the StateStore load stage seeds the persisted history.
 	opts = append(opts, WithConversationID(conversationID))
-	return opener(packPath, promptName, opts...)
+	conv, err := opener(packPath, promptName, opts...)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireHistoryReplay(conv, state.Messages); err != nil {
+		_ = conv.Close()
+		return nil, err
+	}
+	return conv, nil
+}
+
+// requireHistoryReplay refuses a resumed realtime conversation whose provider
+// cannot give its session the persisted history: it would answer as if the
+// conversation had just begun. A turn-based conversation (unary, or duplex in
+// VAD mode) sends the history with each request and needs nothing more.
+func requireHistoryReplay(conv *Conversation, history []types.Message) error {
+	if conv.mode != DuplexMode || conv.config.streamingConfig == nil || len(providers.HistoryTurns(history)) == 0 {
+		return nil
+	}
+	p := conv.callProvider()
+	if hs, ok := p.(providers.StreamHistorySupport); ok && hs.SupportsStreamHistory() {
+		return nil
+	}
+	return fmt.Errorf("%w: provider %q", ErrResumeHistoryUnsupported, p.ID())
 }
 
 // ResumeDuplex loads an existing conversation from state storage and opens it as
@@ -1289,8 +1313,13 @@ func resumeWith(
 // provided, it returns [ErrNoStateStore]. If no persisted state exists for the
 // given conversationID, it returns [ErrConversationNotFound].
 //
-// The persisted message history is seeded into the duplex pipeline by the same
-// StateStore load stage that the unary path uses; no separate replay is needed.
+// In a realtime (ASM) conversation the new provider session is given the
+// persisted user and assistant turns before the caller's first input, through
+// the provider's own mechanism (OpenAI Realtime conversation.item.create
+// items, Gemini Live client_content turns). A provider that cannot take them
+// (see [providers.StreamHistorySupport]) makes ResumeDuplex return
+// [ErrResumeHistoryUnsupported] rather than continue without memory. In VAD
+// mode each turn's request carries the history, as in a unary conversation.
 func ResumeDuplex(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error) {
 	return resumeWith(OpenDuplex, conversationID, packPath, promptName, opts...)
 }

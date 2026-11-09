@@ -323,9 +323,12 @@ func (s *DuplexProviderStage) createSessionLazily(
 		return nil, errors.New("duplex provider stage: no provider or session configured")
 	}
 
-	// Wait for first element to get system_prompt from TurnState
-	firstElem, ok := <-input
-	if !ok {
+	// Wait for first element to get system_prompt from TurnState. A resumed
+	// conversation's history arrives first: it is held and given to the new
+	// session (seedSessionHistory), and the session is created on the first
+	// element of the conversation's own input.
+	prior, held, firstElem, ok := collectLeadingHistory(input)
+	if !ok && len(held) == 0 {
 		return nil, errors.New("duplex provider stage: input channel closed before receiving first element")
 	}
 
@@ -354,15 +357,15 @@ func (s *DuplexProviderStage) createSessionLazily(
 	// Bounded: the drain goroutine below reads the input channel directly,
 	// which removes the pipeline's backpressure, so an unpaced producer would
 	// otherwise accumulate without limit for as long as session creation takes.
-	buffer := newPreSessionBuffer(defaultPreSessionBufferBytes)
-	buffer.add(firstElem)
+	buffer := preSessionBufferOf(held, firstElem, ok)
 	bufferMu := &sync.Mutex{}
 	drainDone := make(chan struct{})
 	sessionCreated := make(chan struct{})
 
-	// If the first element already has EndOfStream, skip buffering entirely
-	// This is common in tests and when there's only one element to send
-	if firstElem.EndOfStream {
+	// If the first element already has EndOfStream, or input closed with only
+	// history, skip buffering entirely. This is common in tests and when
+	// there's only one element to send.
+	if !ok || firstElem.EndOfStream {
 		logger.Debug("DuplexProviderStage: first element has EndOfStream, skipping buffer drain")
 		close(drainDone)
 	} else {
@@ -399,6 +402,11 @@ func (s *DuplexProviderStage) createSessionLazily(
 		}
 	}()
 	s.systemPromptSent = true // System instruction sent at session creation
+	if err := s.seedSessionHistory(ctx, prior); err != nil {
+		close(sessionCreated)
+		<-drainDone
+		return nil, s.failSeededSession(ctx, err, output)
+	}
 	if s.onSession != nil {
 		s.onSession(s.session)
 	}
@@ -416,6 +424,66 @@ func (s *DuplexProviderStage) createSessionLazily(
 
 	// Re-inject buffered elements followed by original input for subsequent turns
 	return s.replayAndMerge(ctx, buffer.elements(), input), nil
+}
+
+// preSessionBufferOf starts the pre-session buffer with the held history
+// elements and, when input yielded one, the first element of the
+// conversation's own input.
+func preSessionBufferOf(held []StreamElement, first StreamElement, haveFirst bool) *preSessionBuffer {
+	buffer := newPreSessionBuffer(defaultPreSessionBufferBytes)
+	for i := range held {
+		buffer.add(held[i])
+	}
+	if haveFirst {
+		buffer.add(first)
+	}
+	return buffer
+}
+
+// failSeededSession closes a session that could not be given the history and
+// reports err downstream, as a session-creation error is.
+func (s *DuplexProviderStage) failSeededSession(ctx context.Context, err error, output chan<- StreamElement) error {
+	_ = s.session.Close()
+	select {
+	case output <- NewErrorElement(err):
+	case <-ctx.Done():
+	}
+	return err
+}
+
+// collectLeadingHistory reads input until its first element that is not a
+// history message. It returns the history messages, their elements (to be
+// forwarded as before), that first element, and whether input yielded one
+// before closing.
+func collectLeadingHistory(
+	input <-chan StreamElement,
+) (prior []types.Message, held []StreamElement, first StreamElement, ok bool) {
+	for {
+		first, ok = <-input
+		if !ok || !first.Meta.FromHistory || first.Message == nil {
+			return prior, held, first, ok
+		}
+		prior = append(prior, *first.Message)
+		held = append(held, first)
+	}
+}
+
+// seedSessionHistory gives a new session the conversation's history, so a
+// resumed conversation continues with memory. A session that cannot take it
+// is an error rather than a silent fresh start.
+func (s *DuplexProviderStage) seedSessionHistory(ctx context.Context, prior []types.Message) error {
+	if len(providers.HistoryTurns(prior)) == 0 {
+		return nil
+	}
+	seeder, ok := s.session.(providers.StreamHistorySession)
+	if !ok {
+		return fmt.Errorf("duplex provider stage: the %T session cannot take the conversation's "+
+			"%d prior messages, so it would start without them", s.session, len(prior))
+	}
+	if err := seeder.SeedHistory(ctx, prior); err != nil {
+		return fmt.Errorf("duplex provider stage: seeding the session with the conversation's history: %w", err)
+	}
+	return nil
 }
 
 // bufferPreSessionInput is the drain goroutine run while the session is being
