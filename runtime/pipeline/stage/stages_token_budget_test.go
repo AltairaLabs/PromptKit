@@ -205,24 +205,16 @@ func TestTokenBudgetStage_ZeroEffectiveBudget(t *testing.T) {
 }
 
 func TestTokenBudgetStage_SystemMessagesExceedBudget(t *testing.T) {
-	counter := tokenizer.NewHeuristicTokenCounterWithRatio(1.0)
-	s := NewTokenBudgetStage(&TokenBudgetConfig{
-		MaxTokens:    10,
-		TokenCounter: counter,
-	})
-
-	// System message that by itself exceeds the budget
-	inputs := []StreamElement{
-		newTestMsgElement("system",
-			"You are a very helpful assistant with many instructions "+
-				"that are very long and take up a lot of tokens in the context window"),
-		newTestMsgElement("user", "Hello"),
-	}
-
-	results := runTestStage(t, s, inputs)
-	// When system messages exceed budget, they're still returned
-	require.Greater(t, len(results), 0)
-	assert.Equal(t, "system", results[0].Message.Role)
+	// A system message that by itself exceeds the budget leaves no room for
+	// the user's: rather than send the system prompt alone, the stage fails.
+	got, err := runTokenBudget(t, 10,
+		turnMsg(roleSystem, "You are a very helpful assistant with many instructions "+
+			"that are very long and take up a lot of tokens in the context window"),
+		turnMsg(roleUser, "Hello"),
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "token budget exceeded")
+	assert.Empty(t, got, "nothing is sent")
 }
 
 func TestTokenBudgetStage_ContextCancellation(t *testing.T) {

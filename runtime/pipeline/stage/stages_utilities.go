@@ -1030,15 +1030,49 @@ func (s *ContextBuilderStage) truncateMessages(
 	if err != nil {
 		return nil, err
 	}
+	return turnBoundedHistory(messages, kept, budget)
+}
+
+// turnBoundedHistory finishes a truncation: it trims kept, the messages a
+// strategy chose from messages, to a history every provider accepts (see
+// wellFormedHistory). Truncation drops history, never the current turn: a
+// request with no user message is rejected by every provider (or, with only
+// a summary, asks the model nothing), so when none survives it returns an
+// error saying the budget is too small instead.
+//
+// A history with no user message at all (one that opens on the assistant)
+// has no turn to open on, so only its tool exchanges are paired; it fails
+// when nothing but system messages would be left.
+func turnBoundedHistory(messages, kept []types.Message, budget int) ([]types.Message, error) {
+	if !hasUserMessage(messages) {
+		out := pairToolExchanges(kept)
+		if hasConversationMessage(messages) && !hasConversationMessage(out) {
+			return nil, budgetTooSmallForTurn(budget)
+		}
+		return out, nil
+	}
 	out := wellFormedHistory(kept)
-	// Truncation drops history, never the current turn: a request with no
-	// user message is rejected by every provider (or, with only a summary,
-	// asks the model nothing), so say the budget is too small instead.
-	if hasUserMessage(messages) && !hasUserMessage(out) {
-		return nil, fmt.Errorf("token budget exceeded: budget %d is too small for the current turn "+
-			"(its user message and the tool calls and results that follow it)", budget)
+	if !hasUserMessage(out) {
+		return nil, budgetTooSmallForTurn(budget)
 	}
 	return out, nil
+}
+
+// budgetTooSmallForTurn is the error for a budget that fits none of the
+// current turn.
+func budgetTooSmallForTurn(budget int) error {
+	return fmt.Errorf("token budget exceeded: budget %d is too small for the current turn "+
+		"(its user message and the tool calls and results that follow it)", budget)
+}
+
+// hasConversationMessage reports whether any message is not a system message.
+func hasConversationMessage(messages []types.Message) bool {
+	for i := range messages {
+		if messages[i].Role != roleSystem {
+			return true
+		}
+	}
+	return false
 }
 
 // hasUserMessage reports whether any message is a user message.
@@ -1077,8 +1111,13 @@ func wellFormedHistory(messages []types.Message) []types.Message {
 		seenUser = seenUser || isUserTurn(m)
 		opened = append(opened, *m)
 	}
-	paired, callIDs := dropUnansweredCalls(opened)
-	// Keep a tool result only when its call is kept.
+	return pairToolExchanges(opened)
+}
+
+// pairToolExchanges drops each assistant tool call missing any of its
+// results, then each tool result whose call is not kept.
+func pairToolExchanges(messages []types.Message) []types.Message {
+	paired, callIDs := dropUnansweredCalls(messages)
 	out := make([]types.Message, 0, len(paired))
 	for i := range paired {
 		if paired[i].ToolResult != nil && !callIDs[paired[i].ToolResult.ID] {

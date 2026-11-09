@@ -44,6 +44,11 @@ type TokenBudgetConfig struct {
 // configured budget, older messages are truncated while preserving the
 // system prompt and the most recent messages that fit within the budget.
 //
+// Truncation keeps whole turns, as ContextBuilderStage does: the kept history
+// starts at a user message and keeps a tool call only with all of its
+// results. When no user message fits, Process returns an error rather than
+// send a request with no question in it.
+//
 // This stage should be placed immediately before the ProviderStage in the
 // pipeline to prevent context window overflow errors.
 type TokenBudgetStage struct {
@@ -101,8 +106,14 @@ func (s *TokenBudgetStage) Process(
 
 	messages := collected.messages
 	fromHistory := collected.fromHistory
-	if s.config.MaxTokens > 0 {
-		messages = s.enforceTokenBudget(messages, collected.systemPrompt)
+	// An upstream stage failed: pass the turn and its failure signal on
+	// untouched, as ContextBuilderStage does, rather than fail here too.
+	if s.config.MaxTokens > 0 && !hasTurnFailureSignal(collected.nonMessageElems) {
+		var err error
+		messages, err = s.enforceTokenBudget(messages, collected.systemPrompt)
+		if err != nil {
+			return err
+		}
 		if len(messages) != len(collected.messages) {
 			// Truncation dropped messages, so the collected flags no longer
 			// align by index. nil makes emitResults read each message's own
@@ -112,6 +123,17 @@ func (s *TokenBudgetStage) Process(
 	}
 
 	return s.emitResults(ctx, messages, fromHistory, collected.nonMessageElems, output)
+}
+
+// hasTurnFailureSignal reports whether any element is an upstream stage's
+// turn-failure signal.
+func hasTurnFailureSignal(elems []StreamElement) bool {
+	for i := range elems {
+		if isTurnFailureSignal(&elems[i]) {
+			return true
+		}
+	}
+	return false
 }
 
 // collectInput reads all elements from the input channel, separating
@@ -190,10 +212,10 @@ func (s *TokenBudgetStage) emitResults(
 func (s *TokenBudgetStage) enforceTokenBudget(
 	messages []types.Message,
 	systemPrompt string,
-) []types.Message {
+) ([]types.Message, error) {
 	effectiveBudget := s.config.MaxTokens - s.config.ReserveTokens
 	if effectiveBudget <= 0 {
-		return messages
+		return messages, nil
 	}
 
 	totalTokens := s.config.TokenCounter.CountMessageTokens(messages)
@@ -204,7 +226,7 @@ func (s *TokenBudgetStage) enforceTokenBudget(
 	}
 
 	if totalTokens <= effectiveBudget {
-		return messages
+		return messages, nil
 	}
 
 	logger.Warn("Token budget exceeded, truncating messages",
@@ -217,7 +239,8 @@ func (s *TokenBudgetStage) enforceTokenBudget(
 
 // truncateMessages removes old non-system messages to fit within the budget.
 // It keeps system messages at the start and fills from the most recent
-// messages backward until the budget is exhausted.
+// messages backward until the budget is exhausted, then trims the result to
+// whole turns (see turnBoundedHistory).
 //
 // Token counts are pre-computed once per message and reused via a running
 // sum to avoid re-counting during selection.
@@ -225,7 +248,7 @@ func (s *TokenBudgetStage) truncateMessages(
 	messages []types.Message,
 	systemPrompt string,
 	budget int,
-) []types.Message {
+) ([]types.Message, error) {
 	// Pre-compute per-message token counts once.
 	tokenCounts := s.precomputeTokenCounts(messages)
 
@@ -253,29 +276,32 @@ func (s *TokenBudgetStage) truncateMessages(
 
 	remainingBudget := budget - systemTokens
 	if remainingBudget <= 0 {
-		// System messages alone exceed the budget; return them anyway
+		// System messages alone exceed the budget: no conversation message
+		// fits, so turnBoundedHistory returns the budget error (or the system
+		// messages, when the input has nothing else).
 		logger.Warn("System messages exceed token budget",
 			"system_tokens", systemTokens,
 			"budget", budget)
-		return systemMsgs
+		return turnBoundedHistory(messages, systemMsgs, budget)
 	}
 
 	// Fill from most recent messages backward using precomputed counts.
 	kept := s.selectRecentMessagesPrecomputed(conversationMsgs, conversationTokens, remainingBudget)
 
-	originalCount := len(messages)
-	truncatedCount := originalCount - len(systemMsgs) - len(kept)
-
-	logger.Warn("Messages truncated to fit token budget",
-		"original_count", originalCount,
-		"kept_count", len(systemMsgs)+len(kept),
-		"truncated_count", truncatedCount,
-		"budget", budget)
-
 	result := make([]types.Message, 0, len(systemMsgs)+len(kept))
 	result = append(result, systemMsgs...)
 	result = append(result, kept...)
-	return result
+	out, err := turnBoundedHistory(messages, result, budget)
+	if err != nil {
+		return nil, err
+	}
+
+	logger.Warn("Messages truncated to fit token budget",
+		"original_count", len(messages),
+		"kept_count", len(out),
+		"truncated_count", len(messages)-len(out),
+		"budget", budget)
+	return out, nil
 }
 
 // precomputeTokenCounts returns per-message token counts so that subsequent
