@@ -3,8 +3,11 @@ package recording
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -492,14 +495,57 @@ func TestLoadEventStoreFormat_EmptyEvents(t *testing.T) {
 	require.Error(t, err)
 }
 
+// Event data written by the event store names its type with %T. Each type the
+// recording keeps reads back as the same type with the same fields, and every
+// name the registry accepts reads back as one of those types.
 func TestDeserializeEventData_AllRegistryTypes(t *testing.T) {
-	// Verify that every registered type can be deserialized from valid JSON.
-	for typeName := range eventDataRegistry {
-		t.Run(typeName, func(t *testing.T) {
-			result, err := deserializeEventData(typeName, json.RawMessage(`{}`))
+	samples := []events.EventData{
+		&events.AudioEventData{Direction: "input", Actor: "user"},
+		&events.AudioTranscriptionData{Text: "hello", Language: "en"},
+		&events.VideoFrameData{FrameIndex: 7, TimestampMs: 70},
+		&events.ScreenshotData{WindowTitle: "editor"},
+		&events.ImageEventData{Direction: "output", Actor: "assistant"},
+		&events.MessageCreatedData{Role: "user", Content: "hi"},
+		&events.MessageUpdatedData{Index: 3, OutputTokens: 12},
+		&events.ConversationStartedData{SystemPrompt: "be brief"},
+		&events.ToolCallEventData{ToolName: "lookup", CallID: "call-1"},
+		&events.CustomEventData{EventName: "checkpoint", Message: "saved"},
+		&events.StreamInterruptedData{Reason: "barge-in"},
+	}
+	kept := make(map[reflect.Type]bool, len(samples))
+	for _, sample := range samples {
+		dataType := fmt.Sprintf("%T", sample)
+		kept[reflect.TypeOf(sample)] = true
+		t.Run(dataType, func(t *testing.T) {
+			raw, err := json.Marshal(sample)
 			require.NoError(t, err)
-			require.NotNil(t, result, "deserialize %s returned nil", typeName)
+			got, err := deserializeEventData(dataType, raw)
+			require.NoError(t, err)
+			assert.Equal(t, sample, got)
 		})
+	}
+
+	// Names older recordings carry for types since consolidated, mapped to the
+	// type they now read back as. Every other name reads back as itself.
+	consolidated := map[string]string{
+		"AudioInputData":        "*events.AudioEventData",
+		"AudioOutputData":       "*events.AudioEventData",
+		"ImageInputData":        "*events.ImageEventData",
+		"ImageOutputData":       "*events.ImageEventData",
+		"ToolCallStartedData":   "*events.ToolCallEventData",
+		"ToolCallCompletedData": "*events.ToolCallEventData",
+		"ToolCallFailedData":    "*events.ToolCallEventData",
+	}
+	for typeName := range eventDataRegistry {
+		base := strings.TrimPrefix(strings.TrimPrefix(typeName, "*"), "events.")
+		want, ok := consolidated[base]
+		if !ok {
+			want = "*events." + base
+		}
+		got, err := deserializeEventData(typeName, json.RawMessage(`{}`))
+		require.NoError(t, err, typeName)
+		assert.Equal(t, want, fmt.Sprintf("%T", got), "%s reads back as the wrong type", typeName)
+		assert.True(t, kept[reflect.TypeOf(got)], "%s reads back as %T, which is not a kept event type", typeName, got)
 	}
 }
 

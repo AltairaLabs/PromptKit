@@ -20,13 +20,21 @@ type mockAzureTokenCredential struct {
 	token azcore.AccessToken
 	err   error
 	calls int
+	// numbered makes each fetch return a distinct token, suffixed with the
+	// fetch's number, so a test can tell which fetch a request's header came
+	// from.
+	numbered bool
 }
 
 func (m *mockAzureTokenCredential) GetToken(_ context.Context, _ policy.TokenRequestOptions) (azcore.AccessToken, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls++
-	return m.token, m.err
+	token := m.token
+	if m.numbered {
+		token.Token = fmt.Sprintf("%s-%d", token.Token, m.calls)
+	}
+	return token, m.err
 }
 
 func (m *mockAzureTokenCredential) getCalls() int {
@@ -208,12 +216,15 @@ func TestDefaultAzureAPIVersion(t *testing.T) {
 	}
 }
 
+// Concurrent requests against a cold cache share one token: every request
+// carries the token from the first fetch, not one fetched for itself.
 func TestAzureCredential_ConcurrentAccess(t *testing.T) {
 	mock := &mockAzureTokenCredential{
 		token: azcore.AccessToken{
 			Token:     "concurrent-azure-token",
 			ExpiresOn: time.Now().Add(1 * time.Hour),
 		},
+		numbered: true,
 	}
 
 	cred := &AzureCredential{
@@ -224,6 +235,7 @@ func TestAzureCredential_ConcurrentAccess(t *testing.T) {
 	const goroutines = 20
 	var wg sync.WaitGroup
 	errs := make([]error, goroutines)
+	headers := make([]string, goroutines)
 
 	wg.Add(goroutines)
 	for i := 0; i < goroutines; i++ {
@@ -235,14 +247,15 @@ func TestAzureCredential_ConcurrentAccess(t *testing.T) {
 				return
 			}
 			errs[idx] = cred.Apply(context.Background(), req)
+			headers[idx] = req.Header.Get("Authorization")
 		}(i)
 	}
 	wg.Wait()
 
-	for i, err := range errs {
-		assert.NoError(t, err, "goroutine %d failed", i)
+	want := make([]string, goroutines)
+	for i := range want {
+		want[i] = "Bearer concurrent-azure-token-1"
 	}
-
-	// Despite concurrent access, token source should only be called once
-	assert.Equal(t, 1, mock.getCalls())
+	assert.Equal(t, make([]error, goroutines), errs)
+	assert.Equal(t, want, headers, "every request must reuse the first fetched token")
 }

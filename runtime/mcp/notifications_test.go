@@ -143,12 +143,22 @@ func TestRegistry_ToolsChangedFromAReplacedClientIsDropped(t *testing.T) {
 
 func TestClient_UnreadableToolListIsNotReported(t *testing.T) {
 	// A re-read that fails keeps the previous tools: it is not degraded to
-	// an empty list, which would withdraw every tool.
+	// an empty list, which would withdraw every tool. The client is wired to
+	// the registry the way Registry wires a client it starts.
+	var reported []string
+	reg := NewRegistryWithOptions(RegistryOptions{
+		OnToolsChanged: func(name string, _ []Tool) { reported = append(reported, name) },
+	})
 	opts := testOptions()
 	opts.EnableGracefulDegradation = true
 	c := newSDKClient(ServerConfig{Name: "s"}, opts, TransportStreamableHTTP)
-	called := false
-	c.onToolsChanged(func([]Tool) { called = true })
+	c.onToolsChanged(func(tools []Tool) { reg.toolsChanged("s", c, tools) })
+	reg.clients["s"] = c
+	reg.toolIndex["kept"] = "s"
+
+	// The client never connected, so the re-read fails.
 	c.refreshTools(context.Background())
-	assert.False(t, called)
+
+	assert.Equal(t, map[string]string{"kept": "s"}, reg.toolIndex, "the previous tools stay registered")
+	assert.Equal(t, []string(nil), reported, "a list that could not be read is not reported")
 }

@@ -362,11 +362,12 @@ func TestValidationsToPriorResults_NoValidations(t *testing.T) {
 	assert.Nil(t, validationsToPriorResults(messages))
 }
 
+// Only an assistant message's validations seed PriorResults: validations
+// recorded on a user message are not the assistant turn's guardrail outcomes.
 func TestValidationsToPriorResults_NoAssistantMessage(t *testing.T) {
-	messages := []types.Message{
-		types.NewUserMessage("hello"),
-	}
-	assert.Nil(t, validationsToPriorResults(messages))
+	user := types.NewUserMessage("hello")
+	user.Validations = []types.ValidationResult{{ValidatorType: "pii_leakage", Passed: false}}
+	assert.Equal(t, []EvalResult(nil), validationsToPriorResults([]types.Message{user}))
 }
 
 func TestValidationsToPriorResults_Empty(t *testing.T) {

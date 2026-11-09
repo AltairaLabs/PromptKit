@@ -94,22 +94,25 @@ func TestInputFunc_DefaultsReplacementWhenUnset(t *testing.T) {
 	assert.Equal(t, prompt.DefaultBlockedMessage, req.Replacement)
 }
 
+// An input check judges the user's message, so it does not run on a
+// tool-result round: a check that would deny every input lets that round
+// through untouched.
 func TestInputFunc_SkipsWhenLastMessageNotUser(t *testing.T) {
-	calls := 0
-	h, err := InputFunc("counter", func(_ context.Context, _ *hooks.InputRequest) hooks.Decision {
-		calls++
-		return hooks.Allow
+	h, err := InputFunc("deny-all", func(_ context.Context, _ *hooks.InputRequest) hooks.Decision {
+		return hooks.Deny("input denied")
 	}).Hook()
 	require.NoError(t, err)
 
-	h.BeforeCall(context.Background(), &hooks.ProviderRequest{
+	req := &hooks.ProviderRequest{
 		Messages: []types.Message{
 			{Role: "user", Content: "hi"},
 			{Role: "tool", Content: "tool output"},
 		},
-	})
+	}
+	d := h.BeforeCall(context.Background(), req)
 
-	assert.Equal(t, 0, calls, "input func must not run on tool-result rounds")
+	assert.True(t, d.Allow, "input func must not run on tool-result rounds")
+	assert.Equal(t, "", req.Replacement)
 }
 
 func TestOutputFunc_EvaluatesResponseContent(t *testing.T) {

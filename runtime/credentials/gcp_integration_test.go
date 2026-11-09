@@ -19,12 +19,21 @@ type mockTokenSource struct {
 	token *oauth2.Token
 	err   error
 	calls int
+	// numbered makes each fetch return a distinct token, suffixed with the
+	// fetch's number, so a test can tell which fetch a request's header came
+	// from.
+	numbered bool
 }
 
 func (m *mockTokenSource) Token() (*oauth2.Token, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls++
+	if m.numbered && m.token != nil {
+		token := *m.token
+		token.AccessToken = fmt.Sprintf("%s-%d", token.AccessToken, m.calls)
+		return &token, m.err
+	}
 	return m.token, m.err
 }
 
@@ -193,12 +202,15 @@ func TestGCPCredential_TokenRefresh(t *testing.T) {
 	assert.Equal(t, 2, mock.getCalls())
 }
 
+// Concurrent requests against a cold cache share one token: every request
+// carries the token from the first fetch, not one fetched for itself.
 func TestGCPCredential_ConcurrentAccess(t *testing.T) {
 	mock := &mockTokenSource{
 		token: &oauth2.Token{
 			AccessToken: "ya29.concurrent-token",
 			Expiry:      time.Now().Add(1 * time.Hour),
 		},
+		numbered: true,
 	}
 
 	cred := &GCPCredential{
@@ -210,6 +222,7 @@ func TestGCPCredential_ConcurrentAccess(t *testing.T) {
 	const goroutines = 20
 	var wg sync.WaitGroup
 	errs := make([]error, goroutines)
+	headers := make([]string, goroutines)
 
 	wg.Add(goroutines)
 	for i := 0; i < goroutines; i++ {
@@ -221,16 +234,17 @@ func TestGCPCredential_ConcurrentAccess(t *testing.T) {
 				return
 			}
 			errs[idx] = cred.Apply(context.Background(), req)
+			headers[idx] = req.Header.Get("Authorization")
 		}(i)
 	}
 	wg.Wait()
 
-	for i, err := range errs {
-		assert.NoError(t, err, "goroutine %d failed", i)
+	want := make([]string, goroutines)
+	for i := range want {
+		want[i] = "Bearer ya29.concurrent-token-1"
 	}
-
-	// Despite concurrent access, token source should only be called once
-	assert.Equal(t, 1, mock.getCalls())
+	assert.Equal(t, make([]error, goroutines), errs)
+	assert.Equal(t, want, headers, "every request must reuse the first fetched token")
 }
 
 // Embeddings are published by "google", not "anthropic". Reusing the chat
