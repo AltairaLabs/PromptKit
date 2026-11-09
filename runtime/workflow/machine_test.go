@@ -287,23 +287,45 @@ func stateNameForIndex(i int) string {
 	return "s" + string(rune('0'+i/10)) + string(rune('0'+i%10))
 }
 
+// TestConcurrentReads releases 50 readers from one barrier after a single
+// transition; every one must see the same, settled state.
 func TestConcurrentReads(t *testing.T) {
 	sm := NewStateMachine(loopingSpec())
-	_, _ = sm.ProcessEvent("Review")
+	if _, err := sm.ProcessEvent("Review"); err != nil {
+		t.Fatal(err)
+	}
 
+	start := make(chan struct{})
+	errs := make(chan string, 50)
 	var wg sync.WaitGroup
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = sm.CurrentState()
-			_ = sm.CurrentPromptTask()
-			_ = sm.IsTerminal()
-			_ = sm.AvailableEvents()
-			_ = sm.Context()
+			<-start
+			if got := sm.CurrentState(); got != "review" {
+				errs <- "CurrentState = " + got
+			}
+			if got := sm.CurrentPromptTask(); got != "check" {
+				errs <- "CurrentPromptTask = " + got
+			}
+			if sm.IsTerminal() {
+				errs <- "IsTerminal = true"
+			}
+			if got := sm.AvailableEvents(); len(got) != 2 || got[0] != "Approve" || got[1] != "Revise" {
+				errs <- "AvailableEvents unexpected"
+			}
+			if ctx := sm.Context(); ctx.CurrentState != "review" || len(ctx.History) != 1 {
+				errs <- "Context snapshot unexpected"
+			}
 		}()
 	}
+	close(start)
 	wg.Wait()
+	close(errs)
+	for e := range errs {
+		t.Error(e)
+	}
 }
 
 func TestConcurrentProcessEvent(t *testing.T) {
@@ -335,40 +357,87 @@ func TestConcurrentProcessEvent(t *testing.T) {
 	}
 }
 
+// TestConcurrentReadsDuringWrites runs writers cycling draft <-> review against
+// readers taking Context snapshots, all released from one barrier. Every
+// snapshot must be internally consistent (its state is the last transition's
+// target, and the history length's parity matches the state), and the final
+// history must record exactly the transitions that succeeded. Run under -race.
 func TestConcurrentReadsDuringWrites(t *testing.T) {
-	spec := loopingSpec()
-	sm := NewStateMachine(spec)
+	sm := NewStateMachine(loopingSpec())
 
+	start := make(chan struct{})
 	var wg sync.WaitGroup
+	var mu sync.Mutex
+	succeeded := 0
+	errs := make(chan string, 1000)
 
-	// Writers
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for j := 0; j < 100; j++ {
-				_, _ = sm.ProcessEvent("Review")
-				_, _ = sm.ProcessEvent("Revise")
+			<-start
+			// 10 writers x 40 x 2 stays under MaxHistoryLength, so the
+			// history is never trimmed and its length counts every transition.
+			for j := 0; j < 40; j++ {
+				for _, ev := range []string{"Review", "Revise"} {
+					if _, err := sm.ProcessEvent(ev); err == nil {
+						mu.Lock()
+						succeeded++
+						mu.Unlock()
+					}
+				}
 			}
 		}()
 	}
 
-	// Readers
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			<-start
 			for j := 0; j < 100; j++ {
-				_ = sm.CurrentState()
-				_ = sm.CurrentPromptTask()
-				_ = sm.IsTerminal()
-				_ = sm.AvailableEvents()
-				_ = sm.Context()
+				if msg := inconsistentSnapshot(sm.Context()); msg != "" {
+					select {
+					case errs <- msg:
+					default:
+					}
+				}
+				if task := sm.CurrentPromptTask(); task != "write" && task != "check" {
+					errs <- "CurrentPromptTask = " + task
+				}
 			}
 		}()
 	}
 
+	close(start)
 	wg.Wait()
+	close(errs)
+	for e := range errs {
+		t.Error(e)
+	}
+	final := sm.Context()
+	if len(final.History) != succeeded {
+		t.Errorf("history has %d transitions, %d succeeded", len(final.History), succeeded)
+	}
+	if msg := inconsistentSnapshot(final); msg != "" {
+		t.Error(msg)
+	}
+}
+
+// inconsistentSnapshot describes how a looping-spec Context snapshot
+// contradicts itself, or returns "" if it does not.
+func inconsistentSnapshot(ctx *Context) string {
+	want := "draft"
+	if n := len(ctx.History); n > 0 {
+		want = ctx.History[n-1].To
+		if (n%2 == 1) != (want == "review") {
+			return "history parity does not match its last target"
+		}
+	}
+	if ctx.CurrentState != want {
+		return "snapshot state " + ctx.CurrentState + " but history ends at " + want
+	}
+	return ""
 }
 
 func TestConcurrentContextSnapshot(t *testing.T) {
