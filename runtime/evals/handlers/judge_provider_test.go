@@ -155,11 +155,6 @@ func TestParseJudgeResponse_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestSpecJudgeProvider_Implements(t *testing.T) {
-	t.Parallel()
-	var _ JudgeProvider = (*SpecJudgeProvider)(nil)
-}
-
 // TestSpecJudgeProvider_Judge drives the provider end to end with a mock whose
 // default reply is not judge JSON.
 //

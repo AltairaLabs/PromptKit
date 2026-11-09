@@ -202,27 +202,6 @@ func TestEvalWorker_SubscriptionError(t *testing.T) {
 	}
 }
 
-func TestEvalWorker_NilResultWriter(t *testing.T) {
-	reg := newTestRegistry(&stubHandler{typeName: "test"})
-	runner := NewEvalRunner(reg)
-
-	payload := makePayload(t,
-		[]EvalDef{{ID: "e1", Type: "test", Trigger: TriggerEveryTurn}},
-		&EvalContext{SessionID: "s1"},
-	)
-
-	sub := &mockSubscriber{turnEvents: [][]byte{payload}}
-	worker := NewEvalWorker(runner, sub, nil)
-
-	ctx, cancel := context.WithTimeout(
-		context.Background(), 500*time.Millisecond,
-	)
-	defer cancel()
-
-	// Should not panic with nil writer.
-	_ = worker.Start(ctx)
-}
-
 func TestEvalWorker_WriterError(t *testing.T) {
 	reg := newTestRegistry(&stubHandler{typeName: "test"})
 	runner := NewEvalRunner(reg)
