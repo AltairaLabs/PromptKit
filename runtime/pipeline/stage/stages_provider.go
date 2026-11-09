@@ -543,6 +543,13 @@ func (s *ProviderStage) Process(
 		return forwardUpstreamErrors(ctx, accumulated.upstreamErrors, output)
 	}
 
+	// No message, no turn: the streaming path fires only on pending input,
+	// and the unary path must match it rather than call the model with an
+	// empty conversation.
+	if len(accumulated.messages) == 0 {
+		return nil
+	}
+
 	logger.Debug("ProviderStage accumulated input",
 		"messages", len(accumulated.messages),
 		"allowed_tools", accumulated.allowedTools,
@@ -550,6 +557,21 @@ func (s *ProviderStage) Process(
 		"mock_turn_number", accumulated.metadata["mock_turn_number"])
 
 	return s.executeAndEmit(ctx, accumulated, output)
+}
+
+// inputMessage returns the conversation message an input element carries:
+// its Message, or, for a bare text element (a duplex or VAD session's
+// SendText), that text as the user's message. Without the second case typed
+// input reached the model as nothing at all. Synthesized-speech text is a
+// copy of a reply already spoken, not input.
+func inputMessage(elem *StreamElement) *types.Message {
+	if elem.Message != nil {
+		return elem.Message
+	}
+	if elem.Text == nil || *elem.Text == "" || elem.Meta.SynthesizedSpeech {
+		return nil
+	}
+	return &types.Message{Role: roleUser, Content: *elem.Text}
 }
 
 // accumulateInput collects messages from the input channel and seeds
@@ -571,8 +593,8 @@ func (s *ProviderStage) accumulateInput(input <-chan StreamElement) *providerInp
 		if isTurnFailureSignal(&elem) {
 			acc.upstreamErrors = append(acc.upstreamErrors, elem)
 		}
-		if elem.Message != nil {
-			acc.messages = append(acc.messages, *elem.Message)
+		if msg := inputMessage(&elem); msg != nil {
+			acc.messages = append(acc.messages, *msg)
 		}
 		if elem.EndOfStream {
 			break
@@ -675,8 +697,8 @@ func (s *ProviderStage) processStreaming(
 			if err := sendStreamElement(ctx, elem, output); err != nil {
 				return err
 			}
-		case elem.Message != nil:
-			pending = append(pending, *elem.Message)
+		case inputMessage(&elem) != nil:
+			pending = append(pending, *inputMessage(&elem))
 		default:
 			// Stray content passes through unchanged.
 			if err := sendStreamElement(ctx, elem, output); err != nil {

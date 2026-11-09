@@ -226,11 +226,12 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 		// Create Message if there's content, cost info, or tool calls
 		if hasContent || hasCostInfo || hasToolCalls {
 			msg := &types.Message{
-				Role:      roleAssistant,
-				Content:   accumulatedText,
-				Parts:     []types.ContentPart{},
-				ToolCalls: toolCalls,
-				CostInfo:  chunk.CostInfo,
+				Role:         roleAssistant,
+				Content:      accumulatedText,
+				Parts:        []types.ContentPart{},
+				ToolCalls:    toolCalls,
+				CostInfo:     chunk.CostInfo,
+				FinishReason: *chunk.FinishReason,
 				Meta: map[string]interface{}{
 					finishReasonMetaKey: *chunk.FinishReason,
 				},

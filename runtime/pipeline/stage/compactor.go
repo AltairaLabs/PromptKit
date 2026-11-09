@@ -59,6 +59,8 @@ type CompactionContext struct {
 	Current     int             // current estimated token count
 }
 
+var _ CompactionStrategy = (*ContextCompactor)(nil)
+
 // ContextCompactor is the default CompactionStrategy. It applies rules in
 // order to fold stale messages until context is under the token budget.
 // Deterministic, zero LLM calls.

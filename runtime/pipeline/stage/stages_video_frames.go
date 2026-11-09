@@ -651,7 +651,7 @@ func (s *FramesToMessageStage) checkTimeouts(
 ) {
 	defer close(exited)
 
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(timeoutCheckIntervalFor(s.config.CompletionTimeout))
 	defer ticker.Stop()
 
 	for {
