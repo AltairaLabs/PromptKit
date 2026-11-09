@@ -31,11 +31,20 @@ func TestStore_ListAccessor_AppendAndLoad(t *testing.T) {
 
 func TestStore_ListAccessor_LoadEmpty(t *testing.T) {
 	s := newTestStore(t)
-	got, err := s.LoadList(context.Background(), "missing", "x")
+	ctx := context.Background()
+
+	// A missing conversation is ErrNotFound, as the ListAccessor contract says.
+	_, err := s.LoadList(ctx, "missing", "x")
+	assert.ErrorIs(t, err, statestore.ErrNotFound)
+	_, err = s.ListLen(ctx, "missing", "x")
+	assert.ErrorIs(t, err, statestore.ErrNotFound)
+
+	// An unwritten list on an existing conversation is empty, not an error.
+	require.NoError(t, s.Save(ctx, &statestore.ConversationState{ID: "conv"}))
+	got, err := s.LoadList(ctx, "conv", "x")
 	require.NoError(t, err)
 	assert.Nil(t, got)
-
-	n, err := s.ListLen(context.Background(), "missing", "x")
+	n, err := s.ListLen(ctx, "conv", "x")
 	require.NoError(t, err)
 	assert.Equal(t, 0, n)
 }

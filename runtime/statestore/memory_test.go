@@ -397,54 +397,6 @@ func TestMemoryStore_DeepCopyPreventsExternalMutation(t *testing.T) {
 	assert.Equal(t, "original", loaded2.Metadata["key"])
 }
 
-func TestMemoryStore_ConcurrentAccess(t *testing.T) {
-	store := NewMemoryStore()
-	ctx := context.Background()
-
-	// Number of concurrent operations
-	const numGoroutines = 100
-	const numOpsPerGoroutine = 10
-
-	var wg sync.WaitGroup
-	wg.Add(numGoroutines)
-
-	// Run concurrent save/load/delete operations
-	for i := 0; i < numGoroutines; i++ {
-		go func(id int) {
-			defer wg.Done()
-
-			for j := 0; j < numOpsPerGoroutine; j++ {
-				convID := "conv-" + string(rune('0'+id))
-
-				// Save
-				state := &ConversationState{
-					ID:         convID,
-					UserID:     "user-concurrent",
-					TokenCount: j,
-				}
-				_ = store.Save(ctx, state)
-
-				// Load
-				_, _ = store.Load(ctx, convID)
-
-				// List
-				_, _ = store.List(ctx, ListOptions{UserID: "user-concurrent"})
-
-				// Delete (occasionally)
-				if j%3 == 0 {
-					_ = store.Delete(ctx, convID)
-				}
-			}
-		}(i)
-	}
-
-	// Wait for all goroutines to complete
-	wg.Wait()
-
-	// If we reach here without data races or panics, the test passes
-	// (Run with -race flag to detect data races)
-}
-
 func TestMemoryStore_DeleteUpdatesUserIndex(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := context.Background()

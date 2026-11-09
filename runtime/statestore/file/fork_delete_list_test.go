@@ -3,6 +3,7 @@ package file
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"sort"
 	"testing"
 	"time"
@@ -66,7 +67,7 @@ func TestStore_Delete(t *testing.T) {
 
 func TestStore_Delete_Missing(t *testing.T) {
 	s := newTestStore(t)
-	require.NoError(t, s.Delete(context.Background(), "missing"))
+	assert.ErrorIs(t, s.Delete(context.Background(), "missing"), statestore.ErrNotFound)
 }
 
 func TestStore_Delete_InvalidID(t *testing.T) {
@@ -165,6 +166,22 @@ func TestStore_TTLSweep_NoTTL_KeepsEverything(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, s.Save(ctx, &statestore.ConversationState{ID: "x"}))
 	require.NoError(t, s.sweepStale(time.Now()))
-	_, err := s.Load(ctx, "x")
+	got, err := s.Load(ctx, "x")
 	require.NoError(t, err)
+	assert.Equal(t, "x", got.ID)
+}
+
+func TestStore_Delete_RemovesOrphanDirectory(t *testing.T) {
+	root := t.TempDir()
+	s, err := NewStore(Options{Root: root})
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+
+	// A directory left by a write interrupted before its state.json stub.
+	orphan := filepath.Join(root, "conv-orphan")
+	require.NoError(t, os.MkdirAll(orphan, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(orphan, "messages.jsonl"), []byte("{}\n"), 0o600))
+
+	assert.ErrorIs(t, s.Delete(context.Background(), "orphan"), statestore.ErrNotFound)
+	assert.NoDirExists(t, orphan)
 }

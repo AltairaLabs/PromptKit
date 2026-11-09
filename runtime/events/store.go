@@ -209,6 +209,41 @@ var eventDataRegistry = map[string]eventDataFactory{
 	"*events.WorkflowCompletedData":         func() EventData { return &WorkflowCompletedData{} },
 	"*events.WorkflowMaxVisitsExceededData": func() EventData { return &WorkflowMaxVisitsExceededData{} },
 	"*events.WorkflowBudgetExhaustedData":   func() EventData { return &WorkflowBudgetExhaustedData{} },
+
+	// Client tool events
+	"*events.ClientToolRequestData":  func() EventData { return &ClientToolRequestData{} },
+	"*events.ClientToolResolvedData": func() EventData { return &ClientToolResolvedData{} },
+
+	// Eval and media storage events
+	"*events.EvalEventData":         func() EventData { return &EvalEventData{} },
+	"*events.MediaStorageEventData": func() EventData { return &MediaStorageEventData{} },
+	"*events.ContextCompactionData": func() EventData { return &ContextCompactionData{} },
+
+	// Template events
+	"*events.TemplateStartedData":  func() EventData { return &TemplateStartedData{} },
+	"*events.TemplateRenderedData": func() EventData { return &TemplateRenderedData{} },
+	"*events.TemplateFailedData":   func() EventData { return &TemplateFailedData{} },
+
+	// Composition events
+	"*events.CompositionStartedData":           func() EventData { return &CompositionStartedData{} },
+	"*events.CompositionCompletedData":         func() EventData { return &CompositionCompletedData{} },
+	"*events.CompositionStepStartedData":       func() EventData { return &CompositionStepStartedData{} },
+	"*events.CompositionStepCompletedData":     func() EventData { return &CompositionStepCompletedData{} },
+	"*events.CompositionBranchEvaluatedData":   func() EventData { return &CompositionBranchEvaluatedData{} },
+	"*events.CompositionParallelCompletedData": func() EventData { return &CompositionParallelCompletedData{} },
+
+	// Capability call events
+	"*events.CapabilityCallData":         func() EventData { return &CapabilityCallData{} },
+	"*events.ImageGenCallCompletedData":  func() EventData { return &ImageGenCallCompletedData{} },
+	"*events.ImageGenCallFailedData":     func() EventData { return &ImageGenCallFailedData{} },
+	"*events.TTSCallCompletedData":       func() EventData { return &TTSCallCompletedData{} },
+	"*events.TTSCallFailedData":          func() EventData { return &TTSCallFailedData{} },
+	"*events.STTCallCompletedData":       func() EventData { return &STTCallCompletedData{} },
+	"*events.STTCallFailedData":          func() EventData { return &STTCallFailedData{} },
+	"*events.EmbeddingCallCompletedData": func() EventData { return &EmbeddingCallCompletedData{} },
+	"*events.EmbeddingCallFailedData":    func() EventData { return &EmbeddingCallFailedData{} },
+	"*events.InferenceCallCompletedData": func() EventData { return &InferenceCallCompletedData{} },
+	"*events.InferenceCallFailedData":    func() EventData { return &InferenceCallFailedData{} },
 }
 
 // deserializeEventData attempts to deserialize event data based on the type name.

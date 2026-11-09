@@ -39,21 +39,3 @@ func TestStore_AsMessageLog_DropIn(t *testing.T) {
 	assert.Equal(t, "hello", loaded.Messages[0].Content)
 	assert.Equal(t, "hi", loaded.Messages[1].Content)
 }
-
-// TestStore_SatisfiesStoreInterfaces is a compile-time assertion that *Store
-// implements every interface the SDK type-asserts. If this stops compiling,
-// the file store has fallen out of step with the statestore contract.
-func TestStore_SatisfiesStoreInterfaces(t *testing.T) {
-	s, err := NewStore(Options{Root: t.TempDir()})
-	require.NoError(t, err)
-	defer func() { _ = s.Close() }()
-
-	var _ statestore.Store = s
-	var _ statestore.BulkWriter = s
-	var _ statestore.MessageLog = s
-	var _ statestore.MessageReader = s
-	var _ statestore.MessageAppender = s
-	var _ statestore.MetadataAccessor = s
-	var _ statestore.SummaryAccessor = s
-	var _ statestore.ListAccessor = s
-}

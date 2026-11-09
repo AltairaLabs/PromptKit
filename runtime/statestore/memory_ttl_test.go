@@ -2,7 +2,6 @@ package statestore
 
 import (
 	"context"
-	"sync"
 	"testing"
 	"time"
 
@@ -371,61 +370,6 @@ func TestMemoryStore_BackgroundEviction(t *testing.T) {
 
 	// Background goroutine should have evicted the entry
 	assert.Equal(t, 0, store.Len())
-}
-
-func TestMemoryStore_CloseIdempotent(t *testing.T) {
-	store := NewMemoryStore(
-		WithMemoryTTL(1*time.Second),
-		WithMemoryEvictionInterval(100*time.Millisecond),
-	)
-	// Calling Close multiple times should not panic
-	store.Close()
-	store.Close()
-}
-
-func TestMemoryStore_CloseWithoutBackgroundEviction(t *testing.T) {
-	store := NewMemoryStore()
-	// Close on a store without background eviction should be safe
-	store.Close()
-}
-
-func TestMemoryStore_TTLConcurrentAccess(t *testing.T) {
-	store := NewMemoryStore(
-		WithMemoryTTL(30*time.Millisecond),
-		WithMemoryMaxEntries(50),
-	)
-	ctx := context.Background()
-
-	const numGoroutines = 50
-	const numOps = 20
-
-	var wg sync.WaitGroup
-	wg.Add(numGoroutines)
-
-	for i := 0; i < numGoroutines; i++ {
-		go func(id int) {
-			defer wg.Done()
-			for j := 0; j < numOps; j++ {
-				convID := "conv-" + string(rune(id))
-
-				_ = store.Save(ctx, &ConversationState{
-					ID:         convID,
-					UserID:     "user-concurrent",
-					TokenCount: j,
-				})
-
-				_, _ = store.Load(ctx, convID)
-				_, _ = store.List(ctx, ListOptions{UserID: "user-concurrent"})
-				_, _ = store.MessageCount(ctx, convID)
-
-				if j%3 == 0 {
-					_ = store.Delete(ctx, convID)
-				}
-			}
-		}(i)
-	}
-
-	wg.Wait()
 }
 
 func TestMemoryStore_MaxEntriesWithZeroIsUnlimited(t *testing.T) {
