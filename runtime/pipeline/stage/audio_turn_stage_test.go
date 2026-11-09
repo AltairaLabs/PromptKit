@@ -20,13 +20,14 @@ func TestNewAudioTurnStage(t *testing.T) {
 	assert.Equal(t, "audio_turn", s.Name())
 }
 
+// The documented defaults callers get when they configure nothing.
 func TestDefaultAudioTurnConfig(t *testing.T) {
 	config := stage.DefaultAudioTurnConfig()
 
-	assert.NotZero(t, config.SilenceDuration, "SilenceDuration should have default value")
-	assert.NotZero(t, config.MinSpeechDuration, "MinSpeechDuration should have default value")
-	assert.NotZero(t, config.MaxTurnDuration, "MaxTurnDuration should have default value")
-	assert.NotZero(t, config.SampleRate, "SampleRate should have default value")
+	assert.Equal(t, 800*time.Millisecond, config.SilenceDuration)
+	assert.Equal(t, 200*time.Millisecond, config.MinSpeechDuration)
+	assert.Equal(t, 30*time.Second, config.MaxTurnDuration)
+	assert.Equal(t, 16000, config.SampleRate)
 }
 
 func TestAudioTurnStage_PassThroughNonAudio(t *testing.T) {

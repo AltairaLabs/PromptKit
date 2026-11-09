@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -809,56 +810,44 @@ func TestFramesToMessageStage_ComposeMessage_EmptyFrames(t *testing.T) {
 	}
 }
 
+// A video whose frames stop arriving is composed from the frames it has once
+// CompletionTimeout passes, while the input is still open. A sub-second
+// timeout is honored, not rounded up to the checker's one-second tick.
 func TestFramesToMessageStage_Timeout(t *testing.T) {
 	config := DefaultFramesToMessageConfig()
-	config.CompletionTimeout = 100 * time.Millisecond // Short timeout
+	config.CompletionTimeout = 20 * time.Millisecond
 	stg := NewFramesToMessageStage(config)
-	ctx := context.Background()
 
 	input := make(chan StreamElement, 1)
 	output := make(chan StreamElement, 10)
-
-	// Send partial frames (only 1 of 3)
 	elem := NewImageElement(&ImageData{
 		Data:     createTestFrameData(100, 100),
 		MIMEType: "image/jpeg",
 		Width:    100,
 		Height:   100,
 	})
-	elem.Meta.VideoFrames = &VideoFramesInfo{
-		VideoID:     "test-video",
-		FrameIndex:  0,
-		TotalFrames: 3,
-	}
+	elem.Meta.VideoFrames = &VideoFramesInfo{VideoID: "test-video", FrameIndex: 0, TotalFrames: 3}
 	input <- elem
 
-	go func() {
-		// Wait longer than timeout before closing
-		time.Sleep(200 * time.Millisecond)
-		close(input)
-	}()
-
 	errCh := make(chan error, 1)
-	go func() {
-		errCh <- stg.Process(ctx, input, output)
+	go func() { errCh <- stg.Process(context.Background(), input, output) }()
+	defer func() {
+		close(input)
+		require.NoError(t, <-errCh)
 	}()
 
-	var results []StreamElement
-	for elem := range output {
-		results = append(results, elem)
-	}
-
-	// Should eventually get a composed message with partial frames
-	if len(results) == 0 {
-		t.Skip("Timeout test timing-dependent, may not produce results")
-	}
-
-	// The result should be a message (partial composition)
-	for _, r := range results {
-		if r.Message != nil {
-			// Got partial composition - test passed
-			return
+	select {
+	case got := <-output:
+		require.NotNil(t, got.Message, "the timed-out video must be composed into a message")
+		var images int
+		for _, p := range got.Message.Parts {
+			if p.Type == types.ContentTypeImage {
+				images++
+			}
 		}
+		assert.Equal(t, 1, images, "the partial message carries the one frame received")
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("no partial composition within 500ms of a 20ms CompletionTimeout")
 	}
 }
 

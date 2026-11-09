@@ -76,20 +76,27 @@ func TestRouterStage_RoutesToMultipleDestinations(t *testing.T) {
 }
 
 func TestRouterStage_DropsElementWithNoDestinations(t *testing.T) {
-	// Router that drops all elements
 	router := NewRouterStage("router", func(elem *StreamElement) []string {
-		return []string{} // No destinations
+		if elem.Text != nil && *elem.Text == "dropped" {
+			return []string{}
+		}
+		return []string{"out"}
 	})
+	out := make(chan StreamElement, 4)
+	router.RegisterOutput("out", out)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
-
-	text := "dropped"
-	input <- StreamElement{Text: &text}
+	input := make(chan StreamElement, 2)
+	dropped, kept := "dropped", "kept"
+	input <- StreamElement{Text: &dropped}
+	input <- StreamElement{Text: &kept}
 	close(input)
 
-	err := router.Process(context.Background(), input, output)
-	require.NoError(t, err)
+	require.NoError(t, router.Process(context.Background(), input, make(chan StreamElement, 4)))
+	var got []string
+	for e := range out {
+		got = append(got, *e.Text)
+	}
+	assert.Equal(t, []string{"kept"}, got, "an element with no destinations must reach no output")
 }
 
 func TestMergeStage_MergesMultipleInputs(t *testing.T) {
@@ -143,18 +150,14 @@ func TestMergeStage_AddsInputIndexMetadata(t *testing.T) {
 	close(input1)
 	close(input2)
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		_ = merge.ProcessMultiple(context.Background(), []<-chan StreamElement{input1, input2}, output)
-	}()
+	require.NoError(t, merge.ProcessMultiple(context.Background(), []<-chan StreamElement{input1, input2}, output))
 
-	wg.Wait()
-
+	got := map[string]int{}
 	for elem := range output {
-		assert.NotNil(t, elem.Meta.MergeInputIndex, "Element should record its merge input index")
+		require.NotNil(t, elem.Meta.MergeInputIndex)
+		got[*elem.Text] = *elem.Meta.MergeInputIndex
 	}
+	assert.Equal(t, map[string]int{"input1": 0, "input2": 1}, got)
 }
 
 func TestStageMetrics_RecordsLatency(t *testing.T) {
@@ -279,12 +282,4 @@ func TestPriorityChannel_Len(t *testing.T) {
 	_ = pc.Send(ctx, StreamElement{Priority: PriorityHigh})
 
 	assert.Equal(t, 2, pc.Len())
-}
-
-func TestMergeStageSatisfiesMultiInputStage(t *testing.T) {
-	var _ MultiInputStage = NewMergeStage("merge", 2)
-}
-
-func TestRouterStageSatisfiesMultiOutputStage(t *testing.T) {
-	var _ MultiOutputStage = NewRouterStage("router", nil)
 }

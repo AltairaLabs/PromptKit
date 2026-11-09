@@ -819,11 +819,57 @@ func TestContextAssemblyStage_CustomMaxMessages(t *testing.T) {
 	assert.Equal(t, "Message 50", results[0].Message.Content)
 }
 
-func TestContextAssemblyStage_WarnLargeConversation_NilConfig(t *testing.T) {
-	// Ensure warnLargeConversation doesn't panic with nil config
-	s := NewContextAssemblyStage(nil)
-	// This should not panic
-	s.warnLargeConversation(make([]types.Message, 200))
+// A conversation whose loaded history exceeds WarningThreshold, with neither
+// a token budget nor a context window configured, logs a warning naming the
+// count. Configuring either suppresses it; so does staying at the threshold.
+func TestContextAssemblyStage_WarnsOnLargeConversation(t *testing.T) {
+	const warnMsg = "Large conversation detected without token budget or context window"
+	tests := []struct {
+		name     string
+		history  int
+		budget   bool
+		window   bool
+		wantWarn bool
+	}{
+		{name: "over threshold", history: 12, wantWarn: true},
+		{name: "at threshold", history: 10},
+		{name: "token budget set", history: 12, budget: true},
+		{name: "context window set", history: 12, window: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := statestore.NewMemoryStore()
+			msgs := make([]types.Message, tt.history)
+			for i := range msgs {
+				msgs[i] = types.Message{Role: "user", Content: fmt.Sprintf("m%d", i)}
+			}
+			require.NoError(t, store.Save(context.Background(),
+				&statestore.ConversationState{ID: "conv", Messages: msgs}))
+
+			logs := captureLogSync(t)
+			s := NewContextAssemblyStage(&ContextAssemblyConfig{
+				StateStoreConfig: &pipeline.StateStoreConfig{Store: store, ConversationID: "conv"},
+				RecentMessages:   50,
+				WarningThreshold: 10,
+				HasTokenBudget:   tt.budget,
+				HasContextWindow: tt.window,
+			})
+			_ = runTestStage(t, s, []StreamElement{newTestMsgElement("user", "now")})
+
+			if !tt.wantWarn {
+				assert.NotContains(t, logs.String(), warnMsg)
+				return
+			}
+			assert.Contains(t, logs.String(), warnMsg)
+			assert.Contains(t, logs.String(), "message_count=12")
+			assert.Contains(t, logs.String(), "threshold=10")
+		})
+	}
+	t.Run("nil config never warns", func(t *testing.T) {
+		logs := captureLogSync(t)
+		NewContextAssemblyStage(nil).warnLargeConversation(make([]types.Message, 500))
+		assert.NotContains(t, logs.String(), warnMsg)
+	})
 }
 
 func TestContextAssemblyStage_ApplyDefaultMessageLimit_NilConfig(t *testing.T) {

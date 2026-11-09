@@ -572,7 +572,6 @@ func TestMediaComposeStage_Timeout(t *testing.T) {
 		CompletionTimeout: 20 * time.Millisecond,
 	}
 	stg := NewMediaComposeStage(config)
-	stg.timeoutCheckInterval = 5 * time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -606,8 +605,9 @@ func TestMediaComposeStage_Timeout(t *testing.T) {
 		if e.Message == nil || len(e.Message.Parts) != 1 {
 			t.Fatalf("expected the incomplete message with its 1 received part, got %+v", e)
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed-out message was never emitted while input was open")
+	case <-time.After(500 * time.Millisecond):
+		// A 20ms timeout must fire on time, not on a one-second tick.
+		t.Fatal("timed-out message was not emitted within 500ms while input was open")
 	}
 
 	close(input)
@@ -810,5 +810,28 @@ func TestMediaComposeStage_ComposeErrorOnInvalidPart(t *testing.T) {
 	}
 	if !found {
 		t.Log("Note: No error element found - compose may have handled nil gracefully")
+	}
+}
+
+// The completion-timeout check runs every second for timeouts of 2s and more,
+// twice per timeout below that, and never more often than every millisecond.
+// No timeout (zero or negative) keeps the one-second default.
+func TestTimeoutCheckIntervalFor(t *testing.T) {
+	for _, tc := range []struct {
+		timeout, want time.Duration
+	}{
+		{-time.Second, time.Second},
+		{0, time.Second},
+		{time.Nanosecond, time.Millisecond},
+		{20 * time.Millisecond, 10 * time.Millisecond},
+		{2*time.Millisecond + 2*time.Nanosecond, time.Millisecond + time.Nanosecond},
+		{2 * time.Millisecond, time.Millisecond},
+		{2*time.Second - 2*time.Nanosecond, time.Second - time.Nanosecond},
+		{2 * time.Second, time.Second},
+		{30 * time.Second, time.Second},
+	} {
+		if got := timeoutCheckIntervalFor(tc.timeout); got != tc.want {
+			t.Errorf("timeoutCheckIntervalFor(%v) = %v, want %v", tc.timeout, got, tc.want)
+		}
 	}
 }

@@ -2,6 +2,12 @@ package stage
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -10,9 +16,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/storage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/testutil"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tokenizer"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/variables"
@@ -845,23 +853,6 @@ func TestContextBuilderStage_DefaultTokenCounter(t *testing.T) {
 	assert.Equal(t, 2, count, "Both messages should fit with default counter")
 }
 
-func TestContextBuilderStage_ModelAwareTokenCounter(t *testing.T) {
-	// Test using model-aware token counter
-	gptCounter := tokenizer.NewTokenCounterForModel("gpt-4")
-
-	policy := &ContextBuilderPolicy{
-		TokenBudget:      100,
-		ReserveForOutput: 0,
-		Strategy:         TruncateOldest,
-		TokenCounter:     gptCounter,
-	}
-
-	stage := NewContextBuilderStage(policy)
-
-	// Verify the counter was set correctly
-	assert.NotNil(t, stage.tokenCounter)
-}
-
 func TestDebugStage_PassesThrough(t *testing.T) {
 	stage := NewDebugStage("test")
 
@@ -928,50 +919,157 @@ func (m *mockVariableProvider) Provide(ctx context.Context) (map[string]string, 
 // PipelineBuilder Tests
 // =============================================================================
 
-func TestPipelineBuilder_WithConfig(t *testing.T) {
-	config := &PipelineConfig{
-		ChannelBufferSize: 100,
+// pathTagStage appends "|name" to each text element it forwards, so a test can
+// read the route an element took through a built pipeline.
+func pathTagStage(name string) *StageFunc {
+	return NewStageFunc(name, StageTypeTransform,
+		func(ctx context.Context, in <-chan StreamElement, out chan<- StreamElement) error {
+			defer close(out)
+			for e := range in {
+				if e.Text != nil {
+					tagged := *e.Text + "|" + name
+					e.Text = &tagged
+				}
+				select {
+				case out <- e:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			return nil
+		})
+}
+
+// runPathPipeline executes p on one text element and returns the texts that
+// came out, sorted (fan-out order is not defined).
+func runPathPipeline(t *testing.T, p *StreamPipeline) []string {
+	t.Helper()
+	return runPathPipelineN(t, p, "in")
+}
+
+// runPathPipelineN executes p on one text element per input and returns the
+// texts that came out, sorted.
+func runPathPipelineN(t *testing.T, p *StreamPipeline, inputs ...string) []string {
+	t.Helper()
+	in := make(chan StreamElement, len(inputs))
+	for _, text := range inputs {
+		in <- NewTextElement(text)
 	}
-
-	builder := NewPipelineBuilder().WithConfig(config)
-	assert.NotNil(t, builder)
-	// Config is set internally - we verify by building successfully
+	close(in)
+	out, err := p.Execute(context.Background(), in)
+	require.NoError(t, err)
+	var texts []string
+	for e := range out {
+		require.NoError(t, e.Error)
+		if e.Text != nil {
+			texts = append(texts, *e.Text)
+		}
+	}
+	sort.Strings(texts)
+	return texts
 }
 
+// The config given to WithConfig is the one the built pipeline runs with.
+func TestPipelineBuilder_WithConfig(t *testing.T) {
+	config := DefaultPipelineConfig()
+	config.ExecutionTimeout = 5 * time.Millisecond
+	config.IdleTimeout = 0
+
+	p, err := NewPipelineBuilder().WithConfig(config).Chain(waitForCtxStage("slow")).Build()
+	require.NoError(t, err)
+	_, execErr := p.ExecuteSync(context.Background(), userElement("hi"))
+	require.ErrorIs(t, execErr, ErrExecutionTimeout, "the configured 5ms ExecutionTimeout must apply")
+}
+
+// The emitter given to WithEventEmitter receives the built pipeline's events.
 func TestPipelineBuilder_WithEventEmitter(t *testing.T) {
-	builder := NewPipelineBuilder().WithEventEmitter(nil)
-	assert.NotNil(t, builder)
+	bus := events.NewEventBus()
+	t.Cleanup(bus.Close)
+	got := make(chan struct{}, 1)
+	bus.Subscribe(events.EventPipelineCompleted, func(*events.Event) {
+		select {
+		case got <- struct{}{}:
+		default:
+		}
+	})
+	p, err := NewPipelineBuilder().WithEventEmitter(events.NewEmitter(bus, "r", "s", "c")).
+		AddStage(pathTagStage("a")).Build()
+	require.NoError(t, err)
+	_ = runPathPipeline(t, p)
+	select {
+	case <-got:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the builder's emitter never saw pipeline.completed")
+	}
 }
 
+// A single added stage is both root and terminal: input flows through it.
 func TestPipelineBuilder_AddStage(t *testing.T) {
-	stage := NewDebugStage("test-debug")
-	builder := NewPipelineBuilder().AddStage(stage)
-	assert.NotNil(t, builder)
+	p, err := NewPipelineBuilder().AddStage(pathTagStage("only")).Build()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"in|only"}, runPathPipeline(t, p))
 }
 
+// Branch makes the named stages compete for one stage's output: every
+// element reaches exactly one of them, never both and never neither.
 func TestPipelineBuilder_Branch(t *testing.T) {
-	// Create stages with different names
-	stageA := NewDebugStage("stage-a")
-	stageB := NewDebugStage("stage-b")
-	stageC := NewDebugStage("stage-c")
-
-	builder := NewPipelineBuilder().
-		AddStage(stageA).
-		AddStage(stageB).
-		AddStage(stageC).
-		Branch(stageA.Name(), stageB.Name(), stageC.Name())
-
-	assert.NotNil(t, builder)
+	p, err := NewPipelineBuilder().
+		AddStage(pathTagStage("a")).
+		AddStage(pathTagStage("b")).
+		AddStage(pathTagStage("c")).
+		Branch("a", "b", "c").
+		Build()
+	require.NoError(t, err)
+	// Both branches read a's output; neither competes for the pipeline input.
+	// (Which branch takes an element is a race, so the routing check below
+	// cannot catch a branch left unwired on its own.)
+	assert.False(t, p.isRootStage("b") || p.isRootStage("c"), "branch targets must not be roots")
+	assertEachRoutedOnce(t, runPathPipelineN(t, p, pathInputs(20)...), "|a|b", "|a|c")
 }
 
+// pathInputs returns n distinct input texts.
+func pathInputs(n int) []string {
+	in := make([]string, n)
+	for i := range in {
+		in[i] = fmt.Sprintf("in%02d", i)
+	}
+	return in
+}
+
+// assertEachRoutedOnce checks that each input text came out exactly once,
+// through one of the given route suffixes.
+func assertEachRoutedOnce(t *testing.T, got []string, routes ...string) {
+	t.Helper()
+	seen := map[string]int{}
+	for _, text := range got {
+		matched := false
+		for _, r := range routes {
+			if strings.HasSuffix(text, r) {
+				seen[strings.TrimSuffix(text, r)]++
+				matched = true
+			}
+		}
+		require.True(t, matched, "unexpected route %q", text)
+	}
+	require.Len(t, seen, 20, "every input must come out: %v", got)
+	for in, n := range seen {
+		require.Equal(t, 1, n, "input %s came out %d times", in, n)
+	}
+}
+
+// A clone is independent: changing it leaves the original's graph as it was.
 func TestPipelineBuilder_Clone(t *testing.T) {
-	original := NewPipelineBuilder().
-		AddStage(NewDebugStage("test-debug"))
-
+	original := NewPipelineBuilder().AddStage(pathTagStage("a")).AddStage(pathTagStage("b")).Connect("a", "b")
 	cloned := original.Clone()
+	cloned.AddStage(pathTagStage("c")).Connect("b", "c")
 
-	assert.NotNil(t, cloned)
-	// The clone should be independent
+	po, err := original.Build()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"in|a|b"}, runPathPipeline(t, po))
+
+	pc, err := cloned.Build()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"in|a|b|c"}, runPathPipeline(t, pc))
 }
 
 func TestPipelineBuilder_Validate_CycleDetection(t *testing.T) {
@@ -995,36 +1093,28 @@ func TestPipelineBuilder_Validate_CycleDetection(t *testing.T) {
 }
 
 func TestPipelineBuilder_Validate_NoCycle(t *testing.T) {
-	// Test valid DAG: A -> B -> C (no cycle)
-	stageA := NewDebugStage("a")
-	stageB := NewDebugStage("b")
-	stageC := NewDebugStage("c")
-
-	builder := NewPipelineBuilder().
-		AddStage(stageA).
-		AddStage(stageB).
-		AddStage(stageC).
-		Branch("debug_a", "debug_b").
-		Branch("debug_b", "debug_c")
-
-	pipeline, err := builder.Build()
-	assert.NoError(t, err)
-	assert.NotNil(t, pipeline)
+	// A valid DAG A -> B -> C builds and runs in that order.
+	p, err := NewPipelineBuilder().
+		AddStage(pathTagStage("a")).
+		AddStage(pathTagStage("b")).
+		AddStage(pathTagStage("c")).
+		Branch("a", "b").
+		Branch("b", "c").
+		Build()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"in|a|b|c"}, runPathPipeline(t, p))
 }
 
 func TestPipelineBuilder_Validate_DisconnectedComponents(t *testing.T) {
-	// Test with disconnected components (should still work)
-	stageA := NewDebugStage("a")
-	stageB := NewDebugStage("b")
-
-	builder := NewPipelineBuilder().
-		AddStage(stageA).
-		AddStage(stageB)
-	// No edges between them
-
-	pipeline, err := builder.Build()
-	assert.NoError(t, err)
-	assert.NotNil(t, pipeline)
+	// Two unconnected stages are both roots and both terminals. They compete
+	// for the pipeline input: each element goes through exactly one of them,
+	// and both one's and the other's output reach the caller.
+	p, err := NewPipelineBuilder().
+		AddStage(pathTagStage("a")).
+		AddStage(pathTagStage("b")).
+		Build()
+	require.NoError(t, err)
+	assertEachRoutedOnce(t, runPathPipelineN(t, p, pathInputs(20)...), "|a", "|b")
 }
 
 func TestPipelineBuilder_Validate_SelfLoop(t *testing.T) {
@@ -1067,27 +1157,25 @@ func TestMediaExternalizerStage_DisabledPassthrough(t *testing.T) {
 	assert.Equal(t, "Hello", result.Message.Content)
 }
 
+// Enabled with no storage service, the externalizer leaves media inline: the
+// image data is still on the message, with no storage reference.
 func TestMediaExternalizerStage_NoStoragePassthrough(t *testing.T) {
-	config := &MediaExternalizerConfig{
-		Enabled:        true,
-		StorageService: nil, // No storage service
-	}
-	stage := NewMediaExternalizerStage(config)
-	require.NotNil(t, stage)
+	stage := NewMediaExternalizerStage(&MediaExternalizerConfig{Enabled: true, StorageService: nil})
 
-	// Test passthrough when no storage service
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	msg := &types.Message{Role: "user", Content: "Hello", Parts: []types.ContentPart{
+		types.NewTextPart("Hello"),
+		types.NewImagePartFromData("aGVsbG8=", "image/png", nil),
+	}}
+	out := runTestStage(t, stage, []StreamElement{NewMessageElement(msg)})
 
-	msg := &types.Message{Role: "user", Content: "Hello"}
-	input <- NewMessageElement(msg)
-	close(input)
-
-	err := stage.Process(context.Background(), input, output)
-	require.NoError(t, err)
-
-	result := <-output
-	assert.NotNil(t, result.Message)
+	require.Len(t, out, 1)
+	require.NotNil(t, out[0].Message)
+	parts := out[0].Message.Parts
+	require.Len(t, parts, 2)
+	require.NotNil(t, parts[1].Media)
+	require.NotNil(t, parts[1].Media.Data)
+	assert.Equal(t, "aGVsbG8=", *parts[1].Media.Data)
+	assert.Nil(t, parts[1].Media.StorageReference)
 }
 
 // TestMediaExternalizerStage_FilePathExternalized covers the regression
@@ -1504,32 +1592,32 @@ func TestStreamPipeline_ExecuteSync(t *testing.T) {
 // Shutdown Tests
 // =============================================================================
 
+// After Shutdown the pipeline accepts no new executions, and a second
+// Shutdown is a no-op.
 func TestStreamPipeline_Shutdown(t *testing.T) {
-	t.Run("shuts down cleanly", func(t *testing.T) {
-		stage := NewPassthroughStage("passthrough")
-		builder := NewPipelineBuilder()
-		builder.AddStage(stage)
-		pipeline, err := builder.Build()
+	build := func(t *testing.T) *StreamPipeline {
+		t.Helper()
+		p, err := NewPipelineBuilder().AddStage(NewPassthroughStage("passthrough")).Build()
 		require.NoError(t, err)
+		return p
+	}
 
-		err = pipeline.Shutdown(context.Background())
-		assert.NoError(t, err)
+	t.Run("shuts down cleanly", func(t *testing.T) {
+		p := build(t)
+		_, err := p.ExecuteSync(context.Background(), userElement("before"))
+		require.NoError(t, err, "a live pipeline runs")
+
+		require.NoError(t, p.Shutdown(context.Background()))
+		_, err = p.ExecuteSync(context.Background(), userElement("after"))
+		require.ErrorIs(t, err, ErrPipelineShuttingDown)
 	})
 
 	t.Run("double shutdown is idempotent", func(t *testing.T) {
-		stage := NewPassthroughStage("passthrough")
-		builder := NewPipelineBuilder()
-		builder.AddStage(stage)
-		pipeline, err := builder.Build()
-		require.NoError(t, err)
-
-		// First shutdown
-		err = pipeline.Shutdown(context.Background())
-		assert.NoError(t, err)
-
-		// Second shutdown should be no-op
-		err = pipeline.Shutdown(context.Background())
-		assert.NoError(t, err)
+		p := build(t)
+		require.NoError(t, p.Shutdown(context.Background()))
+		require.NoError(t, p.Shutdown(context.Background()))
+		_, err := p.ExecuteSync(context.Background(), userElement("after"))
+		require.ErrorIs(t, err, ErrPipelineShuttingDown)
 	})
 }
 
@@ -2767,33 +2855,55 @@ func TestSelectMostRecentProtected(t *testing.T) {
 	})
 }
 
+// debugSnapshots runs elems through a DebugStage with debug logging captured
+// and returns the decoded element snapshots it logged, in order, plus what
+// came out of the stage.
+func debugSnapshots(t *testing.T, elems ...StreamElement) ([]map[string]any, []StreamElement) {
+	t.Helper()
+	logs := &syncLogBuffer{}
+	logger.SetLogger(slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { logger.SetLogger(nil) })
+
+	out := runTestStage(t, NewDebugStage("test-debug"), elems)
+
+	var snaps []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+		var rec map[string]any
+		require.NoError(t, json.Unmarshal([]byte(line), &rec))
+		if rec["msg"] != "StreamElement snapshot" {
+			continue
+		}
+		var snap map[string]any
+		require.NoError(t, json.Unmarshal([]byte(rec["element"].(string)), &snap))
+		snaps = append(snaps, snap)
+	}
+	return snaps, out
+}
+
+// The debug stage passes elements through unchanged and logs a snapshot of
+// each: a text preview cut at 100 characters, a message's role and content
+// length, and an error's text.
 func TestDebugStage_LogElement(t *testing.T) {
-	stage := NewDebugStage("test-debug")
+	long := strings.Repeat("0123456789", 20)
+	msg := &types.Message{Role: "user", Content: "test content"}
+	snaps, out := debugSnapshots(t,
+		StreamElement{Text: testutil.Ptr("Hello world")},
+		StreamElement{Text: &long},
+		StreamElement{Message: msg},
+		StreamElement{Error: errors.New("boom")},
+	)
 
-	t.Run("logs text element", func(t *testing.T) {
-		text := "Hello world"
-		elem := &StreamElement{Text: &text}
-		stage.logElement(elem, "pre")
-	})
+	require.Len(t, out, 4)
+	assert.Equal(t, long, *out[1].Text, "the element itself is not truncated")
+	assert.Same(t, msg, out[2].Message)
 
-	t.Run("logs long text truncation", func(t *testing.T) {
-		longText := ""
-		for i := 0; i < 20; i++ {
-			longText += "0123456789"
-		}
-		elem := &StreamElement{Text: &longText}
-		stage.logElement(elem, "post")
-	})
-
-	t.Run("logs message element", func(t *testing.T) {
-		elem := &StreamElement{
-			Message: &types.Message{Role: "user", Content: "test content"},
-		}
-		stage.logElement(elem, "pre")
-	})
-
-	t.Run("logs error element", func(t *testing.T) {
-		elem := &StreamElement{Error: assert.AnError}
-		stage.logElement(elem, "post")
-	})
+	require.Len(t, snaps, 4)
+	assert.Equal(t, "Hello world", snaps[0]["text"])
+	assert.Equal(t, long[:100]+"...", snaps[1]["text"])
+	assert.Equal(t, map[string]any{"role": "user", "content_len": float64(12), "tool_calls": float64(0), "source": ""},
+		snaps[2]["message"])
+	assert.Equal(t, "boom", snaps[3]["error"])
+	for _, s := range snaps {
+		assert.Equal(t, "test-debug", s["stage"])
+	}
 }

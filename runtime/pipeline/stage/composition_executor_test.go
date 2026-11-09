@@ -446,8 +446,11 @@ func TestCompositionExecutor_ResponseFormatResolverError(t *testing.T) {
 	}
 }
 
+// A step whose context the caller cancels reports the cancellation, so the
+// composition's caller can tell "I stopped it" from "the step failed". The
+// sub-pipeline treats a caller cancel as silent and returns no response; the
+// executor must not turn that into "produced no response".
 func TestCompositionExecutor_CancelledContext(t *testing.T) {
-	// Covers the execLLM ExecuteSync error path by cancelling the context before execution.
 	prov := mock.NewProvider("test-id", "test-model", false)
 	repo := newMockRepo()
 	reg := prompt.NewRegistryWithRepository(repo)
@@ -461,13 +464,11 @@ func TestCompositionExecutor_CancelledContext(t *testing.T) {
 	step := &composition.Step{ID: "s", Kind: composition.KindPrompt, PromptTask: "p"}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // cancel before executing
-	_, err := exec(ctx, step, json.RawMessage(`"hello"`))
-	if err == nil {
-		// Some mock providers may still succeed with a cancelled context; that is OK —
-		// the important thing is the code is exercised. Don't fail if it happens to succeed.
-		t.Log("cancelled context did not produce an error (mock provider ignores cancellation)")
-	}
+	cancel()
+	out, err := exec(ctx, step, json.RawMessage(`"hello"`))
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Contains(t, err.Error(), `step "s"`)
+	assert.Nil(t, out)
 }
 
 func TestCompositionExecutor_ResponseJSONPassthrough(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -43,6 +44,14 @@ import (
 func (s *DuplexProviderStage) SetHookRegistry(r *hooks.Registry) {
 	r.SetEmitter(s.emitter)
 	s.hookRegistry = r
+}
+
+// SetPromptDeclarations sets the pack declarations of the prompts, keyed by
+// task, so each hook call carries the declaration of the prompt the session
+// runs (ProviderRequest.Prompt), as ProviderStage's do through
+// ProviderConfig.PromptDeclarations. Must be called before the stage runs.
+func (s *DuplexProviderStage) SetPromptDeclarations(decls map[string]*packspec.Prompt) {
+	s.promptDeclarations = decls
 }
 
 // duplexTurnGuard is the response loop's guardrail state for the current
@@ -187,6 +196,9 @@ func (s *DuplexProviderStage) hookRequest(messages []types.Message) *hooks.Provi
 	}
 	if s.turnState != nil {
 		req.SystemPrompt = s.turnState.SystemPrompt
+		if s.turnState.Template != nil {
+			req.Prompt = s.promptDeclarations[s.turnState.Template.TaskType]
+		}
 	}
 	return req
 }

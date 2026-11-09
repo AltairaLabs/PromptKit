@@ -690,19 +690,6 @@ func TestProviderStage_ToolHook_AllowMetadataThreaded(t *testing.T) {
 // Constructor chaining
 // =============================================================================
 
-func TestNewProviderStageWithHooks_ChainsFromExisting(t *testing.T) {
-	provider := mock.NewProvider("p", "m", false)
-
-	// NewProviderStage → NewProviderStageWithEmitter → NewProviderStageWithHooks
-	s1 := NewProviderStage(provider, nil, nil, nil)
-	assert.Nil(t, s1.hookRegistry)
-	assert.Nil(t, s1.emitter)
-
-	reg := hooks.NewRegistry()
-	s2 := NewProviderStageWithHooks(provider, nil, nil, nil, nil, reg)
-	assert.NotNil(t, s2.hookRegistry)
-}
-
 // =============================================================================
 // Built-in guardrail hooks via NewGuardrailHook
 // =============================================================================

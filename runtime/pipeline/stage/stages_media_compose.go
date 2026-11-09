@@ -20,7 +20,25 @@ const (
 	// defaultTimeoutCheckInterval is how often pending messages are checked
 	// for CompletionTimeout.
 	defaultTimeoutCheckInterval = time.Second
+
+	// timeoutChecksPerTimeout is how many checks a sub-second completion
+	// timeout gets, so it fires within half of itself.
+	timeoutChecksPerTimeout = 2
 )
+
+// timeoutCheckIntervalFor returns how often to check pending work against a
+// completion timeout: every second, or twice per timeout when the timeout is
+// shorter, so a sub-second timeout fires on time rather than on the next
+// one-second tick.
+func timeoutCheckIntervalFor(timeout time.Duration) time.Duration {
+	if timeout <= 0 || timeout >= timeoutChecksPerTimeout*defaultTimeoutCheckInterval {
+		return defaultTimeoutCheckInterval
+	}
+	if every := timeout / timeoutChecksPerTimeout; every > time.Millisecond {
+		return every
+	}
+	return time.Millisecond
+}
 
 // MediaComposeConfig configures the MediaComposeStage behavior.
 type MediaComposeConfig struct {
@@ -84,7 +102,7 @@ func NewMediaComposeStage(config MediaComposeConfig) *MediaComposeStage {
 		BaseStage:            NewBaseStage("media-compose", StageTypeAccumulate),
 		config:               config,
 		pending:              make(map[string]*pendingMessage),
-		timeoutCheckInterval: defaultTimeoutCheckInterval,
+		timeoutCheckInterval: timeoutCheckIntervalFor(config.CompletionTimeout),
 	}
 }
 

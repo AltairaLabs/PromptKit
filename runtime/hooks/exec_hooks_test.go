@@ -2,8 +2,11 @@ package hooks
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -355,78 +358,100 @@ func TestExecSessionHook_Name(t *testing.T) {
 	assert.Equal(t, "audit_logger", h.Name())
 }
 
+// recordingHookScript writes a hook script that appends each request it reads
+// on stdin to a file, one JSON document per line, then exits with code.
+// It returns the script path and a reader for the recorded requests.
+func recordingHookScript(t *testing.T, code int) (string, func() []map[string]any) {
+	t.Helper()
+	out := filepath.Join(t.TempDir(), "requests.jsonl")
+	script := writeHookScript(t, "hook.sh", fmt.Sprintf("#!/bin/sh\ncat >> %q\necho >> %q\nexit %d\n", out, out, code))
+	return script, func() []map[string]any {
+		data, err := os.ReadFile(out)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		require.NoError(t, err)
+		var recs []map[string]any
+		for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+			var rec map[string]any
+			require.NoError(t, json.Unmarshal([]byte(line), &rec))
+			recs = append(recs, rec)
+		}
+		return recs
+	}
+}
+
+// Each session phase runs the hook process with the phase and the event on
+// stdin, so the script sees which phase fired for which session.
 func TestExecSessionHook_OnSessionStart(t *testing.T) {
-	script := writeHookScript(t, "hook.sh", `#!/bin/sh
-echo '{"ack": true}'
-`)
+	script, records := recordingHookScript(t, 0)
 	h := NewExecSessionHook(&ExecHookConfig{
-		TimeoutMs: execTestTimeoutMs,
-		Name:      "audit",
-		Command:   script,
-		Phases:    []string{"session_start"},
+		TimeoutMs: execTestTimeoutMs, Name: "audit", Command: script, Phases: []string{"session_start"},
 	})
 
-	err := h.OnSessionStart(context.Background(), SessionEvent{SessionID: "s1"})
-	require.NoError(t, err)
+	require.NoError(t, h.OnSessionStart(context.Background(), SessionEvent{SessionID: "s1", TurnIndex: 2}))
+
+	recs := records()
+	require.Len(t, recs, 1)
+	assert.Equal(t, "session", recs[0]["hook"])
+	assert.Equal(t, "session_start", recs[0]["phase"])
+	event := recs[0]["event"].(map[string]any)
+	assert.Equal(t, "s1", event["SessionID"])
+	assert.Equal(t, float64(2), event["TurnIndex"])
 }
 
 func TestExecSessionHook_OnSessionUpdate(t *testing.T) {
-	script := writeHookScript(t, "hook.sh", `#!/bin/sh
-echo '{"ack": true}'
-`)
+	script, records := recordingHookScript(t, 0)
 	h := NewExecSessionHook(&ExecHookConfig{
-		TimeoutMs: execTestTimeoutMs,
-		Name:      "audit",
-		Command:   script,
-		Phases:    []string{"session_update"},
+		TimeoutMs: execTestTimeoutMs, Name: "audit", Command: script, Phases: []string{"session_update"},
 	})
 
-	err := h.OnSessionUpdate(context.Background(), SessionEvent{SessionID: "s1"})
-	require.NoError(t, err)
+	require.NoError(t, h.OnSessionUpdate(context.Background(), SessionEvent{SessionID: "s1"}))
+
+	recs := records()
+	require.Len(t, recs, 1)
+	assert.Equal(t, "session_update", recs[0]["phase"])
+	assert.Equal(t, "s1", recs[0]["event"].(map[string]any)["SessionID"])
 }
 
 func TestExecSessionHook_OnSessionEnd(t *testing.T) {
-	script := writeHookScript(t, "hook.sh", `#!/bin/sh
-echo '{"ack": true}'
-`)
+	script, records := recordingHookScript(t, 0)
 	h := NewExecSessionHook(&ExecHookConfig{
-		TimeoutMs: execTestTimeoutMs,
-		Name:      "audit",
-		Command:   script,
-		Phases:    []string{"session_end"},
+		TimeoutMs: execTestTimeoutMs, Name: "audit", Command: script, Phases: []string{"session_end"},
 	})
 
-	err := h.OnSessionEnd(context.Background(), SessionEvent{SessionID: "s1"})
-	require.NoError(t, err)
+	require.NoError(t, h.OnSessionEnd(context.Background(), SessionEvent{SessionID: "s1"}))
+
+	recs := records()
+	require.Len(t, recs, 1)
+	assert.Equal(t, "session_end", recs[0]["phase"])
+	assert.Equal(t, "s1", recs[0]["event"].(map[string]any)["SessionID"])
 }
 
+// A phase not listed in Phases does not run the process at all.
 func TestExecSessionHook_SkipsPhase(t *testing.T) {
+	script, records := recordingHookScript(t, 0)
 	h := NewExecSessionHook(&ExecHookConfig{
-		TimeoutMs: execTestTimeoutMs,
-		Name:      "test",
-		Command:   "/nonexistent",
-		Phases:    []string{"session_end"},
+		TimeoutMs: execTestTimeoutMs, Name: "test", Command: script, Phases: []string{"session_end"},
 	})
 
-	// session_start not in phases, should be no-op
-	err := h.OnSessionStart(context.Background(), SessionEvent{})
-	require.NoError(t, err)
+	require.NoError(t, h.OnSessionStart(context.Background(), SessionEvent{}))
+	assert.Empty(t, records(), "session_start is not in Phases; the script must not run")
 }
 
+// In observe mode the process still runs, but its failure is not the
+// caller's error.
 func TestExecSessionHook_ObserveMode_IgnoresErrors(t *testing.T) {
-	script := writeHookScript(t, "hook.sh", `#!/bin/sh
-exit 1
-`)
+	script, records := recordingHookScript(t, 1)
 	h := NewExecSessionHook(&ExecHookConfig{
-		TimeoutMs: execTestTimeoutMs,
-		Name:      "observer",
-		Command:   script,
-		Phases:    []string{"session_start"},
-		Mode:      "observe",
+		TimeoutMs: execTestTimeoutMs, Name: "observer", Command: script,
+		Phases: []string{"session_start"}, Mode: "observe",
 	})
 
-	err := h.OnSessionStart(context.Background(), SessionEvent{})
-	require.NoError(t, err)
+	require.NoError(t, h.OnSessionStart(context.Background(), SessionEvent{SessionID: "s1"}))
+	recs := records()
+	require.Len(t, recs, 1, "observe mode must still run the hook")
+	assert.Equal(t, "session_start", recs[0]["phase"])
 }
 
 func TestExecSessionHook_FilterMode_ReturnsError(t *testing.T) {
@@ -447,19 +472,21 @@ exit 1
 }
 
 func TestExecSessionHook_AllPhases(t *testing.T) {
-	script := writeHookScript(t, "hook.sh", `#!/bin/sh
-echo '{"ack": true}'
-`)
+	script, records := recordingHookScript(t, 0)
 	h := NewExecSessionHook(&ExecHookConfig{
-		TimeoutMs: execTestTimeoutMs,
-		Name:      "full",
-		Command:   script,
-		Phases:    []string{"session_start", "session_update", "session_end"},
+		TimeoutMs: execTestTimeoutMs, Name: "full", Command: script,
+		Phases: []string{"session_start", "session_update", "session_end"},
 	})
 
 	require.NoError(t, h.OnSessionStart(context.Background(), SessionEvent{}))
 	require.NoError(t, h.OnSessionUpdate(context.Background(), SessionEvent{}))
 	require.NoError(t, h.OnSessionEnd(context.Background(), SessionEvent{}))
+
+	var phases []any
+	for _, r := range records() {
+		phases = append(phases, r["phase"])
+	}
+	assert.Equal(t, []any{"session_start", "session_update", "session_end"}, phases)
 }
 
 // --- Interface compliance ---

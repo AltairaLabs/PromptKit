@@ -552,6 +552,22 @@ func (s *ProviderStage) Process(
 	return s.executeAndEmit(ctx, accumulated, output)
 }
 
+// inputMessage returns the conversation message an input element carries:
+// its Message, or, for a bare text element (a duplex or VAD session's
+// SendText), that text as the user's message. Without the second case typed
+// input reached the model as nothing at all. Synthesized-speech text is a
+// copy of a reply already spoken, and a streaming delta is a fragment of an
+// upstream reply; neither is input.
+func inputMessage(elem *StreamElement) *types.Message {
+	if elem.Message != nil {
+		return elem.Message
+	}
+	if elem.Text == nil || *elem.Text == "" || elem.Meta.SynthesizedSpeech || elem.Meta.StreamingDelta {
+		return nil
+	}
+	return &types.Message{Role: roleUser, Content: *elem.Text}
+}
+
 // accumulateInput collects messages from the input channel and seeds
 // per-Turn provider request metadata from TurnState.
 //
@@ -571,8 +587,8 @@ func (s *ProviderStage) accumulateInput(input <-chan StreamElement) *providerInp
 		if isTurnFailureSignal(&elem) {
 			acc.upstreamErrors = append(acc.upstreamErrors, elem)
 		}
-		if elem.Message != nil {
-			acc.messages = append(acc.messages, *elem.Message)
+		if msg := inputMessage(&elem); msg != nil {
+			acc.messages = append(acc.messages, *msg)
 		}
 		if elem.EndOfStream {
 			break
@@ -622,11 +638,12 @@ func (s *ProviderStage) streamingTurnState() streamingConfig {
 	return cfg
 }
 
-// processStreaming runs the continuous multi-turn mode. It accumulates Message
-// elements until an EndOfTurn control element arrives, fires the existing tool
+// processStreaming runs the continuous multi-turn mode. It accumulates input
+// messages (Message elements, and bare user text; see inputMessage) until an
+// EndOfTurn control element arrives, fires the existing tool
 // loop on the accumulated history, emits that turn's new messages, re-emits an
 // EndOfTurn boundary, and stays open for the next turn. History threads across
-// turns within the session. Non-Message, non-control elements (e.g. an Interrupt
+// turns within the session. Other non-control elements (e.g. an Interrupt
 // arriving between turns) are forwarded downstream unchanged so later stages and
 // follow-up work (the barge-in path) can act on them. An upstream turn-failure
 // signal (see isTurnFailureSignal) drops the turn in progress and is passed on:
@@ -647,6 +664,7 @@ func (s *ProviderStage) processStreaming(
 	var pending []types.Message
 
 	for elem := range work {
+		inMsg := inputMessage(&elem)
 		switch {
 		case elem.Interrupt:
 			// Barge-in: in-flight generation was already canceled out of band by
@@ -675,8 +693,8 @@ func (s *ProviderStage) processStreaming(
 			if err := sendStreamElement(ctx, elem, output); err != nil {
 				return err
 			}
-		case elem.Message != nil:
-			pending = append(pending, *elem.Message)
+		case inMsg != nil:
+			pending = append(pending, *inMsg)
 		default:
 			// Stray content passes through unchanged.
 			if err := sendStreamElement(ctx, elem, output); err != nil {

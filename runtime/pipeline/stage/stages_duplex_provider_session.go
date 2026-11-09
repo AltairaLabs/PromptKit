@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -140,6 +141,9 @@ type DuplexProviderStage struct {
 	// hookRegistry holds the provider hooks (guardrails) the stage runs; nil
 	// runs none. Set via SetHookRegistry. See stages_duplex_provider_hooks.go.
 	hookRegistry *hooks.Registry
+	// promptDeclarations maps prompt tasks to their pack declarations, for the
+	// hooks' ProviderRequest.Prompt (see SetPromptDeclarations).
+	promptDeclarations map[string]*packspec.Prompt
 	// history is the conversation the hooks see, kept only while hooks run.
 	history duplexHistory
 	// assistantTurns counts the assistant turns completed this session, for the
