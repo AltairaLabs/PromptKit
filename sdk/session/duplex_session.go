@@ -35,6 +35,9 @@ type duplexSession struct {
 	store    statestore.Store
 	pipeline *stage.StreamPipeline
 	provider providers.Provider // Provider for LLM calls
+	// streamConfig is the realtime (ASM) streaming config the session was
+	// opened with, nil in pipeline mode; ForkSession passes it on.
+	streamConfig *providers.StreamingInputConfig
 	// Note: Session is NOT stored here - DuplexProviderStage creates and manages it
 	toolRegistry     *tools.Registry  // Optional: for executing tool calls (client tools, etc.)
 	asyncToolChecker AsyncToolChecker // Optional: HITL gate for tool calls
@@ -178,6 +181,7 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 		store:            store,
 		pipeline:         builtPipeline,
 		provider:         cfg.Provider,
+		streamConfig:     cfg.Config,
 		toolRegistry:     cfg.ToolRegistry,
 		asyncToolChecker: cfg.AsyncToolChecker,
 		variables:        vars,
@@ -581,6 +585,18 @@ func (s *duplexSession) Close() error {
 	s.closed = true
 	close(s.stageInput)
 	s.sessionCancel()
+
+	// executePipeline closes streamOutput and pipelineDone, but it starts on
+	// the first send. A session closed before any send must close them here,
+	// or Done() and ranging over Response() block forever (#2579). Marking
+	// execution started keeps a racing first send from starting it after.
+	s.executionMu.Lock()
+	if !s.executionStarted {
+		s.executionStarted = true
+		close(s.streamOutput)
+		close(s.pipelineDone)
+	}
+	s.executionMu.Unlock()
 	// Note: DuplexProviderStage manages the provider session and closes it when pipeline completes
 
 	return nil
@@ -709,10 +725,13 @@ func (s *duplexSession) ForkSession(
 
 	// Create new duplex session with the builder
 	return NewDuplexSession(ctx, &DuplexSessionConfig{
-		ConversationID:   forkID,
-		StateStore:       s.store,
-		PipelineBuilder:  pipelineBuilder,
-		Provider:         s.provider,
+		ConversationID:  forkID,
+		StateStore:      s.store,
+		PipelineBuilder: pipelineBuilder,
+		Provider:        s.provider,
+		// The parent's streaming config, so a realtime session forks into a
+		// realtime session rather than a text pipeline (#2582).
+		Config:           s.streamConfig,
 		ToolRegistry:     s.toolRegistry,
 		AsyncToolChecker: s.asyncToolChecker,
 		Variables:        forkVars,
