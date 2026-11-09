@@ -381,6 +381,9 @@ func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
 //	    if chunk.Error != nil { break }
 //	    fmt.Print(chunk.Text)
 //	}
+//
+// As with [Conversation.Stream], drain the channel or cancel ctx: the stream
+// holds the conversation's turn until it ends.
 func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk {
 	ch := make(chan StreamChunk, streamChannelBufferSize)
 

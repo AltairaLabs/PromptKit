@@ -33,6 +33,8 @@ type convWireReply struct {
 	Echo bool
 	// Status, when set, answers with that HTTP error status.
 	Status int
+	// Chunks, when set, streams the text in that many deltas (default two).
+	Chunks int
 }
 
 // convWire is an OpenAI-compatible endpoint that records every request and
@@ -132,8 +134,12 @@ func convWriteChat(rw http.ResponseWriter, body map[string]any, reply convWireRe
 	}
 	if stream {
 		rw.Header().Set("Content-Type", "text/event-stream")
-		half := len(reply.Text) / 2
-		for _, part := range []string{reply.Text[:half], reply.Text[half:]} {
+		n := max(reply.Chunks, 2)
+		var parts []string
+		for i := 0; i < n; i++ {
+			parts = append(parts, reply.Text[i*len(reply.Text)/n:(i+1)*len(reply.Text)/n])
+		}
+		for _, part := range parts {
 			b, _ := json.Marshal(part)
 			_, _ = io.WriteString(rw, `data: {"id":"1","choices":[{"index":0,"delta":{"role":"assistant","content":`+
 				string(b)+`}}]}`+"\n\n")

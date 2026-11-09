@@ -10,6 +10,11 @@ import (
 // inside one of its own turns, such as a tool handler calling Send on the
 // conversation that invoked it. The outer turn holds the conversation, so the
 // inner call could only wait for itself.
+//
+// The nested call is recognized by its context, so a handler must pass on the
+// context it was given (OnToolCtx). A call made with an unrelated context,
+// such as from an OnTool handler, cannot be told apart from another caller's
+// and waits for the running turn, which waits for the handler.
 var ErrReentrantTurn = errors.New("sdk: a turn was started on a conversation from inside its own turn")
 
 // turnGate lets one turn at a time run on a conversation (#2570). The

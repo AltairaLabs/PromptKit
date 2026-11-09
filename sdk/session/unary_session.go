@@ -482,10 +482,10 @@ func strPtr(s string) *string {
 	return &s
 }
 
-// seedUserID records userID on the conversation's persisted state, creating
-// the state when the conversation is new. A state that already names a user
-// keeps it: a resumed conversation belongs to whoever started it. A store that
-// cannot write a whole state (no BulkWriter) is left as it is.
+// seedUserID records userID on a new conversation's persisted state. An
+// existing conversation keeps the state it has: a resumed conversation belongs
+// to whoever started it. A store that cannot write a whole state (no
+// BulkWriter) is left as it is.
 func seedUserID(ctx context.Context, store statestore.Store, convID, userID string) error {
 	writer, ok := store.(statestore.BulkWriter)
 	if userID == "" || !ok {
@@ -494,13 +494,14 @@ func seedUserID(ctx context.Context, store statestore.Store, convID, userID stri
 	state, err := store.Load(ctx, convID)
 	switch {
 	case errors.Is(err, statestore.ErrNotFound) || (err == nil && state == nil):
-		state = &statestore.ConversationState{ID: convID, Metadata: map[string]any{}}
 	case err != nil:
 		return fmt.Errorf("session: loading state to record its user: %w", err)
-	case state.UserID != "":
+	default:
+		// An existing conversation is never rewritten here: a whole-state
+		// Save would race with turns other processes append.
 		return nil
 	}
-	state.UserID = userID
+	state = &statestore.ConversationState{ID: convID, UserID: userID, Metadata: map[string]any{}}
 	if err := writer.Save(ctx, state); err != nil {
 		return fmt.Errorf("session: recording the conversation's user: %w", err)
 	}

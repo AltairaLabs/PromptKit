@@ -31,6 +31,12 @@ import (
 //
 // The handler's return value is automatically serialized to JSON and sent
 // back to the LLM as the tool result.
+//
+// The handler runs inside the conversation's turn, so it must not start a turn
+// on the same conversation: with no context to recognize it by, that call
+// waits for the turn running it. A handler that needs to should use
+// [Conversation.OnToolCtx] and pass its context on, which gets
+// [ErrReentrantTurn] instead.
 func (c *Conversation) OnTool(name string, handler ToolHandler) {
 	c.handlersMu.Lock()
 	defer c.handlersMu.Unlock()

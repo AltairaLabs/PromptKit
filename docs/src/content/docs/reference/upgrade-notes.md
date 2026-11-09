@@ -308,12 +308,14 @@ name order.
 |---|---|---|
 | Pass `WithAPIKey` (or `WithCredential`) without `WithProvider` | requests authenticate with that key, where they used the vendor's environment variable or no key | nothing |
 | Pass `WithAPIKey` with a Claude or Gemini `WithModel` and no environment key for that vendor | an Anthropic or Gemini provider, where the SDK built an OpenAI one asking for that model | nothing |
-| Call `Send`, `Stream`, `Resume`, `ResumeStream` or `Continue` on one conversation from several goroutines | the turns run one at a time, in arrival order; a waiting turn gives up when its context ends | nothing |
+| Call `Send`, `Stream`, `Resume`, `ResumeStream` or `Continue` on one conversation from several goroutines | the turns run one at a time; a waiting turn gives up when its context ends | nothing |
+| Stop reading a `Stream`, `ResumeStream` or `StreamRaw` channel before it closes | the conversation's next turn waits until the stream's context ends, since the stream holds the turn | drain the channel, or cancel the context you passed; `stream.Process` and `stream.CollectText` do this for you |
 | Start a turn on a conversation from inside one of its own turns, with the turn's context | `ErrReentrantTurn`, where the call shared the running turn's state | run the nested work on another conversation, or after the turn |
+| Start a turn on a conversation from an `OnTool` handler of that conversation, or with an unrelated context | the call waits for the running turn, which waits for the handler | use `OnToolCtx` and pass its context, or run the work after the turn |
 | `Fork` a conversation opened without `WithStateStore` | the fork continues from the parent's history and records its own turns, where it started empty every turn | nothing |
 | Use `WithContextRetrieval`, or an embedding provider in a runtime config | older messages outside the window reach the request, once each and in conversation order, where retrieval never ran | nothing |
 | Check `errors.Is(err, sdk.ErrConversationNotFound)` after `Resume` or `ResumeDuplex` of an unknown ID | it holds for the memory and Redis stores, where they returned only `statestore.ErrNotFound` | nothing |
-| Pass `WithUserID` with a state store | the persisted state carries the user ID, and a resumed conversation keeps the user who started it, where the ID reached events only | nothing |
+| Pass `WithUserID` with a state store | a new conversation's persisted state carries the user ID, where the ID reached events only; a resumed conversation's state is left as it was | nothing |
 | Call `SetVar` from another goroutine while a turn runs | the call returns and the next turn renders it, where the two could deadlock | nothing |
 
 ## v2.18.0

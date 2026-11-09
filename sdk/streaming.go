@@ -118,6 +118,10 @@ func (s *streamState) finishReason() string {
 //
 // The channel is closed when the response is complete or an error occurs.
 // The final chunk (Type == ChunkDone) contains the complete Response.
+//
+// A stream holds the conversation's turn until it completes: drain the
+// channel, or cancel ctx to stop early. A stream abandoned with ctx still
+// live blocks every later turn on the conversation.
 func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOption) <-chan StreamChunk {
 	ch := make(chan StreamChunk, streamChannelBufferSize)
 
@@ -572,6 +576,8 @@ func (c *Conversation) buildStreamingResponse(
 //
 // Most users should use [Conversation.Stream] instead.
 // StreamRaw is useful when working with [stream.Process] or [stream.CollectText].
+// As with Stream, drain the channel or cancel ctx: the stream holds the
+// conversation's turn until it ends.
 //
 //	err := stream.Process(ctx, conv, "Hello", func(chunk stream.Chunk) error {
 //	    fmt.Print(chunk.Text)
@@ -606,7 +612,12 @@ func (c *Conversation) StreamRaw(ctx context.Context, message any) (<-chan strea
 				chunk.Done = true
 			}
 
-			ch <- chunk
+			select {
+			case ch <- chunk:
+			case <-ctx.Done():
+				// Keep draining Stream so its goroutine sees ctx end and
+				// releases the conversation's turn.
+			}
 		}
 	}()
 
