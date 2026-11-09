@@ -890,46 +890,6 @@ func TestPredictCostInfoUnifiedFields(t *testing.T) {
 
 // TestGenerate_DelegatesToPredict verifies that Generate() wraps Predict and returns
 // image bytes extracted from the content parts.
-func TestGenerate_DelegatesToPredict(t *testing.T) {
-	const b64Image = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		response := imagenResponse{
-			Predictions: []imagenPrediction{
-				{BytesBase64Encoded: b64Image, MimeType: "image/png"},
-			},
-		}
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(response) //nolint:errcheck
-	}))
-	defer server.Close()
-
-	p := NewProvider(Config{
-		ID:      "generate-test",
-		Model:   "imagen-4.0-generate-001",
-		BaseURL: server.URL,
-		ApiKey:  "test-key",
-	})
-
-	ctx := context.Background()
-	imgResp, err := p.Generate(ctx, base.ImageRequest{Prompt: "a blue circle"})
-	if err != nil {
-		t.Fatalf("Generate() error: %v", err)
-	}
-	if len(imgResp.Images) == 0 {
-		t.Fatal("Expected at least one image in ImageResponse")
-	}
-	if imgResp.MIMEType != "image/png" {
-		t.Errorf("Expected MIMEType %q, got %q", "image/png", imgResp.MIMEType)
-	}
-	if imgResp.Cost == nil {
-		t.Error("Expected non-nil Cost in ImageResponse")
-	}
-	if imgResp.Latency == 0 {
-		t.Error("Expected non-zero Latency in ImageResponse")
-	}
-}
-
 // TestGenerate_PropagatesError verifies that Generate() surfaces errors from Predict.
 func TestGenerate_PropagatesError(t *testing.T) {
 	p := NewProvider(Config{

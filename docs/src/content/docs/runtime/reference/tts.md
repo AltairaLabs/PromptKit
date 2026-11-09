@@ -837,7 +837,7 @@ func (s *OpenAIService) PersonaRubric() string
 PersonaRubric implements [PersonaRubricProvider](<#PersonaRubricProvider>). Returns the full markup rubric on gpt\-4o\-mini\-tts \(the model honors arbitrary instructions via the request's instructions field\). Older models \(tts\-1, tts\-1\-hd\) do not understand the markup, so we return the empty string — emitting tags would only waste persona tokens.
 
 <a name="OpenAIService.SpokenText"></a>
-### func \(\*OpenAIService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L222>)
+### func \(\*OpenAIService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L228>)
 
 ```go
 func (s *OpenAIService) SpokenText(text string, config SynthesisConfig) string
@@ -846,7 +846,7 @@ func (s *OpenAIService) SpokenText(text string, config SynthesisConfig) string
 SpokenText reports the text OpenAI will actually speak for the given input, after markup lowering: on gpt\-4o\-mini\-tts the bracket tags become the \`instructions\` field so the spoken text is the stripped remainder; other models strip tags entirely. Implements tts.SpokenTextReporter.
 
 <a name="OpenAIService.SupportedFormats"></a>
-### func \(\*OpenAIService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L337>)
+### func \(\*OpenAIService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L343>)
 
 ```go
 func (s *OpenAIService) SupportedFormats() []AudioFormat
@@ -855,7 +855,7 @@ func (s *OpenAIService) SupportedFormats() []AudioFormat
 SupportedFormats returns audio formats supported by OpenAI TTS.
 
 <a name="OpenAIService.SupportedVoices"></a>
-### func \(\*OpenAIService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L325>)
+### func \(\*OpenAIService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L331>)
 
 ```go
 func (s *OpenAIService) SupportedVoices() []Voice

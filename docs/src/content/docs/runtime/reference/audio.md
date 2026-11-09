@@ -106,6 +106,10 @@ for chunk := range audioStream {
   - [func \(m \*MemSource\) Frames\(\) \<\-chan MediaFrame](<#MemSource.Frames>)
   - [func \(m \*MemSource\) Kind\(\) MediaKind](<#MemSource.Kind>)
   - [func \(m \*MemSource\) Push\(f MediaFrame\)](<#MemSource.Push>)
+- [type PCM16StreamResampler](<#PCM16StreamResampler>)
+  - [func NewPCM16StreamResampler\(fromRate, toRate int\) \(\*PCM16StreamResampler, error\)](<#NewPCM16StreamResampler>)
+  - [func \(r \*PCM16StreamResampler\) Flush\(\) \[\]byte](<#PCM16StreamResampler.Flush>)
+  - [func \(r \*PCM16StreamResampler\) Write\(chunk \[\]byte\) \[\]byte](<#PCM16StreamResampler.Write>)
 - [type Session](<#Session>)
 - [type SilenceDetector](<#SilenceDetector>)
   - [func NewSilenceDetector\(threshold time.Duration, opts ...SilenceDetectorOption\) \*SilenceDetector](<#NewSilenceDetector>)
@@ -761,6 +765,46 @@ func (m *MemSource) Push(f MediaFrame)
 ```
 
 Push sends f onto the internal channel. It blocks if the buffer is full.
+
+<a name="PCM16StreamResampler"></a>
+## type [PCM16StreamResampler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/resample_stream.go#L21-L28>)
+
+PCM16StreamResampler resamples a stream of little\-endian 16\-bit mono PCM that arrives in chunks of any size, odd byte counts included. It interpolates linearly, like ResamplePCM16, but keeps its position across chunks, so how the input is chunked does not change the output. Once Flush is called it has produced floor\(inputSamples \* toRate / fromRate\) samples, as one ResamplePCM16 call over the whole stream does; it computes positions exactly, so a sample can differ from ResamplePCM16's by one step of rounding.
+
+A PCM16StreamResampler is not safe for concurrent use.
+
+```go
+type PCM16StreamResampler struct {
+    // contains filtered or unexported fields
+}
+```
+
+<a name="NewPCM16StreamResampler"></a>
+### func [NewPCM16StreamResampler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/resample_stream.go#L32>)
+
+```go
+func NewPCM16StreamResampler(fromRate, toRate int) (*PCM16StreamResampler, error)
+```
+
+NewPCM16StreamResampler returns a resampler from fromRate to toRate. It returns an error for a non\-positive rate.
+
+<a name="PCM16StreamResampler.Flush"></a>
+### func \(\*PCM16StreamResampler\) [Flush](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/resample_stream.go#L64>)
+
+```go
+func (r *PCM16StreamResampler) Flush() []byte
+```
+
+Flush returns the output samples left once the input has ended: those at or past the last input sample repeat it, as ResamplePCM16 does. A trailing odd byte is dropped.
+
+<a name="PCM16StreamResampler.Write"></a>
+### func \(\*PCM16StreamResampler\) [Write](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/resample_stream.go#L42>)
+
+```go
+func (r *PCM16StreamResampler) Write(chunk []byte) []byte
+```
+
+Write takes the next chunk of input and returns the output samples it completes. An output sample is completed once both input samples it interpolates between have arrived.
 
 <a name="Session"></a>
 ## type [Session](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/media.go#L70-L79>)
