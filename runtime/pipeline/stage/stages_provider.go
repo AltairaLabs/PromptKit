@@ -2320,12 +2320,6 @@ func (s *ProviderStage) startStreamingRequest(
 	return streamChan, nil
 }
 
-// Finish reasons predictAsStream stamps when the provider reports none.
-const (
-	finishReasonStop      = "stop"
-	finishReasonToolCalls = "tool_calls"
-)
-
 // predictAsStream runs a non-streaming call and returns its reply as a single
 // final stream chunk.
 func (s *ProviderStage) predictAsStream(
@@ -2342,18 +2336,26 @@ func (s *ProviderStage) predictAsStream(
 		err  error
 	)
 	if useTools {
-		resp, _, err = toolProvider.PredictWithTools(ctx, req, providerTools, toolChoice)
+		// The tool calls are PredictWithTools' second result, as the unary
+		// round reads them; the response need not carry them.
+		var toolCalls []types.MessageToolCall
+		resp, toolCalls, err = toolProvider.PredictWithTools(ctx, req, providerTools, toolChoice)
+		if len(resp.ToolCalls) == 0 {
+			resp.ToolCalls = toolCalls
+		}
 	} else {
 		resp, err = prov.Predict(ctx, req)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("provider call failed: %w", err)
 	}
+	// A provider that reports no finish reason gets the provider contract's
+	// own values, not a vocabulary of the stage's.
 	finish := resp.FinishReason
 	if finish == "" {
-		finish = finishReasonStop
+		finish = types.FinishReasonStop
 		if len(resp.ToolCalls) > 0 {
-			finish = finishReasonToolCalls
+			finish = types.FinishReasonToolUse
 		}
 	}
 	out := make(chan providers.StreamChunk, 1)
