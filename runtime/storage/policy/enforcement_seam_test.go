@@ -72,8 +72,10 @@ func TestEnforcement_DeletesMediaStoredThroughFileStore(t *testing.T) {
 	assert.FileExists(t, expiring, "not deleted before its policy time")
 
 	clock.advance(2 * time.Minute)
+	// Enforcement deletes the media first and its .meta second, so a crash
+	// in between leaves the .meta for the next sweep; wait for both.
 	waitForNoFile(t, expiring, 2*time.Second)
-	assert.NoFileExists(t, expiring+".meta")
+	waitForNoFile(t, expiring+".meta", 2*time.Second)
 
 	require.NotPanics(t, func() {
 		h.Stop()
