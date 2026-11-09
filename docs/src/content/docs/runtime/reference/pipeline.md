@@ -4511,7 +4511,7 @@ func (rs *RecordingStage) Process(ctx context.Context, input <-chan StreamElemen
 Process observes elements and records them as events.
 
 <a name="RecordingStage.WithConversationID"></a>
-### func \(\*RecordingStage\) [WithConversationID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L477>)
+### func \(\*RecordingStage\) [WithConversationID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L496>)
 
 ```go
 func (rs *RecordingStage) WithConversationID(conversationID string) *RecordingStage
@@ -4520,7 +4520,7 @@ func (rs *RecordingStage) WithConversationID(conversationID string) *RecordingSt
 WithConversationID sets the conversation ID for recorded events.
 
 <a name="RecordingStage.WithSessionID"></a>
-### func \(\*RecordingStage\) [WithSessionID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L471>)
+### func \(\*RecordingStage\) [WithSessionID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L490>)
 
 ```go
 func (rs *RecordingStage) WithSessionID(sessionID string) *RecordingStage

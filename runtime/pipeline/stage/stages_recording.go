@@ -268,6 +268,12 @@ func (rs *RecordingStage) recordTextElement(ctx context.Context, elem *StreamEle
 	})
 }
 
+// sourceRecordedInput is the Message.Source the input recorder gives a new
+// message it recorded, so the output recorder does not record it again. Like
+// any Source other than the history ones, it still counts as new for the save
+// stage.
+const sourceRecordedInput = "recorded_input"
+
 // recordMessageElement records a complete message.
 func (rs *RecordingStage) recordMessageElement(ctx context.Context, elem *StreamElement, msgIndex *int) {
 	idx := *msgIndex
@@ -286,6 +292,19 @@ func (rs *RecordingStage) recordMessageElement(ctx context.Context, elem *Stream
 	// rebuilds elements with a zero Meta.
 	if !isNewMessage(elem.Message) {
 		return
+	}
+
+	// The turn's user message passes both recorders: the input one records
+	// it, and the provider stage re-emits it to the output one alongside the
+	// reply. Recording it again duplicated the user's turn on replay (#2567).
+	// The input recorder marks what it recorded; the provider stage's copy
+	// keeps the mark. A user message only the output recorder sees (a duplex
+	// or STT transcript) carries no mark and is recorded there.
+	if elem.Message.Source == sourceRecordedInput {
+		return
+	}
+	if rs.config.Position == RecordingPositionInput && elem.Message.Source == "" {
+		elem.Message.Source = sourceRecordedInput
 	}
 
 	rs.appendOrWarn(ctx, &events.Event{
