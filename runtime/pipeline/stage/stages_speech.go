@@ -854,12 +854,10 @@ func (s *STTStage) sttRequest(a *AudioData) base.STTRequest {
 // transcriptElement creates the text element for a transcription, preserving
 // the source element's metadata.
 //
-// Message is populated as well as Text. ProviderStage's accumulateInput
-// collects only elem.Message, so a Text-only element reaches the model as
-// nothing at all — and the shipped VAD topology wires this stage straight
-// into it (sdk/internal/pipeline/builder_vad.go: Audio -> VAD -> STT ->
-// LLM -> TTS, no stage between). A transcribed turn was therefore asking
-// the model to answer an empty conversation, silently.
+// Message is populated as well as Text. The shipped VAD topology wires this
+// stage straight into ProviderStage (sdk/internal/pipeline/builder_vad.go:
+// Audio -> VAD -> STT -> LLM -> TTS), which reads the turn from the Message:
+// it carries the role and the cost, which bare text cannot.
 //
 // Text is kept alongside it: consumers that read the raw transcript
 // (UI mirrors, logging) continue to work unchanged.

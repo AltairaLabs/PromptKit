@@ -645,12 +645,15 @@ func TestProviderStage_AccumulateInput(t *testing.T) {
 		turnState.ProviderRequestMetadata = map[string]interface{}{"key": "value"}
 		stage := NewProviderStageWithTurnState(provider, nil, nil, nil, nil, nil, turnState)
 
-		input := make(chan StreamElement, 4)
+		input := make(chan StreamElement, 5)
 		text := "some text"
 		input <- StreamElement{Text: &text}
 		spoken := StreamElement{Text: testutil.Ptr("already spoken")}
 		spoken.Meta.SynthesizedSpeech = true
 		input <- spoken
+		delta := StreamElement{Text: testutil.Ptr("an upstream reply frag")}
+		delta.Meta.StreamingDelta = true
+		input <- delta
 		input <- StreamElement{Audio: &AudioData{Samples: []byte{1, 2}}}
 		input <- StreamElement{Text: testutil.Ptr("")}
 		close(input)

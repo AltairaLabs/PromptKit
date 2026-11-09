@@ -167,9 +167,9 @@ func routeBySource(heads []string, headBySource map[string]string) stage.RouterF
 // The first three come from the shared internal BuildAudioTrackStages so the
 // resample/turn/STT segment stays identical to the single-track VAD front. The
 // trailing ToMessage stage is specific to ingestion sub-graphs: STTStage emits
-// StreamElement{Text}, but the agent chain (ProviderStage) only ever acts on
-// StreamElement.Message, so a bare transcript would silently vanish without
-// this conversion. IngestionFunc callbacks own their whole sub-graph up to the
+// StreamElement{Text}, and the agent chain (ProviderStage) would take bare
+// text as an anonymous user message; this conversion makes it a Message that
+// keeps the speaker. IngestionFunc callbacks own their whole sub-graph up to the
 // node they hand back, so adding it here is squarely within the API surface.
 func buildTrackStages(track IngestionTrack, onTranscript func(speaker, text string)) ([]stage.Stage, error) {
 	turnCfg := stage.DefaultAudioTurnConfig()
