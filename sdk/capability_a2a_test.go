@@ -17,41 +17,50 @@ func TestA2ACapability_Name(t *testing.T) {
 	assert.Equal(t, "a2a", cap.Name())
 }
 
+// A pack without agents gives the capability nothing to register.
 func TestA2ACapability_Init_NilAgents(t *testing.T) {
 	cap := NewA2ACapability()
 	p := &pack.Pack{Pack: packspec.Pack{
 		ID:      "test",
-		Prompts: map[string]*pack.Prompt{"chat": {ID: "chat"}},
+		Prompts: map[string]*pack.Prompt{"chat": {ID: "chat", Tools: []string{"helper"}}},
 	}}
-	err := cap.Init(CapabilityContext{Pack: p, PromptName: "chat"})
-	require.NoError(t, err)
-	assert.Nil(t, cap.agentResolver)
-	assert.NotNil(t, cap.prompt)
+	require.NoError(t, cap.Init(CapabilityContext{Pack: p, PromptName: "chat"}))
+
+	registry := tools.NewRegistry()
+	cap.RegisterTools(registry)
+	assert.Empty(t, registry.GetTools(), "a tool name with no agent member is not an agent tool")
 }
 
+// Init reads the prompt's tool list against the pack's agent members: each
+// member the prompt lists becomes an a2a tool that calls that member's skill.
 func TestA2ACapability_Init_WithAgents(t *testing.T) {
 	cap := NewA2ACapability()
 	p := &pack.Pack{Pack: packspec.Pack{
 		ID: "test",
 		Prompts: map[string]*pack.Prompt{
-			"orchestrator": {
-				ID:    "orchestrator",
-				Tools: []string{"helper"},
-			},
+			"orchestrator": {ID: "orchestrator", Tools: []string{"helper", "get_weather"}},
+			"helper":       {ID: "helper", Description: "Helps"},
+			"unlisted":     {ID: "unlisted"},
 		},
 		Agents: &pack.AgentsConfig{
 			Entry: "orchestrator",
 			Members: map[string]*pack.AgentDef{
-				"helper": {
-					Description: "A helper agent",
-				},
+				"helper":   {Description: "A helper agent"},
+				"unlisted": {Description: "Not in the prompt's tools"},
 			},
 		},
 	}}
-	err := cap.Init(CapabilityContext{Pack: p, PromptName: "orchestrator"})
-	require.NoError(t, err)
-	assert.NotNil(t, cap.agentResolver)
-	assert.NotNil(t, cap.prompt)
+	require.NoError(t, cap.Init(CapabilityContext{Pack: p, PromptName: "orchestrator"}))
+
+	registry := tools.NewRegistry()
+	cap.RegisterTools(registry)
+	got := registry.GetTools()
+	require.Len(t, got, 1, "only the members the prompt lists become tools")
+	tool := got["a2a__helper"]
+	require.NotNil(t, tool)
+	assert.Equal(t, "a2a", tool.Mode)
+	require.NotNil(t, tool.A2AConfig)
+	assert.Equal(t, "helper", tool.A2AConfig.SkillID)
 }
 
 func TestA2ACapability_RegisterTools_BridgePath(t *testing.T) {
@@ -147,9 +156,4 @@ func TestA2ACapability_RegisterTools_NoConfig(t *testing.T) {
 
 	allTools := registry.GetTools()
 	assert.Empty(t, allTools)
-}
-
-func TestA2ACapability_Close(t *testing.T) {
-	cap := NewA2ACapability()
-	assert.NoError(t, cap.Close())
 }

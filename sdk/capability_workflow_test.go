@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
@@ -27,11 +28,6 @@ func TestWorkflowCapability_Init(t *testing.T) {
 	err := cap.Init(CapabilityContext{Pack: p, PromptName: "test"})
 	require.NoError(t, err)
 	assert.Equal(t, p.Workflow, cap.workflowSpec)
-}
-
-func TestWorkflowCapability_Close(t *testing.T) {
-	cap := NewWorkflowCapability()
-	assert.NoError(t, cap.Close())
 }
 
 func TestRegisterToolsForState_InternalOrchestration(t *testing.T) {
@@ -70,7 +66,16 @@ func TestRegisterToolsForState_HybridOrchestration(t *testing.T) {
 	cap.RegisterToolsForState(registry, state)
 
 	tool := registry.Get(workflow.TransitionToolName)
-	assert.NotNil(t, tool, "tool should be registered for hybrid orchestration")
+	require.NotNil(t, tool, "tool should be registered for hybrid orchestration")
+	var schema struct {
+		Properties struct {
+			Event struct {
+				Enum []string `json:"enum"`
+			} `json:"event"`
+		} `json:"properties"`
+	}
+	require.NoError(t, json.Unmarshal(tool.InputSchema, &schema))
+	assert.Equal(t, []string{"Escalate"}, schema.Properties.Event.Enum, "the model may fire only the state's events")
 }
 
 func TestRegisterToolsForState_ExternalOrchestration(t *testing.T) {

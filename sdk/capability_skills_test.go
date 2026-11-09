@@ -21,11 +21,6 @@ func TestSkillsCapability_Name(t *testing.T) {
 	assert.Equal(t, "skills", cap.Name())
 }
 
-func TestSkillsCapability_Close(t *testing.T) {
-	cap := NewSkillsCapability(nil)
-	assert.NoError(t, cap.Close())
-}
-
 func TestSkillsCapability_Init_DiscoversSkills(t *testing.T) {
 	// Create a temp directory with a skill
 	dir := t.TempDir()
@@ -50,7 +45,14 @@ These are the instructions.`
 	}}
 	err := cap.Init(CapabilityContext{Pack: p, PromptName: "chat"})
 	require.NoError(t, err)
-	require.NotNil(t, cap.Executor())
+
+	// The skill discovered on disk activates with its file's instructions.
+	instructions, _, err := cap.Executor().Activate("test-skill")
+	require.NoError(t, err)
+	assert.Contains(t, instructions, "These are the instructions.")
+	assert.Equal(t, []string{"test-skill"}, cap.Executor().ActiveSkills())
+	_, _, err = cap.Executor().Activate("not-on-disk")
+	assert.Error(t, err, "only discovered skills activate")
 }
 
 func TestSkillsCapability_RegisterTools(t *testing.T) {
@@ -158,9 +160,11 @@ func TestSkillsCapability_RefreshSkillIndex_NoSelector_NoOp(t *testing.T) {
 }
 
 func TestSkillsCapability_RefreshSkillIndex_GuardRails(t *testing.T) {
-	// Nil registry and nil executor must not panic.
+	// Before Init there is no executor: nothing is registered.
 	cap := NewSkillsCapability(nil)
-	cap.RefreshSkillIndex(context.Background(), "q", tools.NewRegistry())
+	reg := tools.NewRegistry()
+	cap.RefreshSkillIndex(context.Background(), "q", reg)
+	assert.Empty(t, reg.GetTools())
 
 	dir := t.TempDir()
 	writeSkillFile(t, dir, "alpha")
@@ -180,15 +184,49 @@ func TestSkillsCapability_RegisterTools_NilExecutor(t *testing.T) {
 	assert.Nil(t, registry.Get(skills.SkillActivateTool))
 }
 
-func TestSkillsCapability_WithSkillSelector(t *testing.T) {
-	selector := skills.NewTagSelector([]string{"coding"})
-	cap := NewSkillsCapability(nil, WithSkillSelector(selector))
-	assert.Equal(t, selector, cap.selector)
+func orchSkillsCap(t *testing.T, dir string, opts ...SkillsOption) *SkillsCapability {
+	t.Helper()
+	cap := NewSkillsCapability([]skills.SkillSource{{Dir: dir}}, opts...)
+	p := &pack.Pack{Pack: packspec.Pack{ID: "t", Prompts: map[string]*pack.Prompt{"chat": {ID: "chat"}}}}
+	require.NoError(t, cap.Init(CapabilityContext{Pack: p, PromptName: "chat"}))
+	return cap
 }
 
+// The selector decides which skills the skill__activate index lists once it
+// is ranked against a query; the index registered before any query lists all.
+func TestSkillsCapability_WithSkillSelector(t *testing.T) {
+	dir := t.TempDir()
+	for name, tags := range map[string]string{"coder": "coding", "chef": "cooking"} {
+		skillDir := filepath.Join(dir, name)
+		require.NoError(t, os.MkdirAll(skillDir, 0o755))
+		body := "---\nname: " + name + "\ndescription: d\nmetadata:\n  tags: " + tags + "\n---\nI."
+		require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(body), 0o644))
+	}
+	cap := orchSkillsCap(t, dir, WithSkillSelector(skills.NewTagSelector([]string{"coding"})))
+
+	registry := tools.NewRegistry()
+	cap.RegisterTools(registry)
+	before := registry.Get(skills.SkillActivateTool).Description
+	require.Contains(t, before, "coder")
+	require.Contains(t, before, "chef", "both skills load; only the selector narrows them")
+	cap.RefreshSkillIndex(context.Background(), "write some code", registry)
+	desc := registry.Get(skills.SkillActivateTool).Description
+	assert.Contains(t, desc, "coder")
+	assert.NotContains(t, desc, "chef")
+}
+
+// The cap on active skills refuses one activation past it.
 func TestSkillsCapability_WithMaxActiveSkills(t *testing.T) {
-	cap := NewSkillsCapability(nil, WithMaxActiveSkills(10))
-	assert.Equal(t, 10, cap.maxActive)
+	dir := t.TempDir()
+	writeSkillFile(t, dir, "alpha")
+	writeSkillFile(t, dir, "beta")
+	cap := orchSkillsCap(t, dir, WithMaxActiveSkills(1))
+
+	_, _, err := cap.Executor().Activate("alpha")
+	require.NoError(t, err)
+	_, _, err = cap.Executor().Activate("beta")
+	require.Error(t, err, "a second skill exceeds the cap of one")
+	assert.Equal(t, []string{"alpha"}, cap.Executor().ActiveSkills())
 }
 
 func TestSkillsCapability_InferCapabilities_DetectsSkills(t *testing.T) {
@@ -242,7 +280,16 @@ func TestSkillsCapability_Init_InlineSkills(t *testing.T) {
 	}}
 	err := cap.Init(CapabilityContext{Pack: p, PromptName: "chat"})
 	require.NoError(t, err)
-	require.NotNil(t, cap.Executor())
+
+	// The inline skill is listed in skill__activate's index and activates
+	// with its inline instructions.
+	registry := tools.NewRegistry()
+	cap.RegisterTools(registry)
+	require.NotNil(t, registry.Get(skills.SkillActivateTool))
+	assert.Contains(t, registry.Get(skills.SkillActivateTool).Description, "inline-test")
+	instructions, _, err := cap.Executor().Activate("inline-test")
+	require.NoError(t, err)
+	assert.Contains(t, instructions, "Do the thing.")
 }
 
 func TestSkillsCapability_Init_PreloadSkills(t *testing.T) {

@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -465,22 +466,66 @@ func TestClientExecutor_ExecuteAsync_WithConsent(t *testing.T) {
 	assert.Equal(t, []string{"sensors"}, capturedReq.Categories)
 }
 
+// Resume hands the model one tool result per deferred call, answering that
+// call by ID and naming its tool, with content that depends on how the client
+// resolved it. Each case defers the call, resolves it through the public API,
+// and reads the request the model was given.
 func TestResume_BuildsToolMessages(t *testing.T) {
-	conv := newTestConversation()
-	conv.resolvedStore = sdktools.NewResolvedStore()
+	cases := []struct {
+		name        string
+		resolve     func(conv *Conversation, callID string) error
+		wantContent string
+		wantError   string
+	}{
+		{
+			name: "result is the client's JSON",
+			resolve: func(conv *Conversation, callID string) error {
+				return conv.SendToolResult(context.Background(), callID, map[string]any{"city": "Paris"})
+			},
+			wantContent: `{"city":"Paris"}`,
+		},
+		{
+			name: "rejection carries the client's reason",
+			resolve: func(conv *Conversation, callID string) error {
+				conv.RejectClientTool(context.Background(), callID, "user declined")
+				return nil
+			},
+			wantContent: "Tool rejected: user declined",
+		},
+		{
+			name: "failure carries the partial output and the error",
+			resolve: func(conv *Conversation, callID string) error {
+				return conv.FailClientTool(context.Background(), callID, map[string]any{"fix": "none"}, errors.New("gps offline"))
+			},
+			wantContent: "{\"fix\":\"none\"}\n\nTool error: gps offline",
+			wantError:   "gps offline",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			conv, provider := openBindingConv(t)
+			conv.DeferClientTool("get_location")
+			ctx := context.Background()
 
-	// Add a rejected resolution to cover that branch
-	conv.RejectClientTool(context.Background(), "call-reject", "user declined")
+			resp, err := conv.Send(ctx, "Where am I?")
+			require.NoError(t, err)
+			pending := resp.ClientTools()
+			require.Len(t, pending, 1)
+			require.NoError(t, tc.resolve(conv, pending[0].CallID))
 
-	// Add a successful resolution
-	err := conv.SendToolResult(context.Background(), "call-ok", map[string]any{"data": "result"})
-	require.NoError(t, err)
+			resp, err = conv.Resume(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, bindingFinalText, resp.Text())
 
-	// Resume sends tool result messages through the pipeline.
-	// The mock pipeline processes them and returns a response.
-	resp, err := conv.Resume(context.Background())
-	require.NoError(t, err)
-	assert.NotNil(t, resp)
+			got := orchLastToolResults(provider)
+			require.Len(t, got, 1, "the model is given one result for the one deferred call")
+			assert.Equal(t, pending[0].CallID, got[0].ID)
+			assert.Equal(t, orchAssistantCallID(t, provider), got[0].ID, "the result answers the model's call")
+			assert.Equal(t, "get_location", got[0].Name, "the result names the tool it answers")
+			assert.Equal(t, tc.wantContent, got[0].GetTextContent())
+			assert.Equal(t, tc.wantError, got[0].Error)
+		})
+	}
 }
 
 func TestSendToolResult_WhenClosed(t *testing.T) {

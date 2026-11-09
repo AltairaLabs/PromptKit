@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -256,62 +257,91 @@ func TestContinue(t *testing.T) {
 	})
 }
 
+// Continue hands each resolution to the model as a tool result answering the
+// held call: same call ID, the tool's name, and content (and error text) that
+// depend on how the call was resolved. The call is held, resolved and continued
+// through the public API, and the test reads the request the model was given.
 func TestContinue_ResolutionBranches(t *testing.T) {
-	// These tests exercise the resolution-building branches in Continue().
-	// The minimal test pipeline processes messages without a provider, so
-	// Continue succeeds — we verify the code paths don't panic.
+	cases := []struct {
+		name        string
+		exec        ToolHandler
+		resolve     func(conv *Conversation, id string) error
+		wantContent string
+		wantError   string
+	}{
+		{
+			name: "approved result is the handler's JSON",
+			exec: func(map[string]any) (any, error) { return map[string]any{"city": "Rome"}, nil },
+			resolve: func(conv *Conversation, id string) error {
+				_, err := conv.ResolveTool(context.Background(), id)
+				return err
+			},
+			wantContent: `{"city":"Rome"}`,
+		},
+		{
+			name: "rejection carries the reviewer's reason",
+			exec: func(map[string]any) (any, error) { return nil, nil },
+			resolve: func(conv *Conversation, id string) error {
+				_, err := conv.RejectTool(context.Background(), id, "not authorized")
+				return err
+			},
+			wantContent: "Tool call rejected: not authorized",
+			wantError:   "rejected by user",
+		},
+		{
+			name: "handler error is the error text, without the SDK's wrapper",
+			exec: func(map[string]any) (any, error) { return nil, errors.New("gps offline") },
+			resolve: func(conv *Conversation, id string) error {
+				_, err := conv.ResolveTool(context.Background(), id)
+				return err
+			},
+			wantContent: "Tool error: gps offline",
+			wantError:   "gps offline",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			conv, provider := openBindingConv(t)
+			conv.OnToolAsync("get_location",
+				func(map[string]any) sdktools.PendingResult { return sdktools.PendingResult{Reason: "approve"} },
+				tc.exec)
+			ctx := context.Background()
 
-	t.Run("builds rejected resolution message", func(t *testing.T) {
+			resp, err := conv.Send(ctx, "Where am I?")
+			require.NoError(t, err)
+			pending := resp.PendingTools()
+			require.Len(t, pending, 1)
+			require.NoError(t, tc.resolve(conv, pending[0].ID))
+
+			resp, err = conv.Continue(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, bindingFinalText, resp.Text())
+
+			got := orchLastToolResults(provider)
+			require.Len(t, got, 1, "the model is given one result for the one held call")
+			assert.Equal(t, pending[0].ID, got[0].ID)
+			assert.Equal(t, orchAssistantCallID(t, provider), got[0].ID, "the result answers the model's call")
+			assert.Equal(t, "get_location", got[0].Name, "the result names the tool it answers")
+			assert.Equal(t, tc.wantContent, got[0].GetTextContent())
+			assert.Equal(t, tc.wantError, got[0].Error)
+		})
+	}
+
+	// A resolution with a Result but no ResultJSON is rendered with %v. The
+	// public resolve path always sets ResultJSON, so the store is filled by hand.
+	t.Run("plain result without JSON is formatted", func(t *testing.T) {
 		conv := newTestConversation()
 		conv.resolvedStore = sdktools.NewResolvedStore()
-		conv.resolvedStore.Add(&sdktools.ToolResolution{
-			ID:              "r1",
-			Rejected:        true,
-			RejectionReason: "not authorized",
-		})
+		conv.resolvedStore.Add(&sdktools.ToolResolution{ID: "r4", Result: 42})
 
 		resp, err := conv.Continue(context.Background())
 		require.NoError(t, err)
-		assert.NotNil(t, resp)
-	})
-
-	t.Run("builds error resolution message", func(t *testing.T) {
-		conv := newTestConversation()
-		conv.resolvedStore = sdktools.NewResolvedStore()
-		conv.resolvedStore.Add(&sdktools.ToolResolution{
-			ID:    "r2",
-			Error: assert.AnError,
-		})
-
-		resp, err := conv.Continue(context.Background())
-		require.NoError(t, err)
-		assert.NotNil(t, resp)
-	})
-
-	t.Run("builds resultJSON resolution message", func(t *testing.T) {
-		conv := newTestConversation()
-		conv.resolvedStore = sdktools.NewResolvedStore()
-		conv.resolvedStore.Add(&sdktools.ToolResolution{
-			ID:         "r3",
-			ResultJSON: []byte(`{"status":"ok"}`),
-		})
-
-		resp, err := conv.Continue(context.Background())
-		require.NoError(t, err)
-		assert.NotNil(t, resp)
-	})
-
-	t.Run("builds plain result resolution message", func(t *testing.T) {
-		conv := newTestConversation()
-		conv.resolvedStore = sdktools.NewResolvedStore()
-		conv.resolvedStore.Add(&sdktools.ToolResolution{
-			ID:     "r4",
-			Result: "plain value",
-		})
-
-		resp, err := conv.Continue(context.Background())
-		require.NoError(t, err)
-		assert.NotNil(t, resp)
+		msgs := resp.TurnMessages()
+		require.NotEmpty(t, msgs)
+		require.NotNil(t, msgs[0].ToolResult)
+		assert.Equal(t, "r4", msgs[0].ToolResult.ID)
+		assert.Equal(t, "42", msgs[0].ToolResult.GetTextContent())
+		assert.Empty(t, msgs[0].ToolResult.Error)
 	})
 }
 
@@ -384,66 +414,55 @@ func TestContinueDuplex(t *testing.T) {
 		assert.Contains(t, err.Error(), "no resolved tools")
 	})
 
-	t.Run("builds rejected response", func(t *testing.T) {
-		conv := newTestConversation()
-		conv.mode = DuplexMode
-		conv.resolvedStore = sdktools.NewResolvedStore()
-		conv.resolvedStore.Add(&sdktools.ToolResolution{
-			ID:              "r1",
-			Rejected:        true,
-			RejectionReason: "not authorized",
+	// ContinueDuplex hands each resolution to the live session as one
+	// ToolResponse; rejections and errors are flagged IsError.
+	cases := []struct {
+		name string
+		res  *sdktools.ToolResolution
+		want providers.ToolResponse
+	}{
+		{
+			name: "rejected",
+			res:  &sdktools.ToolResolution{ID: "r1", Rejected: true, RejectionReason: "not authorized"},
+			want: providers.ToolResponse{ToolCallID: "r1", Result: "Tool call rejected: not authorized", IsError: true},
+		},
+		{
+			name: "error unwraps the SDK's ToolError",
+			res: &sdktools.ToolResolution{
+				ID: "r2", Error: &ToolError{ToolName: "t", Cause: errors.New("gps offline")},
+			},
+			want: providers.ToolResponse{ToolCallID: "r2", Result: "Tool error: gps offline", IsError: true},
+		},
+		{
+			name: "resultJSON",
+			res:  &sdktools.ToolResolution{ID: "r3", Result: "ignored", ResultJSON: []byte(`{"status":"ok"}`)},
+			want: providers.ToolResponse{ToolCallID: "r3", Result: `{"status":"ok"}`},
+		},
+		{
+			name: "plain result",
+			res:  &sdktools.ToolResolution{ID: "r4", Result: 42},
+			want: providers.ToolResponse{ToolCallID: "r4", Result: "42"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			conv := newTestConversation()
+			conv.mode = DuplexMode
+			conv.resolvedStore = sdktools.NewResolvedStore()
+			conv.resolvedStore.Add(tc.res)
+			sess := &fakeDuplexSession{}
+			conv.duplexSession = sess
+
+			require.NoError(t, conv.ContinueDuplex(context.Background()))
+			assert.Equal(t, [][]providers.ToolResponse{{tc.want}}, sess.submitted)
+			assert.Zero(t, conv.resolvedStore.Len(), "the resolution is consumed")
 		})
-		conv.duplexSession = &fakeDuplexSession{}
-
-		err := conv.ContinueDuplex(context.Background())
-		require.NoError(t, err)
-	})
-
-	t.Run("builds error response", func(t *testing.T) {
-		conv := newTestConversation()
-		conv.mode = DuplexMode
-		conv.resolvedStore = sdktools.NewResolvedStore()
-		conv.resolvedStore.Add(&sdktools.ToolResolution{
-			ID:    "r2",
-			Error: assert.AnError,
-		})
-		conv.duplexSession = &fakeDuplexSession{}
-
-		err := conv.ContinueDuplex(context.Background())
-		require.NoError(t, err)
-	})
-
-	t.Run("builds resultJSON response", func(t *testing.T) {
-		conv := newTestConversation()
-		conv.mode = DuplexMode
-		conv.resolvedStore = sdktools.NewResolvedStore()
-		conv.resolvedStore.Add(&sdktools.ToolResolution{
-			ID:         "r3",
-			ResultJSON: []byte(`{"status":"ok"}`),
-		})
-		conv.duplexSession = &fakeDuplexSession{}
-
-		err := conv.ContinueDuplex(context.Background())
-		require.NoError(t, err)
-	})
-
-	t.Run("builds plain result response", func(t *testing.T) {
-		conv := newTestConversation()
-		conv.mode = DuplexMode
-		conv.resolvedStore = sdktools.NewResolvedStore()
-		conv.resolvedStore.Add(&sdktools.ToolResolution{
-			ID:     "r4",
-			Result: "plain value",
-		})
-		conv.duplexSession = &fakeDuplexSession{}
-
-		err := conv.ContinueDuplex(context.Background())
-		require.NoError(t, err)
-	})
+	}
 }
 
 // fakeDuplexSession is a minimal DuplexSession implementation for testing ContinueDuplex.
-type fakeDuplexSession struct{}
+// It records each SubmitToolResults batch.
+type fakeDuplexSession struct{ submitted [][]providers.ToolResponse }
 
 func (f *fakeDuplexSession) ID() string                     { return "fake" }
 func (f *fakeDuplexSession) Variables() map[string]string   { return nil }
@@ -468,7 +487,8 @@ func (f *fakeDuplexSession) Close() error                           { return nil
 func (f *fakeDuplexSession) Drain(_ context.Context) error          { return nil }
 func (f *fakeDuplexSession) Done() <-chan struct{}                  { return nil }
 func (f *fakeDuplexSession) Error() error                           { return nil }
-func (f *fakeDuplexSession) SubmitToolResults(_ context.Context, _ []providers.ToolResponse) error {
+func (f *fakeDuplexSession) SubmitToolResults(_ context.Context, r []providers.ToolResponse) error {
+	f.submitted = append(f.submitted, r)
 	return nil
 }
 func (f *fakeDuplexSession) ForkSession(
