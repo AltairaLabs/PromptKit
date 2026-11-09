@@ -328,6 +328,11 @@ its rate, so audio requested at another rate played at the wrong pitch. The
 OpenAI speech API takes no sample rate; its PCM stays 24 kHz. MP3 and WAV carry
 their rate in the file and keep each service's fixed rate.
 
+| If you | You will see | Change |
+|---|---|---|
+| Request PCM at a rate the vendor takes (Cartesia: 8000, 16000, 22050, 24000, 44100; ElevenLabs: those and 48000) | audio at that rate, where it came back at 24 kHz | nothing |
+| Request PCM at any other rate | an error from `SynthesizeTTS` naming the supported rates, where the call returned 24 kHz audio | request a supported rate, or resample |
+
 ## v2.18.0
 
 ### Config errors, workflow findings and capability matching

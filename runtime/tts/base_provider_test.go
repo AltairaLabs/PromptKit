@@ -204,3 +204,26 @@ func TestSynthesizeTTS_SampleRateReachesTheWire(t *testing.T) {
 		assert.Equal(t, "pcm_24000", gotFormat)
 	})
 }
+
+// A PCM rate the vendor does not take is refused before any request, naming
+// the rates it does take, instead of a vendor 4xx.
+func TestSynthesizeTTS_UnsupportedPCMSampleRateIsRefused(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		_, _ = w.Write([]byte("pcm"))
+	}))
+	defer server.Close()
+
+	for _, svc := range []base.TTSProvider{
+		NewCartesia("k", base.WithBaseURL(server.URL)),
+		NewElevenLabs("k", base.WithBaseURL(server.URL)),
+	} {
+		_, err := svc.SynthesizeTTS(context.Background(), base.TTSRequest{
+			Text: "hi", Format: "pcm", SampleRate: 11025,
+		})
+		require.Error(t, err, svc.Name())
+		assert.Contains(t, err.Error(), "PCM sample rate 11025 Hz is not supported")
+	}
+	assert.Equal(t, 0, calls, "nothing reaches the vendor")
+}

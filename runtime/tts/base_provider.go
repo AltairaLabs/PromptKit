@@ -2,6 +2,8 @@ package tts
 
 import (
 	"context"
+	"fmt"
+	"slices"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 )
@@ -38,7 +40,9 @@ func (s *OpenAIService) SynthesizeTTS(ctx context.Context, req base.TTSRequest) 
 	} else {
 		cfg.Format = FormatPCM16
 	}
-	applyRequestedSampleRate(&cfg, req)
+	if err := applyRequestedSampleRate(&cfg, req, nil); err != nil {
+		return nil, err
+	}
 	reader, err := s.Synthesize(ctx, req.Text, cfg)
 	if err != nil {
 		return nil, err
@@ -74,7 +78,9 @@ func (s *ElevenLabsService) SynthesizeTTS(ctx context.Context, req base.TTSReque
 	} else {
 		cfg.Format = FormatMP3
 	}
-	applyRequestedSampleRate(&cfg, req)
+	if err := applyRequestedSampleRate(&cfg, req, elevenLabsPCMSampleRates); err != nil {
+		return nil, err
+	}
 	reader, err := s.Synthesize(ctx, req.Text, cfg)
 	if err != nil {
 		return nil, err
@@ -110,7 +116,9 @@ func (s *CartesiaService) SynthesizeTTS(ctx context.Context, req base.TTSRequest
 	} else {
 		cfg.Format = FormatPCM16
 	}
-	applyRequestedSampleRate(&cfg, req)
+	if err := applyRequestedSampleRate(&cfg, req, cartesiaPCMSampleRates); err != nil {
+		return nil, err
+	}
 	reader, err := s.Synthesize(ctx, req.Text, cfg)
 	if err != nil {
 		return nil, err
@@ -121,9 +129,22 @@ func (s *CartesiaService) SynthesizeTTS(ctx context.Context, req base.TTSRequest
 // applyRequestedSampleRate carries TTSRequest.SampleRate onto the synthesis
 // format. Raw PCM carries no header naming its rate, so a service that honors
 // Format.SampleRate for PCM must be told the rate the caller will play it at;
-// zero keeps the format's default.
-func applyRequestedSampleRate(cfg *SynthesisConfig, req base.TTSRequest) {
-	if req.SampleRate > 0 {
-		cfg.Format.SampleRate = req.SampleRate
+// zero keeps the format's default. A PCM rate outside pcmRates (when the
+// service lists them) is refused here, naming the rates it takes, rather than
+// sent for the vendor to reject.
+func applyRequestedSampleRate(cfg *SynthesisConfig, req base.TTSRequest, pcmRates []int) error {
+	if req.SampleRate <= 0 {
+		return nil
 	}
+	if pcmRates != nil && cfg.Format.Name == formatPCM && !slices.Contains(pcmRates, req.SampleRate) {
+		return fmt.Errorf("tts: PCM sample rate %d Hz is not supported (supported: %v)", req.SampleRate, pcmRates)
+	}
+	cfg.Format.SampleRate = req.SampleRate
+	return nil
 }
+
+// PCM output rates each vendor's API accepts for raw PCM.
+var (
+	elevenLabsPCMSampleRates = []int{8000, 16000, 22050, 24000, 44100, 48000}
+	cartesiaPCMSampleRates   = []int{8000, 16000, 22050, 24000, 44100}
+)

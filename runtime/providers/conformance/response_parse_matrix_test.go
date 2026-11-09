@@ -95,15 +95,15 @@ func openAICompatTurns(model, usage string) (tool, text wireTurn) {
 			`{"id":"chatcmpl-2","object":"chat.completion.chunk","created":1731000000,"model":"`+model+`",`+
 				`"choices":[{"index":0,"delta":{"role":"assistant","content":null,"tool_calls":[{"index":0,`+
 				`"id":"call_abc123","type":"function","function":{"name":"get_weather","arguments":""}}]},`+
-				`"logprobs":null,"finish_reason":null}]}`,
+				`"logprobs":null,"finish_reason":null}],"usage":null}`,
 			`{"id":"chatcmpl-2","object":"chat.completion.chunk","created":1731000000,"model":"`+model+`",`+
 				`"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\":"}}]},`+
-				`"logprobs":null,"finish_reason":null}]}`,
+				`"logprobs":null,"finish_reason":null}],"usage":null}`,
 			`{"id":"chatcmpl-2","object":"chat.completion.chunk","created":1731000000,"model":"`+model+`",`+
 				`"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"Paris\"}"}}]},`+
-				`"logprobs":null,"finish_reason":null}]}`,
+				`"logprobs":null,"finish_reason":null}],"usage":null}`,
 			`{"id":"chatcmpl-2","object":"chat.completion.chunk","created":1731000000,"model":"`+model+`",`+
-				`"choices":[{"index":0,"delta":{},"logprobs":null,"finish_reason":"tool_calls"}]}`,
+				`"choices":[{"index":0,"delta":{},"logprobs":null,"finish_reason":"tool_calls"}],"usage":null}`,
 			`{"id":"chatcmpl-2","object":"chat.completion.chunk","created":1731000000,"model":"`+model+`",`+
 				`"choices":[],"usage":`+usage+`}`,
 			`[DONE]`,
@@ -115,13 +115,13 @@ func openAICompatTurns(model, usage string) (tool, text wireTurn) {
 			`"logprobs":null,"finish_reason":"stop"}],"usage":` + usage + `}`,
 		stream: sseData(
 			`{"id":"chatcmpl-4","object":"chat.completion.chunk","created":1731000000,"model":"`+model+`",`+
-				`"choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}]}`,
+				`"choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}],"usage":null}`,
 			`{"id":"chatcmpl-4","object":"chat.completion.chunk","created":1731000000,"model":"`+model+`",`+
-				`"choices":[{"index":0,"delta":{"content":"It is sunny"},"logprobs":null,"finish_reason":null}]}`,
+				`"choices":[{"index":0,"delta":{"content":"It is sunny"},"logprobs":null,"finish_reason":null}],"usage":null}`,
 			`{"id":"chatcmpl-4","object":"chat.completion.chunk","created":1731000000,"model":"`+model+`",`+
-				`"choices":[{"index":0,"delta":{"content":" in Paris."},"logprobs":null,"finish_reason":null}]}`,
+				`"choices":[{"index":0,"delta":{"content":" in Paris."},"logprobs":null,"finish_reason":null}],"usage":null}`,
 			`{"id":"chatcmpl-4","object":"chat.completion.chunk","created":1731000000,"model":"`+model+`",`+
-				`"choices":[{"index":0,"delta":{},"logprobs":null,"finish_reason":"stop"}]}`,
+				`"choices":[{"index":0,"delta":{},"logprobs":null,"finish_reason":"stop"}],"usage":null}`,
 			`{"id":"chatcmpl-4","object":"chat.completion.chunk","created":1731000000,"model":"`+model+`",`+
 				`"choices":[],"usage":`+usage+`}`,
 			`[DONE]`,
@@ -147,6 +147,8 @@ func parseCases() []parseCase {
 	claudeStart := [2]string{"message_start", `{"type":"message_start","message":{"id":"msg_01","type":"message",` +
 		`"role":"assistant","model":"claude-sonnet-4-6","content":[],"stop_reason":null,"stop_sequence":null,` +
 		`"usage":{"input_tokens":18,"cache_creation_input_tokens":0,"cache_read_input_tokens":64,"output_tokens":1}}}`}
+	// Anthropic interleaves ping events; a parser must ignore them.
+	claudePing := [2]string{"ping", `{"type": "ping"}`}
 	claudeEnd := func(stop string) [][2]string {
 		return [][2]string{
 			{"content_block_stop", `{"type":"content_block_stop","index":0}`},
@@ -159,7 +161,7 @@ func parseCases() []parseCase {
 		unary: `{"id":"msg_01","type":"message","role":"assistant","model":"claude-sonnet-4-6",` +
 			`"content":[{"type":"tool_use","id":"toolu_01A","name":"get_weather","input":{"city":"Paris"}}],` +
 			`"stop_reason":"tool_use","stop_sequence":null,"usage":` + claudeUsage + `}`,
-		stream: claudeSSE(append([][2]string{claudeStart,
+		stream: claudeSSE(append([][2]string{claudeStart, claudePing,
 			{"content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"tool_use",` +
 				`"id":"toolu_01A","name":"get_weather","input":{}}}`},
 			{"content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta",` +
@@ -172,7 +174,7 @@ func parseCases() []parseCase {
 		unary: `{"id":"msg_02","type":"message","role":"assistant","model":"claude-sonnet-4-6",` +
 			`"content":[{"type":"text","text":"It is sunny in Paris."}],` +
 			`"stop_reason":"end_turn","stop_sequence":null,"usage":` + claudeUsage + `}`,
-		stream: claudeSSE(append([][2]string{claudeStart,
+		stream: claudeSSE(append([][2]string{claudeStart, claudePing,
 			{"content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`},
 			{"content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"It is sunny"}}`},
 			{"content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" in Paris."}}`},
