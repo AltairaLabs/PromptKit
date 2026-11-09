@@ -43,6 +43,14 @@ type IncrementalSaveConfig struct {
 	// but still handles indexing and summarization.
 	MessageLog statestore.MessageLog
 
+	// FlushEachTurn persists the messages collected so far each time a new
+	// assistant message passes, instead of once when the input closes. A
+	// duplex session's input stays open for the whole session, so without it
+	// nothing reaches the store until the session ends: Messages is empty
+	// mid-session, a Fork copies nothing, and a session lost to a crash or a
+	// pod disruption leaves nothing for ResumeDuplex.
+	FlushEachTurn bool
+
 	// PersistReasoning, when false (the default), strips Message.Reasoning before
 	// persisting so model reasoning never lands in the conversation store. Set true
 	// to retain reasoning in the persisted record.
@@ -206,7 +214,8 @@ func (s *IncrementalSaveStage) collectAndForward(
 	var fwd cancelForwarder
 
 	for elem := range input {
-		if elem.Message != nil && isNewMessage(elem.Message) {
+		newMessage := elem.Message != nil && isNewMessage(elem.Message)
+		if newMessage {
 			collected.messages = append(collected.messages, *elem.Message)
 		}
 
@@ -217,8 +226,24 @@ func (s *IncrementalSaveStage) collectAndForward(
 		}
 
 		fwd.forward(ctx, output, elem)
+
+		if newMessage && s.config.FlushEachTurn && elem.Message.Role == roleAssistant {
+			s.flushTurn(ctx, collected)
+		}
 	}
 	return collected
+}
+
+// flushTurn persists what the turn collected so far and starts a new batch. A
+// failed write is logged and the messages are kept for the final save, so
+// nothing is lost to a transient store error.
+func (s *IncrementalSaveStage) flushTurn(ctx context.Context, collected *incrementalCollectedData) {
+	if err := s.saveCollected(ctx, collected, ctx.Err() == nil); err != nil {
+		logger.Warn("Incremental save: persisting a turn mid-session failed; will retry at session end",
+			"conversation", s.config.StateStoreConfig.ConversationID, "error", err)
+		return
+	}
+	collected.messages = nil
 }
 
 // isNewMessage reports whether a message originated from this Send (true)
