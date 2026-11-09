@@ -1,6 +1,8 @@
 package pack
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -93,20 +95,24 @@ func TestSchemaValidationError_Error(t *testing.T) {
 	}
 }
 
-func TestLoad_WithSchemaValidation(t *testing.T) {
-	// This test requires the example pack files to be present
-	// It validates that Load() performs schema validation by default
+// Load validates against the PromptPack schema unless told not to: the same
+// schema-invalid file is refused by default and loads with
+// SkipSchemaValidation.
+func TestLoad_SchemaValidationIsDefaultAndSkippable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "minimal.pack.json")
+	data := []byte(`{"id": "minimal", "prompts": {"chat": {"id": "chat", "system_template": "Hi"}}}`)
+	require.NoError(t, os.WriteFile(path, data, 0o600))
 
-	// Skip if running in CI without the example files
-	t.Skip("Requires example pack files - run manually")
-}
+	_, err := Load(path)
+	var schemaErr *SchemaValidationError
+	require.ErrorAs(t, err, &schemaErr, "a schema-invalid pack must be refused by default")
+	assert.NotEmpty(t, schemaErr.Errors)
 
-func TestLoad_SkipSchemaValidation(t *testing.T) {
-	// Create a temporary invalid pack file
-	// and verify it loads when schema validation is skipped
-
-	// Skip if running in CI without setup
-	t.Skip("Requires temp file setup - run manually")
+	p, err := Load(path, LoadOptions{SkipSchemaValidation: true})
+	require.NoError(t, err)
+	assert.Equal(t, "minimal", p.ID)
+	require.NotNil(t, p.GetPrompt("chat"))
+	assert.Equal(t, "Hi", p.GetPrompt("chat").SystemTemplate)
 }
 
 // --- Agents validation tests ---

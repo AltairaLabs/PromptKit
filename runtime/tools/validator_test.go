@@ -485,9 +485,10 @@ func TestCoerceStringValue(t *testing.T) {
 	})
 
 	t.Run("boolean parses strconv forms", func(t *testing.T) {
-		for _, s := range []string{"true", "false", "1", "0", "t", "f"} {
-			_, err := coerceStringValue(s, "boolean")
-			assert.NoError(t, err, "input: %q", s)
+		for s, want := range map[string]bool{"true": true, "false": false, "1": true, "0": false, "t": true, "f": false} {
+			v, err := coerceStringValue(s, "boolean")
+			require.NoError(t, err, "input: %q", s)
+			assert.Equal(t, want, v, "input: %q", s)
 		}
 	})
 
@@ -509,9 +510,7 @@ func TestCoerceStringValue(t *testing.T) {
 	t.Run("object parses JSON map", func(t *testing.T) {
 		v, err := coerceStringValue(`{"k":"v","n":1}`, "object")
 		require.NoError(t, err)
-		m, ok := v.(map[string]any)
-		require.True(t, ok)
-		assert.Equal(t, "v", m["k"])
+		assert.Equal(t, map[string]any{"k": "v", "n": float64(1)}, v)
 	})
 
 	t.Run("object rejects non-JSON string", func(t *testing.T) {
@@ -522,9 +521,7 @@ func TestCoerceStringValue(t *testing.T) {
 	t.Run("array parses JSON array", func(t *testing.T) {
 		v, err := coerceStringValue(`["a","b",3]`, "array")
 		require.NoError(t, err)
-		a, ok := v.([]any)
-		require.True(t, ok)
-		assert.Len(t, a, 3)
+		assert.Equal(t, []any{"a", "b", float64(3)}, v)
 	})
 
 	t.Run("array wraps bare string as single-element slice", func(t *testing.T) {

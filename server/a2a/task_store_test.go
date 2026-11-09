@@ -284,22 +284,31 @@ func TestInMemoryTaskStore_AddArtifactsNotFound(t *testing.T) {
 func TestInMemoryTaskStore_List(t *testing.T) {
 	store := NewInMemoryTaskStore()
 
-	for i := range 5 {
-		_, err := store.Create(fmt.Sprintf("t%d", i), "ctx-1")
-		require.NoError(t, err)
-	}
+	// t0..t4 in ctx-1 and t5..t7 in ctx-2, each a minute newer than the last,
+	// so the most-recent-first order List promises is fixed.
+	base := time.Now().Add(-time.Hour)
 	for i := range 8 {
-		if i < 5 {
-			continue
+		ctxID := "ctx-1"
+		if i >= 5 {
+			ctxID = "ctx-2"
 		}
-		_, err := store.Create(fmt.Sprintf("t%d", i), "ctx-2")
+		id := fmt.Sprintf("t%d", i)
+		_, err := store.Create(id, ctxID)
 		require.NoError(t, err)
+		setTaskTimestamp(store, id, base.Add(time.Duration(i)*time.Minute))
+	}
+	ids := func(tasks []*a2a.Task) []string {
+		out := make([]string, 0, len(tasks))
+		for _, task := range tasks {
+			out = append(out, task.ID)
+		}
+		return out
 	}
 
-	t.Run("filter by context", func(t *testing.T) {
+	t.Run("filter by context, most recent first", func(t *testing.T) {
 		tasks, err := store.List("ctx-1", 0, 0)
 		require.NoError(t, err)
-		assert.Len(t, tasks, 5)
+		assert.Equal(t, []string{"t4", "t3", "t2", "t1", "t0"}, ids(tasks))
 		for _, task := range tasks {
 			assert.Equal(t, "ctx-1", task.ContextID)
 		}
@@ -308,25 +317,35 @@ func TestInMemoryTaskStore_List(t *testing.T) {
 	t.Run("all tasks", func(t *testing.T) {
 		tasks, err := store.List("", 0, 0)
 		require.NoError(t, err)
-		assert.Len(t, tasks, 8)
+		assert.Equal(t, []string{"t7", "t6", "t5", "t4", "t3", "t2", "t1", "t0"}, ids(tasks))
 	})
 
 	t.Run("with limit", func(t *testing.T) {
 		tasks, err := store.List("ctx-1", 2, 0)
 		require.NoError(t, err)
-		assert.Len(t, tasks, 2)
+		assert.Equal(t, []string{"t4", "t3"}, ids(tasks))
 	})
 
 	t.Run("with offset", func(t *testing.T) {
 		tasks, err := store.List("ctx-1", 0, 3)
 		require.NoError(t, err)
-		assert.Len(t, tasks, 2)
+		assert.Equal(t, []string{"t1", "t0"}, ids(tasks))
 	})
 
 	t.Run("offset beyond range", func(t *testing.T) {
 		tasks, err := store.List("ctx-1", 0, 100)
 		require.NoError(t, err)
-		assert.Nil(t, tasks)
+		assert.Empty(t, tasks)
+	})
+
+	t.Run("returned tasks are copies", func(t *testing.T) {
+		tasks, err := store.List("ctx-1", 1, 0)
+		require.NoError(t, err)
+		require.Len(t, tasks, 1)
+		tasks[0].ContextID = "mutated"
+		again, err := store.Get("t4")
+		require.NoError(t, err)
+		assert.Equal(t, "ctx-1", again.ContextID, "a caller must not be able to mutate the store")
 	})
 }
 

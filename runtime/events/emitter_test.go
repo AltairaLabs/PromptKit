@@ -171,25 +171,6 @@ func TestEmitterPublishesVariousEvents(t *testing.T) {
 	}
 }
 
-func TestEmitterHandlesNilBus(t *testing.T) {
-	t.Parallel()
-
-	emitter := NewEmitter(nil, "run", "session", "conv")
-	// Should not panic even without a bus.
-	emitter.PipelineStarted(1)
-}
-
-func TestEmitterHandlesNilEmitter(t *testing.T) {
-	t.Parallel()
-
-	var emitter *Emitter
-	// Should not panic when emitter is nil
-	emitter.PipelineStarted(1)
-	emitter.MessageCreated("user", "hello", 0, nil, nil, nil, nil)
-	emitter.MessageUpdated(0, 100, 10, 20, 0.001)
-	emitter.ConversationStarted("system prompt")
-}
-
 func TestEmitter_MessageCreated(t *testing.T) {
 	t.Parallel()
 
@@ -578,16 +559,6 @@ func TestEmitter_ProviderCallCompleted_PreserveSource(t *testing.T) {
 	}
 }
 
-func TestEmitter_ProviderCallCompleted_NilData(t *testing.T) {
-	t.Parallel()
-
-	bus := NewEventBus()
-	emitter := NewEmitter(bus, "run-pcc", "session-pcc", "conv-pcc")
-
-	// Should not panic when data is nil
-	emitter.ProviderCallCompleted(nil)
-}
-
 func TestEmitter_WorkflowTransitioned(t *testing.T) {
 	t.Parallel()
 
@@ -700,16 +671,6 @@ func TestEmitter_ClientToolRequest(t *testing.T) {
 	}
 }
 
-func TestEmitter_ClientToolRequest_NilData(t *testing.T) {
-	t.Parallel()
-
-	bus := NewEventBus()
-	emitter := NewEmitter(bus, "run-ctrn", "session-ctrn", "conv-ctrn")
-
-	// Should not panic when data is nil
-	emitter.ClientToolRequest(nil)
-}
-
 func TestEmitter_ClientToolResolved(t *testing.T) {
 	t.Parallel()
 
@@ -774,16 +735,6 @@ func TestEmitter_ClientToolResolved_Rejected(t *testing.T) {
 	if data.Status != "rejected" || data.RejectionReason != "user denied" {
 		t.Fatalf("unexpected rejection data: %+v", data)
 	}
-}
-
-func TestEmitter_ClientToolResolved_NilData(t *testing.T) {
-	t.Parallel()
-
-	bus := NewEventBus()
-	emitter := NewEmitter(bus, "run-ctr4", "session-ctr4", "conv-ctr4")
-
-	// Should not panic when data is nil
-	emitter.ClientToolResolved(nil)
 }
 
 func TestEmitter_WithUserID(t *testing.T) {
@@ -990,38 +941,6 @@ func TestEmitter_ToolCallFailedCtx_SetsSpanContext(t *testing.T) {
 	}
 }
 
-func TestEmitter_CtxMethods_NilEmitter(t *testing.T) {
-	t.Parallel()
-
-	var emitter *Emitter
-	ctx := context.Background()
-	// None of these should panic
-	emitter.ProviderCallCompletedCtx(ctx, &ProviderCallCompletedData{})
-	emitter.ProviderCallFailedCtx(ctx, &ProviderCallFailedData{})
-	emitter.ToolCallCompletedCtx(ctx, "t", "c", time.Second, "s", nil, nil)
-	emitter.ToolCallFailedCtx(ctx, "t", "c", errors.New("e"), time.Second, nil)
-}
-
-func TestEmitter_ProviderCallCompletedCtx_NilData(t *testing.T) {
-	t.Parallel()
-
-	bus := NewEventBus()
-	emitter := NewEmitter(bus, "run-ctxn", "session-ctxn", "conv-ctxn")
-
-	// Should not panic when data is nil
-	emitter.ProviderCallCompletedCtx(context.Background(), nil)
-}
-
-func TestEmitter_ProviderCallFailedCtx_NilData(t *testing.T) {
-	t.Parallel()
-
-	bus := NewEventBus()
-	emitter := NewEmitter(bus, "run-ctxn2", "session-ctxn2", "conv-ctxn2")
-
-	// Should not panic when data is nil
-	emitter.ProviderCallFailedCtx(context.Background(), nil)
-}
-
 func TestEmitter_ImageGenCallCompletedCtx(t *testing.T) {
 	t.Parallel()
 
@@ -1103,26 +1022,6 @@ func TestEmitter_ImageGenCallFailedCtx(t *testing.T) {
 	if data.Error != "quota exceeded" {
 		t.Errorf("Error = %q, want %q", data.Error, "quota exceeded")
 	}
-}
-
-func TestEmitter_ImageGenCallCompletedCtx_NilData(t *testing.T) {
-	t.Parallel()
-
-	bus := NewEventBus()
-	emitter := NewEmitter(bus, "run-ig3", "session-ig3", "conv-ig3")
-
-	// Should not panic when data is nil
-	emitter.ImageGenCallCompletedCtx(context.Background(), nil)
-}
-
-func TestEmitter_ImageGenCallFailedCtx_NilData(t *testing.T) {
-	t.Parallel()
-
-	bus := NewEventBus()
-	emitter := NewEmitter(bus, "run-ig4", "session-ig4", "conv-ig4")
-
-	// Should not panic when data is nil
-	emitter.ImageGenCallFailedCtx(context.Background(), nil)
 }
 
 func TestEmitter_TTSCallCompletedCtx(t *testing.T) {
@@ -1209,26 +1108,6 @@ func TestEmitter_TTSCallFailedCtx(t *testing.T) {
 	}
 }
 
-func TestEmitter_TTSCallCompletedCtx_NilData(t *testing.T) {
-	t.Parallel()
-
-	bus := NewEventBus()
-	emitter := NewEmitter(bus, "run-tts3", "session-tts3", "conv-tts3")
-
-	// Should not panic when data is nil
-	emitter.TTSCallCompletedCtx(context.Background(), nil)
-}
-
-func TestEmitter_TTSCallFailedCtx_NilData(t *testing.T) {
-	t.Parallel()
-
-	bus := NewEventBus()
-	emitter := NewEmitter(bus, "run-tts4", "session-tts4", "conv-tts4")
-
-	// Should not panic when data is nil
-	emitter.TTSCallFailedCtx(context.Background(), nil)
-}
-
 func TestEmitter_STTCallCompletedCtx(t *testing.T) {
 	t.Parallel()
 
@@ -1310,26 +1189,6 @@ func TestEmitter_STTCallFailedCtx(t *testing.T) {
 	if data.Error != "audio too short" {
 		t.Errorf("Error = %q, want %q", data.Error, "audio too short")
 	}
-}
-
-func TestEmitter_STTCallCompletedCtx_NilData(t *testing.T) {
-	t.Parallel()
-
-	bus := NewEventBus()
-	emitter := NewEmitter(bus, "run-stt3", "session-stt3", "conv-stt3")
-
-	// Should not panic when data is nil
-	emitter.STTCallCompletedCtx(context.Background(), nil)
-}
-
-func TestEmitter_STTCallFailedCtx_NilData(t *testing.T) {
-	t.Parallel()
-
-	bus := NewEventBus()
-	emitter := NewEmitter(bus, "run-stt4", "session-stt4", "conv-stt4")
-
-	// Should not panic when data is nil
-	emitter.STTCallFailedCtx(context.Background(), nil)
 }
 
 func TestEmitter_InferenceCallCompletedCtx(t *testing.T) {

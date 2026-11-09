@@ -333,6 +333,14 @@ their rate in the file and keep each service's fixed rate.
 | Request PCM at a rate the vendor takes (Cartesia: 8000, 16000, 22050, 24000, 44100; ElevenLabs: those and 48000) | audio at that rate, where it came back at 24 kHz | nothing |
 | Request PCM at any other rate | an error from `SynthesizeTTS` naming the supported rates, where the call returned 24 kHz audio | request a supported rate, or resample |
 
+### Resumed tool results name their tool
+
+A tool result that `Resume`, `ResumeStream` or `Continue` gave the model had an
+empty tool name, so a provider that matches a result to its call by name
+(Gemini's `functionResponse`) got an invalid result. The result now carries the
+name of the tool the model called, as a result produced inside the turn does.
+Nothing changes for callers.
+
 ## v2.18.0
 
 ### Config errors, workflow findings and capability matching

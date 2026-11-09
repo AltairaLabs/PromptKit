@@ -836,6 +836,9 @@ func (s *RedisStore) MergeMetadata(ctx context.Context, id string, updates map[s
 	}
 
 	pipe := s.client.Pipeline()
+	if err := s.createMetaIfMissing(ctx, pipe, id); err != nil {
+		return err
+	}
 	pipe.HSet(ctx, s.metadataKey(id), fields)
 	if s.ttl > 0 {
 		pipe.Expire(ctx, s.metadataKey(id), s.ttl)
@@ -857,8 +860,8 @@ func (s *RedisStore) MergeMetadata(ctx context.Context, id string, updates map[s
 // set, and the meta key so that long-running workflows that only append
 // list entries don't expire prematurely.
 //
-// Auto-creates the conversation if it doesn't exist — meta is touched on
-// the next interaction (or by an explicit Save). No Save is required.
+// Auto-creates the conversation if it doesn't exist (a minimal meta record,
+// written only when absent). No Save is required.
 func (s *RedisStore) AppendList(ctx context.Context, id, listName string, items [][]byte) error {
 	if id == "" {
 		return ErrInvalidID
@@ -879,6 +882,9 @@ func (s *RedisStore) AppendList(ctx context.Context, id, listName string, items 
 	indexK := s.listsIndexKey(id)
 
 	pipe := s.client.Pipeline()
+	if err := s.createMetaIfMissing(ctx, pipe, id); err != nil {
+		return err
+	}
 	pipe.RPush(ctx, listK, args...)
 	pipe.SAdd(ctx, indexK, listName)
 	if s.ttl > 0 {
@@ -1118,6 +1124,8 @@ func (s *RedisStore) updateMetaTTL(ctx context.Context, id, msgKey string) error
 		pipe.Expire(ctx, msgKey, s.ttl)
 	}
 	pipe.Set(ctx, metaKey, metaData, s.ttl)
+	// AppendMessages auto-creates the conversation, so it must be listed.
+	s.pipeUpdateGlobalIndex(ctx, pipe, id)
 
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("redis pipeline failed: %w", err)
@@ -1178,6 +1186,9 @@ func (s *RedisStore) SaveSummary(ctx context.Context, id string, summary Summary
 	}
 
 	pipe := s.client.Pipeline()
+	if err := s.createMetaIfMissing(ctx, pipe, id); err != nil {
+		return err
+	}
 	pipe.RPush(ctx, key, data)
 	if s.ttl > 0 {
 		pipe.Expire(ctx, key, s.ttl)
@@ -1190,55 +1201,52 @@ func (s *RedisStore) SaveSummary(ctx context.Context, id string, summary Summary
 	return nil
 }
 
-// migrateToListFormat migrates a conversation from monolithic JSON to list format.
-// Uses pipelining for the batched RPUSH of messages and summaries.
+// createMetaScript writes a minimal meta record (ARGV[1], with a PX TTL of
+// ARGV[2] when positive) at KEYS[1], but only when neither it nor the legacy
+// monolithic key KEYS[2] exists. A legacy-only conversation must keep loading
+// from its monolithic key, which Load reads only when meta is absent. Returns
+// 1 when it wrote, 0 otherwise, never nil, so the pipeline sees no redis.Nil.
+const createMetaScript = `
+if redis.call('EXISTS', KEYS[1]) == 1 or redis.call('EXISTS', KEYS[2]) == 1 then
+  return 0
+end
+if tonumber(ARGV[2]) > 0 then
+  redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
+else
+  redis.call('SET', KEYS[1], ARGV[1])
+end
+return 1
+`
+
+// createMetaIfMissing queues, on pipe, the creation of a minimal meta record
+// and the conversation's global-index entry. A typed write that is the first
+// touch of a conversation must create it, as the interfaces document: without
+// a meta key, Load, Delete, List and the list reads all miss the
+// conversation. An existing meta key, or a legacy monolithic conversation, is
+// left as it is.
+func (s *RedisStore) createMetaIfMissing(ctx context.Context, pipe redis.Pipeliner, id string) error {
+	data, err := json.Marshal(redisStateMeta{ID: id, LastAccessedAt: time.Now()})
+	if err != nil {
+		return fmt.Errorf(errMarshalMeta, err)
+	}
+	pipe.Eval(ctx, createMetaScript, []string{s.metaKey(id), s.conversationKey(id)},
+		string(data), s.ttl.Milliseconds())
+	s.pipeUpdateGlobalIndex(ctx, pipe, id)
+	return nil
+}
+
+// migrateToListFormat migrates a conversation from monolithic JSON to the
+// decomposed format by saving the loaded state: Save writes the meta record
+// (UserID, SystemPrompt, TokenCount), messages, summaries and metadata hash,
+// indexes the conversation and deletes the monolithic key. Migrating only the
+// messages and summaries lost the rest, because the meta written afterwards
+// held nothing but the ID.
 func (s *RedisStore) migrateToListFormat(ctx context.Context, id string) error {
 	state, err := s.Load(ctx, id)
 	if err != nil {
 		return err
 	}
-
-	key := s.messagesKey(id)
-	if err := s.rpushMessages(ctx, key, state.Messages); err != nil {
-		return err
-	}
-	if err := s.expireIfTTL(ctx, key); err != nil {
-		return err
-	}
-
-	return s.migrateSummaries(ctx, id, state.Summaries)
-}
-
-// migrateSummaries migrates summaries to list format using a single batched RPUSH.
-func (s *RedisStore) migrateSummaries(ctx context.Context, id string, summaries []Summary) error {
-	if len(summaries) == 0 {
-		return nil
-	}
-
-	sumKey := s.summariesKey(id)
-	vals := make([]interface{}, 0, len(summaries))
-	for i := range summaries {
-		data, err := json.Marshal(&summaries[i])
-		if err != nil {
-			return fmt.Errorf("failed to marshal summary: %w", err)
-		}
-		vals = append(vals, data)
-	}
-
-	if err := s.client.RPush(ctx, sumKey, vals...).Err(); err != nil {
-		return fmt.Errorf("redis rpush failed: %w", err)
-	}
-	return s.expireIfTTL(ctx, sumKey)
-}
-
-// expireIfTTL sets expiration on a key if TTL is configured.
-func (s *RedisStore) expireIfTTL(ctx context.Context, key string) error {
-	if s.ttl > 0 {
-		if err := s.client.Expire(ctx, key, s.ttl).Err(); err != nil {
-			return fmt.Errorf("redis expire failed: %w", err)
-		}
-	}
-	return nil
+	return s.Save(ctx, state)
 }
 
 // loadRecentFromMonolithic loads recent messages from the monolithic key format.

@@ -1,6 +1,8 @@
 package sdk
 
 import (
+	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -77,16 +79,39 @@ func TestOpen_TopicPolicyTypoIsFatalNotUnprotected(t *testing.T) {
 }
 
 // TestOpen_ValidValidatorsSucceed guards against the checks above rejecting
-// legitimate packs. It uses a genuinely valid validator so CompileValidators is
-// actually reached — a pack declaring no validators would short-circuit before
-// the check and the test could not fail.
+// legitimate packs, and shows the validator the pack declares is the one that
+// runs: a reply under its 500-character limit passes untouched, and one over it
+// is caught by the length validator.
 func TestOpen_ValidValidatorsSucceed(t *testing.T) {
-	conv, err := Open("./testdata/packs/guardrail-valid-validator.pack.json", "chat",
-		WithProvider(mock.NewProvider("mock", "mock-model", false)),
-		WithSkipSchemaValidation(),
-	)
+	open := func(t *testing.T, reply string) *Conversation {
+		t.Helper()
+		conv, err := Open("./testdata/packs/guardrail-valid-validator.pack.json", "chat",
+			WithProvider(mock.NewProviderWithRepository("mock", "mock-model", false,
+				mock.NewInMemoryMockRepository(reply))),
+			WithSkipSchemaValidation(),
+		)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = conv.Close() })
+		return conv
+	}
 
-	require.NoError(t, err)
-	require.NotNil(t, conv)
-	defer conv.Close()
+	t.Run("short reply passes", func(t *testing.T) {
+		resp, err := open(t, "short answer").Send(context.Background(), "hi")
+		require.NoError(t, err)
+		assert.Equal(t, "short answer", resp.Text())
+		assert.Empty(t, resp.Validations(), "a passing reply records no guardrail firing")
+	})
+
+	t.Run("long reply is caught by the declared length validator", func(t *testing.T) {
+		resp, err := open(t, strings.Repeat("x", 600)).Send(context.Background(), "hi")
+		require.NoError(t, err)
+		var failed []string
+		for _, v := range resp.Validations() {
+			if !v.Passed {
+				failed = append(failed, v.ValidatorType)
+			}
+		}
+		assert.Equal(t, []string{"length"}, failed)
+		assert.Equal(t, strings.Repeat("x", 500), resp.Text(), "the reply is cut to the declared limit")
+	})
 }

@@ -227,7 +227,7 @@ func (rp *ReplayPlayer) getMessagesUpTo(offset time.Duration) []MessageSnapshot 
 		if unmarshalEventData(event.Data, &msgData) == nil {
 			messages = append(messages, MessageSnapshot{
 				Role:      msgData.Role,
-				Content:   msgData.Content,
+				Content:   msgData.GetContent(),
 				Timestamp: event.Timestamp,
 				Offset:    event.Offset,
 			})

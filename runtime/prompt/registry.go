@@ -884,17 +884,18 @@ func ParseConfig(data []byte) (*Config, error) {
 
 // loadConfig loads a prompt configuration from the repository with caching
 func (r *Registry) loadConfig(activity string) (*Config, error) {
-	if r.repository == nil {
-		return nil, fmt.Errorf("registry requires repository")
-	}
-
-	// Check cache first
+	// Check cache first: it holds what RegisterConfig registered, which a
+	// registry without a repository can still serve.
 	r.mu.RLock()
 	if cached, ok := r.promptCache[activity]; ok {
 		r.mu.RUnlock()
 		return cached, nil
 	}
 	r.mu.RUnlock()
+
+	if r.repository == nil {
+		return nil, fmt.Errorf("prompt %q is not registered and the registry has no repository", activity)
+	}
 
 	// Load outside the lock (a repository may do I/O), then populate and cache
 	// under it, re-checking first. A repository can hand every caller the same

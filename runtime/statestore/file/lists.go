@@ -51,12 +51,16 @@ func (s *Store) AppendList(
 }
 
 // LoadList returns all items of the named list in append order. Returns
-// (nil, nil) when the list is empty or missing.
+// (nil, nil) when the list is empty or missing, and ErrNotFound when the
+// conversation itself does not exist.
 func (s *Store) LoadList(
 	_ context.Context, id, listName string,
 ) ([][]byte, error) {
 	if id == "" {
 		return nil, statestore.ErrInvalidID
+	}
+	if err := s.requireConv(id); err != nil {
+		return nil, err
 	}
 	f, err := os.Open(s.listFile(id, listName))
 	if err != nil {
@@ -80,10 +84,30 @@ func (s *Store) LoadList(
 	return out, nil
 }
 
-// ListLen returns the number of items in the named list. 0 for missing.
+// ListLen returns the number of items in the named list: 0 for a missing
+// list, ErrNotFound when the conversation itself does not exist.
 func (s *Store) ListLen(_ context.Context, id, listName string) (int, error) {
 	if id == "" {
 		return 0, statestore.ErrInvalidID
 	}
+	if err := s.requireConv(id); err != nil {
+		return 0, err
+	}
 	return countLines(s.listFile(id, listName))
+}
+
+// requireConv returns ErrStoreClosed after Close, and ErrNotFound when the
+// conversation has no state.json.
+func (s *Store) requireConv(id string) error {
+	if err := s.checkOpen(); err != nil {
+		return err
+	}
+	exists, err := s.convExists(id)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return statestore.ErrNotFound
+	}
+	return nil
 }

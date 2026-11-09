@@ -1,6 +1,6 @@
 ---
 name: audit-test-seams
-description: Use when auditing a subsystem's tests for untested component handoffs and assertions that cannot fail - finds seams where two units each pass their own tests but the contract between them is unverified
+description: Use when auditing a subsystem's tests for untested component handoffs and assertions that cannot fail, or when replacing those tests with behavior tests - finds seams where two units each pass their own tests but the contract between them is unverified
 ---
 
 # Auditing Test Seams
@@ -156,8 +156,28 @@ assertion), what the contract or assertion should be, and the concrete
 failure a test would catch. Rank by blast radius — a seam on a safety path
 (guardrails, auth, budget enforcement) outranks one on a debug helper.
 
-Do not write the tests as part of the audit. The audit produces a work list;
-writing tests is separate work with its own review.
+## Step 5: Replace the weak tests
+
+The audit can be followed directly by the fix, in the same work. For each
+finding:
+
+- **Weak assertion:** rewrite the test to assert the behavior it should
+  protect, as an input and the exact output a caller sees (returned value,
+  rendered prompt, provider request, emitted events, persisted state, error
+  type and message). Replace, don't delete: delete outright only a test with
+  no behavior to protect (a duplicate `var _ I = (*T)(nil)`, a getter that
+  returns a field), and list each deletion in the PR body.
+- **Seam:** write one test that runs both sides for real, by the rule in
+  Step 2.3.
+- **Mutation-check each one.** Apply the mutation you named in Step 3 to a
+  file copy (never `git stash`, which is shared across worktrees), confirm the
+  test goes red, restore the file, and record the mutation in the PR body. A
+  test that survives its mutation is still weak: rewrite it.
+- **A rewritten test that fails on unmodified code has found a bug.** File it
+  with the test as the repro, and fix it in the same PR.
+
+`make check-mutation` runs the same check mechanically on the lines a branch
+changes; run it before opening the PR.
 
 ## Anti-patterns
 
@@ -179,8 +199,10 @@ blocks the cleanup and the fix is to backfill exactly the junk you removed.
 
 ## Non-goals
 
-- **No generated tests.** The audit produces a work list of findings; a human
-  or agent writes the tests as separate, separately-reviewed work.
+- **No bulk-generated tests.** Each replacement test comes from a judged
+  finding and names the behavior and mutation it pins (Step 5). A test written
+  to clear a scanner finding or win back coverage is the junk this audit
+  removes.
 - **No score, grade, or percentage.** A number becomes a target, and targets
   get gamed — that is the failure mode of the coverage gate this audit exists
   to supplement. Report findings, not a metric.
@@ -188,11 +210,16 @@ blocks the cleanup and the fix is to backfill exactly the junk you removed.
   are never gated, because "no test exists here" is not a build error and
   gating it would produce exactly the junk tests this work exists to remove.
 
-  One narrower mechanism *is* gated, and it is not this skill: brand-new tests
-  whose assertions cannot fail are caught by `scripts/check-weak-assertions.sh`,
-  available locally as `make check-weak-assertions` and run on pull requests by
-  the `Weak Assertion Guard` job in `.github/workflows/ci.yml`. It fires only on
-  findings absent from the merge base, so the ~679 pre-existing ones never block
-  unrelated work, and it is still not run in pre-commit. Its blind spots are
-  limitations 4-6 above, and they are why it is scoped this narrowly: a guard
-  that fires on legitimate tests gets switched off.
+  Two narrower mechanisms *are* gated, and neither is this skill:
+  - Brand-new tests whose assertions cannot fail (only `NoError`/`Nil`/`NotNil`,
+    a constant condition, a value compared with itself, or a tally of calls to
+    a collaborator) are caught by `scripts/check-weak-assertions.sh`, run by
+    pre-commit, by `make check-weak-assertions` and on pull requests by the
+    `Weak Assertion Guard` job in `.github/workflows/ci.yml`. It fires only on
+    findings absent from the merge base, so the pre-existing ones never block
+    unrelated work. Its blind spots are limitations 4-6 above, and they are why
+    it is scoped this narrowly: a guard that fires on legitimate tests gets
+    switched off.
+  - Changed lines whose tests do not notice them being broken are caught by
+    `scripts/check-mutation-diff.sh` (`make check-mutation`, the `Mutation
+    Gate` CI job), which mutates only the lines a PR changes.
