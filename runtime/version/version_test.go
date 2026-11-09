@@ -95,33 +95,3 @@ func TestGetBuildInfo_WithLdflags(t *testing.T) {
 		}
 	})
 }
-
-func TestLogStartup(t *testing.T) {
-	tests := []struct {
-		name  string
-		level string
-	}{
-		{"debug level", "debug"},
-		{"trace level", "trace"},
-		{"info level", "info"},
-		{"no env var", ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			withLogLevel(t, tt.level, func() {
-				LogStartup() // Should not panic
-			})
-		})
-	}
-}
-
-func TestGetCommitFromBuildInfo(t *testing.T) {
-	// Tests helper function - returns whatever test binary's build info contains
-	_ = getCommitFromBuildInfo()
-}
-
-func TestIsDirtyFromBuildInfo(t *testing.T) {
-	// Tests helper function - returns whatever test binary's build info contains
-	_ = isDirtyFromBuildInfo()
-}

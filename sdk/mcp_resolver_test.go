@@ -1,12 +1,17 @@
 package sdk
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	gosdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -99,13 +104,6 @@ func TestResolveMCPEndpoint_ResolverReturningEmptyURLErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), "no URL")
 }
 
-func TestWithMCPEndpoints_StoresResolverOnConfig(t *testing.T) {
-	r := &StaticMCPEndpointResolver{URL: "http://x"}
-	c := &config{}
-	require.NoError(t, WithMCPEndpoints(r)(c))
-	assert.Same(t, r, c.mcpEndpointResolver)
-}
-
 func TestInitMCPRegistry_NameOnlyWithResolver(t *testing.T) {
 	conv := &Conversation{}
 	cfg := &config{
@@ -165,25 +163,46 @@ func TestOpen_NameOnlyMCPWithoutResolverErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), "MCP server \"codegen\"")
 }
 
-// TestOpen_NameOnlyMCPWithResolverSucceeds covers the Open() happy path
-// for a resolver-backed MCP server: Open must complete cleanly even
-// though the resolver points at a URL that doesn't actually serve MCP
-// (the runtime client's tool listing degrades to an empty tool set
-// rather than failing the open).
+// TestOpen_NameOnlyMCPWithResolverSucceeds drives the caller's path for a
+// name-only MCP server: the resolver's URL and headers are what Open connects
+// with, and the server's tools land in the conversation's tool registry under
+// the server's name.
 func TestOpen_NameOnlyMCPWithResolverSucceeds(t *testing.T) {
-	packFile := writeMCPTestPack(t)
-	provider := mock.NewProvider("mock", "mock-model", false)
-	resolver := &StaticMCPEndpointResolver{URL: "http://127.0.0.1:1"} // unreachable, intentionally
+	server := gosdk.NewServer(&gosdk.Implementation{Name: "codegen", Version: "1"}, nil)
+	gosdk.AddTool(server, &gosdk.Tool{Name: "generate"},
+		func(context.Context, *gosdk.CallToolRequest, struct{}) (*gosdk.CallToolResult, any, error) {
+			return &gosdk.CallToolResult{}, nil, nil
+		})
+	var mu sync.Mutex
+	var auths []string
+	handler := gosdk.NewStreamableHTTPHandler(func(*http.Request) *gosdk.Server { return server }, nil)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		auths = append(auths, r.Header.Get("Authorization"))
+		mu.Unlock()
+		handler.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
 
-	conv, err := Open(packFile, "main",
-		WithProvider(provider),
+	conv, err := Open(writeMCPTestPack(t), "main",
+		WithProvider(mock.NewProvider("mock", "mock-model", false)),
 		WithSkipSchemaValidation(),
 		WithMCPServer(NewMCPServerByName("codegen")),
-		WithMCPEndpoints(resolver),
+		WithMCPEndpoints(&StaticMCPEndpointResolver{
+			URL:     srv.URL,
+			Headers: map[string]string{"Authorization": "Bearer t"},
+		}),
 	)
 	require.NoError(t, err)
 	defer conv.Close()
-	assert.NotNil(t, conv)
+
+	assert.Equal(t, []string{"mcp__codegen__generate"}, mcpNames(conv.ToolRegistry()))
+	mu.Lock()
+	defer mu.Unlock()
+	require.NotEmpty(t, auths, "Open reached the resolved URL")
+	for _, a := range auths {
+		assert.Equal(t, "Bearer t", a, "every request carries the resolver's headers")
+	}
 }
 
 // TestOpenDuplex_NameOnlyMCPWithoutResolverErrors covers the duplex

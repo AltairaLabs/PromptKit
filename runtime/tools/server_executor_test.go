@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -180,28 +181,51 @@ for line in sys.stdin:
 	assert.Contains(t, err.Error(), "context")
 }
 
+// pidServer answers every call with its own process id.
+const pidServer = `#!/usr/bin/env python3
+import sys, json, os
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    req = json.loads(line)
+    print(json.dumps({"jsonrpc": "2.0", "id": req.get("id", 0), "result": {"pid": os.getpid()}}), flush=True)
+`
+
+func serverPID(t *testing.T, e *ServerExecutor, desc *ToolDescriptor) int {
+	t.Helper()
+	out, err := e.Execute(context.Background(), desc, json.RawMessage(`{}`))
+	require.NoError(t, err)
+	var res struct {
+		PID int `json:"pid"`
+	}
+	require.NoError(t, json.Unmarshal(out, &res))
+	require.NotZero(t, res.PID)
+	return res.PID
+}
+
+// TestServerExecutor_Close checks that Close terminates the server process,
+// and that the executor starts a fresh process on the next call.
 func TestServerExecutor_Close(t *testing.T) {
-	script := writeServerScript(t, "server.py", pythonJSONRPCServer)
-
+	script := writeServerScript(t, "server.py", pidServer)
 	e := &ServerExecutor{}
-
 	desc := &ToolDescriptor{
-		Name: "close_tool",
-		ExecConfig: &ExecConfig{
-			Command: "python3",
-			Args:    []string{script},
-		},
+		Name:       "close_tool",
+		ExecConfig: &ExecConfig{Command: "python3", Args: []string{script}},
 	}
 
-	// Start the process
-	_, err := e.Execute(context.Background(), desc, json.RawMessage(`{}`))
-	require.NoError(t, err)
+	pid := serverPID(t, e, desc)
+	assert.Equal(t, pid, serverPID(t, e, desc), "calls before Close share one process")
 
-	// Close should terminate the process
 	require.NoError(t, e.Close())
+	proc, err := os.FindProcess(pid)
+	if err == nil {
+		assert.Error(t, proc.Signal(syscall.Signal(0)), "server process %d still running after Close", pid)
+	}
 
-	// Processes map should be nil after close
-	assert.Nil(t, e.processes)
+	next := serverPID(t, e, desc)
+	assert.NotEqual(t, pid, next, "a call after Close must start a new process")
+	require.NoError(t, e.Close())
 }
 
 func TestServerExecutor_Close_Empty(t *testing.T) {

@@ -436,16 +436,6 @@ func TestLoadPack(t *testing.T) {
 	})
 }
 
-func TestNewPackCompiler(t *testing.T) {
-	registry := createTestRegistryWithRepo()
-	compiler := NewPackCompiler(registry)
-
-	require.NotNil(t, compiler)
-	assert.NotNil(t, compiler.loader)
-	assert.NotNil(t, compiler.timeProvider)
-	assert.NotNil(t, compiler.fileWriter)
-}
-
 func TestAssembledPrompt_UsesTools(t *testing.T) {
 	t.Run("with tools", func(t *testing.T) {
 		ap := &AssembledPrompt{

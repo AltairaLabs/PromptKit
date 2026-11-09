@@ -381,7 +381,8 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	}
 	// A client tool answered here rather than through Resume is admitted the
 	// same way.
-	c.admitDeferredResults(resolutions, c.lazyCallNames(ctx))
+	callNames := c.lazyCallNames(ctx)
+	c.admitDeferredResults(resolutions, callNames)
 
 	// Build tool result messages from resolutions
 	toolMsgs := make([]types.Message, 0, len(resolutions))
@@ -400,7 +401,10 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 			content = fmt.Sprintf("%v", res.Result)
 		}
 
-		toolResult := types.NewTextToolResult(res.ID, "", content)
+		// The result names the tool it answers, as an in-turn result does: a
+		// provider can match a result to its call by name (Gemini's
+		// functionResponse carries only the name).
+		toolResult := types.NewTextToolResult(res.ID, callNames()[res.ID], content)
 		toolResult.Error = errStr
 		toolMsgs = append(toolMsgs, types.NewToolResultMessage(toolResult))
 	}

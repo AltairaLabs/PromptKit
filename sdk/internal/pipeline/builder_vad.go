@@ -172,6 +172,10 @@ func vadProviderConfig(cfg *Config) *stage.ProviderConfig {
 		Streaming: true,
 		// The same opt-out from media-part validation as text.
 		SkipContentValidation: cfg.SkipContentValidation,
+		// Provider hooks read the pack's declaration of the prompt the model
+		// is invoked for (RFC 0016); without this a voice turn's hooks see
+		// nil (#2574).
+		PromptDeclarations: cfg.PromptDeclarations,
 	}
 	// A voice session is the longest-lived topology there is; without this it
 	// never compacts. Default-on, matching the streaming sibling.

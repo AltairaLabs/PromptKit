@@ -523,10 +523,19 @@ func TestSavePrompt(t *testing.T) {
 		err = repo.SavePrompt(config)
 		require.NoError(t, err)
 
-		// Verify file was created at mapped path
-		expectedPath := filepath.Join(tmpDir, "custom/path/config.json")
-		_, err = os.Stat(expectedPath)
-		assert.NoError(t, err)
+		// The file is written at the mapped path, and a fresh repository
+		// with the same mapping loads it back.
+		raw, err := os.ReadFile(filepath.Join(tmpDir, "custom/path/config.json"))
+		require.NoError(t, err)
+		var onDisk prompt.Config
+		require.NoError(t, json.Unmarshal(raw, &onDisk))
+		assert.Equal(t, "mapped-task", onDisk.Spec.TaskType)
+
+		fresh := NewBasePromptRepository(tmpDir, mapping, []string{".json"}, json.Unmarshal)
+		loaded, err := fresh.LoadPrompt("mapped-task")
+		require.NoError(t, err)
+		assert.Equal(t, "mapped-task", loaded.Spec.TaskType)
+		assert.Equal(t, "PromptConfig", loaded.Kind)
 	})
 
 	t.Run("updates cache and mapping", func(t *testing.T) {

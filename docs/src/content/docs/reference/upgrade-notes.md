@@ -302,6 +302,14 @@ order, so the error `OpenWorkflow` and `Open` return named a different first
 finding from run to run. The findings now come in state, event and member
 name order.
 
+### Resumed tool results name their tool
+
+A tool result that `Resume`, `ResumeStream` or `Continue` gave the model had an
+empty tool name, so a provider that matches a result to its call by name
+(Gemini's `functionResponse`) got an invalid result. The result now carries the
+name of the tool the model called, as a result produced inside the turn does.
+Nothing changes for callers.
+
 ### Conversation behavior fixes
 
 | If you | You will see | Change |

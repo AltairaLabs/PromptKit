@@ -145,11 +145,13 @@ func TestInMemoryIndex_Delete(t *testing.T) {
 	require.NoError(t, err)
 	err = idx.Index(ctx, "conv-1", 1, types.Message{Role: "user", Content: "goodbye"})
 	require.NoError(t, err)
+	err = idx.Index(ctx, "conv-2", 0, types.Message{Role: "user", Content: "hello"})
+	require.NoError(t, err)
 
 	// Verify search returns results before delete
 	results, err := idx.Search(ctx, "conv-1", "hello", 5)
 	require.NoError(t, err)
-	require.NotNil(t, results)
+	require.Len(t, results, 2)
 
 	// Delete the conversation index
 	err = idx.Delete(ctx, "conv-1")
@@ -159,6 +161,12 @@ func TestInMemoryIndex_Delete(t *testing.T) {
 	results, err = idx.Search(ctx, "conv-1", "hello", 5)
 	require.NoError(t, err)
 	assert.Nil(t, results)
+
+	// Other conversations keep their index.
+	results, err = idx.Search(ctx, "conv-2", "hello", 5)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "hello", results[0].Message.Content)
 }
 
 func TestInMemoryIndex_SearchTopK(t *testing.T) {

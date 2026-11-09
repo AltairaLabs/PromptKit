@@ -307,8 +307,9 @@ type Config struct {
 	MemoryContextFormatter memory.ContextFormatter
 
 	// ExecutionTimeout overrides the default pipeline execution timeout.
-	// When non-nil, the pointed-to duration is used instead of the default 30s.
-	// A zero value disables timeout entirely.
+	// When non-nil, the pointed-to duration is used instead of the runtime
+	// default (stage.DefaultExecutionTimeoutSeconds, currently none). A zero
+	// value disables the timeout entirely.
 	ExecutionTimeout *time.Duration
 
 	// IdleTimeout overrides the default pipeline idle timeout (30s), which

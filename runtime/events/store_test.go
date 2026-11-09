@@ -54,10 +54,17 @@ func TestFileEventStore_Append(t *testing.T) {
 	err = store.Append(context.Background(), event)
 	require.NoError(t, err)
 
-	// Verify file was created
-	path := store.sessionPath("session-123")
-	_, err = os.Stat(path)
+	// A second store on the same directory reads the event back, payload and all.
+	reader, err := NewFileEventStore(store.dir)
 	require.NoError(t, err)
+	defer reader.Close()
+	got, err := reader.Query(context.Background(), &EventFilter{SessionID: "session-123"})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, EventMessageCreated, got[0].Type)
+	assert.Equal(t, "session-123", got[0].SessionID)
+	assert.True(t, event.Timestamp.Equal(got[0].Timestamp))
+	assert.Equal(t, &MessageCreatedData{Role: "user", Content: "Hello, world!"}, got[0].Data)
 }
 
 func TestFileEventStore_Append_RequiresSessionID(t *testing.T) {
@@ -176,10 +183,12 @@ func TestFileEventStore_QueryRaw(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
 
-		// Verify raw data is preserved
-		assert.NotEmpty(t, result[0].Event.Data)
-		assert.NotEmpty(t, result[0].Event.DataType)
+		// Raw data is the serialized payload, undecoded.
 		assert.Equal(t, "*events.MessageCreatedData", result[0].Event.DataType)
+		var first MessageCreatedData
+		require.NoError(t, json.Unmarshal(result[0].Event.Data, &first))
+		assert.Equal(t, MessageCreatedData{Role: "user", Content: "Hello"}, first)
+		assert.Equal(t, []int64{1, 2}, []int64{result[0].Sequence, result[1].Sequence})
 	})
 
 	t.Run("non-existent session returns nil", func(t *testing.T) {
@@ -683,16 +692,6 @@ func TestFileEventStore_Close_AlreadyClosed(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestFileEventStore_Sync_NoFiles(t *testing.T) {
-	store, err := NewFileEventStore(t.TempDir())
-	require.NoError(t, err)
-	defer store.Close()
-
-	// Sync with no files open should succeed
-	err = store.Sync()
-	require.NoError(t, err)
-}
-
 func TestFileEventStore_Query_AdvancedFilters(t *testing.T) {
 	store, err := NewFileEventStore(t.TempDir())
 	require.NoError(t, err)
@@ -719,7 +718,8 @@ func TestFileEventStore_Query_AdvancedFilters(t *testing.T) {
 			ExecutionID: "run-1",
 		})
 		require.NoError(t, err)
-		assert.Len(t, result, 2)
+		assert.Equal(t, []EventType{EventMessageCreated, EventToolCallStarted}, eventTypes(result))
+		assert.Equal(t, []string{"conv-1", "conv-2"}, conversationIDs(result))
 	})
 
 	t.Run("filter by time range Since", func(t *testing.T) {
@@ -728,7 +728,8 @@ func TestFileEventStore_Query_AdvancedFilters(t *testing.T) {
 			Since:     baseTime.Add(500 * time.Millisecond),
 		})
 		require.NoError(t, err)
-		assert.Len(t, result, 2)
+		assert.Equal(t, []string{"run-2", "run-1"}, executionIDs(result))
+		assert.Equal(t, []EventType{EventMessageCreated, EventToolCallStarted}, eventTypes(result))
 	})
 
 	t.Run("filter by time range Until", func(t *testing.T) {
@@ -737,7 +738,8 @@ func TestFileEventStore_Query_AdvancedFilters(t *testing.T) {
 			Until:     baseTime.Add(500 * time.Millisecond),
 		})
 		require.NoError(t, err)
-		assert.Len(t, result, 1)
+		assert.Equal(t, []string{"run-1"}, executionIDs(result))
+		assert.Equal(t, []string{"conv-1"}, conversationIDs(result))
 	})
 
 	t.Run("combined filters", func(t *testing.T) {
@@ -747,26 +749,33 @@ func TestFileEventStore_Query_AdvancedFilters(t *testing.T) {
 			ConversationID: "conv-1",
 		})
 		require.NoError(t, err)
-		assert.Len(t, result, 1)
+		assert.Equal(t, []string{"run-1"}, executionIDs(result))
+		assert.Equal(t, []EventType{EventMessageCreated}, eventTypes(result))
 	})
 }
 
-func TestFileEventStore_Sync_WithFiles(t *testing.T) {
-	store, err := NewFileEventStore(t.TempDir())
-	require.NoError(t, err)
-	defer store.Close()
-
-	// Write an event to create a file
-	event := &Event{
-		Type:      EventMessageCreated,
-		Timestamp: time.Now(),
-		SessionID: "session-sync",
+func eventTypes(evs []*Event) []EventType {
+	out := make([]EventType, 0, len(evs))
+	for _, e := range evs {
+		out = append(out, e.Type)
 	}
-	require.NoError(t, store.Append(context.Background(), event))
+	return out
+}
 
-	// Sync should succeed with open files
-	err = store.Sync()
-	require.NoError(t, err)
+func executionIDs(evs []*Event) []string {
+	out := make([]string, 0, len(evs))
+	for _, e := range evs {
+		out = append(out, e.ExecutionID)
+	}
+	return out
+}
+
+func conversationIDs(evs []*Event) []string {
+	out := make([]string, 0, len(evs))
+	for _, e := range evs {
+		out = append(out, e.ConversationID)
+	}
+	return out
 }
 
 func TestFileEventStore_toSerializable_WithData(t *testing.T) {
@@ -953,24 +962,6 @@ func TestFileEventStore_CloseAndReopen(t *testing.T) {
 	assert.Len(t, events, 1)
 }
 
-func TestFileEventStore_SyncFlushes(t *testing.T) {
-	store, err := NewFileEventStore(t.TempDir())
-	require.NoError(t, err)
-	defer store.Close()
-
-	ctx := context.Background()
-	event := &Event{
-		Type:      EventMessageCreated,
-		Timestamp: time.Now(),
-		SessionID: "session-sync",
-		Data:      &MessageCreatedData{Role: "user", Content: "hello"},
-	}
-	require.NoError(t, store.Append(ctx, event))
-
-	// Sync should succeed
-	require.NoError(t, store.Sync())
-}
-
 func TestFileEventStore_CloseMultipleFiles(t *testing.T) {
 	dir := t.TempDir()
 	store, err := NewFileEventStore(dir)
@@ -1004,4 +995,31 @@ func TestFileEventStore_DefaultMaxOpenFiles(t *testing.T) {
 	defer store.Close()
 
 	assert.Equal(t, DefaultMaxOpenFiles, store.maxOpenFiles)
+}
+
+// TestFileEventStore_SyncKeepsStoreWritable pins that Sync, with or without
+// open files, succeeds and leaves the session files open for further appends.
+func TestFileEventStore_SyncKeepsStoreWritable(t *testing.T) {
+	store, err := NewFileEventStore(t.TempDir())
+	require.NoError(t, err)
+	defer store.Close()
+	ctx := context.Background()
+
+	require.NoError(t, store.Sync(), "sync with no files open")
+
+	appendMsg := func(content string) {
+		require.NoError(t, store.Append(ctx, &Event{
+			Type: EventMessageCreated, Timestamp: time.Now(), SessionID: "session-sync",
+			Data: &MessageCreatedData{Role: "user", Content: content},
+		}))
+	}
+	appendMsg("before")
+	require.NoError(t, store.Sync())
+	appendMsg("after")
+
+	got, err := store.Query(ctx, &EventFilter{SessionID: "session-sync"})
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "before", got[0].Data.(*MessageCreatedData).Content)
+	assert.Equal(t, "after", got[1].Data.(*MessageCreatedData).Content)
 }

@@ -243,9 +243,10 @@ func TestInstrumentedStorage_NilBusIsNoOp(t *testing.T) {
 
 	// Must not panic when bus is nil — spans still emit via the global
 	// tracer provider, but events become no-ops.
-	_, err := s.StoreMedia(context.Background(), &types.MediaContent{MIMEType: "image/png"},
+	ref, err := s.StoreMedia(context.Background(), &types.MediaContent{MIMEType: "image/png"},
 		&storage.MediaMetadata{RunID: "run-1"})
-	assert.NoError(t, err)
+	require.NoError(t, err)
+	assert.Equal(t, storage.Reference("out/media/abc.png"), ref, "the backend's reference is returned")
 }
 
 func TestInstrumentedStorage_NilMetadataDoesNotPanic(t *testing.T) {

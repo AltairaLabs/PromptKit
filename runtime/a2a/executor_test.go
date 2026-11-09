@@ -11,9 +11,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-// Compile-time interface check.
-var _ tools.MultimodalExecutor = (*Executor)(nil)
-
 func TestExecutor_Name(t *testing.T) {
 	e := NewExecutor()
 	defer e.Close()

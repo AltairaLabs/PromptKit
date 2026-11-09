@@ -300,19 +300,20 @@ func TestTemplateRenderer_Render_DeepNesting(t *testing.T) {
 		"f": "value",
 	}
 
+	// Each pass resolves at least one level, so six levels resolve fully.
 	result, err := renderer.Render("{{a}}", vars)
-
-	// With 3 passes, this might partially resolve or fully resolve
-	// The test verifies it handles deep nesting without crashing
 	if err != nil {
-		// It's OK if it errors on unresolved placeholders
-		t.Logf("Got expected error for very deep nesting: %v", err)
-	} else if result == "value" {
-		// Or it might fully resolve
-		t.Logf("Successfully resolved deep nesting to: %s", result)
-	} else {
-		// Or partially resolve
-		t.Logf("Partially resolved to: %s", result)
+		t.Fatalf("Render: %v", err)
+	}
+	if result != "value" {
+		t.Errorf("Render = %q, want %q", result, "value")
+	}
+
+	// A cycle never resolves; once the passes run out the renderer reports it
+	// rather than returning text that still holds a placeholder.
+	_, err = renderer.Render("{{x}}", map[string]string{"x": "{{y}}", "y": "{{x}}"})
+	if err == nil || !strings.Contains(err.Error(), "unresolved template placeholders") {
+		t.Errorf("Render of a cycle: err = %v, want unresolved template placeholders", err)
 	}
 }
 

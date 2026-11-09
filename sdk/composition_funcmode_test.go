@@ -148,13 +148,11 @@ func TestOpenComposition_ErrorOnMissingComposition(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `"nope"`,
 		"error must name the missing composition")
-
-	// Verify ToolRegistry is accessible on a valid Conversation (type-check).
-	_ = (*Conversation)(nil)
 }
 
-// TestOpenComposition_CompositionOutput_NilToolRegistry tests that the ToolRegistry
-// method exists and returns non-nil on a successfully opened conversation.
+// TestOpenComposition_ToolRegistryAccessible: the conversation OpenComposition
+// returns exposes the pack's tools, so a host can bind the executors its steps
+// call.
 func TestOpenComposition_ToolRegistryAccessible(t *testing.T) {
 	packPath := createTestPackFile(t, compositionFuncmodePackJSON)
 	mockProv := mock.NewProvider("mock", "mock-model", false)
@@ -164,7 +162,12 @@ func TestOpenComposition_ToolRegistryAccessible(t *testing.T) {
 	)
 	require.NoError(t, err)
 	defer conv.Close()
-	assert.NotNil(t, conv.ToolRegistry(), "ToolRegistry must be accessible on an OpenComposition conversation")
+	echo, err := conv.ToolRegistry().GetTool("echo")
+	require.NoError(t, err, "the pack's tool is in the registry")
+	assert.Equal(t, "Echoes its input back as output.", echo.Description)
+	assert.JSONEq(t,
+		`{"type":"object","properties":{"value":{"type":"string"}},"required":["value"]}`,
+		string(echo.InputSchema))
 }
 
 // Ensure tools import is used (echoToolExecutor uses tools.ToolDescriptor).

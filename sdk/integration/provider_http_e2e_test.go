@@ -12,8 +12,8 @@ import (
 
 	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	geminiprov "github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	// vllm is not registered by the SDK; a caller declaring it imports it.
 	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/vllm"

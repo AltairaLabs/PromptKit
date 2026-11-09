@@ -132,3 +132,9 @@ go test ./sdk/integration/... -v     # Integration tests with mock providers
 ```
 
 SDK tests use mock providers — no API keys needed. Workflow integration tests are in `sdk/workflow_test.go`.
+
+The repo's [Tests rules](../CLAUDE.md#tests) apply. In the SDK that means: open a real
+conversation with `Open()`/`OpenDuplex()` from a pack, drive it with `Send()`, and assert
+what the caller gets back (the response text, tool results, emitted events) or what the
+mock provider received (the rendered system prompt, the tools offered). Don't assert that
+a handler or the provider was called without asserting what it was called with.

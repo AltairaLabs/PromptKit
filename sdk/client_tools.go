@@ -465,6 +465,9 @@ func (c *Conversation) buildToolResultMessages(ctx context.Context) ([]types.Mes
 		default:
 			toolResult = types.NewTextToolResult(res.ID, "", string(res.ResultJSON))
 		}
+		// A provider matches a result to its call by the tool's name as well
+		// as the call ID (Gemini's functionResponse carries only the name).
+		toolResult.Name = callNames()[res.ID]
 
 		toolMsgs = append(toolMsgs, types.NewToolResultMessage(toolResult))
 	}
