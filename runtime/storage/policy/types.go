@@ -86,17 +86,42 @@ func ParsePolicyName(name string) (string, time.Duration, error) {
 	return "", 0, fmt.Errorf("unsupported policy name format: %s", name)
 }
 
+// RetentionRule is the Rules key that sets a policy's retention: a Go
+// duration string such as "90m" or "720h". A policy that carries it may have
+// any name; one without it must have a name ParsePolicyName understands.
+const RetentionRule = "retention"
+
 // Validate checks if a policy configuration is valid.
 func (p *Config) Validate() error {
 	if p.Name == "" {
 		return fmt.Errorf("policy name cannot be empty")
 	}
+	_, err := p.Retention()
+	return err
+}
 
-	// Try to parse the policy name to ensure it's valid
-	_, _, err := ParsePolicyName(p.Name)
-	if err != nil {
-		return fmt.Errorf("invalid policy name: %w", err)
+// Retention returns how long media under this policy is kept: the
+// RetentionRule when the policy sets one, otherwise the duration its name
+// encodes.
+func (p *Config) Retention() (time.Duration, error) {
+	raw, ok := p.Rules[RetentionRule]
+	if !ok {
+		_, duration, err := ParsePolicyName(p.Name)
+		if err != nil {
+			return 0, fmt.Errorf("invalid policy name: %w", err)
+		}
+		return duration, nil
 	}
-
-	return nil
+	text, isString := raw.(string)
+	if !isString {
+		return 0, fmt.Errorf("policy %q: %s rule must be a duration string, got %T", p.Name, RetentionRule, raw)
+	}
+	duration, err := time.ParseDuration(text)
+	if err != nil {
+		return 0, fmt.Errorf("policy %q: %s rule: %w", p.Name, RetentionRule, err)
+	}
+	if duration <= 0 {
+		return 0, fmt.Errorf("policy %q: %s rule must be positive, got %s", p.Name, RetentionRule, text)
+	}
+	return duration, nil
 }
