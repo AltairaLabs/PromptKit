@@ -219,7 +219,6 @@ func TestOnPipelineComplete(t *testing.T) {
 	})
 }
 
-
 func TestMultipleSubscribers(t *testing.T) {
 	source := newMockSource()
 	var count1, count2 int

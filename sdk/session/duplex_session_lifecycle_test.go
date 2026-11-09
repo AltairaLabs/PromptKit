@@ -232,6 +232,14 @@ func TestDuplexSession_ClearEmptiesHistory(t *testing.T) {
 	assert.Empty(t, after)
 }
 
+// parentStreamConfig returns the streaming config a session holds.
+func parentStreamConfig(t *testing.T, sess DuplexSession) (*duplexSession, *providers.StreamingInputConfig) {
+	t.Helper()
+	ds, ok := sess.(*duplexSession)
+	require.True(t, ok)
+	return ds, ds.streamConfig
+}
+
 // A fork of a realtime (ASM) session is itself a realtime session: its input
 // reaches a new provider stream session, as the parent's does. The fork must
 // keep the parent's streaming config, metadata and user, not fall back to a
@@ -263,6 +271,11 @@ func TestDuplexSession_ForkStaysRealtime(t *testing.T) {
 	assert.NotNil(t, gotStream, "the fork's pipeline must be built in realtime mode")
 	require.NotNil(t, gotConfig)
 	assert.Equal(t, "parent", gotConfig.SystemInstruction)
+	// The duplex stage writes the rendered instruction into its config, so
+	// parent and fork must not share one.
+	gotConfig.SystemInstruction = "written by the fork"
+	_, parentCfg := parentStreamConfig(t, parent)
+	assert.Equal(t, "parent", parentCfg.SystemInstruction, "the fork must not share the parent's config")
 
 	require.NoError(t, fork.SendText(context.Background(), "to the fork"))
 	require.Eventually(t, func() bool {

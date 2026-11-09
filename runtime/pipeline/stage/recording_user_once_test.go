@@ -48,6 +48,7 @@ func TestRecording_UserMessageRecordedOncePerTurn(t *testing.T) {
 		idx = append(idx, evt.Data.(*events.MessageCreatedData).Index)
 	}
 	assert.Equal(t, []int{0, 1}, idx, "positions stay transcript-absolute")
+	assert.Empty(t, user.Source, "the recorder marks its own copy, never the caller's message")
 }
 
 // A user message only the output recorder sees — a duplex or STT transcript,

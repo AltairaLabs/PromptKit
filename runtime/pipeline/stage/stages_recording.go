@@ -304,7 +304,11 @@ func (rs *RecordingStage) recordMessageElement(ctx context.Context, elem *Stream
 		return
 	}
 	if rs.config.Position == RecordingPositionInput && elem.Message.Source == "" {
-		elem.Message.Source = sourceRecordedInput
+		// Mark a copy, not the caller's message: Resume paths hand in
+		// pointers into the caller's own slice.
+		marked := *elem.Message
+		marked.Source = sourceRecordedInput
+		elem.Message = &marked
 	}
 
 	rs.appendOrWarn(ctx, &events.Event{

@@ -649,10 +649,10 @@ func (s *duplexSession) SubmitToolResults(ctx context.Context, responses []provi
 	}
 
 	for _, resp := range responses {
-		// A provider that keys results by name (Gemini's
-		// functionResponse.name) rejects an empty one, and the response
-		// carries only the call ID.
-		toolResult := types.NewTextToolResult(resp.ToolCallID, s.callName(resp.ToolCallID), resp.Result)
+		// The response carries only the call ID. The result message joins
+		// the conversation history, and a provider that replays history keyed
+		// by name (unary Gemini's functionResponse.name) rejects an empty one.
+		toolResult := types.NewTextToolResult(resp.ToolCallID, s.takeCallName(resp.ToolCallID), resp.Result)
 		if resp.IsError {
 			toolResult.Error = resp.Result
 		}
@@ -660,6 +660,15 @@ func (s *duplexSession) SubmitToolResults(ctx context.Context, responses []provi
 	}
 
 	return streaming.SendToolResults(ctx, result, s.stageInput)
+}
+
+// copyStreamConfig returns a shallow copy of cfg, or nil.
+func copyStreamConfig(cfg *providers.StreamingInputConfig) *providers.StreamingInputConfig {
+	if cfg == nil {
+		return nil
+	}
+	cp := *cfg
+	return &cp
 }
 
 // rememberCallNames records the tool name of each call by its ID.
@@ -677,12 +686,15 @@ func (s *duplexSession) rememberCallNames(calls []types.MessageToolCall) {
 	}
 }
 
-// callName returns the tool name of the call with id, or "" if the session
-// never saw it.
-func (s *duplexSession) callName(id string) string {
+// takeCallName returns the tool name of the call with id and forgets it, or
+// "" if the session never saw it. A call is answered once, so the entry is
+// dropped rather than kept for the life of the session.
+func (s *duplexSession) takeCallName(id string) string {
 	s.callNamesMu.Lock()
 	defer s.callNamesMu.Unlock()
-	return s.callNames[id]
+	name := s.callNames[id]
+	delete(s.callNames, id)
+	return name
 }
 
 // Variables returns a copy of the current variables.
@@ -763,8 +775,9 @@ func (s *duplexSession) ForkSession(
 		PipelineBuilder: pipelineBuilder,
 		Provider:        s.provider,
 		// The parent's streaming config, so a realtime session forks into a
-		// realtime session rather than a text pipeline (#2582).
-		Config:           s.streamConfig,
+		// realtime session rather than a text pipeline (#2582). A copy: the
+		// duplex stage writes the rendered system instruction into it.
+		Config:           copyStreamConfig(s.streamConfig),
 		ToolRegistry:     s.toolRegistry,
 		AsyncToolChecker: s.asyncToolChecker,
 		Variables:        forkVars,
