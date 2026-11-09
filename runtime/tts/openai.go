@@ -212,6 +212,12 @@ func (s *OpenAIService) Synthesize(
 		return nil, s.handleError(resp)
 	}
 
+	// The speech API's PCM is always 24 kHz and raw PCM carries no header
+	// naming its rate, so a caller that asked for another rate would play it
+	// at the wrong pitch. Resample it here to the rate asked for.
+	if format == openAIFormatPCM && config.Format.SampleRate > 0 && config.Format.SampleRate != openAISampleRate24 {
+		return newResamplingReader(resp.Body, openAISampleRate24, config.Format.SampleRate)
+	}
 	return resp.Body, nil
 }
 

@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
@@ -25,6 +28,10 @@ const (
 	defaultLocation = "us-central1"
 	// unitImage is the pricing/quantity unit for one generated image.
 	unitImage = "image"
+	// costDimensionSize and costDimensionQuality are the cost dimensions an
+	// Imagen call has always reported, which price tables may be keyed on.
+	costDimensionSize    = "1024x1024"
+	costDimensionQuality = "standard"
 	// roleUser is the chat role of the prompting message.
 	roleUser = "user"
 )
@@ -191,73 +198,9 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 		return providers.PredictionResponse{}, err
 	}
 
-	// Build request
-	imagenReq := imagenRequest{
-		Instances: []imagenInstance{{Prompt: prompt}},
-		Parameters: imagenParameters{
-			SampleCount:      1,
-			AspectRatio:      "1:1",
-			SafetyFilter:     "block_some",
-			PersonGeneration: "allow_adult",
-		},
-	}
-
-	reqBody, err := json.Marshal(imagenReq)
+	imagenResp, respBody, err := p.predictImages(ctx, prompt, defaultImagenParameters(1, aspectSquare))
 	if err != nil {
-		return providers.PredictionResponse{}, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	// Build URL for Gemini API: models/{model}:predict
-	url := fmt.Sprintf("%s/models/%s:predict", p.BaseURL, p.modelName)
-
-	logger.Debug("API request", "provider", "Imagen", "method", "POST", "url", url)
-
-	// Create HTTP request
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqBody))
-	if err != nil {
-		return providers.PredictionResponse{}, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-	// x-goog-api-key header for API key authentication (similar to Gemini API)
-	if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
-		return providers.PredictionResponse{}, fmt.Errorf("failed to apply authentication: %w", authErr)
-	}
-	// Provider headers (spec.Headers) go on every request, as on the other
-	// providers; a collision with the credential's header is refused.
-	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
-		return providers.PredictionResponse{}, hdrErr
-	}
-
-	// Make request
-	// GetHTTPClient, not HTTPClient: CreateProviderFromSpec tunes the
-	// BaseProvider client (request_timeout replaces it outright), so only it
-	// carries the configured timeout, transport, headers and rate limit.
-	resp, err := p.GetHTTPClient().Do(httpReq)
-	if err != nil {
-		return providers.PredictionResponse{}, fmt.Errorf("failed to make request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := providers.ReadResponseBody(resp.Body)
-	if err != nil {
-		return providers.PredictionResponse{}, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	logger.Debug("API response", "provider", "Imagen", "status_code", resp.StatusCode)
-
-	if resp.StatusCode != http.StatusOK {
-		return providers.PredictionResponse{}, fmt.Errorf("API error %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	// Parse response
-	var imagenResp imagenResponse
-	if err := json.Unmarshal(respBody, &imagenResp); err != nil {
-		return providers.PredictionResponse{}, fmt.Errorf("failed to unmarshal response: %w", err)
-	}
-
-	if len(imagenResp.Predictions) == 0 {
-		return providers.PredictionResponse{}, fmt.Errorf("no images generated")
+		return providers.PredictionResponse{}, err
 	}
 
 	// Build content parts with the generated image
@@ -287,7 +230,7 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 
 		// Unified cost fields for the new aggregation path:
 		Quantities:     map[string]float64{unitImage: 1},
-		DimensionMatch: map[string]string{"size": "1024x1024", "quality": "standard"},
+		DimensionMatch: legacyCostDimensions(),
 		ProviderName:   p.Name(),
 		Capability:     string(base.ProviderTypeImage),
 		Latency:        latency,
@@ -302,41 +245,232 @@ func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 	}, nil
 }
 
-// Generate satisfies base.ImageProvider. It delegates to Predict by translating
-// the ImageRequest into the legacy PredictionRequest shape internally, then
-// extracts the image bytes back into an ImageResponse.
+// Generate satisfies base.ImageProvider. It sends req.Size as the supported
+// aspect ratio nearest the size's width/height ratio (see aspectRatioForSize)
+// and req.Count as sampleCount, and returns every image the API generated,
+// base64-encoded as the API sends them.
 //
-// This is a thin shim — call sites that already use Predict continue to work.
-// Future PRs can migrate call sites to Generate directly.
+// Imagen has no quality setting, so req.Quality is not sent: image quality is
+// chosen by the model (for example imagen-4.0-ultra-generate-001 rather than
+// imagen-4.0-fast-generate-001).
 func (p *Provider) Generate(ctx context.Context, req base.ImageRequest) (base.ImageResponse, error) {
-	predReq := providers.PredictionRequest{
-		Messages: []types.Message{{Role: roleUser, Content: req.Prompt}},
+	start := time.Now()
+	if p.Credential() == nil {
+		return base.ImageResponse{}, fmt.Errorf(
+			"imagen: no credential: set GOOGLE_API_KEY or GEMINI_API_KEY, or configure one")
 	}
-	resp, err := p.Predict(ctx, predReq)
+	if req.Prompt == "" {
+		return base.ImageResponse{}, fmt.Errorf("imagen: no text prompt")
+	}
+	count, err := sampleCountFor(req.Count)
+	if err != nil {
+		return base.ImageResponse{}, err
+	}
+	aspect, err := aspectRatioForSize(req.Size)
 	if err != nil {
 		return base.ImageResponse{}, err
 	}
 
-	// Extract image bytes from the response's content parts.
-	// Image parts use ContentPart.Media.Data (base64-encoded string).
-	var imageBytes [][]byte
-	var mime string
-	for i := range resp.Parts {
-		part := &resp.Parts[i]
-		if part.Type == types.ContentTypeImage && part.Media != nil && part.Media.Data != nil && *part.Media.Data != "" {
-			imageBytes = append(imageBytes, []byte(*part.Media.Data))
-			if mime == "" {
-				mime = part.Media.MIMEType
-			}
-		}
+	resp, _, err := p.predictImages(ctx, req.Prompt, defaultImagenParameters(count, aspect))
+	if err != nil {
+		return base.ImageResponse{}, err
 	}
 
+	images := make([][]byte, 0, len(resp.Predictions))
+	mime := ""
+	for _, pred := range resp.Predictions {
+		if pred.BytesBase64Encoded == "" {
+			continue
+		}
+		images = append(images, []byte(pred.BytesBase64Encoded))
+		if mime == "" {
+			mime = pred.MimeType
+		}
+	}
+	if mime == "" {
+		mime = types.MIMETypeImagePNG
+	}
+
+	latency := time.Since(start)
+	n := float64(len(images))
 	return base.ImageResponse{
-		Images:   imageBytes,
+		Images:   images,
 		MIMEType: mime,
-		Cost:     resp.CostInfo,
-		Latency:  resp.Latency,
+		Cost: &types.CostInfo{
+			TotalCost:  costPerImage * n,
+			Quantities: map[string]float64{unitImage: n},
+			// size and quality keep the keys Predict's cost has always used, so
+			// a price table keyed on them still matches.
+			DimensionMatch: withAspectRatio(legacyCostDimensions(), aspect),
+			ProviderName:   p.Name(),
+			Capability:     string(base.ProviderTypeImage),
+			Latency:        latency,
+		},
+		Latency: latency,
 	}, nil
+}
+
+const (
+	// aspectSquare is Imagen's default aspect ratio.
+	aspectSquare = "1:1"
+	// maxSampleCount is the most images one Imagen :predict call generates.
+	maxSampleCount = 4
+)
+
+// imagenAspectRatios are the aspect ratios the Imagen API accepts, with their
+// width/height values.
+var imagenAspectRatios = []struct {
+	name  string
+	ratio float64
+}{
+	{aspectSquare, 1},
+	{"3:4", 3.0 / 4},
+	{"4:3", 4.0 / 3},
+	{"9:16", 9.0 / 16},
+	{"16:9", 16.0 / 9},
+}
+
+// legacyCostDimensions returns the size and quality cost dimensions an Imagen
+// call has always reported, which price tables may be keyed on.
+func legacyCostDimensions() map[string]string {
+	return map[string]string{"size": costDimensionSize, "quality": costDimensionQuality}
+}
+
+// withAspectRatio adds the aspect ratio a call was sent with to its cost
+// dimensions.
+func withAspectRatio(dims map[string]string, aspect string) map[string]string {
+	dims["aspect_ratio"] = aspect
+	return dims
+}
+
+// defaultImagenParameters is the parameters block every call sends.
+func defaultImagenParameters(count int, aspect string) imagenParameters {
+	return imagenParameters{
+		SampleCount:      count,
+		AspectRatio:      aspect,
+		SafetyFilter:     "block_some",
+		PersonGeneration: "allow_adult",
+	}
+}
+
+// sampleCountFor returns the sampleCount for a requested image count: 0 means
+// one image, and more than the API generates in one call is an error.
+func sampleCountFor(count int) (int, error) {
+	switch {
+	case count == 0:
+		return 1, nil
+	case count < 0 || count > maxSampleCount:
+		return 0, fmt.Errorf("imagen: count %d is out of range: one call generates 1 to %d images",
+			count, maxSampleCount)
+	default:
+		return count, nil
+	}
+}
+
+// aspectRatioForSize maps a "WIDTHxHEIGHT" size to the supported aspect ratio
+// nearest its width/height ratio, measured on a log scale so that 2:1 and 1:2
+// are equally far from 1:1. An empty size is 1:1.
+func aspectRatioForSize(size string) (string, error) {
+	if size == "" {
+		return aspectSquare, nil
+	}
+	w, h, ok := parseSize(size)
+	if !ok {
+		return "", fmt.Errorf("imagen: size %q is not WIDTHxHEIGHT, e.g. \"1024x1024\"", size)
+	}
+	want := math.Log(float64(w) / float64(h))
+	best, bestDist := aspectSquare, math.Inf(1)
+	for _, ar := range imagenAspectRatios {
+		if d := math.Abs(want - math.Log(ar.ratio)); d < bestDist {
+			best, bestDist = ar.name, d
+		}
+	}
+	return best, nil
+}
+
+// parseSize parses "WIDTHxHEIGHT" with positive integers.
+func parseSize(size string) (w, h int, ok bool) {
+	ws, hs, found := strings.Cut(strings.ToLower(strings.TrimSpace(size)), "x")
+	if !found {
+		return 0, 0, false
+	}
+	w, errW := strconv.Atoi(ws)
+	h, errH := strconv.Atoi(hs)
+	if errW != nil || errH != nil || w <= 0 || h <= 0 {
+		return 0, 0, false
+	}
+	return w, h, true
+}
+
+// predictImages sends one :predict call and returns the parsed response, with
+// at least one prediction, and its raw body.
+func (p *Provider) predictImages(
+	ctx context.Context, prompt string, params imagenParameters,
+) (*imagenResponse, []byte, error) {
+	imagenReq := imagenRequest{
+		Instances:  []imagenInstance{{Prompt: prompt}},
+		Parameters: params,
+	}
+
+	reqBody, err := json.Marshal(imagenReq)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Build URL for Gemini API: models/{model}:predict
+	url := fmt.Sprintf("%s/models/%s:predict", p.BaseURL, p.modelName)
+
+	logger.Debug("API request", "provider", "Imagen", "method", "POST", "url", url)
+
+	// Create HTTP request
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(reqBody))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	// x-goog-api-key header for API key authentication (similar to Gemini API)
+	if authErr := p.AuthorizeRequest(ctx, httpReq); authErr != nil {
+		return nil, nil, fmt.Errorf("failed to apply authentication: %w", authErr)
+	}
+	// Provider headers (spec.Headers) go on every request, as on the other
+	// providers; a collision with the credential's header is refused.
+	if hdrErr := p.ApplyCustomHeaders(httpReq); hdrErr != nil {
+		return nil, nil, hdrErr
+	}
+
+	// Make request
+	// GetHTTPClient, not HTTPClient: CreateProviderFromSpec tunes the
+	// BaseProvider client (request_timeout replaces it outright), so only it
+	// carries the configured timeout, transport, headers and rate limit.
+	resp, err := p.GetHTTPClient().Do(httpReq)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to make request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := providers.ReadResponseBody(resp.Body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	logger.Debug("API response", "provider", "Imagen", "status_code", resp.StatusCode)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	// Parse response
+	var imagenResp imagenResponse
+	if err := json.Unmarshal(respBody, &imagenResp); err != nil {
+		return nil, nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	if len(imagenResp.Predictions) == 0 {
+		return nil, nil, fmt.Errorf("no images generated")
+	}
+
+	return &imagenResp, respBody, nil
 }
 
 // CalculateCost calculates cost breakdown (simplified for Imagen)

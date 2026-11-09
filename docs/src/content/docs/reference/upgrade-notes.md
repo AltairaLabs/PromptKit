@@ -325,13 +325,31 @@ which Gemini API the request was routed to.
 (`output_format.sample_rate`) and ElevenLabs (`output_format=pcm_<rate>`).
 Both synthesized 24 kHz whatever was asked, and raw PCM carries no header naming
 its rate, so audio requested at another rate played at the wrong pitch. The
-OpenAI speech API takes no sample rate; its PCM stays 24 kHz. MP3 and WAV carry
-their rate in the file and keep each service's fixed rate.
+OpenAI speech API takes no sample rate and always returns 24 kHz PCM, so
+PromptKit resamples it to the rate asked for as the audio streams, with linear
+interpolation. MP3 and WAV carry their rate in the file and keep each service's
+fixed rate.
 
 | If you | You will see | Change |
 |---|---|---|
 | Request PCM at a rate the vendor takes (Cartesia: 8000, 16000, 22050, 24000, 44100; ElevenLabs: those and 48000) | audio at that rate, where it came back at 24 kHz | nothing |
-| Request PCM at any other rate | an error from `SynthesizeTTS` naming the supported rates, where the call returned 24 kHz audio | request a supported rate, or resample |
+| Request PCM at any other rate from Cartesia or ElevenLabs | an error from `SynthesizeTTS` naming the supported rates, where the call returned 24 kHz audio | request a supported rate, or resample |
+| Request PCM at any rate other than 24000 from OpenAI | audio resampled to that rate, where it came back at 24 kHz | nothing |
+
+### Imagen honors the requested size and count
+
+`imagen.Provider.Generate`, which the `image__generate` tool calls, now sends
+`base.ImageRequest.Size` and `Count`. Imagen takes an aspect ratio rather than
+pixel dimensions, so a `WIDTHxHEIGHT` size is sent as the supported ratio
+nearest its width/height ratio: 1:1, 3:4, 4:3, 9:16 or 16:9. Imagen has no
+quality setting, so `Quality` is not sent; the model you configure (for example
+an ultra or fast variant) decides quality.
+
+| If you | You will see | Change |
+|---|---|---|
+| Ask for a size such as `1792x1024` | an image at the nearest aspect ratio (16:9), where every image was 1:1 | nothing |
+| Ask for a `Count` from 1 to 4 | that many images in `ImageResponse.Images`, and cost for each, where you got one | nothing |
+| Ask for a `Count` above 4, or a size that is not `WIDTHxHEIGHT` | an error before any request is sent, where the call returned one 1:1 image | ask for at most 4 images per call, and give a size such as `1024x1024` |
 
 ### Resumed tool results name their tool
 
