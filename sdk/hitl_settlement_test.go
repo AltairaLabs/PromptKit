@@ -12,6 +12,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
@@ -375,4 +376,36 @@ func TestResume_PartialAnswersLeaveTheRestUnawaited(t *testing.T) {
 	assert.Equal(t, []string{first}, toolResultsSeen(provider, 1))
 
 	assert.ErrorIs(t, conv.SendToolResult(ctx, second, "sent"), ErrToolCallNotAwaited)
+}
+
+// A call the host's gate holds can be answered by another process: the
+// conversation is closed, reopened with sdk.Resume on the same state store,
+// answered with SendToolResult and resumed. Nothing about the hold lives in
+// the process that made it.
+func TestWithApprovalGate_HostHeldCallIsAnsweredInAnotherProcess(t *testing.T) {
+	gate := func(_ context.Context, _, name string, _ map[string]any) (*tools.PendingToolInfo, error) {
+		return &tools.PendingToolInfo{Reason: "referral", ToolName: name}, nil
+	}
+	state := statestore.NewMemoryStore()
+	held, provider := openSettlementConv(t, 1, []string{"Sent after review."},
+		WithApprovalGate(gate), WithStateStore(state), WithConversationID("referral-1"))
+	ctx := context.Background()
+
+	resp, err := held.Send(ctx, "message the customer")
+	require.NoError(t, err)
+	require.Len(t, resp.ClientTools(), 1)
+	id := resp.ClientTools()[0].CallID
+	require.NoError(t, held.Close())
+
+	resumed, err := Resume("referral-1", writeGatePack(t), "assist",
+		WithProvider(provider), WithSkipSchemaValidation(), WithApprovalGate(gate), WithStateStore(state))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = resumed.Close() })
+	require.NoError(t, resumed.SendToolResult(ctx, id, map[string]any{"sent": true}))
+	final, err := resumed.Resume(ctx)
+	require.NoError(t, err)
+
+	assert.Equal(t, "Sent after review.", final.Text())
+	assert.Equal(t, []string{id}, toolResultsSeen(provider, 1), "the model got the host's answer")
+	assert.JSONEq(t, `{"sent":true}`, toolResultFor(t, resumed, id).GetTextContent())
 }

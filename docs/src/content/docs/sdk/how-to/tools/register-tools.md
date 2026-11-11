@@ -146,6 +146,14 @@ opener := sdk.A2AOpener(packPath, promptName,
 
 ## 5. Require approval before a tool runs
 
+The built-in approval flow is for the case where the person approving is the client of the conversation: the app shows them the pending call, they decide, and the same app continues the turn. It fits approvals that take seconds or minutes, in one process:
+
+- Answers are held in the process's memory between `ResolveTool` and `Continue`. Call both in the same process, and continue before the process exits.
+- The approved tool runs inside the `ResolveTool` call, with whatever identity that request carries.
+- A held call in the pending store expires after `sdktools.DefaultPendingTTL` (5 minutes) unless the store is configured otherwise.
+
+When someone other than the client approves, such as a reviewer, a policy service or another team, possibly days later and on another machine, use [an approval gate the host owns](#when-someone-other-than-the-client-approves) instead.
+
 `OnToolAsync` takes a check function and an execution function. When the check returns a non-empty `PendingResult`, the pipeline holds the call instead of executing it. This applies to `Send`, to duplex sessions built with `WithIngestion`, and to realtime duplex sessions.
 
 ```go
@@ -192,28 +200,6 @@ conv.OnToolAsyncWithContext("process_refund",
 
 If the pending store cannot record a hold, for example because Redis is down, the call fails closed. It does not run, the model is told the call needs approval and the hold could not be recorded, and the store's error is logged. The model is not given the store's error, which can name internal hosts.
 
-### Supply your own approval gate
-
-To decide every tool call yourself, for MCP and pack tools as well as `OnToolAsync` ones, pass a gate with `WithApprovalGate`. It runs before the `OnToolAsync` checks on `Send`, `Stream`, `Continue` and `Resume`. `OpenDuplex` refuses it with `sdk.ErrApprovalGateUnary`, because a duplex session gives the host no way to answer a call the gate holds. The gate receives the tool-execution context, the call id, the tool name and the arguments:
-
-```go
-conv, _ := sdk.Open("./assist.pack.json", "assist",
-    sdk.WithApprovalGate(func(ctx context.Context, callID, name string, args map[string]any) (*tools.PendingToolInfo, error) {
-        decision, err := policy.Decide(ctx, name, args)
-        if err != nil {
-            return nil, err // refuse: the call does not run, and the model is told why
-        }
-        if decision.Refer {
-            referrals.Record(ctx, callID, name, args) // the host owns the hold
-            return &tools.PendingToolInfo{Reason: "referral", ToolName: name}, nil
-        }
-        return nil, nil // no decision: the OnToolAsync check, if any, decides
-    }),
-)
-```
-
-A call the gate holds is the host's to answer. It appears in `resp.ClientTools()`, not in the pending store. Answer it with `SendToolResult` or `RejectClientTool`, then call `conv.Resume(ctx)`. Return an error rather than `nil` when the gate cannot record a hold, so the call fails closed.
-
 To approve with edits, pass overrides that shallow-merge over the arguments the model proposed:
 
 ```go
@@ -235,7 +221,7 @@ http.HandleFunc("/approve", func(w http.ResponseWriter, r *http.Request) {
 
 ### Persist approvals across restarts and instances
 
-Held calls live in an in-process store by default. They do not survive a restart, and only the process that held them can resolve them. For a reviewer approving from another service, or approvals that outlive a redeploy, inject a durable store with `WithPendingStore`:
+Held calls live in an in-process store by default. They do not survive a restart, and only the process that held them can resolve them. To keep held calls across a restart or redeploy, inject a durable store with `WithPendingStore`:
 
 ```go
 import (
@@ -254,7 +240,54 @@ conv, _ := sdk.Open("./assist.pack.json", "assist", sdk.WithPendingStore(store))
 
 `conv.PendingTools(ctx)` lists the conversation's held calls from the store, including ones that survived a restart.
 
+The store keeps the held calls, not the answers. An answer stays in the memory of the process that called `ResolveTool` until that process calls `Continue`. This makes the store a way to survive a restart, not a way for several processes to settle one turn between them.
+
 While a call waits, close the conversation with `conv.Close()` and resume it with `sdk.Resume` when the decision arrives. A close ends a session, not the conversation: it runs the pack's `on_session_complete` evals. Call `conv.Complete()` instead of `Close()` once the conversation is finished, so its `on_conversation_complete` evals score it once rather than at every pause.
+
+### When someone other than the client approves
+
+When the approver is not the client, such as a reviewer, a policy service or another person, and the decision can take days and arrive at another instance, the host owns the approval. PromptKit holds the call and resumes the turn. The host does everything in between: it records the referral, collects decisions, runs the tool as the right identity, keeps the audit trail and handles expiry.
+
+To decide every tool call yourself, for MCP and pack tools as well as `OnToolAsync` ones, pass a gate with `WithApprovalGate`. It runs before the `OnToolAsync` checks on `Send`, `Stream`, `Continue` and `Resume`. `OpenDuplex` refuses it with `sdk.ErrApprovalGateUnary`, because a duplex session gives the host no way to answer a call the gate holds. The gate receives the tool-execution context, the call id, the tool name and the arguments:
+
+```go
+conv, _ := sdk.Open("./assist.pack.json", "assist",
+    sdk.WithApprovalGate(func(ctx context.Context, callID, name string, args map[string]any) (*tools.PendingToolInfo, error) {
+        decision, err := policy.Decide(ctx, name, args)
+        if err != nil {
+            return nil, err // refuse: the call does not run, and the model is told why
+        }
+        if decision.Refer {
+            referrals.Record(ctx, callID, name, args) // the host owns the hold
+            return &tools.PendingToolInfo{Reason: "referral", ToolName: name}, nil
+        }
+        return nil, nil // no decision: the OnToolAsync check, if any, decides
+    }),
+)
+```
+
+A call the gate holds is the host's to answer. It appears in `resp.ClientTools()`, not in the pending store, and its tool does not run. Return an error rather than `nil` when the gate cannot record a hold, so the call fails closed.
+
+The process that answers can be a different one from the process that held the call. Close the conversation once the turn suspends. When every decision is in, reopen it with `sdk.Resume` on the same state store, with the same `WithApprovalGate`. Give each held call its answer, then resume:
+
+```go
+conv, _ := sdk.Resume(convID, "./assist.pack.json", "assist",
+    sdk.WithStateStore(store), sdk.WithApprovalGate(gate))
+for _, d := range decisions {
+    switch {
+    case d.Approved:
+        conv.SendToolResult(ctx, d.CallID, d.Result) // the host ran the tool
+    default:
+        conv.RejectClientTool(ctx, d.CallID, d.Reason)
+    }
+}
+resp, err := conv.Resume(ctx) // one model request with every answer
+```
+
+- Answer every held call of the round before `Resume`. A `Resume` with calls still unanswered carries on without them. A later answer for one of them returns `sdk.ErrToolCallNotAwaited`.
+- A large result, such as an image or a document, goes in as a part that refers to stored media, with `SendToolResultMultimodal` and a `types.New<Kind>PartFromStorageRef` part. The provider resolves the reference when it calls the model (see `WithMediaStorage`).
+- Keep the conversation's state longer than any approval can take: the Redis state store's default TTL is 24 hours, and `statestore.WithTTL` changes it.
+- The identity the resumed turn's tool calls act for is whatever the host puts on the `Resume` context, as it is for `Send`.
 
 ## Verify
 
