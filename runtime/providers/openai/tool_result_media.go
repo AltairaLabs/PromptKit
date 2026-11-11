@@ -6,7 +6,7 @@ import (
 	"mime"
 	"strings"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -52,10 +52,7 @@ func (p *ToolProvider) toolMessageText(result *types.MessageToolResult) string {
 			liftedKind = part.Type
 			continue
 		}
-		notes = append(notes, unsentMediaNote(part, "OpenAI Chat Completions"))
-		logger.Warn("tool result media not sent to the model: the API does not accept it",
-			"provider", p.ID(), "call_id", result.ID, "tool", result.Name,
-			"type", part.Type, "mime_type", mimeOf(part))
+		notes = append(notes, providers.UnsentToolMedia(p.ID(), "OpenAI Chat Completions", result, part))
 	}
 	switch {
 	case lifted == 1:
@@ -98,37 +95,6 @@ func (p *ToolProvider) liftedMediaMessage(results []*types.MessageToolResult) *t
 		return nil
 	}
 	return &types.Message{Role: roleUser, Parts: parts}
-}
-
-// unsentMediaNote describes a media part a provider cannot take in a tool
-// result, so the model knows the tool returned it and where it is.
-func unsentMediaNote(part *types.ContentPart, api string) string {
-	desc := part.Type
-	if m := mimeOf(part); m != "" {
-		desc += " (" + m
-		if part.Media.StorageReference != nil && *part.Media.StorageReference != "" {
-			desc += ", stored as " + *part.Media.StorageReference
-		} else if part.Media.URL != nil && *part.Media.URL != "" {
-			desc += ", at " + *part.Media.URL
-		}
-		desc += ")"
-	}
-	return fmt.Sprintf("[This tool returned %s %s that was not sent: %s does not accept %s input.]",
-		article(part.Type), desc, api, part.Type)
-}
-
-func mimeOf(part *types.ContentPart) string {
-	if part.Media == nil {
-		return ""
-	}
-	return part.Media.MIMEType
-}
-
-func article(word string) string {
-	if word != "" && strings.ContainsRune("aeiou", rune(word[0])) {
-		return "an"
-	}
-	return "a"
 }
 
 // resolveToolResultMedia returns a copy of result whose images carry the URL
@@ -189,11 +155,8 @@ func (p *Provider) responsesToolOutput(result *types.MessageToolResult) any {
 				"file_data": "data:" + part.Media.MIMEType + ";base64," + *part.Media.Data,
 			})
 		default:
-			note := unsentMediaNote(part, "OpenAI Responses")
+			note := providers.UnsentToolMedia(p.ID(), "OpenAI Responses", result, part)
 			items = append(items, map[string]any{keyType: typeInputText, partTypeText: note})
-			logger.Warn("tool result media not sent to the model: the API does not accept it",
-				"provider", p.ID(), "call_id", result.ID, "tool", result.Name,
-				"type", part.Type, "mime_type", mimeOf(part))
 		}
 	}
 	return items

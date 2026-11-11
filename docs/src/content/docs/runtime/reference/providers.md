@@ -89,6 +89,7 @@ The package provides:
 - [func SupportsMultimodal\(p Provider\) bool](<#SupportsMultimodal>)
 - [func UnmarshalJSON\(respBody \[\]byte, v any, predictResp \*PredictionResponse, start time.Time\) error](<#UnmarshalJSON>)
 - [func UnmarshalResponse\(body \[\]byte, resp any\) error](<#UnmarshalResponse>)
+- [func UnsentToolMedia\(providerID, api string, result \*types.MessageToolResult, part \*types.ContentPart\) string](<#UnsentToolMedia>)
 - [func ValidateMultimodalMessage\(p Provider, msg types.Message\) error](<#ValidateMultimodalMessage>)
 - [func ValidateMultimodalRequest\(p Provider, req \*PredictionRequest\) error](<#ValidateMultimodalRequest>)
 - [func ValidatePredictReturnsLatency\(t \*testing.T, provider Provider\)](<#ValidatePredictReturnsLatency>)
@@ -1181,6 +1182,15 @@ func UnmarshalResponse(body []byte, resp any) error
 ```
 
 UnmarshalResponse unmarshals a response body from JSON with standardized error handling.
+
+<a name="UnsentToolMedia"></a>
+## func [UnsentToolMedia](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/tool_result_media.go#L16-L18>)
+
+```go
+func UnsentToolMedia(providerID, api string, result *types.MessageToolResult, part *types.ContentPart) string
+```
+
+UnsentToolMedia describes a tool result's media part that the provider's API does not accept in a tool result, so the model is told the tool returned it and where it is instead of the part vanishing, and logs the replacement. api names the API in the note \("Claude", "OpenAI Responses"\). A provider sends the returned text in the part's place.
 
 <a name="ValidateMultimodalMessage"></a>
 ## func [ValidateMultimodalMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L250>)
