@@ -130,7 +130,7 @@ Before each provider call, the SDK checks every attachment against the modalitie
 
 The provider applies two limits to each message in the request when it builds the call:
 
-- At most 20 media parts it loads (`providers.MaxMediaItems`). Inline data, files, URLs and storage references all count. Media the provider hands to the model as a URL is not loaded and does not count: an image with a URL on OpenAI, Claude and vLLM, and on those and Ollama an image whose storage reference the store resolves to an `http(s)` URL. In a Claude tool result, only an image's own URL is passed on; a storage reference is loaded. Gemini loads every attachment, and Claude loads every document.
+- At most 20 media parts it loads (`providers.MaxMediaItems`). Inline data, files, URLs and storage references all count. Media the provider hands to the model as a URL is not loaded and does not count: an image with a URL on OpenAI, Claude and vLLM, and on those and Ollama an image whose storage reference the store resolves to an `http(s)` URL. Gemini loads every attachment, and Claude loads every document.
 - At most 100 MB of file, URL and stored media (`providers.MaxAggregateMediaSize`). Inline data, such as `WithDocumentData`, does not count toward it.
 
 Each message is checked on its own, so the attachments of earlier turns, which the conversation resends with every call, never count against a new message. A message over either limit fails the `Send` before any request is sent. Match the error with `errors.Is` against `providers.ErrMediaItemLimitExceeded` or `providers.ErrAggregateMediaSizeExceeded`.
