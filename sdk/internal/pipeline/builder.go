@@ -161,10 +161,11 @@ type Config struct {
 	// changes afterwards. See stage.TemplateStage.WithSystemPromptSuffix.
 	SystemPromptSuffix func() string
 
-	// ApprovalChecker, when set, gates tool execution for human-in-the-loop
-	// approval on the standard ProviderStage: a tool the checker holds is
-	// surfaced as pending instead of executing. Optional; nil executes normally.
-	ApprovalChecker tools.ApprovalChecker
+	// ApprovalGate, when set, gates tool execution for human-in-the-loop
+	// approval on the standard ProviderStage: a tool the gate holds is
+	// surfaced as pending instead of executing, and a tool it refuses does not
+	// run. Optional; nil executes normally.
+	ApprovalGate tools.ApprovalGate
 
 	// CallRate is the window the provider stage counts calls in for
 	// ToolPolicy.MaxCallsPerMinute (stage.ProviderConfig.CallRate). Nil gives
@@ -721,7 +722,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			SkipContentValidation: cfg.SkipContentValidation,
 			ToolPolicy:            cfg.ToolPolicy,
 			CallRate:              cfg.CallRate,
-			ApprovalChecker:       cfg.ApprovalChecker,
+			ApprovalGate:          cfg.ApprovalGate,
 		}
 		name := cfg.CompositionName
 		if name == "" {
@@ -771,7 +772,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			ToolSelector:     cfg.ToolSelector,
 			ToolGrants:       cfg.ToolGrants,
 			DescribeTool:     cfg.DescribeTool,
-			ApprovalChecker:  cfg.ApprovalChecker,
+			ApprovalGate:     cfg.ApprovalGate,
 			CallRate:         cfg.CallRate,
 			Streaming:        cfg.Ingestion != nil,
 

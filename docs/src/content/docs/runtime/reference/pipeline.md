@@ -742,7 +742,7 @@ func DescribeCapabilities(stage Stage) string
 DescribeCapabilities returns a human\-readable description of a stage's capabilities. Useful for debugging and logging.
 
 <a name="NewCompositionStepExecutor"></a>
-## func [NewCompositionStepExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L120>)
+## func [NewCompositionStepExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L126>)
 
 ```go
 func NewCompositionStepExecutor(deps CompositionExecutorDeps) engine.StepExecutor
@@ -1440,7 +1440,7 @@ type CompactionStrategy interface {
 ```
 
 <a name="CompositionExecutorDeps"></a>
-## type [CompositionExecutorDeps](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L64-L116>)
+## type [CompositionExecutorDeps](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L64-L122>)
 
 CompositionExecutorDeps carries the runtime collaborators a composition step needs to execute. Injected once; reused for every step of every Execute call.
 
@@ -1491,6 +1491,12 @@ type CompositionExecutorDeps struct {
     // step fails the step with ErrCompositionToolNeedsApproval, so the tool
     // never runs unapproved. Nil: no tool needs approval.
     ApprovalChecker tools.ApprovalChecker
+
+    // ApprovalGate is the conversation's approval gate when it can refuse a
+    // call (ProviderConfig.ApprovalGate). It takes the place of
+    // ApprovalChecker: a call it holds fails the step as above, and a call it
+    // refuses does not run.
+    ApprovalGate tools.ApprovalGate
 
     // CallRate is the enclosing conversation's call-rate window
     // (ProviderConfig.CallRate). Every step's provider stage counts in it, so
@@ -4195,7 +4201,7 @@ type ProviderBudgetedCompaction interface {
 ```
 
 <a name="ProviderConfig"></a>
-## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L144-L259>)
+## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L144-L266>)
 
 ProviderConfig contains configuration for the provider stage.
 
@@ -4290,6 +4296,13 @@ type ProviderConfig struct {
     // normally.
     ApprovalChecker tools.ApprovalChecker
 
+    // ApprovalGate, when set, is the approval gate and ApprovalChecker is not
+    // consulted. It holds a call as ApprovalChecker does, and can also refuse
+    // it: a call it returns an error for does not execute, the model is given
+    // the error as the call's result (ErrorType ToolErrorApproval), and a
+    // tool.call.failed event is emitted.
+    ApprovalGate tools.ApprovalGate
+
     // CallRate, when set, is the window ToolPolicy.MaxCallsPerMinute counts
     // calls in. Share one across the stages of a conversation. The stage
     // counts each call it runs, immediately before running it. It does not count a
@@ -4319,7 +4332,7 @@ type ProviderConfig struct {
 ```
 
 <a name="ProviderConfig.ApplyCallParams"></a>
-### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L272>)
+### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L279>)
 
 ```go
 func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
@@ -4328,7 +4341,7 @@ func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
 ApplyCallParams sets c's sampling fields from a prompt's resolved parameters \(prompt.Registry.CallParameters\).
 
 <a name="ProviderConfig.CallParams"></a>
-### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L262>)
+### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L269>)
 
 ```go
 func (c *ProviderConfig) CallParams() prompt.CallParams
@@ -4353,7 +4366,7 @@ type ProviderStage struct {
 ```
 
 <a name="NewProviderStage"></a>
-### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L315-L320>)
+### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L322-L327>)
 
 ```go
 func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig) *ProviderStage
@@ -4362,7 +4375,7 @@ func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry,
 NewProviderStage creates a new provider stage for request/response mode.
 
 <a name="NewProviderStageWithEmitter"></a>
-### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L327-L333>)
+### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L334-L340>)
 
 ```go
 func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter) *ProviderStage
@@ -4371,7 +4384,7 @@ func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tool
 NewProviderStageWithEmitter creates a new provider stage with event emission support. The stage emits provider.call.started, provider.call.completed, and provider.call.failed events through it for observability and session recording.
 
 <a name="NewProviderStageWithHooks"></a>
-### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L340-L347>)
+### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L347-L354>)
 
 ```go
 func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry) *ProviderStage
@@ -4380,7 +4393,7 @@ func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.
 NewProviderStageWithHooks creates a provider stage with event emission and hook support. The hookRegistry enables synchronous interception of provider calls, streaming chunks, and tool execution. Pass nil for no hooks \(zero overhead\).
 
 <a name="NewProviderStageWithTurnState"></a>
-### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L354-L362>)
+### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L361-L369>)
 
 ```go
 func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry, turnState *TurnState) *ProviderStage
@@ -4389,7 +4402,7 @@ func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *to
 NewProviderStageWithTurnState creates a provider stage that sources system\_prompt, allowed\_tools, and provider\-bound metadata from the shared \*TurnState. Pass nil for ad\-hoc / test usage where TurnState is not wired.
 
 <a name="ProviderStage.Process"></a>
-### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L521-L525>)
+### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L528-L532>)
 
 ```go
 func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -5544,7 +5557,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2761>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2768>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement

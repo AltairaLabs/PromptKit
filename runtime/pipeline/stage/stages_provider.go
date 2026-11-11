@@ -231,6 +231,13 @@ type ProviderConfig struct {
 	// normally.
 	ApprovalChecker tools.ApprovalChecker
 
+	// ApprovalGate, when set, is the approval gate and ApprovalChecker is not
+	// consulted. It holds a call as ApprovalChecker does, and can also refuse
+	// it: a call it returns an error for does not execute, the model is given
+	// the error as the call's result (ErrorType ToolErrorApproval), and a
+	// tool.call.failed event is emitted.
+	ApprovalGate tools.ApprovalGate
+
 	// CallRate, when set, is the window ToolPolicy.MaxCallsPerMinute counts
 	// calls in. Share one across the stages of a conversation. The stage
 	// counts each call it runs, immediately before running it. It does not count a
@@ -2923,17 +2930,24 @@ func (s *ProviderStage) preExecCheck(
 // this call, it is surfaced as pending (via ErrToolsPending / PendingTools
 // metadata) instead of executing, and ok is true. The caller resolves it
 // (approve / approve-with-edits / reject) and resumes.
+//
+// A gate that refuses the call (ApprovalGate returned an error) also sets ok:
+// the call does not run, and its result is the refusal.
 func (s *ProviderStage) holdForApproval(
-	ctx context.Context, toolCall types.MessageToolCall,
+	ctx context.Context, toolCall types.MessageToolCall, rr roundRef,
 ) (toolCallResult, bool) {
-	if s.config == nil || s.config.ApprovalChecker == nil {
+	gate := s.approvalGate()
+	if gate == nil {
 		return toolCallResult{}, false
 	}
 	var argsMap map[string]any
 	if len(toolCall.Args) > 0 {
 		_ = json.Unmarshal(toolCall.Args, &argsMap)
 	}
-	info := s.config.ApprovalChecker(ctx, toolCall.ID, toolCall.Name, argsMap)
+	info, err := gate(ctx, toolCall.ID, toolCall.Name, argsMap)
+	if err != nil {
+		return s.approvalRefused(ctx, toolCall, err, rr), true
+	}
 	if info == nil {
 		return toolCallResult{}, false
 	}
@@ -2944,6 +2958,40 @@ func (s *ProviderStage) holdForApproval(
 		Status:      tools.ToolStatusPending,
 		PendingInfo: info,
 	}), true
+}
+
+// approvalGate is the configured approval gate: ApprovalGate when set, else
+// ApprovalChecker as a gate that never refuses, else nil.
+func (s *ProviderStage) approvalGate() tools.ApprovalGate {
+	if s.config == nil {
+		return nil
+	}
+	if s.config.ApprovalGate != nil {
+		return s.config.ApprovalGate
+	}
+	if checker := s.config.ApprovalChecker; checker != nil {
+		return func(ctx context.Context, callID, name string, args map[string]any) (*tools.PendingToolInfo, error) {
+			return checker(ctx, callID, name, args), nil
+		}
+	}
+	return nil
+}
+
+// approvalRefused is the result of a call the approval gate refused: an
+// approval error naming the cause, which the model is given in place of the
+// call's result. A tool.call.started event and a tool.call.failed event
+// report it.
+func (s *ProviderStage) approvalRefused(
+	ctx context.Context, toolCall types.MessageToolCall, cause error, rr roundRef,
+) toolCallResult {
+	errMsg := fmt.Sprintf("Tool %s was not run: the approval gate refused it: %v", toolCall.Name, cause)
+	result := types.NewTextToolResult(toolCall.ID, toolCall.Name, errMsg)
+	result.Error = errMsg
+	result.ErrorType = types.ToolErrorApproval
+	labels := s.toolLabels(toolCall.Name)
+	s.emitToolStarted(ctx, toolCall, labels, rr) // paired with the failure, as on every other failure path
+	s.emitToolFailed(ctx, toolCall, cause, time.Now(), labels, rr)
+	return toolCallResult{message: types.NewToolResultMessage(result)}
 }
 
 // executeSingleToolCall handles policy checks, hooks, execution, and event
@@ -2961,7 +3009,7 @@ func (s *ProviderStage) executeSingleToolCall(
 		return blocked
 	}
 
-	if held, ok := s.holdForApproval(ctx, toolCall); ok {
+	if held, ok := s.holdForApproval(ctx, toolCall, rr); ok {
 		return held // admitted under ToolPolicy.MaxCallsPerMinute when the host approves it
 	}
 

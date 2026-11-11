@@ -175,10 +175,11 @@ func TestAnsweredSinceLastAssistant(t *testing.T) {
 	assert.Empty(t, answeredSinceLastAssistant(nil))
 }
 
-// A call held by an abandoned turn stays in the pending store, so it can still
-// be resolved after the user moved on. Its result must not reach the model
-// when the current turn continues: the current turn never made that call.
-func TestContinue_DropsAnswerForAnAbandonedHold(t *testing.T) {
+// A call held by an abandoned turn is one the conversation no longer awaits:
+// the current turn never made it, so its answer could never reach the model.
+// Approving it is refused before its handler runs, and the current turn
+// continues with its own call.
+func TestContinue_RefusesAnAnswerForAnAbandonedHold(t *testing.T) {
 	provider := &roundsProvider{
 		ToolProvider: mock.NewToolProvider("x", "m", false, nil),
 		rounds: []providers.PredictionResponse{
@@ -190,23 +191,26 @@ func TestContinue_DropsAnswerForAnAbandonedHold(t *testing.T) {
 	conv, err := Open(writeWorkflowTestPack(t, twoToolPackJSON), "chat", WithProvider(provider), WithSkipSchemaValidation())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conv.Close() })
+	var ran []string
 	conv.OnToolAsync("lookup",
 		func(map[string]any) sdktools.PendingResult { return sdktools.PendingResult{Reason: "approve"} },
-		func(map[string]any) (any, error) { return "ok", nil })
+		func(map[string]any) (any, error) { ran = append(ran, "lookup"); return "ok", nil })
 	ctx := context.Background()
 
 	_, err = conv.Send(ctx, "first")
 	require.NoError(t, err)
-	_, err = conv.Send(ctx, "second instead") // h1 is abandoned, still held
+	_, err = conv.Send(ctx, "second instead") // h1 is abandoned
 	require.NoError(t, err)
 	_, err = conv.ResolveTool(ctx, "h1")
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrToolCallNotAwaited)
+	assert.Empty(t, ran, "the abandoned call's handler must not run")
 	_, err = conv.ResolveTool(ctx, "h2")
 	require.NoError(t, err)
 
-	_, err = conv.Continue(ctx)
+	resp, err := conv.Continue(ctx)
 	require.NoError(t, err)
 
+	assert.Equal(t, "Done.", resp.Text())
 	assert.Equal(t, map[string]int{"h2": 1}, resultCounts(provider.seen[len(provider.seen)-1]))
 }
 
@@ -256,8 +260,8 @@ func TestBuildToolResultMessages_OneAnswerPerCall(t *testing.T) {
 	assert.Equal(t, "c2", msgs[1].ToolResult.ID)
 }
 
-// Continue feeds each resolved call to the model in turn. TurnMessages must
-// hold all of them and the replies between, not only the last execution's.
+// Continue gives the model every resolved call of the round in one request,
+// and TurnMessages holds all of the results and the reply.
 func TestContinue_TurnMessagesCoverEveryResolvedCall(t *testing.T) {
 	calls := []types.MessageToolCall{
 		{ID: "h1", Name: "lookup", Args: []byte(`{}`)},
@@ -267,7 +271,6 @@ func TestContinue_TurnMessagesCoverEveryResolvedCall(t *testing.T) {
 		ToolProvider: mock.NewToolProvider("x", "m", false, nil),
 		rounds: []providers.PredictionResponse{
 			{Content: "Both.", ToolCalls: calls},
-			{Content: "First done."},
 			{Content: "Both done."},
 		},
 	}
@@ -297,5 +300,7 @@ func TestContinue_TurnMessagesCoverEveryResolvedCall(t *testing.T) {
 			replies = append(replies, m.Content)
 		}
 	}
-	assert.Equal(t, []string{"First done.", "Both done."}, replies)
+	assert.Equal(t, []string{"Both done."}, replies)
+	assert.Equal(t, map[string]int{"h1": 1, "h2": 1}, resultCounts(provider.seen[len(provider.seen)-1]),
+		"the model saw both results in one request")
 }

@@ -3,6 +3,7 @@ package sdk
 import (
 	"errors"
 	"strconv"
+	"strings"
 )
 
 // Sentinel errors for common failure cases.
@@ -55,7 +56,41 @@ var (
 
 	// ErrMessageTooLarge is returned when a user message exceeds the configured maximum size.
 	ErrMessageTooLarge = errors.New("message exceeds maximum size")
+
+	// ErrToolsStillPending is returned by Continue and Resume while a call the
+	// suspended turn is waiting on has no answer yet. The error is a
+	// *ToolsStillPendingError naming the unanswered calls. The answers given so
+	// far are kept for the next Continue or Resume.
+	ErrToolsStillPending = errors.New("tool calls are still pending")
+
+	// ErrToolCallNotAwaited is returned by ResolveTool, ResolveToolWithArgs,
+	// RejectTool and SendToolResult for a call the conversation is not waiting
+	// on: the turn that made it was continued or abandoned (Send started a new
+	// turn), so an answer would never reach the model. ResolveTool does not
+	// run the tool's handler. ResolveTool and RejectTool remove the call from
+	// the pending store.
+	ErrToolCallNotAwaited = errors.New("tool call is not awaited")
+
+	// ErrApprovalGateUnary is returned by OpenDuplex and ResumeDuplex when
+	// WithApprovalGate is set: a duplex session gives the host no way to
+	// answer a call the gate holds. Use OnToolAsync checks on duplex.
+	ErrApprovalGateUnary = errors.New("WithApprovalGate applies to unary conversations only")
 )
+
+// ToolsStillPendingError is returned by Continue and Resume while calls the
+// suspended turn made are unanswered. errors.Is matches ErrToolsStillPending.
+type ToolsStillPendingError struct {
+	// IDs are the unanswered calls, in the order the model made them.
+	IDs []string
+}
+
+// Error names the unanswered calls.
+func (e *ToolsStillPendingError) Error() string {
+	return ErrToolsStillPending.Error() + ": " + strings.Join(e.IDs, ", ")
+}
+
+// Unwrap returns ErrToolsStillPending.
+func (e *ToolsStillPendingError) Unwrap() error { return ErrToolsStillPending }
 
 // sentinelError marks err as one of the sentinels above without changing its
 // text, so errors.Is matches the sentinel while the message keeps its detail.

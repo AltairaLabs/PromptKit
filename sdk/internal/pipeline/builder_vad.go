@@ -152,7 +152,7 @@ func vadProviderConfig(cfg *Config) *stage.ProviderConfig {
 		// long-running session: it drains its input channel before writing.
 		MessageLog:       cfg.MessageLog,
 		MessageLogConvID: cfg.ConversationID,
-		ApprovalChecker:  cfg.ApprovalChecker,
+		ApprovalGate:     cfg.ApprovalGate,
 		// The conversation's call-rate window, so voice counts calls for
 		// ToolPolicy.MaxCallsPerMinute where text does, and a held call
 		// ResolveTool approves is admitted in the same window.

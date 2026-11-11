@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -10,7 +11,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
-	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -180,12 +180,31 @@ func (c *Conversation) OnToolAsync(
 	checkFunc func(args map[string]any) sdktools.PendingResult,
 	execFunc ToolHandler,
 ) {
+	c.OnToolAsyncWithContext(name, func(_ context.Context, _ string, args map[string]any) sdktools.PendingResult {
+		return checkFunc(args)
+	}, execFunc)
+}
+
+// OnToolAsyncWithContext is OnToolAsync with a check that receives the
+// tool-execution context and the provider's call id. Use it when the decision
+// depends on who is calling (identity or claims the caller put on the Send
+// context) or consults a remote service that must honor cancellation.
+//
+//	conv.OnToolAsyncWithContext("process_refund",
+//	    func(ctx context.Context, callID string, args map[string]any) sdktools.PendingResult {
+//	        if policy.NeedsApproval(ctx, callID, args) {
+//	            return sdktools.PendingResult{Reason: "policy"}
+//	        }
+//	        return sdktools.PendingResult{}
+//	    },
+//	    refund)
+func (c *Conversation) OnToolAsyncWithContext(name string, checkFunc sdktools.AsyncToolCheck, execFunc ToolHandler) {
 	c.asyncHandlersMu.Lock()
 	defer c.asyncHandlersMu.Unlock()
 
 	// Initialize maps if needed
 	if c.asyncHandlers == nil {
-		c.asyncHandlers = make(map[string]sdktools.AsyncToolHandler)
+		c.asyncHandlers = make(map[string]sdktools.AsyncToolCheck)
 	}
 	if c.pendingStore == nil {
 		c.pendingStore, c.ownsPendingStore = newPendingStore(c.config)
@@ -289,6 +308,9 @@ func (c *Conversation) ResolveToolWithArgs(
 	if !ok {
 		return nil, sdktools.ErrPendingAlreadyResolved
 	}
+	if awaitErr := c.discardIfNotAwaited(ctx, id); awaitErr != nil {
+		return nil, awaitErr
+	}
 	handler := c.lookupExecHandler(peek.Name)
 	if handler == nil {
 		return nil, markSentinel(fmt.Errorf("no handler registered for tool %q", peek.Name), ErrToolNotRegistered)
@@ -318,6 +340,20 @@ func (c *Conversation) ResolveToolWithArgs(
 	return resolution, nil
 }
 
+// discardIfNotAwaited removes held call id from the pending store and returns
+// ErrToolCallNotAwaited when the conversation is no longer waiting on it, so
+// an answer that would never reach the model is refused before the tool runs.
+func (c *Conversation) discardIfNotAwaited(ctx context.Context, id string) error {
+	awaitErr := c.checkAwaited(ctx, id)
+	if awaitErr == nil {
+		return nil
+	}
+	if _, _, err := c.pendingStore.Claim(ctx, c.ID(), id); err != nil {
+		return errors.Join(awaitErr, err)
+	}
+	return awaitErr
+}
+
 // RejectTool rejects a pending tool call.
 //
 // The call is claimed atomically, so a reject races safely against a concurrent
@@ -327,6 +363,9 @@ func (c *Conversation) ResolveToolWithArgs(
 func (c *Conversation) RejectTool(ctx context.Context, id, reason string) (*sdktools.ToolResolution, error) {
 	if c.pendingStore == nil {
 		return nil, fmt.Errorf("no pending tools")
+	}
+	if err := c.discardIfNotAwaited(ctx, id); err != nil {
+		return nil, err
 	}
 	_, ok, err := c.pendingStore.Claim(ctx, c.ID(), id)
 	if err != nil {
@@ -363,17 +402,17 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	defer release()
 	ctx = c.turn.mark(ctx, c)
 
-	c.mu.RLock()
-	if c.closed {
-		c.mu.RUnlock()
-		return nil, ErrConversationClosed
+	if err := c.validateContinueState(); err != nil {
+		return nil, err
 	}
-	c.mu.RUnlock()
 
-	// Get all resolved tool results
+	// Get all resolved tool results; refuse while a held call is unanswered.
 	var resolutions []*sdktools.ToolResolution
 	if c.resolvedStore != nil {
-		resolutions = c.unansweredResolutions(ctx, c.resolvedStore.PopAll())
+		var pendingErr error
+		if resolutions, pendingErr = c.takeSettlement(ctx); pendingErr != nil {
+			return nil, pendingErr
+		}
 	}
 
 	if len(resolutions) == 0 {
@@ -409,26 +448,22 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 		toolMsgs = append(toolMsgs, types.NewToolResultMessage(toolResult))
 	}
 
-	// Execute the pipeline with each tool result message sequentially.
-	// Each call appends the tool result to conversation state; the final call
-	// returns the LLM's response incorporating all accumulated tool results.
-	var result *rtpipeline.ExecutionResult
-	var err error
-	var turn []types.Message
-
-	for i := range toolMsgs {
-		result, err = c.executePipeline(ctx, &toolMsgs[i])
-		if err != nil {
-			return nil, fmt.Errorf("failed to process tool result %d: %w", i, err)
-		}
-		// Each execution loads the earlier ones as history, so the turn is
-		// what every execution added, not only the last.
-		turn = append(turn, turnMessagesOf(result.Messages)...)
+	// Give the model every result in one call: a provider that requires each
+	// call of a round to be answered rejects a request missing any of them.
+	result, err := c.unarySession.ResumeWithToolResults(c.withConversationState(ctx), toolMsgs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process tool results: %w", c.wrapTurnError(err))
 	}
 
-	resp := c.buildResponse(ctx, result, startTime)
-	resp.turnMessages = turn
-	return resp, nil
+	return c.buildResponse(ctx, result, startTime), nil
+}
+
+// validateContinueState returns an error when Continue cannot run: the
+// conversation is closed, or it is duplex (use ContinueDuplex).
+func (c *Conversation) validateContinueState() error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.requireUnary("Continue()")
 }
 
 // ContinueDuplex sends resolved/rejected HITL tool results back into the

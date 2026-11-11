@@ -172,7 +172,55 @@ for _, pending := range resp.PendingTools() {
 resp, _ = conv.Continue(ctx)
 ```
 
-Once every held call is resolved or rejected, `conv.Continue(ctx)` returns the model's reply.
+Settle every held call before you continue. `conv.Continue(ctx)` gives the model every result of the round in one request and returns its reply. While a call the turn is waiting on is still unanswered, `Continue` sends nothing and returns an error that `errors.Is` matches to `sdk.ErrToolsStillPending`. The error is a `*sdk.ToolsStillPendingError` whose `IDs` name the unanswered calls, and the answers given so far are kept for the next `Continue`. This lets each held call wait for its own approver:
+
+```go
+resp, err = conv.Continue(ctx)
+var still *sdk.ToolsStillPendingError
+if errors.As(err, &still) {
+    // still.IDs are waiting on their approvers; call Continue again once they decide.
+}
+```
+
+The conversation does not wait on a call whose turn was abandoned, because `Send` started a new turn before the call was settled. `ResolveTool`, `ResolveToolWithArgs` and `RejectTool` return `sdk.ErrToolCallNotAwaited` for it and remove it from the store, and `ResolveTool` does not run its handler. `SendToolResult`, `SendToolResultMultimodal` and `FailClientTool` refuse such a call the same way.
+
+When the check needs the caller's context (an identity or claims the caller put on the `Send` context, or a deadline for a remote policy service), register it with `OnToolAsyncWithContext`. The check also receives the provider's call id:
+
+```go
+conv.OnToolAsyncWithContext("process_refund",
+    func(ctx context.Context, callID string, args map[string]any) sdktools.PendingResult {
+        if policy.NeedsApproval(ctx, args) {
+            return sdktools.PendingResult{Reason: "policy", Message: "Refund needs a reviewer"}
+        }
+        return sdktools.PendingResult{}
+    },
+    refundHandler,
+)
+```
+
+If the pending store cannot record a hold, for example because Redis is down, the call fails closed. It does not run, the model is told the call needs approval and the hold could not be recorded, and the store's error is logged. The model is not given the store's error, which can name internal hosts.
+
+### Supply your own approval gate
+
+To decide every tool call yourself, for MCP and pack tools as well as `OnToolAsync` ones, pass a gate with `WithApprovalGate`. It runs before the `OnToolAsync` checks on `Send`, `Stream`, `Continue` and `Resume`. `OpenDuplex` refuses it with `sdk.ErrApprovalGateUnary`, because a duplex session gives the host no way to answer a call the gate holds. The gate receives the tool-execution context, the call id, the tool name and the arguments:
+
+```go
+conv, _ := sdk.Open("./assist.pack.json", "assist",
+    sdk.WithApprovalGate(func(ctx context.Context, callID, name string, args map[string]any) (*tools.PendingToolInfo, error) {
+        decision, err := policy.Decide(ctx, name, args)
+        if err != nil {
+            return nil, err // refuse: the call does not run, and the model is told why
+        }
+        if decision.Refer {
+            referrals.Record(ctx, callID, name, args) // the host owns the hold
+            return &tools.PendingToolInfo{Reason: "referral", ToolName: name}, nil
+        }
+        return nil, nil // no decision: the OnToolAsync check, if any, decides
+    }),
+)
+```
+
+A call the gate holds is the host's to answer. It appears in `resp.ClientTools()`, not in the pending store. Answer it with `SendToolResult` or `RejectClientTool`, then call `conv.Resume(ctx)`. Return an error rather than `nil` when the gate cannot record a hold, so the call fails closed.
 
 To approve with edits, pass overrides that shallow-merge over the arguments the model proposed:
 
