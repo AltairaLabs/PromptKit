@@ -96,6 +96,11 @@ have to catch it before a consumer's do. Test behavior, not code.
 - **Assert what a caller observes, as an exact value**: the returned value, the rendered
   prompt, the provider request, the emitted events, the persisted state, or the error's
   type and message.
+- **Write the test first (TDD).** For a bug fix, write the test that reproduces it and see
+  it fail on the current code before changing the code. For a feature, write the behavior
+  test against the public API first and see it fail (compile errors don't count: stub the
+  API so the assertion is what fails). Then write the code that makes it pass. A test
+  written after the code is still mutation-checked, but it is no substitute.
 - **Use real collaborators at the seam.** Drive the public entry point (`sdk.Open`,
   `Registry.Load`, `PackCompiler.Compile`, ...) with real repositories and the real mock
   provider. Never mock either side of the contract the test is about.
