@@ -112,7 +112,7 @@ Any registered type, alias or custom handler works as a guardrail. A guardrail e
 
 ### Triggers
 
-An eval `trigger` is one of `every_turn`, `on_session_complete`, `sample_turns`, `sample_sessions`, `on_conversation_complete` or `on_workflow_step`. `sample_percentage` defaults to `5`. A conversation opened with the SDK runs `on_session_complete` and then `on_conversation_complete` evals on every `Close()`, over the transcript it holds. A conversation closed with an empty transcript runs no conversation evals.
+An eval `trigger` is one of `every_turn`, `on_session_complete`, `sample_turns`, `sample_sessions`, `on_conversation_complete` or `on_workflow_step`. `sample_percentage` defaults to `5`. A conversation opened with the SDK runs `on_session_complete` evals on every `Close()`, and `on_session_complete` then `on_conversation_complete` evals on `Complete()`, over the transcript it holds. A conversation completed with an empty transcript runs no conversation evals.
 
 ### Evals that cannot run
 

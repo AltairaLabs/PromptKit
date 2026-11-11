@@ -132,8 +132,26 @@ func openE2E(t *testing.T, packJSON, reply string, opts ...sdk.Option) (*sdk.Con
 }
 
 // sendAndClose sends each message on conv and closes it, so every turn eval
-// has finished and the session and conversation evals have run.
+// has finished and the session evals have run. Close ends a session, so the
+// conversation evals do not run; sendAndComplete runs them.
 func sendAndClose(t *testing.T, conv *sdk.Conversation, messages ...string) []*sdk.Response {
+	t.Helper()
+	out := sendAll(t, conv, messages...)
+	require.NoError(t, conv.Close())
+	return out
+}
+
+// sendAndComplete sends each message on conv and completes it, so the turn,
+// session and conversation evals have all run.
+func sendAndComplete(t *testing.T, conv *sdk.Conversation, messages ...string) []*sdk.Response {
+	t.Helper()
+	out := sendAll(t, conv, messages...)
+	require.NoError(t, conv.Complete())
+	return out
+}
+
+// sendAll sends each message on conv.
+func sendAll(t *testing.T, conv *sdk.Conversation, messages ...string) []*sdk.Response {
 	t.Helper()
 	var out []*sdk.Response
 	for _, m := range messages {
@@ -141,7 +159,6 @@ func sendAndClose(t *testing.T, conv *sdk.Conversation, messages ...string) []*s
 		require.NoError(t, err)
 		out = append(out, resp)
 	}
-	require.NoError(t, conv.Close())
 	return out
 }
 

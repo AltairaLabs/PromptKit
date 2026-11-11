@@ -559,8 +559,12 @@ func (wc *WorkflowConversation) openConvForCurrentState(contextSummary string) e
 	// The variables the application set on the outgoing state's conversation
 	// carry into the incoming one: they belong to the workflow, not the state.
 	var carried map[string]string
+	var prior []types.Message
 	if wc.activeConv != nil {
 		carried = wc.activeConv.appSetVars()
+		// The outgoing state's turns belong to the workflow's conversation:
+		// the conversation evals score them when the workflow completes.
+		prior = wc.activeConv.workflowTranscript(context.Background())
 		_ = wc.activeConv.Close()
 	}
 
@@ -593,6 +597,7 @@ func (wc *WorkflowConversation) openConvForCurrentState(contextSummary string) e
 	for name, value := range carried {
 		conv.SetVar(name, value)
 	}
+	conv.priorTranscript = prior
 	wc.activeConv = conv
 	wc.activeStateName = wc.machine.CurrentState()
 	wc.registerWorkflowTools()
@@ -825,23 +830,55 @@ func (wc *WorkflowConversation) ActiveConversation() *Conversation {
 	return wc.activeConv
 }
 
-// Close closes the active conversation and marks the workflow as closed.
+// Close closes the active conversation and marks the workflow as closed. Like
+// [Conversation.Close], it ends a session: the active state's
+// on_session_complete evals run, its on_conversation_complete evals do not.
+// Call [WorkflowConversation.Complete] when the workflow is finished.
 func (wc *WorkflowConversation) Close() error {
+	_, err := wc.end(false)
+	return err
+}
+
+// Complete finishes the workflow: it completes the active state's
+// conversation ([Conversation.Complete]), so its session and conversation
+// evals run, and closes the workflow. A state change only closes the outgoing
+// state's conversation, so the conversation evals run once, over the turns of
+// every state this WorkflowConversation has been in, oldest first. A workflow
+// resumed with [ResumeWorkflow] holds only the turns since it resumed. Reaching
+// a terminal state does not complete the workflow by itself; the host decides
+// when it is finished.
+//
+// Complete on a workflow that is already closed or completed runs no evals
+// and returns [ErrWorkflowClosed].
+func (wc *WorkflowConversation) Complete() error {
+	first, err := wc.end(true)
+	if !first {
+		return ErrWorkflowClosed
+	}
+	return err
+}
+
+// end closes the workflow, completing its active conversation when complete
+// is set. Reports whether this call closed it.
+func (wc *WorkflowConversation) end(complete bool) (bool, error) {
 	wc.mu.Lock()
 	defer wc.mu.Unlock()
 
 	if wc.closed {
-		return nil
+		return false, nil
 	}
 	wc.closed = true
 
-	if wc.activeConv != nil {
-		// A transition committed by a turn that then suspended has not had its
-		// evals dispatched; Close waits for them.
-		wc.dispatchWorkflowStepEvals()
-		return wc.activeConv.Close()
+	if wc.activeConv == nil {
+		return true, nil
 	}
-	return nil
+	// A transition committed by a turn that then suspended has not had its
+	// evals dispatched; Close waits for them.
+	wc.dispatchWorkflowStepEvals()
+	if complete {
+		return true, wc.activeConv.Complete()
+	}
+	return true, wc.activeConv.Close()
 }
 
 // roleSystem is the role string for system messages (extracted as a constant to satisfy goconst).

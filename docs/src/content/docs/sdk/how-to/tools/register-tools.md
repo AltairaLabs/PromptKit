@@ -214,6 +214,8 @@ conv, _ := sdk.Open("./assist.pack.json", "assist", sdk.WithPendingStore(store))
 
 `conv.PendingTools(ctx)` lists the conversation's held calls from the store, including ones that survived a restart.
 
+While a call waits, close the conversation with `conv.Close()` and resume it with `sdk.Resume` when the decision arrives. A close ends a session, not the conversation: it runs the pack's `on_session_complete` evals. Call `conv.Complete()` instead of `Close()` once the conversation is finished, so its `on_conversation_complete` evals score it once rather than at every pause.
+
 ## Verify
 
 Send a message that makes the model call the tool:

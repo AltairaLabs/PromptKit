@@ -28,7 +28,8 @@ type EventSubscriber interface {
 	) error
 }
 
-// evalEventPayload is the JSON payload processed by EvalWorker.
+// evalEventPayload is the JSON payload processed by EvalWorker, on every
+// subject it subscribes to.
 type evalEventPayload struct {
 	Defs    []EvalDef    `json:"defs"`
 	EvalCtx *EvalContext `json:"eval_ctx"`
@@ -93,73 +94,93 @@ func NewEvalWorker(
 	return w
 }
 
-// Start subscribes to the "eval.turn.*" and "eval.session.*" subjects and
-// processes the events. Turn events run RunTurnEvals and session events run
-// RunSessionEvals. Each event payload is JSON with the keys "defs" and
-// "eval_ctx". Start blocks until the context is canceled or a subscription
-// returns an error, and it cancels the other subscription in either case.
-func (w *EvalWorker) Start(ctx context.Context) error {
-	logger.Info("evals: worker starting", "subscriptions", []string{"eval.turn.*", "eval.session.*"})
+// Subjects an EvalWorker subscribes to. Each event payload is JSON with the
+// keys "defs" and "eval_ctx".
+const (
+	// SubjectTurnEvals carries turn events; the worker runs RunTurnEvals.
+	SubjectTurnEvals = "eval.turn.*"
+	// SubjectSessionEvals carries session events, published when a session
+	// ends (a conversation closed, possibly to be resumed); the worker runs
+	// RunSessionEvals.
+	SubjectSessionEvals = "eval.session.*"
+	// SubjectConversationEvals carries conversation events, published once
+	// when the conversation is finished; the worker runs RunConversationEvals.
+	SubjectConversationEvals = "eval.conversation.*"
+)
 
-	// Derive a child context so we can cancel both subscriptions if either fails.
+// Start subscribes to SubjectTurnEvals, SubjectSessionEvals and
+// SubjectConversationEvals and processes the events: turn events run
+// RunTurnEvals, session events RunSessionEvals and conversation events
+// RunConversationEvals. Start blocks until the context is canceled or a
+// subscription returns an error, and it cancels the other subscriptions in
+// either case.
+func (w *EvalWorker) Start(ctx context.Context) error {
+	subs := []struct {
+		subject string
+		name    string
+		handler func([]byte) error
+	}{
+		{SubjectTurnEvals, "turn", w.handleTurnEvent},
+		{SubjectSessionEvals, "session", w.handleSessionEvent},
+		{SubjectConversationEvals, "conversation", w.handleConversationEvent},
+	}
+	subjects := make([]string, len(subs))
+	for i, s := range subs {
+		subjects[i] = s.subject
+	}
+	logger.Info("evals: worker starting", "subscriptions", subjects)
+
+	// Derive a child context so we can cancel every subscription if one fails.
 	subCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	// Store context for handler methods to derive timeouts from.
 	w.ctx = subCtx
 
-	turnErr := make(chan error, 1)
-	sessErr := make(chan error, 1)
-
-	go func() {
-		turnErr <- w.subscriber.Subscribe(
-			subCtx, "eval.turn.*", w.handleTurnEvent,
-		)
-	}()
-
-	go func() {
-		sessErr <- w.subscriber.Subscribe(
-			subCtx, "eval.session.*", w.handleSessionEvent,
-		)
-	}()
+	errs := make(chan error, len(subs))
+	for _, s := range subs {
+		go func() {
+			errs <- fmt.Errorf("%s subscription: %w", s.name, w.subscriber.Subscribe(subCtx, s.subject, s.handler))
+		}()
+	}
 
 	select {
-	case err := <-turnErr:
-		return fmt.Errorf("turn subscription: %w", err)
-	case err := <-sessErr:
-		return fmt.Errorf("session subscription: %w", err)
+	case err := <-errs:
+		if ctx.Err() != nil {
+			// A subscription that ended because the worker was stopped.
+			return ctx.Err()
+		}
+		return err
 	case <-ctx.Done():
 		return ctx.Err()
 	}
 }
 
 func (w *EvalWorker) handleTurnEvent(event []byte) error {
-	logger.Debug("evals: worker received turn event")
-	payload, err := w.decode(event)
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(w.ctx, w.handlerTimeout)
-	defer cancel()
-	results := w.runner.RunTurnEvals(
-		ctx, payload.Defs, payload.EvalCtx,
-	)
-	logger.Debug("evals: worker turn event processed", "results", len(results))
-	return w.writeResults(results)
+	return w.handleEvent("turn", event, w.runner.RunTurnEvals)
 }
 
 func (w *EvalWorker) handleSessionEvent(event []byte) error {
-	logger.Debug("evals: worker received session event")
+	return w.handleEvent("session", event, w.runner.RunSessionEvals)
+}
+
+func (w *EvalWorker) handleConversationEvent(event []byte) error {
+	return w.handleEvent("conversation", event, w.runner.RunConversationEvals)
+}
+
+// handleEvent decodes one event, runs its evals with run and writes the results.
+func (w *EvalWorker) handleEvent(
+	kind string, event []byte, run func(context.Context, []EvalDef, *EvalContext) []EvalResult,
+) error {
+	logger.Debug("evals: worker received " + kind + " event")
 	payload, err := w.decode(event)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(w.ctx, w.handlerTimeout)
 	defer cancel()
-	results := w.runner.RunSessionEvals(
-		ctx, payload.Defs, payload.EvalCtx,
-	)
-	logger.Debug("evals: worker session event processed", "results", len(results))
+	results := run(ctx, payload.Defs, payload.EvalCtx)
+	logger.Debug("evals: worker "+kind+" event processed", "results", len(results))
 	return w.writeResults(results)
 }
 

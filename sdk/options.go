@@ -3938,13 +3938,13 @@ func WithEvalGroups(groups ...string) Option {
 // listed run; the rest are left to the host, which can run them out of band
 // with Evaluate. If not set, evals of every trigger run, as before.
 //
-// It is for a host whose Close() is not the end of the conversation. A server
-// that opens a conversation per message, closes it when the message's stream
-// ends and resumes it for the next message would otherwise run the
-// on_session_complete and on_conversation_complete evals on every Close, over
-// the whole, growing history. With WithEvalTriggers(evals.TriggerEveryTurn)
-// Close runs no session or conversation evals, and every_turn evals still run
-// inline:
+// It is for a host that runs some evals out of band. A server that opens a
+// conversation per message, closes it when the message's stream ends and
+// resumes it for the next message would otherwise run the
+// on_session_complete evals on every Close, over the whole, growing history
+// (on_conversation_complete evals run only on Complete). With
+// WithEvalTriggers(evals.TriggerEveryTurn) neither Close nor Complete runs
+// session or conversation evals, and every_turn evals still run inline:
 //
 //	conv, _ := sdk.Resume(id, packPath, "assistant",
 //	    sdk.WithEvalGroups(evals.GroupFastRunning),

@@ -32,10 +32,10 @@ const lifecyclePackJSON = `{
 	}
 }`
 
-// Closing a conversation runs its on_conversation_complete evals once, against
-// the whole transcript, alongside its on_session_complete evals. Nothing runs
-// them before Close.
-func TestConversationEvals_RunOnClose(t *testing.T) {
+// Completing a conversation runs its on_conversation_complete evals once,
+// against the whole transcript, after its on_session_complete evals. Nothing
+// runs them before Complete.
+func TestConversationEvals_RunOnComplete(t *testing.T) {
 	bus, col, registry, _ := newStepEvalHarness(t)
 	conv := &stepRecordingHandler{typeName: "conv_stub"}
 	registry.Register(conv)
@@ -54,27 +54,54 @@ func TestConversationEvals_RunOnClose(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, conv.transcripts(), "a conversation eval must not run before the conversation ends")
 
-	require.NoError(t, c.Close())
-	require.NoError(t, c.Close(), "a second Close is a no-op")
+	require.NoError(t, c.Complete())
+	require.ErrorIs(t, c.Complete(), ErrConversationClosed, "a second Complete runs nothing")
 
 	require.Eventually(t, func() bool {
 		return len(col.byTrigger(evals.TriggerOnConversationComplete)) >= 1
-	}, 5*time.Second, 5*time.Millisecond, "Close must run the on_conversation_complete evals")
+	}, 5*time.Second, 5*time.Millisecond, "Complete must run the on_conversation_complete evals")
 	time.Sleep(20 * time.Millisecond)
 
 	got := col.byTrigger(evals.TriggerOnConversationComplete)
-	require.Len(t, got, 1, "one Close runs the conversation evals once")
+	require.Len(t, got, 1, "one Complete runs the conversation evals once")
 	assert.Equal(t, "conv", got[0].EvalID)
 	assert.Equal(t, 1, got[0].TurnIndex, "the result carries the conversation's last turn")
-	assert.Len(t, col.byTrigger(evals.TriggerOnSessionComplete), 1, "session evals still run on Close")
+	assert.Len(t, col.byTrigger(evals.TriggerOnSessionComplete), 1, "session evals run on Complete too")
 
 	seen := conv.transcripts()
 	require.Len(t, seen, 1)
 	assert.Contains(t, seen[0], "hello", "the conversation eval sees the whole transcript")
 }
 
-// A conversation closed with nothing said — after a failed open, or never
-// used — has no transcript, so Close runs no conversation evals on it.
+// Closing a conversation ends its session and not the conversation: its
+// session evals run, its conversation evals do not, since it may be resumed.
+func TestConversationEvals_NotRunOnClose(t *testing.T) {
+	bus, col, registry, _ := newStepEvalHarness(t)
+	conv := &stepRecordingHandler{typeName: "conv_stub"}
+	registry.Register(conv)
+	registry.Register(&stepRecordingHandler{typeName: "sess_stub"})
+	packPath := writeWorkflowTestPack(t, lifecyclePackJSON)
+
+	c, err := Open(packPath, "chat",
+		WithSkipSchemaValidation(),
+		WithProvider(mock.NewProvider("mock", "mock-model", false)),
+		WithEvalRegistry(registry),
+		WithEventBus(bus),
+	)
+	require.NoError(t, err)
+	_, err = c.Send(context.Background(), "hello")
+	require.NoError(t, err)
+	require.NoError(t, c.Close())
+
+	require.Eventually(t, func() bool { return len(col.byTrigger(evals.TriggerOnSessionComplete)) >= 1 },
+		5*time.Second, 5*time.Millisecond, "Close must run the session evals")
+	time.Sleep(20 * time.Millisecond)
+	assert.Empty(t, conv.transcripts())
+	assert.Empty(t, col.byTrigger(evals.TriggerOnConversationComplete))
+}
+
+// A conversation completed with nothing said — never used — has no
+// transcript, so Complete runs no conversation evals on it.
 func TestConversationEvals_SkippedOnEmptyTranscript(t *testing.T) {
 	bus, col, registry, _ := newStepEvalHarness(t)
 	conv := &stepRecordingHandler{typeName: "conv_stub"}
@@ -89,10 +116,10 @@ func TestConversationEvals_SkippedOnEmptyTranscript(t *testing.T) {
 		WithEventBus(bus),
 	)
 	require.NoError(t, err)
-	require.NoError(t, c.Close())
+	require.NoError(t, c.Complete())
 
 	require.Eventually(t, func() bool { return len(col.byTrigger(evals.TriggerOnSessionComplete)) >= 1 },
-		5*time.Second, 5*time.Millisecond, "the session evals still ran, so the close was observed")
+		5*time.Second, 5*time.Millisecond, "the session evals still ran, so the completion was observed")
 	time.Sleep(20 * time.Millisecond)
 	assert.Empty(t, conv.transcripts())
 	assert.Empty(t, col.byTrigger(evals.TriggerOnConversationComplete))
@@ -116,8 +143,8 @@ func (h *slowJudgeHandler) Eval(context.Context, *evals.EvalContext, map[string]
 }
 
 // A slow on_conversation_complete eval runs without the conversation's lock
-// held, so it does not block other calls on the Conversation while Close waits
-// for it. The closed conversation answers them at once.
+// held, so it does not block other calls on the Conversation while Complete
+// waits for it. The closed conversation answers them at once.
 func TestConversationEvals_DoNotHoldConversationLock(t *testing.T) {
 	bus, _, registry, _ := newStepEvalHarness(t)
 	slow := &slowJudgeHandler{typeName: "conv_stub", started: make(chan struct{}), release: make(chan struct{})}
@@ -136,7 +163,7 @@ func TestConversationEvals_DoNotHoldConversationLock(t *testing.T) {
 	require.NoError(t, err)
 
 	closed := make(chan error, 1)
-	go func() { closed <- c.Close() }()
+	go func() { closed <- c.Complete() }()
 	<-slow.started
 
 	answered := make(chan struct{})
@@ -148,7 +175,7 @@ func TestConversationEvals_DoNotHoldConversationLock(t *testing.T) {
 	case <-answered:
 	case <-time.After(2 * time.Second):
 		close(slow.release)
-		t.Fatal("GetVar blocked while a conversation eval ran: Close held the conversation lock")
+		t.Fatal("GetVar blocked while a conversation eval ran: Complete held the conversation lock")
 	}
 	close(slow.release)
 	require.NoError(t, <-closed)

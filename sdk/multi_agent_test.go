@@ -5,8 +5,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -168,6 +170,47 @@ func TestMultiAgentSession_Close_ClosesEntryAndMembers(t *testing.T) {
 		assert.ErrorIs(t, err, ErrWorkflowClosed, "state-backed member %q must be closed", name)
 	}
 	assert.NoError(t, sess.Close(), "a second Close is harmless")
+}
+
+// Complete on an opened multi-agent session completes the entry and every
+// member, workflow-backed ones included: each that said something runs its
+// conversation evals once. Close runs none, since a closed session may resume.
+func TestMultiAgentSession_Complete_CompletesEntryAndMembers(t *testing.T) {
+	packJSON := strings.Replace(stateBackedAgentPackJSON, `"prompts": {`,
+		`"evals": [{"id": "conv", "type": "conv_stub", "trigger": "on_conversation_complete"}],
+	"prompts": {`, 1)
+	for name, tc := range map[string]struct {
+		finish func(*MultiAgentSession) error
+		want   int
+	}{
+		"close":    {(*MultiAgentSession).Close, 0},
+		"complete": {(*MultiAgentSession).Complete, 2},
+	} {
+		t.Run(name, func(t *testing.T) {
+			registry := evals.NewEvalTypeRegistry()
+			registry.Register(&stepRecordingHandler{typeName: "conv_stub"})
+			log := &completeEvalLog{}
+			sess, err := OpenMultiAgent(createTestPackFile(t, packJSON),
+				WithSkipSchemaValidation(), WithProvider(mock.NewProvider("m", "m", false)),
+				WithEvalRegistry(registry), WithEvalHook(log))
+			require.NoError(t, err)
+			ctx := context.Background()
+			_, err = sess.Entry().Send(ctx, "hi")
+			require.NoError(t, err)
+			require.Len(t, sess.Members(), 1)
+			for _, m := range sess.Members() {
+				_, err = m.Send(ctx, "look into it")
+				require.NoError(t, err)
+			}
+
+			require.NoError(t, tc.finish(sess))
+			assert.Equal(t, tc.want, log.counts()["conv"], "conversation evals run once per agent on Complete only")
+			err = sess.Complete()
+			assert.ErrorIs(t, err, ErrConversationClosed, "a finished session's entry cannot complete again")
+			assert.ErrorIs(t, err, ErrWorkflowClosed, "nor its workflow-backed members")
+			assert.Equal(t, tc.want, log.counts()["conv"], "the refused Complete ran nothing")
+		})
+	}
 }
 
 // createTestPackFile creates a temporary pack JSON file for testing.

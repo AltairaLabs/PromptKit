@@ -112,6 +112,31 @@ changes that need you to do something, with what to change and why. Sections
 are grouped by the release that first contained the change, newest first.
 Unreleased holds changes that are on `main` and in no release.
 
+## Unreleased
+
+### `Close()` ends a session; `Complete()` ends the conversation
+
+`Close()` ran the `on_conversation_complete` evals as well as the
+`on_session_complete` ones, so a conversation that paused for a human's
+approval and was resumed scored its whole transcript at every pause, and the
+two triggers could not be told apart. `Close()` now ends a session and runs the
+session evals only. `Conversation.Complete()`, `WorkflowConversation.Complete()`
+and `MultiAgentSession.Complete()` end the conversation: they run the session
+evals, then the conversation evals, and close it. Completing an already closed
+conversation runs nothing and returns `sdk.ErrConversationClosed`
+(`sdk.ErrWorkflowClosed` for a workflow). `evals.EvalWorker` also runs
+conversation events published on `eval.conversation.*`; it dropped them before.
+
+| If you | You will see | Change |
+|---|---|---|
+| Declare `on_conversation_complete` evals and end conversations with `Close()` | they no longer run | call `Complete()` where the conversation is finished, and keep `Close()` where it is suspended or handed to another process |
+| Close and resume one conversation, for approvals or per message | session evals at each close, conversation evals only on `Complete()` | nothing |
+| Run a workflow with `on_conversation_complete` evals | a state change and `Close()` no longer run them | call `WorkflowConversation.Complete()` when the workflow is finished |
+| Publish conversation events to an `evals.EvalWorker` | they run, on `eval.conversation.*` | publish them there, once per finished conversation |
+| Run an `evals.EvalWorker` on a subscriber that accepts only the subjects it knew | `Start` returns `conversation subscription: ...` and stops | let the subscriber accept `eval.conversation.*` (`evals.SubjectConversationEvals`) |
+| Close conversations from a `ShutdownManager` | session evals only, since a shutdown suspends a conversation rather than finishing it | nothing, or `Complete()` the conversations that are finished before shutdown |
+| Use `WithEvalTriggers` to run close-time evals out of band | nothing | nothing |
+
 ## v2.19.0
 
 ### A pack's fragments render, from the SDK and from the registry

@@ -450,10 +450,9 @@ func (em *evalMiddleware) dispatchSessionEvals(ctx context.Context) {
 }
 
 // dispatchConversationEvals dispatches on_conversation_complete evals
-// synchronously, against the whole transcript. Close() is the end of a
-// Conversation, so every Close runs them, right after the session evals: a
-// host that closes and later resumes a conversation runs them again, over the
-// history the resumed conversation reloaded. An empty transcript runs none.
+// synchronously, against the whole transcript. Complete() runs them, right
+// after the session evals; Close() does not, since a closed conversation may
+// be resumed. An empty transcript runs none.
 // Nil-safe: no-op if middleware is nil.
 func (em *evalMiddleware) dispatchConversationEvals(ctx context.Context) {
 	if em == nil || !em.hasConversationEvals {
@@ -461,6 +460,12 @@ func (em *evalMiddleware) dispatchConversationEvals(ctx context.Context) {
 	}
 
 	evalCtx := em.buildEvalContext(ctx)
+	if prior := em.conv.priorTranscript; len(prior) > 0 {
+		// A workflow's final state: score the states before it as well.
+		evalCtx = evals.BuildEvalContext(
+			append(append([]types.Message(nil), prior...), evalCtx.Messages...),
+			evalCtx.TurnIndex, evalCtx.SessionID, em.conv.promptName, em.hostDefaultJudge())
+	}
 	if len(evalCtx.Messages) == 0 {
 		// Nothing was said: a conversation closed on a failed open, or never
 		// used, has no transcript to score.

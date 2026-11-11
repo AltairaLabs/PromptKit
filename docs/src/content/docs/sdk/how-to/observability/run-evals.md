@@ -124,17 +124,32 @@ Score a conversation snapshot against the evals in a pack with `sdk.Evaluate()`.
 
 ## Run evals inline in a conversation
 
-A conversation opened with `sdk.Open` or `sdk.Resume` runs its pack's evals itself: turn evals after each `Send()`, and session then conversation evals on every `Close()`. A host whose `Close()` is not the end of the conversation, such as a server that resumes a conversation for each incoming message, names the triggers to run inline with `WithEvalTriggers` and runs the rest itself with `Evaluate` when the conversation ends:
+A conversation opened with `sdk.Open` or `sdk.Resume` runs its pack's evals itself: turn evals after each `Send()`, session evals on every `Close()`, and session then conversation evals on `Complete()`. Close a conversation you will resume, such as one waiting on a human's approval, and complete it once, when it is finished:
+
+```go
+// The turn held a tool call for approval: suspend.
+_ = conv.Close() // runs on_session_complete evals
+
+// Later, in any process: resume, settle the call, finish.
+conv, _ = sdk.Resume(conversationID, "./app.pack.json", "chat", sdk.WithStateStore(store))
+_, _ = conv.ResolveTool(ctx, callID)
+_, _ = conv.Continue(ctx)
+_ = conv.Complete() // runs on_session_complete, then on_conversation_complete, over the whole transcript
+```
+
+A host that runs the session or conversation evals out of band, such as a server that resumes a conversation for each incoming message, names the triggers to run inline with `WithEvalTriggers` and runs the rest itself with `Evaluate`:
 
 ```go
 conv, err := sdk.Resume(conversationID, "./app.pack.json", "chat",
     sdk.WithStateStore(store),
     sdk.WithEvalGroups(evals.GroupFastRunning),
-    sdk.WithEvalTriggers(evals.TriggerEveryTurn), // Close runs no session or conversation evals
+    sdk.WithEvalTriggers(evals.TriggerEveryTurn), // Close and Complete run no session or conversation evals
 )
 ```
 
 Without `WithEvalTriggers` every trigger runs. Triggers match exactly: list `evals.TriggerSampleTurns` too if the pack samples turns, and `evals.TriggerOnWorkflowStep` in a workflow that has step evals. The option composes with `WithEvalGroups`, and an unknown trigger, or none, fails `Open`.
+
+A worker that runs these evals from an event bus uses `evals.EvalWorker`. It runs turn events from `eval.turn.*`, session events from `eval.session.*` (publish one at each close) and conversation events from `eval.conversation.*` (publish one when the conversation is finished).
 
 ## Supply a judge
 
