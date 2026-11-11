@@ -577,9 +577,6 @@ Mock response from mock model mock-model
   - [func \(e \*ToolError\) Unwrap\(\) error](<#ToolError.Unwrap>)
 - [type ToolHandler](<#ToolHandler>)
 - [type ToolHandlerCtx](<#ToolHandlerCtx>)
-- [type ToolsStillPendingError](<#ToolsStillPendingError>)
-  - [func \(e \*ToolsStillPendingError\) Error\(\) string](<#ToolsStillPendingError.Error>)
-  - [func \(e \*ToolsStillPendingError\) Unwrap\(\) error](<#ToolsStillPendingError.Unwrap>)
 - [type VADModeConfig](<#VADModeConfig>)
   - [func DefaultVADModeConfig\(\) \*VADModeConfig](<#DefaultVADModeConfig>)
 - [type ValidateEvalTypesOpts](<#ValidateEvalTypesOpts>)
@@ -693,12 +690,6 @@ var (
 
     // ErrMessageTooLarge is returned when a user message exceeds the configured maximum size.
     ErrMessageTooLarge = errors.New("message exceeds maximum size")
-
-    // ErrToolsStillPending is returned by Continue and Resume while a call the
-    // suspended turn is waiting on has no answer yet. The error is a
-    // *ToolsStillPendingError naming the unanswered calls. The answers given so
-    // far are kept for the next Continue or Resume.
-    ErrToolsStillPending = errors.New("tool calls are still pending")
 
     // ErrToolCallNotAwaited is returned by ResolveTool, ResolveToolWithArgs,
     // RejectTool and SendToolResult for a call the conversation is not waiting
@@ -1749,7 +1740,7 @@ resp, _ = conv.Continue(ctx) // LLM receives tool results
 ```
 
 <a name="Conversation.ContinueDuplex"></a>
-### func \(\*Conversation\) [ContinueDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L484>)
+### func \(\*Conversation\) [ContinueDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L481>)
 
 ```go
 func (c *Conversation) ContinueDuplex(ctx context.Context) error
@@ -1822,7 +1813,7 @@ conv.EventBus().Subscribe(events.EventToolCallStarted, func(e *events.Event) {
 For convenience methods, see the \[hooks\] package.
 
 <a name="Conversation.FailClientTool"></a>
-### func \(\*Conversation\) [FailClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L898>)
+### func \(\*Conversation\) [FailClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L832>)
 
 ```go
 func (c *Conversation) FailClientTool(ctx context.Context, callID string, partial any, err error) error
@@ -2385,7 +2376,7 @@ func (c *Conversation) PackGovernance() *Governance
 PackGovernance returns the pack\-level governance declaration, ignoring any agent scope. Use it to show what the pack claims as a whole; use Governance for what applies to this conversation.
 
 <a name="Conversation.PendingTools"></a>
-### func \(\*Conversation\) [PendingTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L528>)
+### func \(\*Conversation\) [PendingTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L525>)
 
 ```go
 func (c *Conversation) PendingTools(ctx context.Context) ([]*sdktools.PendingToolCall, error)
@@ -3063,7 +3054,7 @@ If no handler has been registered via [Conversation.OnStreamEvent](<#Conversatio
 Returns the complete Response or an error.
 
 <a name="Conversation.ToolRegistry"></a>
-### func \(\*Conversation\) [ToolRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L544>)
+### func \(\*Conversation\) [ToolRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L541>)
 
 ```go
 func (c *Conversation) ToolRegistry() *tools.Registry
@@ -5979,7 +5970,7 @@ func WithoutContentValidation() Option
 WithoutContentValidation turns off the check made before every provider call that each image, audio, video and document part of the request is a modality and MIME type the provider's adapter can send. A provider config's capabilities list never narrows the check. By default an unsupported part fails the Send with a \*providers.UnsupportedContentError before any request is sent. Use this for a custom provider whose declared capabilities are narrower than what it sends; the parts are then passed to the provider as they are.
 
 <a name="PackError"></a>
-## type [PackError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L162-L168>)
+## type [PackError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L140-L146>)
 
 PackError represents an error loading or parsing a pack file. Open and its variants, ValidatePack and Evaluate return one when the pack file is missing, unreadable, malformed or fails validation; Cause is the underlying error, so errors.Is\(err, ErrPackNotFound\) still matches a missing file.
 
@@ -5994,7 +5985,7 @@ type PackError struct {
 ```
 
 <a name="PackError.Error"></a>
-### func \(\*PackError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L171>)
+### func \(\*PackError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L149>)
 
 ```go
 func (e *PackError) Error() string
@@ -6003,7 +5994,7 @@ func (e *PackError) Error() string
 Error implements the error interface.
 
 <a name="PackError.Unwrap"></a>
-### func \(\*PackError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L176>)
+### func \(\*PackError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L154>)
 
 ```go
 func (e *PackError) Unwrap() error
@@ -6365,7 +6356,7 @@ func WithPlatformRegion(region string) PlatformOption
 WithPlatformRegion sets the cloud region.
 
 <a name="ProviderError"></a>
-## type [ProviderError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L185-L197>)
+## type [ProviderError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L163-L175>)
 
 ProviderError represents an error from the LLM provider. Send, Stream and their Resume and Continue counterparts return one when the provider's API answered with an error status \(\*providers.ProviderHTTPError\) or the connection failed \(\*providers.ProviderTransportError\). Cause is that runtime error, so errors.As and providers.IsTransient still see it.
 
@@ -6386,7 +6377,7 @@ type ProviderError struct {
 ```
 
 <a name="ProviderError.Error"></a>
-### func \(\*ProviderError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L200>)
+### func \(\*ProviderError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L178>)
 
 ```go
 func (e *ProviderError) Error() string
@@ -6395,7 +6386,7 @@ func (e *ProviderError) Error() string
 Error implements the error interface.
 
 <a name="ProviderError.Unwrap"></a>
-### func \(\*ProviderError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L209>)
+### func \(\*ProviderError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L187>)
 
 ```go
 func (e *ProviderError) Unwrap() error
@@ -7376,7 +7367,7 @@ type ToolDescriptorPatchFn func(d *tools.ToolDescriptor)
 ```
 
 <a name="ToolError"></a>
-## type [ToolError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L216-L222>)
+## type [ToolError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L194-L200>)
 
 ToolError represents an error executing a tool. ResolveTool and ResolveToolWithArgs set one as the ToolResolution's Error when the approved tool's handler fails.
 
@@ -7391,7 +7382,7 @@ type ToolError struct {
 ```
 
 <a name="ToolError.Error"></a>
-### func \(\*ToolError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L225>)
+### func \(\*ToolError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L203>)
 
 ```go
 func (e *ToolError) Error() string
@@ -7400,7 +7391,7 @@ func (e *ToolError) Error() string
 Error implements the error interface.
 
 <a name="ToolError.Unwrap"></a>
-### func \(\*ToolError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L230>)
+### func \(\*ToolError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L208>)
 
 ```go
 func (e *ToolError) Unwrap() error
@@ -7440,36 +7431,6 @@ conv.OnToolCtx("search_db", func(ctx context.Context, args map[string]any) (any,
 ```go
 type ToolHandlerCtx func(ctx context.Context, args map[string]any) (any, error)
 ```
-
-<a name="ToolsStillPendingError"></a>
-## type [ToolsStillPendingError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L82-L85>)
-
-ToolsStillPendingError is returned by Continue and Resume while calls the suspended turn made are unanswered. errors.Is matches ErrToolsStillPending.
-
-```go
-type ToolsStillPendingError struct {
-    // IDs are the unanswered calls, in the order the model made them.
-    IDs []string
-}
-```
-
-<a name="ToolsStillPendingError.Error"></a>
-### func \(\*ToolsStillPendingError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L88>)
-
-```go
-func (e *ToolsStillPendingError) Error() string
-```
-
-Error names the unanswered calls.
-
-<a name="ToolsStillPendingError.Unwrap"></a>
-### func \(\*ToolsStillPendingError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L93>)
-
-```go
-func (e *ToolsStillPendingError) Unwrap() error
-```
-
-Unwrap returns ErrToolsStillPending.
 
 <a name="VADModeConfig"></a>
 ## type [VADModeConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L3185-L3225>)
@@ -7566,7 +7527,7 @@ type ValidateEvalTypesOpts struct {
 ```
 
 <a name="ValidationError"></a>
-## type [ValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L118-L130>)
+## type [ValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L96-L108>)
 
 ValidationError represents a validation failure. Send, Stream and their Resume and Continue counterparts return one when a hook or guardrail denies the turn: it wraps the runtime's \*hooks.HookDeniedError \(a provider hook denied the call\) or \*providers.ValidationAbortError \(a chunk hook aborted the stream\), so errors.As still finds those.
 
@@ -7585,7 +7546,7 @@ type ValidationError struct {
 ```
 
 <a name="AsValidationError"></a>
-### func [AsValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L150>)
+### func [AsValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L128>)
 
 ```go
 func AsValidationError(err error) (*ValidationError, bool)
@@ -7645,7 +7606,7 @@ matched: false
 </details>
 
 <a name="ValidationError.Error"></a>
-### func \(\*ValidationError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L133>)
+### func \(\*ValidationError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L111>)
 
 ```go
 func (e *ValidationError) Error() string
@@ -7654,7 +7615,7 @@ func (e *ValidationError) Error() string
 Error implements the error interface.
 
 <a name="ValidationError.Unwrap"></a>
-### func \(\*ValidationError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L138>)
+### func \(\*ValidationError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L116>)
 
 ```go
 func (e *ValidationError) Unwrap() error

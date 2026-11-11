@@ -88,11 +88,39 @@ type addFailingPendingStore struct {
 
 func (s *addFailingPendingStore) Add(context.Context, *sdktools.PendingToolCall) error { return s.err }
 
-// Continue refuses while a call the suspended turn held is unanswered, names
-// that call, and keeps the answers given so far: once the last call is
-// settled, Continue gives the model every result.
-func TestContinue_RefusesWhileAHeldCallIsUnanswered(t *testing.T) {
+// Once every held call is settled, Continue gives the model every result in
+// one request.
+func TestContinue_SendsEverySettledResultInOneRequest(t *testing.T) {
 	conv, provider := openSettlementConv(t, 2, []string{"Sent both."})
+	_, ran := holdEverySendMessage(conv)
+	ctx := context.Background()
+
+	resp, err := conv.Send(ctx, "message two customers")
+	require.NoError(t, err)
+	held := resp.PendingTools()
+	require.Len(t, held, 2)
+	first, second := held[0].ID, held[1].ID
+	for _, id := range []string{first, second} {
+		_, err = conv.ResolveTool(ctx, id)
+		require.NoError(t, err)
+	}
+
+	final, err := conv.Continue(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "Sent both.", final.Text())
+	assert.EqualValues(t, 2, ran.Load())
+	require.Equal(t, 2, modelCalls(provider), "one request for the turn, one for the continuation")
+	assert.Equal(t, []string{first, second}, toolResultsSeen(provider, 1), "the model saw every result in one call")
+	assert.Empty(t, toolResultFor(t, conv, first).Error)
+	assert.Empty(t, toolResultFor(t, conv, second).Error)
+}
+
+// A Continue with only some held calls settled carries on with those. The
+// round it continued no longer awaits the others: approving one afterwards is
+// refused and its handler does not run, rather than running a tool whose
+// result the model would never see.
+func TestContinue_PartialSettlementLeavesTheRestUnawaited(t *testing.T) {
+	conv, provider := openSettlementConv(t, 2, []string{"Sent the first."})
 	_, ran := holdEverySendMessage(conv)
 	ctx := context.Background()
 
@@ -104,25 +132,14 @@ func TestContinue_RefusesWhileAHeldCallIsUnanswered(t *testing.T) {
 
 	_, err = conv.ResolveTool(ctx, first)
 	require.NoError(t, err)
-	_, err = conv.Continue(ctx)
-	require.ErrorIs(t, err, ErrToolsStillPending)
-	var stillPending *ToolsStillPendingError
-	require.ErrorAs(t, err, &stillPending)
-	assert.Equal(t, []string{second}, stillPending.IDs, "the error names the unanswered call")
-	assert.Nil(t, toolResultFor(t, conv, first), "a refused Continue sends the model nothing")
-
-	_, err = conv.ResolveTool(ctx, second)
-	require.NoError(t, err)
 	final, err := conv.Continue(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, "Sent both.", final.Text())
-	assert.EqualValues(t, 2, ran.Load())
-	require.Equal(t, 2, modelCalls(provider), "the refused Continue did not call the model, the second called it once")
-	assert.Equal(t, []string{first, second}, toolResultsSeen(provider, 1), "the model saw every result in one call")
-	require.NotNil(t, toolResultFor(t, conv, first), "the first answer was kept for the second Continue")
-	require.NotNil(t, toolResultFor(t, conv, second))
-	assert.Empty(t, toolResultFor(t, conv, first).Error)
-	assert.Empty(t, toolResultFor(t, conv, second).Error)
+	assert.Equal(t, "Sent the first.", final.Text())
+	assert.Equal(t, []string{first}, toolResultsSeen(provider, 1))
+
+	_, err = conv.ResolveTool(ctx, second)
+	require.ErrorIs(t, err, ErrToolCallNotAwaited)
+	assert.EqualValues(t, 1, ran.Load(), "the second call's handler must not run")
 }
 
 // A held call whose turn was abandoned (Send started a new one) is no longer
@@ -336,13 +353,13 @@ func TestSendToolResult_RefusesACallTheTurnNoLongerAwaits(t *testing.T) {
 	assert.ErrorIs(t, conv.SendToolResult(ctx, id, map[string]any{"sent": true}), ErrToolCallNotAwaited)
 }
 
-// Resume refuses the same way while a call the host holds is unanswered, and
-// keeps the answer given so far.
-func TestResume_RefusesWhileAHostHeldCallIsUnanswered(t *testing.T) {
+// A Resume with only some host-held calls answered carries on with those, and
+// a later answer for the others is refused.
+func TestResume_PartialAnswersLeaveTheRestUnawaited(t *testing.T) {
 	gate := func(_ context.Context, _, name string, _ map[string]any) (*tools.PendingToolInfo, error) {
 		return &tools.PendingToolInfo{Reason: "referral", ToolName: name}, nil
 	}
-	conv, provider := openSettlementConv(t, 2, []string{"Both reviewed."}, WithApprovalGate(gate))
+	conv, provider := openSettlementConv(t, 2, []string{"Reviewed the first."}, WithApprovalGate(gate))
 	conv.OnTool("send_message", func(args map[string]any) (any, error) { return args, nil })
 	ctx := context.Background()
 
@@ -352,15 +369,10 @@ func TestResume_RefusesWhileAHostHeldCallIsUnanswered(t *testing.T) {
 	first, second := resp.ClientTools()[0].CallID, resp.ClientTools()[1].CallID
 
 	require.NoError(t, conv.SendToolResult(ctx, first, "sent"))
-	_, err = conv.Resume(ctx)
-	var stillPending *ToolsStillPendingError
-	require.ErrorAs(t, err, &stillPending)
-	assert.Equal(t, []string{second}, stillPending.IDs)
-	assert.Equal(t, 1, modelCalls(provider), "a refused Resume does not call the model")
-
-	require.NoError(t, conv.SendToolResult(ctx, second, "sent"))
 	final, err := conv.Resume(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, "Both reviewed.", final.Text())
-	assert.Equal(t, []string{first, second}, toolResultsSeen(provider, 1))
+	assert.Equal(t, "Reviewed the first.", final.Text())
+	assert.Equal(t, []string{first}, toolResultsSeen(provider, 1))
+
+	assert.ErrorIs(t, conv.SendToolResult(ctx, second, "sent"), ErrToolCallNotAwaited)
 }

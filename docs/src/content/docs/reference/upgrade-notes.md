@@ -137,20 +137,19 @@ conversation events published on `eval.conversation.*`; it dropped them before.
 | Close conversations from a `ShutdownManager` | session evals only, since a shutdown suspends a conversation rather than finishing it | nothing, or `Complete()` the conversations that are finished before shutdown |
 | Use `WithEvalTriggers` to run close-time evals out of band | nothing | nothing |
 
-### Every held call is settled before `Continue`, and a hold fails closed
+### `Continue` answers a round in one request, and a hold fails closed
 
 `Continue` called the model once for each resolved call, so the first request
 answered one call of the round and left the others unanswered. Providers that
-require every call to be answered rejected that request. `Continue` and
-`Resume` also ran with calls still unanswered, and an answer that arrived later
-was dropped with a log line after its handler had already run. When the pending
+require every call to be answered rejected that request. An answer for a call
+the conversation had stopped waiting on was accepted, its handler ran, and the
+result was dropped with a log line. When the pending
 store could not record a hold, the call ran unapproved.
 
 | If you | You will see | Change |
 |---|---|---|
 | Resolve several held calls, then `Continue` | one model request with every result, and one reply | nothing |
-| Call `Continue` or `Resume` while a held or client call is unanswered | `sdk.ErrToolsStillPending` (a `*sdk.ToolsStillPendingError` naming the calls); the answers so far are kept | settle the remaining calls, then continue |
-| Resolve, reject or answer a call after `Send` started a new turn | `sdk.ErrToolCallNotAwaited`; `ResolveTool` does not run the handler, and the call leaves the store | nothing, or stop answering calls of abandoned turns |
+| Resolve, reject or answer a call after `Continue` carried on without it, or `Send` started a new turn | `sdk.ErrToolCallNotAwaited`; `ResolveTool` does not run the handler, and the call leaves the store | nothing, or stop answering calls of abandoned turns |
 | Use a pending store whose `Add` can fail | the call does not run, and the model gets an approval error | nothing |
 | Need the caller's context or the call id in an approval check | `OnToolAsyncWithContext` | register the check with it |
 | Want to decide approval for every tool call yourself | `WithApprovalGate`, on unary conversations; `OpenDuplex` refuses it with `sdk.ErrApprovalGateUnary` | pass your gate; answer its holds with `SendToolResult` and `Resume` |

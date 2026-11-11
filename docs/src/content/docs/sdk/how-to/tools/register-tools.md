@@ -172,17 +172,9 @@ for _, pending := range resp.PendingTools() {
 resp, _ = conv.Continue(ctx)
 ```
 
-Settle every held call before you continue. `conv.Continue(ctx)` gives the model every result of the round in one request and returns its reply. While a call the turn is waiting on is still unanswered, `Continue` sends nothing and returns an error that `errors.Is` matches to `sdk.ErrToolsStillPending`. The error is a `*sdk.ToolsStillPendingError` whose `IDs` name the unanswered calls, and the answers given so far are kept for the next `Continue`. This lets each held call wait for its own approver:
+Settle every held call before you continue. `conv.Continue(ctx)` gives the model every result of the round in one request and returns its reply. A `Continue` with calls still unanswered carries on without them, and the conversation then stops waiting on those calls.
 
-```go
-resp, err = conv.Continue(ctx)
-var still *sdk.ToolsStillPendingError
-if errors.As(err, &still) {
-    // still.IDs are waiting on their approvers; call Continue again once they decide.
-}
-```
-
-The conversation does not wait on a call whose turn was abandoned, because `Send` started a new turn before the call was settled. `ResolveTool`, `ResolveToolWithArgs` and `RejectTool` return `sdk.ErrToolCallNotAwaited` for it and remove it from the store, and `ResolveTool` does not run its handler. `SendToolResult`, `SendToolResultMultimodal` and `FailClientTool` refuse such a call the same way.
+The conversation does not wait on a call whose turn was continued or abandoned before the call was settled: `Continue` carried on without it, or `Send` started a new turn. `ResolveTool`, `ResolveToolWithArgs` and `RejectTool` return `sdk.ErrToolCallNotAwaited` for it and remove it from the store, and `ResolveTool` does not run its handler. `SendToolResult`, `SendToolResultMultimodal` and `FailClientTool` refuse such a call the same way.
 
 When the check needs the caller's context (an identity or claims the caller put on the `Send` context, or a deadline for a remote policy service), register it with `OnToolAsyncWithContext`. The check also receives the provider's call id:
 

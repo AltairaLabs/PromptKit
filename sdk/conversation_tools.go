@@ -406,13 +406,10 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 		return nil, err
 	}
 
-	// Get all resolved tool results; refuse while a held call is unanswered.
+	// Get all resolved tool results
 	var resolutions []*sdktools.ToolResolution
 	if c.resolvedStore != nil {
-		var pendingErr error
-		if resolutions, pendingErr = c.takeSettlement(ctx); pendingErr != nil {
-			return nil, pendingErr
-		}
+		resolutions = c.takeSettlement(ctx)
 	}
 
 	if len(resolutions) == 0 {
