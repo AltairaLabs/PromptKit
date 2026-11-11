@@ -10,301 +10,94 @@ import (
 )
 
 // ============================================================================
-// Multimodal Tool Result Serialization Tests (#619)
+// Tool result serialization on Chat Completions: the tool message carries
+// text only, and an image follows the round in a user message.
 // ============================================================================
 
-func TestConvertToolResultContent_TextOnly(t *testing.T) {
-	result := &types.MessageToolResult{
-		ID:   "call_1",
-		Name: "weather",
-		Parts: []types.ContentPart{
-			types.NewTextPart(`{"temperature": 72}`),
-		},
-	}
-
-	content := mustConvertToolResultContent(t, result)
-
-	str, ok := content.(string)
-	if !ok {
-		t.Fatalf("Expected string for text-only result, got %T", content)
-	}
-	if str != `{"temperature": 72}` {
-		t.Errorf("Expected tool result text, got %q", str)
-	}
-}
-
-func TestConvertToolResultContent_MultipleTextParts(t *testing.T) {
-	result := &types.MessageToolResult{
-		ID:   "call_2",
-		Name: "search",
-		Parts: []types.ContentPart{
-			types.NewTextPart("Result 1. "),
-			types.NewTextPart("Result 2."),
-		},
-	}
-
-	content := mustConvertToolResultContent(t, result)
-
-	// Multiple text-only parts still return concatenated string
-	str, ok := content.(string)
-	if !ok {
-		t.Fatalf("Expected string for text-only result, got %T", content)
-	}
-	if str != "Result 1. Result 2." {
-		t.Errorf("Expected concatenated text, got %q", str)
-	}
-}
-
-func TestConvertToolResultContent_Base64Image(t *testing.T) {
-	b64Data := "iVBORw0KGgoAAAANSUhEUg=="
-	result := &types.MessageToolResult{
-		ID:   "call_3",
-		Name: "chart_gen",
-		Parts: []types.ContentPart{
-			types.NewTextPart("Chart generated successfully"),
-			types.NewImagePartFromData(b64Data, types.MIMETypeImagePNG, nil),
-		},
-	}
-
-	content := mustConvertToolResultContent(t, result)
-
-	parts, ok := content.([]map[string]interface{})
-	if !ok {
-		t.Fatalf("Expected []map[string]interface{} for multimodal result, got %T", content)
-	}
-	if len(parts) != 2 {
-		t.Fatalf("Expected 2 parts, got %d", len(parts))
-	}
-
-	// Verify text part
-	if parts[0]["type"] != "text" {
-		t.Errorf("Expected first part type 'text', got %v", parts[0]["type"])
-	}
-	if parts[0]["text"] != "Chart generated successfully" {
-		t.Errorf("Expected text content, got %v", parts[0]["text"])
-	}
-
-	// Verify image part
-	if parts[1]["type"] != "image_url" {
-		t.Errorf("Expected second part type 'image_url', got %v", parts[1]["type"])
-	}
-	imgURL, ok := parts[1]["image_url"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("Expected image_url to be a map, got %T", parts[1]["image_url"])
-	}
-	expectedURL := "data:image/png;base64," + b64Data
-	if imgURL["url"] != expectedURL {
-		t.Errorf("Expected data URI %q, got %v", expectedURL, imgURL["url"])
-	}
-}
-
-func TestConvertToolResultContent_URLImage(t *testing.T) {
-	imgURL := "https://example.com/chart.png"
-	result := &types.MessageToolResult{
-		ID:   "call_4",
-		Name: "screenshot",
-		Parts: []types.ContentPart{
-			types.NewTextPart("Screenshot captured"),
-			types.NewImagePartFromURL(imgURL, nil),
-		},
-	}
-
-	content := mustConvertToolResultContent(t, result)
-
-	parts, ok := content.([]map[string]interface{})
-	if !ok {
-		t.Fatalf("Expected []map[string]interface{} for multimodal result, got %T", content)
-	}
-	if len(parts) != 2 {
-		t.Fatalf("Expected 2 parts, got %d", len(parts))
-	}
-
-	// Verify image part URL is passed through
-	imgBlock, ok := parts[1]["image_url"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("Expected image_url map, got %T", parts[1]["image_url"])
-	}
-	if imgBlock["url"] != imgURL {
-		t.Errorf("Expected URL %q, got %v", imgURL, imgBlock["url"])
-	}
-}
-
-func TestConvertToolResultContent_ImageOnly(t *testing.T) {
-	b64Data := "AAAA"
-	result := &types.MessageToolResult{
-		ID:   "call_5",
-		Name: "render",
-		Parts: []types.ContentPart{
-			types.NewImagePartFromData(b64Data, types.MIMETypeImageJPEG, nil),
-		},
-	}
-
-	content := mustConvertToolResultContent(t, result)
-
-	parts, ok := content.([]map[string]interface{})
-	if !ok {
-		t.Fatalf("Expected []map[string]interface{} for image-only result, got %T", content)
-	}
-	if len(parts) != 1 {
-		t.Fatalf("Expected 1 part, got %d", len(parts))
-	}
-	if parts[0]["type"] != "image_url" {
-		t.Errorf("Expected type 'image_url', got %v", parts[0]["type"])
-	}
-}
-
-func TestConvertToolResultContent_MixedContent(t *testing.T) {
-	b64Data := "AAAA"
-	imgURL := "https://example.com/plot.png"
-	result := &types.MessageToolResult{
-		ID:   "call_6",
-		Name: "analysis",
-		Parts: []types.ContentPart{
-			types.NewTextPart("Analysis complete"),
-			types.NewImagePartFromData(b64Data, types.MIMETypeImagePNG, nil),
-			types.NewTextPart("See charts above"),
-			types.NewImagePartFromURL(imgURL, nil),
-		},
-	}
-
-	content := mustConvertToolResultContent(t, result)
-
-	parts, ok := content.([]map[string]interface{})
-	if !ok {
-		t.Fatalf("Expected []map[string]interface{}, got %T", content)
-	}
-	if len(parts) != 4 {
-		t.Fatalf("Expected 4 parts, got %d", len(parts))
-	}
-
-	// Verify ordering and types
-	expectedTypes := []string{"text", "image_url", "text", "image_url"}
-	for i, expected := range expectedTypes {
-		if parts[i]["type"] != expected {
-			t.Errorf("Part %d: expected type %q, got %v", i, expected, parts[i]["type"])
-		}
-	}
-}
-
-func TestConvertToolResultContent_EmptyParts(t *testing.T) {
-	result := &types.MessageToolResult{
-		ID:    "call_7",
-		Name:  "noop",
-		Parts: nil,
-	}
-
-	content := mustConvertToolResultContent(t, result)
-
-	// No parts means text-only path returns empty string
-	str, ok := content.(string)
-	if !ok {
-		t.Fatalf("Expected string for empty result, got %T", content)
-	}
-	if str != "" {
-		t.Errorf("Expected empty string, got %q", str)
-	}
-}
-
-func TestConvertToolResultContent_UnsupportedMediaSkipped(t *testing.T) {
-	audioData := "AAAA"
-	result := &types.MessageToolResult{
-		ID:   "call_8",
-		Name: "transcribe",
-		Parts: []types.ContentPart{
-			types.NewTextPart("Transcription done"),
-			types.NewAudioPartFromData(audioData, types.MIMETypeAudioMP3),
-		},
-	}
-
-	content := mustConvertToolResultContent(t, result)
-
-	// HasMedia() returns true, so we get array format, but audio is skipped
-	parts, ok := content.([]map[string]interface{})
-	if !ok {
-		t.Fatalf("Expected []map[string]interface{}, got %T", content)
-	}
-	// Only text part should remain (audio is skipped)
-	if len(parts) != 1 {
-		t.Fatalf("Expected 1 part (audio skipped), got %d", len(parts))
-	}
-	if parts[0]["type"] != "text" {
-		t.Errorf("Expected text part, got %v", parts[0]["type"])
-	}
-}
-
-// TestConvertSingleMessageForTools_MultimodalToolResult verifies end-to-end conversion
-// of a tool result message with multimodal content through convertSingleMessageForTools.
-func TestConvertSingleMessageForTools_MultimodalToolResult(t *testing.T) {
+// toolRoundMessages converts a round in which the model called render once and
+// render returned parts.
+func toolRoundMessages(t *testing.T, parts []types.ContentPart) ([]map[string]interface{}, error) {
+	t.Helper()
 	provider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
+	return provider.convertRequestMessagesToOpenAI(context.Background(), providers.PredictionRequest{Messages: []types.Message{
+		{Role: "user", Content: "render it"},
+		{Role: "assistant", ToolCalls: []types.MessageToolCall{{ID: "call_1", Name: "render", Args: json.RawMessage(`{}`)}}},
+		{Role: "tool", ToolResult: &types.MessageToolResult{ID: "call_1", Name: "render", Parts: parts}},
+	}})
+}
 
-	b64Data := "iVBORw0KGgoAAAANSUhEUg=="
-	msg := types.Message{
-		Role: "tool",
-		ToolResult: &types.MessageToolResult{
-			ID:   "call_100",
-			Name: "chart_gen",
-			Parts: []types.ContentPart{
-				types.NewTextPart("Chart generated"),
-				types.NewImagePartFromData(b64Data, types.MIMETypeImagePNG, nil),
-			},
-		},
+func TestToolResultText_IsTheToolMessageContent(t *testing.T) {
+	cases := map[string]struct {
+		parts []types.ContentPart
+		want  string
+	}{
+		"one text part":   {[]types.ContentPart{types.NewTextPart(`{"temperature": 72}`)}, `{"temperature": 72}`},
+		"two text parts":  {[]types.ContentPart{types.NewTextPart("Result 1. "), types.NewTextPart("Result 2.")}, "Result 1. Result 2."},
+		"no parts at all": {nil, ""},
 	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			msgs, err := toolRoundMessages(t, tc.parts)
+			if err != nil {
+				t.Fatalf("convert: %v", err)
+			}
+			if len(msgs) != 3 {
+				t.Fatalf("Expected no message after a text-only result, got %d messages", len(msgs))
+			}
+			if msgs[2]["content"] != tc.want {
+				t.Errorf("Expected %q, got %#v", tc.want, msgs[2]["content"])
+			}
+		})
+	}
+}
 
-	openaiMsg := mustConvertSingleMessageForTools(t, provider, msg)
-
-	if openaiMsg["tool_call_id"] != "call_100" {
-		t.Errorf("Expected tool_call_id 'call_100', got %v", openaiMsg["tool_call_id"])
-	}
-	if openaiMsg["name"] != "chart_gen" {
-		t.Errorf("Expected name 'chart_gen', got %v", openaiMsg["name"])
-	}
-
-	// Content should be an array (multimodal)
-	parts, ok := openaiMsg["content"].([]map[string]interface{})
-	if !ok {
-		t.Fatalf("Expected multimodal content array, got %T", openaiMsg["content"])
-	}
-	if len(parts) != 2 {
-		t.Fatalf("Expected 2 parts, got %d", len(parts))
-	}
-
-	// Verify JSON serialization is valid
-	data, err := json.Marshal(openaiMsg)
+// An image-only result leaves the tool message saying where the image went.
+func TestToolResultImageOnly_ToolMessageSaysWhereItWent(t *testing.T) {
+	msgs, err := toolRoundMessages(t, []types.ContentPart{types.NewImagePartFromData("AAAA", types.MIMETypeImagePNG, nil)})
 	if err != nil {
-		t.Fatalf("Failed to marshal: %v", err)
+		t.Fatalf("convert: %v", err)
 	}
-	var parsed map[string]interface{}
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("Failed to unmarshal: %v", err)
+	if got := msgs[2]["content"]; got != "[The image this tool returned is attached in the next user message.]" {
+		t.Errorf("Unexpected tool message content %#v", got)
 	}
-	if parsed["role"] != "tool" {
-		t.Errorf("Expected role 'tool', got %v", parsed["role"])
+	if msgs[3]["role"] != "user" {
+		t.Errorf("Expected the image in a user message, got role %v", msgs[3]["role"])
+	}
+}
+
+// Audio on a model without audio input is described, not dropped.
+func TestToolResultAudio_OnATextModelIsDescribed(t *testing.T) {
+	msgs, err := toolRoundMessages(t, []types.ContentPart{
+		types.NewTextPart("Transcription done"),
+		types.NewAudioPartFromData("AAAA", types.MIMETypeAudioMP3),
+	})
+	if err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+	want := "Transcription done\n[This tool returned an audio (audio/mpeg) that was not sent: " +
+		"OpenAI Chat Completions does not accept audio input.]"
+	if got := msgs[2]["content"]; got != want {
+		t.Errorf("Expected %q, got %#v", want, got)
+	}
+	if len(msgs) != 3 {
+		t.Errorf("Expected nothing attached, got %d messages", len(msgs))
 	}
 }
 
 func TestToolResultImageURL_Base64(t *testing.T) {
 	data := "AAAA"
-	media := &types.MediaContent{
-		Data:     &data,
-		MIMEType: types.MIMETypeImagePNG,
-	}
-	got, err := toolResultImageURL(t, media)
+	got, err := toolResultImageURL(t, &types.MediaContent{Data: &data, MIMEType: types.MIMETypeImagePNG})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	expected := "data:image/png;base64,AAAA"
-	if got != expected {
+	if expected := "data:image/png;base64,AAAA"; got != expected {
 		t.Errorf("Expected %q, got %q", expected, got)
 	}
 }
 
 func TestToolResultImageURL_URL(t *testing.T) {
 	url := "https://example.com/img.jpg"
-	media := &types.MediaContent{
-		URL:      &url,
-		MIMEType: types.MIMETypeImageJPEG,
-	}
-	got, err := toolResultImageURL(t, media)
+	got, err := toolResultImageURL(t, &types.MediaContent{URL: &url, MIMEType: types.MIMETypeImageJPEG})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -316,42 +109,27 @@ func TestToolResultImageURL_URL(t *testing.T) {
 // An image with no source fails the request: it used to be dropped from the
 // tool result, so the model got the result without the image.
 func TestToolResultImageURL_NoSourceIsAnError(t *testing.T) {
-	media := &types.MediaContent{
-		MIMEType: types.MIMETypeImagePNG,
-	}
-	if got, err := toolResultImageURL(t, media); err == nil {
+	if got, err := toolResultImageURL(t, &types.MediaContent{MIMEType: types.MIMETypeImagePNG}); err == nil {
 		t.Errorf("Expected an error for an image with no source, got %q", got)
 	}
 }
 
-// mustConvertToolResultContent converts result and fails the test on error.
-func mustConvertToolResultContent(t *testing.T, result *types.MessageToolResult) interface{} {
-	t.Helper()
-	provider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
-	content, err := provider.convertToolResultContent(context.Background(), result)
-	if err != nil {
-		t.Fatalf("convertToolResultContent: %v", err)
-	}
-	return content
-}
-
 // toolResultImageURL sends media as a tool result's only part and returns the
-// image URL that goes on the wire.
+// image URL that goes on the wire, in the user message after the round.
 func toolResultImageURL(t *testing.T, media *types.MediaContent) (string, error) {
 	t.Helper()
-	provider := NewToolProvider("test", "gpt-4o", "https://api.openai.com/v1", providers.ProviderDefaults{}, false, nil, nil)
-	content, err := provider.convertToolResultContent(context.Background(), &types.MessageToolResult{
-		ID: "call_1", Name: "render",
-		Parts: []types.ContentPart{{Type: types.ContentTypeImage, Media: media}},
-	})
+	msgs, err := toolRoundMessages(t, []types.ContentPart{{Type: types.ContentTypeImage, Media: media}})
 	if err != nil {
 		return "", err
 	}
-	parts, ok := content.([]map[string]interface{})
-	if !ok || len(parts) != 1 {
-		t.Fatalf("Expected one content part, got %#v", content)
+	if len(msgs) != 4 {
+		t.Fatalf("Expected the image in a fourth message, got %d messages", len(msgs))
 	}
-	image, _ := parts[0]["image_url"].(map[string]interface{})
+	parts, ok := msgs[3]["content"].([]interface{})
+	if !ok || len(parts) != 2 {
+		t.Fatalf("Expected a label and the image, got %#v", msgs[3]["content"])
+	}
+	image, _ := parts[1].(map[string]interface{})["image_url"].(map[string]interface{})
 	url, _ := image["url"].(string)
 	return url, nil
 }

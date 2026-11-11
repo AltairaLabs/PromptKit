@@ -309,13 +309,40 @@ func (p *ToolProvider) convertRequestMessagesToOpenAI(
 		})
 	}
 
-	// Add conversation messages
+	// Add conversation messages. Media from a run of tool results follows the
+	// run as one user message (see liftedMediaMessage).
+	var round []*types.MessageToolResult
+	flushRound := func() error {
+		lifted := p.liftedMediaMessage(round)
+		round = nil
+		if lifted == nil {
+			return nil
+		}
+		openaiMsg, err := p.convertSingleMessageForTools(ctx, *lifted)
+		if err != nil {
+			return fmt.Errorf("tool result media: %w", err)
+		}
+		messages = append(messages, openaiMsg)
+		return nil
+	}
 	for i := range req.Messages {
+		isToolResult := req.Messages[i].Role == roleToolResult && req.Messages[i].ToolResult != nil
+		if !isToolResult {
+			if err := flushRound(); err != nil {
+				return nil, err
+			}
+		}
 		openaiMsg, err := p.convertSingleMessageForTools(ctx, req.Messages[i])
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert message %d: %w", i, err)
 		}
 		messages = append(messages, openaiMsg)
+		if isToolResult {
+			round = append(round, req.Messages[i].ToolResult)
+		}
+	}
+	if err := flushRound(); err != nil {
+		return nil, err
 	}
 
 	return messages, nil
@@ -348,61 +375,10 @@ func (p *ToolProvider) convertSingleMessageForTools(
 	if msg.Role == "tool" && msg.ToolResult != nil {
 		openaiMsg["tool_call_id"] = msg.ToolResult.ID
 		openaiMsg[keyName] = msg.ToolResult.Name
-		content, err := p.convertToolResultContent(ctx, msg.ToolResult)
-		if err != nil {
-			return nil, fmt.Errorf("tool result %s: %w", msg.ToolResult.ID, err)
-		}
-		openaiMsg[keyContent] = content
+		openaiMsg[keyContent] = p.toolMessageText(msg.ToolResult)
 	}
 
 	return openaiMsg, nil
-}
-
-// convertToolResultContent converts a MessageToolResult's Parts into OpenAI content format.
-// For text-only results (single text part), it returns a plain string.
-// For multimodal results (containing images), it returns an array of content blocks.
-// Images resolve as on a user message: a URL when there is one (including a
-// storage reference's), otherwise a data URL from inline, file or stored bytes.
-// The parts share one MediaLoader, so the result's media is held to
-// providers.MaxMediaItems and providers.MaxAggregateMediaSize, and an image that
-// cannot be loaded is an error.
-func (p *ToolProvider) convertToolResultContent(
-	ctx context.Context, result *types.MessageToolResult,
-) (interface{}, error) {
-	if !result.HasMedia() {
-		// Text-only: return plain string for backward compatibility
-		return result.GetTextContent(), nil
-	}
-
-	// Multimodal: build content array
-	loader := p.MediaLoader()
-	parts := make([]map[string]interface{}, 0, len(result.Parts))
-	for _, part := range result.Parts {
-		switch part.Type {
-		case types.ContentTypeText:
-			if part.Text != nil {
-				parts = append(parts, map[string]interface{}{
-					keyType: partTypeText,
-					keyText: *part.Text,
-				})
-			}
-		case types.ContentTypeImage:
-			if part.Media != nil {
-				imagePart, err := p.convertImagePartToOpenAI(ctx, loader, part)
-				if err != nil {
-					return nil, err
-				}
-				parts = append(parts, imagePart)
-			}
-		default:
-			// Unsupported media types in tool results are skipped
-		}
-	}
-
-	if len(parts) == 0 {
-		return result.GetTextContent(), nil
-	}
-	return parts, nil
 }
 
 // replayArgs renders a tool call's arguments for replay in history. Arguments
