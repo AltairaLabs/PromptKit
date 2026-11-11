@@ -158,6 +158,13 @@ func (p *Provider) prepareResponsesMessages(
 	msgs := make([]types.Message, len(req.Messages))
 	for i := range req.Messages {
 		msgs[i] = req.Messages[i]
+		if result := msgs[i].ToolResult; result != nil && result.HasMedia() {
+			resolved, err := p.resolveToolResultMedia(ctx, result)
+			if err != nil {
+				return req, fmt.Errorf("tool result %s: %w", result.ID, err)
+			}
+			msgs[i].ToolResult = resolved
+		}
 		if len(msgs[i].Parts) == 0 {
 			continue
 		}

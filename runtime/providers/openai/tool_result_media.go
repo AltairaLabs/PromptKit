@@ -1,7 +1,9 @@
 package openai
 
 import (
+	"context"
 	"fmt"
+	"mime"
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
@@ -127,4 +129,83 @@ func article(word string) string {
 		return "an"
 	}
 	return "a"
+}
+
+// resolveToolResultMedia returns a copy of result whose images carry the URL
+// or data URL they will be sent with, and whose documents carry their bytes,
+// loaded through one MediaLoader so the result is held to the media caps.
+// Other media is left as it is, to be described (responsesToolOutput).
+func (p *Provider) resolveToolResultMedia(
+	ctx context.Context, result *types.MessageToolResult,
+) (*types.MessageToolResult, error) {
+	loader := p.MediaLoader()
+	resolved := *result
+	resolved.Parts = make([]types.ContentPart, len(result.Parts))
+	for i, part := range result.Parts {
+		switch {
+		case part.Media == nil:
+		case part.Type == types.ContentTypeImage:
+			converted, err := p.convertImagePartToOpenAI(ctx, loader, part)
+			if err != nil {
+				return nil, err
+			}
+			part.Media = resolvedImageMedia(part.Media, converted)
+		case part.Type == types.ContentTypeDocument:
+			data, err := loader.GetBase64Data(ctx, part.Media)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load document data: %w", err)
+			}
+			media := *part.Media
+			media.Data = &data
+			part.Media = &media
+		}
+		resolved.Parts[i] = part
+	}
+	return &resolved, nil
+}
+
+// responsesToolOutput is a function_call_output's output: the result's text
+// when it has no media, otherwise its parts in order as input_text,
+// input_image and input_file items. Media the Responses API does not take
+// (audio, video) becomes an input_text describing it, and is logged.
+func (p *Provider) responsesToolOutput(result *types.MessageToolResult) any {
+	if !result.HasMedia() {
+		return result.GetTextContent()
+	}
+	items := make([]map[string]any, 0, len(result.Parts))
+	for i := range result.Parts {
+		part := &result.Parts[i]
+		switch {
+		case part.Type == types.ContentTypeText:
+			if part.Text != nil && *part.Text != "" {
+				items = append(items, map[string]any{keyType: typeInputText, partTypeText: *part.Text})
+			}
+		case part.Type == types.ContentTypeImage && part.Media != nil:
+			items = append(items, imageResponsesPart(part.Media))
+		case part.Type == types.ContentTypeDocument && part.Media != nil && part.Media.Data != nil:
+			items = append(items, map[string]any{
+				keyType:     "input_file",
+				"filename":  documentFilename(result, i),
+				"file_data": "data:" + part.Media.MIMEType + ";base64," + *part.Media.Data,
+			})
+		default:
+			note := unsentMediaNote(part, "OpenAI Responses")
+			items = append(items, map[string]any{keyType: typeInputText, partTypeText: note})
+			logger.Warn("tool result media not sent to the model: the API does not accept it",
+				"provider", p.ID(), "call_id", result.ID, "tool", result.Name,
+				"type", part.Type, "mime_type", mimeOf(part))
+		}
+	}
+	return items
+}
+
+// documentFilename names the document at index i of result for the API,
+// which requires a filename with file data: the tool, the call and the part's
+// position, with the extension of its MIME type.
+func documentFilename(result *types.MessageToolResult, i int) string {
+	ext := ".bin"
+	if exts, err := mime.ExtensionsByType(result.Parts[i].Media.MIMEType); err == nil && len(exts) > 0 {
+		ext = exts[0]
+	}
+	return fmt.Sprintf("%s-%s-%d%s", result.Name, result.ID, i+1, ext)
 }
