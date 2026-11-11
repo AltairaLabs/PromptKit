@@ -1649,7 +1649,13 @@ func (c *Conversation) startOTelSession(ctx context.Context) {
 	}
 }
 
-// Close releases resources associated with the conversation.
+// Close ends the conversation's session and releases its resources. It runs
+// the pack's on_session_complete (and sample_sessions) evals, and not its
+// on_conversation_complete evals: closing ends a session, and a closed
+// conversation can be resumed. A host that suspends a conversation (for
+// example, while a held tool call waits for a human's approval) closes it
+// at each suspension, and calls [Conversation.Complete] instead of Close
+// once the conversation is finished.
 //
 // After Close is called, Send and Stream will return [ErrConversationClosed].
 // It's safe to call Close multiple times.
@@ -1667,9 +1673,38 @@ func (c *Conversation) startOTelSession(ctx context.Context) {
 // bus's subscribers. A bus supplied via [WithEventBus] is left open for the
 // caller to close.
 func (c *Conversation) Close() error {
-	busRef, first, err := c.closeLocked()
+	_, err := c.end(false)
+	return err
+}
+
+// Complete ends the conversation: it runs the pack's on_session_complete
+// evals and then its on_conversation_complete evals, over the whole
+// transcript, and closes the conversation as [Conversation.Close] does.
+//
+// The SDK cannot tell a finished conversation from a suspended one, so
+// finishing is the host's call. A conversation that pauses for human
+// approval is closed (not completed) at each pause and resumed when the
+// decision arrives; when the interaction is over, the host calls Complete
+// once, and the conversation evals score it once.
+//
+// Complete on a conversation that is already closed or completed runs no
+// evals and returns [ErrConversationClosed]: the session evals ran on the
+// earlier close. To complete a conversation that was suspended, resume it
+// and call Complete on the resumed conversation.
+func (c *Conversation) Complete() error {
+	first, err := c.end(true)
 	if !first {
-		return err
+		return ErrConversationClosed
+	}
+	return err
+}
+
+// end closes the conversation, running its conversation evals as well when
+// complete is set. Reports whether this call closed it.
+func (c *Conversation) end(complete bool) (bool, error) {
+	busRef, first, err := c.closeLocked(complete)
+	if !first {
+		return false, err
 	}
 	// Outside c.mu: both steps wait on work that may call back into the
 	// conversation (a pipeline stage, or a subscriber draining the bus).
@@ -1678,7 +1713,7 @@ func (c *Conversation) Close() error {
 	if busRef != nil {
 		busRef.release()
 	}
-	return err
+	return true, err
 }
 
 // takeBusRef hands over this conversation's event bus reference, leaving it
@@ -1780,14 +1815,15 @@ func shutdownPipelines[P pipelineShutdowner](pipelines []P, timeout time.Duratio
 // closeLocked releases everything Close releases except the pipelines and
 // the event bus, which Close handles after releasing c.mu; it hands over the
 // bus reference for that. Reports whether this call closed the conversation
-// (false when it was already closed).
+// (false when it was already closed). complete also runs the conversation
+// evals (Complete rather than Close).
 //
 // The session and conversation evals run between two critical sections, with
 // c.mu released: a slow judge must not block every other call on the
 // Conversation, and those calls see it closed and return at once. Resources
 // are released only after the evals finish, since a judge may use the
 // conversation's providers.
-func (c *Conversation) closeLocked() (*sharedEventBus, bool, error) {
+func (c *Conversation) closeLocked(complete bool) (*sharedEventBus, bool, error) {
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
@@ -1802,7 +1838,7 @@ func (c *Conversation) closeLocked() (*sharedEventBus, bool, error) {
 	evalMW := c.evalMW
 	c.mu.Unlock()
 
-	runCloseEvals(evalMW)
+	runCloseEvals(evalMW, complete)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1834,17 +1870,19 @@ func (c *Conversation) finishSession(convID string) {
 }
 
 // runCloseEvals waits for any in-flight turn evals, then dispatches the
-// session-complete and conversation-complete evals: closing a Conversation
-// ends both its session and the conversation itself. Finally it closes the
-// middleware to cancel its context and release resources. Nil-safe. Caller
-// must not hold c.mu: the evals may call a model.
-func runCloseEvals(evalMW *evalMiddleware) {
+// session-complete evals, and the conversation-complete evals when complete
+// is set: Close ends a session, Complete ends the conversation. Finally it
+// closes the middleware to cancel its context and release resources.
+// Nil-safe. Caller must not hold c.mu: the evals may call a model.
+func runCloseEvals(evalMW *evalMiddleware, complete bool) {
 	if evalMW == nil {
 		return
 	}
 	evalMW.wait()
 	evalMW.dispatchSessionEvals(context.Background())
-	evalMW.dispatchConversationEvals(context.Background())
+	if complete {
+		evalMW.dispatchConversationEvals(context.Background())
+	}
 	evalMW.close()
 }
 

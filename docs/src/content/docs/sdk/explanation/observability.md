@@ -106,7 +106,7 @@ Before adding an event, read [Adding an event](/architecture/runtime-events/#add
 
 ## Evals
 
-The SDK runs pack evals through an eval middleware attached to the conversation, not through a bus listener. Turn evals dispatch asynchronously after each assistant turn. Session evals, then conversation evals, run synchronously when the conversation closes. Each result is published as `eval.completed` or `eval.failed` on the conversation's bus, and written to the metrics collector when you configure one.
+The SDK runs pack evals through an eval middleware attached to the conversation, not through a bus listener. Turn evals dispatch asynchronously after each assistant turn. Session evals run synchronously when the conversation closes; `Complete()` runs them and then the conversation evals. Each result is published as `eval.completed` or `eval.failed` on the conversation's bus, and written to the metrics collector when you configure one.
 
 An eval result is an event like any other, so the redactor covers it.
 

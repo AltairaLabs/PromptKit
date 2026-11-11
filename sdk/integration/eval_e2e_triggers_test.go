@@ -39,17 +39,20 @@ func TestE2E_EvalTriggers_PerTurnHostRunsNoCloseEvals(t *testing.T) {
 	assert.Equal(t, map[string]int{"turn": 3}, total)
 }
 
-// The same cycle without the option keeps today's behavior: every Close runs
-// the session and conversation evals again.
-func TestE2E_EvalTriggers_UnsetKeepsCloseEvals(t *testing.T) {
+// The same cycle without the option runs the session evals again on every
+// Close; the conversation evals wait for Complete.
+func TestE2E_EvalTriggers_UnsetKeepsSessionEvalsOnClose(t *testing.T) {
 	packPath := writePackFile(t, e2ePack("", costlyCloseEvals, ""))
 	store := statestore.NewMemoryStore()
 	for i, msg := range []string{"one", "two"} {
 		conv, log := openStored(t, packPath, "per-message", store, i > 0)
 		sendAndClose(t, conv, msg)
-		assert.Equalf(t, map[string]int{"turn": 1, "session": 1, "sampled-session": 1, "conversation": 1},
+		assert.Equalf(t, map[string]int{"turn": 1, "session": 1, "sampled-session": 1},
 			log.ids(), "cycle %d", i+1)
 	}
+	conv, log := openStored(t, packPath, "per-message", store, true)
+	sendAndComplete(t, conv, "three")
+	assert.Equal(t, map[string]int{"turn": 1, "session": 1, "sampled-session": 1, "conversation": 1}, log.ids())
 }
 
 // Naming only close-time triggers runs those and no per-turn eval; naming
@@ -73,7 +76,7 @@ func TestE2E_EvalTriggers_SelectsByTrigger(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			conv, log := openE2E(t, packJSON, "hello", sdk.WithEvalTriggers(tc.triggers...))
-			sendAndClose(t, conv, "a", "b")
+			sendAndComplete(t, conv, "a", "b")
 			assert.Equal(t, tc.want, log.ids())
 		})
 	}
@@ -89,7 +92,7 @@ func TestE2E_EvalTriggers_ComposesWithGroups(t *testing.T) {
 		sdk.WithJudgeProvider(judge),
 		sdk.WithEvalGroups(evals.GroupFastRunning),
 		sdk.WithEvalTriggers(evals.TriggerEveryTurn))
-	sendAndClose(t, conv, "a")
+	sendAndComplete(t, conv, "a")
 	assert.Equal(t, map[string]int{"turn": 1}, log.ids())
 	assert.Zero(t, judge.calls)
 }
@@ -123,8 +126,43 @@ func TestE2E_EvalTriggers_WorkflowStateChange(t *testing.T) {
 	require.NoError(t, err)
 	_, err = wc.Transition("Escalate")
 	require.NoError(t, err)
-	require.NoError(t, wc.Close())
+	require.NoError(t, wc.Complete())
 	assert.Equal(t, map[string]int{"turn": 1, "step": 1}, log.ids())
+}
+
+// A workflow's state change completes the outgoing state's conversation, which
+// the workflow never returns to, so its conversation evals score that state's
+// turns. Close suspends the active state's conversation and runs none for it;
+// Complete finishes it and runs them over its turns.
+func TestE2E_WorkflowComplete_RunsConversationEvalsPerFinishedState(t *testing.T) {
+	for name, tc := range map[string]struct {
+		finish func(*sdk.WorkflowConversation) error
+		want   []int
+	}{
+		"close":    {(*sdk.WorkflowConversation).Close, []int{2}},
+		"complete": {(*sdk.WorkflowConversation).Complete, []int{2, 4}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			log := &resultLog{}
+			wc, err := sdk.OpenWorkflow(writePackFile(t, workflowEvalPackWithCloseEvals),
+				sdk.WithProvider(replyProvider("noted")), sdk.WithEvalHook(log))
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = wc.Close() })
+
+			_, err = wc.Send(context.Background(), "help")
+			require.NoError(t, err)
+			_, err = wc.Transition("Escalate")
+			require.NoError(t, err)
+			_, err = wc.Send(context.Background(), "still there?")
+			require.NoError(t, err)
+			_, err = wc.Send(context.Background(), "hello?")
+			require.NoError(t, err)
+			require.NoError(t, tc.finish(wc))
+			assert.Equal(t, tc.want, log.messagesSeen("conversation"),
+				"one conversation eval per finished state, over that state's turns")
+			assert.ErrorIs(t, wc.Complete(), sdk.ErrWorkflowClosed, "a finished workflow cannot complete again")
+		})
+	}
 }
 
 // workflowEvalPackWithCloseEvals is workflowEvalPack plus a conversation eval.

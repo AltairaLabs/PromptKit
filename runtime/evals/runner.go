@@ -130,7 +130,8 @@ func (r *EvalRunner) RunTurnEvals(
 }
 
 // RunSessionEvals runs session-level evals (on_session_complete and
-// sample_sessions triggers). Call this when a session ends.
+// sample_sessions triggers). Call this when a session ends: each time the
+// conversation is closed, whether it is finished or suspended to be resumed.
 func (r *EvalRunner) RunSessionEvals(
 	ctx context.Context,
 	defs []EvalDef,
@@ -144,8 +145,11 @@ func (r *EvalRunner) RunSessionEvals(
 	return r.runEvals(ctx, defs, evalCtx, trigCtx, sessionTriggers)
 }
 
-// RunConversationEvals runs conversation-level evals (on_conversation_complete trigger).
-// Call this when a multi-turn conversation ends (e.g., Arena self-play completion).
+// RunConversationEvals runs conversation-level evals (on_conversation_complete
+// trigger). Call this once, when the conversation is finished (the end of an
+// Arena self-play run, or a host's last session of a conversation), and not
+// when it is suspended to be resumed, such as while a held tool call waits for
+// a human's approval. Call RunSessionEvals for the final session as well.
 func (r *EvalRunner) RunConversationEvals(
 	ctx context.Context,
 	defs []EvalDef,

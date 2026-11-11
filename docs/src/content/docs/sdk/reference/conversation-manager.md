@@ -259,6 +259,7 @@ Mock response from mock model mock-model
   - [func \(c \*Conversation\) AudioMonitor\(\) \<\-chan AudioMonitorFrame](<#Conversation.AudioMonitor>)
   - [func \(c \*Conversation\) Clear\(\) error](<#Conversation.Clear>)
   - [func \(c \*Conversation\) Close\(\) error](<#Conversation.Close>)
+  - [func \(c \*Conversation\) Complete\(\) error](<#Conversation.Complete>)
   - [func \(c \*Conversation\) Continue\(ctx context.Context\) \(\*Response, error\)](<#Conversation.Continue>)
   - [func \(c \*Conversation\) ContinueDuplex\(ctx context.Context\) error](<#Conversation.ContinueDuplex>)
   - [func \(c \*Conversation\) DeferClientTool\(name string\)](<#Conversation.DeferClientTool>)
@@ -356,6 +357,7 @@ Mock response from mock model mock-model
 - [type MultiAgentSession](<#MultiAgentSession>)
   - [func OpenMultiAgent\(packPath string, opts ...Option\) \(\*MultiAgentSession, error\)](<#OpenMultiAgent>)
   - [func \(s \*MultiAgentSession\) Close\(\) error](<#MultiAgentSession.Close>)
+  - [func \(s \*MultiAgentSession\) Complete\(\) error](<#MultiAgentSession.Complete>)
   - [func \(s \*MultiAgentSession\) Entry\(\) Agent](<#MultiAgentSession.Entry>)
   - [func \(s \*MultiAgentSession\) Members\(\) map\[string\]Agent](<#MultiAgentSession.Members>)
   - [func \(s \*MultiAgentSession\) Send\(ctx context.Context, message any, opts ...SendOption\) \(\*Response, error\)](<#MultiAgentSession.Send>)
@@ -595,6 +597,7 @@ Mock response from mock model mock-model
   - [func \(wc \*WorkflowConversation\) ActiveConversation\(\) \*Conversation](<#WorkflowConversation.ActiveConversation>)
   - [func \(wc \*WorkflowConversation\) AvailableEvents\(\) \[\]string](<#WorkflowConversation.AvailableEvents>)
   - [func \(wc \*WorkflowConversation\) Close\(\) error](<#WorkflowConversation.Close>)
+  - [func \(wc \*WorkflowConversation\) Complete\(\) error](<#WorkflowConversation.Complete>)
   - [func \(wc \*WorkflowConversation\) Context\(\) \*workflow.Context](<#WorkflowConversation.Context>)
   - [func \(wc \*WorkflowConversation\) CurrentPromptTask\(\) string](<#WorkflowConversation.CurrentPromptTask>)
   - [func \(wc \*WorkflowConversation\) CurrentState\(\) string](<#WorkflowConversation.CurrentState>)
@@ -1675,19 +1678,32 @@ Clear removes all messages from the conversation history.
 This keeps the system prompt and variables but removes all user/assistant messages. Useful for starting fresh within the same conversation session. In duplex mode, this will close the session first if actively streaming.
 
 <a name="Conversation.Close"></a>
-### func \(\*Conversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1669>)
+### func \(\*Conversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1675>)
 
 ```go
 func (c *Conversation) Close() error
 ```
 
-Close releases resources associated with the conversation.
+Close ends the conversation's session and releases its resources. It runs the pack's on\_session\_complete \(and sample\_sessions\) evals, and not its on\_conversation\_complete evals: closing ends a session, and a closed conversation can be resumed. A host that suspends a conversation \(for example, while a held tool call waits for a human's approval\) closes it at each suspension, and calls [Conversation.Complete](<#Conversation.Complete>) instead of Close once the conversation is finished.
 
 After Close is called, Send and Stream will return [ErrConversationClosed](<#ErrConversationClosed>). It's safe to call Close multiple times.
 
 Close cancels the session context; it does not drain work already in flight. On the streaming ingestion path in particular, turns are processed asynchronously after the last chunk is queued, so calling Close immediately can cancel a turn mid\-pipeline and drop its response. Wait for the responses you expect before closing.
 
 An event bus the SDK created is closed last, once this conversation and any forks of it are all closed. Before closing it, Close waits up to one second for pipeline executions still in flight, so the events a turn publishes after it returns \(pipeline.completed among them\) reach the bus's subscribers. A bus supplied via [WithEventBus](<#WithEventBus>) is left open for the caller to close.
+
+<a name="Conversation.Complete"></a>
+### func \(\*Conversation\) [Complete](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1694>)
+
+```go
+func (c *Conversation) Complete() error
+```
+
+Complete ends the conversation: it runs the pack's on\_session\_complete evals and then its on\_conversation\_complete evals, over the whole transcript, and closes the conversation as [Conversation.Close](<#Conversation.Close>) does.
+
+The SDK cannot tell a finished conversation from a suspended one, so finishing is the host's call. A conversation that pauses for human approval is closed \(not completed\) at each pause and resumed when the decision arrives; when the interaction is over, the host calls Complete once, and the conversation evals score it once.
+
+Complete on a conversation that is already closed or completed runs no evals and returns [ErrConversationClosed](<#ErrConversationClosed>): the session evals ran on the earlier close. To complete a conversation that was suspended, resume it and call Complete on the resumed conversation.
 
 <a name="Conversation.Continue"></a>
 ### func \(\*Conversation\) [Continue](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L356>)
@@ -1763,7 +1779,7 @@ func (c *Conversation) Done() (<-chan struct{}, error)
 Done returns a channel that's closed when the duplex session ends. Only available when the conversation was opened with OpenDuplex\(\).
 
 <a name="Conversation.EventBus"></a>
-### func \(\*Conversation\) [EventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1946>)
+### func \(\*Conversation\) [EventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1984>)
 
 ```go
 func (c *Conversation) EventBus() events.Bus
@@ -1932,7 +1948,7 @@ Nothing in PromptKit acts on the result. A governance block describes and does n
 The result is a copy; adjusting it does not change the loaded pack.
 
 <a name="Conversation.ID"></a>
-### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1932>)
+### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1970>)
 
 ```go
 func (c *Conversation) ID() string
@@ -2305,7 +2321,7 @@ conv.OnTools(map[string]sdk.ToolHandler{
 ```
 
 <a name="Conversation.OwnSubscription"></a>
-### func \(\*Conversation\) [OwnSubscription](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1956>)
+### func \(\*Conversation\) [OwnSubscription](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1994>)
 
 ```go
 func (c *Conversation) OwnSubscription(unsubscribe func())
@@ -3681,6 +3697,15 @@ func (s *MultiAgentSession) Close() error
 
 Close closes all agents \(entry and members\). Errors from individual Close calls are collected and returned via errors.Join.
 
+<a name="MultiAgentSession.Complete"></a>
+### func \(\*MultiAgentSession\) [Complete](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/multi_agent.go#L65>)
+
+```go
+func (s *MultiAgentSession) Complete() error
+```
+
+Complete finishes the session: it completes every agent that can be completed \(entry and members\), so their on\_conversation\_complete evals run, and closes the rest. Close, by contrast, ends a session that may be resumed. Errors from individual calls are collected and returned via errors.Join, so completing a session that is already closed returns ErrConversationClosed \(and ErrWorkflowClosed for a workflow\-backed agent\) joined once per agent.
+
 <a name="MultiAgentSession.Entry"></a>
 ### func \(\*MultiAgentSession\) [Entry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/multi_agent.go#L25>)
 
@@ -4257,7 +4282,7 @@ func WithEvalTriggers(triggers ...evals.EvalTrigger) Option
 
 WithEvalTriggers selects which eval triggers the conversation's inline eval middleware runs. When set, only the pack and prompt evals whose trigger is listed run; the rest are left to the host, which can run them out of band with Evaluate. If not set, evals of every trigger run, as before.
 
-It is for a host whose Close\(\) is not the end of the conversation. A server that opens a conversation per message, closes it when the message's stream ends and resumes it for the next message would otherwise run the on\_session\_complete and on\_conversation\_complete evals on every Close, over the whole, growing history. With WithEvalTriggers\(evals.TriggerEveryTurn\) Close runs no session or conversation evals, and every\_turn evals still run inline:
+It is for a host that runs some evals out of band. A server that opens a conversation per message, closes it when the message's stream ends and resumes it for the next message would otherwise run the on\_session\_complete evals on every Close, over the whole, growing history \(on\_conversation\_complete evals run only on Complete\). With WithEvalTriggers\(evals.TriggerEveryTurn\) neither Close nor Complete runs session or conversation evals, and every\_turn evals still run inline:
 
 ```
 conv, _ := sdk.Resume(id, packPath, "assistant",
@@ -7721,7 +7746,7 @@ wc, err := sdk.ResumeWorkflow("workflow-123", "./support.pack.json",
 ```
 
 <a name="WorkflowConversation.ActiveConversation"></a>
-### func \(\*WorkflowConversation\) [ActiveConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L822>)
+### func \(\*WorkflowConversation\) [ActiveConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L824>)
 
 ```go
 func (wc *WorkflowConversation) ActiveConversation() *Conversation
@@ -7730,7 +7755,7 @@ func (wc *WorkflowConversation) ActiveConversation() *Conversation
 ActiveConversation returns the current state's Conversation. Use this to access conversation\-specific methods like SetVar, OnTool, etc.
 
 <a name="WorkflowConversation.AvailableEvents"></a>
-### func \(\*WorkflowConversation\) [AvailableEvents](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L789>)
+### func \(\*WorkflowConversation\) [AvailableEvents](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L791>)
 
 ```go
 func (wc *WorkflowConversation) AvailableEvents() []string
@@ -7739,16 +7764,27 @@ func (wc *WorkflowConversation) AvailableEvents() []string
 AvailableEvents returns the events available in the current state, sorted alphabetically.
 
 <a name="WorkflowConversation.Close"></a>
-### func \(\*WorkflowConversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L829>)
+### func \(\*WorkflowConversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L835>)
 
 ```go
 func (wc *WorkflowConversation) Close() error
 ```
 
-Close closes the active conversation and marks the workflow as closed.
+Close closes the active conversation and marks the workflow as closed. Like [Conversation.Close](<#Conversation.Close>), it ends a session: the active state's on\_session\_complete evals run, its on\_conversation\_complete evals do not, since the workflow may be resumed in that state. Call [WorkflowConversation.Complete](<#WorkflowConversation.Complete>) when the workflow is finished.
+
+<a name="WorkflowConversation.Complete"></a>
+### func \(\*WorkflowConversation\) [Complete](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L851>)
+
+```go
+func (wc *WorkflowConversation) Complete() error
+```
+
+Complete finishes the workflow: it completes the active state's conversation \([Conversation.Complete](<#Conversation.Complete>)\), so its session and conversation evals run, and closes the workflow. Each state has its own conversation, which the workflow never returns to: a state change completes the outgoing state's conversation, and Complete completes the one the workflow finished in. Close, by contrast, suspends the active state's conversation to be resumed with [ResumeWorkflow](<#ResumeWorkflow>). Reaching a terminal state does not complete the workflow by itself; the host decides when it is finished.
+
+Complete on a workflow that is already closed or completed runs no evals and returns [ErrWorkflowClosed](<#ErrConversationClosed>).
 
 <a name="WorkflowConversation.Context"></a>
-### func \(\*WorkflowConversation\) [Context](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L797>)
+### func \(\*WorkflowConversation\) [Context](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L799>)
 
 ```go
 func (wc *WorkflowConversation) Context() *workflow.Context
@@ -7757,7 +7793,7 @@ func (wc *WorkflowConversation) Context() *workflow.Context
 Context returns a snapshot of the workflow execution context including transition history and metadata.
 
 <a name="WorkflowConversation.CurrentPromptTask"></a>
-### func \(\*WorkflowConversation\) [CurrentPromptTask](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L775>)
+### func \(\*WorkflowConversation\) [CurrentPromptTask](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L777>)
 
 ```go
 func (wc *WorkflowConversation) CurrentPromptTask() string
@@ -7766,7 +7802,7 @@ func (wc *WorkflowConversation) CurrentPromptTask() string
 CurrentPromptTask returns the prompt\_task for the current state.
 
 <a name="WorkflowConversation.CurrentState"></a>
-### func \(\*WorkflowConversation\) [CurrentState](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L768>)
+### func \(\*WorkflowConversation\) [CurrentState](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L770>)
 
 ```go
 func (wc *WorkflowConversation) CurrentState() string
@@ -7775,7 +7811,7 @@ func (wc *WorkflowConversation) CurrentState() string
 CurrentState returns the current workflow state name.
 
 <a name="WorkflowConversation.IsComplete"></a>
-### func \(\*WorkflowConversation\) [IsComplete](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L782>)
+### func \(\*WorkflowConversation\) [IsComplete](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L784>)
 
 ```go
 func (wc *WorkflowConversation) IsComplete() bool
@@ -7784,7 +7820,7 @@ func (wc *WorkflowConversation) IsComplete() bool
 IsComplete returns true if the workflow is in a terminal state \(no outgoing transitions\).
 
 <a name="WorkflowConversation.OrchestrationMode"></a>
-### func \(\*WorkflowConversation\) [OrchestrationMode](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L806>)
+### func \(\*WorkflowConversation\) [OrchestrationMode](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L808>)
 
 ```go
 func (wc *WorkflowConversation) OrchestrationMode() workflow.Orchestration
@@ -7807,7 +7843,7 @@ fmt.Println(resp.Text())
 ```
 
 <a name="WorkflowConversation.Transition"></a>
-### func \(\*WorkflowConversation\) [Transition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L619>)
+### func \(\*WorkflowConversation\) [Transition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L621>)
 
 ```go
 func (wc *WorkflowConversation) Transition(event string) (string, error)

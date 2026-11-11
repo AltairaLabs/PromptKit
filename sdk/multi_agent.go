@@ -49,3 +49,36 @@ func (s *MultiAgentSession) Close() error {
 	}
 	return errors.Join(errs...)
 }
+
+// completer is an Agent that can be completed: *Conversation and
+// *WorkflowConversation are.
+type completer interface {
+	Complete() error
+}
+
+// Complete finishes the session: it completes every agent that can be
+// completed (entry and members), so their on_conversation_complete evals run,
+// and closes the rest. Close, by contrast, ends a session that may be resumed.
+// Errors from individual calls are collected and returned via errors.Join, so
+// completing a session that is already closed returns ErrConversationClosed
+// (and ErrWorkflowClosed for a workflow-backed agent) joined once per agent.
+func (s *MultiAgentSession) Complete() error {
+	var errs []error
+	if err := completeAgent(s.entry); err != nil {
+		errs = append(errs, err)
+	}
+	for _, m := range s.members {
+		if err := completeAgent(m); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// completeAgent completes a, or closes it when it cannot be completed.
+func completeAgent(a Agent) error {
+	if c, ok := a.(completer); ok {
+		return c.Complete()
+	}
+	return a.Close()
+}

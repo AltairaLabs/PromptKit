@@ -35,9 +35,10 @@ func (w *recordingWriter) getBatches() [][]EvalResult {
 
 // mockSubscriber calls handlers with pre-configured events.
 type mockSubscriber struct {
-	turnEvents    [][]byte
-	sessionEvents [][]byte
-	subErr        error
+	turnEvents         [][]byte
+	sessionEvents      [][]byte
+	conversationEvents [][]byte
+	subErr             error
 }
 
 func (m *mockSubscriber) Subscribe(
@@ -55,6 +56,8 @@ func (m *mockSubscriber) Subscribe(
 		events = m.turnEvents
 	case "eval.session.*":
 		events = m.sessionEvents
+	case "eval.conversation.*":
+		events = m.conversationEvents
 	}
 
 	for _, e := range events {
@@ -154,6 +157,42 @@ func TestEvalWorker_ProcessesSessionEvents(t *testing.T) {
 	batches := writer.getBatches()
 	if len(batches) != 1 {
 		t.Fatalf("expected 1 batch, got %d", len(batches))
+	}
+}
+
+// A conversation event runs the on_conversation_complete evals and a session
+// event the on_session_complete ones: each subject runs only its own trigger,
+// so a host can score each session of a suspended conversation and the
+// finished conversation once.
+func TestEvalWorker_ProcessesConversationEvents(t *testing.T) {
+	reg := newTestRegistry(&stubHandler{typeName: "test"})
+	defs := []EvalDef{
+		{ID: "sess", Type: "test", Trigger: TriggerOnSessionComplete},
+		{ID: "conv", Type: "test", Trigger: TriggerOnConversationComplete},
+	}
+	event := [][]byte{makePayload(t, defs, &EvalContext{SessionID: "s1"})}
+	for name, tc := range map[string]struct {
+		sub  *mockSubscriber
+		want string
+	}{
+		"session":      {&mockSubscriber{sessionEvents: event}, "sess"},
+		"conversation": {&mockSubscriber{conversationEvents: event}, "conv"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			writer := &recordingWriter{}
+			worker := NewEvalWorker(NewEvalRunner(reg), tc.sub, writer)
+			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+			defer cancel()
+			_ = worker.Start(ctx)
+
+			batches := writer.getBatches()
+			if len(batches) != 1 || len(batches[0]) != 1 {
+				t.Fatalf("expected one batch of one result, got %v", batches)
+			}
+			if got := batches[0][0].EvalID; got != tc.want {
+				t.Fatalf("ran eval %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 

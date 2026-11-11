@@ -34,13 +34,24 @@ type EvalTrigger string
 const (
 	// TriggerEveryTurn fires the eval after every assistant turn.
 	TriggerEveryTurn = "every_turn"
-	// TriggerOnSessionComplete fires the eval when a session ends.
+	// TriggerOnSessionComplete fires the eval when a session ends. A session
+	// ends each time the host closes a conversation, including a close that
+	// suspends it to be resumed later: a conversation that pauses three times
+	// for human approval and then finishes has four sessions, and its
+	// on_session_complete evals run four times, each over the transcript as it
+	// stood. See EvalRunner.RunSessionEvals.
 	TriggerOnSessionComplete = "on_session_complete"
 	// TriggerSampleTurns fires the eval on a percentage of turns (hash-based).
 	TriggerSampleTurns = "sample_turns"
 	// TriggerSampleSessions fires the eval on a percentage of sessions (hash-based).
 	TriggerSampleSessions = "sample_sessions"
-	// TriggerOnConversationComplete fires the eval when a conversation ends.
+	// TriggerOnConversationComplete fires the eval once, when the
+	// conversation is finished, over the whole transcript. A suspension is not
+	// the end of a conversation: in the approval example above, the
+	// on_conversation_complete evals run once, after the final session. The
+	// runtime cannot tell a finished conversation from a suspended one, so
+	// the host says when it is finished (in the SDK, Conversation.Complete
+	// rather than Close). See EvalRunner.RunConversationEvals.
 	TriggerOnConversationComplete = "on_conversation_complete"
 	// TriggerOnWorkflowStep fires the eval after each committed workflow state
 	// transition, against the turn that produced it. See

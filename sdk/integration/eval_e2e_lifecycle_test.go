@@ -86,21 +86,27 @@ func openStored(
 	return conv, log
 }
 
-// on_conversation_complete runs on Close over the whole transcript, reaches
-// the event bus with its trigger, runs again after Resume over the reloaded
-// history, and does not run for a conversation that said nothing.
-func TestE2E_ConversationComplete_OnCloseAndAgainAfterResume(t *testing.T) {
+// A conversation closed and resumed runs its session evals at every close and
+// its on_conversation_complete evals once, when the host completes it, over
+// the whole reloaded transcript; the result reaches the event bus with its
+// trigger. A conversation that said nothing runs none.
+func TestE2E_ConversationComplete_OnceAfterResumes(t *testing.T) {
 	packPath := writePackFile(t, e2ePack("", lifecycleEvals, ""))
 	store := statestore.NewMemoryStore()
 	bus := events.NewEventBus()
 	t.Cleanup(bus.Close)
 	ec := newEventCollector(bus)
 
-	conv, log := openStored(t, packPath, "conv-1", store, false, sdk.WithEventBus(bus))
+	conv, log := openStored(t, packPath, "conv-1", store, false)
 	sendAndClose(t, conv, "one", "two")
-	assert.Equal(t, map[string]int{"turn": 2, "session": 1, "conversation": 1}, log.ids())
-	first := log.messagesSeen("conversation")[0]
-	assert.GreaterOrEqual(t, first, 4, "the conversation eval sees the whole transcript")
+	assert.Equal(t, map[string]int{"turn": 2, "session": 1}, log.ids(), "a close ends a session only")
+	firstSession := log.messagesSeen("session")[0]
+
+	resumed, log2 := openStored(t, packPath, "conv-1", store, true, sdk.WithEventBus(bus))
+	sendAndComplete(t, resumed, "three")
+	assert.Equal(t, map[string]int{"turn": 1, "session": 1, "conversation": 1}, log2.ids())
+	assert.Greater(t, log2.messagesSeen("conversation")[0], firstSession,
+		"the conversation eval scores the history of every session")
 
 	// The bus delivers asynchronously: wait for the conversation eval's event.
 	conversationTriggers := func() []string {
@@ -116,13 +122,8 @@ func TestE2E_ConversationComplete_OnCloseAndAgainAfterResume(t *testing.T) {
 		"the conversation eval's result never reached the event bus")
 	assert.Equal(t, []string{evals.TriggerOnConversationComplete}, conversationTriggers())
 
-	resumed, log2 := openStored(t, packPath, "conv-1", store, true)
-	sendAndClose(t, resumed, "three")
-	assert.Equal(t, map[string]int{"turn": 1, "session": 1, "conversation": 1}, log2.ids())
-	assert.Greater(t, log2.messagesSeen("conversation")[0], first, "the resumed close scores the reloaded history")
-
 	empty, log3 := openStored(t, packPath, "conv-empty", store, false)
-	require.NoError(t, empty.Close())
+	require.NoError(t, empty.Complete())
 	assert.Empty(t, log3.byID("conversation"), "a conversation that said nothing has no transcript to score")
 }
 
