@@ -86,7 +86,8 @@ func processItem(item Item) error {
 
 ### Making Changes
 1. Create feature branch: `feature/<issue-number>-<description>`
-2. Make changes with tests
+2. Write the failing test first (TDD), see it fail for the right reason, then
+   write the code that makes it pass (see [Testing Strategy](#testing-strategy))
 3. Run `make verify` to check locally
 4. Commit (pre-commit hook runs automatically)
 5. Fix any issues and recommit
@@ -130,6 +131,11 @@ tests must catch it. Test behavior, not code.
 - Integration scenarios
 
 ### Rules
+- ✅ Write the test first (TDD). For a bug fix, write the test that reproduces
+  it and see it fail on the current code before changing the code. For a
+  feature, write the behavior test against the public API first and see it fail
+  (a compile error doesn't count: stub the API so the assertion is what fails).
+  Then write the code that makes it pass
 - ✅ Assert what a caller observes, as an exact value: the returned value, the
   rendered prompt, the provider request, emitted events, persisted state, or the
   error's type and message
