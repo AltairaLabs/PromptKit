@@ -14,7 +14,6 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/AltairaLabs/PromptKit/sdk/v2"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
@@ -1351,22 +1350,6 @@ func TestDuplexTools_HITLHoldFailsClosedWhenTheStoreCannotRecordIt(t *testing.T)
 	assert.True(t, got[0].IsError)
 	assert.Contains(t, got[0].Result, "the call needs approval and its hold could not be recorded")
 	assert.NotContains(t, got[0].Result, "redis down", "the store's error stays out of the model's input")
-}
-
-// A duplex session gives the host no way to answer a call its own gate holds,
-// so OpenDuplex refuses WithApprovalGate rather than ignore it.
-func TestDuplexTools_OpenDuplexRefusesAnApprovalGate(t *testing.T) {
-	provider := newToolAwareStreamingProvider(nil, "")
-	gate := func(context.Context, string, string, map[string]any) (*tools.PendingToolInfo, error) {
-		return nil, fmt.Errorf("refused")
-	}
-	_, err := sdk.OpenDuplex(writePackFile(t, duplexHITLPackJSON), "chat",
-		sdk.WithProvider(provider), sdk.WithSkipSchemaValidation(),
-		sdk.WithStreamingConfig(&providers.StreamingInputConfig{
-			Config: types.StreamingMediaConfig{Type: types.ContentTypeAudio},
-		}),
-		sdk.WithApprovalGate(gate))
-	assert.ErrorIs(t, err, sdk.ErrApprovalGateUnary)
 }
 
 // Continue is the unary path; on a duplex conversation it returns an error

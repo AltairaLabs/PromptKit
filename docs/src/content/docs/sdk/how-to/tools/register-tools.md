@@ -152,7 +152,7 @@ The built-in approval flow is for the case where the person approving is the cli
 - The approved tool runs inside the `ResolveTool` call, with whatever identity that request carries.
 - A held call in the pending store expires after `sdktools.DefaultPendingTTL` (5 minutes) unless the store is configured otherwise.
 
-When someone other than the client approves, such as a reviewer, a policy service or another team, possibly days later and on another machine, use [an approval gate the host owns](#when-someone-other-than-the-client-approves) instead.
+When someone other than the client approves, such as a reviewer, a policy service or another team, possibly days later and on another machine, have the host own the approval: see [When someone other than the client approves](#when-someone-other-than-the-client-approves).
 
 `OnToolAsync` takes a check function and an execution function. When the check returns a non-empty `PendingResult`, the pipeline holds the call instead of executing it. This applies to `Send`, to duplex sessions built with `WithIngestion`, and to realtime duplex sessions.
 
@@ -248,31 +248,13 @@ While a call waits, close the conversation with `conv.Close()` and resume it wit
 
 When the approver is not the client, such as a reviewer, a policy service or another person, and the decision can take days and arrive at another instance, the host owns the approval. PromptKit holds the call and resumes the turn. The host does everything in between: it records the referral, collects decisions, runs the tool as the right identity, keeps the audit trail and handles expiry.
 
-To decide every tool call yourself, for MCP and pack tools as well as `OnToolAsync` ones, pass a gate with `WithApprovalGate`. It runs before the `OnToolAsync` checks on `Send`, `Stream`, `Continue` and `Resume`. `OpenDuplex` refuses it with `sdk.ErrApprovalGateUnary`, because a duplex session gives the host no way to answer a call the gate holds. The gate receives the tool-execution context, the call id, the tool name and the arguments:
+The host holds a call from the executor that runs the tool. An executor in the conversation's tool registry that implements `tools.AsyncToolExecutor` can return `tools.ToolStatusPending` from `ExecuteAsync` instead of a result. The pipeline then suspends the turn without running the tool. The executor receives the tool-execution context, which carries what the caller put on the `Send` context, so it can decide by who is calling. The held call appears in `resp.ClientTools()`, not in the pending store.
+
+The process that answers can be a different one from the process that held the call. Close the conversation once the turn suspends. When every decision is in, reopen it with `sdk.Resume` on the same state store, with the same executor registered. Give each held call its answer, then resume:
 
 ```go
-conv, _ := sdk.Open("./assist.pack.json", "assist",
-    sdk.WithApprovalGate(func(ctx context.Context, callID, name string, args map[string]any) (*tools.PendingToolInfo, error) {
-        decision, err := policy.Decide(ctx, name, args)
-        if err != nil {
-            return nil, err // refuse: the call does not run, and the model is told why
-        }
-        if decision.Refer {
-            referrals.Record(ctx, callID, name, args) // the host owns the hold
-            return &tools.PendingToolInfo{Reason: "referral", ToolName: name}, nil
-        }
-        return nil, nil // no decision: the OnToolAsync check, if any, decides
-    }),
-)
-```
-
-A call the gate holds is the host's to answer. It appears in `resp.ClientTools()`, not in the pending store, and its tool does not run. Return an error rather than `nil` when the gate cannot record a hold, so the call fails closed.
-
-The process that answers can be a different one from the process that held the call. Close the conversation once the turn suspends. When every decision is in, reopen it with `sdk.Resume` on the same state store, with the same `WithApprovalGate`. Give each held call its answer, then resume:
-
-```go
-conv, _ := sdk.Resume(convID, "./assist.pack.json", "assist",
-    sdk.WithStateStore(store), sdk.WithApprovalGate(gate))
+conv, _ := sdk.Resume(convID, "./assist.pack.json", "assist", sdk.WithStateStore(store))
+// register the same executor as when the call was held
 for _, d := range decisions {
     switch {
     case d.Approved:

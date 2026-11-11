@@ -152,7 +152,6 @@ store could not record a hold, the call ran unapproved.
 | Resolve, reject or answer a call after `Continue` carried on without it, or `Send` started a new turn | `sdk.ErrToolCallNotAwaited`; `ResolveTool` does not run the handler, and the call leaves the store | nothing, or stop answering calls of abandoned turns |
 | Use a pending store whose `Add` can fail | the call does not run, and the model gets an approval error | nothing |
 | Need the caller's context or the call id in an approval check | `OnToolAsyncWithContext` | register the check with it |
-| Want to decide approval for every tool call yourself | `WithApprovalGate`, on unary conversations; `OpenDuplex` refuses it with `sdk.ErrApprovalGateUnary` | pass your gate; answer its holds with `SendToolResult` and `Resume` |
 | Call `Continue` on a duplex conversation | an error naming `Continue()`, where it used to panic; the resolution is kept | call `ContinueDuplex` |
 | Set `stage.ProviderConfig.ApprovalChecker` directly | it still works | set `ApprovalGate` to be able to refuse a call |
 

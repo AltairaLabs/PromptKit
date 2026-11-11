@@ -113,10 +113,6 @@ type config struct {
 	// HITL pending-approval storage. When nil, a MemoryPendingStore is used.
 	pendingStore sdktools.PendingStore
 
-	// approvalGate, when set, is consulted before every tool call, ahead of
-	// the OnToolAsync checks (WithApprovalGate).
-	approvalGate tools.ApprovalGate
-
 	// Session identity
 	userID          string
 	sessionMetadata map[string]any
@@ -1002,29 +998,6 @@ func WithStateStore(store statestore.Store) Option {
 func WithPendingStore(store sdktools.PendingStore) Option {
 	return func(c *config) error {
 		c.pendingStore = store
-		return nil
-	}
-}
-
-// WithApprovalGate supplies an approval gate the conversation consults before
-// every tool call, ahead of the checks registered with OnToolAsync. It sees
-// the tool-execution context (carrying the caller's identity and deadline),
-// the provider's call id, the tool name and the arguments, and it decides:
-//
-//   - nil, nil: no decision. The OnToolAsync check, if any, decides.
-//   - info, nil: the call is held. The host owns the hold: the call is
-//     surfaced in Response.ClientTools, not in the pending store, and the host
-//     answers it with SendToolResult or RejectClientTool and then Resume.
-//   - _, err: the call is refused. It does not run, and the model is given
-//     the error as the call's result.
-//
-// A gate that cannot record a hold should return an error, so the call fails
-// closed. The gate applies to unary conversations (Send, Stream, Continue,
-// Resume): OpenDuplex and ResumeDuplex return ErrApprovalGateUnary, since a
-// duplex session gives the host no way to answer a call the gate holds.
-func WithApprovalGate(gate tools.ApprovalGate) Option {
-	return func(c *config) error {
-		c.approvalGate = gate
 		return nil
 	}
 }

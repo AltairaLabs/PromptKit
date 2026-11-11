@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"sync/atomic"
@@ -225,32 +226,50 @@ func callsOfLastAssistantWithTools(t *testing.T, conv *Conversation) []string {
 	return nil
 }
 
-// A gate supplied with WithApprovalGate sees the caller's context and the
-// call id, and a call it holds is the host's to answer: it surfaces as a
-// client tool, its handler does not run, and SendToolResult then Resume
-// gives the model the host's result.
-func TestWithApprovalGate_HoldsACallForTheHost(t *testing.T) {
-	var sawCaller, sawCallID atomic.Value
-	gate := func(ctx context.Context, callID, name string, _ map[string]any) (*tools.PendingToolInfo, error) {
-		sawCaller.Store(ctx.Value(settlementCtxKey{}))
-		sawCallID.Store(callID)
-		return &tools.PendingToolInfo{Reason: "referral", ToolName: name}, nil
-	}
-	conv, _ := openSettlementConv(t, 1, []string{"Sent after review."}, WithApprovalGate(gate))
-	var ran atomic.Int32
-	conv.OnTool("send_message", func(args map[string]any) (any, error) {
-		ran.Add(1)
-		return args, nil
-	})
-	ctx := context.WithValue(context.Background(), settlementCtxKey{}, "agent-7")
+// referralExecutor holds every call it is given, as a host's executor does
+// when someone other than the client has to approve: it returns pending and
+// never runs the tool.
+type referralExecutor struct{ ran atomic.Int32 }
+
+func (e *referralExecutor) Name() string { return "referral" }
+
+func (e *referralExecutor) Execute(context.Context, *tools.ToolDescriptor, json.RawMessage) (json.RawMessage, error) {
+	e.ran.Add(1)
+	return []byte(`{}`), nil
+}
+
+func (e *referralExecutor) ExecuteAsync(
+	_ context.Context, d *tools.ToolDescriptor, _ json.RawMessage,
+) (*tools.ToolExecutionResult, error) {
+	return &tools.ToolExecutionResult{
+		Status:      tools.ToolStatusPending,
+		PendingInfo: &tools.PendingToolInfo{Reason: "referral", ToolName: d.Name},
+	}, nil
+}
+
+// holdForReferral routes conv's send_message calls to exec.
+func holdForReferral(t *testing.T, conv *Conversation, exec *referralExecutor) {
+	t.Helper()
+	conv.ToolRegistry().RegisterExecutor(exec)
+	desc, err := conv.ToolRegistry().GetTool("send_message")
+	require.NoError(t, err)
+	desc.Mode = exec.Name()
+}
+
+// A call the host's executor holds is the host's to answer: it surfaces as a
+// client tool, the tool does not run, and SendToolResult then Resume gives the
+// model the host's result.
+func TestHostHeldCall_IsAnsweredWithSendToolResultAndResume(t *testing.T) {
+	conv, _ := openSettlementConv(t, 1, []string{"Sent after review."})
+	exec := &referralExecutor{}
+	holdForReferral(t, conv, exec)
+	ctx := context.Background()
 
 	resp, err := conv.Send(ctx, "message the customer")
 	require.NoError(t, err)
 	require.Len(t, resp.ClientTools(), 1, "a host-owned hold is answered by the host")
 	id := resp.ClientTools()[0].CallID
-	assert.Equal(t, "agent-7", sawCaller.Load(), "the gate sees the caller's context")
-	assert.Equal(t, id, sawCallID.Load(), "the gate sees the provider's call id")
-	assert.EqualValues(t, 0, ran.Load())
+	assert.EqualValues(t, 0, exec.ran.Load())
 
 	require.NoError(t, conv.SendToolResult(ctx, id, map[string]any{"sent": true}))
 	final, err := conv.Resume(ctx)
@@ -259,46 +278,6 @@ func TestWithApprovalGate_HoldsACallForTheHost(t *testing.T) {
 	result := toolResultFor(t, conv, id)
 	require.NotNil(t, result)
 	assert.JSONEq(t, `{"sent":true}`, result.GetTextContent())
-}
-
-// A gate's error refuses the call: it does not run, and the model is given
-// the error as the call's result.
-func TestWithApprovalGate_RefusalReachesTheModel(t *testing.T) {
-	gate := func(context.Context, string, string, map[string]any) (*tools.PendingToolInfo, error) {
-		return nil, errors.New("policy service unreachable")
-	}
-	conv, _ := openSettlementConv(t, 1, []string{"I could not send it."}, WithApprovalGate(gate))
-	var ran atomic.Int32
-	conv.OnTool("send_message", func(args map[string]any) (any, error) {
-		ran.Add(1)
-		return args, nil
-	})
-
-	resp, err := conv.Send(context.Background(), "message the customer")
-	require.NoError(t, err)
-	assert.EqualValues(t, 0, ran.Load())
-	assert.Equal(t, "I could not send it.", resp.Text())
-	calls := callsOfLastAssistantWithTools(t, conv)
-	require.Len(t, calls, 1)
-	result := toolResultFor(t, conv, calls[0])
-	require.NotNil(t, result)
-	assert.Contains(t, result.Error, "policy service unreachable")
-	assert.Equal(t, types.ToolErrorApproval, result.ErrorType)
-}
-
-// A gate that makes no decision leaves it to the OnToolAsync check.
-func TestWithApprovalGate_NoDecisionLeavesItToOnToolAsync(t *testing.T) {
-	gate := func(context.Context, string, string, map[string]any) (*tools.PendingToolInfo, error) {
-		return nil, nil
-	}
-	conv, _ := openSettlementConv(t, 1, []string{"Done."}, WithApprovalGate(gate))
-	_, ran := holdEverySendMessage(conv)
-
-	resp, err := conv.Send(context.Background(), "message the customer")
-	require.NoError(t, err)
-	require.Len(t, resp.PendingTools(), 1, "the OnToolAsync check still holds the call")
-	assert.Equal(t, "requires_approval", resp.PendingTools()[0].Reason)
-	assert.EqualValues(t, 0, ran.Load())
 }
 
 // An OnToolAsyncWithContext check sees the caller's context and the call id,
@@ -337,11 +316,8 @@ func TestOnToolAsyncWithContext_CheckSeesCallerAndCallID(t *testing.T) {
 
 // SendToolResult for a call the conversation no longer awaits is refused.
 func TestSendToolResult_RefusesACallTheTurnNoLongerAwaits(t *testing.T) {
-	gate := func(_ context.Context, _, name string, _ map[string]any) (*tools.PendingToolInfo, error) {
-		return &tools.PendingToolInfo{Reason: "referral", ToolName: name}, nil
-	}
-	conv, _ := openSettlementConv(t, 1, []string{"Never mind, then."}, WithApprovalGate(gate))
-	conv.OnTool("send_message", func(args map[string]any) (any, error) { return args, nil })
+	conv, _ := openSettlementConv(t, 1, []string{"Never mind, then."})
+	holdForReferral(t, conv, &referralExecutor{})
 	ctx := context.Background()
 
 	resp, err := conv.Send(ctx, "message the customer")
@@ -357,11 +333,8 @@ func TestSendToolResult_RefusesACallTheTurnNoLongerAwaits(t *testing.T) {
 // A Resume with only some host-held calls answered carries on with those, and
 // a later answer for the others is refused.
 func TestResume_PartialAnswersLeaveTheRestUnawaited(t *testing.T) {
-	gate := func(_ context.Context, _, name string, _ map[string]any) (*tools.PendingToolInfo, error) {
-		return &tools.PendingToolInfo{Reason: "referral", ToolName: name}, nil
-	}
-	conv, provider := openSettlementConv(t, 2, []string{"Reviewed the first."}, WithApprovalGate(gate))
-	conv.OnTool("send_message", func(args map[string]any) (any, error) { return args, nil })
+	conv, provider := openSettlementConv(t, 2, []string{"Reviewed the first."})
+	holdForReferral(t, conv, &referralExecutor{})
 	ctx := context.Background()
 
 	resp, err := conv.Send(ctx, "message two customers")
@@ -378,17 +351,16 @@ func TestResume_PartialAnswersLeaveTheRestUnawaited(t *testing.T) {
 	assert.ErrorIs(t, conv.SendToolResult(ctx, second, "sent"), ErrToolCallNotAwaited)
 }
 
-// A call the host's gate holds can be answered by another process: the
+// A call the host's executor holds can be answered by another process: the
 // conversation is closed, reopened with sdk.Resume on the same state store,
 // answered with SendToolResult and resumed. Nothing about the hold lives in
 // the process that made it.
-func TestWithApprovalGate_HostHeldCallIsAnsweredInAnotherProcess(t *testing.T) {
-	gate := func(_ context.Context, _, name string, _ map[string]any) (*tools.PendingToolInfo, error) {
-		return &tools.PendingToolInfo{Reason: "referral", ToolName: name}, nil
-	}
+func TestHostHeldCall_IsAnsweredInAnotherProcess(t *testing.T) {
 	state := statestore.NewMemoryStore()
 	held, provider := openSettlementConv(t, 1, []string{"Sent after review."},
-		WithApprovalGate(gate), WithStateStore(state), WithConversationID("referral-1"))
+		WithStateStore(state), WithConversationID("referral-1"))
+	exec := &referralExecutor{}
+	holdForReferral(t, held, exec)
 	ctx := context.Background()
 
 	resp, err := held.Send(ctx, "message the customer")
@@ -398,9 +370,10 @@ func TestWithApprovalGate_HostHeldCallIsAnsweredInAnotherProcess(t *testing.T) {
 	require.NoError(t, held.Close())
 
 	resumed, err := Resume("referral-1", writeGatePack(t), "assist",
-		WithProvider(provider), WithSkipSchemaValidation(), WithApprovalGate(gate), WithStateStore(state))
+		WithProvider(provider), WithSkipSchemaValidation(), WithStateStore(state))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = resumed.Close() })
+	holdForReferral(t, resumed, exec)
 	require.NoError(t, resumed.SendToolResult(ctx, id, map[string]any{"sent": true}))
 	final, err := resumed.Resume(ctx)
 	require.NoError(t, err)
@@ -408,4 +381,5 @@ func TestWithApprovalGate_HostHeldCallIsAnsweredInAnotherProcess(t *testing.T) {
 	assert.Equal(t, "Sent after review.", final.Text())
 	assert.Equal(t, []string{id}, toolResultsSeen(provider, 1), "the model got the host's answer")
 	assert.JSONEq(t, `{"sent":true}`, toolResultFor(t, resumed, id).GetTextContent())
+	assert.EqualValues(t, 0, exec.ran.Load(), "the host ran the tool, not PromptKit")
 }

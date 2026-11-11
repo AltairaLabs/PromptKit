@@ -63,11 +63,6 @@ var (
 	// run the tool's handler. ResolveTool and RejectTool remove the call from
 	// the pending store.
 	ErrToolCallNotAwaited = errors.New("tool call is not awaited")
-
-	// ErrApprovalGateUnary is returned by OpenDuplex and ResumeDuplex when
-	// WithApprovalGate is set: a duplex session gives the host no way to
-	// answer a call the gate holds. Use OnToolAsync checks on duplex.
-	ErrApprovalGateUnary = errors.New("WithApprovalGate applies to unary conversations only")
 )
 
 // sentinelError marks err as one of the sentinels above without changing its

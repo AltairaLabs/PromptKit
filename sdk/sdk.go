@@ -353,11 +353,6 @@ func completeOpen(conv *Conversation, prov providers.Provider, duplex bool) (*Co
 		if streamErr := checkDuplexProvider(prov, conv.config); streamErr != nil {
 			return conv.failOpen(streamErr)
 		}
-		if conv.config.approvalGate != nil {
-			// A duplex session has no way for the host to answer a call the
-			// gate holds, so the gate would be ignored or strand the call.
-			return conv.failOpen(ErrApprovalGateUnary)
-		}
 		if err := initDuplexSession(conv, conv.config); err != nil {
 			return conv.failOpen(err)
 		}
@@ -1045,22 +1040,13 @@ func (conv *Conversation) executeAsyncToolNow(name string, args map[string]any) 
 // duplex equivalent), it reads asyncHandlers dynamically so handlers registered
 // after the pipeline is built (e.g. OnToolAsync called after Open) are honored.
 //
-// The gate supplied with WithApprovalGate decides first; when it makes no
-// decision, the tool's OnToolAsync check does. When that check returns
-// pending, the gate persists a PendingToolCall in the pendingStore — keyed by
+// When the tool's OnToolAsync check returns pending, the gate persists a PendingToolCall in the pendingStore — keyed by
 // the provider call ID — so ResolveTool / ResolveToolWithArgs / RejectTool can
 // resolve it, and returns the PendingToolInfo that holds the call. The record
 // is pure data; the execution handler is recovered by name at resolve time. A
 // hold the store cannot record refuses the call, so it never runs unapproved.
 func (conv *Conversation) newApprovalGate() tools.ApprovalGate {
-	hostGate := conv.config.approvalGate
 	return func(ctx context.Context, callID, name string, args map[string]any) (*tools.PendingToolInfo, error) {
-		if hostGate != nil {
-			info, err := hostGate(ctx, callID, name, args)
-			if err != nil || info != nil {
-				return info, err
-			}
-		}
 		conv.asyncHandlersMu.RLock()
 		checkFunc, isAsync := conv.asyncHandlers[name]
 		conv.asyncHandlersMu.RUnlock()
