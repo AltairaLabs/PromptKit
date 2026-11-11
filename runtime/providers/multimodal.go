@@ -1,6 +1,8 @@
 package providers
 
 import (
+	"encoding/base64"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -349,6 +351,12 @@ func (e *UnsupportedContentError) Error() string {
 // The provider stage calls it before every predict and stream call to a
 // provider that implements MultimodalCapabilityProvider, unless
 // stage.ProviderConfig.SkipContentValidation is set.
+//
+// A tool result's images, documents, audio and video are checked too, for
+// the kinds the provider takes: their format, and the size of inline data
+// against the provider's limit for the kind. A kind the provider does not
+// take at all is not refused in a tool result; the provider describes it to
+// the model (see UnsentToolMedia).
 func ValidateMultimodalRequest(p Provider, req *PredictionRequest) error {
 	for i := range req.Messages {
 		if req.Messages[i].Role == roleAssistant {
@@ -357,6 +365,73 @@ func ValidateMultimodalRequest(p Provider, req *PredictionRequest) error {
 		if err := ValidateMultimodalMessage(p, req.Messages[i]); err != nil {
 			return err
 		}
+		if result := req.Messages[i].ToolResult; result != nil && result.HasMedia() {
+			if err := validateToolResultMedia(p, result); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+// validateToolResultMedia checks the format and inline size of each media
+// part of result whose kind the provider takes.
+func validateToolResultMedia(p Provider, result *types.MessageToolResult) error {
+	mp := GetMultimodalProvider(p)
+	if mp == nil {
+		return nil
+	}
+	caps := mp.GetMultimodalCapabilities()
+	if sp, ok := p.(SendableContentProvider); ok {
+		caps = sp.SendableMultimodalCapabilities()
+	}
+	for i, part := range result.Parts {
+		supported, formats, maxMB := kindLimits(caps, part.Type)
+		if !supported || part.Media == nil {
+			continue
+		}
+		if err := validateMediaPart(p, part, i, true, formats, part.Type); err != nil {
+			return err
+		}
+		if sizeMB, known := inlineSizeMB(part.Media); known && maxMB > 0 && sizeMB > float64(maxMB) {
+			return &UnsupportedContentError{
+				Provider:    p.ID(),
+				ContentType: part.Type,
+				Message: fmt.Sprintf("%s is %.1f MB, over the provider's %d MB limit",
+					part.Type, sizeMB, maxMB),
+				PartIndex: i,
+				MIMEType:  part.Media.MIMEType,
+			}
+		}
+	}
+	return nil
+}
+
+// kindLimits returns whether caps takes media of kind, its formats and its
+// size limit in MB (0: none declared).
+func kindLimits(caps MultimodalCapabilities, kind string) (supported bool, formats []string, maxMB int) {
+	switch kind {
+	case types.ContentTypeImage:
+		return caps.SupportsImages, caps.ImageFormats, caps.MaxImageSizeMB
+	case types.ContentTypeAudio:
+		return caps.SupportsAudio, caps.AudioFormats, caps.MaxAudioSizeMB
+	case types.ContentTypeVideo:
+		return caps.SupportsVideo, caps.VideoFormats, caps.MaxVideoSizeMB
+	case types.ContentTypeDocument:
+		return caps.SupportsDocuments, caps.DocumentFormats, caps.MaxDocumentSizeMB
+	}
+	return false, nil, 0
+}
+
+// inlineSizeMB is the decoded size of media in MB when it is known without
+// loading anything: its declared SizeKB, or the length of its inline data.
+func inlineSizeMB(media *types.MediaContent) (float64, bool) {
+	const bytesPerMB = 1024 * 1024
+	switch {
+	case media.SizeKB != nil:
+		return float64(*media.SizeKB) / 1024, true //nolint:mnd // KB per MB
+	case media.Data != nil:
+		return float64(base64.StdEncoding.DecodedLen(len(*media.Data))) / bytesPerMB, true
+	}
+	return 0, false
 }
