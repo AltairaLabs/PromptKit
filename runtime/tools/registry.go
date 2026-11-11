@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -544,6 +545,16 @@ func (r *Registry) Execute(
 		}, nil
 	}
 
+	// A binary result's text stand-in is not its structured result.
+	if !holdsToOutputSchema(result, parts) {
+		return &ToolResult{
+			Name:      toolName,
+			Result:    result,
+			Parts:     parts,
+			LatencyMs: latency,
+		}, nil
+	}
+
 	// Validate and potentially coerce the result for non-MCP tools
 	validatedResult, _, err := r.validator.CoerceResult(tool, result)
 	if err != nil {
@@ -716,7 +727,7 @@ func (r *Registry) executeWithAsyncExecutor(
 	}
 
 	// result.Content is already json.RawMessage
-	validated := r.validateAndCoerceResult(tool, result.Content)
+	validated := r.validateAndCoerceResult(tool, result.Content, result.Parts)
 	// Propagate multimodal parts from the executor through validation
 	validated.Parts = result.Parts
 	return validated, nil
@@ -751,15 +762,39 @@ func (r *Registry) executeSyncFallback(
 		}, nil
 	}
 
-	execResult := r.validateAndCoerceResult(tool, result)
+	execResult := r.validateAndCoerceResult(tool, result, parts)
 	execResult.Parts = parts
 	return execResult, nil
 }
 
-// validateAndCoerceResult validates and coerces tool execution results
+// holdsToOutputSchema reports whether content is a result to hold to the
+// tool's output schema. When the result carries media, content that is not a
+// JSON object or array is the media's text stand-in, not the structured
+// result, and is not validated.
+func holdsToOutputSchema(content json.RawMessage, parts []types.ContentPart) bool {
+	hasMedia := false
+	for i := range parts {
+		if parts[i].Type != types.ContentTypeText {
+			hasMedia = true
+			break
+		}
+	}
+	if !hasMedia {
+		return true
+	}
+	trimmed := bytes.TrimSpace(content)
+	return len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[')
+}
+
+// validateAndCoerceResult validates and coerces tool execution results; a
+// result whose content is the text stand-in for its media passes as it is
+// (holdsToOutputSchema).
 func (r *Registry) validateAndCoerceResult(
-	tool *ToolDescriptor, content json.RawMessage,
+	tool *ToolDescriptor, content json.RawMessage, parts []types.ContentPart,
 ) *ToolExecutionResult {
+	if !holdsToOutputSchema(content, parts) {
+		return &ToolExecutionResult{Status: ToolStatusComplete, Content: content}
+	}
 	validatedResult, _, err := r.validator.CoerceResult(tool, content)
 	if err != nil {
 		return &ToolExecutionResult{
