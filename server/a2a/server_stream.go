@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -23,6 +23,7 @@ type streamWriter struct {
 	flusher http.Flusher
 	id      any
 	v       a2a.ProtocolVersion
+	log     func() *slog.Logger
 
 	mu       sync.Mutex
 	started  bool
@@ -50,9 +51,9 @@ func newStreamWriter(call *rpcCall) *streamWriter {
 	// it off. Lift the deadline for this response only.
 	if err := http.NewResponseController(call.w).SetWriteDeadline(time.Time{}); err != nil &&
 		!errors.Is(err, http.ErrNotSupported) {
-		log.Printf("a2a: stream: clear write deadline: %v", err)
+		call.logger().WarnContext(call.ctx(), "a2a: stream: failed to clear the write deadline", "error", err)
 	}
-	return &streamWriter{w: call.w, flusher: flusher, id: call.req.ID, v: call.v}
+	return &streamWriter{w: call.w, flusher: flusher, id: call.req.ID, v: call.v, log: call.logger}
 }
 
 // write sends one event: a *Task, *Message, *TaskStatusUpdateEvent or
@@ -72,17 +73,17 @@ func (sw *streamWriter) write(event any) {
 	}
 	payload, err := sw.v.WireStreamEvent(event)
 	if err != nil {
-		log.Printf("a2a: stream: %v", err)
+		sw.log().Error("a2a: stream: failed to encode event", "error", err)
 		return
 	}
 	result, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("a2a: stream: failed to marshal event: %v", err)
+		sw.log().Error("a2a: stream: failed to marshal event", "error", err)
 		return
 	}
 	data, err := json.Marshal(a2a.JSONRPCResponse{JSONRPC: jsonRPCVersion, ID: sw.id, Result: result})
 	if err != nil {
-		log.Printf("a2a: stream: failed to marshal response: %v", err)
+		sw.log().Error("a2a: stream: failed to marshal response", "error", err)
 		return
 	}
 	_, _ = fmt.Fprintf(sw.w, "data: %s\n\n", data)
@@ -205,7 +206,7 @@ func (st *streamTurn) finish(state a2a.TaskState, msg *a2a.Message) {
 	st.flushText()
 	if state == a2a.TaskStateCompleted && len(st.artifacts) > 0 {
 		if err := st.srv.taskStore.AddArtifacts(st.taskID, st.artifacts); err != nil {
-			log.Printf("a2a: task %s: failed to add streamed artifacts: %v", st.taskID, err)
+			st.srv.log().Warn("a2a: failed to add streamed task artifacts", "task_id", st.taskID, "error", err)
 		}
 	}
 	if msg != nil {
@@ -213,7 +214,7 @@ func (st *streamTurn) finish(state a2a.TaskState, msg *a2a.Message) {
 		msg.Role = a2a.RoleAgent
 	}
 	if err := st.srv.taskStore.SetState(st.taskID, state, msg); err != nil {
-		log.Printf("a2a: task %s: failed to set %s state: %v", st.taskID, state, err)
+		st.srv.logStateWriteError(st.taskID, state, err)
 		st.reportActualState()
 		return
 	}

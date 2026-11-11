@@ -1,15 +1,17 @@
 package a2aserver
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // The server speaks A2A 1.0 and 0.3 over one endpoint.
@@ -30,6 +32,25 @@ type rpcCall struct {
 	req   *a2a.JSONRPCRequest
 	v     a2a.ProtocolVersion
 	owner string
+	// log returns the server's logger; nil means PromptKit's logger.
+	log func() *slog.Logger
+}
+
+// logger returns the logger the call writes to.
+func (c *rpcCall) logger() *slog.Logger {
+	if c.log != nil {
+		return c.log()
+	}
+	return logger.GetLogger()
+}
+
+// ctx is the request's context, for log records, or a background context for
+// a call built without a request.
+func (c *rpcCall) ctx() context.Context {
+	if c.r != nil {
+		return c.r.Context()
+	}
+	return context.Background()
 }
 
 // requestVersion resolves the protocol version of a request: explicit
@@ -51,7 +72,7 @@ func requestVersion(r *http.Request, methodVersion a2a.ProtocolVersion) (a2a.Pro
 
 // result writes a JSON-RPC success response.
 func (c *rpcCall) result(result any) {
-	writeRPCResult(c.w, c.req.ID, result)
+	writeRPCResult(c.w, c.req.ID, result, c.logger())
 }
 
 // fail writes a JSON-RPC error response.
@@ -62,7 +83,7 @@ func (c *rpcCall) fail(code int, msg string) {
 // internalError logs cause and answers with a generic internal error, so
 // server-side detail does not reach the caller.
 func (c *rpcCall) internalError(what string, cause error) {
-	log.Printf("a2a: %s: %v", what, cause)
+	c.logger().ErrorContext(c.ctx(), "a2a: "+what, "error", cause)
 	c.fail(a2a.ErrCodeInternal, "Internal error")
 }
 

@@ -3,10 +3,11 @@ package a2aserver
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // subscriberBuffer is the channel buffer size for task event subscribers.
@@ -50,13 +51,19 @@ func (e TaskEvent) payload() any {
 // localTaskEvents is the in-process TaskEventBus: subscribers see events
 // from turns running in this process only.
 type localTaskEvents struct {
+	log    func() *slog.Logger
 	mu     sync.Mutex
 	subs   map[string]map[uint64]chan TaskEvent
 	nextID uint64
 }
 
-func newLocalTaskEvents() *localTaskEvents {
-	return &localTaskEvents{subs: make(map[string]map[uint64]chan TaskEvent)}
+// newLocalTaskEvents returns an in-process event bus that logs to log (nil:
+// PromptKit's logger).
+func newLocalTaskEvents(log func() *slog.Logger) *localTaskEvents {
+	if log == nil {
+		log = logger.GetLogger
+	}
+	return &localTaskEvents{log: log, subs: make(map[string]map[uint64]chan TaskEvent)}
 }
 
 // Publish implements TaskEventBus. A subscriber whose buffer is full misses the
@@ -69,7 +76,7 @@ func (l *localTaskEvents) Publish(_ context.Context, taskID string, evt TaskEven
 		select {
 		case ch <- evt:
 		default:
-			log.Printf("a2a: task %s: dropped event for slow subscriber (buffer full)", taskID)
+			l.log().Warn("a2a: dropped a task event for a slow subscriber (buffer full)", "task_id", taskID)
 		}
 	}
 	if evt.IsFinal() {

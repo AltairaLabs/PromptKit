@@ -189,7 +189,7 @@ func TestReadyz_NotReadyBeforeInit(t *testing.T) {
 		convs:       make(map[string]Conversation),
 		convLastUse: make(map[string]time.Time),
 		cancels:     make(map[string]context.CancelFunc),
-		events:      newLocalTaskEvents(),
+		events:      newLocalTaskEvents(nil),
 		stopCh:      make(chan struct{}),
 	}
 	ts := httptest.NewServer(s.Handler())

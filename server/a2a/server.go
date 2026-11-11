@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"runtime/debug"
@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 const (
@@ -111,6 +112,13 @@ func WithCardProvider(p AgentCardProvider) Option {
 // WithPort sets the TCP port for ListenAndServe. It has no effect on Serve.
 func WithPort(port int) Option {
 	return func(s *Server) { s.port = port }
+}
+
+// WithLogger sets the logger the server writes its diagnostics to. Without
+// it, the server uses PromptKit's logger (logger.GetLogger), so
+// logger.SetLogger and logger.Configure apply.
+func WithLogger(l *slog.Logger) Option {
+	return func(s *Server) { s.customLogger = l }
 }
 
 // WithTaskStore sets a custom task store. Defaults to an in-memory store.
@@ -230,6 +238,9 @@ type Server struct {
 	// Readiness flag: set to true after NewServer completes, false on Shutdown.
 	isReady atomic.Bool
 
+	// customLogger is the WithLogger logger; nil means PromptKit's logger.
+	customLogger *slog.Logger
+
 	// Optional health checkers evaluated by /readyz.
 	healthChecks []namedChecker
 
@@ -302,7 +313,7 @@ func newServer(opts ...Option) *Server {
 	}
 	s.checkOwnershipConfig()
 	if s.events == nil {
-		s.events = newLocalTaskEvents()
+		s.events = newLocalTaskEvents(s.log)
 	}
 	if s.canceler == nil {
 		s.canceler = &localCanceler{}
@@ -332,17 +343,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /a2a", s.handleRPC)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /readyz", s.handleReadyz)
-	return otelhttp.NewHandler(recoveryMiddleware(mux), "a2a-server")
+	return otelhttp.NewHandler(recoveryMiddleware(mux, s.log), "a2a-server")
 }
 
 // recoveryMiddleware wraps an http.Handler with panic recovery.
 // On panic it logs the stack trace and returns a 500 JSON-RPC error response.
-func recoveryMiddleware(next http.Handler) http.Handler {
+func recoveryMiddleware(next http.Handler, log func() *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
 				stack := debug.Stack()
-				log.Printf("a2a: panic recovered: %v\n%s", rec, stack)
+				log().ErrorContext(r.Context(), "a2a: panic recovered", "panic", fmt.Sprint(rec), "stack", string(stack))
 				writeRPCError(w, nil, a2a.ErrCodeInternal, "Internal error")
 			}
 		}()
@@ -502,7 +513,7 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAgentCard(w http.ResponseWriter, r *http.Request) {
 	card, err := s.card(r)
 	if err != nil {
-		log.Printf("a2a: failed to get agent card: %v", err)
+		s.log().ErrorContext(r.Context(), "a2a: failed to get agent card", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -551,7 +562,7 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	// Authenticate if configured.
 	if s.authenticator != nil {
 		if err := s.authenticator.Authenticate(r); err != nil {
-			log.Printf("a2a: authentication failed: %v", err)
+			s.log().DebugContext(r.Context(), "a2a: authentication failed", "error", err)
 			writeRPCErrorWithStatus(w, http.StatusUnauthorized, nil, -32000, "Authentication failed")
 			return
 		}
@@ -575,7 +586,7 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 		writeRPCError(w, req.ID, a2a.ErrCodeVersionNotSupported, err.Error())
 		return
 	}
-	call := &rpcCall{w: w, r: r, req: &req, v: v}
+	call := &rpcCall{w: w, r: r, req: &req, v: v, log: s.log}
 	if s.owner != nil {
 		if call.owner = s.owner(r); call.owner == "" {
 			writeRPCErrorWithStatus(w, http.StatusUnauthorized, req.ID, -32000, "Caller identity required")
@@ -676,7 +687,10 @@ func (s *Server) beginTask(call *rpcCall, target *turnTarget) bool {
 		return true
 	case errors.Is(err, ErrTaskNotFound):
 		call.fail(a2a.ErrCodeTaskNotFound, "Task not found")
-	case errors.Is(err, ErrTaskTerminal), errors.Is(err, ErrInvalidTransition):
+	case errors.Is(err, ErrTaskTerminal), errors.Is(err, ErrInvalidTransition), errors.Is(err, ErrTransitionRefused):
+		if errors.Is(err, ErrTransitionRefused) {
+			s.logStateWriteError(target.taskID, a2a.TaskStateWorking, err)
+		}
 		call.fail(a2a.ErrCodeUnsupportedOperation,
 			"Task is not waiting for input; it cannot take a message now")
 	default:
@@ -930,10 +944,31 @@ func (s *Server) cancelLocal(taskID string) {
 // subscriber must never see a state the store does not hold.
 func (s *Server) setState(taskID, contextID string, state a2a.TaskState, msg *a2a.Message) {
 	if err := s.taskStore.SetState(taskID, state, msg); err != nil {
-		log.Printf("a2a: task %s: failed to set %s state: %v", taskID, state, err)
+		s.logStateWriteError(taskID, state, err)
 		return
 	}
 	s.publishStatus(taskID, contextID, a2a.TaskStatus{State: state, Message: msg})
+}
+
+// log returns the logger the server writes to: the WithLogger logger, or
+// PromptKit's logger, read on each call so a later logger.SetLogger applies.
+func (s *Server) log() *slog.Logger {
+	if s.customLogger != nil {
+		return s.customLogger
+	}
+	return logger.GetLogger()
+}
+
+// logStateWriteError logs a task store's refusal to record a state. A
+// refusal the store marks with ErrTransitionRefused is intended (a task held
+// for approval, say) and is logged at debug; anything else is a warning.
+func (s *Server) logStateWriteError(taskID string, state a2a.TaskState, err error) {
+	if errors.Is(err, ErrTransitionRefused) {
+		s.log().Debug("a2a: task state change refused by the store",
+			"task_id", taskID, "state", string(state), "error", err)
+		return
+	}
+	s.log().Warn("a2a: failed to set task state", "task_id", taskID, "state", string(state), "error", err)
 }
 
 // publishStatus publishes a status update to the task's subscribers.
@@ -950,7 +985,7 @@ func (s *Server) publishStatus(taskID, contextID string, status a2a.TaskStatus) 
 // publish delivers an event to the task's subscribers.
 func (s *Server) publish(taskID string, evt TaskEvent) {
 	if err := s.events.Publish(context.Background(), taskID, evt); err != nil {
-		log.Printf("a2a: task %s: failed to publish event: %v", taskID, err)
+		s.log().Warn("a2a: failed to publish task event", "task_id", taskID, "error", err)
 	}
 }
 
@@ -1022,7 +1057,7 @@ func (s *Server) finalizeTask(taskID, contextID string, resp SendResult) {
 	artifacts, convErr := a2a.ContentPartsToArtifacts(resp.Parts())
 	if convErr == nil && len(artifacts) > 0 {
 		if err := s.taskStore.AddArtifacts(taskID, artifacts); err != nil {
-			log.Printf("a2a: task %s: failed to add artifacts: %v", taskID, err)
+			s.log().Warn("a2a: failed to add task artifacts", "task_id", taskID, "error", err)
 		}
 	} else if text := resp.Text(); text != "" {
 		// Fallback: if Parts() is empty (see GH-428), use Text() content.
@@ -1031,7 +1066,7 @@ func (s *Server) finalizeTask(taskID, contextID string, resp SendResult) {
 			Parts:      []a2a.Part{{Text: &text}},
 		}}
 		if err := s.taskStore.AddArtifacts(taskID, artifacts); err != nil {
-			log.Printf("a2a: task %s: failed to add text artifact: %v", taskID, err)
+			s.log().Warn("a2a: failed to add task text artifact", "task_id", taskID, "error", err)
 		}
 	}
 	// Subscribers get the result before the completion that ends their stream.
@@ -1129,7 +1164,7 @@ func (s *Server) handleCancelTask(call *rpcCall) {
 	if err := s.canceler.Cancel(context.WithoutCancel(call.r.Context()), params.ID); err != nil {
 		// The task is canceled in the store either way; the turn may run on
 		// until it next checks, but its result can no longer be recorded.
-		log.Printf("a2a: task %s: failed to reach its turn to cancel it: %v", params.ID, err)
+		s.log().Warn("a2a: failed to reach a task's turn to cancel it", "task_id", params.ID, "error", err)
 	}
 
 	task, err := s.taskStore.Get(params.ID)
@@ -1274,10 +1309,10 @@ func generateID() string {
 }
 
 // writeRPCResult writes a JSON-RPC 2.0 success response.
-func writeRPCResult(w http.ResponseWriter, id, result any) {
+func writeRPCResult(w http.ResponseWriter, id, result any, log *slog.Logger) {
 	data, err := json.Marshal(result)
 	if err != nil {
-		log.Printf("a2a: failed to marshal RPC result: %v", err)
+		log.Error("a2a: failed to marshal RPC result", "error", err)
 		writeRPCError(w, id, -32603, "Internal error: failed to encode result")
 		return
 	}

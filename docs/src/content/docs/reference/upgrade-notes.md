@@ -126,6 +126,15 @@ A tool that returned an image failed the request on OpenAI Chat Completions, whi
 | Return media from a tool on vLLM or Ollama | a note in the tool message for each media part | nothing |
 | Declare an output schema on a tool that returns media | the result is not validated against it | nothing |
 
+### The A2A server logs through PromptKit's logger
+
+`server/a2a` wrote its diagnostics with Go's standard `log` package, so an embedder could not level, filter or attach fields to them. It now writes structured records to PromptKit's logger, or to the logger given with `a2aserver.WithLogger`. A store whose policy refuses a state change can wrap `a2aserver.ErrTransitionRefused` to have the refusal logged at debug level.
+
+| If you | You will see | Change |
+|---|---|---|
+| Read the A2A server's lines from stderr (`a2a: task ...: failed to set ... state`) | structured records on PromptKit's logger, such as `a2a: failed to set task state` with `task_id`, `state` and `error` | configure `logger.SetLogger`/`logger.Configure`, or pass `WithLogger` |
+| Refuse task state changes by policy in your store | a warning for each refusal | wrap `a2aserver.ErrTransitionRefused` to log it at debug |
+
 ### `Close()` ends a session; `Complete()` ends the conversation
 
 `Close()` ran the `on_conversation_complete` evals as well as the
