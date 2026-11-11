@@ -87,13 +87,6 @@ const (
 //	resp, _ = conv.Send(ctx, "What's my name?")  // Remembers context
 //	fmt.Println(resp.Text())  // "Your name is Alice"
 type Conversation struct {
-	// priorTranscript holds the messages of the workflow states before this
-	// one, when this is a workflow state's conversation. The conversation
-	// evals score it ahead of this conversation's own messages, so a
-	// completed workflow is scored over every state. Set once, before the
-	// conversation is handed out.
-	priorTranscript []types.Message
-
 	// Pack and prompt configuration
 	pack           *pack.Pack
 	prompt         *pack.Prompt
@@ -1438,16 +1431,6 @@ func (c *Conversation) Messages(ctx context.Context) []types.Message {
 	result := make([]types.Message, len(messages))
 	copy(result, messages)
 	return result
-}
-
-// workflowTranscript returns the earlier workflow states' messages followed
-// by this conversation's own.
-func (c *Conversation) workflowTranscript(ctx context.Context) []types.Message {
-	out := append([]types.Message(nil), c.priorTranscript...)
-	if c.unarySession == nil && c.duplexSession == nil {
-		return out // never started a session: nothing of its own was said
-	}
-	return append(out, c.Messages(ctx)...)
 }
 
 // Clear removes all messages from the conversation history.

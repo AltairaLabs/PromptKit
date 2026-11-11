@@ -559,13 +559,11 @@ func (wc *WorkflowConversation) openConvForCurrentState(contextSummary string) e
 	// The variables the application set on the outgoing state's conversation
 	// carry into the incoming one: they belong to the workflow, not the state.
 	var carried map[string]string
-	var prior []types.Message
 	if wc.activeConv != nil {
 		carried = wc.activeConv.appSetVars()
-		// The outgoing state's turns belong to the workflow's conversation:
-		// the conversation evals score them when the workflow completes.
-		prior = wc.activeConv.workflowTranscript(context.Background())
-		_ = wc.activeConv.Close()
+		// The workflow never returns to the outgoing state's conversation, so
+		// leaving the state finishes it: its conversation evals run now.
+		_ = wc.activeConv.Complete()
 	}
 
 	opts := wc.opts
@@ -597,7 +595,6 @@ func (wc *WorkflowConversation) openConvForCurrentState(contextSummary string) e
 	for name, value := range carried {
 		conv.SetVar(name, value)
 	}
-	conv.priorTranscript = prior
 	wc.activeConv = conv
 	wc.activeStateName = wc.machine.CurrentState()
 	wc.registerWorkflowTools()
@@ -832,8 +829,9 @@ func (wc *WorkflowConversation) ActiveConversation() *Conversation {
 
 // Close closes the active conversation and marks the workflow as closed. Like
 // [Conversation.Close], it ends a session: the active state's
-// on_session_complete evals run, its on_conversation_complete evals do not.
-// Call [WorkflowConversation.Complete] when the workflow is finished.
+// on_session_complete evals run, its on_conversation_complete evals do not,
+// since the workflow may be resumed in that state. Call
+// [WorkflowConversation.Complete] when the workflow is finished.
 func (wc *WorkflowConversation) Close() error {
 	_, err := wc.end(false)
 	return err
@@ -841,12 +839,12 @@ func (wc *WorkflowConversation) Close() error {
 
 // Complete finishes the workflow: it completes the active state's
 // conversation ([Conversation.Complete]), so its session and conversation
-// evals run, and closes the workflow. A state change only closes the outgoing
-// state's conversation, so the conversation evals run once, over the turns of
-// every state this WorkflowConversation has been in, oldest first. A workflow
-// resumed with [ResumeWorkflow] holds only the turns since it resumed. Reaching
-// a terminal state does not complete the workflow by itself; the host decides
-// when it is finished.
+// evals run, and closes the workflow. Each state has its own conversation,
+// which the workflow never returns to: a state change completes the outgoing
+// state's conversation, and Complete completes the one the workflow finished
+// in. Close, by contrast, suspends the active state's conversation to be
+// resumed with [ResumeWorkflow]. Reaching a terminal state does not complete
+// the workflow by itself; the host decides when it is finished.
 //
 // Complete on a workflow that is already closed or completed runs no evals
 // and returns [ErrWorkflowClosed].

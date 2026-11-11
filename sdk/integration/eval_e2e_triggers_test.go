@@ -130,15 +130,17 @@ func TestE2E_EvalTriggers_WorkflowStateChange(t *testing.T) {
 	assert.Equal(t, map[string]int{"turn": 1, "step": 1}, log.ids())
 }
 
-// A workflow's state change and Close end sessions; Complete finishes the
-// workflow and runs the conversation evals once, for the state it finished in.
-func TestE2E_WorkflowComplete_RunsConversationEvalsOnce(t *testing.T) {
+// A workflow's state change completes the outgoing state's conversation, which
+// the workflow never returns to, so its conversation evals score that state's
+// turns. Close suspends the active state's conversation and runs none for it;
+// Complete finishes it and runs them over its turns.
+func TestE2E_WorkflowComplete_RunsConversationEvalsPerFinishedState(t *testing.T) {
 	for name, tc := range map[string]struct {
 		finish func(*sdk.WorkflowConversation) error
-		want   int
+		want   []int
 	}{
-		"close":    {(*sdk.WorkflowConversation).Close, 0},
-		"complete": {(*sdk.WorkflowConversation).Complete, 1},
+		"close":    {(*sdk.WorkflowConversation).Close, []int{2}},
+		"complete": {(*sdk.WorkflowConversation).Complete, []int{2, 4}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			log := &resultLog{}
@@ -153,12 +155,11 @@ func TestE2E_WorkflowComplete_RunsConversationEvalsOnce(t *testing.T) {
 			require.NoError(t, err)
 			_, err = wc.Send(context.Background(), "still there?")
 			require.NoError(t, err)
+			_, err = wc.Send(context.Background(), "hello?")
+			require.NoError(t, err)
 			require.NoError(t, tc.finish(wc))
-			assert.Len(t, log.byID("conversation"), tc.want)
-			if tc.want > 0 {
-				assert.Equal(t, []int{4}, log.messagesSeen("conversation"),
-					"the conversation eval scores both states' turns")
-			}
+			assert.Equal(t, tc.want, log.messagesSeen("conversation"),
+				"one conversation eval per finished state, over that state's turns")
 			assert.ErrorIs(t, wc.Complete(), sdk.ErrWorkflowClosed, "a finished workflow cannot complete again")
 		})
 	}

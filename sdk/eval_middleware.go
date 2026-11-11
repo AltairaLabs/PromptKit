@@ -460,12 +460,6 @@ func (em *evalMiddleware) dispatchConversationEvals(ctx context.Context) {
 	}
 
 	evalCtx := em.buildEvalContext(ctx)
-	if prior := em.conv.priorTranscript; len(prior) > 0 {
-		// A workflow's final state: score the states before it as well.
-		evalCtx = evals.BuildEvalContext(
-			append(append([]types.Message(nil), prior...), evalCtx.Messages...),
-			evalCtx.TurnIndex, evalCtx.SessionID, em.conv.promptName, em.hostDefaultJudge())
-	}
 	if len(evalCtx.Messages) == 0 {
 		// Nothing was said: a conversation closed on a failed open, or never
 		// used, has no transcript to score.
