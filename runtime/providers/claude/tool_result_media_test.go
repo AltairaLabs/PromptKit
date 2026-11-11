@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -81,10 +82,30 @@ func TestClaudeToolResult_AudioIsDescribed(t *testing.T) {
 		"media/call-9) that was not sent: Claude does not accept audio input.]"}, content[1])
 }
 
-// A document in a format Claude does not take fails the request before it is
-// sent, as a user's document does.
-func TestClaudeToolResult_NonPDFDocumentFails(t *testing.T) {
-	_, err := toolResultBlockOf(t, []types.ContentPart{types.NewDocumentPartFromData("YSxi", "text/csv")})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "claude only supports PDF documents, got: text/csv")
+// A document in a format Claude does not take, or an image over its size
+// limit, is described instead of failing the request: the request is rebuilt
+// from history on every later turn, so failing it would end the conversation.
+func TestClaudeToolResult_UnacceptedMediaIsDescribed(t *testing.T) {
+	cases := map[string]struct {
+		part types.ContentPart
+		want string
+	}{
+		"CSV document": {
+			types.NewDocumentPartFromData("YSxi", "text/csv"),
+			"[This tool returned a document (text/csv) that was not sent: Claude does not accept text/csv documents.]",
+		},
+		"image over 5 MB": {
+			types.NewImagePartFromData(strings.Repeat("A", 7*1024*1024), types.MIMETypeImagePNG, nil),
+			"[This tool returned an image (image/png) that was not sent: it is 5.2 MB, over Claude's 5 MB limit for images.]",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			block, err := toolResultBlockOf(t, []types.ContentPart{tc.part})
+			require.NoError(t, err)
+			content := block["content"].([]any)
+			require.Len(t, content, 1)
+			assert.Equal(t, map[string]any{"type": "text", "text": tc.want}, content[0])
+		})
+	}
 }

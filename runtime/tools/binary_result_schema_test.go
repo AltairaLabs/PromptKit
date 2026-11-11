@@ -62,16 +62,24 @@ func TestRegistry_BinaryResultTextIsNotValidatedAgainstTheOutputSchema(t *testin
 	require.Len(t, async.Parts, 1)
 }
 
-// A structured result alongside media is still validated.
-func TestRegistry_BinaryResultStructuredContentIsValidated(t *testing.T) {
-	exec := &binaryExecutor{content: json.RawMessage(`{"name":"chart"}`), parts: []types.ContentPart{chart}}
+// A result that carries media is not held to the output schema, whatever its
+// content is: the built-in multimodal executors (HTTP, A2A, media generation)
+// return a JSON object summarizing the media, not the tool's declared output.
+func TestRegistry_BinaryResultSummaryIsNotValidated(t *testing.T) {
+	exec := &binaryExecutor{
+		content: json.RawMessage(`{"type":"image","content_type":"image/png","size_bytes":3}`),
+		parts:   []types.ContentPart{chart},
+	}
 	result, err := renderRegistry(t, exec).Execute(context.Background(), "render", json.RawMessage(`{}`))
 	require.NoError(t, err)
-	assert.Contains(t, result.Error, "result validation failed")
+	assert.Empty(t, result.Error)
+	assert.JSONEq(t, `{"type":"image","content_type":"image/png","size_bytes":3}`, string(result.Result))
+	require.Len(t, result.Parts, 1)
 
 	async, err := renderRegistry(t, exec).ExecuteAsync(context.Background(), "render", json.RawMessage(`{}`))
 	require.NoError(t, err)
-	assert.Equal(t, tools.ToolStatusFailed, async.Status)
+	assert.Equal(t, tools.ToolStatusComplete, async.Status)
+	require.Len(t, async.Parts, 1)
 }
 
 // A text-only result is validated as before.

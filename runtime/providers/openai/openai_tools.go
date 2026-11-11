@@ -310,19 +310,18 @@ func (p *ToolProvider) convertRequestMessagesToOpenAI(
 	}
 
 	// Add conversation messages. Media from a run of tool results follows the
-	// run as one user message (see liftedMediaMessage).
+	// run, one user message per result (see liftedMediaMessages).
 	var round []*types.MessageToolResult
 	flushRound := func() error {
-		lifted := p.liftedMediaMessage(round)
+		lifted := p.liftedMediaMessages(round)
 		round = nil
-		if lifted == nil {
-			return nil
+		for i := range lifted {
+			openaiMsg, err := p.convertSingleMessageForTools(ctx, lifted[i])
+			if err != nil {
+				return fmt.Errorf("tool result media: %w", err)
+			}
+			messages = append(messages, openaiMsg)
 		}
-		openaiMsg, err := p.convertSingleMessageForTools(ctx, *lifted)
-		if err != nil {
-			return fmt.Errorf("tool result media: %w", err)
-		}
-		messages = append(messages, openaiMsg)
 		return nil
 	}
 	for i := range req.Messages {

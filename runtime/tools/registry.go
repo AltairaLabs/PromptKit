@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -546,7 +545,7 @@ func (r *Registry) Execute(
 	}
 
 	// A binary result's text stand-in is not its structured result.
-	if !holdsToOutputSchema(result, parts) {
+	if !holdsToOutputSchema(parts) {
 		return &ToolResult{
 			Name:      toolName,
 			Result:    result,
@@ -767,32 +766,21 @@ func (r *Registry) executeSyncFallback(
 	return execResult, nil
 }
 
-// holdsToOutputSchema reports whether content is a result to hold to the
-// tool's output schema. When the result carries media, content that is not a
-// JSON object or array is the media's text stand-in, not the structured
-// result, and is not validated.
-func holdsToOutputSchema(content json.RawMessage, parts []types.ContentPart) bool {
-	hasMedia := false
-	for i := range parts {
-		if parts[i].Type != types.ContentTypeText {
-			hasMedia = true
-			break
-		}
-	}
-	if !hasMedia {
-		return true
-	}
-	trimmed := bytes.TrimSpace(content)
-	return len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[')
+// holdsToOutputSchema reports whether a result is held to the tool's output
+// schema: one that carries media is not, because its content is not the
+// tool's declared output but the media's text stand-in or a summary of it (the
+// HTTP, A2A and media-generation executors return a JSON object describing
+// the media).
+func holdsToOutputSchema(parts []types.ContentPart) bool {
+	return !(&types.MessageToolResult{Parts: parts}).HasMedia()
 }
 
 // validateAndCoerceResult validates and coerces tool execution results; a
-// result whose content is the text stand-in for its media passes as it is
-// (holdsToOutputSchema).
+// result that carries media passes as it is (holdsToOutputSchema).
 func (r *Registry) validateAndCoerceResult(
 	tool *ToolDescriptor, content json.RawMessage, parts []types.ContentPart,
 ) *ToolExecutionResult {
-	if !holdsToOutputSchema(content, parts) {
+	if !holdsToOutputSchema(parts) {
 		return &ToolExecutionResult{Status: ToolStatusComplete, Content: content}
 	}
 	validatedResult, _, err := r.validator.CoerceResult(tool, content)

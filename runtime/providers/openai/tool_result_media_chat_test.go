@@ -168,3 +168,39 @@ func TestChatToolResultImage_StaysWithItsRoundInHistory(t *testing.T) {
 		})
 	}
 }
+
+// An image in a format OpenAI does not take is described in the tool message
+// and not attached, so the request still goes out.
+func TestChatToolResultImage_InAnUnacceptedFormatIsDescribed(t *testing.T) {
+	round := imageRound()
+	round[2].ToolResult.Parts[1] = types.NewImagePartFromData("aW1n", "image/bmp", nil)
+	for mode, messages := range chatRequestsOf(t, round) {
+		t.Run(mode, func(t *testing.T) {
+			require.Len(t, messages, 4, "nothing to attach")
+			assert.Equal(t, "camera 3\n[This tool returned an image (image/bmp) that was not sent: "+
+				"OpenAI Chat Completions does not accept image/bmp images.]", messages[2]["content"])
+		})
+	}
+}
+
+// Each result's media follows in a message of its own, so each is held to
+// the media caps on its own, as it was in its tool message.
+func TestChatToolResultImage_EachResultHasItsOwnMessage(t *testing.T) {
+	round := imageRound()
+	second := &types.MessageToolResult{ID: "call-2", Name: "status", Parts: []types.ContentPart{
+		types.NewImagePartFromData("c2Vjb25k", types.MIMETypeImageJPEG, nil),
+	}}
+	round[3] = types.Message{Role: "tool", ToolResult: second}
+	for mode, messages := range chatRequestsOf(t, round) {
+		t.Run(mode, func(t *testing.T) {
+			require.Len(t, messages, 6)
+			assert.Equal(t, "user", messages[4]["role"])
+			assert.Equal(t, "user", messages[5]["role"])
+			first := messages[4]["content"].([]any)
+			last := messages[5]["content"].([]any)
+			assert.Equal(t, "Media returned by tool snapshot (call call-1):", first[0].(map[string]any)["text"])
+			assert.Equal(t, "Media returned by tool status (call call-2):", last[0].(map[string]any)["text"])
+			assert.Equal(t, "data:image/jpeg;base64,c2Vjb25k", last[1].(map[string]any)["image_url"].(map[string]any)["url"])
+		})
+	}
+}

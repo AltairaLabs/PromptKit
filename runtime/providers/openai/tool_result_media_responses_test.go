@@ -114,3 +114,26 @@ func TestResponsesToolResult_LoadsMediaFromFiles(t *testing.T) {
 	assert.Equal(t, "data:image/png;base64,aW1n", items[0].(map[string]any)["image_url"])
 	assert.Equal(t, "data:application/pdf;base64,cGRm", items[1].(map[string]any)["file_data"])
 }
+
+// A document other than a PDF is described: only PDFs are sent as input_file.
+func TestResponsesToolResult_NonPDFDocumentIsDescribed(t *testing.T) {
+	out := responsesOutputOf(t, []types.ContentPart{types.NewDocumentPartFromData("YSxi", "text/csv")})
+	items, ok := out["output"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	assert.Equal(t, map[string]any{"type": "input_text", "text": "[This tool returned a document (text/csv) that was " +
+		"not sent: OpenAI Responses does not accept text/csv documents.]"}, items[0])
+}
+
+// Media that is described is never loaded, so a document the API does not
+// take cannot fail the request by being unreadable.
+func TestResponsesToolResult_DescribedMediaIsNotLoaded(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "gone.csv")
+	out := responsesOutputOf(t, []types.ContentPart{
+		{Type: types.ContentTypeDocument, Media: &types.MediaContent{FilePath: &missing, MIMEType: "text/csv"}},
+	})
+	items, ok := out["output"].([]any)
+	require.True(t, ok)
+	assert.Equal(t, "[This tool returned a document (text/csv) that was not sent: OpenAI Responses does not "+
+		"accept text/csv documents.]", items[0].(map[string]any)["text"])
+}

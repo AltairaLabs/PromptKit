@@ -116,15 +116,15 @@ Unreleased holds changes that are on `main` and in no release.
 
 ### Tool results carry their media on every provider
 
-A tool that returned an image failed the request on OpenAI Chat Completions, which takes only text in a tool message. The OpenAI Responses API reduced a tool's media to text. Claude dropped a tool's audio and video without a word, and rejected an image a tool returned by URL. A binary-returning tool that declared an object output schema failed validation of its text stand-in.
+A tool that returned an image failed the request on OpenAI Chat Completions, which takes only text in a tool message. The OpenAI Responses API reduced a tool's media to text. Claude rejected an image a tool returned by URL. Claude, vLLM and Ollama dropped media they could not send without a word. A binary-returning tool that declared an object output schema failed validation of its text stand-in, or of the summary the HTTP executor returns.
 
 | If you | You will see | Change |
 |---|---|---|
 | Return an image from a tool on OpenAI Chat Completions | the tool message carries the text and a note; the image follows the round in a user message | nothing |
-| Return images or documents from a tool on the OpenAI Responses API | `input_image` and `input_file` items in the `function_call_output` | nothing |
-| Return audio or video from a tool on a provider whose tool results do not take it | a text note in the result naming the media and its reference, and a logged warning | nothing, or send the media another way |
-| Return a tool image in a format, or over a size, the provider does not take | an `UnsupportedContentError` before the request | convert or shrink the media |
-| Declare an object output schema on a tool that returns media with a text content value | the call succeeds; an object content value is still validated | nothing |
+| Return images or PDFs from a tool on the OpenAI Responses API | `input_image` and `input_file` items in the `function_call_output` | nothing |
+| Return media a provider cannot send in a tool result: a kind it does not take, an unlisted format, or a size over its limit | a note in the result naming the media, its reference and why it was not sent | nothing, or send the media another way |
+| Return media from a tool on vLLM or Ollama | a note in the tool message for each media part | nothing |
+| Declare an output schema on a tool that returns media | the result is not validated against it | nothing |
 
 ### `Close()` ends a session; `Complete()` ends the conversation
 

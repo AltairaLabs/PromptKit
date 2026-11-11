@@ -231,8 +231,8 @@ func (p *Provider) processClaudeToolResult(ctx context.Context, msg types.Messag
 // buildToolResultContentBlocks converts one tool result's parts to a Claude
 // content block array. The parts share one MediaLoader, so the result's media
 // is held to providers.MaxMediaItems and providers.MaxAggregateMediaSize.
-// Images and documents convert as they do in a user message; audio and video,
-// which a Claude tool result does not take, are described in a text block.
+// Images and PDFs within Claude's limits convert as they do in a user
+// message; any other media is described in a text block (toolResultMediaBlock).
 func (p *Provider) buildToolResultContentBlocks(
 	ctx context.Context, result *types.MessageToolResult,
 ) ([]interface{}, error) {
@@ -246,24 +246,30 @@ func (p *Provider) buildToolResultContentBlocks(
 				blocks = append(blocks, claudeTextContent{Type: contentTypeText, Text: *part.Text})
 			}
 		case part.Media == nil:
-		case part.Type == types.ContentTypeImage:
-			block, err := p.convertImagePartToClaude(ctx, loader, part)
-			if err != nil {
-				return nil, err
-			}
-			blocks = append(blocks, block)
-		case part.Type == types.ContentTypeDocument:
-			block, err := p.convertDocumentPartToClaude(ctx, loader, part)
-			if err != nil {
-				return nil, err
-			}
-			blocks = append(blocks, block)
 		default:
-			note := providers.UnsentToolMedia(p.ID(), "Claude", result, &result.Parts[i])
-			blocks = append(blocks, claudeTextContent{Type: contentTypeText, Text: note})
+			block, err := p.toolResultMediaBlock(ctx, loader, result, &result.Parts[i])
+			if err != nil {
+				return nil, err
+			}
+			blocks = append(blocks, block)
 		}
 	}
 	return blocks, nil
+}
+
+// toolResultMediaBlock converts a tool result's media part: an image or PDF
+// within Claude's limits converts as it does in a user message; anything else
+// becomes a text block saying what the tool returned and why it was not sent.
+func (p *Provider) toolResultMediaBlock(
+	ctx context.Context, loader *providers.MediaLoader, result *types.MessageToolResult, part *types.ContentPart,
+) (interface{}, error) {
+	if why := providers.ToolMediaRefusal("Claude", p.SendableMultimodalCapabilities(), part); why != "" {
+		return claudeTextContent{Type: contentTypeText, Text: providers.UnsentToolMedia(p.ID(), result, part, why)}, nil
+	}
+	if part.Type == types.ContentTypeImage {
+		return p.convertImagePartToClaude(ctx, loader, *part)
+	}
+	return p.convertDocumentPartToClaude(ctx, loader, *part)
 }
 
 // buildClaudeMessageContent creates content array for a message including text, images, and tool calls
