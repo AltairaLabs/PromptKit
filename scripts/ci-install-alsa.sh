@@ -10,14 +10,16 @@
 # attempt usually gets a different mirror or a released lock.
 #
 # The runner's apt sources point at its cloud's Ubuntu mirror
-# (azure.archive.ubuntu.com on GitHub-hosted runners). When that mirror is
-# down, every retry against it fails too, so after a failed attempt the
-# sources are switched to Ubuntu's main archive.
+# (azure.archive.ubuntu.com on GitHub-hosted runners), usually through a
+# mirror list in /etc/apt/apt-mirrors.txt that the sources name as
+# mirror+file:. When that mirror is down, every retry against it fails too,
+# so after a failed attempt the sources and the mirror list are switched to
+# Ubuntu's main archive.
 set -euo pipefail
 
 use_main_archive() {
   local f
-  for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do
+  for f in /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do
     [ -f "$f" ] || continue
     sudo sed -i -E 's#https?://[a-z0-9.-]*\.archive\.ubuntu\.com#http://archive.ubuntu.com#g' "$f"
   done
