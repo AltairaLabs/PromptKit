@@ -153,6 +153,12 @@ type ProviderSpec struct {
 	IncludeRawOutput bool
 	AdditionalConfig map[string]interface{} // Flexible key-value pairs for provider-specific configuration
 
+	// BaseDir is the directory a relative file path in AdditionalConfig (the
+	// mock provider's mock_config) resolves against. Set it to the directory
+	// of the config that declared the provider. Empty means the process's
+	// working directory.
+	BaseDir string
+
 	// Credential holds the resolved credential for this provider.
 	// If nil, providers fall back to environment variable lookup.
 	Credential Credential

@@ -2157,7 +2157,7 @@ type ContextWindowProvider interface {
 ```
 
 <a name="Credential"></a>
-## type [Credential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L255-L261>)
+## type [Credential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L261-L267>)
 
 Credential applies authentication to HTTP requests. This is the interface that providers use to authenticate requests.
 
@@ -2759,7 +2759,7 @@ type MediaLoaderConfig struct {
 ```
 
 <a name="MediaScoped"></a>
-## type [MediaScoped](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L368-L370>)
+## type [MediaScoped](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L374-L376>)
 
 MediaScoped is implemented by a provider that can give one conversation a view of itself with that conversation's MediaSettings. The view shares the provider's clients and state; only the media settings differ, so a host that shares one provider across conversations keeps each one's store and network policy its own. Setting them on the shared provider \(MediaStorageConfigurable\) lets the last conversation opened decide for all.
 
@@ -2770,7 +2770,7 @@ type MediaScoped interface {
 ```
 
 <a name="MediaSettings"></a>
-## type [MediaSettings](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L357-L360>)
+## type [MediaSettings](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L363-L366>)
 
 MediaSettings are the media options one conversation applies: the store that resolves storage references, and whether URL media may be fetched from non\-public addresses. A zero field keeps the provider's own setting.
 
@@ -2782,7 +2782,7 @@ type MediaSettings struct {
 ```
 
 <a name="MediaStorageConfigurable"></a>
-## type [MediaStorageConfigurable](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L342-L344>)
+## type [MediaStorageConfigurable](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L348-L350>)
 
 MediaStorageConfigurable is implemented by any provider embedding \*BaseProvider. CreateProviderFromSpec uses it to inject the media storage service so providers can resolve MediaContent.StorageReference values at request\-build time.
 
@@ -2979,7 +2979,7 @@ func (NDJSONFrameDetector) PeekFirstFrame(r io.Reader) ([]byte, error)
 PeekFirstFrame reads until the first \`\\n\` and returns the line \(including the newline\) plus any bufio lookahead. Blank lines are skipped so leading whitespace or keepalive newlines from certain producers don't count as a "frame".
 
 <a name="PlatformConfig"></a>
-## type [PlatformConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L264>)
+## type [PlatformConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L270>)
 
 PlatformConfig is an alias for credentials.PlatformConfig.
 
@@ -3091,7 +3091,7 @@ type Pricing struct {
 ```
 
 <a name="PrivateNetworkMediaConfigurable"></a>
-## type [PrivateNetworkMediaConfigurable](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L350-L352>)
+## type [PrivateNetworkMediaConfigurable](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L356-L358>)
 
 PrivateNetworkMediaConfigurable is implemented by any provider embedding \*BaseProvider. It lets a host that trusts every media URL it passes allow fetching them from non\-public addresses; see MediaLoaderConfig.AllowPrivateNetworks.
 
@@ -3131,7 +3131,7 @@ type Provider interface {
 ```
 
 <a name="CreateProviderFromSpec"></a>
-### func [CreateProviderFromSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L397>)
+### func [CreateProviderFromSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L403>)
 
 ```go
 func CreateProviderFromSpec(spec ProviderSpec) (Provider, error)
@@ -3228,7 +3228,7 @@ type ProviderFactory func(spec ProviderSpec) (Provider, error)
 ```
 
 <a name="CredentialFactory"></a>
-### func [CredentialFactory](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L638>)
+### func [CredentialFactory](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L644>)
 
 ```go
 func CredentialFactory(withCred, withoutCred ProviderFactory) ProviderFactory
@@ -3250,7 +3250,7 @@ providers.RegisterProviderFactory("claude", providers.CredentialFactory(
 ```
 
 <a name="RejectPlatforms"></a>
-### func [RejectPlatforms](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L606>)
+### func [RejectPlatforms](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L612>)
 
 ```go
 func RejectPlatforms(rejected map[string]bool, inner ProviderFactory) ProviderFactory
@@ -3285,7 +3285,7 @@ func (e *ProviderHTTPError) Error() string
 Error redacts credential\-bearing query parameters in the URL. Some providers authenticate via the query string, so an unredacted URL in an error message writes a live credential to every log that touches it.
 
 <a name="ProviderSpec"></a>
-## type [ProviderSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L143-L240>)
+## type [ProviderSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L143-L246>)
 
 ProviderSpec holds the configuration needed to create a provider instance
 
@@ -3302,6 +3302,12 @@ type ProviderSpec struct {
     Defaults         ProviderDefaults
     IncludeRawOutput bool
     AdditionalConfig map[string]interface{} // Flexible key-value pairs for provider-specific configuration
+
+    // BaseDir is the directory a relative file path in AdditionalConfig (the
+    // mock provider's mock_config) resolves against. Set it to the directory
+    // of the config that declared the provider. Empty means the process's
+    // working directory.
+    BaseDir string
 
     // Credential holds the resolved credential for this provider.
     // If nil, providers fall back to environment variable lookup.
@@ -3391,7 +3397,7 @@ type ProviderSpec struct {
 ```
 
 <a name="ProviderSpec.HasCredential"></a>
-### func \(\*ProviderSpec\) [HasCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L621>)
+### func \(\*ProviderSpec\) [HasCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L627>)
 
 ```go
 func (s *ProviderSpec) HasCredential() bool
@@ -3467,7 +3473,7 @@ type RankedDocument struct {
 ```
 
 <a name="RateLimitOptions"></a>
-## type [RateLimitOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L248-L251>)
+## type [RateLimitOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L254-L257>)
 
 RateLimitOptions is a token\-bucket limit on one provider instance's outbound requests: RequestsPerSecond sustained, with up to Burst sent at once. Every HTTP request the provider sends \(a Predict, a PredictStream, and each retry attempt of either\) takes one token, waiting for it before the request goes out. A RequestsPerSecond of zero or less is unlimited; a Burst below 1 counts as 1. The wait respects the request's context.
 
@@ -5164,7 +5170,7 @@ func (e *UnsupportedContentError) Error() string
 Error returns the message, naming the part when PartIndex is not negative.
 
 <a name="UnsupportedProviderError"></a>
-## type [UnsupportedProviderError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L557-L559>)
+## type [UnsupportedProviderError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L563-L565>)
 
 UnsupportedProviderError is returned when no factory is registered for a provider type. When the type names a hosting platform \(bedrock, vertex or azure\), the message says which vendor types to use instead.
 
@@ -5175,7 +5181,7 @@ type UnsupportedProviderError struct {
 ```
 
 <a name="UnsupportedProviderError.Error"></a>
-### func \(\*UnsupportedProviderError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L576>)
+### func \(\*UnsupportedProviderError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L582>)
 
 ```go
 func (e *UnsupportedProviderError) Error() string
@@ -5184,7 +5190,7 @@ func (e *UnsupportedProviderError) Error() string
 Error returns the error message for this unsupported provider error.
 
 <a name="UnsupportedProviderPlatformError"></a>
-## type [UnsupportedProviderPlatformError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L590-L593>)
+## type [UnsupportedProviderPlatformError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L596-L599>)
 
 UnsupportedProviderPlatformError is returned when a provider type is recognized but the requested platform does not host that vendor's models \(for example openai on vertex\). It is returned at provider construction, so the failure surfaces at configuration time rather than on the first request.
 
@@ -5196,7 +5202,7 @@ type UnsupportedProviderPlatformError struct {
 ```
 
 <a name="UnsupportedProviderPlatformError.Error"></a>
-### func \(\*UnsupportedProviderPlatformError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L596>)
+### func \(\*UnsupportedProviderPlatformError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L602>)
 
 ```go
 func (e *UnsupportedProviderPlatformError) Error() string

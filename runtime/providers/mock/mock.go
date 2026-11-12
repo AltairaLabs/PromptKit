@@ -4,6 +4,7 @@ package mock
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -67,7 +68,21 @@ func init() { //nolint:gochecknoinits // provider self-registration via init() i
 		if repo, ok := spec.AdditionalConfig["repository"].(ResponseRepository); ok {
 			return NewToolProviderWithRepository(spec.ID, spec.Model, spec.IncludeRawOutput, repo), nil
 		}
-		return NewToolProvider(spec.ID, spec.Model, spec.IncludeRawOutput, spec.AdditionalConfig), nil
+		var fileRepo *FileMockRepository
+		if path := mockConfigPath(spec.AdditionalConfig); path != "" {
+			if !filepath.IsAbs(path) && spec.BaseDir != "" {
+				path = filepath.Join(spec.BaseDir, path)
+			}
+			repository, err := NewFileMockRepository(path)
+			if err != nil {
+				// A mock asked to answer from a file it cannot read would
+				// answer generically, and the run would pass on the wrong
+				// replies.
+				return nil, fmt.Errorf("mock provider %s: mock_config %s: %w", spec.ID, path, err)
+			}
+			fileRepo = repository
+		}
+		return newToolProvider(spec.ID, spec.Model, spec.IncludeRawOutput, spec.AdditionalConfig, fileRepo), nil
 	})
 }
 

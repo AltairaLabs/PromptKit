@@ -114,6 +114,16 @@ Unreleased holds changes that are on `main` and in no release.
 
 ## Unreleased
 
+### A mock provider fails when its `mock_config` does not load
+
+A relative `mock_config` resolved against the process's working directory, so a kit loaded from another directory could not find its mock file. The provider then logged a warning and answered with generic replies, and runs passed on the wrong answers. A relative `mock_config` now resolves against `ProviderSpec.BaseDir` when it is set, and `CreateProviderFromSpec` returns an error naming the path when the file does not load.
+
+| If you | You will see | Change |
+|---|---|---|
+| Build provider specs from config files | relative `mock_config` paths still resolve against the working directory | set `BaseDir` to the directory of the config that declared the provider |
+| Set a `mock_config` that does not exist or does not parse | an error from `CreateProviderFromSpec` | fix the path or the file |
+| Call `mock.NewToolProvider` directly | a warning and generic replies, as before | nothing |
+
 ### The A2A server can complete a conversation it evicts
 
 The A2A server only closed the conversations it evicted, so a pack's `on_conversation_complete` evals never ran for a conversation it hosted. `a2aserver.WithCompleteOnEviction()` makes idle eviction call `Complete()` on a conversation that has it (`a2aserver.CompletableConversation`); SDK conversations from `sdk.A2AOpener` do. Shutdown still closes.

@@ -262,7 +262,7 @@ Every provider reports cost as a `types.CostInfo` on the response, or on the fin
 
 ## Testing with the mock provider
 
-The `mock` provider makes no API calls. It answers from a `ResponseRepository`: an in-memory one with a default response and per-scenario, per-turn overrides, or a file-backed one that also scripts tool calls and multimodal parts. The file-backed repository decodes its YAML strictly: a key it does not read is an error that names the key and the valid ones. Its streaming sessions can simulate an interruption on a chosen turn and a provider that closes the connection. It reports token counts estimated from text length. The `replay` provider serves recorded sessions for deterministic runs.
+The `mock` provider makes no API calls. It answers from a `ResponseRepository`: an in-memory one with a default response and per-scenario, per-turn overrides, or a file-backed one that also scripts tool calls and multimodal parts. The file-backed repository decodes its YAML strictly: a key it does not read is an error that names the key and the valid ones. The provider's `mock_config` names that file. A relative path resolves against `ProviderSpec.BaseDir`, which a config loader sets to the directory of the config that declared the provider, or against the working directory when `BaseDir` is empty. `CreateProviderFromSpec` returns an error when the file does not load; `mock.NewToolProvider` logs a warning and answers with generic replies. Its streaming sessions can simulate an interruption on a chosen turn and a provider that closes the connection. It reports token counts estimated from text length. The `replay` provider serves recorded sessions for deterministic runs.
 
 ## Related pages
 
