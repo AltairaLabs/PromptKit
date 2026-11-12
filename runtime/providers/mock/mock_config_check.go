@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"reflect"
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -31,62 +31,61 @@ var (
 )
 
 // unknownFieldRe matches yaml.v3's report of a key with no matching field.
-var unknownFieldRe = regexp.MustCompile(`^(line \d+): field (\S+) not found in type mock\.(\w+)$`)
+var unknownFieldRe = regexp.MustCompile(`^field (\S+) not found in type mock\.(\w+)$`)
+
+// decoderLineRe matches the line yaml.v3 puts at the front of an error:
+// "line 3: ..." in a type error, "yaml: line 3: ..." in a syntax error.
+var decoderLineRe = regexp.MustCompile(`^(?:yaml: )?line (\d+): (.*)$`)
 
 // decodeConfigStrict decodes a mock config file, rejecting any key the
 // repository does not read. A misspelled key used to be dropped silently:
 // `default_response:` for `defaultResponse:` left the provider answering with
 // its generic text. Every unknown key is reported with the keys valid at that
-// place. An empty file is an empty config.
+// place, as a *ConfigError. An empty file is an empty config.
 func decodeConfigStrict(data []byte) (*Config, error) {
 	var config Config
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&config); err != nil && !errors.Is(err, io.EOF) {
-		return nil, describeDecodeError(err)
+		return nil, &ConfigError{Problems: describeDecodeError(err)}
 	}
 
-	var problems []string
-	for _, section := range []struct {
-		name    string
-		entries map[string]ScenarioConfig
-	}{{"scenarios", config.Scenarios}, {"selfplay", config.Selfplay}} {
-		for _, key := range slices.Sorted(maps.Keys(section.entries)) {
-			sc := section.entries[key]
-			for _, turn := range slices.Sorted(maps.Keys(sc.Turns)) {
-				where := fmt.Sprintf("%s.%s.turns.%d", section.name, key, turn)
-				problems = append(problems, checkResponseKeys(where, sc.Turns[turn])...)
-			}
-			for _, step := range slices.Sorted(maps.Keys(sc.Steps)) {
-				where := fmt.Sprintf("%s.%s.steps.%s", section.name, key, step)
-				problems = append(problems, checkResponseKeys(where, sc.Steps[step])...)
-			}
-		}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, &ConfigError{Problems: describeDecodeError(err)}
 	}
-	if len(problems) > 0 {
-		return nil, errors.New(strings.Join(problems, "; "))
+	if problems := checkResponses(&doc); len(problems) > 0 {
+		return nil, &ConfigError{Problems: problems}
 	}
 	return &config, nil
 }
 
-// describeDecodeError rewrites yaml.v3's unknown-field lines to name the
-// valid keys. Other decode errors pass through unchanged.
-func describeDecodeError(err error) error {
+// describeDecodeError turns a yaml.v3 error into problems on their lines,
+// naming the valid keys for an unknown one.
+func describeDecodeError(err error) []ConfigProblem {
 	var typeErr *yaml.TypeError
 	if !errors.As(err, &typeErr) {
-		return err
+		return []ConfigProblem{decoderProblem(err.Error())}
 	}
-	lines := make([]string, 0, len(typeErr.Errors))
+	problems := make([]ConfigProblem, 0, len(typeErr.Errors))
 	for _, line := range typeErr.Errors {
-		m := unknownFieldRe.FindStringSubmatch(line)
-		if m == nil {
-			lines = append(lines, line)
-			continue
+		problem := decoderProblem(line)
+		if m := unknownFieldRe.FindStringSubmatch(problem.Message); m != nil {
+			problem.Message = fmt.Sprintf("unknown key %q (valid: %s)", m[1], strings.Join(yamlKeysOf(m[2]), ", "))
 		}
-		lines = append(lines, fmt.Sprintf("%s: unknown key %q (valid: %s)",
-			m[1], m[2], strings.Join(yamlKeysOf(m[3]), ", ")))
+		problems = append(problems, problem)
 	}
-	return errors.New(strings.Join(lines, "; "))
+	return problems
+}
+
+// decoderProblem splits one yaml.v3 error line into its line and message.
+func decoderProblem(text string) ConfigProblem {
+	m := decoderLineRe.FindStringSubmatch(text)
+	if m == nil {
+		return ConfigProblem{Message: text}
+	}
+	line, _ := strconv.Atoi(m[1])
+	return ConfigProblem{Line: line, Message: m[2]}
 }
 
 // yamlKeysOf lists the yaml keys of the named config struct.
@@ -111,39 +110,89 @@ func yamlKeysOf(typeName string) []string {
 	return keys
 }
 
-// checkResponseKeys checks one turn or step response. A plain string is a text
-// response; a map must use the keys the repository reads.
-func checkResponseKeys(where string, response any) []string {
-	m, ok := response.(map[string]any)
-	if !ok {
-		return nil
-	}
-	problems := unknownResponseKeys(where, m, mockTurnKeys)
-	if calls, ok := m["tool_calls"].([]any); ok {
-		for i, call := range calls {
-			if cm, ok := call.(map[string]any); ok {
-				problems = append(problems,
-					unknownResponseKeys(fmt.Sprintf("%s.tool_calls[%d]", where, i), cm, mockToolCallKeys)...)
+// checkResponses checks every structured turn and step response in the
+// document, in document order. The decoder has already checked the keys
+// above them, so the shape down to the responses is known.
+func checkResponses(doc *yaml.Node) []ConfigProblem {
+	root := documentRoot(doc)
+	var problems []ConfigProblem
+	for _, section := range []string{"scenarios", "selfplay"} {
+		forEachEntry(mappingValue(root, section), func(name string, scenario *yaml.Node) {
+			for _, kind := range []string{"turns", "steps"} {
+				forEachEntry(mappingValue(scenario, kind), func(key string, response *yaml.Node) {
+					where := fmt.Sprintf("%s.%s.%s.%s", section, name, kind, key)
+					problems = append(problems, checkResponseKeys(where, response)...)
+				})
 			}
-		}
-	}
-	if parts, ok := m["parts"].([]any); ok {
-		for i, part := range parts {
-			if pm, ok := part.(map[string]any); ok {
-				problems = append(problems,
-					unknownResponseKeys(fmt.Sprintf("%s.parts[%d]", where, i), pm, mockPartKeys)...)
-			}
-		}
+		})
 	}
 	return problems
 }
 
-func unknownResponseKeys(where string, m map[string]any, allowed []string) []string {
-	var out []string
-	for _, k := range slices.Sorted(maps.Keys(m)) {
-		if !slices.Contains(allowed, k) {
-			out = append(out, fmt.Sprintf("%s: unknown key %q (valid: %s)", where, k, strings.Join(allowed, ", ")))
-		}
+// checkResponseKeys checks one turn or step response. A plain string is a text
+// response and has no keys; a mapping must use the keys the repository reads.
+func checkResponseKeys(where string, response *yaml.Node) []ConfigProblem {
+	problems := unknownKeys(where, response, mockTurnKeys)
+	for i, call := range sequenceItems(mappingValue(response, turnTypeToolCalls)) {
+		problems = append(problems, unknownKeys(fmt.Sprintf("%s.tool_calls[%d]", where, i), call, mockToolCallKeys)...)
 	}
+	for i, part := range sequenceItems(mappingValue(response, "parts")) {
+		problems = append(problems, unknownKeys(fmt.Sprintf("%s.parts[%d]", where, i), part, mockPartKeys)...)
+	}
+	return problems
+}
+
+// unknownKeys reports each key of a mapping node that is not allowed, on the
+// key's line.
+func unknownKeys(where string, node *yaml.Node, allowed []string) []ConfigProblem {
+	var out []ConfigProblem
+	forEachEntryKey(node, func(key *yaml.Node, _ *yaml.Node) {
+		if !slices.Contains(allowed, key.Value) {
+			out = append(out, ConfigProblem{Line: key.Line, Path: where, Message: fmt.Sprintf(
+				"unknown key %q (valid: %s)", key.Value, strings.Join(allowed, ", "))})
+		}
+	})
 	return out
+}
+
+// documentRoot is the top node of a decoded document, or nil for an empty one.
+func documentRoot(doc *yaml.Node) *yaml.Node {
+	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
+		return doc.Content[0]
+	}
+	return nil
+}
+
+// mappingValue is the value under key in a mapping node, or nil.
+func mappingValue(node *yaml.Node, key string) *yaml.Node {
+	var found *yaml.Node
+	forEachEntryKey(node, func(k, v *yaml.Node) {
+		if found == nil && k.Value == key {
+			found = v
+		}
+	})
+	return found
+}
+
+// forEachEntry calls fn with each key and value of a mapping node.
+func forEachEntry(node *yaml.Node, fn func(key string, value *yaml.Node)) {
+	forEachEntryKey(node, func(k, v *yaml.Node) { fn(k.Value, v) })
+}
+
+// forEachEntryKey calls fn with each key node and value node of a mapping node.
+func forEachEntryKey(node *yaml.Node, fn func(key, value *yaml.Node)) {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		fn(node.Content[i], node.Content[i+1])
+	}
+}
+
+// sequenceItems is the items of a sequence node, or nil.
+func sequenceItems(node *yaml.Node) []*yaml.Node {
+	if node == nil || node.Kind != yaml.SequenceNode {
+		return nil
+	}
+	return node.Content
 }
