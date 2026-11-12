@@ -16,6 +16,13 @@ var (
 	ErrTaskAlreadyExists = errors.New("a2a: task already exists")
 	ErrInvalidTransition = errors.New("a2a: invalid state transition")
 	ErrTaskTerminal      = errors.New("a2a: task is in a terminal state")
+
+	// ErrTransitionRefused is for a store to wrap when it refuses a state
+	// change on purpose, such as a store that keeps a task working while one
+	// of its tool calls waits for approval. The server logs the refusal at
+	// debug level instead of as a failure, and, as for any SetState error,
+	// does not publish the state.
+	ErrTransitionRefused = errors.New("a2a: state transition refused by the store")
 )
 
 // terminalStates are states from which no further transitions are allowed.

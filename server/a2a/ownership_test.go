@@ -194,7 +194,7 @@ func (b *broadcastCanceler) Listen(cancelLocal func(string)) func() {
 // instance not running the task still reaches it.
 func TestReplicas_SharedBusAndCanceler(t *testing.T) {
 	store := NewInMemoryTaskStore()
-	bus := newLocalTaskEvents()
+	bus := newLocalTaskEvents(nil)
 	canceler := &broadcastCanceler{}
 
 	started := make(chan struct{}, 1)

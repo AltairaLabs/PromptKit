@@ -30,7 +30,7 @@ func TestTaskEvent_IsFinal(t *testing.T) {
 }
 
 func TestLocalTaskEvents_DeliversAndClosesOnFinal(t *testing.T) {
-	bus := newLocalTaskEvents()
+	bus := newLocalTaskEvents(nil)
 	ch, err := bus.Subscribe(context.Background(), "t")
 	require.NoError(t, err)
 	other, err := bus.Subscribe(context.Background(), "other")
@@ -55,7 +55,7 @@ func TestLocalTaskEvents_DeliversAndClosesOnFinal(t *testing.T) {
 }
 
 func TestLocalTaskEvents_UnsubscribesOnContextEnd(t *testing.T) {
-	bus := newLocalTaskEvents()
+	bus := newLocalTaskEvents(nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	ch, err := bus.Subscribe(ctx, "t")
 	require.NoError(t, err)
@@ -70,7 +70,7 @@ func TestLocalTaskEvents_UnsubscribesOnContextEnd(t *testing.T) {
 }
 
 func TestLocalTaskEvents_LimitAndCloseAll(t *testing.T) {
-	bus := newLocalTaskEvents()
+	bus := newLocalTaskEvents(nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	for i := 0; i < maxSubscribers; i++ {
@@ -85,7 +85,7 @@ func TestLocalTaskEvents_LimitAndCloseAll(t *testing.T) {
 }
 
 func TestLocalTaskEvents_SlowSubscriberDoesNotBlock(t *testing.T) {
-	bus := newLocalTaskEvents()
+	bus := newLocalTaskEvents(nil)
 	_, err := bus.Subscribe(context.Background(), "t")
 	require.NoError(t, err)
 	done := make(chan struct{})

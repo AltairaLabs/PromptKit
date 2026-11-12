@@ -179,6 +179,18 @@ srv := a2aserver.NewServer(opener,
 
 A `TaskEvent` is version-neutral JSON, so it can cross a process boundary. Each subscriber encodes it for its own protocol version and request id. The server calls `TaskCanceler.Listen` once at start-up and passes it the function that stops a turn running locally. That function does nothing for tasks the instance is not running, so a broadcast canceler only has to deliver every cancel to every instance.
 
+### Logging and refused state changes
+
+The server writes its diagnostics to PromptKit's logger, so `logger.SetLogger` and `logger.Configure` apply to it. Give it a logger of its own with `WithLogger`:
+
+```go
+srv := a2aserver.NewServer(opener, a2aserver.WithLogger(slog.Default().With("component", "a2a")))
+```
+
+A task store can refuse a state change as part of its own policy, for example to keep a task working while one of its tool calls waits for approval. Return an error that wraps `a2aserver.ErrTransitionRefused`. The server then logs the refusal at debug level rather than as a warning. As with any `SetState` error, it does not publish the state, and the task keeps the state the store holds. A message sent to a task whose resume the store refuses this way gets the "task is not waiting for input" error (`UnsupportedOperation`), not an internal error.
+
+Records carry the request's context where the server has one, so fields a logging handler reads from the context (such as PromptKit's `logger.WithRequestID`) are attached. A failed authentication is logged at debug level, because any caller can send a bad credential.
+
 ## Verify
 
 Fetch the agent card and the liveness probe:

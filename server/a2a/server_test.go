@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -23,6 +24,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/telemetry"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -2150,7 +2152,8 @@ func TestServer_PanicRecovery(t *testing.T) {
 	mux.HandleFunc("GET /panic", func(_ http.ResponseWriter, _ *http.Request) {
 		panic("test panic")
 	})
-	handler := recoveryMiddleware(mux)
+	records := &logRecords{}
+	handler := recoveryMiddleware(mux, func() *slog.Logger { return slog.New(records) })
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -2174,6 +2177,10 @@ func TestServer_PanicRecovery(t *testing.T) {
 	if rpcResp.Error.Message != "Internal error" {
 		t.Errorf("expected 'Internal error', got %q", rpcResp.Error.Message)
 	}
+	level, attrs, ok := records.find("a2a: panic recovered")
+	if !ok || level != slog.LevelError || attrs["panic"] != "test panic" {
+		t.Errorf("expected the panic logged at error on the server's logger, got ok=%v level=%v attrs=%v", ok, level, attrs)
+	}
 }
 
 func TestServer_PanicRecovery_NoPanic(t *testing.T) {
@@ -2181,7 +2188,7 @@ func TestServer_PanicRecovery_NoPanic(t *testing.T) {
 	mux.HandleFunc("GET /ok", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := recoveryMiddleware(mux)
+	handler := recoveryMiddleware(mux, logger.GetLogger)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 

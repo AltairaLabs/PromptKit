@@ -49,6 +49,7 @@ There are two ways to supply the agent. NewServer takes a ConversationOpener and
   - [func WithConversationTTL\(d time.Duration\) Option](<#WithConversationTTL>)
   - [func WithHealthCheck\(name string, checker HealthChecker\) Option](<#WithHealthCheck>)
   - [func WithIdleTimeout\(d time.Duration\) Option](<#WithIdleTimeout>)
+  - [func WithLogger\(l \*slog.Logger\) Option](<#WithLogger>)
   - [func WithMaxBlockingWait\(d time.Duration\) Option](<#WithMaxBlockingWait>)
   - [func WithMaxBodySize\(n int64\) Option](<#WithMaxBodySize>)
   - [func WithPort\(port int\) Option](<#WithPort>)
@@ -98,6 +99,13 @@ var (
     ErrTaskAlreadyExists = errors.New("a2a: task already exists")
     ErrInvalidTransition = errors.New("a2a: invalid state transition")
     ErrTaskTerminal      = errors.New("a2a: task is in a terminal state")
+
+    // ErrTransitionRefused is for a store to wrap when it refuses a state
+    // change on purpose, such as a store that keeps a task working while one
+    // of its tool calls waits for approval. The server logs the refusal at
+    // debug level instead of as a failure, and, as for any SetState error,
+    // does not publish the state.
+    ErrTransitionRefused = errors.New("a2a: state transition refused by the store")
 )
 ```
 
@@ -108,7 +116,7 @@ var ErrTooManySubscribers = errors.New("a2a: too many subscribers")
 ```
 
 <a name="AgentCardProvider"></a>
-## type [AgentCardProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L77-L79>)
+## type [AgentCardProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L78-L80>)
 
 AgentCardProvider returns the agent card to serve at /.well\-known/agent\-card.json \(and the legacy /.well\-known/agent.json\). The server completes the returned card as WithCard describes.
 
@@ -119,7 +127,7 @@ type AgentCardProvider interface {
 ```
 
 <a name="Authenticator"></a>
-## type [Authenticator](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L70-L72>)
+## type [Authenticator](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L71-L73>)
 
 Authenticator validates incoming requests to POST /a2a. Return a non\-nil error to reject the request, which the server answers with HTTP 401 and a JSON\-RPC error. The agent card and health endpoints are not authenticated.
 
@@ -191,7 +199,7 @@ const (
 ```
 
 <a name="HealthChecker"></a>
-## type [HealthChecker](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L184-L186>)
+## type [HealthChecker](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L192-L194>)
 
 HealthChecker performs a named health check. Implementations should return nil when healthy and a non\-nil error describing the problem otherwise.
 
@@ -202,7 +210,7 @@ type HealthChecker interface {
 ```
 
 <a name="HealthCheckerFunc"></a>
-## type [HealthCheckerFunc](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L189>)
+## type [HealthCheckerFunc](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L197>)
 
 HealthCheckerFunc adapts an ordinary function to the [HealthChecker](<#HealthChecker>) interface.
 
@@ -211,7 +219,7 @@ type HealthCheckerFunc func(ctx context.Context) error
 ```
 
 <a name="HealthCheckerFunc.Check"></a>
-### func \(HealthCheckerFunc\) [Check](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L192>)
+### func \(HealthCheckerFunc\) [Check](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L200>)
 
 ```go
 func (f HealthCheckerFunc) Check(ctx context.Context) error
@@ -220,7 +228,7 @@ func (f HealthCheckerFunc) Check(ctx context.Context) error
 Check calls f\(ctx\).
 
 <a name="InMemoryTaskStore"></a>
-## type [InMemoryTaskStore](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L213-L217>)
+## type [InMemoryTaskStore](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L220-L224>)
 
 InMemoryTaskStore is a concurrency\-safe, in\-memory implementation of TaskStore, TaskQuerier and OwnedTaskStore.
 
@@ -279,7 +287,7 @@ state: working
 </details>
 
 <a name="NewInMemoryTaskStore"></a>
-### func [NewInMemoryTaskStore](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L220>)
+### func [NewInMemoryTaskStore](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L227>)
 
 ```go
 func NewInMemoryTaskStore() *InMemoryTaskStore
@@ -288,7 +296,7 @@ func NewInMemoryTaskStore() *InMemoryTaskStore
 NewInMemoryTaskStore creates a new InMemoryTaskStore.
 
 <a name="InMemoryTaskStore.AddArtifacts"></a>
-### func \(\*InMemoryTaskStore\) [AddArtifacts](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L312>)
+### func \(\*InMemoryTaskStore\) [AddArtifacts](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L319>)
 
 ```go
 func (s *InMemoryTaskStore) AddArtifacts(taskID string, artifacts []a2a.Artifact) error
@@ -297,7 +305,7 @@ func (s *InMemoryTaskStore) AddArtifacts(taskID string, artifacts []a2a.Artifact
 AddArtifacts appends artifacts to a task.
 
 <a name="InMemoryTaskStore.Cancel"></a>
-### func \(\*InMemoryTaskStore\) [Cancel](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L326>)
+### func \(\*InMemoryTaskStore\) [Cancel](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L333>)
 
 ```go
 func (s *InMemoryTaskStore) Cancel(taskID string) error
@@ -306,7 +314,7 @@ func (s *InMemoryTaskStore) Cancel(taskID string) error
 Cancel transitions the task to the canceled state from any non\-terminal state, and returns ErrTaskTerminal otherwise.
 
 <a name="InMemoryTaskStore.Create"></a>
-### func \(\*InMemoryTaskStore\) [Create](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L228>)
+### func \(\*InMemoryTaskStore\) [Create](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L235>)
 
 ```go
 func (s *InMemoryTaskStore) Create(taskID, contextID string) (*a2a.Task, error)
@@ -315,7 +323,7 @@ func (s *InMemoryTaskStore) Create(taskID, contextID string) (*a2a.Task, error)
 Create initializes a new task in the submitted state.
 
 <a name="InMemoryTaskStore.CreateOwned"></a>
-### func \(\*InMemoryTaskStore\) [CreateOwned](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L233>)
+### func \(\*InMemoryTaskStore\) [CreateOwned](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L240>)
 
 ```go
 func (s *InMemoryTaskStore) CreateOwned(taskID, contextID, owner string) (*a2a.Task, error)
@@ -324,7 +332,7 @@ func (s *InMemoryTaskStore) CreateOwned(taskID, contextID, owner string) (*a2a.T
 CreateOwned implements OwnedTaskStore. An empty owner records none.
 
 <a name="InMemoryTaskStore.EvictTerminal"></a>
-### func \(\*InMemoryTaskStore\) [EvictTerminal](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L349>)
+### func \(\*InMemoryTaskStore\) [EvictTerminal](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L356>)
 
 ```go
 func (s *InMemoryTaskStore) EvictTerminal(cutoff time.Time) []string
@@ -333,7 +341,7 @@ func (s *InMemoryTaskStore) EvictTerminal(cutoff time.Time) []string
 EvictTerminal removes tasks in a terminal state whose last status timestamp is older than cutoff. It returns the IDs of evicted tasks.
 
 <a name="InMemoryTaskStore.Get"></a>
-### func \(\*InMemoryTaskStore\) [Get](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L270>)
+### func \(\*InMemoryTaskStore\) [Get](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L277>)
 
 ```go
 func (s *InMemoryTaskStore) Get(taskID string) (*a2a.Task, error)
@@ -342,7 +350,7 @@ func (s *InMemoryTaskStore) Get(taskID string) (*a2a.Task, error)
 Get retrieves a deep copy of a task by ID. The returned task is safe to read/modify without holding the store lock.
 
 <a name="InMemoryTaskStore.List"></a>
-### func \(\*InMemoryTaskStore\) [List](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L390>)
+### func \(\*InMemoryTaskStore\) [List](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L397>)
 
 ```go
 func (s *InMemoryTaskStore) List(contextID string, limit, offset int) ([]*a2a.Task, error)
@@ -351,7 +359,7 @@ func (s *InMemoryTaskStore) List(contextID string, limit, offset int) ([]*a2a.Ta
 List returns deep copies of tasks matching the given contextID with pagination. If contextID is empty, all tasks are returned. Results are ordered most recently updated first, ID breaking ties, for deterministic pagination. Offset and limit control pagination.
 
 <a name="InMemoryTaskStore.Owner"></a>
-### func \(\*InMemoryTaskStore\) [Owner](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L259>)
+### func \(\*InMemoryTaskStore\) [Owner](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L266>)
 
 ```go
 func (s *InMemoryTaskStore) Owner(taskID string) (string, error)
@@ -360,7 +368,7 @@ func (s *InMemoryTaskStore) Owner(taskID string) (string, error)
 Owner implements OwnedTaskStore. A task created without an owner has "".
 
 <a name="InMemoryTaskStore.Query"></a>
-### func \(\*InMemoryTaskStore\) [Query](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L368>)
+### func \(\*InMemoryTaskStore\) [Query](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L375>)
 
 ```go
 func (s *InMemoryTaskStore) Query(q TaskQuery) (TaskPage, error)
@@ -369,7 +377,7 @@ func (s *InMemoryTaskStore) Query(q TaskQuery) (TaskPage, error)
 Query implements TaskQuerier.
 
 <a name="InMemoryTaskStore.SetState"></a>
-### func \(\*InMemoryTaskStore\) [SetState](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L282>)
+### func \(\*InMemoryTaskStore\) [SetState](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L289>)
 
 ```go
 func (s *InMemoryTaskStore) SetState(taskID string, state a2a.TaskState, msg *a2a.Message) error
@@ -414,7 +422,7 @@ type MessageRequest struct {
 ```
 
 <a name="Option"></a>
-## type [Option](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L92>)
+## type [Option](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L93>)
 
 Option configures a [Server](<#Server>).
 
@@ -423,7 +431,7 @@ type Option func(*Server)
 ```
 
 <a name="WithAuthenticator"></a>
-### func [WithAuthenticator](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L178>)
+### func [WithAuthenticator](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L186>)
 
 ```go
 func WithAuthenticator(auth Authenticator) Option
@@ -432,7 +440,7 @@ func WithAuthenticator(auth Authenticator) Option
 WithAuthenticator sets an authenticator for incoming JSON\-RPC requests.
 
 <a name="WithCard"></a>
-### func [WithCard](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L102>)
+### func [WithCard](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L103>)
 
 ```go
 func WithCard(card *a2a.AgentCard) Option
@@ -443,7 +451,7 @@ WithCard sets the agent card served at /.well\-known/agent\-card.json.
 The server completes a copy of the card before serving it. A card with no interfaces gets a JSON\-RPC interface pointing at this server's /a2a endpoint, derived from the request's Host; JSON\-RPC interfaces are declared for both A2A 1.0 and 0.3; Streaming is set to true and PushNotifications to false. Declare SecuritySchemes and SecurityRequirements on the card when WithAuthenticator is in use, so callers can discover how to authenticate.
 
 <a name="WithCardProvider"></a>
-### func [WithCardProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L107>)
+### func [WithCardProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L108>)
 
 ```go
 func WithCardProvider(p AgentCardProvider) Option
@@ -452,7 +460,7 @@ func WithCardProvider(p AgentCardProvider) Option
 WithCardProvider sets a dynamic agent card provider.
 
 <a name="WithConversationTTL"></a>
-### func [WithConversationTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L173>)
+### func [WithConversationTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L181>)
 
 ```go
 func WithConversationTTL(d time.Duration) Option
@@ -461,7 +469,7 @@ func WithConversationTTL(d time.Duration) Option
 WithConversationTTL sets how long idle conversations are retained before automatic eviction. A conversation is considered idle when its last\-use timestamp exceeds this duration. Default: 1 hour. Set to 0 to disable.
 
 <a name="WithHealthCheck"></a>
-### func [WithHealthCheck](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L197>)
+### func [WithHealthCheck](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L205>)
 
 ```go
 func WithHealthCheck(name string, checker HealthChecker) Option
@@ -470,7 +478,7 @@ func WithHealthCheck(name string, checker HealthChecker) Option
 WithHealthCheck registers a named health checker that is evaluated by the /readyz endpoint. Multiple checkers can be registered; each is reported individually in the response body.
 
 <a name="WithIdleTimeout"></a>
-### func [WithIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L154>)
+### func [WithIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L162>)
 
 ```go
 func WithIdleTimeout(d time.Duration) Option
@@ -478,8 +486,17 @@ func WithIdleTimeout(d time.Duration) Option
 
 WithIdleTimeout sets the maximum amount of time to wait for the next request when keep\-alives are enabled. Default: 120s.
 
+<a name="WithLogger"></a>
+### func [WithLogger](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L120>)
+
+```go
+func WithLogger(l *slog.Logger) Option
+```
+
+WithLogger sets the logger the server writes its diagnostics to. Without it, the server uses PromptKit's logger \(logger.GetLogger\), so logger.SetLogger and logger.Configure apply.
+
 <a name="WithMaxBlockingWait"></a>
-### func [WithMaxBlockingWait](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L148>)
+### func [WithMaxBlockingWait](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L156>)
 
 ```go
 func WithMaxBlockingWait(d time.Duration) Option
@@ -490,7 +507,7 @@ WithMaxBlockingWait caps how long a blocking SendMessage holds its request open.
 Set it below the timeout of whatever sits in front of the server \(a load balancer's idle timeout, a proxy's read timeout\), so the caller gets a task to follow rather than a gateway error.
 
 <a name="WithMaxBodySize"></a>
-### func [WithMaxBodySize](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L160>)
+### func [WithMaxBodySize](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L168>)
 
 ```go
 func WithMaxBodySize(n int64) Option
@@ -499,7 +516,7 @@ func WithMaxBodySize(n int64) Option
 WithMaxBodySize sets the maximum allowed request body size in bytes for JSON\-RPC requests. Default: 10 MB.
 
 <a name="WithPort"></a>
-### func [WithPort](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L112>)
+### func [WithPort](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L113>)
 
 ```go
 func WithPort(port int) Option
@@ -508,7 +525,7 @@ func WithPort(port int) Option
 WithPort sets the TCP port for ListenAndServe. It has no effect on Serve.
 
 <a name="WithReadTimeout"></a>
-### func [WithReadTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L123>)
+### func [WithReadTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L131>)
 
 ```go
 func WithReadTimeout(d time.Duration) Option
@@ -546,7 +563,7 @@ WithTaskOwner scopes every task to the caller that created it. owner identifies 
 The task store must implement OwnedTaskStore \(the default in\-memory store does\); NewServer and NewStatelessServer panic otherwise. A request whose owner is empty is refused with HTTP 401.
 
 <a name="WithTaskStore"></a>
-### func [WithTaskStore](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L117>)
+### func [WithTaskStore](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L125>)
 
 ```go
 func WithTaskStore(store TaskStore) Option
@@ -555,7 +572,7 @@ func WithTaskStore(store TaskStore) Option
 WithTaskStore sets a custom task store. Defaults to an in\-memory store.
 
 <a name="WithTaskTTL"></a>
-### func [WithTaskTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L166>)
+### func [WithTaskTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L174>)
 
 ```go
 func WithTaskTTL(d time.Duration) Option
@@ -564,7 +581,7 @@ func WithTaskTTL(d time.Duration) Option
 WithTaskTTL sets how long completed/failed/canceled tasks are retained before automatic eviction. Default: 1 hour. Set to 0 to disable eviction.
 
 <a name="WithWriteTimeout"></a>
-### func [WithWriteTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L134>)
+### func [WithWriteTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L142>)
 
 ```go
 func WithWriteTimeout(d time.Duration) Option
@@ -662,7 +679,7 @@ type SendResult interface {
 ```
 
 <a name="Server"></a>
-## type [Server](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L211-L266>)
+## type [Server](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L219-L277>)
 
 Server is an HTTP server that exposes a Conversation as an A2A\-compliant JSON\-RPC endpoint.
 
@@ -673,7 +690,7 @@ type Server struct {
 ```
 
 <a name="NewServer"></a>
-### func [NewServer](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L276>)
+### func [NewServer](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L287>)
 
 ```go
 func NewServer(opener ConversationOpener, opts ...Option) *Server
@@ -695,7 +712,7 @@ NewStatelessServer creates a server that holds no conversations.
 It is [NewServer](<#NewServer>)'s sibling: same protocol, same options, but each message goes to the handler with its request context and nothing is kept between calls. Use it when the embedder owns conversations: because it already tracks sessions, because the runtime is in another process, or because the server needs to scale horizontally with only the task store shared.
 
 <a name="Server.Handler"></a>
-### func \(\*Server\) [Handler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L328>)
+### func \(\*Server\) [Handler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L339>)
 
 ```go
 func (s *Server) Handler() http.Handler
@@ -704,7 +721,7 @@ func (s *Server) Handler() http.Handler
 Handler returns an http.Handler implementing the A2A protocol. It serves the agent card at GET /.well\-known/agent\-card.json and /.well\-known/agent.json, JSON\-RPC at POST /a2a, and the probes GET /healthz and GET /readyz. Requests are traced with OpenTelemetry, and a panic in a handler is recovered and answered with a JSON\-RPC internal error.
 
 <a name="Server.ListenAndServe"></a>
-### func \(\*Server\) [ListenAndServe](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L356>)
+### func \(\*Server\) [ListenAndServe](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L367>)
 
 ```go
 func (s *Server) ListenAndServe() error
@@ -713,7 +730,7 @@ func (s *Server) ListenAndServe() error
 ListenAndServe starts the HTTP server on the configured port and blocks until it stops. The server applies the read, write and idle timeouts the options set; see WithWriteTimeout for how SSE streams treat the write timeout.
 
 <a name="Server.Serve"></a>
-### func \(\*Server\) [Serve](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L432>)
+### func \(\*Server\) [Serve](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L443>)
 
 ```go
 func (s *Server) Serve(ln net.Listener) error
@@ -722,7 +739,7 @@ func (s *Server) Serve(ln net.Listener) error
 Serve starts the HTTP server on the given listener and blocks until it stops. It applies the same timeouts as ListenAndServe.
 
 <a name="Server.Shutdown"></a>
-### func \(\*Server\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L382>)
+### func \(\*Server\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L393>)
 
 ```go
 func (s *Server) Shutdown(ctx context.Context) error
@@ -731,7 +748,7 @@ func (s *Server) Shutdown(ctx context.Context) error
 Shutdown gracefully shuts down the server: it marks the server not ready, stops the eviction goroutine, drains HTTP requests, ends task subscriptions, cancels in\-flight tasks, and closes all conversations. It returns the first error from stopping the HTTP server or closing a conversation.
 
 <a name="StaticCard"></a>
-## type [StaticCard](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L82-L84>)
+## type [StaticCard](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L83-L85>)
 
 StaticCard is an AgentCardProvider that always returns the same card.
 
@@ -742,7 +759,7 @@ type StaticCard struct {
 ```
 
 <a name="StaticCard.AgentCard"></a>
-### func \(\*StaticCard\) [AgentCard](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L87>)
+### func \(\*StaticCard\) [AgentCard](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L88>)
 
 ```go
 func (s *StaticCard) AgentCard(*http.Request) (*a2a.AgentCard, error)
@@ -807,7 +824,7 @@ type TaskCanceler interface {
 ```
 
 <a name="TaskEvent"></a>
-## type [TaskEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_events.go#L27-L30>)
+## type [TaskEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_events.go#L28-L31>)
 
 TaskEvent is one update to a task, as SubscribeToTask callers receive it. Exactly one field is set.
 
@@ -821,7 +838,7 @@ type TaskEvent struct {
 ```
 
 <a name="TaskEvent.IsFinal"></a>
-### func \(TaskEvent\) [IsFinal](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_events.go#L34>)
+### func \(TaskEvent\) [IsFinal](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_events.go#L35>)
 
 ```go
 func (e TaskEvent) IsFinal() bool
@@ -848,7 +865,7 @@ type TaskEventBus interface {
 ```
 
 <a name="TaskPage"></a>
-## type [TaskPage](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L97-L102>)
+## type [TaskPage](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L104-L109>)
 
 TaskPage is one page of a TaskQuery's result.
 
@@ -862,7 +879,7 @@ type TaskPage struct {
 ```
 
 <a name="TaskQuerier"></a>
-## type [TaskQuerier](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L108-L110>)
+## type [TaskQuerier](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L115-L117>)
 
 TaskQuerier is optionally implemented by a TaskStore that can filter, order and page tasks itself. Without it the server pages through List and does the filtering and ordering in memory, which is correct but reads every task in the context on each call.
 
@@ -873,7 +890,7 @@ type TaskQuerier interface {
 ```
 
 <a name="TaskQuery"></a>
-## type [TaskQuery](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L81-L94>)
+## type [TaskQuery](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L88-L101>)
 
 TaskQuery selects a page of tasks for ListTasks.
 
@@ -895,7 +912,7 @@ type TaskQuery struct {
 ```
 
 <a name="TaskStore"></a>
-## type [TaskStore](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L54-L78>)
+## type [TaskStore](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/task_store.go#L61-L85>)
 
 TaskStore defines the interface for task persistence and lifecycle management. Methods return ErrTaskNotFound for an unknown task.
 
