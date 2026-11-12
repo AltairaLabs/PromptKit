@@ -73,6 +73,20 @@ type Executor interface {
 
 Two optional interfaces extend it. A `MultimodalExecutor` also returns content parts (images, audio), and the registry prefers it when an executor implements it. An `AsyncToolExecutor` can return a pending result instead of blocking, which is how approval and deferred client tools work.
 
+A `MultimodalExecutor` result carries its media as parts and a JSON content value. The registry does not validate such a result against the tool's output schema. The content is not the tool's declared output: it is the media's text stand-in, or the JSON object the HTTP, A2A and media-generation executors return to describe the media.
+
+Each provider sends a tool result's media in the form its API takes:
+
+| Provider | Images | Documents | Audio and video |
+|---|---|---|---|
+| Gemini | in the function response | in the function response | in the function response |
+| Claude | image blocks in the `tool_result` | PDF document blocks in the `tool_result` | described |
+| OpenAI Responses | `input_image` items in the `function_call_output` | PDF `input_file` items in the `function_call_output` | described |
+| OpenAI Chat Completions | a user message after the round's tool messages, one per result, because a tool message takes only text | described | audio on an audio model in that user message; otherwise described |
+| vLLM, Ollama | described | described | described |
+
+A part is also described when its format is not one the provider takes for its kind, or when its inline or declared size is over the provider's limit. The description takes the part's place in the tool result. It names the media's type and MIME type, gives its storage reference or its URL (with credentials in the URL redacted), and says why it was not sent. A tool result's media never fails the request. The request is rebuilt from history on every later turn, so a failure would end the conversation.
+
 The registry chooses the executor by mode. `mock` uses the scripted executor when the tool has a template and the static one otherwise, `live` uses the executor named `http`, and `local`, `client` and `mcp` use the executors with those names. Any other mode names a registered executor directly, which is how `exec` and custom executors plug in. A new registry holds only the two mock executors. The host registers the rest. The SDK registers `local` and `client`, `mcp` when you configure an MCP server, and `exec` when you configure an exec tool. A host that wants `live` tools registers an `HTTPExecutor` itself.
 
 A pack declares a tool's schema and description but not how it runs. The SDK loads pack tools with mode `local` as a placeholder, and the host binds the real execution mode and any consent policy. Execution mode and consent are hosting concerns, not pack fields.

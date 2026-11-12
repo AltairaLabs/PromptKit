@@ -87,8 +87,11 @@ The package provides:
 - [func SkipIfNoCredentials\(t \*testing.T, provider Provider\)](<#SkipIfNoCredentials>)
 - [func StringPtr\(s string\) \*string](<#StringPtr>)
 - [func SupportsMultimodal\(p Provider\) bool](<#SupportsMultimodal>)
+- [func ToolMediaRefusal\(api string, caps MultimodalCapabilities, part \*types.ContentPart\) string](<#ToolMediaRefusal>)
+- [func ToolResultTextWithUnsentMedia\(providerID, api string, result \*types.MessageToolResult\) string](<#ToolResultTextWithUnsentMedia>)
 - [func UnmarshalJSON\(respBody \[\]byte, v any, predictResp \*PredictionResponse, start time.Time\) error](<#UnmarshalJSON>)
 - [func UnmarshalResponse\(body \[\]byte, resp any\) error](<#UnmarshalResponse>)
+- [func UnsentToolMedia\(providerID string, result \*types.MessageToolResult, part \*types.ContentPart, why string\) string](<#UnsentToolMedia>)
 - [func ValidateMultimodalMessage\(p Provider, msg types.Message\) error](<#ValidateMultimodalMessage>)
 - [func ValidateMultimodalRequest\(p Provider, req \*PredictionRequest\) error](<#ValidateMultimodalRequest>)
 - [func ValidatePredictReturnsLatency\(t \*testing.T, provider Provider\)](<#ValidatePredictReturnsLatency>)
@@ -1164,6 +1167,24 @@ func SupportsMultimodal(p Provider) bool
 
 SupportsMultimodal checks if a provider implements multimodal support
 
+<a name="ToolMediaRefusal"></a>
+## func [ToolMediaRefusal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/tool_result_media.go#L24>)
+
+```go
+func ToolMediaRefusal(api string, caps MultimodalCapabilities, part *types.ContentPart) string
+```
+
+ToolMediaRefusal returns why a tool result's media part cannot be sent to an API whose tool results take what caps describe, or "" when it can: its kind is not taken, its format is not one of the kind's formats, or its inline or declared size is over the kind's limit. api names the API in the reason.
+
+<a name="ToolResultTextWithUnsentMedia"></a>
+## func [ToolResultTextWithUnsentMedia](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/tool_result_media.go#L114>)
+
+```go
+func ToolResultTextWithUnsentMedia(providerID, api string, result *types.MessageToolResult) string
+```
+
+ToolResultTextWithUnsentMedia is the text of a tool message for an API whose tool messages take text only and that sends a tool's media nowhere else: the result's text, then a note \(UnsentToolMedia\) for each media part, so the model knows what the tool returned. api names the API in the notes.
+
 <a name="UnmarshalJSON"></a>
 ## func [UnmarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L1136>)
 
@@ -1181,6 +1202,15 @@ func UnmarshalResponse(body []byte, resp any) error
 ```
 
 UnmarshalResponse unmarshals a response body from JSON with standardized error handling.
+
+<a name="UnsentToolMedia"></a>
+## func [UnsentToolMedia](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/tool_result_media.go#L47>)
+
+```go
+func UnsentToolMedia(providerID string, result *types.MessageToolResult, part *types.ContentPart, why string) string
+```
+
+UnsentToolMedia is the note a provider sends in place of a tool result's media part it cannot send: the part's kind, MIME type and storage reference or URL \(with credentials in the URL redacted\), and why, from ToolMediaRefusal. The replacement is logged at debug: the note is rebuilt on every later request, and the note itself is what the model and the transcript see.
 
 <a name="ValidateMultimodalMessage"></a>
 ## func [ValidateMultimodalMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L250>)

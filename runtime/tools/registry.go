@@ -544,6 +544,16 @@ func (r *Registry) Execute(
 		}, nil
 	}
 
+	// A binary result's text stand-in is not its structured result.
+	if !holdsToOutputSchema(parts) {
+		return &ToolResult{
+			Name:      toolName,
+			Result:    result,
+			Parts:     parts,
+			LatencyMs: latency,
+		}, nil
+	}
+
 	// Validate and potentially coerce the result for non-MCP tools
 	validatedResult, _, err := r.validator.CoerceResult(tool, result)
 	if err != nil {
@@ -716,7 +726,7 @@ func (r *Registry) executeWithAsyncExecutor(
 	}
 
 	// result.Content is already json.RawMessage
-	validated := r.validateAndCoerceResult(tool, result.Content)
+	validated := r.validateAndCoerceResult(tool, result.Content, result.Parts)
 	// Propagate multimodal parts from the executor through validation
 	validated.Parts = result.Parts
 	return validated, nil
@@ -751,15 +761,28 @@ func (r *Registry) executeSyncFallback(
 		}, nil
 	}
 
-	execResult := r.validateAndCoerceResult(tool, result)
+	execResult := r.validateAndCoerceResult(tool, result, parts)
 	execResult.Parts = parts
 	return execResult, nil
 }
 
-// validateAndCoerceResult validates and coerces tool execution results
+// holdsToOutputSchema reports whether a result is held to the tool's output
+// schema: one that carries media is not, because its content is not the
+// tool's declared output but the media's text stand-in or a summary of it (the
+// HTTP, A2A and media-generation executors return a JSON object describing
+// the media).
+func holdsToOutputSchema(parts []types.ContentPart) bool {
+	return !(&types.MessageToolResult{Parts: parts}).HasMedia()
+}
+
+// validateAndCoerceResult validates and coerces tool execution results; a
+// result that carries media passes as it is (holdsToOutputSchema).
 func (r *Registry) validateAndCoerceResult(
-	tool *ToolDescriptor, content json.RawMessage,
+	tool *ToolDescriptor, content json.RawMessage, parts []types.ContentPart,
 ) *ToolExecutionResult {
+	if !holdsToOutputSchema(parts) {
+		return &ToolExecutionResult{Status: ToolStatusComplete, Content: content}
+	}
 	validatedResult, _, err := r.validator.CoerceResult(tool, content)
 	if err != nil {
 		return &ToolExecutionResult{

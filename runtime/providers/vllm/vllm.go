@@ -227,6 +227,12 @@ func (p *Provider) prepareMessages(
 	// fail every turn after the history first reached a cap.
 	for i := range req.Messages {
 		msg := req.Messages[i]
+		if msg.ToolResult != nil && msg.ToolResult.HasMedia() {
+			// A tool message carries text only; its media is described.
+			text := providers.ToolResultTextWithUnsentMedia(p.ID(), "vLLM", msg.ToolResult)
+			messages = append(messages, newVLLMMessage(msg, text))
+			continue
+		}
 		if !hasImagePart(&msg) {
 			messages = append(messages, newVLLMMessage(msg, msg.GetContent()))
 			continue

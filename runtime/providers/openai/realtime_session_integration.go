@@ -278,7 +278,7 @@ func (s *RealtimeSession) SendText(ctx context.Context, text string) error {
 	// Create a user message with text content
 	item := ConversationItem{
 		Type: typeMessage,
-		Role: "user",
+		Role: roleUser,
 		Content: []ConversationContent{
 			{
 				Type: "input_text",

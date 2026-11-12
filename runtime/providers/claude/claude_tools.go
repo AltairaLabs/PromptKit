@@ -215,7 +215,7 @@ func (p *Provider) processClaudeToolResult(ctx context.Context, msg types.Messag
 
 	// If the tool result has media parts, serialize as an array of content blocks
 	if msg.ToolResult.HasMedia() {
-		blocks, err := p.buildToolResultContentBlocks(ctx, msg.ToolResult.Parts)
+		blocks, err := p.buildToolResultContentBlocks(ctx, msg.ToolResult)
 		if err != nil {
 			return claudeToolResult{}, fmt.Errorf("tool result %s: %w", msg.ToolResult.ID, err)
 		}
@@ -231,69 +231,45 @@ func (p *Provider) processClaudeToolResult(ctx context.Context, msg types.Messag
 // buildToolResultContentBlocks converts one tool result's parts to a Claude
 // content block array. The parts share one MediaLoader, so the result's media
 // is held to providers.MaxMediaItems and providers.MaxAggregateMediaSize.
-func (p *Provider) buildToolResultContentBlocks(ctx context.Context, parts []types.ContentPart) ([]interface{}, error) {
+// Images and PDFs within Claude's limits convert as they do in a user
+// message; any other media is described in a text block (toolResultMediaBlock).
+func (p *Provider) buildToolResultContentBlocks(
+	ctx context.Context, result *types.MessageToolResult,
+) ([]interface{}, error) {
 	loader := p.MediaLoader()
-	blocks := make([]interface{}, 0, len(parts))
-	for _, part := range parts {
-		block, err := p.convertToolResultPart(ctx, loader, part)
-		if err != nil {
-			return nil, err
-		}
-		if block != nil {
+	blocks := make([]interface{}, 0, len(result.Parts))
+	for i := range result.Parts {
+		part := result.Parts[i]
+		switch {
+		case part.Type == types.ContentTypeText:
+			if part.Text != nil && *part.Text != "" {
+				blocks = append(blocks, claudeTextContent{Type: contentTypeText, Text: *part.Text})
+			}
+		case part.Media == nil:
+		default:
+			block, err := p.toolResultMediaBlock(ctx, loader, result, &result.Parts[i])
+			if err != nil {
+				return nil, err
+			}
 			blocks = append(blocks, block)
 		}
 	}
 	return blocks, nil
 }
 
-// convertToolResultPart converts a single content part to a Claude content block.
-// Returns nil for a part with nothing to send.
-func (p *Provider) convertToolResultPart(
-	ctx context.Context, loader *providers.MediaLoader, part types.ContentPart,
+// toolResultMediaBlock converts a tool result's media part: an image or PDF
+// within Claude's limits converts as it does in a user message; anything else
+// becomes a text block saying what the tool returned and why it was not sent.
+func (p *Provider) toolResultMediaBlock(
+	ctx context.Context, loader *providers.MediaLoader, result *types.MessageToolResult, part *types.ContentPart,
 ) (interface{}, error) {
-	switch part.Type {
-	case types.ContentTypeText:
-		if part.Text != nil && *part.Text != "" {
-			return claudeTextContent{Type: contentTypeText, Text: *part.Text}, nil
-		}
-	case types.ContentTypeImage:
-		if part.Media != nil {
-			return p.buildToolResultMediaBlock(ctx, loader, "image", part)
-		}
-	case types.ContentTypeDocument:
-		if part.Media != nil {
-			return p.buildToolResultMediaBlock(ctx, loader, "document", part)
-		}
+	if why := providers.ToolMediaRefusal("Claude", p.SendableMultimodalCapabilities(), part); why != "" {
+		return claudeTextContent{Type: contentTypeText, Text: providers.UnsentToolMedia(p.ID(), result, part, why)}, nil
 	}
-	return nil, nil
-}
-
-// buildToolResultMediaBlock creates a Claude media content block (image or document).
-func (p *Provider) buildToolResultMediaBlock(
-	ctx context.Context, loader *providers.MediaLoader, blockType string, part types.ContentPart,
-) (interface{}, error) {
-	block := claudeContentBlockMultimodal{
-		Type: blockType,
-		Source: &claudeImageSource{
-			MediaType: part.Media.MIMEType,
-		},
+	if part.Type == types.ContentTypeImage {
+		return p.convertImagePartToClaude(ctx, loader, *part)
 	}
-
-	// For images, check URL source first
-	if blockType == "image" && part.Media.URL != nil && *part.Media.URL != "" {
-		block.Source.Type = sourceTypeURL
-		block.Source.URL = *part.Media.URL
-		return block, nil
-	}
-
-	// Use the store-aware MediaLoader for base64 data (Data, FilePath, StorageReference)
-	data, err := loader.GetBase64Data(ctx, part.Media)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load %s data: %w", blockType, err)
-	}
-	block.Source.Type = sourceTypeBase64
-	block.Source.Data = data
-	return block, nil
+	return p.convertDocumentPartToClaude(ctx, loader, *part)
 }
 
 // buildClaudeMessageContent creates content array for a message including text, images, and tool calls

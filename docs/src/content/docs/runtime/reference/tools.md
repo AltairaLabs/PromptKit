@@ -1322,7 +1322,7 @@ func (r *Registry) Execute(ctx context.Context, toolName string, args json.RawMe
 Execute runs a tool with the given arguments. It coerces the arguments toward the input schema, validates them, applies the rate limit, and runs the executor the tool's mode selects, under the tool's TimeoutMs. An unknown tool, invalid arguments, or a missing executor return an error. An executor failure, a timeout, a rate\-limit refusal, or a result that fails the output schema is reported in ToolResult.Error with a nil error. Results of tools in mcp mode are not validated against the output schema.
 
 <a name="Registry.ExecuteAsync"></a>
-### func \(\*Registry\) [ExecuteAsync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L569-L571>)
+### func \(\*Registry\) [ExecuteAsync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L579-L581>)
 
 ```go
 func (r *Registry) ExecuteAsync(ctx context.Context, toolName string, args json.RawMessage) (*ToolExecutionResult, error)
@@ -1331,7 +1331,7 @@ func (r *Registry) ExecuteAsync(ctx context.Context, toolName string, args json.
 ExecuteAsync is Execute for executors that may suspend a call. If the tool's executor implements AsyncToolExecutor, the result can have status ToolStatusPending; otherwise the call runs synchronously. Failures are reported as status ToolStatusFailed with a nil error, as for Execute.
 
 <a name="Registry.ExecuteAsyncAdmitted"></a>
-### func \(\*Registry\) [ExecuteAsyncAdmitted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L582-L584>)
+### func \(\*Registry\) [ExecuteAsyncAdmitted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L592-L594>)
 
 ```go
 func (r *Registry) ExecuteAsyncAdmitted(ctx context.Context, toolName string, args json.RawMessage, admit func() error) (*ToolExecutionResult, error)

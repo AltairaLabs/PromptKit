@@ -224,6 +224,10 @@ func (p *ToolProvider) convertSingleMessageForTools(
 	if msg.Role == "tool" && msg.ToolResult != nil {
 		ollamaMsg["tool_call_id"] = msg.ToolResult.ID
 		ollamaMsg[keyName] = msg.ToolResult.Name
+		if msg.ToolResult.HasMedia() {
+			// A tool message carries text only; its media is described.
+			ollamaMsg[keyContent] = providers.ToolResultTextWithUnsentMedia(p.ID(), "Ollama", msg.ToolResult)
+		}
 	}
 
 	return ollamaMsg, nil
