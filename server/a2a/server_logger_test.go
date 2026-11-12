@@ -276,3 +276,52 @@ func TestRPCCall_WithoutALoggerFallsBackToPromptKits(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "opener down", attrs["error"])
 }
+
+// artifactFailingStore fails every AddArtifacts, and is otherwise in-memory.
+type artifactFailingStore struct{ *InMemoryTaskStore }
+
+func (artifactFailingStore) AddArtifacts(string, []a2a.Artifact) error { return errors.New("disk full") }
+
+// A store that cannot keep a turn's result is a warning on the configured
+// logger, on each path a result is stored: a unary turn's parts, its text when
+// it has no parts, and a streamed turn's artifacts.
+func TestServer_ArtifactWriteFailureIsAWarningOnTheConfiguredLogger(t *testing.T) {
+	textOnly := &mockConv{sendFunc: func(context.Context, any) (SendResult, error) {
+		return &mockSendResult{text: "only text"}, nil
+	}}
+	cases := map[string]struct {
+		conv   Conversation
+		stream bool
+		msg    string
+	}{
+		"unary parts": {completingMock(), false, "a2a: failed to add task artifacts"},
+		"unary text":  {textOnly, false, "a2a: failed to add task text artifact"},
+		"streamed": {streamConv(StreamEvent{Kind: EventText, Text: "x"}), true,
+			"a2a: failed to add streamed task artifacts"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			std := stdLogOutput(t)
+			records := &logRecords{}
+			srv, ts := newTestServer(func(string) (Conversation, error) { return tc.conv, nil },
+				WithTaskStore(artifactFailingStore{NewInMemoryTaskStore()}), WithLogger(slog.New(records)))
+			defer ts.Close()
+			defer func() { _ = srv.Shutdown(context.Background()) }()
+			req := a2a.SendMessageRequest{Message: userMessage("ctx-artifacts")}
+			if tc.stream {
+				rawStream(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendStreamingMessage, req))
+			} else {
+				resp := rawRPC(t, ts, "1.0", a2a.MethodV1SendMessage, req)
+				require.Equal(t, 200, resp.StatusCode)
+				_ = resp.Body.Close()
+			}
+
+			level, attrs, ok := records.find(tc.msg)
+			require.True(t, ok, "the failure is logged on the configured logger")
+			assert.Equal(t, slog.LevelWarn, level)
+			assert.Equal(t, "disk full", attrs["error"])
+			assert.NotEmpty(t, attrs["task_id"])
+			assert.Empty(t, std.String())
+		})
+	}
+}
