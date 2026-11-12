@@ -22,26 +22,44 @@ type ToolProvider struct {
 // NewToolProvider creates a new mock provider with tool support and duplex streaming.
 // This uses default in-memory responses for backward compatibility.
 //
-//nolint:gocognit // complexity is inherent in config parsing
+// A mock_config that does not load is logged and the provider answers with
+// generic replies. The "mock" provider factory (CreateProviderFromSpec)
+// instead resolves a relative mock_config against ProviderSpec.BaseDir and
+// fails when the file does not load.
 func NewToolProvider(id, model string, includeRawOutput bool, additionalConfig map[string]any) *ToolProvider {
-	var streamingProvider *StreamingProvider
 	var fileRepo *FileMockRepository
+	if path := mockConfigPath(additionalConfig); path != "" {
+		repository, err := NewFileMockRepository(path)
+		if err != nil {
+			logger.Warn("failed to load mock config", "path", path, "error", err)
+		} else {
+			fileRepo = repository
+		}
+	}
+	return newToolProvider(id, model, includeRawOutput, additionalConfig, fileRepo)
+}
+
+// mockConfigPath is additional_config.mock_config, or "" when unset.
+func mockConfigPath(additionalConfig map[string]any) string {
+	path, _ := additionalConfig["mock_config"].(string)
+	return path
+}
+
+// newToolProvider builds the provider from its config, answering from
+// fileRepo when it is set and with generic replies otherwise.
+//
+//nolint:gocognit // complexity is inherent in config parsing
+func newToolProvider(
+	id, model string, includeRawOutput bool, additionalConfig map[string]any, fileRepo *FileMockRepository,
+) *ToolProvider {
+	var streamingProvider *StreamingProvider
+	if fileRepo != nil {
+		streamingProvider = NewStreamingProviderWithRepository(id, model, includeRawOutput, fileRepo)
+	} else {
+		streamingProvider = NewStreamingProvider(id, model, includeRawOutput)
+	}
 
 	if additionalConfig != nil {
-		if mockConfigPath, ok := additionalConfig["mock_config"].(string); ok && mockConfigPath != "" {
-			// Create file-based repository and use ToolProvider for tool call simulation
-			repository, err := NewFileMockRepository(mockConfigPath)
-			if err != nil {
-				logger.Warn("failed to load mock config", "path", mockConfigPath, "error", err)
-				streamingProvider = NewStreamingProvider(id, model, includeRawOutput)
-			} else {
-				fileRepo = repository
-				streamingProvider = NewStreamingProviderWithRepository(id, model, includeRawOutput, repository)
-			}
-		} else {
-			streamingProvider = NewStreamingProvider(id, model, includeRawOutput)
-		}
-
 		// Configure auto-respond for duplex streaming tests
 		// Handle both bool and string "true" from YAML parsing
 		autoRespond := false
@@ -87,8 +105,6 @@ func NewToolProvider(id, model string, includeRawOutput bool, additionalConfig m
 				"no_response", closeNoResponse)
 			streamingProvider.WithCloseAfterTurns(closeTurns, closeNoResponse)
 		}
-	} else {
-		streamingProvider = NewStreamingProvider(id, model, includeRawOutput)
 	}
 
 	return &ToolProvider{
