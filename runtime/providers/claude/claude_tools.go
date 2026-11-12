@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -48,6 +49,10 @@ type ToolProvider struct {
 	// tool use. nil means the default (on); set from
 	// additional_config.strict_tools.
 	strictTools *bool
+	// demotionsWarned records the sets of tools already reported as sent
+	// without strict (warnDemoted). A pointer, so a WithMediaSettings view
+	// shares it and copying the provider copies no lock.
+	demotionsWarned *sync.Map
 }
 
 // NewToolProvider creates a new Claude provider with tool support
@@ -55,7 +60,8 @@ func NewToolProvider(
 	id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool,
 ) *ToolProvider {
 	return &ToolProvider{
-		Provider: NewProvider(id, model, baseURL, defaults, includeRawOutput),
+		Provider:        NewProvider(id, model, baseURL, defaults, includeRawOutput),
+		demotionsWarned: &sync.Map{},
 	}
 }
 
@@ -66,7 +72,10 @@ func NewToolProviderWithCredential(
 	platform string, platformConfig *providers.PlatformConfig,
 ) *ToolProvider {
 	return &ToolProvider{
-		Provider: NewProviderWithCredential(id, model, baseURL, defaults, includeRawOutput, cred, platform, platformConfig),
+		Provider: NewProviderWithCredential(
+			id, model, baseURL, defaults, includeRawOutput, cred, platform, platformConfig,
+		),
+		demotionsWarned: &sync.Map{},
 	}
 }
 
@@ -81,6 +90,11 @@ type claudeTool struct {
 	// outputs give the response, and it costs nothing but the schema rules —
 	// which is why the schema is adapted before it goes out.
 	Strict bool `json:"strict,omitempty"`
+	// callerSchema is the caller's schema, sent instead of the adapted one when
+	// the tool goes out without strict (fitStrictTools).
+	callerSchema json.RawMessage
+	// cost is what the adapted schema spends of the request's strict budget.
+	cost strictCost
 }
 
 type claudeToolUse struct {
@@ -122,19 +136,24 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (pr
 
 	tools := make([]claudeTool, len(descriptors))
 	for i, desc := range descriptors {
-		schema := types.NormalizeRawMessage(desc.InputSchema)
+		callerSchema := types.NormalizeRawMessage(desc.InputSchema)
+		schema := callerSchema
+		var cost strictCost
 		if strict {
 			// Strict tool use enforces the same schema rules structured
 			// outputs do, so the same adaptation applies. The descriptor is
 			// not touched: tools.SchemaValidator still validates the model's
 			// arguments against what the caller actually wrote.
 			schema = adaptSchemaForClaude(schema)
+			cost = strictCostOf(schema)
 		}
 		tools[i] = claudeTool{
-			Name:        desc.Name,
-			Description: desc.Description,
-			InputSchema: schema,
-			Strict:      strict,
+			Name:         desc.Name,
+			Description:  desc.Description,
+			InputSchema:  schema,
+			Strict:       strict,
+			callerSchema: callerSchema,
+			cost:         cost,
 		}
 	}
 
@@ -502,7 +521,7 @@ func (p *ToolProvider) buildToolRequest(
 	request.OutputConfig = outputConfigFor(req.ResponseFormat)
 
 	if tools != nil {
-		addClaudeToolConfig(&request, tools, toolChoice)
+		addClaudeToolConfig(&request, p.fitStrictTools(tools, request.OutputConfig), toolChoice)
 	}
 
 	return request, nil
