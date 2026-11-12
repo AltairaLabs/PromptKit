@@ -171,6 +171,7 @@ var eventDataRegistry = map[string]eventDataFactory{
 	"*events.ToolCallStartedData":   func() EventData { return &ToolCallEventData{} },
 	"*events.ToolCallCompletedData": func() EventData { return &ToolCallEventData{} },
 	"*events.ToolCallFailedData":    func() EventData { return &ToolCallEventData{} },
+	"*events.ToolExcludedData":      func() EventData { return &ToolExcludedData{} },
 
 	// Custom events
 	"*events.CustomEventData": func() EventData { return &CustomEventData{} },

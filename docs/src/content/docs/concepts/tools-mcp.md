@@ -376,7 +376,7 @@ func TestWeatherExecutor(t *testing.T) {
 
 ## Monitoring Tools
 
-The runtime emits `tool.call.started`, `tool.call.completed` and `tool.call.failed` events for each call. Subscribe to them to count calls, errors and latency per tool. See [Runtime Events](/architecture/runtime-events/) for the event model.
+The runtime emits `tool.call.started`, `tool.call.completed` and `tool.call.failed` events for each call. Subscribe to them to count calls, errors and latency per tool. When a tool's calls fail twice in one turn's tool loop, the loop stops offering it for the rest of that loop and emits `tool.excluded` with the tool's name, the reason, the failure count and the round. See [Runtime Events](/architecture/runtime-events/) for the event model.
 
 ## Common Patterns
 

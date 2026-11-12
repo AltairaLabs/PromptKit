@@ -1723,7 +1723,7 @@ func (tl *toolLoop) afterRound(
 	// a tool crossed the rejection threshold (excluded), or a tool call such as
 	// skill__activate / skill__deactivate changed the granted set. Rebuilding
 	// busts the provider's cached prefix, so it happens only on a real change.
-	if err := tl.rebuildToolsIfChanged(allowedTools, toolResults, grantsBefore); err != nil {
+	if err := tl.rebuildToolsIfChanged(ctx, allowedTools, toolResults, grantsBefore, round); err != nil {
 		return true, tl.messages, err
 	}
 
@@ -1793,9 +1793,9 @@ func (tl *toolLoop) handleIdenticalLoop(
 // workflow transition narrowing the skill index). Rebuilding busts the
 // provider's cached prefix, so it happens only on a real change.
 func (tl *toolLoop) rebuildToolsIfChanged(
-	allowedTools []string, toolResults []types.Message, grantsBefore []string,
+	ctx context.Context, allowedTools []string, toolResults []types.Message, grantsBefore []string, round int,
 ) error {
-	excludedChanged := tl.stage.updateExcludedTools(toolResults, tl.rejectionCounts, tl.excluded)
+	excludedChanged := tl.stage.updateExcludedTools(ctx, toolResults, tl.rejectionCounts, tl.excluded, round)
 	var offered *describedTools
 	if !excludedChanged && stringSlicesEqual(grantsBefore, tl.stage.grantedTools()) {
 		var describedChanged bool
@@ -3765,13 +3765,19 @@ func formatToolResult(value interface{}) string {
 	}
 }
 
+// toolExcludedReason is the tool.excluded reason for the rejection rule.
+const toolExcludedReason = "rejected twice in one tool loop"
+
 // updateExcludedTools increments rejection counts for tools whose results have
-// errors and marks them for exclusion after the second rejection. Returns true
-// if the excluded set changed (caller should rebuild provider tools).
+// errors and marks them for exclusion after the second rejection, publishing
+// tool.excluded for each. Returns true if the excluded set changed (caller
+// should rebuild provider tools).
 func (s *ProviderStage) updateExcludedTools(
+	ctx context.Context,
 	results []types.Message,
 	rejectionCounts map[string]int,
 	excluded map[string]bool,
+	round int,
 ) bool {
 	changed := false
 	for i := range results {
@@ -3785,6 +3791,9 @@ func (s *ProviderStage) updateExcludedTools(
 			changed = true
 			logger.Warn("Tool excluded after repeated rejection",
 				"tool", tr.Name, "rejections", rejectionCounts[tr.Name])
+			if s.emitter != nil {
+				s.emitter.ToolExcludedCtx(ctx, tr.Name, toolExcludedReason, rejectionCounts[tr.Name], round)
+			}
 		}
 	}
 	return changed

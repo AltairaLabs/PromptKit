@@ -89,6 +89,7 @@ The `middleware.started`, `middleware.completed` and `middleware.failed` types a
 
 - `provider.call.started`, `provider.call.completed` (tokens, cost, duration), `provider.call.failed`
 - `tool.call.started`, `tool.call.completed`, `tool.call.failed`
+- `tool.excluded`: the tool loop dropped a tool from the model's tool set after its calls failed twice in one loop (`ToolExcludedData`: tool name, reason, failure count, round)
 
 ### Client tools
 

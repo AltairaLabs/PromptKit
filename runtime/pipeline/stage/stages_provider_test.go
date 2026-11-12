@@ -2433,19 +2433,19 @@ func TestUpdateExcludedTools_CountsAndExcludes(t *testing.T) {
 			Parts: []types.ContentPart{types.NewTextPart("blocked by hook")},
 		}),
 	}
-	changed := stage.updateExcludedTools(results, rejectionCounts, excluded)
+	changed := stage.updateExcludedTools(context.Background(), results, rejectionCounts, excluded, 1)
 	assert.False(t, changed, "first rejection should not exclude")
 	assert.Equal(t, 1, rejectionCounts["dangerous_tool"])
 	assert.False(t, excluded["dangerous_tool"])
 
 	// Second rejection: count=2, now excluded
-	changed = stage.updateExcludedTools(results, rejectionCounts, excluded)
+	changed = stage.updateExcludedTools(context.Background(), results, rejectionCounts, excluded, 1)
 	assert.True(t, changed, "second rejection should exclude")
 	assert.Equal(t, 2, rejectionCounts["dangerous_tool"])
 	assert.True(t, excluded["dangerous_tool"])
 
 	// Third rejection: already excluded, no change
-	changed = stage.updateExcludedTools(results, rejectionCounts, excluded)
+	changed = stage.updateExcludedTools(context.Background(), results, rejectionCounts, excluded, 1)
 	assert.False(t, changed, "already excluded, no change")
 }
 
@@ -2460,7 +2460,7 @@ func TestUpdateExcludedTools_IgnoresSuccessfulResults(t *testing.T) {
 			Parts: []types.ContentPart{types.NewTextPart("success")},
 		}),
 	}
-	changed := stage.updateExcludedTools(results, rejectionCounts, excluded)
+	changed := stage.updateExcludedTools(context.Background(), results, rejectionCounts, excluded, 1)
 	assert.False(t, changed)
 	assert.Equal(t, 0, rejectionCounts["good_tool"])
 }
