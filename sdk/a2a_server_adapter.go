@@ -51,6 +51,7 @@ func (a *responseAdapter) Text() string { return a.r.Text() }
 type conversationBackend interface {
 	Send(ctx context.Context, message any, opts ...SendOption) (*Response, error)
 	Close() error
+	Complete() error
 	SendToolResult(ctx context.Context, callID string, result any) error
 	RejectClientTool(ctx context.Context, callID, reason string)
 	Resume(ctx context.Context) (*Response, error)
@@ -59,7 +60,8 @@ type conversationBackend interface {
 }
 
 // convAdapter wraps a conversationBackend to satisfy a2aserver.Conversation.
-// It also implements a2aserver.ResumableConversation for client tool support.
+// It also implements a2aserver.ResumableConversation for client tool support,
+// and a2aserver.CompletableConversation so the server can end it.
 type convAdapter struct{ c conversationBackend }
 
 // Send implements a2aserver.Conversation.
@@ -73,6 +75,10 @@ func (a *convAdapter) Send(ctx context.Context, message any) (a2aserver.SendResu
 
 // Close implements a2aserver.Conversation.
 func (a *convAdapter) Close() error { return a.c.Close() }
+
+// Complete implements a2aserver.CompletableConversation: it ends the
+// conversation, running its on_conversation_complete evals ([Conversation.Complete]).
+func (a *convAdapter) Complete() error { return a.c.Complete() }
 
 // SendToolResult implements a2aserver.ResumableConversation.
 func (a *convAdapter) SendToolResult(callID string, result any) error {

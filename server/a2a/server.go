@@ -182,6 +182,17 @@ func WithConversationTTL(d time.Duration) Option {
 	return func(s *Server) { s.convTTL = d }
 }
 
+// WithCompleteOnEviction makes idle eviction (WithConversationTTL) end a
+// conversation rather than suspend it: the server calls Complete on an evicted
+// conversation that implements CompletableConversation, and Close on any other.
+// Set it when the opener starts a fresh conversation for each context ID, so
+// an evicted conversation cannot carry on. Leave it unset when the opener
+// resumes stored state, where eviction is a pause and completing at each one
+// would score the conversation more than once. Shutdown always calls Close.
+func WithCompleteOnEviction() Option {
+	return func(s *Server) { s.completeOnEviction = true }
+}
+
 // WithAuthenticator sets an authenticator for incoming JSON-RPC requests.
 func WithAuthenticator(auth Authenticator) Option {
 	return func(s *Server) { s.authenticator = auth }
@@ -245,10 +256,12 @@ type Server struct {
 	healthChecks []namedChecker
 
 	// TTL-based eviction configuration.
-	taskTTL  time.Duration // 0 disables task eviction
-	convTTL  time.Duration // 0 disables conversation eviction
-	stopOnce sync.Once
-	stopCh   chan struct{} // closed to stop the eviction goroutine
+	taskTTL time.Duration // 0 disables task eviction
+	convTTL time.Duration // 0 disables conversation eviction
+	// completeOnEviction makes eviction call Complete (WithCompleteOnEviction).
+	completeOnEviction bool
+	stopOnce           sync.Once
+	stopCh             chan struct{} // closed to stop the eviction goroutine
 
 	convsMu     sync.RWMutex
 	convs       map[string]Conversation // context_id → conversation
@@ -1381,6 +1394,19 @@ func (s *Server) evictTerminalTasks(now time.Time) {
 	}
 }
 
+// endEvicted releases an evicted conversation: it completes it when
+// WithCompleteOnEviction is set and the conversation can be completed, and
+// closes it otherwise.
+func (s *Server) endEvicted(contextID string, conv Conversation) {
+	end, verb := conv.Close, "close"
+	if c, ok := conv.(CompletableConversation); ok && s.completeOnEviction {
+		end, verb = c.Complete, "complete"
+	}
+	if err := end(); err != nil {
+		s.log().Warn("a2a: failed to "+verb+" evicted conversation", "context_id", contextID, "error", err)
+	}
+}
+
 // evictIdleConversations closes and removes conversations whose last-use
 // timestamp exceeds the conversation TTL.
 func (s *Server) evictIdleConversations(now time.Time) {
@@ -1393,7 +1419,7 @@ func (s *Server) evictIdleConversations(now time.Time) {
 	for id, lastUse := range s.convLastUse {
 		if lastUse.Before(cutoff) {
 			if conv, ok := s.convs[id]; ok {
-				_ = conv.Close()
+				s.endEvicted(id, conv)
 				delete(s.convs, id)
 			}
 			delete(s.convLastUse, id)

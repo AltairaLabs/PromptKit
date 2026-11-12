@@ -102,6 +102,16 @@ type Conversation interface {
 	Close() error
 }
 
+// CompletableConversation is a Conversation the server can end rather than
+// release. With WithCompleteOnEviction, the server calls Complete instead
+// of Close when it evicts an idle conversation that implements it. An SDK
+// conversation's Complete runs its on_conversation_complete evals.
+type CompletableConversation interface {
+	Conversation
+	// Complete ends the conversation and releases it, as Close does.
+	Complete() error
+}
+
 // StreamingConversation extends Conversation with streaming support. A
 // conversation that does not implement it is streamed from its Send result.
 type StreamingConversation interface {

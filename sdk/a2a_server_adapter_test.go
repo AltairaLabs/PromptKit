@@ -48,6 +48,8 @@ func (m *mockConvBackend) Close() error {
 	return nil
 }
 
+func (m *mockConvBackend) Complete() error { return nil }
+
 func (m *mockConvBackend) SendToolResult(ctx context.Context, callID string, result any) error {
 	return m.sendToolResultFunc(ctx, callID, result)
 }

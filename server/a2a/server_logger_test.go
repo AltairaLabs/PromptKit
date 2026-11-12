@@ -280,7 +280,9 @@ func TestRPCCall_WithoutALoggerFallsBackToPromptKits(t *testing.T) {
 // artifactFailingStore fails every AddArtifacts, and is otherwise in-memory.
 type artifactFailingStore struct{ *InMemoryTaskStore }
 
-func (artifactFailingStore) AddArtifacts(string, []a2a.Artifact) error { return errors.New("disk full") }
+func (artifactFailingStore) AddArtifacts(string, []a2a.Artifact) error {
+	return errors.New("disk full")
+}
 
 // A store that cannot keep a turn's result is a warning on the configured
 // logger, on each path a result is stored: a unary turn's parts, its text when

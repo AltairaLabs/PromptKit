@@ -22,6 +22,7 @@ There are two ways to supply the agent. NewServer takes a ConversationOpener and
 - [Variables](<#variables>)
 - [type AgentCardProvider](<#AgentCardProvider>)
 - [type Authenticator](<#Authenticator>)
+- [type CompletableConversation](<#CompletableConversation>)
 - [type Conversation](<#Conversation>)
 - [type ConversationOpener](<#ConversationOpener>)
 - [type EventKind](<#EventKind>)
@@ -46,6 +47,7 @@ There are two ways to supply the agent. NewServer takes a ConversationOpener and
   - [func WithAuthenticator\(auth Authenticator\) Option](<#WithAuthenticator>)
   - [func WithCard\(card \*a2a.AgentCard\) Option](<#WithCard>)
   - [func WithCardProvider\(p AgentCardProvider\) Option](<#WithCardProvider>)
+  - [func WithCompleteOnEviction\(\) Option](<#WithCompleteOnEviction>)
   - [func WithConversationTTL\(d time.Duration\) Option](<#WithConversationTTL>)
   - [func WithHealthCheck\(name string, checker HealthChecker\) Option](<#WithHealthCheck>)
   - [func WithIdleTimeout\(d time.Duration\) Option](<#WithIdleTimeout>)
@@ -137,6 +139,19 @@ type Authenticator interface {
 }
 ```
 
+<a name="CompletableConversation"></a>
+## type [CompletableConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L109-L113>)
+
+CompletableConversation is a Conversation the server can end rather than release. With WithCompleteOnEviction, the server calls Complete instead of Close when it evicts an idle conversation that implements it. An SDK conversation's Complete runs its on\_conversation\_complete evals.
+
+```go
+type CompletableConversation interface {
+    Conversation
+    // Complete ends the conversation and releases it, as Close does.
+    Complete() error
+}
+```
+
 <a name="Conversation"></a>
 ## type [Conversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L96-L103>)
 
@@ -154,7 +169,7 @@ type Conversation interface {
 ```
 
 <a name="ConversationOpener"></a>
-## type [ConversationOpener](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L132>)
+## type [ConversationOpener](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L142>)
 
 ConversationOpener creates or retrieves a conversation for a given context ID. NewServer calls it once per context ID and caches the result.
 
@@ -199,7 +214,7 @@ const (
 ```
 
 <a name="HealthChecker"></a>
-## type [HealthChecker](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L192-L194>)
+## type [HealthChecker](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L203-L205>)
 
 HealthChecker performs a named health check. Implementations should return nil when healthy and a non\-nil error describing the problem otherwise.
 
@@ -210,7 +225,7 @@ type HealthChecker interface {
 ```
 
 <a name="HealthCheckerFunc"></a>
-## type [HealthCheckerFunc](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L197>)
+## type [HealthCheckerFunc](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L208>)
 
 HealthCheckerFunc adapts an ordinary function to the [HealthChecker](<#HealthChecker>) interface.
 
@@ -219,7 +234,7 @@ type HealthCheckerFunc func(ctx context.Context) error
 ```
 
 <a name="HealthCheckerFunc.Check"></a>
-### func \(HealthCheckerFunc\) [Check](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L200>)
+### func \(HealthCheckerFunc\) [Check](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L211>)
 
 ```go
 func (f HealthCheckerFunc) Check(ctx context.Context) error
@@ -431,7 +446,7 @@ type Option func(*Server)
 ```
 
 <a name="WithAuthenticator"></a>
-### func [WithAuthenticator](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L186>)
+### func [WithAuthenticator](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L197>)
 
 ```go
 func WithAuthenticator(auth Authenticator) Option
@@ -459,6 +474,15 @@ func WithCardProvider(p AgentCardProvider) Option
 
 WithCardProvider sets a dynamic agent card provider.
 
+<a name="WithCompleteOnEviction"></a>
+### func [WithCompleteOnEviction](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L192>)
+
+```go
+func WithCompleteOnEviction() Option
+```
+
+WithCompleteOnEviction makes idle eviction \(WithConversationTTL\) end a conversation rather than suspend it: the server calls Complete on an evicted conversation that implements CompletableConversation, and Close on any other. Set it when the opener starts a fresh conversation for each context ID, so an evicted conversation cannot carry on. Leave it unset when the opener resumes stored state, where eviction is a pause and completing at each one would score the conversation more than once. Shutdown always calls Close.
+
 <a name="WithConversationTTL"></a>
 ### func [WithConversationTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L181>)
 
@@ -469,7 +493,7 @@ func WithConversationTTL(d time.Duration) Option
 WithConversationTTL sets how long idle conversations are retained before automatic eviction. A conversation is considered idle when its last\-use timestamp exceeds this duration. Default: 1 hour. Set to 0 to disable.
 
 <a name="WithHealthCheck"></a>
-### func [WithHealthCheck](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L205>)
+### func [WithHealthCheck](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L216>)
 
 ```go
 func WithHealthCheck(name string, checker HealthChecker) Option
@@ -631,7 +655,7 @@ type PendingClientToolInfo struct {
 ```
 
 <a name="ResumableConversation"></a>
-## type [ResumableConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L116-L128>)
+## type [ResumableConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L126-L138>)
 
 ResumableConversation extends Conversation with the ability to submit client\-side tool results and resume pipeline execution.
 
@@ -679,7 +703,7 @@ type SendResult interface {
 ```
 
 <a name="Server"></a>
-## type [Server](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L219-L277>)
+## type [Server](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L230-L290>)
 
 Server is an HTTP server that exposes a Conversation as an A2A\-compliant JSON\-RPC endpoint.
 
@@ -690,7 +714,7 @@ type Server struct {
 ```
 
 <a name="NewServer"></a>
-### func [NewServer](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L287>)
+### func [NewServer](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L300>)
 
 ```go
 func NewServer(opener ConversationOpener, opts ...Option) *Server
@@ -712,7 +736,7 @@ NewStatelessServer creates a server that holds no conversations.
 It is [NewServer](<#NewServer>)'s sibling: same protocol, same options, but each message goes to the handler with its request context and nothing is kept between calls. Use it when the embedder owns conversations: because it already tracks sessions, because the runtime is in another process, or because the server needs to scale horizontally with only the task store shared.
 
 <a name="Server.Handler"></a>
-### func \(\*Server\) [Handler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L339>)
+### func \(\*Server\) [Handler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L352>)
 
 ```go
 func (s *Server) Handler() http.Handler
@@ -721,7 +745,7 @@ func (s *Server) Handler() http.Handler
 Handler returns an http.Handler implementing the A2A protocol. It serves the agent card at GET /.well\-known/agent\-card.json and /.well\-known/agent.json, JSON\-RPC at POST /a2a, and the probes GET /healthz and GET /readyz. Requests are traced with OpenTelemetry, and a panic in a handler is recovered and answered with a JSON\-RPC internal error.
 
 <a name="Server.ListenAndServe"></a>
-### func \(\*Server\) [ListenAndServe](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L367>)
+### func \(\*Server\) [ListenAndServe](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L380>)
 
 ```go
 func (s *Server) ListenAndServe() error
@@ -730,7 +754,7 @@ func (s *Server) ListenAndServe() error
 ListenAndServe starts the HTTP server on the configured port and blocks until it stops. The server applies the read, write and idle timeouts the options set; see WithWriteTimeout for how SSE streams treat the write timeout.
 
 <a name="Server.Serve"></a>
-### func \(\*Server\) [Serve](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L443>)
+### func \(\*Server\) [Serve](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L456>)
 
 ```go
 func (s *Server) Serve(ln net.Listener) error
@@ -739,7 +763,7 @@ func (s *Server) Serve(ln net.Listener) error
 Serve starts the HTTP server on the given listener and blocks until it stops. It applies the same timeouts as ListenAndServe.
 
 <a name="Server.Shutdown"></a>
-### func \(\*Server\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L393>)
+### func \(\*Server\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L406>)
 
 ```go
 func (s *Server) Shutdown(ctx context.Context) error
@@ -789,7 +813,7 @@ type StreamEvent struct {
 ```
 
 <a name="StreamingConversation"></a>
-## type [StreamingConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L107-L112>)
+## type [StreamingConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L117-L122>)
 
 StreamingConversation extends Conversation with streaming support. A conversation that does not implement it is streamed from its Send result.
 

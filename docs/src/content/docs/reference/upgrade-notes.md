@@ -114,6 +114,15 @@ Unreleased holds changes that are on `main` and in no release.
 
 ## Unreleased
 
+### The A2A server can complete a conversation it evicts
+
+The A2A server only closed the conversations it evicted, so a pack's `on_conversation_complete` evals never ran for a conversation it hosted. `a2aserver.WithCompleteOnEviction()` makes idle eviction call `Complete()` on a conversation that has it (`a2aserver.CompletableConversation`); SDK conversations from `sdk.A2AOpener` do. Shutdown still closes.
+
+| If you | You will see | Change |
+|---|---|---|
+| Host SDK conversations on `NewServer` with an opener that starts a fresh conversation per context ID, and declare `on_conversation_complete` evals | they still do not run | pass `a2aserver.WithCompleteOnEviction()` |
+| Resume stored state in your opener | eviction still closes | nothing |
+
 ### Tool results carry their media on every provider
 
 A tool that returned an image failed the request on OpenAI Chat Completions, which takes only text in a tool message. The OpenAI Responses API reduced a tool's media to text. Claude rejected an image a tool returned by URL. Claude, vLLM and Ollama dropped media they could not send without a word. A binary-returning tool that declared an object output schema failed validation of its text stand-in, or of the summary the HTTP executor returns.
