@@ -330,6 +330,14 @@ func (e *Emitter) ToolCallFailed(
 	})
 }
 
+// ToolExcludedCtx emits tool.excluded: the tool loop dropped toolName from
+// the model's tool set after rejections failed calls, at round.
+func (e *Emitter) ToolExcludedCtx(ctx context.Context, toolName, reason string, rejections, round int) {
+	e.emitCtx(ctx, EventToolExcluded, &ToolExcludedData{
+		ToolName: toolName, Reason: reason, Rejections: rejections, Round: round,
+	})
+}
+
 // ProviderCallStartedCtx emits provider.call.started from a full payload, with
 // trace context for exemplar correlation. Unlike the positional
 // ProviderCallStarted, it can carry Round and CallID — the fields that tie a

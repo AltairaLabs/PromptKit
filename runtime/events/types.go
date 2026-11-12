@@ -59,6 +59,9 @@ const (
 	EventToolCallCompleted EventType = "tool.call.completed"
 	// EventToolCallFailed marks tool call failure.
 	EventToolCallFailed EventType = "tool.call.failed"
+	// EventToolExcluded marks a tool dropped from the model's tool set for the
+	// rest of the tool loop (ToolExcludedData).
+	EventToolExcluded EventType = "tool.excluded"
 
 	// EventValidationStarted marks validation start.
 	EventValidationStarted EventType = "validation.started"
@@ -387,6 +390,22 @@ type (
 	// ToolCallFailedData is an alias for ToolCallEventData (backward compatibility).
 	ToolCallFailedData = ToolCallEventData
 )
+
+// ToolExcludedData is the payload of tool.excluded: the tool loop dropped a
+// tool from the model's tool set, so it is not offered again for the rest of
+// this loop (this turn's tool rounds).
+type ToolExcludedData struct {
+	baseEventData
+	ToolName string
+	// Reason says why, such as "rejected twice in one tool loop".
+	Reason string
+	// Rejections is how many of the tool's calls had failed when it was
+	// dropped.
+	Rejections int
+	// Round is the 1-based tool-loop round whose results dropped it. The tool
+	// is not offered from the next round on.
+	Round int
+}
 
 // --- Validation events (consolidated) ---
 
