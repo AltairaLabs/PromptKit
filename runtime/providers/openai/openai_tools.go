@@ -312,24 +312,14 @@ func (p *ToolProvider) convertRequestMessagesToOpenAI(
 	// Add conversation messages. Media from a run of tool results follows the
 	// run, one user message per result (see liftedMediaMessages).
 	var round []*types.MessageToolResult
-	flushRound := func() error {
-		lifted := p.liftedMediaMessages(round)
-		round = nil
-		for i := range lifted {
-			openaiMsg, err := p.convertSingleMessageForTools(ctx, lifted[i])
-			if err != nil {
-				return fmt.Errorf("tool result media: %w", err)
-			}
-			messages = append(messages, openaiMsg)
-		}
-		return nil
-	}
 	for i := range req.Messages {
 		isToolResult := req.Messages[i].Role == roleToolResult && req.Messages[i].ToolResult != nil
 		if !isToolResult {
-			if err := flushRound(); err != nil {
+			var err error
+			if messages, err = p.appendLiftedMedia(ctx, messages, round); err != nil {
 				return nil, err
 			}
+			round = nil
 		}
 		openaiMsg, err := p.convertSingleMessageForTools(ctx, req.Messages[i])
 		if err != nil {
@@ -340,10 +330,22 @@ func (p *ToolProvider) convertRequestMessagesToOpenAI(
 			round = append(round, req.Messages[i].ToolResult)
 		}
 	}
-	if err := flushRound(); err != nil {
-		return nil, err
-	}
+	return p.appendLiftedMedia(ctx, messages, round)
+}
 
+// appendLiftedMedia appends the user messages carrying the media of a run of
+// tool results (liftedMediaMessages) to messages.
+func (p *ToolProvider) appendLiftedMedia(
+	ctx context.Context, messages []map[string]interface{}, round []*types.MessageToolResult,
+) ([]map[string]interface{}, error) {
+	lifted := p.liftedMediaMessages(round)
+	for i := range lifted {
+		openaiMsg, err := p.convertSingleMessageForTools(ctx, lifted[i])
+		if err != nil {
+			return nil, fmt.Errorf("tool result media: %w", err)
+		}
+		messages = append(messages, openaiMsg)
+	}
 	return messages, nil
 }
 

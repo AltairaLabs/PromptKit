@@ -168,22 +168,35 @@ func (p *Provider) prepareResponsesMessages(
 		if len(msgs[i].Parts) == 0 {
 			continue
 		}
-		parts := make([]types.ContentPart, len(msgs[i].Parts))
-		loader := p.MediaLoader()
-		for j, part := range msgs[i].Parts {
-			converted, err := p.convertContentPartToOpenAI(ctx, loader, part)
-			if err != nil {
-				return req, err
-			}
-			if part.Type == types.ContentTypeImage {
-				part.Media = resolvedImageMedia(part.Media, converted)
-			}
-			parts[j] = part
+		parts, err := p.resolveResponsesParts(ctx, msgs[i].Parts)
+		if err != nil {
+			return req, err
 		}
 		msgs[i].Parts = parts
 	}
 	req.Messages = msgs
 	return req, nil
+}
+
+// resolveResponsesParts checks one message's parts and returns copies whose
+// images carry the URL or data URL they will be sent with. The parts share one
+// MediaLoader, so the message is held to the media caps.
+func (p *Provider) resolveResponsesParts(
+	ctx context.Context, in []types.ContentPart,
+) ([]types.ContentPart, error) {
+	parts := make([]types.ContentPart, len(in))
+	loader := p.MediaLoader()
+	for j, part := range in {
+		converted, err := p.convertContentPartToOpenAI(ctx, loader, part)
+		if err != nil {
+			return nil, err
+		}
+		if part.Type == types.ContentTypeImage {
+			part.Media = resolvedImageMedia(part.Media, converted)
+		}
+		parts[j] = part
+	}
+	return parts, nil
 }
 
 // resolvedImageMedia returns a copy of media whose URL is the one
