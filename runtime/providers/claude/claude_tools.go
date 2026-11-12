@@ -50,8 +50,9 @@ type ToolProvider struct {
 	// additional_config.strict_tools.
 	strictTools *bool
 	// demotionsWarned records the sets of tools already reported as sent
-	// without strict (warnDemoted).
-	demotionsWarned sync.Map
+	// without strict (warnDemoted). A pointer, so a WithMediaSettings view
+	// shares it and copying the provider copies no lock.
+	demotionsWarned *sync.Map
 }
 
 // NewToolProvider creates a new Claude provider with tool support
@@ -59,7 +60,8 @@ func NewToolProvider(
 	id, model, baseURL string, defaults providers.ProviderDefaults, includeRawOutput bool,
 ) *ToolProvider {
 	return &ToolProvider{
-		Provider: NewProvider(id, model, baseURL, defaults, includeRawOutput),
+		Provider:        NewProvider(id, model, baseURL, defaults, includeRawOutput),
+		demotionsWarned: &sync.Map{},
 	}
 }
 
@@ -70,7 +72,10 @@ func NewToolProviderWithCredential(
 	platform string, platformConfig *providers.PlatformConfig,
 ) *ToolProvider {
 	return &ToolProvider{
-		Provider: NewProviderWithCredential(id, model, baseURL, defaults, includeRawOutput, cred, platform, platformConfig),
+		Provider: NewProviderWithCredential(
+			id, model, baseURL, defaults, includeRawOutput, cred, platform, platformConfig,
+		),
+		demotionsWarned: &sync.Map{},
 	}
 }
 

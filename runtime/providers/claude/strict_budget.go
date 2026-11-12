@@ -122,8 +122,10 @@ func (p *ToolProvider) fitStrictTools(tools any, out *claudeOutputConfig) any {
 // round, so a warning per request would repeat it for the whole conversation.
 func (p *ToolProvider) warnDemoted(names []string) {
 	key := strings.Join(names, ",")
-	if _, seen := p.demotionsWarned.LoadOrStore(key, true); seen {
-		return
+	if p.demotionsWarned != nil {
+		if _, seen := p.demotionsWarned.LoadOrStore(key, true); seen {
+			return
+		}
 	}
 	logger.Warn("claude: sending tools without strict tool use; the request's strict schemas would exceed "+
 		"Anthropic's limits (20 strict tools, 24 optional parameters, 16 union-typed parameters)",
