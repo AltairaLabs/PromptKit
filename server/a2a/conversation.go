@@ -102,8 +102,8 @@ type Conversation interface {
 	Close() error
 }
 
-// CompletableConversation is a Conversation that can be ended, not
-// just released. With WithCompleteOnEviction, the server calls Complete instead
+// CompletableConversation is a Conversation the server can end rather than
+// release. With WithCompleteOnEviction, the server calls Complete instead
 // of Close when it evicts an idle conversation that implements it. An SDK
 // conversation's Complete runs its on_conversation_complete evals.
 type CompletableConversation interface {
