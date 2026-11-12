@@ -137,6 +137,8 @@ _, _ = conv.Continue(ctx)
 _ = conv.Complete() // runs on_session_complete, then on_conversation_complete, over the whole transcript
 ```
 
+An A2A server built with `sdk.NewA2AServer` or `sdk.A2AOpener` closes a conversation when it evicts it for being idle and when it shuts down, so by default only the session evals run. When the opener starts a fresh conversation for each context ID, so an evicted conversation cannot carry on, pass `a2aserver.WithCompleteOnEviction()`: eviction then completes the conversation and its conversation evals run once. Leave it unset when the opener resumes stored state, where an eviction is a pause. Shutdown always closes.
+
 A host that runs the session or conversation evals out of band, such as a server that resumes a conversation for each incoming message, names the triggers to run inline with `WithEvalTriggers` and runs the rest itself with `Evaluate`:
 
 ```go

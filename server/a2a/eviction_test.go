@@ -2,6 +2,9 @@ package a2aserver
 
 import (
 	"context"
+	"errors"
+	"log/slog"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -278,4 +281,90 @@ func TestServer_ConversationLastUseUpdated(t *testing.T) {
 	secondUse := srv.convLastUse["ctx-1"]
 	srv.convsMu.RUnlock()
 	assert.True(t, secondUse.After(firstUse), "last-use should be updated on reuse")
+}
+
+// completableConv records whether it was closed or completed.
+type completableConv struct {
+	*mockConv
+	completed atomic.Int32
+}
+
+func (c *completableConv) Complete() error {
+	c.completed.Add(1)
+	return nil
+}
+
+// evictAfterOneTurn opens a conversation through the server with one message,
+// makes it idle past the TTL and runs one eviction pass.
+func evictAfterOneTurn(t *testing.T, conv Conversation, opts ...Option) {
+	t.Helper()
+	srv, ts := newTestServer(func(string) (Conversation, error) { return conv, nil },
+		append([]Option{WithConversationTTL(time.Hour)}, opts...)...)
+	defer ts.Close()
+	defer func() { _ = srv.Shutdown(context.Background()) }()
+	resp := rawRPC(t, ts, "1.0", a2a.MethodV1SendMessage, a2a.SendMessageRequest{Message: userMessage("ctx-evict")})
+	require.Equal(t, 200, resp.StatusCode)
+	_ = resp.Body.Close()
+	srv.convsMu.Lock()
+	srv.convLastUse["ctx-evict"] = time.Now().Add(-2 * time.Hour)
+	srv.convsMu.Unlock()
+	srv.evictOnce()
+}
+
+// With WithCompleteOnEviction, an idle conversation that can be completed is
+// completed, once, rather than closed.
+func TestServer_CompleteOnEvictionCompletesAnIdleConversation(t *testing.T) {
+	conv := &completableConv{mockConv: completingMock()}
+	evictAfterOneTurn(t, conv, WithCompleteOnEviction())
+	assert.Equal(t, int32(1), conv.completed.Load())
+	assert.False(t, conv.closed.Load(), "Complete releases it; Close is not called as well")
+}
+
+// Without the option, eviction suspends: the conversation is closed, not
+// completed, so a resuming opener is not scored at each eviction.
+func TestServer_EvictionClosesByDefault(t *testing.T) {
+	conv := &completableConv{mockConv: completingMock()}
+	evictAfterOneTurn(t, conv)
+	assert.Equal(t, int32(0), conv.completed.Load())
+	assert.True(t, conv.closed.Load())
+}
+
+// A conversation that cannot be completed is closed on eviction even with the
+// option set.
+func TestServer_CompleteOnEvictionClosesAConversationWithoutComplete(t *testing.T) {
+	conv := completingMock()
+	evictAfterOneTurn(t, conv, WithCompleteOnEviction())
+	assert.True(t, conv.closed.Load())
+}
+
+// Shutdown closes, never completes, even with the option set: another replica
+// may carry the conversation on.
+func TestServer_ShutdownClosesEvenWithCompleteOnEviction(t *testing.T) {
+	conv := &completableConv{mockConv: completingMock()}
+	srv, ts := newTestServer(func(string) (Conversation, error) { return conv, nil }, WithCompleteOnEviction())
+	defer ts.Close()
+	resp := rawRPC(t, ts, "1.0", a2a.MethodV1SendMessage, a2a.SendMessageRequest{Message: userMessage("ctx-shut")})
+	require.Equal(t, 200, resp.StatusCode)
+	_ = resp.Body.Close()
+	require.NoError(t, srv.Shutdown(context.Background()))
+	assert.Equal(t, int32(0), conv.completed.Load())
+	assert.True(t, conv.closed.Load())
+}
+
+// failingCompleteConv fails to complete.
+type failingCompleteConv struct{ *mockConv }
+
+func (failingCompleteConv) Complete() error { return errors.New("eval store down") }
+
+// A conversation that fails to end on eviction is a warning on the configured
+// logger, naming the context and the error.
+func TestServer_EvictedConversationThatFailsToEndIsAWarning(t *testing.T) {
+	records := &logRecords{}
+	evictAfterOneTurn(t, failingCompleteConv{completingMock()},
+		WithCompleteOnEviction(), WithLogger(slog.New(records)))
+	level, attrs, ok := records.find("a2a: failed to complete evicted conversation")
+	require.True(t, ok)
+	assert.Equal(t, slog.LevelWarn, level)
+	assert.Equal(t, "ctx-evict", attrs["context_id"])
+	assert.Equal(t, "eval store down", attrs["error"])
 }
