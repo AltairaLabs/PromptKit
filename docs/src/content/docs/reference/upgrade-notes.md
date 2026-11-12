@@ -124,6 +124,15 @@ A relative `mock_config` resolved against the process's working directory, so a 
 | Set a `mock_config` that does not exist or does not parse | an error from `CreateProviderFromSpec` | fix the path or the file |
 | Call `mock.NewToolProvider` directly | a warning and generic replies, as before | nothing |
 
+### Claude sends tools over Anthropic's strict limits without strict
+
+Anthropic refuses a request whose strict schemas, the strict tools and the JSON output schema between them, carry more than 20 strict tools, 24 optional parameters or 16 parameters with union types. Strict tool use is on by default, so a valid tool set over those limits failed every request with a 400. Tools now stay strict in the order they are declared while the request fits; a tool that would go over is sent without strict, with the schema as written, and the provider logs one warning naming those tools.
+
+| If you | You will see | Change |
+|---|---|---|
+| Give Claude tools with more than 24 optional parameters between them, more than 20 tools, or more than 16 union-typed parameters | the request succeeds; the tools past the limit are not strict, and a warning names them | declare the tools whose arguments matter most first |
+| Stay within the limits | every tool strict, as before | nothing |
+
 ### The A2A server can complete a conversation it evicts
 
 The A2A server only closed the conversations it evicted, so a pack's `on_conversation_complete` evals never ran for a conversation it hosted. `a2aserver.WithCompleteOnEviction()` makes idle eviction call `Complete()` on a conversation that has it (`a2aserver.CompletableConversation`); SDK conversations from `sdk.A2AOpener` do. Shutdown still closes.
