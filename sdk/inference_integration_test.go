@@ -89,7 +89,7 @@ func TestInferenceRegistry_VisibleDuringSend(t *testing.T) {
 		config:         cfg,
 		mode:           UnaryMode,
 		handlers:       make(map[string]ToolHandler),
-		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
+		asyncHandlers:  make(map[string]sdktools.AsyncToolCheck),
 		pendingStore:   sdktools.NewMemoryPendingStore(),
 	}
 

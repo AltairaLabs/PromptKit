@@ -265,7 +265,7 @@ Mock response from mock model mock-model
   - [func \(c \*Conversation\) DeferClientTool\(name string\)](<#Conversation.DeferClientTool>)
   - [func \(c \*Conversation\) Done\(\) \(\<\-chan struct\{\}, error\)](<#Conversation.Done>)
   - [func \(c \*Conversation\) EventBus\(\) events.Bus](<#Conversation.EventBus>)
-  - [func \(c \*Conversation\) FailClientTool\(\_ context.Context, callID string, partial any, err error\) error](<#Conversation.FailClientTool>)
+  - [func \(c \*Conversation\) FailClientTool\(ctx context.Context, callID string, partial any, err error\) error](<#Conversation.FailClientTool>)
   - [func \(c \*Conversation\) Fork\(\) \(\*Conversation, error\)](<#Conversation.Fork>)
   - [func \(c \*Conversation\) GetVar\(name string\) \(string, bool\)](<#Conversation.GetVar>)
   - [func \(c \*Conversation\) Governance\(\) \*Governance](<#Conversation.Governance>)
@@ -276,6 +276,7 @@ Mock response from mock model mock-model
   - [func \(c \*Conversation\) OnStreamEvent\(handler StreamEventHandler\)](<#Conversation.OnStreamEvent>)
   - [func \(c \*Conversation\) OnTool\(name string, handler ToolHandler\)](<#Conversation.OnTool>)
   - [func \(c \*Conversation\) OnToolAsync\(name string, checkFunc func\(args map\[string\]any\) sdktools.PendingResult, execFunc ToolHandler\)](<#Conversation.OnToolAsync>)
+  - [func \(c \*Conversation\) OnToolAsyncWithContext\(name string, checkFunc sdktools.AsyncToolCheck, execFunc ToolHandler\)](<#Conversation.OnToolAsyncWithContext>)
   - [func \(c \*Conversation\) OnToolCtx\(name string, handler ToolHandlerCtx\)](<#Conversation.OnToolCtx>)
   - [func \(c \*Conversation\) OnToolExecutor\(name string, executor tools.Executor\)](<#Conversation.OnToolExecutor>)
   - [func \(c \*Conversation\) OnToolHTTP\(name string, config \*sdktools.HTTPToolConfig\)](<#Conversation.OnToolHTTP>)
@@ -297,8 +298,8 @@ Mock response from mock model mock-model
   - [func \(c \*Conversation\) SendChunk\(ctx context.Context, chunk \*providers.StreamChunk\) error](<#Conversation.SendChunk>)
   - [func \(c \*Conversation\) SendFrame\(ctx context.Context, frame \*session.ImageFrame\) error](<#Conversation.SendFrame>)
   - [func \(c \*Conversation\) SendText\(ctx context.Context, text string\) error](<#Conversation.SendText>)
-  - [func \(c \*Conversation\) SendToolResult\(\_ context.Context, callID string, result any\) error](<#Conversation.SendToolResult>)
-  - [func \(c \*Conversation\) SendToolResultMultimodal\(\_ context.Context, callID string, parts \[\]types.ContentPart\) error](<#Conversation.SendToolResultMultimodal>)
+  - [func \(c \*Conversation\) SendToolResult\(ctx context.Context, callID string, result any\) error](<#Conversation.SendToolResult>)
+  - [func \(c \*Conversation\) SendToolResultMultimodal\(ctx context.Context, callID string, parts \[\]types.ContentPart\) error](<#Conversation.SendToolResultMultimodal>)
   - [func \(c \*Conversation\) SendVideoChunk\(ctx context.Context, chunk \*session.VideoChunk\) error](<#Conversation.SendVideoChunk>)
   - [func \(c \*Conversation\) SessionError\(\) error](<#Conversation.SessionError>)
   - [func \(c \*Conversation\) SetVar\(name, value string\)](<#Conversation.SetVar>)
@@ -688,6 +689,14 @@ var (
 
     // ErrMessageTooLarge is returned when a user message exceeds the configured maximum size.
     ErrMessageTooLarge = errors.New("message exceeds maximum size")
+
+    // ErrToolCallNotAwaited is returned by ResolveTool, ResolveToolWithArgs,
+    // RejectTool and SendToolResult for a call the conversation is not waiting
+    // on: the turn that made it was continued or abandoned (Send started a new
+    // turn), so an answer would never reach the model. ResolveTool does not
+    // run the tool's handler. ResolveTool and RejectTool remove the call from
+    // the pending store.
+    ErrToolCallNotAwaited = errors.New("tool call is not awaited")
 )
 ```
 
@@ -1509,7 +1518,7 @@ true
 </details>
 
 <a name="OpenComposition"></a>
-### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1349>)
+### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1367>)
 
 ```go
 func OpenComposition(packPath, name string, opts ...Option) (*Conversation, error)
@@ -1596,7 +1605,7 @@ _ = conv.Start(ctx) // blocks: mic → LLM → speaker, until ctx is canceled
 ```
 
 <a name="Resume"></a>
-### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1214>)
+### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1232>)
 
 ```go
 func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1624,7 +1633,7 @@ if errors.Is(err, sdk.ErrConversationNotFound) {
 Resume requires a state store to be configured. If no state store is provided, it returns [ErrNoStateStore](<#ErrConversationClosed>).
 
 <a name="ResumeDuplex"></a>
-### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1323>)
+### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1341>)
 
 ```go
 func ResumeDuplex(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1706,7 +1715,7 @@ The SDK cannot tell a finished conversation from a suspended one, so finishing i
 Complete on a conversation that is already closed or completed runs no evals and returns [ErrConversationClosed](<#ErrConversationClosed>): the session evals ran on the earlier close. To complete a conversation that was suspended, resume it and call Complete on the resumed conversation.
 
 <a name="Conversation.Continue"></a>
-### func \(\*Conversation\) [Continue](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L356>)
+### func \(\*Conversation\) [Continue](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L395>)
 
 ```go
 func (c *Conversation) Continue(ctx context.Context) (*Response, error)
@@ -1725,7 +1734,7 @@ resp, _ = conv.Continue(ctx) // LLM receives tool results
 ```
 
 <a name="Conversation.ContinueDuplex"></a>
-### func \(\*Conversation\) [ContinueDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L449>)
+### func \(\*Conversation\) [ContinueDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L481>)
 
 ```go
 func (c *Conversation) ContinueDuplex(ctx context.Context) error
@@ -1798,10 +1807,10 @@ conv.EventBus().Subscribe(events.EventToolCallStarted, func(e *events.Event) {
 For convenience methods, see the \[hooks\] package.
 
 <a name="Conversation.FailClientTool"></a>
-### func \(\*Conversation\) [FailClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L803>)
+### func \(\*Conversation\) [FailClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L832>)
 
 ```go
-func (c *Conversation) FailClientTool(_ context.Context, callID string, partial any, err error) error
+func (c *Conversation) FailClientTool(ctx context.Context, callID string, partial any, err error) error
 ```
 
 FailClientTool reports that a deferred client tool failed.
@@ -2171,6 +2180,26 @@ The first function checks if approval is needed, the second executes the action.
 
 Lock ordering contract: asyncHandlersMu is acquired first, then handlersMu. All code paths that acquire both locks must follow this order to avoid deadlock.
 
+<a name="Conversation.OnToolAsyncWithContext"></a>
+### func \(\*Conversation\) [OnToolAsyncWithContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L201>)
+
+```go
+func (c *Conversation) OnToolAsyncWithContext(name string, checkFunc sdktools.AsyncToolCheck, execFunc ToolHandler)
+```
+
+OnToolAsyncWithContext is OnToolAsync with a check that receives the tool\-execution context and the provider's call id. Use it when the decision depends on who is calling \(identity or claims the caller put on the Send context\) or consults a remote service that must honor cancellation.
+
+```
+conv.OnToolAsyncWithContext("process_refund",
+    func(ctx context.Context, callID string, args map[string]any) sdktools.PendingResult {
+        if policy.NeedsApproval(ctx, callID, args) {
+            return sdktools.PendingResult{Reason: "policy"}
+        }
+        return sdktools.PendingResult{}
+    },
+    refund)
+```
+
 <a name="Conversation.OnToolCtx"></a>
 ### func \(\*Conversation\) [OnToolCtx](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L54>)
 
@@ -2341,7 +2370,7 @@ func (c *Conversation) PackGovernance() *Governance
 PackGovernance returns the pack\-level governance declaration, ignoring any agent scope. Use it to show what the pack claims as a whole; use Governance for what applies to this conversation.
 
 <a name="Conversation.PendingTools"></a>
-### func \(\*Conversation\) [PendingTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L493>)
+### func \(\*Conversation\) [PendingTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L525>)
 
 ```go
 func (c *Conversation) PendingTools(ctx context.Context) ([]*sdktools.PendingToolCall, error)
@@ -2350,7 +2379,7 @@ func (c *Conversation) PendingTools(ctx context.Context) ([]*sdktools.PendingToo
 PendingTools returns all pending tool calls awaiting approval for this conversation. With a durable store this reflects calls held by any instance, including ones that survived a restart. Returns nil \(no error\) when no store is configured.
 
 <a name="Conversation.RejectClientTool"></a>
-### func \(\*Conversation\) [RejectClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L312>)
+### func \(\*Conversation\) [RejectClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L318>)
 
 ```go
 func (c *Conversation) RejectClientTool(_ context.Context, callID, reason string)
@@ -2361,7 +2390,7 @@ RejectClientTool rejects a deferred client tool with a human\-readable reason.
 callID must match one of the [PendingClientTool.CallID](<#PendingClientTool>) values returned in the [Response](<#Response>). The rejection reason is sent to the LLM as the tool result.
 
 <a name="Conversation.RejectTool"></a>
-### func \(\*Conversation\) [RejectTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L327>)
+### func \(\*Conversation\) [RejectTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L363>)
 
 ```go
 func (c *Conversation) RejectTool(ctx context.Context, id, reason string) (*sdktools.ToolResolution, error)
@@ -2407,7 +2436,7 @@ func (c *Conversation) RerankProviderIDs() []string
 RerankProviderIDs returns the configured rerank provider IDs in declaration order. The first is the one RerankProvider\(\) returns.
 
 <a name="Conversation.ResolveTool"></a>
-### func \(\*Conversation\) [ResolveTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L242>)
+### func \(\*Conversation\) [ResolveTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L261>)
 
 ```go
 func (c *Conversation) ResolveTool(ctx context.Context, id string) (*sdktools.ToolResolution, error)
@@ -2520,7 +2549,7 @@ func main() {
 </details>
 
 <a name="Conversation.ResolveToolWithArgs"></a>
-### func \(\*Conversation\) [ResolveToolWithArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L274-L276>)
+### func \(\*Conversation\) [ResolveToolWithArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L293-L295>)
 
 ```go
 func (c *Conversation) ResolveToolWithArgs(ctx context.Context, id string, overrides map[string]any) (*sdktools.ToolResolution, error)
@@ -2557,7 +2586,7 @@ The caller MUST drain the returned channel for the lifetime of the session, even
 A session whose Response\(\) is never called does not stall: the SDK drops output once the buffer fills, logging a one\-time warning. Call Response\(\) before the session produces output, or early chunks may be dropped.
 
 <a name="Conversation.Resume"></a>
-### func \(\*Conversation\) [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L335>)
+### func \(\*Conversation\) [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L341>)
 
 ```go
 func (c *Conversation) Resume(ctx context.Context) (*Response, error)
@@ -2568,7 +2597,7 @@ Resume continues pipeline execution after all deferred client tools have been re
 The resolved tool results are injected as tool\-result messages and a new LLM round is triggered. The returned Response contains the assistant's reply. A result for a call the history already answers, or a second result for the same call, is dropped: each call is answered once. So is a result for a call the suspended turn did not make. Results stored for a suspended turn are discarded when Send or Stream starts a new turn instead of resuming it.
 
 <a name="Conversation.ResumeStream"></a>
-### func \(\*Conversation\) [ResumeStream](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L387>)
+### func \(\*Conversation\) [ResumeStream](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L393>)
 
 ```go
 func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk
@@ -2761,7 +2790,7 @@ The text is the user's turn: it is saved to the state store and recorded \(WithR
 ### func \(\*Conversation\) [SendToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L264>)
 
 ```go
-func (c *Conversation) SendToolResult(_ context.Context, callID string, result any) error
+func (c *Conversation) SendToolResult(ctx context.Context, callID string, result any) error
 ```
 
 SendToolResult provides the result for a deferred client tool.
@@ -2771,10 +2800,10 @@ callID must match one of the [PendingClientTool.CallID](<#PendingClientTool>) va
 After all pending tools have been resolved \(via SendToolResult or RejectClientTool\), call [Conversation.Resume](<#Conversation.Resume>) to continue the pipeline.
 
 <a name="Conversation.SendToolResultMultimodal"></a>
-### func \(\*Conversation\) [SendToolResultMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L291>)
+### func \(\*Conversation\) [SendToolResultMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L294>)
 
 ```go
-func (c *Conversation) SendToolResultMultimodal(_ context.Context, callID string, parts []types.ContentPart) error
+func (c *Conversation) SendToolResultMultimodal(ctx context.Context, callID string, parts []types.ContentPart) error
 ```
 
 SendToolResultMultimodal provides a multimodal result for a deferred client tool.
@@ -3019,7 +3048,7 @@ If no handler has been registered via [Conversation.OnStreamEvent](<#Conversatio
 Returns the complete Response or an error.
 
 <a name="Conversation.ToolRegistry"></a>
-### func \(\*Conversation\) [ToolRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L509>)
+### func \(\*Conversation\) [ToolRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L541>)
 
 ```go
 func (c *Conversation) ToolRegistry() *tools.Registry
@@ -5920,7 +5949,7 @@ func WithoutContentValidation() Option
 WithoutContentValidation turns off the check made before every provider call that each image, audio, video and document part of the request is a modality and MIME type the provider's adapter can send. A provider config's capabilities list never narrows the check. By default an unsupported part fails the Send with a \*providers.UnsupportedContentError before any request is sent. Use this for a custom provider whose declared capabilities are narrower than what it sends; the parts are then passed to the provider as they are.
 
 <a name="PackError"></a>
-## type [PackError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L127-L133>)
+## type [PackError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L135-L141>)
 
 PackError represents an error loading or parsing a pack file. Open and its variants, ValidatePack and Evaluate return one when the pack file is missing, unreadable, malformed or fails validation; Cause is the underlying error, so errors.Is\(err, ErrPackNotFound\) still matches a missing file.
 
@@ -5935,7 +5964,7 @@ type PackError struct {
 ```
 
 <a name="PackError.Error"></a>
-### func \(\*PackError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L136>)
+### func \(\*PackError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L144>)
 
 ```go
 func (e *PackError) Error() string
@@ -5944,7 +5973,7 @@ func (e *PackError) Error() string
 Error implements the error interface.
 
 <a name="PackError.Unwrap"></a>
-### func \(\*PackError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L141>)
+### func \(\*PackError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L149>)
 
 ```go
 func (e *PackError) Unwrap() error
@@ -6306,7 +6335,7 @@ func WithPlatformRegion(region string) PlatformOption
 WithPlatformRegion sets the cloud region.
 
 <a name="ProviderError"></a>
-## type [ProviderError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L150-L162>)
+## type [ProviderError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L158-L170>)
 
 ProviderError represents an error from the LLM provider. Send, Stream and their Resume and Continue counterparts return one when the provider's API answered with an error status \(\*providers.ProviderHTTPError\) or the connection failed \(\*providers.ProviderTransportError\). Cause is that runtime error, so errors.As and providers.IsTransient still see it.
 
@@ -6327,7 +6356,7 @@ type ProviderError struct {
 ```
 
 <a name="ProviderError.Error"></a>
-### func \(\*ProviderError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L165>)
+### func \(\*ProviderError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L173>)
 
 ```go
 func (e *ProviderError) Error() string
@@ -6336,7 +6365,7 @@ func (e *ProviderError) Error() string
 Error implements the error interface.
 
 <a name="ProviderError.Unwrap"></a>
-### func \(\*ProviderError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L174>)
+### func \(\*ProviderError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L182>)
 
 ```go
 func (e *ProviderError) Unwrap() error
@@ -7317,7 +7346,7 @@ type ToolDescriptorPatchFn func(d *tools.ToolDescriptor)
 ```
 
 <a name="ToolError"></a>
-## type [ToolError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L181-L187>)
+## type [ToolError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L189-L195>)
 
 ToolError represents an error executing a tool. ResolveTool and ResolveToolWithArgs set one as the ToolResolution's Error when the approved tool's handler fails.
 
@@ -7332,7 +7361,7 @@ type ToolError struct {
 ```
 
 <a name="ToolError.Error"></a>
-### func \(\*ToolError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L190>)
+### func \(\*ToolError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L198>)
 
 ```go
 func (e *ToolError) Error() string
@@ -7341,7 +7370,7 @@ func (e *ToolError) Error() string
 Error implements the error interface.
 
 <a name="ToolError.Unwrap"></a>
-### func \(\*ToolError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L195>)
+### func \(\*ToolError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L203>)
 
 ```go
 func (e *ToolError) Unwrap() error
@@ -7477,7 +7506,7 @@ type ValidateEvalTypesOpts struct {
 ```
 
 <a name="ValidationError"></a>
-## type [ValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L83-L95>)
+## type [ValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L91-L103>)
 
 ValidationError represents a validation failure. Send, Stream and their Resume and Continue counterparts return one when a hook or guardrail denies the turn: it wraps the runtime's \*hooks.HookDeniedError \(a provider hook denied the call\) or \*providers.ValidationAbortError \(a chunk hook aborted the stream\), so errors.As still finds those.
 
@@ -7496,7 +7525,7 @@ type ValidationError struct {
 ```
 
 <a name="AsValidationError"></a>
-### func [AsValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L115>)
+### func [AsValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L123>)
 
 ```go
 func AsValidationError(err error) (*ValidationError, bool)
@@ -7556,7 +7585,7 @@ matched: false
 </details>
 
 <a name="ValidationError.Error"></a>
-### func \(\*ValidationError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L98>)
+### func \(\*ValidationError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L106>)
 
 ```go
 func (e *ValidationError) Error() string
@@ -7565,7 +7594,7 @@ func (e *ValidationError) Error() string
 Error implements the error interface.
 
 <a name="ValidationError.Unwrap"></a>
-### func \(\*ValidationError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L103>)
+### func \(\*ValidationError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L111>)
 
 ```go
 func (e *ValidationError) Unwrap() error

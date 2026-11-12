@@ -1299,3 +1299,86 @@ var _ providers.ToolResponseSupport = (*toolAwareMockSession)(nil)
 
 // Compile-time check: toolAwareMockSession implements StreamInputSession.
 var _ providers.StreamInputSession = (*toolAwareMockSession)(nil)
+
+// addFailingPendingStore is a pending store whose Add always fails, as a
+// durable store does during an outage.
+type addFailingPendingStore struct {
+	sdktools.PendingStore
+	err error
+}
+
+func (s *addFailingPendingStore) Add(context.Context, *sdktools.PendingToolCall) error { return s.err }
+
+// A voice call that needs approval fails closed when the pending store cannot
+// record the hold: the handler does not run, and the provider is told the call
+// failed and why.
+func TestDuplexTools_HITLHoldFailsClosedWhenTheStoreCannotRecordIt(t *testing.T) {
+	toolCalls := []types.MessageToolCall{{
+		ID:   "call_1",
+		Name: "process_refund",
+		Args: json.RawMessage(`{"amount":2000,"order_id":"ORD-123"}`),
+	}}
+	store := &addFailingPendingStore{PendingStore: sdktools.NewMemoryPendingStore(), err: fmt.Errorf("redis down")}
+	conv, provider := openDuplexToolConv(t, duplexHITLPackJSON, toolCalls, "I could not refund it.",
+		sdk.WithPendingStore(store))
+
+	var execCalled atomic.Bool
+	conv.OnToolAsync("process_refund",
+		func(map[string]any) sdktools.PendingResult {
+			return sdktools.PendingResult{Reason: "high_value_refund"}
+		},
+		func(map[string]any) (any, error) {
+			execCalled.Store(true)
+			return map[string]any{"status": "refunded"}, nil
+		},
+	)
+
+	responseCh, err := conv.Response()
+	require.NoError(t, err)
+	require.NoError(t, conv.SendText(context.Background(), "Refund $2000 for order ORD-123"))
+	collectDuplexResponse(t, responseCh, 5*time.Second)
+
+	sessions := provider.getSessions()
+	require.Len(t, sessions, 1)
+	require.True(t, waitForToolResponses(sessions[0], 1, 2*time.Second), "the provider is told about the call")
+	assert.False(t, execCalled.Load(), "a call that needed approval must not run unapproved")
+	sessions[0].responsesMu.Lock()
+	got := sessions[0].receivedResponses[0]
+	sessions[0].responsesMu.Unlock()
+	require.Len(t, got, 1)
+	assert.Equal(t, "call_1", got[0].ToolCallID)
+	assert.True(t, got[0].IsError)
+	assert.Contains(t, got[0].Result, "the call needs approval and its hold could not be recorded")
+	assert.NotContains(t, got[0].Result, "redis down", "the store's error stays out of the model's input")
+}
+
+// Continue is the unary path; on a duplex conversation it returns an error
+// (use ContinueDuplex) and keeps the resolution for ContinueDuplex.
+func TestDuplexTools_ContinueRefusesADuplexConversation(t *testing.T) {
+	toolCalls := []types.MessageToolCall{{
+		ID: "call_1", Name: "process_refund", Args: json.RawMessage(`{"amount":2000,"order_id":"ORD-123"}`),
+	}}
+	conv, provider := openDuplexToolConv(t, duplexHITLPackJSON, toolCalls, "Refund processed.")
+	conv.OnToolAsync("process_refund",
+		func(map[string]any) sdktools.PendingResult {
+			return sdktools.PendingResult{Reason: "high_value_refund"}
+		},
+		func(map[string]any) (any, error) { return map[string]any{"status": "refunded"}, nil },
+	)
+	responseCh, err := conv.Response()
+	require.NoError(t, err)
+	ctx := context.Background()
+	require.NoError(t, conv.SendText(ctx, "Refund $2000 for order ORD-123"))
+	collectDuplexResponse(t, responseCh, 5*time.Second)
+	_, err = conv.ResolveTool(ctx, "call_1")
+	require.NoError(t, err)
+
+	_, err = conv.Continue(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Continue()")
+
+	require.NoError(t, conv.ContinueDuplex(ctx), "the resolution is still there for ContinueDuplex")
+	sessions := provider.getSessions()
+	require.Len(t, sessions, 1)
+	require.True(t, waitForToolResponses(sessions[0], 1, 2*time.Second))
+}

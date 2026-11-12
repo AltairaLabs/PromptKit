@@ -404,6 +404,14 @@ type ToolExecutionResult struct {
 // held call (e.g. to a durable store) honors cancellation and deadlines.
 type ApprovalChecker func(ctx context.Context, callID, name string, args map[string]any) *PendingToolInfo
 
+// ApprovalGate is an ApprovalChecker that can also refuse a call. It returns a
+// non-nil PendingToolInfo to hold the call pending, nil to let it execute, or
+// an error to refuse it: a refused call does not execute, and the model is
+// given the error as the call's result. A gate that cannot record a hold (its
+// store is unavailable, for example) returns an error rather than nil, so the
+// call fails closed instead of running unapproved.
+type ApprovalGate func(ctx context.Context, callID, name string, args map[string]any) (*PendingToolInfo, error)
+
 // PendingToolInfo describes a tool call awaiting external input or approval.
 type PendingToolInfo struct {
 	// Reason for pending (e.g., "requires_approval", "waiting_external_api")

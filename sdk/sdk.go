@@ -253,7 +253,7 @@ func prepareConversation(
 		config:           cfg,
 		handlers:         make(map[string]ToolHandler),
 		ctxHandlers:      make(map[string]ToolHandlerCtx),
-		asyncHandlers:    make(map[string]sdktools.AsyncToolHandler),
+		asyncHandlers:    make(map[string]sdktools.AsyncToolCheck),
 		pendingStore:     pendingStore,
 		ownsPendingStore: ownsPending,
 		resolvedStore:    sdktools.NewResolvedStore(),
@@ -978,7 +978,7 @@ func (conv *Conversation) newAsyncToolChecker() session.AsyncToolChecker {
 			return nil // Not an async tool — fall through to registry
 		}
 
-		checkResult := checkFunc(args)
+		checkResult := checkFunc(ctx, callID, args)
 		if !checkResult.IsPending() {
 			return conv.executeAsyncToolNow(name, args)
 		}
@@ -996,7 +996,9 @@ func (conv *Conversation) newAsyncToolChecker() session.AsyncToolChecker {
 		}
 
 		if err := conv.pendingStore.Add(ctx, pending); err != nil {
-			return nil
+			// Fail closed: a call that needs approval must not run because
+			// the hold could not be recorded. The model is given the error.
+			return &session.AsyncToolCheckResult{Handled: true, HandlerError: holdNotRecorded(err)}
 		}
 
 		return &session.AsyncToolCheckResult{
@@ -1033,35 +1035,33 @@ func (conv *Conversation) executeAsyncToolNow(name string, args map[string]any) 
 	return &session.AsyncToolCheckResult{Handled: true, HandlerResult: resultJSON}
 }
 
-// newApprovalChecker builds the HITL approval gate consulted by the standard
+// newApprovalGate builds the HITL approval gate consulted by the standard
 // ProviderStage before each tool executes. Like newAsyncToolChecker (the ASM
 // duplex equivalent), it reads asyncHandlers dynamically so handlers registered
 // after the pipeline is built (e.g. OnToolAsync called after Open) are honored.
 //
-// When a tool's check returns pending, it persists a PendingToolCall in the
-// pendingStore — keyed by the provider call ID — so ResolveTool /
-// ResolveToolWithArgs / RejectTool can resolve it, and returns the
-// PendingToolInfo that holds the call. The record is pure data; the execution
-// handler is recovered by name at resolve time. Otherwise it returns nil and the
-// tool executes normally.
-func (conv *Conversation) newApprovalChecker() tools.ApprovalChecker {
-	return func(ctx context.Context, callID, name string, args map[string]any) *tools.PendingToolInfo {
+// When the tool's OnToolAsync check returns pending, the gate persists a PendingToolCall in the pendingStore — keyed by
+// the provider call ID — so ResolveTool / ResolveToolWithArgs / RejectTool can
+// resolve it, and returns the PendingToolInfo that holds the call. The record
+// is pure data; the execution handler is recovered by name at resolve time. A
+// hold the store cannot record refuses the call, so it never runs unapproved.
+func (conv *Conversation) newApprovalGate() tools.ApprovalGate {
+	return func(ctx context.Context, callID, name string, args map[string]any) (*tools.PendingToolInfo, error) {
 		conv.asyncHandlersMu.RLock()
 		checkFunc, isAsync := conv.asyncHandlers[name]
 		conv.asyncHandlersMu.RUnlock()
 		if !isAsync {
-			return nil // not an async tool — execute normally
+			return nil, nil // not an async tool — execute normally
 		}
 
-		result := checkFunc(args)
+		result := checkFunc(ctx, callID, args)
 		if !result.IsPending() {
-			return nil // approval not required — execute normally
+			return nil, nil // approval not required — execute normally
 		}
 
 		if conv.pendingStore == nil {
-			return nil // no store to resolve against; don't strand the call
+			return nil, holdNotRecorded(errors.New("no pending store"))
 		}
-
 		pending := &sdktools.PendingToolCall{
 			ID:             callID,
 			ConversationID: conv.ID(),
@@ -1071,16 +1071,34 @@ func (conv *Conversation) newApprovalChecker() tools.ApprovalChecker {
 			Message:        result.Message,
 		}
 		if err := conv.pendingStore.Add(ctx, pending); err != nil {
-			return nil
+			return nil, holdNotRecorded(err)
 		}
 
 		return &tools.PendingToolInfo{
 			Reason:   result.Reason,
 			Message:  result.Message,
 			ToolName: name,
-		}
+		}, nil
 	}
 }
+
+// holdNotRecorded is the error a call fails with when it needs approval and
+// the pending store cannot record the hold. Its text, which the model is
+// given, leaves out the store's error, which can name internal hosts; the
+// cause is logged and stays reachable through errors.Unwrap.
+func holdNotRecorded(cause error) error {
+	logger.Error("tool call needs approval but its hold could not be recorded; the call was refused", "error", cause)
+	return &holdNotRecordedError{cause: cause}
+}
+
+// holdNotRecordedError is returned by holdNotRecorded.
+type holdNotRecordedError struct{ cause error }
+
+func (e *holdNotRecordedError) Error() string {
+	return "the call needs approval and its hold could not be recorded"
+}
+
+func (e *holdNotRecordedError) Unwrap() error { return e.cause }
 
 // initMCPRegistry initializes the MCP registry if servers are configured.
 //

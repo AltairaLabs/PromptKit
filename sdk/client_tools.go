@@ -261,12 +261,15 @@ func (e *clientExecutor) ExecuteAsync(
 //
 // After all pending tools have been resolved (via SendToolResult or
 // RejectClientTool), call [Conversation.Resume] to continue the pipeline.
-func (c *Conversation) SendToolResult(_ context.Context, callID string, result any) error {
+func (c *Conversation) SendToolResult(ctx context.Context, callID string, result any) error {
 	c.mu.RLock()
 	closed := c.closed
 	c.mu.RUnlock()
 	if closed {
 		return ErrConversationClosed
+	}
+	if awaitErr := c.checkAwaited(ctx, callID); awaitErr != nil {
+		return awaitErr
 	}
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
@@ -288,12 +291,15 @@ func (c *Conversation) SendToolResult(_ context.Context, callID string, result a
 // After all pending tools have been resolved (via SendToolResult,
 // SendToolResultMultimodal, or RejectClientTool), call [Conversation.Resume]
 // to continue the pipeline.
-func (c *Conversation) SendToolResultMultimodal(_ context.Context, callID string, parts []types.ContentPart) error {
+func (c *Conversation) SendToolResultMultimodal(ctx context.Context, callID string, parts []types.ContentPart) error {
 	c.mu.RLock()
 	closed := c.closed
 	c.mu.RUnlock()
 	if closed {
 		return ErrConversationClosed
+	}
+	if awaitErr := c.checkAwaited(ctx, callID); awaitErr != nil {
+		return awaitErr
 	}
 	if len(parts) == 0 {
 		return fmt.Errorf("parts must not be empty")
@@ -439,7 +445,7 @@ func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk {
 // tool-result messages. Shared by Resume() and ResumeStream().
 // It also emits tool.client.resolved events for each resolution.
 func (c *Conversation) buildToolResultMessages(ctx context.Context) ([]types.Message, error) {
-	resolutions := c.unansweredResolutions(ctx, c.resolvedStore.PopAll())
+	resolutions := c.takeSettlement(ctx)
 	if len(resolutions) == 0 {
 		return nil, fmt.Errorf("no resolved tool results to resume with")
 	}
@@ -713,18 +719,14 @@ func (e *clientExecutor) executeHandlerAsync(
 // calls the turn is suspended on. Call ids are unique only within a response
 // (Gemini numbers them call_0, call_1, ...), so an earlier turn's result for
 // the same id answers a different call.
-func (c *Conversation) unansweredResolutions(
-	ctx context.Context, resolutions []*sdktools.ToolResolution,
+func unansweredResolutions(
+	history []types.Message, resolutions []*sdktools.ToolResolution,
 ) []*sdktools.ToolResolution {
 	answered := map[string]bool{}
-	var made map[string]bool
-	if c.getBaseSession() != nil {
-		history := c.Messages(ctx)
-		for _, id := range answeredSinceLastAssistant(history) {
-			answered[id] = true
-		}
-		made = callsOfLastAssistant(history)
+	for _, id := range answeredSinceLastAssistant(history) {
+		answered[id] = true
 	}
+	made := callsOfLastAssistant(history)
 	out := make([]*sdktools.ToolResolution, 0, len(resolutions))
 	for _, res := range resolutions {
 		if answered[res.ID] {
@@ -739,6 +741,33 @@ func (c *Conversation) unansweredResolutions(
 		out = append(out, res)
 	}
 	return out
+}
+
+// checkAwaited returns ErrToolCallNotAwaited, naming callID, when the
+// suspended turn did not make that call (it belongs to a turn that was
+// continued or abandoned), and nil when it did or the conversation cannot
+// tell. An answer for a call the turn made but already answered is not
+// refused here: it is a duplicate, and Continue and Resume drop it.
+func (c *Conversation) checkAwaited(ctx context.Context, callID string) error {
+	if c.mode != UnaryMode || c.unarySession == nil {
+		return nil
+	}
+	made := callsOfLastAssistant(c.Messages(ctx))
+	if made == nil || made[callID] {
+		return nil
+	}
+	return fmt.Errorf("%w: %s", ErrToolCallNotAwaited, callID)
+}
+
+// takeSettlement pops the stored answers for the suspended turn, dropping
+// the ones that would answer a call twice or answer a call the turn did not
+// make.
+func (c *Conversation) takeSettlement(ctx context.Context) []*sdktools.ToolResolution {
+	var history []types.Message
+	if c.getBaseSession() != nil {
+		history = c.Messages(ctx)
+	}
+	return unansweredResolutions(history, c.resolvedStore.PopAll())
 }
 
 // callsOfLastAssistant returns the ids of the calls the last assistant message
@@ -800,12 +829,15 @@ func toolErrorContent(res *sdktools.ToolResolution) string {
 // failure, the stored tool result carries err as its Error, and the
 // tool.client.resolved event reports the call as an error. Call
 // [Conversation.Resume] once every pending tool is resolved.
-func (c *Conversation) FailClientTool(_ context.Context, callID string, partial any, err error) error {
+func (c *Conversation) FailClientTool(ctx context.Context, callID string, partial any, err error) error {
 	c.mu.RLock()
 	closed := c.closed
 	c.mu.RUnlock()
 	if closed {
 		return ErrConversationClosed
+	}
+	if awaitErr := c.checkAwaited(ctx, callID); awaitErr != nil {
+		return awaitErr
 	}
 	if err == nil {
 		return fmt.Errorf("FailClientTool needs an error")

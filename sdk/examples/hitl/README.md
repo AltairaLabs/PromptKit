@@ -40,7 +40,8 @@ Two details worth noticing:
   briefs the next.
 
 Resuming after approval is `ResolveTool` followed by `Continue`, reaching
-through `wc.ActiveConversation()`:
+through `wc.ActiveConversation()`. Settle every held call first: `Continue`
+carries on without an unanswered one, and a later approval of it is refused.
 
 ```go
 pending := resp.PendingTools()

@@ -108,6 +108,12 @@ type CompositionExecutorDeps struct {
 	// never runs unapproved. Nil: no tool needs approval.
 	ApprovalChecker tools.ApprovalChecker
 
+	// ApprovalGate is the conversation's approval gate when it can refuse a
+	// call (ProviderConfig.ApprovalGate). It takes the place of
+	// ApprovalChecker: a call it holds fails the step as above, and a call it
+	// refuses does not run.
+	ApprovalGate tools.ApprovalGate
+
 	// CallRate is the enclosing conversation's call-rate window
 	// (ProviderConfig.CallRate). Every step's provider stage counts in it, so
 	// ToolPolicy.MaxCallsPerMinute spans the composition's steps and turns.
@@ -203,6 +209,7 @@ func (deps CompositionExecutorDeps) stepProviderConfig(
 		SkipContentValidation: deps.SkipContentValidation,
 		CallRate:              deps.CallRate,
 		ApprovalChecker:       deps.ApprovalChecker,
+		ApprovalGate:          deps.ApprovalGate,
 	}
 	// The step's prompt parameters, with its model_overrides entry for the
 	// provider that runs the step, as an opened prompt gets them.

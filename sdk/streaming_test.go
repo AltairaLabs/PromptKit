@@ -100,7 +100,7 @@ func TestStream(t *testing.T) {
 		config:         &config{provider: mockProv},
 		mode:           UnaryMode,
 		handlers:       make(map[string]ToolHandler),
-		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
+		asyncHandlers:  make(map[string]sdktools.AsyncToolCheck),
 		pendingStore:   sdktools.NewMemoryPendingStore(),
 	}
 
@@ -333,7 +333,7 @@ func TestStreamingWithMultipleChunks(t *testing.T) {
 		config:         &config{provider: mockProv},
 		mode:           UnaryMode,
 		handlers:       make(map[string]ToolHandler),
-		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
+		asyncHandlers:  make(map[string]sdktools.AsyncToolCheck),
 		pendingStore:   sdktools.NewMemoryPendingStore(),
 	}
 
@@ -714,7 +714,7 @@ func TestStreamingError(t *testing.T) {
 		config:         &config{provider: mockProv},
 		mode:           UnaryMode,
 		handlers:       make(map[string]ToolHandler),
-		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
+		asyncHandlers:  make(map[string]sdktools.AsyncToolCheck),
 		pendingStore:   sdktools.NewMemoryPendingStore(),
 	}
 

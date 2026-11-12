@@ -146,6 +146,14 @@ opener := sdk.A2AOpener(packPath, promptName,
 
 ## 5. Require approval before a tool runs
 
+The built-in approval flow is for the case where the person approving is the client of the conversation: the app shows them the pending call, they decide, and the same app continues the turn. It fits approvals that take seconds or minutes, in one process:
+
+- Answers are held in the process's memory between `ResolveTool` and `Continue`. Call both in the same process, and continue before the process exits.
+- The approved tool runs inside the `ResolveTool` call, with whatever identity that request carries.
+- A held call in the pending store expires after `sdktools.DefaultPendingTTL` (5 minutes) unless the store is configured otherwise.
+
+When someone other than the client approves, such as a reviewer, a policy service or another team, possibly days later and on another machine, have the host own the approval: see [When someone other than the client approves](#when-someone-other-than-the-client-approves).
+
 `OnToolAsync` takes a check function and an execution function. When the check returns a non-empty `PendingResult`, the pipeline holds the call instead of executing it. This applies to `Send`, to duplex sessions built with `WithIngestion`, and to realtime duplex sessions.
 
 ```go
@@ -172,7 +180,25 @@ for _, pending := range resp.PendingTools() {
 resp, _ = conv.Continue(ctx)
 ```
 
-Once every held call is resolved or rejected, `conv.Continue(ctx)` returns the model's reply.
+Settle every held call before you continue. `conv.Continue(ctx)` gives the model every result of the round in one request and returns its reply. A `Continue` with calls still unanswered carries on without them, and the conversation then stops waiting on those calls.
+
+The conversation does not wait on a call whose turn was continued or abandoned before the call was settled: `Continue` carried on without it, or `Send` started a new turn. `ResolveTool`, `ResolveToolWithArgs` and `RejectTool` return `sdk.ErrToolCallNotAwaited` for it and remove it from the store, and `ResolveTool` does not run its handler. `SendToolResult`, `SendToolResultMultimodal` and `FailClientTool` refuse such a call the same way.
+
+When the check needs the caller's context (an identity or claims the caller put on the `Send` context, or a deadline for a remote policy service), register it with `OnToolAsyncWithContext`. The check also receives the provider's call id:
+
+```go
+conv.OnToolAsyncWithContext("process_refund",
+    func(ctx context.Context, callID string, args map[string]any) sdktools.PendingResult {
+        if policy.NeedsApproval(ctx, args) {
+            return sdktools.PendingResult{Reason: "policy", Message: "Refund needs a reviewer"}
+        }
+        return sdktools.PendingResult{}
+    },
+    refundHandler,
+)
+```
+
+If the pending store cannot record a hold, for example because Redis is down, the call fails closed. It does not run, the model is told the call needs approval and the hold could not be recorded, and the store's error is logged. The model is not given the store's error, which can name internal hosts.
 
 To approve with edits, pass overrides that shallow-merge over the arguments the model proposed:
 
@@ -195,7 +221,7 @@ http.HandleFunc("/approve", func(w http.ResponseWriter, r *http.Request) {
 
 ### Persist approvals across restarts and instances
 
-Held calls live in an in-process store by default. They do not survive a restart, and only the process that held them can resolve them. For a reviewer approving from another service, or approvals that outlive a redeploy, inject a durable store with `WithPendingStore`:
+Held calls live in an in-process store by default. They do not survive a restart, and only the process that held them can resolve them. To keep held calls across a restart or redeploy, inject a durable store with `WithPendingStore`:
 
 ```go
 import (
@@ -214,7 +240,36 @@ conv, _ := sdk.Open("./assist.pack.json", "assist", sdk.WithPendingStore(store))
 
 `conv.PendingTools(ctx)` lists the conversation's held calls from the store, including ones that survived a restart.
 
+The store keeps the held calls, not the answers. An answer stays in the memory of the process that called `ResolveTool` until that process calls `Continue`. This makes the store a way to survive a restart, not a way for several processes to settle one turn between them.
+
 While a call waits, close the conversation with `conv.Close()` and resume it with `sdk.Resume` when the decision arrives. A close ends a session, not the conversation: it runs the pack's `on_session_complete` evals. Call `conv.Complete()` instead of `Close()` once the conversation is finished, so its `on_conversation_complete` evals score it once rather than at every pause.
+
+### When someone other than the client approves
+
+When the approver is not the client, such as a reviewer, a policy service or another person, and the decision can take days and arrive at another instance, the host owns the approval. PromptKit holds the call and resumes the turn. The host does everything in between: it records the referral, collects decisions, runs the tool as the right identity, keeps the audit trail and handles expiry.
+
+The host holds a call from the executor that runs the tool. An executor in the conversation's tool registry that implements `tools.AsyncToolExecutor` can return `tools.ToolStatusPending` from `ExecuteAsync` instead of a result. The pipeline then suspends the turn without running the tool. The executor receives the tool-execution context, which carries what the caller put on the `Send` context, so it can decide by who is calling. The held call appears in `resp.ClientTools()`, not in the pending store.
+
+The process that answers can be a different one from the process that held the call. Close the conversation once the turn suspends. When every decision is in, reopen it with `sdk.Resume` on the same state store, with the same executor registered. Give each held call its answer, then resume:
+
+```go
+conv, _ := sdk.Resume(convID, "./assist.pack.json", "assist", sdk.WithStateStore(store))
+// register the same executor as when the call was held
+for _, d := range decisions {
+    switch {
+    case d.Approved:
+        conv.SendToolResult(ctx, d.CallID, d.Result) // the host ran the tool
+    default:
+        conv.RejectClientTool(ctx, d.CallID, d.Reason)
+    }
+}
+resp, err := conv.Resume(ctx) // one model request with every answer
+```
+
+- Answer every held call of the round before `Resume`. A `Resume` with calls still unanswered carries on without them. A later answer for one of them returns `sdk.ErrToolCallNotAwaited`.
+- A large result, such as an image or a document, goes in as a part that refers to stored media, with `SendToolResultMultimodal` and a `types.New<Kind>PartFromStorageRef` part. The provider resolves the reference when it calls the model (see `WithMediaStorage`).
+- Keep the conversation's state longer than any approval can take: the Redis state store's default TTL is 24 hours, and `statestore.WithTTL` changes it.
+- The identity the resumed turn's tool calls act for is whatever the host puts on the `Resume` context, as it is for `Send`.
 
 ## Verify
 

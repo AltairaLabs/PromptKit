@@ -69,6 +69,12 @@ func (p PendingResult) IsPending() bool {
 // Return an empty PendingResult{} to proceed immediately.
 type AsyncToolHandler func(args map[string]any) PendingResult
 
+// AsyncToolCheck is an AsyncToolHandler that also receives the
+// tool-execution context and the provider's call id. The context carries
+// what the caller put on the Send context (identity, claims, deadline), so a
+// check that consults a remote policy service can honor cancellation.
+type AsyncToolCheck func(ctx context.Context, callID string, args map[string]any) PendingResult
+
 // ExecFunc is a registered tool execution handler. On resolve, the Conversation
 // recovers the ExecFunc for a pending call by tool name (a persisted call cannot
 // carry the closure) and runs it with the approved arguments.

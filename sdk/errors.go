@@ -55,6 +55,14 @@ var (
 
 	// ErrMessageTooLarge is returned when a user message exceeds the configured maximum size.
 	ErrMessageTooLarge = errors.New("message exceeds maximum size")
+
+	// ErrToolCallNotAwaited is returned by ResolveTool, ResolveToolWithArgs,
+	// RejectTool and SendToolResult for a call the conversation is not waiting
+	// on: the turn that made it was continued or abandoned (Send started a new
+	// turn), so an answer would never reach the model. ResolveTool does not
+	// run the tool's handler. ResolveTool and RejectTool remove the call from
+	// the pending store.
+	ErrToolCallNotAwaited = errors.New("tool call is not awaited")
 )
 
 // sentinelError marks err as one of the sentinels above without changing its

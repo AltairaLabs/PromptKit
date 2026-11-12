@@ -44,7 +44,7 @@ func newContentValidationConversation(t *testing.T, cfg *config) *Conversation {
 		config:         cfg,
 		mode:           UnaryMode,
 		handlers:       make(map[string]ToolHandler),
-		asyncHandlers:  make(map[string]sdktools.AsyncToolHandler),
+		asyncHandlers:  make(map[string]sdktools.AsyncToolCheck),
 		pendingStore:   sdktools.NewMemoryPendingStore(),
 	}
 	pipe, err := conv.buildPipelineWithParams(store, "conv", nil, nil)

@@ -131,7 +131,7 @@ type Conversation struct {
 	clientHandlersMu sync.RWMutex
 
 	// Async tool handlers for HITL
-	asyncHandlers   map[string]sdktools.AsyncToolHandler
+	asyncHandlers   map[string]sdktools.AsyncToolCheck
 	asyncHandlersMu sync.RWMutex
 
 	// Pending tool calls awaiting approval
@@ -760,7 +760,7 @@ func (c *Conversation) buildPipelineConfig(
 		ToolGrants:            c.skillToolGrants,
 		DescribeTool:          c.describeTool,
 		SystemPromptSuffix:    c.preloadedSkillInstructions,
-		ApprovalChecker:       c.newApprovalChecker(),
+		ApprovalGate:          c.newApprovalGate(),
 		CallRate:              c.callRateWindow(),
 		SkipContentValidation: c.config.skipContentValidation,
 		ToolPolicy:            c.config.toolPolicy,
@@ -1524,7 +1524,7 @@ func (c *Conversation) Fork() (*Conversation, error) {
 
 	c.asyncHandlersMu.RLock()
 	// Copy async handlers
-	asyncHandlers := make(map[string]sdktools.AsyncToolHandler, len(c.asyncHandlers))
+	asyncHandlers := make(map[string]sdktools.AsyncToolCheck, len(c.asyncHandlers))
 	for k, v := range c.asyncHandlers {
 		asyncHandlers[k] = v
 	}

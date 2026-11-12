@@ -117,12 +117,11 @@ func TestE2E_ResumeIgnoresProviderAnsweredCallInInput(t *testing.T) {
 	assert.Equal(t, map[string]int{"c1": 1, "c2": 1}, toolResultCounts(last))
 }
 
-// Two calls held for approval: Continue feeds each result to the model in
-// turn, and every one of them is reported, with the replies between them.
+// Two calls held for approval: Continue gives the model both results in one
+// request, every result is reported, and the reply follows.
 func TestE2E_ContinueReportsEveryHeldResult(t *testing.T) {
 	provider := newScriptedProvider(
 		say("Sending both.", call("h1", "send_message", `{"body":"a"}`), call("h2", "send_message", `{"body":"b"}`)),
-		say("First sent."),
 		say("Both sent."),
 	)
 	conv := openConv(t, provider)

@@ -71,9 +71,9 @@ func TestComposition_AgentStepHonorsTheApprovalChecker(t *testing.T) {
 		Provider:       &weatherCallingProvider{Provider: mock.NewProvider("p", "m", false)},
 		ToolRegistry:   reg,
 		PromptRegistry: createTestRegistry("chat"),
-		ApprovalChecker: func(_ context.Context, _, name string, _ map[string]any) *tools.PendingToolInfo {
+		ApprovalGate: func(_ context.Context, _, name string, _ map[string]any) (*tools.PendingToolInfo, error) {
 			held.Add(1)
-			return &tools.PendingToolInfo{Reason: "requires_approval", Message: "approve " + name}
+			return &tools.PendingToolInfo{Reason: "requires_approval", Message: "approve " + name}, nil
 		},
 		ActiveComposition: &composition.Composition{
 			Version: 1, Output: "s",
