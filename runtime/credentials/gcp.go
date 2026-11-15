@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -62,8 +63,7 @@ func VertexOpenAIEndpoint(project, region, endpointID string) string {
 	if endpointID == "" {
 		endpointID = DefaultVertexOpenAIEndpointID
 	}
-	return fmt.Sprintf("%s/v1beta1/projects/%s/locations/%s/endpoints/%s",
-		VertexHost(region), project, region, endpointID)
+	return fmt.Sprintf("%s/v1beta1/%s/endpoints/%s", VertexHost(region), vertexLocationPath(project, region), endpointID)
 }
 
 // VertexHost returns the Vertex AI API origin serving a location: the bare
@@ -71,21 +71,49 @@ func VertexOpenAIEndpoint(project, region, endpointID string) string {
 // {region}-aiplatform for a region. "{location}-aiplatform" does not resolve
 // for global, us or eu, so every Vertex URL is built from this.
 func VertexHost(location string) string {
+	location = strings.ToLower(strings.TrimSpace(location))
 	switch location {
 	case "global":
-		return "https://aiplatform.googleapis.com"
+		return "https://" + vertexAPIHost
 	case "us", "eu":
 		return "https://aiplatform." + location + ".rep.googleapis.com"
 	default:
-		return "https://" + location + "-aiplatform.googleapis.com"
+		return "https://" + location + "-" + vertexAPIHost
 	}
 }
 
+// vertexAPIHost is the Vertex AI API's global host name.
+const vertexAPIHost = "aiplatform.googleapis.com"
+
+// VertexLocationBase returns the v1 REST base for a project's location:
+// {host}/v1/projects/{project}/locations/{location}.
+func VertexLocationBase(project, location string) string {
+	return VertexHost(location) + "/v1/" + vertexLocationPath(project, location)
+}
+
+// vertexLivePath is the Live API (BidiGenerateContent) route on a location's host.
+const vertexLivePath = "/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent"
+
+// VertexLiveURL returns the Live API WebSocket URL for a location.
+func VertexLiveURL(location string) string {
+	return "wss://" + strings.TrimPrefix(VertexHost(location), "https://") + vertexLivePath
+}
+
+// VertexGoogleModelResource returns the resource name of a Google-published
+// model: projects/{project}/locations/{location}/publishers/google/models/{model}.
+func VertexGoogleModelResource(project, location, model string) string {
+	return vertexLocationPath(project, location) + "/publishers/" + vertexPublisherGoogle + "/models/" + model
+}
+
+// vertexLocationPath is projects/{project}/locations/{location}.
+func vertexLocationPath(project, location string) string {
+	return "projects/" + project + "/locations/" + location
+}
+
 // vertexPublisherEndpoint builds the models base URL for one publisher. Single
-// format string so the two exported helpers cannot drift.
+// format string so the exported helpers cannot drift.
 func vertexPublisherEndpoint(project, region, publisher string) string {
-	return fmt.Sprintf("%s/v1/projects/%s/locations/%s/publishers/%s/models",
-		VertexHost(region), project, region, publisher)
+	return VertexLocationBase(project, region) + "/publishers/" + publisher + "/models"
 }
 
 // Apply adds the OAuth2 token to the request.

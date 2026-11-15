@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,12 +19,13 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-// vertexToken stands in for the GCP token source: each Apply issues the next token.
-type vertexToken struct{ issued *int }
+// vertexToken stands in for the GCP token source: each Apply issues the next
+// token. Dials and reconnects run on different goroutines, so it counts atomically.
+type vertexToken struct{ issued *atomic.Int32 }
 
 func (v vertexToken) Apply(_ context.Context, req *http.Request) error {
-	*v.issued++
-	req.Header.Set("Authorization", "Bearer gcp-token-"+string(rune('0'+*v.issued)))
+	n := v.issued.Add(1)
+	req.Header.Set("Authorization", "Bearer gcp-token-"+string(rune('0'+n)))
 	return nil
 }
 
@@ -37,7 +39,7 @@ func liveAudioRequest() *providers.StreamingInputConfig {
 	}
 }
 
-func vertexLiveProvider(region string, issued *int) *Provider {
+func vertexLiveProvider(region string, issued *atomic.Int32) *Provider {
 	return NewProviderWithCredential("live", "gemini-3.8-live", "", providers.ProviderDefaults{}, false,
 		vertexToken{issued: issued}, "vertex", &providers.PlatformConfig{Type: "vertex", Project: "proj", Region: region})
 }
@@ -52,7 +54,7 @@ func TestLive_VertexPlatformTargetsTheVertexLiveEndpoint(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.region, func(t *testing.T) {
-			issued := 0
+			var issued atomic.Int32
 			p := vertexLiveProvider(tc.region, &issued)
 			var gotURL, gotKey string
 			var gotCfg StreamSessionConfig
@@ -109,7 +111,7 @@ func TestLiveSession_DialHeadersAuthenticateTheHandshake(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	issued := 0
+	var issued atomic.Int32
 	cfg := &StreamSessionConfig{
 		Model:              "projects/proj/locations/us-central1/publishers/google/models/gemini-3.8-live",
 		ResponseModalities: []string{"TEXT"},
@@ -130,7 +132,7 @@ func TestLiveSession_DialHeadersAuthenticateTheHandshake(t *testing.T) {
 // Bedrock and Azure host no Gemini Live, so a session there is refused
 // before anything is dialed.
 func TestLive_UnhostedPlatformIsRejectedBeforeDialing(t *testing.T) {
-	issued := 0
+	var issued atomic.Int32
 	p := NewProviderWithCredential("live", "gemini-3.8-live", "", providers.ProviderDefaults{}, false,
 		vertexToken{issued: &issued}, "bedrock", &providers.PlatformConfig{Type: "bedrock", Region: "us-east-1"})
 	dialed := false
@@ -147,7 +149,7 @@ func TestLive_UnhostedPlatformIsRejectedBeforeDialing(t *testing.T) {
 
 // A Vertex provider advertises the stream input its sessions accept.
 func TestLive_VertexPlatformAdvertisesStreamInput(t *testing.T) {
-	issued := 0
+	var issued atomic.Int32
 	assert.Equal(t, []string{types.ContentTypeAudio, types.ContentTypeVideo, types.ContentTypeImage},
 		vertexLiveProvider("us-central1", &issued).SupportsStreamInput())
 }
@@ -156,11 +158,10 @@ func TestLive_VertexPlatformAdvertisesStreamInput(t *testing.T) {
 // that dial, not the one the session opened with.
 func TestLiveSession_ReconnectFetchesAFreshToken(t *testing.T) {
 	auths := make(chan string, 4)
-	var dials int
+	var dials atomic.Int32
 	upgrader := websocket.Upgrader{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		dials++
-		first := dials == 1
+		first := dials.Add(1) == 1
 		auths <- r.Header.Get("Authorization")
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -183,7 +184,7 @@ func TestLiveSession_ReconnectFetchesAFreshToken(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	issued := 0
+	var issued atomic.Int32
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	session, err := NewStreamSession(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), "", &StreamSessionConfig{
@@ -211,7 +212,7 @@ func TestLiveSession_ReconnectFetchesAFreshToken(t *testing.T) {
 // A Vertex Live session needs the project, region and credential the
 // endpoint and token come from; without them it fails before dialing.
 func TestLive_VertexPlatformNeedsProjectRegionAndCredential(t *testing.T) {
-	issued := 0
+	var issued atomic.Int32
 	cases := map[string]struct {
 		cred providers.Credential
 		pc   *providers.PlatformConfig
@@ -232,4 +233,35 @@ func TestLive_VertexPlatformNeedsProjectRegionAndCredential(t *testing.T) {
 			assert.Equal(t, tc.want, err.Error())
 		})
 	}
+}
+
+// A model given in the Gemini API's models/ form, or already as a full Vertex
+// resource, still names one model resource on Vertex.
+func TestLive_VertexModelResourceFromAnyModelSpelling(t *testing.T) {
+	for _, model := range []string{"models/gemini-3.8-live",
+		"projects/proj/locations/us-central1/publishers/google/models/gemini-3.8-live"} {
+		t.Run(model, func(t *testing.T) {
+			var issued atomic.Int32
+			p := NewProviderWithCredential("live", model, "", providers.ProviderDefaults{}, false,
+				vertexToken{issued: &issued}, "vertex",
+				&providers.PlatformConfig{Type: "vertex", Project: "proj", Region: "us-central1"})
+			var got string
+			p.newStreamSessionFn = func(ctx context.Context, _, _ string, cfg *StreamSessionConfig) (*StreamSession, error) {
+				got = cfg.Model
+				sctx, cancel := context.WithCancel(ctx)
+				return &StreamSession{ctx: sctx, cancel: cancel, errCh: make(chan error, 1)}, nil
+			}
+			_, err := p.CreateStreamSession(context.Background(), liveAudioRequest())
+			require.NoError(t, err)
+			assert.Equal(t, "projects/proj/locations/us-central1/publishers/google/models/gemini-3.8-live", got)
+		})
+	}
+}
+
+// A Vertex provider missing what a session needs advertises no stream input.
+func TestLive_IncompleteVertexConfigAdvertisesNoStreamInput(t *testing.T) {
+	var issued atomic.Int32
+	p := NewProviderWithCredential("live", "gemini-3.8-live", "https://x", providers.ProviderDefaults{}, false,
+		vertexToken{issued: &issued}, "vertex", &providers.PlatformConfig{Type: "vertex", Project: "proj"})
+	assert.Empty(t, p.SupportsStreamInput())
 }

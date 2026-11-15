@@ -85,9 +85,6 @@ func (p *Provider) CreateStreamSession(
 	return session, nil
 }
 
-// vertexLivePath is the Vertex AI Live API route on a location's host.
-const vertexLivePath = "/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent"
-
 // liveDial resolves where a Live session connects and how it authenticates.
 // On the Gemini API that is the static key; on Vertex it is the location's
 // Live endpoint, the model's Vertex resource name, and the platform token
@@ -104,17 +101,26 @@ func (p *Provider) liveDial(config *StreamSessionConfig) (wsURL, apiKey string, 
 		if p.credential == nil {
 			return "", "", fmt.Errorf("live sessions on vertex need a platform credential")
 		}
-		host := credentials.VertexHost(pc.Region)
-		model := config.Model
-		if model == "" {
-			model = defaultLiveModel
-		}
-		config.Model = fmt.Sprintf("projects/%s/locations/%s/publishers/google/models/%s", pc.Project, pc.Region, model)
-		config.dialHeaders = streaming.CredentialDialHeaders(p.credential, host)
-		return "wss://" + strings.TrimPrefix(host, "https://") + vertexLivePath, "", nil
+		config.Model = vertexLiveModel(pc, config.Model)
+		config.dialHeaders = streaming.CredentialDialHeaders(p.credential, credentials.VertexHost(pc.Region))
+		return credentials.VertexLiveURL(pc.Region), "", nil
 	default:
 		return "", "", fmt.Errorf("live sessions are not available on platform %q (supported: vertex)", p.platform)
 	}
+}
+
+// vertexLiveModel names model by its Vertex resource. A full resource is kept;
+// the Gemini API's models/ form and a bare name are placed under the
+// provider's project and location.
+func vertexLiveModel(pc *providers.PlatformConfig, model string) string {
+	if strings.HasPrefix(model, "projects/") {
+		return model
+	}
+	model = strings.TrimPrefix(model, "models/")
+	if model == "" {
+		model = defaultLiveModel
+	}
+	return credentials.VertexGoogleModelResource(pc.Project, pc.Region, model)
 }
 
 // liveMinTemperature is the lowest temperature at which Gemini Live answers.
@@ -272,8 +278,9 @@ func (p *Provider) applyToolsConfig(tools []providers.StreamingToolDefinition, c
 
 // SupportsStreamInput returns the media types supported for streaming input
 func (p *Provider) SupportsStreamInput() []string {
-	if p.platform != "" && p.platform != vertexPlatform {
-		return []string{} // CreateStreamSession refuses this platform
+	var probe StreamSessionConfig
+	if _, _, err := p.liveDial(&probe); err != nil {
+		return []string{} // CreateStreamSession refuses this provider
 	}
 	return []string{types.ContentTypeAudio, types.ContentTypeVideo, types.ContentTypeImage}
 }

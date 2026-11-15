@@ -293,7 +293,7 @@ Which platforms a provider runs on depends on its role and type:
 
 On Azure, `model` is the deployment name. Audio requests go to the deployment's `/audio/speech` or `/audio/transcriptions` route with `api-version` from `additional_config.api_version` (default `2024-12-01-preview`), and a Realtime session connects to `/openai/v1/realtime?model=<deployment>`. Each request and each session handshake fetches the token from the platform credential.
 
-On Vertex, `region` is the location: a region such as `us-central1`, `global`, or the `us` and `eu` multi-regions, each served on its own host. A Gemini Live session connects to the location's `LlmBidiService/BidiGenerateContent` endpoint and names the model `projects/<project>/locations/<location>/publishers/google/models/<model>`.
+On Vertex, `region` is the location: a region such as `us-central1`, `global`, or the `us` and `eu` multi-regions, each served on its own host. A Gemini Live session connects to the location's `LlmBidiService/BidiGenerateContent` endpoint and names the model `projects/<project>/locations/<location>/publishers/google/models/<model>`; the location must be one where Vertex offers the Live model.
 
 A provider type that no platform hosts (`ollama`, `vllm`, `elevenlabs`, `cartesia`, the inference types) is built against its own endpoint with its own credential, and logs a warning that the platform is ignored. A `rerank` provider with a platform fails to build.
 

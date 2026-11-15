@@ -706,7 +706,7 @@ func vertexBaseURL(pc *platformConfig, provType string) string {
 		return credentials.VertexEmbeddingEndpoint(pc.project, pc.region) // the google publisher's models
 	default:
 		// Generic Vertex endpoint for other providers
-		return fmt.Sprintf("%s/v1/projects/%s/locations/%s", credentials.VertexHost(pc.region), pc.project, pc.region)
+		return credentials.VertexLocationBase(pc.project, pc.region)
 	}
 }
 

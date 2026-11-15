@@ -25,3 +25,21 @@ func TestVertexEndpoints_UseTheLocationsHost(t *testing.T) {
 		})
 	}
 }
+
+// A location's case and surrounding space do not change its host.
+func TestVertexHost_NormalizesTheLocation(t *testing.T) {
+	assert.Equal(t, "https://aiplatform.googleapis.com", VertexHost("Global"))
+	assert.Equal(t, "https://aiplatform.eu.rep.googleapis.com", VertexHost(" EU "))
+	assert.Equal(t, "https://us-central1-aiplatform.googleapis.com", VertexHost("US-Central1"))
+}
+
+// The location base, the Live URL and a Google model's resource name share
+// one host and path layout with the publisher endpoints.
+func TestVertexLocationHelpers(t *testing.T) {
+	assert.Equal(t, "https://aiplatform.us.rep.googleapis.com/v1/projects/p/locations/us", VertexLocationBase("p", "us"))
+	assert.Equal(t,
+		"wss://aiplatform.us.rep.googleapis.com/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent",
+		VertexLiveURL("us"))
+	assert.Equal(t, "projects/p/locations/us-central1/publishers/google/models/gemini-3.8-live",
+		VertexGoogleModelResource("p", "us-central1", "gemini-3.8-live"))
+}
