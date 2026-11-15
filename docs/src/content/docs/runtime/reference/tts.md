@@ -76,8 +76,10 @@ The package includes implementations for:
 - [func CostInfoToMetaMap\(ci \*types.CostInfo\) map\[string\]any](<#CostInfoToMetaMap>)
 - [func PricingFromSpec\(spec ProviderSpec\) \*base.PricingDescriptor](<#PricingFromSpec>)
 - [func RegisterFactory\(providerType string, factory Factory\)](<#RegisterFactory>)
+- [func RegisterPlatforms\(providerType string, platforms ...string\)](<#RegisterPlatforms>)
 - [func RegisteredTypes\(\) \[\]string](<#RegisteredTypes>)
 - [func ResolveCredential\(ctx context.Context, providerType string, cfgDir string, cred \*credentials.CredentialConfig\) \(credentials.Credential, error\)](<#ResolveCredential>)
+- [func ResolveCredentialForPlatform\(ctx context.Context, providerType string, cfgDir string, cred \*credentials.CredentialConfig, platform \*credentials.PlatformConfig\) \(credentials.Credential, error\)](<#ResolveCredentialForPlatform>)
 - [func SynthesizeWithRetry\(ctx context.Context, svc Service, text string, config SynthesisConfig, retry RetryConfig\) \(io.ReadCloser, error\)](<#SynthesizeWithRetry>)
 - [func WithCartesiaWSURL\(url string\) func\(\*CartesiaService\)](<#WithCartesiaWSURL>)
 - [type AudioFormat](<#AudioFormat>)
@@ -307,7 +309,7 @@ var (
 ```
 
 <a name="APIKeyFromCredential"></a>
-## func [APIKeyFromCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/factory.go#L49>)
+## func [APIKeyFromCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/factory.go#L73>)
 
 ```go
 func APIKeyFromCredential(c credentials.Credential) string
@@ -344,7 +346,7 @@ CostInfoToMetaMap is kept here as a deprecated alias for back\-compat with exist
 Deprecated: use base.CostInfoToMetaMap.
 
 <a name="PricingFromSpec"></a>
-## func [PricingFromSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/factory.go#L54>)
+## func [PricingFromSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/factory.go#L78>)
 
 ```go
 func PricingFromSpec(spec ProviderSpec) *base.PricingDescriptor
@@ -360,6 +362,15 @@ func RegisterFactory(providerType string, factory Factory)
 ```
 
 RegisterFactory registers a factory for the given provider type. Typically called from per\-provider package init\(\).
+
+<a name="RegisterPlatforms"></a>
+## func [RegisterPlatforms](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/factory.go#L50>)
+
+```go
+func RegisterPlatforms(providerType string, platforms ...string)
+```
+
+RegisterPlatforms declares the hosting platforms a provider type's factory wires \(see base.FactoryRegistry.RegisterPlatforms\).
 
 <a name="RegisteredTypes"></a>
 ## func [RegisteredTypes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/factory.go#L30>)
@@ -378,6 +389,15 @@ func ResolveCredential(ctx context.Context, providerType string, cfgDir string, 
 ```
 
 ResolveCredential is a thin wrapper around base.ResolveCredential, kept here for back\-compat with callers that resolve TTS\-specific credential configs.
+
+<a name="ResolveCredentialForPlatform"></a>
+## func [ResolveCredentialForPlatform](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/factory.go#L59-L65>)
+
+```go
+func ResolveCredentialForPlatform(ctx context.Context, providerType string, cfgDir string, cred *credentials.CredentialConfig, platform *credentials.PlatformConfig) (credentials.Credential, error)
+```
+
+ResolveCredentialForPlatform resolves the credential a spec is built with. For a platform providerType runs on, that is the platform's credential chain; otherwise the platform is not consulted, so a provider that cannot run there still authenticates to its own API \(CreateFromSpec then warns that the platform is ignored\).
 
 <a name="SynthesizeWithRetry"></a>
 ## func [SynthesizeWithRetry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/retry.go#L48-L54>)
@@ -837,7 +857,7 @@ func (s *OpenAIService) PersonaRubric() string
 PersonaRubric implements [PersonaRubricProvider](<#PersonaRubricProvider>). Returns the full markup rubric on gpt\-4o\-mini\-tts \(the model honors arbitrary instructions via the request's instructions field\). Older models \(tts\-1, tts\-1\-hd\) do not understand the markup, so we return the empty string — emitting tags would only waste persona tokens.
 
 <a name="OpenAIService.SpokenText"></a>
-### func \(\*OpenAIService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L228>)
+### func \(\*OpenAIService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L231>)
 
 ```go
 func (s *OpenAIService) SpokenText(text string, config SynthesisConfig) string
@@ -846,7 +866,7 @@ func (s *OpenAIService) SpokenText(text string, config SynthesisConfig) string
 SpokenText reports the text OpenAI will actually speak for the given input, after markup lowering: on gpt\-4o\-mini\-tts the bracket tags become the \`instructions\` field so the spoken text is the stripped remainder; other models strip tags entirely. Implements tts.SpokenTextReporter.
 
 <a name="OpenAIService.SupportedFormats"></a>
-### func \(\*OpenAIService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L343>)
+### func \(\*OpenAIService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L346>)
 
 ```go
 func (s *OpenAIService) SupportedFormats() []AudioFormat
@@ -855,7 +875,7 @@ func (s *OpenAIService) SupportedFormats() []AudioFormat
 SupportedFormats returns audio formats supported by OpenAI TTS.
 
 <a name="OpenAIService.SupportedVoices"></a>
-### func \(\*OpenAIService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L331>)
+### func \(\*OpenAIService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L334>)
 
 ```go
 func (s *OpenAIService) SupportedVoices() []Voice

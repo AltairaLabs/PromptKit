@@ -621,6 +621,27 @@ func RejectPlatforms(rejected map[string]bool, inner ProviderFactory) ProviderFa
 	}
 }
 
+// IgnorePlatforms wraps a factory for a provider type no platform hosts (a
+// self-hosted server, say). A spec that names a platform is built without it,
+// against its own endpoint, with a warning that the platform had no effect:
+// such a config works today only because the platform was never read, so it
+// keeps working but is no longer silent.
+func IgnorePlatforms(inner ProviderFactory) ProviderFactory {
+	return func(spec ProviderSpec) (Provider, error) {
+		if spec.Platform != "" {
+			WarnPlatformIgnored(spec.ID, spec.Type, spec.Platform)
+			spec.Platform, spec.PlatformConfig = "", nil
+		}
+		return inner(spec)
+	}
+}
+
+// WarnPlatformIgnored logs that a provider type runs on no platform, so the
+// one its spec names has no effect. The message is shared by every role.
+func WarnPlatformIgnored(id, providerType, platform string) {
+	base.WarnPlatformIgnored(id, providerType, platform)
+}
+
 // HasCredential returns true if the spec has a credential whose type is not
 // "none". Factory functions use it to choose between credential-based and
 // environment-variable-based constructors.

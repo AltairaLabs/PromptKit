@@ -496,7 +496,7 @@ func applyInferenceProviders(
 			id = ip.Type
 		}
 		p, err := buildInferenceProvider(
-			id, ip.Type, ip.Model, ip.BaseURL, ip.Credential, ip.AdditionalConfig, base.HTTPTuning{})
+			id, ip.Type, ip.Model, ip.BaseURL, ip.Credential, ip.AdditionalConfig, nil, base.HTTPTuning{})
 		if err != nil {
 			return fmt.Errorf("inference provider %q: %w", id, err)
 		}

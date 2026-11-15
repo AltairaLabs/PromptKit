@@ -3,6 +3,7 @@ package streaming
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -452,4 +453,70 @@ func (l *testLogger) Error(msg string, _ ...interface{}) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.messages = append(l.messages, "ERROR: "+msg)
+}
+
+// DialHeaders is called for every dial attempt, so a retried handshake carries
+// a credential fetched for that attempt rather than one captured up front, and
+// its headers are added over the static Headers.
+func TestConn_DialHeadersAreFetchedPerAttempt(t *testing.T) {
+	var mu sync.Mutex
+	var auths, statics []string
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		attempts++
+		first := attempts == 1
+		auths = append(auths, r.Header.Get("Authorization"))
+		statics = append(statics, r.Header.Get("X-Static"))
+		mu.Unlock()
+		if first {
+			http.Error(w, "token expired", http.StatusUnauthorized)
+			return
+		}
+		conn, err := wsUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_, _, _ = conn.ReadMessage()
+	}))
+	defer srv.Close()
+
+	var issued atomic.Int32
+	c := NewConn(&ConnConfig{
+		URL:              wsURL(srv),
+		Headers:          http.Header{"X-Static": {"kept"}},
+		MaxRetries:       2,
+		RetryBackoffBase: time.Millisecond,
+		RetryBackoffMax:  time.Millisecond,
+		DialHeaders: func(context.Context) (http.Header, error) {
+			n := issued.Add(1)
+			return http.Header{"Authorization": {"Bearer token-" + string(rune('0'+n))}}, nil
+		},
+	})
+	require.NoError(t, c.ConnectWithRetry(context.Background()))
+	defer c.Close()
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []string{"Bearer token-1", "Bearer token-2"}, auths)
+	assert.Equal(t, []string{"kept", "kept"}, statics)
+}
+
+// A DialHeaders error fails the dial instead of handshaking unauthenticated.
+func TestConn_DialHeadersErrorFailsTheDial(t *testing.T) {
+	var dialed atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { dialed.Store(true) }))
+	defer srv.Close()
+
+	c := NewConn(&ConnConfig{
+		URL: wsURL(srv),
+		DialHeaders: func(context.Context) (http.Header, error) {
+			return nil, errors.New("no token")
+		},
+	})
+	err := c.Connect(context.Background())
+	require.Error(t, err)
+	assert.Equal(t, "failed to build handshake headers: no token", err.Error())
+	assert.False(t, dialed.Load(), "no handshake is sent without its credential")
 }

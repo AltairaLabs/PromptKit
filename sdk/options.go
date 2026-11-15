@@ -647,7 +647,7 @@ func envKeyAllowedFor(providerType, baseURL string) bool {
 // spec's type, and wraps it so every call reports inference metrics.
 func buildInferenceProvider(
 	id, providerType, model, baseURL string, cred *pkgconfig.CredentialConfig, additional map[string]any,
-	tuning base.HTTPTuning,
+	platform *pkgconfig.PlatformConfig, tuning base.HTTPTuning,
 ) (inference.Provider, error) {
 	var resolved credentials.Credential
 	if cred != nil || envKeyAllowedFor(providerType, baseURL) {
@@ -663,6 +663,7 @@ func buildInferenceProvider(
 		Model:            model,
 		BaseURL:          baseURL,
 		Credential:       resolved,
+		Platform:         platform,
 		AdditionalConfig: additional,
 		Tuning:           tuning,
 	})
@@ -2825,7 +2826,7 @@ func WithInferenceProvider(spec ProviderSpec) Option {
 			return fmt.Errorf("WithInferenceProvider %q: %w", id, err)
 		}
 		p, err := buildInferenceProvider(
-			id, spec.Type, spec.Model, spec.BaseURL, spec.Credential, spec.AdditionalConfig, tuning)
+			id, spec.Type, spec.Model, spec.BaseURL, spec.Credential, spec.AdditionalConfig, spec.Platform, tuning)
 		if err != nil {
 			return fmt.Errorf("WithInferenceProvider %q: %w", id, err)
 		}
@@ -2963,14 +2964,14 @@ func WithTTSProvider(spec ProviderSpec) Option {
 		if err != nil {
 			return fmt.Errorf("WithTTSProvider %q: %w", spec.idOrType(), err)
 		}
-		cred, err := tts.ResolveCredential(context.Background(), spec.Type, "", spec.Credential)
+		cred, err := tts.ResolveCredentialForPlatform(context.Background(), spec.Type, "", spec.Credential, spec.Platform)
 		if err != nil {
 			return fmt.Errorf("WithTTSProvider %q: resolving credential: %w", spec.idOrType(), err)
 		}
 		svc, err := tts.CreateFromSpec(tts.ProviderSpec{
 			ID: spec.idOrType(), Type: spec.Type, Model: spec.Model,
-			BaseURL: spec.BaseURL, Credential: cred, AdditionalConfig: spec.AdditionalConfig,
-			Tuning: tuning,
+			BaseURL: spec.BaseURL, Credential: cred, Platform: spec.Platform,
+			AdditionalConfig: spec.AdditionalConfig, Tuning: tuning,
 		})
 		if err != nil {
 			return fmt.Errorf("WithTTSProvider %q: %w", spec.idOrType(), err)
@@ -3001,14 +3002,14 @@ func WithSTTProvider(spec ProviderSpec) Option {
 		if err != nil {
 			return fmt.Errorf("WithSTTProvider %q: %w", spec.idOrType(), err)
 		}
-		cred, err := stt.ResolveCredential(context.Background(), spec.Type, "", spec.Credential)
+		cred, err := stt.ResolveCredentialForPlatform(context.Background(), spec.Type, "", spec.Credential, spec.Platform)
 		if err != nil {
 			return fmt.Errorf("WithSTTProvider %q: resolving credential: %w", spec.idOrType(), err)
 		}
 		svc, err := stt.CreateFromSpec(stt.ProviderSpec{
 			ID: spec.idOrType(), Type: spec.Type, Model: spec.Model,
-			BaseURL: spec.BaseURL, Credential: cred, AdditionalConfig: spec.AdditionalConfig,
-			Tuning: tuning,
+			BaseURL: spec.BaseURL, Credential: cred, Platform: spec.Platform,
+			AdditionalConfig: spec.AdditionalConfig, Tuning: tuning,
 		})
 		if err != nil {
 			return fmt.Errorf("WithSTTProvider %q: %w", spec.idOrType(), err)

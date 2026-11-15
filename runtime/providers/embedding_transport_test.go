@@ -143,8 +143,8 @@ func TestResolveEmbeddingTransport_AzureCustomAPIVersion(t *testing.T) {
 	if !ok {
 		t.Fatalf("transport type = %T", tr.Client.Transport)
 	}
-	if rt.apiVersion != "2099-01-01" {
-		t.Fatalf("apiVersion = %q, want 2099-01-01", rt.apiVersion)
+	if rt.APIVersion != "2099-01-01" {
+		t.Fatalf("apiVersion = %q, want 2099-01-01", rt.APIVersion)
 	}
 }
 

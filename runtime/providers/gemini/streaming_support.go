@@ -54,6 +54,12 @@ func (p *Provider) CreateStreamSession(
 	if err := p.validateStreamRequest(req); err != nil {
 		return nil, err
 	}
+	if p.platform != "" {
+		// The session dials the Gemini API host with the static key; a
+		// platform provider has neither, so refuse instead of failing there.
+		return nil, fmt.Errorf("live sessions are not available on platform %q: Gemini Live runs on the Gemini API only",
+			p.platform)
+	}
 
 	config := p.buildStreamSessionConfig(req)
 	config.Sampling = liveSampling(p.ID(), req.Sampling)

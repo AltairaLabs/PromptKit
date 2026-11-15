@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
 // CapabilitySpec is the unified runtime form of a typed-provider declaration
@@ -24,8 +25,13 @@ type CapabilitySpec struct {
 	Model string
 	// BaseURL overrides the provider's default API endpoint.
 	BaseURL string
-	// Credential carries the resolved credential.
+	// Credential carries the resolved credential. For a platform-hosted
+	// provider it is the platform's credential (an Entra token, say).
 	Credential credentials.Credential
+	// Platform hosts the provider on a cloud platform (e.g. azure). Nil
+	// means the provider's own API. A type that does not declare the
+	// platform (RegisterPlatforms) is built without it, with a warning.
+	Platform *credentials.PlatformConfig
 	// AdditionalConfig carries provider-specific extras. Unknown keys
 	// are ignored.
 	AdditionalConfig map[string]any
@@ -43,11 +49,33 @@ type Factory[T any] func(spec CapabilitySpec) (T, error)
 type FactoryRegistry[T any] struct {
 	mu        sync.RWMutex
 	factories map[string]Factory[T]
+	platforms map[string][]string
 }
 
 // NewFactoryRegistry creates an empty registry.
 func NewFactoryRegistry[T any]() *FactoryRegistry[T] {
-	return &FactoryRegistry[T]{factories: make(map[string]Factory[T])}
+	return &FactoryRegistry[T]{factories: make(map[string]Factory[T]), platforms: make(map[string][]string)}
+}
+
+// RegisterPlatforms declares the hosting platforms implType's factory wires:
+// it receives spec.Platform for them and builds the platform endpoint and
+// credential itself.
+func (r *FactoryRegistry[T]) RegisterPlatforms(implType string, platforms ...string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.platforms[implType] = append(r.platforms[implType], platforms...)
+}
+
+// SupportsPlatform reports whether implType declared platform.
+func (r *FactoryRegistry[T]) SupportsPlatform(implType, platform string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, p := range r.platforms[implType] {
+		if p == platform {
+			return true
+		}
+	}
+	return false
 }
 
 // Register adds a factory under the given implementation type.
@@ -84,6 +112,13 @@ func (r *FactoryRegistry[T]) Create(spec CapabilitySpec) (T, error) {
 	if !ok {
 		return zero, fmt.Errorf("unsupported provider type: %s", spec.Type)
 	}
+	if spec.Platform != nil && spec.Platform.Type != "" && !r.SupportsPlatform(spec.Type, spec.Platform.Type) {
+		// Built as before, against the provider's own API, so a config that
+		// works with its own key keeps working; the warning says the platform
+		// had no effect.
+		WarnPlatformIgnored(spec.ID, spec.Type, spec.Platform.Type)
+		spec.Platform = nil
+	}
 	v, err := f(spec)
 	if err != nil {
 		return v, err
@@ -106,6 +141,31 @@ func ResolveCredential(
 		ProviderType:     providerType,
 		CredentialConfig: cred,
 		ConfigDir:        cfgDir,
+	})
+}
+
+// WarnPlatformIgnored logs that a provider type runs on no platform, so the
+// one its spec names has no effect. Every role shares the message.
+func WarnPlatformIgnored(id, providerType, platform string) {
+	logger.Warn("provider type does not run on this platform; the platform is ignored",
+		"provider", id, "type", providerType, "platform", platform)
+}
+
+// ResolveCredentialForPlatform is ResolveCredential for a provider that may be
+// platform-hosted: when platform is set it resolves the platform's credential
+// chain (an Azure Entra token, say) instead of the provider's API key.
+func ResolveCredentialForPlatform(
+	ctx context.Context,
+	providerType string,
+	cfgDir string,
+	cred *credentials.CredentialConfig,
+	platform *credentials.PlatformConfig,
+) (credentials.Credential, error) {
+	return credentials.Resolve(ctx, credentials.ResolverConfig{
+		ProviderType:     providerType,
+		CredentialConfig: cred,
+		ConfigDir:        cfgDir,
+		PlatformConfig:   platform,
 	})
 }
 

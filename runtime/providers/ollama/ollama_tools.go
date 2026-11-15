@@ -412,16 +412,17 @@ func (p *ToolProvider) PredictStreamWithTools(
 func init() {
 	// Ollama needs no credential. A resolved one (spec.Credential), for a
 	// proxy in front of Ollama, is sent with every request.
-	providers.RegisterProviderFactory("ollama", func(spec providers.ProviderSpec) (providers.Provider, error) {
-		p := NewToolProvider(
-			spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
-			spec.IncludeRawOutput, spec.AdditionalConfig,
-		)
-		if spec.HasCredential() {
-			p.SetCredential(spec.Credential)
-		}
-		return p, nil
-	})
+	providers.RegisterProviderFactory("ollama", providers.IgnorePlatforms(
+		func(spec providers.ProviderSpec) (providers.Provider, error) {
+			p := NewToolProvider(
+				spec.ID, spec.Model, spec.BaseURL, spec.Defaults,
+				spec.IncludeRawOutput, spec.AdditionalConfig,
+			)
+			if spec.HasCredential() {
+				p.SetCredential(spec.Credential)
+			}
+			return p, nil
+		}))
 }
 
 // WithMediaSettings returns a view of p, and of the Provider it wraps, that

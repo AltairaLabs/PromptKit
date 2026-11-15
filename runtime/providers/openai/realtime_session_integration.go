@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -100,6 +101,8 @@ type RealtimeSession struct {
 type realtimeSessionOpts struct {
 	// endpoint overrides RealtimeAPIEndpoint when non-empty.
 	endpoint string
+	// dialHeaders, when set, authenticates each handshake in place of apiKey.
+	dialHeaders func(context.Context) (http.Header, error)
 }
 
 // NewRealtimeSession creates a new OpenAI Realtime streaming session.
@@ -126,7 +129,7 @@ func newRealtimeSession(
 	if endpoint == "" {
 		endpoint = RealtimeAPIEndpoint
 	}
-	ws := newRealtimeWebSocketAt(config.Model, apiKey, endpoint)
+	ws := newRealtimeWebSocketAt(config.Model, apiKey, endpoint, opts.dialHeaders)
 	if err := ws.ConnectWithRetry(sessionCtx); err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to connect: %w", err)

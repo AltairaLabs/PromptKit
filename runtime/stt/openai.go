@@ -374,7 +374,10 @@ func (s *OpenAIService) doTranscriptionRequest(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+s.APIKey)
+	if s.APIKey != "" {
+		// Empty when a platform credential authenticates through the client.
+		req.Header.Set("Authorization", "Bearer "+s.APIKey)
+	}
 	req.Header.Set("Content-Type", contentType)
 
 	resp, err := s.Client.Do(req)
