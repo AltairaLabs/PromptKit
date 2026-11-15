@@ -309,7 +309,7 @@ var (
 ```
 
 <a name="APIKeyFromCredential"></a>
-## func [APIKeyFromCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/factory.go#L73>)
+## func [APIKeyFromCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/factory.go#L68>)
 
 ```go
 func APIKeyFromCredential(c credentials.Credential) string
@@ -346,7 +346,7 @@ CostInfoToMetaMap is kept here as a deprecated alias for back\-compat with exist
 Deprecated: use base.CostInfoToMetaMap.
 
 <a name="PricingFromSpec"></a>
-## func [PricingFromSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/factory.go#L78>)
+## func [PricingFromSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/factory.go#L73>)
 
 ```go
 func PricingFromSpec(spec ProviderSpec) *base.PricingDescriptor
@@ -391,13 +391,13 @@ func ResolveCredential(ctx context.Context, providerType string, cfgDir string, 
 ResolveCredential is a thin wrapper around base.ResolveCredential, kept here for back\-compat with callers that resolve TTS\-specific credential configs.
 
 <a name="ResolveCredentialForPlatform"></a>
-## func [ResolveCredentialForPlatform](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/factory.go#L59-L65>)
+## func [ResolveCredentialForPlatform](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/factory.go#L57-L63>)
 
 ```go
 func ResolveCredentialForPlatform(ctx context.Context, providerType string, cfgDir string, cred *credentials.CredentialConfig, platform *credentials.PlatformConfig) (credentials.Credential, error)
 ```
 
-ResolveCredentialForPlatform resolves the credential a spec is built with. For a platform providerType runs on, that is the platform's credential chain; otherwise the platform is not consulted, so a provider that cannot run there still authenticates to its own API \(CreateFromSpec then warns that the platform is ignored\).
+ResolveCredentialForPlatform resolves the credential a spec is built with: the platform's chain for a platform providerType runs on, its own credential otherwise \(see base.FactoryRegistry.ResolveCredential\).
 
 <a name="SynthesizeWithRetry"></a>
 ## func [SynthesizeWithRetry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/retry.go#L48-L54>)

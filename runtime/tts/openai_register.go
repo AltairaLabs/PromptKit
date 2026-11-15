@@ -13,18 +13,11 @@ func init() {
 		if spec.BaseURL != "" {
 			opts = append(opts, base.WithBaseURL(spec.BaseURL))
 		}
-		apiKey := APIKeyFromCredential(spec.Credential)
-		if spec.Platform != nil {
-			// Only azure is registered: the platform credential authenticates
-			// through the client, so no static key is sent.
-			platformOpts, err := base.AzureOpenAIServiceOptions(&spec, defaultOpenAITimeout)
-			if err != nil {
-				return nil, err
-			}
-			opts = append(opts, platformOpts...)
-			apiKey = ""
+		authOpts, apiKey, err := base.OpenAIWireAuth(&spec, defaultOpenAITimeout)
+		if err != nil {
+			return nil, err
 		}
-		svc := NewOpenAI(apiKey, opts...)
+		svc := NewOpenAI(apiKey, append(opts, authOpts...)...)
 		if p := PricingFromSpec(spec); p != nil {
 			svc.SetPricing(p)
 		}

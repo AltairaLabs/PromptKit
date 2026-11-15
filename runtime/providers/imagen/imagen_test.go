@@ -829,7 +829,6 @@ func TestImagenProvider_Pricing(t *testing.T) {
 	}
 }
 
-
 // TestPredictCostInfoUnifiedFields verifies that the new unified CostInfo fields are
 // populated correctly on a successful Predict call.
 func TestPredictCostInfoUnifiedFields(t *testing.T) {

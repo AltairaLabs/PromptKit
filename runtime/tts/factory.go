@@ -51,11 +51,9 @@ func RegisterPlatforms(providerType string, platforms ...string) {
 	ttsRegistry.RegisterPlatforms(providerType, platforms...)
 }
 
-// ResolveCredentialForPlatform resolves the credential a spec is built with.
-// For a platform providerType runs on, that is the platform's credential
-// chain; otherwise the platform is not consulted, so a provider that cannot
-// run there still authenticates to its own API (CreateFromSpec then warns
-// that the platform is ignored).
+// ResolveCredentialForPlatform resolves the credential a spec is built with:
+// the platform's chain for a platform providerType runs on, its own
+// credential otherwise (see base.FactoryRegistry.ResolveCredential).
 func ResolveCredentialForPlatform(
 	ctx context.Context,
 	providerType string,
@@ -63,10 +61,7 @@ func ResolveCredentialForPlatform(
 	cred *credentials.CredentialConfig,
 	platform *credentials.PlatformConfig,
 ) (credentials.Credential, error) {
-	if platform == nil || !ttsRegistry.SupportsPlatform(providerType, platform.Type) {
-		return base.ResolveCredential(ctx, providerType, cfgDir, cred)
-	}
-	return base.ResolveCredentialForPlatform(ctx, providerType, cfgDir, cred, platform)
+	return ttsRegistry.ResolveCredential(ctx, providerType, cfgDir, cred, platform)
 }
 
 // APIKeyFromCredential returns the raw API key from an APIKey credential.

@@ -16,6 +16,7 @@ import (
 	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/vllm"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -143,4 +144,34 @@ func TestConv_InferenceProviderPlatformIsIgnoredWithAWarning(t *testing.T) {
 	require.Len(t, reqs, 1)
 	convAssertSpecOnWire(t, reqs[0])
 	assert.Contains(t, logs.String(), "type=openai platform=azure")
+}
+
+// A self-hosted type no platform hosts keeps authenticating with its own key
+// when its spec names a platform: the platform's credential chain is never
+// consulted, so no platform token reaches the self-hosted endpoint.
+func TestConv_UnhostedTypeKeepsItsOwnCredentialUnderAPlatform(t *testing.T) {
+	convAzureManagedIdentity(t)
+	w := newConvWire(t, convWireReply{Text: "local"})
+	spec := convSpecFor(w, "local", "llama3")
+	spec.Type = "vllm"
+	spec.Platform = &pkgconfig.PlatformConfig{Type: "azure", Endpoint: "https://res.openai.azure.com"}
+	conv, err := Open(createTestPackFile(t, convChatPack), "chat", WithSkipSchemaValidation(), WithLLMProvider(spec))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conv.Close() })
+	_, _ = conv.Send(context.Background(), "hi")
+
+	assert.Equal(t, "Bearer spec-key", w.lastChat(t).Header.Get("Authorization"))
+}
+
+// An ollama embedding provider under a platform builds without touching the
+// platform's credential chain, which here cannot even be constructed.
+func TestConv_UnhostedEmbeddingIgnoresThePlatformCredentialChain(t *testing.T) {
+	t.Setenv("AZURE_TOKEN_CREDENTIALS", "NotACredentialType")
+	c := &config{}
+	err := WithEmbeddingProvider(ProviderSpec{
+		ID: "emb", Type: "ollama", Model: "nomic-embed-text", BaseURL: "http://127.0.0.1:1",
+		Platform: &pkgconfig.PlatformConfig{Type: "azure", Endpoint: "https://res.openai.azure.com"},
+	})(c)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"emb"}, c.embeddingProviderIDs)
 }

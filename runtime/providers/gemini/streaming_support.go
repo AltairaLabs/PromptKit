@@ -240,6 +240,9 @@ func (p *Provider) applyToolsConfig(tools []providers.StreamingToolDefinition, c
 
 // SupportsStreamInput returns the media types supported for streaming input
 func (p *Provider) SupportsStreamInput() []string {
+	if p.platform != "" {
+		return []string{} // CreateStreamSession refuses a platform provider
+	}
 	return []string{types.ContentTypeAudio, types.ContentTypeVideo, types.ContentTypeImage}
 }
 

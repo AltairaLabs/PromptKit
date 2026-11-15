@@ -160,14 +160,6 @@ func TestFactoryRegistry_PlatformReachesOnlyDeclaredTypes(t *testing.T) {
 	assert.False(t, r.SupportsPlatform("hosted", "vertex"))
 }
 
-// With a platform, the credential is the platform's chain, not an API key.
-func TestResolveCredentialForPlatform_ResolvesThePlatformCredential(t *testing.T) {
-	cred, err := base.ResolveCredentialForPlatform(context.Background(), "openai", "", nil,
-		&credentials.PlatformConfig{Type: "azure", Endpoint: "https://res.openai.azure.com"})
-	require.NoError(t, err)
-	assert.Equal(t, "azure", cred.Type())
-}
-
 // HTTP tuning wraps the connection under the credential layer: a tuned
 // client sends the provider file's headers and still authenticates.
 func TestAzureHTTPClient_TuningKeepsTheCredential(t *testing.T) {
@@ -187,4 +179,66 @@ func TestAzureHTTPClient_TuningKeepsTheCredential(t *testing.T) {
 	_ = resp.Body.Close()
 	assert.Equal(t, "Bearer tok-1", gotAuth)
 	assert.Equal(t, "acme", gotTenant)
+}
+
+// A platform's type matches case-insensitively, as the credential resolver
+// does; a platform block with no type hosts nothing, and is dropped with a
+// warning rather than steering the factory onto a platform path.
+func TestFactoryRegistry_PlatformTypeMatching(t *testing.T) {
+	var logs bytes.Buffer
+	logger.SetLogger(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { logger.SetLogger(nil) })
+
+	r := base.NewFactoryRegistry[*credentials.PlatformConfig]()
+	r.Register("hosted", func(spec base.CapabilitySpec) (*credentials.PlatformConfig, error) { return spec.Platform, nil })
+	r.RegisterPlatforms("hosted", "azure")
+
+	capitalized := &credentials.PlatformConfig{Type: "Azure", Endpoint: "https://res"}
+	got, err := r.Create(base.CapabilitySpec{ID: "a", Type: "hosted", Platform: capitalized})
+	require.NoError(t, err)
+	assert.Same(t, capitalized, got)
+
+	got, err = r.Create(base.CapabilitySpec{ID: "b", Type: "hosted",
+		Platform: &credentials.PlatformConfig{Endpoint: "https://res"}})
+	require.NoError(t, err)
+	assert.Nil(t, got)
+	assert.Contains(t, logs.String(), `provider=b type=hosted platform=""`)
+}
+
+// The registry resolves a declared platform's credential chain, and the
+// type's own key otherwise.
+func TestFactoryRegistry_ResolveCredential(t *testing.T) {
+	r := base.NewFactoryRegistry[*credentials.PlatformConfig]()
+	r.RegisterPlatforms("openai", "azure")
+	ctx := context.Background()
+	key := &credentials.CredentialConfig{APIKey: "own-key"}
+
+	cred, err := r.ResolveCredential(ctx, "openai", "", key,
+		&credentials.PlatformConfig{Type: "azure", Endpoint: "https://res.openai.azure.com"})
+	require.NoError(t, err)
+	assert.Equal(t, "azure", cred.Type())
+
+	cred, err = r.ResolveCredential(ctx, "openai", "", key, &credentials.PlatformConfig{Type: "vertex"})
+	require.NoError(t, err)
+	assert.Equal(t, "own-key", base.APIKeyFromCredential(cred))
+}
+
+// OpenAIWireAuth returns the static key for an unhosted spec, and for an
+// Azure one the platform client and no key.
+func TestOpenAIWireAuth(t *testing.T) {
+	opts, key, err := base.OpenAIWireAuth(&base.CapabilitySpec{Type: "openai",
+		Credential: credentials.NewAPIKeyCredential("sk")}, time.Second)
+	require.NoError(t, err)
+	assert.Equal(t, "sk", key)
+	assert.Empty(t, opts)
+
+	srv, seen := recordingServer(t)
+	opts, key, err = base.OpenAIWireAuth(&base.CapabilitySpec{Type: "openai", Model: "dep",
+		Credential: &countingToken{}, Platform: &credentials.PlatformConfig{Type: "azure", Endpoint: srv.URL}}, time.Second)
+	require.NoError(t, err)
+	assert.Empty(t, key)
+	_, fields := base.NewHTTPService(key, base.HTTPServiceDefaults{BaseURL: "https://api.openai.com/v1"}, opts...)
+	send(t, fields, "/audio/transcriptions")
+	require.Len(t, *seen, 1)
+	assert.Equal(t, "/openai/deployments/dep/audio/transcriptions", (*seen)[0].Path)
 }

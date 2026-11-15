@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
@@ -71,11 +72,31 @@ func (r *FactoryRegistry[T]) SupportsPlatform(implType, platform string) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, p := range r.platforms[implType] {
-		if p == platform {
+		// Case-insensitive, as the credential resolver matches it.
+		if strings.EqualFold(p, platform) {
 			return true
 		}
 	}
 	return false
+}
+
+// ResolveCredential resolves the credential a spec of implType is built with.
+// For a platform implType declares, that is the platform's credential chain
+// (an Entra token, say); otherwise the platform is not consulted, so a type
+// that cannot run there still authenticates to its own API, and Create
+// warns that the platform is ignored.
+func (r *FactoryRegistry[T]) ResolveCredential(
+	ctx context.Context,
+	implType string,
+	cfgDir string,
+	cred *credentials.CredentialConfig,
+	platform *credentials.PlatformConfig,
+) (credentials.Credential, error) {
+	cfg := credentials.ResolverConfig{ProviderType: implType, CredentialConfig: cred, ConfigDir: cfgDir}
+	if platform != nil && r.SupportsPlatform(implType, platform.Type) {
+		cfg.PlatformConfig = platform
+	}
+	return credentials.Resolve(ctx, cfg)
 }
 
 // Register adds a factory under the given implementation type.
@@ -112,7 +133,7 @@ func (r *FactoryRegistry[T]) Create(spec CapabilitySpec) (T, error) {
 	if !ok {
 		return zero, fmt.Errorf("unsupported provider type: %s", spec.Type)
 	}
-	if spec.Platform != nil && spec.Platform.Type != "" && !r.SupportsPlatform(spec.Type, spec.Platform.Type) {
+	if spec.Platform != nil && !r.SupportsPlatform(spec.Type, spec.Platform.Type) {
 		// Built as before, against the provider's own API, so a config that
 		// works with its own key keeps working; the warning says the platform
 		// had no effect.
@@ -149,24 +170,6 @@ func ResolveCredential(
 func WarnPlatformIgnored(id, providerType, platform string) {
 	logger.Warn("provider type does not run on this platform; the platform is ignored",
 		"provider", id, "type", providerType, "platform", platform)
-}
-
-// ResolveCredentialForPlatform is ResolveCredential for a provider that may be
-// platform-hosted: when platform is set it resolves the platform's credential
-// chain (an Azure Entra token, say) instead of the provider's API key.
-func ResolveCredentialForPlatform(
-	ctx context.Context,
-	providerType string,
-	cfgDir string,
-	cred *credentials.CredentialConfig,
-	platform *credentials.PlatformConfig,
-) (credentials.Credential, error) {
-	return credentials.Resolve(ctx, credentials.ResolverConfig{
-		ProviderType:     providerType,
-		CredentialConfig: cred,
-		ConfigDir:        cfgDir,
-		PlatformConfig:   platform,
-	})
 }
 
 // APIKeyFromCredential returns the raw API key from an APIKey credential, or

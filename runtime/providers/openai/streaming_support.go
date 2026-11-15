@@ -138,6 +138,9 @@ func (p *Provider) applyStreamTools(tools []providers.StreamingToolDefinition, c
 
 // SupportsStreamInput returns the media types supported for streaming input.
 func (p *Provider) SupportsStreamInput() []string {
+	if _, err := p.realtimeDial(); err != nil {
+		return []string{} // a session on this platform is refused
+	}
 	// Only return audio if the model supports realtime
 	if strings.Contains(p.model, "realtime") {
 		return []string{types.ContentTypeAudio}

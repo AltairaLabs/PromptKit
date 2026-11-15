@@ -147,7 +147,7 @@ func TestRealtime_AzurePlatformNeedsEndpointAndCredential(t *testing.T) {
 		"bad endpoint": {
 			ProviderConfig{Model: "d", Credential: &tokenCredential{}, Platform: "azure",
 				PlatformConfig: &providers.PlatformConfig{Type: "azure", Endpoint: "res.openai.azure.com"}},
-			`OpenAI realtime on azure: invalid platform endpoint "res.openai.azure.com"`,
+			`OpenAI realtime on azure: invalid endpoint "res.openai.azure.com/openai/deployments/d"`,
 		},
 	}
 	for name, tc := range cases {
@@ -167,4 +167,36 @@ func TestAzureRealtimeEndpoint_UsesTheResourceHost(t *testing.T) {
 	got, err := azureRealtimeEndpoint("https://res.openai.azure.com/openai/deployments/old")
 	require.NoError(t, err)
 	assert.Equal(t, "wss://res.openai.azure.com/openai/v1/realtime", got)
+}
+
+// An Azure provider fronted by a gateway (base_url) opens its realtime
+// session through that gateway, as its chat requests do, not straight to the
+// resource host.
+func TestRealtime_AzurePlatformHonorsTheBaseURL(t *testing.T) {
+	gateway, handshakes := newHandshakeServer(t)
+	p := NewProviderFromConfig(&ProviderConfig{
+		ID: "azure-realtime", Model: "dep", BaseURL: gateway.URL + "/openai/deployments/dep",
+		Credential: &tokenCredential{}, Platform: "azure",
+		PlatformConfig: &providers.PlatformConfig{Type: "azure", Endpoint: "https://private.openai.azure.com"},
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	session, err := p.CreateStreamSession(ctx, audioStreamRequest())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = session.Close() })
+
+	got := handshakes()
+	require.Len(t, got, 1)
+	assert.Equal(t, "/openai/v1/realtime", got[0].Path)
+}
+
+// Stream input is advertised exactly where a realtime session can open.
+func TestRealtime_StreamInputFollowsThePlatform(t *testing.T) {
+	azure := NewProviderFromConfig(&ProviderConfig{ID: "a", Model: "gpt-realtime", Credential: &tokenCredential{},
+		Platform: "azure", PlatformConfig: &providers.PlatformConfig{Type: "azure", Endpoint: "https://res.openai.azure.com"}})
+	assert.Equal(t, []string{types.ContentTypeAudio}, azure.SupportsStreamInput())
+
+	vertex := NewProviderFromConfig(&ProviderConfig{ID: "v", Model: "gpt-realtime", Credential: &tokenCredential{},
+		Platform: "vertex", PlatformConfig: &providers.PlatformConfig{Type: "vertex", Project: "p", Region: "r"}})
+	assert.Empty(t, vertex.SupportsStreamInput())
 }

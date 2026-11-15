@@ -13,7 +13,7 @@ func init() {
 	// API: on Vertex it sent the GCP token to the Gemini API host, so refuse
 	// it there. No other platform hosts it; those are ignored with a warning.
 	providers.RegisterProviderFactory("imagen", providers.RejectPlatforms(map[string]bool{"vertex": true},
-		providers.IgnorePlatforms(func(spec providers.ProviderSpec) (providers.Provider, error) {
+		providers.IgnorePlatforms("imagen", func(spec providers.ProviderSpec) (providers.Provider, error) {
 			// Resolve API key. Construction must not fail when the key is
 			// absent — the provider is registered in the engine's provider
 			// registry at startup regardless of whether anyone will use it.

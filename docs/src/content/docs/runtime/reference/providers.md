@@ -45,6 +45,7 @@ The package provides:
 - [func HasImageSupport\(p Provider\) bool](<#HasImageSupport>)
 - [func HasVideoSupport\(p Provider\) bool](<#HasVideoSupport>)
 - [func HostFromURL\(raw string\) string](<#HostFromURL>)
+- [func IgnoresPlatform\(providerType string\) bool](<#IgnoresPlatform>)
 - [func IntFromConfig\(cfg map\[string\]any, key string\) \(int, bool\)](<#IntFromConfig>)
 - [func IsFormatSupported\(p Provider, contentType, mimeType string\) bool](<#IsFormatSupported>)
 - [func IsRetryableStreamError\(err error\) bool](<#IsRetryableStreamError>)
@@ -97,7 +98,6 @@ The package provides:
 - [func ValidatePredictReturnsLatency\(t \*testing.T, provider Provider\)](<#ValidatePredictReturnsLatency>)
 - [func ValidatePredictWithToolsReturnsLatency\(t \*testing.T, provider Provider\)](<#ValidatePredictWithToolsReturnsLatency>)
 - [func ValidateSamplingParamsAccepted\(t \*testing.T, provider Provider\)](<#ValidateSamplingParamsAccepted>)
-- [func WarnPlatformIgnored\(id, providerType, platform string\)](<#WarnPlatformIgnored>)
 - [func WarnUnsentParams\(providerID string, req \*PredictionRequest, params ...string\)](<#WarnUnsentParams>)
 - [type AudioStreamingCapabilities](<#AudioStreamingCapabilities>)
 - [type BargeInSignal](<#BargeInSignal>)
@@ -193,6 +193,7 @@ The package provides:
 - [type EmbeddingProvider](<#EmbeddingProvider>)
   - [func CreateEmbeddingProviderFromSpec\(spec EmbeddingProviderSpec\) \(EmbeddingProvider, error\)](<#CreateEmbeddingProviderFromSpec>)
 - [type EmbeddingProviderFactory](<#EmbeddingProviderFactory>)
+  - [func IgnoreEmbeddingPlatforms\(providerType string, inner EmbeddingProviderFactory\) EmbeddingProviderFactory](<#IgnoreEmbeddingPlatforms>)
 - [type EmbeddingProviderSpec](<#EmbeddingProviderSpec>)
 - [type EmbeddingRequest](<#EmbeddingRequest>)
 - [type EmbeddingResponse](<#EmbeddingResponse>)
@@ -259,7 +260,7 @@ The package provides:
 - [type ProviderDefaults](<#ProviderDefaults>)
 - [type ProviderFactory](<#ProviderFactory>)
   - [func CredentialFactory\(withCred, withoutCred ProviderFactory\) ProviderFactory](<#CredentialFactory>)
-  - [func IgnorePlatforms\(inner ProviderFactory\) ProviderFactory](<#IgnorePlatforms>)
+  - [func IgnorePlatforms\(providerType string, inner ProviderFactory\) ProviderFactory](<#IgnorePlatforms>)
   - [func RejectPlatforms\(rejected map\[string\]bool, inner ProviderFactory\) ProviderFactory](<#RejectPlatforms>)
 - [type ProviderHTTPError](<#ProviderHTTPError>)
   - [func \(e \*ProviderHTTPError\) Error\(\) string](<#ProviderHTTPError.Error>)
@@ -619,7 +620,7 @@ var ErrStreamIdleTimeout = errors.New("stream idle timeout: no data received")
 ```
 
 <a name="APIKeyFromCredential"></a>
-## func [APIKeyFromCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/embedding_factory.go#L129>)
+## func [APIKeyFromCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/embedding_factory.go#L133>)
 
 ```go
 func APIKeyFromCredential(c credentials.Credential) string
@@ -775,8 +776,17 @@ func HostFromURL(raw string) string
 
 HostFromURL extracts only the host portion \(without scheme or path\) from a URL string, intended for use as a Prometheus label on streaming metrics. It returns an empty string on a parse error or when the URL has no host; callers treat an empty label as an unknown host.
 
+<a name="IgnoresPlatform"></a>
+## func [IgnoresPlatform](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L630>)
+
+```go
+func IgnoresPlatform(providerType string) bool
+```
+
+IgnoresPlatform reports whether no platform hosts providerType \(a self\-hosted server, say\). A spec's platform then must not choose its credential: resolve the type's own credential and leave the platform out.
+
 <a name="IntFromConfig"></a>
-## func [IntFromConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/embedding_factory.go#L142>)
+## func [IntFromConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/embedding_factory.go#L146>)
 
 ```go
 func IntFromConfig(cfg map[string]any, key string) (int, bool)
@@ -1260,15 +1270,6 @@ func ValidateSamplingParamsAccepted(t *testing.T, provider Provider)
 ```
 
 ValidateSamplingParamsAccepted sends every sampling parameter a prompt can set \(an explicit temperature of 0, top\_p, both penalties and top\_k\) down each request path, and fails on any API error. Unlike the other contract checks it does not skip on an error: a 400 here means the provider sends a parameter its API rejects, which is what this guards. Exported so a provider can run it against extra configurations \(another API mode, a thinking model\).
-
-<a name="WarnPlatformIgnored"></a>
-## func [WarnPlatformIgnored](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L641>)
-
-```go
-func WarnPlatformIgnored(id, providerType, platform string)
-```
-
-WarnPlatformIgnored logs that a provider type runs on no platform, so the one its spec names has no effect. The message is shared by every role.
 
 <a name="WarnUnsentParams"></a>
 ## func [WarnUnsentParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider.go#L114>)
@@ -2271,6 +2272,15 @@ EmbeddingProviderFactory builds an EmbeddingProvider from a spec. Per\-provider 
 type EmbeddingProviderFactory func(spec EmbeddingProviderSpec) (EmbeddingProvider, error)
 ```
 
+<a name="IgnoreEmbeddingPlatforms"></a>
+### func [IgnoreEmbeddingPlatforms](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L652>)
+
+```go
+func IgnoreEmbeddingPlatforms(providerType string, inner EmbeddingProviderFactory) EmbeddingProviderFactory
+```
+
+IgnoreEmbeddingPlatforms is IgnorePlatforms for an embedding factory.
+
 <a name="EmbeddingProviderSpec"></a>
 ## type [EmbeddingProviderSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/embedding_factory.go#L18-L46>)
 
@@ -3239,7 +3249,7 @@ type ProviderFactory func(spec ProviderSpec) (Provider, error)
 ```
 
 <a name="CredentialFactory"></a>
-### func [CredentialFactory](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L665>)
+### func [CredentialFactory](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L683>)
 
 ```go
 func CredentialFactory(withCred, withoutCred ProviderFactory) ProviderFactory
@@ -3261,13 +3271,13 @@ providers.RegisterProviderFactory("claude", providers.CredentialFactory(
 ```
 
 <a name="IgnorePlatforms"></a>
-### func [IgnorePlatforms](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L629>)
+### func [IgnorePlatforms](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L640>)
 
 ```go
-func IgnorePlatforms(inner ProviderFactory) ProviderFactory
+func IgnorePlatforms(providerType string, inner ProviderFactory) ProviderFactory
 ```
 
-IgnorePlatforms wraps a factory for a provider type no platform hosts \(a self\-hosted server, say\). A spec that names a platform is built without it, against its own endpoint, with a warning that the platform had no effect: such a config works today only because the platform was never read, so it keeps working but is no longer silent.
+IgnorePlatforms wraps the factory of a provider type no platform hosts and records the type for IgnoresPlatform. A spec that names a platform is built without it, against its own endpoint, with a warning that the platform had no effect: such a config works only because the platform was never read, so it keeps working but is no longer silent.
 
 <a name="RejectPlatforms"></a>
 ### func [RejectPlatforms](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L612>)
@@ -3417,7 +3427,7 @@ type ProviderSpec struct {
 ```
 
 <a name="ProviderSpec.HasCredential"></a>
-### func \(\*ProviderSpec\) [HasCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L648>)
+### func \(\*ProviderSpec\) [HasCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L666>)
 
 ```go
 func (s *ProviderSpec) HasCredential() bool

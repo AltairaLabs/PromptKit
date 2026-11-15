@@ -113,6 +113,10 @@ func CreateEmbeddingProviderFromSpec(spec EmbeddingProviderSpec) (EmbeddingProvi
 func ResolveEmbeddingCredential(ctx context.Context, providerType string,
 	cfgDir string, cred *credentials.CredentialConfig, platform *credentials.PlatformConfig,
 ) (credentials.Credential, error) {
+	if IgnoresPlatform(providerType) {
+		// No platform hosts the type: it authenticates with its own credential.
+		platform = nil
+	}
 	return credentials.Resolve(ctx, credentials.ResolverConfig{
 		ProviderType:     providerType,
 		CredentialConfig: cred,

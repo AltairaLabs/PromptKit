@@ -620,7 +620,11 @@ func createProviderFromConfig(
 			Endpoint:         p.Platform.Endpoint,
 			AdditionalConfig: p.Platform.AdditionalConfig,
 		}
-		resolverCfg.PlatformConfig = p.Platform
+		if !providers.IgnoresPlatform(p.Type) {
+			// A type no platform hosts keeps its own credential; its
+			// factory warns that the platform is ignored.
+			resolverCfg.PlatformConfig = p.Platform
+		}
 	}
 
 	cred, err := credentials.Resolve(ctx, resolverCfg)

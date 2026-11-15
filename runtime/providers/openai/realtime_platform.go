@@ -39,14 +39,21 @@ func (p *Provider) realtimeDial() (realtimeDial, error) {
 // azureRealtimeDial targets the resource's GA realtime route and authenticates
 // each handshake with the platform credential, fetched at dial time so an
 // expiring Entra token is never reused from when the provider was built.
+//
+// The host is the provider's base URL, which is the resource's deployment URL
+// unless a gateway (base_url) fronts it, so the session goes where chat does.
 func (p *Provider) azureRealtimeDial() (realtimeDial, error) {
-	if p.platformConfig == nil || p.platformConfig.Endpoint == "" {
+	resource := p.baseURL
+	if resource == "" && p.platformConfig != nil {
+		resource = p.platformConfig.Endpoint
+	}
+	if resource == "" {
 		return realtimeDial{}, fmt.Errorf("OpenAI realtime on azure needs the platform endpoint")
 	}
 	if p.credential == nil {
 		return realtimeDial{}, fmt.Errorf("OpenAI realtime on azure needs a platform credential")
 	}
-	endpoint, err := azureRealtimeEndpoint(p.platformConfig.Endpoint)
+	endpoint, err := azureRealtimeEndpoint(resource)
 	if err != nil {
 		return realtimeDial{}, err
 	}
@@ -58,7 +65,7 @@ func (p *Provider) azureRealtimeDial() (realtimeDial, error) {
 func azureRealtimeEndpoint(resource string) (string, error) {
 	u, err := url.Parse(resource)
 	if err != nil || u.Host == "" {
-		return "", fmt.Errorf("OpenAI realtime on azure: invalid platform endpoint %q", resource)
+		return "", fmt.Errorf("OpenAI realtime on azure: invalid endpoint %q", resource)
 	}
 	scheme := "wss"
 	if u.Scheme == "http" || u.Scheme == "ws" {

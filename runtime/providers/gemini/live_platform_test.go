@@ -42,3 +42,10 @@ func TestLive_VertexPlatformIsRejectedBeforeDialing(t *testing.T) {
 	assert.Equal(t, `live sessions are not available on platform "vertex": Gemini Live runs on the Gemini API only`, err.Error())
 	assert.False(t, dialed)
 }
+
+// A provider whose Live sessions are refused does not advertise stream input.
+func TestLive_VertexPlatformAdvertisesNoStreamInput(t *testing.T) {
+	p := NewProviderWithCredential("live", "gemini-3.8-live", "", providers.ProviderDefaults{}, false,
+		vertexToken{}, "vertex", &providers.PlatformConfig{Type: "vertex", Project: "proj", Region: "us-central1"})
+	assert.Empty(t, p.SupportsStreamInput())
+}

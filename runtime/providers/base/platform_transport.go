@@ -104,3 +104,18 @@ func AzureOpenAIServiceOptions(spec *CapabilitySpec, timeout time.Duration) ([]H
 		WithBaseURL(baseURL),
 	}, nil
 }
+
+// OpenAIWireAuth returns how an OpenAI-wire HTTP service (TTS, STT) built
+// from spec authenticates: the static API key, or, for a spec Create left a
+// platform on (azure is the only one these services declare), the options
+// that host it there and no key.
+func OpenAIWireAuth(spec *CapabilitySpec, timeout time.Duration) ([]HTTPServiceOption, string, error) {
+	if spec.Platform == nil {
+		return nil, APIKeyFromCredential(spec.Credential), nil
+	}
+	opts, err := AzureOpenAIServiceOptions(spec, timeout)
+	if err != nil {
+		return nil, "", err
+	}
+	return opts, "", nil
+}
