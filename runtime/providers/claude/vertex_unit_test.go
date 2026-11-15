@@ -266,3 +266,12 @@ func TestProvider_MessagesURL_NoDoubledSegments(t *testing.T) {
 		}
 	}
 }
+
+// The us multi-region is served on its .rep. host.
+func TestVertexAnthropicEndpoint_MultiRegion(t *testing.T) {
+	got := vertexAnthropicEndpoint("us", "my-project")
+	want := "https://aiplatform.us.rep.googleapis.com/v1/projects/my-project/locations/us/publishers/anthropic/models"
+	if got != want {
+		t.Errorf("vertexAnthropicEndpoint = %q, want %q", got, want)
+	}
+}

@@ -204,3 +204,12 @@ func applyAuthCredential(ctx context.Context, p *Provider, req *http.Request) er
 	}
 	return cred.Apply(ctx, req)
 }
+
+// The global location is served on the bare Vertex host.
+func TestVertexGeminiEndpoint_Global(t *testing.T) {
+	got := vertexGeminiEndpoint("global", "my-project")
+	want := "https://aiplatform.googleapis.com/v1/projects/my-project/locations/global/publishers/google/models"
+	if got != want {
+		t.Errorf("vertexGeminiEndpoint = %q, want %q", got, want)
+	}
+}

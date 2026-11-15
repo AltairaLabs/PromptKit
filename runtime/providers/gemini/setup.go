@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -55,10 +56,14 @@ func buildSetupMessage(config *StreamSessionConfig, modalities []string) map[str
 	}
 }
 
-// getModelPath ensures model is in correct format: models/{model}
+// getModelPath ensures model is in correct format: models/{model}. A Vertex
+// model resource (projects/...) is already a full name and is sent as is.
 func getModelPath(model string) string {
 	if model == "" {
 		return "models/" + defaultLiveModel
+	}
+	if strings.HasPrefix(model, "projects/") {
+		return model
 	}
 	if len(model) < 7 || model[:7] != "models/" {
 		return "models/" + model

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
@@ -61,10 +62,7 @@ const (
 // trailing slash); per-call code appends `/{model}:rawPredict` (or
 // `:streamRawPredict`) to address a specific model.
 func vertexAnthropicEndpoint(region, project string) string {
-	return fmt.Sprintf(
-		"https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/anthropic/models",
-		region, project, region,
-	)
+	return credentials.VertexEndpoint(project, region)
 }
 
 // bedrockAnthropicEndpoint returns the AWS Bedrock Runtime base URL for the

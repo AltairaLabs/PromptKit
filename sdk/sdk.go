@@ -703,12 +703,10 @@ func vertexBaseURL(pc *platformConfig, provType string) string {
 	case "claude":
 		return credentials.VertexEndpoint(pc.project, pc.region)
 	case "gemini":
-		return fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models",
-			pc.region, pc.project, pc.region)
+		return credentials.VertexEmbeddingEndpoint(pc.project, pc.region) // the google publisher's models
 	default:
 		// Generic Vertex endpoint for other providers
-		return fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s",
-			pc.region, pc.project, pc.region)
+		return credentials.VertexLocationBase(pc.project, pc.region)
 	}
 }
 

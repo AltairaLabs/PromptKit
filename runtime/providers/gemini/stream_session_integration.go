@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -144,6 +145,10 @@ type StreamSessionConfig struct {
 	// OutputCostPer1K, then the built-in table for Model.
 	pricing    *base.PricingDescriptor
 	providerID string
+
+	// dialHeaders, set by the provider for a platform session, authenticates
+	// every handshake (reconnects included) in place of the API key.
+	dialHeaders func(context.Context) (http.Header, error)
 }
 
 // NewStreamSession creates a new streaming session
@@ -156,7 +161,7 @@ func NewStreamSession(ctx context.Context, wsURL, apiKey string, config *StreamS
 
 	sessionCtx, cancel := context.WithCancel(ctx)
 
-	ws := NewWebSocketManager(wsURL, apiKey)
+	ws := newWebSocketManager(wsURL, apiKey, config.dialHeaders)
 	if err := ws.ConnectWithRetry(sessionCtx); err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to connect: %w", err)
@@ -541,7 +546,7 @@ func (s *StreamSession) reconnect() bool {
 		_ = oldWS.Close()
 
 		// Create new WebSocket manager and connect (outside lock - may take time)
-		newWS := NewWebSocketManager(s.wsURL, s.apiKey)
+		newWS := newWebSocketManager(s.wsURL, s.apiKey, s.config.dialHeaders)
 		if err := newWS.ConnectWithRetry(s.ctx); err != nil {
 			logger.Warn("StreamSession: reconnection failed",
 				"attempt", attempt,

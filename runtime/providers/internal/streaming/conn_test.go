@@ -520,3 +520,39 @@ func TestConn_DialHeadersErrorFailsTheDial(t *testing.T) {
 	assert.Equal(t, "failed to build handshake headers: no token", err.Error())
 	assert.False(t, dialed.Load(), "no handshake is sent without its credential")
 }
+
+type failingCredential struct{}
+
+func (failingCredential) Apply(context.Context, *http.Request) error {
+	return errors.New("token expired")
+}
+func (failingCredential) Type() string { return "azure" }
+
+// A credential that cannot produce a token fails the dial with its cause.
+func TestCredentialDialHeaders_CredentialErrorFailsTheDial(t *testing.T) {
+	_, err := CredentialDialHeaders(failingCredential{}, "wss://res.example/ws")(context.Background())
+	require.Error(t, err)
+	assert.Equal(t, "applying azure credential: token expired", err.Error())
+}
+
+type bearerCredential struct{}
+
+func (bearerCredential) Apply(_ context.Context, req *http.Request) error {
+	req.Header.Set("Authorization", "Bearer platform-token")
+	return nil
+}
+func (bearerCredential) Type() string { return "gcp" }
+
+// The headers the credential sets are the dial headers.
+func TestCredentialDialHeaders_ReturnsTheCredentialsHeaders(t *testing.T) {
+	h, err := CredentialDialHeaders(bearerCredential{}, "wss://res.example/ws")(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, http.Header{"Authorization": {"Bearer platform-token"}}, h)
+}
+
+// A target that is not a URL fails before the credential is asked.
+func TestCredentialDialHeaders_InvalidTargetFails(t *testing.T) {
+	_, err := CredentialDialHeaders(bearerCredential{}, "://no-scheme")(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing protocol scheme")
+}

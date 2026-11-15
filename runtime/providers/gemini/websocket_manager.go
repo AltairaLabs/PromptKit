@@ -41,8 +41,19 @@ type WebSocketManager struct {
 
 // NewWebSocketManager creates a new WebSocket manager
 func NewWebSocketManager(url, apiKey string) *WebSocketManager {
+	return newWebSocketManager(url, apiKey, nil)
+}
+
+// newWebSocketManager is NewWebSocketManager with an optional per-dial header
+// source. A non-nil dialHeaders (a platform credential) authenticates every
+// handshake in place of the API key.
+func newWebSocketManager(
+	url, apiKey string, dialHeaders func(context.Context) (http.Header, error),
+) *WebSocketManager {
 	headers := http.Header{}
-	headers.Set(apiKeyHeader, apiKey)
+	if dialHeaders == nil {
+		headers.Set(apiKeyHeader, apiKey)
+	}
 
 	return &WebSocketManager{
 		url:    url,
@@ -50,6 +61,7 @@ func NewWebSocketManager(url, apiKey string) *WebSocketManager {
 		conn: streaming.NewConn(&streaming.ConnConfig{
 			URL:              url,
 			Headers:          headers,
+			DialHeaders:      dialHeaders,
 			DialTimeout:      geminiDialTimeout,
 			MaxMessageSize:   MaxMessageSize,
 			MaxRetries:       geminiMaxRetries,

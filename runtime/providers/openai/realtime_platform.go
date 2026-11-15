@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/internal/streaming"
 )
 
 // azureRealtimePath is Azure's GA realtime route. It takes the deployment as
@@ -57,7 +57,7 @@ func (p *Provider) azureRealtimeDial() (realtimeDial, error) {
 	if err != nil {
 		return realtimeDial{}, err
 	}
-	return realtimeDial{endpoint: endpoint, dialHeaders: credentialDialHeaders(p.credential, endpoint)}, nil
+	return realtimeDial{endpoint: endpoint, dialHeaders: streaming.CredentialDialHeaders(p.credential, endpoint)}, nil
 }
 
 // azureRealtimeEndpoint maps a resource endpoint (https://<res>.openai.azure.com,
@@ -72,21 +72,4 @@ func azureRealtimeEndpoint(resource string) (string, error) {
 		scheme = "ws"
 	}
 	return (&url.URL{Scheme: scheme, Host: u.Host, Path: azureRealtimePath}).String(), nil
-}
-
-// credentialDialHeaders returns a DialHeaders func that applies cred to a
-// scratch request for the endpoint and hands back the headers it set.
-func credentialDialHeaders(
-	cred providers.Credential, endpoint string,
-) func(ctx context.Context) (http.Header, error) {
-	return func(ctx context.Context) (http.Header, error) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
-		if err != nil {
-			return nil, err
-		}
-		if err := cred.Apply(ctx, req); err != nil {
-			return nil, fmt.Errorf("applying %s credential: %w", cred.Type(), err)
-		}
-		return req.Header, nil
-	}
 }
