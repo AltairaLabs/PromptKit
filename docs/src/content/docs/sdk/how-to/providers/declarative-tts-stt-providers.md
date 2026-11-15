@@ -4,16 +4,21 @@ description: Declare speech synthesis and transcription providers in RuntimeConf
 sidebar:
   order: 20
 verified:
-  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
+  commit: 871dab9b182c410568ed21bad890a9d87d74b2c2
   sources:
     - pkg/config/role.go
     - pkg/config/runtime_config.go
+    - runtime/credentials/azure.go
     - runtime/credentials/resolver.go
     - runtime/providers/base/factory.go
+    - runtime/providers/base/platform_transport.go
+    - runtime/stt/factory.go
+    - runtime/stt/openai.go
     - runtime/stt/openai_register.go
     - runtime/tts/cartesia_register.go
     - runtime/tts/elevenlabs_register.go
     - runtime/tts/factory.go
+    - runtime/tts/openai.go
     - runtime/tts/openai_register.go
     - sdk/options.go
     - sdk/provider_file.go
@@ -74,6 +79,28 @@ spec:
 
 Cartesia reads `additional_config.ws_url` as its websocket streaming endpoint.
 
+### Host OpenAI TTS or STT on Azure
+
+Add a `platform` block to an `openai` entry to call an Azure OpenAI deployment instead of the OpenAI API:
+
+```yaml
+spec:
+  providers:
+    - id: azure-voice
+      role: tts
+      type: openai
+      model: my-tts-deployment
+      platform:
+        type: azure
+        endpoint: https://my-resource.openai.azure.com
+        additional_config:
+          api_version: 2024-12-01-preview
+```
+
+`model` is the deployment name, and `platform.endpoint` is required. Requests go to `<endpoint>/openai/deployments/<model>`, under `/audio/speech` for `tts` and `/audio/transcriptions` for `stt`. The Azure credential chain authenticates each request, and no API key is sent; a `credential` block has no effect on a platform-hosted entry. `additional_config.api_version` sets the `api-version` query parameter and defaults to `2024-12-01-preview`. `base_url` overrides the deployment URL.
+
+Only `openai` declares a platform. For `elevenlabs` and `cartesia`, the platform is ignored with a warning and the provider calls its own API with its own key.
+
 ### 3. Open the conversation
 
 ```go
@@ -101,6 +128,8 @@ func init() {
 ```
 
 Side-effect import the package from your application. `stt.RegisterFactory` works the same way for speech-to-text.
+
+A factory sees `spec.Platform` only for platforms it declares with `tts.RegisterPlatforms("my_tts", "azure")` (`stt.RegisterPlatforms` for speech-to-text). For those platforms, `spec.Credential` is the platform's credential. For any other, the platform is dropped with a warning and the factory builds against its own API.
 
 ## Verify
 

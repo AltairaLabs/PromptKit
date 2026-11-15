@@ -4,8 +4,9 @@ description: How Runtime abstracts LLM services behind one interface, what each 
 sidebar:
   order: 2
 verified:
-  commit: dc6d6f37cfabc0079dd9af47c52502e83f2a85af
+  commit: 871dab9b182c410568ed21bad890a9d87d74b2c2
   sources:
+    - runtime/providers/base/factory.go
     - runtime/providers/base/types.go
     - runtime/providers/base_provider.go
     - runtime/providers/claude/claude.go
@@ -67,7 +68,7 @@ flowchart LR
 
 Import `providers/all` to register every factory, or import a single provider package to register only that type. The registered chat types are `claude`, `openai`, `gemini`, `ollama`, `vllm`, `mock` and `replay`; `imagen` registers an image provider. An unknown type fails with `UnsupportedProviderError`.
 
-Bedrock, Vertex and Azure are hosting platforms, not provider types. Set `ProviderSpec.Platform` to host a `claude`, `gemini` or `openai` model on one of them. A combination the platform vendor does not offer fails at construction with `UnsupportedProviderPlatformError`.
+Bedrock, Vertex and Azure are hosting platforms, not provider types. Set `ProviderSpec.Platform` to host a `claude`, `gemini` or `openai` model on one of them. A combination the platform vendor does not offer fails at construction with `UnsupportedProviderPlatformError`. The self-hosted `ollama` and `vllm` types, and `imagen`, run on no platform: a spec that names one is built without it, against the type's own endpoint and credential, and a warning says the platform is ignored. `providers.IgnoresPlatform(type)` reports such a type. `imagen` on Vertex is the exception and fails with `UnsupportedProviderPlatformError`.
 
 ## One request, one response
 

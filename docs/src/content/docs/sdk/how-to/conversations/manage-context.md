@@ -4,7 +4,7 @@ description: Keep long conversations inside the model's context window with a to
 sidebar:
   order: 5
 verified:
-  commit: dc6d6f37cfabc0079dd9af47c52502e83f2a85af
+  commit: 871dab9b182c410568ed21bad890a9d87d74b2c2
   sources:
     - runtime/events/types.go
     - runtime/pipeline/stage/compactor.go

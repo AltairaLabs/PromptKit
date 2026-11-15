@@ -1,14 +1,14 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/tools/register-tools.md",
- "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "commit": "871dab9b182c410568ed21bad890a9d87d74b2c2",
  "claims": [
   {
    "id": "c1",
    "claim": "OnTool handler signature is func(args map[string]any) (any, error)",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:248",
-    "sdk/conversation_tools.go:34"
+    "sdk/conversation.go:262",
+    "sdk/conversation_tools.go:40"
    ]
   },
   {
@@ -16,8 +16,9 @@
    "claim": "OnToolAsync takes a check func and exec func; a non-empty PendingResult holds the call",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:172-197",
-    "sdk/sdk.go:1045-1069"
+    "sdk/conversation_tools.go:178-199",
+    "sdk/sdk.go:1046-1085",
+    "sdk/sdk.go:967-1000"
    ]
   },
   {
@@ -31,9 +32,10 @@
    "claim": "ResolveTool/RejectTool/Continue/ResolveToolWithArgs semantics; overrides shallow-merge",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:236",
-    "sdk/conversation_tools.go:268",
-    "sdk/conversation_tools.go:321"
+    "sdk/conversation_tools.go:261",
+    "sdk/conversation_tools.go:293",
+    "sdk/conversation_tools.go:363",
+    "sdk/conversation_tools.go:395"
    ]
   },
   {
@@ -41,8 +43,8 @@
    "claim": "Default pending store is in-process; WithPendingStore injects a durable one",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:199-207",
-    "sdk/options.go:995"
+    "sdk/conversation_tools.go:224-232",
+    "sdk/options.go:999"
    ]
   },
   {
@@ -50,8 +52,8 @@
    "claim": "A resolving process must register the same OnToolAsync handler; recovered by tool name",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:213",
-    "sdk/conversation_tools.go:268"
+    "sdk/conversation_tools.go:238",
+    "sdk/conversation_tools.go:293"
    ]
   },
   {
@@ -68,7 +70,7 @@
    "claim": "conv.PendingTools(ctx) lists held calls from the store, surviving restarts",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:476-481"
+    "sdk/conversation_tools.go:525-530"
    ]
   },
   {
@@ -84,7 +86,16 @@
    "evidence": [
     "runtime/pipeline/stage/tool_call_rate.go:34",
     "runtime/pipeline/types.go:36",
-    "sdk/conversation_tools.go:268"
+    "sdk/conversation_tools.go:293"
+   ]
+  },
+  {
+   "id": "c19",
+   "claim": "",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation_tools.go:31-40",
+    "sdk/turn_gate.go:9-18"
    ]
   },
   {
@@ -98,8 +109,8 @@
    "claim": "OnToolCtx passes a context.Context",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:256",
-    "sdk/conversation_tools.go:48"
+    "sdk/conversation.go:270",
+    "sdk/conversation_tools.go:54"
    ]
   },
   {
@@ -107,7 +118,7 @@
    "claim": "OnTools registers a map of handlers",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:64-70"
+    "sdk/conversation_tools.go:70-76"
    ]
   },
   {
@@ -132,7 +143,7 @@
    "claim": "OnToolHTTP registers an HTTP tool from NewHTTPToolConfig with WithMethod/WithHeader",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:85-92"
+    "sdk/conversation_tools.go:91-98"
    ]
   },
   {
@@ -140,7 +151,7 @@
    "claim": "OnToolExecutor registers a runtime tools.Executor",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation_tools.go:103"
+    "sdk/conversation_tools.go:109"
    ]
   },
   {
@@ -149,7 +160,7 @@
    "verdict": "true",
    "evidence": [
     "sdk/a2a.go:12",
-    "sdk/options.go:1098"
+    "sdk/options.go:1102"
    ]
   }
  ]

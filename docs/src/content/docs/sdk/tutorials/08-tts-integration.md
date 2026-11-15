@@ -3,13 +3,14 @@ title: "Tutorial 8: TTS integration"
 sidebar:
   order: 8
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: 871dab9b182c410568ed21bad890a9d87d74b2c2
   sources:
     - runtime/tts/openai.go
     - runtime/tts/service.go
     - sdk/conversation.go
     - sdk/options.go
     - sdk/response.go
+    - sdk/sdk.go
 ---
 ## What we will build
 

@@ -4,7 +4,7 @@ description: Open a conversation from a pack with sdk.Open, set options, handle 
 sidebar:
   order: 1
 verified:
-  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
+  commit: 871dab9b182c410568ed21bad890a9d87d74b2c2
   sources:
     - runtime/evals/handlers/length.go
     - runtime/evals/normalize.go

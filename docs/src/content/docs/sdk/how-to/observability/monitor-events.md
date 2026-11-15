@@ -4,7 +4,7 @@ description: How to observe tool calls, provider usage, guardrails and messages 
 sidebar:
   order: 5
 verified:
-  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
+  commit: 871dab9b182c410568ed21bad890a9d87d74b2c2
   sources:
     - runtime/events/bus.go
     - runtime/events/message_created_data.go
@@ -13,6 +13,7 @@ verified:
     - runtime/pipeline/stage/stages_message_broadcast.go
     - sdk/conversation.go
     - sdk/hooks/events.go
+    - sdk/internal/pipeline/builder.go
     - sdk/options.go
     - sdk/sdk.go
 ---

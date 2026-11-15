@@ -1,13 +1,13 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/conversations/manage-context.md",
- "commit": "dc6d6f37cfabc0079dd9af47c52502e83f2a85af",
+ "commit": "871dab9b182c410568ed21bad890a9d87d74b2c2",
  "claims": [
   {
    "id": 1,
    "claim": "sdk.WithTokenBudget(n) sets the max tokens for context",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1709"
+    "sdk/options.go:1712"
    ]
   },
   {
@@ -15,8 +15,8 @@
    "claim": "older messages are truncated when history exceeds the budget",
    "verdict": "true",
    "evidence": [
-    "sdk/internal/pipeline/builder.go:601",
-    "sdk/internal/pipeline/builder.go:813"
+    "sdk/internal/pipeline/builder.go:608",
+    "sdk/internal/pipeline/builder.go:837"
    ]
   },
   {
@@ -24,8 +24,8 @@
    "claim": "sliding window removes oldest first and is the default strategy",
    "verdict": "true",
    "evidence": [
-    "sdk/internal/pipeline/builder.go:835",
-    "sdk/options.go:1721"
+    "sdk/internal/pipeline/builder.go:859",
+    "sdk/options.go:1724"
    ]
   },
   {
@@ -33,7 +33,7 @@
    "claim": "sdk.WithTruncation(\"sliding\")",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1736"
+    "sdk/options.go:1739"
    ]
   },
   {
@@ -41,7 +41,7 @@
    "claim": "sdk.WithRelevanceTruncation(&sdk.RelevanceConfig{...}) sets strategy to relevance",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1808"
+    "sdk/options.go:1811"
    ]
   },
   {
@@ -57,8 +57,8 @@
    "claim": "MinRecentMessages default 3",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:1106",
-    "sdk/conversation.go:1993"
+    "runtime/pipeline/stage/stages_utilities.go:1293",
+    "sdk/conversation.go:2079"
    ]
   },
   {
@@ -66,7 +66,7 @@
    "claim": "SimilarityThreshold default 0.0",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:1317"
+    "runtime/pipeline/stage/stages_utilities.go:1504"
    ]
   },
   {
@@ -74,8 +74,8 @@
    "claim": "AlwaysKeepSystemRole default false",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:1201",
-    "sdk/conversation.go:1964"
+    "runtime/pipeline/stage/stages_utilities.go:1388",
+    "sdk/conversation.go:2050"
    ]
   },
   {
@@ -83,8 +83,8 @@
    "claim": "QuerySource values last_user (default), last_n, custom",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:1151",
-    "sdk/conversation.go:1985"
+    "runtime/pipeline/stage/stages_utilities.go:1338",
+    "sdk/conversation.go:2071"
    ]
   },
   {
@@ -92,7 +92,7 @@
    "claim": "LastNCount default 3 (for last_n)",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:1156"
+    "runtime/pipeline/stage/stages_utilities.go:1343"
    ]
   },
   {
@@ -100,7 +100,7 @@
    "claim": "CustomQuery is the text compared for custom",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:1152"
+    "runtime/pipeline/stage/stages_utilities.go:1339"
    ]
   },
   {
@@ -109,8 +109,8 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/relevance_embedding_cache.go:49",
-    "runtime/pipeline/stage/stages_utilities.go:694",
-    "sdk/conversation.go:1977"
+    "runtime/pipeline/stage/stages_utilities.go:724",
+    "sdk/conversation.go:2063"
    ]
   },
   {
@@ -124,7 +124,7 @@
    "claim": "The SDK batches embedding requests automatically",
    "verdict": "unverified",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:1128"
+    "runtime/pipeline/stage/stages_utilities.go:1315"
    ]
   },
   {
@@ -132,7 +132,7 @@
    "claim": "When the embedding call fails relevance truncation falls back to oldest",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:1129"
+    "runtime/pipeline/stage/stages_utilities.go:1316"
    ]
   },
   {
@@ -140,8 +140,8 @@
    "claim": "sdk.WithContextWindow(n) requires WithStateStore",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1823",
-    "sdk/sdk.go:406"
+    "sdk/options.go:1834",
+    "sdk/sdk.go:408"
    ]
   },
   {
@@ -149,7 +149,7 @@
    "claim": "Requires WithConversationID",
    "verdict": "false",
    "evidence": [
-    "sdk/sdk.go:406"
+    "sdk/sdk.go:407"
    ]
   },
   {
@@ -160,8 +160,8 @@
     "runtime/statestore/interface.go:66",
     "runtime/statestore/interface.go:79",
     "runtime/statestore/memory.go:408",
-    "runtime/statestore/redis.go:966",
-    "sdk/internal/pipeline/builder.go:749"
+    "runtime/statestore/redis.go:972",
+    "sdk/internal/pipeline/builder.go:763"
    ]
   },
   {
@@ -169,9 +169,9 @@
    "claim": "sdk.WithContextRetrieval(embProvider, topK) requires WithContextWindow and WithStateStore; a declared embedding provider enables retrieval with top-k 3",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1849",
-    "sdk/options.go:1886",
-    "sdk/sdk.go:409"
+    "sdk/options.go:1861",
+    "sdk/options.go:1889",
+    "sdk/sdk.go:411"
    ]
   },
   {
@@ -179,7 +179,7 @@
    "claim": "retrieved messages inserted chronologically between summaries and the hot window",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1873"
+    "sdk/options.go:1875"
    ]
   },
   {
@@ -187,8 +187,8 @@
    "claim": "sdk.WithAutoSummarize(provider, threshold, batchSize) requires WithContextWindow",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1913",
-    "sdk/sdk.go:414"
+    "sdk/options.go:1916",
+    "sdk/sdk.go:416"
    ]
   },
   {
@@ -196,7 +196,7 @@
    "claim": "summaries are prepended to context as system messages",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1904"
+    "sdk/options.go:1907"
    ]
   },
   {
@@ -212,8 +212,8 @@
    "claim": "compaction is on by default",
    "verdict": "true",
    "evidence": [
-    "sdk/internal/pipeline/builder.go:770",
-    "sdk/options.go:1433"
+    "sdk/internal/pipeline/builder.go:784",
+    "sdk/options.go:1436"
    ]
   },
   {
@@ -222,7 +222,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/compactor.go:11",
-    "runtime/pipeline/stage/compactor.go:142"
+    "runtime/pipeline/stage/compactor.go:144"
    ]
   },
   {
@@ -231,7 +231,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/compactor.go:12",
-    "runtime/pipeline/stage/compactor.go:176"
+    "runtime/pipeline/stage/compactor.go:178"
    ]
   },
   {
@@ -248,8 +248,8 @@
    "claim": "emits a context.compacted event",
    "verdict": "true",
    "evidence": [
-    "runtime/events/types.go:158",
-    "runtime/pipeline/stage/stages_provider.go:1230"
+    "runtime/events/types.go:161",
+    "runtime/pipeline/stage/stages_provider.go:1267"
    ]
   },
   {
@@ -257,8 +257,8 @@
    "claim": "budget auto-detected from the provider via ContextWindowProvider, else 128K; Claude, OpenAI and Gemini report per-model limits, additional_config.context_window overrides, Ollama/vLLM only via that setting, unknown model reports 0",
    "verdict": "true",
    "evidence": [
+    "runtime/pipeline/stage/compactor.go:100",
     "runtime/pipeline/stage/compactor.go:14",
-    "runtime/pipeline/stage/compactor.go:98",
     "runtime/providers/claude/context_window_table.go:132",
     "runtime/providers/ollama/context_window.go:16"
    ]
@@ -268,8 +268,8 @@
    "claim": "sdk.WithCompaction(false) disables compaction",
    "verdict": "true",
    "evidence": [
-    "sdk/internal/pipeline/builder.go:770",
-    "sdk/options.go:1433"
+    "sdk/internal/pipeline/builder.go:784",
+    "sdk/options.go:1436"
    ]
   },
   {
@@ -358,9 +358,10 @@
    "claim": "WithTruncation strategies: sliding (default), oldest, summarize (falls back to oldest without WithAutoSummarize), relevance, fail; unrecognized behaves as sliding",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:1032",
-    "sdk/internal/pipeline/builder.go:835",
-    "sdk/options.go:1736"
+    "runtime/pipeline/stage/stages_utilities.go:1009",
+    "runtime/pipeline/stage/stages_utilities.go:1210",
+    "sdk/internal/pipeline/builder.go:859",
+    "sdk/options.go:1739"
    ]
   },
   {
@@ -368,7 +369,7 @@
    "claim": "SimilarityThreshold default 0 disables it; unprotected messages scoring below it are dropped",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:1317",
+    "runtime/pipeline/stage/stages_utilities.go:1330",
     "sdk/options.go:1760"
    ]
   }

@@ -4,7 +4,7 @@ description: Load providers, tools, MCP servers, hooks, state store and logging 
 sidebar:
   order: 15
 verified:
-  commit: ffbed7c4b0fff266953352be5e73d4e308a97acf
+  commit: 871dab9b182c410568ed21bad890a9d87d74b2c2
   sources:
     - pkg/config/logging.go
     - pkg/config/runtime_config.go

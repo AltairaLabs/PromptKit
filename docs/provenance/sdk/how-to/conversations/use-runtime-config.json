@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/conversations/use-runtime-config.md",
- "commit": "ffbed7c4b0fff266953352be5e73d4e308a97acf",
+ "commit": "871dab9b182c410568ed21bad890a9d87d74b2c2",
  "claims": [
   {
    "id": 1,
@@ -13,7 +13,7 @@
    "claim": "sdk.Open function exists and accepts packPath string and promptName string",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:89"
+    "sdk/sdk.go:90"
    ]
   },
   {
@@ -30,7 +30,7 @@
    "claim": "Conversation type has Close() method",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1639"
+    "sdk/conversation.go:1675"
    ]
   },
   {
@@ -122,7 +122,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:190",
-    "sdk/runtime_config.go:566"
+    "sdk/runtime_config.go:609"
    ]
   },
   {
@@ -187,7 +187,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/execconfig/execconfig.go:41",
-    "sdk/runtime_config.go:519"
+    "sdk/runtime_config.go:521"
    ]
   },
   {
@@ -196,7 +196,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/execconfig/execconfig.go:57",
-    "sdk/runtime_config.go:522"
+    "sdk/runtime_config.go:525"
    ]
   },
   {
@@ -205,7 +205,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/execconfig/execconfig.go:51",
-    "sdk/runtime_config.go:521"
+    "sdk/runtime_config.go:524"
    ]
   },
   {
@@ -223,7 +223,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/execconfig/execconfig.go:41",
-    "sdk/runtime_config.go:537"
+    "sdk/runtime_config.go:539"
    ]
   },
   {
@@ -343,7 +343,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:62",
-    "sdk/runtime_config.go:661"
+    "sdk/runtime_config.go:665"
    ]
   },
   {
@@ -353,7 +353,7 @@
    "evidence": [
     "pkg/config/runtime_config.go:304",
     "pkg/config/types.go:62",
-    "sdk/runtime_config.go:664"
+    "sdk/runtime_config.go:668"
    ]
   },
   {
@@ -362,7 +362,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:65",
-    "sdk/runtime_config.go:668"
+    "sdk/runtime_config.go:672"
    ]
   },
   {
@@ -371,7 +371,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:90",
-    "sdk/runtime_config.go:669"
+    "sdk/runtime_config.go:673"
    ]
   },
   {
@@ -380,7 +380,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:89",
-    "sdk/runtime_config.go:669"
+    "sdk/runtime_config.go:673"
    ]
   },
   {
@@ -389,7 +389,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/types.go:99",
-    "sdk/runtime_config.go:675"
+    "sdk/runtime_config.go:679"
    ]
   },
   {
@@ -453,9 +453,9 @@
    "claim": "sdk.WithProvider can override YAML provider setting",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:508",
+    "sdk/options.go:510",
     "sdk/provider_file.go:58",
-    "sdk/sdk.go:561"
+    "sdk/sdk.go:562"
    ]
   },
   {

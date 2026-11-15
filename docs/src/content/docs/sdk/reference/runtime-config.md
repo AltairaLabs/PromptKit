@@ -4,13 +4,15 @@ description: YAML schema reference for declarative SDK configuration
 sidebar:
   order: 8
 verified:
-  commit: ffbed7c4b0fff266953352be5e73d4e308a97acf
+  commit: 871dab9b182c410568ed21bad890a9d87d74b2c2
   sources:
     - pkg/config/logging.go
     - pkg/config/provider_tuning.go
     - pkg/config/role.go
     - pkg/config/runtime_config.go
     - pkg/config/types.go
+    - runtime/credentials/azure.go
+    - runtime/credentials/gcp.go
     - runtime/credentials/resolver.go
     - runtime/credentials/resolver_platform.go
     - runtime/credentials/types.go
@@ -24,21 +26,30 @@ verified:
     - runtime/logger/config.go
     - runtime/mcp/types.go
     - runtime/providers/all/all.go
+    - runtime/providers/base/factory.go
     - runtime/providers/base/http_tuning.go
     - runtime/providers/base/llmpricing.go
+    - runtime/providers/base/platform_transport.go
     - runtime/providers/base/rate_limit_transport.go
     - runtime/providers/base_provider.go
     - runtime/providers/bedrock/embedding_register.go
+    - runtime/providers/claude/claude.go
     - runtime/providers/claude/claude_multimodal.go
     - runtime/providers/claude/pricing_table.go
     - runtime/providers/cohere/rerank_register.go
+    - runtime/providers/embedding_platform.go
+    - runtime/providers/embedding_transport.go
     - runtime/providers/gemini/embedding_register.go
+    - runtime/providers/gemini/gemini_tools.go
+    - runtime/providers/gemini/streaming_support.go
     - runtime/providers/huggingface/embedding_register.go
     - runtime/providers/imagen/factory.go
     - runtime/providers/mock/mock.go
     - runtime/providers/multimodal.go
     - runtime/providers/ollama/embedding_register.go
     - runtime/providers/openai/embedding_register.go
+    - runtime/providers/openai/openai.go
+    - runtime/providers/openai/realtime_platform.go
     - runtime/providers/provider.go
     - runtime/providers/registry.go
     - runtime/providers/replay/factory.go
@@ -54,7 +65,11 @@ verified:
     - runtime/statestore/file/store.go
     - runtime/statestore/redis.go
     - runtime/statestore/types.go
+    - runtime/stt/openai.go
+    - runtime/stt/openai_register.go
     - runtime/tools/types.go
+    - runtime/tts/openai.go
+    - runtime/tts/openai_register.go
     - sdk/exec_tools.go
     - sdk/internal/provider/detect.go
     - sdk/mcp_tool_sync.go

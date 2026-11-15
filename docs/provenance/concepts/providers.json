@@ -1,15 +1,15 @@
 {
  "page": "docs/src/content/docs/concepts/providers.md",
- "commit": "dc6d6f37cfabc0079dd9af47c52502e83f2a85af",
+ "commit": "871dab9b182c410568ed21bad890a9d87d74b2c2",
  "claims": [
   {
    "id": 1,
    "claim": "A provider is an LLM service; the page names OpenAI, Anthropic and Google as examples",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude_tools.go:992",
+    "runtime/providers/claude/claude_tools.go:987",
     "runtime/providers/gemini/gemini_tools.go:933",
-    "runtime/providers/openai/openai_tools.go:709"
+    "runtime/providers/openai/openai_tools.go:686"
    ]
   },
   {
@@ -84,8 +84,8 @@
    "claim": "image role is image generation, Predict-compatible, and eligible for the arena matrix alongside llm",
    "verdict": "unverified",
    "evidence": [
-    "runtime/providers/imagen/factory.go:12",
-    "sdk/provider_file.go:49"
+    "runtime/providers/imagen/factory.go:15-16",
+    "sdk/provider_file.go:50"
    ]
   },
   {
@@ -178,7 +178,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/credentials/resolver_platform.go:13",
-    "runtime/providers/claude/claude.go:173"
+    "runtime/providers/claude/claude.go:171"
    ]
   },
   {
@@ -195,8 +195,8 @@
    "claim": "Vertex AI supports Claude and Gemini models",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude.go:168",
-    "runtime/providers/gemini/gemini.go:135"
+    "runtime/providers/claude/claude.go:166",
+    "runtime/providers/gemini/gemini.go:133"
    ]
   },
   {
@@ -267,7 +267,7 @@
    "evidence": [
     "runtime/credentials/resolver.go:118-159",
     "runtime/credentials/resolver.go:86-102",
-    "runtime/providers/base/factory.go:105"
+    "runtime/providers/base/factory.go:161"
    ]
   },
   {
@@ -275,7 +275,7 @@
    "claim": "type value claude is a valid provider type",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude_tools.go:992"
+    "runtime/providers/claude/claude_tools.go:987"
    ]
   },
   {
@@ -285,7 +285,7 @@
    "evidence": [
     "pkg/config/types.go:191",
     "runtime/credentials/types.go:18-22",
-    "sdk/runtime_config.go:612-620"
+    "sdk/runtime_config.go:612-627"
    ]
   },
   {
@@ -295,7 +295,7 @@
    "evidence": [
     "runtime/credentials/resolver_platform.go:15",
     "runtime/credentials/types.go:24",
-    "runtime/providers/claude/claude.go:168-170"
+    "runtime/providers/claude/claude.go:166-168"
    ]
   },
   {
@@ -347,11 +347,11 @@
    "claim": "Temperature default is 1.0",
    "verdict": "false",
    "evidence": [
-    "runtime/providers/claude/claude.go:479",
-    "runtime/providers/claude/claude.go:676-678",
+    "runtime/providers/claude/claude.go:477",
+    "runtime/providers/claude/claude.go:674-676",
     "runtime/providers/provider.go:88-96",
     "sdk/conversation.go:38-41",
-    "sdk/sdk.go:643"
+    "sdk/sdk.go:644"
    ]
   },
   {
@@ -359,7 +359,7 @@
    "claim": "Temperature 0.0 gives deterministic output",
    "verdict": "false",
    "evidence": [
-    "runtime/providers/claude/claude.go:479",
+    "runtime/providers/claude/claude.go:477",
     "runtime/providers/provider.go:69-72",
     "runtime/providers/provider.go:88-96"
    ]
@@ -369,7 +369,7 @@
    "claim": "A request with MaxTokens of zero uses the provider's Defaults.MaxTokens",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude.go:684",
+    "runtime/providers/claude/claude.go:682",
     "runtime/providers/openai/openai.go:733",
     "runtime/providers/provider.go:235-245"
    ]
@@ -396,8 +396,8 @@
    "claim": "Claude sends 4096 as max tokens when no limit is set",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude.go:673",
-    "runtime/providers/claude/claude.go:684-687"
+    "runtime/providers/claude/claude.go:671",
+    "runtime/providers/claude/claude.go:682-685"
    ]
   },
   {
@@ -405,8 +405,8 @@
    "claim": "Claude provider creation rejects MaxTokensUnlimited",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude.go:688-697",
-    "runtime/providers/claude/claude_tools.go:992-997"
+    "runtime/providers/claude/claude.go:686-695",
+    "runtime/providers/claude/claude_tools.go:987-992"
    ]
   },
   {
@@ -417,7 +417,7 @@
     "runtime/providers/base/priceusage.go:46-80",
     "runtime/providers/base/units.go:8-19",
     "runtime/providers/gemini/usage_modality.go:58-73",
-    "runtime/types/message.go:242-264"
+    "runtime/types/message.go:243-265"
    ]
   },
   {
@@ -429,10 +429,10 @@
     "runtime/providers/base/llmpricing.go:29",
     "runtime/providers/base/llmpricing.go:32",
     "runtime/providers/base/llmpricing.go:52",
-    "runtime/providers/claude/claude.go:960",
-    "runtime/providers/gemini/gemini.go:368",
+    "runtime/providers/claude/claude.go:958",
+    "runtime/providers/gemini/gemini.go:366",
     "runtime/providers/openai/openai.go:837",
-    "runtime/providers/vllm/vllm.go:433"
+    "runtime/providers/vllm/vllm.go:439"
    ]
   },
   {
@@ -442,7 +442,7 @@
    "evidence": [
     "pkg/config/types.go:365",
     "runtime/providers/claude/claude.go:957",
-    "sdk/runtime_config.go:646-648"
+    "sdk/runtime_config.go:652-655"
    ]
   },
   {
@@ -452,7 +452,7 @@
    "evidence": [
     "pkg/config/types.go:366",
     "runtime/providers/claude/claude.go:957",
-    "sdk/runtime_config.go:646-648"
+    "sdk/runtime_config.go:652-655"
    ]
   },
   {
@@ -505,6 +505,19 @@
    "claim": "Google pricing link https://aistudio.google.com/docs/pricing",
    "verdict": "unverified",
    "evidence": []
+  },
+  {
+   "id": 118,
+   "claim": "",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base/factory.go:170-173",
+    "runtime/providers/imagen/factory.go:15-16",
+    "runtime/providers/ollama/ollama_tools.go:415",
+    "runtime/providers/registry.go:635-648",
+    "runtime/providers/vllm/factory.go:12",
+    "sdk/runtime_config.go:623-626"
+   ]
   }
  ]
 }
