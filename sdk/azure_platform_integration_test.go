@@ -18,13 +18,17 @@ package sdk
 
 import (
 	"context"
+	"io"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/stt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -107,4 +111,57 @@ func TestAzurePlatformProviderAcceptsFullDeploymentURL(t *testing.T) {
 		t.Error("Predict returned empty content")
 	}
 	t.Logf("Azure responded: %q", strings.TrimSpace(resp.Content))
+}
+
+// Keyless Azure TTS and STT through the spec options: speech synthesized by
+// the TTS deployment transcribes back to the same words on the transcription
+// deployment, both authenticated by the Entra token (#2677).
+//
+//	export AZURE_OPENAI_TTS_DEPLOYMENT=<gpt-4o-mini-tts or tts deployment>
+//	export AZURE_OPENAI_TRANSCRIBE_DEPLOYMENT=<gpt-4o-transcribe or whisper deployment>
+//	export AZURE_OPENAI_AUDIO_API_VERSION=<api-version>   # optional
+//
+// The caller needs Cognitive Services OpenAI User on the account (Owner has
+// no data actions). With several az accounts signed in, the CLI token comes
+// from the default subscription's tenant; set AZURE_TOKEN_CREDENTIALS=AzureCLICredential
+// and an AZURE_CONFIG_DIR whose default subscription is the account's.
+func TestAzurePlatformVoiceRoundTrip(t *testing.T) {
+	endpoint := os.Getenv("AZURE_OPENAI_ENDPOINT")
+	ttsDep, sttDep := os.Getenv("AZURE_OPENAI_TTS_DEPLOYMENT"), os.Getenv("AZURE_OPENAI_TRANSCRIBE_DEPLOYMENT")
+	if endpoint == "" || ttsDep == "" || sttDep == "" {
+		t.Skip("AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_TTS_DEPLOYMENT and AZURE_OPENAI_TRANSCRIBE_DEPLOYMENT must be set")
+	}
+	platform := &pkgconfig.PlatformConfig{Type: "azure", Endpoint: endpoint}
+	if v := os.Getenv("AZURE_OPENAI_AUDIO_API_VERSION"); v != "" {
+		platform.AdditionalConfig = map[string]any{"api_version": v}
+	}
+	c := &config{}
+	if err := WithTTSProvider(ProviderSpec{ID: "voice", Type: "openai", Model: ttsDep, Platform: platform})(c); err != nil {
+		t.Fatalf("WithTTSProvider: %v", err)
+	}
+	if err := WithSTTProvider(ProviderSpec{ID: "ears", Type: "openai", Model: sttDep, Platform: platform})(c); err != nil {
+		t.Fatalf("WithSTTProvider: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	rc, err := c.ttsService.Synthesize(ctx, "The quick brown fox jumps over the lazy dog.",
+		tts.SynthesisConfig{Voice: "alloy", Format: tts.FormatMP3})
+	if err != nil {
+		t.Fatalf("Synthesize: %v", err)
+	}
+	audio, err := io.ReadAll(rc)
+	_ = rc.Close()
+	if err != nil || len(audio) == 0 {
+		t.Fatalf("read synthesized audio (%d bytes): %v", len(audio), err)
+	}
+
+	text, err := c.sttService.TranscribeBytes(ctx, audio, stt.TranscriptionConfig{Format: "mp3"})
+	if err != nil {
+		t.Fatalf("TranscribeBytes: %v", err)
+	}
+	if !strings.Contains(strings.ToLower(text), "fox") {
+		t.Fatalf("transcript %q does not contain the synthesized words", text)
+	}
+	t.Logf("round trip: %d bytes of speech -> %q", len(audio), text)
 }

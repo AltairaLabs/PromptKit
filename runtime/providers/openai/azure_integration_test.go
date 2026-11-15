@@ -297,3 +297,57 @@ func TestAzure_CostCalculation(t *testing.T) {
 	t.Logf("Cost: input=%d tokens, output=%d tokens, total=$%.6f",
 		resp.CostInfo.InputTokens, resp.CostInfo.OutputTokens, resp.CostInfo.TotalCost)
 }
+
+// A Realtime session on a keyless Azure provider connects to the resource's
+// GA realtime route for the deployment with the Entra token and answers a
+// turn (#2677: it dialed api.openai.com with an empty key).
+//
+//	export AZURE_OPENAI_REALTIME_DEPLOYMENT=<gpt-realtime deployment>
+func TestAzure_RealtimeSessionAnswers(t *testing.T) {
+	skipIfNoAzure(t)
+	deployment := os.Getenv("AZURE_OPENAI_REALTIME_DEPLOYMENT")
+	if deployment == "" {
+		t.Skip("AZURE_OPENAI_REALTIME_DEPLOYMENT not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	cred, err := credentials.NewAzureCredential(ctx, azureEndpoint())
+	if err != nil {
+		t.Fatalf("Azure credential: %v", err)
+	}
+	p := NewProviderFromConfig(&ProviderConfig{
+		ID: "azure-realtime", Model: deployment, Credential: cred, Platform: "azure",
+		PlatformConfig: &providers.PlatformConfig{Type: "azure", Endpoint: azureEndpoint()},
+	})
+
+	session, err := p.CreateStreamSession(ctx, &providers.StreamingInputConfig{
+		Config: types.StreamingMediaConfig{
+			Type: types.ContentTypeAudio, SampleRate: 24000, Encoding: "pcm16", Channels: 1, ChunkSize: 4800,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateStreamSession: %v", err)
+	}
+	defer session.Close()
+
+	if err := session.SendText(ctx, "Say hello in one word."); err != nil {
+		t.Fatalf("SendText: %v", err)
+	}
+	for {
+		select {
+		case chunk, ok := <-session.Response():
+			if !ok {
+				t.Fatalf("session closed before a reply: %v", session.Error())
+			}
+			if chunk.Error != nil {
+				t.Fatalf("stream error: %v", chunk.Error)
+			}
+			if chunk.Delta != "" || chunk.MediaData != nil {
+				t.Logf("first reply chunk: text=%q audio=%v", chunk.Delta, chunk.MediaData != nil)
+				return
+			}
+		case <-ctx.Done():
+			t.Fatal("no reply within the deadline")
+		}
+	}
+}
