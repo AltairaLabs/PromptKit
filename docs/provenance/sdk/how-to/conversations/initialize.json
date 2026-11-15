@@ -1,13 +1,13 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/conversations/initialize.md",
- "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "commit": "871dab9b182c410568ed21bad890a9d87d74b2c2",
  "claims": [
   {
    "id": 1,
    "claim": "sdk.Open(packPath, promptName, opts...) returns (*Conversation, error)",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:89"
+    "sdk/sdk.go:90"
    ]
   },
   {
@@ -15,7 +15,8 @@
    "claim": "first argument is a relative or absolute pack path",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:1563"
+    "sdk/sdk.go:1614",
+    "sdk/sdk.go:1630"
    ]
   },
   {
@@ -23,7 +24,7 @@
    "claim": "second argument is a prompt name under prompts in the pack",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:477"
+    "sdk/sdk.go:485"
    ]
   },
   {
@@ -31,7 +32,7 @@
    "claim": "sdk.WithModel overrides the pack's model",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:478"
+    "sdk/options.go:480"
    ]
   },
   {
@@ -41,7 +42,7 @@
    "evidence": [
     "runtime/hooks/guardrails/spec.go:55",
     "runtime/hooks/guardrails/spec.go:60",
-    "sdk/options.go:1972"
+    "sdk/options.go:1976"
    ]
   },
   {
@@ -66,8 +67,8 @@
    "claim": "sdk.WithToolHook and sdk.WithSessionHook register hooks",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:2107",
-    "sdk/options.go:2150"
+    "sdk/options.go:2111",
+    "sdk/options.go:2154"
    ]
   },
   {
@@ -81,8 +82,8 @@
    "claim": "one of OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_API_KEY is required for auto-detection",
    "verdict": "true",
    "evidence": [
-    "sdk/internal/provider/detect.go:59",
-    "sdk/internal/provider/detect.go:96"
+    "sdk/internal/provider/detect.go:60",
+    "sdk/internal/provider/detect.go:87"
    ]
   },
   {
@@ -90,9 +91,9 @@
    "claim": "errors.Is(err, sdk.ErrPackNotFound) matches a missing pack file",
    "verdict": "true",
    "evidence": [
-    "sdk/errors.go:23",
-    "sdk/sdk.go:1567",
-    "sdk/sdk.go:1579"
+    "sdk/errors.go:29",
+    "sdk/sdk.go:1618",
+    "sdk/sdk.go:1630"
    ]
   },
   {
@@ -100,8 +101,8 @@
    "claim": "errors.Is(err, sdk.ErrPromptNotFound) matches a missing prompt",
    "verdict": "true",
    "evidence": [
-    "sdk/errors.go:20",
-    "sdk/sdk.go:483"
+    "sdk/errors.go:26",
+    "sdk/sdk.go:485"
    ]
   },
   {
@@ -109,8 +110,8 @@
    "claim": "errors.Is(err, sdk.ErrProviderNotDetected) matches when no provider is found",
    "verdict": "true",
    "evidence": [
-    "sdk/errors.go:26",
-    "sdk/sdk.go:521"
+    "sdk/errors.go:32",
+    "sdk/sdk.go:523"
    ]
   },
   {
@@ -118,7 +119,7 @@
    "claim": "Always close; conv.Close() releases the conversation",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1639"
+    "sdk/conversation.go:1675"
    ]
   },
   {
@@ -126,7 +127,7 @@
    "claim": "conv.SetVar(name, value string)",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1318"
+    "sdk/conversation.go:1344"
    ]
   },
   {
@@ -134,7 +135,7 @@
    "claim": "conv.Send(ctx, string) returns (*Response, error); resp.Text()",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:288",
+    "sdk/conversation.go:302",
     "sdk/response.go:99"
    ]
   },
@@ -143,9 +144,9 @@
    "claim": "Open error for missing pack: 'failed to load pack <path>: failed to resolve pack path: pack file not found: <path>'",
    "verdict": "true",
    "evidence": [
-    "sdk/errors.go:131",
-    "sdk/sdk.go:1567",
-    "sdk/sdk.go:437"
+    "sdk/errors.go:145",
+    "sdk/sdk.go:1618",
+    "sdk/sdk.go:438"
    ]
   },
   {
@@ -153,8 +154,8 @@
    "claim": "Open error for no provider: 'failed to detect provider: no provider detected: set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY'",
    "verdict": "true",
    "evidence": [
-    "sdk/internal/provider/detect.go:59",
-    "sdk/sdk.go:521"
+    "sdk/internal/provider/detect.go:60",
+    "sdk/sdk.go:525"
    ]
   },
   {
@@ -162,7 +163,7 @@
    "claim": "Open error for bad prompt: 'prompt \"x\" not found in pack (available: [...])'",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:483"
+    "sdk/sdk.go:485"
    ]
   },
   {
@@ -170,7 +171,7 @@
    "claim": "An input guardrail that matches blocks the LLM call and returns a canned assistant reply",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1949"
+    "sdk/options.go:1953"
    ]
   },
   {
@@ -178,8 +179,8 @@
    "claim": "Open caches each loaded pack by absolute path for the life of the process",
    "verdict": "true",
    "evidence": [
-    "sdk/sdk.go:441",
-    "sdk/sdk.go:84"
+    "sdk/sdk.go:442",
+    "sdk/sdk.go:85"
    ]
   }
  ]

@@ -4,7 +4,7 @@ description: How PromptKit models LLM providers, their roles, hosting platforms,
 sidebar:
   order: 3
 verified:
-  commit: dc6d6f37cfabc0079dd9af47c52502e83f2a85af
+  commit: 871dab9b182c410568ed21bad890a9d87d74b2c2
   sources:
     - pkg/config/role.go
     - pkg/config/types.go
@@ -43,10 +43,13 @@ verified:
     - runtime/providers/gemini/pricing_table.go
     - runtime/providers/gemini/usage_modality.go
     - runtime/providers/imagen/factory.go
+    - runtime/providers/ollama/ollama_tools.go
     - runtime/providers/openai/openai.go
     - runtime/providers/openai/openai_tools.go
     - runtime/providers/openai/pricing_table.go
     - runtime/providers/provider.go
+    - runtime/providers/registry.go
+    - runtime/providers/vllm/factory.go
     - runtime/providers/vllm/vllm.go
     - runtime/stt/openai.go
     - runtime/tts/service.go
@@ -104,6 +107,8 @@ AWS Bedrock authenticates through the AWS SDK credential chain (IRSA, IAM roles,
 Google Cloud Vertex AI authenticates through GCP Application Default Credentials (Workload Identity, service accounts, `GOOGLE_APPLICATION_CREDENTIALS`). It serves Claude and Gemini models, and OpenAI-type models through Model Garden.
 
 Azure AI Foundry authenticates through the Azure default credential chain (managed identity, service principals via `AZURE_*` environment variables, the Azure CLI). It serves OpenAI models and Claude models. A `gemini` provider on Azure is rejected.
+
+A provider type that no platform hosts (`ollama`, `vllm`, `imagen`) is built without the platform block: it calls its own endpoint with its own credential, and a warning says the platform is ignored. `imagen` on Vertex is the exception and fails to build.
 
 ## Why Provider Abstraction?
 

@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/providers/declarative-tts-stt-providers.md",
- "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "commit": "871dab9b182c410568ed21bad890a9d87d74b2c2",
  "claims": [
   {
    "id": 1,
@@ -16,7 +16,7 @@
    "claim": "credential.credential_env names the key env var",
    "verdict": "true",
    "evidence": [
-    "runtime/credentials/resolver.go:135"
+    "runtime/credentials/resolver.go:137"
    ]
   },
   {
@@ -32,10 +32,9 @@
    "claim": "First declared tts/stt entry becomes the default ttsService/sttService unless WithTTS or WithVADMode set one",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:2695-2699",
-    "sdk/options.go:2954-2984",
-    "sdk/options.go:2992-3023",
-    "sdk/options.go:3242-3258"
+    "sdk/options.go:2984",
+    "sdk/options.go:3022",
+    "sdk/options.go:3262-3269"
    ]
   },
   {
@@ -43,10 +42,10 @@
    "claim": "WithTTS and WithVADMode win over the YAML default",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:2695-2699",
-    "sdk/options.go:2980",
-    "sdk/options.go:3018",
-    "sdk/options.go:3242-3258"
+    "sdk/options.go:2699-2703",
+    "sdk/options.go:2984",
+    "sdk/options.go:3022",
+    "sdk/options.go:3246-3262"
    ]
   },
   {
@@ -64,7 +63,7 @@
    "claim": "The same ID in both spellings is rejected",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:2956",
+    "sdk/options.go:2960",
     "sdk/runtime_config.go:411"
    ]
   },
@@ -121,7 +120,7 @@
    "verdict": "true",
    "evidence": [
     "pkg/config/runtime_config.go:405",
-    "runtime/providers/base/factory.go:81"
+    "runtime/providers/base/factory.go:130"
    ]
   },
   {
@@ -129,7 +128,7 @@
    "claim": "The unsupported-type error names the type and the registered alternatives",
    "verdict": "false",
    "evidence": [
-    "runtime/providers/base/factory.go:85",
+    "runtime/providers/base/factory.go:134",
     "sdk/provider_introspection.go:30"
    ]
   },
@@ -149,9 +148,84 @@
    "claim": "tts.RegisterFactory(type, func(tts.ProviderSpec)(tts.Service, error)) and tts.APIKeyFromCredential(spec.Credential) exist; a side-effect import makes the type usable in YAML",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/base/factory.go:79",
+    "runtime/providers/base/factory.go:177",
     "runtime/tts/factory.go:23",
-    "runtime/tts/factory.go:49"
+    "runtime/tts/factory.go:59"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "",
+   "verdict": "true",
+   "evidence": [
+    "runtime/stt/openai_register.go:7",
+    "runtime/tts/openai_register.go:7"
+   ]
+  },
+  {
+   "id": 18,
+   "claim": "",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/azure.go:38",
+    "runtime/providers/base/platform_transport.go:88-105",
+    "runtime/stt/openai.go:25",
+    "runtime/tts/openai.go:26"
+   ]
+  },
+  {
+   "id": 19,
+   "claim": "",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/azure.go:19",
+    "runtime/providers/base/platform_transport.go:65-72"
+   ]
+  },
+  {
+   "id": 20,
+   "claim": "",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base/platform_transport.go:89-94"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/resolver.go:93",
+    "runtime/providers/base/factory.go:88-102",
+    "runtime/providers/base/platform_transport.go:112-121"
+   ]
+  },
+  {
+   "id": 22,
+   "claim": "",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base/platform_transport.go:98"
+   ]
+  },
+  {
+   "id": 23,
+   "claim": "",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base/factory.go:136-142",
+    "runtime/providers/base/factory.go:168-172"
+   ]
+  },
+  {
+   "id": 24,
+   "claim": "",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base/factory.go:136-142",
+    "runtime/providers/base/factory.go:61-66",
+    "runtime/stt/factory.go:49",
+    "runtime/tts/factory.go:51"
    ]
   }
  ]

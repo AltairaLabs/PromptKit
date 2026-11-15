@@ -1,15 +1,15 @@
 {
  "page": "docs/src/content/docs/reference/upgrade-notes.md",
- "commit": "040ffc2791cf0cc1f5f6a5ad26cef1ce77092b9f",
+ "commit": "871dab9b182c410568ed21bad890a9d87d74b2c2",
  "claims": [
   {
    "id": "c1",
    "claim": "providers.MediaScoped exists; WithMediaStorage and WithUnsafePrivateNetworkMedia are options",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/registry.go:368",
-    "sdk/options.go:525",
-    "sdk/options.go:542"
+    "runtime/providers/registry.go:93-99",
+    "sdk/options.go:527",
+    "sdk/options.go:544"
    ]
   },
   {
@@ -33,7 +33,7 @@
    "claim": "Compact receives round input tokens as lastInputTokens",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/compactor.go:131-144",
+    "runtime/pipeline/stage/compactor.go:133-146",
     "runtime/pipeline/stage/compactor.go:35-36"
    ]
   },
@@ -50,7 +50,7 @@
    "claim": "CompositionExecutorDeps.ResolveProvider is optional",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/composition_executor.go:65-75"
+    "runtime/pipeline/stage/composition_executor.go:66-76"
    ]
   },
   {
@@ -66,8 +66,7 @@
    "claim": "WithTransitionAuthorizer and the governance validation failed error exist",
    "verdict": "true",
    "evidence": [
-    "sdk/internal/pack/validate.go:261",
-    "sdk/options.go:2134"
+    "sdk/options.go:2137"
    ]
   },
   {
@@ -76,7 +75,6 @@
    "verdict": "true",
    "evidence": [
     "runtime/providers/claude/claude.go:669-700",
-    "runtime/providers/provider.go:214-218",
     "sdk/sdk.go:641-647"
    ]
   },
@@ -86,8 +84,8 @@
    "verdict": "true",
    "evidence": [
     "runtime/a2a/types.go:21-91",
-    "server/a2a/protocol.go:17-52",
-    "server/a2a/server.go:44-49"
+    "server/a2a/protocol.go:19-73",
+    "server/a2a/server.go:45-50"
    ]
   },
   {
@@ -103,7 +101,7 @@
    "claim": "Gemini Live sends temperature, top_p, top_k, max_tokens; penalties not sent",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/gemini/setup.go:75-91"
+    "runtime/providers/gemini/setup.go:86-105"
    ]
   },
   {
@@ -123,7 +121,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/runner.go:16",
-    "sdk/options.go:1673"
+    "sdk/options.go:1676"
    ]
   },
   {
@@ -156,8 +154,7 @@
    "claim": "Checks name their provider via requires; WithNamedProvider exists; EvaluateOpts carries ProviderBinding and JudgeTargets",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/binding.go:18",
-    "sdk/options.go:2905"
+    "sdk/options.go:2908"
    ]
   },
   {
@@ -165,7 +162,7 @@
    "claim": "sdk.JudgeProviderKey is gone",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:2905"
+    "sdk/options.go:2908"
    ]
   },
   {
@@ -173,8 +170,8 @@
    "claim": "Claude strict tools default; additional_config.strict_tools: false",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude_tools.go:144-155",
-    "runtime/providers/claude/claude_tools.go:953-957"
+    "runtime/providers/claude/claude_tools.go:163-174",
+    "runtime/providers/claude/claude_tools.go:948-952"
    ]
   },
   {
@@ -182,7 +179,7 @@
    "claim": "Native duplex ran no hooks as of v2.6.0 while VAD passed a registry; the duplex stage takes the hook registry from v2.18.0",
    "verdict": "true",
    "evidence": [
-    "sdk/internal/pipeline/builder.go:726-737",
+    "sdk/internal/pipeline/builder.go:734-746",
     "sdk/internal/pipeline/builder_vad.go:113"
    ]
   },
@@ -199,7 +196,7 @@
    "claim": "Gemini Live does not answer below temperature 0.5; not sent, with a warning",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/gemini/streaming_support.go:85-98"
+    "runtime/providers/gemini/streaming_support.go:126-145"
    ]
   },
   {
@@ -207,7 +204,7 @@
    "claim": "A failing stage ends the turn; Send returns its error; ErrTemplateUnresolved",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:129-135",
+    "runtime/pipeline/stage/errors.go:135-141",
     "runtime/pipeline/stage/pipeline.go:84-100"
    ]
   },
@@ -242,7 +239,7 @@
    "claim": "OpenAI realtime runs the configured model; Gemini Live default gemini-3.8-live",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/gemini/setup.go:70",
+    "runtime/providers/gemini/setup.go:75",
     "runtime/providers/openai/streaming_support.go:37"
    ]
   },
@@ -283,9 +280,7 @@
    "claim": "WithToolPolicy sets the tool policy for every tool loop; each turn merges it with the prompt's tool_policy under MergeToolPolicy; realtime duplex is not covered",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/types.go:86",
-    "sdk/internal/pack/tool_policy_keys.go:38-60",
-    "sdk/options.go:1377-1413"
+    "sdk/options.go:1380-1420"
    ]
   },
   {
@@ -294,9 +289,9 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/handlers/topic_policy.go:273-292",
-    "runtime/evals/types.go:42-46",
+    "runtime/evals/types.go:47-57",
     "runtime/evals/wrappers.go:216-228",
-    "runtime/hooks/guardrails/adapter.go:497-516"
+    "runtime/hooks/guardrails/adapter.go:509-528"
    ]
   },
   {
@@ -305,8 +300,8 @@
    "verdict": "true",
    "evidence": [
     "runtime/tools/types.go:348-357",
-    "sdk/client_tools.go:474-501",
-    "sdk/client_tools.go:50-125"
+    "sdk/client_tools.go:50-125",
+    "sdk/client_tools.go:501-528"
    ]
   },
   {
@@ -322,7 +317,7 @@
    "claim": "SDK typed errors PackError, ProviderError, ValidationError, ToolError and sentinels ErrToolNotRegistered and ErrToolNotInPack",
    "verdict": "true",
    "evidence": [
-    "sdk/errors.go:33-190"
+    "sdk/errors.go:39-204"
    ]
   },
   {
@@ -339,9 +334,7 @@
    "claim": "ValidatePackWithOptions applies Open's options; a configured retrieval provider defaults top-k to 3; A2A bridges accumulate and duplicate tool names fail Open",
    "verdict": "true",
    "evidence": [
-    "sdk/capability_a2a.go:140-160",
-    "sdk/options.go:1838-1866",
-    "sdk/validate_pack.go:132"
+    "sdk/options.go:1838-1866"
    ]
   },
   {
@@ -363,7 +356,7 @@
     "runtime/providers/gemini/context_window_table.go:67-70",
     "runtime/providers/gemini/gemini_tools.go:620",
     "runtime/providers/openai/context_window_table.go:59-62",
-    "runtime/providers/vllm/vllm_tools.go:361"
+    "runtime/providers/vllm/vllm_tools.go:364"
    ]
   },
   {
@@ -371,12 +364,7 @@
    "claim": "Provider registry Register replaces in both maps; ExtractOrderedEmbeddings errors on a wrong count; OpenAI reports canceled; StreamObserver receives chunks",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/base/registry.go:58-73",
-    "runtime/providers/base_embedding.go:257-263",
-    "runtime/providers/base_provider.go:652",
-    "runtime/providers/openai/openai_responses_integration.go:55",
-    "runtime/providers/registry.go:93-99",
-    "runtime/providers/streaming.go:143-180"
+    "runtime/providers/registry.go:93-99"
    ]
   },
   {
@@ -384,7 +372,7 @@
    "claim": "TTS services wrap quota errors in ErrQuotaExceeded; resized GIF and WebP are labeled JPEG; the logger redacts whole bearer tokens",
    "verdict": "true",
    "evidence": [
-    "runtime/logger/logger.go:320-332",
+    "runtime/logger/logger.go:327-341",
     "runtime/media/image.go:233",
     "runtime/tts/errors.go:19-23",
     "runtime/tts/http_helpers.go:50"
@@ -395,9 +383,9 @@
    "claim": "MaxCallsPerMinute counts calls at admission in one window per conversation shared across workflow states; a refused call fails with CallRateLimitError; an approval over the limit wraps it",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:240",
+    "runtime/pipeline/stage/stages_provider.go:247",
     "runtime/pipeline/stage/tool_call_rate.go:32-116",
-    "runtime/tools/registry.go:582"
+    "runtime/tools/registry.go:592"
    ]
   },
   {
@@ -408,7 +396,7 @@
     "runtime/a2a/client.go:93-157",
     "runtime/hooks/registry.go:269-283",
     "sdk/agui/adapter.go:103-175",
-    "server/a2a/server.go:127-140"
+    "server/a2a/server.go:135-148"
    ]
   },
   {
@@ -416,8 +404,6 @@
    "claim": "A provider's rate_limit is enforced by RateLimitTransport on every request; zero rps is unlimited; burst below 1 counts as 1; the wait is outside request_timeout",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/base/rate_limit_transport.go:13-60",
-    "runtime/providers/base_provider.go:981-1010",
     "runtime/providers/registry.go:228-231"
    ]
   },
@@ -440,7 +426,7 @@
    "evidence": [
     "runtime/pipeline/stage/config.go:135-147",
     "runtime/pipeline/stage/errors.go:13-25",
-    "runtime/pipeline/stage/errors.go:88",
+    "runtime/pipeline/stage/errors.go:94",
     "runtime/pipeline/stage/idle_timeout.go:12",
     "runtime/pipeline/stage/pipeline.go:1496-1507",
     "runtime/pipeline/stage/pipeline.go:84-100"
@@ -451,9 +437,6 @@
    "claim": "The provider stage validates request media against the provider's sendable capabilities before each round and fails with UnsupportedContentError; WithoutContentValidation opts out",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2243-2251",
-    "runtime/pipeline/stage/stages_provider.go:249-258",
-    "runtime/providers/multimodal.go:327-339",
     "sdk/options.go:1363-1376"
    ]
   },
@@ -496,8 +479,8 @@
    "evidence": [
     "runtime/hooks/guardrails/adapter.go",
     "runtime/hooks/registry.go:88-100",
-    "runtime/pipeline/stage/stages_duplex_provider_hooks.go:30-60",
-    "sdk/internal/pipeline/builder.go:726-737"
+    "runtime/pipeline/stage/stages_duplex_provider_hooks.go:31-69",
+    "sdk/internal/pipeline/builder.go:734-746"
    ]
   },
   {
@@ -505,7 +488,7 @@
    "claim": "RecordingStage records every content field of an element, including control-flagged ones",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_recording.go:158-225"
+    "runtime/pipeline/stage/stages_recording.go:158-236"
    ]
   },
   {
@@ -513,7 +496,7 @@
    "claim": "Eval threshold {operator,value} sets the pass line for assertion and guardrail wrappers; gt and lt strict; unknown operator, missing value, or alongside min_score/max_score is an error",
    "verdict": "true",
    "evidence": [
-    "runtime/evals/types.go:261-330",
+    "runtime/evals/types.go:272-341",
     "runtime/evals/wrappers.go:48-145"
    ]
   },
@@ -523,7 +506,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/evals/handlers/groups.go",
-    "runtime/evals/types.go:61-216"
+    "runtime/evals/types.go:72-227"
    ]
   },
   {
@@ -533,7 +516,7 @@
    "evidence": [
     "runtime/evals/handlers/content_excludes.go:20-28",
     "runtime/evals/handlers/judge_defaults.go:27-63",
-    "runtime/evals/handlers/sentence_count.go:17-72"
+    "runtime/evals/handlers/sentence_count.go:18-76"
    ]
   },
   {
@@ -552,7 +535,7 @@
    "claim": "Mock provider config loads reject unknown keys",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/mock/mock_config_check.go:38-143"
+    "runtime/providers/mock/mock_config_check.go"
    ]
   },
   {
@@ -561,9 +544,115 @@
    "verdict": "true",
    "evidence": [
     "runtime/persistence/common/repository.go",
-    "runtime/prompt/pack.go:276-600",
-    "runtime/prompt/pack.go:807",
-    "runtime/prompt/registry.go:568-608"
+    "runtime/prompt/pack.go:280-604",
+    "runtime/prompt/pack.go:990",
+    "runtime/prompt/registry.go:574-629"
+   ]
+  },
+  {
+   "id": "w1",
+   "claim": "",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/internal/streaming/credential_headers.go:15",
+    "runtime/providers/openai/realtime_config.go:118",
+    "runtime/providers/openai/realtime_platform.go:14",
+    "runtime/providers/openai/realtime_platform.go:44-60"
+   ]
+  },
+  {
+   "id": "w10",
+   "claim": "",
+   "verdict": "unverified",
+   "evidence": [
+    "runtime/credentials/gcp.go:71-82"
+   ]
+  },
+  {
+   "id": "w11",
+   "claim": "",
+   "verdict": "unverified",
+   "evidence": [
+    "sdk/azure_platform_integration_test.go:124"
+   ]
+  },
+  {
+   "id": "w2",
+   "claim": "",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/azure.go:19",
+    "runtime/providers/base/platform_transport.go:65-72",
+    "runtime/stt/openai.go:25",
+    "runtime/tts/openai.go:26"
+   ]
+  },
+  {
+   "id": "w3",
+   "claim": "",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/gcp.go:104-106",
+    "runtime/credentials/gcp.go:98-100",
+    "runtime/providers/gemini/streaming_support.go:92-110"
+   ]
+  },
+  {
+   "id": "w4",
+   "claim": "",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/openai/realtime_platform.go:27-38",
+    "runtime/providers/openai/streaming_support_integration.go:58"
+   ]
+  },
+  {
+   "id": "w5",
+   "claim": "",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/gemini/streaming_support.go:107-109",
+    "runtime/providers/gemini/streaming_support.go:61"
+   ]
+  },
+  {
+   "id": "w6",
+   "claim": "",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/imagen/factory.go:15",
+    "runtime/providers/registry.go:592-619"
+   ]
+  },
+  {
+   "id": "w7",
+   "claim": "",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base/factory.go:136-142",
+    "runtime/providers/ollama/embedding_register.go:8",
+    "runtime/providers/ollama/ollama_tools.go:415",
+    "runtime/providers/registry.go:639-649",
+    "runtime/providers/registry.go:651-660",
+    "runtime/providers/vllm/factory.go:12",
+    "sdk/options.go:643-672"
+   ]
+  },
+  {
+   "id": "w8",
+   "claim": "",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/gemini/streaming_support.go:280-284",
+    "runtime/providers/openai/streaming_support.go:140-143"
+   ]
+  },
+  {
+   "id": "w9",
+   "claim": "",
+   "verdict": "true",
+   "evidence": [
+    "runtime/credentials/gcp.go:71-82"
    ]
   }
  ]

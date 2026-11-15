@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/tutorials/08-tts-integration.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "871dab9b182c410568ed21bad890a9d87d74b2c2",
  "claims": [
   {
    "id": 1,
@@ -16,7 +16,8 @@
    "claim": "constructor makes no request; Synthesize returns the response body",
    "verdict": "true",
    "evidence": [
-    "runtime/tts/openai.go:215",
+    "runtime/tts/openai.go:192-208",
+    "runtime/tts/openai.go:224",
     "runtime/tts/openai.go:95"
    ]
   },
@@ -25,7 +26,7 @@
    "claim": "SupportedVoices output for OpenAI",
    "verdict": "true",
    "evidence": [
-    "runtime/tts/openai.go:323"
+    "runtime/tts/openai.go:334"
    ]
   },
   {
@@ -42,8 +43,9 @@
    "claim": "sdk.Open, Send, Response.Text",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:268",
-    "sdk/response.go:99"
+    "sdk/conversation.go:302",
+    "sdk/response.go:99",
+    "sdk/sdk.go:90"
    ]
   },
   {
@@ -51,7 +53,7 @@
    "claim": "VADModeConfig Voice and Speed feed the TTS stage",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:3116"
+    "sdk/options.go:3315"
    ]
   }
  ]

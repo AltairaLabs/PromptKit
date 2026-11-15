@@ -2,13 +2,13 @@
 title: Upgrade Notes
 description: Changes that need action when moving between PromptKit versions.
 verified:
-  commit: 040ffc2791cf0cc1f5f6a5ad26cef1ce77092b9f
+  commit: 871dab9b182c410568ed21bad890a9d87d74b2c2
   sources:
     - runtime/a2a/client.go
     - runtime/a2a/types.go
+    - runtime/credentials/azure.go
     - runtime/credentials/credential.go
     - runtime/credentials/gcp.go
-    - runtime/evals/binding.go
     - runtime/evals/handlers/a2a_eval.go
     - runtime/evals/handlers/content_excludes.go
     - runtime/evals/handlers/cosine_similarity.go
@@ -48,12 +48,10 @@ verified:
     - runtime/pipeline/stage/stages_recording.go
     - runtime/pipeline/stage/state_handoff.go
     - runtime/pipeline/stage/tool_call_rate.go
-    - runtime/pipeline/types.go
     - runtime/prompt/pack.go
     - runtime/prompt/registry.go
     - runtime/providers/base/factory.go
-    - runtime/providers/base/rate_limit_transport.go
-    - runtime/providers/base/registry.go
+    - runtime/providers/base/platform_transport.go
     - runtime/providers/base_embedding.go
     - runtime/providers/base_provider.go
     - runtime/providers/claude/claude.go
@@ -66,27 +64,30 @@ verified:
     - runtime/providers/gemini/setup.go
     - runtime/providers/gemini/streaming_support.go
     - runtime/providers/imagen/factory.go
+    - runtime/providers/internal/streaming/credential_headers.go
     - runtime/providers/mock/mock_config_check.go
-    - runtime/providers/multimodal.go
+    - runtime/providers/ollama/embedding_register.go
+    - runtime/providers/ollama/ollama_tools.go
     - runtime/providers/openai/context_window_table.go
     - runtime/providers/openai/openai.go
     - runtime/providers/openai/openai_multimodal.go
-    - runtime/providers/openai/openai_responses_integration.go
+    - runtime/providers/openai/realtime_config.go
     - runtime/providers/openai/realtime_platform.go
     - runtime/providers/openai/streaming_support.go
+    - runtime/providers/openai/streaming_support_integration.go
     - runtime/providers/provider.go
     - runtime/providers/registry.go
     - runtime/providers/rejected_params.go
     - runtime/providers/retry.go
     - runtime/providers/stream_metrics.go
-    - runtime/providers/streaming.go
+    - runtime/providers/vllm/factory.go
     - runtime/providers/vllm/vllm_tools.go
     - runtime/skills/active_set.go
     - runtime/skills/executor.go
     - runtime/storage/interfaces.go
     - runtime/storage/local/filestore.go
     - runtime/storage/types.go
-    - runtime/stt/openai_register.go
+    - runtime/stt/openai.go
     - runtime/tools/exec_executor.go
     - runtime/tools/http_executor.go
     - runtime/tools/http_mapping.go
@@ -94,20 +95,17 @@ verified:
     - runtime/tools/types.go
     - runtime/tts/errors.go
     - runtime/tts/http_helpers.go
-    - runtime/tts/openai_register.go
+    - runtime/tts/openai.go
     - sdk/agui/adapter.go
     - sdk/audio_monitor.go
-    - sdk/capability_a2a.go
+    - sdk/azure_platform_integration_test.go
     - sdk/client_tools.go
     - sdk/errors.go
-    - sdk/internal/pack/tool_policy_keys.go
-    - sdk/internal/pack/validate.go
     - sdk/internal/pipeline/builder.go
     - sdk/internal/pipeline/builder_vad.go
     - sdk/options.go
     - sdk/provider_refs.go
     - sdk/sdk.go
-    - sdk/validate_pack.go
     - server/a2a/ownership.go
     - server/a2a/protocol.go
     - server/a2a/server.go

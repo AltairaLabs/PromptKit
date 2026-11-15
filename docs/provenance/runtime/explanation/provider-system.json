@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/runtime/explanation/provider-system.md",
- "commit": "dc6d6f37cfabc0079dd9af47c52502e83f2a85af",
+ "commit": "871dab9b182c410568ed21bad890a9d87d74b2c2",
  "claims": [
   {
    "id": 1,
@@ -26,9 +26,9 @@
    "evidence": [
     "runtime/providers/claude/claude_tools.go:992",
     "runtime/providers/gemini/gemini_tools.go:934",
-    "runtime/providers/imagen/factory.go:12",
-    "runtime/providers/mock/mock.go:64",
-    "runtime/providers/ollama/ollama_tools.go:409",
+    "runtime/providers/imagen/factory.go:15",
+    "runtime/providers/mock/mock.go:65",
+    "runtime/providers/ollama/ollama_tools.go:415",
     "runtime/providers/openai/openai_tools.go:709",
     "runtime/providers/registry.go:49",
     "runtime/providers/replay/factory.go:12",
@@ -40,8 +40,8 @@
    "claim": "Unknown type fails with UnsupportedProviderError; platforms (bedrock/vertex/azure) are not types; bad pairs fail with UnsupportedProviderPlatformError",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/registry.go:397-420",
-    "runtime/providers/registry.go:557-600"
+    "runtime/providers/registry.go:403-426",
+    "runtime/providers/registry.go:563-606"
    ]
   },
   {
@@ -66,7 +66,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/providers/openai/openai.go:542",
-    "runtime/providers/openai/openai_responses_integration.go:236"
+    "runtime/providers/openai/openai_responses_integration.go:256"
    ]
   },
   {
@@ -74,8 +74,8 @@
    "claim": "Defaults resolve request, then ProviderDefaults, then no limit; Claude sends 4096 and rejects MaxTokensUnlimited at construction",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude.go:673",
-    "runtime/providers/claude/claude.go:692",
+    "runtime/providers/claude/claude.go:671",
+    "runtime/providers/claude/claude.go:690",
     "runtime/providers/provider.go:215",
     "runtime/providers/provider.go:240"
    ]
@@ -85,10 +85,10 @@
    "claim": "Translation table: assistant->model for Gemini with parts; Claude content blocks; Claude top-level system; Gemini systemInstruction; OpenAI system message",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude.go:352",
-    "runtime/providers/claude/claude.go:523",
-    "runtime/providers/gemini/gemini.go:211",
-    "runtime/providers/gemini/gemini.go:417",
+    "runtime/providers/claude/claude.go:350",
+    "runtime/providers/claude/claude.go:521",
+    "runtime/providers/gemini/gemini.go:209",
+    "runtime/providers/gemini/gemini.go:415",
     "runtime/providers/openai/openai.go:705"
    ]
   },
@@ -97,7 +97,7 @@
    "claim": "Tool wire shapes: OpenAI type/function/parameters; Claude input_schema; Gemini function_declarations",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/claude/claude_tools.go:77",
+    "runtime/providers/claude/claude_tools.go:86",
     "runtime/providers/gemini/gemini_tools.go:74",
     "runtime/providers/openai/openai_tools.go:57"
    ]
@@ -124,7 +124,7 @@
    "claim": "mock.NewProvider(id, model, false) returns 'Mock response from <id> model <model>'",
    "verdict": "true",
    "evidence": [
-    "runtime/providers/mock/mock.go:35"
+    "runtime/providers/mock/mock.go:36"
    ]
   },
   {
@@ -150,7 +150,19 @@
    "verdict": "true",
    "evidence": [
     "runtime/providers/base_provider.go:966-981",
-    "runtime/providers/registry.go:526-535"
+    "runtime/providers/registry.go:532-541"
+   ]
+  },
+  {
+   "id": 17,
+   "claim": "",
+   "verdict": "true",
+   "evidence": [
+    "runtime/providers/base/factory.go:170-173",
+    "runtime/providers/imagen/factory.go:15-16",
+    "runtime/providers/ollama/ollama_tools.go:415",
+    "runtime/providers/registry.go:612-648",
+    "runtime/providers/vllm/factory.go:12"
    ]
   }
  ]

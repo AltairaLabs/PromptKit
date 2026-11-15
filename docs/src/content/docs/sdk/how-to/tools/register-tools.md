@@ -4,7 +4,7 @@ description: Give the model Go functions to call with OnTool, custom executors a
 sidebar:
   order: 3
 verified:
-  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
+  commit: 871dab9b182c410568ed21bad890a9d87d74b2c2
   sources:
     - runtime/pipeline/stage/tool_call_rate.go
     - runtime/pipeline/types.go
@@ -16,6 +16,7 @@ verified:
     - sdk/tools/pending.go
     - sdk/tools/redis.go
     - sdk/tools/typed.go
+    - sdk/turn_gate.go
 ---
 Register Go handlers for the tools your pack declares, so the model can call them during a conversation.
 
@@ -111,6 +112,8 @@ conv.OnToolCtx("fetch_data", func(ctx context.Context, args map[string]any) (any
     return string(body), nil
 })
 ```
+
+A handler runs inside the conversation's turn, so it must not start a turn on the same conversation. Pass the context an `OnToolCtx` handler receives to any call it makes on that conversation, and the call fails with `sdk.ErrReentrantTurn`. An `OnTool` handler has no context to pass, so such a call waits for the turn that is running the handler: neither finishes unless the call's own context ends.
 
 ## 4. Call an HTTP API or a custom executor
 
