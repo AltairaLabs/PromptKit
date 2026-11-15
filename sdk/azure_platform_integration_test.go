@@ -120,6 +120,11 @@ func TestAzurePlatformProviderAcceptsFullDeploymentURL(t *testing.T) {
 //	export AZURE_OPENAI_TTS_DEPLOYMENT=<gpt-4o-mini-tts or tts deployment>
 //	export AZURE_OPENAI_TRANSCRIBE_DEPLOYMENT=<gpt-4o-transcribe or whisper deployment>
 //	export AZURE_OPENAI_AUDIO_API_VERSION=<api-version>   # optional
+//
+// The caller needs Cognitive Services OpenAI User on the account (Owner has
+// no data actions). With several az accounts signed in, the CLI token comes
+// from the default subscription's tenant; set AZURE_TOKEN_CREDENTIALS=AzureCLICredential
+// and an AZURE_CONFIG_DIR whose default subscription is the account's.
 func TestAzurePlatformVoiceRoundTrip(t *testing.T) {
 	endpoint := os.Getenv("AZURE_OPENAI_ENDPOINT")
 	ttsDep, sttDep := os.Getenv("AZURE_OPENAI_TTS_DEPLOYMENT"), os.Getenv("AZURE_OPENAI_TRANSCRIBE_DEPLOYMENT")
