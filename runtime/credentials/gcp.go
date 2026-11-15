@@ -62,17 +62,30 @@ func VertexOpenAIEndpoint(project, region, endpointID string) string {
 	if endpointID == "" {
 		endpointID = DefaultVertexOpenAIEndpointID
 	}
-	return fmt.Sprintf(
-		"https://%s-aiplatform.googleapis.com/v1beta1/projects/%s/locations/%s/endpoints/%s",
-		region, project, region, endpointID)
+	return fmt.Sprintf("%s/v1beta1/projects/%s/locations/%s/endpoints/%s",
+		VertexHost(region), project, region, endpointID)
+}
+
+// VertexHost returns the Vertex AI API origin serving a location: the bare
+// host for "global", the .rep. host for the "us" and "eu" multi-regions, and
+// {region}-aiplatform for a region. "{location}-aiplatform" does not resolve
+// for global, us or eu, so every Vertex URL is built from this.
+func VertexHost(location string) string {
+	switch location {
+	case "global":
+		return "https://aiplatform.googleapis.com"
+	case "us", "eu":
+		return "https://aiplatform." + location + ".rep.googleapis.com"
+	default:
+		return "https://" + location + "-aiplatform.googleapis.com"
+	}
 }
 
 // vertexPublisherEndpoint builds the models base URL for one publisher. Single
 // format string so the two exported helpers cannot drift.
 func vertexPublisherEndpoint(project, region, publisher string) string {
-	return fmt.Sprintf(
-		"https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/%s/models",
-		region, project, region, publisher)
+	return fmt.Sprintf("%s/v1/projects/%s/locations/%s/publishers/%s/models",
+		VertexHost(region), project, region, publisher)
 }
 
 // Apply adds the OAuth2 token to the request.

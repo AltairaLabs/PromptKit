@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
@@ -38,10 +39,7 @@ const (
 // models. The result ends in `/publishers/google/models` (no trailing slash);
 // per-call code appends `/{model}:{action}` to address a specific model.
 func vertexGeminiEndpoint(region, project string) string {
-	return fmt.Sprintf(
-		"https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models",
-		region, project, region,
-	)
+	return credentials.VertexEmbeddingEndpoint(project, region) // the google publisher's models
 }
 
 // streamSessionFactory is the function signature for creating stream sessions.

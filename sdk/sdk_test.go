@@ -692,6 +692,14 @@ func TestPlatformBaseURL(t *testing.T) {
 		assert.NotContains(t, url, "publishers")
 	})
 
+	t.Run("vertex global location uses the bare host", func(t *testing.T) {
+		pc := &platformConfig{platformType: "vertex", region: "global", project: "my-proj"}
+		assert.Equal(t, "https://aiplatform.googleapis.com/v1/projects/my-proj/locations/global/publishers/google/models",
+			platformBaseURL(pc, "gemini"))
+		assert.Equal(t, "https://aiplatform.googleapis.com/v1/projects/my-proj/locations/global",
+			platformBaseURL(pc, "llama"))
+	})
+
 	t.Run("vertex with endpoint override", func(t *testing.T) {
 		pc := &platformConfig{platformType: "vertex", region: "us-central1", project: "my-proj", endpoint: "https://custom.vertex"}
 		url := platformBaseURL(pc, "claude")

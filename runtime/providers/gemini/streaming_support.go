@@ -3,10 +3,13 @@ package gemini
 import (
 	"context"
 	"fmt"
+	"strings"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/internal/streaming"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -54,14 +57,11 @@ func (p *Provider) CreateStreamSession(
 	if err := p.validateStreamRequest(req); err != nil {
 		return nil, err
 	}
-	if p.platform != "" {
-		// The session dials the Gemini API host with the static key; a
-		// platform provider has neither, so refuse instead of failing there.
-		return nil, fmt.Errorf("live sessions are not available on platform %q: Gemini Live runs on the Gemini API only",
-			p.platform)
-	}
-
 	config := p.buildStreamSessionConfig(req)
+	wsURL, apiKey, err := p.liveDial(&config)
+	if err != nil {
+		return nil, err
+	}
 	config.Sampling = liveSampling(p.ID(), req.Sampling)
 	providers.WarnUnsentParams(p.ID(), req.Sampling.Request(),
 		providers.ParamFrequencyPenalty, providers.ParamPresencePenalty)
@@ -77,12 +77,44 @@ func (p *Provider) CreateStreamSession(
 		factory = NewStreamSession
 	}
 
-	session, err := factory(ctx, geminiLiveAPIURL, p.apiKey, &config)
+	session, err := factory(ctx, wsURL, apiKey, &config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stream session: %w", err)
 	}
 
 	return session, nil
+}
+
+// vertexLivePath is the Vertex AI Live API route on a location's host.
+const vertexLivePath = "/ws/google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent"
+
+// liveDial resolves where a Live session connects and how it authenticates.
+// On the Gemini API that is the static key; on Vertex it is the location's
+// Live endpoint, the model's Vertex resource name, and the platform token
+// fetched at every dial. Any other platform is refused before dialing.
+func (p *Provider) liveDial(config *StreamSessionConfig) (wsURL, apiKey string, err error) {
+	switch p.platform {
+	case "":
+		return geminiLiveAPIURL, p.apiKey, nil
+	case vertexPlatform:
+		pc := p.platformConfig
+		if pc == nil || pc.Project == "" || pc.Region == "" {
+			return "", "", fmt.Errorf("live sessions on vertex need platform.project and platform.region")
+		}
+		if p.credential == nil {
+			return "", "", fmt.Errorf("live sessions on vertex need a platform credential")
+		}
+		host := credentials.VertexHost(pc.Region)
+		model := config.Model
+		if model == "" {
+			model = defaultLiveModel
+		}
+		config.Model = fmt.Sprintf("projects/%s/locations/%s/publishers/google/models/%s", pc.Project, pc.Region, model)
+		config.dialHeaders = streaming.CredentialDialHeaders(p.credential, host)
+		return "wss://" + strings.TrimPrefix(host, "https://") + vertexLivePath, "", nil
+	default:
+		return "", "", fmt.Errorf("live sessions are not available on platform %q (supported: vertex)", p.platform)
+	}
 }
 
 // liveMinTemperature is the lowest temperature at which Gemini Live answers.
@@ -240,8 +272,8 @@ func (p *Provider) applyToolsConfig(tools []providers.StreamingToolDefinition, c
 
 // SupportsStreamInput returns the media types supported for streaming input
 func (p *Provider) SupportsStreamInput() []string {
-	if p.platform != "" {
-		return []string{} // CreateStreamSession refuses a platform provider
+	if p.platform != "" && p.platform != vertexPlatform {
+		return []string{} // CreateStreamSession refuses this platform
 	}
 	return []string{types.ContentTypeAudio, types.ContentTypeVideo, types.ContentTypeImage}
 }
