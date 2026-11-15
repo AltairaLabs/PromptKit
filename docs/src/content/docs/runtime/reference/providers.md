@@ -2273,7 +2273,7 @@ type EmbeddingProviderFactory func(spec EmbeddingProviderSpec) (EmbeddingProvide
 ```
 
 <a name="IgnoreEmbeddingPlatforms"></a>
-### func [IgnoreEmbeddingPlatforms](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L652>)
+### func [IgnoreEmbeddingPlatforms](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L651>)
 
 ```go
 func IgnoreEmbeddingPlatforms(providerType string, inner EmbeddingProviderFactory) EmbeddingProviderFactory
@@ -3249,7 +3249,7 @@ type ProviderFactory func(spec ProviderSpec) (Provider, error)
 ```
 
 <a name="CredentialFactory"></a>
-### func [CredentialFactory](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L683>)
+### func [CredentialFactory](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L682>)
 
 ```go
 func CredentialFactory(withCred, withoutCred ProviderFactory) ProviderFactory
@@ -3271,13 +3271,13 @@ providers.RegisterProviderFactory("claude", providers.CredentialFactory(
 ```
 
 <a name="IgnorePlatforms"></a>
-### func [IgnorePlatforms](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L640>)
+### func [IgnorePlatforms](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L639>)
 
 ```go
 func IgnorePlatforms(providerType string, inner ProviderFactory) ProviderFactory
 ```
 
-IgnorePlatforms wraps the factory of a provider type no platform hosts and records the type for IgnoresPlatform. A spec that names a platform is built without it, against its own endpoint, with a warning that the platform had no effect: such a config works only because the platform was never read, so it keeps working but is no longer silent.
+IgnorePlatforms wraps the factory of a provider type no platform hosts and records the type for IgnoresPlatform. A spec that names a platform is built without it, against its own endpoint and with its own credential, and a warning says the platform has no effect.
 
 <a name="RejectPlatforms"></a>
 ### func [RejectPlatforms](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L612>)
@@ -3427,7 +3427,7 @@ type ProviderSpec struct {
 ```
 
 <a name="ProviderSpec.HasCredential"></a>
-### func \(\*ProviderSpec\) [HasCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L666>)
+### func \(\*ProviderSpec\) [HasCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L665>)
 
 ```go
 func (s *ProviderSpec) HasCredential() bool

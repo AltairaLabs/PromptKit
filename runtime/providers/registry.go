@@ -634,9 +634,8 @@ func IgnoresPlatform(providerType string) bool {
 
 // IgnorePlatforms wraps the factory of a provider type no platform hosts and
 // records the type for IgnoresPlatform. A spec that names a platform is built
-// without it, against its own endpoint, with a warning that the platform had
-// no effect: such a config works only because the platform was never read,
-// so it keeps working but is no longer silent.
+// without it, against its own endpoint and with its own credential, and a
+// warning says the platform has no effect.
 func IgnorePlatforms(providerType string, inner ProviderFactory) ProviderFactory {
 	unhostedTypes.Store(providerType, struct{}{})
 	return func(spec ProviderSpec) (Provider, error) {
