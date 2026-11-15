@@ -275,3 +275,102 @@ func TestVertex_CostCalculation(t *testing.T) {
 	t.Logf("Cost: input=%d tokens, output=%d tokens, total=$%.6f",
 		resp.CostInfo.InputTokens, resp.CostInfo.OutputTokens, resp.CostInfo.TotalCost)
 }
+
+// vertexLiveModel is the Live model the Vertex Live tests run; it must be
+// offered in every location they target.
+func vertexLiveModelName() string {
+	if m := os.Getenv("VERTEX_LIVE_MODEL"); m != "" {
+		return m
+	}
+	return "gemini-3.8-live"
+}
+
+// vertexLiveLocations are the locations the Live tests dial: a region and a
+// multi-region by default, so both host shapes are exercised.
+func vertexLiveLocations() []string {
+	if l := os.Getenv("VERTEX_LIVE_LOCATIONS"); l != "" {
+		return strings.Split(l, ",")
+	}
+	return []string{"us-central1", "us"}
+}
+
+func vertexProviderAt(t *testing.T, location, model string) *Provider {
+	t.Helper()
+	skipIfNoVertex(t)
+	cred, err := credentials.NewGCPCredential(context.Background(), vertexProject(), location)
+	if err != nil {
+		t.Fatalf("failed to create GCP credential: %v", err)
+	}
+	return NewProviderWithCredential("vertex-"+location, model, "", providers.ProviderDefaults{MaxTokens: 256},
+		false, cred, "vertex", &providers.PlatformConfig{Type: "vertex", Region: location, Project: vertexProject()})
+}
+
+// A Live session on a Vertex provider opens against the location's Vertex
+// Live endpoint with the platform token and answers a turn. A wrong host,
+// model resource or auth fails the handshake or the setup.
+func TestVertex_LiveSessionAnswers(t *testing.T) {
+	for _, location := range vertexLiveLocations() {
+		t.Run(location, func(t *testing.T) {
+			p := vertexProviderAt(t, location, vertexLiveModelName())
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+
+			session, err := p.CreateStreamSession(ctx, &providers.StreamingInputConfig{
+				Config: types.StreamingMediaConfig{
+					Type: types.ContentTypeAudio, SampleRate: 16000, Encoding: "pcm16", Channels: 1,
+					ChunkSize: 3200, BitDepth: 16,
+				},
+				Metadata: map[string]interface{}{"response_modalities": []string{"AUDIO"}},
+			})
+			if err != nil {
+				t.Fatalf("CreateStreamSession on %s: %v", location, err)
+			}
+			defer session.Close()
+
+			if err := session.SendText(ctx, "Say hello in one word."); err != nil {
+				t.Fatalf("SendText: %v", err)
+			}
+			var audioBytes int
+			for audioBytes == 0 {
+				select {
+				case chunk, ok := <-session.Response():
+					if !ok {
+						t.Fatalf("session closed before any audio: %v", session.Error())
+					}
+					if chunk.Error != nil {
+						t.Fatalf("stream error: %v", chunk.Error)
+					}
+					if chunk.MediaData != nil {
+						audioBytes += len(chunk.MediaData.Data)
+					}
+				case <-ctx.Done():
+					t.Fatalf("no audio from %s within the deadline", location)
+				}
+			}
+			t.Logf("%s: first audio chunk %d bytes", location, audioBytes)
+		})
+	}
+}
+
+// The global location is served on the bare Vertex host; a provider there
+// answers a prediction.
+func TestVertex_GlobalLocationPredict(t *testing.T) {
+	model := os.Getenv("VERTEX_GLOBAL_MODEL")
+	if model == "" {
+		model = "gemini-2.5-flash"
+	}
+	p := vertexProviderAt(t, "global", model)
+	if !strings.HasPrefix(p.baseURL, "https://aiplatform.googleapis.com/") {
+		t.Fatalf("global baseURL = %q, want the bare Vertex host", p.baseURL)
+	}
+	resp, err := p.Predict(context.Background(), providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: "Say hello in one word."}},
+	})
+	if err != nil {
+		t.Fatalf("Predict on global: %v", err)
+	}
+	if resp.Content == "" {
+		t.Fatal("expected non-empty response content")
+	}
+	t.Logf("global response: %s", resp.Content)
+}
