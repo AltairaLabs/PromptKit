@@ -7,6 +7,7 @@ verified:
     - runtime/a2a/client.go
     - runtime/a2a/types.go
     - runtime/credentials/credential.go
+    - runtime/credentials/gcp.go
     - runtime/evals/binding.go
     - runtime/evals/handlers/a2a_eval.go
     - runtime/evals/handlers/content_excludes.go
@@ -50,6 +51,7 @@ verified:
     - runtime/pipeline/types.go
     - runtime/prompt/pack.go
     - runtime/prompt/registry.go
+    - runtime/providers/base/factory.go
     - runtime/providers/base/rate_limit_transport.go
     - runtime/providers/base/registry.go
     - runtime/providers/base_embedding.go
@@ -63,12 +65,14 @@ verified:
     - runtime/providers/gemini/gemini_tools.go
     - runtime/providers/gemini/setup.go
     - runtime/providers/gemini/streaming_support.go
+    - runtime/providers/imagen/factory.go
     - runtime/providers/mock/mock_config_check.go
     - runtime/providers/multimodal.go
     - runtime/providers/openai/context_window_table.go
     - runtime/providers/openai/openai.go
     - runtime/providers/openai/openai_multimodal.go
     - runtime/providers/openai/openai_responses_integration.go
+    - runtime/providers/openai/realtime_platform.go
     - runtime/providers/openai/streaming_support.go
     - runtime/providers/provider.go
     - runtime/providers/registry.go
@@ -82,6 +86,7 @@ verified:
     - runtime/storage/interfaces.go
     - runtime/storage/local/filestore.go
     - runtime/storage/types.go
+    - runtime/stt/openai_register.go
     - runtime/tools/exec_executor.go
     - runtime/tools/http_executor.go
     - runtime/tools/http_mapping.go
@@ -89,6 +94,7 @@ verified:
     - runtime/tools/types.go
     - runtime/tts/errors.go
     - runtime/tts/http_helpers.go
+    - runtime/tts/openai_register.go
     - sdk/agui/adapter.go
     - sdk/audio_monitor.go
     - sdk/capability_a2a.go
@@ -111,6 +117,39 @@ Release notes are generated from merged pull requests. This page carries the
 changes that need you to do something, with what to change and why. Sections
 are grouped by the release that first contained the change, newest first.
 Unreleased holds changes that are on `main` and in no release.
+
+## v2.21.0
+
+### Voice runs on Azure, and Gemini Live on Vertex
+
+An OpenAI provider on `platform: azure` served chat and embeddings, but a Realtime session dialed `wss://api.openai.com` with the provider's empty key, and TTS and STT providers dropped the platform and called `api.openai.com` the same way. A Gemini Live session on a Vertex provider dialed the Gemini API host. Both now use the platform's endpoint and credential, fetched again at every request and every session handshake.
+
+| If you | You will see | Change |
+|---|---|---|
+| Run an OpenAI Realtime session on an Azure provider | the session connects to `/openai/v1/realtime?model=<deployment>` on the provider's host, authenticated by the platform credential | set `model` to the deployment name |
+| Declare an `openai` `tts` or `stt` provider with `platform: azure` | requests go to the deployment's `/audio/speech` or `/audio/transcriptions` route with `api-version` from `additional_config.api_version` (default `2024-12-01-preview`) | set `model` to the deployment name; give the identity `Cognitive Services OpenAI User` on the account |
+| Run a Gemini Live session on a Vertex provider | the session connects to the location's Vertex Live endpoint and names the model `projects/<project>/locations/<location>/publishers/google/models/<model>` | use a location where Vertex offers the Live model |
+
+### A platform that cannot host a provider fails or warns
+
+A `platform:` block was read only where a provider type implemented it; elsewhere it was dropped without a word. Self-hosted types were also given the platform's credential in place of their own key. A combination no platform hosts now fails when it is built or opened, or is built against its own endpoint with its own credential and a warning.
+
+| If you | You will see | Change |
+|---|---|---|
+| Open an OpenAI Realtime session on `bedrock` or `vertex` | an error naming the platform, before anything is dialed | use `azure` or no platform |
+| Open a Gemini Live session on a platform other than `vertex` | an error naming the platform | use `vertex` or no platform |
+| Build an `imagen` provider on `vertex` | an `UnsupportedProviderPlatformError` (Imagen is retired on Vertex) | use a Gemini image model |
+| Name a platform on `ollama`, `vllm`, `elevenlabs`, `cartesia`, an inference provider or an Ollama embedding provider | the provider's own credential and endpoint, and a warning that the platform is ignored | drop the `platform:` block |
+| Check `SupportsStreamInput()` on a provider whose sessions are refused | an empty list | nothing |
+
+### Vertex serves the global and multi-region locations
+
+Vertex URLs were built as `https://<location>-aiplatform.googleapis.com`, which does not resolve for the `global` location or the `us` and `eu` multi-regions. Those now use `aiplatform.googleapis.com` and `aiplatform.<us|eu>.rep.googleapis.com`. The location is matched without regard to case.
+
+| If you | You will see | Change |
+|---|---|---|
+| Set `region: global`, `us` or `eu` on a Vertex provider | requests reach Vertex | nothing |
+| Pointed `base_url` at one of those hosts to work around it | `base_url` still wins | nothing, or remove the override |
 
 ## v2.20.0
 
