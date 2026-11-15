@@ -199,7 +199,10 @@ func (s *OpenAIService) Synthesize(
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+s.APIKey)
+	if s.APIKey != "" {
+		// Empty when a platform credential authenticates through the client.
+		req.Header.Set("Authorization", "Bearer "+s.APIKey)
+	}
 	req.Header.Set(headerContentType, mimeJSON)
 
 	resp, err := s.Client.Do(req)

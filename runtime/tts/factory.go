@@ -45,6 +45,25 @@ func ResolveCredential(
 	return base.ResolveCredential(ctx, providerType, cfgDir, cred)
 }
 
+// RegisterPlatforms declares the hosting platforms a provider type's factory
+// wires (see base.FactoryRegistry.RegisterPlatforms).
+func RegisterPlatforms(providerType string, platforms ...string) {
+	ttsRegistry.RegisterPlatforms(providerType, platforms...)
+}
+
+// ResolveCredentialForPlatform resolves the credential a spec is built with:
+// the platform's chain for a platform providerType runs on, its own
+// credential otherwise (see base.FactoryRegistry.ResolveCredential).
+func ResolveCredentialForPlatform(
+	ctx context.Context,
+	providerType string,
+	cfgDir string,
+	cred *credentials.CredentialConfig,
+	platform *credentials.PlatformConfig,
+) (credentials.Credential, error) {
+	return ttsRegistry.ResolveCredential(ctx, providerType, cfgDir, cred, platform)
+}
+
 // APIKeyFromCredential returns the raw API key from an APIKey credential.
 func APIKeyFromCredential(c credentials.Credential) string {
 	return base.APIKeyFromCredential(c)

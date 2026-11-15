@@ -84,9 +84,9 @@ func buildPlatformEmbeddingClient(
 			return nil, "", fmt.Errorf("embedding platform %q requires platform.endpoint", platform)
 		}
 		rt := &platformEmbeddingRoundTripper{
-			base:       http.DefaultTransport,
-			cred:       cred,
-			apiVersion: azureEmbeddingAPIVersion(pc),
+			Base:       http.DefaultTransport,
+			Cred:       cred,
+			APIVersion: provbase.AzureAPIVersion(pc),
 		}
 		client := &http.Client{Transport: rt, CheckRedirect: provbase.CredentialRedirectPolicy(nil, nil)}
 		return client, credentials.AzureOpenAIEndpoint(pc.Endpoint, model), nil
@@ -126,7 +126,7 @@ func buildBedrockEmbeddingClient(
 	}
 
 	return &http.Client{
-		Transport:     &platformEmbeddingRoundTripper{base: http.DefaultTransport, cred: cred},
+		Transport:     &platformEmbeddingRoundTripper{Base: http.DefaultTransport, Cred: cred},
 		CheckRedirect: provbase.CredentialRedirectPolicy(nil, nil),
 	}, baseURL, nil
 }
@@ -169,64 +169,11 @@ func buildVertexEmbeddingClient(
 // api-version query param, so the round tripper carries only the credential.
 func vertexClient(cred credentials.Credential) *http.Client {
 	return &http.Client{
-		Transport:     &platformEmbeddingRoundTripper{base: http.DefaultTransport, cred: cred},
+		Transport:     &platformEmbeddingRoundTripper{Base: http.DefaultTransport, Cred: cred},
 		CheckRedirect: provbase.CredentialRedirectPolicy(nil, nil),
 	}
 }
 
-// azureEmbeddingAPIVersion mirrors the chat path: prefer an explicit
-// platform.additional_config.api_version, else the package default.
-func azureEmbeddingAPIVersion(pc *PlatformConfig) string {
-	if pc != nil {
-		if v, ok := pc.AdditionalConfig["api_version"].(string); ok && v != "" {
-			return v
-		}
-	}
-	return credentials.DefaultAzureAPIVersion
-}
-
 // platformEmbeddingRoundTripper applies a credential (and, for Azure, the
 // api-version query param) to every embedding request before delegating.
-type platformEmbeddingRoundTripper struct {
-	base       http.RoundTripper
-	cred       credentials.Credential
-	apiVersion string // non-empty only for Azure
-}
-
-// BaseTransport returns the transport the credential-applying layer delegates
-// to. With WithBaseTransport it lets base.HTTPTuning replace or wrap the
-// connection layer while the credential stays applied first.
-func (rt *platformEmbeddingRoundTripper) BaseTransport() http.RoundTripper { return rt.base }
-
-// WithBaseTransport returns a copy of rt that delegates to next.
-func (rt *platformEmbeddingRoundTripper) WithBaseTransport(next http.RoundTripper) http.RoundTripper {
-	out := *rt
-	out.base = next
-	return &out
-}
-
-// RoundTrip applies the api-version query param (Azure) and the credential
-// to a cloned request before delegating to the base transport.
-func (rt *platformEmbeddingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	// Clone before mutating: the RoundTripper contract forbids modifying
-	// the caller's request.
-	r := req.Clone(req.Context())
-	if rt.apiVersion != "" && r.URL.Query().Get("api-version") == "" {
-		q := r.URL.Query()
-		q.Set("api-version", rt.apiVersion)
-		r.URL.RawQuery = q.Encode()
-	}
-	// A redirect to another host never gets the credential: the client's
-	// CredentialRedirectPolicy strips what http.Client copied, and the
-	// credential is not applied again here.
-	if rt.cred != nil && provbase.SameOriginAsFirstHop(req) {
-		if err := rt.cred.Apply(r.Context(), r); err != nil {
-			return nil, err
-		}
-	}
-	base := rt.base
-	if base == nil {
-		base = http.DefaultTransport
-	}
-	return base.RoundTrip(r)
-}
+type platformEmbeddingRoundTripper = provbase.CredentialTransport

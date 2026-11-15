@@ -621,6 +621,44 @@ func RejectPlatforms(rejected map[string]bool, inner ProviderFactory) ProviderFa
 	}
 }
 
+// unhostedTypes records the provider types no platform hosts.
+var unhostedTypes sync.Map
+
+// IgnoresPlatform reports whether no platform hosts providerType (a
+// self-hosted server, say). A spec's platform then must not choose its
+// credential: resolve the type's own credential and leave the platform out.
+func IgnoresPlatform(providerType string) bool {
+	_, ok := unhostedTypes.Load(providerType)
+	return ok
+}
+
+// IgnorePlatforms wraps the factory of a provider type no platform hosts and
+// records the type for IgnoresPlatform. A spec that names a platform is built
+// without it, against its own endpoint and with its own credential, and a
+// warning says the platform has no effect.
+func IgnorePlatforms(providerType string, inner ProviderFactory) ProviderFactory {
+	unhostedTypes.Store(providerType, struct{}{})
+	return func(spec ProviderSpec) (Provider, error) {
+		if spec.Platform != "" {
+			base.WarnPlatformIgnored(spec.ID, spec.Type, spec.Platform)
+			spec.Platform, spec.PlatformConfig = "", nil
+		}
+		return inner(spec)
+	}
+}
+
+// IgnoreEmbeddingPlatforms is IgnorePlatforms for an embedding factory.
+func IgnoreEmbeddingPlatforms(providerType string, inner EmbeddingProviderFactory) EmbeddingProviderFactory {
+	unhostedTypes.Store(providerType, struct{}{})
+	return func(spec EmbeddingProviderSpec) (EmbeddingProvider, error) {
+		if spec.Platform != "" {
+			base.WarnPlatformIgnored(spec.ID, spec.Type, spec.Platform)
+			spec.Platform, spec.PlatformConfig = "", nil
+		}
+		return inner(spec)
+	}
+}
+
 // HasCredential returns true if the spec has a credential whose type is not
 // "none". Factory functions use it to choose between credential-based and
 // environment-variable-based constructors.

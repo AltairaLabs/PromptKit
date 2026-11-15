@@ -4,7 +4,8 @@ import "github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 
 //nolint:gochecknoinits // Factory registration requires init
 func init() {
-	providers.RegisterEmbeddingProviderFactory("ollama",
+	// Ollama is self-hosted: it calls BaseURL whatever the platform.
+	providers.RegisterEmbeddingProviderFactory("ollama", providers.IgnoreEmbeddingPlatforms("ollama",
 		func(spec providers.EmbeddingProviderSpec) (providers.EmbeddingProvider, error) {
 			opts := []EmbeddingOption{}
 			if spec.Model != "" {
@@ -18,5 +19,5 @@ func init() {
 			}
 			return NewEmbeddingProvider(opts...), nil
 		},
-	)
+	))
 }

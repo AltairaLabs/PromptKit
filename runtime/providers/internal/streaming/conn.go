@@ -48,6 +48,12 @@ type ConnConfig struct {
 	// Headers are sent during the WebSocket handshake.
 	Headers http.Header
 
+	// DialHeaders, when set, is called before every dial attempt and its
+	// headers are added over Headers. It carries credentials that must be
+	// fresh at handshake time (a platform token that expires), so a retry or
+	// reconnect never reuses one captured when the Conn was built.
+	DialHeaders func(ctx context.Context) (http.Header, error)
+
 	// DialTimeout is the handshake timeout. Defaults to DefaultDialTimeout.
 	DialTimeout time.Duration
 
@@ -162,7 +168,12 @@ func (c *Conn) Connect(ctx context.Context) error {
 
 	c.cfg.Logger.Debug("connecting to WebSocket", "url", c.cfg.URL)
 
-	conn, resp, err := dialer.DialContext(ctx, c.cfg.URL, c.cfg.Headers)
+	headers, err := c.handshakeHeaders(ctx)
+	if err != nil {
+		return err
+	}
+
+	conn, resp, err := dialer.DialContext(ctx, c.cfg.URL, headers)
 	if err != nil {
 		if resp != nil && resp.Body != nil {
 			_ = resp.Body.Close()
@@ -180,6 +191,25 @@ func (c *Conn) Connect(ctx context.Context) error {
 	c.cfg.Logger.Info("WebSocket connected successfully")
 
 	return nil
+}
+
+// handshakeHeaders returns the static Headers with any DialHeaders added over them.
+func (c *Conn) handshakeHeaders(ctx context.Context) (http.Header, error) {
+	if c.cfg.DialHeaders == nil {
+		return c.cfg.Headers, nil
+	}
+	dial, err := c.cfg.DialHeaders(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build handshake headers: %w", err)
+	}
+	headers := c.cfg.Headers.Clone()
+	if headers == nil {
+		headers = http.Header{}
+	}
+	for name, values := range dial {
+		headers[name] = values
+	}
+	return headers, nil
 }
 
 // ConnectWithRetry attempts to connect with exponential backoff and jitter.

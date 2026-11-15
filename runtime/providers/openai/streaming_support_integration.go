@@ -55,12 +55,16 @@ func (p *Provider) CreateStreamSession(
 	if err := p.validateStreamRequest(req); err != nil {
 		return nil, err
 	}
+	dial, err := p.realtimeDial()
+	if err != nil {
+		return nil, err
+	}
 
 	// Acquire a concurrent-stream slot before dialing the WebSocket.
 	// Nil semaphore is a no-op; a saturated semaphore blocks until
 	// the caller's ctx is done, at which point AcquireStreamSlot
 	// emits the rejection metric with the correct reason label.
-	if err := p.AcquireStreamSlot(ctx); err != nil {
+	if err = p.AcquireStreamSlot(ctx); err != nil {
 		return nil, fmt.Errorf("failed to acquire stream slot: %w", err)
 	}
 	slotReleased := false
@@ -87,7 +91,7 @@ func (p *Provider) CreateStreamSession(
 	p.applyStreamSampling(req.Sampling, &config)
 	p.applyStreamTools(req.Tools, &config)
 
-	session, err := NewRealtimeSession(ctx, p.apiKey, &config)
+	session, err := newRealtimeSession(ctx, p.apiKey, &config, realtimeSessionOpts(dial))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create realtime session: %w", err)
 	}

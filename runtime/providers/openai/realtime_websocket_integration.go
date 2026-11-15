@@ -3,6 +3,7 @@ package openai
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
@@ -25,24 +26,33 @@ type RealtimeWebSocket struct {
 
 // NewRealtimeWebSocket creates a new WebSocket manager for OpenAI Realtime API.
 func NewRealtimeWebSocket(model, apiKey string) *RealtimeWebSocket {
-	return newRealtimeWebSocketAt(model, apiKey, RealtimeAPIEndpoint)
+	return newRealtimeWebSocketAt(model, apiKey, RealtimeAPIEndpoint, nil)
 }
 
 // newRealtimeWebSocketAt is NewRealtimeWebSocket with an explicit base endpoint.
 // Production callers use the default RealtimeAPIEndpoint via NewRealtimeWebSocket;
 // tests point it at a local fake WebSocket server to exercise the session's
 // receive/back-pressure behavior without the real API.
-func newRealtimeWebSocketAt(model, apiKey, endpoint string) *RealtimeWebSocket {
+//
+// A non-nil dialHeaders authenticates every handshake in place of apiKey: a
+// platform credential applied at dial time.
+func newRealtimeWebSocketAt(
+	model, apiKey, endpoint string, dialHeaders func(context.Context) (http.Header, error),
+) *RealtimeWebSocket {
 	// URL + header construction is extracted into realtime_config.go
 	// (realtimeWSURL / realtimeWSHeaders) so the GA requirement — Authorization
 	// present, OpenAI-Beta absent — can be unit-tested without a live socket.
 	wsURL := realtimeWSURL(endpoint, model)
 	headers := realtimeWSHeaders(apiKey)
+	if dialHeaders != nil {
+		headers = http.Header{}
+	}
 
 	return &RealtimeWebSocket{
 		conn: streaming.NewConn(&streaming.ConnConfig{
 			URL:              wsURL,
 			Headers:          headers,
+			DialHeaders:      dialHeaders,
 			MaxMessageSize:   wsMaxMessageSize,
 			MaxRetries:       wsMaxRetries,
 			RetryBackoffBase: wsRetryBackoffBase,

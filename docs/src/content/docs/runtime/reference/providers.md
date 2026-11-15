@@ -45,6 +45,7 @@ The package provides:
 - [func HasImageSupport\(p Provider\) bool](<#HasImageSupport>)
 - [func HasVideoSupport\(p Provider\) bool](<#HasVideoSupport>)
 - [func HostFromURL\(raw string\) string](<#HostFromURL>)
+- [func IgnoresPlatform\(providerType string\) bool](<#IgnoresPlatform>)
 - [func IntFromConfig\(cfg map\[string\]any, key string\) \(int, bool\)](<#IntFromConfig>)
 - [func IsFormatSupported\(p Provider, contentType, mimeType string\) bool](<#IsFormatSupported>)
 - [func IsRetryableStreamError\(err error\) bool](<#IsRetryableStreamError>)
@@ -192,6 +193,7 @@ The package provides:
 - [type EmbeddingProvider](<#EmbeddingProvider>)
   - [func CreateEmbeddingProviderFromSpec\(spec EmbeddingProviderSpec\) \(EmbeddingProvider, error\)](<#CreateEmbeddingProviderFromSpec>)
 - [type EmbeddingProviderFactory](<#EmbeddingProviderFactory>)
+  - [func IgnoreEmbeddingPlatforms\(providerType string, inner EmbeddingProviderFactory\) EmbeddingProviderFactory](<#IgnoreEmbeddingPlatforms>)
 - [type EmbeddingProviderSpec](<#EmbeddingProviderSpec>)
 - [type EmbeddingRequest](<#EmbeddingRequest>)
 - [type EmbeddingResponse](<#EmbeddingResponse>)
@@ -258,6 +260,7 @@ The package provides:
 - [type ProviderDefaults](<#ProviderDefaults>)
 - [type ProviderFactory](<#ProviderFactory>)
   - [func CredentialFactory\(withCred, withoutCred ProviderFactory\) ProviderFactory](<#CredentialFactory>)
+  - [func IgnorePlatforms\(providerType string, inner ProviderFactory\) ProviderFactory](<#IgnorePlatforms>)
   - [func RejectPlatforms\(rejected map\[string\]bool, inner ProviderFactory\) ProviderFactory](<#RejectPlatforms>)
 - [type ProviderHTTPError](<#ProviderHTTPError>)
   - [func \(e \*ProviderHTTPError\) Error\(\) string](<#ProviderHTTPError.Error>)
@@ -617,7 +620,7 @@ var ErrStreamIdleTimeout = errors.New("stream idle timeout: no data received")
 ```
 
 <a name="APIKeyFromCredential"></a>
-## func [APIKeyFromCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/embedding_factory.go#L129>)
+## func [APIKeyFromCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/embedding_factory.go#L133>)
 
 ```go
 func APIKeyFromCredential(c credentials.Credential) string
@@ -773,8 +776,17 @@ func HostFromURL(raw string) string
 
 HostFromURL extracts only the host portion \(without scheme or path\) from a URL string, intended for use as a Prometheus label on streaming metrics. It returns an empty string on a parse error or when the URL has no host; callers treat an empty label as an unknown host.
 
+<a name="IgnoresPlatform"></a>
+## func [IgnoresPlatform](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L630>)
+
+```go
+func IgnoresPlatform(providerType string) bool
+```
+
+IgnoresPlatform reports whether no platform hosts providerType \(a self\-hosted server, say\). A spec's platform then must not choose its credential: resolve the type's own credential and leave the platform out.
+
 <a name="IntFromConfig"></a>
-## func [IntFromConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/embedding_factory.go#L142>)
+## func [IntFromConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/embedding_factory.go#L146>)
 
 ```go
 func IntFromConfig(cfg map[string]any, key string) (int, bool)
@@ -2260,6 +2272,15 @@ EmbeddingProviderFactory builds an EmbeddingProvider from a spec. Per\-provider 
 type EmbeddingProviderFactory func(spec EmbeddingProviderSpec) (EmbeddingProvider, error)
 ```
 
+<a name="IgnoreEmbeddingPlatforms"></a>
+### func [IgnoreEmbeddingPlatforms](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L651>)
+
+```go
+func IgnoreEmbeddingPlatforms(providerType string, inner EmbeddingProviderFactory) EmbeddingProviderFactory
+```
+
+IgnoreEmbeddingPlatforms is IgnorePlatforms for an embedding factory.
+
 <a name="EmbeddingProviderSpec"></a>
 ## type [EmbeddingProviderSpec](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/embedding_factory.go#L18-L46>)
 
@@ -3228,7 +3249,7 @@ type ProviderFactory func(spec ProviderSpec) (Provider, error)
 ```
 
 <a name="CredentialFactory"></a>
-### func [CredentialFactory](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L644>)
+### func [CredentialFactory](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L682>)
 
 ```go
 func CredentialFactory(withCred, withoutCred ProviderFactory) ProviderFactory
@@ -3248,6 +3269,15 @@ providers.RegisterProviderFactory("claude", providers.CredentialFactory(
     },
 ))
 ```
+
+<a name="IgnorePlatforms"></a>
+### func [IgnorePlatforms](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L639>)
+
+```go
+func IgnorePlatforms(providerType string, inner ProviderFactory) ProviderFactory
+```
+
+IgnorePlatforms wraps the factory of a provider type no platform hosts and records the type for IgnoresPlatform. A spec that names a platform is built without it, against its own endpoint and with its own credential, and a warning says the platform has no effect.
 
 <a name="RejectPlatforms"></a>
 ### func [RejectPlatforms](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L612>)
@@ -3397,7 +3427,7 @@ type ProviderSpec struct {
 ```
 
 <a name="ProviderSpec.HasCredential"></a>
-### func \(\*ProviderSpec\) [HasCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L627>)
+### func \(\*ProviderSpec\) [HasCredential](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/registry.go#L665>)
 
 ```go
 func (s *ProviderSpec) HasCredential() bool

@@ -54,6 +54,12 @@ func (p *Provider) CreateStreamSession(
 	if err := p.validateStreamRequest(req); err != nil {
 		return nil, err
 	}
+	if p.platform != "" {
+		// The session dials the Gemini API host with the static key; a
+		// platform provider has neither, so refuse instead of failing there.
+		return nil, fmt.Errorf("live sessions are not available on platform %q: Gemini Live runs on the Gemini API only",
+			p.platform)
+	}
 
 	config := p.buildStreamSessionConfig(req)
 	config.Sampling = liveSampling(p.ID(), req.Sampling)
@@ -234,6 +240,9 @@ func (p *Provider) applyToolsConfig(tools []providers.StreamingToolDefinition, c
 
 // SupportsStreamInput returns the media types supported for streaming input
 func (p *Provider) SupportsStreamInput() []string {
+	if p.platform != "" {
+		return []string{} // CreateStreamSession refuses a platform provider
+	}
 	return []string{types.ContentTypeAudio, types.ContentTypeVideo, types.ContentTypeImage}
 }
 

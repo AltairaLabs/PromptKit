@@ -281,6 +281,20 @@ Configures hyperscaler hosting platforms (Bedrock, Vertex, Azure) that provide m
 | `endpoint` | string | Custom endpoint URL override. |
 | `additional_config` | map[string]any | Platform-specific settings. |
 
+Which platforms a provider runs on depends on its role and type:
+
+| Role | Type: platforms |
+|------|-----------------|
+| `llm` | `openai`: azure, bedrock, vertex. `claude`: azure, bedrock, vertex. `gemini`: vertex. |
+| `llm`, duplex session | `openai` (Realtime): azure. A Gemini Live session on any platform fails. |
+| `embedding` | `openai`: azure. `bedrock`: bedrock. `vertex`: vertex. |
+| `tts`, `stt` | `openai`: azure. |
+| `image` | `imagen`: none. On `vertex` the provider fails to build. |
+
+On Azure, `model` is the deployment name. Audio requests go to the deployment's `/audio/speech` or `/audio/transcriptions` route with `api-version` from `additional_config.api_version` (default `2024-12-01-preview`), and a Realtime session connects to `/openai/v1/realtime?model=<deployment>`. Each request and each session handshake fetches the token from the platform credential.
+
+A provider type that no platform hosts (`ollama`, `vllm`, `elevenlabs`, `cartesia`, the inference types) is built against its own endpoint with its own credential, and logs a warning that the platform is ignored. A `rerank` provider with a platform fails to build.
+
 #### stream_retry
 
 Retries a streaming request that fails before any content reaches the caller (the default `pre_first_chunk` window). With `retry_window: always`, a failure after content was forwarded emits a `Reset` signal so consumers discard what they received, then retries the whole request; the retry is billed as a new response.
