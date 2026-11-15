@@ -64,7 +64,7 @@ func (p *Provider) CreateStreamSession(
 	// Nil semaphore is a no-op; a saturated semaphore blocks until
 	// the caller's ctx is done, at which point AcquireStreamSlot
 	// emits the rejection metric with the correct reason label.
-	if err := p.AcquireStreamSlot(ctx); err != nil {
+	if err = p.AcquireStreamSlot(ctx); err != nil {
 		return nil, fmt.Errorf("failed to acquire stream slot: %w", err)
 	}
 	slotReleased := false
