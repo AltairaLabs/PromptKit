@@ -124,7 +124,11 @@ type Conversation struct {
 	// Tool handlers
 	handlers    map[string]ToolHandler
 	ctxHandlers map[string]ToolHandlerCtx
-	handlersMu  sync.RWMutex
+	// callHandlers take the whole tool call (ID, caller); they win over
+	// ctxHandlers for the same name. OnToolExecutor fills it for a
+	// tools.CallExecutor.
+	callHandlers map[string]toolCallHandler
+	handlersMu   sync.RWMutex
 
 	// Client tool handlers (mode: "client")
 	clientHandlers   map[string]ClientToolHandler
@@ -761,6 +765,7 @@ func (c *Conversation) buildPipelineConfig(
 		DescribeTool:          c.describeTool,
 		SystemPromptSuffix:    c.preloadedSkillInstructions,
 		ApprovalGate:          c.newApprovalGate(),
+		Caller:                c.config.caller,
 		CallRate:              c.callRateWindow(),
 		SkipContentValidation: c.config.skipContentValidation,
 		ToolPolicy:            c.config.toolPolicy,
@@ -1495,7 +1500,7 @@ func (c *Conversation) forkToolRegistry() *tools.Registry {
 // ID (the original's with a "-fork" suffix), tool registry, pending tool calls,
 // active skills and memory scope. Handlers registered with OnTool, OnToolCtx,
 // OnToolHTTP, OnToolExecutor, OnToolAsync and the client tool handlers are
-// copied. The fork shares the original's
+// copied, and the fork acts for the same caller (WithCaller). The fork shares the original's
 // providers, MCP servers, hooks and event bus, and the event bus stays open
 // until the original and every fork have closed.
 func (c *Conversation) Fork() (*Conversation, error) {
@@ -1510,16 +1515,11 @@ func (c *Conversation) Fork() (*Conversation, error) {
 	}
 
 	c.handlersMu.RLock()
-	// Copy handlers
-	handlers := make(map[string]ToolHandler, len(c.handlers))
-	for k, v := range c.handlers {
-		handlers[k] = v
-	}
-	// Copy context-aware handlers (OnToolCtx, OnToolHTTP, OnToolExecutor).
-	ctxHandlers := make(map[string]ToolHandlerCtx, len(c.ctxHandlers))
-	for k, v := range c.ctxHandlers {
-		ctxHandlers[k] = v
-	}
+	// Copy handlers, context-aware handlers (OnToolCtx, OnToolHTTP,
+	// OnToolExecutor) and call handlers (OnToolExecutor with a CallExecutor).
+	handlers := copyHandlerMap(c.handlers)
+	ctxHandlers := copyHandlerMap(c.ctxHandlers)
+	callHandlers := copyHandlerMap(c.callHandlers)
 	c.handlersMu.RUnlock()
 
 	c.asyncHandlersMu.RLock()
@@ -1567,6 +1567,7 @@ func (c *Conversation) Fork() (*Conversation, error) {
 		mode:             c.mode,
 		handlers:         handlers,
 		ctxHandlers:      ctxHandlers,
+		callHandlers:     callHandlers,
 		clientHandlers:   clientHandlers,
 		asyncHandlers:    asyncHandlers,
 		pendingStore:     forkPendingStore,
@@ -2096,6 +2097,16 @@ func promptDeclarations(p *pack.Pack) map[string]*packspec.Prompt {
 	out := make(map[string]*packspec.Prompt, len(p.Prompts))
 	for task, pr := range p.Prompts {
 		out[task] = packspec.Clone(pr)
+	}
+	return out
+}
+
+// copyHandlerMap returns a copy of m that is never nil, so the copy can be
+// registered into.
+func copyHandlerMap[V any](m map[string]V) map[string]V {
+	out := make(map[string]V, len(m))
+	for k, v := range m {
+		out[k] = v
 	}
 	return out
 }

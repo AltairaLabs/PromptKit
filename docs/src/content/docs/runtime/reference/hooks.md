@@ -737,7 +737,7 @@ func (r *Registry) SetEmitter(e *events.Emitter)
 SetEmitter hands the emitter to every registered provider hook that wants one. Hooks that do not implement EmitterAware are untouched. Nil\-safe on both the receiver and the emitter.
 
 <a name="SessionEvent"></a>
-## type [SessionEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L146-L157>)
+## type [SessionEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L151-L162>)
 
 SessionEvent carries context for session lifecycle hooks.
 
@@ -784,7 +784,7 @@ type ToolHook interface {
 ```
 
 <a name="ToolRequest"></a>
-## type [ToolRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L124-L134>)
+## type [ToolRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L124-L139>)
 
 ToolRequest describes a tool call about to be executed.
 
@@ -799,11 +799,16 @@ type ToolRequest struct {
     // only allows or denies needs one hook covering every tool. Nil means the
     // pack does not declare the tool. PromptKit never reads it.
     Declaration *packspec.Tool
+
+    // Caller is who the conversation acts for, as the host set it with
+    // sdk.WithCaller. The zero value means none was set. PromptKit never reads,
+    // persists, logs or emits it.
+    Caller types.Caller
 }
 ```
 
 <a name="ToolResponse"></a>
-## type [ToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L137-L143>)
+## type [ToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L142-L148>)
 
 ToolResponse describes a completed tool execution.
 

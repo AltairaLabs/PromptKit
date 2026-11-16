@@ -131,6 +131,11 @@ type ToolRequest struct {
 	// only allows or denies needs one hook covering every tool. Nil means the
 	// pack does not declare the tool. PromptKit never reads it.
 	Declaration *packspec.Tool
+
+	// Caller is who the conversation acts for, as the host set it with
+	// sdk.WithCaller. The zero value means none was set. PromptKit never reads,
+	// persists, logs or emits it.
+	Caller types.Caller
 }
 
 // ToolResponse describes a completed tool execution.

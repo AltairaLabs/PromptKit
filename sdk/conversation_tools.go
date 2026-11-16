@@ -58,6 +58,7 @@ func (c *Conversation) OnToolCtx(name string, handler ToolHandlerCtx) {
 		c.ctxHandlers = make(map[string]ToolHandlerCtx)
 	}
 	c.ctxHandlers[name] = handler
+	delete(c.callHandlers, name)
 }
 
 // OnTools registers multiple tool handlers at once.
@@ -95,6 +96,7 @@ func (c *Conversation) OnToolHTTP(name string, config *sdktools.HTTPToolConfig) 
 		c.ctxHandlers = make(map[string]ToolHandlerCtx)
 	}
 	c.ctxHandlers[name] = config.HandlerCtx()
+	delete(c.callHandlers, name)
 }
 
 // OnToolExecutor registers a custom executor for tools.
@@ -105,12 +107,30 @@ func (c *Conversation) OnToolHTTP(name string, config *sdktools.HTTPToolConfig) 
 //	executor := &MyCustomExecutor{}
 //	conv.OnToolExecutor("custom_tool", executor)
 //
-// The executor must implement the runtime/tools.Executor interface.
+// The executor must implement the runtime/tools.Executor interface. An
+// executor that also implements [tools.CallExecutor] is given each call
+// through ExecuteCall, so it sees the provider's call ID and the caller the
+// conversation acts for ([WithCaller]).
 func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 	c.handlersMu.Lock()
 	defer c.handlersMu.Unlock()
 	if c.ctxHandlers == nil {
 		c.ctxHandlers = make(map[string]ToolHandlerCtx)
+	}
+	delete(c.callHandlers, name)
+	if callExec, ok := executor.(tools.CallExecutor); ok {
+		if c.callHandlers == nil {
+			c.callHandlers = make(map[string]toolCallHandler)
+		}
+		c.callHandlers[name] = func(
+			ctx context.Context, call tools.ToolCall,
+		) (json.RawMessage, []types.ContentPart, error) {
+			desc, err := c.packToolDescriptor(name)
+			if err != nil {
+				return nil, nil, err
+			}
+			return callExec.ExecuteCall(ctx, desc, call)
+		}
 	}
 	c.ctxHandlers[name] = func(ctx context.Context, args map[string]any) (any, error) {
 		// Convert args to JSON for the executor
@@ -119,22 +139,9 @@ func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 			return nil, fmt.Errorf("failed to marshal args: %w", err)
 		}
 
-		// Get tool descriptor from pack
-		packTool := c.pack.GetTool(name)
-		if packTool == nil {
-			return nil, markSentinel(fmt.Errorf("tool %q not found in pack", name), ErrToolNotInPack)
-		}
-
-		paramsJSON, err := json.Marshal(packTool.Parameters)
+		desc, err := c.packToolDescriptor(name)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal tool schema: %w", err)
-		}
-
-		desc := &tools.ToolDescriptor{
-			Name:        packTool.Name,
-			Description: packTool.Description,
-			InputSchema: paramsJSON,
-			Declaration: c.toolDeclaration(name, packTool),
+			return nil, err
 		}
 
 		// Execute with pipeline context for tracing and cancellation
@@ -150,6 +157,26 @@ func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 		}
 		return parsed, nil
 	}
+}
+
+// packToolDescriptor is the descriptor OnToolExecutor hands its executor for
+// the pack tool name: the pack's name, description, parameters and
+// declaration.
+func (c *Conversation) packToolDescriptor(name string) (*tools.ToolDescriptor, error) {
+	packTool := c.pack.GetTool(name)
+	if packTool == nil {
+		return nil, markSentinel(fmt.Errorf("tool %q not found in pack", name), ErrToolNotInPack)
+	}
+	paramsJSON, err := json.Marshal(packTool.Parameters)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal tool schema: %w", err)
+	}
+	return &tools.ToolDescriptor{
+		Name:        packTool.Name,
+		Description: packTool.Description,
+		InputSchema: paramsJSON,
+		Declaration: c.toolDeclaration(name, packTool),
+	}, nil
 }
 
 // OnToolAsync registers a handler that may require approval before execution.

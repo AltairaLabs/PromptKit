@@ -157,6 +157,8 @@ func vadProviderConfig(cfg *Config) *stage.ProviderConfig {
 		// ToolPolicy.MaxCallsPerMinute where text does, and a held call
 		// ResolveTool approves is admitted in the same window.
 		CallRate: cfg.CallRate,
+		// Voice tool calls act for the conversation's caller, as text ones do.
+		Caller: cfg.Caller,
 		// A skill activated mid-conversation extends the tool array, and
 		// selection narrows it per turn. Both are live reads on every tools
 		// build, so voice gets the same tools as text (#1957, #1980).

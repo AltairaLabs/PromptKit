@@ -971,6 +971,7 @@ func initDuplexSession(ctx context.Context, conv *Conversation, cfg *config) err
 		Config:           streamConfig, // nil for VAD mode, set for ASM mode
 		ToolRegistry:     conv.toolRegistry,
 		AsyncToolChecker: conv.newAsyncToolChecker(),
+		Caller:           cfg.caller,
 		Metadata:         cfg.sessionMetadata,
 		Variables:        initialVars,
 	})

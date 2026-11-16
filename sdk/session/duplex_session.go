@@ -46,6 +46,7 @@ type duplexSession struct {
 	// Note: Session is NOT stored here - DuplexProviderStage creates and manages it
 	toolRegistry     *tools.Registry  // Optional: for executing tool calls (client tools, etc.)
 	asyncToolChecker AsyncToolChecker // Optional: HITL gate for tool calls
+	caller           types.Caller     // who the conversation acts for; on every tool call
 	variables        map[string]string
 	varsMu           sync.RWMutex
 	closeMu          sync.Mutex
@@ -202,6 +203,7 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 		streamConfig:     cfg.Config,
 		toolRegistry:     cfg.ToolRegistry,
 		asyncToolChecker: cfg.AsyncToolChecker,
+		caller:           cfg.Caller,
 		variables:        vars,
 		stageInput:       stageInput,
 		streamOutput:     streamOutput,
@@ -445,7 +447,7 @@ func (s *duplexSession) handleToolCalls(ctx context.Context, elem *stage.StreamE
 	logger.Debug("duplexSession: intercepting tool calls",
 		"count", len(toolCalls))
 
-	duplexResult := executeDuplexToolCalls(ctx, s.toolRegistry, toolCalls, s.asyncToolChecker)
+	duplexResult := executeDuplexToolCalls(ctx, s.toolRegistry, toolCalls, s.asyncToolChecker, s.caller)
 
 	// Send completed tool results back to the pipeline
 	if len(duplexResult.Completed.ProviderResponses) > 0 {
@@ -811,6 +813,7 @@ func (s *duplexSession) ForkSession(
 		Config:           copyStreamConfig(s.streamConfig),
 		ToolRegistry:     s.toolRegistry,
 		AsyncToolChecker: s.asyncToolChecker,
+		Caller:           s.caller,
 		Variables:        forkVars,
 	})
 }

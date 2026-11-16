@@ -85,7 +85,7 @@ func TestExecuteDuplexToolCalls_AllCompleted(t *testing.T) {
 		{ID: "c2", Name: "tool_b", Args: json.RawMessage(`{}`)},
 	}
 
-	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, nil)
+	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, nil, types.Caller{})
 
 	assert.Len(t, result.Completed.ProviderResponses, 2)
 	assert.Len(t, result.Completed.ResultMessages, 2)
@@ -105,7 +105,7 @@ func TestExecuteDuplexToolCalls_AllPending(t *testing.T) {
 		{ID: "c2", Name: "client_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, nil)
+	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, nil, types.Caller{})
 
 	assert.Empty(t, result.Completed.ProviderResponses)
 	assert.Empty(t, result.Completed.ResultMessages)
@@ -129,7 +129,7 @@ func TestExecuteDuplexToolCalls_Mixed(t *testing.T) {
 		{ID: "c2", Name: "client_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, nil)
+	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, nil, types.Caller{})
 
 	assert.Len(t, result.Completed.ProviderResponses, 1)
 	assert.Equal(t, "c1", result.Completed.ProviderResponses[0].ToolCallID)
@@ -145,7 +145,7 @@ func TestExecuteDuplexToolCalls_Error(t *testing.T) {
 		{ID: "c1", Name: "bad_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, nil) // Individual tool errors don't fail the batch
+	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, nil, types.Caller{}) // Individual tool errors don't fail the batch
 
 	assert.Len(t, result.Completed.ProviderResponses, 1)
 	assert.True(t, result.Completed.ProviderResponses[0].IsError)
@@ -159,7 +159,7 @@ func TestExecuteDuplexToolCalls_UnknownTool(t *testing.T) {
 		{ID: "c1", Name: "nonexistent", Args: json.RawMessage(`{}`)},
 	}
 
-	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, nil)
+	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, nil, types.Caller{})
 
 	assert.Len(t, result.Completed.ProviderResponses, 1)
 	assert.True(t, result.Completed.ProviderResponses[0].IsError)
@@ -187,7 +187,7 @@ func TestExecuteDuplexToolCalls_HITLGate(t *testing.T) {
 		{ID: "c1", Name: "gated_tool", Args: json.RawMessage(`{"key":"val"}`)},
 	}
 
-	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, checker)
+	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, checker, types.Caller{})
 
 	// Should be pending, not completed
 	assert.Empty(t, result.Completed.ProviderResponses, "gated tool should not be completed")
@@ -213,7 +213,7 @@ func TestExecuteDuplexToolCalls_HITLPassthrough(t *testing.T) {
 		{ID: "c1", Name: "safe_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, checker)
+	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, checker, types.Caller{})
 
 	assert.Len(t, result.Completed.ProviderResponses, 1)
 	assert.Empty(t, result.Pending)
@@ -239,7 +239,7 @@ func TestExecuteDuplexToolCalls_HITLHandled(t *testing.T) {
 		{ID: "c1", Name: "async_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, checker)
+	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, checker, types.Caller{})
 
 	assert.Len(t, result.Completed.ProviderResponses, 1)
 	assert.Empty(t, result.Pending)
@@ -271,7 +271,7 @@ func TestExecuteDuplexToolCalls_HITLMixedWithSync(t *testing.T) {
 		{ID: "c2", Name: "gated_tool", Args: json.RawMessage(`{}`)},
 	}
 
-	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, checker)
+	result := executeDuplexToolCalls(context.Background(), reg, toolCalls, checker, types.Caller{})
 
 	// safe_tool should complete, gated_tool should be pending
 	assert.Len(t, result.Completed.ProviderResponses, 1)

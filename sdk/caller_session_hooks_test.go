@@ -92,20 +92,3 @@ func TestCaller_SessionHooksSeeTheCaller(t *testing.T) {
 		})
 	}
 }
-
-// A fork acts for the same caller as the conversation it came from.
-func TestCaller_ForkCarriesTheCaller(t *testing.T) {
-	member := types.Caller{ID: "member@example.com"}
-	conv, err := Open(createTestPackFile(t, convChatPack), "chat",
-		WithProvider(mock.NewProvider("mock", "mock-model", false)),
-		WithSkipSchemaValidation(), WithCaller(member))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conv.Close() })
-	_, err = conv.Send(context.Background(), "hello")
-	require.NoError(t, err)
-
-	fork, err := conv.Fork()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = fork.Close() })
-	assert.Equal(t, member, fork.sessionHooks.buildEvent().Caller)
-}

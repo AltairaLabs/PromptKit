@@ -25,6 +25,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/variables"
 )
 
@@ -166,6 +167,11 @@ type Config struct {
 	// surfaced as pending instead of executing, and a tool it refuses does not
 	// run. Optional; nil executes normally.
 	ApprovalGate tools.ApprovalGate
+
+	// Caller is who the conversation acts for (sdk.WithCaller). The provider
+	// stage puts it on every tool call and tool hook request
+	// (stage.ProviderConfig.Caller). The zero value means none was set.
+	Caller types.Caller
 
 	// CallRate is the window the provider stage counts calls in for
 	// ToolPolicy.MaxCallsPerMinute (stage.ProviderConfig.CallRate). Nil gives
@@ -723,6 +729,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			ToolPolicy:            cfg.ToolPolicy,
 			CallRate:              cfg.CallRate,
 			ApprovalGate:          cfg.ApprovalGate,
+			Caller:                cfg.Caller,
 		}
 		name := cfg.CompositionName
 		if name == "" {
@@ -774,6 +781,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			DescribeTool:     cfg.DescribeTool,
 			ApprovalGate:     cfg.ApprovalGate,
 			CallRate:         cfg.CallRate,
+			Caller:           cfg.Caller,
 			Streaming:        cfg.Ingestion != nil,
 
 			StructuredOutputMode:  cfg.StructuredOutputMode,

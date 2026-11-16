@@ -361,6 +361,11 @@ type ToolCall struct {
 	Name string          `json:"name"`
 	Args json.RawMessage `json:"args"`
 	ID   string          `json:"id"` // Provider-specific call ID
+
+	// Caller is who the conversation acts for, as the host set it with
+	// sdk.WithCaller. The zero value means none was set. PromptKit never reads,
+	// persists, logs or emits it, so it is never serialized.
+	Caller types.Caller `json:"-"`
 }
 
 // ToolResult represents the result of a tool execution
@@ -460,6 +465,33 @@ type MultimodalExecutor interface {
 	ExecuteMultimodal(
 		ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage,
 	) (json.RawMessage, []types.ContentPart, error)
+}
+
+// CallExecutor extends Executor with an entry point that receives the whole
+// call: its name, the provider's call ID, the arguments and the caller the
+// conversation acts for. The registry prefers it over ExecuteMultimodal and
+// Execute. call.Args are the arguments after the registry coerced them toward
+// the input schema and validated them.
+type CallExecutor interface {
+	Executor
+
+	// ExecuteCall runs call and returns the JSON result and optional content parts.
+	ExecuteCall(
+		ctx context.Context, descriptor *ToolDescriptor, call ToolCall,
+	) (json.RawMessage, []types.ContentPart, error)
+}
+
+// AsyncCallExecutor is the call-taking form of AsyncToolExecutor: it receives
+// the whole call, caller included, and may return ToolStatusPending. On the
+// registry's async paths it is preferred over AsyncToolExecutor. An executor
+// that implements AsyncToolExecutor and CallExecutor but not this interface is
+// given ExecuteAsync on the async paths (so it can still suspend a call, but
+// without the caller) and ExecuteCall on the synchronous ones.
+type AsyncCallExecutor interface {
+	Executor
+
+	// ExecuteCallAsync may return immediately with a pending status.
+	ExecuteCallAsync(ctx context.Context, descriptor *ToolDescriptor, call ToolCall) (*ToolExecutionResult, error)
 }
 
 // AsyncToolExecutor is a tool that can return pending status instead of blocking.

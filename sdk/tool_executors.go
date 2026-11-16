@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // localExecutor is a tool executor for locally-handled tools (Mode: "local").
@@ -29,6 +30,41 @@ type localExecutor struct {
 // clientBound reports whether the conversation bound name as a client tool.
 func (e *localExecutor) clientBound(name string) bool {
 	return e.client != nil && e.client.isBound(name)
+}
+
+// toolCallHandler runs a whole tool call: its name, call ID, coerced arguments
+// and caller. OnToolExecutor stores one for an executor that implements
+// tools.CallExecutor.
+type toolCallHandler func(ctx context.Context, call tools.ToolCall) (json.RawMessage, []types.ContentPart, error)
+
+// ExecuteCallAsync is ExecuteAsync for the whole call: a client-bound tool goes
+// to the client executor, which may defer it (ToolStatusPending), and every
+// other tool runs through ExecuteCall.
+func (e *localExecutor) ExecuteCallAsync(
+	ctx context.Context, descriptor *tools.ToolDescriptor, call tools.ToolCall,
+) (*tools.ToolExecutionResult, error) {
+	if e.clientBound(descriptor.Name) {
+		return e.client.ExecuteAsync(ctx, asClientTool(descriptor), call.Args)
+	}
+	result, parts, err := e.ExecuteCall(ctx, descriptor, call)
+	if err != nil {
+		return nil, err
+	}
+	return &tools.ToolExecutionResult{Status: tools.ToolStatusComplete, Content: result, Parts: parts}, nil
+}
+
+// ExecuteCall runs the call on the conversation's call handler for the tool,
+// which receives the whole call, and otherwise through Execute.
+func (e *localExecutor) ExecuteCall(
+	ctx context.Context, descriptor *tools.ToolDescriptor, call tools.ToolCall,
+) (json.RawMessage, []types.ContentPart, error) {
+	if !e.clientBound(descriptor.Name) {
+		if handler, ok := e.liveCallHandler(descriptor.Name); ok {
+			return handler(ctx, call)
+		}
+	}
+	result, err := e.Execute(ctx, descriptor, call.Args)
+	return result, nil, err
 }
 
 // ExecuteAsync routes a client-bound tool to the client executor, which may
@@ -63,6 +99,13 @@ func (a *localHandlersAccessor) getCtxHandler(name string) (ToolHandlerCtx, bool
 	return h, ok
 }
 
+func (a *localHandlersAccessor) getCallHandler(name string) (toolCallHandler, bool) {
+	a.conv.handlersMu.RLock()
+	defer a.conv.handlersMu.RUnlock()
+	h, ok := a.conv.callHandlers[name]
+	return h, ok
+}
+
 func (a *localHandlersAccessor) getHandler(name string) (ToolHandler, bool) {
 	a.conv.handlersMu.RLock()
 	defer a.conv.handlersMu.RUnlock()
@@ -82,6 +125,16 @@ func (e *localExecutor) liveCtxHandler(name string) (ToolHandlerCtx, bool) {
 		return nil, false
 	}
 	return e.live.getCtxHandler(name)
+}
+
+// liveCallHandler reads the conversation's current call handler, if the
+// executor was built with an accessor. There is no build-time snapshot: a call
+// handler a later OnToolCtx replaced must not come back from one.
+func (e *localExecutor) liveCallHandler(name string) (toolCallHandler, bool) {
+	if e.live == nil {
+		return nil, false
+	}
+	return e.live.getCallHandler(name)
 }
 
 // liveHandler reads the conversation's current plain handler, if the executor
