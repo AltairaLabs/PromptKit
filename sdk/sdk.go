@@ -94,7 +94,7 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 			"pack", packPath, "prompt", promptName, "error", err)
 		return nil, err
 	}
-	if conv, err = completeOpen(conv, prov, false); err != nil {
+	if conv, err = completeOpen(context.Background(), conv, prov, false); err != nil {
 		return nil, err
 	}
 	logger.Info("conversation opened",
@@ -135,12 +135,24 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 //   - WithVADMode / WithIngestion: the pipeline owns the input side and the
 //     model only ever sees text, so any text provider works — including Claude
 //     and OpenAI Chat Completions.
+//
+// The session runs on a context detached from any caller, so its tool calls
+// see no context values; use [OpenDuplexContext] to give them the host's.
 func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, error) {
+	return OpenDuplexContext(context.Background(), packPath, promptName, opts...)
+}
+
+// OpenDuplexContext is [OpenDuplex] with a base context for the session. The
+// session's pipeline, and so every tool call the model makes, runs on a
+// context carrying ctx's values — the caller identity or policy a host puts
+// there, as it would on a text turn's Send(ctx). The session owns its own
+// cancellation: canceling ctx does not end it; Close does.
+func OpenDuplexContext(ctx context.Context, packPath, promptName string, opts ...Option) (*Conversation, error) {
 	conv, prov, err := initConversation(packPath, promptName, opts)
 	if err != nil {
 		return nil, err
 	}
-	return completeOpen(conv, prov, true)
+	return completeOpen(ctx, conv, prov, true)
 }
 
 // initConversation performs the common initialization shared by Open and OpenDuplex.
@@ -335,8 +347,10 @@ func checkDuplexProvider(prov providers.Provider, cfg *config) error {
 // completeOpen is the rest of every open path once the conversation is
 // prepared: MCP, the unary state store or duplex session, eval middleware and
 // session-start hooks, and shutdown registration. A failure releases what the
-// conversation holds.
-func completeOpen(conv *Conversation, prov providers.Provider, duplex bool) (*Conversation, error) {
+// conversation holds. A duplex session takes its context values from ctx.
+func completeOpen(
+	ctx context.Context, conv *Conversation, prov providers.Provider, duplex bool,
+) (*Conversation, error) {
 	// Initialize the MCP registry BEFORE the pipeline is built. The pipeline
 	// build path calls registerMCPExecutors, which queries the MCP registry
 	// to surface tool descriptors; if the registry is still nil at that
@@ -353,7 +367,7 @@ func completeOpen(conv *Conversation, prov providers.Provider, duplex bool) (*Co
 		if streamErr := checkDuplexProvider(prov, conv.config); streamErr != nil {
 			return conv.failOpen(streamErr)
 		}
-		if err := initDuplexSession(conv, conv.config); err != nil {
+		if err := initDuplexSession(ctx, conv, conv.config); err != nil {
 			return conv.failOpen(err)
 		}
 	} else if err := initInternalStateStore(conv, conv.config); err != nil {
@@ -891,7 +905,7 @@ func initInternalStateStore(conv *Conversation, cfg *config) error {
 // and DuplexProviderStage reads it from TurnState when creating the session.
 
 // initDuplexSession initializes a duplex streaming session.
-func initDuplexSession(conv *Conversation, cfg *config) error {
+func initDuplexSession(ctx context.Context, conv *Conversation, cfg *config) error {
 	// Same private-store fallback as the unary path, so the same trap applies —
 	// and it applies harder here, since ResumeDuplex exists and resumption is
 	// the likely intent.
@@ -940,7 +954,7 @@ func initDuplexSession(conv *Conversation, cfg *config) error {
 	streamConfig := cfg.streamingConfig
 
 	// Create duplex session with builder
-	duplexSession, err := session.NewDuplexSession(context.Background(), &session.DuplexSessionConfig{
+	duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
 		ConversationID:   conversationID,
 		UserID:           cfg.userID,
 		StateStore:       store,

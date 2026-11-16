@@ -115,6 +115,16 @@ func main() {
 
 For OpenAI Realtime, use `sdk.WithModel("gpt-realtime")` and a `SampleRate` of 24000. The [`openai-realtime` example](https://github.com/AltairaLabs/PromptKit/tree/main/sdk/examples/openai-realtime) shows the full configuration.
 
+## Step 3: Pass the caller's context to tool calls
+
+A duplex session runs its tool calls on its own context, not on the context of any `SendChunk` call. If your tool handlers read the caller's identity or policy from the context, open the session with `sdk.OpenDuplexContext` instead of `sdk.OpenDuplex`:
+
+```go
+conv, err := sdk.OpenDuplexContext(ctx, "./voice-assistant.pack.json", "assistant", opts...)
+```
+
+Every tool call in the session sees the values on `ctx`, as a text turn's tool calls see the values on the context passed to `Send`. Canceling `ctx` does not end the session; `conv.Close` does. A `PackTemplate` has the same method, `OpenDuplexContext`.
+
 ## Verify
 
 Call `conv.Response()`, send audio with `conv.SendChunk`, and read the channel. The first `SendChunk` starts the pipeline. A chunk with `input_transcription` metadata shows the session heard the speech, and a chunk with `assistant_turn_complete` closes the reply. [Handle turns, barge-in and transcripts](/sdk/how-to/voice/handle-turns-and-barge-in/) shows the loop.

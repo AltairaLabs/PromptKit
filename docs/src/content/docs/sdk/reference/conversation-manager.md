@@ -253,6 +253,7 @@ Mock response from mock model mock-model
   - [func Open\(packPath, promptName string, opts ...Option\) \(\*Conversation, error\)](<#Open>)
   - [func OpenComposition\(packPath, name string, opts ...Option\) \(\*Conversation, error\)](<#OpenComposition>)
   - [func OpenDuplex\(packPath, promptName string, opts ...Option\) \(\*Conversation, error\)](<#OpenDuplex>)
+  - [func OpenDuplexContext\(ctx context.Context, packPath, promptName string, opts ...Option\) \(\*Conversation, error\)](<#OpenDuplexContext>)
   - [func OpenVoice\(packPath, promptName string, opts ...Option\) \(\*Conversation, error\)](<#OpenVoice>)
   - [func Resume\(conversationID, packPath, promptName string, opts ...Option\) \(\*Conversation, error\)](<#Resume>)
   - [func ResumeDuplex\(conversationID, packPath, promptName string, opts ...Option\) \(\*Conversation, error\)](<#ResumeDuplex>)
@@ -482,6 +483,7 @@ Mock response from mock model mock-model
   - [func LoadTemplate\(packPath string, opts ...Option\) \(\*PackTemplate, error\)](<#LoadTemplate>)
   - [func \(t \*PackTemplate\) Open\(promptName string, opts ...Option\) \(\*Conversation, error\)](<#PackTemplate.Open>)
   - [func \(t \*PackTemplate\) OpenDuplex\(promptName string, opts ...Option\) \(\*Conversation, error\)](<#PackTemplate.OpenDuplex>)
+  - [func \(t \*PackTemplate\) OpenDuplexContext\(ctx context.Context, promptName string, opts ...Option\) \(\*Conversation, error\)](<#PackTemplate.OpenDuplexContext>)
   - [func \(t \*PackTemplate\) Pack\(\) \*pack.Pack](<#PackTemplate.Pack>)
 - [type PendingClientTool](<#PendingClientTool>)
 - [type PendingTool](<#PendingTool>)
@@ -1518,7 +1520,7 @@ true
 </details>
 
 <a name="OpenComposition"></a>
-### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1365>)
+### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1379>)
 
 ```go
 func OpenComposition(packPath, name string, opts ...Option) (*Conversation, error)
@@ -1546,7 +1548,7 @@ fmt.Println(string(resp.CompositionOutput()))
 ```
 
 <a name="OpenDuplex"></a>
-### func [OpenDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L138>)
+### func [OpenDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L141>)
 
 ```go
 func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1583,6 +1585,17 @@ Provider requirements depend on how the input side is driven:
 - ASM mode \(default\): audio is sent to the model itself, so the provider must implement providers.StreamInputSupport. That means Gemini with certain models.
 - WithVADMode / WithIngestion: the pipeline owns the input side and the model only ever sees text, so any text provider works — including Claude and OpenAI Chat Completions.
 
+The session runs on a context detached from any caller, so its tool calls see no context values; use [OpenDuplexContext](<#OpenDuplexContext>) to give them the host's.
+
+<a name="OpenDuplexContext"></a>
+### func [OpenDuplexContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L150>)
+
+```go
+func OpenDuplexContext(ctx context.Context, packPath, promptName string, opts ...Option) (*Conversation, error)
+```
+
+OpenDuplexContext is [OpenDuplex](<#OpenDuplex>) with a base context for the session. The session's pipeline, and so every tool call the model makes, runs on a context carrying ctx's values — the caller identity or policy a host puts there, as it would on a text turn's Send\(ctx\). The session owns its own cancellation: canceling ctx does not end it; Close does.
+
 <a name="OpenVoice"></a>
 ### func [OpenVoice](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/voice.go#L54>)
 
@@ -1605,7 +1618,7 @@ _ = conv.Start(ctx) // blocks: mic → LLM → speaker, until ctx is canceled
 ```
 
 <a name="Resume"></a>
-### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1230>)
+### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1244>)
 
 ```go
 func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1633,7 +1646,7 @@ if errors.Is(err, sdk.ErrConversationNotFound) {
 Resume requires a state store to be configured. If no state store is provided, it returns [ErrNoStateStore](<#ErrConversationClosed>).
 
 <a name="ResumeDuplex"></a>
-### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1339>)
+### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1353>)
 
 ```go
 func ResumeDuplex(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -6070,7 +6083,7 @@ func (p PackIssue) String() string
 String formats a PackIssue for logging or CLI output.
 
 <a name="PackTemplate"></a>
-## type [PackTemplate](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/template.go#L36-L52>)
+## type [PackTemplate](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/template.go#L37-L53>)
 
 PackTemplate is a pre\-loaded, immutable representation of a pack file.
 
@@ -6104,7 +6117,7 @@ type PackTemplate struct {
 ```
 
 <a name="LoadTemplate"></a>
-### func [LoadTemplate](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/template.go#L67>)
+### func [LoadTemplate](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/template.go#L68>)
 
 ```go
 func LoadTemplate(packPath string, opts ...Option) (*PackTemplate, error)
@@ -6125,7 +6138,7 @@ Options that affect pack loading can be passed:
 - WithSkipSchemaValidation\(\) to skip JSON schema validation
 
 <a name="PackTemplate.Open"></a>
-### func \(\*PackTemplate\) [Open](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/template.go#L108>)
+### func \(\*PackTemplate\) [Open](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/template.go#L109>)
 
 ```go
 func (t *PackTemplate) Open(promptName string, opts ...Option) (*Conversation, error)
@@ -6143,7 +6156,7 @@ Per\-conversation resources are still created fresh:
 - Event bus and hooks
 
 <a name="PackTemplate.OpenDuplex"></a>
-### func \(\*PackTemplate\) [OpenDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/template.go#L115>)
+### func \(\*PackTemplate\) [OpenDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/template.go#L116>)
 
 ```go
 func (t *PackTemplate) OpenDuplex(promptName string, opts ...Option) (*Conversation, error)
@@ -6153,8 +6166,17 @@ OpenDuplex creates a new duplex streaming conversation from this template.
 
 This is equivalent to [sdk.OpenDuplex](<#OpenDuplex>) but reuses pre\-loaded pack resources.
 
+<a name="PackTemplate.OpenDuplexContext"></a>
+### func \(\*PackTemplate\) [OpenDuplexContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/template.go#L123-L125>)
+
+```go
+func (t *PackTemplate) OpenDuplexContext(ctx context.Context, promptName string, opts ...Option) (*Conversation, error)
+```
+
+OpenDuplexContext is [PackTemplate.OpenDuplex](<#PackTemplate.OpenDuplex>) with a base context for the session, as [sdk.OpenDuplexContext](<#OpenDuplexContext>): tool calls see ctx's values, and the session owns its own cancellation.
+
 <a name="PackTemplate.Pack"></a>
-### func \(\*PackTemplate\) [Pack](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/template.go#L120>)
+### func \(\*PackTemplate\) [Pack](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/template.go#L130>)
 
 ```go
 func (t *PackTemplate) Pack() *pack.Pack

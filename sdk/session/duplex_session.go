@@ -189,7 +189,10 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 	stageInput := make(chan stage.StreamElement, streamBufferSize)
 	streamOutput := make(chan providers.StreamChunk, streamBufferSize)
 
-	sessionCtx, sessionCancel := context.WithCancel(context.Background())
+	// The session keeps ctx's values — tool calls see the host's caller
+	// identity and policy, as a text turn's do (#2690) — but owns its own
+	// cancellation, so it outlives the call that opened it.
+	sessionCtx, sessionCancel := context.WithCancel(context.WithoutCancel(ctx))
 
 	sess := &duplexSession{
 		id:               conversationID,
