@@ -324,6 +324,7 @@ func prepareConversation(
 	// Build hook registry BEFORE building pipeline so it can be wired into the provider stage
 	conv.hookRegistry = cfg.buildHookRegistry()
 	conv.sessionHooks = newSessionHookDispatcher(conv.hookRegistry, conv.sessionInfo)
+	conv.sessionHooks.caller = cfg.caller
 
 	return conv, callProv, nil
 }
@@ -970,6 +971,7 @@ func initDuplexSession(ctx context.Context, conv *Conversation, cfg *config) err
 		Config:           streamConfig, // nil for VAD mode, set for ASM mode
 		ToolRegistry:     conv.toolRegistry,
 		AsyncToolChecker: conv.newAsyncToolChecker(),
+		Caller:           cfg.caller,
 		Metadata:         cfg.sessionMetadata,
 		Variables:        initialVars,
 	})

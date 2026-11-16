@@ -115,9 +115,11 @@ func main() {
 
 For OpenAI Realtime, use `sdk.WithModel("gpt-realtime")` and a `SampleRate` of 24000. The [`openai-realtime` example](https://github.com/AltairaLabs/PromptKit/tree/main/sdk/examples/openai-realtime) shows the full configuration.
 
-## Step 3: Pass the caller's context to tool calls
+## Step 3: Pass the caller and host context to tool calls
 
-A duplex session runs its tool calls on its own context, not on the context of any `SendChunk` call. If your tool handlers read the caller's identity or policy from the context, open the session with `sdk.OpenDuplexContext` instead of `sdk.OpenDuplex`:
+To tell the session who it acts for, pass `sdk.WithCaller`. Tool executors, tool hooks and session hooks receive the caller on their requests, and it does not depend on any context. See [Act for a caller](/sdk/how-to/tools/act-for-a-caller/). Realtime sessions (ASM mode) run no tool hooks, so enforce policy for them in the executor.
+
+A duplex session runs its tool calls on its own context, not on the context of any `SendChunk` call. If your tool handlers read other host values from the context, such as a logger or a database handle, open the session with `sdk.OpenDuplexContext` instead of `sdk.OpenDuplex`:
 
 ```go
 conv, err := sdk.OpenDuplexContext(ctx, "./voice-assistant.pack.json", "assistant", opts...)
@@ -140,5 +142,6 @@ Call `conv.Response()`, send audio with `conv.SendChunk`, and read the channel. 
 
 - [Tutorial 7: Audio sessions](/sdk/tutorials/07-audio-sessions/)
 - [Handle turns, barge-in and transcripts](/sdk/how-to/voice/handle-turns-and-barge-in/)
+- [Act for a caller](/sdk/how-to/tools/act-for-a-caller/)
 - [Configure text-to-speech](/sdk/how-to/voice/configure-tts/)
 - [`VADModeConfig` reference](/sdk/reference/conversation-manager/)

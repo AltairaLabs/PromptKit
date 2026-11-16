@@ -52,14 +52,16 @@ func checkHITLGate(
 }
 
 // executeDuplexToolCalls processes tool calls from the LLM in duplex mode.
-// It uses ExecuteAsync to distinguish between sync handlers (ToolStatusComplete)
+// It uses ExecuteCallAsyncAdmitted to distinguish between sync handlers (ToolStatusComplete)
 // and deferred client tools (ToolStatusPending).
 // If checker is non-nil, it is consulted before execution to support HITL gating.
+// Every call reaches the registry carrying caller.
 func executeDuplexToolCalls(
 	ctx context.Context,
 	registry *tools.Registry,
 	toolCalls []types.MessageToolCall,
 	checker AsyncToolChecker,
+	caller types.Caller,
 ) *duplexToolExecutionResult {
 	result := &duplexToolExecutionResult{
 		Completed: &streaming.ToolExecutionResult{
@@ -94,7 +96,9 @@ func executeDuplexToolCalls(
 		}
 
 		callCtx := tools.WithCallID(ctx, tc.ID)
-		asyncResult, err := registry.ExecuteAsync(callCtx, tc.Name, tc.Args)
+		asyncResult, err := registry.ExecuteCallAsyncAdmitted(callCtx, tools.ToolCall{
+			Name: tc.Name, Args: tc.Args, ID: tc.ID, Caller: caller,
+		}, nil)
 		if err != nil {
 			addToolError(result, tc, err)
 			continue

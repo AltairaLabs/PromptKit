@@ -119,6 +119,12 @@ type CompositionExecutorDeps struct {
 	// ToolPolicy.MaxCallsPerMinute spans the composition's steps and turns.
 	// Nil: each step execution gets a window of its own.
 	CallRate *CallRateWindow
+
+	// Caller is who the conversation acts for (ProviderConfig.Caller). Tool
+	// steps hand it to the registry, and every prompt and agent step's
+	// provider stage puts it on its tool calls and tool hook requests. The
+	// zero value means none was set.
+	Caller types.Caller
 }
 
 // NewCompositionStepExecutor returns an engine.StepExecutor that runs prompt/agent
@@ -145,7 +151,7 @@ func (deps CompositionExecutorDeps) executeTool(
 	if deps.ToolRegistry == nil {
 		return nil, fmt.Errorf("tool %q: tool registry not configured", step.Tool)
 	}
-	res, err := deps.ToolRegistry.Execute(ctx, step.Tool, input)
+	res, err := deps.ToolRegistry.ExecuteCall(ctx, tools.ToolCall{Name: step.Tool, Args: input, Caller: deps.Caller})
 	if err != nil {
 		return nil, fmt.Errorf("tool %q: %w", step.Tool, err)
 	}
@@ -210,6 +216,7 @@ func (deps CompositionExecutorDeps) stepProviderConfig(
 		CallRate:              deps.CallRate,
 		ApprovalChecker:       deps.ApprovalChecker,
 		ApprovalGate:          deps.ApprovalGate,
+		Caller:                deps.Caller,
 	}
 	// The step's prompt parameters, with its model_overrides entry for the
 	// provider that runs the step, as an opened prompt gets them.

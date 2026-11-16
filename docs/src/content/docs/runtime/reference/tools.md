@@ -51,7 +51,9 @@ Tools load from YAML or JSON files with Registry.LoadToolFromBytes, or are regis
   - [func \(f \*A2ASkillFilter\) IncludesSkill\(skillID string\) bool](<#A2ASkillFilter.IncludesSkill>)
 - [type ApprovalChecker](<#ApprovalChecker>)
 - [type ApprovalGate](<#ApprovalGate>)
+- [type AsyncCallExecutor](<#AsyncCallExecutor>)
 - [type AsyncToolExecutor](<#AsyncToolExecutor>)
+- [type CallExecutor](<#CallExecutor>)
 - [type ClientConfig](<#ClientConfig>)
 - [type Coercion](<#Coercion>)
 - [type ConsentConfig](<#ConsentConfig>)
@@ -118,6 +120,8 @@ Tools load from YAML or JSON files with Registry.LoadToolFromBytes, or are regis
   - [func \(r \*Registry\) Execute\(ctx context.Context, toolName string, args json.RawMessage\) \(\*ToolResult, error\)](<#Registry.Execute>)
   - [func \(r \*Registry\) ExecuteAsync\(ctx context.Context, toolName string, args json.RawMessage\) \(\*ToolExecutionResult, error\)](<#Registry.ExecuteAsync>)
   - [func \(r \*Registry\) ExecuteAsyncAdmitted\(ctx context.Context, toolName string, args json.RawMessage, admit func\(\) error\) \(\*ToolExecutionResult, error\)](<#Registry.ExecuteAsyncAdmitted>)
+  - [func \(r \*Registry\) ExecuteCall\(ctx context.Context, call ToolCall\) \(\*ToolResult, error\)](<#Registry.ExecuteCall>)
+  - [func \(r \*Registry\) ExecuteCallAsyncAdmitted\(ctx context.Context, call ToolCall, admit func\(\) error\) \(\*ToolExecutionResult, error\)](<#Registry.ExecuteCallAsyncAdmitted>)
   - [func \(r \*Registry\) Fork\(\) \*Registry](<#Registry.Fork>)
   - [func \(r \*Registry\) Get\(name string\) \*ToolDescriptor](<#Registry.Get>)
   - [func \(r \*Registry\) GetByNamespace\(ns string\) \[\]\*ToolDescriptor](<#Registry.GetByNamespace>)
@@ -505,7 +509,7 @@ func (f *A2ASkillFilter) IncludesSkill(skillID string) bool
 IncludesSkill returns true if the given skill ID passes the filter.
 
 <a name="ApprovalChecker"></a>
-## type [ApprovalChecker](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L405>)
+## type [ApprovalChecker](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L411>)
 
 ApprovalChecker decides whether a tool call must be held for external approval \(human\-in\-the\-loop\) before execution. It returns a non\-nil PendingToolInfo to hold the call pending, or nil to let it execute normally. It is consulted per tool call before execution; a nil checker is a no\-op. The context is the tool\-execution context, so a checker that persists the held call \(e.g. to a durable store\) honors cancellation and deadlines.
 
@@ -514,7 +518,7 @@ type ApprovalChecker func(ctx context.Context, callID, name string, args map[str
 ```
 
 <a name="ApprovalGate"></a>
-## type [ApprovalGate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L413>)
+## type [ApprovalGate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L419>)
 
 ApprovalGate is an ApprovalChecker that can also refuse a call. It returns a non\-nil PendingToolInfo to hold the call pending, nil to let it execute, or an error to refuse it: a refused call does not execute, and the model is given the error as the call's result. A gate that cannot record a hold \(its store is unavailable, for example\) returns an error rather than nil, so the call fails closed instead of running unapproved.
 
@@ -522,8 +526,22 @@ ApprovalGate is an ApprovalChecker that can also refuse a call. It returns a non
 type ApprovalGate func(ctx context.Context, callID, name string, args map[string]any) (*PendingToolInfo, error)
 ```
 
+<a name="AsyncCallExecutor"></a>
+## type [AsyncCallExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L491-L496>)
+
+AsyncCallExecutor is the call\-taking form of AsyncToolExecutor: it receives the whole call, caller included, and may return ToolStatusPending. On the registry's async paths it is preferred over AsyncToolExecutor. An executor that implements AsyncToolExecutor and CallExecutor but not this interface is given ExecuteAsync on the async paths \(so it can still suspend a call, but without the caller\) and ExecuteCall on the synchronous ones.
+
+```go
+type AsyncCallExecutor interface {
+    Executor
+
+    // ExecuteCallAsync may return immediately with a pending status.
+    ExecuteCallAsync(ctx context.Context, descriptor *ToolDescriptor, call ToolCall) (*ToolExecutionResult, error)
+}
+```
+
 <a name="AsyncToolExecutor"></a>
-## type [AsyncToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L467-L472>)
+## type [AsyncToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L500-L505>)
 
 AsyncToolExecutor is a tool that can return pending status instead of blocking. Tools that require human approval or external async operations should implement this.
 
@@ -533,6 +551,22 @@ type AsyncToolExecutor interface {
 
     // ExecuteAsync may return immediately with a pending status
     ExecuteAsync(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (*ToolExecutionResult, error)
+}
+```
+
+<a name="CallExecutor"></a>
+## type [CallExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L476-L483>)
+
+CallExecutor extends Executor with an entry point that receives the whole call: its name, the provider's call ID, the arguments and the caller the conversation acts for. The registry prefers it over ExecuteMultimodal and Execute. call.Args are the arguments after the registry coerced them toward the input schema and validated them.
+
+```go
+type CallExecutor interface {
+    Executor
+
+    // ExecuteCall runs call and returns the JSON result and optional content parts.
+    ExecuteCall(
+        ctx context.Context, descriptor *ToolDescriptor, call ToolCall,
+    ) (json.RawMessage, []types.ContentPart, error)
 }
 ```
 
@@ -748,7 +782,7 @@ func (e *ExecExecutor) Name() string
 Name returns the executor name used for mode\-based routing.
 
 <a name="Executor"></a>
-## type [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L449-L452>)
+## type [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L455-L458>)
 
 Executor interface defines how tools are executed
 
@@ -1158,7 +1192,7 @@ type MultimodalConfig struct {
 ```
 
 <a name="MultimodalExecutor"></a>
-## type [MultimodalExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L456-L463>)
+## type [MultimodalExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L462-L469>)
 
 MultimodalExecutor extends Executor with support for returning multimodal content parts. Executors that can return images, audio, or other non\-text content should implement this.
 
@@ -1189,7 +1223,7 @@ type PendingToolExecution struct {
 ```
 
 <a name="PendingToolInfo"></a>
-## type [PendingToolInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L416-L433>)
+## type [PendingToolInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L422-L439>)
 
 PendingToolInfo describes a tool call awaiting external input or approval.
 
@@ -1313,16 +1347,16 @@ Executor lookup falls through to the parent only for names the child never regis
 Child is nil\-receiver safe: a nil parent yields a standalone registry, so a caller can write reg = hostRegistry.Child\(\) without checking whether the host supplied one. The child takes the parent's default timeout, result size limit and rate limiter, and options passed to Child override them.
 
 <a name="Registry.Execute"></a>
-### func \(\*Registry\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L464-L466>)
+### func \(\*Registry\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L463-L465>)
 
 ```go
 func (r *Registry) Execute(ctx context.Context, toolName string, args json.RawMessage) (*ToolResult, error)
 ```
 
-Execute runs a tool with the given arguments. It coerces the arguments toward the input schema, validates them, applies the rate limit, and runs the executor the tool's mode selects, under the tool's TimeoutMs. An unknown tool, invalid arguments, or a missing executor return an error. An executor failure, a timeout, a rate\-limit refusal, or a result that fails the output schema is reported in ToolResult.Error with a nil error. Results of tools in mcp mode are not validated against the output schema.
+Execute runs a tool with the given arguments. It is ExecuteCall for a call with no ID and no caller.
 
 <a name="Registry.ExecuteAsync"></a>
-### func \(\*Registry\) [ExecuteAsync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L579-L581>)
+### func \(\*Registry\) [ExecuteAsync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L602-L604>)
 
 ```go
 func (r *Registry) ExecuteAsync(ctx context.Context, toolName string, args json.RawMessage) (*ToolExecutionResult, error)
@@ -1331,13 +1365,31 @@ func (r *Registry) ExecuteAsync(ctx context.Context, toolName string, args json.
 ExecuteAsync is Execute for executors that may suspend a call. If the tool's executor implements AsyncToolExecutor, the result can have status ToolStatusPending; otherwise the call runs synchronously. Failures are reported as status ToolStatusFailed with a nil error, as for Execute.
 
 <a name="Registry.ExecuteAsyncAdmitted"></a>
-### func \(\*Registry\) [ExecuteAsyncAdmitted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L592-L594>)
+### func \(\*Registry\) [ExecuteAsyncAdmitted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L615-L617>)
 
 ```go
 func (r *Registry) ExecuteAsyncAdmitted(ctx context.Context, toolName string, args json.RawMessage, admit func() error) (*ToolExecutionResult, error)
 ```
 
 ExecuteAsyncAdmitted is ExecuteAsync with an admission gate. admit, when not nil, is called once the call has passed every check of its own \(the tool exists, its arguments are valid, it has an executor, and the registry's rate limit allows it\), immediately before the executor runs. If admit returns an error, the executor does not run, the registry's rate limit does not count the call, and that error is returned unchanged. A call that fails one of the registry's checks never reaches admit.
+
+<a name="Registry.ExecuteCall"></a>
+### func \(\*Registry\) [ExecuteCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L478>)
+
+```go
+func (r *Registry) ExecuteCall(ctx context.Context, call ToolCall) (*ToolResult, error)
+```
+
+ExecuteCall runs a tool call. It coerces the call's arguments toward the input schema, validates them, applies the rate limit, and runs the executor the tool's mode selects, under the tool's TimeoutMs. An executor that implements CallExecutor is given the call with the coerced arguments, so it sees the call ID and the caller. An unknown tool, invalid arguments, or a missing executor return an error. An executor failure, a timeout, a rate\-limit refusal, or a result that fails the output schema is reported in ToolResult.Error with a nil error. Results of tools in mcp mode are not validated against the output schema. The result's ID is the call's ID.
+
+<a name="Registry.ExecuteCallAsyncAdmitted"></a>
+### func \(\*Registry\) [ExecuteCallAsyncAdmitted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L628-L630>)
+
+```go
+func (r *Registry) ExecuteCallAsyncAdmitted(ctx context.Context, call ToolCall, admit func() error) (*ToolExecutionResult, error)
+```
+
+ExecuteCallAsyncAdmitted is ExecuteAsyncAdmitted for a whole call, so the executor can see its ID and caller. The executor is given the call with its coerced, validated arguments through the first entry point it implements: AsyncCallExecutor's ExecuteCallAsync, AsyncToolExecutor's ExecuteAsync \(which can suspend the call but does not see the call or its caller\), then the synchronous entry points in the order ExecuteCall uses \(CallExecutor, MultimodalExecutor, Executor\).
 
 <a name="Registry.Fork"></a>
 ### func \(\*Registry\) [Fork](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L153>)
@@ -1761,7 +1813,7 @@ func (e *ServerExecutor) Name() string
 Name returns the executor name used for mode\-based routing.
 
 <a name="ToolCall"></a>
-## type [ToolCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L360-L364>)
+## type [ToolCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L360-L370>)
 
 ToolCall represents a tool invocation request
 
@@ -1770,6 +1822,12 @@ type ToolCall struct {
     Name string          `json:"name"`
     Args json.RawMessage `json:"args"`
     ID   string          `json:"id"` // Provider-specific call ID
+
+    // Caller is who the conversation acts for, as the host set it with
+    // sdk.WithCaller. The zero value means none was set. PromptKit hands it to
+    // the host's executor (CallExecutor) and otherwise never reads, persists,
+    // logs or emits it; it is not serialized.
+    Caller types.Caller `json:"-"`
 }
 ```
 
@@ -1878,7 +1936,7 @@ type ToolErrorData struct {
 ```
 
 <a name="ToolExecutionResult"></a>
-## type [ToolExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L389-L397>)
+## type [ToolExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L395-L403>)
 
 ToolExecutionResult includes status and optional pending information
 
@@ -1895,7 +1953,7 @@ type ToolExecutionResult struct {
 ```
 
 <a name="ToolExecutionStatus"></a>
-## type [ToolExecutionStatus](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L377>)
+## type [ToolExecutionStatus](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L383>)
 
 ToolExecutionStatus represents whether a tool completed or needs external input
 
@@ -1955,7 +2013,7 @@ type ToolResponseRepository interface {
 ```
 
 <a name="ToolResult"></a>
-## type [ToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L367-L374>)
+## type [ToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L373-L380>)
 
 ToolResult represents the result of a tool execution
 
@@ -1980,7 +2038,7 @@ func (r ToolResult) MarshalJSON() ([]byte, error)
 MarshalJSON normalizes the tool result payload \(empty \-\> \{\}\).
 
 <a name="ValidationError"></a>
-## type [ValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L436-L441>)
+## type [ValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L442-L447>)
 
 ValidationError represents a tool validation failure
 
@@ -1994,7 +2052,7 @@ type ValidationError struct {
 ```
 
 <a name="ValidationError.Error"></a>
-### func \(\*ValidationError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L444>)
+### func \(\*ValidationError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L450>)
 
 ```go
 func (e *ValidationError) Error() string

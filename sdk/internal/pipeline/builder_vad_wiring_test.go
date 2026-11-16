@@ -103,6 +103,14 @@ func TestVADProviderConfig_CarriesSkipContentValidation(t *testing.T) {
 	assert.False(t, vadProviderConfig(&Config{}).SkipContentValidation)
 }
 
+// The conversation's caller reaches VAD mode's provider stage, so voice tool
+// calls act for it as text ones do; no caller stays the zero value.
+func TestVADProviderConfig_CarriesTheCaller(t *testing.T) {
+	caller := types.Caller{ID: "member@example.com", Claims: map[string]any{"tenant": "acme"}}
+	assert.Equal(t, caller, vadProviderConfig(&Config{Caller: caller}).Caller)
+	assert.Equal(t, types.Caller{}, vadProviderConfig(&Config{}).Caller)
+}
+
 // Skill tool grants must reach VAD mode's provider stage.
 //
 // #1957/#1980 made a skill's allowed-tools extend the prompt baseline through

@@ -30,6 +30,7 @@ Task-focused guides for the PromptKit SDK. Each page assumes you have a conversa
 - [Call HTTP Tools](/sdk/how-to/tools/http-tools/): make HTTP API calls with `OnToolHTTP()`
 - [Register Client-Side Tools](/sdk/how-to/tools/client-tools/): run tools on the client, such as GPS or camera
 - [Define Exec Tools](/sdk/how-to/tools/exec-tools/): bind tools to external subprocesses in any language
+- [Act for a caller](/sdk/how-to/tools/act-for-a-caller/): set who a conversation acts for with `WithCaller`
 - [Configure MCP Servers](/sdk/how-to/tools/configure-mcp/): connect MCP tool servers with `NewMCPServer()` and `WithMCPServer()`
 - [Override Capability Tool Definitions](/sdk/how-to/tools/override-capability-tools/): patch the descriptors that memory, workflow and A2A register
 - [Resolve MCP Server Endpoints at Runtime](/sdk/how-to/tools/resolve-mcp-endpoints/): declare servers by name and supply URLs with `WithMCPEndpoints`

@@ -22,6 +22,12 @@ const defaultExecHookTimeout = 10 * time.Second
 // want their hooks to run elsewhere (in a sidecar, a disposable
 // container, a managed cloud sandbox) construct a Sandbox
 // implementation and pass it here.
+//
+// The hook's stdin is the JSON of the request or event it handles, the
+// conversation's caller (types.Caller, under "Caller") included: an exec hook
+// is host policy code run out of process, so it gets the caller as an
+// in-process hook does. A Sandbox that runs the hook remotely carries the
+// caller there.
 type ExecHookConfig struct {
 	Name      string
 	Command   string
@@ -34,6 +40,7 @@ type ExecHookConfig struct {
 }
 
 // execHookRequest is the JSON payload sent to an exec hook subprocess on stdin.
+// Request and Event carry the caller (ToolRequest.Caller, SessionEvent.Caller).
 type execHookRequest struct {
 	Hook     string `json:"hook"`
 	Phase    string `json:"phase"`

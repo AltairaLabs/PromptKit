@@ -670,6 +670,7 @@ func (wc *WorkflowConversation) registerWorkflowTools() {
 	// max_visits_exceeded / budget_exhausted observability events fire.
 	wc.transExec.SetOnCommitError(wc.emitWorkflowError)
 	wc.transExec.SetAuthorizer(wc.transitionAuthorizer())
+	wc.transExec.SetCaller(wc.caller())
 
 	// Create and register artifact executor if spec declares artifacts
 	wc.artifactExec = workflow.NewArtifactExecutor(wc.machine)
@@ -1086,4 +1087,12 @@ func (wc *WorkflowConversation) transitionAuthorizer() workflow.TransitionAuthor
 		return nil
 	}
 	return wc.activeConv.config.transitionAuthorizer
+}
+
+// caller is who the workflow acts for, as the host set it with WithCaller.
+func (wc *WorkflowConversation) caller() types.Caller {
+	if wc.activeConv == nil || wc.activeConv.config == nil {
+		return types.Caller{}
+	}
+	return wc.activeConv.config.caller
 }

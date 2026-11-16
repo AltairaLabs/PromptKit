@@ -131,6 +131,12 @@ type ToolRequest struct {
 	// only allows or denies needs one hook covering every tool. Nil means the
 	// pack does not declare the tool. PromptKit never reads it.
 	Declaration *packspec.Tool
+
+	// Caller is who the conversation acts for, as the host set it with
+	// sdk.WithCaller. The zero value means none was set. PromptKit hands it to
+	// the host's tool hooks, an exec hook included (as "Caller" in its stdin
+	// JSON), and otherwise never reads, persists, logs or emits it.
+	Caller types.Caller
 }
 
 // ToolResponse describes a completed tool execution.
@@ -149,4 +155,10 @@ type SessionEvent struct {
 	Messages       []types.Message
 	TurnIndex      int
 	Metadata       map[string]any
+
+	// Caller is who the conversation acts for, as the host set it with
+	// sdk.WithCaller. The zero value means none was set. PromptKit hands it to
+	// the host's session hooks, an exec hook included (as "Caller" in its stdin
+	// JSON), and otherwise never reads, persists, logs or emits it.
+	Caller types.Caller
 }

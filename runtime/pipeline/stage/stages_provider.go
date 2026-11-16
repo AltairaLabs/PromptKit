@@ -48,7 +48,8 @@ const (
 
 // ProviderStage implementation notes:
 // - ✅ Multi-round tool execution with automatic tool result handling
-// - ✅ Synchronous tool execution via toolRegistry.ExecuteAsync()
+// - ✅ Tool execution via toolRegistry.ExecuteCallAsyncAdmitted(), which hands
+//      each executor the whole call (ID, arguments and the caller)
 // - ✅ Human-in-the-loop approval gate via ProviderConfig.ApprovalChecker: a
 //      held call is surfaced pending (ErrToolsPending / PendingTools metadata)
 //      and the pipeline suspends until the caller resolves it
@@ -245,6 +246,14 @@ type ProviderConfig struct {
 	// window when the call is approved, or when its result is used, and refuse
 	// the call if Admit does. Nil gives the stage a window of its own.
 	CallRate *CallRateWindow
+
+	// Caller is who the conversation acts for, as the host set it with
+	// sdk.WithCaller. The stage puts it on every tool call it hands the
+	// registry (tools.ToolCall.Caller) and on every tool hook request
+	// (hooks.ToolRequest.Caller), for the host's executors and hooks. The zero
+	// value means none was set. The stage never reads, persists, logs or emits
+	// it.
+	Caller types.Caller
 
 	// PromptDeclarations maps each prompt task to the pack's definition of
 	// that prompt, copies taken when the conversation was built.
@@ -3021,7 +3030,7 @@ func (s *ProviderStage) executeSingleToolCall(
 	// The registry admits the call under ToolPolicy.MaxCallsPerMinute once its
 	// own checks pass, immediately before the executor runs it.
 	admission := s.callRateAdmission(toolCall)
-	asyncResult, err := s.toolRegistry.ExecuteAsyncAdmitted(ctx, toolCall.Name, toolCall.Args, admission.admit)
+	asyncResult, err := s.toolRegistry.ExecuteCallAsyncAdmitted(ctx, s.registryCall(toolCall), admission.admit)
 	ResetIdleFromContext(ctx)
 	if refusal, limited := callRateRefusal(toolCall, err); limited {
 		s.emitToolFailed(ctx, toolCall, err, startTime, labels, rr)
@@ -3070,7 +3079,22 @@ func (s *ProviderStage) toolRequest(toolCall types.MessageToolCall) hooks.ToolRe
 	return hooks.ToolRequest{
 		Name: toolCall.Name, Args: toolCall.Args, CallID: toolCall.ID,
 		Declaration: s.toolDeclaration(toolCall.Name),
+		Caller:      s.caller(),
 	}
+}
+
+// registryCall is the registry request for a tool call: the call with the
+// conversation's caller.
+func (s *ProviderStage) registryCall(toolCall types.MessageToolCall) tools.ToolCall {
+	return tools.ToolCall{Name: toolCall.Name, Args: toolCall.Args, ID: toolCall.ID, Caller: s.caller()}
+}
+
+// caller is who the conversation acts for (ProviderConfig.Caller).
+func (s *ProviderStage) caller() types.Caller {
+	if s.config == nil {
+		return types.Caller{}
+	}
+	return s.config.Caller
 }
 
 // toolCallFailed emits tool.call.failed and returns the error result the

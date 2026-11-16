@@ -442,28 +442,50 @@ func (r *Registry) withTimeout(
 	return ctx, func() { /* no-op cancel: tool has no timeout */ }
 }
 
-// invokeExecutor runs the tool on its executor, preferring the multimodal
-// entry point when the executor supports it.
+// invokeExecutor runs the call on its executor, preferring the call-taking
+// entry point, then the multimodal one, when the executor supports them.
+// call.Args are the coerced, validated arguments.
 func invokeExecutor(
-	ctx context.Context, executor Executor, tool *ToolDescriptor, args json.RawMessage,
+	ctx context.Context, executor Executor, tool *ToolDescriptor, call ToolCall,
 ) (json.RawMessage, []types.ContentPart, error) {
-	if mmExec, ok := executor.(MultimodalExecutor); ok {
-		return mmExec.ExecuteMultimodal(ctx, tool, args)
+	if callExec, ok := executor.(CallExecutor); ok {
+		return callExec.ExecuteCall(ctx, tool, call)
 	}
-	result, err := executor.Execute(ctx, tool, args)
+	if mmExec, ok := executor.(MultimodalExecutor); ok {
+		return mmExec.ExecuteMultimodal(ctx, tool, call.Args)
+	}
+	result, err := executor.Execute(ctx, tool, call.Args)
 	return result, nil, err
 }
 
-// Execute runs a tool with the given arguments. It coerces the arguments
-// toward the input schema, validates them, applies the rate limit, and runs
-// the executor the tool's mode selects, under the tool's TimeoutMs. An unknown
-// tool, invalid arguments, or a missing executor return an error. An executor
-// failure, a timeout, a rate-limit refusal, or a result that fails the output
-// schema is reported in ToolResult.Error with a nil error. Results of tools in
-// mcp mode are not validated against the output schema.
+// Execute runs a tool with the given arguments. It is ExecuteCall for a call
+// with no ID and no caller.
 func (r *Registry) Execute(
 	ctx context.Context, toolName string, args json.RawMessage,
 ) (*ToolResult, error) {
+	return r.ExecuteCall(ctx, ToolCall{Name: toolName, Args: args})
+}
+
+// ExecuteCall runs a tool call. It coerces the call's arguments toward the
+// input schema, validates them, applies the rate limit, and runs the executor
+// the tool's mode selects, under the tool's TimeoutMs. An executor that
+// implements CallExecutor is given the call with the coerced arguments, so it
+// sees the call ID and the caller. An unknown tool, invalid arguments, or a
+// missing executor return an error. An executor failure, a timeout, a
+// rate-limit refusal, or a result that fails the output schema is reported in
+// ToolResult.Error with a nil error. Results of tools in mcp mode are not
+// validated against the output schema. The result's ID is the call's ID.
+func (r *Registry) ExecuteCall(ctx context.Context, call ToolCall) (*ToolResult, error) {
+	res, err := r.executeCall(ctx, call)
+	if res != nil {
+		res.ID = call.ID
+	}
+	return res, err
+}
+
+// executeCall is ExecuteCall without the result's ID.
+func (r *Registry) executeCall(ctx context.Context, call ToolCall) (*ToolResult, error) {
+	toolName, args := call.Name, call.Args
 	tool, err := r.GetTool(toolName)
 	if err != nil {
 		return nil, err
@@ -507,9 +529,10 @@ func (r *Registry) Execute(
 	execCtx, cancel := r.withTimeout(ctx, tool)
 	defer cancel()
 
-	// Execute the tool, preferring multimodal if supported
+	// Execute the call with its coerced, validated arguments
+	call.Args = args
 	start := getCurrentTimeMs()
-	result, parts, err := invokeExecutor(execCtx, executor, tool, args)
+	result, parts, err := invokeExecutor(execCtx, executor, tool, call)
 	latency := getCurrentTimeMs() - start
 
 	if err != nil {
@@ -592,6 +615,20 @@ func (r *Registry) ExecuteAsync(
 func (r *Registry) ExecuteAsyncAdmitted(
 	ctx context.Context, toolName string, args json.RawMessage, admit func() error,
 ) (*ToolExecutionResult, error) {
+	return r.ExecuteCallAsyncAdmitted(ctx, ToolCall{Name: toolName, Args: args}, admit)
+}
+
+// ExecuteCallAsyncAdmitted is ExecuteAsyncAdmitted for a whole call, so the
+// executor can see its ID and caller. The executor is given the call with its
+// coerced, validated arguments through the first entry point it implements:
+// AsyncCallExecutor's ExecuteCallAsync, AsyncToolExecutor's ExecuteAsync
+// (which can suspend the call but does not see the call or its caller), then
+// the synchronous entry points in the order ExecuteCall uses (CallExecutor,
+// MultimodalExecutor, Executor).
+func (r *Registry) ExecuteCallAsyncAdmitted(
+	ctx context.Context, call ToolCall, admit func() error,
+) (*ToolExecutionResult, error) {
+	toolName, args := call.Name, call.Args
 	tool, err := r.GetTool(toolName)
 	if err != nil {
 		return nil, err
@@ -632,15 +669,35 @@ func (r *Registry) ExecuteAsyncAdmitted(
 	execCtx, cancel := r.withTimeout(ctx, tool)
 	defer cancel()
 
+	call.Args = args
+
 	// Try async execution if supported
-	if asyncExecutor, ok := executor.(AsyncToolExecutor); ok {
-		return r.executeWithAsyncExecutor(
-			execCtx, asyncExecutor, tool, toolName, args,
-		)
+	if run, ok := asyncEntryPoint(executor, tool, call); ok {
+		return r.executeWithAsyncExecutor(execCtx, run, tool)
 	}
 
 	// Fall back to synchronous execution
-	return r.executeSyncFallback(execCtx, executor, tool, toolName, args)
+	return r.executeSyncFallback(execCtx, executor, tool, call)
+}
+
+// asyncEntryPoint is the executor's entry point that may suspend call:
+// ExecuteCallAsync when it implements AsyncCallExecutor, else ExecuteAsync
+// when it implements AsyncToolExecutor. ok is false for a synchronous
+// executor.
+func asyncEntryPoint(
+	executor Executor, tool *ToolDescriptor, call ToolCall,
+) (run func(context.Context) (*ToolExecutionResult, error), ok bool) {
+	if e, isCall := executor.(AsyncCallExecutor); isCall {
+		return func(ctx context.Context) (*ToolExecutionResult, error) {
+			return e.ExecuteCallAsync(ctx, tool, call)
+		}, true
+	}
+	if e, isAsync := executor.(AsyncToolExecutor); isAsync {
+		return func(ctx context.Context) (*ToolExecutionResult, error) {
+			return e.ExecuteAsync(ctx, tool, call.Args)
+		}, true
+	}
+	return nil, false
 }
 
 // getExecutorForTool finds the appropriate executor for a tool.
@@ -694,12 +751,12 @@ func (r *Registry) getExecutorForTool(tool *ToolDescriptor) (Executor, error) {
 	return executor, nil
 }
 
-// executeWithAsyncExecutor executes a tool with async support
+// executeWithAsyncExecutor executes a tool through an entry point that may
+// suspend it (asyncEntryPoint).
 func (r *Registry) executeWithAsyncExecutor(
-	ctx context.Context, asyncExecutor AsyncToolExecutor,
-	tool *ToolDescriptor, _ string, args json.RawMessage,
+	ctx context.Context, run func(context.Context) (*ToolExecutionResult, error), tool *ToolDescriptor,
 ) (*ToolExecutionResult, error) {
-	result, err := asyncExecutor.ExecuteAsync(ctx, tool, args)
+	result, err := run(ctx)
 
 	if err != nil {
 		errMsg := err.Error()
@@ -734,10 +791,9 @@ func (r *Registry) executeWithAsyncExecutor(
 
 // executeSyncFallback executes a tool synchronously for non-async executors
 func (r *Registry) executeSyncFallback(
-	ctx context.Context, executor Executor, tool *ToolDescriptor,
-	_ string, args json.RawMessage,
+	ctx context.Context, executor Executor, tool *ToolDescriptor, call ToolCall,
 ) (*ToolExecutionResult, error) {
-	result, parts, err := invokeExecutor(ctx, executor, tool, args)
+	result, parts, err := invokeExecutor(ctx, executor, tool, call)
 	if err != nil {
 		errMsg := err.Error()
 		if ctx.Err() == context.DeadlineExceeded {

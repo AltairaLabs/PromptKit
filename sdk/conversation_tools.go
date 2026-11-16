@@ -58,6 +58,7 @@ func (c *Conversation) OnToolCtx(name string, handler ToolHandlerCtx) {
 		c.ctxHandlers = make(map[string]ToolHandlerCtx)
 	}
 	c.ctxHandlers[name] = handler
+	delete(c.callHandlers, name)
 }
 
 // OnTools registers multiple tool handlers at once.
@@ -95,6 +96,7 @@ func (c *Conversation) OnToolHTTP(name string, config *sdktools.HTTPToolConfig) 
 		c.ctxHandlers = make(map[string]ToolHandlerCtx)
 	}
 	c.ctxHandlers[name] = config.HandlerCtx()
+	delete(c.callHandlers, name)
 }
 
 // OnToolExecutor registers a custom executor for tools.
@@ -105,12 +107,30 @@ func (c *Conversation) OnToolHTTP(name string, config *sdktools.HTTPToolConfig) 
 //	executor := &MyCustomExecutor{}
 //	conv.OnToolExecutor("custom_tool", executor)
 //
-// The executor must implement the runtime/tools.Executor interface.
+// The executor must implement the runtime/tools.Executor interface. An
+// executor that also implements [tools.CallExecutor] is given each call
+// through ExecuteCall, so it sees the provider's call ID and the caller the
+// conversation acts for ([WithCaller]).
 func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 	c.handlersMu.Lock()
 	defer c.handlersMu.Unlock()
 	if c.ctxHandlers == nil {
 		c.ctxHandlers = make(map[string]ToolHandlerCtx)
+	}
+	delete(c.callHandlers, name)
+	if callExec, ok := executor.(tools.CallExecutor); ok {
+		if c.callHandlers == nil {
+			c.callHandlers = make(map[string]toolCallHandler)
+		}
+		c.callHandlers[name] = func(
+			ctx context.Context, call tools.ToolCall,
+		) (json.RawMessage, []types.ContentPart, error) {
+			desc, err := c.packToolDescriptor(name)
+			if err != nil {
+				return nil, nil, err
+			}
+			return callExec.ExecuteCall(ctx, desc, call)
+		}
 	}
 	c.ctxHandlers[name] = func(ctx context.Context, args map[string]any) (any, error) {
 		// Convert args to JSON for the executor
@@ -119,22 +139,9 @@ func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 			return nil, fmt.Errorf("failed to marshal args: %w", err)
 		}
 
-		// Get tool descriptor from pack
-		packTool := c.pack.GetTool(name)
-		if packTool == nil {
-			return nil, markSentinel(fmt.Errorf("tool %q not found in pack", name), ErrToolNotInPack)
-		}
-
-		paramsJSON, err := json.Marshal(packTool.Parameters)
+		desc, err := c.packToolDescriptor(name)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal tool schema: %w", err)
-		}
-
-		desc := &tools.ToolDescriptor{
-			Name:        packTool.Name,
-			Description: packTool.Description,
-			InputSchema: paramsJSON,
-			Declaration: c.toolDeclaration(name, packTool),
+			return nil, err
 		}
 
 		// Execute with pipeline context for tracing and cancellation
@@ -143,13 +150,99 @@ func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 			return nil, err
 		}
 
-		// Parse result
-		var parsed any
-		if json.Unmarshal(result, &parsed) != nil {
-			return string(result), nil
-		}
-		return parsed, nil
+		return parseToolResult(result), nil
 	}
+}
+
+// ToolCall is one call of a tool, as a handler registered with
+// [Conversation.OnToolCall] or [Conversation.OnToolAsyncCall] receives it.
+type ToolCall struct {
+	// Name is the tool's name as defined in the pack.
+	Name string
+	// CallID is the provider-assigned ID of this call.
+	CallID string
+	// Args are the call's arguments, parsed from the model's JSON.
+	Args map[string]any
+	// Caller is who the conversation acts for ([WithCaller]); the zero Caller
+	// when none was set.
+	Caller types.Caller
+}
+
+// OnToolCall registers a handler for a tool defined in the pack that receives
+// the whole call: its name, the provider's call ID, the parsed arguments and
+// the caller the conversation acts for ([WithCaller]).
+//
+//	conv.OnToolCall("get_balance", func(ctx context.Context, call sdk.ToolCall) (any, error) {
+//	    return accounts.Balance(ctx, call.Caller.ID)
+//	})
+//
+// The return value is serialized to JSON and sent back to the model as the
+// tool result. A later OnToolCtx, OnToolHTTP or OnToolExecutor for the same
+// name replaces it; a later OnTool does not. A later OnToolAsync or
+// OnToolAsyncWithContext replaces it only for held calls once approved: a
+// call its check lets through still runs this handler, except in an ASM
+// duplex session, which runs the async execution handler.
+func (c *Conversation) OnToolCall(name string, handler func(ctx context.Context, call ToolCall) (any, error)) {
+	c.handlersMu.Lock()
+	defer c.handlersMu.Unlock()
+	c.registerCallHandlerLocked(name, handler)
+}
+
+// registerCallHandlerLocked stores handler for name in the call handlers,
+// which receive the whole call. The caller holds handlersMu.
+func (c *Conversation) registerCallHandlerLocked(
+	name string, handler func(ctx context.Context, call ToolCall) (any, error),
+) {
+	if c.callHandlers == nil {
+		c.callHandlers = make(map[string]toolCallHandler)
+	}
+	c.callHandlers[name] = func(
+		ctx context.Context, call tools.ToolCall,
+	) (json.RawMessage, []types.ContentPart, error) {
+		var args map[string]any
+		if len(call.Args) > 0 {
+			if err := json.Unmarshal(call.Args, &args); err != nil {
+				return nil, nil, fmt.Errorf("failed to parse tool arguments: %w", err)
+			}
+		}
+		result, err := handler(ctx, ToolCall{Name: call.Name, CallID: call.ID, Args: args, Caller: call.Caller})
+		if err != nil {
+			return nil, nil, err
+		}
+		resultJSON, err := json.Marshal(result)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to serialize tool result: %w", err)
+		}
+		return resultJSON, nil, nil
+	}
+}
+
+// callerIdentity is the caller the conversation acts for ([WithCaller]).
+func (c *Conversation) callerIdentity() types.Caller {
+	if c.config == nil {
+		return types.Caller{}
+	}
+	return c.config.caller
+}
+
+// packToolDescriptor is the descriptor OnToolExecutor hands its executor for
+// the pack tool name: the pack's name, description, parameters and
+// declaration.
+func (c *Conversation) packToolDescriptor(name string) (*tools.ToolDescriptor, error) {
+	packTool := c.pack.GetTool(name)
+	if packTool == nil {
+		return nil, markSentinel(fmt.Errorf("tool %q not found in pack", name), ErrToolNotInPack)
+	}
+	paramsJSON, err := json.Marshal(packTool.Parameters)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal tool schema: %w", err)
+	}
+	return &tools.ToolDescriptor{
+		Name:        packTool.Name,
+		Description: packTool.Description,
+		InputSchema: paramsJSON,
+		Declaration: c.toolDeclaration(name, packTool),
+	}, nil
 }
 
 // OnToolAsync registers a handler that may require approval before execution.
@@ -172,6 +265,9 @@ func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 //	})
 //
 // The first function checks if approval is needed, the second executes the action.
+// A held call, once approved ([Conversation.ResolveTool]), runs the second
+// function, whatever other handler is registered for the tool. A call the
+// check lets through runs on the tool's handlers as any call does.
 //
 // Lock ordering contract: asyncHandlersMu is acquired first, then handlersMu.
 // All code paths that acquire both locks must follow this order to avoid deadlock.
@@ -187,8 +283,9 @@ func (c *Conversation) OnToolAsync(
 
 // OnToolAsyncWithContext is OnToolAsync with a check that receives the
 // tool-execution context and the provider's call id. Use it when the decision
-// depends on who is calling (identity or claims the caller put on the Send
-// context) or consults a remote service that must honor cancellation.
+// consults a remote service that must honor cancellation. When it depends on
+// who is calling, use [Conversation.OnToolAsyncCall], whose check receives
+// the caller the conversation acts for.
 //
 //	conv.OnToolAsyncWithContext("process_refund",
 //	    func(ctx context.Context, callID string, args map[string]any) sdktools.PendingResult {
@@ -198,13 +295,81 @@ func (c *Conversation) OnToolAsync(
 //	        return sdktools.PendingResult{}
 //	    },
 //	    refund)
+//
+// As with OnToolAsync, a held call, once approved, runs execFunc.
 func (c *Conversation) OnToolAsyncWithContext(name string, checkFunc sdktools.AsyncToolCheck, execFunc ToolHandler) {
 	c.asyncHandlersMu.Lock()
 	defer c.asyncHandlersMu.Unlock()
+	c.initAsyncStoresLocked()
+	c.asyncHandlers[name] = checkFunc
+	c.approvalExecs[name] = func(_ context.Context, _ string, _ types.Caller, args map[string]any) (any, error) {
+		return execFunc(args)
+	}
 
-	// Initialize maps if needed
+	// Register the execution handler (handlersMu acquired after asyncHandlersMu per lock ordering)
+	c.handlersMu.Lock()
+	c.handlers[name] = execFunc
+	c.handlersMu.Unlock()
+}
+
+// OnToolAsyncCall is [Conversation.OnToolAsyncWithContext] with a check and
+// an execution handler that each receive the whole call, as an
+// [Conversation.OnToolCall] handler does: the tool's name, the provider's call
+// ID, the parsed arguments and the caller the conversation acts for
+// ([WithCaller]). Use it when the approval decision depends on who is calling.
+//
+// A call the check holds runs exec when it is approved
+// ([Conversation.ResolveTool]), whatever other handler is registered for the
+// tool. The approved execution acts for the caller of the conversation that
+// resolves it, so a host that resumes a conversation to approve a call (with
+// a durable [WithPendingStore], say) must open it with the original
+// requester's [WithCaller].
+//
+//	conv.OnToolAsyncCall("process_refund",
+//	    func(ctx context.Context, call sdk.ToolCall) sdktools.PendingResult {
+//	        if policy.NeedsApproval(ctx, call.Caller, call.Args) {
+//	            return sdktools.PendingResult{Reason: "policy"}
+//	        }
+//	        return sdktools.PendingResult{}
+//	    },
+//	    func(ctx context.Context, call sdk.ToolCall) (any, error) {
+//	        return refunds.Process(ctx, call.Caller.ID, call.Args)
+//	    })
+func (c *Conversation) OnToolAsyncCall(
+	name string,
+	check func(ctx context.Context, call ToolCall) sdktools.PendingResult,
+	exec func(ctx context.Context, call ToolCall) (any, error),
+) {
+	c.asyncHandlersMu.Lock()
+	defer c.asyncHandlersMu.Unlock()
+	c.initAsyncStoresLocked()
+	c.asyncHandlers[name] = func(ctx context.Context, callID string, args map[string]any) sdktools.PendingResult {
+		return check(ctx, ToolCall{Name: name, CallID: callID, Args: args, Caller: c.callerIdentity()})
+	}
+	c.approvalExecs[name] = func(
+		ctx context.Context, callID string, caller types.Caller, args map[string]any,
+	) (any, error) {
+		return exec(ctx, ToolCall{Name: name, CallID: callID, Args: args, Caller: caller})
+	}
+
+	// handlersMu acquired after asyncHandlersMu per lock ordering.
+	c.handlersMu.Lock()
+	defer c.handlersMu.Unlock()
+	c.registerCallHandlerLocked(name, exec)
+	// An earlier OnToolAsync's handler would otherwise still run a duplex call
+	// its check let through (executeAsyncToolNow).
+	delete(c.handlers, name)
+}
+
+// initAsyncStoresLocked creates the async check map and the pending and
+// resolved stores, and the approval executions, on first use. The caller
+// holds asyncHandlersMu.
+func (c *Conversation) initAsyncStoresLocked() {
 	if c.asyncHandlers == nil {
 		c.asyncHandlers = make(map[string]sdktools.AsyncToolCheck)
+	}
+	if c.approvalExecs == nil {
+		c.approvalExecs = make(map[string]approvalExec)
 	}
 	if c.pendingStore == nil {
 		c.pendingStore, c.ownsPendingStore = newPendingStore(c.config)
@@ -212,13 +377,6 @@ func (c *Conversation) OnToolAsyncWithContext(name string, checkFunc sdktools.As
 	if c.resolvedStore == nil {
 		c.resolvedStore = sdktools.NewResolvedStore()
 	}
-
-	c.asyncHandlers[name] = checkFunc
-
-	// Register the execution handler (handlersMu acquired after asyncHandlersMu per lock ordering)
-	c.handlersMu.Lock()
-	c.handlers[name] = execFunc
-	c.handlersMu.Unlock()
 }
 
 // newPendingStore returns the durable pending store configured via
@@ -231,11 +389,31 @@ func newPendingStore(cfg *config) (store sdktools.PendingStore, owned bool) {
 	return sdktools.NewMemoryPendingStore(), true
 }
 
+// approvalExec runs a held call once it is approved, with the held call's ID,
+// the caller the conversation acts for and the approved arguments.
+type approvalExec func(ctx context.Context, callID string, caller types.Caller, args map[string]any) (any, error)
+
 // lookupExecHandler recovers the registered execution handler for a tool by
 // name. A persisted pending call carries no closure, so the handler is
 // re-attached here at resolve time — which is why the resolving process must
 // have registered the same OnToolAsync handler.
-func (c *Conversation) lookupExecHandler(name string) sdktools.ExecFunc {
+//
+// One rule decides what an approved call runs: the execution handler
+// OnToolAsync, OnToolAsyncWithContext or OnToolAsyncCall registered for the
+// tool, whatever other handler is registered for it. It is given the held
+// call's ID and the caller the conversation acts for: the call was held in
+// this conversation, which has one caller. A tool with no async registration
+// in this process falls back to its plain handler.
+func (c *Conversation) lookupExecHandler(ctx context.Context, name, callID string) sdktools.ExecFunc {
+	c.asyncHandlersMu.RLock()
+	approved := c.approvalExecs[name]
+	c.asyncHandlersMu.RUnlock()
+	if approved != nil {
+		caller := c.callerIdentity()
+		return func(args map[string]any) (any, error) {
+			return approved(tools.WithCallID(ctx, callID), callID, caller, args)
+		}
+	}
 	c.handlersMu.RLock()
 	handler := c.handlers[name]
 	c.handlersMu.RUnlock()
@@ -243,6 +421,16 @@ func (c *Conversation) lookupExecHandler(name string) sdktools.ExecFunc {
 		return nil
 	}
 	return sdktools.ExecFunc(handler)
+}
+
+// parseToolResult decodes a tool's JSON result, or returns it as a string
+// when it is not JSON.
+func parseToolResult(result json.RawMessage) any {
+	var parsed any
+	if json.Unmarshal(result, &parsed) != nil {
+		return string(result)
+	}
+	return parsed
 }
 
 // ResolveTool approves and executes a pending tool call.
@@ -311,7 +499,7 @@ func (c *Conversation) ResolveToolWithArgs(
 	if awaitErr := c.discardIfNotAwaited(ctx, id); awaitErr != nil {
 		return nil, awaitErr
 	}
-	handler := c.lookupExecHandler(peek.Name)
+	handler := c.lookupExecHandler(ctx, peek.Name, peek.ID)
 	if handler == nil {
 		return nil, markSentinel(fmt.Errorf("no handler registered for tool %q", peek.Name), ErrToolNotRegistered)
 	}

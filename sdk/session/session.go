@@ -181,6 +181,9 @@ type DuplexSessionConfig struct {
 	Config           *providers.StreamingInputConfig // For ASM mode: base streaming config. For VAD mode: nil
 	ToolRegistry     *tools.Registry                 // Optional: for executing tool calls
 	AsyncToolChecker AsyncToolChecker                // Optional: HITL gate for tool calls
-	Metadata         map[string]interface{}
-	Variables        map[string]string // Initial variables for template substitution
+	// Caller is who the conversation acts for (sdk.WithCaller); every tool
+	// call the session runs carries it. The zero value means none was set.
+	Caller    types.Caller
+	Metadata  map[string]interface{}
+	Variables map[string]string // Initial variables for template substitution
 }

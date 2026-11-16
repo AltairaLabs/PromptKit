@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"sync"
@@ -10,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	sdka2a "github.com/AltairaLabs/PromptKit/sdk/v2/internal/a2a"
 	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/pack"
 )
@@ -163,7 +165,7 @@ func (c *A2ACapability) checkDuplicateTools() error {
 // (WithA2AToolExecutor) when set, otherwise the SDK's own.
 func (c *A2ACapability) bridgeExecutor() tools.Executor {
 	if c.toolExecutor != nil {
-		return namedExecutor{Executor: c.toolExecutor, name: nsA2A}
+		return renameExecutor(c.toolExecutor, nsA2A)
 	}
 	exec := sdka2a.NewExecutor()
 	// Each bridge has already fetched its agent's card; hand it over so the
@@ -172,6 +174,20 @@ func (c *A2ACapability) bridgeExecutor() tools.Executor {
 		bridge.ShareCards(exec)
 	}
 	return exec
+}
+
+// renameExecutor registers a host executor under name, whatever name it
+// reports, without hiding the entry points it implements: a host executor
+// that may suspend calls keeps doing so, and every call reaches the host's
+// call-taking entry point when it has one, so it sees the call ID and caller.
+func renameExecutor(executor tools.Executor, name string) tools.Executor {
+	named := namedExecutor{Executor: executor, name: name}
+	switch executor.(type) {
+	case tools.AsyncCallExecutor, tools.AsyncToolExecutor:
+		return namedAsyncExecutor{namedExecutor: named}
+	default:
+		return named
+	}
 }
 
 // namedExecutor registers a host executor under the "a2a" name the registry
@@ -183,6 +199,39 @@ type namedExecutor struct {
 
 // Name returns the registry name the executor is registered under.
 func (e namedExecutor) Name() string { return e.name }
+
+// ExecuteCall runs call on the host executor's most specific synchronous
+// entry point: ExecuteCall, then ExecuteMultimodal, then Execute — the same
+// order the registry uses for an executor registered directly.
+func (e namedExecutor) ExecuteCall(
+	ctx context.Context, descriptor *tools.ToolDescriptor, call tools.ToolCall,
+) (json.RawMessage, []types.ContentPart, error) {
+	if callExec, ok := e.Executor.(tools.CallExecutor); ok {
+		return callExec.ExecuteCall(ctx, descriptor, call)
+	}
+	if mmExec, ok := e.Executor.(tools.MultimodalExecutor); ok {
+		return mmExec.ExecuteMultimodal(ctx, descriptor, call.Args)
+	}
+	result, err := e.Execute(ctx, descriptor, call.Args)
+	return result, nil, err
+}
+
+// namedAsyncExecutor is namedExecutor for a host executor that may suspend
+// calls (an AsyncCallExecutor or AsyncToolExecutor).
+type namedAsyncExecutor struct {
+	namedExecutor
+}
+
+// ExecuteCallAsync runs call on the host executor's ExecuteCallAsync, or on
+// its ExecuteAsync when it implements only that.
+func (e namedAsyncExecutor) ExecuteCallAsync(
+	ctx context.Context, descriptor *tools.ToolDescriptor, call tools.ToolCall,
+) (*tools.ToolExecutionResult, error) {
+	if callExec, ok := e.Executor.(tools.AsyncCallExecutor); ok {
+		return callExec.ExecuteCallAsync(ctx, descriptor, call)
+	}
+	return e.Executor.(tools.AsyncToolExecutor).ExecuteAsync(ctx, descriptor, call.Args)
+}
 
 // discoverAgents fetches the agent card of every builder bridge not yet
 // discovered and turns its skills into tool descriptors. It returns an error
