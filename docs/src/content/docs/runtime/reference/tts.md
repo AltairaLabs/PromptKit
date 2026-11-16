@@ -874,7 +874,7 @@ func (s *OpenAIService) SpokenText(text string, config SynthesisConfig) string
 SpokenText reports the text OpenAI will actually speak for the given input, after markup lowering: on an expressive model the bracket tags become the \`instructions\` field so the spoken text is the stripped remainder; other models strip tags entirely. Implements tts.SpokenTextReporter.
 
 <a name="OpenAIService.SupportedFormats"></a>
-### func \(\*OpenAIService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L378>)
+### func \(\*OpenAIService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L392>)
 
 ```go
 func (s *OpenAIService) SupportedFormats() []AudioFormat
@@ -883,13 +883,13 @@ func (s *OpenAIService) SupportedFormats() []AudioFormat
 SupportedFormats returns audio formats supported by OpenAI TTS.
 
 <a name="OpenAIService.SupportedVoices"></a>
-### func \(\*OpenAIService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L359>)
+### func \(\*OpenAIService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L363>)
 
 ```go
 func (s *OpenAIService) SupportedVoices() []Voice
 ```
 
-SupportedVoices returns available OpenAI voices.
+SupportedVoices returns the OpenAI voices the configured model can speak with: the tts\-1 family lacks ballad, verse, marin and cedar.
 
 <a name="OpenAIService.Synthesize"></a>
 ### func \(\*OpenAIService\) [Synthesize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L159-L161>)

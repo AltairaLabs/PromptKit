@@ -316,19 +316,28 @@ func TestOpenAIService_Synthesize_InstructionsOnSnapshotAndDeploymentNames(t *te
 }
 
 func TestOpenAIService_SupportedVoices(t *testing.T) {
-	service := NewOpenAI("test-key")
-	voices := service.SupportedVoices()
-
-	want := []string{
-		"alloy", "ash", "ballad", "coral", "echo", "fable", "onyx",
-		"nova", "sage", "shimmer", "verse", "marin", "cedar",
+	all := "alloy,ash,ballad,coral,echo,fable,onyx,nova,sage,shimmer,verse,marin,cedar"
+	tts1 := "alloy,ash,coral,echo,fable,onyx,nova,sage,shimmer"
+	cases := map[string]string{
+		"":                ModelTTS1 + "|" + tts1, // default model is tts-1
+		ModelTTS1HD:       ModelTTS1HD + "|" + tts1,
+		ModelGPT4oMiniTTS: ModelGPT4oMiniTTS + "|" + all,
+		"my-deployment":   "my-deployment|" + all,
 	}
-	got := make([]string, 0, len(voices))
-	for _, v := range voices {
-		got = append(got, v.ID)
-	}
-	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Errorf("SupportedVoices() IDs = %v, want %v", got, want)
+	for model, want := range cases {
+		opts := []OpenAIOption{}
+		if model != "" {
+			opts = append(opts, base.WithModel(model))
+		}
+		service := NewOpenAI("test-key", opts...)
+		ids := make([]string, 0)
+		for _, v := range service.SupportedVoices() {
+			ids = append(ids, v.ID)
+		}
+		wantModel, wantIDs, _ := strings.Cut(want, "|")
+		if got := strings.Join(ids, ","); got != wantIDs {
+			t.Errorf("model=%s: SupportedVoices() = %s, want %s", wantModel, got, wantIDs)
+		}
 	}
 }
 

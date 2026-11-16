@@ -350,14 +350,18 @@ func (s *OpenAIService) handleError(resp *http.Response) error {
 	)
 }
 
+// voicesNotOnTTS1 are the voices tts-1 and tts-1-hd cannot speak with.
+var voicesNotOnTTS1 = map[string]bool{VoiceBallad: true, VoiceVerse: true, VoiceMarin: true, VoiceCedar: true}
+
 const (
 	voiceNotOnTTS1   = "Not available on tts-1 or tts-1-hd"
 	voiceBestQuality = "Recommended for best quality; not available on tts-1 or tts-1-hd"
 )
 
-// SupportedVoices returns available OpenAI voices.
+// SupportedVoices returns the OpenAI voices the configured model can speak
+// with: the tts-1 family lacks ballad, verse, marin and cedar.
 func (s *OpenAIService) SupportedVoices() []Voice {
-	return []Voice{
+	voices := []Voice{
 		makeVoice(VoiceAlloy, "Alloy", "en", "neutral", "Balanced, versatile voice"),
 		makeVoice(VoiceAsh, "Ash", "en", "", ""),
 		makeVoice(VoiceBallad, "Ballad", "en", "", voiceNotOnTTS1),
@@ -372,6 +376,16 @@ func (s *OpenAIService) SupportedVoices() []Voice {
 		makeVoice(VoiceMarin, "Marin", "en", "", voiceBestQuality),
 		makeVoice(VoiceCedar, "Cedar", "en", "", voiceBestQuality),
 	}
+	if acceptsInstructions(s.Model) {
+		return voices
+	}
+	tts1 := voices[:0]
+	for _, v := range voices {
+		if !voicesNotOnTTS1[v.ID] {
+			tts1 = append(tts1, v)
+		}
+	}
+	return tts1
 }
 
 // SupportedFormats returns audio formats supported by OpenAI TTS.

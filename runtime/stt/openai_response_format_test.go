@@ -6,26 +6,29 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/stt"
 )
 
-// transcribeServer answers like the transcription API: any response_format
-// other than json/text is a 400 naming it, which is what the gpt-4o-*-transcribe
-// models return for verbose_json (#2689). On success it returns body.
+// transcribeServer answers like the transcription API: a non-whisper model
+// asked for any response_format other than json/text is a 400 naming it,
+// which is what the gpt-4o-*-transcribe models return for verbose_json
+// (#2689). On success it returns body.
 func transcribeServer(t *testing.T, body map[string]any) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseMultipartForm(1 << 20); err != nil {
 			t.Errorf("parse multipart: %v", err)
 		}
-		if f := r.FormValue("response_format"); f != "" && f != "json" && f != "text" {
+		f, model := r.FormValue("response_format"), r.FormValue("model")
+		if !strings.Contains(model, "whisper") && f != "" && f != "json" && f != "text" {
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{
 				"code":    "unsupported_value",
-				"message": "response_format '" + f + "' is not compatible with model '" + r.FormValue("model") + "'.",
+				"message": "response_format '" + f + "' is not compatible with model '" + model + "'.",
 			}})
 			return
 		}
@@ -164,28 +167,59 @@ func TestOpenAITranscribe_TokenUsageWithoutDetailsIsAudio(t *testing.T) {
 	}
 }
 
-// Transcribe sends response_format=json, never leaving the format to the
-// server default or sending verbose_json.
-func TestOpenAITranscribe_SendsJSONResponseFormat(t *testing.T) {
-	formats := make(chan string, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseMultipartForm(1 << 20); err != nil {
-			t.Errorf("parse multipart: %v", err)
+// A whisper model is asked for verbose_json, whose duration prices
+// compressed audio; any other model is asked for json, the only format the
+// gpt-4o-*-transcribe models accept.
+func TestOpenAITranscribe_ResponseFormatPerModel(t *testing.T) {
+	cases := map[string]string{
+		"whisper-1":              "verbose_json",
+		"whisper":                "verbose_json", // an Azure deployment name
+		"gpt-4o-transcribe":      "json",
+		"gpt-4o-mini-transcribe": "json",
+		"my-stt-deployment":      "json",
+	}
+	for model, want := range cases {
+		formats := make(chan string, 1)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := r.ParseMultipartForm(1 << 20); err != nil {
+				t.Errorf("parse multipart: %v", err)
+			}
+			formats <- r.FormValue("response_format")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"text":"ok"}`))
+		}))
+		svc := stt.NewOpenAI("k", base.WithBaseURL(server.URL), base.WithModel(model))
+		_, err := svc.Transcribe(context.Background(), base.STTRequest{
+			Audio: generateTestAudio(16000, 0.1), MIMEType: "audio/pcm",
+		})
+		server.Close()
+		if err != nil {
+			t.Fatalf("model=%s: Transcribe: %v", model, err)
 		}
-		formats <- r.FormValue("response_format")
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"text":"ok"}`))
-	}))
+		if got := <-formats; got != want {
+			t.Errorf("model=%s: response_format = %q, want %q", model, got, want)
+		}
+	}
+}
+
+// verbose_json's top-level duration prices compressed audio that cannot be
+// estimated from its bytes.
+func TestOpenAITranscribe_VerboseDurationPricesCompressedAudio(t *testing.T) {
+	server := transcribeServer(t, map[string]any{"text": "mp3", "duration": 3.0})
 	defer server.Close()
 
-	svc := stt.NewOpenAI("k", base.WithBaseURL(server.URL))
-	if _, err := svc.Transcribe(context.Background(), base.STTRequest{
-		Audio: generateTestAudio(16000, 0.1), MIMEType: "audio/pcm",
-	}); err != nil {
+	svc := stt.NewOpenAI("k", base.WithBaseURL(server.URL), base.WithModel("whisper"))
+	resp, err := svc.Transcribe(context.Background(), base.STTRequest{
+		Audio: []byte("compressed"), MIMEType: "audio/mpeg",
+	})
+	if err != nil {
 		t.Fatalf("Transcribe: %v", err)
 	}
-	if got := <-formats; got != "json" {
-		t.Errorf("response_format = %q, want %q", got, "json")
+	if resp.Cost == nil {
+		t.Fatal("Cost = nil, want cost from duration")
+	}
+	if got := resp.Cost.Quantities["second"]; got != 3.0 {
+		t.Errorf("Quantities[second] = %v, want 3.0", got)
 	}
 }
 

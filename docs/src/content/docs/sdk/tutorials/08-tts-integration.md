@@ -103,12 +103,11 @@ Run it:
 go run ./voices
 ```
 
-The program prints the 13 OpenAI voices. The newer voices have no gender listed:
+The program prints the voices the default `tts-1` model can speak with:
 
 ```text
 alloy: Alloy (en, neutral)
 ash: Ash (en, )
-ballad: Ballad (en, )
 coral: Coral (en, )
 echo: Echo (en, male)
 fable: Fable (en, female)
@@ -116,12 +115,9 @@ onyx: Onyx (en, male)
 nova: Nova (en, female)
 sage: Sage (en, )
 shimmer: Shimmer (en, female)
-verse: Verse (en, )
-marin: Marin (en, )
-cedar: Cedar (en, )
 ```
 
-`ballad`, `verse`, `marin` and `cedar` are not available on `tts-1` or `tts-1-hd`.
+On `gpt-4o-mini-tts` the list also has `ballad`, `verse`, `marin` and `cedar`.
 
 ## Step 3: Change the voice, speed and model
 
