@@ -832,16 +832,19 @@ func droppedPartTypes(responses []providers.ToolResponse) []string {
 // pending go out on a control element, the responses go to the session
 // (starting the provider call they continue), a limit is reported as an error
 // element, and a terminal limit closes the session. A round that finishes
-// once the session is closing is dropped.
+// once the session is closing only has its result messages recorded: its
+// tools ran and the assistant message that called them was already sent, so
+// the history keeps a result for each call. A round that finishes after the
+// stage stopped delivering (Process returned) is dropped.
 func (s *DuplexProviderStage) deliverToolRound(
 	ctx context.Context, res *duplexToolResult, output chan<- StreamElement,
 ) error {
 	dt := s.tools
-	if dt.isClosed() {
-		return nil
-	}
 	if err := s.forwardInputMessages(ctx, &res.elem, output); err != nil {
 		return err
+	}
+	if dt.isClosed() {
+		return nil
 	}
 	if pending := res.elem.Meta.PendingTools; len(pending) > 0 {
 		var held StreamElement

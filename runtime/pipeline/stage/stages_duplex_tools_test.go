@@ -1010,18 +1010,19 @@ func TestDuplexTools_NewUserTurnDuringRound(t *testing.T) {
 	h.finish()
 }
 
-// Closing the session while a round runs: the round's results are dropped,
-// never sent to the closed session.
+// Closing the session while a round runs: the round's results are never sent
+// to the closed session, but are still recorded downstream.
 func TestDuplexTools_CloseDuringRoundSendsNothingAfterClose(t *testing.T) {
 	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`), gate: make(chan struct{})}
 	var h *realtimeHarness
 	onClose := func() {
 		// Let the round finish while the session is closing, and give its
-		// results the chance to be sent.
+		// results the chance to be sent: wait until they are, or until its
+		// result message follows the assistant message downstream.
 		close(exec.gate)
 		require.Eventually(t, func() bool { return exec.done() == 1 }, 2*time.Second, time.Millisecond)
-		deadline := time.Now().Add(200 * time.Millisecond)
-		for time.Now().Before(deadline) && h.sess().sendsAfterClose() == 0 {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) && h.sess().sendsAfterClose() == 0 && len(h.output) < 2 {
 			time.Sleep(time.Millisecond)
 		}
 	}
@@ -1030,15 +1031,19 @@ func TestDuplexTools_CloseDuringRoundSendsNothingAfterClose(t *testing.T) {
 	h.emit(toolCallTurn(weatherCall("c1")))
 	require.Eventually(t, func() bool { return len(exec.calls()) == 1 }, 2*time.Second, time.Millisecond)
 
-	// The host is done: all responses are in, and input ends.
+	// The host is done: all responses are in, and input ends. Output is read
+	// only once the stage returns, so onClose can watch it fill.
 	h.input <- StreamElement{Meta: ElementMetadata{AllResponsesReceived: true}}
 	close(h.input)
-	elems := drainUntilClosed(t, h.output)
 	require.NoError(t, <-h.done)
+	elems := drainUntilClosed(t, h.output)
 
 	assert.Equal(t, 0, h.sess().sendsAfterClose(), "no tool response is sent after Close")
 	assert.Empty(t, h.sess().sentResponses())
-	assert.Empty(t, toolResultMessages(elems), "a dropped round is not recorded")
+	results := toolResultMessages(elems)
+	require.Len(t, results, 1, "the round's tool ran: its result is recorded with the call")
+	assert.Equal(t, "c1", results[0].ID)
+	assert.Equal(t, weatherResult, results[0].GetTextContent())
 }
 
 // An assistant turn without tool calls ends the tool turn, as a round without
@@ -1422,4 +1427,34 @@ func TestDuplexTools_BlockedTypedTurnOpensNoProviderCall(t *testing.T) {
 			assert.Empty(t, updates)
 		})
 	}
+}
+
+// A round that finishes once the session is closing still has its results
+// recorded downstream: its tool ran, and its assistant tool-call message was
+// already sent. Nothing is sent to the closing session.
+func TestDuplexTools_RoundFinishingAfterCloseIsStillRecorded(t *testing.T) {
+	st := NewDuplexProviderStageWithTurnState(
+		providersmock.NewStreamingProvider("rt", "rt-model", false), baseConfig(), nil, nil)
+	st.SetToolExecution(registryWithTools(t, "weather"), nil, DuplexToolConfig{}, nil)
+	sess := newRecordingSession()
+	st.session = sess
+	st.tools.markClosed()
+
+	result := types.NewToolResultMessage(types.NewTextToolResult("c1", "weather", weatherResult))
+	out := make(chan StreamElement, 4)
+	require.NoError(t, st.deliverToolRound(context.Background(),
+		toolRoundResult([]types.Message{result}, nil, nil), out))
+	close(out)
+
+	var elems []StreamElement
+	for e := range out {
+		elems = append(elems, e)
+	}
+	results := toolResultMessages(elems)
+	require.Len(t, results, 1, "the finished round's result is recorded")
+	assert.Equal(t, "c1", results[0].ID)
+	assert.Equal(t, weatherResult, results[0].GetTextContent())
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	assert.Empty(t, sess.toolResponses, "nothing is sent to a closing session")
 }
