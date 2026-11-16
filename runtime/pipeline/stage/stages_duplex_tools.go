@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
@@ -733,7 +734,9 @@ func refuseUnanswered(
 }
 
 // providerToolResponses converts tool result messages to the responses the
-// session is sent.
+// session is sent. A result with media carries its parts as well as its
+// text; a text-only result (every refusal and failure is one) carries text
+// only.
 func providerToolResponses(results []types.Message) []providers.ToolResponse {
 	out := make([]providers.ToolResponse, 0, len(results))
 	for i := range results {
@@ -741,11 +744,52 @@ func providerToolResponses(results []types.Message) []providers.ToolResponse {
 		if tr == nil {
 			continue
 		}
-		out = append(out, providers.ToolResponse{
+		resp := providers.ToolResponse{
 			ToolCallID: tr.ID,
 			Result:     tr.GetTextContent(),
 			IsError:    tr.Error != "",
-		})
+		}
+		if tr.HasMedia() {
+			resp.Parts = tr.Parts
+		}
+		out = append(out, resp)
+	}
+	return out
+}
+
+// warnDroppedToolParts logs, once per stage, that the session cannot send
+// the media parts of the tool responses it is about to be sent and sends
+// their text only, naming the provider and the part types dropped.
+func (s *DuplexProviderStage) warnDroppedToolParts(session any, responses []providers.ToolResponse) {
+	if ps, ok := session.(providers.ToolResponsePartsSupport); ok && ps.SupportsToolResponseParts() {
+		return
+	}
+	dropped := droppedPartTypes(responses)
+	if len(dropped) == 0 || !s.toolPartsWarned.CompareAndSwap(false, true) {
+		return
+	}
+	providerID := ""
+	if s.provider != nil {
+		providerID = s.provider.ID()
+	}
+	logger.Warn("DuplexProviderStage: realtime session cannot send non-text tool result parts; "+
+		"sending their text only",
+		"provider", providerID, "part_types", dropped)
+}
+
+// droppedPartTypes returns the distinct non-text part types in responses, in
+// the order they first appear.
+func droppedPartTypes(responses []providers.ToolResponse) []string {
+	var out []string
+	seen := map[string]bool{}
+	for i := range responses {
+		for _, p := range responses[i].Parts {
+			if p.Type == types.ContentTypeText || seen[p.Type] {
+				continue
+			}
+			seen[p.Type] = true
+			out = append(out, p.Type)
+		}
 	}
 	return out
 }

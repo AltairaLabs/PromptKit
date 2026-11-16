@@ -81,6 +81,9 @@ type DuplexProviderStage struct {
 	// Session created on first element with system_prompt
 	session          providers.StreamInputSession
 	systemPromptSent bool
+	// toolPartsWarned is set once the stage has warned that the session drops
+	// non-text tool result parts.
+	toolPartsWarned atomic.Bool
 
 	// Response accumulation for the current turn
 	// Reset when turn completes (FinishReason received)
@@ -915,6 +918,7 @@ func (s *DuplexProviderStage) sendToolResponses(ctx context.Context, toolRespons
 			"sessionType", fmt.Sprintf("%T", s.session))
 		return
 	}
+	s.warnDroppedToolParts(toolSession, toolResponses)
 	logger.Debug("DuplexProviderStage: sending tool responses to session",
 		"count", len(toolResponses))
 	if err := toolSession.SendToolResponses(ctx, toolResponses); err != nil {

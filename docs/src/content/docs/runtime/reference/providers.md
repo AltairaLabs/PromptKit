@@ -386,6 +386,7 @@ The package provides:
 - [type StreamingToolDefinition](<#StreamingToolDefinition>)
 - [type ToolDescriptor](<#ToolDescriptor>)
 - [type ToolResponse](<#ToolResponse>)
+- [type ToolResponsePartsSupport](<#ToolResponsePartsSupport>)
 - [type ToolResponseSupport](<#ToolResponseSupport>)
 - [type ToolResult](<#ToolResult>)
 - [type ToolSupport](<#ToolSupport>)
@@ -5114,15 +5115,32 @@ type ToolDescriptor struct {
 ```
 
 <a name="ToolResponse"></a>
-## type [ToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L358-L362>)
+## type [ToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L358-L368>)
 
 ToolResponse represents a single tool execution result.
 
 ```go
 type ToolResponse struct {
     ToolCallID string `json:"tool_call_id"`
-    Result     string `json:"result"`
-    IsError    bool   `json:"is_error,omitempty"` // True if the tool execution failed
+    // Result is the result's text: the joined text of its text parts. It is
+    // what a session that cannot take Parts sends.
+    Result  string `json:"result"`
+    IsError bool   `json:"is_error,omitempty"` // True if the tool execution failed
+    // Parts holds a multimodal result's content parts (text and media, in
+    // order); nil for a text-only result. Only a session reporting
+    // ToolResponsePartsSupport sends them.
+    Parts []types.ContentPart `json:"parts,omitempty"`
+}
+```
+
+<a name="ToolResponsePartsSupport"></a>
+## type [ToolResponsePartsSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L374-L376>)
+
+ToolResponsePartsSupport is an optional interface for streaming sessions that can send a tool result's media parts \(ToolResponse.Parts\) to the model. A session without it, or returning false, is sent the same responses and sends only their text Result.
+
+```go
+type ToolResponsePartsSupport interface {
+    SupportsToolResponseParts() bool
 }
 ```
 
