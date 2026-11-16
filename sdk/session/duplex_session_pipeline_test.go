@@ -121,11 +121,11 @@ func TestDuplexSession_HandleToolCalls(t *testing.T) {
 		}
 	})
 
-	t.Run("all completed sends results to stageInput", func(t *testing.T) {
-		reg := makeRegistry(&syncTestExecutor{result: json.RawMessage(`{"ok":true}`)})
-		registerTool(t, reg, "sync_tool", "test")
-
-		s := makeSession(t, reg)
+	// The pipeline runs the calls when the session has a registry: the turn
+	// is neither run here nor forwarded, and the call's name is kept for a
+	// result submitted by ID alone.
+	t.Run("registry: the turn is not run or forwarded", func(t *testing.T) {
+		s := makeSession(t, tools.NewRegistry())
 		elem := &stage.StreamElement{
 			EndOfStream: true,
 			Message: &types.Message{
@@ -135,102 +135,15 @@ func TestDuplexSession_HandleToolCalls(t *testing.T) {
 			},
 		}
 
-		err := s.handleToolCalls(context.Background(), elem)
-		require.NoError(t, err)
+		require.NoError(t, s.handleToolCalls(context.Background(), elem))
 
-		// Tool results sent to stageInput
-		select {
-		case inputElem := <-s.stageInput:
-			assert.NotEmpty(t, inputElem.Meta.ToolResponses)
-			assert.NotEmpty(t, inputElem.Meta.ToolResultMessages)
-		default:
-			t.Fatal("expected tool results on stageInput")
-		}
-
-		// No pending tools → nothing on streamOutput
-		select {
-		case chunk := <-s.streamOutput:
-			t.Fatalf("unexpected chunk on streamOutput: %+v", chunk)
-		default:
-			// expected
-		}
-	})
-
-	t.Run("all pending surfaces pending tools to streamOutput", func(t *testing.T) {
-		reg := makeRegistry(&pendingTestExecutor{})
-		registerTool(t, reg, "client_tool", "pending")
-
-		s := makeSession(t, reg)
-		elem := &stage.StreamElement{
-			EndOfStream: true,
-			Message: &types.Message{
-				ToolCalls: []types.MessageToolCall{
-					{ID: "c1", Name: "client_tool", Args: json.RawMessage(`{"key":"val"}`)},
-				},
-			},
-		}
-
-		err := s.handleToolCalls(context.Background(), elem)
-		require.NoError(t, err)
-
-		// Pending tools surfaced on streamOutput
-		select {
-		case chunk := <-s.streamOutput:
-			require.NotEmpty(t, chunk.PendingTools)
-			assert.Equal(t, "c1", chunk.PendingTools[0].CallID)
-			assert.Equal(t, "client_tool", chunk.PendingTools[0].ToolName)
-		default:
-			t.Fatal("expected pending tools chunk on streamOutput")
-		}
-
-		// Nothing on stageInput (no completed tools)
 		select {
 		case inputElem := <-s.stageInput:
 			t.Fatalf("unexpected element on stageInput: %+v", inputElem)
-		default:
-			// expected
-		}
-	})
-
-	t.Run("mixed sends completed to stageInput and pending to streamOutput", func(t *testing.T) {
-		reg := makeRegistry(
-			&syncTestExecutor{result: json.RawMessage(`{"done":true}`)},
-			&pendingTestExecutor{},
-		)
-		registerTool(t, reg, "sync_tool", "test")
-		registerTool(t, reg, "client_tool", "pending")
-
-		s := makeSession(t, reg)
-		elem := &stage.StreamElement{
-			EndOfStream: true,
-			Message: &types.Message{
-				ToolCalls: []types.MessageToolCall{
-					{ID: "c1", Name: "sync_tool", Args: json.RawMessage(`{}`)},
-					{ID: "c2", Name: "client_tool", Args: json.RawMessage(`{}`)},
-				},
-			},
-		}
-
-		err := s.handleToolCalls(context.Background(), elem)
-		require.NoError(t, err)
-
-		// Completed tool results on stageInput
-		select {
-		case inputElem := <-s.stageInput:
-			responses := inputElem.Meta.ToolResponses
-			assert.Len(t, responses, 1)
-			assert.Equal(t, "c1", responses[0].ToolCallID)
-		default:
-			t.Fatal("expected tool results on stageInput")
-		}
-
-		// Pending tools on streamOutput
-		select {
 		case chunk := <-s.streamOutput:
-			require.Len(t, chunk.PendingTools, 1)
-			assert.Equal(t, "c2", chunk.PendingTools[0].CallID)
+			t.Fatalf("unexpected chunk on streamOutput: %+v", chunk)
 		default:
-			t.Fatal("expected pending tools chunk on streamOutput")
 		}
+		assert.Equal(t, "sync_tool", s.takeCallName("c1"))
 	})
 }

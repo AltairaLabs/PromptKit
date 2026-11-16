@@ -44,9 +44,12 @@ type duplexSession struct {
 	callNamesMu sync.Mutex
 	callNames   map[string]string
 	// Note: Session is NOT stored here - DuplexProviderStage creates and manages it
-	toolRegistry     *tools.Registry  // Optional: for executing tool calls (client tools, etc.)
-	asyncToolChecker AsyncToolChecker // Optional: HITL gate for tool calls
-	caller           types.Caller     // who the conversation acts for; on every tool call
+	// toolRegistry is the registry the pipeline runs tool calls with; nil
+	// when nothing runs them, and tool-call turns are forwarded to the caller.
+	toolRegistry *tools.Registry
+	// asyncToolChecker and caller are passed on to a fork.
+	asyncToolChecker AsyncToolChecker
+	caller           types.Caller
 	variables        map[string]string
 	varsMu           sync.RWMutex
 	closeMu          sync.Mutex
@@ -348,9 +351,7 @@ func (s *duplexSession) SendVideoChunk(ctx context.Context, vchunk *VideoChunk) 
 // This is called once when the first chunk is received.
 // Converts stage.StreamElement output to providers.StreamChunk at the boundary.
 //
-// When a tool registry is configured, tool calls from the LLM are intercepted:
-//   - Sync-handled tools: results are sent back to the pipeline via stageInput
-//   - Pending (deferred) tools: surfaced to the caller via pending_tools metadata
+// Tool calls are run by the pipeline (see handleToolCalls).
 //
 //nolint:gocognit // Complexity is acceptable for pipeline orchestration with tool handling
 func (s *duplexSession) executePipeline(ctx context.Context) {
@@ -372,7 +373,6 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 	}
 
 	// Forward stage output to streamOutput, converting StreamElement to StreamChunk.
-	// When a tool registry is present, intercept tool call elements.
 	for {
 		select {
 		case <-ctx.Done():
@@ -426,45 +426,20 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 	}
 }
 
-// handleToolCalls processes tool calls from a response element.
-// If no tool registry is configured, the element is forwarded as-is.
-// Otherwise, tools are executed via the registry:
-//   - Completed tools: results sent back to the pipeline
-//   - Pending tools: forwarded to the caller with pending_tools metadata
+// handleToolCalls handles an assistant turn that made tool calls. The
+// pipeline's DuplexProviderStage runs a session's tool calls when it has a
+// tool registry: it sends their results to the provider and surfaces the calls
+// held for approval on an element of their own. So with a registry the turn is
+// not passed on, as before, and nothing here runs a call. Without one nothing
+// runs the calls, and the turn is forwarded for the caller to answer.
 func (s *duplexSession) handleToolCalls(ctx context.Context, elem *stage.StreamElement) error {
 	s.rememberCallNames(elem.Message.ToolCalls)
-
-	// No registry — forward the element as-is (caller must handle tool calls)
-	if s.toolRegistry == nil {
-		chunk := streamElementToStreamChunk(elem)
-		if !s.forwardChunk(ctx, chunk) {
-			return ctx.Err()
-		}
+	if s.toolRegistry != nil {
 		return nil
 	}
-
-	toolCalls := elem.Message.ToolCalls
-	logger.Debug("duplexSession: intercepting tool calls",
-		"count", len(toolCalls))
-
-	duplexResult := executeDuplexToolCalls(ctx, s.toolRegistry, toolCalls, s.asyncToolChecker, s.caller)
-
-	// Send completed tool results back to the pipeline
-	if len(duplexResult.Completed.ProviderResponses) > 0 {
-		if err := s.sendInput(ctx, streaming.BuildToolResponseElement(duplexResult.Completed)); err != nil {
-			return fmt.Errorf("failed to send tool results: %w", err)
-		}
+	if !s.forwardChunk(ctx, streamElementToStreamChunk(elem)) {
+		return ctx.Err()
 	}
-
-	// Surface pending tools to the caller
-	if len(duplexResult.Pending) > 0 {
-		elem.Meta.PendingTools = duplexResult.Pending
-		chunk := streamElementToStreamChunk(elem)
-		if !s.forwardChunk(ctx, chunk) {
-			return ctx.Err()
-		}
-	}
-
 	return nil
 }
 

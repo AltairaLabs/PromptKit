@@ -289,11 +289,13 @@
   },
   {
    "id": 41,
-   "claim": "sdk.WithToolPolicy sets the tool policy for every tool loop the conversation runs (text, VAD voice, workflow states, composition steps); a realtime duplex session runs tool calls outside the loop",
+   "claim": "sdk.WithToolPolicy sets the tool policy for every tool loop the conversation runs (text, VAD voice, realtime duplex sessions, workflow states, composition steps)",
    "verdict": "true",
    "evidence": [
     "sdk/conversation.go:744",
     "sdk/internal/pipeline/builder.go:716",
+    "sdk/internal/pipeline/builder.go:754",
+    "sdk/integration/duplex_tool_parity_test.go:118",
     "sdk/options.go:1376"
    ]
   },

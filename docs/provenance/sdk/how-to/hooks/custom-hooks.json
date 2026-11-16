@@ -130,11 +130,12 @@
   },
   {
    "id": 15,
-   "claim": "Client tools, calls resumed after approval, duplex sessions are not rewritten",
+   "claim": "Client tools and calls resumed after approval are not rewritten; realtime duplex sessions are",
    "verdict": "true",
    "evidence": [
-    "runtime/hooks/hooks.go:38",
-    "runtime/pipeline/stage/stages_provider.go:3530"
+    "runtime/hooks/hooks.go:40",
+    "runtime/pipeline/stage/stages_duplex_tools.go:187",
+    "sdk/integration/duplex_tool_parity_test.go:167"
    ]
   },
   {

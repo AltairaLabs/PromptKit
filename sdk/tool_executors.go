@@ -115,9 +115,13 @@ func (a *localHandlersAccessor) getHandler(name string) (ToolHandler, bool) {
 	return h, ok
 }
 
+// localToolMode is the Mode of a tool the local executor runs: every pack
+// tool, and every tool a realtime session declares.
+const localToolMode = "local"
+
 // Name returns "local" to match the Mode on tools in the pack.
 func (e *localExecutor) Name() string {
-	return "local"
+	return localToolMode
 }
 
 // liveCtxHandler reads the conversation's current context-aware handler, if the

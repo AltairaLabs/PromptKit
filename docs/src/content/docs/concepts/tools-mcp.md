@@ -152,7 +152,7 @@ A prompt's `tool_policy` in the pack limits how it uses tools in one turn:
 
 ### Limits the host sets
 
-`sdk.WithToolPolicy` sets a `pipeline.ToolPolicy` from Go. It applies to every tool loop the conversation runs: text, voice in VAD mode, each workflow state, and each step of a composition. A realtime duplex session (`OpenDuplex` with a provider that streams audio itself) runs its tool calls outside the tool loop, so the policy does not apply there. It carries the limits a pack cannot declare:
+`sdk.WithToolPolicy` sets a `pipeline.ToolPolicy` from Go. It applies to every tool loop the conversation runs: text, voice in VAD mode, a realtime duplex session (`OpenDuplex` with a provider that streams audio itself), each workflow state, and each step of a composition. It carries the limits a pack cannot declare:
 
 ```go
 conv, err := sdk.Open("./app.pack.json", "builder",

@@ -760,7 +760,7 @@ type SessionEvent struct {
 ```
 
 <a name="SessionHook"></a>
-## type [SessionHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/hooks.go#L47-L52>)
+## type [SessionHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/hooks.go#L48-L53>)
 
 SessionHook tracks session lifecycle.
 
@@ -827,11 +827,11 @@ type ToolResponse struct {
 ```
 
 <a name="ToolResultRewriter"></a>
-## type [ToolResultRewriter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/hooks.go#L42-L44>)
+## type [ToolResultRewriter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/hooks.go#L43-L45>)
 
 ToolResultRewriter is an opt\-in extension for ToolHook. A ToolHook that also implements it may rewrite the text of a tool's successful result before the model sees it, as a test harness does to plant an indirect prompt injection in live tool output.
 
-The provider stage calls it for the tools it runs: once with a plain result's text, or once per text part of a multimodal result, before the result size limit applies. Rewriters run in registration order, each on the previous one's output; an error fails the tool call. Client tools, calls resumed after approval and duplex sessions are not rewritten. Parallel tool calls rewrite concurrently, so RewriteResult must be safe for concurrent use.
+The provider stage calls it for the tools it runs: once with a plain result's text, or once per text part of a multimodal result, before the result size limit applies, on text turns and realtime duplex sessions alike. Rewriters run in registration order, each on the previous one's output; an error fails the tool call. Client tools and calls resumed after approval are not rewritten. Parallel tool calls rewrite concurrently, so RewriteResult must be safe for concurrent use.
 
 ```go
 type ToolResultRewriter interface {

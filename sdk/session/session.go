@@ -145,11 +145,11 @@ type AsyncToolCheckResult struct {
 	HandlerError error
 }
 
-// AsyncToolChecker is called before executing a tool to determine if it
-// requires human approval. Returns nil if the tool is not an async tool
-// (falls through to normal registry execution). The context is the
-// tool-execution context so a checker persisting the held call honors
-// cancellation and deadlines.
+// AsyncToolChecker was called before a duplex session executed a tool call,
+// to determine if it required human approval. A duplex session no longer
+// executes tool calls: its pipeline's DuplexProviderStage does, and holds a
+// call for approval through the tools.ApprovalGate it is given
+// (stage.DuplexToolConfig.ApprovalGate). See DuplexSessionConfig.AsyncToolChecker.
 type AsyncToolChecker func(ctx context.Context, callID, name string, args map[string]any) *AsyncToolCheckResult
 
 // DuplexSessionConfig configures a DuplexSession.
@@ -173,16 +173,25 @@ type AsyncToolChecker func(ctx context.Context, callID, name string, args map[st
 //
 // StateStore should match what's configured in the Pipeline middleware.
 type DuplexSessionConfig struct {
-	ConversationID   string
-	UserID           string
-	StateStore       statestore.Store                // StateStore for conversation history
-	PipelineBuilder  PipelineBuilder                 // Function to build pipeline (required, typically a closure from SDK)
-	Provider         providers.Provider              // Provider for LLM calls (required)
-	Config           *providers.StreamingInputConfig // For ASM mode: base streaming config. For VAD mode: nil
-	ToolRegistry     *tools.Registry                 // Optional: for executing tool calls
-	AsyncToolChecker AsyncToolChecker                // Optional: HITL gate for tool calls
-	// Caller is who the conversation acts for (sdk.WithCaller); every tool
-	// call the session runs carries it. The zero value means none was set.
+	ConversationID  string
+	UserID          string
+	StateStore      statestore.Store                // StateStore for conversation history
+	PipelineBuilder PipelineBuilder                 // Function to build pipeline (required, typically a closure from SDK)
+	Provider        providers.Provider              // Provider for LLM calls (required)
+	Config          *providers.StreamingInputConfig // For ASM mode: base streaming config. For VAD mode: nil
+	// ToolRegistry is the registry the pipeline runs the session's tool calls
+	// with (stage.DuplexProviderStage.SetToolExecution). With one, an assistant
+	// turn that made tool calls is not forwarded to Response(): the pipeline
+	// answers the calls and surfaces those held for approval as PendingTools.
+	// Nil means nothing runs them, and the turn is forwarded for the caller to
+	// answer with SubmitToolResults.
+	ToolRegistry *tools.Registry
+	// AsyncToolChecker is not consulted: the pipeline holds calls for approval
+	// (stage.DuplexToolConfig.ApprovalGate). It is passed on to a fork.
+	AsyncToolChecker AsyncToolChecker
+	// Caller is who the conversation acts for (sdk.WithCaller). The pipeline's
+	// tool calls carry it (stage.DuplexToolConfig.Caller); the session passes
+	// it on to a fork. The zero value means none was set.
 	Caller    types.Caller
 	Metadata  map[string]interface{}
 	Variables map[string]string // Initial variables for template substitution

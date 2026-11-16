@@ -36,6 +36,8 @@ type toolAwareMockSession struct {
 	toolCallsSent   bool
 	turnCount       int
 	closeOnLastTurn bool
+	// toolCallCost is reported on the turn that makes the tool calls.
+	toolCallCost *types.CostInfo
 
 	// Observability: track what the pipeline actually did
 	toolResponsesReceived atomic.Int32
@@ -96,6 +98,7 @@ func (s *toolAwareMockSession) emitToolCallResponse() {
 		Content:      "Let me check ",
 		ToolCalls:    tc,
 		FinishReason: &finishReason,
+		CostInfo:     s.toolCallCost,
 	})
 
 	// Wait for tool results, then emit final text
@@ -155,6 +158,8 @@ type toolAwareStreamingProvider struct {
 	*mock.StreamingProvider
 	toolCalls    []types.MessageToolCall
 	postToolText string
+	// toolCallCost, when set, is reported on each session's tool-call turn.
+	toolCallCost *types.CostInfo
 
 	mu       sync.Mutex
 	sessions []*toolAwareMockSession
@@ -177,6 +182,7 @@ func (p *toolAwareStreamingProvider) CreateStreamSession(
 	_ *providers.StreamingInputConfig,
 ) (providers.StreamInputSession, error) {
 	sess := newToolAwareMockSession(p.toolCalls, p.postToolText)
+	sess.toolCallCost = p.toolCallCost
 
 	p.mu.Lock()
 	p.sessions = append(p.sessions, sess)

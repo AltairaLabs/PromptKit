@@ -148,7 +148,7 @@ func (h *RedactHook) RewriteResult(_ context.Context, req hooks.ToolRequest, con
 - The model, the `tool.call.completed` event and `AfterExecution` all see the rewritten result.
 - A failed call isn't rewritten. A rewriter that returns an error fails the call: the model gets an error result, `tool.call.failed` is emitted, and the original text is not passed on.
 - Parallel tool calls are rewritten concurrently, so `RewriteResult` must be safe for concurrent use.
-- Only tools the pipeline runs are rewritten. Client tools, calls resumed after approval, and tools in duplex sessions are not.
+- Only tools the pipeline runs are rewritten, in text turns and realtime duplex sessions alike. Client tools and calls resumed after approval are not.
 
 ## SessionHook
 

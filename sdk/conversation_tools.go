@@ -180,8 +180,7 @@ type ToolCall struct {
 // tool result. A later OnToolCtx, OnToolHTTP or OnToolExecutor for the same
 // name replaces it; a later OnTool does not. A later OnToolAsync or
 // OnToolAsyncWithContext replaces it only for held calls once approved: a
-// call its check lets through still runs this handler, except in an ASM
-// duplex session, which runs the async execution handler.
+// call its check lets through still runs this handler.
 func (c *Conversation) OnToolCall(name string, handler func(ctx context.Context, call ToolCall) (any, error)) {
 	c.handlersMu.Lock()
 	defer c.handlersMu.Unlock()
@@ -356,8 +355,7 @@ func (c *Conversation) OnToolAsyncCall(
 	c.handlersMu.Lock()
 	defer c.handlersMu.Unlock()
 	c.registerCallHandlerLocked(name, exec)
-	// An earlier OnToolAsync's handler would otherwise still run a duplex call
-	// its check let through (executeAsyncToolNow).
+	// An earlier OnToolAsync's handler is replaced, not kept as a fallback.
 	delete(c.handlers, name)
 }
 
