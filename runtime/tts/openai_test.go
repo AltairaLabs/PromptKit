@@ -253,23 +253,25 @@ func TestOpenAIService_Synthesize_PlainTextUnchanged(t *testing.T) {
 }
 
 func TestOpenAIService_PersonaRubric_PerModel(t *testing.T) {
-	// gpt-4o-mini-tts honors the `instructions` field — full rubric.
-	// tts-1 / tts-1-hd ignore it — empty so we don't waste persona tokens.
+	// Every speech model except tts-1 / tts-1-hd honors `instructions`, so
+	// only those get no rubric. An unrecognized name is expressive: on Azure
+	// the model is the deployment name, which can be anything (#2691).
 	cases := map[string]bool{
-		ModelGPT4oMiniTTS: true,
-		ModelTTS1:         false,
-		ModelTTS1HD:       false,
-		"unknown-model":   false,
+		ModelGPT4oMiniTTS:            true,
+		"gpt-4o-mini-tts-2025-12-15": true,
+		"gpt-4o-mini-tts-2025-03-20": true,
+		"my-azure-voice-deployment":  true,
+		ModelTTS1:                    false,
+		ModelTTS1HD:                  false,
+		"tts-1-1106":                 false,
+		"tts-1-hd-1106":              false,
 	}
 	for model, wantRubric := range cases {
 		s := NewOpenAI("k", base.WithModel(model))
 		got := s.PersonaRubric()
 		if wantRubric {
-			if got == "" {
-				t.Errorf("model=%s: expected non-empty rubric", model)
-			}
 			if got != markup.RubricExpressiveFull {
-				t.Errorf("model=%s: rubric does not match RubricExpressiveFull", model)
+				t.Errorf("model=%s: rubric = %q, want RubricExpressiveFull", model, got)
 			}
 		} else if got != "" {
 			t.Errorf("model=%s: expected empty rubric, got %q", model, got)
@@ -277,26 +279,64 @@ func TestOpenAIService_PersonaRubric_PerModel(t *testing.T) {
 	}
 }
 
-func TestOpenAIService_SupportedVoices(t *testing.T) {
-	service := NewOpenAI("test-key")
-	voices := service.SupportedVoices()
-
-	if len(voices) != 6 {
-		t.Errorf("len(SupportedVoices()) = %v, want 6", len(voices))
+func TestOpenAIService_Synthesize_InstructionsOnSnapshotAndDeploymentNames(t *testing.T) {
+	cases := map[string]string{
+		"gpt-4o-mini-tts-2025-12-15": "whisper",
+		"my-azure-voice-deployment":  "whisper",
+		ModelTTS1HD:                  "",
 	}
-
-	// Verify all expected voices are present
-	expectedVoices := []string{"alloy", "echo", "fable", "onyx", "nova", "shimmer"}
-	for _, expected := range expectedVoices {
-		found := false
-		for _, v := range voices {
-			if v.ID == expected {
-				found = true
-				break
+	for model, wantInstructions := range cases {
+		var got openAIRequest
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+				t.Errorf("decode: %v", err)
 			}
+			w.Header().Set("Content-Type", "audio/mpeg")
+			_, _ = w.Write([]byte("audio"))
+		}))
+		service := NewOpenAI("k", base.WithBaseURL(server.URL), base.WithModel(model))
+		reader, err := service.Synthesize(context.Background(), "[whispers]Come here[/]", SynthesisConfig{})
+		if err != nil {
+			t.Fatalf("model=%s: Synthesize: %v", model, err)
 		}
-		if !found {
-			t.Errorf("Voice %v not found in SupportedVoices()", expected)
+		_, _ = io.ReadAll(reader)
+		reader.Close()
+		server.Close()
+
+		if got.Instructions != wantInstructions {
+			t.Errorf("model=%s: Instructions = %q, want %q", model, got.Instructions, wantInstructions)
+		}
+		if got.Input != "Come here" {
+			t.Errorf("model=%s: Input = %q, want %q", model, got.Input, "Come here")
+		}
+		if spoken := service.SpokenText("[whispers]Come here[/]", SynthesisConfig{}); spoken != "Come here" {
+			t.Errorf("model=%s: SpokenText = %q, want %q", model, spoken, "Come here")
+		}
+	}
+}
+
+func TestOpenAIService_SupportedVoices(t *testing.T) {
+	all := "alloy,ash,ballad,coral,echo,fable,onyx,nova,sage,shimmer,verse,marin,cedar"
+	tts1 := "alloy,ash,coral,echo,fable,onyx,nova,sage,shimmer"
+	cases := map[string]string{
+		"":                ModelTTS1 + "|" + tts1, // default model is tts-1
+		ModelTTS1HD:       ModelTTS1HD + "|" + tts1,
+		ModelGPT4oMiniTTS: ModelGPT4oMiniTTS + "|" + all,
+		"my-deployment":   "my-deployment|" + all,
+	}
+	for model, want := range cases {
+		opts := []OpenAIOption{}
+		if model != "" {
+			opts = append(opts, base.WithModel(model))
+		}
+		service := NewOpenAI("test-key", opts...)
+		ids := make([]string, 0)
+		for _, v := range service.SupportedVoices() {
+			ids = append(ids, v.ID)
+		}
+		wantModel, wantIDs, _ := strings.Cut(want, "|")
+		if got := strings.Join(ids, ","); got != wantIDs {
+			t.Errorf("model=%s: SupportedVoices() = %s, want %s", wantModel, got, wantIDs)
 		}
 	}
 }

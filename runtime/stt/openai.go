@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
@@ -41,6 +42,15 @@ const (
 	bitsPerByte = 8
 	// unitSecond is the pricing/quantity unit for audio duration.
 	unitSecond = "second"
+
+	// responseFormatJSON is the response format every transcription model
+	// accepts; responseFormatVerbose is whisper-only.
+	responseFormatJSON    = "json"
+	responseFormatVerbose = "verbose_json"
+	// usageTypeDuration and usageTypeTokens are the json response's two
+	// usage shapes.
+	usageTypeDuration = "duration"
+	usageTypeTokens   = "tokens"
 )
 
 // openAIDefaultPricing is the inline pricing descriptor for OpenAI Whisper.
@@ -79,10 +89,13 @@ func NewOpenAI(apiKey string, opts ...OpenAIOption) *OpenAIService {
 
 // --- base.STTProvider ---
 
-// Transcribe implements base.STTProvider. It converts audio to text, computes
-// per-second cost from the pricing descriptor, and returns both the transcript
-// and cost metadata. Duration is estimated from the audio length for PCM/WAV
-// input, or from the API's verbose_json response for other formats.
+// Transcribe implements base.STTProvider. It converts audio to text and
+// returns the transcript with cost metadata. A whisper model is asked for
+// verbose_json, whose duration prices any audio format; every other model
+// for json, the only format the gpt-4o-*-transcribe models accept (#2689).
+// Cost quantities come from the response's usage — seconds for
+// duration-billed models, tokens for token-billed ones — or its verbose
+// duration, or, when it has neither, the audio length of PCM/WAV input.
 func (s *OpenAIService) Transcribe(ctx context.Context, req base.STTRequest) (base.STTResponse, error) {
 	if len(req.Audio) == 0 {
 		return base.STTResponse{}, ErrEmptyAudio
@@ -96,19 +109,21 @@ func (s *OpenAIService) Transcribe(ctx context.Context, req base.STTRequest) (ba
 
 	audioData, filename := s.prepareAudio(req.Audio, nc)
 
-	formData, contentType, err := s.buildMultipartFormVerbose(audioData, filename, nc, &cfg)
+	formData, contentType, err := s.buildMultipartForm(audioData, filename, nc, &cfg, responseFormatFor(nc.model))
 	if err != nil {
 		return base.STTResponse{}, err
 	}
 
-	text, audioSeconds, err := s.executeRequestVerbose(ctx, formData, contentType)
+	text, quantities, err := s.executeRequestWithUsage(ctx, formData, contentType)
 	if err != nil {
 		return base.STTResponse{}, err
 	}
 
-	// If the API did not return a duration (non-verbose fallback), estimate from audio bytes.
-	if audioSeconds <= 0 {
-		audioSeconds = estimateAudioSeconds(req.Audio, req.MIMEType, nc)
+	// No usage in the response: estimate seconds from the audio bytes.
+	if len(quantities) == 0 {
+		if secs := estimateAudioSeconds(req.Audio, req.MIMEType, nc); secs > 0 {
+			quantities = map[string]float64{unitSecond: secs}
+		}
 	}
 
 	latency := time.Since(start)
@@ -117,17 +132,28 @@ func (s *OpenAIService) Transcribe(ctx context.Context, req base.STTRequest) (ba
 		Latency: latency,
 	}
 
-	if pricing := s.Pricing(); pricing != nil && audioSeconds > 0 {
+	if pricing := s.Pricing(); pricing != nil && len(quantities) > 0 {
 		resp.Cost = base.MakeCostInfo(
 			pricing,
 			s.Name(),
 			base.ProviderTypeSTT,
-			map[string]float64{unitSecond: audioSeconds},
+			quantities,
 			latency,
 		)
 	}
 
 	return resp, nil
+}
+
+// responseFormatFor picks the response format for a model. Only whisper
+// accepts verbose_json. The name test is safe when it misses: a whisper
+// deployment named otherwise (on Azure the model is the deployment name) is
+// asked for json, which still transcribes; only its duration can go missing.
+func responseFormatFor(model string) string {
+	if strings.Contains(model, "whisper") {
+		return responseFormatVerbose
+	}
+	return responseFormatJSON
 }
 
 // transcriptionConfigFromRequest converts a base.STTRequest to a TranscriptionConfig
@@ -192,7 +218,7 @@ func estimateAudioSeconds(audio []byte, mimeType string, nc *normalizedConfig) f
 // --- Service interface (legacy/TranscribeBytes) ---
 
 // TranscribeBytes converts raw audio bytes to text using the legacy config shape.
-// It delegates to the Whisper API using the simple (non-verbose) response format.
+// It returns the transcript only, with no cost.
 func (s *OpenAIService) TranscribeBytes(
 	ctx context.Context, audio []byte, config TranscriptionConfig,
 ) (string, error) {
@@ -203,7 +229,7 @@ func (s *OpenAIService) TranscribeBytes(
 	nc := s.normalizeConfig(&config)
 	audioData, filename := s.prepareAudio(audio, nc)
 
-	formData, contentType, err := s.buildMultipartForm(audioData, filename, nc, &config)
+	formData, contentType, err := s.buildMultipartForm(audioData, filename, nc, &config, "")
 	if err != nil {
 		return "", err
 	}
@@ -260,13 +286,15 @@ func (s *OpenAIService) prepareAudio(
 	return audio, "audio." + nc.format
 }
 
-// buildMultipartForm builds the multipart form for the transcription request
-// using the simple (non-verbose) response format.
+// buildMultipartForm builds the multipart form for the transcription request.
+// A non-empty responseFormat is sent as response_format; empty leaves the
+// API default (json).
 func (s *OpenAIService) buildMultipartForm(
 	audioData []byte,
 	filename string,
 	nc *normalizedConfig,
 	config *TranscriptionConfig,
+	responseFormat string,
 ) (*bytes.Buffer, string, error) {
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
@@ -283,39 +311,10 @@ func (s *OpenAIService) buildMultipartForm(
 		return nil, "", err
 	}
 
-	if err := writer.Close(); err != nil {
-		return nil, "", fmt.Errorf("failed to close multipart writer: %w", err)
-	}
-
-	return &buf, writer.FormDataContentType(), nil
-}
-
-// buildMultipartFormVerbose builds the multipart form requesting verbose_json
-// so that the API returns a duration field for cost computation.
-func (s *OpenAIService) buildMultipartFormVerbose(
-	audioData []byte,
-	filename string,
-	nc *normalizedConfig,
-	config *TranscriptionConfig,
-) (*bytes.Buffer, string, error) {
-	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
-
-	if err := s.writeAudioField(writer, audioData, filename); err != nil {
-		return nil, "", err
-	}
-
-	if err := s.writeModelField(writer, nc.model); err != nil {
-		return nil, "", err
-	}
-
-	if err := s.writeOptionalFields(writer, config); err != nil {
-		return nil, "", err
-	}
-
-	// Request verbose_json to get duration for cost computation.
-	if err := writer.WriteField("response_format", "verbose_json"); err != nil {
-		return nil, "", fmt.Errorf("failed to write response_format field: %w", err)
+	if responseFormat != "" {
+		if err := writer.WriteField("response_format", responseFormat); err != nil {
+			return nil, "", fmt.Errorf("failed to write response_format field: %w", err)
+		}
 	}
 
 	if err := writer.Close(); err != nil {
@@ -362,7 +361,7 @@ func (s *OpenAIService) writeOptionalFields(writer *multipart.Writer, config *Tr
 
 // doTranscriptionRequest sends the multipart-form transcription request and
 // returns the raw response body. Non-200 responses are converted to errors via
-// handleError. Used by both the simple and verbose response-format paths.
+// handleError.
 func (s *OpenAIService) doTranscriptionRequest(
 	ctx context.Context,
 	formData *bytes.Buffer,
@@ -413,26 +412,83 @@ func (s *OpenAIService) executeRequest(
 	return result.Text, nil
 }
 
-// verboseResponse is the shape returned by OpenAI Whisper with response_format=verbose_json.
-type verboseResponse struct {
-	Text     string  `json:"text"`
-	Duration float64 `json:"duration"` // audio duration in seconds
+// jsonResponse is the json or verbose_json transcription body. Usage is
+// optional; Duration is verbose_json's.
+type jsonResponse struct {
+	Text     string              `json:"text"`
+	Duration float64             `json:"duration"`
+	Usage    *transcriptionUsage `json:"usage"`
 }
 
-// executeRequestVerbose sends the transcription request and parses a verbose_json
-// response, extracting both the transcript text and the audio duration.
-func (s *OpenAIService) executeRequestVerbose(
+// transcriptionUsage is the response's usage, in one of two shapes told
+// apart by Type.
+type transcriptionUsage struct {
+	Type string `json:"type"` // "duration" or "tokens"
+	// Duration-billed models.
+	Seconds float64 `json:"seconds"`
+	// Token-billed models.
+	InputTokens       float64 `json:"input_tokens"`
+	OutputTokens      float64 `json:"output_tokens"`
+	InputTokenDetails *struct {
+		AudioTokens float64 `json:"audio_tokens"`
+		TextTokens  float64 `json:"text_tokens"`
+	} `json:"input_token_details"`
+}
+
+// quantities returns the billed quantities the response reports, keyed by
+// cost unit — from usage when present, else verbose_json's duration — or nil
+// when it reports none.
+func (r *jsonResponse) quantities() map[string]float64 {
+	q := map[string]float64{}
+	if u := r.Usage; u != nil {
+		u.addTo(q)
+	} else {
+		addQuantity(q, unitSecond, r.Duration)
+	}
+	if len(q) == 0 {
+		return nil
+	}
+	return q
+}
+
+// addTo adds the usage's billed quantities to q.
+func (u *transcriptionUsage) addTo(q map[string]float64) {
+	switch u.Type {
+	case usageTypeDuration:
+		addQuantity(q, unitSecond, u.Seconds)
+	case usageTypeTokens:
+		if d := u.InputTokenDetails; d != nil {
+			addQuantity(q, base.UnitAudioInputToken, d.AudioTokens)
+			addQuantity(q, base.UnitInputToken, d.TextTokens)
+		} else {
+			// The audio file is the input; text input is only a prompt,
+			// which the details would break out.
+			addQuantity(q, base.UnitAudioInputToken, u.InputTokens)
+		}
+		addQuantity(q, base.UnitOutputToken, u.OutputTokens)
+	}
+}
+
+func addQuantity(q map[string]float64, unit string, n float64) {
+	if n > 0 {
+		q[unit] = n
+	}
+}
+
+// executeRequestWithUsage sends the transcription request and parses a json
+// response, returning the transcript and the quantities its usage bills.
+func (s *OpenAIService) executeRequestWithUsage(
 	ctx context.Context, formData *bytes.Buffer, contentType string,
-) (text string, audioSeconds float64, err error) {
+) (text string, quantities map[string]float64, err error) {
 	body, err := s.doTranscriptionRequest(ctx, formData, contentType)
 	if err != nil {
-		return "", 0, err
+		return "", nil, err
 	}
-	var result verboseResponse
+	var result jsonResponse
 	if err := json.Unmarshal(body, &result); err != nil {
-		return "", 0, fmt.Errorf("failed to parse response: %w", err)
+		return "", nil, fmt.Errorf("failed to parse response: %w", err)
 	}
-	return result.Text, result.Duration, nil
+	return result.Text, result.quantities(), nil
 }
 
 // handleError processes an error response from OpenAI.

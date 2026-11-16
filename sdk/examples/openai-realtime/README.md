@@ -136,6 +136,8 @@ func main() {
                 "voice":               "alloy",
                 "modalities":          []string{"text", "audio"},
                 "input_transcription": true,
+                // The model that transcribes your speech; whisper-1 when unset.
+                "input_transcription_model": "gpt-4o-transcribe",
             },
         }),
     )

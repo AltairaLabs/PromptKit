@@ -103,16 +103,21 @@ Run it:
 go run ./voices
 ```
 
-The program prints the six OpenAI voices:
+The program prints the voices the default `tts-1` model can speak with:
 
 ```text
 alloy: Alloy (en, neutral)
+ash: Ash (en, )
+coral: Coral (en, )
 echo: Echo (en, male)
 fable: Fable (en, female)
 onyx: Onyx (en, male)
 nova: Nova (en, female)
+sage: Sage (en, )
 shimmer: Shimmer (en, female)
 ```
+
+On `gpt-4o-mini-tts` the list also has `ballad`, `verse`, `marin` and `cedar`.
 
 ## Step 3: Change the voice, speed and model
 

@@ -191,21 +191,29 @@ const (
     ModelTTS1HD = "tts-1-hd"
     // ModelGPT4oMiniTTS is the expressive OpenAI TTS model. Honors the
     // `instructions` request field, which the adapter populates from
-    // markup tags in the input text (see runtime/tts/markup).
+    // markup tags in the input text (see runtime/tts/markup). So do its
+    // dated snapshots and every other model outside the tts-1 family.
     ModelGPT4oMiniTTS = "gpt-4o-mini-tts"
 )
 ```
 
-<a name="VoiceAlloy"></a>OpenAI voices.
+<a name="VoiceAlloy"></a>OpenAI voices. Ballad, verse, marin and cedar are not available on tts\-1 / tts\-1\-hd.
 
 ```go
 const (
     VoiceAlloy   = "alloy"   // Neutral voice.
+    VoiceAsh     = "ash"     // Ash voice.
+    VoiceBallad  = "ballad"  // Ballad voice.
+    VoiceCoral   = "coral"   // Coral voice.
     VoiceEcho    = "echo"    // Male voice.
     VoiceFable   = "fable"   // British accent.
     VoiceOnyx    = "onyx"    // Deep male voice.
     VoiceNova    = "nova"    // Female voice.
+    VoiceSage    = "sage"    // Sage voice.
     VoiceShimmer = "shimmer" // Soft female voice.
+    VoiceVerse   = "verse"   // Verse voice.
+    VoiceMarin   = "marin"   // Recommended for best quality.
+    VoiceCedar   = "cedar"   // Recommended for best quality.
 )
 ```
 
@@ -773,7 +781,7 @@ type Factory = base.Factory[Service]
 ```
 
 <a name="OpenAIOption"></a>
-## type [OpenAIOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L92>)
+## type [OpenAIOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L102>)
 
 OpenAIOption configures the OpenAI TTS service. It is a type alias for base.HTTPServiceOption so callers can pass base.WithBaseURL, base.WithClient, base.WithModel, etc. directly.
 
@@ -782,7 +790,7 @@ type OpenAIOption = base.HTTPServiceOption
 ```
 
 <a name="OpenAIService"></a>
-## type [OpenAIService](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L84-L87>)
+## type [OpenAIService](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L94-L97>)
 
 OpenAIService implements TTS using OpenAI's text\-to\-speech API.
 
@@ -794,7 +802,7 @@ type OpenAIService struct {
 ```
 
 <a name="NewOpenAI"></a>
-### func [NewOpenAI](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L95>)
+### func [NewOpenAI](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L105>)
 
 ```go
 func NewOpenAI(apiKey string, opts ...OpenAIOption) *OpenAIService
@@ -821,7 +829,7 @@ func (s *OpenAIService) HealthCheck(_ context.Context) error
 HealthCheck reports liveness \(no\-op for TTS services\).
 
 <a name="OpenAIService.ImplName"></a>
-### func \(\*OpenAIService\) [ImplName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L108>)
+### func \(\*OpenAIService\) [ImplName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L118>)
 
 ```go
 func (s *OpenAIService) ImplName() string
@@ -839,7 +847,7 @@ func (s *OpenAIService) Init(_ context.Context) error
 Init performs asynchronous setup \(no\-op for TTS services\).
 
 <a name="OpenAIService.ModelName"></a>
-### func \(\*OpenAIService\) [ModelName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L111>)
+### func \(\*OpenAIService\) [ModelName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L121>)
 
 ```go
 func (s *OpenAIService) ModelName() string
@@ -848,25 +856,25 @@ func (s *OpenAIService) ModelName() string
 ModelName returns the configured model name for cost tracking.
 
 <a name="OpenAIService.PersonaRubric"></a>
-### func \(\*OpenAIService\) [PersonaRubric](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L118>)
+### func \(\*OpenAIService\) [PersonaRubric](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L127>)
 
 ```go
 func (s *OpenAIService) PersonaRubric() string
 ```
 
-PersonaRubric implements [PersonaRubricProvider](<#PersonaRubricProvider>). Returns the full markup rubric on gpt\-4o\-mini\-tts \(the model honors arbitrary instructions via the request's instructions field\). Older models \(tts\-1, tts\-1\-hd\) do not understand the markup, so we return the empty string — emitting tags would only waste persona tokens.
+PersonaRubric implements [PersonaRubricProvider](<#PersonaRubricProvider>). Returns the full markup rubric on a model that honors the request's instructions field. The tts\-1 family does not, so it gets the empty string — emitting tags would only waste persona tokens.
 
 <a name="OpenAIService.SpokenText"></a>
-### func \(\*OpenAIService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L231>)
+### func \(\*OpenAIService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L251>)
 
 ```go
 func (s *OpenAIService) SpokenText(text string, config SynthesisConfig) string
 ```
 
-SpokenText reports the text OpenAI will actually speak for the given input, after markup lowering: on gpt\-4o\-mini\-tts the bracket tags become the \`instructions\` field so the spoken text is the stripped remainder; other models strip tags entirely. Implements tts.SpokenTextReporter.
+SpokenText reports the text OpenAI will actually speak for the given input, after markup lowering: on an expressive model the bracket tags become the \`instructions\` field so the spoken text is the stripped remainder; other models strip tags entirely. Implements tts.SpokenTextReporter.
 
 <a name="OpenAIService.SupportedFormats"></a>
-### func \(\*OpenAIService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L346>)
+### func \(\*OpenAIService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L392>)
 
 ```go
 func (s *OpenAIService) SupportedFormats() []AudioFormat
@@ -875,16 +883,16 @@ func (s *OpenAIService) SupportedFormats() []AudioFormat
 SupportedFormats returns audio formats supported by OpenAI TTS.
 
 <a name="OpenAIService.SupportedVoices"></a>
-### func \(\*OpenAIService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L334>)
+### func \(\*OpenAIService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L363>)
 
 ```go
 func (s *OpenAIService) SupportedVoices() []Voice
 ```
 
-SupportedVoices returns available OpenAI voices.
+SupportedVoices returns the OpenAI voices the configured model can speak with: the tts\-1 family lacks ballad, verse, marin and cedar.
 
 <a name="OpenAIService.Synthesize"></a>
-### func \(\*OpenAIService\) [Synthesize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L139-L141>)
+### func \(\*OpenAIService\) [Synthesize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L159-L161>)
 
 ```go
 func (s *OpenAIService) Synthesize(ctx context.Context, text string, config SynthesisConfig) (io.ReadCloser, error)
