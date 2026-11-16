@@ -177,8 +177,11 @@ type ToolCall struct {
 //	})
 //
 // The return value is serialized to JSON and sent back to the model as the
-// tool result. A later OnToolCtx, OnToolHTTP, OnToolExecutor or OnToolAsync
-// for the same name replaces it.
+// tool result. A later OnToolCtx, OnToolHTTP or OnToolExecutor for the same
+// name replaces it; a later OnTool does not. A later OnToolAsync or
+// OnToolAsyncWithContext replaces it only for held calls once approved: a
+// call its check lets through still runs this handler, except in an ASM
+// duplex session, which runs the async execution handler.
 func (c *Conversation) OnToolCall(name string, handler func(ctx context.Context, call ToolCall) (any, error)) {
 	c.handlersMu.Lock()
 	defer c.handlersMu.Unlock()
@@ -280,8 +283,9 @@ func (c *Conversation) OnToolAsync(
 
 // OnToolAsyncWithContext is OnToolAsync with a check that receives the
 // tool-execution context and the provider's call id. Use it when the decision
-// depends on who is calling (identity or claims the caller put on the Send
-// context) or consults a remote service that must honor cancellation.
+// consults a remote service that must honor cancellation. When it depends on
+// who is calling, use [Conversation.OnToolAsyncCall], whose check receives
+// the caller the conversation acts for.
 //
 //	conv.OnToolAsyncWithContext("process_refund",
 //	    func(ctx context.Context, callID string, args map[string]any) sdktools.PendingResult {
@@ -308,24 +312,40 @@ func (c *Conversation) OnToolAsyncWithContext(name string, checkFunc sdktools.As
 	c.handlersMu.Unlock()
 }
 
-// OnToolAsyncCall is [Conversation.OnToolAsyncWithContext] with an execution
-// handler that receives the whole call, as an [Conversation.OnToolCall]
-// handler does. A call the check holds runs when it is approved
-// ([Conversation.ResolveTool]), and exec then receives the held call's
-// provider call ID and the caller the conversation acts for ([WithCaller]),
-// whatever other handler is registered for the tool.
+// OnToolAsyncCall is [Conversation.OnToolAsyncWithContext] with a check and
+// an execution handler that each receive the whole call, as an
+// [Conversation.OnToolCall] handler does: the tool's name, the provider's call
+// ID, the parsed arguments and the caller the conversation acts for
+// ([WithCaller]). Use it when the approval decision depends on who is calling.
 //
-//	conv.OnToolAsyncCall("process_refund", needsApproval,
+// A call the check holds runs exec when it is approved
+// ([Conversation.ResolveTool]), whatever other handler is registered for the
+// tool. The approved execution acts for the caller of the conversation that
+// resolves it, so a host that resumes a conversation to approve a call (with
+// a durable [WithPendingStore], say) must open it with the original
+// requester's [WithCaller].
+//
+//	conv.OnToolAsyncCall("process_refund",
+//	    func(ctx context.Context, call sdk.ToolCall) sdktools.PendingResult {
+//	        if policy.NeedsApproval(ctx, call.Caller, call.Args) {
+//	            return sdktools.PendingResult{Reason: "policy"}
+//	        }
+//	        return sdktools.PendingResult{}
+//	    },
 //	    func(ctx context.Context, call sdk.ToolCall) (any, error) {
 //	        return refunds.Process(ctx, call.Caller.ID, call.Args)
 //	    })
 func (c *Conversation) OnToolAsyncCall(
-	name string, checkFunc sdktools.AsyncToolCheck, exec func(ctx context.Context, call ToolCall) (any, error),
+	name string,
+	check func(ctx context.Context, call ToolCall) sdktools.PendingResult,
+	exec func(ctx context.Context, call ToolCall) (any, error),
 ) {
 	c.asyncHandlersMu.Lock()
 	defer c.asyncHandlersMu.Unlock()
 	c.initAsyncStoresLocked()
-	c.asyncHandlers[name] = checkFunc
+	c.asyncHandlers[name] = func(ctx context.Context, callID string, args map[string]any) sdktools.PendingResult {
+		return check(ctx, ToolCall{Name: name, CallID: callID, Args: args, Caller: c.callerIdentity()})
+	}
 	c.approvalExecs[name] = func(
 		ctx context.Context, callID string, caller types.Caller, args map[string]any,
 	) (any, error) {

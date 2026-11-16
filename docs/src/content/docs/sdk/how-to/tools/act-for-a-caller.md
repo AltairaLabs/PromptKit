@@ -41,6 +41,10 @@ func main() {
 
 `WithCaller` works on every open path, including `OpenDuplex` and `OpenWorkflow`. A conversation has one caller. `Fork` copies it. To act for another caller, open another conversation.
 
+A `WithCaller` passed in the options of `sdk.A2AOpener` makes every conversation the opener creates act for that one caller, whichever remote A2A client sent the request.
+
+Keep `Claims` to JSON-encodable data when you configure exec hooks. PromptKit encodes the caller into the JSON on an exec hook's stdin, so a value `encoding/json` cannot encode, such as a func or a channel, makes an exec filter hook deny every call. Treat `Claims` as read-only in your code: parallel tool calls, forks and hooks share one map.
+
 ## 2. Read it in a tool handler
 
 `OnToolCall` receives the whole call, caller included:
@@ -61,16 +65,24 @@ conv.OnClientTool("get_location", func(ctx context.Context, req sdk.ClientToolRe
 })
 ```
 
-## 3. Read it in an approved tool call
+## 3. Read it in an approval check and an approved tool call
 
-`OnToolAsyncCall` is `OnToolAsyncWithContext` with an execution handler that receives the whole call. When a person approves a held call with `ResolveTool`, the handler runs with the caller and the provider's call ID of the original call:
+`OnToolAsyncCall` takes a check and an execution handler that each receive the whole call, caller included. The check decides whether the call waits for approval:
 
 ```go
-conv.OnToolAsyncCall("process_refund", needsApproval,
+conv.OnToolAsyncCall("process_refund",
+	func(ctx context.Context, call sdk.ToolCall) sdktools.PendingResult {
+		if call.Caller.Claims["role"] != "manager" {
+			return sdktools.PendingResult{Reason: "needs_manager", Message: "A manager must approve this refund"}
+		}
+		return sdktools.PendingResult{}
+	},
 	func(ctx context.Context, call sdk.ToolCall) (any, error) {
 		return refunds.Process(ctx, call.Caller.ID, call.Args)
 	})
 ```
+
+When a person approves a held call with `ResolveTool`, the execution handler runs with the provider's call ID of the held call and the caller of the conversation that resolves it. If you resume a conversation to approve a call, for example from a durable `WithPendingStore`, open it with the original requester's `WithCaller`.
 
 An approved held call always runs this handler, even if a later registration binds another handler to the same tool name.
 
@@ -97,7 +109,7 @@ func (accountExecutor) ExecuteCall(
 }
 ```
 
-Register it with `sdk.WithToolExecutor(name, executor)` or `conv.OnToolExecutor`.
+Register it with `sdk.WithToolExecutor(name, executor)` or `conv.OnToolExecutor`. An executor you pass to `sdk.WithA2AToolExecutor` to govern remote A2A agent calls receives the caller the same way.
 
 An executor that implements only `tools.AsyncToolExecutor` does not receive the caller. Implement `tools.AsyncCallExecutor` instead. An executor that implements `AsyncToolExecutor` and `CallExecutor` but not `AsyncCallExecutor` gets the caller on synchronous calls and none on asynchronous ones.
 

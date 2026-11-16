@@ -146,6 +146,38 @@ func approvalCheck(context.Context, string, map[string]any) sdktools.PendingResu
 	return sdktools.PendingResult{Reason: "needs_approval", Message: "approve the lookup"}
 }
 
+// approvalCallCheck is approvalCheck for an OnToolAsyncCall check.
+func approvalCallCheck(context.Context, ToolCall) sdktools.PendingResult {
+	return sdktools.PendingResult{Reason: "needs_approval", Message: "approve the lookup"}
+}
+
+// An OnToolAsyncCall check receives the same call its exec does: the tool's
+// name, the provider's call ID, the parsed arguments and the caller.
+func TestOnToolAsyncCall_CheckReceivesCall(t *testing.T) {
+	for name, duplex := range map[string]bool{"unary": false, "duplex-asm": true} {
+		t.Run(name, func(t *testing.T) {
+			conv := handlerConv(t, duplex)
+			checked := &recordedCalls[ToolCall]{}
+			ran := &recordedCalls[ToolCall]{}
+			conv.OnToolAsyncCall("lookup", func(_ context.Context, call ToolCall) sdktools.PendingResult {
+				checked.add(call)
+				return sdktools.PendingResult{}
+			}, func(_ context.Context, call ToolCall) (any, error) {
+				ran.add(call)
+				return "ok", nil
+			})
+
+			handlerTurn(t, conv, duplex, func() bool { return len(ran.seen()) > 0 })
+
+			want := ToolCall{Name: "lookup", CallID: callerCallID, Args: map[string]any{"who": "ada"}, Caller: handlerMember}
+			require.Len(t, checked.seen(), 1)
+			assert.Equal(t, want, checked.seen()[0])
+			require.Len(t, ran.seen(), 1)
+			assert.Equal(t, want, ran.seen()[0])
+		})
+	}
+}
+
 // A call an OnToolAsyncCall check holds does not run until it is approved;
 // approved, its exec receives the held call's provider call ID and the
 // caller, and its result is the resolution's.
@@ -154,7 +186,7 @@ func TestOnToolAsyncCall_ApprovedExecutionCarriesCaller(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			conv := handlerConv(t, duplex)
 			rec := &recordedCalls[ToolCall]{}
-			conv.OnToolAsyncCall("lookup", approvalCheck, func(_ context.Context, call ToolCall) (any, error) {
+			conv.OnToolAsyncCall("lookup", approvalCallCheck, func(_ context.Context, call ToolCall) (any, error) {
 				rec.add(call)
 				return map[string]any{"refunded": call.Caller.ID}, nil
 			})
@@ -197,7 +229,7 @@ func TestOnToolAsyncCall_UnheldCallCarriesCaller(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			conv := handlerConv(t, duplex)
 			rec := &recordedCalls[ToolCall]{}
-			proceed := func(context.Context, string, map[string]any) sdktools.PendingResult {
+			proceed := func(context.Context, ToolCall) sdktools.PendingResult {
 				return sdktools.PendingResult{}
 			}
 			conv.OnToolAsyncCall("lookup", proceed, func(_ context.Context, call ToolCall) (any, error) {
@@ -228,7 +260,7 @@ func TestOnToolAsyncCall_ReplacesOnToolAsync(t *testing.T) {
 				return "old", nil
 			})
 			rec := &recordedCalls[ToolCall]{}
-			conv.OnToolAsyncCall("lookup", func(context.Context, string, map[string]any) sdktools.PendingResult {
+			conv.OnToolAsyncCall("lookup", func(context.Context, ToolCall) sdktools.PendingResult {
 				return sdktools.PendingResult{}
 			}, func(_ context.Context, call ToolCall) (any, error) {
 				rec.add(call)
@@ -353,7 +385,7 @@ func TestOnToolAsyncCall_ApprovalSurvivesLaterHandler(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			conv := handlerConv(t, false)
 			rec := &recordedCalls[ToolCall]{}
-			conv.OnToolAsyncCall("lookup", approvalCheck, func(_ context.Context, call ToolCall) (any, error) {
+			conv.OnToolAsyncCall("lookup", approvalCallCheck, func(_ context.Context, call ToolCall) (any, error) {
 				rec.add(call)
 				return "approved", nil
 			})

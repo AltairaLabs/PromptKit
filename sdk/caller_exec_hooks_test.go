@@ -92,3 +92,31 @@ func TestCaller_ExecHooksReceiveTheCallerOnStdin(t *testing.T) {
 	}
 	assert.Equal(t, []string{"session_start", "session_end"}, sessionPhases)
 }
+
+// An exec hook is handed the caller as JSON, so Claims must be JSON-encodable
+// when exec hooks are configured: a caller whose Claims cannot be encoded
+// makes a filter exec tool hook deny the call with a marshal error, before
+// the hook process is spawned and without running the tool.
+func TestCaller_UnencodableClaimsDenyThroughExecToolHook(t *testing.T) {
+	member := types.Caller{ID: "member@example.com", Claims: map[string]any{"token": func() {}}}
+	box := &callerSandbox{}
+	toolHook := hooks.NewExecToolHook(&hooks.ExecHookConfig{
+		Name: "policy", Command: "policy", Phases: []string{"before_execution"}, Mode: "filter", Sandbox: box,
+	})
+	conv, err := Open(createTestPackFile(t, callerToolsPack), "chat",
+		WithProvider(newCallerToolProvider()), WithSkipSchemaValidation(),
+		WithToolHook(toolHook), WithCaller(member))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conv.Close() })
+	exec := &callerExecutor{}
+	conv.OnToolExecutor("lookup", exec)
+
+	_, err = conv.Send(context.Background(), "ada")
+	require.NoError(t, err)
+
+	assert.Empty(t, exec.seen(), "a denied call must not run")
+	assert.Empty(t, box.payloads(t), "the hook process must not be spawned")
+	assert.Equal(t,
+		`Tool lookup blocked by hook: exec hook "policy": marshal error: json: unsupported type: func()`,
+		lookupToolResult(t, conv))
+}

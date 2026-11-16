@@ -276,7 +276,7 @@ func NormalizeRawMessage(raw json.RawMessage) json.RawMessage
 NormalizeRawMessage returns a valid JSON value for raw, substituting "\{\}" when raw is nil, empty, OR not well\-formed JSON. Two crash sources in the agent loop motivate this: LLMs routinely emit tool calls with no arguments \(empty\), and a streamed tool call cut off at max\_tokens leaves \*truncated\* args \(e.g. \`\{"path":"foo\`\) — non\-empty but invalid. Both fail json.RawMessage's encoder with "unexpected end of JSON input". Provider request builders and the message types call this at the boundary so a missing or broken blob degrades to \{\} instead of crashing a request or losing a whole run's saved output.
 
 <a name="Caller"></a>
-## type [Caller](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/caller.go#L11-L16>)
+## type [Caller](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/caller.go#L11-L21>)
 
 Caller is who a conversation acts for. A host sets it once \(sdk.WithCaller\) and PromptKit puts it on the requests it builds; it is never carried on context.Context. PromptKit hands it only to the host's own code at its action points: tool executors, tool hooks and session hooks, including exec hooks, which receive it in the JSON on their stdin \(as "Caller" with "ID" and "Claims"\). Otherwise PromptKit never persists, logs or emits it: it is not in events, spans, the state store or recordings. PromptKit never reads ID or Claims itself.
 
@@ -284,13 +284,18 @@ Caller is who a conversation acts for. A host sets it once \(sdk.WithCaller\) an
 type Caller struct {
     // ID identifies the caller in the host's own terms.
     ID  string
-    // Claims carries host-defined attributes of the caller.
+    // Claims carries host-defined attributes of the caller. When exec hooks
+    // are configured, Claims must be JSON-encodable data: a value
+    // encoding/json cannot encode (a func, a channel, a cycle) makes an exec
+    // filter hook deny the call with a marshal error and an exec observe hook
+    // skip it. Receivers must treat Claims as read-only: one map is shared by
+    // parallel tool calls, forks and hooks.
     Claims map[string]any
 }
 ```
 
 <a name="Caller.IsZero"></a>
-### func \(Caller\) [IsZero](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/caller.go#L19>)
+### func \(Caller\) [IsZero](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/caller.go#L24>)
 
 ```go
 func (c Caller) IsZero() bool

@@ -2149,10 +2149,20 @@ func WithTransitionAuthorizer(a workflow.TransitionAuthorizer) Option {
 }
 
 // WithCaller sets who the conversation acts for. PromptKit puts it on the
-// requests it hands the host's code: tool executors, tool hooks and session
-// hooks, exec hooks included (in the JSON on their stdin). It never travels on
-// context.Context, and is otherwise never persisted, logged or emitted: it is
-// not in events, spans, the state store or recordings.
+// requests it hands the host's code: tool executors, tool handlers, tool hooks
+// and session hooks, exec hooks included (in the JSON on their stdin), and the
+// workflow transition authorizer. It never travels on context.Context, and is
+// otherwise never persisted, logged or emitted: it is not in events, spans,
+// the state store or recordings.
+//
+// When exec hooks are configured, the caller's Claims must be JSON-encodable
+// data: one that cannot be encoded makes an exec filter hook deny every call
+// it sees. Receivers must treat Claims as read-only, since one map is shared
+// by parallel tool calls, forks and hooks.
+//
+// Passed in the options of [A2AOpener], WithCaller makes every conversation
+// the opener creates, and so every remote A2A client served, act for that one
+// caller.
 func WithCaller(caller types.Caller) Option {
 	return func(c *config) error {
 		c.caller = caller
@@ -2474,7 +2484,10 @@ func WithA2ATools(bridge *a2a.ToolBridge) Option {
 //	    sdk.WithA2AToolExecutor(myPolicyExecutor{next: inner}),
 //	)
 //
-// Whatever name executor reports, it is registered as "a2a".
+// Whatever name executor reports, it is registered as "a2a", and keeps the
+// entry points it implements: one that implements [tools.CallExecutor] or
+// [tools.AsyncCallExecutor] is given each whole call, with the provider's
+// call ID and the caller the conversation acts for ([WithCaller]).
 func WithA2AToolExecutor(executor tools.Executor) Option {
 	return func(c *config) error {
 		if executor == nil {

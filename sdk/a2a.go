@@ -8,7 +8,9 @@ import (
 // Each call to the returned function opens a new conversation with sdk.Open
 // using the provided pack path, prompt name, and options. The context ID is not
 // passed to the conversation, so each one gets a generated conversation ID
-// unless opts include [WithConversationID].
+// unless opts include [WithConversationID]. Likewise, a [WithCaller] in opts
+// makes every conversation it opens, for whichever remote client, act for
+// that one caller.
 func A2AOpener(packPath, promptName string, opts ...Option) A2AConversationOpener {
 	return func(contextID string) (a2aserver.Conversation, error) {
 		conv, err := Open(packPath, promptName, opts...)

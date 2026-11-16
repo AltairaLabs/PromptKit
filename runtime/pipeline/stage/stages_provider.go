@@ -48,7 +48,8 @@ const (
 
 // ProviderStage implementation notes:
 // - ✅ Multi-round tool execution with automatic tool result handling
-// - ✅ Synchronous tool execution via toolRegistry.ExecuteAsync()
+// - ✅ Tool execution via toolRegistry.ExecuteCallAsyncAdmitted(), which hands
+//      each executor the whole call (ID, arguments and the caller)
 // - ✅ Human-in-the-loop approval gate via ProviderConfig.ApprovalChecker: a
 //      held call is surfaced pending (ErrToolsPending / PendingTools metadata)
 //      and the pipeline suspends until the caller resolves it

@@ -11,7 +11,12 @@ package types
 type Caller struct {
 	// ID identifies the caller in the host's own terms.
 	ID string
-	// Claims carries host-defined attributes of the caller.
+	// Claims carries host-defined attributes of the caller. When exec hooks
+	// are configured, Claims must be JSON-encodable data: a value
+	// encoding/json cannot encode (a func, a channel, a cycle) makes an exec
+	// filter hook deny the call with a marshal error and an exec observe hook
+	// skip it. Receivers must treat Claims as read-only: one map is shared by
+	// parallel tool calls, forks and hooks.
 	Claims map[string]any
 }
 
