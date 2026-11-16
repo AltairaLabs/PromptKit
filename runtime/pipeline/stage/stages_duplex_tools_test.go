@@ -1672,3 +1672,38 @@ func TestDuplexTools_AllHeldRoundDoesNotTripTheRoundLimit(t *testing.T) {
 	assert.Empty(t, streamErrors(elems), "nothing ran, so no limit was reached")
 	assert.Empty(t, exec.calls())
 }
+
+// A round that finishes once the session is closing still tells the host
+// what it needs: the calls it holds for approval and why the turn stopped.
+func TestDuplexTools_RoundFinishingAfterCloseKeepsPendingAndError(t *testing.T) {
+	st := NewDuplexProviderStageWithTurnState(
+		providersmock.NewStreamingProvider("rt", "rt-model", false), baseConfig(), nil, nil)
+	st.SetToolExecution(registryWithTools(t, "weather"), nil, DuplexToolConfig{}, nil)
+	sess := newRecordingSession()
+	st.session = sess
+	st.tools.markClosed()
+
+	held := []tools.PendingToolExecution{{CallID: "c2", ToolName: "weather"}}
+	limit := &MaxRoundsError{Rounds: 1}
+	out := make(chan StreamElement, 4)
+	res := toolRoundResult(nil, held, limit)
+	res.closeSession = true
+	require.NoError(t, st.deliverToolRound(context.Background(), res, out))
+	close(out)
+
+	var pending []tools.PendingToolExecution
+	var errs []error
+	for e := range out {
+		pending = append(pending, e.Meta.PendingTools...)
+		if e.Error != nil {
+			errs = append(errs, e.Error)
+		}
+	}
+	assert.Equal(t, held, pending, "the held call is surfaced")
+	require.Len(t, errs, 1)
+	assert.Equal(t, "provider stage: max rounds (1) exceeded", errs[0].Error())
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	assert.Empty(t, sess.toolResponses)
+	assert.Zero(t, sess.closeCount, "a closing session is not closed again")
+}

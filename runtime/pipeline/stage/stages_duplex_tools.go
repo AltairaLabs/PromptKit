@@ -849,9 +849,10 @@ func droppedPartTypes(responses []providers.ToolResponse) []string {
 // pending go out on a control element, the responses go to the session
 // (starting the provider call they continue), a limit is reported as an error
 // element, and a terminal limit closes the session. A round that finishes
-// once the session is closing only has its result messages recorded: its
+// once the session is closing still has its result messages recorded (its
 // tools ran and the assistant message that called them was already sent, so
-// the history keeps a result for each call. A round that finishes after the
+// the history keeps a result for each call), its held calls and its error
+// surfaced; only its responses are not sent. A round that finishes after the
 // stage stopped delivering (Process returned) is dropped.
 func (s *DuplexProviderStage) deliverToolRound(
 	ctx context.Context, res *duplexToolResult, output chan<- StreamElement,
@@ -863,9 +864,7 @@ func (s *DuplexProviderStage) deliverToolRound(
 	if err := s.forwardInputMessages(ctx, &res.elem, output); err != nil {
 		return err
 	}
-	if dt.isClosed() {
-		return nil
-	}
+	closing := dt.isClosed()
 	if pending := res.elem.Meta.PendingTools; len(pending) > 0 {
 		var held StreamElement
 		held.Meta.PendingTools = pending
@@ -873,7 +872,7 @@ func (s *DuplexProviderStage) deliverToolRound(
 			return err
 		}
 	}
-	if responses := res.elem.Meta.ToolResponses; len(responses) > 0 {
+	if responses := res.elem.Meta.ToolResponses; len(responses) > 0 { // not sent once closing (sendToolRound)
 		s.sendToolRound(ctx, res, responses)
 	}
 	if res.err != nil {
@@ -881,7 +880,7 @@ func (s *DuplexProviderStage) deliverToolRound(
 			return err
 		}
 	}
-	if res.closeSession {
+	if res.closeSession && !closing {
 		s.closeSessionIfOpen()
 	}
 	return nil
