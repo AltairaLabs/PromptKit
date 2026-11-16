@@ -44,8 +44,9 @@ import (
 // session stays open and the next tool turn starts fresh, unless the model
 // keeps calling tools: past maxStoppedTurnRefusals refused batches the session
 // is closed. The cost budget is different: MaxCostUSD bounds the whole
-// session, so once the spend passes it the calls are refused and the session
-// is closed.
+// session, so once the spend passes it the calls are refused (the refusals are
+// recorded downstream but not sent: a tool response starts another paid
+// reply) and the session is closed.
 
 // duplexToolQueueSize bounds the rounds waiting for the tool worker.
 const duplexToolQueueSize = 16
@@ -625,7 +626,12 @@ func (s *DuplexProviderStage) runToolJob(ctx context.Context, job *duplexToolJob
 		return &duplexToolResult{err: job.report, closeSession: job.terminal}
 	case job.refuse != nil:
 		res := toolRoundResult(refuseUnanswered(job.calls, nil, nil, job.refuse), nil, job.report)
-		res.closeSession = job.terminal
+		if job.terminal {
+			// Recorded, not sent: a tool response starts another paid reply,
+			// and the session closes instead.
+			res.elem.Meta.ToolResponses = nil
+			res.closeSession = true
+		}
 		return res
 	}
 	if err := s.tools.stopped(job.turn); err != nil {

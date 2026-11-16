@@ -2161,7 +2161,7 @@ func (s *DuplexProviderStage) SetSessionObserver(fn func(providers.StreamInputSe
 SetSessionObserver registers a callback invoked once with the streaming session immediately after it is created. It is optional; nil means no observer. Used by the interactive console to wire barge\-in \(the session's out\-of\-band BargeIn\(\) channel\) to playback flushing.
 
 <a name="DuplexProviderStage.SetToolExecution"></a>
-### func \(\*DuplexProviderStage\) [SetToolExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_tools.go#L92-L94>)
+### func \(\*DuplexProviderStage\) [SetToolExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_tools.go#L93-L95>)
 
 ```go
 func (s *DuplexProviderStage) SetToolExecution(registry *tools.Registry, policy *pipeline.ToolPolicy, cfg DuplexToolConfig, resolver WorkflowStateResolver)
@@ -2170,7 +2170,7 @@ func (s *DuplexProviderStage) SetToolExecution(registry *tools.Registry, policy 
 SetToolExecution makes the stage run the session's tool calls through the registry, under policy merged with the prompt's tool\_policy, recording executed calls and stamping workflow state through resolver \(nil for none\). A nil registry, the default, leaves tool calls to the host: they are forwarded downstream on the assistant message and nothing runs them here. Must be called before the stage runs.
 
 <a name="DuplexToolConfig"></a>
-## type [DuplexToolConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_tools.go#L63-L84>)
+## type [DuplexToolConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_tools.go#L64-L85>)
 
 DuplexToolConfig is what a DuplexProviderStage's tool calls run with, as the matching ProviderConfig fields are for ProviderStage.
 

@@ -619,18 +619,20 @@ func TestDuplexTools_CostBudgetRefusesTheRound(t *testing.T) {
 	h.emit(turn)
 
 	budget := "provider stage: cost budget exceeded (0.0200 > 0.0100 USD)"
-	// The budget is terminal: the stage answers the call, reports the budget
-	// once and closes the session itself, so no further paid turn follows.
+	// The budget is terminal: the stage records a refusal for the call,
+	// reports the budget once and closes the session itself. The refusal is
+	// not sent to the session: a tool response starts another paid reply
+	// (OpenAI follows it with response.create).
 	elems := drainUntilClosed(t, h.output)
 	require.NoError(t, <-h.done)
 	assert.True(t, h.sess().isClosed(), "the session is closed")
-	assert.Equal(t, [][]providers.ToolResponse{{{
-		ToolCallID: "c1",
-		Result:     "Tool weather not executed: the turn's tool calls were stopped: " + budget,
-		IsError:    true,
-	}}}, h.sess().sentResponses())
+	assert.Empty(t, h.sess().sentResponses(), "no tool response starts another reply")
 	assert.Equal(t, 0, h.sess().sendsAfterClose())
 	assert.Empty(t, exec.calls())
+	results := toolResultMessages(elems)
+	require.Len(t, results, 1, "the refusal is recorded downstream")
+	assert.Equal(t, "c1", results[0].ID)
+	assert.Equal(t, "Tool weather not executed: the turn's tool calls were stopped: "+budget, results[0].Error)
 	errs := streamErrors(elems)
 	require.Len(t, errs, 1)
 	assert.Equal(t, budget, errs[0].Error())
@@ -893,11 +895,17 @@ func TestDuplexTools_InterruptedTurnIsChargedAndReported(t *testing.T) {
 // included, not each tool turn.
 func TestDuplexTools_CostBudgetSpansTheSession(t *testing.T) {
 	budget := "provider stage: cost budget exceeded (0.0600 > 0.0500 USD)"
-	refused := [][]providers.ToolResponse{{{
-		ToolCallID: "c1",
-		Result:     "Tool weather not executed: the turn's tool calls were stopped: " + budget,
-		IsError:    true,
-	}}}
+	// The budget closes the session; the refusal is recorded, not sent.
+	assertRefused := func(t *testing.T, h *realtimeHarness) {
+		t.Helper()
+		elems := drainUntilClosed(t, h.output)
+		require.NoError(t, <-h.done)
+		assert.True(t, h.sess().isClosed())
+		assert.Empty(t, h.sess().sentResponses())
+		results := toolResultMessages(elems)
+		require.Len(t, results, 1)
+		assert.Equal(t, "Tool weather not executed: the turn's tool calls were stopped: "+budget, results[0].Error)
+	}
 	toolTurn := func() []providers.StreamChunk {
 		turn := toolCallTurn(weatherCall("c1"))
 		turn[0].CostInfo = &types.CostInfo{TotalCost: 0.02}
@@ -913,8 +921,7 @@ func TestDuplexTools_CostBudgetSpansTheSession(t *testing.T) {
 		h.emit(textTurn("hello", &types.CostInfo{TotalCost: 0.02}))
 		h.emit(textTurn("hello again", &types.CostInfo{TotalCost: 0.02}))
 		h.emit(toolTurn())
-		assert.Equal(t, refused, h.awaitSent(1))
-		h.finish()
+		assertRefused(t, h)
 		assert.Empty(t, exec.calls())
 	})
 
@@ -929,8 +936,7 @@ func TestDuplexTools_CostBudgetSpansTheSession(t *testing.T) {
 			},
 		})
 		h.emit(toolTurn())
-		assert.Equal(t, refused, h.awaitSent(1))
-		h.finish()
+		assertRefused(t, h)
 		assert.Empty(t, exec.calls())
 	})
 }
