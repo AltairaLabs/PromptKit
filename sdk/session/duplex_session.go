@@ -798,8 +798,9 @@ func (s *duplexSession) ForkSession(
 	}
 	s.varsMu.RUnlock()
 
-	// Create new duplex session with the builder
-	return NewDuplexSession(ctx, &DuplexSessionConfig{
+	// Create new duplex session with the builder. The fork keeps the
+	// parent's context values, so its tool calls run as the same caller.
+	return NewDuplexSession(context.WithoutCancel(s.sessionCtx), &DuplexSessionConfig{
 		ConversationID:  forkID,
 		StateStore:      s.store,
 		PipelineBuilder: pipelineBuilder,

@@ -86,3 +86,48 @@ func TestDuplexContext_ToolCallSeesOpeningContextValues(t *testing.T) {
 		})
 	}
 }
+
+// A fork of a session opened with OpenDuplexContext keeps the parent's
+// context values: Fork takes no context, and the fork's tool calls run as
+// the same caller as the parent's.
+func TestDuplexContext_ForkKeepsTheParentsContextValues(t *testing.T) {
+	provider := newToolAwareStreamingProvider([]types.MessageToolCall{{
+		ID: "call_1", Name: "get_location", Args: json.RawMessage(`{"accuracy":"fine"}`),
+	}}, "done")
+	packPath := writePackFile(t, duplexToolsPackJSON)
+
+	caller := context.WithValue(context.Background(), callerKey{}, "member@example.com")
+	parent, err := sdk.OpenDuplexContext(caller, packPath, "chat",
+		sdk.WithProvider(provider),
+		sdk.WithSkipSchemaValidation(),
+		sdk.WithStreamingConfig(&providers.StreamingInputConfig{
+			Config: types.StreamingMediaConfig{Type: types.ContentTypeAudio},
+		}),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = parent.Close() })
+
+	patchToolMode(t, parent, "get_location", "client")
+	seen := make(chan any, 1)
+	parent.OnClientTool("get_location", func(ctx context.Context, _ sdk.ClientToolRequest) (any, error) {
+		seen <- ctx.Value(callerKey{})
+		return map[string]any{"lat": 1}, nil
+	})
+
+	fork, err := parent.Fork()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = fork.Close() })
+	responseCh, err := fork.Response()
+	require.NoError(t, err)
+	require.NoError(t, fork.SendText(context.Background(), "Where am I?"))
+
+	select {
+	case got := <-seen:
+		assert.Equal(t, "member@example.com", got)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the fork's tool handler never ran")
+	}
+	for _, c := range collectDuplexResponse(t, responseCh, 5*time.Second) {
+		assert.NoError(t, c.Error)
+	}
+}

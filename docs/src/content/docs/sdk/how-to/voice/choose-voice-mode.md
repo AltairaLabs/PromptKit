@@ -123,7 +123,9 @@ A duplex session runs its tool calls on its own context, not on the context of a
 conv, err := sdk.OpenDuplexContext(ctx, "./voice-assistant.pack.json", "assistant", opts...)
 ```
 
-Every tool call in the session sees the values on `ctx`, as a text turn's tool calls see the values on the context passed to `Send`. Canceling `ctx` does not end the session; `conv.Close` does. A `PackTemplate` has the same method, `OpenDuplexContext`.
+Every tool call in the session sees the values on `ctx`, as a text turn's tool calls see the values on the context passed to `Send`. Session-start hooks and forks of the session see them too. `sdk.ResumeDuplexContext`, `sdk.OpenVoiceContext` and `PackTemplate.OpenDuplexContext` take the context the same way.
+
+Canceling `ctx` does not end the session; `conv.Close` does. A deadline on `ctx` bounds only the open. The session keeps the values on `ctx` for its whole life, so build a context with what the tool calls need rather than passing a request's context, whose span, logger or transaction ends with the request.
 
 ## Verify
 

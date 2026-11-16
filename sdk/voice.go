@@ -52,7 +52,14 @@ func WithAudioSession(sess audio.Session) Option {
 //	)
 //	_ = conv.Start(ctx) // blocks: mic → LLM → speaker, until ctx is canceled
 func OpenVoice(packPath, promptName string, opts ...Option) (*Conversation, error) {
-	conv, err := OpenDuplex(packPath, promptName, opts...)
+	return OpenVoiceContext(context.Background(), packPath, promptName, opts...)
+}
+
+// OpenVoiceContext is [OpenVoice] with a base context for the session, as
+// [OpenDuplexContext]: the session's tool calls see ctx's values. The context
+// passed to Start only bounds the audio pumps; it does not reach tool calls.
+func OpenVoiceContext(ctx context.Context, packPath, promptName string, opts ...Option) (*Conversation, error) {
+	conv, err := OpenDuplexContext(ctx, packPath, promptName, opts...)
 	if err != nil {
 		return nil, err
 	}
