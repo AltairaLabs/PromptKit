@@ -33,6 +33,12 @@ const (
 	// Default timeout for waiting for final response after input closes
 	finalResponseTimeout = 30 * time.Second
 
+	// finalToolWaitLimit bounds how long a session whose input closed stays
+	// open for its tool rounds: the final-response wait is extended while a
+	// round is queued, running, or awaiting its reply, but never past this
+	// long after input closed, so a hung tool cannot hold the session open.
+	finalToolWaitLimit = 5 * time.Minute
+
 	// MIME type for PCM audio
 	mimeTypeAudioPCM = "audio/pcm"
 
@@ -182,6 +188,10 @@ type DuplexProviderStage struct {
 	// tools runs the session's tool calls (SetToolExecution); nil forwards
 	// them downstream for the host to run. See stages_duplex_tools.go.
 	tools *duplexTools
+	// finalWait and toolWaitLimit are finalResponseTimeout and
+	// finalToolWaitLimit; tests shorten them.
+	finalWait     time.Duration
+	toolWaitLimit time.Duration
 }
 
 // SetSessionObserver registers a callback invoked once with the streaming
@@ -208,6 +218,8 @@ func NewDuplexProviderStage(
 		baseConfig:             baseConfig,
 		blockedTurns:           make(chan *duplexBlockedTurn, blockedTurnQueueSize),
 		systemPromptSent:       false,
+		finalWait:              finalResponseTimeout,
+		toolWaitLimit:          finalToolWaitLimit,
 	}
 }
 
@@ -1163,9 +1175,12 @@ func (s *DuplexProviderStage) forwardResponseElements(
 			s.handleInputDone(&wait)
 
 		case <-wait.finalResponseTimer:
+			if s.extendFinalWait(&wait) {
+				continue
+			}
 			// Timeout waiting for final response - close session and emit partial content
 			logger.Warn("Session closure: timeout waiting for final response",
-				"timeout", finalResponseTimeout)
+				"timeout", s.finalWait)
 			wait.weClosedSession = true
 			s.closeSessionIfOpen()
 			// Continue to process any remaining chunks until channel closes
@@ -1240,7 +1255,9 @@ type responseWaitState struct {
 	// fires) until input is done.
 	finalResponseTimer <-chan time.Time
 	inputDone          bool
-	weClosedSession    bool // Track who closed session for clear logging
+	// inputDoneAt is when input finished, for the tool rounds' wait limit.
+	inputDoneAt     time.Time
+	weClosedSession bool // Track who closed session for clear logging
 }
 
 // handleInputDone handles input forwarding finishing (once): it either closes
@@ -1250,6 +1267,7 @@ func (s *DuplexProviderStage) handleInputDone(wait *responseWaitState) {
 		return
 	}
 	wait.inputDone = true
+	wait.inputDoneAt = time.Now()
 	if timer := s.onInputDone(); timer != nil {
 		wait.finalResponseTimer = timer
 	} else {
@@ -1272,9 +1290,28 @@ func (s *DuplexProviderStage) onInputDone() <-chan time.Time {
 	default:
 		// Not all responses received - wait for final response with timeout
 		logger.Info("Input complete, waiting for final response",
-			"timeout", finalResponseTimeout)
-		return time.After(finalResponseTimeout)
+			"timeout", s.finalWait)
+		return time.After(s.finalWait)
 	}
+}
+
+// extendFinalWait re-arms the final-response timer when it fires while a
+// tool round is outstanding (queued, running, or its reply not yet complete),
+// and reports whether it did. The wait never runs past toolWaitLimit after
+// input finished.
+func (s *DuplexProviderStage) extendFinalWait(wait *responseWaitState) bool {
+	if !s.tools.roundOutstanding() {
+		return false
+	}
+	left := s.toolWaitLimit - time.Since(wait.inputDoneAt)
+	if left <= 0 {
+		logger.Warn("Session closure: tool rounds still outstanding at the wait limit",
+			"limit", s.toolWaitLimit)
+		return false
+	}
+	logger.Debug("DuplexProviderStage: tool round outstanding; extending the final-response wait")
+	wait.finalResponseTimer = time.After(min(s.finalWait, left))
+	return true
 }
 
 // closeSessionIfOpen closes the session when one exists. No tool response is

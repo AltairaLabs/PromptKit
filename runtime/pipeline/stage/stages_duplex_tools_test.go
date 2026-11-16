@@ -318,6 +318,9 @@ type realtimeOpts struct {
 	partsSupport bool
 	// hookReg is the stage's hook registry; nil for none.
 	hookReg *hooks.Registry
+	// finalWait and toolWaitLimit replace the stage's waits once input
+	// closes; zero keeps the defaults.
+	finalWait, toolWaitLimit time.Duration
 }
 
 func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
@@ -337,6 +340,12 @@ func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
 	st := NewDuplexProviderStageWithTurnState(p, cfg, o.emitter, o.turnState)
 	if o.hookReg != nil {
 		st.SetHookRegistry(o.hookReg)
+	}
+	if o.finalWait > 0 {
+		st.finalWait = o.finalWait
+	}
+	if o.toolWaitLimit > 0 {
+		st.toolWaitLimit = o.toolWaitLimit
 	}
 	if !o.noToolSet {
 		st.SetToolExecution(o.registry, o.policy, o.cfg, o.resolver)
@@ -1520,4 +1529,57 @@ func TestDuplexTools_HeldTerminationToolDoesNotStopTheTurn(t *testing.T) {
 		{{ToolCallID: "c3", Result: "ok"}},
 	}, sent)
 	assert.Equal(t, []string{"weather", "weather"}, exec.calls())
+}
+
+// Once input closes, the final-response wait is extended while a tool round
+// runs and while the reply its results start streams: the round's results
+// reach the session and its reply reaches the caller, and the session then
+// closes.
+func TestDuplexTools_FinalWaitCoversARunningRoundAndItsReply(t *testing.T) {
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`), delay: 300 * time.Millisecond}
+	h := startRealtime(t, realtimeOpts{
+		registry:  newWeatherRegistry(t, exec),
+		finalWait: 50 * time.Millisecond,
+	})
+
+	h.emit(toolCallTurn(weatherCall("c1")))
+	require.Eventually(t, func() bool { return len(exec.calls()) == 1 }, 2*time.Second, time.Millisecond)
+	close(h.input)
+	h.awaitSent(1)
+	// The reply starts well after the round was delivered: several waits pass
+	// while it is awaited.
+	time.Sleep(200 * time.Millisecond)
+	h.emit(textTurn("It is 21 degrees", nil))
+	elems := drainUntilClosed(t, h.output)
+	require.NoError(t, <-h.done)
+
+	assert.Equal(t, [][]providers.ToolResponse{{{ToolCallID: "c1", Result: weatherResult}}},
+		h.sess().sentResponses())
+	msgs := realtimeAssistantMessages(elems)
+	require.Len(t, msgs, 2)
+	assert.Equal(t, "It is 21 degrees", msgs[1].Content)
+	assert.True(t, h.sess().isClosed())
+}
+
+// A tool that never finishes cannot hold a session whose input closed open
+// past the wait limit.
+func TestDuplexTools_FinalWaitIsBoundedForAHungTool(t *testing.T) {
+	exec := &realtimeToolExec{result: json.RawMessage(`"ok"`), gate: make(chan struct{})}
+	h := startRealtime(t, realtimeOpts{
+		registry:      newWeatherRegistry(t, exec),
+		finalWait:     20 * time.Millisecond,
+		toolWaitLimit: 200 * time.Millisecond,
+	})
+
+	h.emit(toolCallTurn(weatherCall("c1")))
+	require.Eventually(t, func() bool { return len(exec.calls()) == 1 }, 2*time.Second, time.Millisecond)
+	start := time.Now()
+	close(h.input)
+	drainUntilClosed(t, h.output)
+	require.NoError(t, <-h.done)
+
+	assert.True(t, h.sess().isClosed())
+	assert.GreaterOrEqual(t, time.Since(start), 200*time.Millisecond, "the wait was extended for the running round")
+	assert.Less(t, time.Since(start), 2*time.Second, "but not past the limit")
+	assert.Empty(t, h.sess().sentResponses())
 }

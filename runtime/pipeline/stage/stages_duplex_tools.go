@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
@@ -143,6 +144,10 @@ type duplexTools struct {
 	// none is sent after Close.
 	sendMu sync.Mutex
 	closed bool
+
+	// inflight counts the rounds queued for the worker, running, or waiting
+	// to be delivered.
+	inflight atomic.Int64
 }
 
 // duplexRound is a realtime provider call in progress: the round it is and
@@ -588,12 +593,29 @@ func (s *DuplexProviderStage) queueToolRound(ctx context.Context, job *duplexToo
 	if job == nil {
 		return nil
 	}
+	s.tools.inflight.Add(1)
 	select {
 	case s.tools.jobs <- job:
 		return nil
 	case <-ctx.Done():
+		s.tools.inflight.Add(-1)
 		return ctx.Err()
 	}
+}
+
+// roundOutstanding reports whether a tool round is queued, running, or
+// waiting to be delivered, or a provider call (the reply its responses
+// started) is in progress. False without tool execution.
+func (dt *duplexTools) roundOutstanding() bool {
+	if dt == nil {
+		return false
+	}
+	if dt.inflight.Load() > 0 {
+		return true
+	}
+	dt.mu.Lock()
+	defer dt.mu.Unlock()
+	return dt.open != nil
 }
 
 // runToolWorker runs queued rounds one at a time until ctx ends, handing each
@@ -840,6 +862,9 @@ func (s *DuplexProviderStage) deliverToolRound(
 	ctx context.Context, res *duplexToolResult, output chan<- StreamElement,
 ) error {
 	dt := s.tools
+	// Delivered once this returns: a reply its responses start is then
+	// counted by the provider call it opened (openNextToolRound).
+	defer dt.inflight.Add(-1)
 	if err := s.forwardInputMessages(ctx, &res.elem, output); err != nil {
 		return err
 	}
