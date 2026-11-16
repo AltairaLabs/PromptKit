@@ -30,8 +30,14 @@ type sessionToolsConfig struct {
 }
 
 // UpdateTools replaces the live session's tools with a session.update, keeping
-// the session's tool_choice. Implements providers.StreamToolUpdater.
-func (s *RealtimeSession) UpdateTools(_ context.Context, tools []providers.StreamingToolDefinition) error {
+// the session's tool_choice where it still applies (see realtimeToolChoice).
+// A nil error means the update was sent: the server reports a rejection
+// later, as an error on the response stream. A done ctx sends nothing.
+// Implements providers.StreamToolUpdater.
+func (s *RealtimeSession) UpdateTools(ctx context.Context, tools []providers.StreamingToolDefinition) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -40,12 +46,13 @@ func (s *RealtimeSession) UpdateTools(_ context.Context, tools []providers.Strea
 	choice := s.config.ToolChoice
 	s.mu.Unlock()
 
+	defs := realtimeToolDefs(tools)
 	event := sessionToolsUpdate{
 		ClientEvent: ClientEvent{EventID: s.nextEventID(), Type: realtimeEventSessionUpdate},
 		Session: sessionToolsConfig{
 			Type:       sessionTypeRealtime,
-			Tools:      realtimeToolDefs(tools),
-			ToolChoice: realtimeToolChoice(choice),
+			Tools:      defs,
+			ToolChoice: realtimeToolChoice(choice, defs),
 		},
 	}
 	if err := s.ws.Send(event); err != nil {

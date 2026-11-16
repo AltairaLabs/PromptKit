@@ -268,7 +268,7 @@ func (s *DuplexProviderStage) beginToolUserTurn(ctx context.Context) {
 	turn := s.startToolTurnLocked(nil)
 	opened := dt.openRoundLocked()
 	dt.mu.Unlock()
-	s.syncSessionTools(ctx, turn, nil, false)
+	s.syncSessionTools(ctx, turn, nil, true)
 	s.emitRoundStarted(ctx, opened.rr)
 }
 
@@ -301,12 +301,25 @@ func (s *DuplexProviderStage) openToolRoundIfIdle(ctx context.Context) {
 		dt.mu.Unlock()
 		return
 	}
+	var started *duplexToolTurn
 	if dt.turn == nil {
-		s.startToolTurnLocked(dt.offer.heldNames())
+		started = s.startToolTurnLocked(dt.offer.heldNames())
 	}
 	opened := dt.openRoundLocked()
 	dt.mu.Unlock()
+	s.syncStartedTurn(ctx, started)
 	s.emitRoundStarted(ctx, opened.rr)
+}
+
+// syncStartedTurn brings the session's tools in line with a tool turn that
+// started once the session was already answering (no user turn was seen): an
+// exclusion of the last turn is lifted for the replies that follow. The reply
+// under way began with the tools the session held, which the turn was
+// started with, so nothing more is recorded as offered. Nil-safe on turn.
+func (s *DuplexProviderStage) syncStartedTurn(ctx context.Context, turn *duplexToolTurn) {
+	if turn != nil {
+		s.syncSessionTools(ctx, turn, nil, false)
+	}
 }
 
 // openNextToolRound starts the provider call that tool responses for turn
@@ -328,8 +341,9 @@ func (s *DuplexProviderStage) openNextToolRound(ctx context.Context, turn *duple
 func (s *DuplexProviderStage) completeRound(ctx context.Context, msg *types.Message) (*duplexToolTurn, roundRef) {
 	dt := s.tools
 	dt.mu.Lock()
+	var started *duplexToolTurn
 	if dt.turn == nil {
-		s.startToolTurnLocked(dt.offer.heldNames())
+		started = s.startToolTurnLocked(dt.offer.heldNames())
 	}
 	round := dt.open
 	opened := round == nil
@@ -339,6 +353,7 @@ func (s *DuplexProviderStage) completeRound(ctx context.Context, msg *types.Mess
 	dt.open = nil
 	turn := dt.turn
 	dt.mu.Unlock()
+	s.syncStartedTurn(ctx, started)
 	if opened {
 		s.emitRoundStarted(ctx, round.rr)
 	}
@@ -635,7 +650,7 @@ func (s *DuplexProviderStage) runRound(ctx context.Context, job *duplexToolJob) 
 	}
 	out := job.turn.RunRound(ctx, calls, job.rr)
 	out.Results = append(out.Results, refused...)
-	s.syncSessionTools(ctx, job.turn, job.turn.excluded, out.OfferExhausted)
+	s.syncSessionTools(ctx, job.turn, job.turn.excluded, true)
 	if !out.Stop && out.Err == nil {
 		return toolRoundResult(out.Results, out.Pending, nil)
 	}

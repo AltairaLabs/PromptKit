@@ -66,7 +66,7 @@ func buildRealtimeSessionConfig(config RealtimeSessionConfig) SessionConfig {
 		}
 	}
 
-	cfg.ToolChoice = realtimeToolChoice(config.ToolChoice)
+	cfg.ToolChoice = realtimeToolChoice(config.ToolChoice, cfg.Tools)
 
 	if config.MaxResponseOutputTokens != nil {
 		cfg.MaxOutputTokens = config.MaxResponseOutputTokens
@@ -75,17 +75,25 @@ func buildRealtimeSessionConfig(config RealtimeSessionConfig) SessionConfig {
 	return cfg
 }
 
-// realtimeToolChoice is the GA tool_choice for choice: a mode ("auto",
-// "required", "none") as is, any other name as a function choice, and nil
-// (omitted) when empty.
-func realtimeToolChoice(choice string) interface{} {
-	switch choice {
-	case "":
+// realtimeToolChoice is the GA tool_choice for choice over tools: a mode
+// ("auto", "required", "none") as is, any other name as a function choice. It
+// is nil (omitted) when choice is empty, when there are no tools (a session
+// requiring a tool it lacks is rejected by the server), and when choice names
+// a function tools lacks.
+func realtimeToolChoice(choice string, tools []RealtimeToolDef) interface{} {
+	if choice == "" || len(tools) == 0 {
 		return nil
+	}
+	switch choice {
 	case toolChoiceAuto, toolChoiceRequired, toolChoiceNone:
 		return choice
 	}
-	return map[string]string{"type": typeFunction, "name": choice}
+	for i := range tools {
+		if tools[i].Name == choice {
+			return map[string]string{"type": typeFunction, "name": choice}
+		}
+	}
+	return nil
 }
 
 // realtimeToolDefs converts streaming tool definitions to the session's tool

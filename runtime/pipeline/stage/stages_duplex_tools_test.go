@@ -29,6 +29,8 @@ type realtimeToolProvider struct {
 	replyDelay time.Duration
 	// updatable makes the sessions providers.StreamToolUpdaters.
 	updatable bool
+	// failUpdates makes them StreamToolUpdaters whose updates fail.
+	failUpdates bool
 
 	mu      sync.Mutex
 	sess    *realtimeToolSession
@@ -52,6 +54,9 @@ func (p *realtimeToolProvider) CreateStreamSession(
 	p.sess = s
 	p.created = append(p.created, *req)
 	p.mu.Unlock()
+	if p.failUpdates {
+		return &failingUpdateSession{realtimeToolSession: s}, nil
+	}
 	if p.updatable {
 		return &updatingToolSession{realtimeToolSession: s}, nil
 	}
@@ -291,6 +296,8 @@ type realtimeOpts struct {
 	turnState *TurnState
 	// updatable makes the session a providers.StreamToolUpdater.
 	updatable bool
+	// failUpdates makes the session a StreamToolUpdater whose updates fail.
+	failUpdates bool
 	// hostToolChoice is the host's StreamingInputConfig.ToolChoice.
 	hostToolChoice string
 }
@@ -303,6 +310,7 @@ func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
 		onClose:           o.onClose,
 		replyDelay:        o.replyDelay,
 		updatable:         o.updatable,
+		failUpdates:       o.failUpdates,
 	}
 	cfg := baseConfig()
 	cfg.Tools = o.sessionTools

@@ -124,3 +124,44 @@ func TestDuplexToolOffer_PackToolIsOfferedWithItsSchema(t *testing.T) {
 	}}, created.Tools)
 	assert.Equal(t, types.ContentTypeAudio, created.Config.Type)
 }
+
+const duplexRequiredToolPackJSON = `{
+	"id": "integration-test-duplex-required-tool",
+	"version": "1.0.0",
+	"description": "Pack whose prompt requires a tool call",
+	"prompts": {
+		"chat": {
+			"id": "chat",
+			"name": "Chat",
+			"system_template": "You look up orders.",
+			"tools": ["lookup_order"],
+			"tool_policy": {"tool_choice": "required"}
+		}
+	},
+	"tools": {
+		"lookup_order": {
+			"name": "lookup_order",
+			"description": "Look up an order",
+			"parameters": {"type": "object", "properties": {"order_id": {"type": "string"}}}
+		}
+	}
+}`
+
+// A prompt's tool_choice "required" applies to a text turn's first round
+// only. A realtime session is not sent it, which would force a tool call
+// after every tool result: the reply after the tool's result ends the turn.
+func TestDuplexToolOffer_PromptRequiredToolChoiceIsNotSentToTheSession(t *testing.T) {
+	conv, provider := openDuplexToolConv(t, duplexRequiredToolPackJSON,
+		[]types.MessageToolCall{lookupOrderCall("call_1")}, "It has shipped")
+	conv.OnTool("lookup_order", func(map[string]any) (any, error) { return "shipped", nil })
+
+	got, ended := firstToolResponsesAndEnd(t, conv, provider, "where is my order")
+	awaitEnd(t, ended)
+
+	assert.Equal(t, []providers.ToolResponse{{ToolCallID: "call_1", Result: "shipped"}}, got)
+	created := provider.createdWith()
+	require.Len(t, created, 1)
+	assert.Empty(t, created[0].ToolChoice)
+	assert.Equal(t, "lookup_order", created[0].Tools[0].Name)
+	assert.Len(t, provider.getSessions()[0].receivedResponses, 1, "the session was answered once")
+}

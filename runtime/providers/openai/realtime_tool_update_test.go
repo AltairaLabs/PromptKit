@@ -185,3 +185,75 @@ func TestRealtimeCreate_NoToolChoiceSendsNone(t *testing.T) {
 	_, has := session["tool_choice"]
 	assert.False(t, has, "tool_choice is omitted: %v", session["tool_choice"])
 }
+
+// An update that leaves no tools sends no tool_choice: "required" (or a
+// function) with no tools is an invalid session the server rejects.
+func TestRealtimeUpdateTools_NoToolsSendsNoToolChoice(t *testing.T) {
+	received := make(chan map[string]any, 16)
+	srv := newClientEventServer(t, received)
+	req := audioStreamRequest()
+	req.Tools = []providers.StreamingToolDefinition{lookupOrderTool()}
+	req.ToolChoice = "required"
+	session := openProviderSession(t, srv, req)
+	recvEvent(t, received)
+
+	require.NoError(t, session.(providers.StreamToolUpdater).UpdateTools(context.Background(), nil))
+
+	ev := recvEvent(t, received)
+	assert.Equal(t, map[string]any{"type": "realtime", "tools": []any{}}, ev["session"])
+}
+
+// A function tool_choice is sent only while the session has that tool.
+func TestRealtimeUpdateTools_FunctionChoiceOnlyWithItsTool(t *testing.T) {
+	received := make(chan map[string]any, 16)
+	srv := newClientEventServer(t, received)
+	req := audioStreamRequest()
+	req.Tools = []providers.StreamingToolDefinition{lookupOrderTool()}
+	req.ToolChoice = "lookup_order"
+	session := openProviderSession(t, srv, req)
+	recvEvent(t, received)
+	updater := session.(providers.StreamToolUpdater)
+	other := providers.StreamingToolDefinition{Name: "cancel_order"}
+
+	require.NoError(t, updater.UpdateTools(context.Background(), []providers.StreamingToolDefinition{other}))
+	require.NoError(t, updater.UpdateTools(context.Background(),
+		[]providers.StreamingToolDefinition{other, lookupOrderTool()}))
+
+	without := recvEvent(t, received)["session"].(map[string]any)
+	_, has := without["tool_choice"]
+	assert.False(t, has, "a choice naming a tool the session lacks is not sent: %v", without["tool_choice"])
+	with := recvEvent(t, received)["session"].(map[string]any)
+	assert.Equal(t, map[string]any{"type": "function", "name": "lookup_order"}, with["tool_choice"])
+}
+
+// A session created without tools sends no tool_choice either.
+func TestRealtimeCreate_NoToolsSendsNoToolChoice(t *testing.T) {
+	received := make(chan map[string]any, 16)
+	srv := newClientEventServer(t, received)
+	req := audioStreamRequest()
+	req.ToolChoice = "required"
+	openProviderSession(t, srv, req)
+
+	session := recvEvent(t, received)["session"].(map[string]any)
+	_, has := session["tool_choice"]
+	assert.False(t, has, "tool_choice without tools: %v", session["tool_choice"])
+}
+
+// A canceled context sends nothing.
+func TestRealtimeUpdateTools_CanceledContextSendsNothing(t *testing.T) {
+	received := make(chan map[string]any, 16)
+	srv := newClientEventServer(t, received)
+	session := openProviderSession(t, srv, audioStreamRequest())
+	recvEvent(t, received)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := session.(providers.StreamToolUpdater).UpdateTools(ctx, nil)
+
+	require.ErrorIs(t, err, context.Canceled)
+	select {
+	case ev := <-received:
+		t.Fatalf("an event was sent: %v", ev)
+	case <-time.After(100 * time.Millisecond):
+	}
+}

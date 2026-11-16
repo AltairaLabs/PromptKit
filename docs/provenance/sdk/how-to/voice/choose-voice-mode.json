@@ -99,12 +99,13 @@
   },
   {
    "id": 12,
-   "claim": "A realtime session is offered the conversation's tools (prompt, capability, granted) merged with StreamingInputConfig.Tools, the host's definition winning on a name clash; tool_choice none offers none; OpenAI Realtime is updated mid-session, and a call to a tool granted after setup on a session that cannot update is refused",
+   "claim": "A realtime session is offered the conversation's tools (prompt, capability, granted) merged with StreamingInputConfig.Tools, the host's definition winning on a name clash; a policy tool_choice none offers none and other policy choices are not sent (only the host's ToolChoice is); OpenAI Realtime is updated mid-session, and a call to a tool granted after setup on a session that cannot update is refused",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_duplex_tool_offer.go:92",
-    "runtime/pipeline/stage/stages_duplex_tool_offer.go:291",
-    "runtime/providers/openai/realtime_tools_integration.go:34"
+    "runtime/pipeline/stage/stages_duplex_tool_offer.go:109",
+    "runtime/pipeline/stage/stages_duplex_tool_offer.go:91",
+    "runtime/pipeline/stage/stages_duplex_tool_offer.go:313",
+    "runtime/providers/openai/realtime_tools_integration.go:37"
    ]
   }
  ]

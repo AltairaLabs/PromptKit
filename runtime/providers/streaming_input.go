@@ -194,7 +194,10 @@ type StreamingToolDefinition struct {
 
 // StreamToolUpdater is an optional interface for streaming sessions whose
 // tools can change after the session is set up. UpdateTools replaces the
-// session's tools with tools; an empty list leaves it none.
+// session's tools with tools; an empty list leaves it none. A nil error means
+// the update was sent, not that the provider applied it: a provider that
+// rejects it reports so asynchronously, as an error chunk on the session's
+// response stream.
 //
 // A session without it (Gemini Live fixes its tools at setup) keeps the
 // tools it was created with: the pipeline refuses a call to a tool the

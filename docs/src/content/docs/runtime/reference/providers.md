@@ -1282,7 +1282,7 @@ func WarnUnsentParams(providerID string, req *PredictionRequest, params ...strin
 WarnUnsentParams logs, once per provider and parameter, each of params \(ParamTemperature, ParamTopP, ParamTopK, ParamFrequencyPenalty, ParamPresencePenalty\) that req sets but providerID does not send, because its API rejects or has no such parameter. A parameter req leaves unset logs nothing.
 
 <a name="AudioStreamingCapabilities"></a>
-## type [AudioStreamingCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L268-L290>)
+## type [AudioStreamingCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L271-L293>)
 
 AudioStreamingCapabilities describes audio streaming support.
 
@@ -2661,7 +2661,7 @@ func (r *JitterHealthReporter) Report(m *StreamMetrics, jb jitterHealthCounters,
 Report emits the counter deltas since the last call to m \(nil\-safe\) for the given direction \("input"/"output"\). jb is the live jitter buffer. This is a DIRECT\-UPDATE path: it never publishes to the event bus \(see the off\-bus invariant on StreamMetrics\).
 
 <a name="LateInputTranscriber"></a>
-## type [LateInputTranscriber](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L235-L239>)
+## type [LateInputTranscriber](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L238-L242>)
 
 LateInputTranscriber is an optional interface a StreamInputSupport provider implements to declare that it delivers the user's input transcription AFTER the assistant response has already begun — e.g. OpenAI Realtime, whose Whisper transcription arrives asynchronously, after the model has started replying.
 
@@ -4293,7 +4293,7 @@ type StreamInputSession interface {
 ```
 
 <a name="StreamInputSupport"></a>
-## type [StreamInputSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L209-L224>)
+## type [StreamInputSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L212-L227>)
 
 StreamInputSupport extends the Provider interface for bidirectional streaming. Providers that implement this interface can handle streaming media input \(e.g., real\-time audio\) and provide streaming responses.
 
@@ -4970,9 +4970,9 @@ Release returns one slot to the semaphore. Nil\-safe.
 Release of a token that was not acquired will cause semaphore.Weighted to panic — callers must pair each successful Acquire with exactly one Release, typically via defer.
 
 <a name="StreamToolUpdater"></a>
-## type [StreamToolUpdater](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L202-L204>)
+## type [StreamToolUpdater](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L205-L207>)
 
-StreamToolUpdater is an optional interface for streaming sessions whose tools can change after the session is set up. UpdateTools replaces the session's tools with tools; an empty list leaves it none.
+StreamToolUpdater is an optional interface for streaming sessions whose tools can change after the session is set up. UpdateTools replaces the session's tools with tools; an empty list leaves it none. A nil error means the update was sent, not that the provider applied it: a provider that rejects it reports so asynchronously, as an error chunk on the session's response stream.
 
 A session without it \(Gemini Live fixes its tools at setup\) keeps the tools it was created with: the pipeline refuses a call to a tool the conversation made available only after that.
 
@@ -4983,7 +4983,7 @@ type StreamToolUpdater interface {
 ```
 
 <a name="StreamingCapabilities"></a>
-## type [StreamingCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L242-L265>)
+## type [StreamingCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L245-L268>)
 
 StreamingCapabilities describes what streaming features a provider supports.
 
@@ -5052,7 +5052,7 @@ type StreamingInputConfig struct {
 ```
 
 <a name="StreamingInputConfig.Validate"></a>
-### func \(\*StreamingInputConfig\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L327>)
+### func \(\*StreamingInputConfig\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L330>)
 
 ```go
 func (r *StreamingInputConfig) Validate() error
@@ -5114,7 +5114,7 @@ type ToolDescriptor struct {
 ```
 
 <a name="ToolResponse"></a>
-## type [ToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L355-L359>)
+## type [ToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L358-L362>)
 
 ToolResponse represents a single tool execution result.
 
@@ -5127,7 +5127,7 @@ type ToolResponse struct {
 ```
 
 <a name="ToolResponseSupport"></a>
-## type [ToolResponseSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L341-L352>)
+## type [ToolResponseSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L344-L355>)
 
 ToolResponseSupport is an optional interface for streaming sessions that support tool calling. When the model returns a tool call, the caller can execute the tool and send the result back using this interface. The session will then continue generating a response based on the tool result.
 
@@ -5283,7 +5283,7 @@ func (e *ValidationAbortError) Error() string
 Error returns the error message for this validation abort error.
 
 <a name="VideoResolution"></a>
-## type [VideoResolution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L316-L319>)
+## type [VideoResolution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L319-L322>)
 
 VideoResolution represents a video resolution.
 
@@ -5295,7 +5295,7 @@ type VideoResolution struct {
 ```
 
 <a name="VideoResolution.String"></a>
-### func \(VideoResolution\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L322>)
+### func \(VideoResolution\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L325>)
 
 ```go
 func (r VideoResolution) String() string
@@ -5304,7 +5304,7 @@ func (r VideoResolution) String() string
 String returns a string representation of the resolution \(e.g., "1920x1080"\)
 
 <a name="VideoStreamingCapabilities"></a>
-## type [VideoStreamingCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L293-L313>)
+## type [VideoStreamingCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L296-L316>)
 
 VideoStreamingCapabilities describes video streaming support.
 

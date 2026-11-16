@@ -910,8 +910,7 @@ func buildCompactionStrategy(cfg *Config) stage.CompactionStrategy {
 
 // streamSessionConfig returns a copy of StreamInputConfig carrying the
 // prompt's sampling parameters, so a realtime session runs with them as
-// ProviderStage calls do. A copy, because the stage writes the session's
-// system instruction into it and the caller's config is shared.
+// ProviderStage calls do. A copy, because the caller's config is shared.
 func (c *Config) streamSessionConfig() *providers.StreamingInputConfig {
 	var out providers.StreamingInputConfig
 	if c.StreamInputConfig != nil {

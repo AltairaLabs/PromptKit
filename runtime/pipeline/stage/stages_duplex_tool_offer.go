@@ -21,11 +21,22 @@ import (
 // with the host's StreamingInputConfig.Tools.
 //
 // The session is created with the offer. After each tool round, and when a
-// user turn starts a new tool turn, the offer is built again; when it changed
-// (a grant, an exclusion, DescribeTool) a session that implements
+// new tool turn starts, the offer is built again; when it changed (a grant,
+// an exclusion, DescribeTool) a session that implements
 // providers.StreamToolUpdater is given the new tools before the round's
-// responses. A session without it keeps the tools it holds, and a call to a
-// tool the conversation offers but the session does not hold is refused.
+// responses. A session without it, or whose update failed, keeps the tools it
+// holds, and a call to a tool the conversation offers but the session does
+// not hold is refused.
+//
+// A spent max_tool_calls_per_turn budget does not change the offer: calls
+// over it are refused (overBudgetResults), and a session stripped of its
+// tools could not make the call that would restore them.
+//
+// The policy's tool_choice is not sent to the session. On a text turn it
+// governs the first round only; a realtime session has no rounds to scope it
+// to, and "required" or a tool name kept for the session would force a call
+// after every tool result. Only the host's StreamingInputConfig.ToolChoice is
+// sent. A policy tool_choice of "none" offers no tools.
 
 // sessionOffer is what the realtime session holds of the offer.
 type sessionOffer struct {
@@ -37,6 +48,9 @@ type sessionOffer struct {
 	// unsynced names the tools the conversation offers that the session does
 	// not hold: a call to one is refused.
 	unsynced map[string]bool
+	// updateFailed is set once a tool update of a session that can change its
+	// tools failed: only then can such a session lack an offered tool.
+	updateFailed bool
 	// names are held's names, sorted, readable without mu.
 	names atomic.Pointer[[]string]
 }
@@ -58,24 +72,27 @@ func (o *sessionOffer) heldNames() []string {
 	return nil
 }
 
-// isUnsynced reports whether name is offered by the conversation but not
-// held by the session.
-func (o *sessionOffer) isUnsynced(name string) bool {
+// unsyncedReason reports whether name is offered by the conversation but not
+// held by the session, and why the session does not hold it.
+func (o *sessionOffer) unsyncedReason(name string) (string, bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	return o.unsynced[name]
+	if !o.unsynced[name] {
+		return "", false
+	}
+	if o.updateFailed {
+		return "the session's tools could not be updated", true
+	}
+	return "the provider cannot add tools to a live session", true
 }
 
 // sessionToolChoice is the session's tool_choice: the host's
-// StreamingInputConfig.ToolChoice when set, otherwise the tool policy's.
+// StreamingInputConfig.ToolChoice. The policy's is never sent (see above).
 func (s *DuplexProviderStage) sessionToolChoice() string {
-	if s.baseConfig != nil && s.baseConfig.ToolChoice != "" {
-		return s.baseConfig.ToolChoice
+	if s.baseConfig == nil {
+		return ""
 	}
-	if p := s.toolPolicy(); p != nil {
-		return p.ToolChoice
-	}
-	return ""
+	return s.baseConfig.ToolChoice
 }
 
 // allowedTools is the prompt's allowed tools, or nil without turn state.
@@ -87,19 +104,18 @@ func (s *DuplexProviderStage) allowedTools() []string {
 }
 
 // wantedSessionTools is what the session should hold now: the conversation's
-// offer less excluded, merged with the host's tools. None once the turn's
-// tool-call budget is spent, or when the tool choice is "none".
-func (s *DuplexProviderStage) wantedSessionTools(
-	excluded map[string]bool, exhausted bool,
-) []providers.StreamingToolDefinition {
-	if exhausted || s.sessionToolChoice() == toolChoiceNone {
+// offer less excluded, merged with the host's tools. None when the host's or
+// the policy's tool choice is "none".
+func (s *DuplexProviderStage) wantedSessionTools(excluded map[string]bool) []providers.StreamingToolDefinition {
+	r := s.toolRunner()
+	if s.sessionToolChoice() == toolChoiceNone || r.toolsDisabled() {
 		return nil
 	}
 	var host []providers.StreamingToolDefinition
 	if s.baseConfig != nil {
 		host = s.baseConfig.Tools
 	}
-	return mergeSessionTools(s.toolRunner().offer(s.allowedTools(), excluded), host, excluded)
+	return mergeSessionTools(r.offer(s.allowedTools(), excluded), host, excluded)
 }
 
 // mergeSessionTools merges the conversation's offer with the host's tools:
@@ -175,18 +191,19 @@ func (s *DuplexProviderStage) initialSessionTools(cfg *providers.StreamingInputC
 	if s.tools == nil {
 		return
 	}
-	cfg.Tools = s.wantedSessionTools(nil, false)
+	cfg.Tools = s.wantedSessionTools(nil)
 	cfg.ToolChoice = s.sessionToolChoice()
 	s.tools.offer.setHeldLocked(cfg.Tools, sessionToolsKey(cfg.Tools))
 }
 
-// syncSessionTools builds the offer for turn, with excluded and the turn's
-// spent budget, and gives a changed one to a session that can change its
-// tools. What the session holds afterwards is recorded as offered on turn. A
-// turn that is no longer current changes nothing: a newer turn owns the
-// offer.
+// syncSessionTools builds the offer for turn, less excluded, and gives a
+// changed one to a session that can change its tools. With record, what the
+// session holds afterwards is recorded as offered on turn: false when the
+// reply the turn reports on began before the update. A turn that is no longer
+// current changes nothing: a newer turn owns the offer, and syncs it when it
+// starts, after this (both hold the offer's mu).
 func (s *DuplexProviderStage) syncSessionTools(
-	ctx context.Context, turn *duplexToolTurn, excluded map[string]bool, exhausted bool,
+	ctx context.Context, turn *duplexToolTurn, excluded map[string]bool, record bool,
 ) {
 	dt := s.tools
 	o := &dt.offer
@@ -195,12 +212,14 @@ func (s *DuplexProviderStage) syncSessionTools(
 	if !dt.isCurrent(turn) {
 		return
 	}
-	want := s.wantedSessionTools(excluded, exhausted)
+	want := s.wantedSessionTools(excluded)
 	if key := sessionToolsKey(want); key != o.heldKey {
 		s.updateSessionToolsLocked(ctx, want, key)
 	}
 	o.unsynced = missingTools(want, o.held)
-	dt.recordOffered(turn, o.heldNames())
+	if record {
+		dt.recordOffered(turn, o.heldNames())
+	}
 }
 
 // updateSessionToolsLocked gives want to a session that can change its tools.
@@ -215,12 +234,14 @@ func (s *DuplexProviderStage) updateSessionToolsLocked(
 			"offered", toolDefNames(want))
 		return
 	}
+	o := &s.tools.offer
 	if err := updater.UpdateTools(ctx, want); err != nil {
 		logger.Warn("duplex provider stage: updating the session's tools failed; keeping its offer",
 			"error", err)
+		o.updateFailed = true
 		return
 	}
-	s.tools.offer.setHeldLocked(want, key)
+	o.setHeldLocked(want, key)
 }
 
 // missingTools names the tools in want that held lacks, or nil.
@@ -287,17 +308,19 @@ func (dt *duplexTools) stampToolsOffered(turn *duplexToolTurn, msg *types.Messag
 
 // splitUnsynced separates the calls to tools the session does not hold but
 // the conversation offers, answering each with a refusal, from the calls to
-// run.
+// run. A round whose calls are all refused skips the tool runner: none of its
+// accounting (round limit, identical-call breaker, budget) sees it.
 func (dt *duplexTools) splitUnsynced(
 	calls []types.MessageToolCall,
 ) (run []types.MessageToolCall, refused []types.Message) {
 	for _, tc := range calls {
-		if !dt.offer.isUnsynced(tc.Name) {
+		reason, unsynced := dt.offer.unsyncedReason(tc.Name)
+		if !unsynced {
 			run = append(run, tc)
 			continue
 		}
 		errMsg := fmt.Sprintf("Tool %s was not run: it became available after this realtime session started, "+
-			"and the provider cannot add tools to a live session", tc.Name)
+			"and %s", tc.Name, reason)
 		result := types.NewTextToolResult(tc.ID, tc.Name, errMsg)
 		result.Error = errMsg
 		result.ErrorType = types.ToolErrorApproval

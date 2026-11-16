@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -111,27 +112,35 @@ func TestDuplexToolOffer_SessionIsCreatedWithTheConversationsTools(t *testing.T)
 	assert.Empty(t, created[0].ToolChoice)
 }
 
-// tool_choice "none" offers the session no tools at all, the host's included,
-// and the session is told so.
+// A tool_choice of "none", the policy's or the host's, offers the session no
+// tools at all, the host's included. The policy's choice itself is not sent:
+// no tools say it.
 func TestDuplexToolOffer_ToolChoiceNoneOffersNoTools(t *testing.T) {
-	h := startRealtime(t, realtimeOpts{
-		registry:     registryWithTools(t, "weather", "memory__recall"),
-		policy:       &pipeline.ToolPolicy{ToolChoice: "none"},
-		turnState:    &TurnState{AllowedTools: []string{"weather"}},
-		sessionTools: []providers.StreamingToolDefinition{{Name: "host_only"}},
-	})
-	h.finish()
+	for name, tc := range map[string]struct{ policy, host string }{
+		"policy": {policy: "none"},
+		"host":   {host: "none"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := startRealtime(t, realtimeOpts{
+				registry:       registryWithTools(t, "weather", "memory__recall"),
+				policy:         &pipeline.ToolPolicy{ToolChoice: tc.policy},
+				turnState:      &TurnState{AllowedTools: []string{"weather"}},
+				sessionTools:   []providers.StreamingToolDefinition{{Name: "host_only"}},
+				hostToolChoice: tc.host,
+			})
+			h.finish()
 
-	created := h.provider.createdWith()
-	require.Len(t, created, 1)
-	assert.Empty(t, created[0].Tools)
-	assert.Equal(t, "none", created[0].ToolChoice)
+			created := h.provider.createdWith()
+			require.Len(t, created, 1)
+			assert.Empty(t, created[0].Tools)
+			assert.Equal(t, tc.host, created[0].ToolChoice)
+		})
+	}
 }
 
-// The policy's tool_choice reaches the session; a host's own wins over it.
+// The host's tool_choice reaches the session, whatever the policy says.
 func TestDuplexToolOffer_ToolChoiceIsPassedOn(t *testing.T) {
 	for name, tc := range map[string]struct{ policy, host, want string }{
-		"policy":       {policy: "required", want: "required"},
 		"host":         {host: "weather", want: "weather"},
 		"host over it": {policy: "required", host: "auto", want: "auto"},
 	} {
@@ -311,4 +320,154 @@ func TestMergeSessionTools_ExcludedHostToolIsWithheld(t *testing.T) {
 	host := []providers.StreamingToolDefinition{{Name: "lookup_order"}, {Name: "cancel_order"}}
 	got := mergeSessionTools(nil, host, map[string]bool{"cancel_order": true})
 	assert.Equal(t, []providers.StreamingToolDefinition{{Name: "lookup_order"}}, got)
+}
+
+// A policy tool_choice of "required" (or a tool name) governs a text turn's
+// first round only. A realtime session has no rounds to scope it to, and
+// keeping it for the session would force a tool call after every tool
+// result. It is not sent: the reply after the tool results ends the turn.
+func TestDuplexToolOffer_PolicyToolChoiceIsNotSentToTheSession(t *testing.T) {
+	for _, choice := range []string{"required", "weather"} {
+		t.Run(choice, func(t *testing.T) {
+			exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`)}
+			h := startRealtime(t, realtimeOpts{
+				registry:  newWeatherRegistry(t, exec),
+				policy:    &pipeline.ToolPolicy{ToolChoice: choice},
+				turnState: &TurnState{AllowedTools: []string{"weather"}},
+				updatable: true,
+				script:    [][]providers.StreamChunk{textTurn("It is 21 degrees", nil)},
+			})
+
+			h.emit(toolCallTurn(weatherCall("c1")))
+			h.awaitSent(1)
+			require.Eventually(t, func() bool { return len(h.output) >= 3 }, 2*time.Second, time.Millisecond)
+			elems := h.finish()
+
+			created := h.provider.createdWith()
+			require.Len(t, created, 1)
+			assert.Empty(t, created[0].ToolChoice)
+			assert.Equal(t, []string{"weather"}, toolNamesOf(created[0].Tools))
+			assert.Empty(t, streamErrors(elems))
+			msgs := realtimeAssistantMessages(elems)
+			require.Len(t, msgs, 2)
+			assert.Equal(t, "It is 21 degrees", msgs[1].Content)
+			updates, _ := h.sess().toolUpdates()
+			assert.Empty(t, updates)
+		})
+	}
+}
+
+// A spent max_tool_calls_per_turn budget refuses the calls over it; it does
+// not take the session's tools away, and the next turn's calls run.
+func TestDuplexToolOffer_SpentBudgetKeepsTheSessionsTools(t *testing.T) {
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`)}
+	h := startRealtime(t, realtimeOpts{
+		registry:  newWeatherRegistry(t, exec),
+		policy:    &pipeline.ToolPolicy{MaxToolCallsPerTurn: 1},
+		turnState: &TurnState{AllowedTools: []string{"weather"}},
+		updatable: true,
+		script: [][]providers.StreamChunk{
+			toolCallTurn(weatherCall("c2")),
+			textTurn("I cannot check again", nil),
+		},
+	})
+
+	h.emit(toolCallTurn(weatherCall("c1")))
+	h.awaitSent(2)
+	user := types.Message{Role: roleUser, Content: "and now?"}
+	h.input <- StreamElement{Message: &user}
+	require.Eventually(t, func() bool { return len(h.output) >= 6 }, 2*time.Second, time.Millisecond)
+	h.emit(toolCallTurn(weatherCall("c3")))
+	sent := h.awaitSent(3)
+	h.finish()
+
+	const overBudget = "Tool weather not executed: the tool call limit for this turn is reached"
+	assert.Equal(t, [][]providers.ToolResponse{
+		{{ToolCallID: "c1", Result: weatherResult}},
+		{{ToolCallID: "c2", Result: overBudget, IsError: true}},
+		{{ToolCallID: "c3", Result: weatherResult}},
+	}, sent)
+	updates, _ := h.sess().toolUpdates()
+	assert.Empty(t, updates, "the spent budget changed the session's tools")
+	assert.Equal(t, []string{"weather", "weather"}, exec.calls())
+}
+
+// failingExec fails every call to "flaky" and answers the rest with ok.
+type failingExec struct{}
+
+func (failingExec) Name() string { return "local" }
+
+func (failingExec) Execute(_ context.Context, d *tools.ToolDescriptor, _ json.RawMessage) (json.RawMessage, error) {
+	if d.Name == "flaky" {
+		return nil, errors.New("backend down")
+	}
+	return json.RawMessage(`"ok"`), nil
+}
+
+// A tool excluded for repeated failures on one tool turn is offered again on
+// the next, also when that turn starts without a user turn the stage can see
+// (audio the provider does not transcribe). With every tool excluded the
+// model can call none, so no tool round would ever restore them: the next
+// turn's reply restores them as it begins.
+func TestDuplexToolOffer_ExclusionIsLiftedAtTheNextTurnWithoutAUserTurn(t *testing.T) {
+	reg := registryWithTools(t, "flaky")
+	reg.RegisterExecutor(failingExec{})
+	h := startRealtime(t, realtimeOpts{
+		registry:  reg,
+		turnState: &TurnState{AllowedTools: []string{"flaky"}},
+		updatable: true,
+		script:    [][]providers.StreamChunk{textTurn("the backend is down", nil)},
+	})
+
+	h.emit(toolCallTurn(namedCall("c1", "flaky"), namedCall("c2", "flaky")))
+	h.awaitSent(1)
+	require.Eventually(t, func() bool { return len(h.output) >= 4 }, 2*time.Second, time.Millisecond)
+	h.emit(textTurn("anything else?", nil))
+	require.Eventually(t, func() bool { return len(h.output) >= 5 }, 2*time.Second, time.Millisecond)
+	elems := h.finish()
+
+	updates, log := h.sess().toolUpdates()
+	require.Len(t, updates, 2)
+	assert.Empty(t, updates[0], "excluded after two failures")
+	assert.Equal(t, []string{"flaky"}, toolNamesOf(updates[1]), "offered again on the next turn")
+	assert.Equal(t, []string{"update", "responses", "update"}, log)
+	msgs := realtimeAssistantMessages(elems)
+	require.Len(t, msgs, 3)
+	assert.Equal(t, "anything else?", msgs[2].Content)
+	assert.Nil(t, msgs[2].Meta[types.MetaToolsOffered],
+		"the reply began before the update, when the session held no tools")
+}
+
+// failingUpdateSession is an updating session whose updates fail.
+type failingUpdateSession struct {
+	*realtimeToolSession
+}
+
+func (s *failingUpdateSession) UpdateTools(context.Context, []providers.StreamingToolDefinition) error {
+	return errors.New("socket write failed")
+}
+
+// A session whose tool update failed keeps its tools, and a call to a tool
+// granted since is refused, saying the update failed.
+func TestDuplexToolOffer_FailedUpdateRefusesTheGrantedTool(t *testing.T) {
+	exec := &grantingExec{grant: []string{"refund"}}
+	reg := registryWithTools(t, "weather", "activate", "refund")
+	reg.RegisterExecutor(exec)
+	h := startRealtime(t, realtimeOpts{
+		registry:    reg,
+		cfg:         DuplexToolConfig{ToolGrants: exec.grants},
+		turnState:   &TurnState{AllowedTools: []string{"weather", "activate"}},
+		failUpdates: true,
+	})
+
+	h.emit(toolCallTurn(namedCall("c1", "activate")))
+	h.awaitSent(1)
+	h.emit(toolCallTurn(namedCall("c2", "refund")))
+	sent := h.awaitSent(2)
+	h.finish()
+
+	assert.Equal(t, []providers.ToolResponse{{ToolCallID: "c2", IsError: true,
+		Result: "Tool refund was not run: it became available after this realtime session started, " +
+			"and the session's tools could not be updated"}}, sent[1])
+	assert.Equal(t, []string{"activate"}, exec.calls())
 }
