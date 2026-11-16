@@ -1159,31 +1159,14 @@ func (s *DuplexProviderStage) forwardResponseElements(
 		}
 		select {
 		case <-ctx.Done():
-			// Log the cancellation CAUSE, not just "canceled": context.Cause
-			// distinguishes the pipeline idle timeout (ErrIdleTimeout) from a
-			// parent cancel (a pump/caller returned) — the difference between
-			// "the 30s idle timer fired" and "something upstream tore us down".
-			logger.Info("Session closure: context canceled",
-				"cause", context.Cause(ctx), "err", ctx.Err())
-			// Emit any accumulated content as partial response before returning
-			s.emitPartialOnCancel(ctx, output)
-			s.dropBlockedTurns()
-			return ctx.Err()
+			return s.closeOnContextDone(ctx, output)
 
 		case <-s.inputDoneCh:
 			// Input forwarding is done - check if we should wait for final response
 			s.handleInputDone(&wait)
 
 		case <-wait.finalResponseTimer:
-			if s.extendFinalWait(&wait) {
-				continue
-			}
-			// Timeout waiting for final response - close session and emit partial content
-			logger.Warn("Session closure: timeout waiting for final response",
-				"timeout", s.finalWait)
-			wait.weClosedSession = true
-			s.closeSessionIfOpen()
-			// Continue to process any remaining chunks until channel closes
+			s.onFinalResponseTimer(&wait)
 
 		case blocked := <-s.pendingBlockedTurns():
 			if err := s.emitBlockedTurn(ctx, blocked, output); err != nil {
@@ -1200,6 +1183,34 @@ func (s *DuplexProviderStage) forwardResponseElements(
 			}
 		}
 	}
+}
+
+// closeOnContextDone ends the response loop when ctx is canceled: it emits any
+// accumulated content as a partial response and drops waiting blocked turns.
+func (s *DuplexProviderStage) closeOnContextDone(ctx context.Context, output chan<- StreamElement) error {
+	// Log the cancellation CAUSE, not just "canceled": context.Cause
+	// distinguishes the pipeline idle timeout (ErrIdleTimeout) from a
+	// parent cancel (a pump/caller returned) — the difference between
+	// "the 30s idle timer fired" and "something upstream tore us down".
+	logger.Info("Session closure: context canceled",
+		"cause", context.Cause(ctx), "err", ctx.Err())
+	s.emitPartialOnCancel(ctx, output)
+	s.dropBlockedTurns()
+	return ctx.Err()
+}
+
+// onFinalResponseTimer handles the final-response timer firing after input
+// closed: it re-arms the wait while a tool round is outstanding, else closes
+// the session. The response loop keeps draining chunks until the channel
+// closes.
+func (s *DuplexProviderStage) onFinalResponseTimer(wait *responseWaitState) {
+	if s.extendFinalWait(wait) {
+		return
+	}
+	logger.Warn("Session closure: timeout waiting for final response",
+		"timeout", s.finalWait)
+	wait.weClosedSession = true
+	s.closeSessionIfOpen()
 }
 
 // processResponseChunk handles one chunk from the session's response channel.
