@@ -116,7 +116,8 @@ func TestRealtimeUpdateTools_SendsSessionUpdateWithTheTools(t *testing.T) {
 }
 
 // Updating to no tools sends an empty tools array, which clears them: an
-// omitted array would leave the old tools in place.
+// omitted array would leave the old tools in place. The server merges a
+// partial session.update, so tool_choice is sent too, reset to "auto".
 func TestRealtimeUpdateTools_EmptyClearsTheTools(t *testing.T) {
 	received := make(chan map[string]any, 16)
 	srv := newClientEventServer(t, received)
@@ -129,7 +130,7 @@ func TestRealtimeUpdateTools_EmptyClearsTheTools(t *testing.T) {
 
 	ev := recvEvent(t, received)
 	assert.Equal(t, "session.update", ev["type"])
-	assert.Equal(t, map[string]any{"type": "realtime", "tools": []any{}}, ev["session"])
+	assert.Equal(t, map[string]any{"type": "realtime", "tools": []any{}, "tool_choice": "auto"}, ev["session"])
 }
 
 // A closed session refuses the update.
@@ -186,9 +187,11 @@ func TestRealtimeCreate_NoToolChoiceSendsNone(t *testing.T) {
 	assert.False(t, has, "tool_choice is omitted: %v", session["tool_choice"])
 }
 
-// An update that leaves no tools sends no tool_choice: "required" (or a
-// function) with no tools is an invalid session the server rejects.
-func TestRealtimeUpdateTools_NoToolsSendsNoToolChoice(t *testing.T) {
+// An update that leaves no tools resets tool_choice to "auto": "required" (or
+// a function) with no tools is an invalid session the server rejects, and an
+// omitted tool_choice would keep the session's "required" (the server merges a
+// partial session.update).
+func TestRealtimeUpdateTools_NoToolsResetsToolChoiceToAuto(t *testing.T) {
 	received := make(chan map[string]any, 16)
 	srv := newClientEventServer(t, received)
 	req := audioStreamRequest()
@@ -200,10 +203,12 @@ func TestRealtimeUpdateTools_NoToolsSendsNoToolChoice(t *testing.T) {
 	require.NoError(t, session.(providers.StreamToolUpdater).UpdateTools(context.Background(), nil))
 
 	ev := recvEvent(t, received)
-	assert.Equal(t, map[string]any{"type": "realtime", "tools": []any{}}, ev["session"])
+	assert.Equal(t, map[string]any{"type": "realtime", "tools": []any{}, "tool_choice": "auto"}, ev["session"])
 }
 
-// A function tool_choice is sent only while the session has that tool.
+// A function tool_choice is sent only while the session has that tool; while
+// it lacks the tool, the update resets the choice to "auto" rather than
+// leaving the session forcing a tool it no longer has.
 func TestRealtimeUpdateTools_FunctionChoiceOnlyWithItsTool(t *testing.T) {
 	received := make(chan map[string]any, 16)
 	srv := newClientEventServer(t, received)
@@ -220,8 +225,7 @@ func TestRealtimeUpdateTools_FunctionChoiceOnlyWithItsTool(t *testing.T) {
 		[]providers.StreamingToolDefinition{other, lookupOrderTool()}))
 
 	without := recvEvent(t, received)["session"].(map[string]any)
-	_, has := without["tool_choice"]
-	assert.False(t, has, "a choice naming a tool the session lacks is not sent: %v", without["tool_choice"])
+	assert.Equal(t, "auto", without["tool_choice"], "a choice naming a tool the session lacks resets to auto")
 	with := recvEvent(t, received)["session"].(map[string]any)
 	assert.Equal(t, map[string]any{"type": "function", "name": "lookup_order"}, with["tool_choice"])
 }
