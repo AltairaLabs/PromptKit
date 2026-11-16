@@ -656,7 +656,7 @@ func (s *DuplexProviderStage) handleInputElement(
 		done <- err
 		return true
 	}
-	s.takeTextInputAsUserTurn(elem)
+	s.takeTextInputAsUserTurn(ctx, elem)
 
 	// Input guardrails gate text before it reaches the session. A blocked
 	// turn carries the user's turn with it.
@@ -738,7 +738,7 @@ func (s *DuplexProviderStage) forwardInputMessages(
 		return nil
 	}
 	logger.Debug("DuplexProviderStage: forwarding user message to output", "role", elem.Message.Role)
-	s.trackInputTurn(elem)
+	s.trackInputTurn(ctx, elem)
 	s.recordHistory(elem.Message)
 	select {
 	case output <- *elem:
@@ -766,7 +766,7 @@ const TextInputTurnSource = "duplex_text_input"
 // assistant turns (see queueTypedUserTurn), so text typed while a reply is
 // streaming is saved and recorded after that reply, not inside it. Input
 // goroutine only.
-func (s *DuplexProviderStage) takeTextInputAsUserTurn(elem *StreamElement) {
+func (s *DuplexProviderStage) takeTextInputAsUserTurn(ctx context.Context, elem *StreamElement) {
 	s.pendingTypedUser = nil
 	if elem.Message != nil {
 		return
@@ -777,7 +777,7 @@ func (s *DuplexProviderStage) takeTextInputAsUserTurn(elem *StreamElement) {
 	}
 	user := &types.Message{Role: roleUser, Content: text, Timestamp: time.Now()}
 	s.setTurnStart(time.Now())
-	s.tools.beginUserTurn()
+	s.beginToolUserTurn(ctx)
 	s.recordHistory(user)
 	elem.Message = user
 	s.pendingTypedUser = user
@@ -831,11 +831,11 @@ func forwardToolResultMessages(ctx context.Context, toolMsgs []types.Message, ou
 // trackInputTurn records the turn start time (for latency calculation on user
 // messages) and queues the element's turn_id for correlating transcription
 // events.
-func (s *DuplexProviderStage) trackInputTurn(elem *StreamElement) {
+func (s *DuplexProviderStage) trackInputTurn(ctx context.Context, elem *StreamElement) {
 	if elem.Message.Role == roleUser {
 		now := time.Now()
 		s.setTurnStart(now)
-		s.tools.beginUserTurn()
+		s.beginToolUserTurn(ctx)
 		logger.Debug("DuplexProviderStage: started turn timing",
 			"turnStartTime", now.Format(time.RFC3339Nano))
 	}
@@ -1451,7 +1451,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	// Output guardrails check the completed turn, after its user turn (above)
 	// is in the history they see. Its tool calls, if the stage runs them, are
 	// queued once the turn's message is out.
-	var round *duplexToolJob
+	round := s.chargeInterruptedTurn(ctx, chunk, &elem)
 	if turnDone {
 		if err := s.guardCompletedTurn(ctx, &elem); err != nil {
 			return s.failTurn(ctx, err, output)
@@ -1634,7 +1634,7 @@ func (s *DuplexProviderStage) emitBufferedUserTurn(ctx context.Context, output c
 			Text: &transcript,
 		}},
 	}
-	s.tools.beginUserTurn()
+	s.beginTranscribedToolTurn(ctx)
 	s.recordHistory(userMsg)
 	select {
 	case output <- StreamElement{Message: userMsg}:
@@ -1650,6 +1650,11 @@ func (s *DuplexProviderStage) emitBufferedUserTurn(ctx context.Context, output c
 func (s *DuplexProviderStage) accumulateResponseChunk(
 	ctx context.Context, chunk *providers.StreamChunk, isOutputTranscription bool, output chan<- StreamElement,
 ) error {
+	// The session answering is a provider call under way, even when the
+	// input that started it could not be seen.
+	if isAssistantContentChunk(chunk, isOutputTranscription) || len(chunk.ToolCalls) > 0 || chunk.Reasoning != "" {
+		s.openToolRoundIfIdle(ctx)
+	}
 	if isOutputTranscription && chunk.Delta != "" {
 		// outputTranscription sends incremental text - append it
 		s.accumulatedText.WriteString(chunk.Delta)

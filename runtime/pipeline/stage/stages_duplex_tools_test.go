@@ -25,6 +25,8 @@ type realtimeToolProvider struct {
 	*providersmock.StreamingProvider
 	script  [][]providers.StreamChunk
 	onClose func()
+	// replyDelay is how long the session takes to start each scripted reply.
+	replyDelay time.Duration
 
 	mu   sync.Mutex
 	sess *realtimeToolSession
@@ -41,6 +43,7 @@ func (p *realtimeToolProvider) CreateStreamSession(
 		MockStreamSession: inner.(*providersmock.MockStreamSession),
 		script:            p.script,
 		onClose:           p.onClose,
+		replyDelay:        p.replyDelay,
 	}
 	p.mu.Lock()
 	p.sess = s
@@ -58,8 +61,9 @@ func (p *realtimeToolProvider) session() *realtimeToolSession {
 // batch with the next scripted assistant turn.
 type realtimeToolSession struct {
 	*providersmock.MockStreamSession
-	onClose   func()
-	closeOnce sync.Once
+	onClose    func()
+	closeOnce  sync.Once
+	replyDelay time.Duration
 
 	mu             sync.Mutex
 	closed         bool
@@ -86,6 +90,9 @@ func (s *realtimeToolSession) SendToolResponses(_ context.Context, resp []provid
 	s.mu.Unlock()
 	// The scripted reply is on the response channel before the batch shows
 	// as sent, so a chunk a test emits after awaitSent follows it.
+	if len(turn) > 0 {
+		time.Sleep(s.replyDelay)
+	}
 	for i := range turn {
 		s.EmitChunk(&turn[i])
 	}
@@ -113,6 +120,12 @@ func (s *realtimeToolSession) sentResponses() [][]providers.ToolResponse {
 	return append([][]providers.ToolResponse(nil), s.sent...)
 }
 
+func (s *realtimeToolSession) isClosed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closed
+}
+
 func (s *realtimeToolSession) sendsAfterClose() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -127,6 +140,8 @@ type realtimeToolExec struct {
 	// overlap, when set, holds each call until another is running too (or it
 	// expires), so calls allowed to run in parallel are seen to.
 	overlap time.Duration
+	// delay, when set, is how long each call takes.
+	delay time.Duration
 	// outputLen, when set, is read at the start of each call.
 	outputLen func() int
 
@@ -172,6 +187,9 @@ func (e *realtimeToolExec) Execute(
 			time.Sleep(time.Millisecond)
 		}
 	}
+	if e.delay > 0 {
+		time.Sleep(e.delay)
+	}
 	if e.gate != nil {
 		select {
 		case <-e.gate:
@@ -216,14 +234,15 @@ type realtimeHarness struct {
 }
 
 type realtimeOpts struct {
-	registry  *tools.Registry
-	policy    *pipeline.ToolPolicy
-	cfg       DuplexToolConfig
-	emitter   *events.Emitter
-	script    [][]providers.StreamChunk
-	onClose   func()
-	noToolSet bool // leave SetToolExecution uncalled
-	resolver  WorkflowStateResolver
+	registry   *tools.Registry
+	policy     *pipeline.ToolPolicy
+	cfg        DuplexToolConfig
+	emitter    *events.Emitter
+	script     [][]providers.StreamChunk
+	onClose    func()
+	replyDelay time.Duration
+	noToolSet  bool // leave SetToolExecution uncalled
+	resolver   WorkflowStateResolver
 	// sessionTools are the tools the session is offered.
 	sessionTools []providers.StreamingToolDefinition
 	// history is a resumed conversation's prior messages.
@@ -236,6 +255,7 @@ func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
 		StreamingProvider: providersmock.NewStreamingProvider("rt", "rt-model", false),
 		script:            o.script,
 		onClose:           o.onClose,
+		replyDelay:        o.replyDelay,
 	}
 	cfg := baseConfig()
 	cfg.Tools = o.sessionTools
@@ -340,7 +360,8 @@ func TestDuplexTools_ExecutesCallAndSendsRegistryResult(t *testing.T) {
 	var evs []*events.Event
 	bus.SubscribeAll(func(e *events.Event) {
 		switch e.Type {
-		case events.EventProviderCallCompleted, events.EventToolCallStarted, events.EventToolCallCompleted:
+		case events.EventProviderCallStarted, events.EventProviderCallCompleted,
+			events.EventToolCallStarted, events.EventToolCallCompleted:
 			evMu.Lock()
 			evs = append(evs, e)
 			evMu.Unlock()
@@ -366,16 +387,22 @@ func TestDuplexTools_ExecutesCallAndSendsRegistryResult(t *testing.T) {
 	require.Eventually(t, func() bool {
 		evMu.Lock()
 		defer evMu.Unlock()
-		return len(evs) >= 4
+		return len(evs) >= 6
 	}, 2*time.Second, time.Millisecond)
 	elems := h.finish()
 
-	// The assistant message with the call reached the output before the tool
-	// ran.
-	require.NotEmpty(t, elems)
+	// Output: the assistant message with the call (out before the tool ran),
+	// the call's result, then the reply the result produced.
+	require.Len(t, elems, 3)
 	require.NotNil(t, elems[0].Message)
+	assert.Equal(t, roleAssistant, elems[0].Message.Role)
 	assert.Equal(t, []types.MessageToolCall{weatherCall("c1")}, elems[0].Message.ToolCalls)
 	assert.Equal(t, []int{1}, seenOutput, "the assistant element was emitted before the call ran")
+	require.NotNil(t, elems[1].Message)
+	assert.Equal(t, "tool", elems[1].Message.Role)
+	require.NotNil(t, elems[2].Message)
+	assert.Equal(t, roleAssistant, elems[2].Message.Role)
+	assert.Equal(t, "It is 21 degrees", elems[2].Message.Content)
 
 	results := toolResultMessages(elems)
 	require.Len(t, results, 1)
@@ -393,9 +420,14 @@ func TestDuplexTools_ExecutesCallAndSendsRegistryResult(t *testing.T) {
 	}
 	var got []step
 	var callID string
+	startedIDs := map[int]string{}
 	for _, e := range evs {
 		switch d := e.Data.(type) {
+		case *events.ProviderCallStartedData:
+			got = append(got, step{e.Type, d.Round})
+			startedIDs[d.Round] = d.CallID
 		case *events.ProviderCallCompletedData:
+			assert.Equal(t, startedIDs[d.Round], d.CallID, "a round's started and completed name one call")
 			got = append(got, step{e.Type, d.Round})
 			if d.Round == 1 {
 				callID = d.CallID
@@ -407,9 +439,11 @@ func TestDuplexTools_ExecutesCallAndSendsRegistryResult(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []step{
+		{events.EventProviderCallStarted, 1},
 		{events.EventProviderCallCompleted, 1},
 		{events.EventToolCallStarted, 1},
 		{events.EventToolCallCompleted, 1},
+		{events.EventProviderCallStarted, 2},
 		{events.EventProviderCallCompleted, 2},
 	}, got)
 	assert.NotEmpty(t, callID)
@@ -513,17 +547,274 @@ func TestDuplexTools_CostBudgetRefusesTheRound(t *testing.T) {
 	h.emit(turn)
 
 	budget := "provider stage: cost budget exceeded (0.0200 > 0.0100 USD)"
-	sent := h.awaitSent(1)
+	// The budget is terminal: the stage answers the call, reports the budget
+	// once and closes the session itself, so no further paid turn follows.
+	elems := drainUntilClosed(t, h.output)
+	require.NoError(t, <-h.done)
+	assert.True(t, h.sess().isClosed(), "the session is closed")
 	assert.Equal(t, [][]providers.ToolResponse{{{
 		ToolCallID: "c1",
 		Result:     "Tool weather not executed: the turn's tool calls were stopped: " + budget,
 		IsError:    true,
-	}}}, sent)
-	elems := h.finish()
+	}}}, h.sess().sentResponses())
+	assert.Equal(t, 0, h.sess().sendsAfterClose())
 	assert.Empty(t, exec.calls())
 	errs := streamErrors(elems)
 	require.Len(t, errs, 1)
 	assert.Equal(t, budget, errs[0].Error())
+}
+
+// A model that answers every refusal of a stopped tool turn with another tool
+// call gets two refusals; the next call closes the session.
+func TestDuplexTools_RefusalLoopClosesTheSession(t *testing.T) {
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`)}
+	h := startRealtime(t, realtimeOpts{
+		registry: newWeatherRegistry(t, exec),
+		policy:   &pipeline.ToolPolicy{MaxRounds: 1},
+		script: [][]providers.StreamChunk{
+			toolCallTurn(weatherCall("c2")),
+			toolCallTurn(weatherCall("c3")),
+			toolCallTurn(weatherCall("c4")),
+			toolCallTurn(weatherCall("c5")),
+		},
+	})
+
+	h.emit(toolCallTurn(weatherCall("c1")))
+	elems := drainUntilClosed(t, h.output)
+	require.NoError(t, <-h.done)
+
+	refusal := func(id string) []providers.ToolResponse {
+		return []providers.ToolResponse{{
+			ToolCallID: id,
+			Result:     "Tool weather not executed: the turn's tool calls were stopped: provider stage: max rounds (1) exceeded",
+			IsError:    true,
+		}}
+	}
+	assert.Equal(t, [][]providers.ToolResponse{
+		{{ToolCallID: "c1", Result: weatherResult}},
+		refusal("c2"),
+		refusal("c3"),
+	}, h.sess().sentResponses(), "two refusal batches, then nothing")
+	assert.True(t, h.sess().isClosed())
+	assert.Equal(t, []string{"weather"}, exec.calls())
+	errs := streamErrors(elems)
+	require.Len(t, errs, 2)
+	assert.Equal(t, "provider stage: max rounds (1) exceeded", errs[0].Error())
+	assert.Equal(t, "duplex provider stage: closing the session: the model kept calling tools "+
+		"after its tool turn was stopped: provider stage: max rounds (1) exceeded", errs[1].Error())
+	var maxRounds *MaxRoundsError
+	assert.ErrorAs(t, errs[1], &maxRounds)
+}
+
+// A round queued while an earlier round of the same tool turn runs is
+// decided when it runs: once the earlier round stops the turn, it is refused.
+func TestDuplexTools_RoundQueuedBehindAStoppingRoundIsRefused(t *testing.T) {
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`), gate: make(chan struct{})}
+	h := startRealtime(t, realtimeOpts{
+		registry: newWeatherRegistry(t, exec),
+		policy:   &pipeline.ToolPolicy{MaxRounds: 1},
+	})
+
+	h.emit(toolCallTurn(weatherCall("c1")))
+	require.Eventually(t, func() bool { return len(exec.calls()) == 1 }, 2*time.Second, time.Millisecond)
+	h.emit(toolCallTurn(weatherCall("c2")))
+	require.Eventually(t, func() bool { return len(h.stage.tools.jobs) == 1 }, 2*time.Second, time.Millisecond,
+		"the second round is queued behind the first")
+	close(exec.gate)
+
+	sent := h.awaitSent(2)
+	assert.Equal(t, [][]providers.ToolResponse{
+		{{ToolCallID: "c1", Result: weatherResult}},
+		{{
+			ToolCallID: "c2",
+			Result:     "Tool weather not executed: the turn's tool calls were stopped: provider stage: max rounds (1) exceeded",
+			IsError:    true,
+		}},
+	}, sent)
+	assert.Equal(t, []string{"weather"}, exec.calls(), "the queued round never ran")
+	h.finish()
+}
+
+// A repeated-call nudge on the limit round does not stop the turn; the round
+// after it is past MaxRounds and is refused rather than run.
+func TestDuplexTools_RoundPastTheLimitIsRefused(t *testing.T) {
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`)}
+	rome := types.MessageToolCall{ID: "c3", Name: "weather", Args: json.RawMessage(`{"city":"Rome"}`)}
+	h := startRealtime(t, realtimeOpts{
+		registry: newWeatherRegistry(t, exec),
+		policy:   &pipeline.ToolPolicy{MaxRounds: 1, MaxIdenticalToolCalls: 2},
+		script:   [][]providers.StreamChunk{toolCallTurn(rome)},
+	})
+
+	// Round 1 repeats a call: the repeat is fed back, not run, and the round
+	// is a nudge, so nothing stops.
+	h.emit(toolCallTurn(weatherCall("c1"), weatherCall("c2")))
+	sent := h.awaitSent(2)
+	assert.Equal(t, []providers.ToolResponse{{
+		ToolCallID: "c3",
+		Result:     "Tool weather not executed: the turn's tool calls were stopped: provider stage: max rounds (1) exceeded",
+		IsError:    true,
+	}}, sent[1])
+	elems := h.finish()
+	assert.Equal(t, []string{"weather"}, exec.calls(),
+		"round 1 ran only its first call (the repeat was fed back); round 2, past the limit, ran nothing")
+	errs := streamErrors(elems)
+	require.Len(t, errs, 1)
+	var maxRounds *MaxRoundsError
+	require.ErrorAs(t, errs[0], &maxRounds)
+	assert.Equal(t, 1, maxRounds.Rounds)
+}
+
+// Each realtime round is a provider call: provider.call.started when it
+// begins (the user's turn, or the tool responses that continue it) and
+// provider.call.completed when its reply completes, timed between the two,
+// with the configured source and labels.
+func TestDuplexTools_ProviderCallTiming(t *testing.T) {
+	bus := events.NewEventBus()
+	var evMu sync.Mutex
+	var started []*events.ProviderCallStartedData
+	var completed []*events.ProviderCallCompletedData
+	bus.SubscribeAll(func(e *events.Event) {
+		evMu.Lock()
+		defer evMu.Unlock()
+		switch d := e.Data.(type) {
+		case *events.ProviderCallStartedData:
+			started = append(started, d)
+		case *events.ProviderCallCompletedData:
+			completed = append(completed, d)
+		}
+	})
+	const toolTime = 150 * time.Millisecond
+	const thinkTime = 40 * time.Millisecond
+	const replyTime = 30 * time.Millisecond
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`), delay: toolTime}
+	labels := map[string]string{"team": "voice"}
+	h := startRealtime(t, realtimeOpts{
+		registry:   newWeatherRegistry(t, exec),
+		emitter:    events.NewEmitter(bus, "run", "sess", "conv"),
+		cfg:        DuplexToolConfig{Source: "selfplay", Labels: labels},
+		script:     [][]providers.StreamChunk{textTurn("It is 21 degrees", nil)},
+		replyDelay: replyTime,
+	})
+
+	user := types.Message{Role: roleUser, Content: "weather?"}
+	h.input <- StreamElement{Message: &user}
+	require.Eventually(t, func() bool {
+		evMu.Lock()
+		defer evMu.Unlock()
+		return len(started) == 1
+	}, 2*time.Second, time.Millisecond, "the user's turn starts round 1")
+	time.Sleep(thinkTime)
+	h.emit(toolCallTurn(weatherCall("c1")))
+	h.awaitSent(1)
+	require.Eventually(t, func() bool {
+		evMu.Lock()
+		defer evMu.Unlock()
+		return len(completed) == 2
+	}, 2*time.Second, time.Millisecond)
+	h.finish()
+
+	evMu.Lock()
+	defer evMu.Unlock()
+	require.Len(t, started, 2)
+	for i, d := range started {
+		assert.Equal(t, i+1, d.Round)
+		assert.Equal(t, labels, d.Labels)
+		assert.Equal(t, "rt", d.Provider)
+		assert.Equal(t, "rt-model", d.Model)
+		assert.Equal(t, d.CallID, completed[i].CallID)
+	}
+	for i, d := range completed {
+		assert.Equal(t, i+1, d.Round)
+		assert.Equal(t, "selfplay", d.Source)
+		assert.Equal(t, labels, d.Labels)
+	}
+	assert.GreaterOrEqual(t, completed[0].Duration, thinkTime, "round 1 runs from the user's turn")
+	assert.Less(t, completed[0].Duration, time.Second)
+	assert.GreaterOrEqual(t, completed[1].Duration, replyTime, "round 2 starts when the tool responses are sent")
+	assert.Less(t, completed[1].Duration, toolTime, "round 2 runs from the tool responses, not the tool run")
+}
+
+// A reply to input the stage cannot see the end of (audio the provider does
+// not transcribe) is a provider call from its first output.
+func TestDuplexTools_ProviderCallTimingWithoutUserTurn(t *testing.T) {
+	bus := events.NewEventBus()
+	var evMu sync.Mutex
+	var completed []*events.ProviderCallCompletedData
+	bus.SubscribeAll(func(e *events.Event) {
+		if d, ok := e.Data.(*events.ProviderCallCompletedData); ok {
+			evMu.Lock()
+			completed = append(completed, d)
+			evMu.Unlock()
+		}
+	})
+	const streamTime = 40 * time.Millisecond
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`)}
+	h := startRealtime(t, realtimeOpts{
+		registry: newWeatherRegistry(t, exec),
+		emitter:  events.NewEmitter(bus, "run", "sess", "conv"),
+	})
+
+	h.emit([]providers.StreamChunk{{Content: "Let me check", Delta: "Let me check"}})
+	time.Sleep(streamTime)
+	h.emit(toolCallTurn(weatherCall("c1")))
+	h.awaitSent(1)
+	require.Eventually(t, func() bool {
+		evMu.Lock()
+		defer evMu.Unlock()
+		return len(completed) == 1
+	}, 2*time.Second, time.Millisecond)
+	h.finish()
+
+	evMu.Lock()
+	defer evMu.Unlock()
+	assert.Equal(t, 1, completed[0].Round)
+	assert.GreaterOrEqual(t, completed[0].Duration, streamTime, "the call runs from the reply's first output")
+	assert.Less(t, completed[0].Duration, time.Second)
+}
+
+// A barge-in cuts the turn short; what it had cost still counts toward the
+// budget, and it is reported as a provider call like any other turn.
+func TestDuplexTools_InterruptedTurnIsChargedAndReported(t *testing.T) {
+	bus := events.NewEventBus()
+	var evMu sync.Mutex
+	var completed []*events.ProviderCallCompletedData
+	bus.SubscribeAll(func(e *events.Event) {
+		if d, ok := e.Data.(*events.ProviderCallCompletedData); ok {
+			evMu.Lock()
+			completed = append(completed, d)
+			evMu.Unlock()
+		}
+	})
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`)}
+	h := startRealtime(t, realtimeOpts{
+		registry: newWeatherRegistry(t, exec),
+		policy:   &pipeline.ToolPolicy{MaxCostUSD: 0.01},
+		emitter:  events.NewEmitter(bus, "run", "sess", "conv"),
+	})
+
+	h.emit([]providers.StreamChunk{
+		{Content: "Let me ch", Delta: "Let me ch"},
+		{Interrupted: true, CostInfo: &types.CostInfo{InputTokens: 7, OutputTokens: 3, TotalCost: 0.02}},
+	})
+	elems := drainUntilClosed(t, h.output)
+	require.NoError(t, <-h.done)
+
+	assert.True(t, h.sess().isClosed(), "the budget is spent: the session is closed")
+	errs := streamErrors(elems)
+	require.Len(t, errs, 1)
+	assert.Equal(t, "provider stage: cost budget exceeded (0.0200 > 0.0100 USD)", errs[0].Error())
+	require.Eventually(t, func() bool {
+		evMu.Lock()
+		defer evMu.Unlock()
+		return len(completed) == 1
+	}, 2*time.Second, time.Millisecond)
+	evMu.Lock()
+	defer evMu.Unlock()
+	assert.Equal(t, 1, completed[0].Round)
+	assert.Equal(t, types.FinishReasonInterrupted, completed[0].FinishReason)
+	assert.InDelta(t, 0.02, completed[0].Cost, 1e-9)
+	assert.Equal(t, 7, completed[0].InputTokens)
 }
 
 // MaxCostUSD bounds the whole session, the resumed conversation's spend
@@ -765,6 +1056,21 @@ func TestDuplexTools_NilRegistryForwardsToolCalls(t *testing.T) {
 		{name: "nil registry", opts: realtimeOpts{policy: &pipeline.ToolPolicy{MaxRounds: 1}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			bus := events.NewEventBus()
+			var evMu sync.Mutex
+			var rounds []int
+			bus.SubscribeAll(func(e *events.Event) {
+				evMu.Lock()
+				defer evMu.Unlock()
+				switch d := e.Data.(type) {
+				case *events.ProviderCallStartedData:
+					rounds = append(rounds, d.Round)
+				case *events.ProviderCallCompletedData:
+					rounds = append(rounds, d.Round)
+				}
+			})
+			emitter := events.NewEmitter(bus, "run", "sess", "conv")
+			tc.opts.emitter = emitter
 			h := startRealtime(t, tc.opts)
 			h.emit(toolCallTurn(weatherCall("c1")))
 			h.emit(toolCallTurn(weatherCall("c2")))
@@ -781,6 +1087,18 @@ func TestDuplexTools_NilRegistryForwardsToolCalls(t *testing.T) {
 			}
 			assert.Empty(t, h.sess().sentResponses())
 			assert.Nil(t, h.stage.tools)
+
+			// The bus delivers in publish order: once a sentinel published now
+			// arrives, every provider event the stage published has too.
+			emitter.ProviderCallStartedCtx(context.Background(), &events.ProviderCallStartedData{Round: 99})
+			require.Eventually(t, func() bool {
+				evMu.Lock()
+				defer evMu.Unlock()
+				return len(rounds) > 0 && rounds[len(rounds)-1] == 99
+			}, 2*time.Second, time.Millisecond)
+			evMu.Lock()
+			defer evMu.Unlock()
+			assert.Equal(t, []int{99}, rounds, "no provider.call.* events without a registry")
 		})
 	}
 }
