@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,7 +41,11 @@ import (
 // the provider waits for an answer to every call. So the calls the limit leaves
 // unanswered get a refusal result, the limit is reported as an error element,
 // and every later call of the same tool turn is refused without running. The
-// session stays open, and the next tool turn starts fresh.
+// session stays open and the next tool turn starts fresh, unless the model
+// keeps calling tools: past maxStoppedTurnRefusals refused batches the session
+// is closed. The cost budget is different: MaxCostUSD bounds the whole
+// session, so once the spend passes it the calls are refused and the session
+// is closed.
 
 // duplexToolQueueSize bounds the rounds waiting for the tool worker.
 const duplexToolQueueSize = 16
@@ -757,13 +762,35 @@ func providerToolResponses(results []types.Message) []providers.ToolResponse {
 	return out
 }
 
+// prepareToolResponseText returns the responses to send to session. A session
+// that can send media parts gets them as they are. One that cannot sends their
+// text only: a response whose parts carry no text gets a placeholder naming
+// the part types instead of an empty result, and the stage warns once (see
+// warnDroppedToolParts).
+func (s *DuplexProviderStage) prepareToolResponseText(
+	session any, responses []providers.ToolResponse,
+) []providers.ToolResponse {
+	if ps, ok := session.(providers.ToolResponsePartsSupport); ok && ps.SupportsToolResponseParts() {
+		return responses
+	}
+	s.warnDroppedToolParts(responses)
+	out := make([]providers.ToolResponse, len(responses))
+	for i, resp := range responses {
+		if resp.Result == "" {
+			if dropped := droppedPartTypes(responses[i : i+1]); len(dropped) > 0 {
+				resp.Result = fmt.Sprintf("[tool returned %s content this session cannot receive]",
+					strings.Join(dropped, ", "))
+			}
+		}
+		out[i] = resp
+	}
+	return out
+}
+
 // warnDroppedToolParts logs, once per stage, that the session cannot send
 // the media parts of the tool responses it is about to be sent and sends
 // their text only, naming the provider and the part types dropped.
-func (s *DuplexProviderStage) warnDroppedToolParts(session any, responses []providers.ToolResponse) {
-	if ps, ok := session.(providers.ToolResponsePartsSupport); ok && ps.SupportsToolResponseParts() {
-		return
-	}
+func (s *DuplexProviderStage) warnDroppedToolParts(responses []providers.ToolResponse) {
 	dropped := droppedPartTypes(responses)
 	if len(dropped) == 0 || !s.toolPartsWarned.CompareAndSwap(false, true) {
 		return
@@ -851,7 +878,8 @@ func (s *DuplexProviderStage) sendToolRound(
 
 // serveToolRoundsAfterInput keeps delivering finished rounds once input has
 // ended, until ctx ends: the session is still answering, and its tool calls
-// still need their results. It reports a clean exit on done.
+// still need their results. It reports a clean exit on done when ctx ends, and
+// the error when a round cannot be delivered, as the input loop does.
 func (s *DuplexProviderStage) serveToolRoundsAfterInput(
 	ctx context.Context, output chan<- StreamElement, done chan error,
 ) {
@@ -863,7 +891,7 @@ func (s *DuplexProviderStage) serveToolRoundsAfterInput(
 			return
 		case res := <-s.tools.results:
 			if err := s.deliverToolRound(ctx, res, output); err != nil {
-				done <- nil
+				done <- err
 				return
 			}
 		}

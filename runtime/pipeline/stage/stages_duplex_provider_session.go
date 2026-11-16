@@ -918,7 +918,7 @@ func (s *DuplexProviderStage) sendToolResponses(ctx context.Context, toolRespons
 			"sessionType", fmt.Sprintf("%T", s.session))
 		return
 	}
-	s.warnDroppedToolParts(toolSession, toolResponses)
+	toolResponses = s.prepareToolResponseText(toolSession, toolResponses)
 	logger.Debug("DuplexProviderStage: sending tool responses to session",
 		"count", len(toolResponses))
 	if err := toolSession.SendToolResponses(ctx, toolResponses); err != nil {
@@ -1293,8 +1293,8 @@ func (s *DuplexProviderStage) finishOnResponseClosed(
 
 	msg := s.takeInterruptedTurn(cause)
 	if s.inputFailed.Load() {
-		// An input hook denied: its error element was the session's last
-		// output, and the consumer has stopped reading.
+		// An input hook denied: its error element is the session's last
+		// output, so the partial reply is not emitted after it.
 		s.dropBlockedTurns()
 		return nil
 	}

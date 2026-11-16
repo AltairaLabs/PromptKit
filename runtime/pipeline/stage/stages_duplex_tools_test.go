@@ -1052,6 +1052,60 @@ func TestDuplexTools_ReplyWithoutCallsEndsTheToolTurn(t *testing.T) {
 	h.finish()
 }
 
+// After a barge-in the provider closes the cut-short reply with an empty turn
+// completion, which is skipped. A reply that then makes only tool calls (no
+// text, no audio) is a real turn: its calls run and their results are sent,
+// whether the calls arrive with the finish reason or ahead of it.
+func TestDuplexTools_ToolCallOnlyReplyAfterBargeInIsAnswered(t *testing.T) {
+	fr := "tool_calls"
+	stop := "stop"
+	for _, tc := range []struct {
+		name  string
+		reply []providers.StreamChunk
+	}{
+		{name: "calls on the finish chunk", reply: toolCallTurn(weatherCall("c1"))},
+		{name: "calls ahead of the finish chunk", reply: []providers.StreamChunk{
+			{ToolCalls: []types.MessageToolCall{weatherCall("c1")}},
+			{FinishReason: &fr},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`)}
+			h := startRealtime(t, realtimeOpts{
+				registry: newWeatherRegistry(t, exec),
+				script:   [][]providers.StreamChunk{textTurn("It is 21 degrees", nil)},
+			})
+
+			h.emit([]providers.StreamChunk{
+				{Content: "Let me ch", Delta: "Let me ch"},
+				{Interrupted: true},
+				{FinishReason: &stop},
+			})
+			h.emit(tc.reply)
+
+			sent := h.awaitSent(1)
+			assert.Equal(t, [][]providers.ToolResponse{{{ToolCallID: "c1", Result: weatherResult}}}, sent)
+			assert.Equal(t, []string{"weather"}, exec.calls())
+			elems := h.finish()
+
+			var calls [][]types.MessageToolCall
+			var replies []string
+			for _, e := range elems {
+				if e.Message == nil || e.Message.Role != roleAssistant {
+					continue
+				}
+				if len(e.Message.ToolCalls) > 0 {
+					calls = append(calls, e.Message.ToolCalls)
+				} else if e.Message.FinishReason == stop {
+					replies = append(replies, e.Message.Content)
+				}
+			}
+			assert.Equal(t, [][]types.MessageToolCall{{weatherCall("c1")}}, calls)
+			assert.Equal(t, []string{"It is 21 degrees"}, replies)
+		})
+	}
+}
+
 // recordingStateResolver reports a workflow state and records the executed
 // tool-call counts it is given.
 type recordingStateResolver struct {
@@ -1218,6 +1272,61 @@ func TestDuplexTools_MultimodalResultWithoutPartsSupport(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(out, partsDroppedLog), out)
 	assert.Contains(t, out, `provider=rt`)
 	assert.Contains(t, out, `part_types=[image]`)
+}
+
+// A media-only tool result has no text. A session that cannot send its parts
+// sends a placeholder naming the part types in Result, so the model is not
+// answered with an empty string; a session that can send parts gets them with
+// an empty Result.
+func TestDuplexTools_MediaOnlyResult(t *testing.T) {
+	parts := []types.ContentPart{
+		{Type: types.ContentTypeImage, Media: &types.MediaContent{MIMEType: "image/png"}},
+		{Type: types.ContentTypeAudio, Media: &types.MediaContent{MIMEType: "audio/wav"}},
+		{Type: types.ContentTypeImage, Media: &types.MediaContent{MIMEType: "image/jpeg"}},
+	}
+	for _, tc := range []struct {
+		name         string
+		partsSupport bool
+		result       string
+	}{
+		{name: "without parts support", result: "[tool returned image, audio content this session cannot receive]"},
+		{name: "with parts support", partsSupport: true, result: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := registryWithTools(t, "weather")
+			reg.RegisterExecutor(&mockAsyncExecutor{name: "local", status: tools.ToolStatusComplete, parts: parts})
+			h := startRealtime(t, realtimeOpts{registry: reg, partsSupport: tc.partsSupport})
+
+			h.emit(toolCallTurn(weatherCall("c1")))
+
+			sent := h.awaitSent(1)
+			assert.Equal(t, [][]providers.ToolResponse{{{
+				ToolCallID: "c1", Result: tc.result, Parts: parts,
+			}}}, sent)
+			elems := h.finish()
+			results := toolResultMessages(elems)
+			require.Len(t, results, 1)
+			assert.Equal(t, parts, results[0].Parts, "the recorded result keeps its parts")
+		})
+	}
+}
+
+// An empty text result has nothing dropped: it is sent empty, with no
+// placeholder, to a session that cannot send parts.
+func TestDuplexTools_EmptyTextResultGetsNoPlaceholder(t *testing.T) {
+	reg := registryWithTools(t, "weather")
+	reg.RegisterExecutor(&mockAsyncExecutor{name: "local", status: tools.ToolStatusComplete,
+		parts: []types.ContentPart{types.NewTextPart("")}})
+	h := startRealtime(t, realtimeOpts{registry: reg})
+
+	h.emit(toolCallTurn(weatherCall("c1")))
+
+	sent := h.awaitSent(1)
+	require.Len(t, sent, 1)
+	require.Len(t, sent[0], 1)
+	assert.Equal(t, "c1", sent[0][0].ToolCallID)
+	assert.Equal(t, "", sent[0][0].Result)
+	h.finish()
 }
 
 // A session that can send parts gets the same responses and no warning.

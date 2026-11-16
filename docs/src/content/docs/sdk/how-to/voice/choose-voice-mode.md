@@ -143,7 +143,8 @@ In ASM mode the pipeline runs the model's tool calls and sends their results to 
 - Each model turn emits `provider.call.completed` with its tokens and cost. Gemini Live reports the usage of a turn that calls tools together with the reply that follows it, so that turn's event carries no tokens and the reply's carries both. OpenAI Realtime reports each turn's own usage.
 - Tool hooks, tool result rewriters and the approval gate apply to each call. Results reach the model formatted as on a text turn.
 - A chunk with `Error` set does not close `Response()`. The channel closes when the session ends.
-- The model receives the text of a tool result. Neither OpenAI Realtime nor Gemini Live takes a tool result's image, audio or other non-text parts, so the session sends their text only and logs one warning naming the provider and the part types dropped.
+- The model receives the text of a tool result. Neither OpenAI Realtime nor Gemini Live takes a tool result's image, audio or other non-text parts, so the session sends their text only and logs one warning naming the provider and the part types dropped. A result with no text at all reaches the model as a placeholder naming those types, such as `[tool returned image content this session cannot receive]`.
+- `conv.Close` ends the session at once, so a tool call still running then is dropped with it and its result never reaches the model. A runtime pipeline whose input channel closes, with no drain, keeps answering tool calls until the `DuplexProviderStage` 30-second final-response timeout closes the session, and a call still running then is dropped the same way.
 
 ## Verify
 
