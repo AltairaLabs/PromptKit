@@ -2,9 +2,12 @@ package gemini
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -26,6 +29,7 @@ func newProtocolTestSession(t *testing.T) *StreamSession {
 		ctx:        ctx,
 		emitCh:     emitCh,
 		pricing:    sessionPricing(&StreamSessionConfig{Model: "gemini-3.8-live"}),
+		config:     StreamSessionConfig{Model: "gemini-3.8-live"},
 		providerID: "gemini",
 	}
 }
@@ -142,4 +146,177 @@ func TestLiveToolCallTurn_UsageOnlyTurnCompleteWithoutToolCallStillEndsTheTurn(t
 	require.Len(t, ends, 1)
 	require.NotNil(t, ends[0].CostInfo)
 	assert.Equal(t, 50, ends[0].CostInfo.InputTokens)
+}
+
+// scriptedLiveServer is a fake Live server: it completes setup, then runs
+// script on the connection.
+func scriptedLiveServer(t *testing.T, model string, script func(conn *websocket.Conn)) *StreamSession {
+	t.Helper()
+	server := newMockWebSocketServer(func(conn *websocket.Conn) {
+		_, _, _ = conn.ReadMessage() // setup
+		data, _ := json.Marshal(ServerMessage{SetupComplete: &SetupComplete{}})
+		_ = conn.WriteMessage(websocket.TextMessage, data)
+		script(conn)
+	})
+	t.Cleanup(server.Close)
+	session, err := NewStreamSession(context.Background(), server.URL(), "test-key",
+		&StreamSessionConfig{Model: model})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = session.Close() })
+	return session
+}
+
+// writeServer sends m to the client.
+func writeServer(conn *websocket.Conn, m *ServerMessage) {
+	data, _ := json.Marshal(m)
+	_ = conn.WriteMessage(websocket.TextMessage, data)
+}
+
+// readUntilToolResponse reads client messages until a tool response arrives.
+func readUntilToolResponse(conn *websocket.Conn) bool {
+	for {
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			return false
+		}
+		if strings.Contains(string(data), "toolResponse") || strings.Contains(string(data), "tool_response") {
+			return true
+		}
+	}
+}
+
+// drainUntilClosed returns every chunk Response() delivers until it closes.
+func drainResponseUntilClosed(t *testing.T, s *StreamSession) []providers.StreamChunk {
+	t.Helper()
+	var out []providers.StreamChunk
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case c, ok := <-s.Response():
+			if !ok {
+				return out
+			}
+			out = append(out, c)
+		case <-deadline:
+			t.Fatal("Response() never closed")
+			return out
+		}
+	}
+}
+
+// On Gemini 2.5 Live a reply to a tool result can be empty: the turnComplete
+// that follows the tool response carries no content. 2.5 reports no
+// tool-call turnComplete, so it is that reply's completion and ends the turn.
+func TestLiveToolCallTurn_EmptyReplyAfterToolResponseEndsTheTurn(t *testing.T) {
+	session := scriptedLiveServer(t, "gemini-2.5-flash-native-audio-preview-12-2025", func(conn *websocket.Conn) {
+		writeServer(conn, &ServerMessage{ToolCall: &ToolCallMsg{FunctionCalls: []FunctionCall{
+			{ID: "call_1", Name: "get_weather"}}}})
+		if !readUntilToolResponse(conn) {
+			return
+		}
+		writeServer(conn, &ServerMessage{ServerContent: &ServerContent{TurnComplete: true},
+			UsageMetadata: &UsageMetadata{PromptTokenCount: 900, ResponseTokenCount: 0}})
+		_, _, _ = conn.ReadMessage()
+	})
+
+	first := <-session.Response()
+	require.NotNil(t, first.FinishReason)
+	require.Equal(t, types.FinishReasonToolUse, *first.FinishReason)
+	require.NoError(t, session.SendToolResponses(context.Background(),
+		[]providers.ToolResponse{{ToolCallID: "call_1", Result: `{"temp":21}`}}))
+
+	select {
+	case c := <-session.Response():
+		require.NotNil(t, c.FinishReason, "the empty reply completes its turn")
+		assert.Equal(t, finishReasonComplete, *c.FinishReason)
+		require.NotNil(t, c.CostInfo)
+		assert.Equal(t, 900, c.CostInfo.InputTokens)
+	case <-time.After(2 * time.Second):
+		t.Fatal("the empty reply's turnComplete was swallowed")
+	}
+}
+
+// A tool-call turn's usage still held when the session ends (no later turn
+// completion came) is reported on Response() before it closes.
+func TestLiveToolCallTurn_CarriedUsageIsReportedWhenTheSessionEnds(t *testing.T) {
+	session := scriptedLiveServer(t, "gemini-3.8-live", func(conn *websocket.Conn) {
+		writeServer(conn, &ServerMessage{ToolCall: &ToolCallMsg{FunctionCalls: []FunctionCall{
+			{ID: "call_1", Name: "get_weather"}}}})
+		writeServer(conn, &ServerMessage{ServerContent: &ServerContent{TurnComplete: true},
+			UsageMetadata: &UsageMetadata{PromptTokenCount: 600, ResponseTokenCount: 12}})
+		// The server ends the session before any reply.
+	})
+
+	chunks := drainResponseUntilClosed(t, session)
+	var costs []*types.CostInfo
+	for _, c := range chunks {
+		if c.CostInfo != nil {
+			costs = append(costs, c.CostInfo)
+		}
+	}
+	require.Len(t, costs, 1, "the held usage is reported once")
+	assert.Equal(t, 600, costs[0].InputTokens)
+	assert.Equal(t, 12, costs[0].OutputTokens)
+	require.Len(t, finishing(chunks), 1, "only the tool-call turn completes")
+}
+
+// On Gemini 3.x Live each tool call is followed by its own usage-only
+// turnComplete. It is carried to the reply even when it reaches the client
+// after the tool response was sent (a fast tool), here every time; a chain of
+// tool calls carries each one's usage.
+func TestLiveToolCallTurn_ChainedToolCallsCarryEachUsage(t *testing.T) {
+	session := scriptedLiveServer(t, "gemini-3.8-live", func(conn *websocket.Conn) {
+		for i, id := range []string{"call_1", "call_2"} {
+			writeServer(conn, &ServerMessage{ToolCall: &ToolCallMsg{FunctionCalls: []FunctionCall{
+				{ID: id, Name: "get_weather"}}}})
+			if !readUntilToolResponse(conn) {
+				return
+			}
+			writeServer(conn, &ServerMessage{ServerContent: &ServerContent{TurnComplete: true},
+				UsageMetadata: &UsageMetadata{PromptTokenCount: 100 * (i + 1), ResponseTokenCount: 10}})
+		}
+		writeServer(conn, &ServerMessage{ServerContent: &ServerContent{
+			ModelTurn: &ModelTurn{Parts: []Part{{Text: "It is hazy."}}}}})
+		writeServer(conn, &ServerMessage{ServerContent: &ServerContent{TurnComplete: true},
+			UsageMetadata: &UsageMetadata{PromptTokenCount: 400, ResponseTokenCount: 20}})
+		_, _, _ = conn.ReadMessage()
+	})
+
+	var ends []providers.StreamChunk
+	deadline := time.After(3 * time.Second)
+	for len(ends) < 3 {
+		select {
+		case c := <-session.Response():
+			if c.FinishReason == nil {
+				continue
+			}
+			ends = append(ends, c)
+			if *c.FinishReason == types.FinishReasonToolUse {
+				require.NoError(t, session.SendToolResponses(context.Background(),
+					[]providers.ToolResponse{{ToolCallID: c.ToolCalls[0].ID, Result: `{"temp":21}`}}))
+			}
+		case <-deadline:
+			t.Fatalf("got %d turn completions, want 3", len(ends))
+		}
+	}
+	assert.Equal(t, types.FinishReasonToolUse, *ends[0].FinishReason)
+	assert.Equal(t, types.FinishReasonToolUse, *ends[1].FinishReason)
+	assert.Equal(t, finishReasonComplete, *ends[2].FinishReason)
+	require.NotNil(t, ends[2].CostInfo)
+	assert.Equal(t, 700, ends[2].CostInfo.InputTokens, "the reply carries both tool-call turns' usage")
+	assert.Equal(t, 40, ends[2].CostInfo.OutputTokens)
+}
+
+// Which Live models end a tool-call turn with their own turnComplete.
+func TestReportsToolCallTurnComplete(t *testing.T) {
+	for model, want := range map[string]bool{
+		"gemini-3.8-live": true,
+		"gemini-2.5-flash-native-audio-preview-12-2025": false,
+		"gemini-live-2.5-flash-preview":                 false,
+		"gemini-2.0-flash-live-001":                     false,
+		"gemini-10.0-live":                              true,
+		"gemini-live":                                   true,
+	} {
+		assert.Equal(t, want, reportsToolCallTurnComplete(model), model)
+	}
 }
