@@ -660,7 +660,7 @@ func (s *DuplexProviderStage) runRound(ctx context.Context, job *duplexToolJob) 
 	if len(calls) == 0 {
 		return s.refuseUnsyncedRound(job, refused)
 	}
-	out := job.turn.RunRound(ctx, calls, job.rr)
+	out := job.turn.RunRoundPastPending(ctx, calls, job.rr)
 	out.Results = append(out.Results, refused...)
 	s.syncSessionTools(ctx, job.turn, job.turn.excluded, true)
 	if !out.Stop && out.Err == nil {

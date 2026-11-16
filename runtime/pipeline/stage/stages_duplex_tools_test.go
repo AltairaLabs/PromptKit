@@ -1458,3 +1458,66 @@ func TestDuplexTools_RoundFinishingAfterCloseIsStillRecorded(t *testing.T) {
 	defer sess.mu.Unlock()
 	assert.Empty(t, sess.toolResponses, "nothing is sent to a closing session")
 }
+
+// A round with a call held for approval still applies the turn's other
+// checks to the calls that ran: a realtime turn goes on past a held call, so
+// a termination tool that ran beside one still stops the turn, and the
+// model's next calls are refused.
+func TestDuplexTools_HeldCallDoesNotSkipTermination(t *testing.T) {
+	exec := &realtimeToolExec{result: json.RawMessage(`"ok"`)}
+	reg := registryWithTools(t, "finish", "risky", "weather")
+	reg.RegisterExecutor(exec)
+	gate := func(_ context.Context, _, name string, _ map[string]any) (*tools.PendingToolInfo, error) {
+		if name != "risky" {
+			return nil, nil
+		}
+		return &tools.PendingToolInfo{Reason: "approval", Message: "approve " + name}, nil
+	}
+	h := startRealtime(t, realtimeOpts{
+		registry: reg,
+		policy:   &pipeline.ToolPolicy{StopOnTool: "finish"},
+		cfg:      DuplexToolConfig{ApprovalGate: gate},
+		script:   [][]providers.StreamChunk{toolCallTurn(weatherCall("c3"))},
+	})
+
+	h.emit(toolCallTurn(namedCall("c1", "finish"), namedCall("c2", "risky")))
+	sent := h.awaitSent(2)
+	h.finish()
+
+	assert.Equal(t, [][]providers.ToolResponse{
+		{{ToolCallID: "c1", Result: "ok"}},
+		{{ToolCallID: "c3", IsError: true, Result: "Tool weather not executed: the turn's tool calls were stopped: " +
+			"the turn's termination tool was called"}},
+	}, sent)
+	assert.Equal(t, []string{"finish"}, exec.calls(), "the held call waits; the call after the stop is refused")
+}
+
+// A termination tool held for approval has not run, so it does not stop the
+// turn: the model's next calls run.
+func TestDuplexTools_HeldTerminationToolDoesNotStopTheTurn(t *testing.T) {
+	exec := &realtimeToolExec{result: json.RawMessage(`"ok"`)}
+	reg := registryWithTools(t, "finish", "weather")
+	reg.RegisterExecutor(exec)
+	gate := func(_ context.Context, _, name string, _ map[string]any) (*tools.PendingToolInfo, error) {
+		if name != "finish" {
+			return nil, nil
+		}
+		return &tools.PendingToolInfo{Reason: "approval", Message: "approve " + name}, nil
+	}
+	h := startRealtime(t, realtimeOpts{
+		registry: reg,
+		policy:   &pipeline.ToolPolicy{StopOnTool: "finish"},
+		cfg:      DuplexToolConfig{ApprovalGate: gate},
+		script:   [][]providers.StreamChunk{toolCallTurn(weatherCall("c3"))},
+	})
+
+	h.emit(toolCallTurn(namedCall("c1", "finish"), weatherCall("c2")))
+	sent := h.awaitSent(2)
+	h.finish()
+
+	assert.Equal(t, [][]providers.ToolResponse{
+		{{ToolCallID: "c2", Result: "ok"}},
+		{{ToolCallID: "c3", Result: "ok"}},
+	}, sent)
+	assert.Equal(t, []string{"weather", "weather"}, exec.calls())
+}

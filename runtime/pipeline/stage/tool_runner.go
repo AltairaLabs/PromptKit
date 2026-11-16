@@ -809,8 +809,25 @@ func (t *toolTurn) AddCost(c *types.CostInfo) error {
 // RunRound runs one round's tool calls under the turn's policy: the
 // repeated-identical-call breaker, the per-turn call cap, execution (policy,
 // hooks, approval, the registry), rejection tracking, termination.tool_called
-// and the round limit.
+// and the round limit. A round with calls held pending returns as soon as
+// they are held, without the checks after execution: a text turn ends there.
 func (t *toolTurn) RunRound(ctx context.Context, calls []types.MessageToolCall, rr roundRef) roundOutcome {
+	return t.runRound(ctx, calls, rr, false)
+}
+
+// RunRoundPastPending is RunRound for a turn that goes on past calls held
+// pending (a realtime session): the checks after execution apply to the
+// calls that ran, and the held calls are returned in Pending alongside them.
+func (t *toolTurn) RunRoundPastPending(
+	ctx context.Context, calls []types.MessageToolCall, rr roundRef,
+) roundOutcome {
+	return t.runRound(ctx, calls, rr, true)
+}
+
+// runRound is RunRound, going on past held calls when pastPending is set.
+func (t *toolTurn) runRound(
+	ctx context.Context, calls []types.MessageToolCall, rr roundRef, pastPending bool,
+) roundOutcome {
 	// Repeated-identical-call breaker. The first time the same tool is called
 	// with identical arguments too many times, feed that back to the model once
 	// (a synthetic "you're repeating yourself — stop" result) and let it
@@ -824,14 +841,19 @@ func (t *toolTurn) RunRound(ctx context.Context, calls []types.MessageToolCall, 
 	within, over := t.splitCallBudget(calls)
 	results, err := t.r.executeToolCalls(ctx, within, rr)
 	results = append(results, overBudgetResults(over)...)
+	var held []tools.PendingToolExecution
 	if err != nil {
-		if pending, ok := tools.IsErrToolsPending(err); ok {
+		pending, ok := tools.IsErrToolsPending(err)
+		if !ok {
+			return roundOutcome{Err: fmt.Errorf("provider stage: tool execution failed: %w", err)}
+		}
+		if !pastPending {
 			return roundOutcome{Results: results, Pending: pending.Pending}
 		}
-		return roundOutcome{Err: fmt.Errorf("provider stage: tool execution failed: %w", err)}
+		held = pending.Pending
 	}
 
-	out := roundOutcome{Results: results}
+	out := roundOutcome{Results: results, Pending: held}
 	// A skill__activate / skill__deactivate call changes the granted set.
 	out.OfferChanged = t.r.updateExcludedTools(ctx, results, t.rejectionCounts, t.excluded, rr.round) ||
 		!stringSlicesEqual(grantsBefore, t.r.grantedTools())
@@ -839,13 +861,31 @@ func (t *toolTurn) RunRound(ctx context.Context, calls []types.MessageToolCall, 
 		out.OfferExhausted = true
 	}
 	switch {
-	case calledStopTool(t.r.policy(), calls):
+	case calledStopTool(t.r.policy(), callsRun(calls, held)):
 		// termination.tool_called: the named tool has run; stop cleanly.
 		out.Stop = true
 	case rr.round == t.maxRounds:
 		out.Stop, out.Err = true, &MaxRoundsError{Rounds: t.maxRounds}
 	}
 	return out
+}
+
+// callsRun returns calls less those held pending.
+func callsRun(calls []types.MessageToolCall, held []tools.PendingToolExecution) []types.MessageToolCall {
+	if len(held) == 0 {
+		return calls
+	}
+	isHeld := make(map[string]bool, len(held))
+	for i := range held {
+		isHeld[held[i].CallID] = true
+	}
+	run := make([]types.MessageToolCall, 0, len(calls))
+	for _, tc := range calls {
+		if !isHeld[tc.ID] {
+			run = append(run, tc)
+		}
+	}
+	return run
 }
 
 // identicalLoopOutcome applies the repeated-identical-call breaker for a round
