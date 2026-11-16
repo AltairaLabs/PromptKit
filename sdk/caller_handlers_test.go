@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -313,4 +314,135 @@ func TestOnClientTool_RegistryCallCarriesCaller(t *testing.T) {
 	assert.Equal(t, handlerMember, reqs[0].Caller)
 	assert.Equal(t, "ctx-call", reqs[1].CallID)
 	assert.Equal(t, types.Caller{}, reqs[1].Caller)
+}
+
+// An OnToolAsync registered over a CallExecutor leaves the executor running a
+// call the check lets through, and the executor still receives the call's ID
+// and the caller.
+func TestOnToolAsync_UnheldCallKeepsCallExecutorCaller(t *testing.T) {
+	conv := handlerConv(t, false)
+	exec := &callerExecutor{}
+	conv.OnToolExecutor("lookup", exec)
+	conv.OnToolAsync("lookup", func(map[string]any) sdktools.PendingResult { return sdktools.PendingResult{} },
+		func(map[string]any) (any, error) { return "async", nil })
+
+	_, err := conv.Send(context.Background(), "ada")
+	require.NoError(t, err)
+
+	calls := exec.seen()
+	require.Len(t, calls, 1)
+	assert.Equal(t, callerCallID, calls[0].ID)
+	assert.Equal(t, handlerMember, calls[0].Caller)
+}
+
+// While an OnToolAsyncCall check is active, a later handler for the same tool
+// does not unregister the approval: an approved held call runs the async
+// exec, with the caller.
+func TestOnToolAsyncCall_ApprovalSurvivesLaterHandler(t *testing.T) {
+	for name, register := range map[string]func(*Conversation){
+		"OnToolCtx": func(c *Conversation) {
+			c.OnToolCtx("lookup", func(context.Context, map[string]any) (any, error) { return "ctx", nil })
+		},
+		"OnToolHTTP": func(c *Conversation) {
+			c.OnToolHTTP("lookup", sdktools.NewHTTPToolConfig("http://127.0.0.1:1"))
+		},
+		"OnToolExecutor": func(c *Conversation) {
+			c.OnToolExecutor("lookup", &recordingExecutor{seen: map[string]*packspec.Tool{}})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			conv := handlerConv(t, false)
+			rec := &recordedCalls[ToolCall]{}
+			conv.OnToolAsyncCall("lookup", approvalCheck, func(_ context.Context, call ToolCall) (any, error) {
+				rec.add(call)
+				return "approved", nil
+			})
+			register(conv)
+			ctx := context.Background()
+			_, err := conv.Send(ctx, "ada")
+			require.NoError(t, err)
+
+			resolution, err := conv.ResolveTool(ctx, callerCallID)
+			require.NoError(t, err)
+			assert.JSONEq(t, `"approved"`, string(resolution.ResultJSON))
+			require.Len(t, rec.seen(), 1)
+			assert.Equal(t, handlerMember, rec.seen()[0].Caller)
+			assert.Equal(t, callerCallID, rec.seen()[0].CallID)
+		})
+	}
+}
+
+// The approval rule does not depend on the executor kind: an approved held
+// call runs the async exec registered for the tool, even over a CallExecutor
+// registered after it, and a fork keeps the rule.
+func TestOnToolAsync_ApprovalRunsAsyncExecOverLaterCallExecutor(t *testing.T) {
+	for _, fork := range []bool{false, true} {
+		t.Run(map[bool]string{false: "conversation", true: "fork"}[fork], func(t *testing.T) {
+			conv := handlerConv(t, false)
+			conv.OnToolAsyncWithContext("lookup", approvalCheck, func(map[string]any) (any, error) {
+				return "async", nil
+			})
+			exec := &callerExecutor{}
+			conv.OnToolExecutor("lookup", exec)
+			if fork {
+				forked, err := conv.Fork()
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = forked.Close() })
+				conv = forked
+			}
+			ctx := context.Background()
+			_, err := conv.Send(ctx, "ada")
+			require.NoError(t, err)
+
+			resolution, err := conv.ResolveTool(ctx, callerCallID)
+			require.NoError(t, err)
+			assert.JSONEq(t, `"async"`, string(resolution.ResultJSON))
+			assert.Empty(t, exec.seen(), "the executor must not run the approved call")
+		})
+	}
+}
+
+// An approved held call runs the OnToolAsync exec even over a plain OnTool
+// handler registered after it, and a fork keeps the rule.
+func TestOnToolAsync_ApprovalRunsAsyncExecOverLaterOnTool(t *testing.T) {
+	for _, fork := range []bool{false, true} {
+		t.Run(map[bool]string{false: "conversation", true: "fork"}[fork], func(t *testing.T) {
+			conv := handlerConv(t, false)
+			conv.OnToolAsyncWithContext("lookup", approvalCheck, func(map[string]any) (any, error) {
+				return "async", nil
+			})
+			conv.OnTool("lookup", func(map[string]any) (any, error) { return "plain", nil })
+			if fork {
+				forked, err := conv.Fork()
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = forked.Close() })
+				conv = forked
+			}
+			ctx := context.Background()
+			_, err := conv.Send(ctx, "ada")
+			require.NoError(t, err)
+
+			resolution, err := conv.ResolveTool(ctx, callerCallID)
+			require.NoError(t, err)
+			assert.JSONEq(t, `"async"`, string(resolution.ResultJSON))
+		})
+	}
+}
+
+// textExecutor is a plain executor whose result is not JSON.
+type textExecutor struct{}
+
+func (textExecutor) Name() string { return "text-exec" }
+
+func (textExecutor) Execute(context.Context, *tools.ToolDescriptor, json.RawMessage) (json.RawMessage, error) {
+	return json.RawMessage(`plain text`), nil
+}
+
+// A plain executor's result that is not JSON reaches the model as a string.
+func TestOnToolExecutor_NonJSONResultIsAString(t *testing.T) {
+	conv := handlerConv(t, false)
+	conv.OnToolExecutor("lookup", textExecutor{})
+	_, err := conv.Send(context.Background(), "ada")
+	require.NoError(t, err)
+	assert.Equal(t, "plain text", lookupToolResult(t, conv))
 }

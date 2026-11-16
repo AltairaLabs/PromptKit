@@ -135,7 +135,11 @@ type Conversation struct {
 	clientHandlersMu sync.RWMutex
 
 	// Async tool handlers for HITL
-	asyncHandlers   map[string]sdktools.AsyncToolCheck
+	asyncHandlers map[string]sdktools.AsyncToolCheck
+	// approvalExecs run a held call once it is approved: the execution
+	// handler OnToolAsync, OnToolAsyncWithContext or OnToolAsyncCall
+	// registered with the check. Guarded by asyncHandlersMu.
+	approvalExecs   map[string]approvalExec
 	asyncHandlersMu sync.RWMutex
 
 	// Pending tool calls awaiting approval
@@ -1528,6 +1532,7 @@ func (c *Conversation) Fork() (*Conversation, error) {
 	for k, v := range c.asyncHandlers {
 		asyncHandlers[k] = v
 	}
+	approvalExecs := copyHandlerMap(c.approvalExecs)
 	c.asyncHandlersMu.RUnlock()
 
 	// Copy client handlers
@@ -1570,6 +1575,7 @@ func (c *Conversation) Fork() (*Conversation, error) {
 		callHandlers:     callHandlers,
 		clientHandlers:   clientHandlers,
 		asyncHandlers:    asyncHandlers,
+		approvalExecs:    approvalExecs,
 		pendingStore:     forkPendingStore,
 		ownsPendingStore: forkOwnsPending,
 		resolvedStore:    sdktools.NewResolvedStore(),
