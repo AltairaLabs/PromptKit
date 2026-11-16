@@ -700,3 +700,269 @@ func (r *toolRunner) callRateAdmission(toolCall types.MessageToolCall) *callRate
 		window: r.cfg.CallRate, conversationID: conversationID, tool: toolCall.Name, limit: p.MaxCallsPerMinute,
 	}
 }
+
+// getMaxToolCallsPerTurn returns the cap on tool calls across all of a turn's
+// rounds, or 0 for no cap.
+func (r *toolRunner) getMaxToolCallsPerTurn() int {
+	if p := r.policy(); p != nil {
+		return p.MaxToolCallsPerTurn
+	}
+	return 0
+}
+
+// getMaxIdenticalToolCalls returns the threshold for aborting a loop where the
+// same tool is called repeatedly with identical arguments.
+func (r *toolRunner) getMaxIdenticalToolCalls() int {
+	if p := r.policy(); p != nil && p.MaxIdenticalToolCalls > 0 {
+		return p.MaxIdenticalToolCalls
+	}
+	return defaultMaxIdenticalCalls
+}
+
+// toolTurn is one turn's tool-round state: what the turn's rounds have
+// excluded, counted and spent. RunRound runs a round's calls against it;
+// AddCost charges a provider call to it. A new turn starts a new toolTurn.
+type toolTurn struct {
+	r *toolRunner
+	// grants returns the granted tool names, sorted, compared across a round
+	// to report OfferChanged. nil means nothing is granted.
+	grants              func() []string
+	maxRounds           int
+	excluded            map[string]bool
+	rejectionCounts     map[string]int
+	identicalCallCounts map[string]int // keyed by "toolName\x00<canonical-args>"
+	cumulativeCost      float64        // the run's spend: the history's plus this turn's
+	nudgedLoop          bool           // already fed an identical-loop back to the model once
+	toolCallsExecuted   int            // tool calls let through this turn, for max_tool_calls_per_turn
+}
+
+// roundOutcome is what one tool round produced and what the turn does next.
+type roundOutcome struct {
+	// Results answers every call that was not held: executed, refused by
+	// policy, over the per-turn cap, or fed back as a repeated call.
+	Results []types.Message
+	// Pending are the calls held for approval or a deferred result.
+	Pending []tools.PendingToolExecution
+	// Stop ends the turn after this round, with Err when the stop is a
+	// limit (max rounds, a repeated-call loop that survived the nudge) and
+	// without one when termination.tool_called fired.
+	Stop bool
+	// Err is the turn's error. Without Stop it is a tool execution failure,
+	// and Results is empty.
+	Err error
+	// OfferChanged reports that what the model may call changed this round:
+	// a tool was excluded or the granted set moved.
+	OfferChanged bool
+	// OfferExhausted reports that max_tool_calls_per_turn is spent, so no
+	// tools should be offered from here on.
+	OfferExhausted bool
+	// Nudged reports that the round was a repeated-call loop answered with
+	// feedback for one self-correction attempt. The round counts for nothing
+	// else: the offer, termination and the round limit are not evaluated.
+	Nudged bool
+}
+
+// newTurn starts a turn whose run has already spent the cost on history, so
+// MaxCostUSD bounds the whole run rather than each turn.
+func (r *toolRunner) newTurn(history []types.Message, maxRounds int) *toolTurn {
+	return &toolTurn{
+		r:                   r,
+		maxRounds:           maxRounds,
+		excluded:            map[string]bool{},
+		rejectionCounts:     map[string]int{},
+		identicalCallCounts: map[string]int{},
+		cumulativeCost:      sumHistoryCost(history),
+	}
+}
+
+// sumHistoryCost totals the CostInfo across the conversation history fed into
+// this turn — i.e. the run's spend before this turn's loop begins.
+func sumHistoryCost(messages []types.Message) float64 {
+	var total float64
+	for i := range messages {
+		if messages[i].CostInfo != nil {
+			total += messages[i].CostInfo.TotalCost
+		}
+	}
+	return total
+}
+
+// grantedTools returns the granted tool names, or nil without a grants source.
+func (t *toolTurn) grantedTools() []string {
+	if t.grants == nil {
+		return nil
+	}
+	return t.grants()
+}
+
+// AddCost charges a provider call's cost to the run and returns the budget
+// error once the run's spend exceeds ToolPolicy.MaxCostUSD. A nil cost adds
+// nothing but is still checked; a nil turn tracks nothing.
+func (t *toolTurn) AddCost(c *types.CostInfo) error {
+	if t == nil {
+		return nil
+	}
+	if c != nil {
+		t.cumulativeCost += c.TotalCost
+	}
+	if p := t.r.policy(); p != nil && p.MaxCostUSD > 0 && t.cumulativeCost > p.MaxCostUSD {
+		return fmt.Errorf(
+			"provider stage: cost budget exceeded (%.4f > %.4f USD)", t.cumulativeCost, p.MaxCostUSD)
+	}
+	return nil
+}
+
+// RunRound runs one round's tool calls under the turn's policy: the
+// repeated-identical-call breaker, the per-turn call cap, execution (policy,
+// hooks, approval, the registry), rejection tracking, termination.tool_called
+// and the round limit.
+func (t *toolTurn) RunRound(ctx context.Context, calls []types.MessageToolCall, rr roundRef) roundOutcome {
+	// Repeated-identical-call breaker. The first time the same tool is called
+	// with identical arguments too many times, feed that back to the model once
+	// (a synthetic "you're repeating yourself — stop" result) and let it
+	// self-correct — loops are often transient confusion (e.g. a model retrying
+	// a failing call verbatim). If it loops AGAIN after the nudge, abort.
+	if looping := t.identicalLoopCalls(calls); len(looping) > 0 {
+		return t.identicalLoopOutcome(ctx, calls, looping, rr)
+	}
+
+	grantsBefore := t.grantedTools()
+	within, over := t.splitCallBudget(calls)
+	results, err := t.r.executeToolCalls(ctx, within, rr)
+	results = append(results, overBudgetResults(over)...)
+	if err != nil {
+		if pending, ok := tools.IsErrToolsPending(err); ok {
+			return roundOutcome{Results: results, Pending: pending.Pending}
+		}
+		return roundOutcome{Err: fmt.Errorf("provider stage: tool execution failed: %w", err)}
+	}
+
+	out := roundOutcome{Results: results}
+	// A skill__activate / skill__deactivate call changes the granted set.
+	out.OfferChanged = t.r.updateExcludedTools(ctx, results, t.rejectionCounts, t.excluded, rr.round) ||
+		!stringSlicesEqual(grantsBefore, t.grantedTools())
+	if limit := t.r.getMaxToolCallsPerTurn(); limit > 0 && t.toolCallsExecuted >= limit {
+		out.OfferExhausted = true
+	}
+	switch {
+	case calledStopTool(t.r.policy(), calls):
+		// termination.tool_called: the named tool has run; stop cleanly.
+		out.Stop = true
+	case rr.round == t.maxRounds:
+		out.Stop, out.Err = true, &MaxRoundsError{Rounds: t.maxRounds}
+	}
+	return out
+}
+
+// identicalLoopOutcome applies the repeated-identical-call breaker for a round
+// whose calls include looping ones: the first time it feeds the loop back to
+// the model as synthetic results for one self-correction attempt; after that
+// nudge it stops the turn.
+func (t *toolTurn) identicalLoopOutcome(
+	ctx context.Context, calls, looping []types.MessageToolCall, rr roundRef,
+) roundOutcome {
+	if t.nudgedLoop {
+		return roundOutcome{Stop: true, Err: fmt.Errorf(
+			"provider stage: tool loop persisted after a self-correction nudge: %q called with identical arguments",
+			looping[0].Name)}
+	}
+	t.nudgedLoop = true
+	logger.Warn("identical tool-call loop detected; feeding it back to the model for one self-correction attempt",
+		"tool", looping[0].Name)
+	return roundOutcome{Results: t.loopFeedbackResults(ctx, calls, looping, rr), Nudged: true}
+}
+
+// identicalLoopCalls increments per-call counters and returns the calls whose
+// (tool, args) pair reached the configured threshold.
+func (t *toolTurn) identicalLoopCalls(toolCalls []types.MessageToolCall) []types.MessageToolCall {
+	threshold := t.r.getMaxIdenticalToolCalls()
+	var looping []types.MessageToolCall
+	for i := range toolCalls {
+		tc := toolCalls[i]
+		key := tc.Name + "\x00" + canonicalArgs(tc.Args)
+		t.identicalCallCounts[key]++
+		if t.identicalCallCounts[key] >= threshold {
+			looping = append(looping, tc)
+		}
+	}
+	return looping
+}
+
+// loopFeedbackResults builds tool-result messages for a round where an identical
+// loop was detected: the looping calls get a synthetic "you repeated this — stop"
+// result (NOT executed, since the result wouldn't change), while any non-looping
+// calls in the same round execute normally so every tool_use still has a result.
+func (t *toolTurn) loopFeedbackResults(
+	ctx context.Context, all, looping []types.MessageToolCall, rr roundRef,
+) []types.Message {
+	loopSet := make(map[string]bool, len(looping))
+	for _, c := range looping {
+		loopSet[c.ID] = true
+	}
+	threshold := t.r.getMaxIdenticalToolCalls()
+	results := make([]types.Message, 0, len(all))
+	var toExecute []types.MessageToolCall
+	for i := range all {
+		tc := all[i]
+		if !loopSet[tc.ID] {
+			toExecute = append(toExecute, tc)
+			continue
+		}
+		msg := fmt.Sprintf(
+			"Repeated call ignored: %q has been called %d times with identical arguments and was NOT "+
+				"executed again — the result will not change. Stop repeating this exact call: change the "+
+				"arguments, use a different tool, or finish the task.",
+			tc.Name, threshold)
+		results = append(results, types.NewToolResultMessage(types.NewTextToolResult(tc.ID, tc.Name, msg)))
+	}
+	if len(toExecute) > 0 {
+		executed, _ := t.r.executeToolCalls(ctx, toExecute, rr)
+		results = append(results, executed...)
+	}
+	return results
+}
+
+// splitCallBudget divides a round's tool calls into those within the turn's
+// max_tool_calls_per_turn budget and those over it, counting the former as
+// executed. Without a cap every call is within budget.
+func (t *toolTurn) splitCallBudget(
+	calls []types.MessageToolCall,
+) (within, over []types.MessageToolCall) {
+	if limit := t.r.getMaxToolCallsPerTurn(); limit > 0 {
+		remaining := max(limit-t.toolCallsExecuted, 0)
+		if len(calls) > remaining {
+			calls, over = calls[:remaining], calls[remaining:]
+		}
+	}
+	t.toolCallsExecuted += len(calls)
+	return calls, over
+}
+
+// overBudgetResults answers each call over the max_tool_calls_per_turn budget
+// with a policy rejection. Every call the model made still gets a result, so
+// the history stays valid to replay.
+func overBudgetResults(calls []types.MessageToolCall) []types.Message {
+	results := make([]types.Message, 0, len(calls))
+	for _, tc := range calls {
+		errMsg := fmt.Sprintf("Tool %s not executed: the tool call limit for this turn is reached", tc.Name)
+		result := types.NewTextToolResult(tc.ID, tc.Name, errMsg)
+		result.Error = errMsg
+		result.ErrorType = types.ToolErrorApproval
+		results = append(results, types.NewToolResultMessage(result))
+	}
+	return results
+}
+
+// calledStopTool reports whether the policy names a terminal tool
+// (termination.tool_called) and one of the round's calls invoked it.
+func calledStopTool(policy *pipeline.ToolPolicy, toolCalls []types.MessageToolCall) bool {
+	if policy == nil || policy.StopOnTool == "" {
+		return false
+	}
+	for _, tc := range toolCalls {
+		if tc.Name == policy.StopOnTool {
+			return true
+		}
+	}
+	return false
+}

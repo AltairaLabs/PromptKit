@@ -1175,26 +1175,23 @@ func (s *ProviderStage) applyStateHandoff(
 
 // toolLoop holds shared state for multi-round tool execution.
 type toolLoop struct {
-	stage               *ProviderStage
-	messages            []types.Message
-	providerTools       interface{}
-	toolChoice          string
-	maxRounds           int
-	excluded            map[string]bool
-	rejectionCounts     map[string]int
-	identicalCallCounts map[string]int // keyed by "toolName\x00<canonical-args>"
-	lastPersistedSeq    int            // messages in the MessageLog: LogAppend's next start seq
-	persistedIdx        int            // tl.messages[:persistedIdx] are already in the log
-	reserve             int            // tokens the system prompt and tools take (reservedTokens)
-	reserveValid        bool           // reserve is current
-	warnedReserve       bool           // one-time warning that the reserve fills the window
-	cumulativeCost      float64        // accumulated cost across rounds
-	cumulativeInput     int            // accumulated input tokens across this loop's rounds
-	cumulativeCached    int            // accumulated cache-read tokens across this loop's rounds
-	cachingSupported    bool           // provider advertises prompt caching (gates the stall warning)
-	warnedNoCaching     bool           // one-time guard for the caching-stalled warning
-	nudgedLoop          bool           // already fed an identical-loop back to the model once
-	toolCallsExecuted   int            // tool calls let through this turn, for max_tool_calls_per_turn
+	// toolTurn is the turn's tool-round state: exclusions, call counts, the
+	// round limit and the run's spend.
+	*toolTurn
+
+	stage            *ProviderStage
+	messages         []types.Message
+	providerTools    interface{}
+	toolChoice       string
+	lastPersistedSeq int  // messages in the MessageLog: LogAppend's next start seq
+	persistedIdx     int  // tl.messages[:persistedIdx] are already in the log
+	reserve          int  // tokens the system prompt and tools take (reservedTokens)
+	reserveValid     bool // reserve is current
+	warnedReserve    bool // one-time warning that the reserve fills the window
+	cumulativeInput  int  // accumulated input tokens across this loop's rounds
+	cumulativeCached int  // accumulated cache-read tokens across this loop's rounds
+	cachingSupported bool // provider advertises prompt caching (gates the stall warning)
+	warnedNoCaching  bool // one-time guard for the caching-stalled warning
 
 	// acc is the live turn input. Held as a pointer rather than copied because
 	// applyStateHandoff can swap the system prompt mid-loop, and the
@@ -1447,22 +1444,12 @@ func (s *ProviderStage) getMaxRounds() int {
 	return defaultMaxRounds
 }
 
-// getMaxToolCallsPerTurn returns the cap on tool calls across all of a turn's
-// rounds, or 0 for no cap.
-func (s *ProviderStage) getMaxToolCallsPerTurn() int {
-	if p := s.policy(); p != nil {
-		return p.MaxToolCallsPerTurn
-	}
-	return 0
-}
-
 // getMaxIdenticalToolCalls returns the threshold for aborting a loop where the
 // same tool is called repeatedly with identical arguments.
+//
+//nolint:unused // tests call it on the stage
 func (s *ProviderStage) getMaxIdenticalToolCalls() int {
-	if p := s.policy(); p != nil && p.MaxIdenticalToolCalls > 0 {
-		return p.MaxIdenticalToolCalls
-	}
-	return defaultMaxIdenticalCalls
+	return s.runner().getMaxIdenticalToolCalls()
 }
 
 // canonicalArgs returns a stable, order-insensitive string representation of
@@ -1482,56 +1469,6 @@ func canonicalArgs(raw json.RawMessage) string {
 		return string(raw)
 	}
 	return string(b)
-}
-
-// checkIdenticalToolCalls increments per-call counters and returns an error if
-// any single (tool, args) pair exceeds the configured threshold.
-func (tl *toolLoop) identicalLoopCalls(toolCalls []types.MessageToolCall) []types.MessageToolCall {
-	threshold := tl.stage.getMaxIdenticalToolCalls()
-	var looping []types.MessageToolCall
-	for i := range toolCalls {
-		tc := toolCalls[i]
-		key := tc.Name + "\x00" + canonicalArgs(tc.Args)
-		tl.identicalCallCounts[key]++
-		if tl.identicalCallCounts[key] >= threshold {
-			looping = append(looping, tc)
-		}
-	}
-	return looping
-}
-
-// loopFeedbackResults builds tool-result messages for a round where an identical
-// loop was detected: the looping calls get a synthetic "you repeated this — stop"
-// result (NOT executed, since the result wouldn't change), while any non-looping
-// calls in the same round execute normally so every tool_use still has a result.
-func (tl *toolLoop) loopFeedbackResults(
-	ctx context.Context, all, looping []types.MessageToolCall, rr roundRef,
-) []types.Message {
-	loopSet := make(map[string]bool, len(looping))
-	for _, c := range looping {
-		loopSet[c.ID] = true
-	}
-	threshold := tl.stage.getMaxIdenticalToolCalls()
-	results := make([]types.Message, 0, len(all))
-	var toExecute []types.MessageToolCall
-	for i := range all {
-		tc := all[i]
-		if !loopSet[tc.ID] {
-			toExecute = append(toExecute, tc)
-			continue
-		}
-		msg := fmt.Sprintf(
-			"Repeated call ignored: %q has been called %d times with identical arguments and was NOT "+
-				"executed again — the result will not change. Stop repeating this exact call: change the "+
-				"arguments, use a different tool, or finish the task.",
-			tc.Name, threshold)
-		results = append(results, types.NewToolResultMessage(types.NewTextToolResult(tc.ID, tc.Name, msg)))
-	}
-	if len(toExecute) > 0 {
-		executed, _ := tl.stage.executeToolCalls(ctx, toExecute, rr)
-		results = append(results, executed...)
-	}
-	return results
 }
 
 func (s *ProviderStage) executeStreamingMultiRound(
@@ -1637,46 +1574,31 @@ func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
 	// The one place both multi-round paths pass through exactly once per turn,
 	// and therefore where the turn's offered set begins.
 	s.resetOffered()
-	excluded := map[string]bool{}
-	providerTools, toolChoice, err := s.buildProviderTools(acc.allowedTools, excluded)
+	// Seeded with the cost already incurred in this conversation (prior
+	// turns), so MaxCostUSD bounds the whole RUN, not just this turn's loop.
+	// Arena builds a fresh pipeline (and toolLoop) per turn, so without this
+	// seed the cap would reset every turn and a multi-turn run could spend
+	// MaxCostUSD per turn. History cost is carried on the input messages'
+	// CostInfo.
+	turn := s.runner().newTurn(acc.messages, s.getMaxRounds())
+	turn.grants = s.grantedTools
+	providerTools, toolChoice, err := s.buildProviderTools(acc.allowedTools, turn.excluded)
 	if err != nil {
 		return nil, fmt.Errorf("provider stage: %w", err)
 	}
 	cachingSupported := supportsPromptCaching(s.callProvider())
 	return &toolLoop{
-		stage:               s,
-		acc:                 acc,
-		schemaWithheld:      s.withholdsSchema(providerTools),
-		messages:            acc.messages,
-		providerTools:       providerTools,
-		toolChoice:          toolChoice,
-		maxRounds:           s.getMaxRounds(),
-		excluded:            excluded,
-		rejectionCounts:     map[string]int{},
-		identicalCallCounts: map[string]int{},
-		cachingSupported:    cachingSupported,
-		lastPersistedSeq:    len(acc.messages), // history already in store
-		persistedIdx:        len(acc.messages),
-		// Seed with the cost already incurred in this conversation (prior
-		// turns), so MaxCostUSD bounds the whole RUN, not just this turn's
-		// loop. Arena builds a fresh pipeline (and toolLoop) per turn, so
-		// without this seed the cap would reset every turn and a multi-turn
-		// run could spend MaxCostUSD per turn. History cost is carried on the
-		// input messages' CostInfo.
-		cumulativeCost: sumHistoryCost(acc.messages),
+		toolTurn:         turn,
+		stage:            s,
+		acc:              acc,
+		schemaWithheld:   s.withholdsSchema(providerTools),
+		messages:         acc.messages,
+		providerTools:    providerTools,
+		toolChoice:       toolChoice,
+		cachingSupported: cachingSupported,
+		lastPersistedSeq: len(acc.messages), // history already in store
+		persistedIdx:     len(acc.messages),
 	}, nil
-}
-
-// sumHistoryCost totals the CostInfo across the conversation history fed into
-// this turn — i.e. the run's spend before this turn's loop begins.
-func sumHistoryCost(messages []types.Message) float64 {
-	var total float64
-	for i := range messages {
-		if messages[i].CostInfo != nil {
-			total += messages[i].CostInfo.TotalCost
-		}
-	}
-	return total
 }
 
 // afterRound handles tool execution, rejection tracking, and loop control after
@@ -1705,14 +1627,19 @@ func (tl *toolLoop) afterRound(
 		tl.stage.emitter.ReasoningCompletedCtx(ctx, response.Reasoning, rr.round, rr.providerCallID)
 	}
 
+	// The turn's runner is rebuilt from the stage's current fields each round,
+	// as every other use of it is (runner).
+	if tl.toolTurn != nil {
+		tl.r = tl.stage.runner()
+	}
+
 	// Track cumulative cost for budget enforcement
-	tl.addRoundCost(response.CostInfo)
+	tl.addRoundTokens(response.CostInfo)
+	costErr := tl.AddCost(response.CostInfo)
 	tl.warnIfCachingStalled(round)
-	policy := tl.stage.policy()
-	if policy != nil && policy.MaxCostUSD > 0 && tl.cumulativeCost > policy.MaxCostUSD {
+	if costErr != nil {
 		tl.persistMessages(ctx, round)
-		return true, tl.messages, fmt.Errorf(
-			"provider stage: cost budget exceeded (%.4f > %.4f USD)", tl.cumulativeCost, policy.MaxCostUSD)
+		return true, tl.messages, costErr
 	}
 
 	if !hasToolCalls {
@@ -1727,37 +1654,41 @@ func (tl *toolLoop) afterRound(
 		return true, tl.messages, nil
 	}
 
-	// Repeated-identical-call breaker. The first time the same tool is called with
-	// identical arguments too many times, feed that back to the model once (a
-	// synthetic "you're repeating yourself — stop" result) and let it self-correct
-	// — loops are often transient confusion (e.g. a model retrying a failing call
-	// verbatim). If it loops AGAIN after the nudge, abort.
-	if looping := tl.identicalLoopCalls(response.ToolCalls); len(looping) > 0 {
-		return tl.handleIdenticalLoop(ctx, response.ToolCalls, looping, rr)
-	}
+	return tl.applyRound(ctx, allowedTools, tl.RunRound(ctx, response.ToolCalls, rr), round)
+}
 
-	grantsBefore := tl.stage.grantedTools()
-	calls, overBudget := tl.splitCallBudget(response.ToolCalls)
-	toolResults, err := tl.stage.executeToolCalls(ctx, calls, rr)
-	toolResults = append(toolResults, overBudgetResults(overBudget)...)
-	if err != nil {
-		if _, ok := tools.IsErrToolsPending(err); ok {
-			tl.messages = append(tl.messages, toolResults...)
-			tl.persistMessages(ctx, round)
-			return true, tl.messages, err
-		}
-		return true, tl.messages, fmt.Errorf("provider stage: tool execution failed: %w", err)
+// applyRound folds a tool round's outcome into the loop: appends its results,
+// persists them, rebuilds the offered tools when the round changed them, and
+// ends the turn when the round says to. Returns afterRound's (done, messages,
+// error).
+func (tl *toolLoop) applyRound(
+	ctx context.Context, allowedTools []string, out roundOutcome, round int,
+) (bool, []types.Message, error) {
+	if out.Err != nil && !out.Stop {
+		return true, tl.messages, out.Err
 	}
-
-	tl.messages = append(tl.messages, toolResults...)
+	tl.messages = append(tl.messages, out.Results...)
+	if len(out.Pending) > 0 {
+		tl.persistMessages(ctx, round)
+		return true, tl.messages, &tools.ErrToolsPending{Pending: out.Pending}
+	}
+	var maxRounds *MaxRoundsError
+	if out.Err != nil && !errors.As(out.Err, &maxRounds) {
+		// A repeated-call loop that survived the nudge.
+		tl.persistMessages(ctx, round)
+		return true, tl.messages, out.Err
+	}
 	ResetIdleFromContext(ctx)
 	tl.persistMessages(ctx, round)
+	if out.Nudged {
+		return false, tl.messages, nil
+	}
 
 	// Rebuild the tools array when this round changed what the model may call:
 	// a tool crossed the rejection threshold (excluded), or a tool call such as
 	// skill__activate / skill__deactivate changed the granted set. Rebuilding
 	// busts the provider's cached prefix, so it happens only on a real change.
-	if err := tl.rebuildToolsIfChanged(ctx, allowedTools, toolResults, grantsBefore, round); err != nil {
+	if err := tl.rebuildToolsIfChanged(allowedTools, out.OfferChanged); err != nil {
 		return true, tl.messages, err
 	}
 
@@ -1765,73 +1696,38 @@ func (tl *toolLoop) afterRound(
 
 	// max_tool_calls_per_turn spent: offer no tools from here on, so the next
 	// round is the model's answer rather than more calls to reject.
-	if limit := tl.stage.getMaxToolCallsPerTurn(); limit > 0 && tl.toolCallsExecuted >= limit {
+	if out.OfferExhausted {
 		tl.providerTools = nil
 		tl.invalidateReserve()
 		tl.toolChoice = ""
 	}
 
-	// termination.tool_called: stop cleanly after the round in which
-	// the named terminal tool fired. The tool has already executed and its result
-	// is recorded in tl.messages — now stop before the next provider round.
-	if calledStopTool(policy, response.ToolCalls) {
-		return true, tl.messages, nil
+	// termination.tool_called, or the round limit. The round's results are
+	// already recorded in tl.messages.
+	if out.Stop {
+		return true, tl.messages, out.Err
 	}
-
-	if round == tl.maxRounds {
-		return true, tl.messages, &MaxRoundsError{Rounds: tl.maxRounds}
-	}
-
 	return false, nil, nil
 }
 
-// addRoundCost accumulates a round's cost and token usage for budget
-// enforcement and the caching-stall warning. A nil cost adds nothing.
-func (tl *toolLoop) addRoundCost(cost *types.CostInfo) {
+// addRoundTokens accumulates a round's token usage for the caching-stall
+// warning. A nil cost adds nothing.
+func (tl *toolLoop) addRoundTokens(cost *types.CostInfo) {
 	if cost == nil {
 		return
 	}
-	tl.cumulativeCost += cost.TotalCost
 	tl.cumulativeInput += cost.InputTokens
 	tl.cumulativeCached += cost.CachedTokens
 }
 
-// handleIdenticalLoop applies the repeated-identical-call breaker for a round
-// whose calls include looping ones: the first time it feeds the loop back to
-// the model as synthetic results for one self-correction attempt; after that
-// nudge it aborts. Returns afterRound's (done, messages, error).
-func (tl *toolLoop) handleIdenticalLoop(
-	ctx context.Context,
-	toolCalls, looping []types.MessageToolCall,
-	rr roundRef,
-) (bool, []types.Message, error) {
-	if tl.nudgedLoop {
-		tl.persistMessages(ctx, rr.round)
-		return true, tl.messages, fmt.Errorf(
-			"provider stage: tool loop persisted after a self-correction nudge: %q called with identical arguments",
-			looping[0].Name)
-	}
-	tl.nudgedLoop = true
-	logger.Warn("identical tool-call loop detected; feeding it back to the model for one self-correction attempt",
-		"tool", looping[0].Name)
-	tl.messages = append(tl.messages, tl.loopFeedbackResults(ctx, toolCalls, looping, rr)...)
-	ResetIdleFromContext(ctx)
-	tl.persistMessages(ctx, rr.round)
-	return false, tl.messages, nil
-}
-
 // rebuildToolsIfChanged rebuilds the tools array when this round changed what
-// the model may call: a tool crossed the rejection threshold (excluded), a
-// tool call such as skill__activate / skill__deactivate changed the granted
-// set, or DescribeTool now describes the tools differently (a mid-turn
-// workflow transition narrowing the skill index). Rebuilding busts the
+// the model may call: the round reported an offer change (a tool excluded, the
+// granted set moved), or DescribeTool now describes the tools differently (a
+// mid-turn workflow transition narrowing the skill index). Rebuilding busts the
 // provider's cached prefix, so it happens only on a real change.
-func (tl *toolLoop) rebuildToolsIfChanged(
-	ctx context.Context, allowedTools []string, toolResults []types.Message, grantsBefore []string, round int,
-) error {
-	excludedChanged := tl.stage.updateExcludedTools(ctx, toolResults, tl.rejectionCounts, tl.excluded, round)
+func (tl *toolLoop) rebuildToolsIfChanged(allowedTools []string, offerChanged bool) error {
 	var offered *describedTools
-	if !excludedChanged && stringSlicesEqual(grantsBefore, tl.stage.grantedTools()) {
+	if !offerChanged {
 		var describedChanged bool
 		if describedChanged, offered = tl.stage.describedToolsChanged(allowedTools, tl.excluded); !describedChanged {
 			return nil
@@ -1844,51 +1740,6 @@ func (tl *toolLoop) rebuildToolsIfChanged(
 	tl.providerTools = rebuilt
 	tl.invalidateReserve()
 	return nil
-}
-
-// calledStopTool reports whether the policy names a terminal tool
-// (termination.tool_called) and one of the round's calls invoked it.
-func calledStopTool(policy *pipeline.ToolPolicy, toolCalls []types.MessageToolCall) bool {
-	if policy == nil || policy.StopOnTool == "" {
-		return false
-	}
-	for _, tc := range toolCalls {
-		if tc.Name == policy.StopOnTool {
-			return true
-		}
-	}
-	return false
-}
-
-// splitCallBudget divides a round's tool calls into those within the turn's
-// max_tool_calls_per_turn budget and those over it, counting the former as
-// executed. Without a cap every call is within budget.
-func (tl *toolLoop) splitCallBudget(
-	calls []types.MessageToolCall,
-) (within, over []types.MessageToolCall) {
-	if limit := tl.stage.getMaxToolCallsPerTurn(); limit > 0 {
-		remaining := max(limit-tl.toolCallsExecuted, 0)
-		if len(calls) > remaining {
-			calls, over = calls[:remaining], calls[remaining:]
-		}
-	}
-	tl.toolCallsExecuted += len(calls)
-	return calls, over
-}
-
-// overBudgetResults answers each call over the max_tool_calls_per_turn budget
-// with a policy rejection. Every call the model made still gets a result, so
-// the history stays valid to replay.
-func overBudgetResults(calls []types.MessageToolCall) []types.Message {
-	results := make([]types.Message, 0, len(calls))
-	for _, tc := range calls {
-		errMsg := fmt.Sprintf("Tool %s not executed: the tool call limit for this turn is reached", tc.Name)
-		result := types.NewTextToolResult(tc.ID, tc.Name, errMsg)
-		result.Error = errMsg
-		result.ErrorType = types.ToolErrorApproval
-		results = append(results, types.NewToolResultMessage(result))
-	}
-	return results
 }
 
 // preSeedLog writes the history messages that were already present in
