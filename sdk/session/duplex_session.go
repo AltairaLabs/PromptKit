@@ -189,7 +189,10 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 	stageInput := make(chan stage.StreamElement, streamBufferSize)
 	streamOutput := make(chan providers.StreamChunk, streamBufferSize)
 
-	sessionCtx, sessionCancel := context.WithCancel(context.Background())
+	// The session keeps ctx's values — tool calls see the host's caller
+	// identity and policy, as a text turn's do (#2690) — but owns its own
+	// cancellation, so it outlives the call that opened it.
+	sessionCtx, sessionCancel := context.WithCancel(context.WithoutCancel(ctx))
 
 	sess := &duplexSession{
 		id:               conversationID,
@@ -795,8 +798,9 @@ func (s *duplexSession) ForkSession(
 	}
 	s.varsMu.RUnlock()
 
-	// Create new duplex session with the builder
-	return NewDuplexSession(ctx, &DuplexSessionConfig{
+	// Create new duplex session with the builder. The fork keeps the
+	// parent's context values, so its tool calls run as the same caller.
+	return NewDuplexSession(context.WithoutCancel(s.sessionCtx), &DuplexSessionConfig{
 		ConversationID:  forkID,
 		StateStore:      s.store,
 		PipelineBuilder: pipelineBuilder,

@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/persistence/memory"
@@ -106,14 +107,23 @@ func LoadTemplate(packPath string, opts ...Option) (*PackTemplate, error) {
 //   - Capabilities
 //   - Event bus and hooks
 func (t *PackTemplate) Open(promptName string, opts ...Option) (*Conversation, error) {
-	return t.openConversation(promptName, false, opts...)
+	return t.openConversation(context.Background(), promptName, false, opts...)
 }
 
 // OpenDuplex creates a new duplex streaming conversation from this template.
 //
 // This is equivalent to [sdk.OpenDuplex] but reuses pre-loaded pack resources.
 func (t *PackTemplate) OpenDuplex(promptName string, opts ...Option) (*Conversation, error) {
-	return t.openConversation(promptName, true, opts...)
+	return t.OpenDuplexContext(context.Background(), promptName, opts...)
+}
+
+// OpenDuplexContext is [PackTemplate.OpenDuplex] with a base context for the
+// session, as [sdk.OpenDuplexContext]: tool calls see ctx's values, and the
+// session owns its own cancellation.
+func (t *PackTemplate) OpenDuplexContext(
+	ctx context.Context, promptName string, opts ...Option,
+) (*Conversation, error) {
+	return t.openConversation(ctx, promptName, true, opts...)
 }
 
 // Pack returns the loaded pack for inspection. The returned pack must not be modified.
@@ -126,6 +136,7 @@ func (t *PackTemplate) Pack() *pack.Pack {
 // (prepareConversation, completeOpen); the template only supplies what it
 // built once for the pack.
 func (t *PackTemplate) openConversation(
+	ctx context.Context,
 	promptName string,
 	duplex bool,
 	opts ...Option,
@@ -148,5 +159,5 @@ func (t *PackTemplate) openConversation(
 	if err != nil {
 		return nil, err
 	}
-	return completeOpen(conv, prov, duplex)
+	return completeOpen(ctx, conv, prov, duplex)
 }
