@@ -126,8 +126,11 @@ type DuplexProviderStage struct {
 	wasInterrupted bool
 
 	// Turn latency tracking - when the current turn started
-	// Set when user input is received, used to calculate LatencyMs on turn complete
+	// Set when user input is received, used to calculate LatencyMs on turn complete.
+	// The input goroutine sets it and the response goroutine reads it, under
+	// turnStartMu (setTurnStart, turnLatencyMs).
 	turnStartTime time.Time
+	turnStartMu   sync.Mutex
 
 	// Event emitter for recording audio events (optional, for session recording)
 	emitter *events.Emitter
@@ -169,6 +172,9 @@ type DuplexProviderStage struct {
 	// inputFailed is set once an input hook denied: the error element is then
 	// the session's last output.
 	inputFailed atomic.Bool
+	// tools runs the session's tool calls (SetToolExecution); nil forwards
+	// them downstream for the host to run. See stages_duplex_tools.go.
+	tools *duplexTools
 }
 
 // SetSessionObserver registers a callback invoked once with the streaming
@@ -259,8 +265,17 @@ func (s *DuplexProviderStage) Process(
 		}
 		input = merged
 	}
-	// Close the session (created above or pre-configured) on exit
-	defer s.session.Close()
+	// Close the session (created above or pre-configured) on exit, sending
+	// no tool response after it.
+	defer func() {
+		s.tools.markClosed()
+		_ = s.session.Close()
+	}()
+	if s.tools != nil {
+		workerCtx, stopWorker := context.WithCancel(ctx)
+		defer stopWorker()
+		go s.runToolWorker(workerCtx)
+	}
 
 	logger.Debug("DuplexProviderStage: starting bidirectional streaming")
 
@@ -407,6 +422,7 @@ func (s *DuplexProviderStage) createSessionLazily(
 		<-drainDone
 		return nil, s.failSeededSession(ctx, err, output)
 	}
+	s.seedToolSpend(prior)
 	if s.onSession != nil {
 		s.onSession(s.session)
 	}
@@ -593,15 +609,31 @@ func (s *DuplexProviderStage) forwardInputElements(
 				// runtime/providers/gemini/stream_session_integration.go
 				// (CompleteTurn doc) for the same warning.
 				logger.Debug("DuplexProviderStage: input channel closed, signaling input done")
-				s.signalInputDone(done)
+				s.onInputClosed(ctx, output, done)
 				return
 			}
 
 			if s.handleInputElement(ctx, &elem, output, done) {
 				return
 			}
+
+		case res := <-s.toolRoundResults():
+			if err := s.deliverToolRound(ctx, res, output); err != nil {
+				done <- err
+				return
+			}
 		}
 	}
+}
+
+// onInputClosed signals that input is done. With tool execution the
+// goroutine stays to deliver the session's tool rounds until ctx ends.
+func (s *DuplexProviderStage) onInputClosed(ctx context.Context, output chan<- StreamElement, done chan error) {
+	if s.tools != nil {
+		s.serveToolRoundsAfterInput(ctx, output, done)
+		return
+	}
+	s.signalInputDone(done)
 }
 
 // handleInputElement processes one input element for forwardInputElements and
@@ -649,10 +681,15 @@ func (s *DuplexProviderStage) handleInputElement(
 // signalInputDone marks input as finished (once) and reports a clean exit on
 // done.
 func (s *DuplexProviderStage) signalInputDone(done chan error) {
+	s.markInputDone()
+	done <- nil
+}
+
+// markInputDone marks input as finished, once.
+func (s *DuplexProviderStage) markInputDone() {
 	s.inputDoneOnce.Do(func() {
 		close(s.inputDoneCh)
 	})
-	done <- nil
 }
 
 // handleAllResponsesReceived handles the executor's "all responses received"
@@ -739,7 +776,8 @@ func (s *DuplexProviderStage) takeTextInputAsUserTurn(elem *StreamElement) {
 		return
 	}
 	user := &types.Message{Role: roleUser, Content: text, Timestamp: time.Now()}
-	s.turnStartTime = time.Now()
+	s.setTurnStart(time.Now())
+	s.tools.beginUserTurn()
 	s.recordHistory(user)
 	elem.Message = user
 	s.pendingTypedUser = user
@@ -795,9 +833,11 @@ func forwardToolResultMessages(ctx context.Context, toolMsgs []types.Message, ou
 // events.
 func (s *DuplexProviderStage) trackInputTurn(elem *StreamElement) {
 	if elem.Message.Role == roleUser {
-		s.turnStartTime = time.Now()
+		now := time.Now()
+		s.setTurnStart(now)
+		s.tools.beginUserTurn()
 		logger.Debug("DuplexProviderStage: started turn timing",
-			"turnStartTime", s.turnStartTime.Format(time.RFC3339Nano))
+			"turnStartTime", now.Format(time.RFC3339Nano))
 	}
 	if elem.Meta.TurnID != nil && *elem.Meta.TurnID != "" {
 		turnID := *elem.Meta.TurnID
@@ -1221,9 +1261,11 @@ func (s *DuplexProviderStage) onInputDone() <-chan time.Time {
 	}
 }
 
-// closeSessionIfOpen closes the session when one exists.
+// closeSessionIfOpen closes the session when one exists. No tool response is
+// sent after it.
 func (s *DuplexProviderStage) closeSessionIfOpen() {
 	if s.session != nil {
+		s.tools.markClosed()
 		_ = s.session.Close()
 	}
 }
@@ -1407,11 +1449,14 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	}
 
 	// Output guardrails check the completed turn, after its user turn (above)
-	// is in the history they see.
+	// is in the history they see. Its tool calls, if the stage runs them, are
+	// queued once the turn's message is out.
+	var round *duplexToolJob
 	if turnDone {
 		if err := s.guardCompletedTurn(ctx, &elem); err != nil {
 			return s.failTurn(ctx, err, output)
 		}
+		round = s.prepareToolRound(ctx, &elem)
 	}
 
 	logger.Debug("DuplexProviderStage: forwarding response element",
@@ -1420,12 +1465,10 @@ func (s *DuplexProviderStage) handleResponseChunk(
 		"hasMessage", elem.Message != nil,
 		"endOfStream", elem.EndOfStream)
 
-	select {
-	case output <- elem:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	if err := sendStreamElement(ctx, elem, output); err != nil {
+		return err
 	}
+	return s.queueToolRound(ctx, round)
 }
 
 // materializeStreamingUserTurn is the continuous-streaming user-turn
@@ -1591,6 +1634,7 @@ func (s *DuplexProviderStage) emitBufferedUserTurn(ctx context.Context, output c
 			Text: &transcript,
 		}},
 	}
+	s.tools.beginUserTurn()
 	s.recordHistory(userMsg)
 	select {
 	case output <- StreamElement{Message: userMsg}:

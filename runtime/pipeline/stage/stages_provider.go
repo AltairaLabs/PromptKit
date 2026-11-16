@@ -1088,10 +1088,17 @@ func (s *ProviderStage) executeMultiRound(
 // mid-loop, so attribution has to be per message rather than per turn. No-op
 // for non-workflow runs.
 func (s *ProviderStage) stampWorkflowState(response *types.Message) {
-	if s.stateResolver == nil || response == nil {
+	stampWorkflowStateMeta(s.stateResolver, response)
+}
+
+// stampWorkflowStateMeta records on response the state resolver reports
+// active. No-op without a resolver or a response, or when there is nothing to
+// record.
+func stampWorkflowStateMeta(resolver WorkflowStateResolver, response *types.Message) {
+	if resolver == nil || response == nil {
 		return
 	}
-	meta := s.stateResolver.CurrentStateMeta()
+	meta := resolver.CurrentStateMeta()
 	if len(meta) == 0 {
 		return
 	}
