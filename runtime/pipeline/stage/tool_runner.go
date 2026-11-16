@@ -860,8 +860,11 @@ func (t *toolTurn) runRound(
 	if limit := t.r.getMaxToolCallsPerTurn(); limit > 0 && t.toolCallsExecuted >= limit {
 		out.OfferExhausted = true
 	}
+	ran := callsRun(calls, held)
 	switch {
-	case calledStopTool(t.r.policy(), callsRun(calls, held)):
+	case len(held) > 0 && len(ran) == 0:
+		// Every call is held: nothing ran, so no limit is reached.
+	case calledStopTool(t.r.policy(), ran):
 		// termination.tool_called: the named tool has run; stop cleanly.
 		out.Stop = true
 	case rr.round == t.maxRounds:

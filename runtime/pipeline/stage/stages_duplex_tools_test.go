@@ -1639,3 +1639,36 @@ func TestDuplexTools_FinalWaitCoversTheReplyToAnEndedTurnsRound(t *testing.T) {
 	require.Len(t, msgs, 3)
 	assert.Equal(t, "It is 21 degrees", msgs[2].Content)
 }
+
+// A round whose every call is held for approval ran nothing, so it does not
+// reach the round limit: no limit is reported for it.
+func TestDuplexTools_AllHeldRoundDoesNotTripTheRoundLimit(t *testing.T) {
+	gate := func(_ context.Context, _, name string, _ map[string]any) (*tools.PendingToolInfo, error) {
+		return &tools.PendingToolInfo{Reason: "approval", Message: "approve " + name}, nil
+	}
+	exec := &realtimeToolExec{result: json.RawMessage(`"ok"`)}
+	h := startRealtime(t, realtimeOpts{
+		registry: newWeatherRegistry(t, exec),
+		policy:   &pipeline.ToolPolicy{MaxRounds: 1},
+		cfg:      DuplexToolConfig{ApprovalGate: gate},
+	})
+
+	h.emit(toolCallTurn(weatherCall("c1")))
+	var elems []StreamElement
+	deadline := time.After(2 * time.Second)
+	for held := false; !held; {
+		select {
+		case e := <-h.output:
+			elems = append(elems, e)
+			held = len(e.Meta.PendingTools) > 0
+		case <-deadline:
+			t.Fatal("no pending element")
+		}
+	}
+	require.Eventually(t, func() bool { return len(h.stage.tools.results) == 0 && h.stage.tools.inflight.Load() == 0 },
+		2*time.Second, time.Millisecond)
+	elems = append(elems, h.finish()...)
+
+	assert.Empty(t, streamErrors(elems), "nothing ran, so no limit was reached")
+	assert.Empty(t, exec.calls())
+}
