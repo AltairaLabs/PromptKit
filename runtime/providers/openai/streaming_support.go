@@ -61,6 +61,21 @@ func (p *Provider) buildRealtimeSessionConfig(req *providers.StreamingInputConfi
 	return config
 }
 
+// inputTranscriptionFromMetadata returns the session's input audio
+// transcription config. Transcription is on by default for debugging and
+// logging, and off when metadata["input_transcription"] is false; the model
+// is metadata["input_transcription_model"], whisper-1 when unset (#2692).
+func inputTranscriptionFromMetadata(metadata map[string]interface{}) *TranscriptionConfig {
+	if enabled, ok := metadata["input_transcription"].(bool); ok && !enabled {
+		return nil
+	}
+	model := defaultInputTranscriptionModel
+	if m, ok := metadata["input_transcription_model"].(string); ok && m != "" {
+		model = m
+	}
+	return &TranscriptionConfig{Model: model}
+}
+
 // applyStreamMetadata extracts configuration from request metadata.
 func (p *Provider) applyStreamMetadata(metadata map[string]interface{}, config *RealtimeSessionConfig) {
 	if metadata == nil {
@@ -85,20 +100,7 @@ func (p *Provider) applyStreamMetadata(metadata map[string]interface{}, config *
 		}
 	}
 
-	// Input audio transcription - enabled by default for debugging and logging
-	// Can be disabled via metadata["input_transcription"] = false; the model
-	// is metadata["input_transcription_model"], whisper-1 when unset (#2692).
-	enableTranscription := true // default
-	if val, ok := metadata["input_transcription"].(bool); ok {
-		enableTranscription = val
-	}
-	if enableTranscription {
-		model := defaultInputTranscriptionModel
-		if m, ok := metadata["input_transcription_model"].(string); ok && m != "" {
-			model = m
-		}
-		config.InputAudioTranscription = &TranscriptionConfig{Model: model}
-	}
+	config.InputAudioTranscription = inputTranscriptionFromMetadata(metadata)
 
 	// Turn detection / VAD settings
 	if vadDisabled, ok := metadata["vad_disabled"].(bool); ok && vadDisabled {
