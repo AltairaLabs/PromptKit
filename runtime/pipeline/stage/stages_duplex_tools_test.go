@@ -1707,3 +1707,22 @@ func TestDuplexTools_RoundFinishingAfterCloseKeepsPendingAndError(t *testing.T) 
 	assert.Empty(t, sess.toolResponses)
 	assert.Zero(t, sess.closeCount, "a closing session is not closed again")
 }
+
+// A realtime stage's runner keeps no stage-wide offer state (each tool turn
+// tracks its own): the offer methods treat it as an empty offer rather than
+// panicking.
+func TestDuplexTools_RunnerWithoutOfferStateIsAnEmptyOffer(t *testing.T) {
+	st := NewDuplexProviderStageWithTurnState(
+		providersmock.NewStreamingProvider("rt", "rt-model", false), baseConfig(), nil, nil)
+	st.SetToolExecution(registryWithTools(t, "weather"), nil, DuplexToolConfig{}, nil)
+	r := st.toolRunner()
+
+	r.resetOffered()
+	r.recordOffered("weather")
+	assert.Nil(t, r.offeredToolNames())
+	msg := types.Message{Role: roleAssistant}
+	r.stampToolsOffered(&msg)
+	assert.Nil(t, msg.Meta)
+	r.markBuilt(nil)
+	assert.True(t, r.describedChanged(nil), "nothing is ever recorded as built")
+}

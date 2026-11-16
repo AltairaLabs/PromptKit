@@ -1009,7 +1009,8 @@ func calledStopTool(policy *pipeline.ToolPolicy, toolCalls []types.MessageToolCa
 // A ProviderStage owns one, and every runner it builds shares it; it is
 // locked so a runner can be used from any goroutine. A realtime stage keeps
 // its own per-turn offer (duplexToolTurn.offered) and builds runners without
-// one: none of the methods that use it run there.
+// one: none of the methods that use it run there, and each treats a runner
+// without one as an empty offer.
 type toolOffer struct {
 	mu sync.Mutex
 	// names is the union of the tools offered across the turn's rounds.
@@ -1181,6 +1182,9 @@ func (r *toolRunner) withGrantedTools(allowedTools []string) []string {
 // offered once is reported offered for the rest of the conversation and a
 // tools_offered check with absent:true can never fail again.
 func (r *toolRunner) resetOffered() {
+	if r.offers == nil {
+		return
+	}
 	r.offers.mu.Lock()
 	defer r.offers.mu.Unlock()
 	r.offers.names = nil
@@ -1194,7 +1198,7 @@ func (r *toolRunner) resetOffered() {
 // types.MetaToolsOffered, which is what makes the tools_offered eval possible —
 // nothing else records a tool the model was offered but never called.
 func (r *toolRunner) recordOffered(names ...string) {
-	if len(names) == 0 {
+	if len(names) == 0 || r.offers == nil {
 		return
 	}
 	r.offers.mu.Lock()
@@ -1210,6 +1214,9 @@ func (r *toolRunner) recordOffered(names ...string) {
 // offeredToolNames returns the turn's offered set, sorted, or nil when the turn
 // offered no tools at all.
 func (r *toolRunner) offeredToolNames() []string {
+	if r.offers == nil {
+		return nil
+	}
 	r.offers.mu.Lock()
 	defer r.offers.mu.Unlock()
 	if len(r.offers.names) == 0 {
@@ -1264,6 +1271,9 @@ func (r *toolRunner) describedToolsKey(descriptors []*tools.ToolDescriptor) stri
 // describedChanged reports whether descriptors differ from the tools array
 // last built (markBuilt), as DescribeTool shapes them.
 func (r *toolRunner) describedChanged(descriptors []*tools.ToolDescriptor) bool {
+	if r.offers == nil {
+		return true
+	}
 	key := r.describedToolsKey(descriptors)
 	r.offers.mu.Lock()
 	defer r.offers.mu.Unlock()
@@ -1272,6 +1282,9 @@ func (r *toolRunner) describedChanged(descriptors []*tools.ToolDescriptor) bool 
 
 // markBuilt records descriptors as the tools array last built.
 func (r *toolRunner) markBuilt(descriptors []*tools.ToolDescriptor) {
+	if r.offers == nil {
+		return
+	}
 	key := r.describedToolsKey(descriptors)
 	r.offers.mu.Lock()
 	defer r.offers.mu.Unlock()
