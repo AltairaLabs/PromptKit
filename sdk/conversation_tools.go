@@ -159,6 +159,74 @@ func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 	}
 }
 
+// ToolCall is one call of a tool, as a handler registered with
+// [Conversation.OnToolCall] or [Conversation.OnToolAsyncCall] receives it.
+type ToolCall struct {
+	// Name is the tool's name as defined in the pack.
+	Name string
+	// CallID is the provider-assigned ID of this call.
+	CallID string
+	// Args are the call's arguments, parsed from the model's JSON.
+	Args map[string]any
+	// Caller is who the conversation acts for ([WithCaller]); the zero Caller
+	// when none was set.
+	Caller types.Caller
+}
+
+// OnToolCall registers a handler for a tool defined in the pack that receives
+// the whole call: its name, the provider's call ID, the parsed arguments and
+// the caller the conversation acts for ([WithCaller]).
+//
+//	conv.OnToolCall("get_balance", func(ctx context.Context, call sdk.ToolCall) (any, error) {
+//	    return accounts.Balance(ctx, call.Caller.ID)
+//	})
+//
+// The return value is serialized to JSON and sent back to the model as the
+// tool result. A later OnToolCtx, OnToolHTTP, OnToolExecutor or OnToolAsync
+// for the same name replaces it.
+func (c *Conversation) OnToolCall(name string, handler func(ctx context.Context, call ToolCall) (any, error)) {
+	c.handlersMu.Lock()
+	defer c.handlersMu.Unlock()
+	c.registerCallHandlerLocked(name, handler)
+}
+
+// registerCallHandlerLocked stores handler for name in the call handlers,
+// which receive the whole call. The caller holds handlersMu.
+func (c *Conversation) registerCallHandlerLocked(
+	name string, handler func(ctx context.Context, call ToolCall) (any, error),
+) {
+	if c.callHandlers == nil {
+		c.callHandlers = make(map[string]toolCallHandler)
+	}
+	c.callHandlers[name] = func(
+		ctx context.Context, call tools.ToolCall,
+	) (json.RawMessage, []types.ContentPart, error) {
+		var args map[string]any
+		if len(call.Args) > 0 {
+			if err := json.Unmarshal(call.Args, &args); err != nil {
+				return nil, nil, fmt.Errorf("failed to parse tool arguments: %w", err)
+			}
+		}
+		result, err := handler(ctx, ToolCall{Name: call.Name, CallID: call.ID, Args: args, Caller: call.Caller})
+		if err != nil {
+			return nil, nil, err
+		}
+		resultJSON, err := json.Marshal(result)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to serialize tool result: %w", err)
+		}
+		return resultJSON, nil, nil
+	}
+}
+
+// callerIdentity is the caller the conversation acts for ([WithCaller]).
+func (c *Conversation) callerIdentity() types.Caller {
+	if c.config == nil {
+		return types.Caller{}
+	}
+	return c.config.caller
+}
+
 // packToolDescriptor is the descriptor OnToolExecutor hands its executor for
 // the pack tool name: the pack's name, description, parameters and
 // declaration.
@@ -228,8 +296,48 @@ func (c *Conversation) OnToolAsync(
 func (c *Conversation) OnToolAsyncWithContext(name string, checkFunc sdktools.AsyncToolCheck, execFunc ToolHandler) {
 	c.asyncHandlersMu.Lock()
 	defer c.asyncHandlersMu.Unlock()
+	c.initAsyncStoresLocked()
+	c.asyncHandlers[name] = checkFunc
 
-	// Initialize maps if needed
+	// Register the execution handler (handlersMu acquired after asyncHandlersMu per lock ordering)
+	c.handlersMu.Lock()
+	c.handlers[name] = execFunc
+	// A call handler (OnToolCall, OnToolAsyncCall, a CallExecutor) would
+	// otherwise win over execFunc when a held call is approved.
+	delete(c.callHandlers, name)
+	c.handlersMu.Unlock()
+}
+
+// OnToolAsyncCall is [Conversation.OnToolAsyncWithContext] with an execution
+// handler that receives the whole call, as an [Conversation.OnToolCall]
+// handler does. A call the check holds runs when it is approved
+// ([Conversation.ResolveTool]), and exec then receives the held call's
+// provider call ID and the caller the conversation acts for ([WithCaller]).
+//
+//	conv.OnToolAsyncCall("process_refund", needsApproval,
+//	    func(ctx context.Context, call sdk.ToolCall) (any, error) {
+//	        return refunds.Process(ctx, call.Caller.ID, call.Args)
+//	    })
+func (c *Conversation) OnToolAsyncCall(
+	name string, checkFunc sdktools.AsyncToolCheck, exec func(ctx context.Context, call ToolCall) (any, error),
+) {
+	c.asyncHandlersMu.Lock()
+	defer c.asyncHandlersMu.Unlock()
+	c.initAsyncStoresLocked()
+	c.asyncHandlers[name] = checkFunc
+
+	// handlersMu acquired after asyncHandlersMu per lock ordering.
+	c.handlersMu.Lock()
+	defer c.handlersMu.Unlock()
+	c.registerCallHandlerLocked(name, exec)
+	// An earlier OnToolAsync's handler would otherwise still run a duplex call
+	// its check let through (executeAsyncToolNow).
+	delete(c.handlers, name)
+}
+
+// initAsyncStoresLocked creates the async check map and the pending and
+// resolved stores on first use. The caller holds asyncHandlersMu.
+func (c *Conversation) initAsyncStoresLocked() {
 	if c.asyncHandlers == nil {
 		c.asyncHandlers = make(map[string]sdktools.AsyncToolCheck)
 	}
@@ -239,13 +347,6 @@ func (c *Conversation) OnToolAsyncWithContext(name string, checkFunc sdktools.As
 	if c.resolvedStore == nil {
 		c.resolvedStore = sdktools.NewResolvedStore()
 	}
-
-	c.asyncHandlers[name] = checkFunc
-
-	// Register the execution handler (handlersMu acquired after asyncHandlersMu per lock ordering)
-	c.handlersMu.Lock()
-	c.handlers[name] = execFunc
-	c.handlersMu.Unlock()
 }
 
 // newPendingStore returns the durable pending store configured via
@@ -261,15 +362,45 @@ func newPendingStore(cfg *config) (store sdktools.PendingStore, owned bool) {
 // lookupExecHandler recovers the registered execution handler for a tool by
 // name. A persisted pending call carries no closure, so the handler is
 // re-attached here at resolve time — which is why the resolving process must
-// have registered the same OnToolAsync handler.
-func (c *Conversation) lookupExecHandler(name string) sdktools.ExecFunc {
+// have registered the same OnToolAsync handler. A call handler is given the
+// held call's ID and the caller the conversation acts for: the call was held
+// in this conversation, which has one caller.
+func (c *Conversation) lookupExecHandler(ctx context.Context, name, callID string) sdktools.ExecFunc {
 	c.handlersMu.RLock()
+	callHandler := c.callHandlers[name]
 	handler := c.handlers[name]
 	c.handlersMu.RUnlock()
+	if callHandler != nil {
+		return c.approvedCallExec(ctx, name, callID, callHandler)
+	}
 	if handler == nil {
 		return nil
 	}
 	return sdktools.ExecFunc(handler)
+}
+
+// approvedCallExec runs an approved held call on its call handler with the
+// approved arguments.
+func (c *Conversation) approvedCallExec(
+	ctx context.Context, name, callID string, handler toolCallHandler,
+) sdktools.ExecFunc {
+	return func(args map[string]any) (any, error) {
+		argsJSON, err := json.Marshal(args)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal args: %w", err)
+		}
+		result, _, err := handler(tools.WithCallID(ctx, callID), tools.ToolCall{
+			Name: name, Args: argsJSON, ID: callID, Caller: c.callerIdentity(),
+		})
+		if err != nil {
+			return nil, err
+		}
+		var parsed any
+		if json.Unmarshal(result, &parsed) != nil {
+			return string(result), nil
+		}
+		return parsed, nil
+	}
 }
 
 // ResolveTool approves and executes a pending tool call.
@@ -338,7 +469,7 @@ func (c *Conversation) ResolveToolWithArgs(
 	if awaitErr := c.discardIfNotAwaited(ctx, id); awaitErr != nil {
 		return nil, awaitErr
 	}
-	handler := c.lookupExecHandler(peek.Name)
+	handler := c.lookupExecHandler(ctx, peek.Name, peek.ID)
 	if handler == nil {
 		return nil, markSentinel(fmt.Errorf("no handler registered for tool %q", peek.Name), ErrToolNotRegistered)
 	}

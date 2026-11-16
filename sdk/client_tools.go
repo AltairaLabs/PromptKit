@@ -37,6 +37,10 @@ type ClientToolRequest struct {
 
 	// Descriptor provides the full tool descriptor for advanced use cases.
 	Descriptor *tools.ToolDescriptor
+
+	// Caller is who the conversation acts for ([WithCaller]); the zero Caller
+	// when none was set.
+	Caller types.Caller
 }
 
 // ClientToolHandler is a function that fulfills a client-side tool call.
@@ -197,20 +201,29 @@ func (e *clientExecutor) Name() string {
 func (e *clientExecutor) Execute(
 	ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage,
 ) (json.RawMessage, error) {
-	// Parse args
-	var argsMap map[string]any
-	if err := json.Unmarshal(args, &argsMap); err != nil {
-		return nil, fmt.Errorf("failed to parse client tool arguments: %w", err)
+	result, _, err := e.ExecuteCall(ctx, descriptor, tools.ToolCall{Name: descriptor.Name, Args: args})
+	return result, err
+}
+
+// ExecuteCall is Execute for the whole call: the handler's request carries the
+// call's ID and caller.
+func (e *clientExecutor) ExecuteCall(
+	ctx context.Context, descriptor *tools.ToolDescriptor, call tools.ToolCall,
+) (json.RawMessage, []types.ContentPart, error) {
+	argsMap, err := parseClientToolArgs(call.Args)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	// Snapshot first, then live via the mutex accessor.
 	handler, ok := e.lookupClientHandler(descriptor.Name)
 	if !ok {
-		return nil, markSentinel(
+		return nil, nil, markSentinel(
 			fmt.Errorf("no client handler registered for tool: %s", descriptor.Name), ErrToolNotRegistered)
 	}
 
-	return e.executeHandler(ctx, handler, descriptor, argsMap)
+	result, err := e.executeHandler(ctx, handler, newClientToolRequest(ctx, descriptor, call, argsMap))
+	return result, nil, err
 }
 
 // ExecuteAsync checks for a registered handler. If one exists it executes
@@ -220,38 +233,60 @@ func (e *clientExecutor) Execute(
 func (e *clientExecutor) ExecuteAsync(
 	ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage,
 ) (*tools.ToolExecutionResult, error) {
-	// Parse args
-	var argsMap map[string]any
-	if err := json.Unmarshal(args, &argsMap); err != nil {
-		return nil, fmt.Errorf("failed to parse client tool arguments: %w", err)
+	return e.ExecuteCallAsync(ctx, descriptor, tools.ToolCall{Name: descriptor.Name, Args: args})
+}
+
+// ExecuteCallAsync is ExecuteAsync for the whole call: a handler's request
+// carries the call's ID and caller.
+func (e *clientExecutor) ExecuteCallAsync(
+	ctx context.Context, descriptor *tools.ToolDescriptor, call tools.ToolCall,
+) (*tools.ToolExecutionResult, error) {
+	argsMap, err := parseClientToolArgs(call.Args)
+	if err != nil {
+		return nil, err
 	}
 
 	handler, ok := e.lookupClientHandler(descriptor.Name)
 
 	// No handler → deferred mode: return Pending
 	if !ok {
-		info := &tools.PendingToolInfo{
-			Reason:   "client_tool_deferred",
-			Message:  fmt.Sprintf("Client tool %q awaiting caller fulfillment", descriptor.Name),
-			ToolName: descriptor.Name,
-			Args:     args,
-		}
-		if descriptor.ClientConfig != nil {
-			if descriptor.ClientConfig.Consent != nil {
-				info.Message = descriptor.ClientConfig.Consent.Message
-			}
-			info.Metadata = map[string]any{
-				"categories": descriptor.ClientConfig.Categories,
-			}
-		}
-		return &tools.ToolExecutionResult{
-			Status:      tools.ToolStatusPending,
-			PendingInfo: info,
-		}, nil
+		return deferredClientTool(descriptor, call.Args), nil
 	}
 
 	// Handler present → execute synchronously (with multimodal support)
-	return e.executeHandlerAsync(ctx, handler, descriptor, argsMap)
+	return e.executeHandlerAsync(ctx, handler, newClientToolRequest(ctx, descriptor, call, argsMap))
+}
+
+// parseClientToolArgs parses a client tool call's JSON arguments.
+func parseClientToolArgs(args json.RawMessage) (map[string]any, error) {
+	var argsMap map[string]any
+	if err := json.Unmarshal(args, &argsMap); err != nil {
+		return nil, fmt.Errorf("failed to parse client tool arguments: %w", err)
+	}
+	return argsMap, nil
+}
+
+// deferredClientTool is the pending result of a client tool with no handler:
+// the caller fulfills it after the turn suspends.
+func deferredClientTool(descriptor *tools.ToolDescriptor, args json.RawMessage) *tools.ToolExecutionResult {
+	info := &tools.PendingToolInfo{
+		Reason:   "client_tool_deferred",
+		Message:  fmt.Sprintf("Client tool %q awaiting caller fulfillment", descriptor.Name),
+		ToolName: descriptor.Name,
+		Args:     args,
+	}
+	if descriptor.ClientConfig != nil {
+		if descriptor.ClientConfig.Consent != nil {
+			info.Message = descriptor.ClientConfig.Consent.Message
+		}
+		info.Metadata = map[string]any{
+			"categories": descriptor.ClientConfig.Categories,
+		}
+	}
+	return &tools.ToolExecutionResult{
+		Status:      tools.ToolStatusPending,
+		PendingInfo: info,
+	}
 }
 
 // SendToolResult provides the result for a deferred client tool.
@@ -628,33 +663,40 @@ func (c *Conversation) emitClientToolResolvedEvents(resolutions []*sdktools.Tool
 	}
 }
 
-// executeHandler runs a ClientToolHandler and returns serialized JSON.
-func (e *clientExecutor) executeHandler(
-	ctx context.Context, handler ClientToolHandler,
-	descriptor *tools.ToolDescriptor, argsMap map[string]any,
-) (json.RawMessage, error) {
+// newClientToolRequest is the request a ClientToolHandler receives for call.
+// A call without an ID takes the one on ctx (tools.WithCallID).
+func newClientToolRequest(
+	ctx context.Context, descriptor *tools.ToolDescriptor, call tools.ToolCall, argsMap map[string]any,
+) ClientToolRequest {
+	callID := call.ID
+	if callID == "" {
+		callID = tools.CallIDFromContext(ctx)
+	}
 	req := ClientToolRequest{
 		ToolName:   descriptor.Name,
-		CallID:     tools.CallIDFromContext(ctx),
+		CallID:     callID,
 		Args:       argsMap,
 		Descriptor: descriptor,
+		Caller:     call.Caller,
 	}
-
-	// Populate consent fields from ClientConfig
 	if descriptor.ClientConfig != nil {
 		if descriptor.ClientConfig.Consent != nil {
 			req.ConsentMsg = descriptor.ClientConfig.Consent.Message
 		}
 		req.Categories = descriptor.ClientConfig.Categories
 	}
+	return req
+}
 
-	// Execute handler
+// executeHandler runs a ClientToolHandler and returns serialized JSON.
+func (e *clientExecutor) executeHandler(
+	ctx context.Context, handler ClientToolHandler, req ClientToolRequest,
+) (json.RawMessage, error) {
 	result, err := handler(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 
-	// Serialize result
 	resultJSON, err := json.Marshal(result)
 	if err != nil {
 		return nil, fmt.Errorf(errSerializeClientToolResult, err)
@@ -667,23 +709,8 @@ func (e *clientExecutor) executeHandler(
 // If the handler returns []types.ContentPart, the parts are stored directly
 // instead of being JSON-serialized. Other return types are JSON-serialized as usual.
 func (e *clientExecutor) executeHandlerAsync(
-	ctx context.Context, handler ClientToolHandler,
-	descriptor *tools.ToolDescriptor, argsMap map[string]any,
+	ctx context.Context, handler ClientToolHandler, req ClientToolRequest,
 ) (*tools.ToolExecutionResult, error) {
-	req := ClientToolRequest{
-		ToolName:   descriptor.Name,
-		CallID:     tools.CallIDFromContext(ctx),
-		Args:       argsMap,
-		Descriptor: descriptor,
-	}
-
-	if descriptor.ClientConfig != nil {
-		if descriptor.ClientConfig.Consent != nil {
-			req.ConsentMsg = descriptor.ClientConfig.Consent.Message
-		}
-		req.Categories = descriptor.ClientConfig.Categories
-	}
-
 	result, err := handler(ctx, req)
 	if err != nil {
 		return nil, err

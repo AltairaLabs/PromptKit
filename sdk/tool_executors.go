@@ -44,7 +44,7 @@ func (e *localExecutor) ExecuteCallAsync(
 	ctx context.Context, descriptor *tools.ToolDescriptor, call tools.ToolCall,
 ) (*tools.ToolExecutionResult, error) {
 	if e.clientBound(descriptor.Name) {
-		return e.client.ExecuteAsync(ctx, asClientTool(descriptor), call.Args)
+		return e.client.ExecuteCallAsync(ctx, asClientTool(descriptor), call)
 	}
 	result, parts, err := e.ExecuteCall(ctx, descriptor, call)
 	if err != nil {
@@ -53,15 +53,17 @@ func (e *localExecutor) ExecuteCallAsync(
 	return &tools.ToolExecutionResult{Status: tools.ToolStatusComplete, Content: result, Parts: parts}, nil
 }
 
-// ExecuteCall runs the call on the conversation's call handler for the tool,
-// which receives the whole call, and otherwise through Execute.
+// ExecuteCall runs a client-bound tool on the client executor, and any other
+// on the conversation's call handler for the tool, which receives the whole
+// call, or otherwise through Execute.
 func (e *localExecutor) ExecuteCall(
 	ctx context.Context, descriptor *tools.ToolDescriptor, call tools.ToolCall,
 ) (json.RawMessage, []types.ContentPart, error) {
-	if !e.clientBound(descriptor.Name) {
-		if handler, ok := e.liveCallHandler(descriptor.Name); ok {
-			return handler(ctx, call)
-		}
+	if e.clientBound(descriptor.Name) {
+		return e.client.ExecuteCall(ctx, asClientTool(descriptor), call)
+	}
+	if handler, ok := e.liveCallHandler(descriptor.Name); ok {
+		return handler(ctx, call)
 	}
 	result, err := e.Execute(ctx, descriptor, call.Args)
 	return result, nil, err
