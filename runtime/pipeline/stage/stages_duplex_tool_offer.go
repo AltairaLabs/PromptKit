@@ -308,8 +308,10 @@ func (dt *duplexTools) stampToolsOffered(turn *duplexToolTurn, msg *types.Messag
 
 // splitUnsynced separates the calls to tools the session does not hold but
 // the conversation offers, answering each with a refusal, from the calls to
-// run. A round whose calls are all refused skips the tool runner: none of its
-// accounting (round limit, identical-call breaker, budget) sees it.
+// run. A round whose calls are all refused skips the tool runner, so the
+// identical-call breaker and the call budget do not count it; the round limit
+// still does (each round's number comes from the provider call it answers),
+// and refuseUnsyncedRound caps how many such batches a turn gets.
 func (dt *duplexTools) splitUnsynced(
 	calls []types.MessageToolCall,
 ) (run []types.MessageToolCall, refused []types.Message) {

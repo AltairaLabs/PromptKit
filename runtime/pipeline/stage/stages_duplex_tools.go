@@ -646,7 +646,7 @@ func (s *DuplexProviderStage) runToolJob(ctx context.Context, job *duplexToolJob
 func (s *DuplexProviderStage) runRound(ctx context.Context, job *duplexToolJob) *duplexToolResult {
 	calls, refused := s.tools.splitUnsynced(job.calls)
 	if len(calls) == 0 {
-		return toolRoundResult(refused, nil, nil)
+		return s.refuseUnsyncedRound(job, refused)
 	}
 	out := job.turn.RunRound(ctx, calls, job.rr)
 	out.Results = append(out.Results, refused...)
@@ -660,6 +660,19 @@ func (s *DuplexProviderStage) runRound(ctx context.Context, job *duplexToolJob) 
 	}
 	s.tools.stop(job.turn, cause)
 	return toolRoundResult(refuseUnanswered(job.calls, out.Results, out.Pending, cause), out.Pending, out.Err)
+}
+
+// refuseUnsyncedRound answers a round whose every call names a tool the
+// session does not hold. Such batches count as a stopped turn's refusals do:
+// past maxStoppedTurnRefusals the turn is stopped, and the session closed,
+// with an error naming the tool.
+func (s *DuplexProviderStage) refuseUnsyncedRound(job *duplexToolJob, refused []types.Message) *duplexToolResult {
+	if s.tools.addRefusal(job.turn) <= maxStoppedTurnRefusals {
+		return toolRoundResult(refused, nil, nil)
+	}
+	err := fmt.Errorf("tool %s is not available in this realtime session", job.calls[0].Name)
+	s.tools.stop(job.turn, err)
+	return s.refuseStoppedTurn(job, err)
 }
 
 // refuseStoppedTurn answers the calls of a stopped tool turn with refusals.

@@ -471,3 +471,75 @@ func TestDuplexToolOffer_FailedUpdateRefusesTheGrantedTool(t *testing.T) {
 			"and the session's tools could not be updated"}}, sent[1])
 	assert.Equal(t, []string{"activate"}, exec.calls())
 }
+
+// A model that keeps calling a tool granted after setup, on a session that
+// cannot be given it, gets two refused batches; the next closes the session
+// with an error naming the tool, as a stopped turn's refusals do.
+func TestDuplexToolOffer_RepeatedCallsToAToolTheSessionLacksCloseTheSession(t *testing.T) {
+	exec := &grantingExec{grant: []string{"refund"}}
+	reg := registryWithTools(t, "weather", "activate", "refund")
+	reg.RegisterExecutor(exec)
+	h := startRealtime(t, realtimeOpts{
+		registry:  reg,
+		cfg:       DuplexToolConfig{ToolGrants: exec.grants},
+		turnState: &TurnState{AllowedTools: []string{"weather", "activate"}},
+		script: [][]providers.StreamChunk{
+			toolCallTurn(namedCall("c2", "refund")),
+			toolCallTurn(namedCall("c3", "refund")),
+			toolCallTurn(namedCall("c4", "refund")),
+			toolCallTurn(namedCall("c5", "refund")),
+		},
+	})
+
+	h.emit(toolCallTurn(namedCall("c1", "activate")))
+	elems := drainUntilClosed(t, h.output)
+	require.NoError(t, <-h.done)
+
+	refusal := func(id string) []providers.ToolResponse {
+		return []providers.ToolResponse{{ToolCallID: id, IsError: true,
+			Result: "Tool refund was not run: it became available after this realtime session started, " +
+				"and the provider cannot add tools to a live session"}}
+	}
+	assert.Equal(t, [][]providers.ToolResponse{
+		{{ToolCallID: "c1", Result: "ok"}},
+		refusal("c2"),
+		refusal("c3"),
+	}, h.sess().sentResponses(), "two refusal batches, then nothing")
+	assert.True(t, h.sess().isClosed())
+	errs := streamErrors(elems)
+	require.Len(t, errs, 1)
+	assert.Equal(t, "duplex provider stage: closing the session: the model kept calling tools after its "+
+		"tool turn was stopped: tool refund is not available in this realtime session", errs[0].Error())
+	assert.Equal(t, []string{"activate"}, exec.calls())
+}
+
+// A turn completion with no content (only its cost), and no user turn
+// before it, starts a tool turn too, and that turn lifts the last turn's
+// exclusion.
+func TestDuplexToolOffer_ContentlessCompletionLiftsTheExclusion(t *testing.T) {
+	reg := registryWithTools(t, "flaky")
+	reg.RegisterExecutor(failingExec{})
+	h := startRealtime(t, realtimeOpts{
+		registry:  reg,
+		turnState: &TurnState{AllowedTools: []string{"flaky"}},
+		updatable: true,
+		script:    [][]providers.StreamChunk{textTurn("the backend is down", nil)},
+	})
+
+	h.emit(toolCallTurn(namedCall("c1", "flaky"), namedCall("c2", "flaky")))
+	h.awaitSent(1)
+	require.Eventually(t, func() bool { return len(h.output) >= 4 }, 2*time.Second, time.Millisecond)
+	fr := "stop"
+	h.emit([]providers.StreamChunk{{
+		FinishReason: &fr, CostInfo: &types.CostInfo{InputTokens: 12, OutputTokens: 1, TotalCost: 0.001},
+	}})
+	require.Eventually(t, func() bool {
+		updates, _ := h.sess().toolUpdates()
+		return len(updates) == 2
+	}, 2*time.Second, time.Millisecond, "the content-less turn never lifted the exclusion")
+	h.finish()
+
+	updates, _ := h.sess().toolUpdates()
+	assert.Empty(t, updates[0])
+	assert.Equal(t, []string{"flaky"}, toolNamesOf(updates[1]))
+}
