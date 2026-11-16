@@ -27,7 +27,8 @@ import (
 // responses. A session without it, or whose update failed, keeps the tools it
 // holds: a call to a tool the conversation offers but the session does not
 // hold is refused, and so is a call to a tool the session holds but the
-// conversation has withdrawn (an exclusion, a revoked grant).
+// conversation has withdrawn (a revoked grant). A tool excluded for one tool
+// turn after repeated rejections is not withdrawn: a call to it still runs.
 //
 // A spent max_tool_calls_per_turn budget does not change the offer: calls
 // over it are refused (overBudgetResults), and a session stripped of its
@@ -229,7 +230,14 @@ func (s *DuplexProviderStage) syncSessionTools(
 		s.updateSessionToolsLocked(ctx, want, key)
 	}
 	o.unsynced = missingTools(want, o.held)
-	o.withdrawn = missingTools(o.held, want)
+	// A tool excluded for this turn only (repeated rejections) is not
+	// withdrawn: a call to it runs, as on a text turn. Only what the
+	// conversation no longer offers at all (a revoked grant) is.
+	conversation := want
+	if len(excluded) > 0 {
+		conversation = s.wantedSessionTools(nil)
+	}
+	o.withdrawn = missingTools(o.held, conversation)
 	if record {
 		dt.recordOffered(turn, o.heldNames())
 	}

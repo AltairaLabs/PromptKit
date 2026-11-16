@@ -586,3 +586,30 @@ func TestDuplexToolOffer_WithdrawnToolTheSessionStillHoldsIsRefused(t *testing.T
 		})
 	}
 }
+
+// A tool excluded for this tool turn after repeated failures is not
+// withdrawn from the conversation: on a session that cannot drop it, a
+// further call runs as it would on a text turn, and is not refused as
+// withdrawn.
+func TestDuplexToolOffer_TurnExclusionIsNotAWithdrawal(t *testing.T) {
+	call := func(id string) types.MessageToolCall {
+		return types.MessageToolCall{ID: id, Name: "flaky", Args: json.RawMessage(`{"n":"` + id + `"}`)}
+	}
+	reg := registryWithTools(t, "flaky")
+	reg.RegisterExecutor(failingExec{})
+	h := startRealtime(t, realtimeOpts{
+		registry:  reg,
+		turnState: &TurnState{AllowedTools: []string{"flaky"}},
+		script:    [][]providers.StreamChunk{toolCallTurn(call("c3"))},
+	})
+
+	h.emit(toolCallTurn(call("c1"), call("c2")))
+	sent := h.awaitSent(2)
+	h.finish()
+
+	require.Len(t, sent[1], 1)
+	assert.Equal(t, "c3", sent[1][0].ToolCallID)
+	assert.True(t, sent[1][0].IsError)
+	assert.Contains(t, sent[1][0].Result, "backend down", "the call ran")
+	assert.NotContains(t, sent[1][0].Result, "withdrawn")
+}
