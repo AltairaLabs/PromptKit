@@ -263,8 +263,10 @@ type STTProviderConfig struct {
 type InferenceProviderConfig struct {
 	// ID is a stable identifier; defaults to the type when empty.
 	ID string `yaml:"id,omitempty" json:"id,omitempty" jsonschema:"title=ID,description=Stable identifier"`
-	// Type selects the implementation. Today only "huggingface".
-	Type string `yaml:"type" json:"type" jsonschema:"enum=huggingface,title=Type,description=Inference provider type"`
+	// Type selects the implementation: one of the backends runtime/inference/all
+	// registers (huggingface, nvidia-topic-control, openai, systemone).
+	//nolint:lll // jsonschema tags require single line
+	Type string `yaml:"type" json:"type" jsonschema:"enum=huggingface,enum=nvidia-topic-control,enum=openai,enum=systemone,title=Type,description=Inference provider type"`
 	// Model overrides the provider's default classification model.
 	//nolint:lll // jsonschema tags require single line
 	Model string `yaml:"model,omitempty" json:"model,omitempty" jsonschema:"title=Model,description=Classification model name"`
