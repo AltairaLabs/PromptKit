@@ -57,12 +57,7 @@ func buildRealtimeSessionConfig(config RealtimeSessionConfig) SessionConfig {
 	if len(config.Tools) > 0 {
 		cfg.Tools = make([]RealtimeToolDef, len(config.Tools))
 		for i, tool := range config.Tools {
-			cfg.Tools[i] = RealtimeToolDef{
-				Type:        typeFunction,
-				Name:        tool.Name,
-				Description: tool.Description,
-				Parameters:  tool.Parameters,
-			}
+			cfg.Tools[i] = realtimeToolDef(tool.Name, tool.Description, tool.Parameters)
 		}
 	}
 
@@ -101,14 +96,19 @@ func realtimeToolChoice(choice string, tools []RealtimeToolDef) interface{} {
 func realtimeToolDefs(tools []providers.StreamingToolDefinition) []RealtimeToolDef {
 	out := make([]RealtimeToolDef, len(tools))
 	for i, tool := range tools {
-		out[i] = RealtimeToolDef{
-			Type:        typeFunction,
-			Name:        tool.Name,
-			Description: tool.Description,
-			Parameters:  tool.Parameters,
-		}
+		out[i] = realtimeToolDef(tool.Name, tool.Description, tool.Parameters)
 	}
 	return out
+}
+
+// realtimeToolDef is the session's wire form of one function tool.
+func realtimeToolDef(name, description string, parameters map[string]interface{}) RealtimeToolDef {
+	return RealtimeToolDef{
+		Type:        typeFunction,
+		Name:        name,
+		Description: description,
+		Parameters:  parameters,
+	}
 }
 
 // Realtime modality names shared with the GA output_modalities field.
