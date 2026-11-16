@@ -3,6 +3,9 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -164,4 +167,132 @@ func TestDuplexToolOffer_PromptRequiredToolChoiceIsNotSentToTheSession(t *testin
 	assert.Empty(t, created[0].ToolChoice)
 	assert.Equal(t, "lookup_order", created[0].Tools[0].Name)
 	assert.Len(t, provider.getSessions()[0].receivedResponses, 1, "the session was answered once")
+}
+
+// updatingToolSession is a toolAwareMockSession that can change its tools
+// mid-session (providers.StreamToolUpdater), recording each update.
+type updatingToolSession struct {
+	*toolAwareMockSession
+	updatesMu sync.Mutex
+	updates   [][]string
+}
+
+func (s *updatingToolSession) UpdateTools(_ context.Context, defs []providers.StreamingToolDefinition) error {
+	names := make([]string, 0, len(defs))
+	for i := range defs {
+		names = append(names, defs[i].Name)
+	}
+	s.updatesMu.Lock()
+	s.updates = append(s.updates, names)
+	s.updatesMu.Unlock()
+	return nil
+}
+
+func (s *updatingToolSession) toolUpdates() [][]string {
+	s.updatesMu.Lock()
+	defer s.updatesMu.Unlock()
+	return append([][]string(nil), s.updates...)
+}
+
+// updatingToolProvider creates one updatingToolSession.
+type updatingToolProvider struct {
+	*toolAwareStreamingProvider
+	sessionMu sync.Mutex
+	session   *updatingToolSession
+}
+
+func (p *updatingToolProvider) created() *updatingToolSession {
+	p.sessionMu.Lock()
+	defer p.sessionMu.Unlock()
+	return p.session
+}
+
+func (p *updatingToolProvider) CreateStreamSession(
+	ctx context.Context, req *providers.StreamingInputConfig,
+) (providers.StreamInputSession, error) {
+	inner, err := p.toolAwareStreamingProvider.CreateStreamSession(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	sess := &updatingToolSession{toolAwareMockSession: inner.(*toolAwareMockSession)}
+	p.sessionMu.Lock()
+	p.session = sess
+	p.sessionMu.Unlock()
+	return sess, nil
+}
+
+const duplexSkillGrantPackJSON = `{
+	"id": "integration-test-duplex-skill-grant",
+	"version": "1.0.0",
+	"prompts": {
+		"chat": {
+			"id": "chat",
+			"name": "Chat",
+			"system_template": "You are a support agent.",
+			"tools": ["lookup_order"]
+		}
+	},
+	"tools": {
+		"lookup_order": {
+			"name": "lookup_order",
+			"description": "Look up an order",
+			"parameters": {"type": "object", "properties": {"id": {"type": "string"}}}
+		},
+		"refund": {
+			"name": "refund",
+			"description": "Issue a refund",
+			"parameters": {"type": "object", "properties": {"id": {"type": "string"}}}
+		}
+	}
+}`
+
+func writeRefundSkillDir(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	dir := filepath.Join(root, "refund-processing")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	body := "---\nname: refund-processing\ndescription: How to process refunds\n" +
+		"allowed-tools:\n  - refund\n---\n\nCall refund with the order id.\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o600))
+	return root
+}
+
+// A skill the realtime model activates grants its tools to this
+// conversation: the session is given them before the activation's result.
+// The session's tool calls run on the session's context, which must carry the
+// conversation's active skills, or the activation lands on a set the
+// conversation never reads and nothing is granted.
+func TestDuplexToolOffer_SkillActivationGivesTheSessionTheGrantedTool(t *testing.T) {
+	provider := &updatingToolProvider{toolAwareStreamingProvider: newToolAwareStreamingProvider(
+		[]types.MessageToolCall{{ID: "call_1", Name: "skill__activate",
+			Args: json.RawMessage(`{"name":"refund-processing"}`)}}, "activated")}
+	conv, err := sdk.OpenDuplex(writePackFile(t, duplexSkillGrantPackJSON), "chat",
+		sdk.WithProvider(provider), sdk.WithSkipSchemaValidation(),
+		sdk.WithSkillsDir(writeRefundSkillDir(t)),
+		sdk.WithStreamingConfig(&providers.StreamingInputConfig{
+			Config: types.StreamingMediaConfig{Type: types.ContentTypeAudio},
+		}))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conv.Close() })
+	drainDuplexResponse(t, conv)
+
+	require.NoError(t, conv.SendText(context.Background(), "refund ORD-1"))
+	require.Eventually(t, func() bool {
+		sess := provider.created()
+		return sess != nil && sess.toolResponsesReceived.Load() >= 1
+	}, 3*time.Second, 5*time.Millisecond, "the activation was never answered")
+
+	created := provider.createdWith()
+	require.Len(t, created, 1)
+	assert.NotContains(t, toolDefNamesOf(created[0].Tools), "refund", "refund is offered only once granted")
+	assert.Equal(t, [][]string{{"lookup_order", "refund", "skill__activate", "skill__deactivate",
+		"skill__read_resource"}}, provider.created().toolUpdates())
+}
+
+func toolDefNamesOf(defs []providers.StreamingToolDefinition) []string {
+	names := make([]string, 0, len(defs))
+	for i := range defs {
+		names = append(names, defs[i].Name)
+	}
+	return names
 }
