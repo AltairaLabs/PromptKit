@@ -363,8 +363,9 @@ type ToolCall struct {
 	ID   string          `json:"id"` // Provider-specific call ID
 
 	// Caller is who the conversation acts for, as the host set it with
-	// sdk.WithCaller. The zero value means none was set. PromptKit never reads,
-	// persists, logs or emits it, so it is never serialized.
+	// sdk.WithCaller. The zero value means none was set. PromptKit hands it to
+	// the host's executor (CallExecutor) and otherwise never reads, persists,
+	// logs or emits it; it is not serialized.
 	Caller types.Caller `json:"-"`
 }
 

@@ -207,11 +207,13 @@ type EmitterAware interface {
 ```
 
 <a name="ExecHookConfig"></a>
-## type [ExecHookConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L25-L34>)
+## type [ExecHookConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L31-L40>)
 
 ExecHookConfig holds the configuration for creating exec\-based hooks.
 
 Sandbox, when non\-nil, controls how the hook subprocess is launched. When nil, the exec hooks use the built\-in direct sandbox, which runs exec.CommandContext\(Command, Args...\) in\-process with the local environment. SDK consumers that want their hooks to run elsewhere \(in a sidecar, a disposable container, a managed cloud sandbox\) construct a Sandbox implementation and pass it here.
+
+The hook's stdin is the JSON of the request or event it handles, the conversation's caller \(types.Caller, under "Caller"\) included: an exec hook is host policy code run out of process, so it gets the caller as an in\-process hook does. A Sandbox that runs the hook remotely carries the caller there.
 
 ```go
 type ExecHookConfig struct {
@@ -227,7 +229,7 @@ type ExecHookConfig struct {
 ```
 
 <a name="ExecProviderHook"></a>
-## type [ExecProviderHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L177-L179>)
+## type [ExecProviderHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L184-L186>)
 
 ExecProviderHook implements ProviderHook by spawning an external subprocess.
 
@@ -238,7 +240,7 @@ type ExecProviderHook struct {
 ```
 
 <a name="NewExecProviderHook"></a>
-### func [NewExecProviderHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L182>)
+### func [NewExecProviderHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L189>)
 
 ```go
 func NewExecProviderHook(cfg *ExecHookConfig) *ExecProviderHook
@@ -247,7 +249,7 @@ func NewExecProviderHook(cfg *ExecHookConfig) *ExecProviderHook
 NewExecProviderHook creates a new ExecProviderHook from the given config.
 
 <a name="ExecProviderHook.AfterCall"></a>
-### func \(\*ExecProviderHook\) [AfterCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L203-L205>)
+### func \(\*ExecProviderHook\) [AfterCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L210-L212>)
 
 ```go
 func (h *ExecProviderHook) AfterCall(ctx context.Context, req *ProviderRequest, resp *ProviderResponse) Decision
@@ -256,7 +258,7 @@ func (h *ExecProviderHook) AfterCall(ctx context.Context, req *ProviderRequest, 
 AfterCall intercepts an LLM provider call after it completes.
 
 <a name="ExecProviderHook.BeforeCall"></a>
-### func \(\*ExecProviderHook\) [BeforeCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L190>)
+### func \(\*ExecProviderHook\) [BeforeCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L197>)
 
 ```go
 func (h *ExecProviderHook) BeforeCall(ctx context.Context, req *ProviderRequest) Decision
@@ -265,7 +267,7 @@ func (h *ExecProviderHook) BeforeCall(ctx context.Context, req *ProviderRequest)
 BeforeCall intercepts an LLM provider call before it is sent.
 
 <a name="ExecProviderHook.Name"></a>
-### func \(\*ExecProviderHook\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L187>)
+### func \(\*ExecProviderHook\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L194>)
 
 ```go
 func (h *ExecProviderHook) Name() string
@@ -274,7 +276,7 @@ func (h *ExecProviderHook) Name() string
 Name returns the hook name.
 
 <a name="ExecSessionHook"></a>
-## type [ExecSessionHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L261-L263>)
+## type [ExecSessionHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L268-L270>)
 
 ExecSessionHook implements SessionHook by spawning an external subprocess.
 
@@ -285,7 +287,7 @@ type ExecSessionHook struct {
 ```
 
 <a name="NewExecSessionHook"></a>
-### func [NewExecSessionHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L266>)
+### func [NewExecSessionHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L273>)
 
 ```go
 func NewExecSessionHook(cfg *ExecHookConfig) *ExecSessionHook
@@ -294,7 +296,7 @@ func NewExecSessionHook(cfg *ExecHookConfig) *ExecSessionHook
 NewExecSessionHook creates a new ExecSessionHook from the given config.
 
 <a name="ExecSessionHook.Name"></a>
-### func \(\*ExecSessionHook\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L271>)
+### func \(\*ExecSessionHook\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L278>)
 
 ```go
 func (h *ExecSessionHook) Name() string
@@ -303,7 +305,7 @@ func (h *ExecSessionHook) Name() string
 Name returns the hook name.
 
 <a name="ExecSessionHook.OnSessionEnd"></a>
-### func \(\*ExecSessionHook\) [OnSessionEnd](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L284>)
+### func \(\*ExecSessionHook\) [OnSessionEnd](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L291>)
 
 ```go
 func (h *ExecSessionHook) OnSessionEnd(ctx context.Context, event SessionEvent) error
@@ -312,7 +314,7 @@ func (h *ExecSessionHook) OnSessionEnd(ctx context.Context, event SessionEvent) 
 OnSessionEnd handles the session end event.
 
 <a name="ExecSessionHook.OnSessionStart"></a>
-### func \(\*ExecSessionHook\) [OnSessionStart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L274>)
+### func \(\*ExecSessionHook\) [OnSessionStart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L281>)
 
 ```go
 func (h *ExecSessionHook) OnSessionStart(ctx context.Context, event SessionEvent) error
@@ -321,7 +323,7 @@ func (h *ExecSessionHook) OnSessionStart(ctx context.Context, event SessionEvent
 OnSessionStart handles the session start event.
 
 <a name="ExecSessionHook.OnSessionUpdate"></a>
-### func \(\*ExecSessionHook\) [OnSessionUpdate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L279>)
+### func \(\*ExecSessionHook\) [OnSessionUpdate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L286>)
 
 ```go
 func (h *ExecSessionHook) OnSessionUpdate(ctx context.Context, event SessionEvent) error
@@ -330,7 +332,7 @@ func (h *ExecSessionHook) OnSessionUpdate(ctx context.Context, event SessionEven
 OnSessionUpdate handles a session update event.
 
 <a name="ExecToolHook"></a>
-## type [ExecToolHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L220-L222>)
+## type [ExecToolHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L227-L229>)
 
 ExecToolHook implements ToolHook by spawning an external subprocess.
 
@@ -341,7 +343,7 @@ type ExecToolHook struct {
 ```
 
 <a name="NewExecToolHook"></a>
-### func [NewExecToolHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L225>)
+### func [NewExecToolHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L232>)
 
 ```go
 func NewExecToolHook(cfg *ExecHookConfig) *ExecToolHook
@@ -350,7 +352,7 @@ func NewExecToolHook(cfg *ExecHookConfig) *ExecToolHook
 NewExecToolHook creates a new ExecToolHook from the given config.
 
 <a name="ExecToolHook.AfterExecution"></a>
-### func \(\*ExecToolHook\) [AfterExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L246>)
+### func \(\*ExecToolHook\) [AfterExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L253>)
 
 ```go
 func (h *ExecToolHook) AfterExecution(ctx context.Context, req ToolRequest, resp ToolResponse) Decision
@@ -359,7 +361,7 @@ func (h *ExecToolHook) AfterExecution(ctx context.Context, req ToolRequest, resp
 AfterExecution intercepts a tool call after execution.
 
 <a name="ExecToolHook.BeforeExecution"></a>
-### func \(\*ExecToolHook\) [BeforeExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L233>)
+### func \(\*ExecToolHook\) [BeforeExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L240>)
 
 ```go
 func (h *ExecToolHook) BeforeExecution(ctx context.Context, req ToolRequest) Decision
@@ -368,7 +370,7 @@ func (h *ExecToolHook) BeforeExecution(ctx context.Context, req ToolRequest) Dec
 BeforeExecution intercepts a tool call before execution.
 
 <a name="ExecToolHook.Name"></a>
-### func \(\*ExecToolHook\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L230>)
+### func \(\*ExecToolHook\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/exec_hooks.go#L237>)
 
 ```go
 func (h *ExecToolHook) Name() string
@@ -737,7 +739,7 @@ func (r *Registry) SetEmitter(e *events.Emitter)
 SetEmitter hands the emitter to every registered provider hook that wants one. Hooks that do not implement EmitterAware are untouched. Nil\-safe on both the receiver and the emitter.
 
 <a name="SessionEvent"></a>
-## type [SessionEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L151-L162>)
+## type [SessionEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L152-L164>)
 
 SessionEvent carries context for session lifecycle hooks.
 
@@ -750,8 +752,9 @@ type SessionEvent struct {
     Metadata       map[string]any
 
     // Caller is who the conversation acts for, as the host set it with
-    // sdk.WithCaller. The zero value means none was set. PromptKit never reads,
-    // persists, logs or emits it.
+    // sdk.WithCaller. The zero value means none was set. PromptKit hands it to
+    // the host's session hooks, an exec hook included (as "Caller" in its stdin
+    // JSON), and otherwise never reads, persists, logs or emits it.
     Caller types.Caller
 }
 ```
@@ -784,7 +787,7 @@ type ToolHook interface {
 ```
 
 <a name="ToolRequest"></a>
-## type [ToolRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L124-L139>)
+## type [ToolRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L124-L140>)
 
 ToolRequest describes a tool call about to be executed.
 
@@ -801,14 +804,15 @@ type ToolRequest struct {
     Declaration *packspec.Tool
 
     // Caller is who the conversation acts for, as the host set it with
-    // sdk.WithCaller. The zero value means none was set. PromptKit never reads,
-    // persists, logs or emits it.
+    // sdk.WithCaller. The zero value means none was set. PromptKit hands it to
+    // the host's tool hooks, an exec hook included (as "Caller" in its stdin
+    // JSON), and otherwise never reads, persists, logs or emits it.
     Caller types.Caller
 }
 ```
 
 <a name="ToolResponse"></a>
-## type [ToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L142-L148>)
+## type [ToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L143-L149>)
 
 ToolResponse describes a completed tool execution.
 

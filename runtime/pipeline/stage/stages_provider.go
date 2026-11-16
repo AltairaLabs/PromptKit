@@ -249,8 +249,9 @@ type ProviderConfig struct {
 	// Caller is who the conversation acts for, as the host set it with
 	// sdk.WithCaller. The stage puts it on every tool call it hands the
 	// registry (tools.ToolCall.Caller) and on every tool hook request
-	// (hooks.ToolRequest.Caller). The zero value means none was set. The stage
-	// never reads, persists, logs or emits it.
+	// (hooks.ToolRequest.Caller), for the host's executors and hooks. The zero
+	// value means none was set. The stage never reads, persists, logs or emits
+	// it.
 	Caller types.Caller
 
 	// PromptDeclarations maps each prompt task to the pack's definition of

@@ -2149,8 +2149,10 @@ func WithTransitionAuthorizer(a workflow.TransitionAuthorizer) Option {
 }
 
 // WithCaller sets who the conversation acts for. PromptKit puts it on the
-// requests it builds (session events, and the hooks and executors that follow);
-// it never travels on context.Context and is never persisted, logged or emitted.
+// requests it hands the host's code: tool executors, tool hooks and session
+// hooks, exec hooks included (in the JSON on their stdin). It never travels on
+// context.Context, and is otherwise never persisted, logged or emitted: it is
+// not in events, spans, the state store or recordings.
 func WithCaller(caller types.Caller) Option {
 	return func(c *config) error {
 		c.caller = caller

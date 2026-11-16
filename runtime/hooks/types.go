@@ -133,8 +133,9 @@ type ToolRequest struct {
 	Declaration *packspec.Tool
 
 	// Caller is who the conversation acts for, as the host set it with
-	// sdk.WithCaller. The zero value means none was set. PromptKit never reads,
-	// persists, logs or emits it.
+	// sdk.WithCaller. The zero value means none was set. PromptKit hands it to
+	// the host's tool hooks, an exec hook included (as "Caller" in its stdin
+	// JSON), and otherwise never reads, persists, logs or emits it.
 	Caller types.Caller
 }
 
@@ -156,7 +157,8 @@ type SessionEvent struct {
 	Metadata       map[string]any
 
 	// Caller is who the conversation acts for, as the host set it with
-	// sdk.WithCaller. The zero value means none was set. PromptKit never reads,
-	// persists, logs or emits it.
+	// sdk.WithCaller. The zero value means none was set. PromptKit hands it to
+	// the host's session hooks, an exec hook included (as "Caller" in its stdin
+	// JSON), and otherwise never reads, persists, logs or emits it.
 	Caller types.Caller
 }
