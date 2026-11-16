@@ -119,8 +119,6 @@ For OpenAI Realtime, use `sdk.WithModel("gpt-realtime")` and a `SampleRate` of 2
 
 To tell the session who it acts for, pass `sdk.WithCaller`. Tool executors, tool hooks and session hooks receive the caller on their requests, and it does not depend on any context. See [Act for a caller](/sdk/how-to/tools/act-for-a-caller/). Realtime sessions (ASM mode) run their tool calls through the same tool hooks, policy and approval gate as text turns.
 
-A realtime session is offered the tools a text turn would be: the prompt's tools, capability tools such as `memory__recall`, and tools a skill grants. Tools in `StreamingInputConfig.Tools` are added, and a tool declared there replaces a conversation tool of the same name. A tool policy `tool_choice` of `none` offers no tools. The policy's other choices are not sent to the session, because they would force a tool call after every tool result; set `StreamingInputConfig.ToolChoice` to choose for the whole session. OpenAI Realtime is given new tools mid-session when a skill grants them. Gemini Live fixes its tools when the session starts, so a call to a tool granted later is refused.
-
 A duplex session runs its tool calls on its own context, not on the context of any `SendChunk` call. If your tool handlers read other host values from the context, such as a logger or a database handle, open the session with `sdk.OpenDuplexContext` instead of `sdk.OpenDuplex`:
 
 ```go
@@ -130,6 +128,21 @@ conv, err := sdk.OpenDuplexContext(ctx, "./voice-assistant.pack.json", "assistan
 Every tool call in the session sees the values on `ctx`, as a text turn's tool calls see the values on the context passed to `Send`. Session-start hooks and forks of the session see them too. `sdk.ResumeDuplexContext`, `sdk.OpenVoiceContext` and `PackTemplate.OpenDuplexContext` take the context the same way.
 
 Canceling `ctx` does not end the session; `conv.Close` does. A deadline on `ctx` bounds only the open. The session keeps the values on `ctx` for its whole life, so build a context with what the tool calls need rather than passing a request's context, whose span, logger or transaction ends with the request.
+
+## Realtime tool calls
+
+In ASM mode the pipeline runs the model's tool calls and sends their results to the session, as a text turn does:
+
+- The session is offered the tools a text turn would be: the prompt's tools, capability tools such as `memory__recall`, and tools a skill grants. Tools in `StreamingInputConfig.Tools` are added, and a tool declared there replaces a conversation tool of the same name.
+- OpenAI Realtime is given new tools mid-session when a skill grants them. Gemini Live fixes its tools when the session starts, so a call to a tool granted later is refused.
+- The session is sent only `StreamingInputConfig.ToolChoice`. A tool policy `tool_choice` of `none` offers no tools; the policy's other choices are not sent, because they would force a tool call after every tool result.
+- The calls of one model turn run in parallel, up to the tool policy's `MaxParallelToolCalls`.
+- The tool policy (`sdk.WithToolPolicy` merged with the prompt's `tool_policy`) applies: `Blocklist`, `MaxToolCallsPerTurn`, `MaxIdenticalToolCalls`, `MaxCallsPerMinute` and `MaxRounds`. A call a limit stops gets a refusal result, and `Response()` carries the limit as a chunk with `Error` set. Every later call of the same tool turn is refused, and the session stays open.
+- If the model calls tools twice more after its tool turn was stopped, both batches get refusals. A third batch closes the session.
+- When the session's spend passes `MaxCostUSD`, the calls of that model turn are refused and the session closes.
+- Tool hooks, tool result rewriters and the approval gate apply to each call. Results reach the model formatted as on a text turn.
+- A chunk with `Error` set does not close `Response()`. The channel closes when the session ends.
+- The model receives the text of a tool result. Neither OpenAI Realtime nor Gemini Live takes a tool result's image, audio or other non-text parts, so the session sends their text only and logs one warning naming the provider and the part types dropped.
 
 ## Verify
 
