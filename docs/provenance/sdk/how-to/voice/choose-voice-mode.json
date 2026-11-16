@@ -96,6 +96,16 @@
     "sdk/options.go:2992",
     "sdk/options.go:3242"
    ]
+  },
+  {
+   "id": 12,
+   "claim": "A realtime session is offered the conversation's tools (prompt, capability, granted) merged with StreamingInputConfig.Tools, the host's definition winning on a name clash; tool_choice none offers none; OpenAI Realtime is updated mid-session, and a call to a tool granted after setup on a session that cannot update is refused",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/stages_duplex_tool_offer.go:92",
+    "runtime/pipeline/stage/stages_duplex_tool_offer.go:291",
+    "runtime/providers/openai/realtime_tools_integration.go:34"
+   ]
   }
  ]
 }

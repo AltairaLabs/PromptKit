@@ -352,12 +352,13 @@ func (s *DuplexProviderStage) createSessionLazily(
 		systemPrompt = s.turnState.SystemPrompt
 	}
 
-	// Create session config with system instruction
-	sessionConfig := s.baseConfig
-	if sessionConfig == nil {
-		sessionConfig = &providers.StreamingInputConfig{}
+	// Create session config with system instruction and the tool offer
+	sessionConfig := &providers.StreamingInputConfig{}
+	if s.baseConfig != nil {
+		*sessionConfig = *s.baseConfig
 	}
 	sessionConfig.SystemInstruction = systemPrompt
+	s.initialSessionTools(sessionConfig)
 
 	logger.Debug("DuplexProviderStage: creating session with system instruction",
 		"system_prompt_length", len(systemPrompt))

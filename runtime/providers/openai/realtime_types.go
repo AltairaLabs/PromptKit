@@ -65,6 +65,10 @@ type RealtimeSessionConfig struct {
 	// Tools defines available functions for the session.
 	Tools []RealtimeToolDefinition
 
+	// ToolChoice is the session's tool_choice: "auto", "required", "none",
+	// or a function name. Empty leaves the server default.
+	ToolChoice string
+
 	// OutputSampleRate is the sample rate in Hz for output audio.
 	// Default: 24000 (OpenAI Realtime API outputs 24kHz PCM).
 	OutputSampleRate int

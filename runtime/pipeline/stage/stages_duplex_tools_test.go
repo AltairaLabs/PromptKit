@@ -27,9 +27,12 @@ type realtimeToolProvider struct {
 	onClose func()
 	// replyDelay is how long the session takes to start each scripted reply.
 	replyDelay time.Duration
+	// updatable makes the sessions providers.StreamToolUpdaters.
+	updatable bool
 
-	mu   sync.Mutex
-	sess *realtimeToolSession
+	mu      sync.Mutex
+	sess    *realtimeToolSession
+	created []providers.StreamingInputConfig
 }
 
 func (p *realtimeToolProvider) CreateStreamSession(
@@ -47,8 +50,19 @@ func (p *realtimeToolProvider) CreateStreamSession(
 	}
 	p.mu.Lock()
 	p.sess = s
+	p.created = append(p.created, *req)
 	p.mu.Unlock()
+	if p.updatable {
+		return &updatingToolSession{realtimeToolSession: s}, nil
+	}
 	return s, nil
+}
+
+// createdWith returns the configs the provider's sessions were created with.
+func (p *realtimeToolProvider) createdWith() []providers.StreamingInputConfig {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]providers.StreamingInputConfig(nil), p.created...)
 }
 
 func (p *realtimeToolProvider) session() *realtimeToolSession {
@@ -70,6 +84,31 @@ type realtimeToolSession struct {
 	sent           [][]providers.ToolResponse
 	sentAfterClose int
 	script         [][]providers.StreamChunk
+	// updates are the tool lists UpdateTools was called with (an updating
+	// session only); log is "update" and "responses" in the order they came.
+	updates [][]providers.StreamingToolDefinition
+	log     []string
+}
+
+// updatingToolSession is a realtimeToolSession whose tools can be changed.
+type updatingToolSession struct {
+	*realtimeToolSession
+}
+
+func (s *updatingToolSession) UpdateTools(_ context.Context, defs []providers.StreamingToolDefinition) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.updates = append(s.updates, defs)
+	s.log = append(s.log, "update")
+	return nil
+}
+
+// toolUpdates returns the tool lists the session was updated with, and the
+// order updates and tool responses reached it in.
+func (s *realtimeToolSession) toolUpdates() (updates [][]providers.StreamingToolDefinition, log []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([][]providers.StreamingToolDefinition(nil), s.updates...), append([]string(nil), s.log...)
 }
 
 func (s *realtimeToolSession) SendToolResponse(ctx context.Context, id, result string) error {
@@ -98,6 +137,7 @@ func (s *realtimeToolSession) SendToolResponses(_ context.Context, resp []provid
 	}
 	s.mu.Lock()
 	s.sent = append(s.sent, resp)
+	s.log = append(s.log, "responses")
 	s.mu.Unlock()
 	return nil
 }
@@ -247,6 +287,12 @@ type realtimeOpts struct {
 	sessionTools []providers.StreamingToolDefinition
 	// history is a resumed conversation's prior messages.
 	history []types.Message
+	// turnState is the stage's turn state (allowed tools, prompt); nil for none.
+	turnState *TurnState
+	// updatable makes the session a providers.StreamToolUpdater.
+	updatable bool
+	// hostToolChoice is the host's StreamingInputConfig.ToolChoice.
+	hostToolChoice string
 }
 
 func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
@@ -256,10 +302,12 @@ func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
 		script:            o.script,
 		onClose:           o.onClose,
 		replyDelay:        o.replyDelay,
+		updatable:         o.updatable,
 	}
 	cfg := baseConfig()
 	cfg.Tools = o.sessionTools
-	st := NewDuplexProviderStageWithEmitter(p, cfg, o.emitter)
+	cfg.ToolChoice = o.hostToolChoice
+	st := NewDuplexProviderStageWithTurnState(p, cfg, o.emitter, o.turnState)
 	if !o.noToolSet {
 		st.SetToolExecution(o.registry, o.policy, o.cfg, o.resolver)
 	}

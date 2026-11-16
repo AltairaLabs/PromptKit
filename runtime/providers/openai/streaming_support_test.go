@@ -304,7 +304,7 @@ func TestProvider_applyStreamTools(t *testing.T) {
 			},
 		}
 
-		p.applyStreamTools(tools, &config)
+		p.applyStreamTools(&providers.StreamingInputConfig{Tools: tools}, &config)
 
 		if len(config.Tools) != 1 {
 			t.Fatalf("expected 1 tool, got %d", len(config.Tools))
@@ -321,7 +321,7 @@ func TestProvider_applyStreamTools(t *testing.T) {
 
 	t.Run("empty tools is safe", func(t *testing.T) {
 		config := DefaultRealtimeSessionConfig()
-		p.applyStreamTools(nil, &config)
+		p.applyStreamTools(&providers.StreamingInputConfig{}, &config)
 
 		if len(config.Tools) != 0 {
 			t.Errorf("expected 0 tools, got %d", len(config.Tools))

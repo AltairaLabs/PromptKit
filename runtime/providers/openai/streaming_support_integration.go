@@ -89,7 +89,7 @@ func (p *Provider) CreateStreamSession(
 	config := p.buildRealtimeSessionConfig(req)
 	p.applyStreamMetadata(req.Metadata, &config)
 	p.applyStreamSampling(req.Sampling, &config)
-	p.applyStreamTools(req.Tools, &config)
+	p.applyStreamTools(req, &config)
 
 	session, err := newRealtimeSession(ctx, p.apiKey, &config, realtimeSessionOpts(dial))
 	if err != nil {
@@ -175,6 +175,17 @@ func (s *realtimeSessionBookkeeping) SendToolResponses(ctx context.Context, resp
 		return trs.SendToolResponses(ctx, responses)
 	}
 	return errors.New("realtime session does not support tool responses")
+}
+
+// UpdateTools forwards to the underlying session if it implements
+// providers.StreamToolUpdater — same reason for the explicit forward.
+func (s *realtimeSessionBookkeeping) UpdateTools(
+	ctx context.Context, tools []providers.StreamingToolDefinition,
+) error {
+	if u, ok := s.StreamInputSession.(providers.StreamToolUpdater); ok {
+		return u.UpdateTools(ctx, tools)
+	}
+	return errors.New("realtime session does not support tool updates")
 }
 
 // BargeIn() is promoted from the embedded StreamInputSession (which now includes

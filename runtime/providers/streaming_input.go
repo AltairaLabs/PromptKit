@@ -143,6 +143,13 @@ type StreamingInputConfig struct {
 	// speaking them as text. Supported by Gemini Live API.
 	Tools []StreamingToolDefinition `json:"tools,omitempty"`
 
+	// ToolChoice is how the model may use Tools: "auto", "required", "none",
+	// or the name of the one tool it must call. Empty leaves the provider's
+	// default. OpenAI Realtime sends it as the session's tool_choice; a
+	// provider whose realtime API has no such setting (Gemini Live) ignores
+	// it.
+	ToolChoice string `json:"tool_choice,omitempty"`
+
 	// Metadata contains provider-specific session configuration
 	// Example: {"response_modalities": ["TEXT", "AUDIO"]} for Gemini
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
@@ -183,6 +190,17 @@ type StreamingToolDefinition struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description,omitempty"`
 	Parameters  map[string]interface{} `json:"parameters,omitempty"` // JSON Schema
+}
+
+// StreamToolUpdater is an optional interface for streaming sessions whose
+// tools can change after the session is set up. UpdateTools replaces the
+// session's tools with tools; an empty list leaves it none.
+//
+// A session without it (Gemini Live fixes its tools at setup) keeps the
+// tools it was created with: the pipeline refuses a call to a tool the
+// conversation made available only after that.
+type StreamToolUpdater interface {
+	UpdateTools(ctx context.Context, tools []StreamingToolDefinition) error
 }
 
 // StreamInputSupport extends the Provider interface for bidirectional streaming.
