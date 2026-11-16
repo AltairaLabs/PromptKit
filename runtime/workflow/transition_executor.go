@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // Keys of the tool result workflow__transition returns to the model.
@@ -41,6 +42,7 @@ type TransitionExecutor struct {
 	onCommit      func(*TransitionResult)
 	onCommitError func(event string, err error)
 	authorizer    TransitionAuthorizer
+	caller        types.Caller
 }
 
 // NewTransitionExecutor creates a TransitionExecutor for the given state machine.
@@ -81,6 +83,15 @@ func (e *TransitionExecutor) SetAuthorizer(a TransitionAuthorizer) {
 	e.mu.Unlock()
 }
 
+// SetCaller sets who the workflow acts for; the authorizer receives it on every
+// TransitionRequest the executor builds. The zero value (the default) means
+// none. PromptKit otherwise never reads, persists, logs or emits it.
+func (e *TransitionExecutor) SetCaller(c types.Caller) {
+	e.mu.Lock()
+	e.caller = c
+	e.mu.Unlock()
+}
+
 // Name implements tools.Executor. Returns the mode name for registry routing.
 func (e *TransitionExecutor) Name() string { return TransitionExecutorMode }
 
@@ -118,10 +129,10 @@ func (e *TransitionExecutor) Execute(
 	}
 
 	e.mu.Lock()
-	authorizer := e.authorizer
+	authorizer, caller := e.authorizer, e.caller
 	e.mu.Unlock()
 	// Called without the lock: the authorizer is host code.
-	if err := CheckTransition(ctx, authorizer, e.sm, e.spec, a.Event); err != nil {
+	if err := CheckTransitionAs(ctx, authorizer, e.sm, e.spec, a.Event, caller); err != nil {
 		return json.Marshal(map[string]string{
 			responseKeyStatus: "transition_refused",
 			responseKeyEvent:  a.Event,

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -95,4 +96,19 @@ func TestAllowedExecuteSchedulesAsBefore(t *testing.T) {
 	_, err = exec.CommitPending()
 	require.NoError(t, err)
 	require.Equal(t, "b", sm.CurrentState())
+}
+
+// TestCheckTransitionAsCarriesTheCaller — the request carries the caller it was
+// given; CheckTransition, the older form, carries none.
+func TestCheckTransitionAsCarriesTheCaller(t *testing.T) {
+	spec := authorizerSpec()
+	a := &stubAuthorizer{}
+	member := types.Caller{ID: "member@example.com", Claims: map[string]any{"tier": "gold"}}
+
+	require.NoError(t, CheckTransitionAs(context.Background(), a, NewStateMachine(spec), spec, "Go", member))
+	require.NoError(t, CheckTransition(context.Background(), a, NewStateMachine(spec), spec, "Go"))
+
+	require.Len(t, a.reqs, 2)
+	require.Equal(t, member, a.reqs[0].Caller)
+	require.Equal(t, types.Caller{}, a.reqs[1].Caller)
 }

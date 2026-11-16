@@ -7890,7 +7890,7 @@ wc, err := sdk.ResumeWorkflow("workflow-123", "./support.pack.json",
 ```
 
 <a name="WorkflowConversation.ActiveConversation"></a>
-### func \(\*WorkflowConversation\) [ActiveConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L824>)
+### func \(\*WorkflowConversation\) [ActiveConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L825>)
 
 ```go
 func (wc *WorkflowConversation) ActiveConversation() *Conversation
@@ -7899,7 +7899,7 @@ func (wc *WorkflowConversation) ActiveConversation() *Conversation
 ActiveConversation returns the current state's Conversation. Use this to access conversation\-specific methods like SetVar, OnTool, etc.
 
 <a name="WorkflowConversation.AvailableEvents"></a>
-### func \(\*WorkflowConversation\) [AvailableEvents](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L791>)
+### func \(\*WorkflowConversation\) [AvailableEvents](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L792>)
 
 ```go
 func (wc *WorkflowConversation) AvailableEvents() []string
@@ -7908,7 +7908,7 @@ func (wc *WorkflowConversation) AvailableEvents() []string
 AvailableEvents returns the events available in the current state, sorted alphabetically.
 
 <a name="WorkflowConversation.Close"></a>
-### func \(\*WorkflowConversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L835>)
+### func \(\*WorkflowConversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L836>)
 
 ```go
 func (wc *WorkflowConversation) Close() error
@@ -7917,7 +7917,7 @@ func (wc *WorkflowConversation) Close() error
 Close closes the active conversation and marks the workflow as closed. Like [Conversation.Close](<#Conversation.Close>), it ends a session: the active state's on\_session\_complete evals run, its on\_conversation\_complete evals do not, since the workflow may be resumed in that state. Call [WorkflowConversation.Complete](<#WorkflowConversation.Complete>) when the workflow is finished.
 
 <a name="WorkflowConversation.Complete"></a>
-### func \(\*WorkflowConversation\) [Complete](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L851>)
+### func \(\*WorkflowConversation\) [Complete](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L852>)
 
 ```go
 func (wc *WorkflowConversation) Complete() error
@@ -7928,7 +7928,7 @@ Complete finishes the workflow: it completes the active state's conversation \([
 Complete on a workflow that is already closed or completed runs no evals and returns [ErrWorkflowClosed](<#ErrConversationClosed>).
 
 <a name="WorkflowConversation.Context"></a>
-### func \(\*WorkflowConversation\) [Context](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L799>)
+### func \(\*WorkflowConversation\) [Context](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L800>)
 
 ```go
 func (wc *WorkflowConversation) Context() *workflow.Context
@@ -7937,7 +7937,7 @@ func (wc *WorkflowConversation) Context() *workflow.Context
 Context returns a snapshot of the workflow execution context including transition history and metadata.
 
 <a name="WorkflowConversation.CurrentPromptTask"></a>
-### func \(\*WorkflowConversation\) [CurrentPromptTask](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L777>)
+### func \(\*WorkflowConversation\) [CurrentPromptTask](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L778>)
 
 ```go
 func (wc *WorkflowConversation) CurrentPromptTask() string
@@ -7946,7 +7946,7 @@ func (wc *WorkflowConversation) CurrentPromptTask() string
 CurrentPromptTask returns the prompt\_task for the current state.
 
 <a name="WorkflowConversation.CurrentState"></a>
-### func \(\*WorkflowConversation\) [CurrentState](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L770>)
+### func \(\*WorkflowConversation\) [CurrentState](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L771>)
 
 ```go
 func (wc *WorkflowConversation) CurrentState() string
@@ -7955,7 +7955,7 @@ func (wc *WorkflowConversation) CurrentState() string
 CurrentState returns the current workflow state name.
 
 <a name="WorkflowConversation.IsComplete"></a>
-### func \(\*WorkflowConversation\) [IsComplete](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L784>)
+### func \(\*WorkflowConversation\) [IsComplete](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L785>)
 
 ```go
 func (wc *WorkflowConversation) IsComplete() bool
@@ -7964,7 +7964,7 @@ func (wc *WorkflowConversation) IsComplete() bool
 IsComplete returns true if the workflow is in a terminal state \(no outgoing transitions\).
 
 <a name="WorkflowConversation.OrchestrationMode"></a>
-### func \(\*WorkflowConversation\) [OrchestrationMode](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L808>)
+### func \(\*WorkflowConversation\) [OrchestrationMode](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/workflow.go#L809>)
 
 ```go
 func (wc *WorkflowConversation) OrchestrationMode() workflow.Orchestration

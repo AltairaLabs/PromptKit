@@ -14,8 +14,8 @@ import (
 // Caller must hold wc.mu.
 func (wc *WorkflowConversation) transitionInternal(event, contextSummary string) (string, error) {
 	// The host's policy applies to transitions the host fires, too.
-	if err := workflow.CheckTransition(
-		context.Background(), wc.transitionAuthorizer(), wc.machine, wc.workflowSpec, event,
+	if err := workflow.CheckTransitionAs(
+		context.Background(), wc.transitionAuthorizer(), wc.machine, wc.workflowSpec, event, wc.caller(),
 	); err != nil {
 		return "", fmt.Errorf("transition %q refused: %w", event, err)
 	}

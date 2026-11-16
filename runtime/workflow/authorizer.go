@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // TransitionAuthorizer decides whether a workflow transition may happen.
@@ -34,6 +35,12 @@ type TransitionRequest struct {
 	FromState, ToState *packspec.WorkflowState
 	// Event is the event that fires the transition.
 	Event string
+
+	// Caller is who the conversation acts for, as the host set it with
+	// sdk.WithCaller. The zero value means none was set. PromptKit hands it to
+	// the host's authorizer and otherwise never reads, persists, logs or
+	// emits it.
+	Caller types.Caller
 }
 
 // CheckTransition asks a whether event may fire from sm's current state.
@@ -43,6 +50,14 @@ type TransitionRequest struct {
 // is nothing for a host to authorize.
 func CheckTransition(
 	ctx context.Context, a TransitionAuthorizer, sm *StateMachine, spec *Spec, event string,
+) error {
+	return CheckTransitionAs(ctx, a, sm, spec, event, types.Caller{})
+}
+
+// CheckTransitionAs is CheckTransition for a conversation acting for caller:
+// the request the authorizer receives carries it.
+func CheckTransitionAs(
+	ctx context.Context, a TransitionAuthorizer, sm *StateMachine, spec *Spec, event string, caller types.Caller,
 ) error {
 	if a == nil || sm == nil || spec == nil {
 		return nil
@@ -62,5 +77,6 @@ func CheckTransition(
 		FromState: packspec.Clone(fromState),
 		ToState:   packspec.Clone(spec.States[to]),
 		Event:     event,
+		Caller:    caller,
 	})
 }
