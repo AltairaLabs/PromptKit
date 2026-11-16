@@ -83,9 +83,10 @@ func TestDuplexSession_SubmittedToolResultsCarryTheCallName(t *testing.T) {
 	// The pipeline holds the call for the client, the way a client tool or an
 	// approval gate holds it, so the client answers it with SubmitToolResults.
 	sess, err := NewDuplexSession(context.Background(), &DuplexSessionConfig{
-		Provider:        mock.NewProvider("mock", "mock-model", false),
-		PipelineBuilder: builder,
-		ToolRegistry:    tools.NewRegistry(),
+		Provider:          mock.NewProvider("mock", "mock-model", false),
+		PipelineBuilder:   builder,
+		ToolRegistry:      tools.NewRegistry(),
+		PipelineRunsTools: true,
 	})
 	require.NoError(t, err)
 	defer sess.Close()

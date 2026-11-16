@@ -971,9 +971,12 @@ func initDuplexSession(ctx context.Context, conv *Conversation, cfg *config) err
 		Provider:        conv.callProvider(),
 		Config:          streamConfig, // nil for VAD mode, set for ASM mode
 		ToolRegistry:    conv.toolRegistry,
-		Caller:          cfg.caller,
-		Metadata:        cfg.sessionMetadata,
-		Variables:       initialVars,
+		// The pipeline's DuplexProviderStage runs the session's tool calls
+		// (realtime), or its ProviderStage does (VAD): never the session.
+		PipelineRunsTools: true,
+		Caller:            cfg.caller,
+		Metadata:          cfg.sessionMetadata,
+		Variables:         initialVars,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create duplex session: %w", err)

@@ -1071,7 +1071,10 @@ func WithSessionMetadata(metadata map[string]any) Option {
 //
 // This is a power-user option for scenarios requiring direct registry access.
 // Tool descriptors are still loaded from the pack; this allows providing
-// custom executors or middleware.
+// custom executors or middleware. A realtime duplex conversation also
+// registers, in local mode, each tool its streaming config declares that the
+// registry does not hold (see [WithStreamingConfig]); a child registry passes
+// those descriptors on to its parent.
 //
 //	registry := tools.NewRegistry()
 //	registry.RegisterExecutor(&myCustomExecutor{})
@@ -3161,6 +3164,13 @@ func WithRerankProvider(spec ProviderSpec) Option {
 // ASM mode is for models with native bidirectional audio support (for example,
 // Gemini Live models).
 // VAD mode is for standard text-based models with audio transcription.
+//
+// In ASM mode the session's tool calls run through the conversation's tool
+// registry, under its tool policy, hooks and approval gate. A tool declared
+// only in streamingConfig.Tools, not in the pack, is registered there in local
+// mode at OpenDuplex, so the handlers registered for it (OnTool, OnToolCall,
+// OnToolAsync, OnClientTool) run its calls. With [WithToolRegistry] the
+// descriptor lands in the registry passed in (or its parent).
 //
 // Example for ASM mode:
 //

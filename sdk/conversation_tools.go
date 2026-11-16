@@ -690,7 +690,7 @@ func (c *Conversation) ContinueDuplex(ctx context.Context) error {
 			result = "Tool error: " + toolResultErrorText(res.Error)
 			isError = true
 		case res.ResultJSON != nil:
-			result = string(res.ResultJSON)
+			result = toolResultText(res.ResultJSON)
 		default:
 			result = fmt.Sprintf("%v", res.Result)
 		}
@@ -702,6 +702,27 @@ func (c *Conversation) ContinueDuplex(ctx context.Context) error {
 	}
 
 	return c.duplexSession.SubmitToolResults(ctx, responses)
+}
+
+// toolResultText is a JSON result as the model is given the result of a call
+// the pipeline runs (the provider stage's formatting): a string unquoted, an
+// object or array indented, any other value printed, and text that is not
+// JSON as it is. An approved realtime call's result then reads the same as
+// one that ran without approval.
+func toolResultText(raw json.RawMessage) string {
+	var value any
+	if json.Unmarshal(raw, &value) != nil {
+		return string(raw)
+	}
+	switch v := value.(type) {
+	case string:
+		return v
+	case map[string]any, []any:
+		if indented, err := json.MarshalIndent(v, "", "  "); err == nil {
+			return string(indented)
+		}
+	}
+	return fmt.Sprintf("%v", value)
 }
 
 // PendingTools returns all pending tool calls awaiting approval for this

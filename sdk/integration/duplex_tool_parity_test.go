@@ -27,15 +27,19 @@ import (
 // events and the approval gate all apply (#2696, #2700).
 
 // drainDuplexResponse reads the conversation's response channel in the
-// background until it closes, so the session never stalls on its output.
-func drainDuplexResponse(t *testing.T, conv *sdk.Conversation) {
+// background until it closes, so the session never stalls on its output. The
+// returned channel is closed once the response channel is.
+func drainDuplexResponse(t *testing.T, conv *sdk.Conversation) <-chan struct{} {
 	t.Helper()
 	responseCh, err := conv.Response()
 	require.NoError(t, err)
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		for range responseCh { //nolint:revive // draining
 		}
 	}()
+	return done
 }
 
 // firstToolResponses sends text and returns the tool responses the provider
@@ -44,14 +48,35 @@ func firstToolResponses(
 	t *testing.T, conv *sdk.Conversation, provider *toolAwareStreamingProvider, text string,
 ) []providers.ToolResponse {
 	t.Helper()
-	drainDuplexResponse(t, conv)
+	got, _ := firstToolResponsesAndEnd(t, conv, provider, text)
+	return got
+}
+
+// firstToolResponsesAndEnd is firstToolResponses that also returns a channel
+// closed once the conversation's response channel closes: the mock session
+// closes after its post-tool reply, so the turn is then over.
+func firstToolResponsesAndEnd(
+	t *testing.T, conv *sdk.Conversation, provider *toolAwareStreamingProvider, text string,
+) ([]providers.ToolResponse, <-chan struct{}) {
+	t.Helper()
+	ended := drainDuplexResponse(t, conv)
 	require.NoError(t, conv.SendText(context.Background(), text))
 	require.Eventually(t, func() bool { return len(provider.getSessions()) == 1 }, 2*time.Second, 5*time.Millisecond)
 	sess := provider.getSessions()[0]
 	require.True(t, waitForToolResponses(sess, 1, 3*time.Second), "the provider was never given tool results")
 	sess.responsesMu.Lock()
 	defer sess.responsesMu.Unlock()
-	return sess.receivedResponses[0]
+	return sess.receivedResponses[0], ended
+}
+
+// awaitEnd waits for a response channel drained by drainDuplexResponse to close.
+func awaitEnd(t *testing.T, ended <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-ended:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the conversation's response channel never closed")
+	}
 }
 
 // denyToolHook denies every call of one tool.
@@ -187,7 +212,7 @@ func TestDuplexToolParity_ToolAndProviderEventsArePublished(t *testing.T) {
 	provider.toolCallCost = &types.CostInfo{InputTokens: 12, OutputTokens: 4, TotalCost: 0.0375}
 	conv.OnTool("process_refund", func(map[string]any) (any, error) { return "refunded", nil })
 
-	got := firstToolResponses(t, conv, provider, "refund it")
+	got, ended := firstToolResponsesAndEnd(t, conv, provider, "refund it")
 	require.Len(t, got, 1)
 
 	started := ec.waitForType(events.EventToolCallStarted, 2*time.Second)
@@ -222,6 +247,21 @@ func TestDuplexToolParity_ToolAndProviderEventsArePublished(t *testing.T) {
 	assert.Equal(t, 1, toolTurn.Round)
 	assert.Equal(t, startedData.ProviderCallID, toolTurn.CallID,
 		"the tool call names the provider call that made it")
+
+	// The session closes after its post-tool reply: by then both rounds have
+	// completed, each exactly once.
+	awaitEnd(t, ended)
+	perRound := func() map[int]int {
+		counts := map[int]int{}
+		for _, e := range ec.ofType(events.EventProviderCallCompleted) {
+			if d, ok := e.Data.(*events.ProviderCallCompletedData); ok {
+				counts[d.Round]++
+			}
+		}
+		return counts
+	}
+	require.Eventually(t, func() bool { return perRound()[2] > 0 }, 2*time.Second, 5*time.Millisecond)
+	assert.Equal(t, map[int]int{1: 1, 2: 1}, perRound(), "provider.call.completed per round")
 }
 
 func TestDuplexToolParity_CallExecutorReceivesTheConversationsCaller(t *testing.T) {
@@ -391,30 +431,36 @@ func TestDuplexToolParity_HostDeclaredAsyncToolHeldThenResolved(t *testing.T) {
 	sess.responsesMu.Lock()
 	defer sess.responsesMu.Unlock()
 	require.Len(t, sess.receivedResponses, 1, "only the approved result reaches the model")
-	assert.Equal(t, []providers.ToolResponse{{ToolCallID: "call_1", Result: `"shipped"`}}, sess.receivedResponses[0])
+	assert.Equal(t, []providers.ToolResponse{{ToolCallID: "call_1", Result: "shipped"}}, sess.receivedResponses[0],
+		"an approved result reaches the model as a directly run one does")
 	assert.Equal(t, int32(1), runs.Load())
 }
 
-// A call the realtime model makes runs once, even when the tool is registered
-// with OnTool and OnToolAsync's check lets it through.
+// A call the realtime model makes runs once. The tool has both a call handler
+// (OnToolCall) and an async registration whose check lets the call through:
+// the session running the call itself as well as the pipeline would run one
+// of them twice.
 func TestDuplexToolParity_ACallRunsOnce(t *testing.T) {
 	conv, provider := openDuplexToolConv(t, duplexHITLPackJSON,
 		[]types.MessageToolCall{refundCall("call_1", 50)}, "ok")
-	var runs atomic.Int32
+	var callRuns, asyncRuns atomic.Int32
+	conv.OnToolCall("process_refund", func(context.Context, sdk.ToolCall) (any, error) {
+		callRuns.Add(1)
+		return "refunded", nil
+	})
 	conv.OnToolAsync("process_refund",
 		func(map[string]any) sdktools.PendingResult { return sdktools.PendingResult{} },
 		func(map[string]any) (any, error) {
-			runs.Add(1)
+			asyncRuns.Add(1)
 			return "refunded", nil
 		})
 
-	got := firstToolResponses(t, conv, provider, "refund it")
-	require.Len(t, got, 1)
-	sess := provider.getSessions()[0]
-	time.Sleep(50 * time.Millisecond) // a second execution would land here
-	assert.Equal(t, int32(1), runs.Load())
-	assert.Equal(t, int32(1), sess.toolResponsesReceived.Load(), "the provider is answered once")
-	assert.Equal(t, providers.ToolResponse{ToolCallID: "call_1", Result: "refunded"}, got[0])
+	got, ended := firstToolResponsesAndEnd(t, conv, provider, "refund it")
+	awaitEnd(t, ended)
+
+	assert.Equal(t, []providers.ToolResponse{{ToolCallID: "call_1", Result: "refunded"}}, got)
+	assert.Equal(t, int32(1), callRuns.Load()+asyncRuns.Load(), "the call ran more than once")
+	assert.Equal(t, int32(1), provider.getSessions()[0].toolResponsesReceived.Load(), "the provider is answered once")
 }
 
 // Ported from the deleted SDK duplex executor's unit tests: each case now runs
