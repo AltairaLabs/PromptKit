@@ -163,3 +163,101 @@ func TestOpenAITranscribe_TokenUsageWithoutDetailsIsAudio(t *testing.T) {
 		}
 	}
 }
+
+// Transcribe sends response_format=json, never leaving the format to the
+// server default or sending verbose_json.
+func TestOpenAITranscribe_SendsJSONResponseFormat(t *testing.T) {
+	formats := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Errorf("parse multipart: %v", err)
+		}
+		formats <- r.FormValue("response_format")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"text":"ok"}`))
+	}))
+	defer server.Close()
+
+	svc := stt.NewOpenAI("k", base.WithBaseURL(server.URL))
+	if _, err := svc.Transcribe(context.Background(), base.STTRequest{
+		Audio: generateTestAudio(16000, 0.1), MIMEType: "audio/pcm",
+	}); err != nil {
+		t.Fatalf("Transcribe: %v", err)
+	}
+	if got := <-formats; got != "json" {
+		t.Errorf("response_format = %q, want %q", got, "json")
+	}
+}
+
+// Compressed audio with no usage has nothing to price: Cost stays nil rather
+// than an empty, zero-quantity entry.
+func TestOpenAITranscribe_NoUsageCompressedAudioHasNoCost(t *testing.T) {
+	server := transcribeServer(t, map[string]any{"text": "mp3, no usage"})
+	defer server.Close()
+
+	svc := stt.NewOpenAI("k", base.WithBaseURL(server.URL))
+	resp, err := svc.Transcribe(context.Background(), base.STTRequest{
+		Audio: []byte("compressed"), MIMEType: "audio/mpeg",
+	})
+	if err != nil {
+		t.Fatalf("Transcribe: %v", err)
+	}
+	if resp.Cost != nil {
+		t.Errorf("Cost = %+v, want nil", resp.Cost)
+	}
+}
+
+// A zero-second duration usage carries no information, so the PCM length
+// estimate prices the call instead.
+func TestOpenAITranscribe_ZeroDurationUsageFallsBackToEstimate(t *testing.T) {
+	server := transcribeServer(t, map[string]any{
+		"text":  "zero",
+		"usage": map[string]any{"type": "duration", "seconds": 0},
+	})
+	defer server.Close()
+
+	svc := stt.NewOpenAI("k", base.WithBaseURL(server.URL))
+	resp, err := svc.Transcribe(context.Background(), base.STTRequest{
+		Audio:    generateTestAudio(16000, 1.0),
+		MIMEType: "audio/pcm",
+		Hints:    map[string]string{"sample_rate": "16000"},
+	})
+	if err != nil {
+		t.Fatalf("Transcribe: %v", err)
+	}
+	if resp.Cost == nil {
+		t.Fatal("Cost = nil, want the PCM estimate")
+	}
+	if got := resp.Cost.Quantities["second"]; got != 1.0 {
+		t.Errorf("Quantities[second] = %v, want 1.0", got)
+	}
+}
+
+// A token count of zero is left out of the quantities.
+func TestOpenAITranscribe_ZeroTokenCountsAreOmitted(t *testing.T) {
+	server := transcribeServer(t, map[string]any{
+		"text": "no prompt",
+		"usage": map[string]any{
+			"type": "tokens", "input_tokens": 50, "output_tokens": 3, "total_tokens": 53,
+			"input_token_details": map[string]any{"audio_tokens": 50, "text_tokens": 0},
+		},
+	})
+	defer server.Close()
+
+	svc := stt.NewOpenAI("k", base.WithBaseURL(server.URL), base.WithModel("gpt-4o-transcribe"))
+	resp, err := svc.Transcribe(context.Background(), base.STTRequest{
+		Audio: generateTestAudio(16000, 1.0), MIMEType: "audio/pcm",
+	})
+	if err != nil {
+		t.Fatalf("Transcribe: %v", err)
+	}
+	if resp.Cost == nil {
+		t.Fatal("Cost = nil")
+	}
+	if _, ok := resp.Cost.Quantities[base.UnitInputToken]; ok {
+		t.Errorf("Quantities = %v, want no %s entry for zero text tokens", resp.Cost.Quantities, base.UnitInputToken)
+	}
+	if got := resp.Cost.Quantities[base.UnitAudioInputToken]; got != 50 {
+		t.Errorf("Quantities[%s] = %v, want 50", base.UnitAudioInputToken, got)
+	}
+}
