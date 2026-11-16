@@ -101,7 +101,7 @@ func TestOpenAIService_SupportedFormats(t *testing.T) {
 }
 
 // TestOpenAIService_Transcribe_Request tests the base.STTProvider Transcribe method
-// with a mock server returning verbose_json with a duration field.
+// with a mock server returning a json response whose usage bills seconds.
 func TestOpenAIService_Transcribe_Request_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -114,11 +114,11 @@ func TestOpenAIService_Transcribe_Request_Success(t *testing.T) {
 		if !strings.HasPrefix(authHeader, "Bearer ") {
 			t.Errorf("Missing or invalid Authorization header: %s", authHeader)
 		}
-		// Return verbose_json response with duration
+		// Return a json response with duration usage
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"text":     "Hello, this is a test transcription.",
-			"duration": 1.5,
+			"text":  "Hello, this is a test transcription.",
+			"usage": map[string]interface{}{"type": "duration", "seconds": 1.5},
 		})
 	}))
 	defer server.Close()
@@ -143,7 +143,7 @@ func TestOpenAIService_Transcribe_Request_Success(t *testing.T) {
 		t.Errorf("resp.Text = %q, want %q", resp.Text, expected)
 	}
 
-	// Cost must be computed from the duration returned by the API (1.5s).
+	// Cost must be computed from the usage seconds returned by the API (1.5s).
 	if resp.Cost == nil {
 		t.Fatal("expected Cost to be populated")
 	}
@@ -161,14 +161,14 @@ func TestOpenAIService_Transcribe_Request_Success(t *testing.T) {
 }
 
 // TestOpenAIService_Transcribe_Request_FallbackEstimate tests cost estimation
-// from audio byte length when the API response omits the duration field.
+// from audio byte length when the API response has no usage.
 func TestOpenAIService_Transcribe_Request_FallbackEstimate(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Return verbose_json response WITHOUT duration (simulates older API or edge case)
+		// Return a json response WITHOUT usage
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"text": "Fallback estimate test.",
-			// duration intentionally absent — defaults to 0
+			// usage intentionally absent
 		})
 	}))
 	defer server.Close()
@@ -211,8 +211,8 @@ func TestOpenAIService_Transcribe_Request_NoPricing(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"text":     "No pricing test.",
-			"duration": 1.0,
+			"text":  "No pricing test.",
+			"usage": map[string]interface{}{"type": "duration", "seconds": 1.0},
 		})
 	}))
 	defer server.Close()
@@ -726,13 +726,13 @@ func TestOpenAIService_TranscribeBytes_MalformedResponse(t *testing.T) {
 }
 
 // TestOpenAIService_Transcribe_MP3MIMEType verifies that an MP3 MIME type is accepted
-// and the fallback estimate returns 0 (non-PCM/WAV formats rely on the API duration).
+// and its cost comes from the API's usage (no byte-length estimate exists for MP3).
 func TestOpenAIService_Transcribe_MP3MIMEType(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"text":     "MP3 test.",
-			"duration": 2.0,
+			"text":  "MP3 test.",
+			"usage": map[string]interface{}{"type": "duration", "seconds": 2.0},
 		})
 	}))
 	defer server.Close()
@@ -748,7 +748,7 @@ func TestOpenAIService_Transcribe_MP3MIMEType(t *testing.T) {
 	if resp.Text != "MP3 test." {
 		t.Errorf("Text = %q, want %q", resp.Text, "MP3 test.")
 	}
-	// For non-PCM MIME, cost comes from API-reported duration (2.0s).
+	// For non-PCM MIME, cost comes from API-reported usage (2.0s).
 	if resp.Cost == nil {
 		t.Fatal("expected Cost from API duration")
 	}
@@ -759,11 +759,11 @@ func TestOpenAIService_Transcribe_MP3MIMEType(t *testing.T) {
 }
 
 // TestOpenAIService_Transcribe_WAVMIMEType verifies WAV MIME type routing and
-// that the byte-length fallback fires when the API omits duration.
+// that the byte-length fallback fires when the API reports no usage.
 func TestOpenAIService_Transcribe_WAVMIMEType(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		// No "duration" field — fallback to byte-length estimate.
+		// No usage — fallback to byte-length estimate.
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"text": "WAV mime test.",
 		})

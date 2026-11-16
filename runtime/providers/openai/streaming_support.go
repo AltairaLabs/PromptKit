@@ -13,6 +13,10 @@ import (
 // Ensure Provider implements StreamInputSupport
 var _ providers.StreamInputSupport = (*Provider)(nil)
 
+// defaultInputTranscriptionModel transcribes a realtime session's input audio
+// unless metadata["input_transcription_model"] names another model.
+const defaultInputTranscriptionModel = "whisper-1"
+
 // validateStreamRequest validates the streaming input configuration.
 func (p *Provider) validateStreamRequest(req *providers.StreamingInputConfig) error {
 	if err := req.Config.Validate(); err != nil {
@@ -82,15 +86,18 @@ func (p *Provider) applyStreamMetadata(metadata map[string]interface{}, config *
 	}
 
 	// Input audio transcription - enabled by default for debugging and logging
-	// Can be disabled via metadata["input_transcription"] = false
+	// Can be disabled via metadata["input_transcription"] = false; the model
+	// is metadata["input_transcription_model"], whisper-1 when unset (#2692).
 	enableTranscription := true // default
 	if val, ok := metadata["input_transcription"].(bool); ok {
 		enableTranscription = val
 	}
 	if enableTranscription {
-		config.InputAudioTranscription = &TranscriptionConfig{
-			Model: "whisper-1",
+		model := defaultInputTranscriptionModel
+		if m, ok := metadata["input_transcription_model"].(string); ok && m != "" {
+			model = m
 		}
+		config.InputAudioTranscription = &TranscriptionConfig{Model: model}
 	}
 
 	// Turn detection / VAD settings
