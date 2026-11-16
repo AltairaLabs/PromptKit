@@ -25,6 +25,8 @@ Package types defines the shared data types of the runtime: messages and their c
 - [func MigrateToLegacy\(msg \*Message\) error](<#MigrateToLegacy>)
 - [func MigrateToMultimodal\(msg \*Message\)](<#MigrateToMultimodal>)
 - [func NormalizeRawMessage\(raw json.RawMessage\) json.RawMessage](<#NormalizeRawMessage>)
+- [type Caller](<#Caller>)
+  - [func \(c Caller\) IsZero\(\) bool](<#Caller.IsZero>)
 - [type ChunkReader](<#ChunkReader>)
   - [func NewChunkReader\(r io.Reader, config StreamingMediaConfig\) \*ChunkReader](<#NewChunkReader>)
   - [func \(cr \*ChunkReader\) NextChunk\(ctx context.Context\) \(\*MediaChunk, error\)](<#ChunkReader.NextChunk>)
@@ -272,6 +274,29 @@ func NormalizeRawMessage(raw json.RawMessage) json.RawMessage
 ```
 
 NormalizeRawMessage returns a valid JSON value for raw, substituting "\{\}" when raw is nil, empty, OR not well\-formed JSON. Two crash sources in the agent loop motivate this: LLMs routinely emit tool calls with no arguments \(empty\), and a streamed tool call cut off at max\_tokens leaves \*truncated\* args \(e.g. \`\{"path":"foo\`\) — non\-empty but invalid. Both fail json.RawMessage's encoder with "unexpected end of JSON input". Provider request builders and the message types call this at the boundary so a missing or broken blob degrades to \{\} instead of crashing a request or losing a whole run's saved output.
+
+<a name="Caller"></a>
+## type [Caller](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/caller.go#L7-L12>)
+
+Caller is who a conversation acts for. A host sets it once \(sdk.WithCaller\) and PromptKit puts it on the requests it builds; it is never carried on context.Context. PromptKit does not persist, log or emit it, and never reads ID or Claims itself.
+
+```go
+type Caller struct {
+    // ID identifies the caller in the host's own terms.
+    ID  string
+    // Claims carries host-defined attributes of the caller.
+    Claims map[string]any
+}
+```
+
+<a name="Caller.IsZero"></a>
+### func \(Caller\) [IsZero](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/caller.go#L15>)
+
+```go
+func (c Caller) IsZero() bool
+```
+
+IsZero reports whether no caller was set.
 
 <a name="ChunkReader"></a>
 ## type [ChunkReader](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/streaming.go#L183-L188>)

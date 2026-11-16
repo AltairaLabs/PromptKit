@@ -737,7 +737,7 @@ func (r *Registry) SetEmitter(e *events.Emitter)
 SetEmitter hands the emitter to every registered provider hook that wants one. Hooks that do not implement EmitterAware are untouched. Nil\-safe on both the receiver and the emitter.
 
 <a name="SessionEvent"></a>
-## type [SessionEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L146-L152>)
+## type [SessionEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L146-L157>)
 
 SessionEvent carries context for session lifecycle hooks.
 
@@ -748,6 +748,11 @@ type SessionEvent struct {
     Messages       []types.Message
     TurnIndex      int
     Metadata       map[string]any
+
+    // Caller is who the conversation acts for, as the host set it with
+    // sdk.WithCaller. The zero value means none was set. PromptKit never reads,
+    // persists, logs or emits it.
+    Caller types.Caller
 }
 ```
 

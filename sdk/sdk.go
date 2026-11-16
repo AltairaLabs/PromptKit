@@ -324,6 +324,7 @@ func prepareConversation(
 	// Build hook registry BEFORE building pipeline so it can be wired into the provider stage
 	conv.hookRegistry = cfg.buildHookRegistry()
 	conv.sessionHooks = newSessionHookDispatcher(conv.hookRegistry, conv.sessionInfo)
+	conv.sessionHooks.caller = cfg.caller
 
 	return conv, callProv, nil
 }

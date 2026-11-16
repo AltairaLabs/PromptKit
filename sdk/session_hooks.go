@@ -21,6 +21,7 @@ type sessionInfoFunc func() (sessionID, conversationID string, messages []types.
 type sessionHookDispatcher struct {
 	registry *hooks.Registry
 	info     sessionInfoFunc
+	caller   types.Caller
 	turns    atomic.Int32
 }
 
@@ -98,6 +99,7 @@ func (d *sessionHookDispatcher) dispatch(
 func (d *sessionHookDispatcher) buildEvent() hooks.SessionEvent {
 	event := hooks.SessionEvent{
 		TurnIndex: int(d.turns.Load()),
+		Caller:    d.caller,
 	}
 	if d.info != nil {
 		event.SessionID, event.ConversationID, event.Messages = d.info()

@@ -149,4 +149,9 @@ type SessionEvent struct {
 	Messages       []types.Message
 	TurnIndex      int
 	Metadata       map[string]any
+
+	// Caller is who the conversation acts for, as the host set it with
+	// sdk.WithCaller. The zero value means none was set. PromptKit never reads,
+	// persists, logs or emits it.
+	Caller types.Caller
 }

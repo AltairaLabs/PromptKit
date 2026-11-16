@@ -42,6 +42,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/telemetry"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/variables"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/workflow"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
@@ -200,6 +201,9 @@ type config struct {
 	providerHooks []hooks.ProviderHook
 	toolHooks     []hooks.ToolHook
 	sessionHooks  []hooks.SessionHook
+
+	// caller is who the conversation acts for (WithCaller).
+	caller types.Caller
 
 	// transitionAuthorizer decides workflow transitions (RFC 0016). Nil
 	// allows every transition.
@@ -2140,6 +2144,16 @@ func WithTransitionAuthorizer(a workflow.TransitionAuthorizer) Option {
 			return errors.New("WithTransitionAuthorizer: authorizer must not be nil")
 		}
 		c.transitionAuthorizer = a
+		return nil
+	}
+}
+
+// WithCaller sets who the conversation acts for. PromptKit puts it on the
+// requests it builds (session events, and the hooks and executors that follow);
+// it never travels on context.Context and is never persisted, logged or emitted.
+func WithCaller(caller types.Caller) Option {
+	return func(c *config) error {
+		c.caller = caller
 		return nil
 	}
 }

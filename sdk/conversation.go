@@ -1583,6 +1583,9 @@ func (c *Conversation) Fork() (*Conversation, error) {
 		sessionStore: store,
 	}
 	fork.sessionHooks = newSessionHookDispatcher(fork.hookRegistry, fork.sessionInfo)
+	if c.config != nil {
+		fork.sessionHooks.caller = c.config.caller
+	}
 	// A fork gets its own active skills and memory scope: what it activates
 	// must not reach the conversation it was forked from, and vice versa.
 	fork.initConversationState()
