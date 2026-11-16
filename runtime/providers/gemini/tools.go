@@ -10,6 +10,7 @@ import (
 const (
 	wireKeyResult   = "result"
 	wireKeyResponse = "response"
+	wireKeyError    = "error"
 )
 
 // buildToolResponseMessage constructs Gemini's BidiGenerateContentToolResponse
@@ -17,32 +18,20 @@ const (
 //
 // Per the Gemini docs the shape is:
 //
-//	{ "toolResponse": { "functionResponses": [ { id, response, [error] }, ... ] } }
+//	{ "toolResponse": { "functionResponses": [ { id, response }, ... ] } }
 //
-// Each result string is parsed as JSON when possible so the model receives a
-// structured object; a non-JSON string is wrapped as {"result": "<string>"}.
-// A failed tool execution (IsError) sets "error": true on its entry.
+// response is a JSON object. A result that parses to one is sent as is; any
+// other result (an array, a scalar, text) is wrapped as {"result": ...}, as a
+// text turn's function response is. A failed call (IsError) is sent as
+// {"error": "<text>"}: FunctionResponse has no error flag, and the model reads
+// a failure from the response's "error" key.
 func buildToolResponseMessage(responses []providers.ToolResponse) map[string]interface{} {
 	functionResponses := make([]map[string]interface{}, len(responses))
 	for i, resp := range responses {
-		// Parse result as JSON if possible, otherwise wrap as string
-		var resultObj interface{}
-		if err := json.Unmarshal([]byte(resp.Result), &resultObj); err != nil {
-			// Result is not valid JSON, wrap it
-			resultObj = map[string]interface{}{wireKeyResult: resp.Result}
-		}
-
-		funcResp := map[string]interface{}{
+		functionResponses[i] = map[string]interface{}{
 			"id":            resp.ToolCallID,
-			wireKeyResponse: resultObj,
+			wireKeyResponse: liveToolResponseObject(resp),
 		}
-
-		// Add error flag if the tool execution failed
-		if resp.IsError {
-			funcResp["error"] = true
-		}
-
-		functionResponses[i] = funcResp
 	}
 
 	return map[string]interface{}{
@@ -50,4 +39,19 @@ func buildToolResponseMessage(responses []providers.ToolResponse) map[string]int
 			"functionResponses": functionResponses,
 		},
 	}
+}
+
+// liveToolResponseObject is the response object of one function response.
+func liveToolResponseObject(resp providers.ToolResponse) map[string]interface{} {
+	if resp.IsError {
+		return map[string]interface{}{wireKeyError: resp.Result}
+	}
+	var parsed interface{}
+	if err := json.Unmarshal([]byte(resp.Result), &parsed); err != nil {
+		return map[string]interface{}{wireKeyResult: resp.Result}
+	}
+	if obj, ok := parsed.(map[string]interface{}); ok {
+		return obj
+	}
+	return map[string]interface{}{wireKeyResult: parsed}
 }
