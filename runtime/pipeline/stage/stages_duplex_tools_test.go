@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	providersmock "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
@@ -315,6 +316,8 @@ type realtimeOpts struct {
 	hostToolChoice string
 	// partsSupport makes the session a providers.ToolResponsePartsSupport.
 	partsSupport bool
+	// hookReg is the stage's hook registry; nil for none.
+	hookReg *hooks.Registry
 }
 
 func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
@@ -332,6 +335,9 @@ func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
 	cfg.Tools = o.sessionTools
 	cfg.ToolChoice = o.hostToolChoice
 	st := NewDuplexProviderStageWithTurnState(p, cfg, o.emitter, o.turnState)
+	if o.hookReg != nil {
+		st.SetHookRegistry(o.hookReg)
+	}
 	if !o.noToolSet {
 		st.SetToolExecution(o.registry, o.policy, o.cfg, o.resolver)
 	}
@@ -1364,4 +1370,56 @@ func TestDuplexTools_TextResultSendsNoPartsAndNoWarning(t *testing.T) {
 	assert.Nil(t, sent[0][0].Parts)
 	h.finish()
 	assert.NotContains(t, logs.String(), partsDroppedLog)
+}
+
+// A typed turn an input guardrail blocks never reaches the provider, so it
+// opens no provider call: no provider.call.started is emitted for it. That
+// holds for bare text and for text carried with its user message.
+func TestDuplexTools_BlockedTypedTurnOpensNoProviderCall(t *testing.T) {
+	for name, withMessage := range map[string]bool{"bare text": false, "user message": true} {
+		t.Run(name, func(t *testing.T) {
+			bus := events.NewEventBus()
+			var evMu sync.Mutex
+			started := 0
+			bus.SubscribeAll(func(e *events.Event) {
+				if e.Type == events.EventProviderCallStarted {
+					evMu.Lock()
+					started++
+					evMu.Unlock()
+				}
+			})
+			h := startRealtime(t, realtimeOpts{
+				registry:  newWeatherRegistry(t, &realtimeToolExec{result: json.RawMessage(`"ok"`)}),
+				turnState: &TurnState{AllowedTools: []string{"weather"}},
+				emitter:   events.NewEmitter(bus, "run", "sess", "conv"),
+				updatable: true,
+				hookReg: hooks.NewRegistry(hooks.WithProviderHook(&enforceBeforeCallHook{
+					reason: "off topic", replacement: "Not here.",
+				})),
+			})
+
+			text := "something off topic"
+			elem := StreamElement{Text: &text}
+			if withMessage {
+				elem.Message = &types.Message{Role: roleUser, Content: text}
+			}
+			h.input <- elem
+			require.Eventually(t, func() bool {
+				for _, e := range h.stage.history.snapshot() {
+					if e.Role == roleAssistant && e.Content == "Not here." {
+						return true
+					}
+				}
+				return false
+			}, 2*time.Second, time.Millisecond, "the blocked turn was never emitted")
+			bus.Close()
+			h.finish()
+
+			evMu.Lock()
+			defer evMu.Unlock()
+			assert.Zero(t, started, "a blocked turn starts no provider call")
+			updates, _ := h.sess().toolUpdates()
+			assert.Empty(t, updates)
+		})
+	}
 }

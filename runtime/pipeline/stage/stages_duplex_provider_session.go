@@ -172,6 +172,10 @@ type DuplexProviderStage struct {
 	// handled, until it is queued with a blocked turn or on its own. Input
 	// goroutine only.
 	pendingTypedUser *types.Message
+	// userTurnDue is set when the input element being handled carries a user
+	// turn: its tool turn begins once the input guardrails let it through, so
+	// a blocked turn opens no provider call. Input goroutine only.
+	userTurnDue bool
 	// inputFailed is set once an input hook denied: the error element is then
 	// the session's last output.
 	inputFailed atomic.Bool
@@ -656,22 +660,28 @@ func (s *DuplexProviderStage) handleInputElement(
 		return s.handleAllResponsesReceived(elem, done)
 	}
 
+	s.userTurnDue = false
 	if err := s.forwardInputMessages(ctx, elem, output); err != nil {
 		done <- err
 		return true
 	}
-	s.takeTextInputAsUserTurn(ctx, elem)
+	s.takeTextInputAsUserTurn(elem)
 
 	// Input guardrails gate text before it reaches the session. A blocked
-	// turn carries the user's turn with it.
+	// turn carries the user's turn with it, and opens no provider call.
 	if handled, err := s.guardInputText(ctx, elem); handled {
 		s.pendingTypedUser = nil
+		s.userTurnDue = false
 		if err != nil {
 			s.failInput(ctx, err, output)
 			done <- err
 			return true
 		}
 		return false
+	}
+	if s.userTurnDue {
+		s.userTurnDue = false
+		s.beginToolUserTurn(ctx)
 	}
 	if err := s.queueTypedUserTurn(ctx); err != nil {
 		done <- err
@@ -742,7 +752,7 @@ func (s *DuplexProviderStage) forwardInputMessages(
 		return nil
 	}
 	logger.Debug("DuplexProviderStage: forwarding user message to output", "role", elem.Message.Role)
-	s.trackInputTurn(ctx, elem)
+	s.trackInputTurn(elem)
 	s.recordHistory(elem.Message)
 	select {
 	case output <- *elem:
@@ -768,9 +778,10 @@ const TextInputTurnSource = "duplex_text_input"
 // the input element then carries it, which tells the input guardrails it is
 // already there. Its element is emitted by the response loop, between
 // assistant turns (see queueTypedUserTurn), so text typed while a reply is
-// streaming is saved and recorded after that reply, not inside it. Input
+// streaming is saved and recorded after that reply, not inside it. Its tool
+// turn begins once the input guardrails let it through (userTurnDue). Input
 // goroutine only.
-func (s *DuplexProviderStage) takeTextInputAsUserTurn(ctx context.Context, elem *StreamElement) {
+func (s *DuplexProviderStage) takeTextInputAsUserTurn(elem *StreamElement) {
 	s.pendingTypedUser = nil
 	if elem.Message != nil {
 		return
@@ -781,7 +792,7 @@ func (s *DuplexProviderStage) takeTextInputAsUserTurn(ctx context.Context, elem 
 	}
 	user := &types.Message{Role: roleUser, Content: text, Timestamp: time.Now()}
 	s.setTurnStart(time.Now())
-	s.beginToolUserTurn(ctx)
+	s.userTurnDue = true
 	s.recordHistory(user)
 	elem.Message = user
 	s.pendingTypedUser = user
@@ -833,13 +844,13 @@ func forwardToolResultMessages(ctx context.Context, toolMsgs []types.Message, ou
 }
 
 // trackInputTurn records the turn start time (for latency calculation on user
-// messages) and queues the element's turn_id for correlating transcription
-// events.
-func (s *DuplexProviderStage) trackInputTurn(ctx context.Context, elem *StreamElement) {
+// messages), marks a user turn due to begin its tool turn (userTurnDue), and
+// queues the element's turn_id for correlating transcription events.
+func (s *DuplexProviderStage) trackInputTurn(elem *StreamElement) {
 	if elem.Message.Role == roleUser {
 		now := time.Now()
 		s.setTurnStart(now)
-		s.beginToolUserTurn(ctx)
+		s.userTurnDue = true
 		logger.Debug("DuplexProviderStage: started turn timing",
 			"turnStartTime", now.Format(time.RFC3339Nano))
 	}
