@@ -1003,9 +1003,10 @@ func calledStopTool(policy *pipeline.ToolPolicy, toolCalls []types.MessageToolCa
 
 // toolOffer is the offer state that outlives a tools build: the names offered
 // during the current turn and the fingerprint of the tools array last built.
-// A stage owns one, and every runner it builds shares it. It is locked because
-// a realtime session builds its offer on one goroutine while its tool rounds
-// run on another.
+// A ProviderStage owns one, and every runner it builds shares it; it is
+// locked so a runner can be used from any goroutine. A realtime stage keeps
+// its own per-turn offer (duplexToolTurn.offered) and builds runners without
+// one: none of the methods that use it run there.
 type toolOffer struct {
 	mu sync.Mutex
 	// names is the union of the tools offered across the turn's rounds.

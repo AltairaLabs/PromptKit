@@ -106,7 +106,6 @@ func (s *DuplexProviderStage) SetToolExecution(
 		policy:   policy,
 		cfg:      cfg,
 		resolver: resolver,
-		offers:   &toolOffer{},
 		jobs:     make(chan *duplexToolJob, duplexToolQueueSize),
 		results:  make(chan *duplexToolResult),
 	}
@@ -118,8 +117,6 @@ type duplexTools struct {
 	policy   *pipeline.ToolPolicy
 	cfg      DuplexToolConfig
 	resolver WorkflowStateResolver
-	// offers is shared by every runner the stage builds; it is locked.
-	offers *toolOffer
 	// offer is what the session holds of the tool offer
 	// (stages_duplex_tool_offer.go).
 	offer sessionOffer
@@ -218,7 +215,6 @@ func (s *DuplexProviderStage) toolRunner() *toolRunner {
 			DescribeTool: dt.cfg.DescribeTool,
 		},
 		stateResolver: dt.resolver,
-		offers:        dt.offers,
 	}
 }
 
