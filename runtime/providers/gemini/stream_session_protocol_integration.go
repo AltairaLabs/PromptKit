@@ -8,6 +8,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -193,7 +194,12 @@ func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 	}
 
 	if msg.ToolCall != nil && len(msg.ToolCall.FunctionCalls) > 0 {
+		s.toolCallTurn = true
 		return s.handleToolCalls(msg.ToolCall)
+	}
+
+	if s.carryToolCallUsage(msg) {
+		return nil
 	}
 
 	costInfo := s.buildCostInfo(msg.UsageMetadata)
@@ -203,6 +209,53 @@ func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 	}
 
 	return s.processServerContent(msg.ServerContent, costInfo)
+}
+
+// carryToolCallUsage holds the usage of a tool-call turn that Gemini reports
+// as a turnComplete with no content, and reports whether msg was that.
+//
+// The tool calls already ended the turn (handleToolCalls reports them with
+// FinishReason tool_use: the model waits for their results). Gemini 3.x Live
+// then sends turnComplete carrying only the tool-call generation's usage;
+// reported as a turn, it would read as an empty reply after every tool call.
+// Its usage goes on the next turn completion instead, which is where Gemini
+// 2.5 Live reports it natively: one turnComplete after the reply, with the
+// usage of both.
+func (s *StreamSession) carryToolCallUsage(msg *ServerMessage) bool {
+	sc := msg.ServerContent
+	if sc != nil && (sc.ModelTurn != nil || sc.Interrupted ||
+		(sc.OutputTranscription != nil && sc.OutputTranscription.Text != "")) {
+		s.toolCallTurn = false // the model is answering: the turn is the reply's
+		return false
+	}
+	if !s.toolCallTurn || sc == nil || !sc.TurnComplete {
+		return false
+	}
+	s.toolCallTurn = false
+	s.ClearDrop()
+	if err := s.handleInputTranscription(sc); err != nil {
+		logger.Debug("StreamSession: input transcription not delivered", "error", err)
+	}
+	if msg.UsageMetadata != nil {
+		tokens := msg.UsageMetadata.tokens()
+		if s.carriedUsage != nil {
+			tokens = addTokenUsage(tokens, *s.carriedUsage)
+		}
+		s.carriedUsage = &tokens
+	}
+	return true
+}
+
+// addTokenUsage returns the field-wise sum of a and b's token counts. Gemini
+// usage sets no Extra units.
+func addTokenUsage(a, b base.TokenUsage) base.TokenUsage {
+	return base.TokenUsage{
+		Input: a.Input + b.Input, CacheRead: a.CacheRead + b.CacheRead, CacheWrite: a.CacheWrite + b.CacheWrite,
+		Output: a.Output + b.Output, Reasoning: a.Reasoning + b.Reasoning,
+		AudioInput: a.AudioInput + b.AudioInput, AudioOutput: a.AudioOutput + b.AudioOutput,
+		ImageInput: a.ImageInput + b.ImageInput, VideoInput: a.VideoInput + b.VideoInput,
+		ImageOutput: a.ImageOutput + b.ImageOutput,
+	}
 }
 
 // sendCostInfoIfPresent sends a chunk with cost info if present.

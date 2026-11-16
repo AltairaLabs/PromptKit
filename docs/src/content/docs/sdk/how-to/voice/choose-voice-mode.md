@@ -140,6 +140,7 @@ In ASM mode the pipeline runs the model's tool calls and sends their results to 
 - The tool policy (`sdk.WithToolPolicy` merged with the prompt's `tool_policy`) applies: `Blocklist`, `MaxToolCallsPerTurn`, `MaxIdenticalToolCalls`, `MaxCallsPerMinute` and `MaxRounds`. A call a limit stops gets a refusal result, and `Response()` carries the limit as a chunk with `Error` set. Every later call of the same tool turn is refused, and the session stays open.
 - If the model calls tools twice more after its tool turn was stopped, both batches get refusals. A third batch closes the session.
 - When the session's spend passes `MaxCostUSD`, the calls of that model turn are refused and the session closes.
+- Each model turn emits `provider.call.completed` with its tokens and cost. Gemini Live reports the usage of a turn that calls tools together with the reply that follows it, so that turn's event carries no tokens and the reply's carries both. OpenAI Realtime reports each turn's own usage.
 - Tool hooks, tool result rewriters and the approval gate apply to each call. Results reach the model formatted as on a text turn.
 - A chunk with `Error` set does not close `Response()`. The channel closes when the session ends.
 - The model receives the text of a tool result. Neither OpenAI Realtime nor Gemini Live takes a tool result's image, audio or other non-text parts, so the session sends their text only and logs one warning naming the provider and the part types dropped.
