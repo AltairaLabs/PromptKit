@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -43,6 +45,9 @@ type toolRunner struct {
 	turnState     *TurnState
 	cfg           toolRunnerConfig
 	stateResolver WorkflowStateResolver
+	// offers is the offer state of the stage that built the runner: it
+	// outlives the runner, which is rebuilt on each use.
+	offers *toolOffer
 }
 
 // toolCallResult holds the outcome of a single tool call execution,
@@ -723,10 +728,7 @@ func (r *toolRunner) getMaxIdenticalToolCalls() int {
 // excluded, counted and spent. RunRound runs a round's calls against it;
 // AddCost charges a provider call to it. A new turn starts a new toolTurn.
 type toolTurn struct {
-	r *toolRunner
-	// grants returns the granted tool names, sorted, compared across a round
-	// to report OfferChanged. nil means nothing is granted.
-	grants              func() []string
+	r                   *toolRunner
 	maxRounds           int
 	excluded            map[string]bool
 	rejectionCounts     map[string]int
@@ -787,14 +789,6 @@ func sumHistoryCost(messages []types.Message) float64 {
 	return total
 }
 
-// grantedTools returns the granted tool names, or nil without a grants source.
-func (t *toolTurn) grantedTools() []string {
-	if t.grants == nil {
-		return nil
-	}
-	return t.grants()
-}
-
 // AddCost charges a provider call's cost to the run and returns the budget
 // error once the run's spend exceeds ToolPolicy.MaxCostUSD. A nil cost adds
 // nothing but is still checked; a nil turn tracks nothing.
@@ -826,7 +820,7 @@ func (t *toolTurn) RunRound(ctx context.Context, calls []types.MessageToolCall, 
 		return t.identicalLoopOutcome(ctx, calls, looping, rr)
 	}
 
-	grantsBefore := t.grantedTools()
+	grantsBefore := t.r.grantedTools()
 	within, over := t.splitCallBudget(calls)
 	results, err := t.r.executeToolCalls(ctx, within, rr)
 	results = append(results, overBudgetResults(over)...)
@@ -840,7 +834,7 @@ func (t *toolTurn) RunRound(ctx context.Context, calls []types.MessageToolCall, 
 	out := roundOutcome{Results: results}
 	// A skill__activate / skill__deactivate call changes the granted set.
 	out.OfferChanged = t.r.updateExcludedTools(ctx, results, t.rejectionCounts, t.excluded, rr.round) ||
-		!stringSlicesEqual(grantsBefore, t.grantedTools())
+		!stringSlicesEqual(grantsBefore, t.r.grantedTools())
 	if limit := t.r.getMaxToolCallsPerTurn(); limit > 0 && t.toolCallsExecuted >= limit {
 		out.OfferExhausted = true
 	}
@@ -965,4 +959,277 @@ func calledStopTool(policy *pipeline.ToolPolicy, toolCalls []types.MessageToolCa
 		}
 	}
 	return false
+}
+
+// toolOffer is the offer state that outlives a tools build: the names offered
+// during the current turn and the fingerprint of the tools array last built.
+// A stage owns one, and every runner it builds shares it. It is locked because
+// a realtime session builds its offer on one goroutine while its tool rounds
+// run on another.
+type toolOffer struct {
+	mu sync.Mutex
+	// names is the union of the tools offered across the turn's rounds.
+	names map[string]bool
+	// describedKey fingerprints the tools array last built, as DescribeTool
+	// shaped it (see describedToolsKey).
+	describedKey string
+}
+
+// offer returns the tools the model may call: the allowed tools and the
+// conversation's grants, plus the capability tools the registry holds, less
+// excluded, each as DescribeTool describes it, sorted by name. Nil without a
+// registry, or when tool calling is off for the turn (tool_choice: none).
+func (r *toolRunner) offer(allowed []string, excluded map[string]bool) []*tools.ToolDescriptor {
+	if r.registry == nil || r.toolsDisabled() {
+		return nil
+	}
+	return r.collectDescriptors(r.withGrantedTools(allowed), excluded)
+}
+
+// toolsDisabled reports whether tool calling is off for the turn (tool_choice:
+// none). The model cannot call a tool then, so declaring any only wastes input
+// tokens and, on some models, primes spurious tool calls.
+func (r *toolRunner) toolsDisabled() bool {
+	p := r.policy()
+	return p != nil && p.ToolChoice == toolChoiceNone
+}
+
+// collectDescriptors builds the deterministic tool list for an offer:
+// pack-declared tools (allowedTools) plus capability tools (system-namespaced).
+// Order MUST be stable across calls within a run — the tools array is part of
+// the provider's cached prefix (Anthropic caches tools+system+first-message),
+// and capability tools are gathered via IterateTools in Go map-iteration order,
+// which is randomized. A varying order changes the cached-prefix bytes and
+// busts prompt caching entirely, re-billing the full context at full price
+// every round. Sorting by name keeps the prefix byte-stable so caching
+// actually engages.
+func (r *toolRunner) collectDescriptors(
+	allowedTools []string, excluded map[string]bool,
+) []*tools.ToolDescriptor {
+	c := &descriptorCollector{
+		registry: r.registry, describe: r.cfg.DescribeTool, excluded: excluded, seen: make(map[string]bool),
+	}
+
+	// 1. Pack-declared tools from the prompt's allowed list (slice order). An
+	//    entry ending in "*" (e.g. mcp__server__*) is a wildcard expanded against
+	//    the registry: MCP servers reveal their tool sets only at connection time,
+	//    so authors can't enumerate exact names.
+	for _, entry := range allowedTools {
+		c.addAllowedEntry(entry)
+	}
+
+	// 2. Implicit capability tools (skill__, a2a__, workflow__, memory__, media),
+	//    gathered in randomized map order — sorted below to make the whole set
+	//    stable. MCP tools are NOT implicit: they surface only via an explicit
+	//    allowed_tools entry in loop 1 above.
+	r.registry.IterateTools(func(name string, tool *tools.ToolDescriptor) {
+		if c.skip(name) || !tools.IsImplicitTool(name) {
+			return
+		}
+		c.add(tool)
+	})
+
+	sort.Slice(c.descriptors, func(i, j int) bool {
+		return c.descriptors[i].Name < c.descriptors[j].Name
+	})
+	return c.descriptors
+}
+
+// descriptorCollector accumulates one offer's tool descriptors, skipping
+// excluded and already-added names and applying describe to each.
+type descriptorCollector struct {
+	registry    *tools.Registry
+	describe    func(*tools.ToolDescriptor) *tools.ToolDescriptor
+	excluded    map[string]bool
+	seen        map[string]bool
+	descriptors []*tools.ToolDescriptor
+}
+
+// skip reports whether name is excluded or already collected.
+func (c *descriptorCollector) skip(name string) bool {
+	return c.seen[name] || c.excluded[name]
+}
+
+// addAllowedEntry adds the tool an allowed_tools entry names, expanding a
+// trailing "*" wildcard against the registry.
+func (c *descriptorCollector) addAllowedEntry(entry string) {
+	if strings.HasSuffix(entry, "*") {
+		c.registry.IterateTools(func(name string, tool *tools.ToolDescriptor) {
+			if c.skip(name) || !tools.MatchToolPattern(entry, name) {
+				return
+			}
+			c.add(tool)
+		})
+		return
+	}
+	if c.excluded[entry] {
+		return
+	}
+	tool, err := c.registry.GetTool(entry)
+	if err != nil {
+		logger.Warn("Tool not found in registry", "tool", entry, "error", err)
+		return
+	}
+	c.add(tool)
+}
+
+// add records what the model is offered of tool — its name, description and
+// input schema — passing it through describe when one is configured; a nil
+// result withholds the tool.
+func (c *descriptorCollector) add(tool *tools.ToolDescriptor) {
+	c.seen[tool.Name] = true
+	if c.describe != nil {
+		if tool = c.describe(tool); tool == nil {
+			return
+		}
+	}
+	c.descriptors = append(c.descriptors, &tools.ToolDescriptor{
+		Name:        tool.Name,
+		Description: tool.Description,
+		InputSchema: tool.InputSchema,
+	})
+}
+
+// grantedTools returns the currently granted tool names (ToolGrants), sorted,
+// or nil when nothing is granted.
+func (r *toolRunner) grantedTools() []string {
+	if r.cfg.ToolGrants == nil {
+		return nil
+	}
+	grants := r.cfg.ToolGrants()
+	if len(grants) == 0 {
+		return nil
+	}
+	out := make([]string, len(grants))
+	copy(out, grants)
+	sort.Strings(out)
+	return out
+}
+
+// withGrantedTools returns allowedTools extended with the currently granted
+// tools that it does not already name. The input slice is not mutated.
+func (r *toolRunner) withGrantedTools(allowedTools []string) []string {
+	grants := r.grantedTools()
+	if len(grants) == 0 {
+		return allowedTools
+	}
+	seen := make(map[string]bool, len(allowedTools))
+	for _, name := range allowedTools {
+		seen[name] = true
+	}
+	out := make([]string, 0, len(allowedTools)+len(grants))
+	out = append(out, allowedTools...)
+	for _, name := range grants {
+		if !seen[name] {
+			seen[name] = true
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// resetOffered starts a fresh offered set for a turn.
+//
+// The union is across a turn's ROUNDS — skill grants widen it mid-turn, which
+// is the whole point — but a stage outlives the turn: the SDK builds the
+// pipeline once per conversation and every Send reuses it, and a streaming
+// stage serves a whole session inside one Process call. Without this, a tool
+// offered once is reported offered for the rest of the conversation and a
+// tools_offered check with absent:true can never fail again.
+func (r *toolRunner) resetOffered() {
+	r.offers.mu.Lock()
+	defer r.offers.mu.Unlock()
+	r.offers.names = nil
+}
+
+// recordOffered adds names to the tools handed to the model this turn.
+//
+// The set is a union across rounds, not a snapshot: skill tool grants widen it
+// mid-turn, which is the whole point of them, so "what this turn offered" is
+// everything the model saw at any round. Stamped onto each assistant message as
+// types.MetaToolsOffered, which is what makes the tools_offered eval possible —
+// nothing else records a tool the model was offered but never called.
+func (r *toolRunner) recordOffered(names ...string) {
+	if len(names) == 0 {
+		return
+	}
+	r.offers.mu.Lock()
+	defer r.offers.mu.Unlock()
+	if r.offers.names == nil {
+		r.offers.names = make(map[string]bool, len(names))
+	}
+	for _, name := range names {
+		r.offers.names[name] = true
+	}
+}
+
+// offeredToolNames returns the turn's offered set, sorted, or nil when the turn
+// offered no tools at all.
+func (r *toolRunner) offeredToolNames() []string {
+	r.offers.mu.Lock()
+	defer r.offers.mu.Unlock()
+	if len(r.offers.names) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(r.offers.names))
+	for name := range r.offers.names {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// stampToolsOffered records on an assistant message what this turn offered the
+// model, so an eval can assert on tool availability and not just on what the
+// model chose to call.
+//
+// Every round implementation must call it. A round that skips it leaves the
+// eval with no evidence of the tools offered.
+func (r *toolRunner) stampToolsOffered(msg *types.Message) {
+	offered := r.offeredToolNames()
+	if len(offered) == 0 {
+		return
+	}
+	if msg.Meta == nil {
+		msg.Meta = map[string]interface{}{}
+	}
+	msg.Meta[types.MetaToolsOffered] = offered
+}
+
+// describedToolsKey fingerprints what DescribeTool made of a tools build — the
+// name, description and schema of each descriptor, in order — so a later
+// round can tell whether the per-conversation view changed. Empty when no
+// DescribeTool is configured: without one, grants and exclusions are the only
+// things that change the array mid-turn, and they are tracked directly.
+func (r *toolRunner) describedToolsKey(descriptors []*tools.ToolDescriptor) string {
+	if r.cfg.DescribeTool == nil {
+		return ""
+	}
+	var sb strings.Builder
+	for _, d := range descriptors {
+		sb.WriteString(d.Name)
+		sb.WriteByte(0)
+		sb.WriteString(d.Description)
+		sb.WriteByte(0)
+		sb.Write(d.InputSchema)
+		sb.WriteByte(0)
+	}
+	return sb.String()
+}
+
+// describedChanged reports whether descriptors differ from the tools array
+// last built (markBuilt), as DescribeTool shapes them.
+func (r *toolRunner) describedChanged(descriptors []*tools.ToolDescriptor) bool {
+	key := r.describedToolsKey(descriptors)
+	r.offers.mu.Lock()
+	defer r.offers.mu.Unlock()
+	return key != r.offers.describedKey
+}
+
+// markBuilt records descriptors as the tools array last built.
+func (r *toolRunner) markBuilt(descriptors []*tools.ToolDescriptor) {
+	key := r.describedToolsKey(descriptors)
+	r.offers.mu.Lock()
+	defer r.offers.mu.Unlock()
+	r.offers.describedKey = key
 }

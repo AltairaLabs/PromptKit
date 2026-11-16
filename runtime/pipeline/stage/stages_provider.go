@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
-	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -93,32 +92,21 @@ type ProviderStage struct {
 	// turn ending with the origin state still in control. Nil for
 	// non-workflow runs. See state_handoff.go.
 	stateResolver WorkflowStateResolver
-	// offeredTools accumulates the tool names handed to the provider across
-	// this turn's rounds, stamped onto each assistant message. Reset per turn
-	// by newToolLoop; see resetOffered for why that matters.
-	//
-	// A turn runs on one goroutine, so it needs no lock.
+	// offers is the stage's offer state: the tool names handed to the provider
+	// across this turn's rounds, stamped onto each assistant message and reset
+	// per turn by newToolLoop (see toolRunner.resetOffered), and the
+	// fingerprint of the tools array last built. Every runner the stage builds
+	// shares it. Created by the constructor, or on first use (offerState).
 	//
 	// Held behind a pointer deliberately: a map field of its own would make
 	// ProviderStage non-comparable, which is an incompatible API change for a
 	// published exported type and blocks every subsequent minor release.
-	offeredTools *offeredToolSet
-
-	// describedKey fingerprints the tools array last built, as DescribeTool
-	// shaped it (see describedToolsKey). Like offeredTools it is turn state
-	// read and written on the turn's one goroutine.
-	describedKey string
+	offers *toolOffer
 
 	// callRate counts the calls admitted under ToolPolicy.MaxCallsPerMinute,
 	// per conversation and tool, across turns. A pointer for the same reason
 	// as offeredTools.
 	callRate *CallRateWindow
-}
-
-// offeredToolSet is the set of tool names offered during a turn. It exists so
-// ProviderStage can hold it by pointer and stay comparable; see offeredTools.
-type offeredToolSet struct {
-	names map[string]bool
 }
 
 // currentTurn returns the 1-based number of the turn being processed, or 0 when
@@ -396,7 +384,17 @@ func NewProviderStageWithTurnState(
 		hookRegistry: hookRegistry,
 		turnState:    turnState,
 		callRate:     callRate,
+		offers:       &toolOffer{},
 	}
+}
+
+// offerState returns the stage's offer state, creating it for a stage built
+// without the constructor. Called on the turn's goroutine.
+func (s *ProviderStage) offerState() *toolOffer {
+	if s.offers == nil {
+		s.offers = &toolOffer{}
+	}
+	return s.offers
 }
 
 // runner returns the tool runner for the stage's current state. It is built on
@@ -422,6 +420,7 @@ func (s *ProviderStage) runner() *toolRunner {
 		turnState:     s.turnState,
 		cfg:           cfg,
 		stateResolver: s.stateResolver,
+		offers:        s.offerState(),
 	}
 }
 
@@ -1581,7 +1580,6 @@ func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
 	// MaxCostUSD per turn. History cost is carried on the input messages'
 	// CostInfo.
 	turn := s.runner().newTurn(acc.messages, s.getMaxRounds())
-	turn.grants = s.grantedTools
 	providerTools, toolChoice, err := s.buildProviderTools(acc.allowedTools, turn.excluded)
 	if err != nil {
 		return nil, fmt.Errorf("provider stage: %w", err)
@@ -3091,76 +3089,41 @@ func blockedTurnMessage(req *hooks.ProviderRequest, d hooks.Decision) types.Mess
 	return msg
 }
 
-// resetOffered starts a fresh offered set for a turn.
-//
-// The union is across a turn's ROUNDS — skill grants widen it mid-turn, which
-// is the whole point — but a ProviderStage outlives the turn: the SDK builds
-// the pipeline once per conversation and every Send reuses it, and
-// processStreaming serves a whole session inside one Process call. Without
-// this, a tool offered once is reported offered for the rest of the
-// conversation and a tools_offered check with absent:true can never fail
-// again.
+// resetOffered starts a fresh offered set for a turn (see
+// toolRunner.resetOffered).
 func (s *ProviderStage) resetOffered() {
-	s.offeredTools = nil
+	s.runner().resetOffered()
 }
 
-// recordOffered accumulates the tool names handed to the provider this turn.
-//
-// The set is a union across rounds, not a snapshot: skill tool grants widen it
-// mid-turn, which is the whole point of them, so "what this turn offered" is
-// everything the model saw at any round. Stamped onto each assistant message as
-// types.MetaToolsOffered, which is what makes the tools_offered eval possible —
-// nothing else records a tool the model was offered but never called.
-//
-// A ProviderStage serves one turn, so no locking is needed: Process and the
-// tool loop run on the same goroutine.
+// recordOffered accumulates the tool names handed to the provider this turn
+// (see toolRunner.recordOffered). Nil descriptors are skipped.
 func (s *ProviderStage) recordOffered(descriptors []*providers.ToolDescriptor) {
-	if len(descriptors) == 0 {
-		return
-	}
-	if s.offeredTools == nil {
-		s.offeredTools = &offeredToolSet{names: make(map[string]bool, len(descriptors))}
-	}
+	names := make([]string, 0, len(descriptors))
 	for _, d := range descriptors {
 		if d != nil {
-			s.offeredTools.names[d.Name] = true
+			names = append(names, d.Name)
 		}
 	}
+	s.runner().recordOffered(names...)
 }
 
 // stampToolsOffered records on an assistant message what this turn offered the
-// model, so an eval can assert on tool availability and not just on what the
-// model chose to call.
+// model (see toolRunner.stampToolsOffered).
 //
 // Both round implementations must call it. A streaming round that skips it
 // leaves the eval with no evidence of the tools offered.
 func (s *ProviderStage) stampToolsOffered(msg *types.Message) {
-	offered := s.offeredToolNames()
-	if len(offered) == 0 {
-		return
-	}
-	if msg.Meta == nil {
-		msg.Meta = map[string]interface{}{}
-	}
-	msg.Meta[types.MetaToolsOffered] = offered
+	s.runner().stampToolsOffered(msg)
 }
 
 // offeredToolNames returns the accumulated set, sorted, or nil when the turn
 // offered no tools at all.
+//
+//nolint:unused // tests call it on the stage
 func (s *ProviderStage) offeredToolNames() []string {
-	if s.offeredTools == nil || len(s.offeredTools.names) == 0 {
-		return nil
-	}
-	names := make([]string, 0, len(s.offeredTools.names))
-	for name := range s.offeredTools.names {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+	return s.runner().offeredToolNames()
 }
 
-// buildProviderTools constructs the tool descriptors sent to the provider.
-// Tools in the excluded set are omitted from the result.
 // classifyToolError determines the ToolErrorType from an execution error.
 func classifyToolError(err error) types.ToolErrorType {
 	var valErr *tools.ValidationError
@@ -3170,136 +3133,54 @@ func classifyToolError(err error) types.ToolErrorType {
 	return types.ToolErrorExecution
 }
 
-// collectProviderDescriptors builds the deterministic tool-descriptor list for a
-// provider call: pack-declared tools (allowedTools) plus capability tools
-// (system-namespaced). Order MUST be stable across calls within a run — the
-// tools array is part of the provider's cached prefix (Anthropic caches
-// tools+system+first-message), and capability tools are gathered via IterateTools
-// in Go map-iteration order, which is randomized. A varying order changes the
-// cached-prefix bytes and busts prompt caching entirely, re-billing the full
-// context at full price every round. Sorting by name keeps the prefix byte-stable
-// so caching actually engages.
+// collectProviderDescriptors builds the sorted tool-descriptor list for a
+// provider call (see toolRunner.collectDescriptors).
+//
+//nolint:unused // tests call it on the stage
 func (s *ProviderStage) collectProviderDescriptors(
 	allowedTools []string, excluded map[string]bool,
 ) []*providers.ToolDescriptor {
-	c := &descriptorCollector{stage: s, excluded: excluded, seen: make(map[string]bool)}
-
-	// 1. Pack-declared tools from the prompt's allowed list (slice order). An
-	//    entry ending in "*" (e.g. mcp__server__*) is a wildcard expanded against
-	//    the registry: MCP servers reveal their tool sets only at connection time,
-	//    so authors can't enumerate exact names.
-	for _, entry := range allowedTools {
-		c.addAllowedEntry(entry)
-	}
-
-	// 2. Implicit capability tools (skill__, a2a__, workflow__, memory__, media),
-	//    gathered in randomized map order — sorted below to make the whole set
-	//    stable. MCP tools are NOT implicit: they surface only via an explicit
-	//    allowed_tools entry in loop 1 above.
-	s.toolRegistry.IterateTools(func(name string, tool *tools.ToolDescriptor) {
-		if c.skip(name) || !tools.IsImplicitTool(name) {
-			return
-		}
-		c.add(tool)
-	})
-
-	sort.Slice(c.descriptors, func(i, j int) bool {
-		return c.descriptors[i].Name < c.descriptors[j].Name
-	})
-	return c.descriptors
+	return providerDescriptors(s.runner().collectDescriptors(allowedTools, excluded))
 }
 
-// descriptorCollector accumulates one provider call's tool descriptors,
-// skipping excluded and already-added names and applying the configured
-// DescribeTool to each.
-type descriptorCollector struct {
-	stage       *ProviderStage
-	excluded    map[string]bool
-	seen        map[string]bool
-	descriptors []*providers.ToolDescriptor
+// providerDescriptors converts an offer to the descriptors a provider builds
+// its tools array from. Nil for an empty offer.
+func providerDescriptors(offer []*tools.ToolDescriptor) []*providers.ToolDescriptor {
+	if len(offer) == 0 {
+		return nil
+	}
+	out := make([]*providers.ToolDescriptor, len(offer))
+	for i, d := range offer {
+		out[i] = &providers.ToolDescriptor{Name: d.Name, Description: d.Description, InputSchema: d.InputSchema}
+	}
+	return out
 }
 
-// skip reports whether name is excluded or already collected.
-func (c *descriptorCollector) skip(name string) bool {
-	return c.seen[name] || c.excluded[name]
-}
-
-// addAllowedEntry adds the tool an allowed_tools entry names, expanding a
-// trailing "*" wildcard against the registry.
-func (c *descriptorCollector) addAllowedEntry(entry string) {
-	reg := c.stage.toolRegistry
-	if strings.HasSuffix(entry, "*") {
-		reg.IterateTools(func(name string, tool *tools.ToolDescriptor) {
-			if c.skip(name) || !tools.MatchToolPattern(entry, name) {
-				return
-			}
-			c.add(tool)
-		})
-		return
+// toolDescriptors is the inverse of providerDescriptors.
+//
+//nolint:unused // tests call describedToolsKey on the stage
+func toolDescriptors(descriptors []*providers.ToolDescriptor) []*tools.ToolDescriptor {
+	out := make([]*tools.ToolDescriptor, len(descriptors))
+	for i, d := range descriptors {
+		out[i] = &tools.ToolDescriptor{Name: d.Name, Description: d.Description, InputSchema: d.InputSchema}
 	}
-	if c.excluded[entry] {
-		return
-	}
-	tool, err := reg.GetTool(entry)
-	if err != nil {
-		logger.Warn("Tool not found in registry", "tool", entry, "error", err)
-		return
-	}
-	c.add(tool)
-}
-
-// add records tool, passing it through DescribeTool when one is configured;
-// a nil result withholds the tool.
-func (c *descriptorCollector) add(tool *tools.ToolDescriptor) {
-	c.seen[tool.Name] = true
-	if cfg := c.stage.config; cfg != nil && cfg.DescribeTool != nil {
-		if tool = cfg.DescribeTool(tool); tool == nil {
-			return
-		}
-	}
-	c.descriptors = append(c.descriptors, &providers.ToolDescriptor{
-		Name:        tool.Name,
-		Description: tool.Description,
-		InputSchema: tool.InputSchema,
-	})
+	return out
 }
 
 // grantedTools returns the currently granted tool names, sorted, or nil when
-// no grant source is configured.
+// no grant source is configured (see toolRunner.grantedTools).
+//
+//nolint:unused // tests call it on the stage
 func (s *ProviderStage) grantedTools() []string {
-	if s.config == nil || s.config.ToolGrants == nil {
-		return nil
-	}
-	grants := s.config.ToolGrants()
-	if len(grants) == 0 {
-		return nil
-	}
-	out := make([]string, len(grants))
-	copy(out, grants)
-	sort.Strings(out)
-	return out
+	return s.runner().grantedTools()
 }
 
 // withGrantedTools returns allowedTools extended with the currently granted
-// tools that it does not already name. The input slice is not mutated.
+// tools (see toolRunner.withGrantedTools).
+//
+//nolint:unused // tests call it on the stage
 func (s *ProviderStage) withGrantedTools(allowedTools []string) []string {
-	grants := s.grantedTools()
-	if len(grants) == 0 {
-		return allowedTools
-	}
-	seen := make(map[string]bool, len(allowedTools))
-	for _, name := range allowedTools {
-		seen[name] = true
-	}
-	out := make([]string, 0, len(allowedTools)+len(grants))
-	out = append(out, allowedTools...)
-	for _, name := range grants {
-		if !seen[name] {
-			seen[name] = true
-			out = append(out, name)
-		}
-	}
-	return out
+	return s.runner().withGrantedTools(allowedTools)
 }
 
 // stringSlicesEqual reports whether two string slices hold the same elements
@@ -3316,61 +3197,42 @@ func stringSlicesEqual(a, b []string) bool {
 	return true
 }
 
-// offerableDescriptors returns the descriptors a tools build would offer, and
-// the provider to build them for. Nil descriptors and provider when this call
-// offers no tools at all: no registry, a provider without tool support, or
-// tool calling disabled for the turn.
+// offerableDescriptors returns the tools a tools build would offer
+// (toolRunner.offer), and the provider to build them for. Nil offer and
+// provider when this call offers no tools at all: no registry, a provider
+// without tool support, or tool calling disabled for the turn.
 func (s *ProviderStage) offerableDescriptors(
 	allowedTools []string, excluded map[string]bool,
-) ([]*providers.ToolDescriptor, providers.ToolSupport) {
+) ([]*tools.ToolDescriptor, providers.ToolSupport) {
 	if s.toolRegistry == nil {
 		return nil, nil
 	}
-
-	// Check if provider supports tools
 	toolProvider, ok := s.callProvider().(providers.ToolSupport)
 	if !ok {
 		return nil, nil
 	}
-
-	// When tool calling is disabled for this turn (tool_choice: none), send no
-	// tool declarations at all. The model cannot call them, so shipping the
-	// declarations only wastes input tokens and — on some models — primes
-	// spurious tool calls. Returning nil routes the provider to its non-tool
-	// path, which omits both the declarations and any tool_config.
-	policy := s.policy()
-	if policy != nil && policy.ToolChoice == toolChoiceNone {
+	// With tool calling disabled for this turn (tool_choice: none) no tool
+	// declarations are sent at all: a nil provider routes the call to its
+	// non-tool path, which omits both the declarations and any tool_config.
+	r := s.runner()
+	if r.toolsDisabled() {
 		return nil, nil
 	}
-
-	return s.collectProviderDescriptors(s.withGrantedTools(allowedTools), excluded), toolProvider
+	return r.offer(allowedTools, excluded), toolProvider
 }
 
-// describedToolsKey fingerprints what DescribeTool made of a tools build — the
-// name, description and schema of each descriptor, in order — so a later
-// round can tell whether the per-conversation view changed. Empty when no
-// DescribeTool is configured: without one, grants and exclusions are the only
-// things that change the array mid-turn, and they are tracked directly.
+// describedToolsKey fingerprints what DescribeTool made of a tools build (see
+// toolRunner.describedToolsKey).
+//
+//nolint:unused // tests call it on the stage
 func (s *ProviderStage) describedToolsKey(descriptors []*providers.ToolDescriptor) string {
-	if s.config == nil || s.config.DescribeTool == nil {
-		return ""
-	}
-	var sb strings.Builder
-	for _, d := range descriptors {
-		sb.WriteString(d.Name)
-		sb.WriteByte(0)
-		sb.WriteString(d.Description)
-		sb.WriteByte(0)
-		sb.Write(d.InputSchema)
-		sb.WriteByte(0)
-	}
-	return sb.String()
+	return s.runner().describedToolsKey(toolDescriptors(descriptors))
 }
 
 // describedTools is one computation of what a tools build would offer: the
-// descriptors and the provider to build them for (see offerableDescriptors).
+// offer and the provider to build it for (see offerableDescriptors).
 type describedTools struct {
-	descriptors []*providers.ToolDescriptor
+	descriptors []*tools.ToolDescriptor
 	provider    providers.ToolSupport
 }
 
@@ -3383,12 +3245,13 @@ type describedTools struct {
 func (s *ProviderStage) describedToolsChanged(
 	allowedTools []string, excluded map[string]bool,
 ) (bool, *describedTools) {
-	if s.config == nil || s.config.DescribeTool == nil {
+	r := s.runner()
+	if r.cfg.DescribeTool == nil {
 		return false, nil
 	}
 	descriptors, toolProvider := s.offerableDescriptors(allowedTools, excluded)
 	offered := &describedTools{descriptors: descriptors, provider: toolProvider}
-	return s.describedToolsKey(descriptors) != s.describedKey, offered
+	return r.describedChanged(descriptors), offered
 }
 
 // rebuildProviderTools builds the tools array for allowedTools and excluded,
@@ -3403,23 +3266,27 @@ func (s *ProviderStage) rebuildProviderTools(
 	return s.buildProviderToolsFrom(offered.descriptors, offered.provider)
 }
 
+// buildProviderTools constructs the tools array sent to the provider. Tools in
+// the excluded set are omitted from the result.
 func (s *ProviderStage) buildProviderTools(
 	allowedTools []string, excluded map[string]bool,
 ) (providerTools interface{}, toolChoice string, err error) {
 	return s.buildProviderToolsFrom(s.offerableDescriptors(allowedTools, excluded))
 }
 
-// buildProviderToolsFrom builds the provider's tools array from descriptors
-// offerableDescriptors returned, and records them as the array last built.
+// buildProviderToolsFrom builds the provider's tools array from the offer
+// offerableDescriptors returned, and records it as the array last built.
 func (s *ProviderStage) buildProviderToolsFrom(
-	descriptors []*providers.ToolDescriptor, toolProvider providers.ToolSupport,
+	offer []*tools.ToolDescriptor, toolProvider providers.ToolSupport,
 ) (providerTools interface{}, toolChoice string, err error) {
-	s.describedKey = s.describedToolsKey(descriptors)
+	r := s.runner()
+	r.markBuilt(offer)
 	if toolProvider == nil {
 		return nil, "", nil
 	}
 	policy := s.policy()
 
+	descriptors := providerDescriptors(offer)
 	s.recordOffered(descriptors)
 	if len(descriptors) == 0 {
 		return nil, "", nil
