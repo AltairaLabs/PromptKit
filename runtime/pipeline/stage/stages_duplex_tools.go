@@ -143,8 +143,10 @@ type duplexTools struct {
 	closed bool
 
 	// inflight counts the rounds queued for the worker, running, or waiting
-	// to be delivered.
+	// to be delivered. replyDue is set once a round's responses are sent and
+	// cleared when the next assistant turn completes: the reply they start.
 	inflight atomic.Int64
+	replyDue atomic.Bool
 }
 
 // duplexRound is a realtime provider call in progress: the round it is and
@@ -361,6 +363,7 @@ func (s *DuplexProviderStage) completeRound(ctx context.Context, msg *types.Mess
 	dt.open = nil
 	turn := dt.turn
 	dt.mu.Unlock()
+	dt.replyDue.Store(false)
 	s.syncStartedTurn(ctx, started)
 	if opened {
 		s.emitRoundStarted(ctx, round.rr)
@@ -600,18 +603,14 @@ func (s *DuplexProviderStage) queueToolRound(ctx context.Context, job *duplexToo
 }
 
 // roundOutstanding reports whether a tool round is queued, running, or
-// waiting to be delivered, or a provider call (the reply its responses
-// started) is in progress. False without tool execution.
+// waiting to be delivered, or the reply its responses started has not
+// completed. A provider call with no tool round behind it does not count.
+// False without tool execution.
 func (dt *duplexTools) roundOutstanding() bool {
 	if dt == nil {
 		return false
 	}
-	if dt.inflight.Load() > 0 {
-		return true
-	}
-	dt.mu.Lock()
-	defer dt.mu.Unlock()
-	return dt.open != nil
+	return dt.inflight.Load() > 0 || dt.replyDue.Load()
 }
 
 // runToolWorker runs queued rounds one at a time until ctx ends, handing each
@@ -902,6 +901,9 @@ func (s *DuplexProviderStage) sendToolRound(
 	}
 	if !res.closeSession && res.turn != nil {
 		s.openNextToolRound(ctx, res.turn)
+	}
+	if !res.closeSession {
+		dt.replyDue.Store(true)
 	}
 	s.sendToolResponses(ctx, responses)
 }

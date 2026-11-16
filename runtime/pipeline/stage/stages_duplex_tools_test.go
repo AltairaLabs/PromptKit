@@ -1583,3 +1583,59 @@ func TestDuplexTools_FinalWaitIsBoundedForAHungTool(t *testing.T) {
 	assert.Less(t, time.Since(start), 2*time.Second, "but not past the limit")
 	assert.Empty(t, h.sess().sentResponses())
 }
+
+// The final-response wait is extended for tool rounds only: a provider call
+// with no tool round behind it (a typed turn the provider never answers) does
+// not hold a session whose input closed open past the normal wait.
+func TestDuplexTools_FinalWaitIsNotExtendedWithoutAToolRound(t *testing.T) {
+	h := startRealtime(t, realtimeOpts{
+		registry:      newWeatherRegistry(t, &realtimeToolExec{result: json.RawMessage(`"ok"`)}),
+		finalWait:     20 * time.Millisecond,
+		toolWaitLimit: 5 * time.Second,
+	})
+	text := "hello?"
+	h.input <- StreamElement{Text: &text}
+	require.Eventually(t, func() bool {
+		h.stage.tools.mu.Lock()
+		defer h.stage.tools.mu.Unlock()
+		return h.stage.tools.open != nil
+	}, 2*time.Second, time.Millisecond, "the typed turn opens a provider call")
+	start := time.Now()
+	close(h.input)
+	drainUntilClosed(t, h.output)
+	require.NoError(t, <-h.done)
+
+	assert.True(t, h.sess().isClosed())
+	assert.Less(t, time.Since(start), time.Second, "closed after the normal wait, not the tool-round limit")
+}
+
+// Tool responses sent for a round whose tool turn already ended (the model
+// replied without calls while the round ran) still start a reply, and the
+// wait covers it though no provider call was opened for it.
+func TestDuplexTools_FinalWaitCoversTheReplyToAnEndedTurnsRound(t *testing.T) {
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`), gate: make(chan struct{})}
+	h := startRealtime(t, realtimeOpts{
+		registry:  newWeatherRegistry(t, exec),
+		finalWait: 30 * time.Millisecond,
+	})
+
+	h.emit(toolCallTurn(weatherCall("c1")))
+	require.Eventually(t, func() bool { return len(exec.calls()) == 1 }, 2*time.Second, time.Millisecond)
+	h.emit(textTurn("One moment.", nil)) // ends the tool turn while the round runs
+	require.Eventually(t, func() bool {
+		h.stage.tools.mu.Lock()
+		defer h.stage.tools.mu.Unlock()
+		return h.stage.tools.turn == nil
+	}, 2*time.Second, time.Millisecond)
+	close(h.input)
+	close(exec.gate)
+	h.awaitSent(1)
+	time.Sleep(200 * time.Millisecond) // several waits pass before the reply starts
+	h.emit(textTurn("It is 21 degrees", nil))
+	elems := drainUntilClosed(t, h.output)
+	require.NoError(t, <-h.done)
+
+	msgs := realtimeAssistantMessages(elems)
+	require.Len(t, msgs, 3)
+	assert.Equal(t, "It is 21 degrees", msgs[2].Content)
+}
