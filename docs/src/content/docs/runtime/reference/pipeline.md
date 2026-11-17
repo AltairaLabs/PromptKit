@@ -150,6 +150,8 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
   - [func \(s \*DuplexProviderStage\) SetHookRegistry\(r \*hooks.Registry\)](<#DuplexProviderStage.SetHookRegistry>)
   - [func \(s \*DuplexProviderStage\) SetPromptDeclarations\(decls map\[string\]\*packspec.Prompt\)](<#DuplexProviderStage.SetPromptDeclarations>)
   - [func \(s \*DuplexProviderStage\) SetSessionObserver\(fn func\(providers.StreamInputSession\)\)](<#DuplexProviderStage.SetSessionObserver>)
+  - [func \(s \*DuplexProviderStage\) SetToolExecution\(registry \*tools.Registry, policy \*pipeline.ToolPolicy, cfg DuplexToolConfig, resolver WorkflowStateResolver\)](<#DuplexProviderStage.SetToolExecution>)
+- [type DuplexToolConfig](<#DuplexToolConfig>)
 - [type ElementMetadata](<#ElementMetadata>)
 - [type EndInputter](<#EndInputter>)
 - [type ExecutionResult](<#ExecutionResult>)
@@ -2070,7 +2072,7 @@ func (s DropStrategy) String() string
 String returns the string representation of the drop strategy.
 
 <a name="DuplexProviderStage"></a>
-## type [DuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L70-L172>)
+## type [DuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L70-L178>)
 
 DuplexProviderStage handles bidirectional streaming through a session. It forwards elements from input to the provider's session and forwards responses from the session to output.
 
@@ -2092,7 +2094,7 @@ type DuplexProviderStage struct {
 ```
 
 <a name="NewDuplexProviderStage"></a>
-### func [NewDuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L186-L189>)
+### func [NewDuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L192-L195>)
 
 ```go
 func NewDuplexProviderStage(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig) *DuplexProviderStage
@@ -2101,7 +2103,7 @@ func NewDuplexProviderStage(provider providers.StreamInputSupport, baseConfig *p
 NewDuplexProviderStage creates a new duplex provider stage. The session is created lazily when the first element arrives. Prefer NewDuplexProviderStageWithTurnState in production so the system prompt is sourced from the per\-Turn shared state.
 
 <a name="NewDuplexProviderStageWithEmitter"></a>
-### func [NewDuplexProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L203-L207>)
+### func [NewDuplexProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L209-L213>)
 
 ```go
 func NewDuplexProviderStageWithEmitter(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig, emitter *events.Emitter) *DuplexProviderStage
@@ -2110,7 +2112,7 @@ func NewDuplexProviderStageWithEmitter(provider providers.StreamInputSupport, ba
 NewDuplexProviderStageWithEmitter creates a new duplex provider stage with event emission support. The stage emits audio.input and audio.output events through it for session recording.
 
 <a name="NewDuplexProviderStageWithTurnState"></a>
-### func [NewDuplexProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L216-L221>)
+### func [NewDuplexProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L222-L227>)
 
 ```go
 func NewDuplexProviderStageWithTurnState(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig, emitter *events.Emitter, turnState *TurnState) *DuplexProviderStage
@@ -2119,7 +2121,7 @@ func NewDuplexProviderStageWithTurnState(provider providers.StreamInputSupport, 
 NewDuplexProviderStageWithTurnState creates a new duplex provider stage that sources system\_prompt from the shared \*TurnState. The emitter remains optional.
 
 <a name="DuplexProviderStage.Process"></a>
-### func \(\*DuplexProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L239-L243>)
+### func \(\*DuplexProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L245-L249>)
 
 ```go
 func (s *DuplexProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -2150,13 +2152,52 @@ func (s *DuplexProviderStage) SetPromptDeclarations(decls map[string]*packspec.P
 SetPromptDeclarations sets the pack declarations of the prompts, keyed by task, so each hook call carries the declaration of the prompt the session runs \(ProviderRequest.Prompt\), as ProviderStage's do through ProviderConfig.PromptDeclarations. Must be called before the stage runs.
 
 <a name="DuplexProviderStage.SetSessionObserver"></a>
-### func \(\*DuplexProviderStage\) [SetSessionObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L178>)
+### func \(\*DuplexProviderStage\) [SetSessionObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L184>)
 
 ```go
 func (s *DuplexProviderStage) SetSessionObserver(fn func(providers.StreamInputSession))
 ```
 
 SetSessionObserver registers a callback invoked once with the streaming session immediately after it is created. It is optional; nil means no observer. Used by the interactive console to wire barge\-in \(the session's out\-of\-band BargeIn\(\) channel\) to playback flushing.
+
+<a name="DuplexProviderStage.SetToolExecution"></a>
+### func \(\*DuplexProviderStage\) [SetToolExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_tools.go#L86-L88>)
+
+```go
+func (s *DuplexProviderStage) SetToolExecution(registry *tools.Registry, policy *pipeline.ToolPolicy, cfg DuplexToolConfig, resolver WorkflowStateResolver)
+```
+
+SetToolExecution makes the stage run the session's tool calls through the registry, under policy merged with the prompt's tool\_policy, recording executed calls and stamping workflow state through resolver \(nil for none\). A nil registry, the default, leaves tool calls to the host: they are forwarded downstream on the assistant message and nothing runs them here. Must be called before the stage runs.
+
+<a name="DuplexToolConfig"></a>
+## type [DuplexToolConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_tools.go#L57-L78>)
+
+DuplexToolConfig is what a DuplexProviderStage's tool calls run with, as the matching ProviderConfig fields are for ProviderStage.
+
+```go
+type DuplexToolConfig struct {
+    // ApprovalGate holds or refuses a call before it runs (see
+    // ProviderConfig.ApprovalGate).
+    ApprovalGate tools.ApprovalGate
+    // CallRate is the window ToolPolicy.MaxCallsPerMinute counts calls in;
+    // nil gives the stage its own.
+    CallRate *CallRateWindow
+    // Caller is who the conversation acts for (ProviderConfig.Caller).
+    Caller types.Caller
+    // ToolGrants returns the tools granted beyond the prompt's
+    // (ProviderConfig.ToolGrants).
+    ToolGrants func() []string
+    // DescribeTool shapes how a tool is described to the model
+    // (ProviderConfig.DescribeTool).
+    DescribeTool func(*tools.ToolDescriptor) *tools.ToolDescriptor
+    // Labels are propagated to the provider call events
+    // (ProviderConfig.Labels).
+    Labels map[string]string
+    // Source is the origin of the provider calls: "agent" (default), "judge",
+    // "selfplay" (ProviderConfig.Source).
+    Source string
+}
+```
 
 <a name="ElementMetadata"></a>
 ## type [ElementMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L167-L275>)
@@ -5571,7 +5612,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2655>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2662>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement

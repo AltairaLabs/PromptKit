@@ -436,7 +436,24 @@ func TestContinueDuplex(t *testing.T) {
 		{
 			name: "resultJSON",
 			res:  &sdktools.ToolResolution{ID: "r3", Result: "ignored", ResultJSON: []byte(`{"status":"ok"}`)},
-			want: providers.ToolResponse{ToolCallID: "r3", Result: `{"status":"ok"}`},
+			want: providers.ToolResponse{ToolCallID: "r3", Result: "{\n  \"status\": \"ok\"\n}"},
+		},
+		{
+			// An approved result reads as a directly run one does: a JSON
+			// string is given unquoted.
+			name: "resultJSON string",
+			res:  &sdktools.ToolResolution{ID: "r5", ResultJSON: []byte(`"shipped"`)},
+			want: providers.ToolResponse{ToolCallID: "r5", Result: "shipped"},
+		},
+		{
+			name: "resultJSON that is not JSON",
+			res:  &sdktools.ToolResolution{ID: "r6", ResultJSON: []byte(`not json`)},
+			want: providers.ToolResponse{ToolCallID: "r6", Result: "not json"},
+		},
+		{
+			name: "resultJSON number",
+			res:  &sdktools.ToolResolution{ID: "r7", ResultJSON: []byte(`7`)},
+			want: providers.ToolResponse{ToolCallID: "r7", Result: "7"},
 		},
 		{
 			name: "plain result",

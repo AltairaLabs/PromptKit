@@ -1298,6 +1298,11 @@ func (c *Conversation) TriggerStart(ctx context.Context, message string) error {
 // A session whose Response() is never called does not stall: the SDK drops
 // output once the buffer fills, logging a one-time warning. Call Response()
 // before the session produces output, or early chunks may be dropped.
+//
+// A chunk with Error set does not end the channel: some errors are reported
+// while the session goes on (a realtime tool turn a limit stopped, say), and
+// later input is still answered. The channel closes when the session ends,
+// after any error that ended it.
 func (c *Conversation) Response() (<-chan providers.StreamChunk, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

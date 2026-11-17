@@ -960,20 +960,23 @@ func initDuplexSession(ctx context.Context, conv *Conversation, cfg *config) err
 	// The system instruction is not pre-loaded here — PromptAssemblyStage
 	// publishes it to TurnState and DuplexProviderStage reads from there.
 	streamConfig := cfg.streamingConfig
+	conv.registerStreamingTools(streamConfig)
 
 	// Create duplex session with builder
 	duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
-		ConversationID:   conversationID,
-		UserID:           cfg.userID,
-		StateStore:       store,
-		PipelineBuilder:  pipelineBuilder,
-		Provider:         conv.callProvider(),
-		Config:           streamConfig, // nil for VAD mode, set for ASM mode
-		ToolRegistry:     conv.toolRegistry,
-		AsyncToolChecker: conv.newAsyncToolChecker(),
-		Caller:           cfg.caller,
-		Metadata:         cfg.sessionMetadata,
-		Variables:        initialVars,
+		ConversationID:  conversationID,
+		UserID:          cfg.userID,
+		StateStore:      store,
+		PipelineBuilder: pipelineBuilder,
+		Provider:        conv.callProvider(),
+		Config:          streamConfig, // nil for VAD mode, set for ASM mode
+		ToolRegistry:    conv.toolRegistry,
+		// The pipeline's DuplexProviderStage runs the session's tool calls
+		// (realtime), or its ProviderStage does (VAD): never the session.
+		PipelineRunsTools: true,
+		Caller:            cfg.caller,
+		Metadata:          cfg.sessionMetadata,
+		Variables:         initialVars,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create duplex session: %w", err)
@@ -984,82 +987,42 @@ func initDuplexSession(ctx context.Context, conv *Conversation, cfg *config) err
 	return nil
 }
 
-// newAsyncToolChecker builds the HITL checker for a duplex session. It reads
-// asyncHandlers dynamically under lock so handlers registered after
-// OpenDuplex() (via OnToolAsync) are still consulted.
-func (conv *Conversation) newAsyncToolChecker() session.AsyncToolChecker {
-	return session.AsyncToolChecker(func(
-		ctx context.Context, callID, name string, args map[string]any,
-	) *session.AsyncToolCheckResult {
-		conv.asyncHandlersMu.RLock()
-		checkFunc, isAsync := conv.asyncHandlers[name]
-		conv.asyncHandlersMu.RUnlock()
-
-		if !isAsync {
-			return nil // Not an async tool — fall through to registry
+// registerStreamingTools registers each tool a realtime session declares on
+// its streaming config (StreamingInputConfig.Tools) that the conversation's
+// registry does not hold, in local mode. The session's tool calls run through
+// the registry, so without this a host-declared tool could never run: with it,
+// the call reaches the handlers registered for it (OnTool, OnToolCall,
+// OnToolAsync, OnClientTool), before or after OpenDuplex. A tool the registry
+// already holds, a pack tool say, keeps its descriptor.
+func (conv *Conversation) registerStreamingTools(cfg *providers.StreamingInputConfig) {
+	if cfg == nil || conv.toolRegistry == nil {
+		return
+	}
+	for i := range cfg.Tools {
+		def := &cfg.Tools[i]
+		if def.Name == "" || conv.toolRegistry.Get(def.Name) != nil {
+			continue
 		}
-
-		checkResult := checkFunc(ctx, callID, args)
-		if !checkResult.IsPending() {
-			return conv.executeAsyncToolNow(name, args)
+		desc := &tools.ToolDescriptor{Name: def.Name, Description: def.Description, Mode: localToolMode}
+		if def.Parameters != nil {
+			schema, err := json.Marshal(def.Parameters)
+			if err != nil {
+				logger.Warn("streaming tool not registered: its parameters are not JSON", "tool", def.Name, "error", err)
+				continue
+			}
+			desc.InputSchema = schema
 		}
-
-		// Tool requires human approval — persist a pending call using the
-		// provider's callID so ResolveTool maps directly. The record is pure
-		// data; the execution handler is recovered by name at resolve time.
-		pending := &sdktools.PendingToolCall{
-			ID:             callID,
-			ConversationID: conv.ID(),
-			Name:           name,
-			Arguments:      args,
-			Reason:         checkResult.Reason,
-			Message:        checkResult.Message,
+		if err := conv.toolRegistry.Register(desc); err != nil {
+			logger.Warn("streaming tool not registered", "tool", def.Name, "error", err)
 		}
-
-		if err := conv.pendingStore.Add(ctx, pending); err != nil {
-			// Fail closed: a call that needs approval must not run because
-			// the hold could not be recorded. The model is given the error.
-			return &session.AsyncToolCheckResult{Handled: true, HandlerError: holdNotRecorded(err)}
-		}
-
-		return &session.AsyncToolCheckResult{
-			ShouldWait: true,
-			PendingInfo: &tools.PendingToolInfo{
-				Reason:   checkResult.Reason,
-				Message:  checkResult.Message,
-				ToolName: name,
-			},
-		}
-	})
+	}
 }
 
-// executeAsyncToolNow runs an async tool's handler inline when its HITL check
-// passed without needing approval. The handler may not be in the registry
-// (OnToolAsync is often called after OpenDuplex builds the pipeline), so it is
-// looked up and invoked directly. Returns nil to fall through to the registry
-// when there is no handler.
-func (conv *Conversation) executeAsyncToolNow(name string, args map[string]any) *session.AsyncToolCheckResult {
-	conv.handlersMu.RLock()
-	handler := conv.handlers[name]
-	conv.handlersMu.RUnlock()
-	if handler == nil {
-		return nil
-	}
-	result, execErr := handler(args)
-	if execErr != nil {
-		return &session.AsyncToolCheckResult{Handled: true, HandlerError: execErr}
-	}
-	resultJSON, marshalErr := json.Marshal(result)
-	if marshalErr != nil {
-		return &session.AsyncToolCheckResult{Handled: true, HandlerError: marshalErr}
-	}
-	return &session.AsyncToolCheckResult{Handled: true, HandlerResult: resultJSON}
-}
-
-// newApprovalGate builds the HITL approval gate consulted by the standard
-// ProviderStage before each tool executes. Like newAsyncToolChecker (the ASM
-// duplex equivalent), it reads asyncHandlers dynamically so handlers registered
-// after the pipeline is built (e.g. OnToolAsync called after Open) are honored.
+// newApprovalGate builds the HITL approval gate the provider stages consult
+// before each tool executes: ProviderStage on a text or VAD turn, and
+// DuplexProviderStage on a realtime (ASM) session. It reads asyncHandlers
+// dynamically so handlers registered after the pipeline is built (e.g.
+// OnToolAsync called after Open or OpenDuplex) are honored.
 //
 // When the tool's OnToolAsync check returns pending, the gate persists a PendingToolCall in the pendingStore — keyed by
 // the provider call ID — so ResolveTool / ResolveToolWithArgs / RejectTool can

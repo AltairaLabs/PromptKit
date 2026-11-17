@@ -749,6 +749,15 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 		)
 		duplexStage.SetHookRegistry(cfg.HookRegistry)
 		duplexStage.SetPromptDeclarations(cfg.PromptDeclarations)
+		// The session's tool calls run through the same tool runner, under the
+		// same policy, approval gate, rate window and caller, as a text turn's.
+		duplexStage.SetToolExecution(cfg.ToolRegistry, cfg.ToolPolicy, stage.DuplexToolConfig{
+			ApprovalGate: cfg.ApprovalGate,
+			CallRate:     cfg.CallRate,
+			Caller:       cfg.Caller,
+			ToolGrants:   cfg.ToolGrants,
+			DescribeTool: cfg.DescribeTool,
+		}, cfg.WorkflowStateResolver)
 		return []stage.Stage{duplexStage}, nil
 	}
 	if cfg.VADConfig != nil && cfg.STTService != nil && cfg.TTSService != nil {

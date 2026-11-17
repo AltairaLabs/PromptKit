@@ -18,7 +18,9 @@ import (
 )
 
 // toolCallingStage answers the first input with an assistant turn that calls
-// get_weather, then records the tool result messages it is sent back.
+// get_weather and holds the call for the client, as DuplexProviderStage does
+// for a call its approval gate holds, then records the tool result messages it
+// is sent back.
 type toolCallingStage struct {
 	mu      sync.Mutex
 	results []types.MessageToolResult
@@ -47,10 +49,16 @@ func (s *toolCallingStage) Process(ctx context.Context, in <-chan stage.StreamEl
 			ToolCalls: []types.MessageToolCall{{ID: "call-1", Name: "get_weather", Args: []byte(`{}`)}},
 		})
 		call.EndOfStream = true
-		select {
-		case out <- call:
-		case <-ctx.Done():
-			return ctx.Err()
+		var held stage.StreamElement
+		held.Meta.PendingTools = []tools.PendingToolExecution{{
+			CallID: "call-1", ToolName: "get_weather", PendingInfo: &tools.PendingToolInfo{Reason: "client"},
+		}}
+		for _, e := range []stage.StreamElement{call, held} {
+			select {
+			case out <- e:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 		}
 	}
 	return nil
@@ -72,16 +80,13 @@ func TestDuplexSession_SubmittedToolResultsCarryTheCallName(t *testing.T) {
 		*providers.StreamingInputConfig, string, statestore.Store) (*stage.StreamPipeline, error) {
 		return stage.NewPipelineBuilder().Chain(st).Build()
 	}
-	// The call is held for the client, the way a client tool or an approval
-	// gate holds it, so the client answers it with SubmitToolResults.
-	hold := func(context.Context, string, string, map[string]any) *AsyncToolCheckResult {
-		return &AsyncToolCheckResult{ShouldWait: true, PendingInfo: &tools.PendingToolInfo{Reason: "client"}}
-	}
+	// The pipeline holds the call for the client, the way a client tool or an
+	// approval gate holds it, so the client answers it with SubmitToolResults.
 	sess, err := NewDuplexSession(context.Background(), &DuplexSessionConfig{
-		Provider:         mock.NewProvider("mock", "mock-model", false),
-		PipelineBuilder:  builder,
-		ToolRegistry:     tools.NewRegistry(),
-		AsyncToolChecker: hold,
+		Provider:          mock.NewProvider("mock", "mock-model", false),
+		PipelineBuilder:   builder,
+		ToolRegistry:      tools.NewRegistry(),
+		PipelineRunsTools: true,
 	})
 	require.NoError(t, err)
 	defer sess.Close()

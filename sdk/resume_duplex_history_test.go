@@ -98,3 +98,42 @@ func TestConv_ResumeDuplexRefusesAProviderWithoutHistory(t *testing.T) {
 	require.NoError(t, err, "nothing to replay, nothing to refuse")
 	_ = conv.Close()
 }
+
+// A realtime session can leave a transcript a text provider would reject: a
+// tool call whose round was dropped when the session closed has no result,
+// and a late round's result can land after a newer user turn. ResumeDuplex
+// replays only the user and assistant text, so neither reaches the new
+// session.
+func TestConv_ResumeDuplexSkipsUnansweredAndLateToolExchanges(t *testing.T) {
+	store := statestore.NewMemoryStore()
+	unanswered := types.Message{Role: "assistant", Content: "let me look",
+		ToolCalls: []types.MessageToolCall{{ID: "c1", Name: "lookup"}}}
+	late := types.Message{Role: "assistant", ToolCalls: []types.MessageToolCall{{ID: "c2", Name: "lookup"}}}
+	msgs := []types.Message{
+		{Role: "user", Content: "find order 7"}, unanswered,
+		{Role: "user", Content: "and order 8"}, late,
+		{Role: "user", Content: "never mind"},
+		types.NewToolResultMessage(types.NewTextToolResult("c2", "lookup", "found")),
+		{Role: "assistant", Content: "ok"},
+	}
+	require.NoError(t, store.Save(context.Background(),
+		&statestore.ConversationState{ID: "voice-4", Messages: msgs}))
+	prov := mock.NewStreamingProvider("rt", "rt-model", false).WithAutoRespond("hi")
+	conv, err := ResumeDuplex("voice-4", createTestPackFile(t, convChatPack), "chat",
+		WithProvider(prov), WithSkipSchemaValidation(), WithStateStore(store), WithStreamingConfig(convDuplexAudio))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conv.Close() })
+
+	require.NoError(t, conv.SendText(context.Background(), "hello again"))
+	require.Eventually(t, func() bool {
+		s := prov.GetSession()
+		return s != nil && len(s.GetTexts()) > 0
+	}, 5*time.Second, 5*time.Millisecond)
+	assert.Equal(t, []providers.HistoryTurn{
+		{Role: "user", Text: "find order 7"},
+		{Role: "assistant", Text: "let me look"},
+		{Role: "user", Text: "and order 8"},
+		{Role: "user", Text: "never mind"},
+		{Role: "assistant", Text: "ok"},
+	}, prov.GetSession().GetHistory())
+}

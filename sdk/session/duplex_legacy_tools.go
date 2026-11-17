@@ -1,11 +1,21 @@
 package session
 
+// This file is the tool execution of a duplex session whose pipeline does not
+// run tool calls (DuplexSessionConfig.PipelineRunsTools unset): a host that
+// builds its own pipeline, with a DuplexProviderStage that was not given
+// SetToolExecution, and passes the session a ToolRegistry. The session runs
+// those calls itself, gated by DuplexSessionConfig.AsyncToolChecker, as every
+// duplex session did before the provider stage could. The SDK's own sessions
+// set PipelineRunsTools and never reach this code: their pipeline runs the
+// calls under the conversation's tool policy, hooks and approval gate.
+
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/streaming"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
@@ -49,6 +59,29 @@ func checkHITLGate(
 		return hitlHandled, argsMap, checkResult
 	}
 	return hitlNone, argsMap, nil
+}
+
+// runToolCallsInSession runs a tool-call turn in the session: completed
+// results go back to the pipeline, and calls held for the caller go out on
+// the turn with pending_tools metadata.
+func (s *duplexSession) runToolCallsInSession(ctx context.Context, elem *stage.StreamElement) error {
+	toolCalls := elem.Message.ToolCalls
+	logger.Debug("duplexSession: running tool calls in the session", "count", len(toolCalls))
+
+	duplexResult := executeDuplexToolCalls(ctx, s.toolRegistry, toolCalls, s.asyncToolChecker, s.caller)
+
+	if len(duplexResult.Completed.ProviderResponses) > 0 {
+		if err := s.sendInput(ctx, streaming.BuildToolResponseElement(duplexResult.Completed)); err != nil {
+			return fmt.Errorf("failed to send tool results: %w", err)
+		}
+	}
+	if len(duplexResult.Pending) > 0 {
+		elem.Meta.PendingTools = duplexResult.Pending
+		if !s.forwardChunk(ctx, streamElementToStreamChunk(elem)) {
+			return ctx.Err()
+		}
+	}
+	return nil
 }
 
 // executeDuplexToolCalls processes tool calls from the LLM in duplex mode.

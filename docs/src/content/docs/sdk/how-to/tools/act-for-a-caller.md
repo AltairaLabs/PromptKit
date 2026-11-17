@@ -138,7 +138,7 @@ Register it with `sdk.WithToolHook(tenantPolicy{})`.
 
 An exec hook receives the caller in the JSON on its stdin, as `"Caller": {"ID": "...", "Claims": {...}}` inside the request or event it handles.
 
-Realtime duplex sessions (Gemini Live and OpenAI Realtime, `WithStreamingConfig`) run no tool hooks. Executors in those sessions still receive the caller, so enforce policy there in the executor.
+Realtime duplex sessions (Gemini Live and OpenAI Realtime, `WithStreamingConfig`) run the same tool hooks as text turns, so the hook above covers them too.
 
 ## 6. Read it in a workflow authorizer
 

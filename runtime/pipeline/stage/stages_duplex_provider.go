@@ -48,8 +48,8 @@ func (s *DuplexProviderStage) takeInterruptedTurn(cause string) *types.Message {
 			types.MetaInterruptedCause: cause,
 		},
 	}
-	if !s.turnStartTime.IsZero() {
-		msg.LatencyMs = time.Since(s.turnStartTime).Milliseconds()
+	if latency, ok := s.turnLatencyMs(); ok {
+		msg.LatencyMs = latency
 	}
 	msg.Parts = s.buildAssistantParts(text)
 	msg.Reasoning = s.takeReasoning()
@@ -60,6 +60,24 @@ func (s *DuplexProviderStage) takeInterruptedTurn(cause string) *types.Message {
 	s.accumulatedOpaqueReasoning = nil
 	s.accumulatedMedia = nil
 	return msg
+}
+
+// setTurnStart records when the current user turn started.
+func (s *DuplexProviderStage) setTurnStart(t time.Time) {
+	s.turnStartMu.Lock()
+	defer s.turnStartMu.Unlock()
+	s.turnStartTime = t
+}
+
+// turnLatencyMs returns the milliseconds since the current user turn started,
+// and false when no turn has started.
+func (s *DuplexProviderStage) turnLatencyMs() (int64, bool) {
+	s.turnStartMu.Lock()
+	defer s.turnStartMu.Unlock()
+	if s.turnStartTime.IsZero() {
+		return 0, false
+	}
+	return time.Since(s.turnStartTime).Milliseconds(), true
 }
 
 // buildAssistantParts assembles the assistant message content parts for the
@@ -238,8 +256,8 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 			}
 
 			// Calculate turn latency if we have a start time
-			if !s.turnStartTime.IsZero() {
-				msg.LatencyMs = time.Since(s.turnStartTime).Milliseconds()
+			if latency, ok := s.turnLatencyMs(); ok {
+				msg.LatencyMs = latency
 				logger.Debug("DuplexProviderStage: calculated turn latency",
 					"latencyMs", msg.LatencyMs)
 			}

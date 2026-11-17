@@ -34,9 +34,10 @@ type ToolHook interface {
 //
 // The provider stage calls it for the tools it runs: once with a plain
 // result's text, or once per text part of a multimodal result, before the
-// result size limit applies. Rewriters run in registration order, each on
-// the previous one's output; an error fails the tool call. Client tools,
-// calls resumed after approval and duplex sessions are not rewritten.
+// result size limit applies, on text turns and realtime duplex sessions
+// alike. Rewriters run in registration order, each on the previous one's
+// output; an error fails the tool call. Client tools and calls resumed after
+// approval are not rewritten.
 // Parallel tool calls rewrite concurrently, so RewriteResult must be safe
 // for concurrent use.
 type ToolResultRewriter interface {

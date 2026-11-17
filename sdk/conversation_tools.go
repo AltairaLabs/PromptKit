@@ -180,8 +180,7 @@ type ToolCall struct {
 // tool result. A later OnToolCtx, OnToolHTTP or OnToolExecutor for the same
 // name replaces it; a later OnTool does not. A later OnToolAsync or
 // OnToolAsyncWithContext replaces it only for held calls once approved: a
-// call its check lets through still runs this handler, except in an ASM
-// duplex session, which runs the async execution handler.
+// call its check lets through still runs this handler.
 func (c *Conversation) OnToolCall(name string, handler func(ctx context.Context, call ToolCall) (any, error)) {
 	c.handlersMu.Lock()
 	defer c.handlersMu.Unlock()
@@ -356,8 +355,7 @@ func (c *Conversation) OnToolAsyncCall(
 	c.handlersMu.Lock()
 	defer c.handlersMu.Unlock()
 	c.registerCallHandlerLocked(name, exec)
-	// An earlier OnToolAsync's handler would otherwise still run a duplex call
-	// its check let through (executeAsyncToolNow).
+	// An earlier OnToolAsync's handler is replaced, not kept as a fallback.
 	delete(c.handlers, name)
 }
 
@@ -692,7 +690,7 @@ func (c *Conversation) ContinueDuplex(ctx context.Context) error {
 			result = "Tool error: " + toolResultErrorText(res.Error)
 			isError = true
 		case res.ResultJSON != nil:
-			result = string(res.ResultJSON)
+			result = toolResultText(res.ResultJSON)
 		default:
 			result = fmt.Sprintf("%v", res.Result)
 		}
@@ -704,6 +702,27 @@ func (c *Conversation) ContinueDuplex(ctx context.Context) error {
 	}
 
 	return c.duplexSession.SubmitToolResults(ctx, responses)
+}
+
+// toolResultText is a JSON result as the model is given the result of a call
+// the pipeline runs (the provider stage's formatting): a string unquoted, an
+// object or array indented, any other value printed, and text that is not
+// JSON as it is. An approved realtime call's result then reads the same as
+// one that ran without approval.
+func toolResultText(raw json.RawMessage) string {
+	var value any
+	if json.Unmarshal(raw, &value) != nil {
+		return string(raw)
+	}
+	switch v := value.(type) {
+	case string:
+		return v
+	case map[string]any, []any:
+		if indented, err := json.MarshalIndent(v, "", "  "); err == nil {
+			return string(indented)
+		}
+	}
+	return fmt.Sprintf("%v", value)
 }
 
 // PendingTools returns all pending tool calls awaiting approval for this

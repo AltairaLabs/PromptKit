@@ -233,4 +233,31 @@ func TestDuplexSession_HandleToolCalls(t *testing.T) {
 			t.Fatal("expected pending tools chunk on streamOutput")
 		}
 	})
+
+	// A pipeline that runs the calls (PipelineRunsTools): the turn is neither
+	// run here nor forwarded, and the call's name is kept for a result
+	// submitted by ID alone.
+	t.Run("pipeline runs tools: the turn is not run or forwarded", func(t *testing.T) {
+		s := makeSession(t, tools.NewRegistry())
+		s.pipelineRunsTools = true
+		elem := &stage.StreamElement{
+			EndOfStream: true,
+			Message: &types.Message{
+				ToolCalls: []types.MessageToolCall{
+					{ID: "c1", Name: "sync_tool", Args: json.RawMessage(`{}`)},
+				},
+			},
+		}
+
+		require.NoError(t, s.handleToolCalls(context.Background(), elem))
+
+		select {
+		case inputElem := <-s.stageInput:
+			t.Fatalf("unexpected element on stageInput: %+v", inputElem)
+		case chunk := <-s.streamOutput:
+			t.Fatalf("unexpected chunk on streamOutput: %+v", chunk)
+		default:
+		}
+		assert.Equal(t, "sync_tool", s.takeCallName("c1"))
+	})
 }
