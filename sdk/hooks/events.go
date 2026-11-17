@@ -93,7 +93,11 @@ func OnValidationFailed(source EventSource, handler ValidationHandler) {
 // ProviderCallHandler is called when a provider (LLM) call completes.
 type ProviderCallHandler func(model string, inputTokens, outputTokens int, cost float64)
 
-// OnProviderCall subscribes to provider call completion events.
+// OnProviderCall subscribes to provider call completion events, and to
+// provider.call.usage: usage a provider reported for a call after it
+// completed (Gemini Live reports a tool-call turn's usage after its tool
+// calls). The handler runs once for each, so the sums of what it is given are
+// the calls' totals.
 //
 // Use this to track costs and token usage:
 //
@@ -103,6 +107,11 @@ type ProviderCallHandler func(model string, inputTokens, outputTokens int, cost 
 func OnProviderCall(source EventSource, handler ProviderCallHandler) {
 	On(source, events.EventProviderCallCompleted, func(e *events.Event) {
 		if data, ok := e.Data.(*events.ProviderCallCompletedData); ok {
+			handler(data.Model, data.InputTokens, data.OutputTokens, data.Cost)
+		}
+	})
+	On(source, events.EventProviderCallUsage, func(e *events.Event) {
+		if data, ok := e.Data.(*events.ProviderCallUsageData); ok {
 			handler(data.Model, data.InputTokens, data.OutputTokens, data.Cost)
 		}
 	})

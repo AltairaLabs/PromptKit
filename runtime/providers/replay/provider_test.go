@@ -639,3 +639,33 @@ func TestProvider_MultimodalParts(t *testing.T) {
 		assert.Equal(t, types.MIMETypeImageJPEG, resp.Parts[1].Media.MIMEType)
 	})
 }
+
+// A recorded Gemini 3 tool-call turn: its completion carries no cost, and its
+// usage follows as provider.call.usage. The replayed turn costs both.
+func TestProvider_CostIncludesLateUsage(t *testing.T) {
+	base := time.Now()
+	mk := func(seq int64, tp events.EventType, data any) recording.RecordedEvent {
+		b, _ := json.Marshal(data)
+		return recording.RecordedEvent{Sequence: seq, Type: tp, Timestamp: base, SessionID: "s", Data: b}
+	}
+	rec := &recording.SessionRecording{
+		Metadata: recording.Metadata{SessionID: "s", StartTime: base, EndTime: base, Version: "1.0"},
+		Events: []recording.RecordedEvent{
+			mk(1, events.EventMessageCreated, events.MessageCreatedData{Role: "user", Content: "weather?"}),
+			mk(2, events.EventMessageCreated, events.MessageCreatedData{Role: "assistant", Content: ""}),
+			mk(3, events.EventProviderCallCompleted, events.ProviderCallCompletedData{CallID: "call-1"}),
+			mk(4, events.EventProviderCallUsage, events.ProviderCallUsageData{CallID: "call-1",
+				InputTokens: 661, OutputTokens: 12, Cost: 0.001245}),
+			mk(5, events.EventProviderCallUsage, events.ProviderCallUsageData{CallID: "unknown", Cost: 9}),
+		},
+	}
+	p, err := NewProvider(rec, nil)
+	require.NoError(t, err)
+
+	resp, err := p.Predict(context.Background(), providers.PredictionRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, resp.CostInfo)
+	assert.Equal(t, 661, resp.CostInfo.InputTokens)
+	assert.Equal(t, 12, resp.CostInfo.OutputTokens)
+	assert.InDelta(t, 0.001245, resp.CostInfo.TotalCost, 1e-12)
+}

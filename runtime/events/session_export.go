@@ -262,6 +262,11 @@ func (e *SessionExporter) extractEventData(event *Event) map[string]interface{} 
 		data["provider"] = d.Provider
 		data["model"] = d.Model
 		data["cost"] = d.Cost
+	case *ProviderCallUsageData:
+		data["provider"] = d.Provider
+		data["model"] = d.Model
+		data["cost"] = d.Cost
+		data["call_id"] = d.CallID
 	}
 	return data
 }

@@ -146,11 +146,15 @@ func NewProviderFromFile(path string, cfg *Config) (*Provider, error) {
 type indexState struct {
 	lastUserContent string
 	pendingTurn     *recordedTurn
+	pendingIdx      int // pendingTurn's index in p.turns
+	// callTurns maps a provider call's CallID to the turn its
+	// provider.call.completed was attached to, for its later usage events.
+	callTurns map[string]int
 }
 
 // indexRecording extracts assistant responses and builds lookup indexes.
 func (p *Provider) indexRecording() error {
-	state := &indexState{}
+	state := &indexState{callTurns: map[string]int{}}
 
 	for i := range p.recording.Events {
 		event := &p.recording.Events[i]
@@ -172,6 +176,8 @@ func (p *Provider) processEvent(event *recording.RecordedEvent, state *indexStat
 		p.processMessageEvent(event, state)
 	case events.EventProviderCallCompleted:
 		p.processProviderCallEvent(event, state)
+	case events.EventProviderCallUsage:
+		p.processProviderUsageEvent(event, state)
 	}
 }
 
@@ -205,6 +211,7 @@ func (p *Provider) addAssistantTurn(
 	turnIdx := len(p.turns)
 	p.turns = append(p.turns, turn)
 	state.pendingTurn = &p.turns[turnIdx]
+	state.pendingIdx = turnIdx
 
 	if state.lastUserContent != "" {
 		p.contentMap[state.lastUserContent] = turnIdx
@@ -223,7 +230,29 @@ func (p *Provider) processProviderCallEvent(event *recording.RecordedEvent, stat
 	}
 
 	state.pendingTurn.callInfo = &callData
+	if callData.CallID != "" {
+		state.callTurns[callData.CallID] = state.pendingIdx
+	}
 	state.pendingTurn = nil
+}
+
+// processProviderUsageEvent adds usage reported for a call after it
+// completed (provider.call.usage) to the turn the call's completion was
+// attached to, so a replayed turn costs what the recorded call did.
+func (p *Provider) processProviderUsageEvent(event *recording.RecordedEvent, state *indexState) {
+	var usage events.ProviderCallUsageData
+	if json.Unmarshal(event.Data, &usage) != nil {
+		return
+	}
+	idx, ok := state.callTurns[usage.CallID]
+	if !ok || p.turns[idx].callInfo == nil {
+		return
+	}
+	info := p.turns[idx].callInfo
+	info.InputTokens += usage.InputTokens
+	info.OutputTokens += usage.OutputTokens
+	info.CachedTokens += usage.CachedTokens
+	info.Cost += usage.Cost
 }
 
 // ID returns the provider identifier.

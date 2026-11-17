@@ -209,7 +209,7 @@ func (mc *MetricContext) OnEvent(event *events.Event)
 OnEvent processes a pipeline event and records relevant metrics. This method is designed to be used with EventBus.SubscribeAll.
 
 <a name="MetricContext.Record"></a>
-### func \(\*MetricContext\) [Record](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/metrics/collector.go#L992>)
+### func \(\*MetricContext\) [Record](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/metrics/collector.go#L1009>)
 
 ```go
 func (mc *MetricContext) Record(result evals.EvalResult, metric *evals.MetricDef) error

@@ -8,6 +8,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
+	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
@@ -1299,5 +1300,33 @@ func TestMetricContext_EvalGaugeSkippedWhenNoValue(t *testing.T) {
 	output := gatherMetrics(t, reg)
 	if strings.Contains(output, "test_eval_reasoning_payload") {
 		t.Errorf("no series should exist for an eval with no scalar, got:\n%s", output)
+	}
+}
+
+// A Gemini 3 tool-call turn completes with no cost and reports its usage
+// afterwards: the token and cost totals include the usage, and the call is
+// counted once.
+func TestMetricContext_ProviderCallUsageFoldsIntoTotals(t *testing.T) {
+	c, reg := newTestCollector()
+	ctx := c.Bind(nil)
+	ctx.OnEvent(&events.Event{Type: events.EventProviderCallCompleted, Data: &events.ProviderCallCompletedData{
+		Provider: "gemini", Model: "gemini-3.8-live", Duration: time.Second, Source: events.SourceAgent,
+		CallID: "call-1", ToolCallCount: 1,
+	}})
+	ctx.OnEvent(&events.Event{Type: events.EventProviderCallUsage, Data: &events.ProviderCallUsageData{
+		Provider: "gemini", Model: "gemini-3.8-live", Source: events.SourceAgent, CallID: "call-1",
+		InputTokens: 661, OutputTokens: 12, CachedTokens: 3, Cost: 0.001245,
+	}})
+
+	output := gatherMetrics(t, reg)
+	labels := `{model="gemini-3.8-live",provider="gemini",source="agent"}`
+	for _, want := range []string{
+		"test_provider_input_tokens_total" + labels + " 661",
+		"test_provider_output_tokens_total" + labels + " 12",
+		"test_provider_cached_tokens_total" + labels + " 3",
+		"test_provider_cost_total" + labels + " 0.001245",
+		`test_provider_requests_total{model="gemini-3.8-live",provider="gemini",source="agent",status="success"} 1`,
+	} {
+		assert.Contains(t, output, want)
 	}
 }

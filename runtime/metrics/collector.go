@@ -597,6 +597,8 @@ func (mc *MetricContext) OnEvent(event *events.Event) {
 		mc.handlePipelineFailed(event)
 	case events.EventProviderCallCompleted:
 		mc.handleProviderCallCompleted(event)
+	case events.EventProviderCallUsage:
+		mc.handleProviderCallUsage(event)
 	case events.EventProviderCallFailed:
 		mc.handleProviderCallFailed(event)
 	case events.EventToolCallCompleted:
@@ -682,6 +684,21 @@ func (mc *MetricContext) handleProviderCallCompleted(event *events.Event) {
 	mc.collector.providerCostTotal.WithLabelValues(
 		mc.labelValues(data.Provider, data.Model, data.Source)...,
 	).Add(data.Cost)
+}
+
+// handleProviderCallUsage adds usage reported for a call after it completed
+// to the token and cost totals: a call's total is its completed event plus
+// its usage events. It is not another request.
+func (mc *MetricContext) handleProviderCallUsage(event *events.Event) {
+	data, ok := event.Data.(*events.ProviderCallUsageData)
+	if !ok {
+		return
+	}
+	labels := mc.labelValues(data.Provider, data.Model, data.Source)
+	mc.collector.providerInputTokensTotal.WithLabelValues(labels...).Add(float64(data.InputTokens))
+	mc.collector.providerOutputTokensTotal.WithLabelValues(labels...).Add(float64(data.OutputTokens))
+	mc.collector.providerCachedTokensTotal.WithLabelValues(labels...).Add(float64(data.CachedTokens))
+	mc.collector.providerCostTotal.WithLabelValues(labels...).Add(data.Cost)
 }
 
 func (mc *MetricContext) handleProviderCallFailed(event *events.Event) {

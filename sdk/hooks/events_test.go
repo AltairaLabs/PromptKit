@@ -248,3 +248,38 @@ func TestMultipleSubscribers(t *testing.T) {
 	require.Equal(t, 1, count2)
 	mu.Unlock()
 }
+
+// A Gemini 3 tool-call turn: its completion carries no cost and its usage
+// follows as provider.call.usage. The handler sees both, so its sums are the
+// call's total.
+func TestOnProviderCall_FoldsInLateUsage(t *testing.T) {
+	source := newMockSource()
+	var mu sync.Mutex
+	var in, out, calls int
+	var cost float64
+	OnProviderCall(source, func(_ string, i, o int, c float64) {
+		mu.Lock()
+		defer mu.Unlock()
+		calls++
+		in += i
+		out += o
+		cost += c
+	})
+
+	source.bus.Publish(&events.Event{Type: events.EventProviderCallCompleted,
+		Data: &events.ProviderCallCompletedData{Model: "gemini-3.8-live", CallID: "call-1", ToolCallCount: 1}})
+	source.bus.Publish(&events.Event{Type: events.EventProviderCallUsage,
+		Data: &events.ProviderCallUsageData{Model: "gemini-3.8-live", CallID: "call-1",
+			InputTokens: 661, OutputTokens: 12, Cost: 0.001245}})
+
+	assert.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return calls == 2
+	}, time.Second, time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, 661, in)
+	assert.Equal(t, 12, out)
+	assert.InDelta(t, 0.001245, cost, 1e-12)
+}
