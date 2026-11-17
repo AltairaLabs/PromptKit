@@ -266,8 +266,14 @@ func (c *Conversation) packToolDescriptor(name string) (*tools.ToolDescriptor, e
 //
 // The first function checks if approval is needed, the second executes the action.
 // A held call, once approved ([Conversation.ResolveTool]), runs the second
-// function, whatever other handler is registered for the tool. A call the
-// check lets through runs on the tool's handlers as any call does.
+// function, whatever other handler is registered for the tool.
+//
+// A call the check lets through runs on the tool's handlers as any call does,
+// by the same rule in unary, VAD and realtime duplex conversations: a handler
+// registered with [Conversation.OnToolCall], [Conversation.OnToolExecutor],
+// [Conversation.OnToolCtx] or [Conversation.OnToolHTTP] runs it, even one
+// registered before this call; otherwise the second function does, since it
+// replaces the tool's [Conversation.OnTool] handler.
 //
 // Lock ordering contract: asyncHandlersMu is acquired first, then handlersMu.
 // All code paths that acquire both locks must follow this order to avoid deadlock.
@@ -296,7 +302,8 @@ func (c *Conversation) OnToolAsync(
 //	    },
 //	    refund)
 //
-// As with OnToolAsync, a held call, once approved, runs execFunc.
+// As with OnToolAsync, a held call, once approved, runs execFunc, and a call
+// the check lets through runs on the tool's handlers by OnToolAsync's rule.
 func (c *Conversation) OnToolAsyncWithContext(name string, checkFunc sdktools.AsyncToolCheck, execFunc ToolHandler) {
 	c.asyncHandlersMu.Lock()
 	defer c.asyncHandlersMu.Unlock()
@@ -320,7 +327,11 @@ func (c *Conversation) OnToolAsyncWithContext(name string, checkFunc sdktools.As
 //
 // A call the check holds runs exec when it is approved
 // ([Conversation.ResolveTool]), whatever other handler is registered for the
-// tool. The approved execution acts for the caller of the conversation that
+// tool. A call the check lets through runs exec too, in every mode: exec
+// replaces the tool's handlers as [Conversation.OnToolCall] does, until a
+// later OnToolCtx, OnToolHTTP or OnToolExecutor replaces it.
+//
+// The approved execution acts for the caller of the conversation that
 // resolves it, so a host that resumes a conversation to approve a call (with
 // a durable [WithPendingStore], say) must open it with the original
 // requester's [WithCaller].
