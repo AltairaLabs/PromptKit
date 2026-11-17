@@ -139,10 +139,9 @@ type DuplexProviderStage struct {
 	// Used to detect "interrupted turn complete" (turnComplete with no content after interruption)
 	wasInterrupted bool
 
-	// carriedCost is cost the session reported that no assistant message the
-	// stage emitted carries yet (stages_duplex_cost.go). Response goroutine
-	// only.
-	carriedCost *types.CostInfo
+	// costPlaced is set by chunkToElement when it puts the chunk's cost on the
+	// message it builds (stages_duplex_cost.go). Response goroutine only.
+	costPlaced bool
 
 	// Turn latency tracking - when the current turn started
 	// Set when user input is received, used to calculate LatencyMs on turn complete.
@@ -1260,8 +1259,7 @@ func (s *DuplexProviderStage) processResponseChunk(
 // stage needs a chance to receive even though context is canceled. This is
 // critical for capturing partial responses.
 func (s *DuplexProviderStage) emitPartialOnCancel(ctx context.Context, output chan<- StreamElement) {
-	cause := fmt.Sprintf("context canceled: %v", context.Cause(ctx))
-	msg := s.withCarriedCost(s.takeInterruptedTurn(cause), cause)
+	msg := s.takeInterruptedTurn(fmt.Sprintf("context canceled: %v", context.Cause(ctx)))
 	if msg == nil {
 		return
 	}
@@ -1375,7 +1373,7 @@ func (s *DuplexProviderStage) finishOnResponseClosed(
 			"accumulated_media_len", len(s.accumulatedMedia))
 	}
 
-	msg := s.withCarriedCost(s.takeInterruptedTurn(cause), cause)
+	msg := s.takeInterruptedTurn(cause)
 	if s.inputFailed.Load() {
 		// An input hook denied: its error element is the session's last
 		// output, so the partial reply is not emitted after it.
@@ -1540,16 +1538,10 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	// Output guardrails check the completed turn, after its user turn (above)
 	// is in the history they see. Its tool calls, if the stage runs them, are
 	// queued once the turn's message is out.
-	round := s.chargeInterruptedTurn(ctx, chunk, &elem)
-	if turnDone {
-		if err := s.guardCompletedTurn(ctx, &elem); err != nil {
-			return s.failTurn(ctx, err, output)
-		}
-		round = s.prepareToolRound(ctx, &elem)
+	round, err := s.completeChunkTurn(ctx, chunk, &elem, turnDone)
+	if err != nil {
+		return s.failTurn(ctx, err, output)
 	}
-	// After the charges above, so carried cost (charged when it arrived) is
-	// not charged again.
-	s.placeCost(chunk, &elem)
 
 	logger.Debug("DuplexProviderStage: forwarding response element",
 		"hasText", elem.Text != nil,
@@ -1561,6 +1553,26 @@ func (s *DuplexProviderStage) handleResponseChunk(
 		return err
 	}
 	return s.queueToolRound(ctx, round)
+}
+
+// completeChunkTurn charges what the chunk's turn cost and prepares its tool
+// round: an interrupted turn, a completed one (after the output guardrails,
+// whose error it returns), and cost no message carries. Returns the job for
+// the tool worker, or nil.
+func (s *DuplexProviderStage) completeChunkTurn(
+	ctx context.Context, chunk *providers.StreamChunk, elem *StreamElement, turnDone bool,
+) (*duplexToolJob, error) {
+	round := s.chargeInterruptedTurn(ctx, chunk, elem)
+	if turnDone {
+		if err := s.guardCompletedTurn(ctx, elem); err != nil {
+			return nil, err
+		}
+		round = s.prepareToolRound(ctx, elem)
+	}
+	if job := s.reportUnplacedCost(ctx, chunk, elem); job != nil {
+		round = job
+	}
+	return round, nil
 }
 
 // materializeStreamingUserTurn is the continuous-streaming user-turn

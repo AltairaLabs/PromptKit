@@ -1,63 +1,50 @@
 package openai
 
-import "time"
+// maxPendingTruncates bounds the truncate events awaiting the server's
+// answer; past it the oldest is forgotten (its rejection, if one still
+// came, would then surface as an ordinary server error).
+const maxPendingTruncates = 32
 
-// realtimePlayout estimates how far the caller has got through the assistant
-// audio the session delivered. The realtime API sends a reply's audio faster
-// than real time, so most of a long reply is still playing after
-// response.done: speech then must still count as barge-in, and the model's
-// copy of the reply must be cut to what was heard.
-//
-// The estimate assumes the player starts each chunk as it arrives and plays
-// it in real time (the same assumption the cascaded pipeline's interruption
-// handler makes about synthesized audio): each chunk extends the playout end
-// by its duration, from now or from the current end, whichever is later.
-// Receive goroutine only.
-type realtimePlayout struct {
-	// until is when the audio delivered so far finishes playing.
-	until time.Time
-	// itemID and contentIndex name the assistant audio item delivered last;
-	// itemAudio is how much of its audio was delivered.
-	itemID       string
-	contentIndex int
-	itemAudio    time.Duration
+// truncateTracker remembers the conversation.item.truncate events sent and
+// not yet answered: conversation.item.truncated (keyed by item) acknowledges
+// one, an error naming its event ID rejects it. Receive goroutine only.
+type truncateTracker struct {
+	pending []pendingTruncate
 }
 
-// pcm16Duration is the duration of n bytes of mono PCM16 at rate Hz.
-func pcm16Duration(n, rate int) time.Duration {
-	if rate <= 0 {
-		return 0
+type pendingTruncate struct {
+	eventID, itemID string
+}
+
+// sent records a truncate event for itemID.
+func (t *truncateTracker) sent(eventID, itemID string) {
+	if len(t.pending) == maxPendingTruncates {
+		t.pending = t.pending[1:]
 	}
-	return time.Duration(n/2) * time.Second / time.Duration(rate)
+	t.pending = append(t.pending, pendingTruncate{eventID: eventID, itemID: itemID})
 }
 
-// add records d of audio for the item delivered at now.
-func (p *realtimePlayout) add(now time.Time, itemID string, contentIndex int, d time.Duration) {
-	if itemID != p.itemID || contentIndex != p.contentIndex {
-		p.itemID, p.contentIndex, p.itemAudio = itemID, contentIndex, 0
-	}
-	p.itemAudio += d
-	start := p.until
-	if now.After(start) {
-		start = now
-	}
-	p.until = start.Add(d)
+// done forgets the truncate of itemID the server acknowledged.
+func (t *truncateTracker) done(itemID string) {
+	t.remove(func(p pendingTruncate) bool { return p.itemID == itemID })
 }
 
-// playing reports whether delivered audio is still playing at now.
-func (p *realtimePlayout) playing(now time.Time) bool {
-	return now.Before(p.until)
+// rejected reports whether eventID is a pending truncate, forgetting it.
+func (t *truncateTracker) rejected(eventID string) bool {
+	return eventID != "" && t.remove(func(p pendingTruncate) bool { return p.eventID == eventID })
 }
 
-// stop ends the playout at now. It returns the item delivered last and how
-// much of it the caller heard, and whether some of it was not heard (the
-// item needs truncating).
-func (p *realtimePlayout) stop(now time.Time) (itemID string, contentIndex int, heard time.Duration, cut bool) {
-	itemID, contentIndex, heard = p.itemID, p.contentIndex, p.itemAudio
-	if rest := p.until.Sub(now); rest > 0 {
-		heard -= rest
-		cut = itemID != ""
+// remove drops the first pending truncate match accepts, and reports
+// whether there was one.
+func (t *truncateTracker) remove(match func(pendingTruncate) bool) bool {
+	for i, p := range t.pending {
+		if match(p) {
+			t.pending = append(t.pending[:i], t.pending[i+1:]...)
+			return true
+		}
 	}
-	*p = realtimePlayout{}
-	return itemID, contentIndex, max(heard, 0), cut
+	return false
 }
+
+// len is the number of truncates awaiting an answer.
+func (t *truncateTracker) len() int { return len(t.pending) }

@@ -141,6 +141,7 @@ func isOutputTranscriptionChunk(chunk *providers.StreamChunk) bool {
 //nolint:gocognit // Cohesive provider-agnostic chunk dispatcher (interruption /
 func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) StreamElement {
 	elem := StreamElement{}
+	s.costPlaced = false
 
 	// Handle interruptions - provider detected user started speaking during response
 	// Capture the partial response and signal turn completion
@@ -274,6 +275,7 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 			msg.Reasoning = s.takeReasoning()
 
 			elem.Message = msg
+			s.costPlaced = true // the chunk's cost, if any, is on the message
 			logger.Debug("DuplexProviderStage: created message for turn",
 				"role", msg.Role,
 				"contentLen", len(msg.Content),

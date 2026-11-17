@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -51,7 +52,7 @@ type playoutServer struct {
 	client chan []map[string]any
 }
 
-func newPlayoutServer(t *testing.T, seconds int, speechMidReply bool) *playoutServer {
+func newPlayoutServer(t *testing.T, items []int, speechMidReply bool) *playoutServer {
 	t.Helper()
 	ps := &playoutServer{speak: make(chan struct{}), client: make(chan []map[string]any, 1)}
 	second := base64.StdEncoding.EncodeToString(make([]byte, 2*DefaultRealtimeSampleRate))
@@ -69,9 +70,11 @@ func newPlayoutServer(t *testing.T, seconds int, speechMidReply bool) *playoutSe
 		go ps.recordClient(conn)
 
 		write(map[string]any{"type": "response.created", "response": map[string]any{"id": "R1", "status": "in_progress"}})
-		for i := 0; i < seconds; i++ {
-			write(map[string]any{"type": "response.output_audio.delta", "item_id": "item_R1",
-				"response_id": "R1", "content_index": 0, "delta": second})
+		for n, seconds := range items {
+			for i := 0; i < seconds; i++ {
+				write(map[string]any{"type": "response.output_audio.delta", "item_id": playoutItemID(n),
+					"response_id": "R1", "content_index": 0, "delta": second})
+			}
 		}
 		done := map[string]any{"type": "response.done", "response": map[string]any{"id": "R1", "status": "completed"}}
 		if !speechMidReply {
@@ -89,6 +92,14 @@ func newPlayoutServer(t *testing.T, seconds int, speechMidReply bool) *playoutSe
 	}))
 	t.Cleanup(ps.srv.Close)
 	return ps
+}
+
+// playoutItemID names the reply's n-th audio item: item_R1, item_R1b, ...
+func playoutItemID(n int) string {
+	if n == 0 {
+		return "item_R1"
+	}
+	return "item_R1" + string(rune('a'+n))
 }
 
 func (ps *playoutServer) recordClient(conn *websocket.Conn) {
@@ -118,9 +129,13 @@ type playoutRun struct {
 
 // runPlayout plays a reply of seconds of audio delivered at t0, then has the
 // caller speak at t0+speakAfter.
-func runPlayout(t *testing.T, seconds int, speakAfter time.Duration, speechMidReply bool) playoutRun {
+func runPlayout(t *testing.T, items []int, speakAfter time.Duration, speechMidReply bool) playoutRun {
 	t.Helper()
-	ps := newPlayoutServer(t, seconds, speechMidReply)
+	ps := newPlayoutServer(t, items, speechMidReply)
+	seconds := 0
+	for _, n := range items {
+		seconds += n
+	}
 	t0 := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	clock := &playoutClock{t: t0}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -197,7 +212,7 @@ func truncateEvents(clients []map[string]any) []map[string]any {
 }
 
 func TestRealtimePlayout_SpeechWhileReplyStillPlaysBargesIn(t *testing.T) {
-	run := runPlayout(t, 3, 1200*time.Millisecond, false)
+	run := runPlayout(t, []int{3}, 1200*time.Millisecond, false)
 
 	assert.True(t, run.barged, "BargeIn() fired")
 	assert.Equal(t, 1, interruptedChunks(run.chunks), "the interruption is reported on Response()")
@@ -208,7 +223,7 @@ func TestRealtimePlayout_SpeechWhileReplyStillPlaysBargesIn(t *testing.T) {
 }
 
 func TestRealtimePlayout_SpeechAfterReplyFinishedPlayingIsATurnStart(t *testing.T) {
-	run := runPlayout(t, 3, 3*time.Second, false)
+	run := runPlayout(t, []int{3}, 3*time.Second, false)
 
 	assert.False(t, run.barged, "no barge-in once the reply has played out")
 	assert.Zero(t, interruptedChunks(run.chunks))
@@ -219,7 +234,7 @@ func TestRealtimePlayout_SpeechAfterReplyFinishedPlayingIsATurnStart(t *testing.
 // to what was heard, and its end is reported by the cancelled response.done,
 // not an Interrupted chunk.
 func TestRealtimePlayout_SpeechDuringGenerationTruncatesTheReply(t *testing.T) {
-	run := runPlayout(t, 2, 500*time.Millisecond, true)
+	run := runPlayout(t, []int{2}, 500*time.Millisecond, true)
 
 	assert.True(t, run.barged)
 	assert.Zero(t, interruptedChunks(run.chunks))
@@ -229,37 +244,47 @@ func TestRealtimePlayout_SpeechDuringGenerationTruncatesTheReply(t *testing.T) {
 	}}, truncateEvents(run.clients))
 }
 
+// The caller stops 2 s into a reply of item A (5 s) then item B (1 s): A is
+// cut to the 2 s they heard and B, which never played, to nothing.
+func TestRealtimePlayout_EachUnheardItemIsTruncated(t *testing.T) {
+	run := runPlayout(t, []int{5, 1}, 2*time.Second, false)
+
+	assert.True(t, run.barged)
+	assert.Equal(t, []map[string]any{
+		{"type": "conversation.item.truncate", "item_id": "item_R1",
+			"content_index": float64(0), "audio_end_ms": float64(2000)},
+		{"type": "conversation.item.truncate", "item_id": "item_R1b",
+			"content_index": float64(0), "audio_end_ms": float64(0)},
+	}, truncateEvents(run.clients))
+}
+
 // A truncate the server rejects is logged; the turn goes on. Any other server
-// error still reaches Response().
-func TestRealtimePlayout_RejectedTruncateIsNotATurnError(t *testing.T) {
-	s := &RealtimeSession{emitCh: make(chan providers.StreamChunk, 2), truncates: map[string]struct{}{"evt_7": {}}}
+// error still reaches Response(). A truncate the server acknowledges is
+// forgotten.
+func TestRealtimePlayout_TruncateAnswers(t *testing.T) {
+	s := &RealtimeSession{emitCh: make(chan providers.StreamChunk, 2)}
+	s.truncates.sent("evt_7", "item_a")
+	s.truncates.sent("evt_9", "item_b")
 	s.handleMessage([]byte(`{"type":"error","error":{"type":"invalid_request_error",` +
 		`"message":"audio_end_ms is too long","event_id":"evt_7"}}`))
 	assert.Empty(t, s.emitCh)
-	assert.Empty(t, s.truncates)
+	assert.Equal(t, 1, s.truncates.len())
 
-	s.handleMessage([]byte(`{"type":"error","error":{"type":"server_error","message":"boom","event_id":"evt_8"}}`))
-	require.Len(t, s.emitCh, 1)
+	s.handleMessage([]byte(`{"type":"conversation.item.truncated","item_id":"item_b","content_index":0,"audio_end_ms":10}`))
+	assert.Zero(t, s.truncates.len(), "the acknowledged truncate is forgotten")
+
+	s.handleMessage([]byte(`{"type":"error","error":{"type":"server_error","message":"boom","event_id":"evt_9"}}`))
+	require.Len(t, s.emitCh, 1, "an answered truncate's ID no longer swallows errors")
 	assert.EqualError(t, (<-s.emitCh).Error, "server error: boom")
 }
 
-func TestRealtimePlayout_Estimate(t *testing.T) {
-	t0 := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
-	var p realtimePlayout
-	p.add(t0, "a", 0, time.Second)
-	p.add(t0.Add(200*time.Millisecond), "a", 0, time.Second) // queued behind the first
-	assert.True(t, p.playing(t0.Add(1999*time.Millisecond)))
-	assert.False(t, p.playing(t0.Add(2*time.Second)))
-
-	// A chunk delivered after the audio ran out starts playing on arrival.
-	p.add(t0.Add(5*time.Second), "b", 1, 500*time.Millisecond)
-	id, idx, heard, cut := p.stop(t0.Add(5200 * time.Millisecond))
-	assert.Equal(t, "b", id)
-	assert.Equal(t, 1, idx)
-	assert.Equal(t, 200*time.Millisecond, heard, "a new item counts its own audio")
-	assert.True(t, cut)
-	assert.False(t, p.playing(t0.Add(5200*time.Millisecond)), "stop ends the playout")
-
-	assert.Equal(t, 500*time.Millisecond, pcm16Duration(24000, 24000))
-	assert.Zero(t, pcm16Duration(24000, 0))
+func TestRealtimePlayout_PendingTruncatesAreBounded(t *testing.T) {
+	var tr truncateTracker
+	for i := 0; i <= maxPendingTruncates; i++ {
+		tr.sent(fmt.Sprintf("evt_%d", i), fmt.Sprintf("item_%d", i))
+	}
+	assert.Equal(t, maxPendingTruncates, tr.len())
+	assert.False(t, tr.rejected("evt_0"), "the oldest was forgotten")
+	assert.True(t, tr.rejected(fmt.Sprintf("evt_%d", maxPendingTruncates)))
+	assert.False(t, tr.rejected(""))
 }

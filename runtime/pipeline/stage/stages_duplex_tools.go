@@ -135,6 +135,9 @@ type duplexTools struct {
 	turn  *duplexToolTurn
 	round int
 	open  *duplexRound
+	// last is the provider call completed last, which cost reported after
+	// its turn ended belongs to.
+	last  *duplexRound
 	spent float64
 	// terminal is set once a limit closes the session: nothing more is run
 	// or reported.
@@ -439,6 +442,7 @@ func (s *DuplexProviderStage) completeRound(ctx context.Context, msg *types.Mess
 		round = dt.openRoundLocked()
 	}
 	dt.open = nil
+	dt.last = round
 	turn := dt.turn
 	dt.mu.Unlock()
 	dt.replyDue.Store(false)
@@ -584,35 +588,25 @@ func (s *DuplexProviderStage) budgetSpent(
 
 // chargeInterruptedTurn is the response goroutine's part of a turn a barge-in
 // cut short: the provider call it was completes, its cost counts toward the
-// budget, and the tool turn ends (a user turn is under way). Cost that arrives
-// outside a turn of its own (an interrupted turn's completion after its
-// Interrupted chunk, or a usage-only chunk) is charged when it arrives.
-// Returns the job reporting a spent budget, or nil.
+// budget, and the tool turn ends (a user turn is under way). Returns the job
+// reporting a spent budget, or nil.
 func (s *DuplexProviderStage) chargeInterruptedTurn(
 	ctx context.Context, chunk *providers.StreamChunk, elem *StreamElement,
 ) *duplexToolJob {
 	if s.tools == nil || s.tools.isTerminal() {
 		return nil
 	}
-	interrupted := elem.Meta.Interrupted && (elem.Message != nil || chunk.CostInfo != nil)
-	unplaced := chunk.CostInfo != nil && (elem.Meta.InterruptedTurnComplete || usageOnly(chunk, elem))
-	if !interrupted && !unplaced {
+	if !elem.Meta.Interrupted || (elem.Message == nil && chunk.CostInfo == nil) {
 		return nil
 	}
-	var turn *duplexToolTurn
-	var rr roundRef
-	if interrupted {
-		msg := elem.Message
-		if msg == nil {
-			msg = &types.Message{Role: roleAssistant, FinishReason: types.FinishReasonInterrupted}
-		}
-		withCost := *msg
-		withCost.CostInfo = chunk.CostInfo
-		turn, rr = s.completeRound(ctx, &withCost)
-		s.tools.endTurn(turn)
-	} else {
-		turn = &duplexToolTurn{toolTurn: s.toolRunner().newTurn(nil, 0)}
+	msg := elem.Message
+	if msg == nil {
+		msg = &types.Message{Role: roleAssistant, FinishReason: types.FinishReasonInterrupted}
 	}
+	withCost := *msg
+	withCost.CostInfo = chunk.CostInfo
+	turn, rr := s.completeRound(ctx, &withCost)
+	s.tools.endTurn(turn)
 	if err := s.charge(turn, chunk.CostInfo); err != nil {
 		return s.budgetSpent(turn, nil, rr, err)
 	}

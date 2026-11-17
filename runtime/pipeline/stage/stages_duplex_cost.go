@@ -1,72 +1,61 @@
 package stage
 
 import (
+	"context"
+	"time"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-// A realtime session can report cost that no turn of its own carries: a
-// usage-only chunk (Gemini Live flushes usage no turn's end took when the
-// session ends), or the completion of a turn a barge-in already ended, which
-// arrives after its Interrupted chunk. Like ProviderStage, the stage charges
-// every reported cost to the budget (MaxCostUSD) when it arrives
-// (chargeInterruptedTurn), and the session's cost totals are its messages'
-// CostInfo, so the cost must land on a message too. It is carried onto the
-// next assistant message the stage emits: the reply that follows the
-// interruption. When the session ends first it goes on the partial reply
-// emitted then, or on a cost-only assistant message marked interrupted (kept
-// out of model context like any interrupted reply).
+// A realtime session can report cost that no message the stage emits
+// carries: usage reported on its own once its turn has ended (Gemini 3.x
+// reports a tool-call turn's usage after the tool calls; usage flushed when
+// the session ends), the completion of a turn a barge-in already ended, or a
+// turn's end with a cost but nothing to build a message from. As ProviderStage
+// does for every reported cost, the stage charges it to the budget
+// (MaxCostUSD) and reports it on provider.call.completed: for a turn's end,
+// as that provider call's completion; otherwise on the call completed last,
+// the one the usage belongs to. Nothing is added to the conversation: a
+// message without content reads as a reply that never happened.
 
-// usageOnly reports whether chunk carries nothing but cost (no turn end, no
-// interruption, and no message built from it).
-func usageOnly(chunk *providers.StreamChunk, elem *StreamElement) bool {
-	return chunk.FinishReason == nil && !chunk.Interrupted && elem.Message == nil
-}
+// reportUnplacedCost charges and reports the chunk's cost when chunkToElement
+// put it on no message and no other path took it. Returns the job reporting
+// a spent budget, or nil. Response goroutine only.
+func (s *DuplexProviderStage) reportUnplacedCost(
+	ctx context.Context, chunk *providers.StreamChunk, elem *StreamElement,
+) *duplexToolJob {
+	if s.tools == nil || s.tools.isTerminal() || chunk.CostInfo == nil || s.costPlaced ||
+		elem.Meta.Interrupted { // chargeInterruptedTurn took it
+		return nil
+	}
+	dt := s.tools
+	turnEnd := chunk.FinishReason != nil
+	dt.mu.Lock()
+	round := dt.last
+	switch {
+	case turnEnd && dt.open != nil:
+		round = dt.open // the call this chunk completes
+		dt.open = nil
+		dt.last = round
+	case round == nil:
+		round = &duplexRound{rr: roundRef{round: dt.round, providerCallID: newProviderCallID()}, start: time.Now()}
+	}
+	turn := dt.turn
+	dt.mu.Unlock()
 
-// placeCost puts the chunk's cost on the chunk's message, or carries it when
-// the element has none, and adds carried cost to the next assistant message.
-// Call after the chunk's cost is charged. Response goroutine only.
-func (s *DuplexProviderStage) placeCost(chunk *providers.StreamChunk, elem *StreamElement) {
-	msg := elem.Message
-	if chunk.CostInfo != nil && (msg == nil || msg.CostInfo != chunk.CostInfo) {
-		s.carriedCost = addCost(s.carriedCost, chunk.CostInfo)
-		return
+	msg := &types.Message{Role: roleAssistant, CostInfo: chunk.CostInfo}
+	if turnEnd {
+		msg.FinishReason = *chunk.FinishReason
 	}
-	if msg != nil && msg.Role == roleAssistant && s.carriedCost != nil {
-		msg.CostInfo = addCost(msg.CostInfo, s.carriedCost)
-		s.carriedCost = nil
+	s.emitRoundCompleted(ctx, msg, round)
+	if turn == nil {
+		turn = &duplexToolTurn{toolTurn: s.toolRunner().newTurn(nil, 0)}
+	} else if turnEnd && !elem.Meta.InterruptedTurnComplete {
+		dt.endTurn(turn) // a reply without tool calls ends the tool turn
 	}
-}
-
-// withCarriedCost adds the carried cost to msg, the partial reply emitted
-// when the session ends, or to a cost-only interrupted reply when there is
-// none. Returns msg unchanged when nothing is carried. Response goroutine
-// only.
-func (s *DuplexProviderStage) withCarriedCost(msg *types.Message, cause string) *types.Message {
-	if s.carriedCost == nil {
-		return msg
+	if err := s.charge(turn, chunk.CostInfo); err != nil {
+		return s.budgetSpent(turn, nil, round.rr, err)
 	}
-	if msg == nil {
-		msg = &types.Message{
-			Role:         roleAssistant,
-			FinishReason: types.FinishReasonInterrupted,
-			Meta: map[string]interface{}{
-				finishReasonMetaKey:        finishReasonInterrupted,
-				types.MetaInterruptedCause: cause,
-			},
-		}
-	}
-	msg.CostInfo = addCost(msg.CostInfo, s.carriedCost)
-	s.carriedCost = nil
-	return msg
-}
-
-// addCost is a and b rolled up into one CostInfo; nil parts count as zero.
-func addCost(a, b *types.CostInfo) *types.CostInfo {
-	if a == nil {
-		return b
-	}
-	sum := base.AggregateCost(a, b)
-	return &sum
+	return nil
 }

@@ -258,7 +258,7 @@ func TestLiveRealtimePlayout_GeminiToolTurnCost(t *testing.T) {
 			in += d.InputTokens
 			out += d.OutputTokens
 		}
-		return len(ev.providerCompleted()) >= 2 && cost > 0
+		return len(ev.providerCompleted()) >= 3 && cost > 0
 	}), "the tool turn's provider calls carry no cost (events %s)", ev.summary())
 	for _, d := range ev.providerCompleted() {
 		t.Logf("provider.call.completed round=%d tools=%d in=%d out=%d cost=%.6f finish=%s",
@@ -267,4 +267,21 @@ func TestLiveRealtimePlayout_GeminiToolTurnCost(t *testing.T) {
 	assert.Positive(t, in)
 	assert.Positive(t, out)
 	assert.Positive(t, cost)
+
+	// Gemini 3 reports the tool-call turn's own usage after its tool calls:
+	// it is reported on the tool call's provider call, not the reply's.
+	toolCalls := map[string]bool{}
+	var toolCallCost float64
+	for _, d := range ev.providerCompleted() {
+		if d.ToolCallCount > 0 {
+			toolCalls[d.CallID] = true
+		}
+	}
+	for _, d := range ev.providerCompleted() {
+		if toolCalls[d.CallID] {
+			toolCallCost += d.Cost
+		}
+	}
+	require.NotEmpty(t, toolCalls)
+	assert.Positive(t, toolCallCost, "the tool-call turn's provider call carries its cost")
 }

@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -74,13 +75,14 @@ type RealtimeSession struct {
 	responseActive bool
 
 	// playout estimates the delivered audio the caller is still hearing, so
-	// speech after response.done still barges in (realtime_playout.go). now is
-	// its clock (time.Now unless a test injects one). truncates holds the
-	// event IDs of the conversation.item.truncate events sent, so a rejected
-	// one is logged instead of failing the turn. Receive goroutine only.
-	playout   realtimePlayout
+	// speech after response.done still barges in. now is its clock (time.Now
+	// unless a test injects one). truncates tracks the
+	// conversation.item.truncate events awaiting the server's answer, so a
+	// rejected one is logged instead of failing the turn
+	// (realtime_playout.go). Receive goroutine only.
+	playout   *audio.Playout
 	now       func() time.Time
-	truncates map[string]struct{}
+	truncates truncateTracker
 
 	errCh   chan error
 	mu      sync.Mutex
@@ -635,6 +637,8 @@ func (s *RealtimeSession) handleMessage(data []byte) {
 		s.handleResponseDone(e)
 	case *InputAudioBufferSpeechStartedEvent:
 		s.handleSpeechStarted(e)
+	case *conversationItemTruncatedEvent:
+		s.truncates.done(e.ItemID)
 	case *InputAudioBufferSpeechStoppedEvent:
 		logger.Debug("OpenAI Realtime: speech stopped", "item_id", e.ItemID)
 	case *ConversationItemInputAudioTranscriptionCompletedEvent:
@@ -650,12 +654,13 @@ func (s *RealtimeSession) handleMessage(data []byte) {
 	}
 }
 
-// clock returns the session's current time.
-func (s *RealtimeSession) clock() time.Time {
-	if s.now != nil {
-		return s.now()
+// playoutEstimate returns the session's playout estimate, creating it on
+// the session's clock on first use.
+func (s *RealtimeSession) playoutEstimate() *audio.Playout {
+	if s.playout == nil {
+		s.playout = audio.NewPlayout(s.now)
 	}
-	return time.Now()
+	return s.playout
 }
 
 // handleSpeechStarted handles server VAD's speech_started, which arrives on
@@ -670,8 +675,7 @@ func (s *RealtimeSession) clock() time.Time {
 // finished generating gets no canceled response.done to end it, so the
 // interruption is also reported in-band, as an Interrupted chunk.
 func (s *RealtimeSession) handleSpeechStarted(e *InputAudioBufferSpeechStartedEvent) {
-	now := s.clock()
-	playing := s.playout.playing(now)
+	playing := s.playoutEstimate().Playing()
 	if !s.responseActive && !playing {
 		logger.Debug("OpenAI Realtime: speech started (turn start)", "item_id", e.ItemID)
 		return
@@ -680,40 +684,34 @@ func (s *RealtimeSession) handleSpeechStarted(e *InputAudioBufferSpeechStartedEv
 		"response_active", s.responseActive, "playing", playing)
 	s.Barge()
 	s.emitCh <- providers.BargeMarker()
-	s.truncateHeard(now)
+	s.truncateHeard()
 	if !s.responseActive {
 		s.emitCh <- providers.StreamChunk{Interrupted: true}
 	}
 }
 
-// truncateHeard ends the playout estimate at now and, when the caller had
-// not heard all of the last audio item, sends conversation.item.truncate with
-// the audio_end_ms they had heard.
-func (s *RealtimeSession) truncateHeard(now time.Time) {
-	itemID, contentIndex, heard, cut := s.playout.stop(now)
-	if !cut {
-		return
-	}
-	event := conversationItemTruncateEvent{
-		ClientEvent:  ClientEvent{EventID: s.nextEventID(), Type: realtimeEventItemTruncate},
-		ItemID:       itemID,
-		ContentIndex: contentIndex,
-		AudioEndMs:   int(heard.Milliseconds()),
-	}
-	if s.truncates == nil {
-		s.truncates = map[string]struct{}{}
-	}
-	s.truncates[event.EventID] = struct{}{}
-	if err := s.ws.Send(event); err != nil {
-		logger.Warn("OpenAI Realtime: failed to truncate the interrupted reply", "item_id", itemID, "error", err)
+// truncateHeard ends the playout estimate and cuts each audio item the
+// caller had not fully heard to what they had heard, with
+// conversation.item.truncate.
+func (s *RealtimeSession) truncateHeard() {
+	for _, cut := range s.playoutEstimate().Stop() {
+		event := conversationItemTruncateEvent{
+			ClientEvent:  ClientEvent{EventID: s.nextEventID(), Type: realtimeEventItemTruncate},
+			ItemID:       cut.ItemID,
+			ContentIndex: cut.ContentIndex,
+			AudioEndMs:   int(cut.Heard.Milliseconds()),
+		}
+		s.truncates.sent(event.EventID, cut.ItemID)
+		if err := s.ws.Send(event); err != nil {
+			logger.Warn("OpenAI Realtime: failed to truncate the interrupted reply", "item_id", cut.ItemID, "error", err)
+		}
 	}
 }
 
 func (s *RealtimeSession) handleError(e *ErrorEvent) {
 	// A rejected truncate leaves the model's copy of the reply uncut; the
 	// barge-in itself succeeded, so the turn goes on.
-	if _, ok := s.truncates[e.Error.EventID]; ok {
-		delete(s.truncates, e.Error.EventID)
+	if s.truncates.rejected(e.Error.EventID) {
 		logger.Warn("OpenAI Realtime: the server rejected truncating the interrupted reply",
 			"code", e.Error.Code, "message", e.Error.Message)
 		return
@@ -776,7 +774,7 @@ func (s *RealtimeSession) handleAudioDelta(e *ResponseAudioDeltaEvent) {
 		logger.Warn("failed to decode base64 audio from OpenAI Realtime", "error", err)
 		return
 	}
-	s.playout.add(s.clock(), e.ItemID, e.ContentIndex, pcm16Duration(len(rawBytes), s.outputSampleRate()))
+	s.playoutEstimate().Add(e.ItemID, e.ContentIndex, audio.PCM16Duration(len(rawBytes), s.outputSampleRate(), 1))
 
 	s.emitCh <- providers.StreamChunk{
 		MediaData: &providers.StreamMediaData{

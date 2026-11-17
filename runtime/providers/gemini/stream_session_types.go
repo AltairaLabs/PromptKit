@@ -69,6 +69,8 @@ type ServerContent struct {
 // Transcription represents audio transcription (BidiGenerateContentTranscription)
 type Transcription struct {
 	Text string `json:"text,omitempty"`
+	// Finished marks the last fragment of an utterance's transcript.
+	Finished bool `json:"finished,omitempty"`
 }
 
 // ModelTurn represents a model response turn

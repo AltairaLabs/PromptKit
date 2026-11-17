@@ -1255,7 +1255,7 @@ func (s *TTSStageWithInterruption) emitAudioElement(
 
 // pcm16Duration is the playback length of n bytes of 16-bit mono PCM.
 func pcm16Duration(n, sampleRate int) time.Duration {
-	return samplesToDuration(n/bytesPerSample16Bit, sampleRate)
+	return audio.PCM16Duration(n, sampleRate, 1)
 }
 
 // endResponse ends the reply AudioTurnStage began for the user's turn: its turn

@@ -152,3 +152,57 @@ func TestLivePlayout_NonAudioMediaDoesNotPlay(t *testing.T) {
 	require.NotEmpty(t, chunks)
 	assert.Equal(t, "image/png", chunks[0].MediaData.MIMEType)
 }
+
+// lateTranscriptSession plays the caller saying "what is the weather" (the
+// end of it transcribed late, during generation), then a 5 s reply that is
+// complete at t0+1s and still playing.
+func lateTranscriptSession(t *testing.T, finished bool) (*StreamSession, func(time.Duration)) {
+	t.Helper()
+	s, now := playoutSession(t)
+	t0 := *now
+	at := func(d time.Duration) { *now = t0.Add(d) }
+	first := callerSays("what is")
+	first.ServerContent.InputTranscription.Finished = finished
+	process(t, s, first)
+	at(200 * time.Millisecond)
+	process(t, s, audioSecond(), audioSecond(), audioSecond(), audioSecond(), audioSecond())
+	if !finished {
+		at(500 * time.Millisecond)
+		process(t, s, callerSays(" the"))
+	}
+	at(time.Second)
+	process(t, s, &ServerMessage{ServerContent: &ServerContent{TurnComplete: true}})
+	return s, at
+}
+
+// The rest of the caller's earlier utterance, transcribed after the reply
+// completed, is not barge-in.
+func TestLivePlayout_LateTranscriptOfTheEarlierUtteranceIsNotBargeIn(t *testing.T) {
+	s, at := lateTranscriptSession(t, false)
+	at(1300 * time.Millisecond)
+	process(t, s, callerSays(" weather"))
+
+	assert.Zero(t, interrupted(drainChunks(t, s)))
+	assert.False(t, barged(s))
+}
+
+// After a pause, the caller is saying something new: barge-in.
+func TestLivePlayout_NewUtteranceAfterTheLateTranscriptBargesIn(t *testing.T) {
+	s, at := lateTranscriptSession(t, false)
+	at(1300 * time.Millisecond)
+	process(t, s, callerSays(" weather"))
+	at(3 * time.Second)
+	process(t, s, callerSays("hold on"))
+
+	assert.Equal(t, 1, interrupted(drainChunks(t, s)))
+	assert.True(t, barged(s))
+}
+
+// An utterance Gemini marked finished is over: the next transcript is new.
+func TestLivePlayout_TranscriptAfterAFinishedUtteranceBargesIn(t *testing.T) {
+	s, at := lateTranscriptSession(t, true)
+	at(1100 * time.Millisecond)
+	process(t, s, callerSays("hold on"))
+
+	assert.Equal(t, 1, interrupted(drainChunks(t, s)))
+}

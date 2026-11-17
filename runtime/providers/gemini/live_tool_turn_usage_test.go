@@ -65,10 +65,9 @@ func finishing(chunks []providers.StreamChunk) []providers.StreamChunk {
 // reported as one, it reads as an empty reply after every tool call (the
 // stage records an empty assistant message, the SDK reports "empty response,
 // likely interrupted", and the realtime tool turn ends before the tool's
-// result is answered). Its usage is carried into the turn that follows, as
-// Gemini 2.5 reports it natively (one turnComplete after the reply, with the
-// usage of both).
-func TestLiveToolCallTurn_UsageOnlyTurnCompleteIsCarriedToTheReply(t *testing.T) {
+// result is answered). Its usage belongs to the tool-call turn and is
+// reported at once, on its own.
+func TestLiveToolCallTurn_UsageOnlyTurnCompleteIsTheToolCallTurns(t *testing.T) {
 	s := newProtocolTestSession(t)
 	usage := func(prompt, response int) *UsageMetadata {
 		return &UsageMetadata{PromptTokenCount: prompt, ResponseTokenCount: response,
@@ -91,6 +90,12 @@ func TestLiveToolCallTurn_UsageOnlyTurnCompleteIsCarriedToTheReply(t *testing.T)
 	chunks := drainChunks(t, s)
 	ends := finishing(chunks)
 	require.Len(t, ends, 2, "a tool-call turn and its reply are two turns")
+	var usageOnly []providers.StreamChunk
+	for _, c := range chunks {
+		if c.FinishReason == nil && c.CostInfo != nil {
+			usageOnly = append(usageOnly, c)
+		}
+	}
 	assert.Equal(t, types.FinishReasonToolUse, *ends[0].FinishReason)
 	require.Len(t, ends[0].ToolCalls, 1)
 	assert.Equal(t, "call_1", ends[0].ToolCalls[0].ID)
@@ -101,12 +106,18 @@ func TestLiveToolCallTurn_UsageOnlyTurnCompleteIsCarriedToTheReply(t *testing.T)
 		text += c.Content
 	}
 	assert.Equal(t, "It is hazy.", text)
+	// The tool-call turn's usage is reported on its own, before the reply,
+	// which carries only its own.
+	assert.Nil(t, ends[0].CostInfo)
+	require.Len(t, usageOnly, 1)
+	assert.Equal(t, 600, usageOnly[0].CostInfo.InputTokens)
+	assert.Equal(t, 12, usageOnly[0].CostInfo.OutputTokens)
 	require.NotNil(t, ends[1].CostInfo)
-	assert.Equal(t, 1300, ends[1].CostInfo.InputTokens, "the reply carries the tool-call turn's usage too")
-	assert.Equal(t, 32, ends[1].CostInfo.OutputTokens)
-	want := s.buildCostInfo(usage(1300, 32)).TotalCost
+	assert.Equal(t, 700, ends[1].CostInfo.InputTokens)
+	assert.Equal(t, 20, ends[1].CostInfo.OutputTokens)
+	want := priced(t, usage(700, 20)).TotalCost
+	assert.Positive(t, want)
 	assert.InDelta(t, want, ends[1].CostInfo.TotalCost, 1e-12)
-	assert.Positive(t, ends[1].CostInfo.TotalCost)
 }
 
 // Gemini 2.5 Live answers with toolCall, then (after the tool response) the
@@ -261,10 +272,10 @@ func TestLiveToolCallTurn_CarriedUsageIsReportedWhenTheSessionEnds(t *testing.T)
 }
 
 // On Gemini 3.x Live each tool call is followed by its own usage-only
-// turnComplete. It is carried to the next turn's end even when it reaches the
+// turnComplete. Its usage is reported on its own even when it reaches the
 // client after the tool response was sent (a fast tool), here every time; in
 // a chain of tool calls each one's usage is reported once.
-func TestLiveToolCallTurn_ChainedToolCallsCarryEachUsage(t *testing.T) {
+func TestLiveToolCallTurn_ChainedToolCallsReportEachUsage(t *testing.T) {
 	session := scriptedLiveServer(t, "gemini-3.8-live", func(conn *websocket.Conn) {
 		for i, id := range []string{"call_1", "call_2"} {
 			writeServer(conn, &ServerMessage{ToolCall: &ToolCallMsg{FunctionCalls: []FunctionCall{
@@ -282,12 +293,15 @@ func TestLiveToolCallTurn_ChainedToolCallsCarryEachUsage(t *testing.T) {
 		_, _, _ = conn.ReadMessage()
 	})
 
-	var ends []providers.StreamChunk
+	var ends, usage []providers.StreamChunk
 	deadline := time.After(3 * time.Second)
 	for len(ends) < 3 {
 		select {
 		case c := <-session.Response():
 			if c.FinishReason == nil {
+				if c.CostInfo != nil {
+					usage = append(usage, c)
+				}
 				continue
 			}
 			ends = append(ends, c)
@@ -302,15 +316,16 @@ func TestLiveToolCallTurn_ChainedToolCallsCarryEachUsage(t *testing.T) {
 	assert.Equal(t, types.FinishReasonToolUse, *ends[0].FinishReason)
 	assert.Equal(t, types.FinishReasonToolUse, *ends[1].FinishReason)
 	assert.Equal(t, finishReasonComplete, *ends[2].FinishReason)
-	// Each usage goes on the next turn's end: the first tool-call turn's on
-	// the second tool call, the second's on the reply.
+	// Each tool-call turn's usage is reported on its own, once, after its
+	// tool calls; the reply carries only its own.
 	assert.Nil(t, ends[0].CostInfo)
-	require.NotNil(t, ends[1].CostInfo)
-	assert.Equal(t, 100, ends[1].CostInfo.InputTokens)
-	assert.Equal(t, 10, ends[1].CostInfo.OutputTokens)
+	assert.Nil(t, ends[1].CostInfo)
+	require.Len(t, usage, 2)
+	assert.Equal(t, 100, usage[0].CostInfo.InputTokens)
+	assert.Equal(t, 200, usage[1].CostInfo.InputTokens)
 	require.NotNil(t, ends[2].CostInfo)
-	assert.Equal(t, 600, ends[2].CostInfo.InputTokens, "the reply carries the second tool-call turn's usage")
-	assert.Equal(t, 30, ends[2].CostInfo.OutputTokens)
+	assert.Equal(t, 400, ends[2].CostInfo.InputTokens)
+	assert.Equal(t, 20, ends[2].CostInfo.OutputTokens)
 }
 
 // Which Live models end a tool-call turn with their own turnComplete.
