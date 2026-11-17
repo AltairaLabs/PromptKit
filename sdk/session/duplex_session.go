@@ -212,10 +212,7 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 	// Create streaming channels
 	// stageInput feeds stage.StreamElement to the pipeline
 	// streamOutput receives providers.StreamChunk for the external API
-	// stageInput is unbuffered: a send returns nil only once the pipeline
-	// has taken the element, so input is never accepted into a buffer the
-	// pipeline may end without reading (see sendInput).
-	stageInput := make(chan stage.StreamElement)
+	stageInput := make(chan stage.StreamElement, streamBufferSize)
 	streamOutput := make(chan providers.StreamChunk, streamBufferSize)
 
 	// The session keeps ctx's values — tool calls see the host's caller
@@ -290,12 +287,12 @@ func (s *duplexSession) SendChunk(ctx context.Context, chunk *providers.StreamCh
 // once Close has run. A send blocked on a full channel is woken by Close
 // canceling the session context, so it never holds Close off.
 //
-// The input channel is unbuffered, so a send returns nil only once the
-// pipeline has taken elem. Once the pipeline has ended (the idle timeout, a
-// provider error, the provider closing the session), a send, including one
-// already waiting, returns the error that ended it, or ErrSessionClosed when
-// none did: input is either taken by the pipeline or refused, never accepted
-// and then left unread.
+// A send returns once elem is in the pipeline's input buffer. Once the
+// pipeline has ended (the idle timeout, a provider error, the provider
+// closing the session), a send returns at once with the error that ended it,
+// or ErrSessionClosed when none did, and a send waiting on a full buffer is
+// woken with that error. Input accepted into the buffer shortly before the
+// pipeline ended may never be read: it is lost with the session.
 func (s *duplexSession) sendInput(ctx context.Context, elem stage.StreamElement) error {
 	s.inputMu.RLock()
 	defer s.inputMu.RUnlock()
@@ -413,7 +410,7 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 	defer close(s.streamOutput)
 
 	// Start the stage pipeline with our input channel
-	stageOutput, err := s.pipeline.Execute(ctx, s.stageInput)
+	exec, err := s.pipeline.Start(ctx, s.stageInput)
 	if err != nil {
 		s.endErr = err
 		finishReason := "error"
@@ -421,10 +418,10 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 		return
 	}
 
-	// lastErr is the error the latest output element carried, nil once a
-	// later element carries none. The pipeline ends its output with the error
-	// that ended it, so when the output closes lastErr is that error.
-	var lastErr error
+	// The error that ends the session is the one that ended the pipeline
+	// (exec.Err): an error element the pipeline reported and carried on from
+	// (a tool limit, say) is not one, and output may follow the one that is.
+	stageOutput := exec.Output()
 	for {
 		select {
 		case <-ctx.Done():
@@ -434,13 +431,11 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 		case elem, ok := <-stageOutput:
 			if !ok {
 				// Stage pipeline finished
-				s.recordEnd(ctx, lastErr)
+				s.recordEnd(ctx, exec.Err())
 				return
 			}
-			var keep bool
-			keep, lastErr = s.handleOutputElement(ctx, &elem)
-			if !keep {
-				s.recordEnd(ctx, lastErr)
+			if keep, failErr := s.handleOutputElement(ctx, &elem); !keep {
+				s.recordEnd(ctx, failErr)
 				return
 			}
 		}
@@ -467,9 +462,9 @@ func (s *duplexSession) offerChunk(chunk providers.StreamChunk) {
 
 // handleOutputElement handles one element of the pipeline's output. It
 // reports whether the forwarding loop should keep running (false when the
-// session context is done or tool handling failed) and the element's error,
-// if it carried one.
-func (s *duplexSession) handleOutputElement(ctx context.Context, elem *stage.StreamElement) (keep bool, elemErr error) {
+// session context is done or tool handling failed) and, when tool handling
+// failed, its error, which ends the session.
+func (s *duplexSession) handleOutputElement(ctx context.Context, elem *stage.StreamElement) (keep bool, failErr error) {
 	action, actionErr := streaming.ProcessResponseElement(elem, "duplexSession")
 	s.recordElementCalls(elem)
 
@@ -491,7 +486,7 @@ func (s *duplexSession) handleOutputElement(ctx context.Context, elem *stage.Str
 		// and one it ends on closes its output, which ends the loop.
 		// Returning here would leave the stage blocked on an output
 		// nobody reads, and the caller's later input unanswered.
-		return s.forwardChunk(ctx, providers.StreamChunk{Error: actionErr}), actionErr
+		return s.forwardChunk(ctx, providers.StreamChunk{Error: actionErr}), nil
 
 	case streaming.ResponseActionContinue, streaming.ResponseActionComplete:
 		// The caller's own typed turn: recorded and saved upstream, and

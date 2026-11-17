@@ -7,17 +7,17 @@ import (
 	"github.com/AltairaLabs/PromptKit/sdk/v2/session"
 )
 
+// ErrSessionClosed is returned by a duplex conversation's input methods
+// (SendChunk, SendText, SendFrame, SendVideoChunk, TriggerStart,
+// ContinueDuplex) once the session has ended without an error of its own:
+// Close was called, or the provider closed the session. It is
+// session.ErrSessionClosed; match it with errors.Is.
+var ErrSessionClosed = session.ErrSessionClosed
+
 // Sentinel errors for common failure cases.
 var (
 	// ErrConversationClosed is returned when Send or Stream is called on a closed conversation.
 	ErrConversationClosed = errors.New("conversation is closed")
-
-	// ErrSessionClosed is returned by a duplex conversation's input methods
-	// (SendChunk, SendText, SendFrame, SendVideoChunk, TriggerStart,
-	// ContinueDuplex) once the session has ended without an error of its
-	// own: Close was called, or the provider closed the session. It is
-	// session.ErrSessionClosed.
-	ErrSessionClosed = session.ErrSessionClosed
 
 	// ErrConversationNotFound is returned by Resume when the conversation ID doesn't exist.
 	ErrConversationNotFound = errors.New("conversation not found")

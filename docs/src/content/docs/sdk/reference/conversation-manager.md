@@ -652,13 +652,6 @@ var (
     // ErrConversationClosed is returned when Send or Stream is called on a closed conversation.
     ErrConversationClosed = errors.New("conversation is closed")
 
-    // ErrSessionClosed is returned by a duplex conversation's input methods
-    // (SendChunk, SendText, SendFrame, SendVideoChunk, TriggerStart,
-    // ContinueDuplex) once the session has ended without an error of its
-    // own: Close was called, or the provider closed the session. It is
-    // session.ErrSessionClosed.
-    ErrSessionClosed = session.ErrSessionClosed
-
     // ErrConversationNotFound is returned by Resume when the conversation ID doesn't exist.
     ErrConversationNotFound = errors.New("conversation not found")
 
@@ -721,6 +714,12 @@ The nested call is recognized by its context, so a handler must pass on the cont
 
 ```go
 var ErrReentrantTurn = errors.New("sdk: a turn was started on a conversation from inside its own turn")
+```
+
+<a name="ErrSessionClosed"></a>ErrSessionClosed is returned by a duplex conversation's input methods \(SendChunk, SendText, SendFrame, SendVideoChunk, TriggerStart, ContinueDuplex\) once the session has ended without an error of its own: Close was called, or the provider closed the session. It is session.ErrSessionClosed; match it with errors.Is.
+
+```go
+var ErrSessionClosed = session.ErrSessionClosed
 ```
 
 <a name="ErrShutdownManagerClosed"></a>ErrShutdownManagerClosed is returned when Register is called after Shutdown.
@@ -2852,7 +2851,7 @@ func (c *Conversation) SendChunk(ctx context.Context, chunk *providers.StreamChu
 
 SendChunk sends a streaming chunk in duplex mode. Only available when the conversation was opened with OpenDuplex\(\).
 
-Once the session has ended \(Close, the idle timeout, a provider error, the provider closing the session\) it returns at once: with the error that ended the session, as SessionError reports it, else with [ErrSessionClosed](<#ErrConversationClosed>). SendText, SendFrame, SendVideoChunk and TriggerStart do the same.
+Once the session has ended \(Close, the idle timeout, a provider error, the provider closing the session\) it returns at once: with the error that ended the session, as SessionError reports it, else with [ErrSessionClosed](<#ErrSessionClosed>). SendText, SendFrame, SendVideoChunk and TriggerStart do the same.
 
 <a name="Conversation.SendFrame"></a>
 ### func \(\*Conversation\) [SendFrame](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1243>)

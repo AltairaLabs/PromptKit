@@ -3,7 +3,6 @@ package session
 import (
 	"context"
 	"errors"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -65,19 +64,67 @@ func TestDuplexSession_ErrorThePipelineWentOnFromIsNotItsEnd(t *testing.T) {
 	assert.NoError(t, sess.Error())
 }
 
-// A send the pipeline never takes is not accepted: once the pipeline stops
-// reading and ends, a send waiting on it returns the error the pipeline ended
-// on, never nil for input nobody will read. Every send that returned nil was
-// taken by the pipeline.
-func TestDuplexSession_SendThePipelineNeverTakesReturnsItsEndError(t *testing.T) {
+// endedByScript runs a session whose pipeline is fn, sends one text, reads
+// Response() to its close and waits for Done().
+func endedByScript(
+	t *testing.T, fn func(context.Context, <-chan stage.StreamElement, chan<- stage.StreamElement) error,
+) (DuplexSession, []providers.StreamChunk) {
+	t.Helper()
+	sess := scriptedSession(t, fn)
+	resp := sess.Response()
+	require.NoError(t, sess.SendText(context.Background(), "hi"))
+	chunks := drainResponse(t, resp)
+	requireClosedSoon(t, sess.Done(), "Done() did not close")
+	return sess, chunks
+}
+
+// The error that ended the pipeline is the session's end error even when
+// output follows it (a later stage flushing buffered audio after the
+// provider's error): sends get it and Error() reports it.
+func TestDuplexSession_EndErrorSurvivesOutputFlushedAfterIt(t *testing.T) {
 	fatal := errors.New("provider connection lost")
-	release := make(chan struct{})
-	var taken atomic.Int32
-	sess := scriptedSession(t, func(ctx context.Context, in <-chan stage.StreamElement, out chan<- stage.StreamElement) error {
+	sess, chunks := endedByScript(t, func(ctx context.Context, in <-chan stage.StreamElement, out chan<- stage.StreamElement) error {
 		defer close(out)
 		<-in
-		taken.Add(1)
-		// Reads nothing more, then ends on an error.
+		out <- stage.NewErrorElement(fatal)
+		flushed := "flushed audio"
+		out <- stage.StreamElement{Text: &flushed}
+		return fatal
+	})
+	require.Len(t, chunks, 2)
+	assert.ErrorIs(t, chunks[0].Error, fatal)
+	assert.Equal(t, "flushed audio", chunks[1].Content)
+
+	assert.ErrorIs(t, sess.SendText(context.Background(), "again"), fatal)
+	assert.ErrorIs(t, sess.Error(), fatal)
+}
+
+// A tool-limit error the pipeline reported and carried on from, followed by
+// a clean close, is not the session's end error: sends get ErrSessionClosed
+// and Error() is nil.
+func TestDuplexSession_CarriedOnErrorThenCleanCloseIsNotTheEndError(t *testing.T) {
+	limit := errors.New("tool round limit reached")
+	sess, chunks := endedByScript(t, func(ctx context.Context, in <-chan stage.StreamElement, out chan<- stage.StreamElement) error {
+		defer close(out)
+		<-in
+		out <- stage.NewErrorElement(limit)
+		return nil
+	})
+	require.Len(t, chunks, 1)
+	assert.ErrorIs(t, chunks[0].Error, limit)
+
+	assert.ErrorIs(t, sess.SendText(context.Background(), "again"), ErrSessionClosed)
+	assert.NoError(t, sess.Error())
+}
+
+// A send already waiting on a full input when the pipeline ends returns the
+// error it ended on instead of waiting for a reader that is gone.
+func TestDuplexSession_SendWaitingOnFullInputReturnsWhenThePipelineEnds(t *testing.T) {
+	fatal := errors.New("provider connection lost")
+	release := make(chan struct{})
+	sess := scriptedSession(t, func(ctx context.Context, _ <-chan stage.StreamElement, out chan<- stage.StreamElement) error {
+		defer close(out)
+		// Never reads its input, so the session's input buffer fills.
 		<-release
 		out <- stage.NewErrorElement(fatal)
 		return fatal
@@ -87,14 +134,15 @@ func TestDuplexSession_SendThePipelineNeverTakesReturnsItsEndError(t *testing.T)
 		}
 	}()
 	ctx := context.Background()
-	require.NoError(t, sess.SendText(ctx, "first"))
+	for i := 0; i < streamBufferSize; i++ {
+		require.NoError(t, sess.SendText(ctx, "fill"))
+	}
 
 	got := make(chan error, 1)
-	go func() { got <- sess.SendText(ctx, "never read") }()
+	go func() { got <- sess.SendText(ctx, "one too many") }()
 	select {
 	case err := <-got:
-		require.Errorf(t, err, "a send the pipeline never read returned nil")
-		t.Fatalf("the send returned %v before the pipeline ended", err)
+		t.Fatalf("test premise: the send past a full input should wait, returned %v", err)
 	case <-time.After(50 * time.Millisecond):
 	}
 
@@ -105,7 +153,6 @@ func TestDuplexSession_SendThePipelineNeverTakesReturnsItsEndError(t *testing.T)
 	case <-time.After(lifecycleWait):
 		t.Fatal("the waiting send never returned after the pipeline ended")
 	}
-	assert.Equal(t, int32(1), taken.Load(), "the pipeline took only the first send")
 	assert.ErrorIs(t, sess.Error(), fatal)
 }
 
