@@ -32,6 +32,7 @@ Tools load from YAML or JSON files with Registry.LoadToolFromBytes, or are regis
 - [func ConsentDeclinedMessage\(toolName, strategy string\) string](<#ConsentDeclinedMessage>)
 - [func ContentTypeToMediaType\(contentType string\) string](<#ContentTypeToMediaType>)
 - [func DecodeArgsExtras\(args json.RawMessage, typed any, knownKeys ...string\) \(map\[string\]any, error\)](<#DecodeArgsExtras>)
+- [func FormatResultText\(raw json.RawMessage\) string](<#FormatResultText>)
 - [func IsBinaryContentType\(contentType string, acceptTypes \[\]string\) bool](<#IsBinaryContentType>)
 - [func IsImplicitTool\(name string\) bool](<#IsImplicitTool>)
 - [func IsSystemTool\(name string\) bool](<#IsSystemTool>)
@@ -42,6 +43,7 @@ Tools load from YAML or JSON files with Registry.LoadToolFromBytes, or are regis
 - [func ReadMultimodalResponse\(resp \*http.Response, aggregateSize \*atomic.Int64, maxAggregateSize int64\) \(json.RawMessage, \[\]types.ContentPart, error\)](<#ReadMultimodalResponse>)
 - [func RedactFields\(data \[\]byte, fields \[\]string\) \[\]byte](<#RedactFields>)
 - [func ResolveMockParts\(parts \[\]types.ContentPart\) \(\[\]types.ContentPart, error\)](<#ResolveMockParts>)
+- [func TruncateResultText\(content string, maxSize int\) string](<#TruncateResultText>)
 - [func WithCallID\(ctx context.Context, id string\) context.Context](<#WithCallID>)
 - [func WithMCPRegistry\(ctx context.Context, reg mcp.Registry\) context.Context](<#WithMCPRegistry>)
 - [type A2AAuthConfig](<#A2AAuthConfig>)
@@ -330,6 +332,15 @@ knownKeys must list every top\-level JSON key the executor's typed struct owns; 
 
 Returns an empty map \(not nil\) when args contains no extras, so callers can merge unconditionally without nil checks. Returns nil \+ nil when args is empty or "null" — both mean "no args at all".
 
+<a name="FormatResultText"></a>
+## func [FormatResultText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L15>)
+
+```go
+func FormatResultText(raw json.RawMessage) string
+```
+
+FormatResultText is a JSON tool result as the model is given it: a string unquoted, an object or array indented, any other value as written \(numbers keep their exact digits, null reads null\). Text that is not JSON is returned as it is.
+
 <a name="IsBinaryContentType"></a>
 ## func [IsBinaryContentType](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_multimodal.go#L32>)
 
@@ -421,6 +432,15 @@ func ResolveMockParts(parts []types.ContentPart) ([]types.ContentPart, error)
 ```
 
 ResolveMockParts processes a slice of ContentPart, resolving any file\_path references in MediaContent to base64\-encoded data. URL references and already\-encoded data are passed through unchanged.
+
+<a name="TruncateResultText"></a>
+## func [TruncateResultText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L40>)
+
+```go
+func TruncateResultText(content string, maxSize int) string
+```
+
+TruncateResultText cuts content to maxSize bytes and appends a note saying so when it is longer. A maxSize of zero or less leaves content as it is.
 
 <a name="WithCallID"></a>
 ## func [WithCallID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/context.go#L12>)

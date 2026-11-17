@@ -611,22 +611,26 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	for _, res := range resolutions {
 		var content string
 		var errStr string
+		var parts []types.ContentPart
 		if res.Rejected {
 			content = fmt.Sprintf("Tool call rejected: %s", res.RejectionReason)
 			errStr = "rejected by user"
 		} else if res.Error != nil {
 			errStr = toolResultErrorText(res.Error)
 			content = "Tool error: " + errStr
-		} else if res.ResultJSON != nil {
-			content = string(res.ResultJSON)
+		} else if len(res.Parts) > 0 {
+			parts = res.Parts
 		} else {
-			content = fmt.Sprintf("%v", res.Result)
+			content = c.approvedResultText(res)
 		}
 
 		// The result names the tool it answers, as an in-turn result does: a
 		// provider can match a result to its call by name (Gemini's
 		// functionResponse carries only the name).
 		toolResult := types.NewTextToolResult(res.ID, callNames()[res.ID], content)
+		if parts != nil {
+			toolResult = types.MessageToolResult{ID: res.ID, Name: callNames()[res.ID], Parts: parts}
+		}
 		toolResult.Error = errStr
 		toolMsgs = append(toolMsgs, types.NewToolResultMessage(toolResult))
 	}
@@ -689,10 +693,8 @@ func (c *Conversation) ContinueDuplex(ctx context.Context) error {
 		case res.Error != nil:
 			result = "Tool error: " + toolResultErrorText(res.Error)
 			isError = true
-		case res.ResultJSON != nil:
-			result = toolResultText(res.ResultJSON)
 		default:
-			result = fmt.Sprintf("%v", res.Result)
+			result = c.approvedResultText(res)
 		}
 		responses = append(responses, providers.ToolResponse{
 			ToolCallID: res.ID,
@@ -704,25 +706,18 @@ func (c *Conversation) ContinueDuplex(ctx context.Context) error {
 	return c.duplexSession.SubmitToolResults(ctx, responses)
 }
 
-// toolResultText is a JSON result as the model is given the result of a call
-// the pipeline runs (the provider stage's formatting): a string unquoted, an
-// object or array indented, any other value printed, and text that is not
-// JSON as it is. An approved realtime call's result then reads the same as
-// one that ran without approval.
-func toolResultText(raw json.RawMessage) string {
-	var value any
-	if json.Unmarshal(raw, &value) != nil {
-		return string(raw)
+// approvedResultText is an approved call's result as the model is given the
+// result of a call the pipeline runs: formatted as the provider stage formats
+// it (tools.FormatResultText) and cut at the registry's size limit.
+func (c *Conversation) approvedResultText(res *sdktools.ToolResolution) string {
+	if res.ResultJSON == nil {
+		return fmt.Sprintf("%v", res.Result)
 	}
-	switch v := value.(type) {
-	case string:
-		return v
-	case map[string]any, []any:
-		if indented, err := json.MarshalIndent(v, "", "  "); err == nil {
-			return string(indented)
-		}
+	text := tools.FormatResultText(res.ResultJSON)
+	if c.toolRegistry == nil {
+		return text
 	}
-	return fmt.Sprintf("%v", value)
+	return tools.TruncateResultText(text, c.toolRegistry.MaxToolResultSize())
 }
 
 // PendingTools returns all pending tool calls awaiting approval for this

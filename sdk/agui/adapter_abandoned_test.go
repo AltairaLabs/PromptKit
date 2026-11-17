@@ -65,8 +65,8 @@ func TestE2E_AbandonedAnswerDoesNotLeak_ReusedID(t *testing.T) {
 	last := provider.seen[len(provider.seen)-1]
 	contents := toolContents(last, "call_0")
 	require.NotEmpty(t, contents)
-	assert.Equal(t, `"NEW"`, contents[len(contents)-1], "the later call gets the later answer")
-	assert.NotContains(t, contents, `"STALE"`)
+	assert.Equal(t, "NEW", contents[len(contents)-1], "the later call gets the later answer")
+	assert.NotContains(t, contents, "STALE")
 }
 
 // With unique ids the abandoned answer would be a result for a call the last
@@ -76,7 +76,7 @@ func TestE2E_AbandonedAnswerDoesNotLeak_UniqueIDs(t *testing.T) {
 
 	last := provider.seen[len(provider.seen)-1]
 	assert.Empty(t, toolContents(last, "c1"), "no result for the abandoned turn's call")
-	assert.Equal(t, []string{`"NEW"`}, toolContents(last, "c3"))
+	assert.Equal(t, []string{"NEW"}, toolContents(last, "c3"))
 }
 
 // The approval-hold variant: a held call resolved but never continued, then a
@@ -113,7 +113,7 @@ func TestE2E_AbandonedApprovalDoesNotLeak(t *testing.T) {
 
 	last := provider.seen[len(provider.seen)-1]
 	assert.Empty(t, toolContents(last, "h1"), "the abandoned hold's result does not reach the model")
-	assert.Equal(t, []string{`"second"`}, toolContents(last, "h2"))
+	assert.Equal(t, []string{"second"}, toolContents(last, "h2"))
 }
 
 // A provider answered call_0 in run 1 and its TOOL_CALL_RESULT went out

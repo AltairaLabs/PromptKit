@@ -270,13 +270,13 @@ func TestContinue_ResolutionBranches(t *testing.T) {
 		wantError   string
 	}{
 		{
-			name: "approved result is the handler's JSON",
+			name: "approved result is formatted as a text turn formats a result",
 			exec: func(map[string]any) (any, error) { return map[string]any{"city": "Rome"}, nil },
 			resolve: func(conv *Conversation, id string) error {
 				_, err := conv.ResolveTool(context.Background(), id)
 				return err
 			},
-			wantContent: `{"city":"Rome"}`,
+			wantContent: "{\n  \"city\": \"Rome\"\n}",
 		},
 		{
 			name: "rejection carries the reviewer's reason",

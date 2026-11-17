@@ -504,7 +504,7 @@ func (c *Conversation) buildToolResultMessages(ctx context.Context) ([]types.Mes
 				Parts: res.Parts,
 			}
 		default:
-			toolResult = types.NewTextToolResult(res.ID, "", string(res.ResultJSON))
+			toolResult = types.NewTextToolResult(res.ID, "", c.approvedResultText(res))
 		}
 		// A provider matches a result to its call by the tool's name as well
 		// as the call ID (Gemini's functionResponse carries only the name).

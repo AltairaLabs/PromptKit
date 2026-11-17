@@ -256,7 +256,7 @@ func TestBuildToolResultMessages_OneAnswerPerCall(t *testing.T) {
 
 	require.Len(t, msgs, 2)
 	assert.Equal(t, "c1", msgs[0].ToolResult.ID)
-	assert.Equal(t, `"first"`, msgs[0].ToolResult.GetTextContent())
+	assert.Equal(t, "first", msgs[0].ToolResult.GetTextContent())
 	assert.Equal(t, "c2", msgs[1].ToolResult.ID)
 }
 

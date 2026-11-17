@@ -532,13 +532,7 @@ func (r *toolRunner) buildToolResult(
 
 	case tools.ToolStatusComplete:
 		// Tool completed successfully
-		content := string(asyncResult.Content)
-
-		// Try to format nicely if it's JSON
-		var resultValue interface{}
-		if json.Unmarshal(asyncResult.Content, &resultValue) == nil {
-			content = formatToolResult(resultValue)
-		}
+		content := tools.FormatResultText(asyncResult.Content)
 
 		// If the executor returned multimodal parts, propagate them directly;
 		// otherwise wrap the text content as a single text ContentPart (legacy path).
@@ -615,11 +609,7 @@ func (r *toolRunner) enforceResultSizeLimit(toolName, content string) string {
 		"size", size,
 		"limit", maxSize,
 	)
-	truncated := content[:maxSize]
-	return fmt.Sprintf(
-		"%s\n... [truncated, %d bytes exceeded limit of %d bytes]",
-		truncated, size, maxSize,
-	)
+	return tools.TruncateResultText(content, maxSize)
 }
 
 // isToolBlocked checks if a tool is in the blocklist
@@ -630,30 +620,6 @@ func isToolBlocked(toolName string, blocklist []string) bool {
 		}
 	}
 	return false
-}
-
-// formatToolResult formats tool result for display
-func formatToolResult(value interface{}) string {
-	switch v := value.(type) {
-	case string:
-		return v
-	case map[string]interface{}:
-		// Pretty print JSON objects
-		bytes, err := json.MarshalIndent(v, "", "  ")
-		if err != nil {
-			return fmt.Sprintf("%v", v)
-		}
-		return string(bytes)
-	case []interface{}:
-		// Pretty print JSON arrays
-		bytes, err := json.MarshalIndent(v, "", "  ")
-		if err != nil {
-			return fmt.Sprintf("%v", v)
-		}
-		return string(bytes)
-	default:
-		return fmt.Sprintf("%v", v)
-	}
 }
 
 // toolExcludedReason is the tool.excluded reason for the rejection rule.
