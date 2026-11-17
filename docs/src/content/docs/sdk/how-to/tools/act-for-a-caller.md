@@ -224,7 +224,7 @@ if err != nil {
 srv := sdk.NewA2AServerFor(func(r *http.Request) string { return callerOf(r).ID }, open)
 ```
 
-The server keeps one conversation per context ID, opened by the first message that names the context, and that conversation belongs to the caller who opened it. A message from another caller naming the context is refused with an invalid-params error, and a request the function gives no identity is refused as unauthorized. Opening a context does not hold up messages for other contexts.
+The server keeps one conversation per context ID, opened by the first message that names the context, and that conversation belongs to the caller who opened it. A message from another caller naming the context is refused with an invalid-params error, and a request the function gives no identity is refused as unauthorized. Tasks are scoped the same way: `GetTask`, `CancelTask`, `ListTasks` and `SubscribeToTask` see only the caller's own tasks, and another caller's task is reported as not found. An `a2aserver.WithTaskOwner` option replaces the function for task scoping, and the task store must implement `a2aserver.OwnedTaskStore`; the default in-memory store does. Opening a context does not hold up messages for other contexts.
 
 `A2ACallerOpener` returns an error for a nil `callerOf`. The caller it reads replaces a `WithCaller` in its options. With `a2aserver.NewServerFor` you can open conversations your own way: its opener receives the request alongside the context ID.
 

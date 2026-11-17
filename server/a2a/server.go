@@ -320,10 +320,18 @@ func NewServer(opener ConversationOpener, opts ...Option) *Server {
 //
 // A context's conversation belongs to the caller who opened it: a message
 // from another caller naming that context is refused, whether or not tasks
-// are scoped with WithTaskOwner. Openers run outside the server's lock, one
-// at a time per context, so a slow open does not hold up other contexts.
+// are scoped with WithTaskOwner. Tasks are scoped by callerID as
+// WithTaskOwner scopes them: GetTask, CancelTask, ListTasks and
+// SubscribeToTask see only the caller's own tasks, and another caller's task
+// is reported as not found. A WithTaskOwner in opts overrides callerID for
+// task scoping, and like it the TaskStore must implement OwnedTaskStore.
+// Openers run outside the server's lock, one at a time per context, so a slow
+// open does not hold up other contexts.
 func NewServerFor(callerID OwnerFunc, opener RequestConversationOpener, opts ...Option) *Server {
-	s := newServer(opts...)
+	// Tasks are scoped by the same identity unless WithTaskOwner says
+	// otherwise: it comes later in the options, so it overrides.
+	scopeTasks := func(s *Server) { s.owner = callerID }
+	s := newServer(append([]Option{scopeTasks}, opts...)...)
 	s.opener = opener
 	s.convCaller = callerID
 	return s

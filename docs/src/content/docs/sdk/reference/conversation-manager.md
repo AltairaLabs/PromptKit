@@ -1047,13 +1047,13 @@ func NewA2AServer(opener A2AConversationOpener, opts ...A2AServerOption) *A2ASer
 NewA2AServer creates a new A2A server with the given opener and options.
 
 <a name="NewA2AServerFor"></a>
-### func [NewA2AServerFor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L52-L54>)
+### func [NewA2AServerFor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L53-L55>)
 
 ```go
 func NewA2AServerFor(callerID func(*http.Request) string, opener A2ARequestConversationOpener, opts ...A2AServerOption) *A2AServer
 ```
 
-NewA2AServerFor creates a new A2A server for conversations that act for the caller of each request \(see [A2ACallerOpener](<#A2ACallerOpener>) and a2aserver.NewServerFor\). callerID identifies the caller of a request; a context's conversation belongs to the caller who opened it, and a message from another caller naming that context is refused.
+NewA2AServerFor creates a new A2A server for conversations that act for the caller of each request \(see [A2ACallerOpener](<#A2ACallerOpener>) and a2aserver.NewServerFor\). callerID identifies the caller of a request; a context's conversation belongs to the caller who opened it, and a message from another caller naming that context is refused. Tasks are scoped to the caller that created them, as with a2aserver.WithTaskOwner.
 
 <a name="A2AServerOption"></a>
 ## type [A2AServerOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L23>)
@@ -1065,7 +1065,7 @@ type A2AServerOption = a2aserver.Option
 ```
 
 <a name="WithA2ACard"></a>
-### func [WithA2ACard](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L61>)
+### func [WithA2ACard](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L62>)
 
 ```go
 func WithA2ACard(card *a2a.AgentCard) A2AServerOption
@@ -1074,7 +1074,7 @@ func WithA2ACard(card *a2a.AgentCard) A2AServerOption
 WithA2ACard sets the agent card served at /.well\-known/agent\-card.json.
 
 <a name="WithA2AConversationTTL"></a>
-### func [WithA2AConversationTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L101>)
+### func [WithA2AConversationTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L102>)
 
 ```go
 func WithA2AConversationTTL(d time.Duration) A2AServerOption
@@ -1083,7 +1083,7 @@ func WithA2AConversationTTL(d time.Duration) A2AServerOption
 WithA2AConversationTTL sets the conversation TTL for eviction.
 
 <a name="WithA2AIdleTimeout"></a>
-### func [WithA2AIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L86>)
+### func [WithA2AIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L87>)
 
 ```go
 func WithA2AIdleTimeout(d time.Duration) A2AServerOption
@@ -1092,7 +1092,7 @@ func WithA2AIdleTimeout(d time.Duration) A2AServerOption
 WithA2AIdleTimeout sets the idle timeout.
 
 <a name="WithA2AMaxBodySize"></a>
-### func [WithA2AMaxBodySize](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L91>)
+### func [WithA2AMaxBodySize](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L92>)
 
 ```go
 func WithA2AMaxBodySize(n int64) A2AServerOption
@@ -1101,7 +1101,7 @@ func WithA2AMaxBodySize(n int64) A2AServerOption
 WithA2AMaxBodySize sets the max body size.
 
 <a name="WithA2APort"></a>
-### func [WithA2APort](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L66>)
+### func [WithA2APort](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L67>)
 
 ```go
 func WithA2APort(port int) A2AServerOption
@@ -1110,7 +1110,7 @@ func WithA2APort(port int) A2AServerOption
 WithA2APort sets the TCP port for ListenAndServe.
 
 <a name="WithA2AReadTimeout"></a>
-### func [WithA2AReadTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L76>)
+### func [WithA2AReadTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L77>)
 
 ```go
 func WithA2AReadTimeout(d time.Duration) A2AServerOption
@@ -1119,7 +1119,7 @@ func WithA2AReadTimeout(d time.Duration) A2AServerOption
 WithA2AReadTimeout sets the read timeout.
 
 <a name="WithA2ATaskStore"></a>
-### func [WithA2ATaskStore](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L71>)
+### func [WithA2ATaskStore](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L72>)
 
 ```go
 func WithA2ATaskStore(store A2ATaskStore) A2AServerOption
@@ -1128,7 +1128,7 @@ func WithA2ATaskStore(store A2ATaskStore) A2AServerOption
 WithA2ATaskStore sets a custom task store.
 
 <a name="WithA2ATaskTTL"></a>
-### func [WithA2ATaskTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L96>)
+### func [WithA2ATaskTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L97>)
 
 ```go
 func WithA2ATaskTTL(d time.Duration) A2AServerOption
@@ -1137,7 +1137,7 @@ func WithA2ATaskTTL(d time.Duration) A2AServerOption
 WithA2ATaskTTL sets the task TTL for eviction.
 
 <a name="WithA2AWriteTimeout"></a>
-### func [WithA2AWriteTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L81>)
+### func [WithA2AWriteTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L82>)
 
 ```go
 func WithA2AWriteTimeout(d time.Duration) A2AServerOption

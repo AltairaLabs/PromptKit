@@ -736,7 +736,7 @@ NewServer creates a new A2A server that owns its conversations: it opens one per
 For an embedder that owns conversations itself \(because the runtime lives elsewhere, or it already tracks sessions\), see [NewStatelessServer](<#NewStatelessServer>).
 
 <a name="NewServerFor"></a>
-### func [NewServerFor](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L325>)
+### func [NewServerFor](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L330>)
 
 ```go
 func NewServerFor(callerID OwnerFunc, opener RequestConversationOpener, opts ...Option) *Server
@@ -744,7 +744,7 @@ func NewServerFor(callerID OwnerFunc, opener RequestConversationOpener, opts ...
 
 NewServerFor is NewServer for conversations that act for the caller of the request opening them. callerID identifies the caller of each request, typically from what the host's authentication middleware put on it; a request it gives no identity is refused. opener is given the request opening each context, so the conversation can act for that caller.
 
-A context's conversation belongs to the caller who opened it: a message from another caller naming that context is refused, whether or not tasks are scoped with WithTaskOwner. Openers run outside the server's lock, one at a time per context, so a slow open does not hold up other contexts.
+A context's conversation belongs to the caller who opened it: a message from another caller naming that context is refused, whether or not tasks are scoped with WithTaskOwner. Tasks are scoped by callerID as WithTaskOwner scopes them: GetTask, CancelTask, ListTasks and SubscribeToTask see only the caller's own tasks, and another caller's task is reported as not found. A WithTaskOwner in opts overrides callerID for task scoping, and like it the TaskStore must implement OwnedTaskStore. Openers run outside the server's lock, one at a time per context, so a slow open does not hold up other contexts.
 
 <a name="NewStatelessServer"></a>
 ### func [NewStatelessServer](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/handler.go#L97>)
@@ -758,7 +758,7 @@ NewStatelessServer creates a server that holds no conversations.
 It is [NewServer](<#NewServer>)'s sibling: same protocol, same options, but each message goes to the handler with its request context and nothing is kept between calls. Use it when the embedder owns conversations: because it already tracks sessions, because the runtime is in another process, or because the server needs to scale horizontally with only the task store shared.
 
 <a name="Server.Handler"></a>
-### func \(\*Server\) [Handler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L379>)
+### func \(\*Server\) [Handler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L387>)
 
 ```go
 func (s *Server) Handler() http.Handler
@@ -767,7 +767,7 @@ func (s *Server) Handler() http.Handler
 Handler returns an http.Handler implementing the A2A protocol. It serves the agent card at GET /.well\-known/agent\-card.json and /.well\-known/agent.json, JSON\-RPC at POST /a2a, and the probes GET /healthz and GET /readyz. Requests are traced with OpenTelemetry, and a panic in a handler is recovered and answered with a JSON\-RPC internal error.
 
 <a name="Server.ListenAndServe"></a>
-### func \(\*Server\) [ListenAndServe](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L407>)
+### func \(\*Server\) [ListenAndServe](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L415>)
 
 ```go
 func (s *Server) ListenAndServe() error
@@ -776,7 +776,7 @@ func (s *Server) ListenAndServe() error
 ListenAndServe starts the HTTP server on the configured port and blocks until it stops. The server applies the read, write and idle timeouts the options set; see WithWriteTimeout for how SSE streams treat the write timeout.
 
 <a name="Server.Serve"></a>
-### func \(\*Server\) [Serve](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L483>)
+### func \(\*Server\) [Serve](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L491>)
 
 ```go
 func (s *Server) Serve(ln net.Listener) error
@@ -785,7 +785,7 @@ func (s *Server) Serve(ln net.Listener) error
 Serve starts the HTTP server on the given listener and blocks until it stops. It applies the same timeouts as ListenAndServe.
 
 <a name="Server.Shutdown"></a>
-### func \(\*Server\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L433>)
+### func \(\*Server\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L441>)
 
 ```go
 func (s *Server) Shutdown(ctx context.Context) error

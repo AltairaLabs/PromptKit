@@ -48,7 +48,8 @@ func NewA2AServer(opener A2AConversationOpener, opts ...A2AServerOption) *A2ASer
 // the caller of each request (see [A2ACallerOpener] and
 // a2aserver.NewServerFor). callerID identifies the caller of a request; a
 // context's conversation belongs to the caller who opened it, and a message
-// from another caller naming that context is refused.
+// from another caller naming that context is refused. Tasks are scoped to
+// the caller that created them, as with a2aserver.WithTaskOwner.
 func NewA2AServerFor(
 	callerID func(*http.Request) string, opener A2ARequestConversationOpener, opts ...A2AServerOption,
 ) *A2AServer {

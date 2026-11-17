@@ -51,66 +51,80 @@ func requireCode(t *testing.T, resp *a2a.JSONRPCResponse, code int, what string)
 	assert.Equal(t, code, resp.Error.Code, what)
 }
 
+// Tasks are scoped to the caller that created them with WithTaskOwner, and
+// by default under NewServerFor, whose caller identity scopes them without it.
 func TestOwnership_CallersSeeOnlyTheirOwnTasks(t *testing.T) {
-	release := make(chan struct{})
-	mock := &mockConv{sendFunc: func(ctx context.Context, _ any) (SendResult, error) {
-		select {
-		case <-release:
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-		return &mockSendResult{parts: []types.ContentPart{types.NewTextPart("secret")}, text: "secret"}, nil
-	}}
-	srv, ts := newTestServer(func(string) (Conversation, error) { return mock, nil }, WithTaskOwner(ownerFromHeader))
-	defer ts.Close()
-	defer close(release)
+	for name, build := range map[string]func(Conversation) *Server{
+		"WithTaskOwner": func(c Conversation) *Server {
+			return NewServer(func(string) (Conversation, error) { return c, nil }, WithTaskOwner(ownerFromHeader))
+		},
+		"NewServerFor": func(c Conversation) *Server {
+			return NewServerFor(ownerFromHeader, func(*http.Request, string) (Conversation, error) { return c, nil })
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			release := make(chan struct{})
+			mock := &mockConv{sendFunc: func(ctx context.Context, _ any) (SendResult, error) {
+				select {
+				case <-release:
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+				return &mockSendResult{parts: []types.ContentPart{types.NewTextPart("secret")}, text: "secret"}, nil
+			}}
+			srv := build(mock)
+			ts := httptest.NewServer(srv.Handler())
+			defer ts.Close()
+			defer close(release)
 
-	sent := as(t, ts, "alice", a2a.MethodV1SendMessage, a2a.SendMessageRequest{
-		Message:       userMessage("ctx-alice"),
-		Configuration: &a2a.SendMessageConfiguration{ReturnImmediately: true},
-	})
-	require.Nil(t, sent.Error)
-	task := decodeTaskResult(t, sent.Result)
+			sent := as(t, ts, "alice", a2a.MethodV1SendMessage, a2a.SendMessageRequest{
+				Message:       userMessage("ctx-alice"),
+				Configuration: &a2a.SendMessageConfiguration{ReturnImmediately: true},
+			})
+			require.Nil(t, sent.Error)
+			task := decodeTaskResult(t, sent.Result)
 
-	// Bob cannot read, cancel or subscribe to it: to him it does not exist.
-	requireCode(t, as(t, ts, "bob", a2a.MethodV1GetTask, a2a.GetTaskRequest{ID: task.ID}),
-		a2a.ErrCodeTaskNotFound, "get")
-	requireCode(t, as(t, ts, "bob", a2a.MethodV1CancelTask, a2a.CancelTaskRequest{ID: task.ID}),
-		a2a.ErrCodeTaskNotFound, "cancel")
-	requireCode(t, as(t, ts, "bob", a2a.MethodV1SubscribeToTask, a2a.SubscribeTaskRequest{ID: task.ID}),
-		a2a.ErrCodeTaskNotFound, "subscribe")
-	stored, err := srv.taskStore.Get(task.ID)
-	require.NoError(t, err)
-	assert.NotEqual(t, a2a.TaskStateCanceled, stored.Status.State, "bob's cancel must not have reached the task")
+			// Bob cannot read, cancel or subscribe to it: to him it does not exist.
+			requireCode(t, as(t, ts, "bob", a2a.MethodV1GetTask, a2a.GetTaskRequest{ID: task.ID}),
+				a2a.ErrCodeTaskNotFound, "get")
+			requireCode(t, as(t, ts, "bob", a2a.MethodV1CancelTask, a2a.CancelTaskRequest{ID: task.ID}),
+				a2a.ErrCodeTaskNotFound, "cancel")
+			requireCode(t, as(t, ts, "bob", a2a.MethodV1SubscribeToTask, a2a.SubscribeTaskRequest{ID: task.ID}),
+				a2a.ErrCodeTaskNotFound, "subscribe")
+			stored, err := srv.taskStore.Get(task.ID)
+			require.NoError(t, err)
+			assert.NotEqual(t, a2a.TaskStateCanceled, stored.Status.State, "bob's cancel must not have reached the task")
 
-	// Nor list it, with or without its context.
-	for _, req := range []a2a.ListTasksRequest{{}, {ContextID: "ctx-alice"}} {
-		var list a2a.ListTasksResponse
-		resp := as(t, ts, "bob", a2a.MethodV1ListTasks, req)
-		require.Nil(t, resp.Error)
-		require.NoError(t, json.Unmarshal(resp.Result, &list))
-		assert.Empty(t, list.Tasks, "bob listed alice's tasks with %+v", req)
-		assert.Zero(t, list.TotalSize)
+			// Nor list it, with or without its context.
+			for _, req := range []a2a.ListTasksRequest{{}, {ContextID: "ctx-alice"}} {
+				var list a2a.ListTasksResponse
+				resp := as(t, ts, "bob", a2a.MethodV1ListTasks, req)
+				require.Nil(t, resp.Error)
+				require.NoError(t, json.Unmarshal(resp.Result, &list))
+				assert.Empty(t, list.Tasks, "bob listed alice's tasks with %+v", req)
+				assert.Zero(t, list.TotalSize)
+			}
+
+			// Nor send into her context, which would hand him her conversation.
+			requireCode(t, as(t, ts, "bob", a2a.MethodV1SendMessage, a2a.SendMessageRequest{Message: userMessage("ctx-alice")}),
+				a2a.ErrCodeInvalidParams, "send into another caller's context")
+			requireCode(t, as(t, ts, "bob", a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{Message: userMessage("ctx-alice")}),
+				a2a.ErrCodeInvalidParams, "stream into another caller's context")
+
+			// Alice sees her task everywhere, including a list without a context.
+			got := as(t, ts, "alice", a2a.MethodV1GetTask, a2a.GetTaskRequest{ID: task.ID})
+			require.Nil(t, got.Error)
+			var list a2a.ListTasksResponse
+			resp := as(t, ts, "alice", a2a.MethodV1ListTasks, a2a.ListTasksRequest{})
+			require.Nil(t, resp.Error)
+			require.NoError(t, json.Unmarshal(resp.Result, &list))
+			require.Len(t, list.Tasks, 1)
+			assert.Equal(t, task.ID, list.Tasks[0].ID)
+
+			canceled := as(t, ts, "alice", a2a.MethodV1CancelTask, a2a.CancelTaskRequest{ID: task.ID})
+			require.Nil(t, canceled.Error)
+		})
 	}
-
-	// Nor send into her context, which would hand him her conversation.
-	requireCode(t, as(t, ts, "bob", a2a.MethodV1SendMessage, a2a.SendMessageRequest{Message: userMessage("ctx-alice")}),
-		a2a.ErrCodeInvalidParams, "send into another caller's context")
-	requireCode(t, as(t, ts, "bob", a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{Message: userMessage("ctx-alice")}),
-		a2a.ErrCodeInvalidParams, "stream into another caller's context")
-
-	// Alice sees her task everywhere, including a list without a context.
-	got := as(t, ts, "alice", a2a.MethodV1GetTask, a2a.GetTaskRequest{ID: task.ID})
-	require.Nil(t, got.Error)
-	var list a2a.ListTasksResponse
-	resp := as(t, ts, "alice", a2a.MethodV1ListTasks, a2a.ListTasksRequest{})
-	require.Nil(t, resp.Error)
-	require.NoError(t, json.Unmarshal(resp.Result, &list))
-	require.Len(t, list.Tasks, 1)
-	assert.Equal(t, task.ID, list.Tasks[0].ID)
-
-	canceled := as(t, ts, "alice", a2a.MethodV1CancelTask, a2a.CancelTaskRequest{ID: task.ID})
-	require.Nil(t, canceled.Error)
 }
 
 func TestOwnership_AnonymousCallerIsRefused(t *testing.T) {

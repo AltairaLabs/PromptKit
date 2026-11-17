@@ -145,3 +145,33 @@ func TestNewServerFor_OpensContextsConcurrentlyAndEachOnce(t *testing.T) {
 	assert.Equal(t, []*a2a.JSONRPCError{nil, nil}, slowErrs)
 	assert.Equal(t, int32(1), slowOpens.Load(), "concurrent messages open a context once")
 }
+
+// NewServerFor needs a store that records task owners, as WithTaskOwner does.
+func TestNewServerFor_RequiresAnOwnedStore(t *testing.T) {
+	assert.PanicsWithError(t,
+		"a2a: WithTaskOwner needs a TaskStore that implements OwnedTaskStore (got a2aserver.storeWithoutOwners)",
+		func() {
+			NewServerFor(ownerFromHeader, func(*http.Request, string) (Conversation, error) { return okConv(), nil },
+				WithTaskStore(storeWithoutOwners{NewInMemoryTaskStore()}))
+		})
+}
+
+// A WithTaskOwner passed to NewServerFor scopes tasks in place of its caller
+// identity: here every caller shares one task owner and sees the task.
+func TestNewServerFor_WithTaskOwnerOverridesTaskScope(t *testing.T) {
+	srv := NewServerFor(ownerFromHeader, func(*http.Request, string) (Conversation, error) { return okConv(), nil },
+		WithTaskOwner(func(*http.Request) string { return "team" }))
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(func() {
+		ts.Close()
+		_ = srv.Shutdown(context.Background())
+	})
+
+	sent := sendAs(t, ts, "alice", "ctx-alice")
+	require.Nil(t, sent.Error)
+	task := decodeTaskResult(t, sent.Result)
+
+	got := as(t, ts, "bob", a2a.MethodV1GetTask, a2a.GetTaskRequest{ID: task.ID})
+	require.Nil(t, got.Error)
+	assert.Equal(t, task.ID, decodeTaskResult(t, got.Result).ID)
+}
