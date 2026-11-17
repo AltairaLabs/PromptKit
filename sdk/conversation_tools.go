@@ -520,6 +520,8 @@ func (c *Conversation) ResolveToolWithArgs(
 	if resolution.Error != nil {
 		resolution.Error = &ToolError{ToolName: call.Name, Cause: resolution.Error}
 	}
+	// The result is rewritten once, now, as the model will be given it.
+	c.prepareApproved(ctx, resolution)
 	// Store for Continue()/ContinueDuplex() to use
 	if c.resolvedStore != nil {
 		c.resolvedStore.Add(resolution)

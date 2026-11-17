@@ -13,7 +13,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
-	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/convinfo"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 )
 
@@ -173,13 +172,60 @@ func TestResume_RewritesAFailedClientToolsPartialOutput(t *testing.T) {
 
 var errDiskFull = errors.New("disk full")
 
-// The SDK's adapters learn whether a conversation rewrites tool results.
-func TestConvinfo_RewritesToolResults(t *testing.T) {
-	conv := newTestConversation()
-	assert.False(t, convinfo.RewritesToolResults(conv))
-	conv.hookRegistry = hooks.NewRegistry(hooks.WithToolHook(&wrappingRewriter{}))
-	assert.True(t, convinfo.RewritesToolResults(conv))
-	assert.False(t, convinfo.RewritesToolResults("not a conversation"))
+// A client's answer is rewritten once, when it is given: Resume gives the
+// model what was stored then.
+func TestResume_RewriterSeesEachAnswerOnce(t *testing.T) {
+	calls := []types.MessageToolCall{{ID: "c-cli", Name: "locate", Args: []byte(`{}`)}}
+	provider := &roundsProvider{
+		ToolProvider: mock.NewToolProvider("x", "m", false, nil),
+		rounds:       []providers.PredictionResponse{{Content: "Locating.", ToolCalls: calls}},
+	}
+	rw := &wrappingRewriter{}
+	conv, err := Open(writeWorkflowTestPack(t, twoToolPackJSON), "chat", WithProvider(provider),
+		WithSkipSchemaValidation(), WithToolHook(rw))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conv.Close() })
+	desc, err := conv.ToolRegistry().GetTool("locate")
+	require.NoError(t, err)
+	desc.Mode = "client"
+
+	ctx := context.Background()
+	_, err = conv.Send(ctx, "where am I?")
+	require.NoError(t, err)
+	_, rewritten := conv.RewrittenToolResult("c-cli")
+	assert.False(t, rewritten, "no answer is stored yet")
+	require.NoError(t, conv.SendToolResult(ctx, "c-cli", "Paris"))
+	require.Len(t, rw.requests(), 1, "rewritten when given")
+	text, rewritten := conv.RewrittenToolResult("c-cli")
+	require.True(t, rewritten)
+	assert.Equal(t, `<redacted:"Paris">`, text)
+
+	_, err = conv.Resume(ctx)
+	require.NoError(t, err)
+	assert.Len(t, rw.requests(), 1, "Resume does not rewrite it again")
+	provider.mu.Lock()
+	var seen string
+	for _, m := range provider.seen[len(provider.seen)-1] {
+		if m.ToolResult != nil {
+			seen = m.ToolResult.GetTextContent()
+		}
+	}
+	provider.mu.Unlock()
+	assert.Equal(t, text, seen)
+	_, rewritten = conv.RewrittenToolResult("c-cli")
+	assert.False(t, rewritten, "the answer was given to the model")
+}
+
+// An approved call's result is rewritten once, when it is approved.
+func TestContinue_RewriterSeesAnApprovedResultOnce(t *testing.T) {
+	rw := &wrappingRewriter{}
+	got := heldCallContinued(t, "sent", func(ctx context.Context, conv *Conversation, id string) error {
+		_, err := conv.ResolveTool(ctx, id)
+		assert.Len(t, rw.requests(), 1, "rewritten when approved")
+		return err
+	}, WithToolHook(rw))
+	assert.Equal(t, "<redacted:sent>", got.GetTextContent())
+	assert.Len(t, rw.requests(), 1, "Continue does not rewrite it again")
 }
 
 // A settled answer's name and rejection text come from the call it settles,

@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -114,7 +115,9 @@ func (s *callScriptStage) Process(ctx context.Context, in <-chan stage.StreamEle
 			}})
 			held.EndOfStream = true
 			var pending stage.StreamElement
-			pending.Meta.PendingTools = []tools.PendingToolExecution{{CallID: "call_0", ToolName: "get_location"}}
+			pending.Meta.PendingTools = []tools.PendingToolExecution{{
+				CallID: "call_0", ToolName: "get_location", Args: map[string]any{"accuracy": "high"},
+			}}
 			elems = []stage.StreamElement{held, pending}
 		}
 		for _, e := range elems {
@@ -177,4 +180,130 @@ func TestDuplexSession_CallRecordIsBounded(t *testing.T) {
 	defer s.callsMu.Unlock()
 	assert.Len(t, s.calls, maxRecordedCalls)
 	assert.Len(t, s.callOrder, maxRecordedCalls)
+}
+
+// heldTwiceStage holds a call_0 on each input, to another tool each time:
+// get_weather first, get_location second, the first never answered.
+type heldTwiceStage struct{ inputs int }
+
+func (*heldTwiceStage) Name() string          { return "held-twice" }
+func (*heldTwiceStage) Type() stage.StageType { return stage.StageTypeTransform }
+
+func (s *heldTwiceStage) Process(ctx context.Context, in <-chan stage.StreamElement, out chan<- stage.StreamElement) error {
+	defer close(out)
+	for range in {
+		s.inputs++
+		name, city := "get_weather", "Paris"
+		if s.inputs > 1 {
+			name, city = "get_location", "Lyon"
+		}
+		call := stage.NewMessageElement(&types.Message{Role: "assistant", ToolCalls: []types.MessageToolCall{
+			{ID: "call_0", Name: name, Args: []byte(`{"city":"` + city + `"}`)},
+		}})
+		call.EndOfStream = true
+		var held stage.StreamElement
+		held.Meta.PendingTools = []tools.PendingToolExecution{{
+			CallID: "call_0", ToolName: name, Args: map[string]any{"city": city},
+		}}
+		for _, e := range []stage.StreamElement{call, held} {
+			select {
+			case out <- e:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+	return nil
+}
+
+// A response that reuses the ID of a call still held names the new call: the
+// record, and the name a submitted result is given, are the latest call's.
+func TestDuplexSession_ReusedIDWhileTheFirstIsHeld(t *testing.T) {
+	st := &heldTwiceStage{}
+	builder := func(context.Context, providers.Provider, providers.StreamInputSupport,
+		*providers.StreamingInputConfig, string, statestore.Store) (*stage.StreamPipeline, error) {
+		return stage.NewPipelineBuilder().Chain(st).Build()
+	}
+	sess, err := NewDuplexSession(context.Background(), &DuplexSessionConfig{
+		Provider:          mock.NewProvider("mock", "mock-model", false),
+		PipelineBuilder:   builder,
+		ToolRegistry:      tools.NewRegistry(),
+		PipelineRunsTools: true,
+	})
+	require.NoError(t, err)
+	defer sess.Close()
+	resp := sess.Response()
+	ds := sess.(*duplexSession)
+	awaitHeld := func() {
+		t.Helper()
+		select {
+		case chunk := <-resp:
+			require.NotEmpty(t, chunk.PendingTools)
+		case <-time.After(lifecycleWait):
+			t.Fatal("no held call")
+		}
+	}
+
+	require.NoError(t, sess.SendText(context.Background(), "weather?"))
+	awaitHeld()
+	first, kept := ds.ToolCall("call_0")
+	require.True(t, kept)
+	assert.Equal(t, "get_weather", first.Name)
+
+	require.NoError(t, sess.SendText(context.Background(), "where am I?"))
+	awaitHeld()
+	got, kept := ds.ToolCall("call_0")
+	require.True(t, kept)
+	assert.Equal(t, types.MessageToolCall{ID: "call_0", Name: "get_location", Args: []byte(`{"city":"Lyon"}`)}, got)
+	assert.Equal(t, "get_location", ds.takeCallName("call_0"))
+}
+
+// stoppedHoldStage answers its input with an element that reports the tool
+// turn stopped and still holds a call for the caller.
+type stoppedHoldStage struct{}
+
+func (stoppedHoldStage) Name() string          { return "stopped-hold" }
+func (stoppedHoldStage) Type() stage.StageType { return stage.StageTypeTransform }
+
+func (stoppedHoldStage) Process(ctx context.Context, in <-chan stage.StreamElement, out chan<- stage.StreamElement) error {
+	defer close(out)
+	for range in {
+		var elem stage.StreamElement
+		elem.Error = errors.New("max rounds exceeded")
+		elem.Meta.PendingTools = []tools.PendingToolExecution{{CallID: "call_7", ToolName: "approve_refund"}}
+		select {
+		case out <- elem:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+
+// A call held on an element that also reports an error is recorded too.
+func TestDuplexSession_RecordsACallHeldAlongsideAnError(t *testing.T) {
+	builder := func(context.Context, providers.Provider, providers.StreamInputSupport,
+		*providers.StreamingInputConfig, string, statestore.Store) (*stage.StreamPipeline, error) {
+		return stage.NewPipelineBuilder().Chain(stoppedHoldStage{}).Build()
+	}
+	sess, err := NewDuplexSession(context.Background(), &DuplexSessionConfig{
+		Provider:          mock.NewProvider("mock", "mock-model", false),
+		PipelineBuilder:   builder,
+		ToolRegistry:      tools.NewRegistry(),
+		PipelineRunsTools: true,
+	})
+	require.NoError(t, err)
+	defer sess.Close()
+	resp := sess.Response()
+	ds := sess.(*duplexSession)
+
+	require.NoError(t, sess.SendText(context.Background(), "refund it"))
+	select {
+	case <-resp:
+	case <-time.After(lifecycleWait):
+		t.Fatal("no output")
+	}
+	got, kept := ds.ToolCall("call_7")
+	require.True(t, kept)
+	assert.Equal(t, "approve_refund", got.Name)
 }

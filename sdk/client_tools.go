@@ -310,7 +310,7 @@ func (c *Conversation) SendToolResult(ctx context.Context, callID string, result
 	if err != nil {
 		return fmt.Errorf(errSerializeClientToolResult, err)
 	}
-	c.resolvedStore.Add(&sdktools.ToolResolution{
+	c.storeAnswer(ctx, &sdktools.ToolResolution{
 		ID:         callID,
 		ResultJSON: resultJSON,
 	})
@@ -339,7 +339,7 @@ func (c *Conversation) SendToolResultMultimodal(ctx context.Context, callID stri
 	if len(parts) == 0 {
 		return fmt.Errorf("parts must not be empty")
 	}
-	c.resolvedStore.Add(&sdktools.ToolResolution{
+	c.storeAnswer(ctx, &sdktools.ToolResolution{
 		ID:    callID,
 		Parts: parts,
 	})
@@ -876,7 +876,7 @@ func (c *Conversation) FailClientTool(ctx context.Context, callID string, partia
 		}
 		res.ResultJSON = data
 	}
-	c.resolvedStore.Add(res)
+	c.storeAnswer(ctx, res)
 	return nil
 }
 

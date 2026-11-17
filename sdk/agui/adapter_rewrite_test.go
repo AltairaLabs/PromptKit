@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
-	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
@@ -44,10 +43,10 @@ func openRewritingConv(t *testing.T, provider *scriptedProvider, opts ...sdk.Opt
 }
 
 // A ToolResultProvider that answers only some calls of a conversation that
-// rewrites tool results: the answer is not reported when it is given, since
-// the client must not see what the rewriter removes. The run that resumes the
-// turn reports it once, as the model was given it.
-func TestE2E_PartialAnswerIsReportedRewrittenOnResume(t *testing.T) {
+// rewrites tool results: the answer is reported when it is given, as the
+// conversation's rewriter rewrote it, and the run that resumes the turn does
+// not report it again.
+func TestE2E_PartialAnswerIsReportedRewritten(t *testing.T) {
 	provider := newScriptedProvider(
 		say("Checking.", call("c1", "get_location", `{}`), call("c2", "send_message", `{"body":"hi"}`)),
 		say("Done."))
@@ -58,43 +57,35 @@ func TestE2E_PartialAnswerIsReportedRewrittenOnResume(t *testing.T) {
 
 	run1, err := sendAndCollect(t, NewEventAdapter(conv, WithToolResultProvider(answerOne)), "where am I?")
 	require.NoError(t, err)
-	assert.Empty(t, resultIDs(run1), "nothing is reported before the rewriter has run")
+	assert.Equal(t, []string{`c1=<redacted:"Paris">`}, resultIDs(run1))
 
 	b := NewEventAdapter(conv)
 	run2, err := continueAndCollect(t, b, run1, func(ctx context.Context) error {
 		return b.RunResume(ctx, []ToolResult{{CallID: "c2", Result: "sent"}})
 	})
 	require.NoError(t, err)
-	assert.Equal(t, []string{`c1=<redacted:"Paris">`}, resultIDs(run2),
-		"the withheld answer, rewritten, once; the client's own answer is not echoed")
+	assert.Empty(t, resultIDs(run2), "no answer is reported twice")
+	assert.Equal(t, `<redacted:"Paris">`, toolResultIn(t, conv, "c1").GetTextContent(),
+		"the model was given what the client was shown")
 }
 
-// An answer over ToolPolicy.MaxCallsPerMinute is replaced by the limit error
-// when the turn resumes: that error, which the model was given, is what the
-// client is shown.
-func TestE2E_PartialAnswerOverTheCallRateShowsTheLimitError(t *testing.T) {
+// hostConversation is a host's sender that embeds the conversation.
+type hostConversation struct{ *sdk.Conversation }
+
+// A sender that embeds *sdk.Conversation reports the rewritten answer too.
+func TestE2E_PartialAnswerThroughAnEmbeddingSenderIsRewritten(t *testing.T) {
 	provider := newScriptedProvider(
-		say("Checking.", call("c1", "get_location", `{"n":1}`), call("c2", "get_location", `{"n":2}`),
-			call("c3", "get_location", `{"n":3}`)),
+		say("Checking.", call("c1", "get_location", `{}`), call("c2", "send_message", `{"body":"hi"}`)),
 		say("Done."))
-	conv := openRewritingConv(t, provider,
-		sdk.WithToolPolicy(&rtpipeline.ToolPolicy{MaxCallsPerMinute: 1, MaxParallelToolCalls: 1}))
-	answerTwo := func(context.Context, []sdk.PendingClientTool) ([]ToolResult, error) {
-		return []ToolResult{{CallID: "c1", Result: "Paris"}, {CallID: "c2", Result: "Lyon"}}, nil
+	conv := openRewritingConv(t, provider)
+	answerOne := func(context.Context, []sdk.PendingClientTool) ([]ToolResult, error) {
+		return []ToolResult{{CallID: "c1", Result: "Paris"}}, nil
 	}
 
-	run1, err := sendAndCollect(t, NewEventAdapter(conv, WithToolResultProvider(answerTwo)), "where am I?")
+	run1, err := sendAndCollect(t,
+		NewEventAdapter(hostConversation{conv}, WithToolResultProvider(answerOne)), "where am I?")
 	require.NoError(t, err)
-	assert.Empty(t, resultIDs(run1))
-
-	b := NewEventAdapter(conv)
-	run2, err := continueAndCollect(t, b, run1, func(ctx context.Context) error {
-		return b.RunResume(ctx, []ToolResult{{CallID: "c3", Result: "Nice"}})
-	})
-	require.NoError(t, err)
-	const limited = "Tool error: Tool get_location not executed: its limit of 1 calls per minute is reached"
-	assert.Equal(t, limited, toolResultIn(t, conv, "c2").GetTextContent(), "test premise: c2 is over the limit")
-	assert.Equal(t, []string{`c1=<redacted:"Paris">`, "c2=" + limited}, resultIDs(run2))
+	assert.Equal(t, []string{`c1=<redacted:"Paris">`}, resultIDs(run1))
 }
 
 // When every call is answered, the TOOL_CALL_RESULT is the rewritten text

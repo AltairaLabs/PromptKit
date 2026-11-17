@@ -260,10 +260,10 @@ func TestDuplexSession_HandleToolCalls(t *testing.T) {
 		}
 		_, kept := s.ToolCall("c1")
 		assert.False(t, kept, "a call the pipeline answers is not kept")
-		s.holdCalls([]tools.PendingToolExecution{{CallID: "c1", ToolName: "sync_tool"}})
+		s.holdCalls([]tools.PendingToolExecution{{CallID: "c1", ToolName: "sync_tool", Args: map[string]any{"n": 1}}})
 		got, kept := s.ToolCall("c1")
 		require.True(t, kept)
-		assert.Equal(t, types.MessageToolCall{ID: "c1", Name: "sync_tool", Args: json.RawMessage(`{}`)}, got)
+		assert.Equal(t, types.MessageToolCall{ID: "c1", Name: "sync_tool", Args: json.RawMessage(`{"n":1}`)}, got)
 		assert.Equal(t, "sync_tool", s.takeCallName("c1"))
 	})
 }

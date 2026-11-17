@@ -198,10 +198,13 @@ type Conversation struct {
 	// Hook registry for policy enforcement (nil = no hooks)
 	hookRegistry *hooks.Registry
 
-	// settledMu guards the held calls approved and not yet given to the
-	// model, by call ID (recordAdmitted).
+	// settledMu guards what is kept for results settled outside the turn
+	// and not yet given to the model: the held calls approved, by call ID
+	// (recordAdmitted), and the rewritten form of each result
+	// (prepareAnswer, prepareApproved).
 	settledMu sync.Mutex
 	admitted  map[string]admittedCall
+	prepared  map[*sdktools.ToolResolution]preparedAnswer
 
 	// Session hook dispatcher for lifecycle events (start, update, end)
 	sessionHooks *sessionHookDispatcher

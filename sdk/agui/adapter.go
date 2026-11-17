@@ -14,7 +14,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/AltairaLabs/PromptKit/sdk/v2"
-	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/convinfo"
 )
 
 // eventChannelBufferSize is the default buffer size for the AG-UI event channel.
@@ -307,15 +306,9 @@ func (a *EventAdapter) RunSend(ctx context.Context, msg *types.Message) error {
 // answers are the application's own, so the run does not echo them back as
 // TOOL_CALL_RESULT events. Nor does it repeat answers a ToolResultProvider
 // gave in the earlier run, which reported them then: the resumed turn feeds
-// every answer to the model, but none of them is new to the client. When the
-// conversation rewrites tool results, the earlier run withheld those answers,
-// and this run reports each as the model was given it.
+// every answer to the model, but none of them is new to the client.
 func (a *EventAdapter) RunResume(ctx context.Context, results []ToolResult) error {
-	own := make(map[string]bool, len(results))
-	for i := range results {
-		own[results[i].CallID] = true
-	}
-	return a.runResuming(ctx, own, func(ctx context.Context) (*sdk.Response, error) {
+	return a.run(ctx, true, func(ctx context.Context) (*sdk.Response, error) {
 		if err := a.resolveClientTools(ctx, results); err != nil {
 			return nil, err
 		}
@@ -361,16 +354,8 @@ type runState struct {
 	// run's TOOL_CALL_RESULT, so none is emitted. It clears at the turn's
 	// first assistant message.
 	resuming bool
-	// own names the answers the client gave in this run's input, which are
-	// never echoed back.
-	own map[string]bool
-	// reportWithheld is set when the conversation rewrites tool results: the
-	// earlier run withheld the answers a ToolResultProvider gave, so this one
-	// reports them, as the model was given them, among the resumed turn's
-	// leading tool results.
-	reportWithheld bool
-	step           string // the open step, when stepOpen
-	stepOpen       bool
+	step     string // the open step, when stepOpen
+	stepOpen bool
 	// runtime forwards bus events while the run is open (WithRuntimeEvents).
 	runtime *runtimeForwarder
 }
@@ -381,26 +366,9 @@ func (a *EventAdapter) run(
 	resuming bool,
 	start func(ctx context.Context) (*sdk.Response, error),
 ) error {
-	var own map[string]bool
-	if resuming {
-		own = map[string]bool{}
-	}
-	return a.runResuming(ctx, own, start)
-}
-
-// runResuming is run for a turn that resumes on the answers own names (nil
-// for a turn that does not resume).
-func (a *EventAdapter) runResuming(
-	ctx context.Context,
-	own map[string]bool,
-	start func(ctx context.Context) (*sdk.Response, error),
-) error {
 	defer a.closeEvents()
 
-	st := &runState{a: a, ctx: ctx, answered: map[string]bool{}, resuming: own != nil, own: own}
-	// Answers an earlier run withheld (its conversation rewrites tool
-	// results) are reported by this one.
-	st.reportWithheld = own != nil && rewritesResults(a.sender)
+	st := &runState{a: a, ctx: ctx, answered: map[string]bool{}, resuming: resuming}
 
 	st.emit(aguievents.NewRunStartedEvent(a.cfg.threadID, a.cfg.runID))
 	st.runtime = a.forwardRuntimeEvents(st)
@@ -600,10 +568,7 @@ func (st *runState) emitAssistant(msg *types.Message) {
 // emitToolMessage emits the result a tool message carries, unless its call was
 // already answered in this round, or it answers a call the run resumes.
 func (st *runState) emitToolMessage(msg *types.Message) {
-	if msg.ToolResult == nil {
-		return
-	}
-	if st.resuming && (!st.reportWithheld || st.own[msg.ToolResult.ID]) {
+	if msg.ToolResult == nil || st.resuming {
 		return
 	}
 	st.emitResult(msg.ToolResult.ID, toolResultText(msg.ToolResult))
@@ -669,14 +634,8 @@ func (st *runState) fulfillAndResume(pending []sdk.PendingClientTool) (*sdk.Resp
 		return nil, resolveErr
 	}
 	if !answersAll(pending, results) {
-		// A conversation that rewrites tool results gives the model what
-		// its rewriters make of an answer, which the client must not be shown
-		// in its place: the run that resumes the turn emits it, from the
-		// history. Otherwise each answer is reported now.
-		if !rewritesResults(a.sender) {
-			for i := range results {
-				st.emitResult(results[i].CallID, resultText(&results[i]))
-			}
+		for i := range results {
+			st.emitResult(results[i].CallID, a.answerText(&results[i]))
 		}
 		return nil, nil
 	}
@@ -726,18 +685,23 @@ func toolMessagesByCall(msgs []types.Message) map[string]string {
 	return out
 }
 
-// rewritesResults reports whether sender's conversation (for a workflow, the
-// one it is running) rewrites tool results.
-func rewritesResults(sender Sender) bool {
-	var conv any = sender
-	if ws, ok := sender.(*workflowSender); ok {
-		active := ws.wc.ActiveConversation()
-		if active == nil {
-			return false
+// rewrittenAnswerReader is implemented by conversations that tell the text
+// their tool-result rewriters made of an answer stored for a client tool call
+// (*sdk.Conversation does).
+type rewrittenAnswerReader interface {
+	RewrittenToolResult(callID string) (string, bool)
+}
+
+// answerText is the TOOL_CALL_RESULT content for an answer r the adapter
+// handed the conversation: what the conversation's tool-result rewriters made
+// of it, when they rewrote it, else resultText.
+func (a *EventAdapter) answerText(r *ToolResult) string {
+	if reader, ok := a.sender.(rewrittenAnswerReader); ok {
+		if text, rewritten := reader.RewrittenToolResult(r.CallID); rewritten {
+			return text
 		}
-		conv = active
 	}
-	return convinfo.RewritesToolResults(conv)
+	return resultText(r)
 }
 
 // resultText renders a caller-supplied result the way the conversation hands
@@ -957,6 +921,16 @@ func (w *workflowSender) RejectClientTool(ctx context.Context, callID, reason st
 	if conv := w.wc.ActiveConversation(); conv != nil {
 		conv.RejectClientTool(ctx, callID, reason)
 	}
+}
+
+// RewrittenToolResult tells what the active conversation's tool-result
+// rewriters made of the answer to callID.
+func (w *workflowSender) RewrittenToolResult(callID string) (string, bool) {
+	conv := w.wc.ActiveConversation()
+	if conv == nil {
+		return "", false
+	}
+	return conv.RewrittenToolResult(callID)
 }
 
 // Resume continues the active conversation after its client tools are answered.

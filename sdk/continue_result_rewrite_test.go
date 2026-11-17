@@ -70,13 +70,14 @@ func TestContinue_RewritesAnApprovedResultBeforeTruncating(t *testing.T) {
 }
 
 // A client tool's result answered through SendToolResult and delivered by
-// Continue is rewritten too.
+// Continue is rewritten too: once, when it is given, as the client sent it.
 func TestContinue_RewritesAClientToolResult(t *testing.T) {
 	rw := &wrappingRewriter{}
 	got := heldCallContinued(t, "unused", func(ctx context.Context, conv *Conversation, id string) error {
 		return conv.SendToolResult(ctx, id, map[string]any{"ok": true})
 	}, WithToolHook(rw))
-	assert.Equal(t, "<redacted:{\n  \"ok\": true\n}>", got.GetTextContent())
+	assert.Equal(t, `<redacted:{"ok":true}>`, got.GetTextContent())
+	assert.Len(t, rw.requests(), 1)
 }
 
 // failedEvents records the tool.call.failed events published on bus.
