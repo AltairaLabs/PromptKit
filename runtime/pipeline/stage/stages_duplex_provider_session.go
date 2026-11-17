@@ -104,6 +104,12 @@ type DuplexProviderStage struct {
 	accumulatedMedia           []byte
 	accumulatedToolCalls       []types.MessageToolCall
 
+	// transcriptMu guards inputTranscription, transcriptionCaptured and
+	// turnIDPopped: the input goroutine resets them when audio starts a new
+	// user turn (sendAudioElement) while the response goroutine reads and
+	// writes them.
+	transcriptMu sync.Mutex
+
 	// Input transcription for the current turn (what user said)
 	// Captured from provider's inputTranscription events (if supported)
 	inputTranscription strings.Builder
@@ -1079,12 +1085,14 @@ func (s *DuplexProviderStage) sendAudioElement(ctx context.Context, elem *Stream
 	// Reset transcription accumulator and chunk counter when starting a new user turn
 	// This prevents late-arriving transcription chunks from the previous turn
 	// from being mixed with this turn's transcription
+	s.transcriptMu.Lock()
 	if s.transcriptionCaptured {
 		s.inputTranscription.Reset()
 		s.transcriptionCaptured = false
 		s.turnIDPopped = false // Reset so we can pop turn_id for the new turn
 		logger.Debug("DuplexProviderStage: reset transcription for new user turn")
 	}
+	s.transcriptMu.Unlock()
 
 	now := time.Now()
 
@@ -1579,14 +1587,16 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	// fast-path or EndOfStream paths.
 	if isAssistantContentChunk(chunk, isOutputTranscription) && s.hasUncapturedStreamingTranscript() {
 		logger.Debug("DuplexProviderStage: materializing user turn at assistant response start",
-			"transcriptLen", s.inputTranscription.Len())
+			"transcriptLen", s.transcriptLen())
 		if err := s.emitBufferedUserTurn(ctx, output, true); err != nil {
 			return err
 		}
 		// Reset + mark captured so late transcription chunks for this utterance are
 		// ignored (sendAudioElement clears the flag when the next user turn starts).
+		s.transcriptMu.Lock()
 		s.inputTranscription.Reset()
 		s.transcriptionCaptured = true
+		s.transcriptMu.Unlock()
 	}
 
 	// Streaming guardrails check the chunk's assistant text before it is
@@ -1730,18 +1740,18 @@ func (s *DuplexProviderStage) completeChunkTurn(
 func (s *DuplexProviderStage) materializeStreamingUserTurn(
 	ctx context.Context, elem *StreamElement, output chan<- StreamElement,
 ) error {
-	if !elem.EndOfStream || s.inputTranscription.Len() == 0 || elem.Meta.Transcription != nil {
+	if !elem.EndOfStream || s.transcriptLen() == 0 || elem.Meta.Transcription != nil {
 		return nil
 	}
 	logger.Debug("DuplexProviderStage: materializing streaming user turn from transcript",
-		"transcriptLen", s.inputTranscription.Len())
+		"transcriptLen", s.transcriptLen())
 	if err := s.emitBufferedUserTurn(ctx, output, true); err != nil {
 		return err
 	}
 	// Reset the per-turn transcription buffer so the next streaming turn
 	// starts clean (mirrors the reset in sendAudioElement for the scenario
 	// path). transcriptionCaptured is already set on turn completion.
-	s.inputTranscription.Reset()
+	s.resetTranscript()
 	return nil
 }
 
@@ -1810,11 +1820,11 @@ func (s *DuplexProviderStage) tryFastPathUserTurn(
 		return false, nil
 	}
 	logger.Debug("DuplexProviderStage: fast-path materializing user turn from final transcript",
-		"transcriptLen", s.inputTranscription.Len())
+		"transcriptLen", s.transcriptLen())
 	if err := s.emitBufferedUserTurn(ctx, output, false); err != nil {
 		return true, err
 	}
-	s.inputTranscription.Reset()
+	s.resetTranscript()
 	return true, nil
 }
 
@@ -1828,7 +1838,7 @@ func completesTurn(chunk *providers.StreamChunk, elem *StreamElement) bool {
 // provider-marked final transcript of a streaming user turn with a non-empty
 // buffered transcript (no turn_id queued, i.e. not the scenario path).
 func (s *DuplexProviderStage) isFinalUserTranscript(chunk *providers.StreamChunk) bool {
-	return s.isStreamingFinalTranscript(chunk) && s.inputTranscription.Len() > 0
+	return s.isStreamingFinalTranscript(chunk) && s.transcriptLen() > 0
 }
 
 // isStreamingFinalTranscript reports whether a chunk is a provider-marked
@@ -1841,7 +1851,10 @@ func (s *DuplexProviderStage) isStreamingFinalTranscript(chunk *providers.Stream
 // is waiting to be materialized: not yet captured for this turn, non-empty,
 // and on the streaming path (no turn_id queued).
 func (s *DuplexProviderStage) hasUncapturedStreamingTranscript() bool {
-	return !s.transcriptionCaptured && s.inputTranscription.Len() > 0 && !s.hasQueuedTurnID()
+	s.transcriptMu.Lock()
+	uncaptured := !s.transcriptionCaptured && s.inputTranscription.Len() > 0
+	s.transcriptMu.Unlock()
+	return uncaptured && !s.hasQueuedTurnID()
 }
 
 // isAssistantContentChunk reports whether a chunk carries assistant content:
@@ -1861,7 +1874,10 @@ func isAssistantContentChunk(chunk *providers.StreamChunk, isOutputTranscription
 // dropping it because the reply had already completed lost the user turn,
 // whether or not the caller's next audio had been seen yet.
 func (s *DuplexProviderStage) captureInputTranscription(chunk *providers.StreamChunk) {
-	if s.transcriptionCaptured && !s.isStreamingFinalTranscript(chunk) {
+	final := s.isStreamingFinalTranscript(chunk)
+	s.transcriptMu.Lock()
+	defer s.transcriptMu.Unlock()
+	if s.transcriptionCaptured && !final {
 		logger.Debug("DuplexProviderStage: ignoring late transcription chunk (turn already complete)")
 		return
 	}
@@ -1879,7 +1895,7 @@ func (s *DuplexProviderStage) captureInputTranscription(chunk *providers.StreamC
 func (s *DuplexProviderStage) emitBufferedUserTurn(
 	ctx context.Context, output chan<- StreamElement, fromDeltas bool,
 ) error {
-	transcript := s.inputTranscription.String()
+	transcript := s.transcriptText()
 	s.late.userShown(transcript, fromDeltas)
 	userMsg := &types.Message{
 		Role:    roleUser,
@@ -1975,7 +1991,30 @@ func (s *DuplexProviderStage) resetTurnAccumulation() {
 	s.accumulatedOpaqueReasoning = nil
 	s.accumulatedMedia = nil
 	s.accumulatedToolCalls = nil
+	s.transcriptMu.Lock()
 	s.transcriptionCaptured = true
+	s.transcriptMu.Unlock()
+}
+
+// transcriptLen is the buffered input transcription's length.
+func (s *DuplexProviderStage) transcriptLen() int {
+	s.transcriptMu.Lock()
+	defer s.transcriptMu.Unlock()
+	return s.inputTranscription.Len()
+}
+
+// transcriptText is the buffered input transcription.
+func (s *DuplexProviderStage) transcriptText() string {
+	s.transcriptMu.Lock()
+	defer s.transcriptMu.Unlock()
+	return s.inputTranscription.String()
+}
+
+// resetTranscript empties the buffered input transcription.
+func (s *DuplexProviderStage) resetTranscript() {
+	s.transcriptMu.Lock()
+	defer s.transcriptMu.Unlock()
+	s.inputTranscription.Reset()
 }
 
 // chunkToElement, buildAssistantParts, and takeReasoning — the pure transforms —

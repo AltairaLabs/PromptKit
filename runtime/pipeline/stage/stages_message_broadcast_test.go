@@ -202,6 +202,35 @@ func TestMessageBroadcastStage_ToolLoopRoundsArriveSeparately(t *testing.T) {
 	assert.Equal(t, "the answer", got[3].GetContent(), "the final answer is a separate event")
 }
 
+// TestMessageBroadcastStage_PublishesMessageOnEndOfStreamElement covers the
+// realtime (duplex) shape: DuplexProviderStage puts each completed assistant
+// turn's Message on the element that carries EndOfStream. The save stage
+// persists it, so the bus must publish it too, once, at the index it holds in
+// the persisted transcript. A bare EndOfStream signal carries no message and
+// publishes nothing.
+func TestMessageBroadcastStage_PublishesMessageOnEndOfStreamElement(t *testing.T) {
+	t.Parallel()
+	reply := realMessage("assistant", "realtime reply")
+	turnEnd := NewMessageElement(&reply)
+	turnEnd.EndOfStream = true
+
+	got := runBroadcast(t, []StreamElement{
+		historyMsgElem("user", "old q"),
+		historyMsgElem("assistant", "old a"),
+		liveMsgElem("user", "new q"),
+		turnEnd,
+		NewEndOfStreamElement(),
+	}, 2)
+
+	require.Len(t, got, 2, "the user turn and the realtime reply, each once")
+	assert.Equal(t, "user", got[0].Role)
+	assert.Equal(t, "new q", got[0].GetContent())
+	assert.Equal(t, 2, got[0].Index)
+	assert.Equal(t, "assistant", got[1].Role)
+	assert.Equal(t, "realtime reply", got[1].GetContent())
+	assert.Equal(t, 3, got[1].Index, "the reply's index is its position in the persisted transcript")
+}
+
 // TestMessageBroadcastStage_IndexIsArrivalPosition pins the precondition the
 // stage depends on, by showing what happens when it is violated.
 //
@@ -446,18 +475,40 @@ func TestMessageBroadcastStage_HeldMessageBroadcastOnRelease(t *testing.T) {
 	assert.Equal(t, 1, got[1].Index)
 }
 
-// A released turn-end reply is published as the held turn-end element would
-// have been: by this stage, not at all (EndOfStream messages are not), and it
-// takes no index.
-func TestMessageBroadcastStage_ReleasedTurnEndAsTheHeldElement(t *testing.T) {
-	held := liveMsgElem("assistant", "reply")
-	held.EndOfStream = true
-	held.Meta.PlayoutHeld = true
-	release := liveMsgElem("assistant", "reply")
-	release.Meta.PlayoutRelease = true
-	release.Meta.PlayoutTurnEnd = true
-	got := runBroadcast(t, []StreamElement{held, release, liveMsgElem("user", "next")}, 1)
-	require.Len(t, got, 1)
-	assert.Equal(t, "next", got[0].GetContent())
-	assert.Equal(t, 0, got[0].Index)
+// A realtime reply PlayoutHoldStage holds goes on at once on its turn-end
+// element, marked held, and the Message after it is held too; both are
+// released in order once the audio played. Each is published once, from its
+// release (the reply's marked PlayoutTurnEnd), at the index it holds in the
+// transcript, and the held elements publish nothing.
+func TestMessageBroadcastStage_HeldTurnEndPublishedOnceFromItsRelease(t *testing.T) {
+	reply := realMessage("assistant", "realtime reply")
+	heldReply := NewMessageElement(&reply)
+	heldReply.EndOfStream = true
+	heldReply.Meta.PlayoutHeld = true
+	heldNext := liveMsgElem("user", "and then?")
+	heldNext.Meta.PlayoutHeld = true
+	releaseReply := NewMessageElement(&reply)
+	releaseReply.Meta.PlayoutRelease = true
+	releaseReply.Meta.PlayoutTurnEnd = true
+	releaseNext := liveMsgElem("user", "and then?")
+	releaseNext.Meta.PlayoutRelease = true
+
+	got := runBroadcast(t, []StreamElement{
+		historyMsgElem("user", "old q"), historyMsgElem("assistant", "old a"),
+		liveMsgElem("user", "new q"), heldReply, heldNext, releaseReply, releaseNext,
+		NewEndOfStreamElement(),
+	}, 3)
+	type published struct {
+		role, content string
+		index         int
+	}
+	var out []published
+	for _, d := range got {
+		out = append(out, published{d.Role, d.GetContent(), d.Index})
+	}
+	assert.Equal(t, []published{
+		{"user", "new q", 2},
+		{"assistant", "realtime reply", 3},
+		{"user", "and then?", 4},
+	}, out)
 }

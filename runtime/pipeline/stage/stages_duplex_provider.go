@@ -305,6 +305,7 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 	// We use turnIDPopped to prevent double-popping when there are multiple
 	// EndOfStream events per turn (e.g., tool call response + final response).
 	var turnID string
+	s.transcriptMu.Lock()
 	if elem.EndOfStream && !s.turnIDPopped {
 		s.turnIDMu.Lock()
 		if len(s.turnIDQueue) > 0 {
@@ -314,17 +315,19 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 		}
 		s.turnIDMu.Unlock()
 	}
+	transcript := s.inputTranscription.String()
+	s.transcriptMu.Unlock()
 
 	// Add input transcription to typed metadata if present.
 	// Only add if we just popped a turn_id (turnID != ""), which means this is
 	// the first EndOfStream for this user turn. Subsequent EndOfStream events
 	// (e.g., after tool execution) should not re-add transcription.
-	if s.inputTranscription.Len() > 0 && elem.EndOfStream && turnID != "" {
-		elem.Meta.Transcription = &Transcription{Text: s.inputTranscription.String()}
+	if transcript != "" && elem.EndOfStream && turnID != "" {
+		elem.Meta.Transcription = &Transcription{Text: transcript}
 		turnIDCopy := turnID
 		elem.Meta.TurnID = &turnIDCopy
 		logger.Debug("DuplexProviderStage: adding input transcription",
-			"transcriptionLen", s.inputTranscription.Len(),
+			"transcriptionLen", len(transcript),
 			"turnID", turnID)
 	} else if elem.EndOfStream && turnID != "" {
 		logger.Debug("DuplexProviderStage: turn complete without transcription",
