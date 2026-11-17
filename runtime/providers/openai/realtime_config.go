@@ -4,6 +4,8 @@ package openai
 import (
 	"fmt"
 	"net/http"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 // GA Realtime session literal values, named to avoid repeated string literals.
@@ -64,11 +66,49 @@ func buildRealtimeSessionConfig(config RealtimeSessionConfig) SessionConfig {
 		}
 	}
 
+	cfg.ToolChoice = realtimeToolChoice(config.ToolChoice, cfg.Tools)
+
 	if config.MaxResponseOutputTokens != nil {
 		cfg.MaxOutputTokens = config.MaxResponseOutputTokens
 	}
 
 	return cfg
+}
+
+// realtimeToolChoice is the GA tool_choice for choice over tools: a mode
+// ("auto", "required", "none") as is, any other name as a function choice. It
+// is nil (omitted) when choice is empty, when there are no tools (a session
+// requiring a tool it lacks is rejected by the server), and when choice names
+// a function tools lacks.
+func realtimeToolChoice(choice string, tools []RealtimeToolDef) interface{} {
+	if choice == "" || len(tools) == 0 {
+		return nil
+	}
+	switch choice {
+	case toolChoiceAuto, toolChoiceRequired, toolChoiceNone:
+		return choice
+	}
+	for i := range tools {
+		if tools[i].Name == choice {
+			return map[string]string{"type": typeFunction, "name": choice}
+		}
+	}
+	return nil
+}
+
+// realtimeToolDefs converts streaming tool definitions to the session's tool
+// format. The result is never nil, so an empty list marshals as [].
+func realtimeToolDefs(tools []providers.StreamingToolDefinition) []RealtimeToolDef {
+	out := make([]RealtimeToolDef, len(tools))
+	for i, tool := range tools {
+		out[i] = RealtimeToolDef{
+			Type:        typeFunction,
+			Name:        tool.Name,
+			Description: tool.Description,
+			Parameters:  tool.Parameters,
+		}
+	}
+	return out
 }
 
 // Realtime modality names shared with the GA output_modalities field.

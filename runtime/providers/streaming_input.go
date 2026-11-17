@@ -143,6 +143,13 @@ type StreamingInputConfig struct {
 	// speaking them as text. Supported by Gemini Live API.
 	Tools []StreamingToolDefinition `json:"tools,omitempty"`
 
+	// ToolChoice is how the model may use Tools: "auto", "required", "none",
+	// or the name of the one tool it must call. Empty leaves the provider's
+	// default. OpenAI Realtime sends it as the session's tool_choice; a
+	// provider whose realtime API has no such setting (Gemini Live) ignores
+	// it.
+	ToolChoice string `json:"tool_choice,omitempty"`
+
 	// Metadata contains provider-specific session configuration
 	// Example: {"response_modalities": ["TEXT", "AUDIO"]} for Gemini
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
@@ -183,6 +190,20 @@ type StreamingToolDefinition struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description,omitempty"`
 	Parameters  map[string]interface{} `json:"parameters,omitempty"` // JSON Schema
+}
+
+// StreamToolUpdater is an optional interface for streaming sessions whose
+// tools can change after the session is set up. UpdateTools replaces the
+// session's tools with tools; an empty list leaves it none. A nil error means
+// the update was sent, not that the provider applied it: a provider that
+// rejects it reports so asynchronously, as an error chunk on the session's
+// response stream.
+//
+// A session without it (Gemini Live fixes its tools at setup) keeps the
+// tools it was created with: the pipeline refuses a call to a tool the
+// conversation made available only after that.
+type StreamToolUpdater interface {
+	UpdateTools(ctx context.Context, tools []StreamingToolDefinition) error
 }
 
 // StreamInputSupport extends the Provider interface for bidirectional streaming.
@@ -336,6 +357,20 @@ type ToolResponseSupport interface {
 // ToolResponse represents a single tool execution result.
 type ToolResponse struct {
 	ToolCallID string `json:"tool_call_id"`
-	Result     string `json:"result"`
-	IsError    bool   `json:"is_error,omitempty"` // True if the tool execution failed
+	// Result is the result's text: the joined text of its text parts. It is
+	// what a session that cannot take Parts sends.
+	Result  string `json:"result"`
+	IsError bool   `json:"is_error,omitempty"` // True if the tool execution failed
+	// Parts holds a multimodal result's content parts (text and media, in
+	// order); nil for a text-only result. Only a session reporting
+	// ToolResponsePartsSupport sends them.
+	Parts []types.ContentPart `json:"parts,omitempty"`
+}
+
+// ToolResponsePartsSupport is an optional interface for streaming sessions
+// that can send a tool result's media parts (ToolResponse.Parts) to the model.
+// A session without it, or returning false, is sent the same responses and
+// sends only their text Result.
+type ToolResponsePartsSupport interface {
+	SupportsToolResponseParts() bool
 }

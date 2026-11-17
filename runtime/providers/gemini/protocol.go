@@ -38,11 +38,17 @@ func (s *StreamSession) handleToolCalls(toolCall *ToolCallMsg) error {
 }
 
 // buildCostInfo prices usage metadata through the shared pricing engine, by
-// modality, against the descriptor resolved when the session was created.
+// modality, against the descriptor resolved when the session was created,
+// together with any usage carried from a tool-call turn.
 func (s *StreamSession) buildCostInfo(usage *UsageMetadata) *types.CostInfo {
 	if usage == nil {
 		return nil
 	}
-	ci := base.PriceUsage(s.pricing, s.providerID, base.ProviderTypeInference, usage.tokens(), nil, 0)
+	tokens := usage.tokens()
+	if s.carriedUsage != nil { // a tool-call turn's usage (carryToolCallUsage)
+		tokens = addTokenUsage(tokens, *s.carriedUsage)
+		s.carriedUsage = nil
+	}
+	ci := base.PriceUsage(s.pricing, s.providerID, base.ProviderTypeInference, tokens, nil, 0)
 	return &ci
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -27,9 +28,16 @@ type realtimeToolProvider struct {
 	onClose func()
 	// replyDelay is how long the session takes to start each scripted reply.
 	replyDelay time.Duration
+	// updatable makes the sessions providers.StreamToolUpdaters.
+	updatable bool
+	// failUpdates makes them StreamToolUpdaters whose updates fail.
+	failUpdates bool
+	// partsSupport makes them providers.ToolResponsePartsSupport sessions.
+	partsSupport bool
 
-	mu   sync.Mutex
-	sess *realtimeToolSession
+	mu      sync.Mutex
+	sess    *realtimeToolSession
+	created []providers.StreamingInputConfig
 }
 
 func (p *realtimeToolProvider) CreateStreamSession(
@@ -47,8 +55,25 @@ func (p *realtimeToolProvider) CreateStreamSession(
 	}
 	p.mu.Lock()
 	p.sess = s
+	p.created = append(p.created, *req)
 	p.mu.Unlock()
+	if p.failUpdates {
+		return &failingUpdateSession{realtimeToolSession: s}, nil
+	}
+	if p.partsSupport {
+		return &partsToolSession{realtimeToolSession: s}, nil
+	}
+	if p.updatable {
+		return &updatingToolSession{realtimeToolSession: s}, nil
+	}
 	return s, nil
+}
+
+// createdWith returns the configs the provider's sessions were created with.
+func (p *realtimeToolProvider) createdWith() []providers.StreamingInputConfig {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]providers.StreamingInputConfig(nil), p.created...)
 }
 
 func (p *realtimeToolProvider) session() *realtimeToolSession {
@@ -70,6 +95,38 @@ type realtimeToolSession struct {
 	sent           [][]providers.ToolResponse
 	sentAfterClose int
 	script         [][]providers.StreamChunk
+	// updates are the tool lists UpdateTools was called with (an updating
+	// session only); log is "update" and "responses" in the order they came.
+	updates [][]providers.StreamingToolDefinition
+	log     []string
+}
+
+// updatingToolSession is a realtimeToolSession whose tools can be changed.
+type updatingToolSession struct {
+	*realtimeToolSession
+}
+
+func (s *updatingToolSession) UpdateTools(_ context.Context, defs []providers.StreamingToolDefinition) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.updates = append(s.updates, defs)
+	s.log = append(s.log, "update")
+	return nil
+}
+
+// partsToolSession is a realtimeToolSession that can send media parts.
+type partsToolSession struct {
+	*realtimeToolSession
+}
+
+func (s *partsToolSession) SupportsToolResponseParts() bool { return true }
+
+// toolUpdates returns the tool lists the session was updated with, and the
+// order updates and tool responses reached it in.
+func (s *realtimeToolSession) toolUpdates() (updates [][]providers.StreamingToolDefinition, log []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([][]providers.StreamingToolDefinition(nil), s.updates...), append([]string(nil), s.log...)
 }
 
 func (s *realtimeToolSession) SendToolResponse(ctx context.Context, id, result string) error {
@@ -98,6 +155,7 @@ func (s *realtimeToolSession) SendToolResponses(_ context.Context, resp []provid
 	}
 	s.mu.Lock()
 	s.sent = append(s.sent, resp)
+	s.log = append(s.log, "responses")
 	s.mu.Unlock()
 	return nil
 }
@@ -247,6 +305,16 @@ type realtimeOpts struct {
 	sessionTools []providers.StreamingToolDefinition
 	// history is a resumed conversation's prior messages.
 	history []types.Message
+	// turnState is the stage's turn state (allowed tools, prompt); nil for none.
+	turnState *TurnState
+	// updatable makes the session a providers.StreamToolUpdater.
+	updatable bool
+	// failUpdates makes the session a StreamToolUpdater whose updates fail.
+	failUpdates bool
+	// hostToolChoice is the host's StreamingInputConfig.ToolChoice.
+	hostToolChoice string
+	// partsSupport makes the session a providers.ToolResponsePartsSupport.
+	partsSupport bool
 }
 
 func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
@@ -256,10 +324,14 @@ func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
 		script:            o.script,
 		onClose:           o.onClose,
 		replyDelay:        o.replyDelay,
+		updatable:         o.updatable,
+		failUpdates:       o.failUpdates,
+		partsSupport:      o.partsSupport,
 	}
 	cfg := baseConfig()
 	cfg.Tools = o.sessionTools
-	st := NewDuplexProviderStageWithEmitter(p, cfg, o.emitter)
+	cfg.ToolChoice = o.hostToolChoice
+	st := NewDuplexProviderStageWithTurnState(p, cfg, o.emitter, o.turnState)
 	if !o.noToolSet {
 		st.SetToolExecution(o.registry, o.policy, o.cfg, o.resolver)
 	}
@@ -1101,4 +1173,80 @@ func TestDuplexTools_NilRegistryForwardsToolCalls(t *testing.T) {
 			assert.Equal(t, []int{99}, rounds, "no provider.call.* events without a registry")
 		})
 	}
+}
+
+const partsDroppedLog = "realtime session cannot send non-text tool result parts"
+
+// chartParts is a multimodal tool result: text around two images.
+func chartParts() []types.ContentPart {
+	return []types.ContentPart{
+		types.NewTextPart("Chart: "),
+		{Type: types.ContentTypeImage, Media: &types.MediaContent{MIMEType: "image/png"}},
+		types.NewTextPart("rainfall by month"),
+		{Type: types.ContentTypeImage, Media: &types.MediaContent{MIMEType: "image/jpeg"}},
+	}
+}
+
+func chartRegistry(t *testing.T) *tools.Registry {
+	t.Helper()
+	reg := registryWithTools(t, "weather")
+	reg.RegisterExecutor(&mockAsyncExecutor{name: "local", status: tools.ToolStatusComplete, parts: chartParts()})
+	return reg
+}
+
+// A multimodal tool result reaches the session as its text in Result and its
+// parts in Parts. A session that cannot send parts gets the same responses,
+// and the stage warns once per session, naming the provider and the dropped
+// part types, however many rounds drop parts.
+func TestDuplexTools_MultimodalResultWithoutPartsSupport(t *testing.T) {
+	logs := captureLogSync(t)
+	h := startRealtime(t, realtimeOpts{
+		registry: chartRegistry(t),
+		script:   [][]providers.StreamChunk{toolCallTurn(weatherCall("c2")), textTurn("Done", nil)},
+	})
+
+	h.emit(toolCallTurn(weatherCall("c1")))
+
+	sent := h.awaitSent(2)
+	want := func(id string) []providers.ToolResponse {
+		return []providers.ToolResponse{{ToolCallID: id, Result: "Chart: rainfall by month", Parts: chartParts()}}
+	}
+	assert.Equal(t, [][]providers.ToolResponse{want("c1"), want("c2")}, sent)
+	h.finish()
+
+	out := logs.String()
+	assert.Equal(t, 1, strings.Count(out, partsDroppedLog), out)
+	assert.Contains(t, out, `provider=rt`)
+	assert.Contains(t, out, `part_types=[image]`)
+}
+
+// A session that can send parts gets the same responses and no warning.
+func TestDuplexTools_MultimodalResultWithPartsSupport(t *testing.T) {
+	logs := captureLogSync(t)
+	h := startRealtime(t, realtimeOpts{registry: chartRegistry(t), partsSupport: true})
+
+	h.emit(toolCallTurn(weatherCall("c1")))
+
+	sent := h.awaitSent(1)
+	assert.Equal(t, [][]providers.ToolResponse{{{
+		ToolCallID: "c1", Result: "Chart: rainfall by month", Parts: chartParts(),
+	}}}, sent)
+	h.finish()
+	assert.NotContains(t, logs.String(), partsDroppedLog)
+}
+
+// A text-only result is sent as text with no parts, and nothing is dropped
+// to warn about.
+func TestDuplexTools_TextResultSendsNoPartsAndNoWarning(t *testing.T) {
+	logs := captureLogSync(t)
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`)}
+	h := startRealtime(t, realtimeOpts{registry: newWeatherRegistry(t, exec)})
+
+	h.emit(toolCallTurn(weatherCall("c1")))
+
+	sent := h.awaitSent(1)
+	assert.Equal(t, [][]providers.ToolResponse{{{ToolCallID: "c1", Result: weatherResult}}}, sent)
+	assert.Nil(t, sent[0][0].Parts)
+	h.finish()
+	assert.NotContains(t, logs.String(), partsDroppedLog)
 }

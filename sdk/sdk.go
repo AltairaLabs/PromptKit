@@ -962,8 +962,11 @@ func initDuplexSession(ctx context.Context, conv *Conversation, cfg *config) err
 	streamConfig := cfg.streamingConfig
 	conv.registerStreamingTools(streamConfig)
 
-	// Create duplex session with builder
-	duplexSession, err := session.NewDuplexSession(ctx, &session.DuplexSessionConfig{
+	// Create duplex session with builder. Its pipeline runs on the session's
+	// context, tool calls included (a realtime session's run in the pipeline),
+	// so that context carries the conversation's capability state: the active
+	// skills a skill__activate grants tools through, and the memory scope.
+	duplexSession, err := session.NewDuplexSession(conv.withConversationState(ctx), &session.DuplexSessionConfig{
 		ConversationID:  conversationID,
 		UserID:          cfg.userID,
 		StateStore:      store,

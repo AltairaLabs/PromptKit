@@ -1530,7 +1530,7 @@ true
 </details>
 
 <a name="OpenComposition"></a>
-### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1362>)
+### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1365>)
 
 ```go
 func OpenComposition(packPath, name string, opts ...Option) (*Conversation, error)
@@ -1639,7 +1639,7 @@ func OpenVoiceContext(ctx context.Context, packPath, promptName string, opts ...
 OpenVoiceContext is [OpenVoice](<#OpenVoice>) with a base context for the session, as [OpenDuplexContext](<#OpenDuplexContext>): the session's tool calls see ctx's values. The context passed to Start only bounds the audio pumps; it does not reach tool calls.
 
 <a name="Resume"></a>
-### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1216>)
+### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1219>)
 
 ```go
 func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1667,7 +1667,7 @@ if errors.Is(err, sdk.ErrConversationNotFound) {
 Resume requires a state store to be configured. If no state store is provided, it returns [ErrNoStateStore](<#ErrConversationClosed>).
 
 <a name="ResumeDuplex"></a>
-### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1328>)
+### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1331>)
 
 ```go
 func ResumeDuplex(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1699,7 +1699,7 @@ ResumeDuplex requires a state store to be configured. If no state store is provi
 In a realtime \(ASM\) conversation the new provider session is given the persisted user and assistant turns before the caller's first input, through the provider's own mechanism \(OpenAI Realtime conversation.item.create items, Gemini Live client\_content turns\). A provider that cannot take them \(see \[providers.StreamHistorySupport\]\) makes ResumeDuplex return [ErrResumeHistoryUnsupported](<#ErrConversationClosed>) rather than continue without memory. In VAD mode each turn's request carries the history, as in a unary conversation.
 
 <a name="ResumeDuplexContext"></a>
-### func [ResumeDuplexContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1334-L1336>)
+### func [ResumeDuplexContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1337-L1339>)
 
 ```go
 func ResumeDuplexContext(ctx context.Context, conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)

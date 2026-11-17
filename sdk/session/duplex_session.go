@@ -792,8 +792,8 @@ func (s *duplexSession) ForkSession(
 		PipelineBuilder: pipelineBuilder,
 		Provider:        s.provider,
 		// The parent's streaming config, so a realtime session forks into a
-		// realtime session rather than a text pipeline (#2582). A copy: the
-		// duplex stage writes the rendered system instruction into it.
+		// realtime session rather than a text pipeline (#2582). A copy, so
+		// the fork's config is its own.
 		Config:            copyStreamConfig(s.streamConfig),
 		ToolRegistry:      s.toolRegistry,
 		PipelineRunsTools: s.pipelineRunsTools,

@@ -57,13 +57,53 @@ func TestBuildToolResponseMessage(t *testing.T) {
 		}
 	})
 
-	t.Run("IsError sets error:true", func(t *testing.T) {
+	// FunctionResponse has no error flag: the Live API reads a failure from
+	// the response's "error" key ("output" and "error" name the outcome; with
+	// neither, the whole response is the output). A top-level "error": true is
+	// an unknown field, and the session never answers the call.
+	t.Run("IsError puts the text under response.error", func(t *testing.T) {
 		msg := buildToolResponseMessage([]providers.ToolResponse{
-			{ToolCallID: "id3", Result: "boom", IsError: true},
+			{ToolCallID: "id3", Result: "Tool x blocked by hook: frozen", IsError: true},
 		})
 		frs := unwrap(t, msg)
-		if frs[0]["error"] != true {
-			t.Errorf("expected error:true, got %v", frs[0]["error"])
+		want := map[string]interface{}{
+			"id":       "id3",
+			"response": map[string]interface{}{"error": "Tool x blocked by hook: frozen"},
+		}
+		if !reflect.DeepEqual(frs[0], want) {
+			t.Errorf("function response = %v, want %v", frs[0], want)
+		}
+	})
+
+	t.Run("a JSON error result is still reported as an error", func(t *testing.T) {
+		msg := buildToolResponseMessage([]providers.ToolResponse{
+			{ToolCallID: "id4", Result: `{"code":503}`, IsError: true},
+		})
+		frs := unwrap(t, msg)
+		want := map[string]interface{}{"error": `{"code":503}`}
+		if !reflect.DeepEqual(frs[0]["response"], want) {
+			t.Errorf("response = %v, want %v", frs[0]["response"], want)
+		}
+	})
+
+	// response is a JSON object (a protobuf Struct): a result that parses to
+	// an array or a scalar is wrapped, as a text turn's function response is.
+	t.Run("a JSON array or scalar result is wrapped as {result: ...}", func(t *testing.T) {
+		msg := buildToolResponseMessage([]providers.ToolResponse{
+			{ToolCallID: "a", Result: `[{"content":"teal"}]`},
+			{ToolCallID: "b", Result: `42`},
+			{ToolCallID: "c", Result: `null`},
+		})
+		frs := unwrap(t, msg)
+		wants := []interface{}{
+			map[string]interface{}{"result": []interface{}{map[string]interface{}{"content": "teal"}}},
+			map[string]interface{}{"result": float64(42)},
+			map[string]interface{}{"result": nil},
+		}
+		for i, want := range wants {
+			if !reflect.DeepEqual(frs[i]["response"], want) {
+				t.Errorf("response[%d] = %#v, want %#v", i, frs[i]["response"], want)
+			}
 		}
 	})
 

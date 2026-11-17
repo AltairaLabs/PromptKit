@@ -163,6 +163,8 @@ type toolAwareStreamingProvider struct {
 
 	mu       sync.Mutex
 	sessions []*toolAwareMockSession
+	// created are the configs the sessions were created with.
+	created []providers.StreamingInputConfig
 }
 
 func newToolAwareStreamingProvider(
@@ -179,16 +181,24 @@ func newToolAwareStreamingProvider(
 // CreateStreamSession overrides to return toolAwareMockSession.
 func (p *toolAwareStreamingProvider) CreateStreamSession(
 	_ context.Context,
-	_ *providers.StreamingInputConfig,
+	req *providers.StreamingInputConfig,
 ) (providers.StreamInputSession, error) {
 	sess := newToolAwareMockSession(p.toolCalls, p.postToolText)
 	sess.toolCallCost = p.toolCallCost
 
 	p.mu.Lock()
 	p.sessions = append(p.sessions, sess)
+	p.created = append(p.created, *req)
 	p.mu.Unlock()
 
 	return sess, nil
+}
+
+// createdWith returns the configs the provider's sessions were created with.
+func (p *toolAwareStreamingProvider) createdWith() []providers.StreamingInputConfig {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]providers.StreamingInputConfig(nil), p.created...)
 }
 
 func (p *toolAwareStreamingProvider) getSessions() []*toolAwareMockSession {

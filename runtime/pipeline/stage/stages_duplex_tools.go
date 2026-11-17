@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
@@ -112,6 +113,9 @@ type duplexTools struct {
 	resolver WorkflowStateResolver
 	// offers is shared by every runner the stage builds; it is locked.
 	offers *toolOffer
+	// offer is what the session holds of the tool offer
+	// (stages_duplex_tool_offer.go).
+	offer sessionOffer
 	// jobs carries rounds from the response goroutine to the worker.
 	jobs chan *duplexToolJob
 	// results carries finished rounds from the worker to the input goroutine.
@@ -150,6 +154,9 @@ type duplexToolTurn struct {
 	// by duplexTools.mu.
 	stopErr  error
 	refusals int
+	// offered names every tool the session held during the turn, for
+	// tools_offered. Guarded by duplexTools.mu.
+	offered map[string]bool
 }
 
 // duplexToolJob is one round for the worker. Without calls it only reports
@@ -212,18 +219,6 @@ func (s *DuplexProviderStage) maxToolRounds() int {
 	return defaultMaxRounds
 }
 
-// sessionToolNames returns the names of the tools the session was offered.
-func (s *DuplexProviderStage) sessionToolNames() []string {
-	if s.baseConfig == nil {
-		return nil
-	}
-	names := make([]string, 0, len(s.baseConfig.Tools))
-	for i := range s.baseConfig.Tools {
-		names = append(names, s.baseConfig.Tools[i].Name)
-	}
-	return names
-}
-
 // seedToolSpend counts a resumed conversation's spend toward MaxCostUSD, so
 // the budget bounds the whole run. No-op without tool execution.
 func (s *DuplexProviderStage) seedToolSpend(prior []types.Message) {
@@ -235,14 +230,14 @@ func (s *DuplexProviderStage) seedToolSpend(prior []types.Message) {
 	s.tools.spent = sumHistoryCost(prior)
 }
 
-// startToolTurnLocked starts a new tool turn. Called with dt.mu held.
-func (s *DuplexProviderStage) startToolTurnLocked() {
+// startToolTurnLocked starts a new tool turn, which has offered the tools
+// named by offered so far, and returns it. Called with dt.mu held.
+func (s *DuplexProviderStage) startToolTurnLocked(offered []string) *duplexToolTurn {
 	dt := s.tools
-	r := s.toolRunner()
-	r.resetOffered()
-	r.recordOffered(s.sessionToolNames()...)
-	dt.turn = &duplexToolTurn{toolTurn: r.newTurn(nil, s.maxToolRounds())}
+	dt.turn = &duplexToolTurn{toolTurn: s.toolRunner().newTurn(nil, s.maxToolRounds())}
+	recordOfferedLocked(dt.turn, offered)
 	dt.round = 0
+	return dt.turn
 }
 
 // openRoundLocked starts the next provider call of the current tool turn.
@@ -257,8 +252,9 @@ func (dt *duplexTools) openRoundLocked() *duplexRound {
 }
 
 // beginToolUserTurn starts a new tool turn for a user turn, and its first
-// provider call. A user turn whose first call has not completed yet (more
-// input before the reply) keeps it. Nil-safe.
+// provider call, and brings the session's tools in line with the new turn (a
+// tool excluded or withdrawn on the last one). A user turn whose first call
+// has not completed yet (more input before the reply) keeps it. Nil-safe.
 func (s *DuplexProviderStage) beginToolUserTurn(ctx context.Context) {
 	dt := s.tools
 	if dt == nil {
@@ -269,9 +265,11 @@ func (s *DuplexProviderStage) beginToolUserTurn(ctx context.Context) {
 		dt.mu.Unlock()
 		return
 	}
-	s.startToolTurnLocked()
+	// The turn's offer is what the session holds once it is brought in line.
+	turn := s.startToolTurnLocked(nil)
 	opened := dt.openRoundLocked()
 	dt.mu.Unlock()
+	s.syncSessionTools(ctx, turn, nil, true)
 	s.emitRoundStarted(ctx, opened.rr)
 }
 
@@ -304,12 +302,25 @@ func (s *DuplexProviderStage) openToolRoundIfIdle(ctx context.Context) {
 		dt.mu.Unlock()
 		return
 	}
+	var started *duplexToolTurn
 	if dt.turn == nil {
-		s.startToolTurnLocked()
+		started = s.startToolTurnLocked(dt.offer.heldNames())
 	}
 	opened := dt.openRoundLocked()
 	dt.mu.Unlock()
+	s.syncStartedTurn(ctx, started)
 	s.emitRoundStarted(ctx, opened.rr)
+}
+
+// syncStartedTurn brings the session's tools in line with a tool turn that
+// started once the session was already answering (no user turn was seen): an
+// exclusion of the last turn is lifted for the replies that follow. The reply
+// under way began with the tools the session held, which the turn was
+// started with, so nothing more is recorded as offered. Nil-safe on turn.
+func (s *DuplexProviderStage) syncStartedTurn(ctx context.Context, turn *duplexToolTurn) {
+	if turn != nil {
+		s.syncSessionTools(ctx, turn, nil, false)
+	}
 }
 
 // openNextToolRound starts the provider call that tool responses for turn
@@ -331,8 +342,9 @@ func (s *DuplexProviderStage) openNextToolRound(ctx context.Context, turn *duple
 func (s *DuplexProviderStage) completeRound(ctx context.Context, msg *types.Message) (*duplexToolTurn, roundRef) {
 	dt := s.tools
 	dt.mu.Lock()
+	var started *duplexToolTurn
 	if dt.turn == nil {
-		s.startToolTurnLocked()
+		started = s.startToolTurnLocked(dt.offer.heldNames())
 	}
 	round := dt.open
 	opened := round == nil
@@ -342,6 +354,7 @@ func (s *DuplexProviderStage) completeRound(ctx context.Context, msg *types.Mess
 	dt.open = nil
 	turn := dt.turn
 	dt.mu.Unlock()
+	s.syncStartedTurn(ctx, started)
 	if opened {
 		s.emitRoundStarted(ctx, round.rr)
 	}
@@ -456,7 +469,7 @@ func (s *DuplexProviderStage) prepareToolRound(ctx context.Context, elem *Stream
 	}
 	dt := s.tools
 	turn, rr := s.completeRound(ctx, msg)
-	turn.r.stampToolsOffered(msg)
+	dt.stampToolsOffered(turn, msg)
 	stampWorkflowStateMeta(dt.resolver, msg)
 	if err := s.charge(turn, msg.CostInfo); err != nil {
 		return s.budgetSpent(turn, msg.ToolCalls, rr, err)
@@ -523,7 +536,7 @@ func (s *DuplexProviderStage) emitRoundStarted(ctx context.Context, rr roundRef)
 		return
 	}
 	data := &events.ProviderCallStartedData{
-		ToolCount: len(s.sessionToolNames()),
+		ToolCount: len(s.tools.offer.heldNames()),
 		Labels:    s.tools.cfg.Labels,
 		Round:     rr.round,
 		CallID:    rr.providerCallID,
@@ -626,10 +639,19 @@ func (s *DuplexProviderStage) runToolJob(ctx context.Context, job *duplexToolJob
 	return s.runRound(ctx, job)
 }
 
-// runRound runs a round's calls through the tool runner. A limit, a
-// termination tool or a failed execution stops the tool turn.
+// runRound runs a round's calls through the tool runner, refusing those to
+// tools the session does not hold but the conversation offers, then brings
+// the session's tools in line with what the round changed, before its
+// responses are sent. A limit, a termination tool or a failed execution stops
+// the tool turn.
 func (s *DuplexProviderStage) runRound(ctx context.Context, job *duplexToolJob) *duplexToolResult {
-	out := job.turn.RunRound(ctx, job.calls, job.rr)
+	calls, refused := s.tools.splitUnsynced(job.calls)
+	if len(calls) == 0 {
+		return s.refuseUnsyncedRound(job, refused)
+	}
+	out := job.turn.RunRound(ctx, calls, job.rr)
+	out.Results = append(out.Results, refused...)
+	s.syncSessionTools(ctx, job.turn, job.turn.excluded, true)
 	if !out.Stop && out.Err == nil {
 		return toolRoundResult(out.Results, out.Pending, nil)
 	}
@@ -639,6 +661,19 @@ func (s *DuplexProviderStage) runRound(ctx context.Context, job *duplexToolJob) 
 	}
 	s.tools.stop(job.turn, cause)
 	return toolRoundResult(refuseUnanswered(job.calls, out.Results, out.Pending, cause), out.Pending, out.Err)
+}
+
+// refuseUnsyncedRound answers a round whose every call names a tool the
+// session does not hold. Such batches count as a stopped turn's refusals do:
+// past maxStoppedTurnRefusals the turn is stopped, and the session closed,
+// with an error naming the tool.
+func (s *DuplexProviderStage) refuseUnsyncedRound(job *duplexToolJob, refused []types.Message) *duplexToolResult {
+	if s.tools.addRefusal(job.turn) <= maxStoppedTurnRefusals {
+		return toolRoundResult(refused, nil, nil)
+	}
+	err := fmt.Errorf("tool %s is not available in this realtime session", job.calls[0].Name)
+	s.tools.stop(job.turn, err)
+	return s.refuseStoppedTurn(job, err)
 }
 
 // refuseStoppedTurn answers the calls of a stopped tool turn with refusals.
@@ -699,7 +734,9 @@ func refuseUnanswered(
 }
 
 // providerToolResponses converts tool result messages to the responses the
-// session is sent.
+// session is sent. A result with media carries its parts as well as its
+// text; a text-only result (every refusal and failure is one) carries text
+// only.
 func providerToolResponses(results []types.Message) []providers.ToolResponse {
 	out := make([]providers.ToolResponse, 0, len(results))
 	for i := range results {
@@ -707,11 +744,52 @@ func providerToolResponses(results []types.Message) []providers.ToolResponse {
 		if tr == nil {
 			continue
 		}
-		out = append(out, providers.ToolResponse{
+		resp := providers.ToolResponse{
 			ToolCallID: tr.ID,
 			Result:     tr.GetTextContent(),
 			IsError:    tr.Error != "",
-		})
+		}
+		if tr.HasMedia() {
+			resp.Parts = tr.Parts
+		}
+		out = append(out, resp)
+	}
+	return out
+}
+
+// warnDroppedToolParts logs, once per stage, that the session cannot send
+// the media parts of the tool responses it is about to be sent and sends
+// their text only, naming the provider and the part types dropped.
+func (s *DuplexProviderStage) warnDroppedToolParts(session any, responses []providers.ToolResponse) {
+	if ps, ok := session.(providers.ToolResponsePartsSupport); ok && ps.SupportsToolResponseParts() {
+		return
+	}
+	dropped := droppedPartTypes(responses)
+	if len(dropped) == 0 || !s.toolPartsWarned.CompareAndSwap(false, true) {
+		return
+	}
+	providerID := ""
+	if s.provider != nil {
+		providerID = s.provider.ID()
+	}
+	logger.Warn("DuplexProviderStage: realtime session cannot send non-text tool result parts; "+
+		"sending their text only",
+		"provider", providerID, "part_types", dropped)
+}
+
+// droppedPartTypes returns the distinct non-text part types in responses, in
+// the order they first appear.
+func droppedPartTypes(responses []providers.ToolResponse) []string {
+	var out []string
+	seen := map[string]bool{}
+	for i := range responses {
+		for _, p := range responses[i].Parts {
+			if p.Type == types.ContentTypeText || seen[p.Type] {
+				continue
+			}
+			seen[p.Type] = true
+			out = append(out, p.Type)
+		}
 	}
 	return out
 }

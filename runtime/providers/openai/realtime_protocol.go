@@ -467,10 +467,12 @@ func ParseServerEvent(data []byte) (interface{}, error) {
 	case "response.content_part.done":
 		var e ResponseContentPartDoneEvent
 		return &e, json.Unmarshal(data, &e)
-	case "response.text.delta":
+	case "response.text.delta", "response.output_text.delta":
+		// GA renamed `response.text.*` → `response.output_text.*` (a text-only
+		// session gets only these); the payload shape is unchanged.
 		var e ResponseTextDeltaEvent
 		return &e, json.Unmarshal(data, &e)
-	case "response.text.done":
+	case "response.text.done", "response.output_text.done":
 		var e ResponseTextDoneEvent
 		return &e, json.Unmarshal(data, &e)
 	case "response.audio.delta", "response.output_audio.delta":

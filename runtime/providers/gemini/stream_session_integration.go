@@ -85,6 +85,13 @@ type StreamSession struct {
 
 	// Manual VAD control state
 	activityStartSent bool // True after activityStart has been sent for current turn
+
+	// toolCallTurn is set by a toolCall and cleared once the model produces
+	// content or a turn completes. carriedUsage is the usage of a tool-call
+	// turn reported without content, held for the next turn completion (see
+	// carryToolCallUsage). Both are touched by the receive goroutine only.
+	toolCallTurn bool
+	carriedUsage *base.TokenUsage
 }
 
 // VADConfig configures Voice Activity Detection settings for Gemini Live API.

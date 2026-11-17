@@ -9,8 +9,57 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
-// Ensure RealtimeSession implements ToolResponseSupport
-var _ providers.ToolResponseSupport = (*RealtimeSession)(nil)
+// Ensure RealtimeSession implements ToolResponseSupport and StreamToolUpdater.
+var (
+	_ providers.ToolResponseSupport = (*RealtimeSession)(nil)
+	_ providers.StreamToolUpdater   = (*RealtimeSession)(nil)
+)
+
+// sessionToolsUpdate is a session.update that changes only the session's
+// tools and tool_choice. Tools is never omitted: an empty array clears them.
+type sessionToolsUpdate struct {
+	ClientEvent
+	Session sessionToolsConfig `json:"session"`
+}
+
+// sessionToolsConfig is the session part of sessionToolsUpdate.
+type sessionToolsConfig struct {
+	Type       string            `json:"type"`
+	Tools      []RealtimeToolDef `json:"tools"`
+	ToolChoice interface{}       `json:"tool_choice,omitempty"`
+}
+
+// UpdateTools replaces the live session's tools with a session.update, keeping
+// the session's tool_choice where it still applies (see realtimeToolChoice).
+// A nil error means the update was sent: the server reports a rejection
+// later, as an error on the response stream. A done ctx sends nothing.
+// Implements providers.StreamToolUpdater.
+func (s *RealtimeSession) UpdateTools(ctx context.Context, tools []providers.StreamingToolDefinition) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return errors.New(errSessionClosed)
+	}
+	choice := s.config.ToolChoice
+	s.mu.Unlock()
+
+	defs := realtimeToolDefs(tools)
+	event := sessionToolsUpdate{
+		ClientEvent: ClientEvent{EventID: s.nextEventID(), Type: realtimeEventSessionUpdate},
+		Session: sessionToolsConfig{
+			Type:       sessionTypeRealtime,
+			Tools:      defs,
+			ToolChoice: realtimeToolChoice(choice, defs),
+		},
+	}
+	if err := s.ws.Send(event); err != nil {
+		return fmt.Errorf("failed to update session tools: %w", err)
+	}
+	return nil
+}
 
 // SendToolResponse sends the result of a tool execution back to the model.
 func (s *RealtimeSession) SendToolResponse(ctx context.Context, toolCallID, result string) error {

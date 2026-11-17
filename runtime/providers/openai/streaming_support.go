@@ -127,8 +127,10 @@ func (p *Provider) applyStreamSampling(s *providers.StreamingSampling, config *R
 		providers.ParamTopK, providers.ParamFrequencyPenalty, providers.ParamPresencePenalty)
 }
 
-// applyStreamTools converts and applies tools configuration.
-func (p *Provider) applyStreamTools(tools []providers.StreamingToolDefinition, config *RealtimeSessionConfig) {
+// applyStreamTools converts and applies the request's tools and tool choice.
+func (p *Provider) applyStreamTools(req *providers.StreamingInputConfig, config *RealtimeSessionConfig) {
+	config.ToolChoice = req.ToolChoice
+	tools := req.Tools
 	if len(tools) == 0 {
 		return
 	}
