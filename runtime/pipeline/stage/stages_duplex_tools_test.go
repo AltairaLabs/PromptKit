@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -33,6 +34,9 @@ type realtimeToolProvider struct {
 	updatable bool
 	// failUpdates makes them StreamToolUpdaters whose updates fail.
 	failUpdates bool
+	// failFirstUpdate makes them StreamToolUpdaters whose first update fails
+	// and whose later ones succeed.
+	failFirstUpdate bool
 	// partsSupport makes them providers.ToolResponsePartsSupport sessions.
 	partsSupport bool
 
@@ -60,6 +64,9 @@ func (p *realtimeToolProvider) CreateStreamSession(
 	p.mu.Unlock()
 	if p.failUpdates {
 		return &failingUpdateSession{realtimeToolSession: s}, nil
+	}
+	if p.failFirstUpdate {
+		return &recoveringUpdateSession{updatingToolSession: &updatingToolSession{realtimeToolSession: s}}, nil
 	}
 	if p.partsSupport {
 		return &partsToolSession{realtimeToolSession: s}, nil
@@ -306,12 +313,17 @@ type realtimeOpts struct {
 	sessionTools []providers.StreamingToolDefinition
 	// history is a resumed conversation's prior messages.
 	history []types.Message
-	// turnState is the stage's turn state (allowed tools, prompt); nil for none.
+	// turnState is the stage's turn state (allowed tools, prompt); nil allows
+	// every tool registry holds, so the session is offered the tools the
+	// model calls.
 	turnState *TurnState
 	// updatable makes the session a providers.StreamToolUpdater.
 	updatable bool
 	// failUpdates makes the session a StreamToolUpdater whose updates fail.
 	failUpdates bool
+	// failFirstUpdate makes the session a StreamToolUpdater whose first
+	// update fails and whose later ones succeed.
+	failFirstUpdate bool
 	// hostToolChoice is the host's StreamingInputConfig.ToolChoice.
 	hostToolChoice string
 	// partsSupport makes the session a providers.ToolResponsePartsSupport.
@@ -332,12 +344,19 @@ func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
 		replyDelay:        o.replyDelay,
 		updatable:         o.updatable,
 		failUpdates:       o.failUpdates,
+		failFirstUpdate:   o.failFirstUpdate,
 		partsSupport:      o.partsSupport,
 	}
 	cfg := baseConfig()
 	cfg.Tools = o.sessionTools
 	cfg.ToolChoice = o.hostToolChoice
-	st := NewDuplexProviderStageWithTurnState(p, cfg, o.emitter, o.turnState)
+	turnState := o.turnState
+	if turnState == nil && o.registry != nil {
+		names := o.registry.List()
+		sort.Strings(names)
+		turnState = &TurnState{AllowedTools: names}
+	}
+	st := NewDuplexProviderStageWithTurnState(p, cfg, o.emitter, turnState)
 	if o.hookReg != nil {
 		st.SetHookRegistry(o.hookReg)
 	}

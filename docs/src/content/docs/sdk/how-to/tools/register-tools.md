@@ -52,6 +52,8 @@ Register Go handlers for the tools your pack declares, so the model can call the
 }
 ```
 
+A handler runs only for a tool the model may call in that round: a tool the prompt lists (a `ToolSelector` that leaves it out of the request does not change that), a capability tool such as `memory__recall`, or a tool an active skill grants, and on a realtime session a tool in `StreamingInputConfig.Tools`. A call to any other registered tool gets the result `Tool <name> was not run: it is not available this turn`, after the tool policy's `Blocklist` and the tool hooks, and is reported with `tool.call.started` and `tool.call.failed`; its handler does not run. The tool hooks run before this check, so a hook sees every call the model attempts, and a call a hook blocks gets the hook's message rather than this one. What the model may call is taken once at the start of each round, so a tool a skill grants in one round can be called from the next. A refused call does not count toward `MaxToolCallsPerTurn`, does not end the turn as `termination.tool_called`, and does not count toward excluding the tool after repeated rejections; repeating it identically gets the same refusal each time, never the repeated-call nudge, and does not use up the one nudge `MaxIdenticalToolCalls` gives a turn. A name no tool is registered under fails with `tool not found`, before any approval check. A provider that cannot take tools, such as a replay provider, is not checked; a provider that can is checked even when it was offered no tools, for example under `tool_choice: none`. This holds on text, VAD and realtime turns.
+
 ## 2. Register a handler
 
 A handler takes the model's arguments and returns any JSON-serializable value or an error:

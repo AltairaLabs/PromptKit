@@ -120,6 +120,9 @@ type duplexTools struct {
 	// offer is what the session holds of the tool offer
 	// (stages_duplex_tool_offer.go).
 	offer sessionOffer
+	// view holds what DescribeTool made of each tool the session's last
+	// sync offered (toolRunner.views).
+	view toolOffer
 	// jobs carries rounds from the response goroutine to the worker.
 	jobs chan *duplexToolJob
 	// results carries finished rounds from the worker to the input goroutine.
@@ -203,7 +206,7 @@ func (s *DuplexProviderStage) toolPolicy() *pipeline.ToolPolicy {
 // toolRunner builds the tool runner from the stage's current fields.
 func (s *DuplexProviderStage) toolRunner() *toolRunner {
 	dt := s.tools
-	return &toolRunner{
+	r := &toolRunner{
 		registry:     dt.registry,
 		policy:       s.toolPolicy,
 		emitter:      s.emitter,
@@ -217,7 +220,82 @@ func (s *DuplexProviderStage) toolRunner() *toolRunner {
 			DescribeTool: dt.cfg.DescribeTool,
 		},
 		stateResolver: dt.resolver,
+		// The session's syncs record what DescribeTool made of each tool they
+		// offered (descriptorCollector.view), so a round's check reuses it.
+		views: &dt.view,
 	}
+	r.availability = func(called []*tools.ToolDescriptor, excluded map[string]bool) roundRefusals {
+		return s.roundRefusals(r, called, excluded)
+	}
+	return r
+}
+
+// roundRefusals refuses each called tool the model may not call this round
+// on the session. What the conversation offers the session (wanted: the
+// tools a text turn would offer, without the turn's exclusions, and the
+// host's StreamingInputConfig.Tools; none under a tool_choice of none) and
+// what the session holds are both taken now, so a grant or a revocation
+// since the session's tools were last brought in line is judged as it stands
+// when the round begins.
+//
+// A wanted tool runs when the session holds it, or when the turn excluded
+// it and the session dropped it for that (an exclusion is not a
+// withdrawal; a tool the session never held is refused, and a refusal never
+// excludes a tool, so an excluded tool is one the session held). On a
+// session that cannot change its tools, or whose update failed, a wanted
+// tool it lacks is refused as having become available and a held tool not
+// wanted as withdrawn (sessionSyncRefusal). Any other is not available. The
+// stage runs tools for the session, so this applies even when the offer is
+// empty.
+//
+// No lock is taken: the session's tools are read from their snapshot, so a
+// sync holding the offer's lock across the provider's UpdateTools does not
+// hold up the round, and the host's ToolGrants and DescribeTool run under no
+// lock of the stage's.
+func (s *DuplexProviderStage) roundRefusals(
+	r *toolRunner, called []*tools.ToolDescriptor, excluded map[string]bool,
+) roundRefusals {
+	wanted := s.sessionOffers(r, called)
+	o := &s.tools.offer
+	held := o.heldSet()
+	fixed := !s.sessionCanUpdateTools() || o.updateFailed.Load()
+	return refuseAmong(called, func(name string) (string, bool) {
+		switch {
+		case wanted[name] && (held[name] || excluded[name]):
+			return "", false
+		case fixed && wanted[name] != held[name]:
+			return o.sessionSyncRefusal(name, wanted[name]), true
+		default:
+			return notAvailableRefusal(name), true
+		}
+	})
+}
+
+// sessionCanUpdateTools reports whether the session can change its tools
+// (providers.StreamToolUpdater).
+func (s *DuplexProviderStage) sessionCanUpdateTools() bool {
+	_, ok := s.session.(providers.StreamToolUpdater)
+	return ok
+}
+
+// sessionOffers reports which of called the session is offered, by the
+// rules its sync applies (sessionTools): the called tools the conversation
+// offers (offeredAmong, without the turn's exclusions), merged with the
+// host's tools. Only called is resolved, and DescribeTool's outcome for a
+// tool is taken from the session's last sync where it described it.
+func (s *DuplexProviderStage) sessionOffers(r *toolRunner, called []*tools.ToolDescriptor) map[string]bool {
+	offered := r.offeredAmong(s.allowedTools(), called)
+	offer := make([]*tools.ToolDescriptor, 0, len(offered))
+	for _, tool := range called {
+		if offered[tool.Name] {
+			offer = append(offer, &tools.ToolDescriptor{Name: tool.Name})
+		}
+	}
+	wanted := make(map[string]bool, len(offer))
+	for _, name := range toolDefNames(s.sessionTools(r, offer, nil)) {
+		wanted[name] = true
+	}
+	return wanted
 }
 
 // maxToolRounds is the policy's MaxRounds, or the default.
@@ -667,19 +745,22 @@ func (s *DuplexProviderStage) runToolJob(ctx context.Context, job *duplexToolJob
 	return s.runRound(ctx, job)
 }
 
-// runRound runs a round's calls through the tool runner, refusing those to
-// tools the session does not hold but the conversation offers, then brings
-// the session's tools in line with what the round changed, before its
-// responses are sent. A limit, a termination tool or a failed execution stops
-// the tool turn.
+// runRound runs a round's calls through the tool runner, which refuses those
+// to tools the session lacks, the conversation has withdrawn or the model
+// may not call (roundRefusals), then brings the session's tools in line with
+// what the round changed, before its responses are sent. A limit, a
+// termination tool or a failed execution stops the tool turn. A model that
+// keeps making only refused calls is bounded as for any calls: by the
+// repeated-call breaker and the round limit, then the stopped turn's
+// refusal cap (refuseStoppedTurn).
 func (s *DuplexProviderStage) runRound(ctx context.Context, job *duplexToolJob) *duplexToolResult {
-	calls, refused := s.tools.splitUnsynced(job.calls)
-	if len(calls) == 0 {
-		return s.refuseUnsyncedRound(job, refused)
-	}
-	out := job.turn.RunRoundPastPending(ctx, calls, job.rr)
-	out.Results = append(out.Results, refused...)
+	out := job.turn.RunRoundPastPending(ctx, job.calls, job.rr)
 	s.syncSessionTools(ctx, job.turn, job.turn.excluded, true)
+	if out.AllRefused {
+		if res, stopped := s.countRefusedRound(job); stopped {
+			return res
+		}
+	}
 	if !out.Stop && out.Err == nil {
 		return toolRoundResult(out.Results, out.Pending, nil)
 	}
@@ -691,17 +772,19 @@ func (s *DuplexProviderStage) runRound(ctx context.Context, job *duplexToolJob) 
 	return toolRoundResult(refuseUnanswered(job.calls, out.Results, out.Pending, cause), out.Pending, out.Err)
 }
 
-// refuseUnsyncedRound answers a round whose every call names a tool the
-// session does not hold. Such batches count as a stopped turn's refusals do:
-// past maxStoppedTurnRefusals the turn is stopped, and the session closed,
-// with an error naming the tool.
-func (s *DuplexProviderStage) refuseUnsyncedRound(job *duplexToolJob, refused []types.Message) *duplexToolResult {
+// countRefusedRound counts a round whose every call was refused as to a tool
+// the model may not call, as a stopped turn's refusals are counted: a model
+// that keeps calling unavailable tools, with new arguments each time so the
+// repeated-call breaker never trips, is not answered until the round limit.
+// Past maxStoppedTurnRefusals such batches the turn is stopped, and the
+// session closed, with an error naming the tool, and stopped is set.
+func (s *DuplexProviderStage) countRefusedRound(job *duplexToolJob) (res *duplexToolResult, stopped bool) {
 	if s.tools.addRefusal(job.turn) <= maxStoppedTurnRefusals {
-		return toolRoundResult(refused, nil, nil)
+		return nil, false
 	}
 	err := fmt.Errorf("tool %s is not available in this realtime session", job.calls[0].Name)
 	s.tools.stop(job.turn, err)
-	return s.refuseStoppedTurn(job, err)
+	return s.refuseStoppedTurn(job, err), true
 }
 
 // refuseStoppedTurn answers the calls of a stopped tool turn with refusals.
@@ -753,10 +836,7 @@ func refuseUnanswered(
 			continue
 		}
 		errMsg := fmt.Sprintf("Tool %s not executed: the turn's tool calls were stopped: %v", tc.Name, cause)
-		result := types.NewTextToolResult(tc.ID, tc.Name, errMsg)
-		result.Error = errMsg
-		result.ErrorType = types.ToolErrorApproval
-		out = append(out, types.NewToolResultMessage(result))
+		out = append(out, toolRefusal(tc, errMsg))
 	}
 	return out
 }

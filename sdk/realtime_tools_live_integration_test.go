@@ -1017,3 +1017,103 @@ func TestLiveRealtimeTools_ToolErrorKeepsSessionOpen(t *testing.T) {
 		assert.Empty(t, st.Errors())
 	})
 }
+
+// ---------------------------------------------------------------------------
+// Case 10: a registered tool the session was not offered never runs (#2713).
+// ---------------------------------------------------------------------------
+
+// rtlUnofferedPackJSON declares issue_refund in the pack but not on the
+// prompt, so it is registered and never offered. The system prompt tells the
+// model to call it, which a model sometimes does by name.
+const rtlUnofferedPackJSON = `{
+	"id": "rt-live-unoffered",
+	"version": "1.0.0",
+	"prompts": {
+		"chat": {
+			"id": "chat",
+			"name": "Chat",
+			"system_template": "You are a terse assistant. For any refund request call the issue_refund function with the order_id, even if it is not listed among your tools. If a tool call fails or is refused, tell the user the exact error text it returned. Reply in plain text, one short sentence.",
+			"tools": ["get_weather"]
+		}
+	},
+	"tools": {
+		"get_weather": {
+			"name": "get_weather",
+			"description": "Get the current weather for a city",
+			"parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}
+		},
+		"issue_refund": {
+			"name": "issue_refund",
+			"description": "Issue a refund for an order",
+			"parameters": {"type": "object", "properties": {"order_id": {"type": "string"}}, "required": ["order_id"]}
+		}
+	}
+}`
+
+func TestLiveRealtimeTools_UnofferedToolNeverRuns(t *testing.T) {
+	rtlEachRealtime(t, func(t *testing.T, rt rtlRealtime) {
+		bus, ev := rtlBus(t)
+		conv := rtlOpenDuplex(t, rt, rtlUnofferedPackJSON, sdk.WithEventBus(bus))
+		refunds := &rtlCalls{}
+		conv.OnToolCall("issue_refund", refunds.handler(map[string]any{"status": "refunded"}, nil))
+		st := rtlWatch(t, conv)
+
+		// The refusal is reported as a failed call; whether the model makes
+		// the call at all is its choice, so ask up to rtlUnofferedAttempts times.
+		const refusal = "Tool issue_refund was not run: it is not available this turn"
+		attempted := func() bool { return len(ev.toolEvents(events.EventToolCallFailed, "issue_refund")) > 0 }
+		for i := 0; i < rtlUnofferedAttempts && !attempted(); i++ {
+			completed := len(ev.providerCompleted())
+			offset := len(st.Text())
+			require.NoError(t, conv.SendText(context.Background(),
+				fmt.Sprintf("Call issue_refund for order ORD-7%d now, then tell me what it returned.", i)))
+			require.Truef(t, rtlWaitUntil(rtlTimeout, func() bool { return rtlReplyEnded(ev, completed) }),
+				"the turn never ended; reply %q errors %v events %s", st.textSince(offset), st.Errors(), ev.summary())
+			t.Logf("attempt %d: reply %q", i+1, st.textSince(offset))
+		}
+		if !attempted() {
+			assert.Zero(t, refunds.count(), "a tool the session was not offered ran")
+			t.Skipf("%s never called the unoffered tool in %d attempts; nothing to verify", rt.name, rtlUnofferedAttempts)
+		}
+		failed := ev.toolEvents(events.EventToolCallFailed, "issue_refund")
+		require.Error(t, failed[0].Error)
+		assert.Equal(t, refusal, failed[0].Error.Error())
+		assert.Zero(t, refunds.count(), "a tool the session was not offered ran")
+		// What the model was told is the tool response the stage sent the
+		// session, built from this call's tool result: its text, flagged as an
+		// error. The model's own wording of it is its choice.
+		var sent *types.MessageToolResult
+		require.Truef(t, rtlWaitUntil(rtlTimeout, func() bool {
+			sent = rtlToolResult(conv, failed[0].CallID)
+			return sent != nil
+		}), "no tool result for call %s in the history", failed[0].CallID)
+		assert.Equal(t, refusal, sent.GetTextContent(), "the session was not sent the refusal")
+		assert.Equal(t, refusal, sent.Error, "the refusal was not sent as an error")
+		t.Logf("reply: %q", st.Text())
+	})
+}
+
+// rtlToolResult returns the tool result for callID in conv's history, or nil.
+func rtlToolResult(conv *sdk.Conversation, callID string) *types.MessageToolResult {
+	for _, m := range conv.Messages(context.Background()) {
+		if m.ToolResult != nil && m.ToolResult.ID == callID {
+			return m.ToolResult
+		}
+	}
+	return nil
+}
+
+// rtlUnofferedAttempts is how many times the unoffered-tool case asks.
+const rtlUnofferedAttempts = 3
+
+// rtlReplyEnded reports whether a provider call after the first completed
+// ones made no tool calls: the reply that ends the turn.
+func rtlReplyEnded(ev *rtlEvents, completed int) bool {
+	done := ev.providerCompleted()
+	for _, d := range done[min(completed, len(done)):] {
+		if d.ToolCallCount == 0 {
+			return true
+		}
+	}
+	return false
+}

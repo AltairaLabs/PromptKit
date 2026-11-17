@@ -48,6 +48,116 @@ type toolRunner struct {
 	// offers is the offer state of the stage that built the runner: it
 	// outlives the runner, which is rebuilt on each use.
 	offers *toolOffer
+	// views, when set, is where DescribeTool's outcomes (toolOffer.view) are
+	// recorded and read instead of offers: a realtime stage keeps the view
+	// of its session's last sync there, and no other offer state.
+	views *toolOffer
+	// availability decides, for the registered tools a round calls, the
+	// refusal of each the model may not call (see roundRefusals), given the
+	// turn's exclusions. Nil refuses nothing: the provider is never sent
+	// tools.
+	availability func(called []*tools.ToolDescriptor, excluded map[string]bool) roundRefusals
+}
+
+// notAvailableRefusal is the refusal of a call to a registered tool the
+// model may not call this turn.
+func notAvailableRefusal(name string) string {
+	return fmt.Sprintf("Tool %s was not run: it is not available this turn", name)
+}
+
+// roundRefusals holds, by tool name, the refusal of each of a round's calls
+// to a registered tool the model may not call. The round decides it once,
+// before any of its calls runs, so a grant or a revocation one call makes
+// applies from the next round, and every use of the decision (the call
+// budgets, execution, termination and rejection counting) sees the same one.
+type roundRefusals map[string]string
+
+// refusal returns the refusal of a call to name, if the round refuses it.
+func (rf roundRefusals) refusal(name string) (string, bool) {
+	errMsg, ok := rf[name]
+	return errMsg, ok
+}
+
+// roundDecision is a round's decision, taken once before any of its calls
+// runs: the refusals (roundRefusals) and the registered tools its calls name,
+// each resolved from the registry once.
+type roundDecision struct {
+	refused roundRefusals
+	// resolved holds, by name, the registered tool each of the round's calls
+	// names; a name it lacks names no registered tool (or the decision is
+	// the zero value, which resolved nothing).
+	resolved map[string]*tools.ToolDescriptor
+}
+
+// refusal returns the refusal of a call to name, if the round refuses it.
+func (d roundDecision) refusal(name string) (string, bool) {
+	return d.refused.refusal(name)
+}
+
+// allRefused reports whether the round refuses every one of calls, a
+// round's calls (never none).
+func (d roundDecision) allRefused(calls []types.MessageToolCall) bool {
+	return len(availableCalls(calls, d)) == 0
+}
+
+// tool returns the registered tool name names, as the round resolved it, or
+// nil when the round resolved none under it.
+func (d roundDecision) tool(name string) *tools.ToolDescriptor {
+	return d.resolved[name]
+}
+
+// classifyRound decides a round: it resolves the registered tools its calls
+// name, once each, and which of them the model may not call (availability,
+// given the turn's exclusions). A name the registry lacks is not refused
+// here: it keeps its not-found error.
+func (r *toolRunner) classifyRound(calls []types.MessageToolCall, excluded map[string]bool) roundDecision {
+	if r.registry == nil {
+		return roundDecision{}
+	}
+	resolved := make(map[string]*tools.ToolDescriptor, len(calls))
+	seen := make(map[string]bool, len(calls))
+	called := make([]*tools.ToolDescriptor, 0, len(calls))
+	for _, tc := range calls {
+		if seen[tc.Name] {
+			continue
+		}
+		seen[tc.Name] = true
+		if tool := r.registry.Get(tc.Name); tool != nil {
+			resolved[tc.Name] = tool
+			called = append(called, tool)
+		}
+	}
+	d := roundDecision{resolved: resolved}
+	if r.availability != nil {
+		d.refused = r.availability(called, excluded)
+	}
+	return d
+}
+
+// refuseAmong is the round's refusals of called: refuse's answer for each
+// tool's name, where it refuses one.
+func refuseAmong(called []*tools.ToolDescriptor, refuse func(name string) (string, bool)) roundRefusals {
+	refused := make(roundRefusals)
+	for _, tool := range called {
+		if errMsg, no := refuse(tool.Name); no {
+			refused[tool.Name] = errMsg
+		}
+	}
+	return refused
+}
+
+// availableCalls returns calls less those refused refuses.
+func availableCalls(calls []types.MessageToolCall, refused roundDecision) []types.MessageToolCall {
+	if len(refused.refused) == 0 {
+		return calls
+	}
+	out := make([]types.MessageToolCall, 0, len(calls))
+	for _, tc := range calls {
+		if _, no := refused.refusal(tc.Name); !no {
+			out = append(out, tc)
+		}
+	}
+	return out
 }
 
 // toolCallResult holds the outcome of a single tool call execution,
@@ -56,6 +166,9 @@ type toolCallResult struct {
 	index   int
 	message types.Message
 	pending *tools.PendingToolExecution // non-nil if tool returned pending status
+	// unavailable marks a call refused because the model may not call the
+	// tool: it did not run, and no call budget counts it.
+	unavailable bool
 }
 
 // toolLabels returns the Labels from the ToolDescriptor for the given tool name,
@@ -69,18 +182,6 @@ func (r *toolRunner) toolLabels(name string) map[string]string {
 		return nil
 	}
 	return desc.Labels
-}
-
-// toolDeclaration returns the pack declaration the registry holds for a tool,
-// or nil when the tool is undeclared or unknown.
-func (r *toolRunner) toolDeclaration(name string) *packspec.Tool {
-	if r.registry == nil {
-		return nil
-	}
-	if desc := r.registry.Get(name); desc != nil {
-		return desc.Declaration
-	}
-	return nil
 }
 
 // recordToolCalls reports a round's executed tool-call count to the resolver
@@ -104,8 +205,11 @@ func (r *toolRunner) getMaxParallelToolCalls() int {
 	return defaultMaxParallelToolCalls
 }
 
+// executeToolCalls runs a round's calls, refusing those refused names (the
+// round's decision; nil refuses none), and returns their results in call
+// order, less those held pending.
 func (r *toolRunner) executeToolCalls(
-	ctx context.Context, toolCalls []types.MessageToolCall, rr roundRef,
+	ctx context.Context, toolCalls []types.MessageToolCall, rr roundRef, refused roundDecision,
 ) ([]types.Message, error) {
 	if r.registry == nil {
 		return nil, errors.New("tool registry not configured but tool calls present")
@@ -127,7 +231,10 @@ func (r *toolRunner) executeToolCalls(
 		toolCall := tc
 
 		g.Go(func() error {
-			result := r.executeSingleToolCall(gctx, toolCall, rr)
+			result := r.executeSingleToolCall(gctx, toolCall, rr, refused)
+			// However it was answered (the blocklist, a hook or the refusal), a
+			// call the round refuses did not run, and no budget counts it.
+			_, result.unavailable = refused.refusal(toolCall.Name)
 			mu.Lock()
 			defer mu.Unlock()
 			result.index = idx
@@ -146,9 +253,13 @@ func (r *toolRunner) executeToolCalls(
 
 	// Collect results in original order, excluding pending entries.
 	results := make([]types.Message, 0, len(toolCalls))
+	unavailable := 0
 	for i := range resultSlots {
 		if resultSlots[i].pending != nil {
 			continue
+		}
+		if resultSlots[i].unavailable {
+			unavailable++
 		}
 		results = append(results, resultSlots[i].message)
 	}
@@ -156,8 +267,8 @@ func (r *toolRunner) executeToolCalls(
 	// Report what actually ran for the workflow's max_tool_calls budget. results
 	// excludes pending calls, which have not executed and are counted when they
 	// run on resume; errored and policy-blocked calls are included, since both
-	// consumed a round.
-	r.recordToolCalls(len(results))
+	// consumed a round. A call to a tool the model may not call is not.
+	r.recordToolCalls(len(results) - unavailable)
 
 	if len(pendingTools) > 0 {
 		return results, &tools.ErrToolsPending{Pending: pendingTools}
@@ -174,11 +285,8 @@ func (r *toolRunner) preExecCheck(
 ) (hooks.Decision, toolCallResult, bool) {
 	if p := r.policy(); p != nil && isToolBlocked(toolCall.Name, p.Blocklist) {
 		errMsg := fmt.Sprintf("Tool %s is blocked by policy", toolCall.Name)
-		result := types.NewTextToolResult(toolCall.ID, toolCall.Name, errMsg)
-		result.Error = errMsg
-		result.ErrorType = types.ToolErrorApproval
 		return hooks.Decision{}, toolCallResult{
-			message: types.NewToolResultMessage(result),
+			message: toolRefusal(toolCall, errMsg),
 		}, true
 	}
 
@@ -189,10 +297,7 @@ func (r *toolRunner) preExecCheck(
 			errMsg := fmt.Sprintf(
 				"Tool %s blocked by hook: %s", toolCall.Name, hookDecision.Reason,
 			)
-			hookResult := types.NewTextToolResult(toolCall.ID, toolCall.Name, errMsg)
-			hookResult.Error = errMsg
-			hookResult.ErrorType = types.ToolErrorApproval
-			msg := types.NewToolResultMessage(hookResult)
+			msg := toolRefusal(toolCall, errMsg)
 			if hookDecision.Metadata != nil {
 				msg.Meta = hookDecision.Metadata
 			}
@@ -258,13 +363,51 @@ func (r *toolRunner) approvalRefused(
 	ctx context.Context, toolCall types.MessageToolCall, cause error, rr roundRef,
 ) toolCallResult {
 	errMsg := fmt.Sprintf("Tool %s was not run: the approval gate refused it: %v", toolCall.Name, cause)
-	result := types.NewTextToolResult(toolCall.ID, toolCall.Name, errMsg)
-	result.Error = errMsg
-	result.ErrorType = types.ToolErrorApproval
+	return r.refuseCall(ctx, toolCall, errMsg, cause, rr)
+}
+
+// refuseCall is the result of a call refused before it ran: an approval
+// error, which the model is given in place of the call's result. A
+// tool.call.started event and a tool.call.failed event naming cause report
+// it.
+func (r *toolRunner) refuseCall(
+	ctx context.Context, toolCall types.MessageToolCall, errMsg string, cause error, rr roundRef,
+) toolCallResult {
 	labels := r.toolLabels(toolCall.Name)
 	r.emitToolStarted(ctx, toolCall, labels, rr) // paired with the failure, as on every other failure path
 	r.emitToolFailed(ctx, toolCall, cause, time.Now(), labels, rr)
-	return toolCallResult{message: types.NewToolResultMessage(result)}
+	return toolCallResult{message: toolRefusal(toolCall, errMsg)}
+}
+
+// toolRefusal is the tool result answering a call that did not run: errMsg
+// as both its text and its error, classified as an approval error (a policy,
+// hook, gate, call-budget or offer refusal).
+func toolRefusal(tc types.MessageToolCall, errMsg string) types.Message {
+	result := types.NewTextToolResult(tc.ID, tc.Name, errMsg)
+	result.Error = errMsg
+	result.ErrorType = types.ToolErrorApproval
+	return types.NewToolResultMessage(result)
+}
+
+// checkCallable answers a call the round may not run before the approval
+// gate is asked about it: a tool the model may not call (refused), or a
+// name no tool is registered under.
+func (r *toolRunner) checkCallable(
+	ctx context.Context, toolCall types.MessageToolCall, rr roundRef, refused roundDecision,
+) (toolCallResult, bool) {
+	if errMsg, no := refused.refusal(toolCall.Name); no {
+		logger.Warn("refused a call to a tool the model may not call this turn", "tool", toolCall.Name)
+		return r.refuseCall(ctx, toolCall, errMsg, errors.New(errMsg), rr), true
+	}
+	if refused.tool(toolCall.Name) != nil {
+		return toolCallResult{}, false
+	}
+	// The registry's own error names the missing tool.
+	if _, err := r.registry.GetTool(toolCall.Name); err != nil {
+		r.emitToolStarted(ctx, toolCall, nil, rr) // paired with the failure, as on every other failure path
+		return r.toolCallFailed(ctx, toolCall, err, time.Now(), nil, rr), true
+	}
+	return toolCallResult{}, false
 }
 
 // executeSingleToolCall handles policy checks, hooks, execution, and event
@@ -275,18 +418,26 @@ func (r *toolRunner) executeSingleToolCall(
 	ctx context.Context,
 	toolCall types.MessageToolCall,
 	rr roundRef,
+	refused roundDecision,
 ) toolCallResult {
-	toolReq := r.toolRequest(toolCall)
+	tool := refused.tool(toolCall.Name) // resolved once, for the whole round
+	toolReq := r.toolRequest(toolCall, tool)
 	hookDecision, blocked, skip := r.preExecCheck(ctx, toolCall, toolReq)
 	if skip {
 		return blocked
+	}
+	if answer, ok := r.checkCallable(ctx, toolCall, rr, refused); ok {
+		return answer
 	}
 
 	if held, ok := r.holdForApproval(ctx, toolCall, rr); ok {
 		return held // admitted under ToolPolicy.MaxCallsPerMinute when the host approves it
 	}
 
-	labels := r.toolLabels(toolCall.Name)
+	var labels map[string]string
+	if tool != nil {
+		labels = tool.Labels
+	}
 	r.emitToolStarted(ctx, toolCall, labels, rr)
 
 	startTime := time.Now()
@@ -335,14 +486,19 @@ func (r *toolRunner) executeSingleToolCall(
 	return toolCallResult{message: resultMsg}
 }
 
-// toolRequest is the hook request for a tool call, built once per call.
-func (r *toolRunner) toolRequest(toolCall types.MessageToolCall) hooks.ToolRequest {
+// toolRequest is the hook request for a tool call, built once per call:
+// tool is the registered tool it names (its pack declaration), or nil.
+func (r *toolRunner) toolRequest(toolCall types.MessageToolCall, tool *tools.ToolDescriptor) hooks.ToolRequest {
 	if r.hookRegistry == nil {
 		return hooks.ToolRequest{}
 	}
+	var declaration *packspec.Tool
+	if tool != nil {
+		declaration = tool.Declaration
+	}
 	return hooks.ToolRequest{
 		Name: toolCall.Name, Args: toolCall.Args, CallID: toolCall.ID,
-		Declaration: r.toolDeclaration(toolCall.Name),
+		Declaration: declaration,
 		Caller:      r.caller(),
 	}
 }
@@ -586,12 +742,16 @@ func (r *toolRunner) updateExcludedTools(
 	rejectionCounts map[string]int,
 	excluded map[string]bool,
 	round int,
+	refused roundDecision,
 ) bool {
 	changed := false
 	for i := range results {
 		tr := results[i].ToolResult
 		if tr == nil || tr.Error == "" {
 			continue
+		}
+		if _, no := refused.refusal(tr.Name); no {
+			continue // a tool the model may not call is not a rejected offer
 		}
 		rejectionCounts[tr.Name]++
 		if rejectionCounts[tr.Name] > 1 && !excluded[tr.Name] {
@@ -679,6 +839,9 @@ type roundOutcome struct {
 	// feedback for one self-correction attempt. The round counts for nothing
 	// else: the offer, termination and the round limit are not evaluated.
 	Nudged bool
+	// AllRefused reports that the round refused every one of its calls as
+	// to a tool the model may not call: none of them ran.
+	AllRefused bool
 }
 
 // newTurn starts a turn whose run has already spent the cost on history, so
@@ -750,13 +913,17 @@ func (t *toolTurn) runRound(
 	// (a synthetic "you're repeating yourself — stop" result) and let it
 	// self-correct — loops are often transient confusion (e.g. a model retrying
 	// a failing call verbatim). If it loops AGAIN after the nudge, abort.
-	if looping := t.identicalLoopCalls(calls); len(looping) > 0 {
-		return t.identicalLoopOutcome(ctx, calls, looping, rr)
+	// What the model may call is decided once, before any call runs.
+	refused := t.r.classifyRound(calls, t.excluded)
+	// A refused call counts toward the breaker, but it never ran, so it is
+	// answered with its refusal: it neither gets the nudge nor uses it up.
+	if looping := availableCalls(t.identicalLoopCalls(calls), refused); len(looping) > 0 {
+		return t.identicalLoopOutcome(ctx, calls, looping, rr, refused)
 	}
 
 	grantsBefore := t.r.grantedTools()
-	within, over := t.splitCallBudget(calls)
-	results, err := t.r.executeToolCalls(ctx, within, rr)
+	within, over := t.splitCallBudget(calls, refused)
+	results, err := t.r.executeToolCalls(ctx, within, rr, refused)
 	results = append(results, overBudgetResults(over)...)
 	var held []tools.PendingToolExecution
 	if err != nil {
@@ -770,9 +937,9 @@ func (t *toolTurn) runRound(
 		held = pending.Pending
 	}
 
-	out := roundOutcome{Results: results, Pending: held}
+	out := roundOutcome{Results: results, Pending: held, AllRefused: refused.allRefused(calls)}
 	// A skill__activate / skill__deactivate call changes the granted set.
-	out.OfferChanged = t.r.updateExcludedTools(ctx, results, t.rejectionCounts, t.excluded, rr.round) ||
+	out.OfferChanged = t.r.updateExcludedTools(ctx, results, t.rejectionCounts, t.excluded, rr.round, refused) ||
 		!stringSlicesEqual(grantsBefore, t.r.grantedTools())
 	if limit := t.r.getMaxToolCallsPerTurn(); limit > 0 && t.toolCallsExecuted >= limit {
 		out.OfferExhausted = true
@@ -781,8 +948,9 @@ func (t *toolTurn) runRound(
 	switch {
 	case len(held) > 0 && len(ran) == 0:
 		// Every call is held: nothing ran, so no limit is reached.
-	case calledStopTool(t.r.policy(), ran):
-		// termination.tool_called: the named tool has run; stop cleanly.
+	case calledStopTool(t.r.policy(), availableCalls(ran, refused)):
+		// termination.tool_called: the named tool has run; stop cleanly. A
+		// call refused as unavailable did not.
 		out.Stop = true
 	case rr.round == t.maxRounds:
 		out.Stop, out.Err = true, &MaxRoundsError{Rounds: t.maxRounds}
@@ -813,7 +981,7 @@ func callsRun(calls []types.MessageToolCall, held []tools.PendingToolExecution) 
 // the model as synthetic results for one self-correction attempt; after that
 // nudge it stops the turn.
 func (t *toolTurn) identicalLoopOutcome(
-	ctx context.Context, calls, looping []types.MessageToolCall, rr roundRef,
+	ctx context.Context, calls, looping []types.MessageToolCall, rr roundRef, refused roundDecision,
 ) roundOutcome {
 	if t.nudgedLoop {
 		return roundOutcome{Stop: true, Err: fmt.Errorf(
@@ -823,7 +991,7 @@ func (t *toolTurn) identicalLoopOutcome(
 	t.nudgedLoop = true
 	logger.Warn("identical tool-call loop detected; feeding it back to the model for one self-correction attempt",
 		"tool", looping[0].Name)
-	return roundOutcome{Results: t.loopFeedbackResults(ctx, calls, looping, rr), Nudged: true}
+	return roundOutcome{Results: t.loopFeedbackResults(ctx, calls, looping, rr, refused), Nudged: true}
 }
 
 // identicalLoopCalls increments per-call counters and returns the calls whose
@@ -846,8 +1014,10 @@ func (t *toolTurn) identicalLoopCalls(toolCalls []types.MessageToolCall) []types
 // loop was detected: the looping calls get a synthetic "you repeated this — stop"
 // result (NOT executed, since the result wouldn't change), while any non-looping
 // calls in the same round execute normally so every tool_use still has a result.
+// A call the round refuses is never among looping (runRound): it is
+// answered with its refusal, here as on any round.
 func (t *toolTurn) loopFeedbackResults(
-	ctx context.Context, all, looping []types.MessageToolCall, rr roundRef,
+	ctx context.Context, all, looping []types.MessageToolCall, rr roundRef, refused roundDecision,
 ) []types.Message {
 	loopSet := make(map[string]bool, len(looping))
 	for _, c := range looping {
@@ -870,26 +1040,34 @@ func (t *toolTurn) loopFeedbackResults(
 		results = append(results, types.NewToolResultMessage(types.NewTextToolResult(tc.ID, tc.Name, msg)))
 	}
 	if len(toExecute) > 0 {
-		executed, _ := t.r.executeToolCalls(ctx, toExecute, rr)
+		executed, _ := t.r.executeToolCalls(ctx, toExecute, rr, refused)
 		results = append(results, executed...)
 	}
 	return results
 }
 
 // splitCallBudget divides a round's tool calls into those within the turn's
-// max_tool_calls_per_turn budget and those over it, counting the former as
-// executed. Without a cap every call is within budget.
+// max_tool_calls_per_turn budget and those over it, in call order, counting
+// the former as executed. A call the round refuses is within, and counted
+// for nothing: it will not run. Without a cap every call is within budget.
 func (t *toolTurn) splitCallBudget(
-	calls []types.MessageToolCall,
+	calls []types.MessageToolCall, refused roundDecision,
 ) (within, over []types.MessageToolCall) {
-	if limit := t.r.getMaxToolCallsPerTurn(); limit > 0 {
-		remaining := max(limit-t.toolCallsExecuted, 0)
-		if len(calls) > remaining {
-			calls, over = calls[:remaining], calls[remaining:]
+	limit := t.r.getMaxToolCallsPerTurn()
+	within = make([]types.MessageToolCall, 0, len(calls))
+	for _, tc := range calls {
+		if _, no := refused.refusal(tc.Name); no {
+			within = append(within, tc)
+			continue
 		}
+		if limit > 0 && t.toolCallsExecuted >= limit {
+			over = append(over, tc)
+			continue
+		}
+		t.toolCallsExecuted++
+		within = append(within, tc)
 	}
-	t.toolCallsExecuted += len(calls)
-	return calls, over
+	return within, over
 }
 
 // overBudgetResults answers each call over the max_tool_calls_per_turn budget
@@ -899,10 +1077,7 @@ func overBudgetResults(calls []types.MessageToolCall) []types.Message {
 	results := make([]types.Message, 0, len(calls))
 	for _, tc := range calls {
 		errMsg := fmt.Sprintf("Tool %s not executed: the tool call limit for this turn is reached", tc.Name)
-		result := types.NewTextToolResult(tc.ID, tc.Name, errMsg)
-		result.Error = errMsg
-		result.ErrorType = types.ToolErrorApproval
-		results = append(results, types.NewToolResultMessage(result))
+		results = append(results, toolRefusal(tc, errMsg))
 	}
 	return results
 }
@@ -935,6 +1110,48 @@ type toolOffer struct {
 	// describedKey fingerprints the tools array last built, as DescribeTool
 	// shaped it (see describedToolsKey).
 	describedKey string
+	// allowed is the turn's allowed tools as the prompt (or the workflow
+	// state the turn is in) declares them, before a ToolSelector narrows the
+	// tools array: what the model may call is the offer built from them.
+	allowed []string
+	// view is what DescribeTool last made of each tool it described: true
+	// offered under its own name, false withheld or renamed
+	// (descriptorCollector.view).
+	view map[string]bool
+}
+
+// setView records describe's outcomes as the view last built.
+func (o *toolOffer) setView(view map[string]bool) {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.view = view
+}
+
+// lastView returns the view last built (setView), or nil.
+func (o *toolOffer) lastView() map[string]bool {
+	if o == nil {
+		return nil
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.view
+}
+
+// setAllowed records the turn's allowed tools.
+func (o *toolOffer) setAllowed(allowed []string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.allowed = allowed
+}
+
+// allowedTools returns the turn's allowed tools (setAllowed).
+func (o *toolOffer) allowedTools() []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.allowed
 }
 
 // offer returns the tools the model may call: the allowed tools and the
@@ -946,6 +1163,87 @@ func (r *toolRunner) offer(allowed []string, excluded map[string]bool) []*tools.
 		return nil
 	}
 	return r.collectDescriptors(r.withGrantedTools(allowed), excluded)
+}
+
+// offeredAmong reports which of the registered tools called offer(allowed,
+// nil) would offer the model under their own names: those an allowed_tools
+// entry or a grant selects (offerSelects) that DescribeTool keeps without
+// renaming, without the turn's exclusions. A tool DescribeTool renames is
+// offered under the new name only, so a call to its registry name is not to
+// a tool the model was offered. Only called is described: a tool
+// DescribeTool already described in this turn's offers is taken as it
+// described it then, and only one it never did is described now. None while
+// tool calling is off for the turn (tool_choice: none).
+func (r *toolRunner) offeredAmong(allowed []string, called []*tools.ToolDescriptor) map[string]bool {
+	offered := make(map[string]bool, len(called))
+	if r.registry == nil || r.toolsDisabled() {
+		return offered
+	}
+	entries := r.withGrantedTools(allowed)
+	view := r.viewState().lastView()
+	for _, tool := range called {
+		if !offerSelects(entries, tool.Name) {
+			continue
+		}
+		kept, described := view[tool.Name]
+		if !described {
+			kept = r.cfg.DescribeTool == nil || offeredAsItself(tool.Name, r.cfg.DescribeTool(tool))
+		}
+		offered[tool.Name] = kept
+	}
+	return offered
+}
+
+// offeredAsItself reports whether described, DescribeTool's result for the
+// registry tool name, offers the model that tool under name: it is kept,
+// and not renamed.
+func offeredAsItself(name string, described *tools.ToolDescriptor) bool {
+	return described != nil && described.Name == name
+}
+
+// viewState is where DescribeTool's outcomes are recorded and read: views,
+// or the offer state when none is set.
+func (r *toolRunner) viewState() *toolOffer {
+	if r.views != nil {
+		return r.views
+	}
+	return r.offers
+}
+
+// offerSelects reports whether an offer built from entries includes name:
+// an entry names it (a trailing "*" a wildcard, as collectDescriptors expands
+// one), or it is a capability tool, which every offer includes.
+func offerSelects(entries []string, name string) bool {
+	return tools.IsImplicitTool(name) || selectsName(entries, name)
+}
+
+// selectsSameTools reports whether allowed lists a and b select the same
+// registered tools: a wildcard and the names it matches, the same names in
+// another order, and nil and empty all select the same. Grants, capability
+// tools, exclusions and DescribeTool apply to both alike, so an offer built
+// from either is the same.
+func (r *toolRunner) selectsSameTools(a, b []string) bool {
+	if r.registry == nil {
+		return true
+	}
+	same := true
+	r.registry.IterateTools(func(name string, _ *tools.ToolDescriptor) {
+		if offerSelects(a, name) != offerSelects(b, name) {
+			same = false
+		}
+	})
+	return same
+}
+
+// selectsName reports whether an allowed_tools entry names name (a trailing
+// "*" a wildcard).
+func selectsName(entries []string, name string) bool {
+	for _, entry := range entries {
+		if tools.MatchToolPattern(entry, name) {
+			return true
+		}
+	}
+	return false
 }
 
 // toolsDisabled reports whether tool calling is off for the turn (tool_choice:
@@ -971,6 +1269,9 @@ func (r *toolRunner) collectDescriptors(
 	c := &descriptorCollector{
 		registry: r.registry, describe: r.cfg.DescribeTool, excluded: excluded, seen: make(map[string]bool),
 	}
+	if c.describe != nil {
+		c.view = make(map[string]bool)
+	}
 
 	// 1. Pack-declared tools from the prompt's allowed list (slice order). An
 	//    entry ending in "*" (e.g. mcp__server__*) is a wildcard expanded against
@@ -994,6 +1295,9 @@ func (r *toolRunner) collectDescriptors(
 	sort.Slice(c.descriptors, func(i, j int) bool {
 		return c.descriptors[i].Name < c.descriptors[j].Name
 	})
+	if c.view != nil {
+		r.viewState().setView(c.view)
+	}
 	return c.descriptors
 }
 
@@ -1005,6 +1309,9 @@ type descriptorCollector struct {
 	excluded    map[string]bool
 	seen        map[string]bool
 	descriptors []*tools.ToolDescriptor
+	// view records describe's outcome per tool: true offered under its own
+	// name, false withheld or renamed (offeredAsItself).
+	view map[string]bool
 }
 
 // skip reports whether name is excluded or already collected.
@@ -1041,7 +1348,10 @@ func (c *descriptorCollector) addAllowedEntry(entry string) {
 func (c *descriptorCollector) add(tool *tools.ToolDescriptor) {
 	c.seen[tool.Name] = true
 	if c.describe != nil {
-		if tool = c.describe(tool); tool == nil {
+		name := tool.Name
+		tool = c.describe(tool)
+		c.view[name] = offeredAsItself(name, tool)
+		if tool == nil {
 			return
 		}
 	}
@@ -1105,6 +1415,7 @@ func (r *toolRunner) resetOffered() {
 	r.offers.mu.Lock()
 	defer r.offers.mu.Unlock()
 	r.offers.names = nil
+	r.offers.view = nil
 }
 
 // recordOffered adds names to the tools handed to the model this turn.

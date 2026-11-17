@@ -38,9 +38,13 @@ func stageWithPromptPolicy(
 	ts := NewTurnState()
 	ts.Template = &prompt.Template{TaskType: "builder", ToolPolicy: promptPolicy}
 	ts.AllowedTools = toolNames
-	return NewProviderStageWithTurnState(
+	stage := NewProviderStageWithTurnState(
 		mock.NewToolProvider("test", "model", false, nil), registry, caller, &ProviderConfig{}, nil, nil, ts,
 	)
+	// A round run outside a turn (executeToolCalls) is checked against the
+	// tools a turn on this prompt would allow.
+	stage.offerState().setAllowed(toolNames)
+	return stage
 }
 
 // The prompt's tool_policy reaches the stage through TurnState — the path the

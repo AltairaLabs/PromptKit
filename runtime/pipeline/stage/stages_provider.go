@@ -412,7 +412,7 @@ func (s *ProviderStage) runner() *toolRunner {
 		}
 	}
 	cfg.CallRate = s.callRate
-	return &toolRunner{
+	r := &toolRunner{
 		registry:      s.toolRegistry,
 		policy:        s.policy,
 		emitter:       s.emitter,
@@ -422,15 +422,47 @@ func (s *ProviderStage) runner() *toolRunner {
 		stateResolver: s.stateResolver,
 		offers:        s.offerState(),
 	}
+	r.availability = func(called []*tools.ToolDescriptor, _ map[string]bool) roundRefusals {
+		return s.roundRefusals(r, called)
+	}
+	return r
 }
 
-// executeToolCalls runs a round's tool calls (see toolRunner.executeToolCalls).
+// toolCallingProvider returns the provider a tools array is built for, and
+// whether there is one: a registry and a provider that takes tools. Without
+// one the provider is never sent tools.
+func (s *ProviderStage) toolCallingProvider() (providers.ToolSupport, bool) {
+	if s.toolRegistry == nil {
+		return nil, false
+	}
+	toolProvider, ok := s.callProvider().(providers.ToolSupport)
+	return toolProvider, ok
+}
+
+// roundRefusals refuses each called tool the model may not call this round:
+// those outside the offer the turn's allowed tools build (before a
+// ToolSelector narrows the request, without the turn's exclusions). A
+// provider that is never sent tools refuses nothing; one that is refuses
+// every tool outside the offer, all of them under tool_choice none.
+func (s *ProviderStage) roundRefusals(r *toolRunner, called []*tools.ToolDescriptor) roundRefusals {
+	if _, ok := s.toolCallingProvider(); !ok {
+		return nil
+	}
+	offered := r.offeredAmong(r.offers.allowedTools(), called)
+	return refuseAmong(called, func(name string) (string, bool) {
+		return notAvailableRefusal(name), !offered[name]
+	})
+}
+
+// executeToolCalls runs a round's tool calls (see toolRunner.executeToolCalls),
+// refusing those the round would (classifyRound).
 //
 //nolint:unused // tests call it on the stage
 func (s *ProviderStage) executeToolCalls(
 	ctx context.Context, toolCalls []types.MessageToolCall, rr roundRef,
 ) ([]types.Message, error) {
-	return s.runner().executeToolCalls(ctx, toolCalls, rr)
+	r := s.runner()
+	return r.executeToolCalls(ctx, toolCalls, rr, r.classifyRound(toolCalls, nil))
 }
 
 // updateExcludedTools records a round's rejections (see
@@ -441,7 +473,7 @@ func (s *ProviderStage) updateExcludedTools(
 	ctx context.Context, results []types.Message, rejectionCounts map[string]int,
 	excluded map[string]bool, round int,
 ) bool {
-	return s.runner().updateExcludedTools(ctx, results, rejectionCounts, excluded, round)
+	return s.runner().updateExcludedTools(ctx, results, rejectionCounts, excluded, round, roundDecision{})
 }
 
 // getMaxParallelToolCalls returns the max concurrency for parallel tool execution.
@@ -555,11 +587,24 @@ type providerInput struct {
 	messages     []types.Message
 	systemPrompt string
 	allowedTools []string
-	metadata     map[string]interface{}
+	// eligibleTools is allowedTools before a ToolSelector narrowed it: what
+	// the model may call. Nil when no selector narrowed it.
+	eligibleTools []string
+	metadata      map[string]interface{}
 
 	// upstreamErrors are the error elements an upstream stage's failure put
 	// on the input (see isTurnFailureSignal). Any of them means the turn failed.
 	upstreamErrors []StreamElement
+}
+
+// promptTools is the turn's allowed tools as the prompt or the workflow
+// state declares them: eligibleTools when a ToolSelector narrowed
+// allowedTools, else allowedTools.
+func (acc *providerInput) promptTools() []string {
+	if acc.eligibleTools != nil {
+		return acc.eligibleTools
+	}
+	return acc.allowedTools
 }
 
 // forwardUpstreamErrors passes a failed turn's error elements downstream.
@@ -1147,12 +1192,18 @@ func (s *ProviderStage) applyStateHandoff(
 	if !handoff.Valid {
 		return false, nil
 	}
+	// What the model may call follows the state every round, whether or not
+	// the tools array is rebuilt below.
+	s.offerState().setAllowed(handoff.AllowedTools)
 	// Two states may also share a prompt and differ only in what the
 	// conversation's DescribeTool makes of the tools — a workflow state's
 	// skills filter, which the commit that resolving runs has just applied.
 	// That change needs the same rebuild.
+	// The tools array is rebuilt when the state's allowed tools differ too:
+	// what the model is offered and what it may call change together.
 	var offered *describedTools
-	if handoff.SystemPrompt == acc.systemPrompt && !providerChanged {
+	if handoff.SystemPrompt == acc.systemPrompt && !providerChanged &&
+		s.runner().selectsSameTools(handoff.AllowedTools, acc.promptTools()) {
 		var describedChanged bool
 		if describedChanged, offered = s.describedToolsChanged(handoff.AllowedTools, loop.excluded); !describedChanged {
 			return false, nil
@@ -1165,7 +1216,7 @@ func (s *ProviderStage) applyStateHandoff(
 		return false, fmt.Errorf("provider stage: workflow handoff: rebuild tools: %w", err)
 	}
 	acc.systemPrompt = handoff.SystemPrompt
-	acc.allowedTools = handoff.AllowedTools
+	acc.allowedTools, acc.eligibleTools = handoff.AllowedTools, nil
 	loop.providerTools = rebuilt
 	loop.invalidateReserve()
 	if providerChanged {
@@ -1368,6 +1419,7 @@ func (s *ProviderStage) applyToolSelector(ctx context.Context, acc *providerInpu
 		return
 	}
 	if narrowed := intersectInOrder(acc.allowedTools, ids); len(narrowed) > 0 {
+		acc.eligibleTools = acc.allowedTools
 		acc.allowedTools = narrowed
 	}
 }
@@ -1584,6 +1636,7 @@ func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
 	// The one place both multi-round paths pass through exactly once per turn,
 	// and therefore where the turn's offered set begins.
 	s.resetOffered()
+	s.offerState().setAllowed(acc.promptTools())
 	// Seeded with the cost already incurred in this conversation (prior
 	// turns), so MaxCostUSD bounds the whole RUN, not just this turn's loop.
 	// Arena builds a fresh pipeline (and toolLoop) per turn, so without this
@@ -3215,10 +3268,7 @@ func stringSlicesEqual(a, b []string) bool {
 func (s *ProviderStage) offerableDescriptors(
 	allowedTools []string, excluded map[string]bool,
 ) ([]*tools.ToolDescriptor, providers.ToolSupport) {
-	if s.toolRegistry == nil {
-		return nil, nil
-	}
-	toolProvider, ok := s.callProvider().(providers.ToolSupport)
+	toolProvider, ok := s.toolCallingProvider()
 	if !ok {
 		return nil, nil
 	}

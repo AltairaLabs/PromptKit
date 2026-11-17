@@ -90,6 +90,32 @@ func TestToolTurn_RunRound_PerTurnCallCapRefusesOverflow(t *testing.T) {
 	}, out)
 }
 
+// Without a registry, a round with calls fails the turn at once: there is
+// nothing to run the calls on.
+func TestToolTurn_RunRound_NilRegistryFailsTheTurn(t *testing.T) {
+	runner := &toolRunner{policy: func() *pipeline.ToolPolicy { return nil }}
+
+	out := runner.newTurn(nil, 10).RunRound(context.Background(), []types.MessageToolCall{dangerCall("c1")},
+		roundRef{round: 1})
+
+	require.Error(t, out.Err)
+	assert.Equal(t, "provider stage: tool execution failed: tool registry not configured but tool calls present",
+		out.Err.Error())
+	assert.False(t, out.Stop)
+	assert.Empty(t, out.Results)
+}
+
+// A runner its stage gave no offer to check against runs a registered tool.
+func TestToolTurn_RunRound_RunnerWithoutEligibilityIsNotGated(t *testing.T) {
+	turn := turnRunner(t, &pipeline.ToolPolicy{}).newTurn(nil, 10)
+
+	out := turn.RunRound(context.Background(), []types.MessageToolCall{dangerCall("c1")}, roundRef{round: 1})
+
+	assert.Equal(t, []types.Message{
+		types.NewToolResultMessage(types.NewTextToolResult("c1", "danger", "{\n  \"result\": \"mock response\"\n}")),
+	}, out.Results, "the mock tool ran and returned its output")
+}
+
 func TestToolTurn_RunRound_IdenticalCallBreaker(t *testing.T) {
 	turn := turnRunner(t, &pipeline.ToolPolicy{
 		Blocklist:             []string{"danger"},
