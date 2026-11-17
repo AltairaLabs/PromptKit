@@ -3158,9 +3158,10 @@ func TestAfterRound_IdenticalToolCallBreaker(t *testing.T) {
 
 		// Round 3: hits threshold — NUDGE (continue, no error), feedback appended.
 		before := len(loop.messages)
-		done, msgs, loopErr := loop.afterRound(context.Background(), []string{"loop_tool"}, mkResponse(3), true, roundRef{round: 3})
+		done, _, loopErr := loop.afterRound(context.Background(), []string{"loop_tool"}, mkResponse(3), true, roundRef{round: 3})
 		assert.False(t, done, "threshold should nudge, not abort")
 		require.NoError(t, loopErr, "threshold nudge should not error")
+		msgs := loop.messages
 		require.Greater(t, len(msgs), before, "a feedback message should be appended")
 		require.NotNil(t, msgs[len(msgs)-1].ToolResult)
 		assert.Contains(t, msgs[len(msgs)-1].ToolResult.GetTextContent(), "Repeated call",

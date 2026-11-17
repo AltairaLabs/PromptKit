@@ -795,7 +795,7 @@ func TestDuplexTools_RoundPastTheLimitIsRefused(t *testing.T) {
 	})
 
 	// Round 1 repeats a call: the repeat is fed back, not run, and the round
-	// is a nudge, so nothing stops.
+	// limit stops the turn after it, as after any round.
 	h.emit(toolCallTurn(weatherCall("c1"), weatherCall("c2")))
 	sent := h.awaitSent(2)
 	assert.Equal(t, []providers.ToolResponse{{

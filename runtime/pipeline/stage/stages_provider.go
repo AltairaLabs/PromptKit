@@ -1742,19 +1742,20 @@ func (tl *toolLoop) applyRound(
 	}
 	ResetIdleFromContext(ctx)
 	tl.persistMessages(ctx, round)
-	if out.Nudged {
-		return false, tl.messages, nil
-	}
 
 	// Rebuild the tools array when this round changed what the model may call:
 	// a tool crossed the rejection threshold (excluded), or a tool call such as
 	// skill__activate / skill__deactivate changed the granted set. Rebuilding
 	// busts the provider's cached prefix, so it happens only on a real change.
+	// A nudged round's other calls change it as any round's do.
 	if err := tl.rebuildToolsIfChanged(allowedTools, out.OfferChanged); err != nil {
 		return true, tl.messages, err
 	}
 
-	tl.toolChoice = toolChoiceAuto
+	if !out.Nudged {
+		// A nudged round leaves the tool choice for the model's retry.
+		tl.toolChoice = toolChoiceAuto
+	}
 
 	// max_tool_calls_per_turn spent: offer no tools from here on, so the next
 	// round is the model's answer rather than more calls to reject.
