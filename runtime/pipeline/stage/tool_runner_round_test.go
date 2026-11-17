@@ -105,6 +105,16 @@ func TestToolTurn_RunRound_NilRegistryFailsTheTurn(t *testing.T) {
 	assert.Empty(t, out.Results)
 }
 
+// A runner its stage gave no offer to check against runs a registered tool.
+func TestToolTurn_RunRound_RunnerWithoutEligibilityIsNotGated(t *testing.T) {
+	turn := turnRunner(t, &pipeline.ToolPolicy{}).newTurn(nil, 10)
+
+	out := turn.RunRound(context.Background(), []types.MessageToolCall{dangerCall("c1")}, roundRef{round: 1})
+
+	require.Len(t, out.Results, 1)
+	assert.Empty(t, out.Results[0].ToolResult.Error, "the call ran")
+}
+
 func TestToolTurn_RunRound_IdenticalCallBreaker(t *testing.T) {
 	turn := turnRunner(t, &pipeline.ToolPolicy{
 		Blocklist:             []string{"danger"},

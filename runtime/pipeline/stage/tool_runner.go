@@ -303,7 +303,8 @@ func splitRefused(
 // turn is refused: a name the registry lacks keeps its not-found error, and
 // a turn whose provider was never sent tools is not gated.
 func (r *toolRunner) offerRefusal(name string) (string, bool) {
-	if r.eligible == nil || r.registry == nil || r.registry.Get(name) == nil {
+	// executeToolCalls has already refused a round without a registry.
+	if r.eligible == nil || r.registry.Get(name) == nil {
 		return "", false
 	}
 	if ok, gated := r.eligible(name); ok || !gated {
