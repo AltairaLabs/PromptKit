@@ -454,3 +454,37 @@ func TestDuplexSession_BoundNeverDropsAHeldCall(t *testing.T) {
 	_, kept = s.ToolCall("run-0")
 	assert.False(t, kept, "the oldest call not held is dropped")
 }
+
+// A call recorded again is fresh: the bound drops older calls before it.
+func TestDuplexSession_RerecordedCallIsFresh(t *testing.T) {
+	s := &duplexSession{}
+	s.rememberCalls([]types.MessageToolCall{{ID: "a", Name: "lookup"}})
+	for i := 0; i < maxRecordedCalls-1; i++ {
+		s.rememberCalls([]types.MessageToolCall{{ID: fmt.Sprintf("r-%d", i), Name: "lookup"}})
+	}
+	s.rememberCalls([]types.MessageToolCall{{ID: "a", Name: "get_location"}})
+	s.rememberCalls([]types.MessageToolCall{{ID: "last", Name: "lookup"}})
+
+	got, kept := s.ToolCall("a")
+	require.True(t, kept, "the fresh call is not dropped for its old position")
+	assert.Equal(t, "get_location", got.Name)
+	_, kept = s.ToolCall("r-0")
+	assert.False(t, kept, "the oldest call is dropped")
+}
+
+// Recording a held call again from an element that does not hold it keeps
+// it held: it is never dropped by the bound.
+func TestDuplexSession_HeldCallStaysHeldWhenRecordedAgain(t *testing.T) {
+	s := &duplexSession{}
+	s.holdCalls([]tools.PendingToolExecution{{CallID: "held", ToolName: "approve_refund", RawArgs: []byte(`{}`)}})
+	s.rememberCalls([]types.MessageToolCall{{ID: "held", Name: "approve_refund", Args: []byte(`{}`)}})
+	for i := 0; i <= maxRecordedCalls; i++ {
+		s.rememberCalls([]types.MessageToolCall{{ID: fmt.Sprintf("r-%d", i), Name: "lookup"}})
+	}
+	_, kept := s.ToolCall("held")
+	assert.True(t, kept)
+	s.callsMu.Lock()
+	defer s.callsMu.Unlock()
+	assert.True(t, s.calls["held"].held)
+	assert.Equal(t, maxRecordedCalls, s.unheld)
+}

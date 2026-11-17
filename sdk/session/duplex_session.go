@@ -50,7 +50,7 @@ type duplexSession struct {
 	callsMu sync.Mutex
 	calls   map[string]recordedCall
 	// callOrder is the IDs of the calls not held, oldest first, for the
-	// bound; an ID no longer recorded, or since held, is skipped.
+	// bound.
 	callOrder []string
 	// unheld counts the recorded calls not held.
 	unheld int
@@ -791,7 +791,9 @@ func (s *duplexSession) rememberCalls(calls []types.MessageToolCall) {
 }
 
 // rememberCallsLocked records calls, held or not, with callsMu held, and
-// drops the oldest calls not held past maxRecordedCalls.
+// drops the oldest calls not held past maxRecordedCalls. A call recorded again
+// is fresh: it moves to the end of the order. A held call stays held when an
+// element that does not hold it records it again.
 func (s *duplexSession) rememberCallsLocked(calls []types.MessageToolCall, held bool) {
 	if len(calls) == 0 {
 		return
@@ -800,43 +802,34 @@ func (s *duplexSession) rememberCallsLocked(calls []types.MessageToolCall, held 
 		s.calls = make(map[string]recordedCall, len(calls))
 	}
 	for _, tc := range calls {
-		if prev, ok := s.calls[tc.ID]; ok && !prev.held {
+		prev, ok := s.calls[tc.ID]
+		isHeld := held || (ok && prev.held)
+		if ok && !prev.held {
 			s.unheld--
+			s.dropFromOrderLocked(tc.ID)
 		}
-		s.calls[tc.ID] = recordedCall{call: tc, held: held}
-		if !held {
+		s.calls[tc.ID] = recordedCall{call: tc, held: isHeld}
+		if !isHeld {
 			s.unheld++
 			s.callOrder = append(s.callOrder, tc.ID)
 		}
 	}
-	if len(s.callOrder) > 2*maxRecordedCalls {
-		s.compactCallOrderLocked()
-	}
 	for s.unheld > maxRecordedCalls && len(s.callOrder) > 0 {
 		oldest := s.callOrder[0]
 		s.callOrder = s.callOrder[1:]
-		if rc, ok := s.calls[oldest]; ok && !rc.held {
-			delete(s.calls, oldest)
-			s.unheld--
-		}
+		delete(s.calls, oldest)
+		s.unheld--
 	}
 }
 
-// compactCallOrderLocked drops from callOrder the IDs no longer recorded as
-// calls not held, and the earlier of any ID listed twice, so it stays as
-// long as the record it orders.
-func (s *duplexSession) compactCallOrderLocked() {
-	last := make(map[string]int, len(s.callOrder))
-	for i, id := range s.callOrder {
-		last[id] = i
-	}
-	kept := s.callOrder[:0]
-	for i, id := range s.callOrder {
-		if rc, ok := s.calls[id]; ok && !rc.held && last[id] == i {
-			kept = append(kept, id)
+// dropFromOrderLocked removes id from callOrder, with callsMu held.
+func (s *duplexSession) dropFromOrderLocked(id string) {
+	for i, recorded := range s.callOrder {
+		if recorded == id {
+			s.callOrder = append(s.callOrder[:i], s.callOrder[i+1:]...)
+			return
 		}
 	}
-	s.callOrder = kept
 }
 
 // forgetCall drops the call recorded under id: it is answered.
@@ -855,9 +848,7 @@ func (s *duplexSession) forgetCallLocked(id string) {
 	delete(s.calls, id)
 	if !rc.held {
 		s.unheld--
-	}
-	if len(s.calls) == 0 {
-		s.callOrder = nil
+		s.dropFromOrderLocked(id)
 	}
 }
 
