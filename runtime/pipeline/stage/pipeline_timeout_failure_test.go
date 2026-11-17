@@ -27,6 +27,7 @@ func waitForCtxStage(name string) *StageFunc {
 // cancellation stays silent. Repeated: the error must arrive every time, not
 // when the delivery happens to beat the done execution context.
 func TestExecuteSync_ExecutionTimeoutFailsTheTurn(t *testing.T) {
+	t.Parallel()
 	config := DefaultPipelineConfig()
 	config.ExecutionTimeout = 5 * time.Millisecond
 	config.IdleTimeout = 0
@@ -54,6 +55,7 @@ func TestExecuteSync_ExecutionTimeoutFailsTheTurn(t *testing.T) {
 // the execution's context. Unbuffered output: the delivery has to wait for the
 // reader, and must not give up because the execution's context is done.
 func TestExecute_TimeoutFailureWaitsForAReader(t *testing.T) {
+	t.Parallel()
 	config := DefaultPipelineConfig()
 	config.ChannelBufferSize = 0
 	config.ExecutionTimeout = 5 * time.Millisecond
@@ -76,6 +78,7 @@ func TestExecute_TimeoutFailureWaitsForAReader(t *testing.T) {
 // TestExecuteSync_IdleTimeoutFailsTheTurn: the same for IdleTimeout, whose
 // context ends as Canceled. The error names the idle timeout as the cause.
 func TestExecuteSync_IdleTimeoutFailsTheTurn(t *testing.T) {
+	t.Parallel()
 	config := DefaultPipelineConfig()
 	config.ExecutionTimeout = 0
 	config.IdleTimeout = 5 * time.Millisecond

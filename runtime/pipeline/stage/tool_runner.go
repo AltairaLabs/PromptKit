@@ -809,8 +809,25 @@ func (t *toolTurn) AddCost(c *types.CostInfo) error {
 // RunRound runs one round's tool calls under the turn's policy: the
 // repeated-identical-call breaker, the per-turn call cap, execution (policy,
 // hooks, approval, the registry), rejection tracking, termination.tool_called
-// and the round limit.
+// and the round limit. A round with calls held pending returns as soon as
+// they are held, without the checks after execution: a text turn ends there.
 func (t *toolTurn) RunRound(ctx context.Context, calls []types.MessageToolCall, rr roundRef) roundOutcome {
+	return t.runRound(ctx, calls, rr, false)
+}
+
+// RunRoundPastPending is RunRound for a turn that goes on past calls held
+// pending (a realtime session): the checks after execution apply to the
+// calls that ran, and the held calls are returned in Pending alongside them.
+func (t *toolTurn) RunRoundPastPending(
+	ctx context.Context, calls []types.MessageToolCall, rr roundRef,
+) roundOutcome {
+	return t.runRound(ctx, calls, rr, true)
+}
+
+// runRound is RunRound, going on past held calls when pastPending is set.
+func (t *toolTurn) runRound(
+	ctx context.Context, calls []types.MessageToolCall, rr roundRef, pastPending bool,
+) roundOutcome {
 	// Repeated-identical-call breaker. The first time the same tool is called
 	// with identical arguments too many times, feed that back to the model once
 	// (a synthetic "you're repeating yourself — stop" result) and let it
@@ -824,28 +841,54 @@ func (t *toolTurn) RunRound(ctx context.Context, calls []types.MessageToolCall, 
 	within, over := t.splitCallBudget(calls)
 	results, err := t.r.executeToolCalls(ctx, within, rr)
 	results = append(results, overBudgetResults(over)...)
+	var held []tools.PendingToolExecution
 	if err != nil {
-		if pending, ok := tools.IsErrToolsPending(err); ok {
+		pending, ok := tools.IsErrToolsPending(err)
+		if !ok {
+			return roundOutcome{Err: fmt.Errorf("provider stage: tool execution failed: %w", err)}
+		}
+		if !pastPending {
 			return roundOutcome{Results: results, Pending: pending.Pending}
 		}
-		return roundOutcome{Err: fmt.Errorf("provider stage: tool execution failed: %w", err)}
+		held = pending.Pending
 	}
 
-	out := roundOutcome{Results: results}
+	out := roundOutcome{Results: results, Pending: held}
 	// A skill__activate / skill__deactivate call changes the granted set.
 	out.OfferChanged = t.r.updateExcludedTools(ctx, results, t.rejectionCounts, t.excluded, rr.round) ||
 		!stringSlicesEqual(grantsBefore, t.r.grantedTools())
 	if limit := t.r.getMaxToolCallsPerTurn(); limit > 0 && t.toolCallsExecuted >= limit {
 		out.OfferExhausted = true
 	}
+	ran := callsRun(calls, held)
 	switch {
-	case calledStopTool(t.r.policy(), calls):
+	case len(held) > 0 && len(ran) == 0:
+		// Every call is held: nothing ran, so no limit is reached.
+	case calledStopTool(t.r.policy(), ran):
 		// termination.tool_called: the named tool has run; stop cleanly.
 		out.Stop = true
 	case rr.round == t.maxRounds:
 		out.Stop, out.Err = true, &MaxRoundsError{Rounds: t.maxRounds}
 	}
 	return out
+}
+
+// callsRun returns calls less those held pending.
+func callsRun(calls []types.MessageToolCall, held []tools.PendingToolExecution) []types.MessageToolCall {
+	if len(held) == 0 {
+		return calls
+	}
+	isHeld := make(map[string]bool, len(held))
+	for i := range held {
+		isHeld[held[i].CallID] = true
+	}
+	run := make([]types.MessageToolCall, 0, len(calls))
+	for _, tc := range calls {
+		if !isHeld[tc.ID] {
+			run = append(run, tc)
+		}
+	}
+	return run
 }
 
 // identicalLoopOutcome applies the repeated-identical-call breaker for a round
@@ -963,9 +1006,11 @@ func calledStopTool(policy *pipeline.ToolPolicy, toolCalls []types.MessageToolCa
 
 // toolOffer is the offer state that outlives a tools build: the names offered
 // during the current turn and the fingerprint of the tools array last built.
-// A stage owns one, and every runner it builds shares it. It is locked because
-// a realtime session builds its offer on one goroutine while its tool rounds
-// run on another.
+// A ProviderStage owns one, and every runner it builds shares it; it is
+// locked so a runner can be used from any goroutine. A realtime stage keeps
+// its own per-turn offer (duplexToolTurn.offered) and builds runners without
+// one: none of the methods that use it run there, and each treats a runner
+// without one as an empty offer.
 type toolOffer struct {
 	mu sync.Mutex
 	// names is the union of the tools offered across the turn's rounds.
@@ -1137,6 +1182,9 @@ func (r *toolRunner) withGrantedTools(allowedTools []string) []string {
 // offered once is reported offered for the rest of the conversation and a
 // tools_offered check with absent:true can never fail again.
 func (r *toolRunner) resetOffered() {
+	if r.offers == nil {
+		return
+	}
 	r.offers.mu.Lock()
 	defer r.offers.mu.Unlock()
 	r.offers.names = nil
@@ -1150,7 +1198,7 @@ func (r *toolRunner) resetOffered() {
 // types.MetaToolsOffered, which is what makes the tools_offered eval possible —
 // nothing else records a tool the model was offered but never called.
 func (r *toolRunner) recordOffered(names ...string) {
-	if len(names) == 0 {
+	if len(names) == 0 || r.offers == nil {
 		return
 	}
 	r.offers.mu.Lock()
@@ -1166,6 +1214,9 @@ func (r *toolRunner) recordOffered(names ...string) {
 // offeredToolNames returns the turn's offered set, sorted, or nil when the turn
 // offered no tools at all.
 func (r *toolRunner) offeredToolNames() []string {
+	if r.offers == nil {
+		return nil
+	}
 	r.offers.mu.Lock()
 	defer r.offers.mu.Unlock()
 	if len(r.offers.names) == 0 {
@@ -1220,6 +1271,9 @@ func (r *toolRunner) describedToolsKey(descriptors []*tools.ToolDescriptor) stri
 // describedChanged reports whether descriptors differ from the tools array
 // last built (markBuilt), as DescribeTool shapes them.
 func (r *toolRunner) describedChanged(descriptors []*tools.ToolDescriptor) bool {
+	if r.offers == nil {
+		return true
+	}
 	key := r.describedToolsKey(descriptors)
 	r.offers.mu.Lock()
 	defer r.offers.mu.Unlock()
@@ -1228,6 +1282,9 @@ func (r *toolRunner) describedChanged(descriptors []*tools.ToolDescriptor) bool 
 
 // markBuilt records descriptors as the tools array last built.
 func (r *toolRunner) markBuilt(descriptors []*tools.ToolDescriptor) {
+	if r.offers == nil {
+		return
+	}
 	key := r.describedToolsKey(descriptors)
 	r.offers.mu.Lock()
 	defer r.offers.mu.Unlock()

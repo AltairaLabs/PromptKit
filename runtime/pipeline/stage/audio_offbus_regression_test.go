@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -16,13 +17,15 @@ import (
 // frames through the instrumented pacing stage produces ZERO events on the
 // bus. Per-frame audio telemetry is direct-update only (see #853). If a future
 // change routes audio health through bus.Publish, this test fails.
+//
+// NOT parallel: it registers the global DefaultStreamMetrics, which makes
+// every pipeline built meanwhile instrument its stage inputs.
 func TestAudioTelemetry_NeverPublishesToBus(t *testing.T) {
 	providers.ResetDefaultStreamMetrics()
 	t.Cleanup(providers.ResetDefaultStreamMetrics)
 	providers.RegisterDefaultStreamMetrics(prometheus.NewRegistry(), "test", nil)
 
 	bus := events.NewEventBus(events.WithEventBufferSize(1024))
-	t.Cleanup(bus.Close)
 	var published atomic.Int64 // atomic: SubscribeAll delivers on worker goroutines
 	// events.Listener is `func(*Event)`, so a plain func value satisfies it.
 	bus.SubscribeAll(func(_ *events.Event) { published.Add(1) })
@@ -43,8 +46,14 @@ func TestAudioTelemetry_NeverPublishesToBus(t *testing.T) {
 		t.Fatalf("Process error: %v", err)
 	}
 
-	// Give any (erroneously published) events a chance to be delivered.
-	time.Sleep(20 * time.Millisecond)
+	// The telemetry went to the metrics: the over-advancing clock put
+	// chunks behind their deadline.
+	behind := testutil.ToFloat64(providers.DefaultStreamMetrics().PacingBehindDeadlineVec().WithLabelValues("input"))
+	if behind < 1 {
+		t.Fatalf("audio_pacing_behind_deadline_total{input} = %v, want >= 1: the telemetry path never ran", behind)
+	}
+	// Close waits for the listener to finish anything (erroneously) published.
+	bus.Close()
 	if got := published.Load(); got != 0 {
 		t.Errorf("audio path published %d events to the bus; want 0 (off-bus invariant)", got)
 	}

@@ -298,9 +298,10 @@ func TestDuplexToolOffer_EarlierTurnsRoundDoesNotChangeTheNewTurnsOffer(t *testi
 
 	h.emit(toolCallTurn(namedCall("c1", "activate")))
 	<-exec.started
+	earlier := h.toolTurn()
 	user := types.Message{Role: roleUser, Content: "never mind"}
 	h.input <- StreamElement{Message: &user}
-	require.Eventually(t, func() bool { return len(h.output) >= 2 }, 2*time.Second, time.Millisecond)
+	h.awaitNewToolTurn(earlier) // the round finishes once the new turn owns the offer
 	close(exec.gate)
 	h.awaitSent(1)
 	h.emit(textTurn("ok", nil))
@@ -374,9 +375,10 @@ func TestDuplexToolOffer_SpentBudgetKeepsTheSessionsTools(t *testing.T) {
 
 	h.emit(toolCallTurn(weatherCall("c1")))
 	h.awaitSent(2)
+	h.awaitToolTurnEnded() // by "I cannot check again"
 	user := types.Message{Role: roleUser, Content: "and now?"}
 	h.input <- StreamElement{Message: &user}
-	require.Eventually(t, func() bool { return len(h.output) >= 6 }, 2*time.Second, time.Millisecond)
+	h.awaitNewToolTurn(nil)
 	h.emit(toolCallTurn(weatherCall("c3")))
 	sent := h.awaitSent(3)
 	h.finish()
@@ -542,4 +544,74 @@ func TestDuplexToolOffer_ContentlessCompletionLiftsTheExclusion(t *testing.T) {
 	updates, _ := h.sess().toolUpdates()
 	assert.Empty(t, updates[0])
 	assert.Equal(t, []string{"flaky"}, toolNamesOf(updates[1]))
+}
+
+// A tool the conversation withdraws (here a revoked skill grant) from a
+// session that cannot drop it, or whose update failed, is still held by the
+// session; a call to it is refused, not run.
+func TestDuplexToolOffer_WithdrawnToolTheSessionStillHoldsIsRefused(t *testing.T) {
+	for name, tc := range map[string]struct {
+		failUpdates bool
+		reason      string
+	}{
+		"no updater":    {reason: "the provider cannot remove tools from a live session"},
+		"failed update": {failUpdates: true, reason: "the session's tools could not be updated"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			exec := &grantingExec{granted: []string{"refund"}}
+			reg := registryWithTools(t, "weather", "refund")
+			reg.RegisterExecutor(exec)
+			h := startRealtime(t, realtimeOpts{
+				registry:    reg,
+				cfg:         DuplexToolConfig{ToolGrants: exec.grants},
+				turnState:   &TurnState{AllowedTools: []string{"weather"}},
+				failUpdates: tc.failUpdates,
+			})
+			require.Equal(t, []string{"refund", "weather"}, toolNamesOf(h.provider.createdWith()[0].Tools))
+
+			exec.revoke()
+			h.emit(toolCallTurn(namedCall("c1", "weather")))
+			h.awaitSent(1)
+			h.emit(toolCallTurn(namedCall("c2", "refund"), namedCall("c3", "weather")))
+			sent := h.awaitSent(2)
+			elems := h.finish()
+
+			refusal := "Tool refund was not run: it was withdrawn after this realtime session started, and " + tc.reason
+			assert.Equal(t, []providers.ToolResponse{
+				{ToolCallID: "c3", Result: "ok"},
+				{ToolCallID: "c2", Result: refusal, IsError: true},
+			}, sent[1])
+			assert.Equal(t, []string{"weather", "weather"}, exec.calls(), "the withdrawn tool never runs")
+			results := toolResultMessages(elems)
+			require.Len(t, results, 3)
+			assert.Equal(t, refusal, results[2].Error)
+		})
+	}
+}
+
+// A tool excluded for this tool turn after repeated failures is not
+// withdrawn from the conversation: on a session that cannot drop it, a
+// further call runs as it would on a text turn, and is not refused as
+// withdrawn.
+func TestDuplexToolOffer_TurnExclusionIsNotAWithdrawal(t *testing.T) {
+	call := func(id string) types.MessageToolCall {
+		return types.MessageToolCall{ID: id, Name: "flaky", Args: json.RawMessage(`{"n":"` + id + `"}`)}
+	}
+	reg := registryWithTools(t, "flaky")
+	reg.RegisterExecutor(failingExec{})
+	h := startRealtime(t, realtimeOpts{
+		registry:  reg,
+		turnState: &TurnState{AllowedTools: []string{"flaky"}},
+		script:    [][]providers.StreamChunk{toolCallTurn(call("c3"))},
+	})
+
+	h.emit(toolCallTurn(call("c1"), call("c2")))
+	sent := h.awaitSent(2)
+	h.finish()
+
+	require.Len(t, sent[1], 1)
+	assert.Equal(t, "c3", sent[1][0].ToolCallID)
+	assert.True(t, sent[1][0].IsError)
+	assert.Contains(t, sent[1][0].Result, "backend down", "the call ran")
+	assert.NotContains(t, sent[1][0].Result, "withdrawn")
 }

@@ -254,6 +254,7 @@ func TestFrameRateLimitStage_VideoFrames(t *testing.T) {
 }
 
 func TestFrameRateLimitStage_HighFPS_PassesMoreFrames(t *testing.T) {
+	t.Parallel()
 	// Very high FPS - should pass all frames sent with small delays
 	config := FrameRateLimitConfig{
 		TargetFPS:           1000.0, // 1000 FPS = 1ms between frames

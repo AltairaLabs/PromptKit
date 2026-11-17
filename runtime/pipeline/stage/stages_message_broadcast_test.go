@@ -58,8 +58,9 @@ func runBroadcast(t *testing.T, elems []StreamElement, want int) []*events.Messa
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	// A short settle so an unexpected EXTRA event is still caught.
-	time.Sleep(150 * time.Millisecond)
+	// Process has returned, so every publish is on the bus: Close delivers
+	// them all before returning, and an unexpected EXTRA event is still caught.
+	bus.Close()
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -110,6 +111,7 @@ func liveMsgElem(role, content string) StreamElement {
 // re-published, and the published index continues from the persisted
 // transcript rather than restarting each turn.
 func TestMessageBroadcastStage_SkipsHistoryAndIndexesAbsolutely(t *testing.T) {
+	t.Parallel()
 	got := runBroadcast(t, []StreamElement{
 		historyMsgElem("user", "old q"),
 		historyMsgElem("assistant", "old a"),
@@ -127,6 +129,7 @@ func TestMessageBroadcastStage_SkipsHistoryAndIndexesAbsolutely(t *testing.T) {
 // TestMessageBroadcastStage_StripsBinary is the bus-route half of the one
 // deliberate difference from the recording route.
 func TestMessageBroadcastStage_StripsBinary(t *testing.T) {
+	t.Parallel()
 	raw := "AAAABBBBCCCC"
 	m := types.Message{
 		Role: "user",
@@ -169,6 +172,7 @@ func TestMessageBroadcastStage_PassesElementsThrough(t *testing.T) {
 // the stage exists for: a tool-calling round and the final answer are distinct
 // events in order, not one batch at end of turn.
 func TestMessageBroadcastStage_ToolLoopRoundsArriveSeparately(t *testing.T) {
+	t.Parallel()
 	toolCallMsg := types.Message{
 		Role: "assistant",
 		ToolCalls: []types.MessageToolCall{
@@ -210,6 +214,7 @@ func TestMessageBroadcastStage_ToolLoopRoundsArriveSeparately(t *testing.T) {
 // This is not a bug to fix here; it is the contract to place the stage by.
 // See the precondition on MessageBroadcastStage.
 func TestMessageBroadcastStage_IndexIsArrivalPosition(t *testing.T) {
+	t.Parallel()
 	// Transcript order would be first, second, third. Deliver them scrambled.
 	got := runBroadcast(t, []StreamElement{
 		liveMsgElem("user", "third"),
@@ -355,6 +360,7 @@ func inlineBinaryIn(d *events.MessageCreatedData) []string {
 // metadata only, ALWAYS: MIME type, dimensions, size, URL references, never the
 // bytes. Sibling of the #853 audio guard above.
 func TestMessageBroadcastStage_NeverPutsBinaryOnTheBus(t *testing.T) {
+	t.Parallel()
 	msg := binaryBearingMessage()
 	got := runBroadcast(t, []StreamElement{NewMessageElement(&msg)}, 1)
 
@@ -381,6 +387,7 @@ func TestMessageBroadcastStage_NeverPutsBinaryOnTheBus(t *testing.T) {
 // With a recording stage wired, the binary goes to the STORE and still not to
 // the bus — the two routes are not two copies of the same thing.
 func TestRecordingStage_KeepsBinaryOffTheBusButInTheStore(t *testing.T) {
+	t.Parallel()
 	bus := events.NewEventBus()
 	t.Cleanup(bus.Close)
 
@@ -408,7 +415,7 @@ func TestRecordingStage_KeepsBinaryOffTheBusButInTheStore(t *testing.T) {
 	for range out { //nolint:revive // draining
 	}
 
-	time.Sleep(150 * time.Millisecond) // let any stray publish land
+	bus.Close() // Process has returned: deliver any stray publish before checking
 
 	mu.Lock()
 	defer mu.Unlock()

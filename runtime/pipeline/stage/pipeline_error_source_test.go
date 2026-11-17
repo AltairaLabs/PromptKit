@@ -94,6 +94,7 @@ func TestExecute_SameBareSentinelFromAnotherStageIsNotTheFailure(t *testing.T) {
 // returns its own context error. The turn failed once: one failure reaches
 // the caller.
 func TestExecute_TimeoutForwardedThenReturnedIsOneFailure(t *testing.T) {
+	t.Parallel()
 	config := DefaultPipelineConfig()
 	config.ExecutionTimeout = 5 * time.Millisecond
 	config.IdleTimeout = 0

@@ -137,6 +137,7 @@ func assistantElement(text string) stage.StreamElement {
 // (#2301). It used to stop counting as speaking the moment the audio was
 // emitted.
 func TestTTSStageWithInterruption_PlaybackKeepsBotSpeaking(t *testing.T) {
+	t.Parallel()
 	const playback = 400 * time.Millisecond
 	h := audio.NewInterruptionHandler(audio.InterruptionImmediate, nil)
 	h.BeginResponse()

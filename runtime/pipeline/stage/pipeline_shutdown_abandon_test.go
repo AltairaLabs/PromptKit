@@ -29,6 +29,7 @@ func waitExecutionsDone(p *StreamPipeline, d time.Duration) bool {
 // period ends, both while output is being forwarded and while the turn's
 // error waits to be delivered.
 func TestShutdown_ReleasesExecutionWhoseReaderIsGone(t *testing.T) {
+	t.Parallel()
 	config := DefaultPipelineConfig()
 	config.ChannelBufferSize = 0
 	config.GracefulShutdownTimeout = 10 * time.Millisecond
@@ -52,6 +53,7 @@ func TestShutdown_ReleasesExecutionWhoseReaderIsGone(t *testing.T) {
 // output. A zero grace period abandons the execution at once, and the same
 // holds.
 func TestShutdown_LiveReaderKeepsOutputAfterGracePeriod(t *testing.T) {
+	t.Parallel()
 	const n = 64
 	type result struct {
 		messages int
@@ -108,6 +110,7 @@ func TestShutdown_LiveReaderKeepsOutputAfterGracePeriod(t *testing.T) {
 // stopped reading times out, the rest of the output is dropped without each
 // element waiting out the grace period again.
 func TestShutdown_GoneReaderIsWaitedOnOnce(t *testing.T) {
+	t.Parallel()
 	const n = 64
 	many := NewStageFunc("many", StageTypeTransform,
 		func(_ context.Context, in <-chan StreamElement, out chan<- StreamElement) error {
@@ -141,6 +144,7 @@ func TestShutdown_GoneReaderIsWaitedOnOnce(t *testing.T) {
 // TestShutdown_SlowReaderStillGetsTheError: a reader that is slow, but reads
 // within the grace period, still gets every element and the turn's error.
 func TestShutdown_SlowReaderStillGetsTheError(t *testing.T) {
+	t.Parallel()
 	config := DefaultPipelineConfig()
 	config.ChannelBufferSize = 0
 	config.GracefulShutdownTimeout = 2 * time.Second

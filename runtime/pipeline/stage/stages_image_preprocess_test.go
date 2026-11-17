@@ -41,6 +41,7 @@ func TestImagePreprocessStage_BasicOperation(t *testing.T) {
 }
 
 func TestImagePreprocessStage_ProcessMessageWithImage(t *testing.T) {
+	t.Parallel()
 	config := testPreprocessConfig(512)
 	stg := NewImagePreprocessStage(config)
 	ctx := context.Background()

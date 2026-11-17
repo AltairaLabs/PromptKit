@@ -216,13 +216,23 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 			"hasCostInfo", hasCostInfo,
 			"wasInterrupted", s.wasInterrupted)
 
+		// Check if there are tool calls to capture (accumulated across chunks
+		// for providers that emit ToolCalls and FinishReason in separate chunks)
+		toolCalls := s.accumulatedToolCalls
+		if len(toolCalls) == 0 && len(chunk.ToolCalls) > 0 {
+			toolCalls = chunk.ToolCalls
+		}
+		hasToolCalls := len(toolCalls) > 0
+
 		// Handle "interrupted turn complete" - turnComplete with no content after an interruption.
 		// This happens when Gemini detects a pause mid-utterance, starts responding, then more
 		// audio arrives causing an interruption. Gemini sends turnComplete with no ModelTurn
 		// for the interrupted response. We should skip this and wait for the real response.
 		// Note: Gemini may still send cost info for interrupted turns, but without content
 		// we should skip it - the real response will have its own cost info.
-		if !hasContent && s.wasInterrupted {
+		// A turn that makes tool calls is the real response, even with no text
+		// or audio: skipping it would leave its calls unanswered.
+		if !hasContent && !hasToolCalls && s.wasInterrupted {
 			logger.Debug("DuplexProviderStage: detected interrupted turn complete (empty response after interruption), skipping",
 				"hasCostInfo", hasCostInfo)
 			finishReason := *chunk.FinishReason
@@ -232,14 +242,6 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 			// Keep wasInterrupted true since we're still in the interrupted state
 			return elem
 		}
-
-		// Check if there are tool calls to capture (accumulated across chunks
-		// for providers that emit ToolCalls and FinishReason in separate chunks)
-		toolCalls := s.accumulatedToolCalls
-		if len(toolCalls) == 0 && len(chunk.ToolCalls) > 0 {
-			toolCalls = chunk.ToolCalls
-		}
-		hasToolCalls := len(toolCalls) > 0
 
 		// Create Message if there's content, cost info, or tool calls
 		if hasContent || hasCostInfo || hasToolCalls {

@@ -33,6 +33,17 @@ const (
 	// Default timeout for waiting for final response after input closes
 	finalResponseTimeout = 30 * time.Second
 
+	// finalToolWaitLimit bounds how long a session whose input closed stays
+	// open for its tool rounds: the final-response wait is extended while a
+	// round is queued, running, or awaiting its reply, but never past this
+	// long after input closed, so a hung tool cannot hold the session open.
+	finalToolWaitLimit = 5 * time.Minute
+
+	// inputForwardingGracePeriod is how long Process waits for the input
+	// goroutine to exit once the response loop ends. A goroutine still running
+	// (in a slow input hook, say) closes output when it exits.
+	inputForwardingGracePeriod = 100 * time.Millisecond
+
 	// MIME type for PCM audio
 	mimeTypeAudioPCM = "audio/pcm"
 
@@ -172,12 +183,34 @@ type DuplexProviderStage struct {
 	// handled, until it is queued with a blocked turn or on its own. Input
 	// goroutine only.
 	pendingTypedUser *types.Message
+	// userTurnDue is set when the input element being handled carries a user
+	// turn: its tool turn begins once the input guardrails let it through, so
+	// a blocked turn opens no provider call. Input goroutine only.
+	userTurnDue bool
 	// inputFailed is set once an input hook denied: the error element is then
 	// the session's last output.
 	inputFailed atomic.Bool
 	// tools runs the session's tool calls (SetToolExecution); nil forwards
 	// them downstream for the host to run. See stages_duplex_tools.go.
 	tools *duplexTools
+	// finalWait and toolWaitLimit are finalResponseTimeout and
+	// finalToolWaitLimit; tests shorten them.
+	finalWait     time.Duration
+	toolWaitLimit time.Duration
+	// inputGracePeriod is inputForwardingGracePeriod; tests shorten it. Zero
+	// means the default (see inputGrace).
+	inputGracePeriod time.Duration
+}
+
+// inputGrace is how long Process waits for the input goroutine to exit once
+// the response loop ends: inputGracePeriod, or inputForwardingGracePeriod when
+// it is unset, so a stage built without the constructor does not abandon the
+// goroutine at once.
+func (s *DuplexProviderStage) inputGrace() time.Duration {
+	if s.inputGracePeriod == 0 {
+		return inputForwardingGracePeriod
+	}
+	return s.inputGracePeriod
 }
 
 // SetSessionObserver registers a callback invoked once with the streaming
@@ -204,6 +237,9 @@ func NewDuplexProviderStage(
 		baseConfig:             baseConfig,
 		blockedTurns:           make(chan *duplexBlockedTurn, blockedTurnQueueSize),
 		systemPromptSent:       false,
+		finalWait:              finalResponseTimeout,
+		toolWaitLimit:          finalToolWaitLimit,
+		inputGracePeriod:       inputForwardingGracePeriod,
 	}
 }
 
@@ -302,7 +338,6 @@ func (s *DuplexProviderStage) Process(
 
 	// Wait for input forwarding to complete with a short grace period
 	// The goroutine should exit quickly since we canceled its context
-	const gracePeriod = 100 * time.Millisecond
 	select {
 	case inputErr := <-inputDone:
 		s.dropBlockedTurns()
@@ -310,7 +345,7 @@ func (s *DuplexProviderStage) Process(
 		if inputErr != nil && !errors.Is(inputErr, context.Canceled) && responseErr == nil {
 			responseErr = inputErr
 		}
-	case <-time.After(gracePeriod):
+	case <-time.After(s.inputGrace()):
 		// The goroutine is still running (in a slow input hook, say). It
 		// exits on the canceled context; output closes when it does.
 		logger.Debug("DuplexProviderStage: input forwarding still running; closing output when it exits")
@@ -656,22 +691,28 @@ func (s *DuplexProviderStage) handleInputElement(
 		return s.handleAllResponsesReceived(elem, done)
 	}
 
+	s.userTurnDue = false
 	if err := s.forwardInputMessages(ctx, elem, output); err != nil {
 		done <- err
 		return true
 	}
-	s.takeTextInputAsUserTurn(ctx, elem)
+	s.takeTextInputAsUserTurn(elem)
 
 	// Input guardrails gate text before it reaches the session. A blocked
-	// turn carries the user's turn with it.
+	// turn carries the user's turn with it, and opens no provider call.
 	if handled, err := s.guardInputText(ctx, elem); handled {
 		s.pendingTypedUser = nil
+		s.userTurnDue = false
 		if err != nil {
 			s.failInput(ctx, err, output)
 			done <- err
 			return true
 		}
 		return false
+	}
+	if s.userTurnDue {
+		s.userTurnDue = false
+		s.beginToolUserTurn(ctx)
 	}
 	if err := s.queueTypedUserTurn(ctx); err != nil {
 		done <- err
@@ -742,7 +783,7 @@ func (s *DuplexProviderStage) forwardInputMessages(
 		return nil
 	}
 	logger.Debug("DuplexProviderStage: forwarding user message to output", "role", elem.Message.Role)
-	s.trackInputTurn(ctx, elem)
+	s.trackInputTurn(elem)
 	s.recordHistory(elem.Message)
 	select {
 	case output <- *elem:
@@ -768,9 +809,10 @@ const TextInputTurnSource = "duplex_text_input"
 // the input element then carries it, which tells the input guardrails it is
 // already there. Its element is emitted by the response loop, between
 // assistant turns (see queueTypedUserTurn), so text typed while a reply is
-// streaming is saved and recorded after that reply, not inside it. Input
+// streaming is saved and recorded after that reply, not inside it. Its tool
+// turn begins once the input guardrails let it through (userTurnDue). Input
 // goroutine only.
-func (s *DuplexProviderStage) takeTextInputAsUserTurn(ctx context.Context, elem *StreamElement) {
+func (s *DuplexProviderStage) takeTextInputAsUserTurn(elem *StreamElement) {
 	s.pendingTypedUser = nil
 	if elem.Message != nil {
 		return
@@ -781,7 +823,7 @@ func (s *DuplexProviderStage) takeTextInputAsUserTurn(ctx context.Context, elem 
 	}
 	user := &types.Message{Role: roleUser, Content: text, Timestamp: time.Now()}
 	s.setTurnStart(time.Now())
-	s.beginToolUserTurn(ctx)
+	s.userTurnDue = true
 	s.recordHistory(user)
 	elem.Message = user
 	s.pendingTypedUser = user
@@ -833,13 +875,13 @@ func forwardToolResultMessages(ctx context.Context, toolMsgs []types.Message, ou
 }
 
 // trackInputTurn records the turn start time (for latency calculation on user
-// messages) and queues the element's turn_id for correlating transcription
-// events.
-func (s *DuplexProviderStage) trackInputTurn(ctx context.Context, elem *StreamElement) {
+// messages), marks a user turn due to begin its tool turn (userTurnDue), and
+// queues the element's turn_id for correlating transcription events.
+func (s *DuplexProviderStage) trackInputTurn(elem *StreamElement) {
 	if elem.Message.Role == roleUser {
 		now := time.Now()
 		s.setTurnStart(now)
-		s.beginToolUserTurn(ctx)
+		s.userTurnDue = true
 		logger.Debug("DuplexProviderStage: started turn timing",
 			"turnStartTime", now.Format(time.RFC3339Nano))
 	}
@@ -918,7 +960,7 @@ func (s *DuplexProviderStage) sendToolResponses(ctx context.Context, toolRespons
 			"sessionType", fmt.Sprintf("%T", s.session))
 		return
 	}
-	s.warnDroppedToolParts(toolSession, toolResponses)
+	toolResponses = s.prepareToolResponseText(toolSession, toolResponses)
 	logger.Debug("DuplexProviderStage: sending tool responses to session",
 		"count", len(toolResponses))
 	if err := toolSession.SendToolResponses(ctx, toolResponses); err != nil {
@@ -1136,28 +1178,14 @@ func (s *DuplexProviderStage) forwardResponseElements(
 		}
 		select {
 		case <-ctx.Done():
-			// Log the cancellation CAUSE, not just "canceled": context.Cause
-			// distinguishes the pipeline idle timeout (ErrIdleTimeout) from a
-			// parent cancel (a pump/caller returned) — the difference between
-			// "the 30s idle timer fired" and "something upstream tore us down".
-			logger.Info("Session closure: context canceled",
-				"cause", context.Cause(ctx), "err", ctx.Err())
-			// Emit any accumulated content as partial response before returning
-			s.emitPartialOnCancel(ctx, output)
-			s.dropBlockedTurns()
-			return ctx.Err()
+			return s.closeOnContextDone(ctx, output)
 
 		case <-s.inputDoneCh:
 			// Input forwarding is done - check if we should wait for final response
 			s.handleInputDone(&wait)
 
 		case <-wait.finalResponseTimer:
-			// Timeout waiting for final response - close session and emit partial content
-			logger.Warn("Session closure: timeout waiting for final response",
-				"timeout", finalResponseTimeout)
-			wait.weClosedSession = true
-			s.closeSessionIfOpen()
-			// Continue to process any remaining chunks until channel closes
+			s.onFinalResponseTimer(&wait)
 
 		case blocked := <-s.pendingBlockedTurns():
 			if err := s.emitBlockedTurn(ctx, blocked, output); err != nil {
@@ -1174,6 +1202,34 @@ func (s *DuplexProviderStage) forwardResponseElements(
 			}
 		}
 	}
+}
+
+// closeOnContextDone ends the response loop when ctx is canceled: it emits any
+// accumulated content as a partial response and drops waiting blocked turns.
+func (s *DuplexProviderStage) closeOnContextDone(ctx context.Context, output chan<- StreamElement) error {
+	// Log the cancellation CAUSE, not just "canceled": context.Cause
+	// distinguishes the pipeline idle timeout (ErrIdleTimeout) from a
+	// parent cancel (a pump/caller returned) — the difference between
+	// "the 30s idle timer fired" and "something upstream tore us down".
+	logger.Info("Session closure: context canceled",
+		"cause", context.Cause(ctx), "err", ctx.Err())
+	s.emitPartialOnCancel(ctx, output)
+	s.dropBlockedTurns()
+	return ctx.Err()
+}
+
+// onFinalResponseTimer handles the final-response timer firing after input
+// closed: it re-arms the wait while a tool round is outstanding, else closes
+// the session. The response loop keeps draining chunks until the channel
+// closes.
+func (s *DuplexProviderStage) onFinalResponseTimer(wait *responseWaitState) {
+	if s.extendFinalWait(wait) {
+		return
+	}
+	logger.Warn("Session closure: timeout waiting for final response",
+		"timeout", s.finalWait)
+	wait.weClosedSession = true
+	s.closeSessionIfOpen()
 }
 
 // processResponseChunk handles one chunk from the session's response channel.
@@ -1229,7 +1285,9 @@ type responseWaitState struct {
 	// fires) until input is done.
 	finalResponseTimer <-chan time.Time
 	inputDone          bool
-	weClosedSession    bool // Track who closed session for clear logging
+	// inputDoneAt is when input finished, for the tool rounds' wait limit.
+	inputDoneAt     time.Time
+	weClosedSession bool // Track who closed session for clear logging
 }
 
 // handleInputDone handles input forwarding finishing (once): it either closes
@@ -1239,6 +1297,7 @@ func (s *DuplexProviderStage) handleInputDone(wait *responseWaitState) {
 		return
 	}
 	wait.inputDone = true
+	wait.inputDoneAt = time.Now()
 	if timer := s.onInputDone(); timer != nil {
 		wait.finalResponseTimer = timer
 	} else {
@@ -1261,9 +1320,28 @@ func (s *DuplexProviderStage) onInputDone() <-chan time.Time {
 	default:
 		// Not all responses received - wait for final response with timeout
 		logger.Info("Input complete, waiting for final response",
-			"timeout", finalResponseTimeout)
-		return time.After(finalResponseTimeout)
+			"timeout", s.finalWait)
+		return time.After(s.finalWait)
 	}
+}
+
+// extendFinalWait re-arms the final-response timer when it fires while a
+// tool round is outstanding (queued, running, or its reply not yet complete),
+// and reports whether it did. The wait never runs past toolWaitLimit after
+// input finished.
+func (s *DuplexProviderStage) extendFinalWait(wait *responseWaitState) bool {
+	if !s.tools.roundOutstanding() {
+		return false
+	}
+	left := s.toolWaitLimit - time.Since(wait.inputDoneAt)
+	if left <= 0 {
+		logger.Warn("Session closure: tool rounds still outstanding at the wait limit",
+			"limit", s.toolWaitLimit)
+		return false
+	}
+	logger.Debug("DuplexProviderStage: tool round outstanding; extending the final-response wait")
+	wait.finalResponseTimer = time.After(min(s.finalWait, left))
+	return true
 }
 
 // closeSessionIfOpen closes the session when one exists. No tool response is
@@ -1293,8 +1371,8 @@ func (s *DuplexProviderStage) finishOnResponseClosed(
 
 	msg := s.takeInterruptedTurn(cause)
 	if s.inputFailed.Load() {
-		// An input hook denied: its error element was the session's last
-		// output, and the consumer has stopped reading.
+		// An input hook denied: its error element is the session's last
+		// output, so the partial reply is not emitted after it.
 		s.dropBlockedTurns()
 		return nil
 	}

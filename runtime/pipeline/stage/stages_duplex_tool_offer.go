@@ -25,8 +25,10 @@ import (
 // an exclusion, DescribeTool) a session that implements
 // providers.StreamToolUpdater is given the new tools before the round's
 // responses. A session without it, or whose update failed, keeps the tools it
-// holds, and a call to a tool the conversation offers but the session does
-// not hold is refused.
+// holds: a call to a tool the conversation offers but the session does not
+// hold is refused, and so is a call to a tool the session holds but the
+// conversation has withdrawn (a revoked grant). A tool excluded for one tool
+// turn after repeated rejections is not withdrawn: a call to it still runs.
 //
 // A spent max_tool_calls_per_turn budget does not change the offer: calls
 // over it are refused (overBudgetResults), and a session stripped of its
@@ -46,8 +48,10 @@ type sessionOffer struct {
 	held    []providers.StreamingToolDefinition
 	heldKey string
 	// unsynced names the tools the conversation offers that the session does
-	// not hold: a call to one is refused.
-	unsynced map[string]bool
+	// not hold, withdrawn the tools the session holds that the conversation no
+	// longer offers: a call to either is refused.
+	unsynced  map[string]bool
+	withdrawn map[string]bool
 	// updateFailed is set once a tool update of a session that can change its
 	// tools failed: only then can such a session lack an offered tool.
 	updateFailed bool
@@ -72,18 +76,27 @@ func (o *sessionOffer) heldNames() []string {
 	return nil
 }
 
-// unsyncedReason reports whether name is offered by the conversation but not
-// held by the session, and why the session does not hold it.
-func (o *sessionOffer) unsyncedReason(name string) (string, bool) {
+// unsyncedRefusal reports whether a call to name is refused because the
+// session's tools differ from the conversation's offer, and the refusal: the
+// conversation offers name but the session does not hold it, or the session
+// holds it but the conversation has withdrawn it.
+func (o *sessionOffer) unsyncedRefusal(name string) (string, bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if !o.unsynced[name] {
+	var what, cannot string
+	switch {
+	case o.unsynced[name]:
+		what, cannot = "became available", "the provider cannot add tools to a live session"
+	case o.withdrawn[name]:
+		what, cannot = "was withdrawn", "the provider cannot remove tools from a live session"
+	default:
 		return "", false
 	}
 	if o.updateFailed {
-		return "the session's tools could not be updated", true
+		cannot = "the session's tools could not be updated"
 	}
-	return "the provider cannot add tools to a live session", true
+	return fmt.Sprintf("Tool %s was not run: it %s after this realtime session started, and %s",
+		name, what, cannot), true
 }
 
 // sessionToolChoice is the session's tool_choice: the host's
@@ -217,6 +230,14 @@ func (s *DuplexProviderStage) syncSessionTools(
 		s.updateSessionToolsLocked(ctx, want, key)
 	}
 	o.unsynced = missingTools(want, o.held)
+	// A tool excluded for this turn only (repeated rejections) is not
+	// withdrawn: a call to it runs, as on a text turn. Only what the
+	// conversation no longer offers at all (a revoked grant) is.
+	conversation := want
+	if len(excluded) > 0 {
+		conversation = s.wantedSessionTools(nil)
+	}
+	o.withdrawn = missingTools(o.held, conversation)
 	if record {
 		dt.recordOffered(turn, o.heldNames())
 	}
@@ -307,22 +328,21 @@ func (dt *duplexTools) stampToolsOffered(turn *duplexToolTurn, msg *types.Messag
 }
 
 // splitUnsynced separates the calls to tools the session does not hold but
-// the conversation offers, answering each with a refusal, from the calls to
-// run. A round whose calls are all refused skips the tool runner, so the
-// identical-call breaker and the call budget do not count it; the round limit
-// still does (each round's number comes from the provider call it answers),
-// and refuseUnsyncedRound caps how many such batches a turn gets.
+// the conversation offers, or holds but the conversation has withdrawn,
+// answering each with a refusal, from the calls to run. A round whose calls
+// are all refused skips the tool runner, so the identical-call breaker and
+// the call budget do not count it; the round limit still does (each round's
+// number comes from the provider call it answers), and refuseUnsyncedRound
+// caps how many such batches a turn gets.
 func (dt *duplexTools) splitUnsynced(
 	calls []types.MessageToolCall,
 ) (run []types.MessageToolCall, refused []types.Message) {
 	for _, tc := range calls {
-		reason, unsynced := dt.offer.unsyncedReason(tc.Name)
+		errMsg, unsynced := dt.offer.unsyncedRefusal(tc.Name)
 		if !unsynced {
 			run = append(run, tc)
 			continue
 		}
-		errMsg := fmt.Sprintf("Tool %s was not run: it became available after this realtime session started, "+
-			"and %s", tc.Name, reason)
 		result := types.NewTextToolResult(tc.ID, tc.Name, errMsg)
 		result.Error = errMsg
 		result.ErrorType = types.ToolErrorApproval

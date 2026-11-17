@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	providersmock "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
@@ -315,6 +316,11 @@ type realtimeOpts struct {
 	hostToolChoice string
 	// partsSupport makes the session a providers.ToolResponsePartsSupport.
 	partsSupport bool
+	// hookReg is the stage's hook registry; nil for none.
+	hookReg *hooks.Registry
+	// finalWait and toolWaitLimit replace the stage's waits once input
+	// closes; zero keeps the defaults.
+	finalWait, toolWaitLimit time.Duration
 }
 
 func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
@@ -332,6 +338,15 @@ func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
 	cfg.Tools = o.sessionTools
 	cfg.ToolChoice = o.hostToolChoice
 	st := NewDuplexProviderStageWithTurnState(p, cfg, o.emitter, o.turnState)
+	if o.hookReg != nil {
+		st.SetHookRegistry(o.hookReg)
+	}
+	if o.finalWait > 0 {
+		st.finalWait = o.finalWait
+	}
+	if o.toolWaitLimit > 0 {
+		st.toolWaitLimit = o.toolWaitLimit
+	}
 	if !o.noToolSet {
 		st.SetToolExecution(o.registry, o.policy, o.cfg, o.resolver)
 	}
@@ -354,6 +369,34 @@ func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
 }
 
 func (h *realtimeHarness) sess() *realtimeToolSession { return h.provider.session() }
+
+// toolTurn returns the stage's current tool turn.
+func (h *realtimeHarness) toolTurn() *duplexToolTurn {
+	h.stage.tools.mu.Lock()
+	defer h.stage.tools.mu.Unlock()
+	return h.stage.tools.turn
+}
+
+// awaitNewToolTurn waits until the stage has begun a tool turn other than
+// earlier (nil when the last turn ended). A user message is forwarded
+// downstream before its tool turn begins, so its element in the output does
+// not show the turn has begun; a live session replies only after the stage
+// sends it the user's input, which it does once the turn has begun.
+func (h *realtimeHarness) awaitNewToolTurn(earlier *duplexToolTurn) {
+	h.t.Helper()
+	require.Eventually(h.t, func() bool {
+		turn := h.toolTurn()
+		return turn != nil && turn != earlier
+	}, 2*time.Second, time.Millisecond, "the user turn never began a new tool turn")
+}
+
+// awaitToolTurnEnded waits until a reply without tool calls has ended the
+// current tool turn.
+func (h *realtimeHarness) awaitToolTurnEnded() {
+	h.t.Helper()
+	require.Eventually(h.t, func() bool { return h.toolTurn() == nil }, 2*time.Second, time.Millisecond,
+		"no reply ended the tool turn")
+}
 
 // emit plays one assistant turn on the session.
 func (h *realtimeHarness) emit(turn []providers.StreamChunk) {
@@ -542,17 +585,27 @@ func TestDuplexTools_BlocklistedToolIsRefused(t *testing.T) {
 }
 
 func TestDuplexTools_ParallelLimit(t *testing.T) {
+	t.Parallel()
+	// Each call waits until the other is running too, or its window expires.
+	// Parallel calls are released as soon as both run, so their window can be
+	// generous enough for a loaded machine; a serialized call always waits out
+	// its window alone, and a short one still sees calls that wrongly overlap.
 	cases := []struct {
 		name   string
 		policy *pipeline.ToolPolicy
+		window time.Duration
 		want   int
 	}{
-		{name: "default runs calls in parallel", want: 2},
-		{name: "MaxParallelToolCalls 1 serializes", policy: &pipeline.ToolPolicy{MaxParallelToolCalls: 1}, want: 1},
+		{name: "default runs calls in parallel", window: time.Second, want: 2},
+		{
+			name: "MaxParallelToolCalls 1 serializes", policy: &pipeline.ToolPolicy{MaxParallelToolCalls: 1},
+			window: 100 * time.Millisecond, want: 1,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			exec := &realtimeToolExec{result: json.RawMessage(`"ok"`), overlap: 300 * time.Millisecond}
+			t.Parallel()
+			exec := &realtimeToolExec{result: json.RawMessage(`"ok"`), overlap: tc.window}
 			h := startRealtime(t, realtimeOpts{registry: newWeatherRegistry(t, exec), policy: tc.policy})
 
 			h.emit(toolCallTurn(weatherCall("c1"), weatherCall("c2")))
@@ -591,8 +644,10 @@ func TestDuplexTools_MaxRoundsRefusesUntilTheNextTurn(t *testing.T) {
 	assert.Equal(t, []string{"weather", "weather"}, exec.calls(), "the refused call never ran")
 
 	// The next user turn starts a new tool turn: its call runs.
+	h.awaitToolTurnEnded() // by "giving up"
 	user := types.Message{Role: roleUser, Content: "and tomorrow?"}
 	h.input <- StreamElement{Message: &user}
+	h.awaitNewToolTurn(nil)
 	h.emit(toolCallTurn(weatherCall("c4")))
 	sent = h.awaitSent(4)
 	assert.Equal(t, []providers.ToolResponse{{ToolCallID: "c4", Result: weatherResult}}, sent[3])
@@ -619,18 +674,20 @@ func TestDuplexTools_CostBudgetRefusesTheRound(t *testing.T) {
 	h.emit(turn)
 
 	budget := "provider stage: cost budget exceeded (0.0200 > 0.0100 USD)"
-	// The budget is terminal: the stage answers the call, reports the budget
-	// once and closes the session itself, so no further paid turn follows.
+	// The budget is terminal: the stage records a refusal for the call,
+	// reports the budget once and closes the session itself. The refusal is
+	// not sent to the session: a tool response starts another paid reply
+	// (OpenAI follows it with response.create).
 	elems := drainUntilClosed(t, h.output)
 	require.NoError(t, <-h.done)
 	assert.True(t, h.sess().isClosed(), "the session is closed")
-	assert.Equal(t, [][]providers.ToolResponse{{{
-		ToolCallID: "c1",
-		Result:     "Tool weather not executed: the turn's tool calls were stopped: " + budget,
-		IsError:    true,
-	}}}, h.sess().sentResponses())
+	assert.Empty(t, h.sess().sentResponses(), "no tool response starts another reply")
 	assert.Equal(t, 0, h.sess().sendsAfterClose())
 	assert.Empty(t, exec.calls())
+	results := toolResultMessages(elems)
+	require.Len(t, results, 1, "the refusal is recorded downstream")
+	assert.Equal(t, "c1", results[0].ID)
+	assert.Equal(t, "Tool weather not executed: the turn's tool calls were stopped: "+budget, results[0].Error)
 	errs := streamErrors(elems)
 	require.Len(t, errs, 1)
 	assert.Equal(t, budget, errs[0].Error())
@@ -742,6 +799,7 @@ func TestDuplexTools_RoundPastTheLimitIsRefused(t *testing.T) {
 // provider.call.completed when its reply completes, timed between the two,
 // with the configured source and labels.
 func TestDuplexTools_ProviderCallTiming(t *testing.T) {
+	t.Parallel()
 	bus := events.NewEventBus()
 	var evMu sync.Mutex
 	var started []*events.ProviderCallStartedData
@@ -810,6 +868,7 @@ func TestDuplexTools_ProviderCallTiming(t *testing.T) {
 // A reply to input the stage cannot see the end of (audio the provider does
 // not transcribe) is a provider call from its first output.
 func TestDuplexTools_ProviderCallTimingWithoutUserTurn(t *testing.T) {
+	t.Parallel()
 	bus := events.NewEventBus()
 	var evMu sync.Mutex
 	var completed []*events.ProviderCallCompletedData
@@ -828,6 +887,12 @@ func TestDuplexTools_ProviderCallTimingWithoutUserTurn(t *testing.T) {
 	})
 
 	h.emit([]providers.StreamChunk{{Content: "Let me check", Delta: "Let me check"}})
+	// The call starts when the stage reads that output, not when it is sent.
+	require.Eventually(t, func() bool {
+		h.stage.tools.mu.Lock()
+		defer h.stage.tools.mu.Unlock()
+		return h.stage.tools.open != nil
+	}, 2*time.Second, time.Millisecond, "the reply's first output opens a provider call")
 	time.Sleep(streamTime)
 	h.emit(toolCallTurn(weatherCall("c1")))
 	h.awaitSent(1)
@@ -893,11 +958,17 @@ func TestDuplexTools_InterruptedTurnIsChargedAndReported(t *testing.T) {
 // included, not each tool turn.
 func TestDuplexTools_CostBudgetSpansTheSession(t *testing.T) {
 	budget := "provider stage: cost budget exceeded (0.0600 > 0.0500 USD)"
-	refused := [][]providers.ToolResponse{{{
-		ToolCallID: "c1",
-		Result:     "Tool weather not executed: the turn's tool calls were stopped: " + budget,
-		IsError:    true,
-	}}}
+	// The budget closes the session; the refusal is recorded, not sent.
+	assertRefused := func(t *testing.T, h *realtimeHarness) {
+		t.Helper()
+		elems := drainUntilClosed(t, h.output)
+		require.NoError(t, <-h.done)
+		assert.True(t, h.sess().isClosed())
+		assert.Empty(t, h.sess().sentResponses())
+		results := toolResultMessages(elems)
+		require.Len(t, results, 1)
+		assert.Equal(t, "Tool weather not executed: the turn's tool calls were stopped: "+budget, results[0].Error)
+	}
 	toolTurn := func() []providers.StreamChunk {
 		turn := toolCallTurn(weatherCall("c1"))
 		turn[0].CostInfo = &types.CostInfo{TotalCost: 0.02}
@@ -913,8 +984,7 @@ func TestDuplexTools_CostBudgetSpansTheSession(t *testing.T) {
 		h.emit(textTurn("hello", &types.CostInfo{TotalCost: 0.02}))
 		h.emit(textTurn("hello again", &types.CostInfo{TotalCost: 0.02}))
 		h.emit(toolTurn())
-		assert.Equal(t, refused, h.awaitSent(1))
-		h.finish()
+		assertRefused(t, h)
 		assert.Empty(t, exec.calls())
 	})
 
@@ -929,8 +999,7 @@ func TestDuplexTools_CostBudgetSpansTheSession(t *testing.T) {
 			},
 		})
 		h.emit(toolTurn())
-		assert.Equal(t, refused, h.awaitSent(1))
-		h.finish()
+		assertRefused(t, h)
 		assert.Empty(t, exec.calls())
 	})
 }
@@ -981,10 +1050,10 @@ func TestDuplexTools_NewUserTurnDuringRound(t *testing.T) {
 
 	h.emit(toolCallTurn(weatherCall("c1")))
 	require.Eventually(t, func() bool { return len(exec.calls()) == 1 }, 2*time.Second, time.Millisecond)
+	earlier := h.toolTurn()
 	user := types.Message{Role: roleUser, Content: "actually, Rome"}
 	h.input <- StreamElement{Message: &user}
-	require.Eventually(t, func() bool { return len(h.output) >= 2 }, 2*time.Second, time.Millisecond,
-		"the user message is forwarded")
+	h.awaitNewToolTurn(earlier)
 	close(exec.gate)
 
 	sent := h.awaitSent(1)
@@ -998,18 +1067,19 @@ func TestDuplexTools_NewUserTurnDuringRound(t *testing.T) {
 	h.finish()
 }
 
-// Closing the session while a round runs: the round's results are dropped,
-// never sent to the closed session.
+// Closing the session while a round runs: the round's results are never sent
+// to the closed session, but are still recorded downstream.
 func TestDuplexTools_CloseDuringRoundSendsNothingAfterClose(t *testing.T) {
 	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`), gate: make(chan struct{})}
 	var h *realtimeHarness
 	onClose := func() {
 		// Let the round finish while the session is closing, and give its
-		// results the chance to be sent.
+		// results the chance to be sent: wait until they are, or until its
+		// result message follows the assistant message downstream.
 		close(exec.gate)
 		require.Eventually(t, func() bool { return exec.done() == 1 }, 2*time.Second, time.Millisecond)
-		deadline := time.Now().Add(200 * time.Millisecond)
-		for time.Now().Before(deadline) && h.sess().sendsAfterClose() == 0 {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) && h.sess().sendsAfterClose() == 0 && len(h.output) < 2 {
 			time.Sleep(time.Millisecond)
 		}
 	}
@@ -1018,15 +1088,19 @@ func TestDuplexTools_CloseDuringRoundSendsNothingAfterClose(t *testing.T) {
 	h.emit(toolCallTurn(weatherCall("c1")))
 	require.Eventually(t, func() bool { return len(exec.calls()) == 1 }, 2*time.Second, time.Millisecond)
 
-	// The host is done: all responses are in, and input ends.
+	// The host is done: all responses are in, and input ends. Output is read
+	// only once the stage returns, so onClose can watch it fill.
 	h.input <- StreamElement{Meta: ElementMetadata{AllResponsesReceived: true}}
 	close(h.input)
-	elems := drainUntilClosed(t, h.output)
 	require.NoError(t, <-h.done)
+	elems := drainUntilClosed(t, h.output)
 
 	assert.Equal(t, 0, h.sess().sendsAfterClose(), "no tool response is sent after Close")
 	assert.Empty(t, h.sess().sentResponses())
-	assert.Empty(t, toolResultMessages(elems), "a dropped round is not recorded")
+	results := toolResultMessages(elems)
+	require.Len(t, results, 1, "the round's tool ran: its result is recorded with the call")
+	assert.Equal(t, "c1", results[0].ID)
+	assert.Equal(t, weatherResult, results[0].GetTextContent())
 }
 
 // An assistant turn without tool calls ends the tool turn, as a round without
@@ -1050,6 +1124,60 @@ func TestDuplexTools_ReplyWithoutCallsEndsTheToolTurn(t *testing.T) {
 	}, sent)
 	assert.Equal(t, []string{"weather", "weather"}, exec.calls())
 	h.finish()
+}
+
+// After a barge-in the provider closes the cut-short reply with an empty turn
+// completion, which is skipped. A reply that then makes only tool calls (no
+// text, no audio) is a real turn: its calls run and their results are sent,
+// whether the calls arrive with the finish reason or ahead of it.
+func TestDuplexTools_ToolCallOnlyReplyAfterBargeInIsAnswered(t *testing.T) {
+	fr := "tool_calls"
+	stop := "stop"
+	for _, tc := range []struct {
+		name  string
+		reply []providers.StreamChunk
+	}{
+		{name: "calls on the finish chunk", reply: toolCallTurn(weatherCall("c1"))},
+		{name: "calls ahead of the finish chunk", reply: []providers.StreamChunk{
+			{ToolCalls: []types.MessageToolCall{weatherCall("c1")}},
+			{FinishReason: &fr},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`)}
+			h := startRealtime(t, realtimeOpts{
+				registry: newWeatherRegistry(t, exec),
+				script:   [][]providers.StreamChunk{textTurn("It is 21 degrees", nil)},
+			})
+
+			h.emit([]providers.StreamChunk{
+				{Content: "Let me ch", Delta: "Let me ch"},
+				{Interrupted: true},
+				{FinishReason: &stop},
+			})
+			h.emit(tc.reply)
+
+			sent := h.awaitSent(1)
+			assert.Equal(t, [][]providers.ToolResponse{{{ToolCallID: "c1", Result: weatherResult}}}, sent)
+			assert.Equal(t, []string{"weather"}, exec.calls())
+			elems := h.finish()
+
+			var calls [][]types.MessageToolCall
+			var replies []string
+			for _, e := range elems {
+				if e.Message == nil || e.Message.Role != roleAssistant {
+					continue
+				}
+				if len(e.Message.ToolCalls) > 0 {
+					calls = append(calls, e.Message.ToolCalls)
+				} else if e.Message.FinishReason == stop {
+					replies = append(replies, e.Message.Content)
+				}
+			}
+			assert.Equal(t, [][]types.MessageToolCall{{weatherCall("c1")}}, calls)
+			assert.Equal(t, []string{"It is 21 degrees"}, replies)
+		})
+	}
 }
 
 // recordingStateResolver reports a workflow state and records the executed
@@ -1220,6 +1348,61 @@ func TestDuplexTools_MultimodalResultWithoutPartsSupport(t *testing.T) {
 	assert.Contains(t, out, `part_types=[image]`)
 }
 
+// A media-only tool result has no text. A session that cannot send its parts
+// sends a placeholder naming the part types in Result, so the model is not
+// answered with an empty string; a session that can send parts gets them with
+// an empty Result.
+func TestDuplexTools_MediaOnlyResult(t *testing.T) {
+	parts := []types.ContentPart{
+		{Type: types.ContentTypeImage, Media: &types.MediaContent{MIMEType: "image/png"}},
+		{Type: types.ContentTypeAudio, Media: &types.MediaContent{MIMEType: "audio/wav"}},
+		{Type: types.ContentTypeImage, Media: &types.MediaContent{MIMEType: "image/jpeg"}},
+	}
+	for _, tc := range []struct {
+		name         string
+		partsSupport bool
+		result       string
+	}{
+		{name: "without parts support", result: "[tool returned image, audio content this session cannot receive]"},
+		{name: "with parts support", partsSupport: true, result: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := registryWithTools(t, "weather")
+			reg.RegisterExecutor(&mockAsyncExecutor{name: "local", status: tools.ToolStatusComplete, parts: parts})
+			h := startRealtime(t, realtimeOpts{registry: reg, partsSupport: tc.partsSupport})
+
+			h.emit(toolCallTurn(weatherCall("c1")))
+
+			sent := h.awaitSent(1)
+			assert.Equal(t, [][]providers.ToolResponse{{{
+				ToolCallID: "c1", Result: tc.result, Parts: parts,
+			}}}, sent)
+			elems := h.finish()
+			results := toolResultMessages(elems)
+			require.Len(t, results, 1)
+			assert.Equal(t, parts, results[0].Parts, "the recorded result keeps its parts")
+		})
+	}
+}
+
+// An empty text result has nothing dropped: it is sent empty, with no
+// placeholder, to a session that cannot send parts.
+func TestDuplexTools_EmptyTextResultGetsNoPlaceholder(t *testing.T) {
+	reg := registryWithTools(t, "weather")
+	reg.RegisterExecutor(&mockAsyncExecutor{name: "local", status: tools.ToolStatusComplete,
+		parts: []types.ContentPart{types.NewTextPart("")}})
+	h := startRealtime(t, realtimeOpts{registry: reg})
+
+	h.emit(toolCallTurn(weatherCall("c1")))
+
+	sent := h.awaitSent(1)
+	require.Len(t, sent, 1)
+	require.Len(t, sent[0], 1)
+	assert.Equal(t, "c1", sent[0][0].ToolCallID)
+	assert.Equal(t, "", sent[0][0].Result)
+	h.finish()
+}
+
 // A session that can send parts gets the same responses and no warning.
 func TestDuplexTools_MultimodalResultWithPartsSupport(t *testing.T) {
 	logs := captureLogSync(t)
@@ -1249,4 +1432,353 @@ func TestDuplexTools_TextResultSendsNoPartsAndNoWarning(t *testing.T) {
 	assert.Nil(t, sent[0][0].Parts)
 	h.finish()
 	assert.NotContains(t, logs.String(), partsDroppedLog)
+}
+
+// A typed turn an input guardrail blocks never reaches the provider, so it
+// opens no provider call: no provider.call.started is emitted for it. That
+// holds for bare text and for text carried with its user message.
+func TestDuplexTools_BlockedTypedTurnOpensNoProviderCall(t *testing.T) {
+	for name, withMessage := range map[string]bool{"bare text": false, "user message": true} {
+		t.Run(name, func(t *testing.T) {
+			bus := events.NewEventBus()
+			var evMu sync.Mutex
+			started := 0
+			bus.SubscribeAll(func(e *events.Event) {
+				if e.Type == events.EventProviderCallStarted {
+					evMu.Lock()
+					started++
+					evMu.Unlock()
+				}
+			})
+			h := startRealtime(t, realtimeOpts{
+				registry:  newWeatherRegistry(t, &realtimeToolExec{result: json.RawMessage(`"ok"`)}),
+				turnState: &TurnState{AllowedTools: []string{"weather"}},
+				emitter:   events.NewEmitter(bus, "run", "sess", "conv"),
+				updatable: true,
+				hookReg: hooks.NewRegistry(hooks.WithProviderHook(&enforceBeforeCallHook{
+					reason: "off topic", replacement: "Not here.",
+				})),
+			})
+
+			text := "something off topic"
+			elem := StreamElement{Text: &text}
+			if withMessage {
+				elem.Message = &types.Message{Role: roleUser, Content: text}
+			}
+			h.input <- elem
+			require.Eventually(t, func() bool {
+				for _, e := range h.stage.history.snapshot() {
+					if e.Role == roleAssistant && e.Content == "Not here." {
+						return true
+					}
+				}
+				return false
+			}, 2*time.Second, time.Millisecond, "the blocked turn was never emitted")
+			bus.Close()
+			h.finish()
+
+			evMu.Lock()
+			defer evMu.Unlock()
+			assert.Zero(t, started, "a blocked turn starts no provider call")
+			updates, _ := h.sess().toolUpdates()
+			assert.Empty(t, updates)
+		})
+	}
+}
+
+// A round that finishes once the session is closing still has its results
+// recorded downstream: its tool ran, and its assistant tool-call message was
+// already sent. Nothing is sent to the closing session.
+func TestDuplexTools_RoundFinishingAfterCloseIsStillRecorded(t *testing.T) {
+	st := NewDuplexProviderStageWithTurnState(
+		providersmock.NewStreamingProvider("rt", "rt-model", false), baseConfig(), nil, nil)
+	st.SetToolExecution(registryWithTools(t, "weather"), nil, DuplexToolConfig{}, nil)
+	sess := newRecordingSession()
+	st.session = sess
+	st.tools.markClosed()
+
+	result := types.NewToolResultMessage(types.NewTextToolResult("c1", "weather", weatherResult))
+	out := make(chan StreamElement, 4)
+	require.NoError(t, st.deliverToolRound(context.Background(),
+		toolRoundResult([]types.Message{result}, nil, nil), out))
+	close(out)
+
+	var elems []StreamElement
+	for e := range out {
+		elems = append(elems, e)
+	}
+	results := toolResultMessages(elems)
+	require.Len(t, results, 1, "the finished round's result is recorded")
+	assert.Equal(t, "c1", results[0].ID)
+	assert.Equal(t, weatherResult, results[0].GetTextContent())
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	assert.Empty(t, sess.toolResponses, "nothing is sent to a closing session")
+}
+
+// A round with a call held for approval still applies the turn's other
+// checks to the calls that ran: a realtime turn goes on past a held call, so
+// a termination tool that ran beside one still stops the turn, and the
+// model's next calls are refused.
+func TestDuplexTools_HeldCallDoesNotSkipTermination(t *testing.T) {
+	exec := &realtimeToolExec{result: json.RawMessage(`"ok"`)}
+	reg := registryWithTools(t, "finish", "risky", "weather")
+	reg.RegisterExecutor(exec)
+	gate := func(_ context.Context, _, name string, _ map[string]any) (*tools.PendingToolInfo, error) {
+		if name != "risky" {
+			return nil, nil
+		}
+		return &tools.PendingToolInfo{Reason: "approval", Message: "approve " + name}, nil
+	}
+	h := startRealtime(t, realtimeOpts{
+		registry: reg,
+		policy:   &pipeline.ToolPolicy{StopOnTool: "finish"},
+		cfg:      DuplexToolConfig{ApprovalGate: gate},
+		script:   [][]providers.StreamChunk{toolCallTurn(weatherCall("c3"))},
+	})
+
+	h.emit(toolCallTurn(namedCall("c1", "finish"), namedCall("c2", "risky")))
+	sent := h.awaitSent(2)
+	h.finish()
+
+	assert.Equal(t, [][]providers.ToolResponse{
+		{{ToolCallID: "c1", Result: "ok"}},
+		{{ToolCallID: "c3", IsError: true, Result: "Tool weather not executed: the turn's tool calls were stopped: " +
+			"the turn's termination tool was called"}},
+	}, sent)
+	assert.Equal(t, []string{"finish"}, exec.calls(), "the held call waits; the call after the stop is refused")
+}
+
+// A termination tool held for approval has not run, so it does not stop the
+// turn: the model's next calls run.
+func TestDuplexTools_HeldTerminationToolDoesNotStopTheTurn(t *testing.T) {
+	exec := &realtimeToolExec{result: json.RawMessage(`"ok"`)}
+	reg := registryWithTools(t, "finish", "weather")
+	reg.RegisterExecutor(exec)
+	gate := func(_ context.Context, _, name string, _ map[string]any) (*tools.PendingToolInfo, error) {
+		if name != "finish" {
+			return nil, nil
+		}
+		return &tools.PendingToolInfo{Reason: "approval", Message: "approve " + name}, nil
+	}
+	h := startRealtime(t, realtimeOpts{
+		registry: reg,
+		policy:   &pipeline.ToolPolicy{StopOnTool: "finish"},
+		cfg:      DuplexToolConfig{ApprovalGate: gate},
+		script:   [][]providers.StreamChunk{toolCallTurn(weatherCall("c3"))},
+	})
+
+	h.emit(toolCallTurn(namedCall("c1", "finish"), weatherCall("c2")))
+	sent := h.awaitSent(2)
+	h.finish()
+
+	assert.Equal(t, [][]providers.ToolResponse{
+		{{ToolCallID: "c2", Result: "ok"}},
+		{{ToolCallID: "c3", Result: "ok"}},
+	}, sent)
+	assert.Equal(t, []string{"weather", "weather"}, exec.calls())
+}
+
+// Once input closes, the final-response wait is extended while a tool round
+// runs and while the reply its results start streams: the round's results
+// reach the session and its reply reaches the caller, and the session then
+// closes.
+func TestDuplexTools_FinalWaitCoversARunningRoundAndItsReply(t *testing.T) {
+	t.Parallel()
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`), delay: 120 * time.Millisecond}
+	h := startRealtime(t, realtimeOpts{
+		registry:  newWeatherRegistry(t, exec),
+		finalWait: 20 * time.Millisecond,
+	})
+
+	h.emit(toolCallTurn(weatherCall("c1")))
+	require.Eventually(t, func() bool { return len(exec.calls()) == 1 }, 2*time.Second, time.Millisecond)
+	close(h.input)
+	h.awaitSent(1)
+	// The reply starts well after the round was delivered: several waits pass
+	// while it is awaited.
+	time.Sleep(80 * time.Millisecond)
+	h.emit(textTurn("It is 21 degrees", nil))
+	elems := drainUntilClosed(t, h.output)
+	require.NoError(t, <-h.done)
+
+	assert.Equal(t, [][]providers.ToolResponse{{{ToolCallID: "c1", Result: weatherResult}}},
+		h.sess().sentResponses())
+	msgs := realtimeAssistantMessages(elems)
+	require.Len(t, msgs, 2)
+	assert.Equal(t, "It is 21 degrees", msgs[1].Content)
+	assert.True(t, h.sess().isClosed())
+}
+
+// A tool that never finishes cannot hold a session whose input closed open
+// past the wait limit.
+func TestDuplexTools_FinalWaitIsBoundedForAHungTool(t *testing.T) {
+	t.Parallel()
+	// The hung tool never returns: without the limit the wait would last
+	// until the harness's 5s context ends.
+	const toolWaitLimit = 150 * time.Millisecond
+	exec := &realtimeToolExec{result: json.RawMessage(`"ok"`), gate: make(chan struct{})}
+	h := startRealtime(t, realtimeOpts{
+		registry:      newWeatherRegistry(t, exec),
+		finalWait:     10 * time.Millisecond,
+		toolWaitLimit: toolWaitLimit,
+	})
+
+	h.emit(toolCallTurn(weatherCall("c1")))
+	require.Eventually(t, func() bool { return len(exec.calls()) == 1 }, 2*time.Second, time.Millisecond)
+	start := time.Now()
+	close(h.input)
+	drainUntilClosed(t, h.output)
+	require.NoError(t, <-h.done)
+
+	assert.True(t, h.sess().isClosed())
+	elapsed := time.Since(start)
+	assert.GreaterOrEqual(t, elapsed, toolWaitLimit, "the wait was extended for the running round")
+	assert.Less(t, elapsed, toolWaitLimit+850*time.Millisecond, "but not past the limit")
+	assert.Empty(t, h.sess().sentResponses())
+}
+
+// The final-response wait is extended for tool rounds only: a provider call
+// with no tool round behind it (a typed turn the provider never answers) does
+// not hold a session whose input closed open past the normal wait.
+func TestDuplexTools_FinalWaitIsNotExtendedWithoutAToolRound(t *testing.T) {
+	t.Parallel()
+	h := startRealtime(t, realtimeOpts{
+		registry:      newWeatherRegistry(t, &realtimeToolExec{result: json.RawMessage(`"ok"`)}),
+		finalWait:     20 * time.Millisecond,
+		toolWaitLimit: 5 * time.Second,
+	})
+	text := "hello?"
+	h.input <- StreamElement{Text: &text}
+	require.Eventually(t, func() bool {
+		h.stage.tools.mu.Lock()
+		defer h.stage.tools.mu.Unlock()
+		return h.stage.tools.open != nil
+	}, 2*time.Second, time.Millisecond, "the typed turn opens a provider call")
+	start := time.Now()
+	close(h.input)
+	drainUntilClosed(t, h.output)
+	require.NoError(t, <-h.done)
+
+	assert.True(t, h.sess().isClosed())
+	assert.Less(t, time.Since(start), time.Second, "closed after the normal wait, not the tool-round limit")
+}
+
+// Tool responses sent for a round whose tool turn already ended (the model
+// replied without calls while the round ran) still start a reply, and the
+// wait covers it though no provider call was opened for it.
+func TestDuplexTools_FinalWaitCoversTheReplyToAnEndedTurnsRound(t *testing.T) {
+	t.Parallel()
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`), gate: make(chan struct{})}
+	h := startRealtime(t, realtimeOpts{
+		registry:  newWeatherRegistry(t, exec),
+		finalWait: 20 * time.Millisecond,
+	})
+
+	h.emit(toolCallTurn(weatherCall("c1")))
+	require.Eventually(t, func() bool { return len(exec.calls()) == 1 }, 2*time.Second, time.Millisecond)
+	h.emit(textTurn("One moment.", nil)) // ends the tool turn while the round runs
+	require.Eventually(t, func() bool {
+		h.stage.tools.mu.Lock()
+		defer h.stage.tools.mu.Unlock()
+		return h.stage.tools.turn == nil
+	}, 2*time.Second, time.Millisecond)
+	close(h.input)
+	close(exec.gate)
+	h.awaitSent(1)
+	time.Sleep(80 * time.Millisecond) // several waits pass before the reply starts
+	h.emit(textTurn("It is 21 degrees", nil))
+	elems := drainUntilClosed(t, h.output)
+	require.NoError(t, <-h.done)
+
+	msgs := realtimeAssistantMessages(elems)
+	require.Len(t, msgs, 3)
+	assert.Equal(t, "It is 21 degrees", msgs[2].Content)
+}
+
+// A round whose every call is held for approval ran nothing, so it does not
+// reach the round limit: no limit is reported for it.
+func TestDuplexTools_AllHeldRoundDoesNotTripTheRoundLimit(t *testing.T) {
+	gate := func(_ context.Context, _, name string, _ map[string]any) (*tools.PendingToolInfo, error) {
+		return &tools.PendingToolInfo{Reason: "approval", Message: "approve " + name}, nil
+	}
+	exec := &realtimeToolExec{result: json.RawMessage(`"ok"`)}
+	h := startRealtime(t, realtimeOpts{
+		registry: newWeatherRegistry(t, exec),
+		policy:   &pipeline.ToolPolicy{MaxRounds: 1},
+		cfg:      DuplexToolConfig{ApprovalGate: gate},
+	})
+
+	h.emit(toolCallTurn(weatherCall("c1")))
+	var elems []StreamElement
+	deadline := time.After(2 * time.Second)
+	for held := false; !held; {
+		select {
+		case e := <-h.output:
+			elems = append(elems, e)
+			held = len(e.Meta.PendingTools) > 0
+		case <-deadline:
+			t.Fatal("no pending element")
+		}
+	}
+	require.Eventually(t, func() bool { return len(h.stage.tools.results) == 0 && h.stage.tools.inflight.Load() == 0 },
+		2*time.Second, time.Millisecond)
+	elems = append(elems, h.finish()...)
+
+	assert.Empty(t, streamErrors(elems), "nothing ran, so no limit was reached")
+	assert.Empty(t, exec.calls())
+}
+
+// A round that finishes once the session is closing still tells the host
+// what it needs: the calls it holds for approval and why the turn stopped.
+func TestDuplexTools_RoundFinishingAfterCloseKeepsPendingAndError(t *testing.T) {
+	st := NewDuplexProviderStageWithTurnState(
+		providersmock.NewStreamingProvider("rt", "rt-model", false), baseConfig(), nil, nil)
+	st.SetToolExecution(registryWithTools(t, "weather"), nil, DuplexToolConfig{}, nil)
+	sess := newRecordingSession()
+	st.session = sess
+	st.tools.markClosed()
+
+	held := []tools.PendingToolExecution{{CallID: "c2", ToolName: "weather"}}
+	limit := &MaxRoundsError{Rounds: 1}
+	out := make(chan StreamElement, 4)
+	res := toolRoundResult(nil, held, limit)
+	res.closeSession = true
+	require.NoError(t, st.deliverToolRound(context.Background(), res, out))
+	close(out)
+
+	var pending []tools.PendingToolExecution
+	var errs []error
+	for e := range out {
+		pending = append(pending, e.Meta.PendingTools...)
+		if e.Error != nil {
+			errs = append(errs, e.Error)
+		}
+	}
+	assert.Equal(t, held, pending, "the held call is surfaced")
+	require.Len(t, errs, 1)
+	assert.Equal(t, "provider stage: max rounds (1) exceeded", errs[0].Error())
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	assert.Empty(t, sess.toolResponses)
+	assert.Zero(t, sess.closeCount, "a closing session is not closed again")
+}
+
+// A realtime stage's runner keeps no stage-wide offer state (each tool turn
+// tracks its own): the offer methods treat it as an empty offer rather than
+// panicking.
+func TestDuplexTools_RunnerWithoutOfferStateIsAnEmptyOffer(t *testing.T) {
+	st := NewDuplexProviderStageWithTurnState(
+		providersmock.NewStreamingProvider("rt", "rt-model", false), baseConfig(), nil, nil)
+	st.SetToolExecution(registryWithTools(t, "weather"), nil, DuplexToolConfig{}, nil)
+	r := st.toolRunner()
+
+	r.resetOffered()
+	r.recordOffered("weather")
+	assert.Nil(t, r.offeredToolNames())
+	msg := types.Message{Role: roleAssistant}
+	r.stampToolsOffered(&msg)
+	assert.Nil(t, msg.Meta)
+	r.markBuilt(nil)
+	assert.True(t, r.describedChanged(nil), "nothing is ever recorded as built")
 }

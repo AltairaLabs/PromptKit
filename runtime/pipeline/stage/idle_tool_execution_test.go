@@ -92,6 +92,7 @@ func TestExecuteToolCalls_SlowToolDoesNotTripIdleTimeout(t *testing.T) {
 // heartbeat holds the timer open only while tools run. Once they are done the
 // pipeline is idle again and the timer must fire as normal.
 func TestExecuteToolCalls_HeartbeatStopsWhenToolsFinish(t *testing.T) {
+	t.Parallel()
 	const idle = 60 * time.Millisecond
 
 	idleCtx, cancel, reset := withIdleTimeout(context.Background(), idle)

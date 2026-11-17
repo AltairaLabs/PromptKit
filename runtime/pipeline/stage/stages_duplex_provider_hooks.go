@@ -445,8 +445,10 @@ func (s *DuplexProviderStage) emitBlockedTurn(
 // downstream as an element and the session is closed, so the response loop
 // ends and Process returns err.
 //
-// The error is the session's last output: a consumer stops reading at it, so
-// the response loop must not then block emitting a partial reply.
+// The error is the session's last output: the response loop emits nothing
+// after it (no partial reply, no blocked turn), so a consumer, which keeps
+// reading past an error element until the stream closes, sees the session end
+// at the error.
 func (s *DuplexProviderStage) failInput(ctx context.Context, err error, output chan<- StreamElement) {
 	s.inputFailed.Store(true)
 	_ = sendStreamElement(ctx, NewErrorElement(err), output)
@@ -523,7 +525,7 @@ func (s *DuplexProviderStage) abortTurn(ctx context.Context, err error, output c
 // failTurn sends err downstream as an error element and returns it, or the
 // context's error when canceled first. The input turns a guardrail blocked
 // are emitted first: their user messages were already forwarded, and the
-// error is a consumer's last read.
+// error is the stage's last output, since the stage returns it.
 func (s *DuplexProviderStage) failTurn(ctx context.Context, err error, output chan<- StreamElement) error {
 	if flushErr := s.flushBlockedTurns(ctx, output); flushErr != nil {
 		return flushErr

@@ -113,6 +113,7 @@ func TestWithIdleTimeout_ExplicitCancelStopsTimer(t *testing.T) {
 }
 
 func TestWithIdleTimeout_ZeroTimeoutNeverFires(t *testing.T) {
+	t.Parallel()
 	ctx, cancel, reset := withIdleTimeout(context.Background(), 0)
 	defer cancel()
 

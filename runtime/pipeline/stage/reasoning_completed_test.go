@@ -158,6 +158,7 @@ func TestReasoningCompleted_EmittedPerRoundWithCorrelation(t *testing.T) {
 // reason" distinguishable from "the trace was dropped en route". A round with
 // no reasoning must emit nothing at all rather than an empty event.
 func TestReasoningCompleted_SilentWhenRoundDidNotReason(t *testing.T) {
+	t.Parallel()
 	bus := events.NewEventBus()
 	emitter := events.NewEmitter(bus, "run", "sess", "conv")
 	snapshot := collectEvents(bus, events.EventReasoningCompleted)
@@ -176,8 +177,8 @@ func TestReasoningCompleted_SilentWhenRoundDidNotReason(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Give the bus a chance to deliver anything it should not have sent.
-	assert.Empty(t, drainEvents(t, snapshot),
+	// Deliver anything the rounds published that they should not have.
+	assert.Empty(t, drainEvents(t, bus, snapshot),
 		"a round that produced no reasoning must emit nothing, not an empty trace")
 }
 

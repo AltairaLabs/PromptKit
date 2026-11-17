@@ -25,7 +25,9 @@ func historyElem(role, text string) StreamElement {
 type historylessSession struct{ providers.StreamInputSession }
 
 // historylessProvider opens historylessSessions over the mock provider's.
-type historylessProvider struct{ *providersmock.StreamingProvider }
+type historylessProvider struct {
+	*providersmock.StreamingProvider
+}
 
 func (p historylessProvider) CreateStreamSession(
 	ctx context.Context, cfg *providers.StreamingInputConfig,
@@ -129,7 +131,9 @@ func TestDuplexProviderStage_SeedFailure(t *testing.T) {
 
 // closingSeedProvider closes each session before handing it over, so seeding
 // it fails.
-type closingSeedProvider struct{ *providersmock.StreamingProvider }
+type closingSeedProvider struct {
+	*providersmock.StreamingProvider
+}
 
 func (p closingSeedProvider) CreateStreamSession(
 	ctx context.Context, cfg *providers.StreamingInputConfig,
@@ -143,14 +147,16 @@ func (p closingSeedProvider) CreateStreamSession(
 
 // Input that closes after only history still opens and seeds the session.
 func TestDuplexProviderStage_InputClosesAfterHistory(t *testing.T) {
+	t.Parallel()
 	provider := providersmock.NewStreamingProvider("t", "m", false)
 	s := NewDuplexProviderStage(provider, baseConfig())
+	// The stage then waits for a final response; end that wait at once.
+	s.finalWait = time.Millisecond
 	input := make(chan StreamElement, 1)
 	input <- historyElem("user", "only history")
 	close(input)
 	output := make(chan StreamElement, 4)
-	// The stage then waits for a final response; end that wait at once.
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	go func() {
 		for range output {
@@ -161,7 +167,6 @@ func TestDuplexProviderStage_InputClosesAfterHistory(t *testing.T) {
 	require.Len(t, sessions, 1)
 	assert.Equal(t, []providers.HistoryTurn{{Role: "user", Text: "only history"}}, sessions[0].GetHistory())
 }
-
 
 // Only message elements replayed from history are history: the first element
 // of the conversation's own input ends it, whether it carries a message or

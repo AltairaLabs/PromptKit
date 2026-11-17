@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
@@ -83,6 +85,7 @@ func (s *StreamSession) receiveLoop() {
 	// Signal the pump that no more chunks are coming and let it drain its queue
 	// and close Response() before this goroutine returns.
 	defer func() {
+		s.flushCarriedUsage()
 		close(s.emitCh)
 		s.Wait()
 	}()
@@ -214,6 +217,13 @@ func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 // carryToolCallUsage holds the usage of a tool-call turn that Gemini reports
 // as a turnComplete with no content, and reports whether msg was that.
 //
+// Only a model that reports a tool-call turn's completion does this (see
+// reportsToolCallTurnComplete). Gemini 2.5 Live does not, so there a
+// content-free turnComplete after a tool call completes the reply to the tool
+// result, which can be empty. The tool response being sent cannot tell the two
+// apart: 3.x sends its tool-call turnComplete right after the toolCall, and a
+// fast tool's response can be sent before the client reads it.
+//
 // The tool calls already ended the turn (handleToolCalls reports them with
 // FinishReason tool_use: the model waits for their results). Gemini 3.x Live
 // then sends turnComplete carrying only the tool-call generation's usage;
@@ -232,6 +242,9 @@ func (s *StreamSession) carryToolCallUsage(msg *ServerMessage) bool {
 		return false
 	}
 	s.toolCallTurn = false
+	if !reportsToolCallTurnComplete(s.config.Model) {
+		return false // the reply's completion, possibly empty
+	}
 	s.ClearDrop()
 	if err := s.handleInputTranscription(sc); err != nil {
 		logger.Debug("StreamSession: input transcription not delivered", "error", err)
@@ -244,6 +257,44 @@ func (s *StreamSession) carryToolCallUsage(msg *ServerMessage) bool {
 		s.carriedUsage = &tokens
 	}
 	return true
+}
+
+// liveModelVersion matches a Gemini model name's version, as in
+// "gemini-2.5-flash-native-audio" or "gemini-live-2.5-flash".
+var liveModelVersion = regexp.MustCompile(`(\d+)\.\d+`)
+
+// firstToolCallTurnCompleteMajor is the first Gemini major version whose Live
+// models end a tool-call turn with their own turnComplete.
+const firstToolCallTurnCompleteMajor = 3
+
+// reportsToolCallTurnComplete reports whether model ends a tool-call turn with
+// its own turnComplete (Gemini 3 and later Live models, observed live on
+// gemini-3.8-live) rather than reporting it with the reply's (Gemini 2.x).
+// A name without a version is taken to be a current model.
+func reportsToolCallTurnComplete(model string) bool {
+	m := liveModelVersion.FindStringSubmatch(model)
+	if m == nil {
+		return true
+	}
+	major, _ := strconv.Atoi(m[1]) // digits only: an overflow reads as the largest int
+	return major >= firstToolCallTurnCompleteMajor
+}
+
+// flushCarriedUsage reports a tool-call turn's held usage that no later turn
+// completion took (the session ended first) as a usage-only chunk, without
+// blocking: the receive loop is exiting. Receive goroutine only.
+func (s *StreamSession) flushCarriedUsage() {
+	if s.carriedUsage == nil {
+		return
+	}
+	tokens := *s.carriedUsage
+	ci := base.PriceUsage(s.pricing, s.providerID, base.ProviderTypeInference, tokens, nil, 0)
+	select {
+	case s.emitCh <- providers.StreamChunk{CostInfo: &ci}:
+	default:
+		logger.Warn("StreamSession: a tool-call turn's usage was not reported: the response queue is full",
+			"input_tokens", tokens.Input, "output_tokens", tokens.Output)
+	}
 }
 
 // addTokenUsage returns the field-wise sum of a and b's token counts. Gemini

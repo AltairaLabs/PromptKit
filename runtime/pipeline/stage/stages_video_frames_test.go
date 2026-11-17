@@ -814,6 +814,7 @@ func TestFramesToMessageStage_ComposeMessage_EmptyFrames(t *testing.T) {
 // CompletionTimeout passes, while the input is still open. A sub-second
 // timeout is honored, not rounded up to the checker's one-second tick.
 func TestFramesToMessageStage_Timeout(t *testing.T) {
+	t.Parallel()
 	config := DefaultFramesToMessageConfig()
 	config.CompletionTimeout = 20 * time.Millisecond
 	stg := NewFramesToMessageStage(config)

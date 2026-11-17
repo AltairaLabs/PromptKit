@@ -568,6 +568,7 @@ func TestMediaComposeStage_ComposeVideo(t *testing.T) {
 }
 
 func TestMediaComposeStage_Timeout(t *testing.T) {
+	t.Parallel()
 	config := MediaComposeConfig{
 		CompletionTimeout: 20 * time.Millisecond,
 	}

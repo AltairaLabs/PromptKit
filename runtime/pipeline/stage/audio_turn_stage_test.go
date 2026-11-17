@@ -69,6 +69,7 @@ func TestAudioTurnStage_PassthroughMetadata(t *testing.T) {
 }
 
 func TestAudioTurnStage_AccumulatesAudio(t *testing.T) {
+	t.Parallel()
 	config := stage.DefaultAudioTurnConfig()
 	config.SilenceDuration = 100 * time.Millisecond
 	config.MinSpeechDuration = 50 * time.Millisecond
@@ -158,6 +159,7 @@ func TestAudioTurnStage_MinSpeechDuration(t *testing.T) {
 }
 
 func TestAudioTurnStage_MaxTurnDuration(t *testing.T) {
+	t.Parallel()
 	config := stage.DefaultAudioTurnConfig()
 	config.MaxTurnDuration = 100 * time.Millisecond
 	config.SilenceDuration = 10 * time.Second // Won't trigger
@@ -266,6 +268,7 @@ func TestAudioTurnStage_EndOfStream_EmptyBuffer(t *testing.T) {
 }
 
 func TestAudioTurnStage_TurnDetector_Integration(t *testing.T) {
+	t.Parallel()
 	config := stage.DefaultAudioTurnConfig()
 	config.SilenceDuration = 10 * time.Second // Won't trigger via silence
 
@@ -326,6 +329,7 @@ func TestAudioTurnStage_TurnDetector_Integration(t *testing.T) {
 // A barge-in keeps the audio that triggered it: the chunk the caller spoke over
 // the bot is the start of their next turn, not something to discard (#2301).
 func TestAudioTurnStage_Interruption_KeepsBufferedSpeech(t *testing.T) {
+	t.Parallel()
 	config := stage.DefaultAudioTurnConfig()
 	config.SilenceDuration = 10 * time.Second // Won't trigger
 
@@ -477,6 +481,7 @@ loop:
 }
 
 func TestAudioTurnStage_NoEndOfTurnByDefault(t *testing.T) {
+	t.Parallel()
 	config := stage.DefaultAudioTurnConfig() // EmitEndOfTurn defaults false
 	config.SilenceDuration = 30 * time.Millisecond
 	config.MinSpeechDuration = 10 * time.Millisecond

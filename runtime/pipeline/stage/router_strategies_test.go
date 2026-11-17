@@ -350,6 +350,7 @@ func TestBroadcastRouter(t *testing.T) {
 }
 
 func TestRouterContextCancellation(t *testing.T) {
+	t.Parallel()
 	router := NewContentRouter("test-router",
 		RouteWhen("output", func(e StreamElement) bool { return true }),
 	)

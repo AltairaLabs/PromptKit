@@ -138,6 +138,7 @@ func TestDuplexProviderStage_SessionCreation(t *testing.T) {
 }
 
 func TestDuplexProviderStage_InputForwarding(t *testing.T) {
+	t.Parallel()
 	t.Run("Forwards audio elements to session", func(t *testing.T) {
 		provider := providersmock.NewStreamingProvider("test", "test-model", false).
 			WithAutoRespond("Test response")
@@ -170,8 +171,11 @@ func TestDuplexProviderStage_InputForwarding(t *testing.T) {
 			done <- stage.Process(ctx, input, output)
 		}()
 
-		// Wait for processing
-		time.Sleep(200 * time.Millisecond)
+		// Wait for the audio to reach the session
+		require.Eventually(t, func() bool {
+			session := provider.GetSession()
+			return session != nil && len(session.GetChunks()) > 0
+		}, 2*time.Second, time.Millisecond)
 		cancel()
 
 		// Verify chunks were sent
@@ -209,8 +213,11 @@ func TestDuplexProviderStage_InputForwarding(t *testing.T) {
 			done <- stage.Process(ctx, input, output)
 		}()
 
-		// Wait for processing
-		time.Sleep(200 * time.Millisecond)
+		// Wait for the text to reach the session
+		require.Eventually(t, func() bool {
+			session := provider.GetSession()
+			return session != nil && len(session.GetTexts()) > 0
+		}, 2*time.Second, time.Millisecond)
 		cancel()
 
 		// Verify text was sent
@@ -223,6 +230,7 @@ func TestDuplexProviderStage_InputForwarding(t *testing.T) {
 }
 
 func TestDuplexProviderStage_ResponseForwarding(t *testing.T) {
+	t.Parallel()
 	t.Run("Forwards response chunks to output", func(t *testing.T) {
 		provider := providersmock.NewStreamingProvider("test", "test-model", false).
 			WithAutoRespond("Test response from LLM")
@@ -251,25 +259,27 @@ func TestDuplexProviderStage_ResponseForwarding(t *testing.T) {
 			stage.Process(ctx, input, output)
 		}()
 
-		// Collect output
-		var outputElements []StreamElement
-		timeout := time.After(500 * time.Millisecond)
-	collectLoop:
-		for {
+		// Collect output until the response's assistant message arrives.
+		var reply *types.Message
+		var streamed string
+		for reply == nil {
 			select {
 			case elem, ok := <-output:
-				if !ok {
-					break collectLoop
+				require.True(t, ok, "output closed before the response was forwarded")
+				if elem.Text != nil {
+					streamed += *elem.Text
 				}
-				outputElements = append(outputElements, elem)
-			case <-timeout:
-				break collectLoop
+				if elem.Message != nil && elem.Message.Role == roleAssistant {
+					reply = elem.Message
+				}
+			case <-ctx.Done():
+				require.FailNow(t, "the response was never forwarded")
 			}
 		}
 		cancel()
 
-		// Should have received response
-		require.NotEmpty(t, outputElements, "Should receive output elements")
+		assert.Equal(t, "Test response from LLM", reply.GetContent())
+		assert.Equal(t, "Test response from LLM", streamed, "the response's text is streamed before its message")
 	})
 }
 
@@ -495,6 +505,7 @@ func TestDuplexProviderStage_UserTurnMaterializesOncePerUtterance(t *testing.T) 
 }
 
 func TestDuplexProviderStage_MessageForwarding(t *testing.T) {
+	t.Parallel()
 	t.Run("Forwards user messages to output for state store", func(t *testing.T) {
 		provider := providersmock.NewStreamingProvider("test", "test-model", false).
 			WithAutoRespond("Response")
@@ -523,36 +534,29 @@ func TestDuplexProviderStage_MessageForwarding(t *testing.T) {
 			stage.Process(ctx, input, output)
 		}()
 
-		// Collect output
-		var outputElements []StreamElement
-		timeout := time.After(500 * time.Millisecond)
+		// Collect output until the user message arrives or output closes
+		var hasUserMessage bool
+		timeout := time.After(2 * time.Second)
 	collectLoop:
-		for {
+		for !hasUserMessage {
 			select {
 			case elem, ok := <-output:
 				if !ok {
 					break collectLoop
 				}
-				outputElements = append(outputElements, elem)
+				hasUserMessage = elem.Message != nil && elem.Message.Role == "user"
 			case <-timeout:
 				break collectLoop
 			}
 		}
 		cancel()
 
-		// Should have user message in output
-		var hasUserMessage bool
-		for _, elem := range outputElements {
-			if elem.Message != nil && elem.Message.Role == "user" {
-				hasUserMessage = true
-				break
-			}
-		}
 		assert.True(t, hasUserMessage, "User message should be forwarded to output")
 	})
 }
 
 func TestDuplexProviderStage_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	t.Run("Respects context cancellation", func(t *testing.T) {
 		provider := providersmock.NewStreamingProvider("test", "test-model", false).
 			WithAutoRespond("Response")
@@ -572,7 +576,8 @@ func TestDuplexProviderStage_ContextCancellation(t *testing.T) {
 		}()
 
 		// Wait for session to be created
-		time.Sleep(100 * time.Millisecond)
+		require.Eventually(t, func() bool { return provider.GetSession() != nil },
+			2*time.Second, time.Millisecond)
 
 		// Cancel context
 		cancel()

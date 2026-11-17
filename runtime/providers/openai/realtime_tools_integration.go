@@ -16,7 +16,8 @@ var (
 )
 
 // sessionToolsUpdate is a session.update that changes only the session's
-// tools and tool_choice. Tools is never omitted: an empty array clears them.
+// tools and tool_choice. Neither is omitted: an empty tools array clears
+// them, and tool_choice is always set because the server merges the update.
 type sessionToolsUpdate struct {
 	ClientEvent
 	Session sessionToolsConfig `json:"session"`
@@ -30,7 +31,8 @@ type sessionToolsConfig struct {
 }
 
 // UpdateTools replaces the live session's tools with a session.update, keeping
-// the session's tool_choice where it still applies (see realtimeToolChoice).
+// the session's tool_choice where it still applies (see realtimeToolChoice)
+// and resetting it to "auto" where it does not.
 // A nil error means the update was sent: the server reports a rejection
 // later, as an error on the response stream. A done ctx sends nothing.
 // Implements providers.StreamToolUpdater.
@@ -47,12 +49,19 @@ func (s *RealtimeSession) UpdateTools(ctx context.Context, tools []providers.Str
 	s.mu.Unlock()
 
 	defs := realtimeToolDefs(tools)
+	toolChoice := realtimeToolChoice(choice, defs)
+	if toolChoice == nil {
+		// The server merges a partial session.update, so an omitted tool_choice
+		// would keep the session's current one — a "required" or a function
+		// the new tools no longer satisfy. Reset it to the default instead.
+		toolChoice = toolChoiceAuto
+	}
 	event := sessionToolsUpdate{
 		ClientEvent: ClientEvent{EventID: s.nextEventID(), Type: realtimeEventSessionUpdate},
 		Session: sessionToolsConfig{
 			Type:       sessionTypeRealtime,
 			Tools:      defs,
-			ToolChoice: realtimeToolChoice(choice, defs),
+			ToolChoice: toolChoice,
 		},
 	}
 	if err := s.ws.Send(event); err != nil {

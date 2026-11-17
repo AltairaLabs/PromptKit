@@ -20,6 +20,7 @@ import (
 // publishes tool.excluded once, naming the tool, the reason, the failure
 // count and that round.
 func TestToolLoop_SecondRejectionPublishesToolExcluded(t *testing.T) {
+	t.Parallel()
 	registry := tools.NewRegistry()
 	require.NoError(t, registry.Register(&tools.ToolDescriptor{
 		Name: "blocked_tool", Description: "always blocked",
