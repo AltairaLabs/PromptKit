@@ -250,6 +250,30 @@ type ResponseInterrupter interface {
 	InterruptResponse(ctx context.Context, generation int64) error
 }
 
+// Announcer is an optional interface a StreamInputSession implements to have
+// the model speak a given text as its own reply, in its own voice. The
+// pipeline uses it after a guardrail cuts a spoken reply, so the caller hears
+// the blocked message instead of silence. The spoken reply is played but is
+// not recorded as a turn of its own: the blocked turn already carries the
+// text.
+//
+// spoken is false, with no request made, when the session's replies are not
+// spoken (a text-only session): the blocked text it already shows is the
+// whole answer.
+//
+// OpenAI Realtime asks for a response whose instructions are to say the text,
+// adding no user turn. Gemini Live has no such request: it is sent the
+// instruction as a user turn, which stays in its context.
+type Announcer interface {
+	Announce(ctx context.Context, text string) (spoken bool, err error)
+}
+
+// AnnounceInstructions is the instruction a session gives the model to speak
+// text verbatim.
+func AnnounceInstructions(text string) string {
+	return "Say exactly the following, in the same language, and nothing else: " + text
+}
+
 // LateInputTranscriber is an optional interface a StreamInputSupport provider
 // implements to declare that it delivers the user's input transcription AFTER
 // the assistant response has already begun — e.g. OpenAI Realtime, whose Whisper

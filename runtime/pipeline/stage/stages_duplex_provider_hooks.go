@@ -45,8 +45,10 @@ import (
 // it and to cut its own copy to the audio the caller heard
 // (providers.ResponseInterrupter), and an Interrupt element tells the caller
 // to stop playing what it buffered, as a barge-in does. The blocked turn's
-// text then goes out as live output, as a blocked typed turn's does. Whatever
-// the caller heard before the check fired cannot be unsaid.
+// text then goes out as live output, as a blocked typed turn's does, and the
+// session is asked to say it (providers.Announcer, queueAnnouncement), so the
+// caller hears why the reply stopped. Whatever the caller heard before the
+// check fired cannot be unsaid.
 
 // SetHookRegistry installs the provider hooks (guardrails) the stage runs. A
 // nil registry, the default, runs none. The registry is handed the stage's
@@ -543,9 +545,11 @@ func (s *DuplexProviderStage) guardOutputChunk(
 		s.accumulatedText.WriteString(probe.Content)
 		s.blockTurn()
 		if rest, truncated := strings.CutPrefix(probe.Content, sent); !truncated {
-			s.showBlockedText(probe.Content)
+			s.showBlockedText(probe.Content, true)
 		} else if rest != "" {
-			s.showBlockedText(rest)
+			// The rest after what was sent; spoken only when nothing was sent,
+			// so it is the whole replacement, not a truncation's tail.
+			s.showBlockedText(rest, sent == "")
 		}
 	} else {
 		s.blockTurnWith(nil, d)
@@ -594,13 +598,15 @@ func (s *DuplexProviderStage) blockTurnWith(req *hooks.ProviderRequest, d hooks.
 	s.turnGuard.blockedText = &blocked.Content
 	s.turnGuard.blockedMeta = blocked.Meta
 	s.blockTurn()
-	s.showBlockedText(blocked.Content)
+	s.showBlockedText(blocked.Content, true)
 }
 
 // showBlockedText has a blocked turn's text sent as live output by the next
-// cutReply.
-func (s *DuplexProviderStage) showBlockedText(text string) {
+// cutReply, and, with speak, spoken (queueAnnouncement): a message that
+// replaces the reply is, the rest of a truncated one is not.
+func (s *DuplexProviderStage) showBlockedText(text string, speak bool) {
 	s.blockedLive = &text
+	s.blockedLiveSpoken = speak
 }
 
 // cutReply cuts a reply a guardrail blocked, once per block: the session is
@@ -630,7 +636,13 @@ func (s *DuplexProviderStage) cutReply(ctx context.Context, output chan<- Stream
 	fr := types.FinishReasonSafety
 	elem := StreamElement{Text: text, Timestamp: timeNow()}
 	elem.Meta.FinishReason = &fr
-	return sendStreamElement(ctx, elem, output)
+	if err := sendStreamElement(ctx, elem, output); err != nil {
+		return err
+	}
+	if s.blockedLiveSpoken {
+		s.queueAnnouncement(ctx, *text)
+	}
+	return nil
 }
 
 // interruptElement is an Interrupt element carrying why the reply was cut:
@@ -718,6 +730,12 @@ func (s *DuplexProviderStage) guardCompletedTurn(ctx context.Context, elem *Stre
 	if !turn {
 		return
 	}
+	if s.chunkAnnounces {
+		// The spoken blocked message: heard, not a turn of its own.
+		elem.Message = nil
+		s.endAnnouncementTurn()
+		return
+	}
 
 	msg.Validations = append(msg.Validations, guard.validations...)
 	if guard.blocked {
@@ -727,7 +745,7 @@ func (s *DuplexProviderStage) guardCompletedTurn(ctx context.Context, elem *Stre
 		if !guard.blocked {
 			s.cutReplyOf(s.replyGeneration())
 		}
-		s.showBlockedText(msg.Content)
+		s.showBlockedText(msg.Content, true)
 	}
 	s.history.add(msg)
 	s.completeAssistantTurn()

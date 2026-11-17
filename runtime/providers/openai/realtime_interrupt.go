@@ -113,3 +113,18 @@ func (s *RealtimeSession) cancelRejected(e *ErrorEvent) bool {
 		"code", e.Error.Code, "message", e.Error.Message)
 	return true
 }
+
+// Announce implements providers.Announcer: a response whose instructions are
+// to say text, without tools. It adds no user item, so the conversation gains
+// no user turn; the spoken reply joins it as the assistant's. A text-only
+// session asks for nothing.
+func (s *RealtimeSession) Announce(_ context.Context, text string) (bool, error) {
+	if outputModalities(s.config.Modalities)[0] != modalityAudio {
+		return false, nil
+	}
+	err := s.TriggerResponse(&ResponseConfig{
+		Instructions: providers.AnnounceInstructions(text),
+		ToolChoice:   "none",
+	})
+	return err == nil, err
+}

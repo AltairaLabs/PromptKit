@@ -26,11 +26,11 @@
           }
         },
         {
-          "id": "no-banana",
+          "id": "no-bruno",
           "type": "content_excludes",
-          "message": "Let's not talk about bananas.",
+          "message": "We don't talk about Bruno.",
           "params": {
-            "patterns": ["banana"],
+            "patterns": ["Bruno"],
             "direction": "input"
           }
         }

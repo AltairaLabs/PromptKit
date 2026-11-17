@@ -630,3 +630,15 @@ func (s *StreamSession) reconnect() bool {
 	logger.Error("StreamSession: all reconnection attempts failed", "max_attempts", s.maxReconnectTries)
 	return false
 }
+
+// Announce implements providers.Announcer. Gemini Live has no request for a
+// reply with given instructions, so the instruction to say text is sent as a
+// user turn, which stays in the model's context.
+// A text-only session asks for nothing.
+func (s *StreamSession) Announce(ctx context.Context, text string) (bool, error) {
+	if !sliceContains(getResponseModalities(s.config.ResponseModalities), modalityAudio) {
+		return false, nil
+	}
+	err := s.SendText(ctx, providers.AnnounceInstructions(text))
+	return err == nil, err
+}
