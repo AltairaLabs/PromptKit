@@ -1851,7 +1851,7 @@ conv.EventBus().Subscribe(events.EventToolCallStarted, func(e *events.Event) {
 For convenience methods, see the \[hooks\] package.
 
 <a name="Conversation.FailClientTool"></a>
-### func \(\*Conversation\) [FailClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L858>)
+### func \(\*Conversation\) [FailClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L868>)
 
 ```go
 func (c *Conversation) FailClientTool(ctx context.Context, callID string, partial any, err error) error
@@ -2711,7 +2711,7 @@ for chunk := range conv.ResumeStream(ctx) {
 As with [Conversation.Stream](<#Conversation.Stream>), drain the channel or cancel ctx: the stream holds the conversation's turn until it ends.
 
 <a name="Conversation.RewrittenToolResult"></a>
-### func \(\*Conversation\) [RewrittenToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/settled_tool_results.go#L266>)
+### func \(\*Conversation\) [RewrittenToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/settled_tool_results.go#L270>)
 
 ```go
 func (c *Conversation) RewrittenToolResult(callID string) (string, bool)

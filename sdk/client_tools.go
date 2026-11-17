@@ -585,21 +585,31 @@ func (c *Conversation) validateDeferredResults(
 		return
 	}
 	for _, res := range resolutions {
-		if res.Rejected || res.Error != nil || len(res.Parts) > 0 {
-			continue
-		}
-		desc, err := c.toolRegistry.GetTool(callNames()[res.ID])
-		if err != nil || desc.ClientConfig == nil || !desc.ClientConfig.ValidateOutput {
-			continue
-		}
-		validated, _, err := clientResultValidator.CoerceResult(desc, res.ResultJSON)
-		if err != nil {
-			res.ResultJSON = nil
-			res.Error = fmt.Errorf("result validation failed: %w", err)
-			continue
-		}
-		res.ResultJSON = validated
+		c.validateAnswer(res, callNames()[res.ID])
 	}
+}
+
+// validateAnswer checks res, a caller-supplied JSON result for a call of tool
+// name, against the tool's output schema when its client config sets
+// validate_output (see validateDeferredResults): a match is coerced, a
+// mismatch becomes a failure. It checks the answer as the client sent it,
+// before any rewriter sees it, as the pipeline validates a tool's result
+// before rewriting it.
+func (c *Conversation) validateAnswer(res *sdktools.ToolResolution, name string) {
+	if c.toolRegistry == nil || res.Rejected || res.Error != nil || len(res.Parts) > 0 {
+		return
+	}
+	desc, err := c.toolRegistry.GetTool(name)
+	if err != nil || desc.ClientConfig == nil || !desc.ClientConfig.ValidateOutput {
+		return
+	}
+	validated, _, err := clientResultValidator.CoerceResult(desc, res.ResultJSON)
+	if err != nil {
+		res.ResultJSON = nil
+		res.Error = fmt.Errorf("result validation failed: %w", err)
+		return
+	}
+	res.ResultJSON = validated
 }
 
 // admitDeferredResults admits, under ToolPolicy.MaxCallsPerMinute, each

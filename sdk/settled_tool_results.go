@@ -190,6 +190,10 @@ func (c *Conversation) prepareAnswer(ctx context.Context, res *sdktools.ToolReso
 		return
 	}
 	call, known := c.callFor(c.lazyCalls(ctx), res)
+	// Validated against the tool's output schema first, as the pipeline
+	// validates a result before rewriting it: a rewriter's output is not
+	// checked against the schema, and an answer that fails it is not rewritten.
+	c.validateAnswer(res, call.Name)
 	if prep, prepared := c.rewrittenAnswer(ctx, call, known, res); prepared {
 		c.keepPrepared(res, prep)
 	}
