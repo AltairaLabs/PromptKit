@@ -333,6 +333,10 @@ type ProviderCallCompletedData struct {
 	// ToolCallEventData.ProviderCallID.
 	CallID string
 
+	// Realtime is set when a realtime (duplex) session made the call: its
+	// completion is recorded before the message it produced, if any.
+	Realtime bool
+
 	// NoMessage is set when the call produced no message in the conversation:
 	// a realtime call cut short before any output, superseded by the next
 	// turn, or open when the session closed.

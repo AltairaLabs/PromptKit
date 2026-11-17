@@ -377,18 +377,23 @@ func TestDuplexCost_TurnEndWithoutAMessageCompletesItsCall(t *testing.T) {
 	assert.InDelta(t, 0.045, msgs[0].CostInfo.TotalCost, 1e-12, "the next message carries it")
 }
 
-// An interruption with nothing under way (no call open, no reply, no cost)
-// reports no call.
-func TestDuplexCost_InterruptionWithNothingUnderWayReportsNoCall(t *testing.T) {
+// An interruption that is a generation's first chunk gets a call of its own
+// (every generation does), completed with no message; the reply after it is
+// another call.
+func TestDuplexCost_InterruptionAsAGenerationsFirstChunk(t *testing.T) {
 	h, ev := costHarness(t, 0)
-	h.emit([]providers.StreamChunk{{Interrupted: true}})
-	h.emit(textTurn("hello", usd(20, 5)))
-	done, _ := ev.await(t, 1, 0)
+	h.emit([]providers.StreamChunk{{Interrupted: true, Generation: 1}})
+	h.emit(gen(2, textTurn("g2|", usd(20, 5))))
+	ev.await(t, 2, 0)
 	h.finish()
 
-	done, _ = ev.await(t, 1, 0)
-	require.Len(t, done, 1)
-	assertCall(t, done[0], 20, 5)
+	done, usage := ev.await(t, 2, 0)
+	require.Len(t, done, 2)
+	assert.Empty(t, usage)
+	assert.Equal(t, types.FinishReasonInterrupted, done[0].FinishReason)
+	assert.True(t, done[0].NoMessage)
+	assertCall(t, done[1], 20, 5)
+	assert.False(t, done[1].NoMessage)
 }
 
 // Usage for a generation too old to remember is a session-level usage event
@@ -432,22 +437,26 @@ func TestDuplexCost_NewGenerationStartsItsOwnToolTurn(t *testing.T) {
 	assert.Equal(t, "g2|", msgs[0].Content, "the superseded generation's text is not carried over")
 }
 
-// An interruption tagged with a generation the stage has not seen does not
-// interrupt an open call bound to another generation.
-func TestDuplexCost_UnboundInterruptionLeavesABoundCallOpen(t *testing.T) {
+// A new generation's first chunk, of any kind (here an interruption), means
+// the provider has moved on: the call of the generation before it completes
+// as interrupted, with no message, and anything that generation reports
+// later is that call's late cost, never another call's message.
+func TestDuplexCost_NewGenerationEndsThePreviousCall(t *testing.T) {
 	h, ev := costHarness(t, 0)
 	h.emit(gen(1, []providers.StreamChunk{{Content: "g1|", Delta: "g1|"}}))
 	h.emit([]providers.StreamChunk{{Interrupted: true, Generation: 7}})
 	stop := "stop"
 	h.emit(gen(1, []providers.StreamChunk{{FinishReason: &stop, CostInfo: usd(10, 1)}}))
-	done, _ := ev.await(t, 1, 0)
+	done, usage := ev.await(t, 2, 1)
 	msgs := costedReplies(h.finish())
 
-	require.Len(t, done, 1)
-	assert.Equal(t, "stop", done[0].FinishReason, "completed by its own turn end, not the interruption")
-	assertCall(t, done[0], 10, 1)
-	require.Len(t, msgs, 1)
-	assert.Equal(t, "g1|", msgs[0].Content)
+	require.Len(t, done, 2)
+	assert.True(t, done[0].NoMessage, "generation 1's call: moved on from")
+	assert.Equal(t, types.FinishReasonInterrupted, done[0].FinishReason)
+	assert.True(t, done[1].NoMessage, "generation 7's call: interrupted before any output")
+	require.Len(t, usage, 1)
+	assertUsage(t, usage[0], done[0].CallID, 10, 1)
+	assert.Empty(t, msgs, "generation 1's text is in no message")
 }
 
 // A provider error ends the turn: its open call completes, with the cost

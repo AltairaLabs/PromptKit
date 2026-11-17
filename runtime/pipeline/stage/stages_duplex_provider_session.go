@@ -138,6 +138,9 @@ type DuplexProviderStage struct {
 	// Track if we recently saw an interruption
 	// Used to detect "interrupted turn complete" (turnComplete with no content after interruption)
 	wasInterrupted bool
+	// interruptedGen is the generation that interruption cut short: only its
+	// completion is the "interrupted turn complete" to skip.
+	interruptedGen int64
 
 	// costPlaced is set by chunkToElement when it puts the chunk's cost on the
 	// message it builds; carriedCost is cost no emitted message carries yet
@@ -150,8 +153,10 @@ type DuplexProviderStage struct {
 	chunkGen     int64
 	chunkCost    *types.CostInfo
 	costReported bool
-	// accGen is the generation whose output the turn's accumulation holds.
+	// accGen is the generation whose output the accumulators hold; parked
+	// holds other generations' (stages_duplex_cost.go).
 	accGen int64
+	parked map[int64]*genAccumulation
 
 	// Turn latency tracking - when the current turn started
 	// Set when user input is received, used to calculate LatencyMs on turn complete.
@@ -1269,8 +1274,9 @@ func (s *DuplexProviderStage) processResponseChunk(
 // stage needs a chance to receive even though context is canceled. This is
 // critical for capturing partial responses.
 func (s *DuplexProviderStage) emitPartialOnCancel(ctx context.Context, output chan<- StreamElement) {
+	s.switchToOpenCall()
 	msg := s.takeInterruptedTurn(fmt.Sprintf("context canceled: %v", context.Cause(ctx)))
-	s.completeOpenCall(ctx, msg)
+	s.completeOpenCall(ctx, msg, msg != nil)
 	if msg == nil {
 		return
 	}
@@ -1385,8 +1391,9 @@ func (s *DuplexProviderStage) finishOnResponseClosed(
 			"accumulated_media_len", len(s.accumulatedMedia))
 	}
 
+	s.switchToOpenCall()
 	msg := s.takeInterruptedTurn(cause)
-	s.completeOpenCall(ctx, msg)
+	s.completeOpenCall(ctx, msg, msg != nil && !s.inputFailed.Load())
 	if s.inputFailed.Load() {
 		// An input hook denied: its error element is the session's last
 		// output, so the partial reply is not emitted after it.
@@ -1482,6 +1489,11 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	s.chunkGen, s.chunkCost = chunk.Generation, chunk.CostInfo
 	if chunk.Error != nil {
 		return s.emitChunkError(ctx, chunk, output)
+	}
+	if !isInputTranscriptionChunk(chunk) {
+		// Every generation has its own call and its own accumulation.
+		s.bindGeneration(ctx, chunk.Generation)
+		s.switchGeneration(chunk.Generation)
 	}
 	if s.staleChunk(chunk) {
 		// Output of a call that already completed (a canceled response's
@@ -1618,11 +1630,15 @@ func (s *DuplexProviderStage) completeChunkTurn(
 		settled := s.settleTurnCall(ctx, elem)
 		if err := s.guardCompletedTurn(ctx, elem); err != nil {
 			if settled != nil {
+				s.emitCompletion(ctx, settled.done, true) // its message is not emitted
 				s.tools.endTurn(settled.turn)
 			}
 			// The denied turn's message is not emitted: its cost is carried.
 			s.carriedCost = addCost(s.carriedCost, chunk.CostInfo)
 			return nil, err
+		}
+		if settled != nil {
+			s.emitCompletion(ctx, settled.done, settled.msg == nil)
 		}
 		round = s.toolJob(settled)
 	}
@@ -1681,8 +1697,9 @@ func (s *DuplexProviderStage) emitChunkError(
 ) error {
 	logger.Error("DuplexProviderStage: chunk error from session", "error", chunk.Error)
 	// Keep the turn's partial reply ahead of the error, as the unary stage does.
+	s.switchToOpenCall()
 	msg := s.takeInterruptedTurn(chunk.Error.Error())
-	s.completeOpenCall(ctx, msg)
+	s.completeOpenCall(ctx, msg, msg != nil)
 	if msg != nil {
 		s.takeCarriedCost(msg)
 		select {
@@ -1821,8 +1838,6 @@ func (s *DuplexProviderStage) accumulateResponseChunk(
 	// input that started it could not be seen.
 	if isAssistantContentChunk(chunk, isOutputTranscription) || len(chunk.ToolCalls) > 0 || chunk.Reasoning != "" {
 		s.openToolRoundIfIdle(ctx)
-		s.bindGeneration(ctx, chunk.Generation)
-		s.trackAccumulation(chunk.Generation)
 	}
 	if isOutputTranscription && chunk.Delta != "" {
 		// outputTranscription sends incremental text - append it

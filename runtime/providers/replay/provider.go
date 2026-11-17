@@ -180,18 +180,17 @@ type indexState struct {
 	sessionUsage *events.ProviderCallCompletedData
 }
 
-// callsPrecedeMessages reports whether the recording's first provider call
-// precedes its first assistant message, as a realtime session records them.
+// callsPrecedeMessages reports whether the recording is a realtime
+// session's, whose calls are recorded before their messages: its
+// provider.call.completed events say so (Realtime).
 func callsPrecedeMessages(evs []recording.RecordedEvent) bool {
 	for i := range evs {
-		if evs[i].Type == events.EventProviderCallCompleted {
-			return true
+		if evs[i].Type != events.EventProviderCallCompleted {
+			continue
 		}
-		if evs[i].Type == events.EventMessageCreated {
-			var m events.MessageCreatedData
-			if json.Unmarshal(evs[i].Data, &m) == nil && m.Role == roleAssistant {
-				return false
-			}
+		var c events.ProviderCallCompletedData
+		if json.Unmarshal(evs[i].Data, &c) == nil && c.Realtime {
+			return true
 		}
 	}
 	return false

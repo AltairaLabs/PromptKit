@@ -519,7 +519,7 @@ func dropAssistantOutput(chunk *providers.StreamChunk, isOutputTranscription boo
 // stage returns it.
 func (s *DuplexProviderStage) abortTurn(ctx context.Context, err error, output chan<- StreamElement) error {
 	s.resetTurnAccumulation()
-	s.completeOpenCall(ctx, nil) // the turn's call ends here, with its pending cost
+	s.completeOpenCall(ctx, nil, false) // the turn's call ends here, with its pending cost
 	s.turnGuard = duplexTurnGuard{}
 	return s.failTurn(ctx, err, output)
 }

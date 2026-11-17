@@ -53,8 +53,17 @@ type costScenario struct {
 	// each user turn.
 	firstAfterUser []int
 	// over is set once the session has ended (a guardrail denied a turn).
-	over    bool
-	started func() []*events.ProviderCallStartedData
+	over bool
+	// expected is each completed generation's full text; audio its audio.
+	expected map[int64]string
+	audio    map[int64]string
+	// ownMessage are generations whose call must report NoMessage=false;
+	// noMessage those that must report true.
+	ownMessage, noMessage []int64
+	// sessionLevelOK counts the operations that may report usage with no
+	// call (a forgotten generation; unnumbered usage before any call).
+	sessionLevelOK int
+	started        func() []*events.ProviderCallStartedData
 }
 
 func (sc *costScenario) cost() *types.CostInfo {
@@ -73,6 +82,7 @@ func (sc *costScenario) emit(op string, chunks []providers.StreamChunk) {
 
 func (sc *costScenario) reply() {
 	g := sc.next()
+	sc.expect(g, tok(g))
 	stop := "stop"
 	sc.emit("reply", gen(g, []providers.StreamChunk{
 		{Content: tok(g), Delta: tok(g)},
@@ -116,6 +126,9 @@ func (sc *costScenario) bargeIn() {
 }
 
 func (sc *costScenario) playoutBargeIn() {
+	if sc.gen == 0 {
+		return // no reply yet to barge into
+	}
 	sc.emit("barge-playout", gen(sc.gen, []providers.StreamChunk{{Interrupted: true}}))
 }
 
@@ -123,6 +136,9 @@ func (sc *costScenario) usageOnly() {
 	g := sc.gen
 	if g > 1 && sc.rng.Intn(2) == 0 {
 		g -= int64(1 + sc.rng.Intn(int(g-1)))
+	}
+	if g == 0 {
+		sc.sessionLevelOK++ // unnumbered, maybe before any call
 	}
 	sc.emit(fmt.Sprintf("usage-only(g%d)", g), []providers.StreamChunk{{CostInfo: sc.cost(), Generation: g}})
 }
@@ -137,7 +153,6 @@ func (sc *costScenario) userTurn() {
 	user := types.Message{Role: roleUser, Content: "next"}
 	sc.h.input <- StreamElement{Message: &user}
 	sc.awaitUserTurn()
-	assert.Eventually(sc.t, func() bool { return len(sc.started()) > before }, 2*time.Second, time.Millisecond)
 	sc.firstAfterUser = append(sc.firstAfterUser, before)
 }
 
@@ -145,6 +160,16 @@ func (sc *costScenario) blockedTurn() {
 	sc.log = append(sc.log, "blocked")
 	text := "blocked input"
 	sc.h.input <- StreamElement{Text: &text}
+}
+
+// expect records a generation's full text, which exactly one emitted
+// message must carry.
+func (sc *costScenario) expect(g int64, text string) {
+	if sc.expected == nil {
+		sc.expected = map[int64]string{}
+		sc.audio = map[int64]string{}
+	}
+	sc.expected[g] = text
 }
 
 // emitTool emits a tool-call turn and waits for its results to reach the
@@ -157,8 +182,9 @@ func (sc *costScenario) emitTool(g int64, turn []providers.StreamChunk) {
 	}, 2*time.Second, time.Millisecond)
 }
 
-// userDuringReply sends a user turn while the reply to a tool result (round
-// 2) streams, then finishes that reply.
+// userDuringReply sends a typed user turn while the reply to a tool result
+// (round 2) streams. The reply goes on to completion: user input never ends
+// a call. Then the reply to the user's turn.
 func (sc *costScenario) userDuringReply() {
 	g := sc.next()
 	sc.emitTool(g, toolCallTurn(weatherCall(fmt.Sprintf("c%d", g))))
@@ -170,9 +196,37 @@ func (sc *costScenario) userDuringReply() {
 	sc.h.input <- StreamElement{Message: &user}
 	sc.settle()
 	stop := "stop"
-	// The superseded reply's end, then the reply to the user's turn.
-	sc.emit("reply-end", gen(r, []providers.StreamChunk{{FinishReason: &stop, CostInfo: sc.cost()}}))
+	sc.emit("reply-rest", gen(r, []providers.StreamChunk{
+		{Content: tok(r), Delta: tok(r)},
+		{MediaData: &providers.StreamMediaData{Data: []byte(fmt.Sprintf("a%d", r)), MIMEType: "audio/pcm"}},
+		{FinishReason: &stop, CostInfo: sc.cost()},
+	}))
+	sc.expect(r, tok(r)+tok(r))
+	sc.audio[r] = fmt.Sprintf("a%d", r)
+	sc.ownMessage = append(sc.ownMessage, r)
 	sc.reply()
+	sc.turnEnded()
+}
+
+// endOnly is a generation that only ends: no content, no cost.
+func (sc *costScenario) endOnly() {
+	g := sc.next()
+	stop := "stop"
+	sc.emit("end-only", []providers.StreamChunk{{FinishReason: &stop, Generation: g}})
+	sc.noMessage = append(sc.noMessage, g)
+}
+
+// costFirst is a generation whose first chunk is its cost, then its reply.
+func (sc *costScenario) costFirst() {
+	g := sc.next()
+	stop := "stop"
+	sc.emit("cost-first", gen(g, []providers.StreamChunk{
+		{CostInfo: sc.cost()},
+		{Content: tok(g), Delta: tok(g)},
+		{FinishReason: &stop, CostInfo: sc.cost()},
+	}))
+	sc.expect(g, tok(g))
+	sc.ownMessage = append(sc.ownMessage, g)
 	sc.turnEnded()
 }
 
@@ -186,11 +240,13 @@ func (sc *costScenario) bargeBeforeOutput() {
 	user := types.Message{Role: roleUser, Content: "hello?"}
 	sc.h.input <- StreamElement{Message: &user}
 	sc.awaitUserTurn()
-	chunk := providers.StreamChunk{Interrupted: true, Generation: sc.gen}
-	if sc.shape == geminiShape && sc.rng.Intn(2) == 0 {
-		chunk.CostInfo = sc.cost()
+	if sc.gen > 0 {
+		chunk := providers.StreamChunk{Interrupted: true, Generation: sc.gen}
+		if sc.shape == geminiShape && sc.rng.Intn(2) == 0 {
+			chunk.CostInfo = sc.cost()
+		}
+		sc.emit("barge-before-output", []providers.StreamChunk{chunk})
 	}
-	sc.emit("barge-before-output", []providers.StreamChunk{chunk})
 	sc.reply()
 	sc.turnEnded()
 }
@@ -210,6 +266,7 @@ func (sc *costScenario) zeroTokenEnd() {
 func (sc *costScenario) deniedReply() {
 	g := sc.next()
 	stop := "stop"
+	sc.noMessage = append(sc.noMessage, g)
 	sc.emit("denied-reply", gen(g, []providers.StreamChunk{
 		{Content: "deny-me", Delta: "deny-me"},
 		{FinishReason: &stop, CostInfo: sc.cost()},
@@ -225,6 +282,7 @@ func (sc *costScenario) manyGenerations() {
 		sc.reply()
 	}
 	sc.settle()
+	sc.sessionLevelOK++
 	sc.emit(fmt.Sprintf("usage-evicted(g%d)", early), []providers.StreamChunk{{CostInfo: sc.cost(), Generation: early}})
 }
 
@@ -308,7 +366,8 @@ func runCostScenario(t *testing.T, shape costShape, seed int64) costTotals {
 	sc := &costScenario{t: t, h: h, rng: rand.New(rand.NewSource(seed)), shape: shape, started: startedSnapshot}
 
 	ops := []func(){sc.reply, sc.toolTurn, sc.bargeIn, sc.playoutBargeIn, sc.usageOnly, sc.userTurn, sc.blockedTurn,
-		sc.userDuringReply, sc.bargeBeforeOutput, sc.zeroTokenEnd, sc.deniedReply, sc.manyGenerations}
+		sc.userDuringReply, sc.bargeBeforeOutput, sc.zeroTokenEnd, sc.deniedReply, sc.manyGenerations,
+		sc.endOnly, sc.costFirst}
 	if shape == openaiShape {
 		ops = append(ops, sc.trailingCancelled)
 	}
@@ -329,6 +388,7 @@ func runCostScenario(t *testing.T, shape costShape, seed int64) costTotals {
 	toolStarts := append([]*events.ToolCallEventData(nil), ev.toolStarts...)
 	ev.mu.Unlock()
 	assertOwnContent(t, elems, toolStarts, label)
+	sc.assertDelivered(elems, ev, label)
 
 	var messageCost float64
 	for _, e := range elems {
@@ -387,7 +447,9 @@ func runCostScenario(t *testing.T, shape costShape, seed int64) costTotals {
 	h.stage.tools.mu.Unlock()
 	all := startedSnapshot()
 	for _, i := range sc.firstAfterUser {
-		assert.Equalf(t, 1, all[i].Round, "%s seed %d %v: a user turn's first call is round 1", shape, seed, sc.log)
+		if i < len(all) { // the user's turn starts with the next call
+			assert.Equalf(t, 1, all[i].Round, "%s seed %d %v: a user turn's first call is round 1", shape, seed, sc.log)
+		}
 	}
 	return costTotals{events: eventCost, spend: spend, history: messageCost + remainder, log: sc.log}
 }
@@ -419,6 +481,71 @@ func (denyReplyHook) AfterCall(_ context.Context, _ *hooks.ProviderRequest, resp
 		return hooks.Deny("no")
 	}
 	return hooks.Allow
+}
+
+// assertDelivered asserts each completed generation's full text is in
+// exactly one emitted message and its audio was delivered; that calls whose
+// message was emitted report NoMessage=false and those with none true; and
+// that usage names no call only where the scenario allows it.
+func (sc *costScenario) assertDelivered(elems []StreamElement, ev *callEvents, label string) {
+	t := sc.t
+	dt := sc.h.stage.tools
+	if dt.isTerminal() || sc.over {
+		return // the session closed early: later output was never read
+	}
+	for g, want := range sc.expected {
+		n := 0
+		for _, e := range elems {
+			if e.Message != nil && e.Message.Role == roleAssistant && e.Message.Content == want {
+				n++
+			}
+		}
+		assert.Equalf(t, 1, n, "%s: generation %d's text %q is in %d messages", label, g, want, n)
+	}
+	for g, want := range sc.audio {
+		found := false
+		for _, e := range elems {
+			if e.Audio != nil && string(e.Audio.Samples) == want {
+				found = true
+			}
+		}
+		assert.Truef(t, found, "%s: generation %d's audio was not delivered", label, g)
+	}
+	ev.mu.Lock()
+	done := append([]*events.ProviderCallCompletedData(nil), ev.done...)
+	usage := append([]*events.ProviderCallUsageData(nil), ev.usage...)
+	ev.mu.Unlock()
+	noMessageOf := func(g int64) (bool, bool) {
+		dt.mu.Lock()
+		r := dt.gens[g]
+		dt.mu.Unlock()
+		if r == nil {
+			return false, false
+		}
+		for _, d := range done {
+			if d.CallID == r.rr.providerCallID {
+				return d.NoMessage, true
+			}
+		}
+		return false, false
+	}
+	for _, g := range sc.ownMessage {
+		if nm, ok := noMessageOf(g); ok {
+			assert.Falsef(t, nm, "%s: generation %d's message was emitted but its call reports NoMessage", label, g)
+		}
+	}
+	for _, g := range sc.noMessage {
+		if nm, ok := noMessageOf(g); ok {
+			assert.Truef(t, nm, "%s: generation %d emitted no message but its call reports one", label, g)
+		}
+	}
+	sessionLevel := 0
+	for _, u := range usage {
+		if u.CallID == "" {
+			sessionLevel++
+		}
+	}
+	assert.LessOrEqualf(t, sessionLevel, sc.sessionLevelOK, "%s: usage with no call", label)
 }
 
 // tok is a generation's content token: a message whose text mixes tokens

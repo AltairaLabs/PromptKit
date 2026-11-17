@@ -99,70 +99,75 @@ func (dt *duplexTools) bindGenerationLocked(gen int64) {
 	}
 }
 
-// bindGeneration binds an output chunk's generation to its call. A new
-// generation while the open call is bound to another means the provider
-// started a new call the stage did not see the previous one end: that call
-// completes (interrupted) and a new one opens for the generation. Response
-// goroutine only. Nil-safe without tool execution.
+// bindGeneration binds a chunk's generation to its call before anything else
+// is decided about the chunk, so every generation (one whose first chunk is
+// only its cost, or only its end, included) has a call of its own. A new
+// generation while the open call is bound to another means the provider has
+// moved on: that call completes, as interrupted, with no message (what it
+// accumulated is discarded). A new generation's call starts a tool turn of
+// its own (round 1) when a user turn came in meanwhile, when the previous
+// call was superseded, or when no turn is under way. Response goroutine
+// only. Nil-safe without tool execution.
 func (s *DuplexProviderStage) bindGeneration(ctx context.Context, gen int64) {
 	dt := s.tools
-	if dt == nil {
+	if dt == nil || gen == 0 {
 		return
 	}
 	dt.mu.Lock()
-	var opened *duplexRound
-	var started *duplexToolTurn
-	if _, st := dt.lookupLocked(gen); st == genUnbound && gen != 0 && dt.open != nil && dt.open.gen != 0 {
-		// A new call with no user turn seen: it starts a tool turn of its
-		// own, at round 1.
-		s.completeSupersededLocked(ctx, dt.open)
-		dt.open = nil
-		dt.turn = nil
-		started = s.startToolTurnLocked(dt.offer.heldNames())
-		opened = dt.openRoundLocked()
-	}
-	dt.bindGenerationLocked(gen)
-	dt.mu.Unlock()
-	s.syncStartedTurn(ctx, started)
-	if opened != nil {
-		s.emitRoundStarted(ctx, opened.rr)
-	}
-}
-
-// completeSupersededLocked completes a call superseded before it completed,
-// as interrupted, with the cost reported for it while it was open. Called
-// with dt.mu held, so its provider.call.completed precedes any usage event
-// for it. Nil-safe.
-func (s *DuplexProviderStage) completeSupersededLocked(ctx context.Context, round *duplexRound) {
-	if round == nil {
+	if _, st := dt.lookupLocked(gen); st != genUnbound || (dt.open != nil && dt.open.gen == 0) {
+		dt.bindGenerationLocked(gen)
+		dt.mu.Unlock()
 		return
 	}
-	msg := &types.Message{Role: roleAssistant, FinishReason: types.FinishReasonInterrupted, CostInfo: round.pending}
-	s.emitRoundCompleted(ctx, msg, round, time.Since(round.start), true)
+	var superseded *completion
+	if dt.open != nil {
+		old := dt.open
+		superseded = &completion{round: old, turn: old.turn, dur: time.Since(old.start),
+			reported: types.Message{Role: roleAssistant, FinishReason: types.FinishReasonInterrupted, CostInfo: old.pending}}
+		dt.open = nil
+		delete(s.parked, old.gen)
+		if s.accGen == old.gen { // what it accumulated is not anyone's message
+			s.discardAccumulation()
+			s.accGen = 0
+		}
+	}
+	var started *duplexToolTurn
+	if dt.turn == nil || dt.newTurnDue || superseded != nil {
+		started = s.startToolTurnLocked(dt.offer.heldNames())
+		dt.newTurnDue = false
+	}
+	opened := dt.openRoundLocked()
+	dt.bindGenerationLocked(gen)
+	dt.mu.Unlock()
+	if superseded != nil {
+		dt.replyDue.Store(false)
+		s.emitCompletion(ctx, superseded, true)
+	}
+	s.syncStartedTurn(ctx, started)
+	s.emitRoundStarted(ctx, opened)
 }
 
 // interruptsOpenCall reports whether an interruption tagged gen interrupts
-// the open call: gen is the open call's, unbound, or 0 (not numbered). An
-// interruption naming a completed call interrupts nothing now.
+// the open call: gen is the open call's (bindGeneration has bound every
+// numbered generation by now), or 0 (not numbered). An interruption naming a
+// completed call interrupts nothing now.
 func (dt *duplexTools) interruptsOpenCall(gen int64) bool {
 	dt.mu.Lock()
 	defer dt.mu.Unlock()
 	_, st := dt.lookupLocked(gen)
-	return st == genOpen || (st == genUnbound && (gen == 0 || dt.open == nil || dt.open.gen == 0))
+	return gen == 0 || st == genOpen
 }
 
-// staleChunk reports whether chunk is output of a call that already
-// completed (a canceled response's trailing deltas or tool calls). An
-// interruption is never stale: it still flushes the caller's playback.
+// staleChunk reports whether chunk belongs to a call that already completed
+// (a canceled response's trailing deltas or tool calls, a superseded call's
+// end or late usage): only its cost counts. An interruption is never stale:
+// it still flushes the caller's playback.
 func (s *DuplexProviderStage) staleChunk(chunk *providers.StreamChunk) bool {
 	dt := s.tools
 	if dt == nil || chunk.Generation == 0 || chunk.Interrupted {
 		return false
 	}
-	isOutput, isInput := classifyTranscriptionChunk(chunk)
-	output := isAssistantContentChunk(chunk, isOutput) || len(chunk.ToolCalls) > 0 ||
-		chunk.FinishReason != nil || chunk.Reasoning != ""
-	if isInput || !output {
+	if isInputTranscriptionChunk(chunk) {
 		return false
 	}
 	dt.mu.Lock()
@@ -174,8 +179,9 @@ func (s *DuplexProviderStage) staleChunk(chunk *providers.StreamChunk) bool {
 // reportStaleCost charges a stale chunk's cost on its call and carries it for
 // the history. The chunk is not forwarded.
 func (s *DuplexProviderStage) reportStaleCost(ctx context.Context, chunk *providers.StreamChunk) error {
+	// What a completed call accumulates later is not anyone's message.
+	delete(s.parked, chunk.Generation)
 	if s.accGen == chunk.Generation {
-		// What the superseded call accumulated is not anyone's message.
 		s.discardAccumulation()
 		s.accGen = 0
 	}
@@ -187,18 +193,63 @@ func (s *DuplexProviderStage) reportStaleCost(ctx context.Context, chunk *provid
 	return s.queueToolRound(ctx, job)
 }
 
-// trackAccumulation keeps the turn's accumulation to one generation's
-// output: output of another generation than the one accumulated (a new call
-// after a superseded one) discards what the other accumulated, so no
-// message carries another generation's content. Response goroutine only.
-func (s *DuplexProviderStage) trackAccumulation(gen int64) {
-	if gen == 0 {
+// isInputTranscriptionChunk reports whether chunk carries the caller's
+// transcribed speech, which belongs to no provider call.
+func isInputTranscriptionChunk(chunk *providers.StreamChunk) bool {
+	_, isInput := classifyTranscriptionChunk(chunk)
+	return isInput
+}
+
+// genAccumulation is a generation's output accumulated so far, parked while
+// another generation's is being accumulated.
+type genAccumulation struct {
+	text, reasoning string
+	opaque          []types.OpaqueReasoning
+	media           []byte
+	toolCalls       []types.MessageToolCall
+}
+
+// switchGeneration makes the accumulation the stage works on gen's: the
+// current generation's is parked and gen's restored, so each generation's
+// message is built only from its own output. Response goroutine only.
+func (s *DuplexProviderStage) switchGeneration(gen int64) {
+	if gen == 0 || gen == s.accGen {
 		return
 	}
-	if s.accGen != 0 && s.accGen != gen {
-		s.discardAccumulation()
+	if s.accGen != 0 {
+		if s.parked == nil {
+			s.parked = map[int64]*genAccumulation{}
+		}
+		s.parked[s.accGen] = &genAccumulation{
+			text: s.accumulatedText.String(), reasoning: s.accumulatedReasoning.String(),
+			opaque: s.accumulatedOpaqueReasoning, media: s.accumulatedMedia, toolCalls: s.accumulatedToolCalls,
+		}
+	}
+	s.discardAccumulation()
+	if p := s.parked[gen]; p != nil {
+		s.accumulatedText.WriteString(p.text)
+		s.accumulatedReasoning.WriteString(p.reasoning)
+		s.accumulatedOpaqueReasoning, s.accumulatedMedia, s.accumulatedToolCalls = p.opaque, p.media, p.toolCalls
+		delete(s.parked, gen)
 	}
 	s.accGen = gen
+}
+
+// switchToOpenCall makes the accumulation the open call's generation's, for a
+// path that takes the open call's partial reply (an error, the session
+// closing).
+func (s *DuplexProviderStage) switchToOpenCall() {
+	dt := s.tools
+	if dt == nil {
+		return
+	}
+	dt.mu.Lock()
+	var gen int64
+	if dt.open != nil {
+		gen = dt.open.gen
+	}
+	dt.mu.Unlock()
+	s.switchGeneration(gen)
 }
 
 // discardAccumulation drops what the turn accumulated (text, reasoning,
@@ -295,11 +346,11 @@ func (s *DuplexProviderStage) emitRoundUsage(ctx context.Context, cost *types.Co
 	s.emitter.ProviderCallUsageCtx(ctx, data)
 }
 
-// completeOpenCall completes the provider call still open when the session
-// ends, with msg (the partial reply kept then) or as interrupted, carrying
-// the cost reported for it while it was open. Nil-safe without tool
-// execution.
-func (s *DuplexProviderStage) completeOpenCall(ctx context.Context, msg *types.Message) {
+// completeOpenCall completes the provider call still open when the turn or
+// the session ends, with msg (the partial reply taken then) or as
+// interrupted, carrying the cost reported for it while it was open. emitted
+// says whether msg is emitted. Nil-safe without tool execution.
+func (s *DuplexProviderStage) completeOpenCall(ctx context.Context, msg *types.Message, emitted bool) {
 	dt := s.tools
 	if dt == nil {
 		return
@@ -315,12 +366,13 @@ func (s *DuplexProviderStage) completeOpenCall(ctx context.Context, msg *types.M
 	if round == nil {
 		return
 	}
+	dt.replyDue.Store(false)
 	reported := types.Message{Role: roleAssistant, FinishReason: types.FinishReasonInterrupted}
 	if msg != nil {
 		reported = *msg
 	}
 	reported.CostInfo = addCost(reported.CostInfo, pending)
-	s.emitRoundCompleted(ctx, &reported, round, time.Since(round.start), msg == nil)
+	s.emitRoundCompleted(ctx, &reported, round, time.Since(round.start), !emitted)
 }
 
 // chargeSpend adds cost to the session's spend once a limit is closing the

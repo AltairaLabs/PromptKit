@@ -763,10 +763,10 @@ func TestProvider_DuplexMessageWithoutCallIsCostless(t *testing.T) {
 		Metadata: recording.Metadata{SessionID: "s", StartTime: base, EndTime: base, Version: "1.0"},
 		Events: []recording.RecordedEvent{
 			mk(1, events.EventMessageCreated, events.MessageCreatedData{Role: "user", Content: "hi"}),
-			mk(2, events.EventProviderCallCompleted, events.ProviderCallCompletedData{CallID: "first", Cost: 0.001}),
+			mk(2, events.EventProviderCallCompleted, events.ProviderCallCompletedData{CallID: "first", Cost: 0.001, Realtime: true}),
 			mk(3, events.EventMessageCreated, events.MessageCreatedData{Role: "assistant", Content: "Hello."}),
 			mk(4, events.EventMessageCreated, events.MessageCreatedData{Role: "assistant", Content: "Not here."}),
-			mk(5, events.EventProviderCallCompleted, events.ProviderCallCompletedData{CallID: "second", Cost: 0.002}),
+			mk(5, events.EventProviderCallCompleted, events.ProviderCallCompletedData{CallID: "second", Cost: 0.002, Realtime: true}),
 			mk(6, events.EventMessageCreated, events.MessageCreatedData{Role: "assistant", Content: "Bye."}),
 			mk(7, events.EventProviderCallUsage, events.ProviderCallUsageData{Cost: 0.0004}),
 			mk(8, events.EventProviderCallUsage, events.ProviderCallUsageData{Cost: 0.0001}),
@@ -790,4 +790,38 @@ func TestProvider_DuplexMessageWithoutCallIsCostless(t *testing.T) {
 	require.Len(t, unattached, 1)
 	assert.Empty(t, unattached[0].CallID)
 	assert.InDelta(t, 0.0005, unattached[0].Cost, 1e-12, "the session-level usage total")
+}
+
+// A realtime recording that starts with a resumed conversation's history:
+// the earlier assistant messages come before any call, are costless, and do
+// not take the calls recorded after them.
+func TestProvider_RealtimeRecordingWithResumedHistory(t *testing.T) {
+	base := time.Now()
+	mk := func(seq int64, tp events.EventType, data any) recording.RecordedEvent {
+		b, _ := json.Marshal(data)
+		return recording.RecordedEvent{Sequence: seq, Type: tp, Timestamp: base, SessionID: "s", Data: b}
+	}
+	rec := &recording.SessionRecording{
+		Metadata: recording.Metadata{SessionID: "s", StartTime: base, EndTime: base, Version: "1.0"},
+		Events: []recording.RecordedEvent{
+			mk(1, events.EventMessageCreated, events.MessageCreatedData{Role: "user", Content: "earlier"}),
+			mk(2, events.EventMessageCreated, events.MessageCreatedData{Role: "assistant", Content: "Earlier reply."}),
+			mk(3, events.EventMessageCreated, events.MessageCreatedData{Role: "user", Content: "now"}),
+			mk(4, events.EventProviderCallCompleted, events.ProviderCallCompletedData{CallID: "now",
+				Cost: 0.003, Realtime: true}),
+			mk(5, events.EventMessageCreated, events.MessageCreatedData{Role: "assistant", Content: "Now reply."}),
+		},
+	}
+	p, err := NewProvider(rec, nil)
+	require.NoError(t, err)
+
+	first, err := p.Predict(context.Background(), providers.PredictionRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, first.CostInfo)
+	assert.Zero(t, first.CostInfo.TotalCost, "the resumed reply took no call's cost")
+	second, err := p.Predict(context.Background(), providers.PredictionRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, second.CostInfo)
+	assert.InDelta(t, 0.003, second.CostInfo.TotalCost, 1e-12)
+	assert.Empty(t, p.UnattachedCalls())
 }

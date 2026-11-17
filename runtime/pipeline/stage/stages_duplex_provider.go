@@ -62,14 +62,6 @@ func (s *DuplexProviderStage) takeInterruptedTurn(cause string) *types.Message {
 	return msg
 }
 
-// interruptOwnsTurn reports whether an interruption tagged gen cuts short the
-// turn being accumulated: it names that turn's generation, or one of them is
-// not numbered. An interruption naming another generation still reaches the
-// caller (it flushes playback) but leaves this turn's output alone.
-func (s *DuplexProviderStage) interruptOwnsTurn(gen int64) bool {
-	return gen == 0 || s.accGen == 0 || gen == s.accGen
-}
-
 // setTurnStart records when the current user turn started.
 func (s *DuplexProviderStage) setTurnStart(t time.Time) {
 	s.turnStartMu.Lock()
@@ -153,7 +145,7 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 
 	// Handle interruptions - provider detected user started speaking during response
 	// Capture the partial response and signal turn completion
-	if chunk.Interrupted && s.interruptOwnsTurn(chunk.Generation) {
+	if chunk.Interrupted {
 		logger.Debug("DuplexProviderStage: response interrupted",
 			"accumulatedTextLen", s.accumulatedText.Len(),
 			"accumulatedMediaLen", len(s.accumulatedMedia))
@@ -167,20 +159,15 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 			elem.Message = msg
 		}
 
-		// Mark that we saw an interruption - the next turnComplete without content should be skipped
+		// Mark that we saw an interruption - the next turnComplete without
+		// content (of the interrupted generation) should be skipped
 		s.wasInterrupted = true
+		s.interruptedGen = chunk.Generation
 
 		interruptedReason := finishReasonInterrupted
 		elem.Meta.Interrupted = true
 		elem.Meta.FinishReason = &interruptedReason
 		// Note: NOT setting EndOfStream - the provider will continue with new response
-		return elem
-	}
-
-	if chunk.Interrupted {
-		// Another generation's interruption: the caller still flushes its
-		// playback; this turn's output is untouched.
-		elem.Meta.Interrupted = true
 		return elem
 	}
 
@@ -251,7 +238,8 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 		// we should skip it - the real response will have its own cost info.
 		// A turn that makes tool calls is the real response, even with no text
 		// or audio: skipping it would leave its calls unanswered.
-		if !hasContent && !hasToolCalls && s.wasInterrupted {
+		if !hasContent && !hasToolCalls && s.wasInterrupted &&
+			(chunk.Generation == 0 || chunk.Generation == s.interruptedGen) {
 			logger.Debug("DuplexProviderStage: detected interrupted turn complete (empty response after interruption), skipping",
 				"hasCostInfo", hasCostInfo)
 			finishReason := *chunk.FinishReason
