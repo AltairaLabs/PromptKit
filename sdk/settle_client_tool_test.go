@@ -371,3 +371,55 @@ func TestSettleClientTool_IgnoresACallTheHistoryAnswers(t *testing.T) {
 	assert.False(t, answered, "the history answers c-srv")
 	assert.Len(t, rw.requests(), ran, "nothing more is rewritten")
 }
+
+// panickingRewriter panics on its first rewrite, then wraps every result's
+// text in "<redacted:...>".
+type panickingRewriter struct {
+	wrappingRewriter
+	once sync.Once
+}
+
+func (p *panickingRewriter) RewriteResult(ctx context.Context, req hooks.ToolRequest, content string) (string, error) {
+	p.once.Do(func() { panic("rewriter blew up") })
+	return p.wrappingRewriter.RewriteResult(ctx, req, content)
+}
+
+// A settle whose rewriter panics frees its claim on the call and gives back
+// the admission it took: a later answer to the call is taken, admitted under
+// the limit, and the turn resumes with it.
+func TestSettleClientTool_PanickingRewriterFreesTheCall(t *testing.T) {
+	conv, id := suspendOnClientSend(t, 1, WithToolHook(&panickingRewriter{}))
+	ctx := context.Background()
+	func() {
+		defer func() { assert.Equal(t, "rewriter blew up", recover()) }()
+		_, _, _ = conv.SettleClientTool(ctx, id, "first", nil)
+	}()
+
+	require.NoError(t, conv.SendToolResult(ctx, id, "after"))
+	_, err := conv.Resume(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, `<redacted:"after">`, toolResultFor(t, conv, id).GetTextContent(),
+		"the later answer was taken and admitted")
+}
+
+// A settle whose rewriter fails records the failure the model is given and
+// frees its claim: the turn resumes with that failure, and the call has its
+// answer.
+func TestSettleClientTool_FailingRewriterFreesTheCall(t *testing.T) {
+	conv, id := suspendOnClientSend(t, 0, WithToolHook(&wrappingRewriter{err: errors.New("redactor offline")}))
+	ctx := context.Background()
+	prepared, answered, err := conv.SettleClientTool(ctx, id, "first", nil)
+	require.NoError(t, err)
+	require.True(t, answered)
+	assert.NotEmpty(t, prepared.Error)
+	conv.settleMu.Lock()
+	assert.Empty(t, conv.settling, "the claim is freed")
+	conv.settleMu.Unlock()
+	_, answered, err = conv.SettleClientTool(ctx, id, "again", nil)
+	require.NoError(t, err)
+	assert.False(t, answered, "the call has its answer")
+
+	_, err = conv.Resume(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, prepared.GetTextContent(), toolResultFor(t, conv, id).GetTextContent())
+}

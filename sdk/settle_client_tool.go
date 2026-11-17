@@ -100,15 +100,24 @@ func (c *Conversation) settle(
 	if !c.claimSettling(res.ID, history) {
 		return types.MessageToolResult{}, false, nil
 	}
+	// Every exit frees the claim, a panicking hook's included; one that did
+	// not record the answer also gives back the admissions it took.
+	var admission func()
+	recorded := false
+	defer func() {
+		c.releaseSettling(res.ID)
+		if !recorded && admission != nil {
+			admission()
+		}
+	}()
 	calls := callsIn(history)
 	names := callNamesOf(calls)
 	c.validateDeferredResults([]*sdktools.ToolResolution{res}, names)
-	admission := c.admitPrepared(res, names()[res.ID])
+	admission = c.admitPrepared(res, names()[res.ID])
 	prepared := c.cappedPrepared(c.resumeResult(ctx, calls, res))
 
 	c.settleMu.Lock()
 	defer c.settleMu.Unlock()
-	delete(c.settling, res.ID)
 	c.settledMu.Lock()
 	if c.prepared == nil {
 		c.prepared = make(map[*sdktools.ToolResolution]preparedAnswer)
@@ -116,7 +125,15 @@ func (c *Conversation) settle(
 	c.prepared[res] = preparedAnswer{result: prepared, release: admission}
 	c.settledMu.Unlock()
 	c.resolvedStore.Add(res)
+	recorded = true
 	return prepared, true, nil
+}
+
+// releaseSettling frees the claim claimSettling took on call id.
+func (c *Conversation) releaseSettling(id string) {
+	c.settleMu.Lock()
+	defer c.settleMu.Unlock()
+	delete(c.settling, id)
 }
 
 // claimSettling claims call id for a settle, under settleMu: it fails when
