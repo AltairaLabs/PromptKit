@@ -209,6 +209,9 @@ type DuplexProviderStage struct {
 	queuedBlocked  int
 	// turnGuard is the current turn's guardrail state (response goroutine only).
 	turnGuard duplexTurnGuard
+	// textFromDeltas is set once the current reply's text has arrived as
+	// deltas (normalizeTextDeltaChunk); response goroutine only.
+	textFromDeltas bool
 	// blockedTurns carries input turns a guardrail blocked from the input
 	// goroutine to the response loop, which emits them between assistant turns and
 	// only then records them (history, turn count, firing), in emission order.
@@ -1540,8 +1543,13 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	// 3. ModelTurn: Both Content and Delta set to the same value (partial streaming text)
 	//    Use ONLY Content to avoid duplication
 	//
+	// 4. Text deltas: Delta only, no transcription type (OpenAI Realtime's
+	//    text-only output), then Content with the whole text once it is done.
+	//    normalizeTextDeltaChunk turns each delta into Content and drops the
+	//    closing whole text, so the text streams and is recorded once.
+	//
 	// Check metadata to distinguish the source
-	isOutputTranscription, isInputTranscription := classifyTranscriptionChunk(chunk)
+	isOutputTranscription, isInputTranscription := s.classifyResponseChunk(chunk)
 
 	// Fast-path streaming user-turn materialization (provider-agnostic).
 	//
@@ -1902,6 +1910,33 @@ func (s *DuplexProviderStage) emitBufferedUserTurn(
 	return s.emit(ctx, StreamElement{Message: userMsg}, output)
 }
 
+// classifyResponseChunk classifies a chunk's transcription (see
+// classifyTranscriptionChunk) and, for any other chunk, normalizes its text
+// deltas (normalizeTextDeltaChunk).
+func (s *DuplexProviderStage) classifyResponseChunk(chunk *providers.StreamChunk) (isOutput, isInput bool) {
+	isOutput, isInput = classifyTranscriptionChunk(chunk)
+	if !isOutput && !isInput {
+		s.normalizeTextDeltaChunk(chunk)
+	}
+	return isOutput, isInput
+}
+
+// normalizeTextDeltaChunk reads a chunk of a reply whose text arrives as
+// deltas: Delta without Content is the next piece of the text, which the stage
+// streams and accumulates from Content, so it is copied there. Once a turn's
+// text has arrived that way, a chunk with Content but no Delta repeats the
+// text in full (OpenAI Realtime's response.output_text.done), so its Content
+// is dropped rather than added again. Response goroutine only.
+func (s *DuplexProviderStage) normalizeTextDeltaChunk(chunk *providers.StreamChunk) {
+	switch {
+	case chunk.Delta != "" && chunk.Content == "":
+		chunk.Content = chunk.Delta
+		s.textFromDeltas = true
+	case chunk.Content != "" && chunk.Delta == "" && s.textFromDeltas:
+		chunk.Content = ""
+	}
+}
+
 // accumulateResponseChunk folds a chunk's assistant text, reasoning, media and
 // tool calls into the turn's accumulation, emitting a live ReasoningDelta for
 // any reasoning.
@@ -1973,6 +2008,7 @@ func (s *DuplexProviderStage) accumulateReasoning(
 // called.
 func (s *DuplexProviderStage) resetTurnAccumulation() {
 	s.accGen = 0
+	s.textFromDeltas = false
 	s.accumulatedText.Reset()
 	s.accumulatedReasoning.Reset()
 	s.accumulatedOpaqueReasoning = nil

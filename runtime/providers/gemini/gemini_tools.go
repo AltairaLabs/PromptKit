@@ -30,6 +30,8 @@ const (
 	wireKeyRole     = "role"
 	wireKeyMimeType = "mimeType"
 	wireKeyData     = "data"
+	// wireKeyInlineData is a part's inline media: {"mimeType", "data"}.
+	wireKeyInlineData = "inlineData"
 
 	// Gemini function-calling modes (toolConfig.functionCallingConfig.mode).
 	functionCallingModeAuto = "AUTO"
@@ -200,39 +202,31 @@ func (p *ToolProvider) predictWithToolsOnce(
 	return p.parseToolResponse(respBytes, predictResp)
 }
 
-// processToolMessage converts a tool result message to Gemini's functionResponse format.
-// For multimodal tool results (containing images, audio, etc.), it builds a response
-// with text and inlineData entries per Gemini's multimodal function response format.
-// Media that cannot be loaded is an error, not an entry silently left out.
-func (p *Provider) processToolMessage(ctx context.Context, msg types.Message) (map[string]any, error) {
-	// Debug: log tool message details
-	logger.Debug("Processing tool message",
-		"name", msg.ToolResult.Name,
-		"has_media", msg.ToolResult.HasMedia(),
-		"tool_result_id", msg.ToolResult.ID)
-
+// processToolMessage converts a tool result message to Gemini's functionResponse
+// format, and returns the user content that carries the result's media after
+// the round's function responses when the model's function responses cannot
+// (nil otherwise). See gemini_tool_media.go.
+func (p *Provider) processToolMessage(ctx context.Context, msg types.Message) (fr, media map[string]any, err error) {
 	if msg.ToolResult.Name == "" {
 		logger.Warn("Tool message has empty Name field - functionResponse will be invalid")
 	}
 
-	var response any
-
+	text := msg.ToolResult.GetTextContent()
+	var parts []map[string]any
 	if msg.ToolResult.HasMedia() {
-		multimodal, err := p.buildMultimodalToolResponse(ctx, msg.ToolResult)
-		if err != nil {
-			return nil, fmt.Errorf("tool result %s: %w", msg.ToolResult.ID, err)
+		if text, parts, media, err = p.toolResultMedia(ctx, msg.ToolResult); err != nil {
+			return nil, nil, fmt.Errorf("tool result %s: %w", msg.ToolResult.ID, err)
 		}
-		response = multimodal
-	} else {
-		response = buildTextToolResponse(msg.ToolResult.GetTextContent())
 	}
 
-	return map[string]any{
-		"functionResponse": map[string]any{
-			wireKeyName: msg.ToolResult.Name,
-			"response":  response,
-		},
-	}, nil
+	funcResp := map[string]any{
+		wireKeyName: msg.ToolResult.Name,
+		"response":  buildTextToolResponse(text),
+	}
+	if len(parts) > 0 {
+		funcResp[wireKeyParts] = parts
+	}
+	return map[string]any{"functionResponse": funcResp}, media, nil
 }
 
 // buildTextToolResponse creates a response object from text-only tool result content.
@@ -252,47 +246,6 @@ func buildTextToolResponse(content string) any {
 		}
 	}
 	return response
-}
-
-// buildMultimodalToolResponse creates a response object from a multimodal tool result.
-// It emits text fields and inlineData entries for media parts, matching Gemini's format:
-//
-//	{
-//	  "text": "Chart generated successfully",
-//	  "inlineData": { "mimeType": "image/png", "data": "..." }
-//	}
-func (p *Provider) buildMultimodalToolResponse(
-	ctx context.Context, result *types.MessageToolResult,
-) (map[string]any, error) {
-	response := make(map[string]any)
-
-	// Collect text content from all text parts
-	textContent := result.GetTextContent()
-	if textContent != "" {
-		response[wireKeyText] = textContent
-	}
-
-	// Find the first media part and add it as inlineData.
-	// Gemini's functionResponse.response is a flat object, so we use the first media part.
-	loader := p.MediaLoader()
-	for _, part := range result.Parts {
-		if part.Type == types.ContentTypeText || part.Media == nil {
-			continue
-		}
-		mediaMap, err := p.convertMediaPartToMap(ctx, loader, part)
-		if err != nil {
-			return nil, err
-		}
-		if mediaMap != nil {
-			// mediaMap is {"inlineData": {"mimeType": ..., "data": ...}}
-			if inlineData, ok := mediaMap["inlineData"]; ok {
-				response["inlineData"] = inlineData
-				break
-			}
-		}
-	}
-
-	return response, nil
 }
 
 // buildMessageParts creates parts array for a message including text, images, and tool calls
@@ -413,7 +366,7 @@ func (p *Provider) convertMediaPartToMap(
 	}
 
 	return map[string]any{
-		"inlineData": map[string]any{
+		wireKeyInlineData: map[string]any{
 			wireKeyMimeType: mimeType,
 			wireKeyData:     base64Data,
 		},
@@ -471,20 +424,18 @@ func addToolConfig(request map[string]any, tools any, toolChoice string) {
 // function whether or not the request offers tools.
 func (p *Provider) buildToolContents(ctx context.Context, messages []types.Message) ([]map[string]any, error) {
 	contents := make([]map[string]any, 0, len(messages))
-	var pendingToolResults []map[string]any
+	var round toolRound
 
 	for i := range messages {
 		var err error
-		contents, pendingToolResults, err = p.foldToolContent(ctx, messages[i], contents, pendingToolResults)
+		contents, err = p.foldToolContent(ctx, messages[i], contents, &round)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert message %d: %w", i, err)
 		}
 	}
 
-	// If there are still pending tool results at the end, add them as a final user message
-	if len(pendingToolResults) > 0 {
-		contents = append(contents, toolResultsTurn(pendingToolResults))
-	}
+	// Tool results still pending at the end are the request's final turn.
+	contents = round.flush(contents)
 	signCurrentTurnCalls(contents)
 	return contents, nil
 }
@@ -560,39 +511,58 @@ func onlyFunctionResponses(content map[string]any) bool {
 	return true
 }
 
-// foldToolContent adds one message to contents. A tool result joins
-// pendingToolResults, which become a user turn of their own before the next
-// message. They are never folded into a following user message: given a turn
-// that mixes functionResponse parts with text, gemini-2.5-flash returns a
-// candidate with no parts.
+// toolRound is the tool results awaiting their user turn, and the user
+// contents carrying their media that follow it.
+type toolRound struct {
+	results []map[string]any
+	media   []map[string]any
+}
+
+// flush appends the round's turn and its media contents to contents, and
+// empties the round.
+func (r *toolRound) flush(contents []map[string]any) []map[string]any {
+	if len(r.results) > 0 {
+		contents = append(contents, toolResultsTurn(r.results))
+	}
+	contents = append(contents, r.media...)
+	*r = toolRound{}
+	return contents
+}
+
+// foldToolContent adds one message to contents. A tool result joins round,
+// which becomes a user turn of its own before the next message. They are
+// never folded into a following user message: given a turn that mixes
+// functionResponse parts with text, gemini-2.5-flash returns a candidate with
+// no parts.
 func (p *Provider) foldToolContent(
-	ctx context.Context, msg types.Message, contents, pendingToolResults []map[string]any,
-) (outContents, outPending []map[string]any, err error) {
+	ctx context.Context, msg types.Message, contents []map[string]any, round *toolRound,
+) ([]map[string]any, error) {
 	if msg.Role == roleToolMessage && msg.ToolResult == nil {
 		// Nothing to link it to: send its text as the user's.
 		msg.Role = roleUser
 	}
 	if msg.Role == roleToolMessage {
-		result, toolErr := p.processToolMessage(ctx, msg)
-		if toolErr != nil {
-			return nil, nil, toolErr
+		result, media, err := p.processToolMessage(ctx, msg)
+		if err != nil {
+			return nil, err
 		}
-		return contents, append(pendingToolResults, result), nil
+		round.results = append(round.results, result)
+		if media != nil {
+			round.media = append(round.media, media)
+		}
+		return contents, nil
 	}
 
-	if len(pendingToolResults) > 0 {
-		contents = append(contents, toolResultsTurn(pendingToolResults))
-		pendingToolResults = nil
-	}
+	contents = round.flush(contents)
 
 	content, err := p.toolContentForMessage(ctx, msg)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if content != nil {
 		contents = append(contents, content)
 	}
-	return contents, pendingToolResults, nil
+	return contents, nil
 }
 
 // toolResultsTurn wraps tool results in a user turn.

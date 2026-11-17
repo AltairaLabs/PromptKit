@@ -43,6 +43,12 @@ const wantLinkedContents = `[
 
 func captureContents(t *testing.T, stream bool, run func(p *ToolProvider)) json.RawMessage {
 	t.Helper()
+	return captureModelContents(t, "gemini-2.5-flash", stream, run)
+}
+
+// captureModelContents is captureContents for a provider on model.
+func captureModelContents(t *testing.T, model string, stream bool, run func(p *ToolProvider)) json.RawMessage {
+	t.Helper()
 	var body []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ = io.ReadAll(r.Body)
@@ -55,7 +61,7 @@ func captureContents(t *testing.T, stream bool, run func(p *ToolProvider)) json.
 	}))
 	t.Cleanup(server.Close)
 	t.Setenv("GEMINI_API_KEY", "k")
-	run(NewToolProvider("linkage", "gemini-2.5-flash", server.URL, providers.ProviderDefaults{}, false))
+	run(NewToolProvider("linkage", model, server.URL, providers.ProviderDefaults{}, false))
 	var got struct {
 		Contents json.RawMessage `json:"contents"`
 	}
@@ -81,8 +87,9 @@ func TestPredictStream_PlainPathKeepsToolLinkage(t *testing.T) {
 	assert.JSONEq(t, wantLinkedContents, string(got))
 }
 
-// A tool result image goes out inside the functionResponse on the plain path,
-// as on the tool path, and a Gemini 3 thought signature is replayed.
+// A tool result image goes out on the plain path as on the tool path (on
+// gemini-2.5-flash, in a user content after the function responses), and a
+// thought signature is replayed.
 func TestPredict_PlainPathKeepsToolResultMediaAndSignature(t *testing.T) {
 	got := captureContents(t, false, func(p *ToolProvider) {
 		_, err := p.Predict(context.Background(), providers.PredictionRequest{Messages: []types.Message{
@@ -100,7 +107,9 @@ func TestPredict_PlainPathKeepsToolResultMediaAndSignature(t *testing.T) {
 		{"role":"user","parts":[{"text":"Take a picture"}]},
 		{"role":"model","parts":[{"functionCall":{"name":"camera","args":{}},"thoughtSignature":"sig-1"}]},
 		{"role":"user","parts":[{"functionResponse":{"name":"camera","response":{
-			"text":"done","inlineData":{"mimeType":"image/png","data":"aW1n"}}}}]}
+			"result":"done\n[The image this tool returned is attached in the next user message.]"}}}]},
+		{"role":"user","parts":[{"text":"Media returned by tool camera (call c1):"},
+			{"inlineData":{"mimeType":"image/png","data":"aW1n"}}]}
 	]`, string(got))
 }
 

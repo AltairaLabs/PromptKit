@@ -119,10 +119,15 @@ func TestBuildToolResponseMessage(t *testing.T) {
 	})
 
 	t.Run("empty input yields empty slice", func(t *testing.T) {
-		msg := buildToolResponseMessage(nil)
+		msg := toolResponseMessage(nil, nil)
 		frs := unwrap(t, msg)
 		if len(frs) != 0 {
 			t.Errorf("expected empty functionResponses, got %v", frs)
 		}
 	})
+}
+
+// buildToolResponseMessage is the toolResponse message of text-only responses.
+func buildToolResponseMessage(responses []providers.ToolResponse) map[string]interface{} {
+	return toolResponseMessage(responses, nil)
 }

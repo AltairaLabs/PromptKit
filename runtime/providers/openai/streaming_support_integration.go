@@ -92,7 +92,8 @@ func (p *Provider) CreateStreamSession(
 	p.applyStreamTools(req, &config)
 
 	session, err := newRealtimeSession(ctx, p.apiKey, &config,
-		realtimeSessionOpts{endpoint: dial.endpoint, dialHeaders: dial.dialHeaders})
+		realtimeSessionOpts{endpoint: dial.endpoint, dialHeaders: dial.dialHeaders,
+			mediaLoader: p.MediaLoader, providerID: providerID})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create realtime session: %w", err)
 	}
@@ -176,6 +177,16 @@ func (s *realtimeSessionBookkeeping) SendToolResponses(ctx context.Context, resp
 		return trs.SendToolResponses(ctx, responses)
 	}
 	return errors.New("realtime session does not support tool responses")
+}
+
+// SupportsToolResponseParts forwards to the underlying session if it
+// implements providers.ToolResponsePartsSupport — same reason for the
+// explicit forward: hidden, the stage would send a tool round's text only.
+func (s *realtimeSessionBookkeeping) SupportsToolResponseParts() bool {
+	if ps, ok := s.StreamInputSession.(providers.ToolResponsePartsSupport); ok {
+		return ps.SupportsToolResponseParts()
+	}
+	return false
 }
 
 // UpdateTools forwards to the underlying session if it implements

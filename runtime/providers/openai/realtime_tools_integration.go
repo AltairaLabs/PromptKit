@@ -72,44 +72,13 @@ func (s *RealtimeSession) UpdateTools(ctx context.Context, tools []providers.Str
 
 // SendToolResponse sends the result of a tool execution back to the model.
 func (s *RealtimeSession) SendToolResponse(ctx context.Context, toolCallID, result string) error {
-	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
-		return errors.New(errSessionClosed)
-	}
-	s.mu.Unlock()
-
-	// Create a function_call_output conversation item
-	item := ConversationItem{
-		Type:   typeFunctionCallOutput,
-		CallID: toolCallID,
-		Output: result,
-	}
-
-	event := ConversationItemCreateEvent{
-		ClientEvent: ClientEvent{
-			EventID: s.nextEventID(),
-			Type:    realtimeEventItemCreate,
-		},
-		Item: item,
-	}
-
-	if err := s.ws.Send(event); err != nil {
-		return fmt.Errorf("failed to send tool response: %w", err)
-	}
-
-	// Trigger a response to continue the conversation
-	responseEvent := ResponseCreateEvent{
-		ClientEvent: ClientEvent{
-			EventID: s.nextEventID(),
-			Type:    realtimeEventResponseCreate,
-		},
-	}
-
-	return s.ws.Send(responseEvent)
+	return s.SendToolResponses(ctx, []providers.ToolResponse{{ToolCallID: toolCallID, Result: result}})
 }
 
-// SendToolResponses sends multiple tool results at once (for parallel tool calls).
+// SendToolResponses sends a round of tool results (one, or several for
+// parallel tool calls): a function_call_output per result, then a user
+// message carrying each result's media (realtime_tool_media.go), then one
+// response.create to continue the conversation.
 func (s *RealtimeSession) SendToolResponses(ctx context.Context, responses []providers.ToolResponse) error {
 	s.mu.Lock()
 	if s.closed {
@@ -118,34 +87,27 @@ func (s *RealtimeSession) SendToolResponses(ctx context.Context, responses []pro
 	}
 	s.mu.Unlock()
 
-	// Send each tool response as a separate conversation item
-	for _, resp := range responses {
-		item := ConversationItem{
-			Type:   typeFunctionCallOutput,
-			CallID: resp.ToolCallID,
-			Output: resp.Result,
+	round := s.buildToolRound(ctx, responses)
+	for i := range round.outputs {
+		if err := s.createItem(round.outputs[i]); err != nil {
+			return fmt.Errorf("failed to send tool response for %s: %w", round.outputs[i].CallID, err)
 		}
-
-		event := ConversationItemCreateEvent{
-			ClientEvent: ClientEvent{
-				EventID: s.nextEventID(),
-				Type:    realtimeEventItemCreate,
-			},
-			Item: item,
-		}
-
-		if err := s.ws.Send(event); err != nil {
-			return fmt.Errorf("failed to send tool response for %s: %w", resp.ToolCallID, err)
+	}
+	for i := range round.media {
+		if err := s.createItem(round.media[i]); err != nil {
+			return fmt.Errorf("failed to send tool result media: %w", err)
 		}
 	}
 
-	// Trigger a response after all tool results are sent
-	responseEvent := ResponseCreateEvent{
-		ClientEvent: ClientEvent{
-			EventID: s.nextEventID(),
-			Type:    realtimeEventResponseCreate,
-		},
-	}
+	return s.ws.Send(ResponseCreateEvent{
+		ClientEvent: ClientEvent{EventID: s.nextEventID(), Type: realtimeEventResponseCreate},
+	})
+}
 
-	return s.ws.Send(responseEvent)
+// createItem sends a conversation.item.create for item.
+func (s *RealtimeSession) createItem(item ConversationItem) error {
+	return s.ws.Send(ConversationItemCreateEvent{
+		ClientEvent: ClientEvent{EventID: s.nextEventID(), Type: realtimeEventItemCreate},
+		Item:        item,
+	})
 }

@@ -30,6 +30,7 @@ The package provides:
 - [Variables](<#variables>)
 - [func APIKeyFromCredential\(c credentials.Credential\) string](<#APIKeyFromCredential>)
 - [func ApplyExtraBody\(providerID string, body, extra map\[string\]any\)](<#ApplyExtraBody>)
+- [func AttachedToolMediaNote\(n int, kind string\) string](<#AttachedToolMediaNote>)
 - [func CapabilitySet\(capabilities \[\]string\) map\[string\]bool](<#CapabilitySet>)
 - [func CheckHTTPError\(resp \*http.Response, url string\) error](<#CheckHTTPError>)
 - [func ClampTopN\(topN, available int\) int](<#ClampTopN>)
@@ -53,6 +54,7 @@ The package provides:
 - [func IsStreamIdleTimeout\(err error\) bool](<#IsStreamIdleTimeout>)
 - [func IsTransient\(err error\) bool](<#IsTransient>)
 - [func IsValidationAbort\(err error\) bool](<#IsValidationAbort>)
+- [func JoinToolNotes\(text string, notes \[\]string\) string](<#JoinToolNotes>)
 - [func LoadFileAsBase64\(filePath string\) \(string, error\)](<#LoadFileAsBase64>)
 - [func LogEmbeddingRequest\(provider, model string, textCount int, start time.Time\)](<#LogEmbeddingRequest>)
 - [func LogEmbeddingRequestWithTokens\(provider, model string, textCount, tokens int, start time.Time\)](<#LogEmbeddingRequestWithTokens>)
@@ -640,6 +642,15 @@ func ApplyExtraBody(providerID string, body, extra map[string]any)
 
 ApplyExtraBody adds each extra field to body unless body already sets it.
 
+<a name="AttachedToolMediaNote"></a>
+## func [AttachedToolMediaNote](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/tool_result_media.go#L145>)
+
+```go
+func AttachedToolMediaNote(n int, kind string) string
+```
+
+AttachedToolMediaNote is the note a provider puts in a tool result whose media it sends in the user message that follows the round, because its API's tool results cannot carry it: n parts, of kind when n is 1; "" when n is 0.
+
 <a name="CapabilitySet"></a>
 ## func [CapabilitySet](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/multimodal.go#L69>)
 
@@ -852,6 +863,15 @@ func IsValidationAbort(err error) bool
 ```
 
 IsValidationAbort reports whether err is a \*ValidationAbortError. It does not unwrap wrapped errors.
+
+<a name="JoinToolNotes"></a>
+## func [JoinToolNotes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/tool_result_media.go#L131>)
+
+```go
+func JoinToolNotes(text string, notes []string) string
+```
+
+JoinToolNotes is a tool result's text followed by notes about its media \(UnsentToolMedia, AttachedToolMediaNote\), one per line; text alone when there are none.
 
 <a name="LoadFileAsBase64"></a>
 ## func [LoadFileAsBase64](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/utils.go#L22>)

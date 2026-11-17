@@ -853,7 +853,7 @@ func mustBuildToolRequest(
 // mustProcessToolMessage converts a tool message and fails the test on error.
 func mustProcessToolMessage(t *testing.T, msg types.Message) map[string]any {
 	t.Helper()
-	result, err := convProvider().processToolMessage(context.Background(), msg)
+	result, _, err := convProvider().processToolMessage(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("processToolMessage: %v", err)
 	}
@@ -868,15 +868,4 @@ func mustBuildMessageParts(t *testing.T, msg types.Message) []any {
 		t.Fatalf("buildMessageParts: %v", err)
 	}
 	return parts
-}
-
-// mustBuildMultimodalToolResponse builds a multimodal tool response and fails
-// the test on error.
-func mustBuildMultimodalToolResponse(t *testing.T, result *types.MessageToolResult) map[string]any {
-	t.Helper()
-	response, err := convProvider().buildMultimodalToolResponse(context.Background(), result)
-	if err != nil {
-		t.Fatalf("buildMultimodalToolResponse: %v", err)
-	}
-	return response
 }

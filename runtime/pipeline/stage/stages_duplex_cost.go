@@ -298,6 +298,7 @@ func (s *DuplexProviderStage) switchToOpenCall() {
 // discardAccumulation drops what the turn accumulated (text, reasoning,
 // media, tool calls) without ending the turn.
 func (s *DuplexProviderStage) discardAccumulation() {
+	s.textFromDeltas = false
 	s.accumulatedText.Reset()
 	s.accumulatedReasoning.Reset()
 	s.accumulatedOpaqueReasoning = nil

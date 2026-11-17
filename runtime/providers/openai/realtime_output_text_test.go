@@ -15,7 +15,8 @@ import (
 // A text-only realtime session (output_modalities ["text"]) is answered with
 // the GA event names response.output_text.delta / .done. Their text must reach
 // Response() as the pre-GA response.text.* did; before the fix both were
-// dropped as unhandled, so a text-only session's replies were empty.
+// dropped as unhandled, so a text-only session's replies were empty. The text
+// streams: each delta is its own chunk, as it arrives.
 func TestRealtimeSession_GAOutputTextEventsReachResponse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := bargeInUpgrader.Upgrade(w, r, nil)
@@ -64,22 +65,29 @@ func TestRealtimeSession_GAOutputTextEventsReachResponse(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = session.Close() }()
 
-	var deltas []string
-	var done string
-	for done == "" {
+	// Each delta is a chunk carrying it on Delta only; the done chunk carries
+	// the whole text on Content.
+	type textChunk struct {
+		content, delta string
+		done           bool
+	}
+	var got []textChunk
+	for done := false; !done; {
 		select {
 		case c, ok := <-session.Response():
 			require.True(t, ok, "Response() closed before the text arrived")
-			if c.Delta != "" {
-				deltas = append(deltas, c.Delta)
+			d, _ := c.Metadata["text_done"].(bool)
+			if c.Content != "" || c.Delta != "" || d {
+				got = append(got, textChunk{c.Content, c.Delta, d})
 			}
-			if d, _ := c.Metadata["text_done"].(bool); d {
-				done = c.Content
-			}
+			done = d
 		case <-ctx.Done():
-			t.Fatalf("the text never reached Response(); deltas so far %q", deltas)
+			t.Fatalf("the text never reached Response(); chunks so far %+v", got)
 		}
 	}
-	assert.Equal(t, []string{"Hello", " there"}, deltas)
-	assert.Equal(t, "Hello there", done)
+	assert.Equal(t, []textChunk{
+		{delta: "Hello"},
+		{delta: " there"},
+		{content: "Hello there", done: true},
+	}, got)
 }

@@ -100,6 +100,11 @@ type RealtimeSession struct {
 	// Configuration stored for the session
 	config RealtimeSessionConfig
 
+	// newLoader makes the media loader for one tool round (nil: a loader with
+	// no media storage); providerID names the provider in its logs.
+	newLoader  func() *providers.MediaLoader
+	providerID string
+
 	// Cost tracking (can be overridden via provider config)
 	inputCostPer1K  float64
 	outputCostPer1K float64
@@ -111,6 +116,12 @@ type RealtimeSession struct {
 	// GA dispatcher doesn't double-emit when both response.function_call_arguments.done
 	// and response.output_item.done arrive for the same call.
 	emittedToolCalls sync.Map
+
+	// toolMediaItems holds the IDs of the user message items the session
+	// created to carry tool media (realtime_tool_media.go); toolMediaSeq
+	// numbers them. A transcript of such an item is not the caller's turn.
+	toolMediaItems sync.Map
+	toolMediaSeq   atomic.Int64
 }
 
 // realtimeSessionOpts carries internal/test-only construction overrides for a
@@ -124,6 +135,11 @@ type realtimeSessionOpts struct {
 	dialHeaders func(context.Context) (http.Header, error)
 	// now, when set, is the session's clock for the playout estimate.
 	now func() time.Time
+	// mediaLoader, when set, makes the loader a tool round's media is read
+	// through (the provider's, with its media storage); providerID names the
+	// provider in what the session logs about that media.
+	mediaLoader func() *providers.MediaLoader
+	providerID  string
 }
 
 // NewRealtimeSession creates a new OpenAI Realtime streaming session.
@@ -168,6 +184,8 @@ func newRealtimeSession(
 		errCh:      make(chan error, 1),
 		config:     *config,
 		now:        opts.now,
+		newLoader:  opts.mediaLoader,
+		providerID: opts.providerID,
 	}
 
 	// Wait for session.created event
@@ -772,6 +790,9 @@ func (s *RealtimeSession) handleSessionUpdated(e *SessionUpdatedEvent) {
 	logger.Debug("OpenAI Realtime: session updated", "modalities", e.Session.Modalities)
 }
 
+// handleTextDelta emits a text-only reply's text as it arrives, on Delta
+// only, as transcript deltas are; Content stays for the whole text
+// (handleTextDone).
 func (s *RealtimeSession) handleTextDelta(e *ResponseTextDeltaEvent) {
 	s.emit(providers.StreamChunk{
 		Delta: e.Delta,
@@ -783,6 +804,8 @@ func (s *RealtimeSession) handleTextDelta(e *ResponseTextDeltaEvent) {
 	})
 }
 
+// handleTextDone emits a text-only reply's whole text on Content, marked
+// text_done.
 func (s *RealtimeSession) handleTextDone(e *ResponseTextDoneEvent) {
 	s.emit(providers.StreamChunk{
 		Content: e.Text,
@@ -945,6 +968,10 @@ func (s *RealtimeSession) handleResponseDone(e *ResponseDoneEvent) {
 }
 
 func (s *RealtimeSession) handleInputTranscription(e *ConversationItemInputAudioTranscriptionCompletedEvent) {
+	if _, ok := s.toolMediaItems.Load(e.ItemID); ok {
+		// Tool audio the session sent, transcribed: not something the caller said.
+		return
+	}
 	s.emit(providers.StreamChunk{
 		Metadata: map[string]interface{}{
 			keyType:         "input_transcription",

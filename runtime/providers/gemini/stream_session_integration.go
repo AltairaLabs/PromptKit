@@ -172,6 +172,11 @@ type StreamSessionConfig struct {
 	pricing    *base.PricingDescriptor
 	providerID string
 
+	// mediaLoader, set by the provider, makes the loader a tool round's media
+	// is read through (the provider's, with its media storage). A session
+	// built directly from a config uses one with no media storage.
+	mediaLoader func() *providers.MediaLoader
+
 	// dialHeaders, set by the provider for a platform session, authenticates
 	// every handshake (reconnects included) in place of the API key.
 	dialHeaders func(context.Context) (http.Header, error)

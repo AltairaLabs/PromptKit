@@ -122,6 +122,13 @@ func ToolResultTextWithUnsentMedia(providerID, api string, result *types.Message
 		}
 		notes = append(notes, UnsentToolMedia(providerID, result, part, why))
 	}
+	return JoinToolNotes(text, notes)
+}
+
+// JoinToolNotes is a tool result's text followed by notes about its media
+// (UnsentToolMedia, AttachedToolMediaNote), one per line; text alone when
+// there are none.
+func JoinToolNotes(text string, notes []string) string {
 	if len(notes) == 0 {
 		return text
 	}
@@ -129,4 +136,18 @@ func ToolResultTextWithUnsentMedia(providerID, api string, result *types.Message
 		return strings.Join(notes, "\n")
 	}
 	return text + "\n" + strings.Join(notes, "\n")
+}
+
+// AttachedToolMediaNote is the note a provider puts in a tool result whose
+// media it sends in the user message that follows the round, because its
+// API's tool results cannot carry it: n parts, of kind when n is 1; "" when
+// n is 0.
+func AttachedToolMediaNote(n int, kind string) string {
+	switch {
+	case n == 1:
+		return fmt.Sprintf("[The %s this tool returned is attached in the next user message.]", kind)
+	case n > 1:
+		return fmt.Sprintf("[The %d media parts this tool returned are attached in the next user message.]", n)
+	}
+	return ""
 }
