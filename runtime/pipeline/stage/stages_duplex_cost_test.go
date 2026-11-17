@@ -477,3 +477,44 @@ func TestDuplexCost_ErrorCompletesTheOpenCall(t *testing.T) {
 	assert.True(t, msgs[0].IsInterrupted())
 	assertCostInfo(t, usd(4, 2), msgs[0].CostInfo)
 }
+
+// An interruption naming a generation whose call already completed (a
+// playout barge-in on a finished reply while the next generation streams)
+// still reaches the caller, but leaves the open call alone: it is not
+// rebound, reopened or superseded, its output so far stays in its message,
+// and the interruption's cost is the completed call's late usage.
+func TestDuplexCost_InterruptionNamingACompletedGenerationLeavesTheOpenCall(t *testing.T) {
+	h, ev := costHarness(t, 0)
+	h.emit(gen(1, textTurn("g1|", usd(10, 1))))
+	ev.await(t, 1, 0)
+	h.emit(gen(2, []providers.StreamChunk{{Content: "g2a|", Delta: "g2a|"}}))
+	h.emit([]providers.StreamChunk{{Interrupted: true, Generation: 1, CostInfo: usd(3, 0)}})
+	stop := "stop"
+	h.emit(gen(2, []providers.StreamChunk{
+		{Content: "g2b|", Delta: "g2b|"},
+		{FinishReason: &stop, CostInfo: usd(20, 5)},
+	}))
+	done, usage := ev.await(t, 2, 1)
+	elems := h.finish()
+
+	interrupts := 0
+	for _, e := range elems {
+		if e.Meta.Interrupted {
+			interrupts++
+		}
+	}
+	assert.Equal(t, 1, interrupts, "the interruption still flushes the caller's playback")
+	require.Len(t, done, 2)
+	assert.False(t, done[1].NoMessage)
+	assert.Equal(t, "stop", done[1].FinishReason)
+	assertCall(t, done[1], 20, 5)
+	require.Len(t, usage, 1)
+	assertUsage(t, usage[0], done[0].CallID, 3, 0)
+	msgs := costedReplies(elems)
+	require.Len(t, msgs, 2)
+	assert.Equal(t, "g1|", msgs[0].Content)
+	assert.Equal(t, "g2a|g2b|", msgs[1].Content)
+	assert.False(t, msgs[1].IsInterrupted())
+	// The late usage is carried onto the next message, for the history.
+	assertCostInfo(t, usd(23, 5), msgs[1].CostInfo)
+}

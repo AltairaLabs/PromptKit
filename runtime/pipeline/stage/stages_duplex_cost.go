@@ -160,20 +160,45 @@ func (dt *duplexTools) interruptsOpenCall(gen int64) bool {
 
 // staleChunk reports whether chunk belongs to a call that already completed
 // (a canceled response's trailing deltas or tool calls, a superseded call's
-// end or late usage): only its cost counts. An interruption is never stale:
-// it still flushes the caller's playback.
+// end or late usage, an interruption of a finished reply still playing):
+// only its cost counts, and an interruption still flushes the caller's
+// playback.
 func (s *DuplexProviderStage) staleChunk(chunk *providers.StreamChunk) bool {
 	dt := s.tools
-	if dt == nil || chunk.Generation == 0 || chunk.Interrupted {
-		return false
-	}
-	if isInputTranscriptionChunk(chunk) {
+	if dt == nil || chunk.Generation == 0 || isInputTranscriptionChunk(chunk) {
 		return false
 	}
 	dt.mu.Lock()
 	defer dt.mu.Unlock()
 	_, st := dt.lookupLocked(chunk.Generation)
 	return st == genCompleted || st == genForgotten
+}
+
+// handleStaleChunk handles a chunk of a call that already completed: an
+// interruption is still forwarded; otherwise only its cost counts.
+func (s *DuplexProviderStage) handleStaleChunk(
+	ctx context.Context, chunk *providers.StreamChunk, output chan<- StreamElement,
+) error {
+	if chunk.Interrupted {
+		return s.forwardStaleInterruption(ctx, chunk, output)
+	}
+	return s.reportStaleCost(ctx, chunk)
+}
+
+// forwardStaleInterruption passes an interruption naming a completed call
+// to the caller, so its playback stops, and reports its cost on that call.
+// The open call, its accumulation and its turn are left as they are.
+func (s *DuplexProviderStage) forwardStaleInterruption(
+	ctx context.Context, chunk *providers.StreamChunk, output chan<- StreamElement,
+) error {
+	reason := finishReasonInterrupted
+	elem := StreamElement{}
+	elem.Meta.Interrupted = true
+	elem.Meta.FinishReason = &reason
+	if err := sendStreamElement(ctx, elem, output); err != nil {
+		return err
+	}
+	return s.reportStaleCost(ctx, chunk)
 }
 
 // reportStaleCost charges a stale chunk's cost on its call and carries it for

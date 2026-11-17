@@ -1490,15 +1490,16 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	if chunk.Error != nil {
 		return s.emitChunkError(ctx, chunk, output)
 	}
+	if s.staleChunk(chunk) {
+		// A chunk of a call that already completed (a canceled response's
+		// trailing chunks, an interruption of a finished reply): only its
+		// cost counts, on that call. It touches no other call.
+		return s.handleStaleChunk(ctx, chunk, output)
+	}
 	if !isInputTranscriptionChunk(chunk) {
 		// Every generation has its own call and its own accumulation.
 		s.bindGeneration(ctx, chunk.Generation)
 		s.switchGeneration(chunk.Generation)
-	}
-	if s.staleChunk(chunk) {
-		// Output of a call that already completed (a canceled response's
-		// trailing chunks): only its cost counts, on that call.
-		return s.reportStaleCost(ctx, chunk)
 	}
 
 	// Accumulate text content for this turn

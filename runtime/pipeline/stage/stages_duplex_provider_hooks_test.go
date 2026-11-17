@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	providersmock "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -939,4 +940,46 @@ func TestDuplexTypedTurn_WaitsForReplyInProgress(t *testing.T) {
 	sess.mu.Lock()
 	assert.Equal(t, []string{text}, sess.texts, "the text still reaches the session at once")
 	sess.mu.Unlock()
+}
+
+// An interruption naming a generation whose call already completed leaves the
+// streaming turn's guardrail state alone: a turn a streaming guardrail
+// blocked stays blocked, with its firing on its message.
+func TestDuplexHooks_StaleInterruptionKeepsTheOpenTurnBlocked(t *testing.T) {
+	guard, err := guardrails.NewGuardrailHook("banned_words", map[string]any{"words": []any{"forbidden"}})
+	require.NoError(t, err)
+	s, _, _ := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(guard)))
+	s.SetToolExecution(tools.NewRegistry(), nil, DuplexToolConfig{}, nil)
+	s.turnIDQueue = []string{"t1", "t2"}
+	at := func(g int64, c providers.StreamChunk) providers.StreamChunk {
+		c.Generation = g
+		return c
+	}
+
+	elems, err := feedChunks(t, s,
+		at(1, transcriptChunk("fine", nil)),
+		at(1, stopChunk()),
+		at(2, transcriptChunk("forbidden ", nil)),
+		providers.StreamChunk{Interrupted: true, Generation: 1},
+		at(2, transcriptChunk("and more", nil)),
+		at(2, stopChunk()),
+	)
+	require.NoError(t, err)
+
+	var texts []string
+	var msgs []*types.Message
+	for _, e := range elems {
+		if e.Text != nil {
+			texts = append(texts, *e.Text)
+		}
+		if e.Message != nil && e.Message.Role == "assistant" {
+			msgs = append(msgs, e.Message)
+		}
+	}
+	assert.Equal(t, []string{"fine"}, texts, "the blocked turn forwards nothing after the stale interruption either")
+	require.Len(t, msgs, 2)
+	assert.Equal(t, "fine", msgs[0].Content)
+	assert.Equal(t, types.FinishReasonSafety, msgs[1].FinishReason)
+	assert.NotContains(t, msgs[1].Content, "and more")
+	assert.Equal(t, []string{"banned_words"}, validationTypes(msgs[1].Validations))
 }
