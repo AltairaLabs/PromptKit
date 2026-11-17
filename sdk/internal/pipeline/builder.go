@@ -242,6 +242,11 @@ type Config struct {
 	// would only slow them down with no realtime sink to protect.
 	PaceOutputAudio bool
 
+	// TrackPlayout inserts the playout hold stage on a realtime (ASM)
+	// pipeline even without pacing: the host plays the reply audio to a
+	// listener in real time (WithPlayoutTracking).
+	TrackPlayout bool
+
 	// UseStages is deprecated and ignored - stages are always used.
 	// This field is kept for backward compatibility but has no effect.
 	UseStages bool
@@ -552,6 +557,16 @@ func collectPipelineStages(
 		stages = append(stages, stage.NewTranscriptReorderStage(cfg.InputTranscriptPlaceholder))
 	}
 
+	// 5.45 Playout hold - a realtime reply reaches the transcript (recording,
+	// memory, broadcast, save) once the caller has heard it, with what was
+	// heard when they barged in. Only when the audio is played to someone in
+	// real time (a paced speaker, or the host says so): otherwise it would mark
+	// replies nobody played. After the reorder stage, so it holds the
+	// transcript in its corrected order.
+	if cfg.holdsPlayout() {
+		stages = append(stages, stage.NewPlayoutHoldStage())
+	}
+
 	// 5.5 Output recording stage - captures assistant output with full binary data
 	if cfg.RecordingConfig != nil && cfg.RecordingStore != nil {
 		outputCfg := *cfg.RecordingConfig
@@ -593,6 +608,14 @@ func collectPipelineStages(
 	}
 
 	return stages, nil
+}
+
+// holdsPlayout reports whether the pipeline gets the playout hold stage: a
+// realtime (ASM) pipeline whose reply audio is played to a listener in real
+// time.
+func (c *Config) holdsPlayout() bool {
+	realtime := c.StreamInputProvider != nil && c.ActiveComposition == nil
+	return realtime && (c.PaceOutputAudio || c.TrackPlayout)
 }
 
 // appendPreProviderStages adds the stages that run between the template

@@ -403,3 +403,39 @@ func TestBuild_RetrieverWithDuplexProviderIsRejected(t *testing.T) {
 // provider still builds AND reaches the prompt — is
 // TestWithRetriever_GroundsWithoutMemory in sdk/integration, which asserts the
 // rendered system prompt rather than a non-nil pipeline.
+
+// The playout hold stage is wired on a realtime pipeline whose reply audio is
+// played to a listener in real time (paced output, or the host's playout
+// tracking), and nowhere else.
+func TestConfig_HoldsPlayout(t *testing.T) {
+	stream := mock.NewStreamingProvider("test", "test-model", false)
+	comp := &composition.Composition{Version: 1}
+	tests := []struct {
+		name string
+		cfg  Config
+		want bool
+	}{
+		{"realtime, paced", Config{StreamInputProvider: stream, PaceOutputAudio: true}, true},
+		{"realtime, tracked", Config{StreamInputProvider: stream, TrackPlayout: true}, true},
+		{"realtime, no listener", Config{StreamInputProvider: stream}, false},
+		{"not realtime", Config{PaceOutputAudio: true, TrackPlayout: true}, false},
+		{"composition", Config{StreamInputProvider: stream, TrackPlayout: true, ActiveComposition: comp}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.cfg.holdsPlayout())
+		})
+	}
+
+	stages, err := collectPipelineStages(&Config{
+		PromptRegistry: createTestRegistry("chat"), TaskType: "chat",
+		StreamInputProvider: stream, StreamInputConfig: &providers.StreamingInputConfig{}, TrackPlayout: true,
+	}, nil, false)
+	require.NoError(t, err)
+	at := map[string]int{}
+	for i, s := range stages {
+		at[s.Name()] = i
+	}
+	require.Contains(t, at, "playout-hold")
+	assert.Greater(t, at["playout-hold"], at["duplex_provider"], "after the provider stage")
+}

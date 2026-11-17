@@ -214,7 +214,8 @@ func (s *IncrementalSaveStage) collectAndForward(
 	var fwd cancelForwarder
 
 	for elem := range input {
-		newMessage := elem.Message != nil && isNewMessage(elem.Message)
+		// A held Message is saved from its PlayoutRelease element.
+		newMessage := elem.Message != nil && !elem.Meta.PlayoutHeld && isNewMessage(elem.Message)
 		if newMessage {
 			collected.messages = append(collected.messages, *elem.Message)
 		}

@@ -430,3 +430,34 @@ func TestRecordingStage_KeepsBinaryOffTheBusButInTheStore(t *testing.T) {
 	require.NotEmpty(t, inlineBinaryIn(data),
 		"the STORE is where binary belongs — recording is lossless by design")
 }
+
+// A message PlayoutHoldStage holds is broadcast from its release, at the
+// index it holds in the transcript, not when it first passes.
+func TestMessageBroadcastStage_HeldMessageBroadcastOnRelease(t *testing.T) {
+	held := liveMsgElem("user", "and then?")
+	held.Meta.PlayoutHeld = true
+	release := liveMsgElem("user", "and then?")
+	release.Meta.PlayoutRelease = true
+	got := runBroadcast(t, []StreamElement{liveMsgElem("user", "first"), held, release}, 2)
+	require.Len(t, got, 2)
+	assert.Equal(t, "first", got[0].GetContent())
+	assert.Equal(t, 0, got[0].Index)
+	assert.Equal(t, "and then?", got[1].GetContent())
+	assert.Equal(t, 1, got[1].Index)
+}
+
+// A released turn-end reply is published as the held turn-end element would
+// have been: by this stage, not at all (EndOfStream messages are not), and it
+// takes no index.
+func TestMessageBroadcastStage_ReleasedTurnEndAsTheHeldElement(t *testing.T) {
+	held := liveMsgElem("assistant", "reply")
+	held.EndOfStream = true
+	held.Meta.PlayoutHeld = true
+	release := liveMsgElem("assistant", "reply")
+	release.Meta.PlayoutRelease = true
+	release.Meta.PlayoutTurnEnd = true
+	got := runBroadcast(t, []StreamElement{held, release, liveMsgElem("user", "next")}, 1)
+	require.Len(t, got, 1)
+	assert.Equal(t, "next", got[0].GetContent())
+	assert.Equal(t, 0, got[0].Index)
+}

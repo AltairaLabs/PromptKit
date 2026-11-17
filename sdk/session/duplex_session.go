@@ -434,6 +434,11 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 				s.recordEnd(ctx, exec.Err())
 				return
 			}
+			if elem.Meta.PlayoutRelease {
+				// A held message released into the transcript (saved and
+				// recorded upstream): not output for the caller.
+				continue
+			}
 			if keep, failErr := s.handleOutputElement(ctx, &elem); !keep {
 				s.recordEnd(ctx, failErr)
 				return

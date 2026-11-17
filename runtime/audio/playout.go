@@ -94,6 +94,12 @@ func (p *Playout) Add(itemID string, contentIndex int, d time.Duration) {
 	p.until = start.Add(d)
 }
 
+// End is when the audio handed to the player so far finishes playing: the
+// zero time before any audio, or after Stop.
+func (p *Playout) End() time.Time {
+	return p.until
+}
+
 // Playing reports whether audio handed to the player is still playing.
 func (p *Playout) Playing() bool {
 	return p.now().Before(p.until)

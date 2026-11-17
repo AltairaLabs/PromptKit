@@ -784,6 +784,7 @@ func (c *Conversation) buildPipelineConfig(
 		// speaker; pace the output so a streaming provider's whole-reply burst
 		// doesn't overrun the sink's jitter buffer and drop audio (stutter).
 		PaceOutputAudio: c.config.audioSession != nil,
+		TrackPlayout:    c.config.playoutTracking,
 		// Reorder late-arriving input transcripts (OpenAI Realtime) so each turn's
 		// user text precedes its assistant text.
 		ReorderInputTranscript:     reorderTranscript,
@@ -1864,6 +1865,9 @@ func (c *Conversation) closeLocked(complete bool) (*sharedEventBus, bool, error)
 	}
 	c.finishSession(convID)
 	evalMW := c.evalMW
+	// A realtime session is drained before the evals run, so the replies it
+	// still holds (a reply still playing) reach the transcript they score.
+	drainErr := c.drainDuplexSession()
 	c.mu.Unlock()
 
 	runCloseEvals(evalMW, complete)
@@ -1871,7 +1875,8 @@ func (c *Conversation) closeLocked(complete bool) (*sharedEventBus, bool, error)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	// Collect all errors and always execute all cleanup steps.
-	errs := c.releaseResources()
+	errs := drainErr
+	errs = append(errs, c.releaseResources()...)
 
 	// State is automatically persisted by the StateStore middleware in the pipeline
 	// No explicit save needed here
@@ -1914,19 +1919,25 @@ func runCloseEvals(evalMW *evalMiddleware, complete bool) {
 	evalMW.close()
 }
 
+// drainDuplexSession drains the duplex session, if any (graceful shutdown
+// with a timeout), returning its error. Draining a session already drained or
+// closed is a no-op. Caller must hold c.mu.
+func (c *Conversation) drainDuplexSession() []error {
+	if c.mode != DuplexMode || c.duplexSession == nil {
+		return nil
+	}
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), session.DefaultDrainTimeout)
+	defer drainCancel()
+	if err := c.duplexSession.Drain(drainCtx); err != nil {
+		return []error{fmt.Errorf("failed to drain duplex session: %w", err)}
+	}
+	return nil
+}
+
 // releaseResources closes everything the conversation holds except the event
 // bus, attempting every step and returning the errors. Caller must hold c.mu.
 func (c *Conversation) releaseResources() []error {
-	var errs []error
-
-	// Drain duplex session if in duplex mode (graceful shutdown with timeout)
-	if c.mode == DuplexMode && c.duplexSession != nil {
-		drainCtx, drainCancel := context.WithTimeout(context.Background(), session.DefaultDrainTimeout)
-		if err := c.duplexSession.Drain(drainCtx); err != nil {
-			errs = append(errs, fmt.Errorf("failed to drain duplex session: %w", err))
-		}
-		drainCancel()
-	}
+	errs := c.drainDuplexSession() // drained already on close; a no-op then
 
 	// Close capabilities
 	for _, cap := range c.capabilities {

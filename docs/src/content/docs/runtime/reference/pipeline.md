@@ -281,6 +281,9 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
   - [func \(c \*PipelineConfig\) WithIdleTimeout\(timeout time.Duration\) \*PipelineConfig](<#PipelineConfig.WithIdleTimeout>)
   - [func \(c \*PipelineConfig\) WithMaxConcurrentPipelines\(maxPipelines int\) \*PipelineConfig](<#PipelineConfig.WithMaxConcurrentPipelines>)
   - [func \(c \*PipelineConfig\) WithPrioritizeElements\(prioritize bool\) \*PipelineConfig](<#PipelineConfig.WithPrioritizeElements>)
+- [type PlayoutHoldStage](<#PlayoutHoldStage>)
+  - [func NewPlayoutHoldStage\(\) \*PlayoutHoldStage](<#NewPlayoutHoldStage>)
+  - [func \(s \*PlayoutHoldStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#PlayoutHoldStage.Process>)
 - [type Priority](<#Priority>)
 - [type PriorityChannel](<#PriorityChannel>)
   - [func NewPriorityChannel\(capacity int\) \*PriorityChannel](<#NewPriorityChannel>)
@@ -488,6 +491,36 @@ const (
     DefaultIdleTimeoutSeconds = 30
     // DefaultGracefulShutdownTimeoutSeconds is the default graceful shutdown timeout in seconds.
     DefaultGracefulShutdownTimeoutSeconds = 10
+)
+```
+
+<a name="MetaHeardMs"></a>Message.Meta keys PlayoutHoldStage sets on a reply the caller did not hear in full. The reply keeps its own FinishReason: it completed, and only its playback was cut, so it stays in model context with any tool calls it made.
+
+```go
+const (
+    // MetaHeardMs is how much of the reply's audio the caller heard, in
+    // milliseconds (int64).
+    MetaHeardMs = "heard_ms"
+    // MetaAudioMs is the reply's audio duration, in milliseconds (int64).
+    MetaAudioMs = "audio_ms"
+    // MetaPlayedFraction is MetaHeardMs over MetaAudioMs, from 0 to 1
+    // (float64, three decimals).
+    MetaPlayedFraction = "played_fraction"
+    // MetaPlayoutCut says why the reply's playback was cut: PlayoutCutBargeIn
+    // or PlayoutCutSessionClosed.
+    MetaPlayoutCut = "playout_cut"
+)
+```
+
+<a name="PlayoutCutBargeIn"></a>Values of MetaPlayoutCut.
+
+```go
+const (
+    // PlayoutCutBargeIn: the caller barged in while the reply played.
+    PlayoutCutBargeIn = "barge-in"
+    // PlayoutCutSessionClosed: the session ended (closed, drained or canceled)
+    // while the reply played.
+    PlayoutCutSessionClosed = "session-closed"
 )
 ```
 
@@ -2204,7 +2237,7 @@ type DuplexToolConfig struct {
 ```
 
 <a name="ElementMetadata"></a>
-## type [ElementMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L167-L290>)
+## type [ElementMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L167-L310>)
 
 ElementMetadata is the typed schema for per\-element coordination data. Unlike TurnState \(which is per\-Turn\-invariant\), fields here genuinely differ between elements within the same Turn.
 
@@ -2269,6 +2302,26 @@ type ElementMetadata struct {
     // element. TranscriptReorderStage does not time out a held turn while
     // such a round is still running.
     ToolCallsRunning bool
+
+    // PlayoutHeld marks an element whose Message PlayoutHoldStage is holding
+    // until the reply's audio has played (or been cut): the transcript stages
+    // (recording, message broadcast, memory, save) skip that Message and take
+    // it from the PlayoutRelease element that follows. The element itself
+    // still reaches the caller at once.
+    PlayoutHeld bool
+
+    // PlayoutRelease marks an element PlayoutHoldStage emits to release a held
+    // Message into the transcript, amended when the caller heard only part of
+    // the reply. It is for the transcript stages only: it is not output for
+    // the caller, and it is never a turn end (EndOfStream): the held element
+    // carried the turn end downstream when it happened, so each reply's turn
+    // ends once for every stage.
+    PlayoutRelease bool
+
+    // PlayoutTurnEnd, on a PlayoutRelease element, records that the held
+    // element was a turn end (EndOfStream), for a stage that treats a
+    // turn-end Message differently from others.
+    PlayoutTurnEnd bool
 
     // ToolResultMessages carries tool-execution result messages produced
     // by the streaming tool integration; the duplex provider stage
@@ -2349,7 +2402,7 @@ type EndInputter interface {
 ```
 
 <a name="ExecutionResult"></a>
-## type [ExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1468-L1475>)
+## type [ExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1470-L1477>)
 
 ExecutionResult represents the final result of a pipeline execution. This matches the existing pipeline.ExecutionResult for compatibility.
 
@@ -2365,7 +2418,7 @@ type ExecutionResult struct {
 ```
 
 <a name="ExecutionTrace"></a>
-## type [ExecutionTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1487-L1491>)
+## type [ExecutionTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1489-L1493>)
 
 ExecutionTrace captures execution history \(for compatibility\).
 
@@ -3400,7 +3453,7 @@ func DefaultMediaExtractConfig() MediaExtractConfig
 DefaultMediaExtractConfig returns sensible defaults for media extraction.
 
 <a name="MediaExtractInfo"></a>
-## type [MediaExtractInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L293-L304>)
+## type [MediaExtractInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L313-L324>)
 
 MediaExtractInfo is the typed payload for media\-extraction correlation.
 
@@ -4124,6 +4177,42 @@ func (c *PipelineConfig) WithPrioritizeElements(prioritize bool) *PipelineConfig
 
 WithPrioritizeElements sets whether stages read their input in priority order.
 
+<a name="PlayoutHoldStage"></a>
+## type [PlayoutHoldStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/playout_hold.go#L76-L79>)
+
+PlayoutHoldStage keeps a realtime reply out of the transcript until the caller has heard it. A realtime model sends a reply's audio faster than it plays, so the reply completes long before the caller has heard it, and a caller who barges in while it plays hears only part of it.
+
+The stage estimates playout from the audio it forwards \(audio.Playout, the estimate the realtime providers use to cut their own copy of the reply\). It assumes the audio is played in real time as it arrives, so it belongs only in a pipeline that plays to a listener \(the SDK wires it for a paced speaker or WithPlayoutTracking\).
+
+When a reply that has audio completes, its Message is held: the element still goes on at once, marked Meta.PlayoutHeld \(and stamped with the time it was held\) so the transcript stages \(recording, message broadcast, memory, save\) skip it, and every Message after it is held too, so the transcript keeps its order. When the audio has played out, each held Message is released unchanged on a Meta.PlayoutRelease element. When the caller barges in \(an element marked Meta.Interrupted\) or the session ends first \(input closed or the context canceled\), a reply not fully heard is released with its full text and FinishReason, plus Meta heard\_ms, audio\_ms, played\_fraction and playout\_cut. The text is not cut: the providers' audio transcripts carry no timing, so what the caller heard cannot be mapped to words.
+
+A reply without audio, with nothing held ahead of it, passes unchanged.
+
+```go
+type PlayoutHoldStage struct {
+    BaseStage
+    // contains filtered or unexported fields
+}
+```
+
+<a name="NewPlayoutHoldStage"></a>
+### func [NewPlayoutHoldStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/playout_hold.go#L82>)
+
+```go
+func NewPlayoutHoldStage() *PlayoutHoldStage
+```
+
+NewPlayoutHoldStage creates a playout hold stage.
+
+<a name="PlayoutHoldStage.Process"></a>
+### func \(\*PlayoutHoldStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/playout_hold.go#L110>)
+
+```go
+func (s *PlayoutHoldStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
+```
+
+Process implements the Stage interface. A held Message is never lost: on input close or cancellation everything held is released, with what was heard, before Process returns, and after cancellation the input is still read to its end \(the hand\-off is bounded, see cancelForwarder\).
+
 <a name="Priority"></a>
 ## type [Priority](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L123>)
 
@@ -4630,7 +4719,7 @@ func (rs *RecordingStage) Process(ctx context.Context, input <-chan StreamElemen
 Process observes elements and records them as events.
 
 <a name="RecordingStage.WithConversationID"></a>
-### func \(\*RecordingStage\) [WithConversationID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L500>)
+### func \(\*RecordingStage\) [WithConversationID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L501>)
 
 ```go
 func (rs *RecordingStage) WithConversationID(conversationID string) *RecordingStage
@@ -4639,7 +4728,7 @@ func (rs *RecordingStage) WithConversationID(conversationID string) *RecordingSt
 WithConversationID sets the conversation ID for recorded events.
 
 <a name="RecordingStage.WithSessionID"></a>
-### func \(\*RecordingStage\) [WithSessionID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L494>)
+### func \(\*RecordingStage\) [WithSessionID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L495>)
 
 ```go
 func (rs *RecordingStage) WithSessionID(sessionID string) *RecordingStage
@@ -4739,7 +4828,7 @@ type RelevanceConfig struct {
 ```
 
 <a name="Response"></a>
-## type [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1478-L1484>)
+## type [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1480-L1486>)
 
 Response represents a response message \(for compatibility with existing pipeline\).
 
@@ -5760,7 +5849,7 @@ Execute returns ErrPipelineShuttingDown if the pipeline is shutting down. When P
 When Shutdown has abandoned the execution and output had to be dropped because the reader fell behind \(see Shutdown\), the stream still ends in an error: one wrapping ErrOutputTruncated, and the turn's own error when the turn failed. It is delivered with one last bounded wait for the reader.
 
 <a name="StreamPipeline.ExecuteSync"></a>
-### func \(\*StreamPipeline\) [ExecuteSync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1436>)
+### func \(\*StreamPipeline\) [ExecuteSync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1438>)
 
 ```go
 func (p *StreamPipeline) ExecuteSync(ctx context.Context, input ...StreamElement) (*ExecutionResult, error)
@@ -5771,7 +5860,7 @@ ExecuteSync runs the pipeline synchronously and returns the accumulated result. 
 The returned error is the last error element on the output. When a stage failed the turn, that is the failure \(see Execute for its form\). The result is non\-nil alongside the error and holds whatever the pipeline produced. When Shutdown abandoned the execution and output was dropped, the error wraps ErrOutputTruncated \(see Shutdown\).
 
 <a name="StreamPipeline.Shutdown"></a>
-### func \(\*StreamPipeline\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1563>)
+### func \(\*StreamPipeline\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1565>)
 
 ```go
 func (p *StreamPipeline) Shutdown(ctx context.Context) error
@@ -6187,7 +6276,7 @@ func (s *TranscriptReorderStage) Process(ctx context.Context, input <-chan Strea
 Process implements the Stage interface.
 
 <a name="Transcription"></a>
-## type [Transcription](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L320-L323>)
+## type [Transcription](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L340-L343>)
 
 Transcription is the typed payload for duplex\-provider input transcription attached to an element via ElementMetadata.
 
@@ -6473,7 +6562,7 @@ func (d *VideoData) Load(ctx context.Context, store storage.MediaStorageService)
 Load retrieves externalized video data from storage.
 
 <a name="VideoFramesInfo"></a>
-## type [VideoFramesInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L307-L316>)
+## type [VideoFramesInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L327-L336>)
 
 VideoFramesInfo is the typed payload for video\-frame extraction correlation.
 

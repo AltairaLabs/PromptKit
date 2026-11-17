@@ -151,7 +151,7 @@ func (s *MemoryExtractionStage) Process(
 	var pending []StreamElement
 
 	for elem := range input {
-		if elem.Message != nil {
+		if elem.Message != nil && !elem.Meta.PlayoutHeld { // held: taken from its release
 			messages = append(messages, *elem.Message)
 		}
 		pending = append(pending, elem)
