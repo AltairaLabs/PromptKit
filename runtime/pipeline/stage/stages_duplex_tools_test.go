@@ -1809,3 +1809,31 @@ func TestDuplexTools_RunnerWithoutOfferStateIsAnEmptyOffer(t *testing.T) {
 	r.markBuilt(nil)
 	assert.True(t, r.describedChanged(nil), "nothing is ever recorded as built")
 }
+
+// Tool calls that arrive for a provider call already completed (a cancelled
+// response's trailing function calls) are not run, and the operator is told
+// which were dropped. The reply under way goes on to its end.
+func TestDuplexTools_StaleToolCallsAreDroppedWithAWarning(t *testing.T) {
+	logs := captureLogSync(t)
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`)}
+	h := startRealtime(t, realtimeOpts{registry: newWeatherRegistry(t, exec)})
+
+	h.emit(textTurn("first", nil)) // generation 1 completes
+	late := weatherCall("late1")
+	h.emit([]providers.StreamChunk{{ToolCalls: []types.MessageToolCall{late}, Generation: 1}})
+	second := textTurn("second", nil)
+	second[0].Generation = 2 // the provider's next response
+	h.emit(second)
+	require.Eventually(t, func() bool { return len(h.output) >= 2 }, 2*time.Second, time.Millisecond)
+	elems := h.finish()
+
+	assert.Empty(t, exec.calls(), "a completed call's tool calls are not run")
+	assert.Empty(t, h.sess().sentResponses())
+	msgs := realtimeAssistantMessages(elems)
+	require.Len(t, msgs, 2)
+	assert.Equal(t, "second", msgs[1].Content)
+	assert.Empty(t, msgs[1].ToolCalls)
+	assert.Contains(t, logs.String(), "dropped tool calls of a completed provider call")
+	assert.Contains(t, logs.String(), "tools=[weather]")
+	assert.Contains(t, logs.String(), "call_ids=[late1]")
+}

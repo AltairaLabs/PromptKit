@@ -3,6 +3,8 @@ package stage
 import (
 	"context"
 	"errors"
+	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -663,6 +665,62 @@ func TestReplayAndMerge_ReplaysThenForwards(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []string{"a", "b"}, texts)
+}
+
+// A session that ends while the caller's input stays open leaves nothing of
+// the stage behind: the goroutine that replays the input buffered during
+// session creation and forwards the rest exits with Process, instead of
+// waiting on the caller's input for the rest of the caller's life.
+func TestProcess_InputForwarderExitsWithProcess(t *testing.T) {
+	provider := providersmock.NewStreamingProvider("t", "m", false)
+	s := NewDuplexProviderStage(provider, baseConfig())
+	input := make(chan StreamElement, 1) // never closed: the caller keeps it open
+	text := "hello"
+	input <- StreamElement{Text: &text, EndOfStream: true}
+	output := make(chan StreamElement, 16)
+
+	processGoroutine := make(chan string, 1)
+	done := make(chan error, 1)
+	go func() {
+		processGoroutine <- currentGoroutineID()
+		done <- s.Process(context.Background(), input, output)
+	}()
+	id := <-processGoroutine
+	require.Eventually(t, func() bool { return provider.GetSession() != nil }, 2*time.Second, time.Millisecond)
+	require.NoError(t, provider.GetSession().Close()) // the provider ends the session
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Process never returned once the session ended")
+	}
+
+	require.Eventually(t, func() bool { return goroutinesCreatedBy("replayAndMerge", id) == 0 },
+		2*time.Second, time.Millisecond, "the input forwarder outlived Process")
+}
+
+// currentGoroutineID returns the calling goroutine's id, as stack traces
+// print it.
+func currentGoroutineID() string {
+	buf := make([]byte, 64)
+	buf = buf[:runtime.Stack(buf, false)]
+	return strings.Fields(string(buf))[1] // "goroutine <id> [running]:"
+}
+
+// goroutinesCreatedBy counts the live goroutines that fn started in
+// goroutine id.
+func goroutinesCreatedBy(fn, id string) int {
+	buf := make([]byte, 1<<24)
+	buf = buf[:runtime.Stack(buf, true)]
+	n := 0
+	for _, g := range strings.Split(string(buf), "\n\n") {
+		for _, line := range strings.Split(g, "\n") {
+			if strings.HasPrefix(line, "created by ") && strings.Contains(line, fn) &&
+				strings.HasSuffix(line, " in goroutine "+id) {
+				n++
+			}
+		}
+	}
+	return n
 }
 
 // A provider that fails to connect must be reported at once, while input is
