@@ -1566,7 +1566,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 			return err
 		}
 		// Reset + mark captured so late transcription chunks for this utterance are
-		// ignored (sendAudioElement clears the flag when the next user turn starts).
+		// ignored (applyUserTurnStart clears the flag when the next user turn starts).
 		s.inputTranscription.Reset()
 		s.transcriptionCaptured.Store(true)
 	}
@@ -1688,7 +1688,7 @@ func (s *DuplexProviderStage) materializeStreamingUserTurn(
 		return err
 	}
 	// Reset the per-turn transcription buffer so the next streaming turn
-	// starts clean (mirrors the reset in sendAudioElement for the scenario
+	// starts clean (mirrors the reset in applyUserTurnStart for the scenario
 	// path). transcriptionCaptured is already set on turn completion.
 	s.inputTranscription.Reset()
 	return nil
@@ -1899,8 +1899,8 @@ func (s *DuplexProviderStage) accumulateReasoning(
 // resetTurnAccumulation clears the turn's accumulated content once the turn
 // completes, and marks transcription as captured - don't reset it yet!
 // Late-arriving transcription chunks will be ignored until a new user turn
-// starts. The transcription buffer will be reset when sendAudioElement is
-// called.
+// starts. The transcription buffer is reset by applyUserTurnStart once
+// sendAudioElement sees the next user turn start.
 func (s *DuplexProviderStage) resetTurnAccumulation() {
 	s.accGen = 0
 	s.accumulatedText.Reset()

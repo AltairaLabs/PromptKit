@@ -65,8 +65,9 @@ func (s *nthWriteFailsStore) AppendMessages(ctx context.Context, id string, msgs
 	return s.MemoryStore.AppendMessages(ctx, id, msgs)
 }
 
-// A fork's turn whose write fails runs no lifecycle: in particular it does
-// not run one for the transcript the fork copied from its parent.
+// A fork's turn whose write fails runs no lifecycle until a later write
+// stores it (here the fork's close), and then once, as the fork's own turn:
+// never as a repeat of the parent's turn the fork copied.
 func TestDuplexRealtime_ForkTurnWhoseWriteFailsRunsNothing(t *testing.T) {
 	updates := &sessionUpdateLog{}
 	store := &nthWriteFailsStore{MemoryStore: statestore.NewMemoryStore(), n: 2}
@@ -87,8 +88,11 @@ func TestDuplexRealtime_ForkTurnWhoseWriteFailsRunsNothing(t *testing.T) {
 	fch, err := fork.Response()
 	require.NoError(t, err)
 	realtimeTurn(t, fork, fch, "fork turn") // write 2 fails
+	assert.Len(t, updates.snapshot(), 1, "the fork's unwritten turn has run nothing yet")
 
-	assert.Len(t, updates.snapshot(), 1, "the fork's unwritten turn ran nothing")
+	require.NoError(t, closeWithin(t, fork)) // the final save stores it
+	assert.Equal(t, []turnSeen{{Turn: 1, Last: "assistant:hey"}, {Turn: 2, Last: "assistant:hey"}},
+		updates.snapshot(), "the fork's turn ran once stored, as its own turn 2")
 }
 
 // A Close made from a session hook leaves the end to that turn's completion,

@@ -261,6 +261,7 @@ func prepareConversation(
 	// Create conversation
 	pendingStore, ownsPending := newPendingStore(cfg)
 	conv := &Conversation{
+		lifecycle:        newLifecycleWorker(),
 		provider:         callProv,
 		pack:             p,
 		prompt:           prompt,
@@ -981,8 +982,6 @@ func initDuplexSession(ctx context.Context, conv *Conversation, cfg *config) err
 		Caller:            cfg.caller,
 		Metadata:          cfg.sessionMetadata,
 		Variables:         initialVars,
-		// Each completed duplex turn does what a completed text turn does.
-		OnTurnComplete: conv.completeTurn,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create duplex session: %w", err)

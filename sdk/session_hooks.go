@@ -44,13 +44,6 @@ func (d *sessionHookDispatcher) SessionStart(ctx context.Context) {
 	}
 }
 
-// SessionUpdate dispatches OnSessionUpdate to all registered session hooks.
-func (d *sessionHookDispatcher) SessionUpdate(ctx context.Context) {
-	if d.dispatches() {
-		_ = d.registry.RunSessionUpdate(ctx, d.buildEvent(nil))
-	}
-}
-
 // SessionUpdateWith dispatches OnSessionUpdate with messages as the event's
 // transcript, for a caller that has loaded it already.
 func (d *sessionHookDispatcher) SessionUpdateWith(ctx context.Context, messages []types.Message) {

@@ -72,7 +72,3 @@ func closeWithin(t *testing.T, conv *Conversation) error {
 	t.Helper()
 	return within(t, "Close", conv.Close)
 }
-
-// A Close waiting on a turn completion that never finishes crashes the test
-// run in seconds (see turnWaitLimit) rather than hanging every later Close.
-func init() { turnWaitLimit = 10 * time.Second }

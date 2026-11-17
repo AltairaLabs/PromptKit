@@ -202,12 +202,4 @@ type DuplexSessionConfig struct {
 	Caller    types.Caller
 	Metadata  map[string]interface{}
 	Variables map[string]string // Initial variables for template substitution
-	// OnTurnComplete, when set, is called once for each turn the session
-	// completes, before the output that completes it reaches Response(): a
-	// realtime assistant reply that makes no tool calls and was not cut short,
-	// or a cascaded (VAD) turn's end-of-turn boundary, whose messages the state
-	// store holds by then. A turn the store failed to write is not reported.
-	// It runs on the session's output goroutine, so the session's output waits
-	// for it.
-	OnTurnComplete func(ctx context.Context)
 }

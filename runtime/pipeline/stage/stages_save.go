@@ -51,6 +51,14 @@ type IncrementalSaveConfig struct {
 	// pod disruption leaves nothing for ResumeDuplex.
 	FlushEachTurn bool
 
+	// OnTurnsStored, when set, is called after each successful write with the
+	// completed turns the write stored: for each, in order, the transcript
+	// index of the reply that completes it (-1 when the store cannot count
+	// its messages). A turn whose write failed is reported by the write that
+	// later stores it. A turn is completed by an assistant reply that makes no
+	// tool calls and was not cut short.
+	OnTurnsStored func(replyIndices []int)
+
 	// PersistReasoning, when false (the default), strips Message.Reasoning before
 	// persisting so model reasoning never lands in the conversation store. Set true
 	// to retain reasoning in the persisted record.
@@ -159,11 +167,38 @@ func (s *IncrementalSaveStage) saveCollected(
 		}
 	}
 	collected.stored = len(collected.messages)
+	s.reportStoredTurns(ctx, convID, collected)
 
 	if followUp {
 		s.followUp(ctx, collected.messages)
 	}
 	return nil
+}
+
+// reportStoredTurns reports the completed turns collected holds, now stored,
+// to OnTurnsStored, by the transcript index of each one's completing reply.
+func (s *IncrementalSaveStage) reportStoredTurns(
+	ctx context.Context, convID string, collected *incrementalCollectedData,
+) {
+	if s.config.OnTurnsStored == nil || len(collected.replies) == 0 {
+		collected.replies = nil
+		return
+	}
+	base := -1
+	if reader, ok := s.config.StateStoreConfig.Store.(statestore.MessageReader); ok {
+		if count, err := reader.MessageCount(ctx, convID); err == nil {
+			base = count - len(collected.messages)
+		}
+	}
+	indices := make([]int, len(collected.replies))
+	for i, pos := range collected.replies {
+		indices[i] = -1
+		if base >= 0 {
+			indices[i] = base + pos
+		}
+	}
+	collected.replies = nil
+	s.config.OnTurnsStored(indices)
 }
 
 // followUp indexes and summarizes stored messages, whichever path persisted
@@ -204,10 +239,9 @@ type incrementalCollectedData struct {
 	// stored counts the leading messages already persisted (a tool round
 	// stored mid-turn).
 	stored int
-	// replyStored records, for the turn whose completing reply was flushed
-	// last, whether its write succeeded, until an EndOfTurn boundary carries
-	// it on (nil: none since the last boundary).
-	replyStored *bool
+	// replies holds the positions in messages of the replies completing the
+	// turns not yet reported stored (OnTurnsStored).
+	replies []int
 }
 
 // collectAndForward collects new messages while forwarding all elements.
@@ -230,6 +264,9 @@ func (s *IncrementalSaveStage) collectAndForward(
 		newMessage := elem.Message != nil && isNewMessage(elem.Message)
 		if newMessage {
 			collected.messages = append(collected.messages, *elem.Message)
+			if elem.Message.Role == roleAssistant && completesReply(elem.Message) {
+				collected.replies = append(collected.replies, len(collected.messages)-1)
+			}
 		}
 
 		// Always forward error elements unconditionally
@@ -241,12 +278,6 @@ func (s *IncrementalSaveStage) collectAndForward(
 		if newMessage && s.config.FlushEachTurn && elem.Message.Role == roleAssistant {
 			s.flushAssistant(ctx, &fwd, output, elem, collected)
 			continue
-		}
-		if elem.EndOfTurn && collected.replyStored != nil {
-			// The boundary ends the turn its reply completed: it carries
-			// whether that turn was stored.
-			elem.Meta.TurnStored = collected.replyStored
-			collected.replyStored = nil
 		}
 		fwd.forward(ctx, output, elem)
 	}
@@ -260,7 +291,7 @@ func (s *IncrementalSaveStage) collectAndForward(
 // and summarized once, when its reply completes it (a cut-short reply's turn
 // goes with the next completed one). Anything collected after the last
 // completed turn is saved and indexed when the stream ends (saveCollected).
-// The completing reply carries whether its turn was stored (TurnStored).
+// Each completed turn stored is reported to OnTurnsStored.
 func (s *IncrementalSaveStage) flushAssistant(
 	ctx context.Context, fwd *cancelForwarder, output chan<- StreamElement,
 	elem StreamElement, collected *incrementalCollectedData,
@@ -268,13 +299,6 @@ func (s *IncrementalSaveStage) flushAssistant(
 	storeFirst := elem.Message.FinishReason != types.FinishReasonInterrupted
 	stored := storeFirst && s.storeTurn(ctx, collected)
 	completes := completesReply(elem.Message)
-	if completes {
-		// The reply completes its turn: it carries whether the turn was
-		// stored, as does the EndOfTurn boundary that may follow it.
-		turnStored := stored
-		elem.Meta.TurnStored = &turnStored
-		collected.replyStored = &turnStored
-	}
 	fwd.forward(ctx, output, elem)
 	if !storeFirst {
 		stored = s.storeTurn(ctx, collected)

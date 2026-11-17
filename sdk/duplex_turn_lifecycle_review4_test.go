@@ -189,10 +189,9 @@ func (s *flakyWriteStore) AppendMessages(ctx context.Context, id string, msgs []
 	return s.MemoryStore.AppendMessages(ctx, id, msgs)
 }
 
-// A turn the store failed to write runs no lifecycle (its transcript is the
-// previous one); when the next write stores it with the next turn, the
-// lifecycle runs once, for the latest turn.
-func TestDuplexRealtime_FailedWriteRunsTheLifecycleForTheLatestTurnOnly(t *testing.T) {
+// A turn the store failed to write runs its lifecycle once a later write
+// stores it: both turns run, in order, each numbered and seen as itself.
+func TestDuplexRealtime_FailedWriteRunsTheTurnOnceStored(t *testing.T) {
 	updates := &sessionUpdateLog{}
 	conv, err := OpenDuplex(createTestPackFile(t, duplexOrderPack), "chat",
 		WithProvider(mock.NewStreamingProvider("rt", "rt-model", false).WithAutoRespond("hey")),
@@ -206,7 +205,7 @@ func TestDuplexRealtime_FailedWriteRunsTheLifecycleForTheLatestTurnOnly(t *testi
 	realtimeTurn(t, conv, ch, "one")
 	realtimeTurn(t, conv, ch, "two")
 
-	assert.Equal(t, []turnSeen{{Turn: 2, Last: "assistant:hey"}}, updates.snapshot())
+	assert.Equal(t, []turnSeen{{Turn: 1, Last: "assistant:hey"}, {Turn: 2, Last: "assistant:hey"}}, updates.snapshot())
 }
 
 // With no session hooks and no evals a completed duplex turn loads nothing.

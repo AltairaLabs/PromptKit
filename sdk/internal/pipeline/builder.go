@@ -221,6 +221,11 @@ type Config struct {
 	// The system prompt is sourced from TurnState by the duplex stage.
 	StreamInputConfig *providers.StreamingInputConfig
 
+	// OnTurnsStored is told, after each successful write of the conversation
+	// state, the completed turns it stored (stage.IncrementalSaveConfig
+	// .OnTurnsStored); the SDK runs each turn's lifecycle from it.
+	OnTurnsStored func(replyIndices []int)
+
 	// ReorderInputTranscript inserts a TranscriptReorderStage after the provider
 	// stage so each turn's user transcript is emitted before that turn's assistant
 	// text — needed for providers that deliver the transcript late (OpenAI
@@ -848,6 +853,7 @@ func appendStateStoreSaveStages(
 		// stays open for the whole session: persist each turn as it
 		// completes, not at hang-up.
 		FlushEachTurn: cfg.StreamInputProvider != nil || cfg.VADConfig != nil || cfg.Ingestion != nil,
+		OnTurnsStored: cfg.OnTurnsStored,
 	}))
 }
 

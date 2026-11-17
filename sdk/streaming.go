@@ -316,9 +316,9 @@ func (c *Conversation) executeStreamingPipeline(
 // the final ChunkDone. Uses a caller-provided state
 // so the caller can inspect pendingTools after the stream completes.
 //
-// A completed turn (one not suspended for pending tools) runs its lifecycle
-// (completeTurn) before ChunkDone, so a caller that has seen ChunkDone sees
-// the turn's session update and turn-eval dispatch done.
+// A completed turn's lifecycle (runTurnLifecycle) runs before ChunkDone, so a
+// caller that has seen ChunkDone sees the turn's session update and turn-eval
+// dispatch done.
 func (c *Conversation) processAndFinalizeStreamWithState(
 	ctx context.Context,
 	streamCh <-chan providers.StreamChunk,
@@ -337,10 +337,9 @@ func (c *Conversation) processAndFinalizeStreamWithState(
 	// Build response from accumulated data
 	resp := c.buildStreamingResponse(state, startTime)
 
-	// Skip lifecycle hooks when pipeline is suspended for pending tools
-	if len(state.pendingTools) == 0 {
-		c.completeTurn(ctx)
-	}
+	// The turn's lifecycle runs before ChunkDone (a turn suspended for
+	// pending tools is not stored as completed, and runs none).
+	c.awaitTurnLifecycles()
 
 	// Emit final ChunkDone with complete response, respecting context cancellation
 	// to avoid blocking indefinitely when the consumer has gone away.

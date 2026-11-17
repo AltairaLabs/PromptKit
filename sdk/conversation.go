@@ -215,19 +215,13 @@ type Conversation struct {
 	// while blocked on that session).
 	activeSession atomic.Pointer[sessionRef]
 
-	// turnMu guards the turn lifecycle's state, never held while a hook or an
-	// eval runs. turnsEnded is set once the session has drained: no turn
-	// completing after it runs hooks or evals. turnsInFlight counts
-	// completions in progress (turnCond is signaled when it drops to zero),
-	// hooksRunning the session hooks executing within them, and pendingEnd is
-	// a session end left, by a Close made while a hook ran, to the completion
-	// that ran it.
-	turnMu        sync.Mutex
-	turnCond      *sync.Cond
-	turnsEnded    bool
-	turnsInFlight int
-	hooksRunning  int
-	pendingEnd    func()
+	// lifecycle runs the per-turn lifecycle (see runTurnLifecycle); its
+	// loads and hooks run on lifeCtx, canceled once Close has ended the
+	// session.
+	lifecycle  *lifecycleWorker
+	lifeOnce   sync.Once
+	lifeCtx    context.Context
+	lifeCancel context.CancelFunc
 
 	// turnState is the per-Turn state shared with the pipeline's stages.
 	// Owned here rather than by the builder so the eval dispatch can read the
@@ -396,94 +390,10 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 
 	resp := c.buildResponse(ctx, result, startTime)
 
-	// Skip lifecycle hooks when pipeline is suspended for pending client tools.
-	// The hooks will fire when Resume() completes the turn instead.
-	if !resp.HasPendingClientTools() {
-		c.completeTurn(ctx)
-	}
+	// The turn's lifecycle (stored turns only: a turn suspended for pending
+	// client tools completes on Resume) runs before Send returns.
+	c.awaitTurnLifecycles()
 	return resp, nil
-}
-
-// completeTurn is the work done once each turn of the conversation completes:
-// the turn is numbered, OnSessionUpdate runs, and the per-turn evals are
-// dispatched. It runs once per completed turn the state store holds, before
-// the caller sees the turn end: Send returns, Stream and ResumeStream send
-// ChunkDone, and a duplex session forwards the turn's completing output after
-// it (a duplex turn whose write failed runs nothing: see
-// session.DuplexSessionConfig.OnTurnComplete). It runs on the caller's ctx,
-// whose deadline bounds a hung store or hook: the caller is still waiting on
-// the turn.
-//
-// The turn's stored transcript is loaded once, for the session hooks and the
-// turn evals alike, and the turn is numbered from it (turnOrdinal). With no
-// session hook and no eval nothing is loaded. The hooks run with no lock
-// held. Once the session has drained (see end) a completing turn does
-// nothing.
-func (c *Conversation) completeTurn(ctx context.Context) {
-	c.turnMu.Lock()
-	if c.turnsEnded {
-		c.turnMu.Unlock()
-		return
-	}
-	c.turnsInFlight++
-	c.turnMu.Unlock()
-	defer c.turnDone()
-
-	if !c.sessionHooks.dispatches() && c.evalMW == nil {
-		// Nothing reads the transcript. A text turn's number is the one its
-		// pipeline derived from the store (the same CountUserTurns ordinal).
-		if c.mode == UnaryMode {
-			c.sessionHooks.SetTurn(c.turnState.TurnIndex())
-		}
-		return
-	}
-	messages := c.transcript(ctx)
-	number := turnOrdinal(messages)
-	c.sessionHooks.SetTurn(number)
-	c.runSessionUpdate(ctx, messages)
-	c.evalMW.dispatchTurnEvalsWith(ctx, messages, number) // nil-safe, no-op if middleware is nil
-}
-
-// runSessionUpdate runs OnSessionUpdate, counted in hooksRunning while it
-// does: a Close made then (by the hook itself, or concurrently) leaves the
-// session's end to this completion rather than waiting on it.
-func (c *Conversation) runSessionUpdate(ctx context.Context, messages []types.Message) {
-	c.turnMu.Lock()
-	c.hooksRunning++
-	c.turnMu.Unlock()
-	defer func() {
-		c.turnMu.Lock()
-		c.hooksRunning--
-		c.turnMu.Unlock()
-	}()
-	c.sessionHooks.SessionUpdateWith(ctx, messages)
-}
-
-// turnSignal is the condition turnDone signals when no completion is in
-// progress. Called with turnMu held.
-func (c *Conversation) turnSignal() *sync.Cond {
-	if c.turnCond == nil {
-		c.turnCond = sync.NewCond(&c.turnMu)
-	}
-	return c.turnCond
-}
-
-// turnDone ends a completion. When none is left in progress it wakes a Close
-// waiting for them, and starts a session end decided while it ran, on its
-// own goroutine: a duplex completion runs on the session's output goroutine,
-// which must go on to deliver the turn's output.
-func (c *Conversation) turnDone() {
-	c.turnMu.Lock()
-	c.turnsInFlight--
-	var pending func()
-	if c.turnsInFlight == 0 {
-		c.turnSignal().Broadcast()
-		pending, c.pendingEnd = c.pendingEnd, nil
-	}
-	c.turnMu.Unlock()
-	if pending != nil {
-		go pending()
-	}
 }
 
 // turnOrdinal is the number of the turn messages' last reply answers: the
@@ -901,7 +811,9 @@ func (c *Conversation) buildPipelineConfig(
 		PaceOutputAudio: c.config.audioSession != nil,
 		// Reorder late-arriving input transcripts (OpenAI Realtime) so each turn's
 		// user text precedes its assistant text.
-		ReorderInputTranscript:     reorderTranscript,
+		ReorderInputTranscript: reorderTranscript,
+		// Each completed turn's lifecycle runs once it is stored.
+		OnTurnsStored:              c.turnsStored,
 		InputTranscriptPlaceholder: transcriptPlaceholder,
 	}
 
@@ -1693,6 +1605,7 @@ func (c *Conversation) Fork() (*Conversation, error) {
 	// Create the forked conversation
 	forkPendingStore, forkOwnsPending := newPendingStore(c.config)
 	fork := &Conversation{
+		lifecycle:      newLifecycleWorker(),
 		pack:           c.pack,
 		prompt:         c.prompt,
 		promptName:     c.promptName,
@@ -1763,8 +1676,7 @@ func (c *Conversation) Fork() (*Conversation, error) {
 			return fork.buildStreamPipelineWithParams(stateStore, convID, streamProvider, streamConfig)
 		}
 
-		// The fork's turns run the fork's lifecycle, over its transcript.
-		forkSession, err := session.ForkDuplexSession(ctx, c.duplexSession, forkID, pipelineBuilder, fork.completeTurn)
+		forkSession, err := c.duplexSession.ForkSession(ctx, forkID, pipelineBuilder)
 		if err != nil {
 			return nil, fmt.Errorf("fork: failed to fork duplex session: %w", err)
 		}
@@ -1865,78 +1777,24 @@ func (c *Conversation) end(complete bool) (bool, error) {
 	if !first {
 		return false, nil
 	}
-	if c.deferEnd(func() {
-		if err := c.drainAndFinish(convID, evalMW, duplex, complete); err != nil {
-			logger.Warn("ending the session after its turn's completion", "id", convID, "error", err)
-		}
-	}) {
+	if c.lifecycle.hookRunning() {
+		// Called while a session hook executes on the lifecycle worker (from
+		// the hook itself, or concurrently): the end runs on the worker, as
+		// its next job, once that hook's turn is done.
+		c.lifecycle.enqueue(func() {
+			errs := drainDuplex(duplex)
+			c.lifecycle.runQueued() // turns the drain stored
+			if err := errors.Join(append(errs, c.finishClose(convID, evalMW, complete))...); err != nil {
+				logger.Warn("ending the session after its hook's turn", "id", convID, "error", err)
+			}
+		})
 		return true, nil
 	}
-	return true, c.drainAndFinish(convID, evalMW, duplex, complete)
-}
-
-// deferEnd leaves the session's end to the turn completion running a session
-// hook now (possibly the hook calling Close), which runs it once done, and
-// reports true; with no hook executing it reports false, and Close waits for
-// completions in progress instead.
-func (c *Conversation) deferEnd(end func()) bool {
-	c.turnMu.Lock()
-	defer c.turnMu.Unlock()
-	if c.hooksRunning == 0 {
-		return false
-	}
-	c.pendingEnd = end
-	return true
-}
-
-// drainAndFinish drains a duplex session, outside c.mu, and ends the
-// session: a turn the drain completes runs its session update and turn evals
-// (on the session's goroutine, which reads the conversation); then no turn
-// completes any more, the end waits for a completion still in progress, and
-// the session ends and its session evals run. The wait is unbounded: a
-// session hook that never returns holds Close.
-func (c *Conversation) drainAndFinish(
-	convID string, evalMW *evalMiddleware, duplex session.DuplexSession, complete bool,
-) error {
+	// A turn the drain completes is stored and its lifecycle queued; every
+	// queued lifecycle runs before the session ends.
 	errs := drainDuplex(duplex)
-	c.turnMu.Lock()
-	c.turnsEnded = true
-	c.awaitCompletionsLocked()
-	c.turnMu.Unlock()
-	return errors.Join(append(errs, c.finishClose(convID, evalMW, complete))...)
-}
-
-// turnWaitLimit, when set, bounds awaitCompletionsLocked, which panics when
-// it is exceeded. It is unset (no bound) outside tests: a session hook that
-// never returns holds Close. The SDK's tests set it so a regression that
-// leaves a completion counted forever crashes the run in seconds instead of
-// hanging every later Close.
-var turnWaitLimit time.Duration
-
-// awaitCompletionsLocked waits until no turn completion is in progress.
-// Called with turnMu held.
-func (c *Conversation) awaitCompletionsLocked() {
-	cond := c.turnSignal()
-	if turnWaitLimit > 0 {
-		expired := false
-		timer := time.AfterFunc(turnWaitLimit, func() {
-			c.turnMu.Lock()
-			expired = true
-			cond.Broadcast()
-			c.turnMu.Unlock()
-		})
-		defer timer.Stop()
-		for c.turnsInFlight > 0 && !expired {
-			cond.Wait()
-		}
-		if expired {
-			panic(fmt.Sprintf("Close waited %s for a turn completion that never finished", turnWaitLimit))
-		}
-		return
-	}
-	for c.turnsInFlight > 0 {
-		cond.Wait()
-	}
+	c.lifecycle.waitIdle()
+	return true, errors.Join(append(errs, c.finishClose(convID, evalMW, complete))...)
 }
 
 // takeBusRef hands over this conversation's event bus reference, leaving it
@@ -2066,6 +1924,7 @@ func (c *Conversation) markClosed() (
 // closed and return at once. Resources are released only after the evals
 // finish, since a judge may use the conversation's providers.
 func (c *Conversation) finishClose(convID string, evalMW *evalMiddleware, complete bool) error {
+	c.lifecycle.stop()
 	evalMW.stopDispatch()
 	c.finishSession(convID)
 	c.runCloseEvals(evalMW, complete)
@@ -2084,6 +1943,7 @@ func (c *Conversation) finishClose(convID string, evalMW *evalMiddleware, comple
 	if busRef != nil {
 		busRef.release()
 	}
+	c.endLifecycle()
 	return errors.Join(errs...)
 }
 

@@ -32,6 +32,17 @@ type mockUnarySession struct {
 	executeStreamErr    error
 	// transcript is what Messages returns: the stored conversation.
 	transcript []types.Message
+	// stored, when set, is told a completed turn was stored, as the
+	// pipeline's save stage reports it (a result with no pending tools).
+	stored func()
+}
+
+// report tells stored a completed turn was stored, unless result holds
+// pending tools (a suspended turn is not completed).
+func (m *mockUnarySession) report(result *rtpipeline.ExecutionResult) {
+	if m.stored != nil && result != nil && len(result.PendingTools) == 0 {
+		m.stored()
+	}
 }
 
 func (m *mockUnarySession) ID() string                     { return "mock-session" }
@@ -44,11 +55,13 @@ func (m *mockUnarySession) Messages(_ context.Context) ([]types.Message, error) 
 func (m *mockUnarySession) Clear(_ context.Context) error { return nil }
 
 func (m *mockUnarySession) Execute(_ context.Context, _, _ string) (*rtpipeline.ExecutionResult, error) {
+	m.report(m.executeResult)
 	return m.executeResult, m.executeErr
 }
 
 //nolint:gocritic
 func (m *mockUnarySession) ExecuteWithMessage(_ context.Context, _ types.Message) (*rtpipeline.ExecutionResult, error) {
+	m.report(m.executeResult)
 	return m.executeResult, m.executeErr
 }
 
@@ -64,6 +77,7 @@ func (m *mockUnarySession) ExecuteStreamWithMessage(_ context.Context, _ types.M
 func (m *mockUnarySession) ResumeWithToolResults(_ context.Context, toolResults []types.Message) (*rtpipeline.ExecutionResult, error) {
 	m.resumeCalled = true
 	m.resumeToolResults = toolResults
+	m.report(m.resumeResult)
 	return m.resumeResult, m.resumeErr
 }
 
@@ -90,7 +104,16 @@ func (m *mockUnarySession) ForkSession(_ context.Context, _ string, _ *stage.Str
 // newTestConvWithMockSession creates a Conversation wired to a mock session
 // for precise control of pipeline results.
 func newTestConvWithMockSession(sess *mockUnarySession) *Conversation {
+	conv := newTestConvWithMockSessionOnly(sess)
+	sess.stored = func() { conv.turnsStored([]int{-1}) }
+	return conv
+}
+
+// newTestConvWithMockSessionOnly is newTestConvWithMockSession without the
+// stored-turn report wired.
+func newTestConvWithMockSessionOnly(sess *mockUnarySession) *Conversation {
 	return &Conversation{
+		lifecycle:      newLifecycleWorker(),
 		config:         &config{},
 		handlers:       make(map[string]ToolHandler),
 		ctxHandlers:    make(map[string]ToolHandlerCtx),

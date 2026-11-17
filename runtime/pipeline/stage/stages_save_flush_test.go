@@ -270,51 +270,36 @@ func (s *downAppendStore) AppendMessages(context.Context, string, []types.Messag
 	return errors.New("store unavailable")
 }
 
-// With FlushEachTurn the element that ends a turn says whether the turn was
-// stored: the completing reply, and an EndOfTurn boundary after it. A tool
-// round's message says nothing.
-func TestIncrementalSaveStage_FlushMarksWhetherTheTurnWasStored(t *testing.T) {
-	stored := func(e StreamElement) string {
-		if e.Meta.TurnStored == nil {
-			return "unmarked"
-		}
-		if *e.Meta.TurnStored {
-			return "stored"
-		}
-		return "not stored"
-	}
+// The save stage reports each completed turn it stores, by the transcript
+// index of the reply that completes it, once the write that holds it
+// succeeds: a turn whose write failed is reported with the write that later
+// stores it, in order. A tool round's message completes no turn.
+func TestIncrementalSaveStage_ReportsTheTurnsItStores(t *testing.T) {
+	var mu sync.Mutex
+	var reports [][]int
+	store := &flakyAppendStore{MemoryStore: statestore.NewMemoryStore()} // first append fails
+	s := NewIncrementalSaveStage(&IncrementalSaveConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{Store: store, ConversationID: "c"},
+		FlushEachTurn:    true,
+		OnTurnsStored: func(replies []int) {
+			mu.Lock()
+			reports = append(reports, replies)
+			mu.Unlock()
+		},
+	})
 	call := types.Message{Role: "assistant",
 		ToolCalls: []types.MessageToolCall{{ID: "c1", Name: "lookup", Args: []byte(`{}`)}}}
-	for name, tc := range map[string]struct {
-		store statestore.Store
-		want  []string
-	}{
-		"write succeeds": {statestore.NewMemoryStore(), []string{"unmarked", "unmarked", "stored", "stored"}},
-		"a failed write retried": {&flakyAppendStore{MemoryStore: statestore.NewMemoryStore()},
-			[]string{"unmarked", "unmarked", "stored", "stored"}},
-		"write fails": {&downAppendStore{MemoryStore: statestore.NewMemoryStore()},
-			[]string{"unmarked", "unmarked", "not stored", "not stored"}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			s := NewIncrementalSaveStage(&IncrementalSaveConfig{
-				StateStoreConfig: &pipeline.StateStoreConfig{Store: tc.store, ConversationID: "c"},
-				FlushEachTurn:    true,
-			})
-			in := make(chan StreamElement, 4)
-			out := make(chan StreamElement, 4)
-			for _, e := range []StreamElement{
-				newTestMsgElement("user", "hi"), NewMessageElement(&call),
-				newTestMsgElement("assistant", "done"), NewEndOfTurnElement(),
-			} {
-				in <- e
-			}
-			close(in)
-			_ = s.Process(context.Background(), in, out) // a store that is down fails the final save too
-			var got []string
-			for e := range out {
-				got = append(got, stored(e))
-			}
-			assert.Equal(t, tc.want, got)
-		})
-	}
+	result := types.Message{Role: "tool", Content: "found",
+		ToolResult: &types.MessageToolResult{ID: "c1", Name: "lookup"}}
+	runTestStage(t, s, []StreamElement{
+		newTestMsgElement("user", "one"), newTestMsgElement("assistant", "r1"), // write fails
+		newTestMsgElement("user", "two"), NewMessageElement(&call), // stores turn 1 with it
+		NewMessageElement(&result), newTestMsgElement("assistant", "r2"),
+	})
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, [][]int{{1}, {5}}, reports)
+	assert.Equal(t, []string{"user:one", "assistant:r1", "user:two", "assistant:", "tool:found", "assistant:r2"},
+		storedRoles(t, store.MemoryStore, "c"))
 }

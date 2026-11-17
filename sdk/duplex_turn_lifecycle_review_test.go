@@ -357,8 +357,8 @@ func TestDuplex_CloseCompletesTheDrainedTurnBeforeEndingTheSession(t *testing.T)
 		"eval:per-session:assistant:reply-1",
 	}, order.snapshot())
 
-	conv.completeTurn(context.Background())
-	assert.Len(t, order.snapshot(), 5, "a turn completing after Close runs no hook and no eval")
+	conv.turnsStored([]int{-1}) // a turn reported stored after Close
+	assert.Len(t, order.snapshot(), 5, "a turn stored after Close runs no hook and no eval")
 }
 
 // A fork of a duplex conversation runs its own session update for each turn
@@ -379,8 +379,8 @@ func TestDuplexRealtime_ForkRunsItsOwnTurnLifecycle(t *testing.T) {
 	assert.Equal(t, []turnSeen{{Turn: 1, Last: "assistant:the answer"}}, updates.snapshot())
 }
 
-// A turn completing while Clear runs reads the conversation's session under
-// its lock (the race detector reports it otherwise).
+// A turn's lifecycle running while Clear runs reads the conversation's
+// session without a race (the race detector reports one otherwise).
 func TestDuplexRealtime_TurnCompletingDuringClearIsRaceFree(t *testing.T) {
 	updates := &sessionUpdateLog{}
 	conv := openRealtimeLifecycle(t, WithSessionHook(updates))
@@ -393,14 +393,15 @@ func TestDuplexRealtime_TurnCompletingDuringClearIsRaceFree(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for range 50 {
-			conv.completeTurn(context.Background())
+			conv.turnsStored([]int{-1}) // as the save stage reports a stored turn
 		}
 	}()
 	for range 10 {
 		require.NoError(t, conv.Clear())
 	}
 	wg.Wait()
-	assert.Len(t, updates.snapshot(), 51, "every reported completion runs, Clear or not")
+	conv.awaitTurnLifecycles()
+	assert.Len(t, updates.snapshot(), 51, "every reported stored turn runs, Clear or not")
 }
 
 // countingStore counts transcript loads.

@@ -144,7 +144,8 @@ func openRealtimeLifecycle(t *testing.T, opts ...Option) *Conversation {
 }
 
 // realtimeTurn sends text and reads the responses until the chunk that
-// completes the assistant turn.
+// completes the assistant turn, then waits for the turn's lifecycle, which a
+// duplex conversation runs asynchronously.
 func realtimeTurn(t *testing.T, conv *Conversation, ch <-chan providers.StreamChunk, text string) {
 	t.Helper()
 	require.NoError(t, conv.SendText(context.Background(), text))
@@ -156,6 +157,7 @@ func realtimeTurn(t *testing.T, conv *Conversation, ch <-chan providers.StreamCh
 			require.True(t, ok, "response channel closed during the turn for %q", text)
 			require.NoError(t, c.Error)
 			if done, _ := c.Metadata["assistant_turn_complete"].(bool); done {
+				conv.awaitTurnLifecycles()
 				return
 			}
 		case <-timer.C:
@@ -230,7 +232,8 @@ func TestDuplexRealtime_BroadcastsEveryMessageAtItsTranscriptIndex(t *testing.T)
 
 // Each completed realtime turn runs OnSessionUpdate and the per-turn evals, as
 // a text turn does: once per user turn, not per tool round, numbered 1 and 2,
-// and over a transcript that already holds the turn's reply.
+// and over a transcript that holds the turn's reply. A duplex conversation runs
+// them asynchronously, in order.
 func TestDuplexRealtime_EachTurnRunsSessionUpdateAndTurnEvals(t *testing.T) {
 	evalLog := &turnEvalLog{}
 	// A slow hook: the turn's completion still waits for it.
@@ -241,7 +244,7 @@ func TestDuplexRealtime_EachTurnRunsSessionUpdateAndTurnEvals(t *testing.T) {
 
 	realtimeTurn(t, conv, ch, "first")
 	assert.Equal(t, []turnSeen{{Turn: 1, Last: "assistant:the answer"}}, updates.snapshot(),
-		"the session update has run by the time the caller sees the turn complete")
+		"the slow session update ran, in order")
 	realtimeTurn(t, conv, ch, "second")
 
 	want := []turnSeen{{Turn: 1, Last: "assistant:the answer"}, {Turn: 2, Last: "assistant:second reply"}}
@@ -357,43 +360,29 @@ func TestDuplexRealtime_ReplyCutShortAtCloseCompletesNoTurn(t *testing.T) {
 	assert.Empty(t, evalLog.sorted())
 }
 
-// A duplex turn completes on the session's output goroutine, so it can
-// complete while Close drains the turn evals. Its dispatch must be ordered
-// with that drain (the race detector reports it otherwise), and a turn
-// completing once Close has drained them dispatches no turn eval.
-func TestDuplex_TurnCompletingDuringCloseIsOrderedWithTheEvalDrain(t *testing.T) {
+// Turns can be reported stored while Close runs: their lifecycles are
+// ordered with Close's wait for them and the eval drain (the race detector
+// reports a race otherwise), and a turn reported once Close has ended the
+// session runs nothing.
+func TestDuplex_TurnStoredDuringCloseIsOrderedWithTheEvalDrain(t *testing.T) {
 	evalLog := &turnEvalLog{}
 	conv := openRealtimeLifecycle(t, WithEvalHook(evalLog))
-	closed := make(chan struct{})
-	started := make(chan struct{})
+	ch, err := conv.Response()
+	require.NoError(t, err)
+	realtimeTurn(t, conv, ch, "first")
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		close(started)
-		for {
-			select {
-			case <-closed:
-				return
-			default:
-				conv.completeTurn(context.Background()) // as the session's output goroutine does
-			}
+		for range 50 {
+			conv.turnsStored([]int{-1}) // as the save stage reports a stored turn
 		}
 	}()
-	<-started
 	require.NoError(t, closeWithin(t, conv))
-	close(closed)
 	wg.Wait()
-	// A Close that raced a completion leaves the session end to it.
-	require.True(t, waitFor(func() bool {
-		conv.turnMu.Lock()
-		defer conv.turnMu.Unlock()
-		return conv.turnsEnded && conv.turnsInFlight == 0
-	}, 5*time.Second), "the session never ended")
-	conv.evalMW.wait()
 
 	before := len(evalLog.sorted())
-	conv.completeTurn(context.Background())
-	conv.evalMW.wait()
-	assert.Len(t, evalLog.sorted(), before, "a turn completing after Close dispatches no eval")
+	conv.turnsStored([]int{-1})
+	time.Sleep(50 * time.Millisecond)
+	assert.Len(t, evalLog.sorted(), before, "a turn stored after Close runs no eval")
 }

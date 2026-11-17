@@ -408,10 +408,9 @@ func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
 
 	resp := c.buildResponse(ctx, result, startTime)
 
-	// Skip lifecycle hooks when the resumed pipeline returns more pending tools.
-	if !resp.HasPendingClientTools() {
-		c.completeTurn(ctx)
-	}
+	// The turn's lifecycle (once stored as completed) runs before Resume
+	// returns.
+	c.awaitTurnLifecycles()
 	return resp, nil
 }
 

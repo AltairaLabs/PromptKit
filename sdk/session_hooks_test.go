@@ -16,7 +16,7 @@ func TestSessionHookDispatcher_NilReceiver(t *testing.T) {
 
 	// All methods should be safe on a nil receiver.
 	d.SessionStart(context.Background())
-	d.SessionUpdate(context.Background())
+	d.SessionUpdateWith(context.Background(), []types.Message{{Role: "user"}})
 	d.SessionEnd(context.Background())
 	d.IncrementTurn()
 	assert.Equal(t, 0, d.TurnIndex())
@@ -39,7 +39,7 @@ func TestSessionHookDispatcher_DispatchesAllLifecycleEvents(t *testing.T) {
 
 	d.IncrementTurn()
 	d.IncrementTurn()
-	d.SessionUpdate(context.Background())
+	d.SessionUpdateWith(context.Background(), []types.Message{{Role: "user"}})
 	assert.True(t, hook.updateCalled)
 	assert.Equal(t, 2, hook.lastEvent.TurnIndex)
 
@@ -100,7 +100,7 @@ func TestSessionHookDispatcher_FailingHookIsLoggedAndOthersStillRun(t *testing.T
 	})
 
 	d.SessionStart(context.Background())
-	d.SessionUpdate(context.Background())
+	d.SessionUpdateWith(context.Background(), []types.Message{{Role: "user"}})
 	d.SessionEnd(context.Background())
 
 	assert.True(t, after.startCalled && after.updateCalled && after.endCalled,
