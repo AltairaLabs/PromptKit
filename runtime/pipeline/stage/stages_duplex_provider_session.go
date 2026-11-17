@@ -227,6 +227,9 @@ type DuplexProviderStage struct {
 	// tools runs the session's tool calls (SetToolExecution); nil forwards
 	// them downstream for the host to run. See stages_duplex_tools.go.
 	tools *duplexTools
+	// exchange keeps each call message the stage runs followed by its results
+	// in the output (stages_duplex_tool_exchange.go).
+	exchange toolExchangeOrder
 	// finalWait and toolWaitLimit are finalResponseTimeout and
 	// finalToolWaitLimit; tests shorten them.
 	finalWait     time.Duration
@@ -318,6 +321,11 @@ func NewDuplexProviderStageWithTurnState(
 // If no session is pre-configured, the session is created lazily when the
 // first element arrives. The system_prompt from TurnState (when wired) is
 // used as the SystemInstruction for session creation.
+//
+// With tool execution (SetToolExecution), a tool call still running when the
+// session ends is canceled and waited for, and before output closes each tool
+// call message it carries is followed by a result for each of its calls, but
+// a call held for approval, which the caller answers.
 func (s *DuplexProviderStage) Process(
 	ctx context.Context,
 	input <-chan StreamElement,
@@ -351,11 +359,7 @@ func (s *DuplexProviderStage) Process(
 		s.tools.markClosed()
 		_ = s.session.Close()
 	}()
-	if s.tools != nil {
-		workerCtx, stopWorker := context.WithCancel(ctx)
-		defer stopWorker()
-		go s.runToolWorker(workerCtx)
-	}
+	s.startToolWorker(ctx)
 
 	logger.Debug("DuplexProviderStage: starting bidirectional streaming")
 
@@ -374,6 +378,9 @@ func (s *DuplexProviderStage) Process(
 	// Forward responses from session to output (blocks until complete)
 	responseErr := s.forwardResponseElements(ctx, output)
 
+	// Nothing reads the session's replies from here on: a round finishing now
+	// is recorded, not sent.
+	s.tools.markClosed()
 	// Cancel input forwarding context to signal the goroutine to stop
 	cancelInput()
 
@@ -382,6 +389,7 @@ func (s *DuplexProviderStage) Process(
 	select {
 	case inputErr := <-inputDone:
 		s.dropBlockedTurns()
+		s.finishToolRounds(ctx, output)
 		// Don't override response error with context.Canceled from our cancellation
 		if inputErr != nil && !errors.Is(inputErr, context.Canceled) && responseErr == nil {
 			responseErr = inputErr
@@ -396,6 +404,7 @@ func (s *DuplexProviderStage) Process(
 			// The response loop is gone: a turn the hook blocked after it
 			// exited is never emitted, but its firing is still reported.
 			s.dropBlockedTurns()
+			s.finishToolRounds(ctx, output)
 			close(output)
 		}()
 	}
@@ -808,7 +817,7 @@ func (s *DuplexProviderStage) forwardInputMessages(
 	// Check for tool result messages to forward to output for state store capture.
 	// These are created by the executor after executing tools requested by the model.
 	if toolMsgs := elem.Meta.ToolResultMessages; len(toolMsgs) > 0 {
-		if err := forwardToolResultMessages(ctx, toolMsgs, output); err != nil {
+		if err := s.forwardToolResultMessages(ctx, toolMsgs, output); err != nil {
 			return err
 		}
 		for i := range toolMsgs {
@@ -824,12 +833,7 @@ func (s *DuplexProviderStage) forwardInputMessages(
 	logger.Debug("DuplexProviderStage: forwarding user message to output", "role", elem.Message.Role)
 	s.trackInputTurn(elem)
 	s.recordHistory(elem.Message)
-	select {
-	case output <- *elem:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	return s.emit(ctx, *elem, output)
 }
 
 // TextInputTurnSource is the StreamElement.Source of the element that carries
@@ -889,26 +893,21 @@ func (s *DuplexProviderStage) queueTypedUserTurn(ctx context.Context) error {
 // emitTypedUserTurn emits a typed user turn's Message on its own element,
 // tagged TextInputTurnSource, so it is not presented downstream as model
 // output.
-func emitTypedUserTurn(ctx context.Context, user *types.Message, output chan<- StreamElement) error {
-	return sendStreamElement(ctx,
-		StreamElement{Message: user, Timestamp: timeNow(), Source: TextInputTurnSource}, output)
+func (s *DuplexProviderStage) emitTypedUserTurn(
+	ctx context.Context, user *types.Message, output chan<- StreamElement,
+) error {
+	return s.emit(ctx, StreamElement{Message: user, Timestamp: timeNow(), Source: TextInputTurnSource}, output)
 }
 
 // forwardToolResultMessages sends each tool result message to output.
-func forwardToolResultMessages(ctx context.Context, toolMsgs []types.Message, output chan<- StreamElement) error {
+func (s *DuplexProviderStage) forwardToolResultMessages(
+	ctx context.Context, toolMsgs []types.Message, output chan<- StreamElement,
+) error {
 	logger.Debug("DuplexProviderStage: forwarding tool result messages to output",
 		"count", len(toolMsgs))
 	for i := range toolMsgs {
-		toolElem := StreamElement{
-			Message:     &toolMsgs[i],
-			EndOfStream: false,
-		}
-		select {
-		case output <- toolElem:
-			logger.Debug("DuplexProviderStage: tool result message forwarded",
-				"tool", toolMsgs[i].ToolResult.Name)
-		case <-ctx.Done():
-			return ctx.Err()
+		if err := s.emit(ctx, StreamElement{Message: &toolMsgs[i]}, output); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -1328,15 +1327,10 @@ func (s *DuplexProviderStage) emitPartialOnCancel(ctx context.Context, output ch
 	logger.Debug("DuplexProviderStage: emitting partial response on context cancel",
 		"textLen", len(msg.Content))
 
-	// NOSONAR: Intentional background context - main ctx is canceled, need fresh context
-	sendCtx, sendCancel := context.WithTimeout(context.Background(), partialResponseSendTimeout)
-	select {
-	case output <- elem:
-		logger.Debug("DuplexProviderStage: response sent successfully on context cancel")
-	case <-sendCtx.Done():
+	// ctx is canceled: the partial reply is given a short while to be taken.
+	if err := s.emitRecorded(ctx, elem, output); err != nil {
 		logger.Warn("DuplexProviderStage: timeout sending response on context cancel")
 	}
-	sendCancel()
 }
 
 // responseWaitState is forwardResponseElements' loop state for the end of a
@@ -1447,10 +1441,8 @@ func (s *DuplexProviderStage) finishOnResponseClosed(
 	if msg != nil {
 		logger.Debug("DuplexProviderStage: emitting partial response on session close",
 			"textLen", len(msg.Content))
-		select {
-		case output <- StreamElement{Message: msg, EndOfStream: true}:
-		case <-ctx.Done():
-			return ctx.Err()
+		if err := s.emit(ctx, StreamElement{Message: msg, EndOfStream: true}, output); err != nil {
+			return err
 		}
 	}
 	for _, turn := range blocked {
@@ -1648,7 +1640,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 		"hasMessage", elem.Message != nil,
 		"endOfStream", elem.EndOfStream)
 
-	if err := sendStreamElement(ctx, elem, output); err != nil {
+	if err := s.emit(ctx, elem, output); err != nil {
 		return err
 	}
 	return s.queueToolRound(ctx, round)
@@ -1771,10 +1763,8 @@ func (s *DuplexProviderStage) emitChunkError(
 	s.completeOpenCall(ctx, msg, msg != nil)
 	if msg != nil {
 		s.takeCarriedCost(msg)
-		select {
-		case output <- StreamElement{Message: msg, EndOfStream: true}:
-		case <-ctx.Done():
-			return ctx.Err()
+		if err := s.emit(ctx, StreamElement{Message: msg, EndOfStream: true}, output); err != nil {
+			return err
 		}
 	}
 	// Inputs a guardrail blocked are answered before the error, a
@@ -1910,12 +1900,7 @@ func (s *DuplexProviderStage) emitBufferedUserTurn(
 	}
 	s.beginTranscribedToolTurn(ctx)
 	s.recordHistory(userMsg)
-	select {
-	case output <- StreamElement{Message: userMsg}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	return s.emit(ctx, StreamElement{Message: userMsg}, output)
 }
 
 // accumulateResponseChunk folds a chunk's assistant text, reasoning, media and

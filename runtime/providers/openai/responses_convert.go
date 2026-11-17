@@ -223,6 +223,11 @@ func (p *Provider) getMessageContent(msg *types.Message) any {
 	parts := make([]map[string]any, 0, len(msg.Parts))
 	for i := range msg.Parts {
 		if part := p.convertPartToResponsesFormat(&msg.Parts[i]); part != nil {
+			if msg.Role == roleAssistant && part[keyType] == typeInputText {
+				// What the model said is output text: the API takes only
+				// output_text (or refusal) on an assistant message.
+				part[keyType] = typeOutputText
+			}
 			parts = append(parts, part)
 		}
 	}

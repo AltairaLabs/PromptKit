@@ -1,8 +1,12 @@
 package openai
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -380,4 +384,27 @@ func TestConvertResponseFormatToResponses(t *testing.T) {
 	if _, hasJS := format["json_schema"]; hasJS {
 		t.Errorf("empty schema should not populate json_schema block")
 	}
+}
+
+// An assistant message whose text is in Parts (as a realtime session stores
+// its replies) is sent as output_text: the Responses API rejects input_text on
+// an assistant message ("Supported values are: 'output_text' and 'refusal'"),
+// so a voice conversation resumed on a text model failed on its first reply.
+func TestBuildResponsesRequest_AssistantTextPartsAreOutputText(t *testing.T) {
+	p := NewProviderWithConfig("responses-parts", "gpt-6-luna", "https://api.openai.com/v1",
+		providers.ProviderDefaults{}, false, nil)
+	user, reply := "where is order 7?", "It has shipped."
+	req := providers.PredictionRequest{Messages: []types.Message{
+		{Role: "user", Parts: []types.ContentPart{{Type: types.ContentTypeText, Text: &user}}},
+		{Role: "assistant", Content: reply, Parts: []types.ContentPart{{Type: types.ContentTypeText, Text: &reply}}},
+	}}
+	prepared, err := p.prepareResponsesMessages(context.Background(), req)
+	require.NoError(t, err)
+
+	body, err := json.Marshal(p.buildResponsesRequest(prepared, nil, "")["input"])
+	require.NoError(t, err)
+	assert.JSONEq(t, `[
+		{"role":"user","content":[{"type":"input_text","text":"where is order 7?"}]},
+		{"role":"assistant","content":[{"type":"output_text","text":"It has shipped."}]}
+	]`, string(body))
 }

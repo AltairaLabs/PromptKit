@@ -91,7 +91,7 @@ func (s *DuplexProviderStage) emitLateUserTurn(ctx context.Context, text string,
 	}
 	elem := StreamElement{Message: user}
 	elem.Meta.LateTranscript = true
-	return sendStreamElement(ctx, elem, output)
+	return s.emit(ctx, elem, output)
 }
 
 // noteReplyStarted records that a reply is streaming: a finished turn still

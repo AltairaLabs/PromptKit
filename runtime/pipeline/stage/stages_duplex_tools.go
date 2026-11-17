@@ -161,6 +161,14 @@ type duplexTools struct {
 	// cleared when the next assistant turn completes: the reply they start.
 	inflight atomic.Int64
 	replyDue atomic.Bool
+
+	// stopWorker cancels the worker's context and workerDone closes once the
+	// worker has returned (startToolWorker); undelivered are the rounds it
+	// finished and could not hand over before it was stopped, read only once
+	// it has returned (finishToolRounds).
+	stopWorker  context.CancelFunc
+	workerDone  chan struct{}
+	undelivered []*duplexToolResult
 }
 
 // duplexRound is a realtime provider call in progress: the round it is and
@@ -822,11 +830,25 @@ func (dt *duplexTools) roundOutstanding() bool {
 	return dt.inflight.Load() > 0 || dt.replyDue.Load()
 }
 
+// startToolWorker starts the worker that runs the session's tool rounds, on a
+// context of its own derived from ctx. Nil-safe without tool execution.
+func (s *DuplexProviderStage) startToolWorker(ctx context.Context) {
+	dt := s.tools
+	if dt == nil {
+		return
+	}
+	workerCtx, stop := context.WithCancel(ctx)
+	dt.stopWorker = stop
+	dt.workerDone = make(chan struct{})
+	go s.runToolWorker(workerCtx)
+}
+
 // runToolWorker runs queued rounds one at a time until ctx ends, handing each
-// one's results to the input goroutine. Results it cannot hand over before ctx
-// ends are dropped.
+// one's results to the input goroutine. A round it cannot hand over before ctx
+// ends is kept in undelivered, for finishToolRounds to record.
 func (s *DuplexProviderStage) runToolWorker(ctx context.Context) {
 	dt := s.tools
+	defer close(dt.workerDone)
 	for {
 		select {
 		case <-ctx.Done():
@@ -837,10 +859,39 @@ func (s *DuplexProviderStage) runToolWorker(ctx context.Context) {
 			select {
 			case dt.results <- res:
 			case <-ctx.Done():
+				dt.undelivered = append(dt.undelivered, res)
 				return
 			}
 		}
 	}
+}
+
+// finishToolRounds ends the session's tool execution once nothing else is
+// emitting: it stops the worker and waits for it to return (a running tool is
+// canceled, and its round is recorded with what it returned), records the
+// rounds it could not hand over, answers every call left with no result (a
+// round still queued, a call message whose round never got to run) with a
+// refusal, emits what was held behind them, and completes the provider call
+// still open, so its provider.call.started has its provider.call.completed.
+// Nil-safe without tool execution.
+func (s *DuplexProviderStage) finishToolRounds(ctx context.Context, output chan<- StreamElement) {
+	dt := s.tools
+	if dt == nil {
+		return
+	}
+	dt.markClosed()
+	if dt.stopWorker != nil {
+		dt.stopWorker()
+		<-dt.workerDone
+	}
+	for _, res := range dt.undelivered {
+		// Each result is given its while to be taken; one that is not cannot
+		// be recorded, and the calls it leaves are answered below.
+		_ = s.recordToolRound(ctx, res, output)
+	}
+	dt.undelivered = nil
+	s.exchange.closeOut(ctx, output)
+	s.completeOpenCall(ctx, nil, false)
 }
 
 // runToolJob runs one round, or refuses its calls, and returns its results.
@@ -1064,7 +1115,7 @@ func droppedPartTypes(responses []providers.ToolResponse) []string {
 // tools ran and the assistant message that called them was already sent, so
 // the history keeps a result for each call), its held calls and its error
 // surfaced; only its responses are not sent. A round that finishes after the
-// stage stopped delivering (Process returned) is dropped.
+// input goroutine stopped delivering is recorded by finishToolRounds.
 func (s *DuplexProviderStage) deliverToolRound(
 	ctx context.Context, res *duplexToolResult, output chan<- StreamElement,
 ) error {
@@ -1072,17 +1123,10 @@ func (s *DuplexProviderStage) deliverToolRound(
 	// Delivered once this returns: a reply its responses start is then
 	// counted by the provider call it opened (openNextToolRound).
 	defer dt.inflight.Add(-1)
-	if err := s.forwardInputMessages(ctx, &res.elem, output); err != nil {
+	if err := s.recordToolRound(ctx, res, output); err != nil {
 		return err
 	}
 	closing := dt.isClosed()
-	if pending := res.elem.Meta.PendingTools; len(pending) > 0 {
-		var held StreamElement
-		held.Meta.PendingTools = pending
-		if err := sendStreamElement(ctx, held, output); err != nil {
-			return err
-		}
-	}
 	if responses := res.elem.Meta.ToolResponses; len(responses) > 0 { // not sent once closing (sendToolRound)
 		s.sendToolRound(ctx, res, responses)
 	}
@@ -1093,6 +1137,30 @@ func (s *DuplexProviderStage) deliverToolRound(
 	}
 	if res.closeSession && !closing {
 		s.closeSessionIfOpen()
+	}
+	return nil
+}
+
+// recordToolRound emits a finished round's result messages (into the hooks'
+// history too) and the calls it holds for the caller. The results go out even
+// once ctx is canceled (emitRecorded): the assistant message that made the
+// calls is already out, and the transcript keeps a result for each.
+func (s *DuplexProviderStage) recordToolRound(
+	ctx context.Context, res *duplexToolResult, output chan<- StreamElement,
+) error {
+	for i := range res.elem.Meta.ToolResultMessages {
+		msg := &res.elem.Meta.ToolResultMessages[i]
+		if err := s.emitRecorded(ctx, StreamElement{Message: msg}, output); err != nil {
+			return err
+		}
+		s.recordHistory(msg)
+	}
+	if pending := res.elem.Meta.PendingTools; len(pending) > 0 {
+		var held StreamElement
+		held.Meta.PendingTools = pending
+		if err := s.emitRecorded(ctx, held, output); err != nil {
+			return err
+		}
 	}
 	return nil
 }

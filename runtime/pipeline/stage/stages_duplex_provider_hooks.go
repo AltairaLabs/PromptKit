@@ -444,7 +444,7 @@ func (s *DuplexProviderStage) emitBlockedTurn(
 	ctx context.Context, turn *duplexBlockedTurn, output chan<- StreamElement,
 ) error {
 	if turn.user != nil {
-		if err := emitTypedUserTurn(ctx, turn.user, output); err != nil {
+		if err := s.emitTypedUserTurn(ctx, turn.user, output); err != nil {
 			return err
 		}
 	}
@@ -466,7 +466,7 @@ func (s *DuplexProviderStage) emitBlockedTurn(
 	s.takeCarriedCost(blocked)
 	end := StreamElement{Message: blocked, EndOfStream: true, Timestamp: timeNow()}
 	end.Meta.FinishReason = &fr
-	return sendStreamElement(ctx, end, output)
+	return s.emit(ctx, end, output)
 }
 
 // failInput reports a hook denial on the input side: the error goes
