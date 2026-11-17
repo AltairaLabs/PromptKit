@@ -225,6 +225,9 @@ type DuplexProviderStage struct {
 	// inputGracePeriod is inputForwardingGracePeriod; tests shorten it. Zero
 	// means the default (see inputGrace).
 	inputGracePeriod time.Duration
+	// chunkHandled, when set, runs once each response chunk has been handled:
+	// tests wait on it for the stage to have handled what they emitted.
+	chunkHandled func()
 }
 
 // inputGrace is how long Process waits for the input goroutine to exit once
@@ -1288,6 +1291,9 @@ func (s *DuplexProviderStage) processResponseChunk(
 	// Log turn completions but DON'T exit - keep session running
 	// Gemini Live API's turnComplete is a turn marker, not end of session
 	logTurnCompleted(chunk)
+	if s.chunkHandled != nil {
+		s.chunkHandled()
+	}
 	return nil
 }
 

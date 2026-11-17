@@ -361,10 +361,6 @@ func TestAudioTurnStage_Interruption_KeepsBufferedSpeech(t *testing.T) {
 
 	// First chunk - triggers interruption (bot speaking + user speaking VAD state)
 	input <- makeAudioElement(generateTestPCMAudio(160), 16000)
-	time.Sleep(20 * time.Millisecond)
-
-	// Reset the handler to clear the interruption
-	handler.Reset()
 
 	// Barge-in emits an Interrupt element first.
 	select {
@@ -373,6 +369,9 @@ func TestAudioTurnStage_Interruption_KeepsBufferedSpeech(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Timeout waiting for Interrupt element")
 	}
+
+	// Reset the handler to clear the interruption, once the stage has seen it
+	handler.Reset()
 
 	// Send another chunk and close
 	input <- makeAudioElement(generateTestPCMAudio(160), 16000)
