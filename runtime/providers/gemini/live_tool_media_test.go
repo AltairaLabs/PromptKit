@@ -3,9 +3,13 @@ package gemini
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -20,7 +24,7 @@ import (
 // toolResponse message the server received.
 func liveToolResponseWire(t *testing.T, model string, responses []providers.ToolResponse) map[string]any {
 	t.Helper()
-	url, msgs := recordLiveClient(t)
+	url, msgs := recordLiveToolClient(t)
 	p := NewProvider("live", model, "", providers.ProviderDefaults{}, false)
 	p.newStreamSessionFn = func(ctx context.Context, _, key string, cfg *StreamSessionConfig) (*StreamSession, error) {
 		return NewStreamSession(ctx, url, key, cfg)
@@ -29,7 +33,9 @@ func liveToolResponseWire(t *testing.T, model string, responses []providers.Tool
 	defer cancel()
 	session, err := p.CreateStreamSession(ctx, liveAudioRequest())
 	require.NoError(t, err)
-	defer session.Close()
+	// Closed before the server (cleanups run last-registered first), so the
+	// session never reconnects to a server the test has finished with.
+	t.Cleanup(func() { _ = session.Close() })
 
 	ps, ok := session.(providers.ToolResponsePartsSupport)
 	require.True(t, ok, "the Live session does not report ToolResponsePartsSupport")
@@ -47,6 +53,48 @@ func liveToolResponseWire(t *testing.T, model string, responses []providers.Tool
 	var got map[string]any
 	require.NoError(t, json.Unmarshal([]byte(raw[0]), &got))
 	return got
+}
+
+// recordLiveToolClient runs a Live API stand-in that completes setup and,
+// once the client sends the text "done", reports every client message before
+// it, raw. Its handler never touches t: it can outlive the test (a hijacked
+// connection is not waited for), and a reconnecting session would reach it
+// again. The server closes when the test ends.
+func recordLiveToolClient(t *testing.T) (wsURL string, msgs <-chan []string) {
+	t.Helper()
+	out := make(chan []string, 1)
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		if _, _, err := conn.ReadMessage(); err != nil { // setup
+			return
+		}
+		reply, _ := json.Marshal(ServerMessage{SetupComplete: &SetupComplete{}})
+		if conn.WriteMessage(websocket.TextMessage, reply) != nil {
+			return
+		}
+		var got []string
+		for {
+			_, data, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			if strings.Contains(string(data), `"done"`) {
+				select {
+				case out <- got:
+				default:
+				}
+				continue
+			}
+			got = append(got, string(data))
+		}
+	}))
+	t.Cleanup(server.Close)
+	return "ws" + strings.TrimPrefix(server.URL, "http"), out
 }
 
 func toolResponseOf(functionResponses ...map[string]any) map[string]any {

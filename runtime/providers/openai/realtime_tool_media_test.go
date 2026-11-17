@@ -479,7 +479,10 @@ func TestRealtimeToolResponse_ToolAudioTranscriptIsNotAUserTurn(t *testing.T) {
 		defer conn.Close()
 		_ = conn.WriteJSON(map[string]any{"type": "session.created",
 			"session": map[string]any{"id": "sess_test", "model": "gpt-realtime"}})
-		ws <- conn
+		select { // the handler never blocks on, or touches, the finished test
+		case ws <- conn:
+		default:
+		}
 		for {
 			_, data, err := conn.ReadMessage()
 			if err != nil {
@@ -487,7 +490,10 @@ func TestRealtimeToolResponse_ToolAudioTranscriptIsNotAUserTurn(t *testing.T) {
 			}
 			var m map[string]any
 			if json.Unmarshal(data, &m) == nil {
-				received <- m
+				select {
+				case received <- m:
+				default:
+				}
 			}
 		}
 	}))
